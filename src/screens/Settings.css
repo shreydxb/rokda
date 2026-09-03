@@ -1,0 +1,2 @@
+/* Shares the generic tab/list/row primitives (mn-*) defined for Money. */
+@import './Money.css';

@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { formatMoney, formatPct } from '../../lib/money';
+import { firstMatchingRule } from '../../lib/rules';
 import './TransactionEditor.css';
 
 export default function Inbox({ household, accounts, categories, data, loading }) {
-  const { intake, reload } = data;
+  const { intake, categoryRules, reload } = data;
   const [selectedId, setSelectedId] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -59,6 +60,7 @@ export default function Inbox({ household, accounts, categories, data, loading }
               householdId={household?.id}
               accounts={accounts}
               categories={categories}
+              categoryRules={categoryRules}
               saving={saving}
               setSaving={setSaving}
               error={error}
@@ -75,12 +77,13 @@ export default function Inbox({ household, accounts, categories, data, loading }
   );
 }
 
-function IntakeReview({ item, householdId, accounts, categories, saving, setSaving, error, setError, onDone }) {
+function IntakeReview({ item, householdId, accounts, categories, categoryRules, saving, setSaving, error, setError, onDone }) {
   const [amount, setAmount] = useState(item.parsed_amount !== null ? String(item.parsed_amount) : '');
   const [merchant, setMerchant] = useState(item.parsed_merchant ?? '');
   const [date, setDate] = useState(item.parsed_date ?? new Date().toISOString().slice(0, 10));
   const [accountId, setAccountId] = useState(accounts[0]?.id ?? '');
-  const [categoryId, setCategoryId] = useState(item.parsed_category_id ?? '');
+  const suggestedRule = item.parsed_category_id ? null : firstMatchingRule(item.parsed_merchant, categoryRules);
+  const [categoryId, setCategoryId] = useState(item.parsed_category_id ?? suggestedRule?.category_id ?? '');
 
   const lowConfidence = item.confidence !== null && item.confidence < 0.75;
 
@@ -169,13 +172,18 @@ function IntakeReview({ item, householdId, accounts, categories, saving, setSavi
           <span>Category</span>
           <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
             <option value="">Uncategorised</option>
-            {categories.map((c) => (
+            {categories.filter((c) => !c.archived || c.id === categoryId).map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
               </option>
             ))}
           </select>
         </label>
+        {suggestedRule && categoryId === suggestedRule.category_id && (
+          <div className="ov-muted" style={{ fontSize: 11.5, marginTop: -8 }}>
+            Suggested by a rule matching "{suggestedRule.pattern}".
+          </div>
+        )}
 
         {error && (
           <p className="ov-warn" role="alert" style={{ fontSize: 12.5 }}>

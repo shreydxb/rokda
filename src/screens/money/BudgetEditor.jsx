@@ -70,7 +70,7 @@ export default function BudgetEditor({ item, householdId, categories, year, mont
           <label className="te-field">
             <span>Category</span>
             <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} disabled={!!item}>
-              {categories.map((c) => (
+              {categories.filter((c) => !c.archived || c.id === categoryId).map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
                 </option>

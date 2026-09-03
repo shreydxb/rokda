@@ -183,7 +183,7 @@ export default function TransactionEditor({ tx, householdId, accounts, categorie
             <span>Category</span>
             <select value={form.category_id} onChange={(e) => set('category_id', e.target.value)}>
               <option value="">Uncategorised</option>
-              {categories.map((c) => (
+              {categories.filter((c) => !c.archived || c.id === form.category_id).map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
                 </option>

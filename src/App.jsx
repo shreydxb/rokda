@@ -4,7 +4,7 @@ import Overview from './screens/Overview';
 import Money from './screens/Money';
 import Wealth from './screens/Wealth';
 import Planning from './screens/Planning';
-import StubScreen from './screens/StubScreen';
+import Settings from './screens/Settings';
 import AppShell from './shell/AppShell';
 import ProtectedRoute from './shell/ProtectedRoute';
 
@@ -24,7 +24,7 @@ export default function App() {
         <Route path="money" element={<Money />} />
         <Route path="wealth" element={<Wealth />} />
         <Route path="planning" element={<Planning />} />
-        <Route path="settings" element={<StubScreen title="Settings" />} />
+        <Route path="settings" element={<Settings />} />
       </Route>
     </Routes>
   );
