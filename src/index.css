@@ -99,3 +99,21 @@ input {
   border-color: var(--accent);
   color: var(--ink);
 }
+
+.om-tab {
+  padding: 0 0 11px;
+  margin-bottom: -1px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  font-size: 13.5px;
+  color: var(--ink2);
+  cursor: pointer;
+}
+.om-tab:hover {
+  color: var(--ink);
+}
+.om-tab[data-active='true'] {
+  color: var(--ink);
+  border-bottom-color: var(--accent);
+}

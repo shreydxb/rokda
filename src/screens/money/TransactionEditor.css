@@ -1,0 +1,145 @@
+.te-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  justify-content: flex-end;
+  z-index: 80;
+}
+
+.te-drawer {
+  width: 420px;
+  max-width: 100%;
+  height: 100%;
+  background: var(--canvas);
+  border-left: 1px solid var(--rule2);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  animation: te-slide 200ms ease both;
+}
+
+@keyframes te-slide {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+.te-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 22px 0;
+}
+
+.te-close {
+  background: none;
+  border: none;
+  color: var(--ink3);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+.te-close:hover {
+  color: var(--ink);
+}
+
+.te-form {
+  padding: 18px 22px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.te-type {
+  display: flex;
+  gap: 8px;
+}
+.te-type .om-seg {
+  flex: 1;
+  text-align: center;
+}
+
+.te-row {
+  display: flex;
+  gap: 12px;
+}
+.te-amount {
+  flex: 2;
+}
+.te-currency {
+  flex: 1;
+}
+
+.te-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink3);
+}
+
+.te-field input,
+.te-field select,
+.te-field textarea {
+  background: none;
+  border: 1px solid var(--rule2);
+  border-radius: var(--radius-sm);
+  padding: 9px 10px;
+  font-size: 14px;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--ink);
+  font-family: inherit;
+}
+.te-field input:focus,
+.te-field select:focus,
+.te-field textarea:focus {
+  border-color: var(--accent);
+}
+.te-field input[aria-invalid='true'],
+.te-field select[aria-invalid='true'] {
+  border-color: var(--neg);
+}
+
+.te-checkrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink2);
+}
+
+.te-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 6px;
+  padding-top: 16px;
+  border-top: 1px solid var(--rule);
+}
+
+.te-actions-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.te-delete {
+  color: var(--neg);
+  border-color: var(--rule2);
+}
+.te-delete:hover {
+  border-color: var(--neg);
+  background: color-mix(in oklab, var(--neg) 14%, transparent);
+  color: var(--ink);
+}
