@@ -53,3 +53,49 @@ input {
   font-family: inherit;
   color: inherit;
 }
+
+/* shared segmented-control primitive (period/view toggles) */
+.om-seg {
+  padding: 7px 13px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--ink2);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition:
+    color var(--ease),
+    border-color var(--ease),
+    background var(--ease);
+}
+.om-seg:hover {
+  color: var(--ink);
+}
+.om-seg[data-active='true'] {
+  color: var(--ink);
+  border-color: var(--rule2);
+  background: var(--raise);
+}
+
+.om-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 14px;
+  border: 1px solid var(--rule2);
+  border-radius: 3px;
+  background: none;
+  color: var(--ink2);
+  font-size: 13.5px;
+  cursor: pointer;
+  transition:
+    background var(--ease),
+    color var(--ease),
+    border-color var(--ease);
+}
+.om-btn:hover {
+  background: color-mix(in oklab, var(--accent) 18%, transparent);
+  border-color: var(--accent);
+  color: var(--ink);
+}
