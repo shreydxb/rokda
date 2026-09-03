@@ -3,6 +3,7 @@ import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
 import { formatSigned } from '../../lib/money';
 import TransactionEditor from './TransactionEditor';
+import ActivityCalendar from './ActivityCalendar';
 
 export default function Activity({ household, members, me, data, loading }) {
   const { scope } = useScope();
@@ -12,6 +13,7 @@ export default function Activity({ household, members, me, data, loading }) {
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [needsReviewOnly, setNeedsReviewOnly] = useState(false);
+  const [view, setView] = useState('list'); // 'list' | 'calendar'
   const [editing, setEditing] = useState(null); // null closed, 'new', or a transaction row
 
   const rows = useMemo(() => {
@@ -55,6 +57,14 @@ export default function Activity({ household, members, me, data, loading }) {
         >
           Needs review
         </button>
+        <div className="mn-viewtoggle">
+          <button type="button" className="om-seg" data-active={view === 'list'} onClick={() => setView('list')}>
+            List
+          </button>
+          <button type="button" className="om-seg" data-active={view === 'calendar'} onClick={() => setView('calendar')}>
+            Calendar
+          </button>
+        </div>
         <button type="button" className="om-btn mn-add" onClick={() => setEditing('new')}>
           + Add transaction
         </button>
@@ -63,7 +73,9 @@ export default function Activity({ household, members, me, data, loading }) {
         {rows.length} record{rows.length === 1 ? '' : 's'}
       </div>
 
-      {rows.length === 0 ? (
+      {view === 'calendar' ? (
+        <ActivityCalendar rows={rows} members={members} />
+      ) : rows.length === 0 ? (
         <div className="ov-empty">
           <div className="ov-empty-kicker">No records</div>
           <div className="ov-empty-body">
