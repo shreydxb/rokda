@@ -5,6 +5,7 @@ import { useScope } from '../lib/ScopeContext';
 import { resolveScopeMemberId } from '../lib/scope';
 import { formatMoney, formatSigned, formatPct } from '../lib/money';
 import { PERIOD_LABELS } from '../lib/period';
+import { upcomingItems } from '../lib/recurring';
 import { supabase } from '../lib/supabaseClient';
 import { useOverviewData } from './useOverviewData';
 import {
@@ -26,7 +27,7 @@ export default function Overview() {
   const { scope } = useScope();
   const scopeMemberId = resolveScopeMemberId(scope, me, members);
 
-  const { loading: dataLoading, accounts, transactions, categories, error, reload } = useOverviewData(household?.id);
+  const { loading: dataLoading, accounts, transactions, categories, recurring, error, reload } = useOverviewData(household?.id);
 
   const [period, setPeriod] = useState('mtd');
   const [selectedKey, setSelectedKey] = useState(null);
@@ -56,6 +57,13 @@ export default function Overview() {
   }, [transactions, p, scopeMemberId]);
 
   const runway = useMemo(() => runwaySummary(transactions, accounts, scopeMemberId, now), [transactions, accounts, scopeMemberId, now]);
+  const next30 = useMemo(() => {
+    const visible = recurring.filter((r) => scopeMemberId === null || r.is_shared || r.owner_member_id === scopeMemberId);
+    return upcomingItems(visible, 30, now);
+  }, [recurring, scopeMemberId, now]);
+  const committed = next30.filter((r) => Number(r.amount) < 0);
+  const committedTotal = committed.reduce((sum, r) => sum + -Number(r.amount), 0);
+  const withoutAutopay = committed.filter((r) => !r.autopay).length;
   const quality = useMemo(() => dataQuality(accounts, transactions, now), [accounts, transactions, now]);
 
   const attention = transactions.filter((t) => t.needs_review && (scopeMemberId === null || t.is_shared || t.owner_member_id === scopeMemberId));
@@ -303,10 +311,40 @@ export default function Overview() {
 
           <section className="ov-next30">
             <div className="ov-kicker">Next 30 days</div>
-            <div className="ov-next30-empty">
-              Recurring bills aren't tracked yet — once Recurring exists in Money, upcoming obligations show up here
-              automatically.
-            </div>
+            {next30.length === 0 ? (
+              <div className="ov-next30-empty">
+                {recurring.length === 0
+                  ? 'No recurring bills or income set up yet.'
+                  : 'Nothing due in the next 30 days.'}{' '}
+                <span className="ov-link" onClick={() => navigate('/money')}>
+                  Recurring →
+                </span>
+              </div>
+            ) : (
+              <>
+                <div className="ov-next30-row">
+                  {next30.map((r) => (
+                    <div key={r.id} className="ov-next30-cell">
+                      <div className="ov-muted">{r.dueDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</div>
+                      <div className="ov-next30-name">{r.name}</div>
+                      <div className={`fig ov-next30-amt ${Number(r.amount) > 0 ? 'ov-pos' : ''}`}>{formatSigned(r.amount)}</div>
+                      <div className={Number(r.amount) < 0 && !r.autopay ? 'ov-warn' : 'ov-muted'}>
+                        {Number(r.amount) > 0 ? 'expected' : r.autopay ? 'autopay' : 'no autopay'}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="ov-next30-foot">
+                  <span>
+                    Committed {formatMoney(committedTotal)}
+                    {withoutAutopay > 0 ? ` · ${withoutAutopay} without autopay` : ''}
+                  </span>
+                  <span className="ov-link" onClick={() => navigate('/money')}>
+                    Recurring →
+                  </span>
+                </div>
+              </>
+            )}
           </section>
 
           <section className="ov-triple">

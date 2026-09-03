@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 
+const EMPTY_STATE = { loading: false, accounts: [], transactions: [], categories: [], recurring: [] };
+
 export function useOverviewData(householdId) {
-  const [state, setState] = useState({ loading: true, accounts: [], transactions: [], categories: [] });
+  const [state, setState] = useState({ ...EMPTY_STATE, loading: true });
 
   const reload = useCallback(async () => {
     if (!householdId) {
-      setState({ loading: false, accounts: [], transactions: [], categories: [] });
+      setState(EMPTY_STATE);
       return;
     }
     setState((s) => ({ ...s, loading: true }));
@@ -15,6 +17,7 @@ export function useOverviewData(householdId) {
       { data: accounts, error: accErr },
       { data: transactions, error: txErr },
       { data: categories, error: catErr },
+      { data: recurring, error: recErr },
     ] = await Promise.all([
       supabase.from('accounts').select('*').eq('household_id', householdId).order('created_at'),
       supabase
@@ -23,6 +26,7 @@ export function useOverviewData(householdId) {
         .eq('household_id', householdId)
         .order('occurred_at', { ascending: false }),
       supabase.from('categories').select('*').eq('household_id', householdId).order('name'),
+      supabase.from('recurring').select('*').eq('household_id', householdId).order('next_due_date'),
     ]);
 
     setState({
@@ -30,7 +34,8 @@ export function useOverviewData(householdId) {
       accounts: accErr ? [] : (accounts ?? []),
       transactions: txErr ? [] : (transactions ?? []),
       categories: catErr ? [] : (categories ?? []),
-      error: accErr || txErr || catErr || null,
+      recurring: recErr ? [] : (recurring ?? []),
+      error: accErr || txErr || catErr || recErr || null,
     });
   }, [householdId]);
 
