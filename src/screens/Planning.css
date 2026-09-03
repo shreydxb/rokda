@@ -1,0 +1,8 @@
+/* Shares the generic tab/list/row primitives (mn-*) defined for Money. */
+@import './Money.css';
+
+.pl-hero {
+  margin-top: 26px;
+  padding-bottom: 26px;
+  border-bottom: 1px solid var(--rule);
+}
