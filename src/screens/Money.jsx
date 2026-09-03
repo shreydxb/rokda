@@ -4,6 +4,8 @@ import { useOverviewData } from './useOverviewData';
 import Activity from './money/Activity';
 import Recurring from './money/Recurring';
 import Budget from './money/Budget';
+import Insights from './money/Insights';
+import Inbox from './money/Inbox';
 import './Money.css';
 
 const TABS = [
@@ -19,20 +21,16 @@ export default function Money() {
   const { household, members, me, loading: householdLoading } = useHousehold();
   const data = useOverviewData(household?.id);
   const loading = householdLoading || data.loading;
+  const pendingIntake = data.intake?.filter((i) => i.status === 'pending').length ?? 0;
 
   return (
     <div className="mn">
       <div className="ov-kicker">Money</div>
       <div className="mn-tabs">
         {TABS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            className="om-tab"
-            data-active={tab === t.id}
-            onClick={() => setTab(t.id)}
-          >
+          <button key={t.id} type="button" className="om-tab" data-active={tab === t.id} onClick={() => setTab(t.id)}>
             {t.label}
+            {t.id === 'inbox' && pendingIntake > 0 ? ` (${pendingIntake})` : ''}
           </button>
         ))}
       </div>
@@ -40,11 +38,9 @@ export default function Money() {
       {tab === 'activity' && <Activity household={household} members={members} me={me} data={data} loading={loading} />}
       {tab === 'recurring' && <Recurring household={household} members={members} data={data} loading={loading} />}
       {tab === 'budget' && <Budget household={household} members={members} me={me} data={data} loading={loading} />}
-      {tab !== 'activity' && tab !== 'recurring' && tab !== 'budget' && (
-        <div className="mn-soon">
-          <div className="ov-empty-kicker">Not built yet</div>
-          <div className="ov-empty-body">{TABS.find((t) => t.id === tab)?.label} is tracked in Linear and coming in a later pass.</div>
-        </div>
+      {tab === 'insights' && <Insights me={me} members={members} data={data} loading={loading} />}
+      {tab === 'inbox' && (
+        <Inbox household={household} accounts={data.accounts} categories={data.categories} data={data} loading={loading} />
       )}
     </div>
   );
