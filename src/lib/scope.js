@@ -14,10 +14,12 @@ export function resolveScopeMemberId(scope, me, members) {
 
 // Shared/joint rows split evenly between the two individual scopes, so
 // Me + Partner reconciles exactly to Both rather than double-counting.
-export function scopedValue(value, { isShared, ownerMemberId }, scopeMemberId) {
+// Takes the raw row (transaction, account, ...) as fetched from Supabase —
+// snake_case is_shared/owner_member_id, matching the Postgres columns.
+export function scopedValue(value, row, scopeMemberId) {
   const v = Number(value) || 0;
   if (scopeMemberId === null) return v;
-  if (isShared) return v / 2;
-  if (ownerMemberId === scopeMemberId) return v;
+  if (row.is_shared) return v / 2;
+  if (row.owner_member_id === scopeMemberId) return v;
   return 0;
 }

@@ -6,6 +6,7 @@ import { resolveScopeMemberId } from '../lib/scope';
 import { formatMoney, formatSigned, formatPct } from '../lib/money';
 import { PERIOD_LABELS } from '../lib/period';
 import { upcomingItems } from '../lib/recurring';
+import { buildNetWorthSeries, changeOverMonths } from '../lib/netWorth';
 import { supabase } from '../lib/supabaseClient';
 import { useOverviewData } from './useOverviewData';
 import {
@@ -27,7 +28,16 @@ export default function Overview() {
   const { scope } = useScope();
   const scopeMemberId = resolveScopeMemberId(scope, me, members);
 
-  const { loading: dataLoading, accounts, transactions, categories, recurring, error, reload } = useOverviewData(household?.id);
+  const {
+    loading: dataLoading,
+    accounts,
+    transactions,
+    categories,
+    recurring,
+    netWorthSnapshots,
+    error,
+    reload,
+  } = useOverviewData(household?.id);
 
   const [period, setPeriod] = useState('mtd');
   const [selectedKey, setSelectedKey] = useState(null);
@@ -39,6 +49,12 @@ export default function Overview() {
   const isEmpty = !loading && accounts.length === 0 && transactions.length === 0;
 
   const nw = useMemo(() => netWorthSummary(accounts, scopeMemberId), [accounts, scopeMemberId]);
+  const nwSeries = useMemo(
+    () => buildNetWorthSeries(netWorthSnapshots, nw.assets, nw.liabilities, now),
+    [netWorthSnapshots, nw.assets, nw.liabilities, now]
+  );
+  const nwChange1mo = changeOverMonths(nwSeries, 1);
+  const nwChange12mo = changeOverMonths(nwSeries, 12);
   const p = useMemo(() => periodSummary(transactions, period, scopeMemberId, now), [transactions, period, scopeMemberId, now]);
   const columns = useMemo(
     () => buildChartColumns(transactions, period, scopeMemberId, now),
@@ -143,6 +159,25 @@ export default function Overview() {
             <div className="ov-hero fig">
               <span className="ov-hero-currency">AED</span> {formatMoney(nw.netWorth)}
             </div>
+            {scope === 'both' && (nwChange1mo || nwChange12mo) && (
+              <div className="ov-nwchange">
+                {nwChange1mo && (
+                  <span className={nwChange1mo.absolute >= 0 ? 'ov-pos' : 'ov-neg'}>
+                    {nwChange1mo.absolute >= 0 ? '▲' : '▼'} {formatSigned(nwChange1mo.absolute)}
+                  </span>
+                )}
+                {nwChange1mo && <span className="ov-muted"> this month</span>}
+                {nwChange1mo && nwChange12mo && <span className="ov-muted"> · </span>}
+                {nwChange12mo && (
+                  <span className="ov-muted">
+                    12-mo{' '}
+                    <span className={nwChange12mo.absolute >= 0 ? 'ov-pos' : 'ov-neg'}>
+                      {nwChange12mo.pct !== null ? formatPct(nwChange12mo.pct) : formatSigned(nwChange12mo.absolute)}
+                    </span>
+                  </span>
+                )}
+              </div>
+            )}
             <div className="ov-strip">
               <span>
                 Assets <b>{formatMoney(nw.assets)}</b>

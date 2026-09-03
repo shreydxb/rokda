@@ -1,0 +1,17 @@
+/* Shares the generic tab/list/row primitives (mn-*) defined for Money —
+   they were never Money-specific, just first defined there. */
+@import './Money.css';
+
+.wl-hero {
+  margin-top: 30px;
+  padding-bottom: 26px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.wl-breakdown {
+  margin-top: 30px;
+}
+
+.wl-history {
+  margin-top: 40px;
+}

@@ -9,6 +9,7 @@ const EMPTY_STATE = {
   recurring: [],
   budgets: [],
   intake: [],
+  netWorthSnapshots: [],
 };
 
 export function useOverviewData(householdId) {
@@ -28,6 +29,7 @@ export function useOverviewData(householdId) {
       { data: recurring, error: recErr },
       { data: budgets, error: budErr },
       { data: intake, error: intakeErr },
+      { data: netWorthSnapshots, error: nwErr },
     ] = await Promise.all([
       supabase.from('accounts').select('*').eq('household_id', householdId).order('created_at'),
       supabase
@@ -39,6 +41,7 @@ export function useOverviewData(householdId) {
       supabase.from('recurring').select('*').eq('household_id', householdId).order('next_due_date'),
       supabase.from('budgets').select('*').eq('household_id', householdId),
       supabase.from('intake').select('*').eq('household_id', householdId).order('created_at', { ascending: false }),
+      supabase.from('net_worth_snapshots').select('*').eq('household_id', householdId).order('snapshot_date'),
     ]);
 
     setState({
@@ -49,7 +52,8 @@ export function useOverviewData(householdId) {
       recurring: recErr ? [] : (recurring ?? []),
       budgets: budErr ? [] : (budgets ?? []),
       intake: intakeErr ? [] : (intake ?? []),
-      error: accErr || txErr || catErr || recErr || budErr || intakeErr || null,
+      netWorthSnapshots: nwErr ? [] : (netWorthSnapshots ?? []),
+      error: accErr || txErr || catErr || recErr || budErr || intakeErr || nwErr || null,
     });
   }, [householdId]);
 

@@ -129,6 +129,10 @@
   font-size: 20px;
   color: var(--ink2);
 }
+.ov-nwchange {
+  margin-top: 10px;
+  font-size: 13.5px;
+}
 .ov-strip {
   display: flex;
   gap: 30px;
