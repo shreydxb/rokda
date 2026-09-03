@@ -3,6 +3,7 @@ import { useHousehold } from '../lib/useHousehold';
 import { useOverviewData } from './useOverviewData';
 import NetWorth from './wealth/NetWorth';
 import Accounts from './wealth/Accounts';
+import Investments from './wealth/Investments';
 import './Wealth.css';
 
 const TABS = [
@@ -30,12 +31,7 @@ export default function Wealth() {
 
       {tab === 'networth' && <NetWorth me={me} members={members} data={data} loading={loading} />}
       {tab === 'accounts' && <Accounts household={household} members={members} me={me} data={data} loading={loading} />}
-      {tab !== 'networth' && tab !== 'accounts' && (
-        <div className="mn-soon">
-          <div className="ov-empty-kicker">Not built yet</div>
-          <div className="ov-empty-body">{TABS.find((t) => t.id === tab)?.label} is tracked in Linear and coming in a later pass.</div>
-        </div>
-      )}
+      {tab === 'investments' && <Investments household={household} members={members} me={me} data={data} loading={loading} />}
     </div>
   );
 }

@@ -10,6 +10,8 @@ const EMPTY_STATE = {
   budgets: [],
   intake: [],
   netWorthSnapshots: [],
+  holdings: [],
+  holdingHistory: [],
 };
 
 export function useOverviewData(householdId) {
@@ -30,6 +32,8 @@ export function useOverviewData(householdId) {
       { data: budgets, error: budErr },
       { data: intake, error: intakeErr },
       { data: netWorthSnapshots, error: nwErr },
+      { data: holdings, error: holdErr },
+      { data: holdingHistory, error: histErr },
     ] = await Promise.all([
       supabase.from('accounts').select('*').eq('household_id', householdId).order('created_at'),
       supabase
@@ -42,6 +46,9 @@ export function useOverviewData(householdId) {
       supabase.from('budgets').select('*').eq('household_id', householdId),
       supabase.from('intake').select('*').eq('household_id', householdId).order('created_at', { ascending: false }),
       supabase.from('net_worth_snapshots').select('*').eq('household_id', householdId).order('snapshot_date'),
+      supabase.from('holdings').select('*').eq('household_id', householdId).order('created_at'),
+      // RLS scopes this to the caller's household via a join on holdings, so no explicit filter needed.
+      supabase.from('holding_value_history').select('*').order('as_of'),
     ]);
 
     setState({
@@ -53,7 +60,9 @@ export function useOverviewData(householdId) {
       budgets: budErr ? [] : (budgets ?? []),
       intake: intakeErr ? [] : (intake ?? []),
       netWorthSnapshots: nwErr ? [] : (netWorthSnapshots ?? []),
-      error: accErr || txErr || catErr || recErr || budErr || intakeErr || nwErr || null,
+      holdings: holdErr ? [] : (holdings ?? []),
+      holdingHistory: histErr ? [] : (holdingHistory ?? []),
+      error: accErr || txErr || catErr || recErr || budErr || intakeErr || nwErr || holdErr || histErr || null,
     });
   }, [householdId]);
 
