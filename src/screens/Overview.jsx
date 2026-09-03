@@ -26,7 +26,7 @@ export default function Overview() {
   const { scope } = useScope();
   const scopeMemberId = resolveScopeMemberId(scope, me, members);
 
-  const { loading: dataLoading, accounts, transactions, categories, reload } = useOverviewData(household?.id);
+  const { loading: dataLoading, accounts, transactions, categories, error, reload } = useOverviewData(household?.id);
 
   const [period, setPeriod] = useState('mtd');
   const [selectedKey, setSelectedKey] = useState(null);
@@ -102,6 +102,14 @@ export default function Overview() {
 
   return (
     <div className="ov">
+      {error && (
+        <div className="ov-error" role="alert">
+          <span>Couldn't load your data. The figures below may be incomplete or stale.</span>
+          <button type="button" className="om-btn" onClick={reload}>
+            Retry
+          </button>
+        </div>
+      )}
       <div className="ov-head">
         <div>
           <div className="ov-kicker">
