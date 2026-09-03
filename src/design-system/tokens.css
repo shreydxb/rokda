@@ -1,0 +1,51 @@
+/* Design tokens ported from "Our Money - Command Center v2" (Direction A · Private Ledger).
+   Warm near-black canvas, serif money figures, hairline rules instead of cards. */
+
+:root {
+  /* type */
+  --font-fig: 'Newsreader', serif; /* money figures only */
+  --font-ui: 'IBM Plex Sans', sans-serif; /* labels, body, nav */
+  --font-mono: 'IBM Plex Mono', monospace; /* chrome, data, meta */
+
+  /* dark (default) */
+  --canvas: #0d0c0a;
+  --raise: rgba(242, 237, 228, 0.035);
+  --ink: #f2ede4;
+  --ink2: #9d9385;
+  --ink3: #6f665a;
+  --rule: rgba(242, 237, 228, 0.09);
+  --rule2: rgba(242, 237, 228, 0.16);
+  --accent: #c98b52;
+  --accent-hover: #dda87a;
+  --pos: #8fae7f;
+  --neg: #c2726b;
+  --warn: #c99a52;
+  --neutralbar: rgba(242, 237, 228, 0.2);
+
+  /* radius: sharp/editorial, not rounded */
+  --radius-sm: 2px;
+  --radius-md: 3px;
+
+  /* motion */
+  --ease: 140ms;
+
+  /* breakpoints (reference only, used in media/container queries) */
+  --bp-tablet: 900px;
+  --bp-mobile: 820px;
+}
+
+:root[data-theme='light'] {
+  --canvas: #f8f5ef;
+  --raise: rgba(26, 23, 18, 0.028);
+  --ink: #1a1712;
+  --ink2: #6b6255;
+  --ink3: #8d8478;
+  --rule: rgba(26, 23, 18, 0.12);
+  --rule2: rgba(26, 23, 18, 0.22);
+  --accent: #9c5d26;
+  --accent-hover: #7a4a1e;
+  --pos: #4a7a52;
+  --neg: #a8443c;
+  --warn: #8a6320;
+  --neutralbar: rgba(26, 23, 18, 0.16);
+}

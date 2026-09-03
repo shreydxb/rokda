@@ -1,0 +1,196 @@
+.om-login {
+  min-height: 100vh;
+  display: flex;
+}
+
+.om-loginside {
+  width: 380px;
+  flex: none;
+  border-right: 1px solid var(--rule);
+  padding: 48px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.om-loginbrand {
+  font-family: var(--font-fig);
+  font-size: 26px;
+  color: var(--ink);
+}
+
+.om-logintag {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--ink2);
+  max-width: 28ch;
+}
+
+.om-loginmain {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px;
+}
+
+.om-loginform {
+  width: 100%;
+  max-width: 340px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.om-loginh1 {
+  font-family: var(--font-fig);
+  font-weight: 400;
+  font-size: 24px;
+  margin: 0 0 4px;
+  color: var(--ink);
+}
+
+.om-loginmsg {
+  font-size: 13.5px;
+  color: var(--ink2);
+  line-height: 1.6;
+}
+
+.om-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink3);
+}
+
+.om-field input {
+  background: none;
+  border: 1px solid var(--rule2);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  font-size: 14.5px;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--ink);
+}
+
+.om-field input:focus {
+  border-color: var(--accent);
+}
+
+.om-field input[aria-invalid='true'] {
+  border-color: var(--neg);
+}
+
+.om-fielderr {
+  font-size: 12px;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--neg);
+}
+
+.om-passrow {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.om-passrow input {
+  flex: 1;
+  min-width: 0;
+}
+
+.om-passtoggle {
+  flex: none;
+  background: none;
+  border: 1px solid var(--rule2);
+  border-radius: var(--radius-sm);
+  padding: 0 12px;
+  font-size: 11.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink2);
+  cursor: pointer;
+}
+
+.om-passtoggle:hover {
+  color: var(--ink);
+  border-color: var(--rule2);
+}
+
+.om-loginrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12.5px;
+}
+
+.om-checkrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink2);
+  cursor: pointer;
+}
+
+.om-linkbtn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.om-linkbtn:hover {
+  color: var(--accent-hover);
+}
+
+.om-back {
+  align-self: flex-start;
+}
+
+.om-loginerr {
+  font-size: 13px;
+  color: var(--neg);
+  margin: 0;
+}
+
+.om-loginsubmit {
+  background: var(--accent);
+  color: var(--canvas);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--ease);
+}
+
+.om-loginsubmit:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.om-loginsubmit:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+@media (max-width: 820px) {
+  .om-login {
+    flex-direction: column;
+  }
+  .om-loginside {
+    width: 100%;
+    border-right: 0;
+    border-bottom: 1px solid var(--rule);
+    padding: 28px 22px;
+  }
+  .om-loginmain {
+    padding: 30px 22px 50px;
+  }
+}

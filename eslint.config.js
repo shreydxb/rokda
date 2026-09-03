@@ -18,4 +18,12 @@ export default defineConfig([
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
   },
+  {
+    // Context providers legitimately co-export a `use*` hook alongside the
+    // component; that's the standard React context pattern, not a fast-refresh hazard.
+    files: ['src/lib/*Context.jsx'],
+    rules: {
+      'react-refresh/only-export-components': 'off',
+    },
+  },
 ])
