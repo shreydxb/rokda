@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 
-const EMPTY_STATE = { loading: false, accounts: [], transactions: [], categories: [], recurring: [] };
+const EMPTY_STATE = { loading: false, accounts: [], transactions: [], categories: [], recurring: [], budgets: [] };
 
 export function useOverviewData(householdId) {
   const [state, setState] = useState({ ...EMPTY_STATE, loading: true });
@@ -18,6 +18,7 @@ export function useOverviewData(householdId) {
       { data: transactions, error: txErr },
       { data: categories, error: catErr },
       { data: recurring, error: recErr },
+      { data: budgets, error: budErr },
     ] = await Promise.all([
       supabase.from('accounts').select('*').eq('household_id', householdId).order('created_at'),
       supabase
@@ -27,6 +28,7 @@ export function useOverviewData(householdId) {
         .order('occurred_at', { ascending: false }),
       supabase.from('categories').select('*').eq('household_id', householdId).order('name'),
       supabase.from('recurring').select('*').eq('household_id', householdId).order('next_due_date'),
+      supabase.from('budgets').select('*').eq('household_id', householdId),
     ]);
 
     setState({
@@ -35,7 +37,8 @@ export function useOverviewData(householdId) {
       transactions: txErr ? [] : (transactions ?? []),
       categories: catErr ? [] : (categories ?? []),
       recurring: recErr ? [] : (recurring ?? []),
-      error: accErr || txErr || catErr || recErr || null,
+      budgets: budErr ? [] : (budgets ?? []),
+      error: accErr || txErr || catErr || recErr || budErr || null,
     });
   }, [householdId]);
 

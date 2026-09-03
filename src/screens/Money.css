@@ -157,3 +157,84 @@
   padding-top: 16px;
   border-top: 1px solid var(--rule);
 }
+
+/* budget */
+.bud-row {
+  align-items: center;
+  gap: 24px;
+}
+.bud-bar-wrap {
+  flex: 1;
+  min-width: 0;
+}
+.bud-bar {
+  position: relative;
+  height: 6px;
+  background: var(--rule);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.bud-bar-elapsed {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  border-right: 1px solid var(--canvas);
+  background: var(--rule2);
+}
+.bud-bar-spent {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  background: var(--accent);
+}
+.bud-bar-spent.bud-bar-over {
+  background: var(--neg);
+}
+.bud-total {
+  cursor: default;
+  border-top: 1px solid var(--rule2);
+  margin-top: 4px;
+  padding-top: 14px;
+}
+.bud-total:hover {
+  background: none;
+}
+
+.bud-yearwrap {
+  margin-top: 22px;
+  overflow-x: auto;
+}
+.bud-year {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 900px;
+  font-size: 12.5px;
+}
+.bud-year th,
+.bud-year td {
+  text-align: right;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+}
+.bud-year th:first-child,
+.bud-year td:first-child {
+  text-align: left;
+}
+.bud-year th {
+  color: var(--ink3);
+  font-weight: 400;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.bud-planned {
+  color: var(--ink3);
+  font-style: italic;
+}
+.bud-totalrow td {
+  font-weight: 500;
+  border-top: 1px solid var(--rule2);
+}

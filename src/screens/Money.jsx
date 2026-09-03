@@ -3,6 +3,7 @@ import { useHousehold } from '../lib/useHousehold';
 import { useOverviewData } from './useOverviewData';
 import Activity from './money/Activity';
 import Recurring from './money/Recurring';
+import Budget from './money/Budget';
 import './Money.css';
 
 const TABS = [
@@ -38,7 +39,8 @@ export default function Money() {
 
       {tab === 'activity' && <Activity household={household} members={members} me={me} data={data} loading={loading} />}
       {tab === 'recurring' && <Recurring household={household} members={members} data={data} loading={loading} />}
-      {tab !== 'activity' && tab !== 'recurring' && (
+      {tab === 'budget' && <Budget household={household} members={members} me={me} data={data} loading={loading} />}
+      {tab !== 'activity' && tab !== 'recurring' && tab !== 'budget' && (
         <div className="mn-soon">
           <div className="ov-empty-kicker">Not built yet</div>
           <div className="ov-empty-body">{TABS.find((t) => t.id === tab)?.label} is tracked in Linear and coming in a later pass.</div>
