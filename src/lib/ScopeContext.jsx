@@ -1,8 +1,8 @@
 import { createContext, useContext, useState } from 'react';
 
-// Household scope: 'both' | 'me' | 'partner'. Real member names/labels come
-// from Settings → Household once that screen exists; 'partner' is a stable
-// role, not tied to whichever name is displayed for it.
+// Household scope: 'both' | 'me' | 'partner'. 'partner' is a stable role key —
+// the display label shown for it (e.g. in AppShell's scope toggle) comes from
+// the real second household member's name, not from this key.
 const ScopeContext = createContext(undefined);
 
 export function ScopeProvider({ children }) {

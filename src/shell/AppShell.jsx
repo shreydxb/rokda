@@ -2,6 +2,7 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../lib/AuthContext';
 import { useTheme } from '../lib/ThemeContext';
 import { useScope } from '../lib/ScopeContext';
+import { useHousehold } from '../lib/useHousehold';
 import './AppShell.css';
 
 const NAV = [
@@ -11,16 +12,17 @@ const NAV = [
   { to: '/planning', label: 'Planning' },
 ];
 
-const SCOPES = [
-  { id: 'both', label: 'Both' },
-  { id: 'me', label: 'Me' },
-  { id: 'partner', label: 'Aparna' },
-];
-
 export default function AppShell() {
   const { user, signOut } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const { scope, setScope } = useScope();
+  const { me, members } = useHousehold();
+  const partnerLabel = members.find((m) => m.id !== me?.id)?.display_name ?? 'Partner';
+  const scopes = [
+    { id: 'both', label: 'Both' },
+    { id: 'me', label: 'Me' },
+    { id: 'partner', label: partnerLabel },
+  ];
 
   return (
     <div className="om-shellwrap">
@@ -47,7 +49,7 @@ export default function AppShell() {
           <div className="om-scopewrap">
             <div className="om-scopelabel">Household</div>
             <div className="om-scope-list" role="group" aria-label="Household scope">
-              {SCOPES.map((s) => (
+              {scopes.map((s) => (
                 <button
                   key={s.id}
                   type="button"
