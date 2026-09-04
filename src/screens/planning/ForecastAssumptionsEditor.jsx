@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import '../money/TransactionEditor.css';
 
@@ -7,10 +7,36 @@ export default function ForecastAssumptionsEditor({ householdId, assumptions, cu
   const [inflation, setInflation] = useState(assumptions?.inflation_pct != null ? String(assumptions.inflation_pct) : '2.5');
   const [swr, setSwr] = useState(assumptions?.safe_withdrawal_pct != null ? String(assumptions.safe_withdrawal_pct) : '4.0');
   const [leanSpend, setLeanSpend] = useState(assumptions?.lean_annual_spend != null ? String(assumptions.lean_annual_spend) : '');
+  const [dirty, setDirty] = useState(false);
+  const [confirmingClose, setConfirmingClose] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
   const hasBaseline = !!assumptions?.baseline_set_at;
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') requestClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dirty, confirmingClose]);
+
+  function requestClose() {
+    if (dirty && !confirmingClose) {
+      setConfirmingClose(true);
+      return;
+    }
+    onClose();
+  }
+
+  function set(setter) {
+    return (e) => {
+      setter(e.target.value);
+      setDirty(true);
+    };
+  }
 
   async function handleSave(e) {
     e.preventDefault();
@@ -43,41 +69,43 @@ export default function ForecastAssumptionsEditor({ householdId, assumptions, cu
   }
 
   return (
-    <div className="te-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="te-overlay" onMouseDown={(e) => e.target === e.currentTarget && requestClose()}>
       <div className="te-drawer" role="dialog" aria-modal="true" aria-label="Forecast assumptions">
         <div className="te-head">
-          <div className="ov-kicker">Forecast assumptions</div>
-          <button type="button" className="te-close" onClick={onClose} aria-label="Close">
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+              <span className="ov-kicker">Assumptions</span>
+              {dirty && <span className="te-dirty-chip">Unsaved</span>}
+            </div>
+            <div className="te-title">Forecast assumptions</div>
+          </div>
+          <button type="button" className="te-close" onClick={requestClose} aria-label="Close">
             ×
           </button>
         </div>
 
         <form className="te-form" onSubmit={handleSave}>
-          <div className="te-row">
-            <label className="te-field te-amount">
-              <span>Investment return (nominal %/yr)</span>
-              <input type="number" step="0.1" value={nominal} onChange={(e) => setNominal(e.target.value)} />
-            </label>
-            <label className="te-field te-currency">
-              <span>Inflation (%/yr)</span>
-              <input type="number" step="0.1" value={inflation} onChange={(e) => setInflation(e.target.value)} />
-            </label>
+          <div className="te-fieldgrid">
+            <div className="te-fieldcell">
+              <span className="te-fieldlabel">Investment return (nominal %/yr)</span>
+              <input className="te-fieldvalue" type="number" step="0.1" value={nominal} onChange={set(setNominal)} />
+            </div>
+            <div className="te-fieldcell">
+              <span className="te-fieldlabel">Inflation (%/yr)</span>
+              <input className="te-fieldvalue" type="number" step="0.1" value={inflation} onChange={set(setInflation)} />
+            </div>
+            <div className="te-fieldcell">
+              <span className="te-fieldlabel">Safe withdrawal rate (%/yr)</span>
+              <input className="te-fieldvalue" type="number" step="0.1" value={swr} onChange={set(setSwr)} />
+            </div>
+            <div className="te-fieldcell">
+              <span className="te-fieldlabel">Essentials-only annual spend</span>
+              <input className="te-fieldvalue" type="number" step="0.01" value={leanSpend} onChange={set(setLeanSpend)} placeholder="optional" />
+            </div>
           </div>
-
-          <label className="te-field">
-            <span>Safe withdrawal rate (%/yr)</span>
-            <input type="number" step="0.1" value={swr} onChange={(e) => setSwr(e.target.value)} />
-          </label>
-          <div className="ov-muted" style={{ fontSize: 11.5, marginTop: -8 }}>
-            The independence target is annual spend ÷ this rate — 4% is the common default (25× spend).
-          </div>
-
-          <label className="te-field">
-            <span>Essentials-only annual spend</span>
-            <input type="number" step="0.01" value={leanSpend} onChange={(e) => setLeanSpend(e.target.value)} placeholder="optional — for a lean number" />
-          </label>
-          <div className="ov-muted" style={{ fontSize: 11.5, marginTop: -8 }}>
-            Optional. Set it to see a "lean" target next to the full one — travel and discretionary spend stripped out.
+          <div className="ov-muted" style={{ fontSize: 11.5, lineHeight: 1.6 }}>
+            The independence target is annual spend ÷ safe withdrawal rate — 4% is the common default (25× spend). Essentials-only
+            spend is optional; set it to see a "lean" target next to the full one.
           </div>
 
           {!hasBaseline && (
@@ -93,14 +121,32 @@ export default function ForecastAssumptionsEditor({ householdId, assumptions, cu
             </p>
           )}
 
-          <div className="te-actions">
-            <div className="te-actions-right" style={{ marginLeft: 'auto' }}>
-              <button type="button" className="om-btn" onClick={onClose}>
-                Cancel
-              </button>
-              <button type="submit" className="om-btn ov-btn-primary" disabled={saving}>
-                {saving ? 'Saving…' : 'Save'}
-              </button>
+          <div className="te-sticky-actions">
+            <div className="te-actions" style={{ borderTop: 'none', paddingTop: 0, marginTop: 0 }}>
+              <div className="te-actions-right" style={{ marginLeft: 'auto' }}>
+                {confirmingClose ? (
+                  <>
+                    <span className="ov-muted" style={{ marginRight: 8 }}>
+                      Discard changes?
+                    </span>
+                    <button type="button" className="om-btn" onClick={onClose}>
+                      Discard
+                    </button>
+                    <button type="button" className="om-btn" onClick={() => setConfirmingClose(false)}>
+                      Keep editing
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button type="button" className="om-btn" onClick={requestClose}>
+                      Cancel
+                    </button>
+                    <button type="submit" className="om-btn ov-btn-primary" disabled={saving}>
+                      {saving ? 'Saving…' : 'Save changes'}
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         </form>

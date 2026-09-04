@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import '../money/TransactionEditor.css';
 
@@ -6,11 +6,31 @@ export default function RuleEditor({ rule, householdId, categories, onClose, onS
   const [pattern, setPattern] = useState(rule?.pattern ?? '');
   const [matchType, setMatchType] = useState(rule?.match_type ?? 'contains');
   const [categoryId, setCategoryId] = useState(rule?.category_id ?? categories[0]?.id ?? '');
+  const [dirty, setDirty] = useState(false);
+  const [confirmingClose, setConfirmingClose] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') requestClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dirty, confirmingClose]);
+
+  function requestClose() {
+    if (dirty && !confirmingClose) {
+      setConfirmingClose(true);
+      return;
+    }
+    onClose();
+  }
+
   const patternError = pattern.trim() === '' ? 'Enter a merchant pattern.' : '';
+  const categoryName = categories.find((c) => c.id === categoryId)?.name;
 
   async function handleSave(e) {
     e.preventDefault();
@@ -62,47 +82,94 @@ export default function RuleEditor({ rule, householdId, categories, onClose, onS
   }
 
   return (
-    <div className="te-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="te-overlay" onMouseDown={(e) => e.target === e.currentTarget && requestClose()}>
       <div className="te-drawer" role="dialog" aria-modal="true" aria-label={rule ? 'Edit rule' : 'Add rule'}>
         <div className="te-head">
-          <div className="ov-kicker">{rule ? 'Edit rule' : 'Add a rule'}</div>
-          <button type="button" className="te-close" onClick={onClose} aria-label="Close">
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+              <span className="ov-kicker">{rule ? 'Edit rule' : 'New rule'}</span>
+              {dirty && <span className="te-dirty-chip">Unsaved</span>}
+            </div>
+            <div className="te-title">{rule ? `"${rule.pattern}"` : 'Add a rule'}</div>
+          </div>
+          <button type="button" className="te-close" onClick={requestClose} aria-label="Close">
             ×
           </button>
         </div>
 
         <form className="te-form" onSubmit={handleSave}>
-          <label className="te-field">
-            <span>Merchant pattern</span>
-            <input type="text" value={pattern} onChange={(e) => setPattern(e.target.value)} placeholder="e.g. CARREFOUR" aria-invalid={!!patternError} />
-          </label>
-
-          <div className="te-type">
-            {[
-              ['contains', 'Contains'],
-              ['starts_with', 'Starts with'],
-            ].map(([k, label]) => (
-              <button key={k} type="button" className="om-seg" data-active={matchType === k} onClick={() => setMatchType(k)}>
-                {label}
-              </button>
-            ))}
+          <div className="te-fieldgrid">
+            <div className="te-fieldcell te-span2">
+              <span className="te-fieldlabel">Merchant pattern</span>
+              <input
+                className="te-fieldvalue"
+                type="text"
+                value={pattern}
+                onChange={(e) => {
+                  setPattern(e.target.value);
+                  setDirty(true);
+                }}
+                placeholder="e.g. CARREFOUR"
+                aria-invalid={!!patternError}
+              />
+            </div>
+            <div className="te-fieldcell te-span2">
+              <span className="te-fieldlabel">Category</span>
+              <select
+                className="te-fieldvalue"
+                value={categoryId}
+                onChange={(e) => {
+                  setCategoryId(e.target.value);
+                  setDirty(true);
+                }}
+              >
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
-          <label className="te-field">
-            <span>Category</span>
-            <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
+          <div>
+            <span className="te-fieldlabel">Match type</span>
+            <div className="te-chips">
+              {[
+                ['contains', 'Contains'],
+                ['starts_with', 'Starts with'],
+              ].map(([k, label]) => (
+                <button
+                  key={k}
+                  type="button"
+                  className="om-seg"
+                  data-active={matchType === k}
+                  onClick={() => {
+                    setMatchType(k);
+                    setDirty(true);
+                  }}
+                >
+                  {label}
+                </button>
               ))}
-            </select>
-          </label>
-
-          <div className="ov-muted" style={{ fontSize: 11.5, marginTop: -8 }}>
-            Matching is case-insensitive against the transaction's merchant field. Save, then use "Apply now" on the list to
-            backfill existing uncategorised transactions.
+            </div>
           </div>
+
+          <div className="ov-muted" style={{ fontSize: 11.5, lineHeight: 1.6 }}>
+            Matching is case-insensitive against the transaction's merchant field
+            {categoryName ? ` — matches go to ${categoryName}` : ''}. Save, then use "Apply now" on the list to backfill existing
+            uncategorised transactions.
+          </div>
+
+          {rule && (
+            <button type="button" className="te-togglerow" onClick={toggleArchived} disabled={saving}>
+              <div>
+                <div className="te-togglelabel">Archived</div>
+                <div className="te-togglenote">Archived rules stop suggesting and can't be applied</div>
+              </div>
+              <span className={`te-togglestate ${rule.archived ? 'te-togglestate-warn' : ''}`}>{rule.archived ? 'Archived' : 'Active'}</span>
+            </button>
+          )}
 
           {error && (
             <p className="ov-warn" role="alert" style={{ fontSize: 12.5 }}>
@@ -110,24 +177,37 @@ export default function RuleEditor({ rule, householdId, categories, onClose, onS
             </p>
           )}
 
-          <div className="te-actions">
-            {rule && (
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button type="button" className="om-btn" onClick={toggleArchived} disabled={saving}>
-                  {rule.archived ? 'Unarchive' : 'Archive'}
-                </button>
+          <div className="te-sticky-actions">
+            <div className="te-actions" style={{ borderTop: 'none', paddingTop: 0, marginTop: 0 }}>
+              {rule && (
                 <button type="button" className="om-btn te-delete" onClick={handleDelete} disabled={saving}>
                   {confirmingDelete ? 'Confirm delete?' : 'Delete'}
                 </button>
+              )}
+              <div className="te-actions-right">
+                {confirmingClose ? (
+                  <>
+                    <span className="ov-muted" style={{ marginRight: 8 }}>
+                      Discard changes?
+                    </span>
+                    <button type="button" className="om-btn" onClick={onClose}>
+                      Discard
+                    </button>
+                    <button type="button" className="om-btn" onClick={() => setConfirmingClose(false)}>
+                      Keep editing
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button type="button" className="om-btn" onClick={requestClose}>
+                      Cancel
+                    </button>
+                    <button type="submit" className="om-btn ov-btn-primary" disabled={saving}>
+                      {saving ? 'Saving…' : rule ? 'Save changes' : 'Add rule'}
+                    </button>
+                  </>
+                )}
               </div>
-            )}
-            <div className="te-actions-right">
-              <button type="button" className="om-btn" onClick={onClose}>
-                Cancel
-              </button>
-              <button type="submit" className="om-btn ov-btn-primary" disabled={saving}>
-                {saving ? 'Saving…' : 'Save'}
-              </button>
             </div>
           </div>
         </form>

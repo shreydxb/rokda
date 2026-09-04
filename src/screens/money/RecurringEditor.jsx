@@ -1,14 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { CADENCES } from '../../lib/recurring';
-import '../money/TransactionEditor.css';
+import './TransactionEditor.css';
 
 function initialForm(item, accounts) {
   if (item) {
     return {
       type: Number(item.amount) >= 0 ? 'income' : 'expense',
       amount: String(Math.abs(Number(item.amount))),
-      currency: item.currency ?? 'AED',
       name: item.name ?? '',
       cadence: item.cadence ?? 'monthly',
       next_due_date: item.next_due_date,
@@ -23,7 +22,6 @@ function initialForm(item, accounts) {
   return {
     type: 'expense',
     amount: '',
-    currency: accounts[0]?.currency ?? 'AED',
     name: '',
     cadence: 'monthly',
     next_due_date: new Date().toISOString().slice(0, 10),
@@ -38,16 +36,37 @@ function initialForm(item, accounts) {
 
 export default function RecurringEditor({ item, householdId, accounts, categories, members, onClose, onSaved }) {
   const [form, setForm] = useState(() => initialForm(item, accounts));
+  const [dirty, setDirty] = useState(false);
+  const [confirmingClose, setConfirmingClose] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') requestClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dirty, confirmingClose]);
+
   function set(key, value) {
     setForm((f) => ({ ...f, [key]: value }));
+    setDirty(true);
+  }
+
+  function requestClose() {
+    if (dirty && !confirmingClose) {
+      setConfirmingClose(true);
+      return;
+    }
+    onClose();
   }
 
   const amountError = form.amount.trim() === '' || Number(form.amount) <= 0 ? 'Enter an amount greater than zero.' : '';
   const nameError = form.name.trim() === '' ? 'Name it.' : '';
+  const kindCategories = categories.filter((c) => c.kind === form.type && (!c.archived || c.id === form.category_id));
 
   async function handleSave(e) {
     e.preventDefault();
@@ -65,7 +84,7 @@ export default function RecurringEditor({ item, householdId, accounts, categorie
       account_id: form.account_id || null,
       category_id: form.category_id || null,
       amount: signed,
-      currency: form.currency || 'AED',
+      currency: 'AED',
       cadence: form.cadence,
       next_due_date: form.next_due_date,
       is_shared: form.owner === 'shared',
@@ -104,11 +123,17 @@ export default function RecurringEditor({ item, householdId, accounts, categorie
   }
 
   return (
-    <div className="te-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="te-overlay" onMouseDown={(e) => e.target === e.currentTarget && requestClose()}>
       <div className="te-drawer" role="dialog" aria-modal="true" aria-label={item ? 'Edit recurring item' : 'Add recurring item'}>
         <div className="te-head">
-          <div className="ov-kicker">{item ? 'Edit recurring' : 'Add recurring'}</div>
-          <button type="button" className="te-close" onClick={onClose} aria-label="Close">
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+              <span className="ov-kicker">{item ? 'Edit commitment' : 'New commitment'}</span>
+              {dirty && <span className="te-dirty-chip">Unsaved</span>}
+            </div>
+            <div className="te-title">{item ? item.name : 'Add a bill or income'}</div>
+          </div>
+          <button type="button" className="te-close" onClick={requestClose} aria-label="Close">
             ×
           </button>
         </div>
@@ -123,94 +148,105 @@ export default function RecurringEditor({ item, householdId, accounts, categorie
             </button>
           </div>
 
-          <label className="te-field">
-            <span>Name</span>
-            <input type="text" value={form.name} onChange={(e) => set('name', e.target.value)} aria-invalid={!!nameError} />
-          </label>
-
-          <div className="te-row">
-            <label className="te-field te-amount">
-              <span>Amount</span>
+          <div>
+            <div className="te-hero-label">Amount</div>
+            <div className="te-hero-row">
+              <span className="te-hero-currency">AED</span>
               <input
                 type="number"
                 inputMode="decimal"
                 min="0"
                 step="0.01"
+                className="te-hero-input"
                 value={form.amount}
                 onChange={(e) => set('amount', e.target.value)}
                 aria-invalid={!!amountError}
+                placeholder="0"
               />
-            </label>
-            <label className="te-field te-currency">
-              <span>Currency</span>
-              <input type="text" value={form.currency} onChange={(e) => set('currency', e.target.value.toUpperCase())} maxLength={3} />
-            </label>
+            </div>
           </div>
 
-          <label className="te-field">
-            <span>Cadence</span>
-            <select value={form.cadence} onChange={(e) => set('cadence', e.target.value)}>
-              {CADENCES.map((c) => (
-                <option key={c} value={c}>
-                  {c[0].toUpperCase() + c.slice(1)}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="te-fieldgrid">
+            <div className="te-fieldcell te-span2">
+              <span className="te-fieldlabel">Name</span>
+              <input className="te-fieldvalue" type="text" value={form.name} onChange={(e) => set('name', e.target.value)} aria-invalid={!!nameError} placeholder="e.g. Salik top-up" />
+            </div>
+            <div className="te-fieldcell">
+              <span className="te-fieldlabel">Cadence</span>
+              <select className="te-fieldvalue" value={form.cadence} onChange={(e) => set('cadence', e.target.value)}>
+                {CADENCES.map((c) => (
+                  <option key={c} value={c}>
+                    {c[0].toUpperCase() + c.slice(1)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="te-fieldcell">
+              <span className="te-fieldlabel">Next due date</span>
+              <input className="te-fieldvalue" type="date" value={form.next_due_date} onChange={(e) => set('next_due_date', e.target.value)} />
+            </div>
+            <div className="te-fieldcell te-span2">
+              <span className="te-fieldlabel">Account</span>
+              <select className="te-fieldvalue" value={form.account_id} onChange={(e) => set('account_id', e.target.value)}>
+                <option value="">Not linked</option>
+                {accounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
 
-          <label className="te-field">
-            <span>Next due date</span>
-            <input type="date" value={form.next_due_date} onChange={(e) => set('next_due_date', e.target.value)} />
-          </label>
-
-          <label className="te-field">
-            <span>Account</span>
-            <select value={form.account_id} onChange={(e) => set('account_id', e.target.value)}>
-              <option value="">Not linked</option>
-              {accounts.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="te-field">
-            <span>Category</span>
-            <select value={form.category_id} onChange={(e) => set('category_id', e.target.value)}>
-              <option value="">Uncategorised</option>
-              {categories.filter((c) => !c.archived || c.id === form.category_id).map((c) => (
-                <option key={c.id} value={c.id}>
+          <div>
+            <span className="te-fieldlabel">Category</span>
+            <div className="te-chips">
+              <button type="button" className="om-seg" data-active={form.category_id === ''} onClick={() => set('category_id', '')}>
+                Uncategorised
+              </button>
+              {kindCategories.map((c) => (
+                <button key={c.id} type="button" className="om-seg" data-active={form.category_id === c.id} onClick={() => set('category_id', c.id)}>
                   {c.name}
-                </option>
+                </button>
               ))}
-            </select>
-          </label>
+            </div>
+          </div>
 
-          <label className="te-field">
-            <span>Whose</span>
-            <select value={form.owner} onChange={(e) => set('owner', e.target.value)}>
-              <option value="shared">Shared</option>
+          <div>
+            <span className="te-fieldlabel">Paid by</span>
+            <div className="om-scope-list" style={{ marginTop: 10 }}>
+              <button type="button" className="om-scope" data-active={form.owner === 'shared'} onClick={() => set('owner', 'shared')}>
+                Shared
+              </button>
               {members.map((m) => (
-                <option key={m.id} value={m.id}>
+                <button key={m.id} type="button" className="om-scope" data-active={form.owner === m.id} onClick={() => set('owner', m.id)}>
                   {m.display_name}
-                </option>
+                </button>
               ))}
-            </select>
-          </label>
+            </div>
+          </div>
 
-          <label className="te-checkrow">
-            <input type="checkbox" checked={form.autopay} onChange={(e) => set('autopay', e.target.checked)} />
-            <span>Autopay</span>
-          </label>
-          <label className="te-checkrow">
-            <input type="checkbox" checked={form.is_fixed} onChange={(e) => set('is_fixed', e.target.checked)} />
-            <span>Fixed amount (uncheck if it varies)</span>
-          </label>
-          <label className="te-checkrow">
-            <input type="checkbox" checked={form.active} onChange={(e) => set('active', e.target.checked)} />
-            <span>Active</span>
-          </label>
+          <button type="button" className="te-togglerow" onClick={() => set('autopay', !form.autopay)}>
+            <div>
+              <div className="te-togglelabel">Autopay</div>
+              <div className="te-togglenote">Skip the reminder, still show on the calendar</div>
+            </div>
+            <span className="te-togglestate">{form.autopay ? 'On' : 'Off'}</span>
+          </button>
+          <button type="button" className="te-togglerow" onClick={() => set('is_fixed', !form.is_fixed)}>
+            <div>
+              <div className="te-togglelabel">Fixed amount</div>
+              <div className="te-togglenote">Uncheck if this bill varies month to month</div>
+            </div>
+            <span className="te-togglestate">{form.is_fixed ? 'Fixed' : 'Variable'}</span>
+          </button>
+          <button type="button" className="te-togglerow" onClick={() => set('active', !form.active)}>
+            <div>
+              <div className="te-togglelabel">Active</div>
+              <div className="te-togglenote">Inactive items drop out of the next-30-days strip</div>
+            </div>
+            <span className={`te-togglestate ${form.active ? '' : 'te-togglestate-warn'}`}>{form.active ? 'Active' : 'Paused'}</span>
+          </button>
 
           {error && (
             <p className="ov-warn" role="alert" style={{ fontSize: 12.5 }}>
@@ -218,19 +254,37 @@ export default function RecurringEditor({ item, householdId, accounts, categorie
             </p>
           )}
 
-          <div className="te-actions">
-            {item && (
-              <button type="button" className="om-btn te-delete" onClick={handleDelete} disabled={saving}>
-                {confirmingDelete ? 'Confirm delete?' : 'Delete'}
-              </button>
-            )}
-            <div className="te-actions-right">
-              <button type="button" className="om-btn" onClick={onClose}>
-                Cancel
-              </button>
-              <button type="submit" className="om-btn ov-btn-primary" disabled={saving}>
-                {saving ? 'Saving…' : 'Save'}
-              </button>
+          <div className="te-sticky-actions">
+            <div className="te-actions" style={{ borderTop: 'none', paddingTop: 0, marginTop: 0 }}>
+              {item && (
+                <button type="button" className="om-btn te-delete" onClick={handleDelete} disabled={saving}>
+                  {confirmingDelete ? 'Confirm delete?' : 'Delete'}
+                </button>
+              )}
+              <div className="te-actions-right">
+                {confirmingClose ? (
+                  <>
+                    <span className="ov-muted" style={{ marginRight: 8 }}>
+                      Discard changes?
+                    </span>
+                    <button type="button" className="om-btn" onClick={onClose}>
+                      Discard
+                    </button>
+                    <button type="button" className="om-btn" onClick={() => setConfirmingClose(false)}>
+                      Keep editing
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button type="button" className="om-btn" onClick={requestClose}>
+                      Cancel
+                    </button>
+                    <button type="submit" className="om-btn ov-btn-primary" disabled={saving}>
+                      {saving ? 'Saving…' : item ? 'Save changes' : 'Add commitment'}
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         </form>

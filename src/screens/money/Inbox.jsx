@@ -145,42 +145,53 @@ function IntakeReview({ item, householdId, accounts, categories, categoryRules, 
           "{item.raw_text}"
         </div>
       )}
-      <form onSubmit={approve} style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 360 }}>
-        <label className="te-field">
-          <span>Amount (AED)</span>
-          <input type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
-        </label>
-        <label className="te-field">
-          <span>Merchant</span>
-          <input type="text" value={merchant} onChange={(e) => setMerchant(e.target.value)} />
-        </label>
-        <label className="te-field">
-          <span>Date</span>
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-        </label>
-        <label className="te-field">
-          <span>Account</span>
-          <select value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-            {accounts.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="te-field">
-          <span>Category</span>
-          <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-            <option value="">Uncategorised</option>
-            {categories.filter((c) => !c.archived || c.id === categoryId).map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        </label>
+      <form onSubmit={approve} style={{ display: 'flex', flexDirection: 'column', gap: 18, maxWidth: 420 }}>
+        <div>
+          <div className="te-hero-label">Amount</div>
+          <div className="te-hero-row">
+            <span className="te-hero-currency">AED</span>
+            <input type="number" min="0" step="0.01" className="te-hero-input" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" />
+          </div>
+        </div>
+
+        <div className="te-fieldgrid">
+          <div className="te-fieldcell te-span2">
+            <span className="te-fieldlabel">Merchant</span>
+            <input className="te-fieldvalue" type="text" value={merchant} onChange={(e) => setMerchant(e.target.value)} />
+          </div>
+          <div className="te-fieldcell">
+            <span className="te-fieldlabel">Date</span>
+            <input className="te-fieldvalue" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          </div>
+          <div className="te-fieldcell">
+            <span className="te-fieldlabel">Account</span>
+            <select className="te-fieldvalue" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <span className="te-fieldlabel">Category</span>
+          <div className="te-chips">
+            <button type="button" className="om-seg" data-active={categoryId === ''} onClick={() => setCategoryId('')}>
+              Uncategorised
+            </button>
+            {categories
+              .filter((c) => !c.archived || c.id === categoryId)
+              .map((c) => (
+                <button key={c.id} type="button" className="om-seg" data-active={categoryId === c.id} onClick={() => setCategoryId(c.id)}>
+                  {c.name}
+                </button>
+              ))}
+          </div>
+        </div>
         {suggestedRule && categoryId === suggestedRule.category_id && (
-          <div className="ov-muted" style={{ fontSize: 11.5, marginTop: -8 }}>
+          <div className="ov-muted" style={{ fontSize: 11.5, marginTop: -12 }}>
             Suggested by a rule matching "{suggestedRule.pattern}".
           </div>
         )}

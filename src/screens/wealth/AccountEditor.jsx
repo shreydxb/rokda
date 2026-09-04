@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import '../money/TransactionEditor.css';
 
@@ -22,12 +22,32 @@ function initialForm(account) {
 
 export default function AccountEditor({ account, householdId, members, onClose, onSaved }) {
   const [form, setForm] = useState(() => initialForm(account));
+  const [dirty, setDirty] = useState(false);
+  const [confirmingClose, setConfirmingClose] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') requestClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dirty, confirmingClose]);
+
   function set(key, value) {
     setForm((f) => ({ ...f, [key]: value }));
+    setDirty(true);
+  }
+
+  function requestClose() {
+    if (dirty && !confirmingClose) {
+      setConfirmingClose(true);
+      return;
+    }
+    onClose();
   }
 
   const nameError = form.name.trim() === '' ? 'Name it.' : '';
@@ -84,73 +104,80 @@ export default function AccountEditor({ account, householdId, members, onClose, 
   }
 
   return (
-    <div className="te-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="te-overlay" onMouseDown={(e) => e.target === e.currentTarget && requestClose()}>
       <div className="te-drawer" role="dialog" aria-modal="true" aria-label={account ? 'Edit account' : 'Add account'}>
         <div className="te-head">
-          <div className="ov-kicker">{account ? 'Edit account' : 'Add account'}</div>
-          <button type="button" className="te-close" onClick={onClose} aria-label="Close">
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+              <span className="ov-kicker">{account ? 'Edit account' : 'New account'}</span>
+              {dirty && <span className="te-dirty-chip">Unsaved</span>}
+            </div>
+            <div className="te-title">{account ? account.name : 'Add an account'}</div>
+          </div>
+          <button type="button" className="te-close" onClick={requestClose} aria-label="Close">
             ×
           </button>
         </div>
 
         <form className="te-form" onSubmit={handleSave}>
-          <label className="te-field">
-            <span>Name</span>
-            <input type="text" value={form.name} onChange={(e) => set('name', e.target.value)} aria-invalid={!!nameError} />
-          </label>
-
-          <label className="te-field">
-            <span>Type</span>
-            <select value={form.type} onChange={(e) => set('type', e.target.value)}>
-              {TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {t.replace('_', ' ')}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <div className="te-row">
-            <label className="te-field te-amount">
-              <span>{isCard ? 'Balance owed' : 'Balance'}</span>
-              <input type="number" step="0.01" value={form.balance} onChange={(e) => set('balance', e.target.value)} />
-            </label>
-            <label className="te-field te-currency">
-              <span>Currency</span>
-              <input type="text" value={form.currency} onChange={(e) => set('currency', e.target.value.toUpperCase())} maxLength={3} />
-            </label>
+          <div>
+            <div className="te-hero-label">{isCard ? 'Balance owed' : 'Current balance'}</div>
+            <div className="te-hero-row">
+              <span className="te-hero-currency">AED</span>
+              <input type="number" step="0.01" className="te-hero-input" value={form.balance} onChange={(e) => set('balance', e.target.value)} placeholder="0" />
+            </div>
           </div>
 
-          {isCard && (
-            <>
-              <label className="te-field">
-                <span>Credit limit</span>
-                <input type="number" step="0.01" value={form.credit_limit} onChange={(e) => set('credit_limit', e.target.value)} />
-              </label>
-              <div className="te-row">
-                <label className="te-field te-amount">
-                  <span>Statement day</span>
-                  <input type="number" min="1" max="31" value={form.statement_day} onChange={(e) => set('statement_day', e.target.value)} />
-                </label>
-                <label className="te-field te-amount">
-                  <span>Due day</span>
-                  <input type="number" min="1" max="31" value={form.due_day} onChange={(e) => set('due_day', e.target.value)} />
-                </label>
-              </div>
-            </>
-          )}
+          <div className="te-fieldgrid">
+            <div className="te-fieldcell te-span2">
+              <span className="te-fieldlabel">Name</span>
+              <input className="te-fieldvalue" type="text" value={form.name} onChange={(e) => set('name', e.target.value)} aria-invalid={!!nameError} placeholder="e.g. ADCB Savings" />
+            </div>
+            <div className="te-fieldcell">
+              <span className="te-fieldlabel">Type</span>
+              <select className="te-fieldvalue" value={form.type} onChange={(e) => set('type', e.target.value)}>
+                {TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {t.replace('_', ' ')}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="te-fieldcell">
+              <span className="te-fieldlabel">Currency</span>
+              <input className="te-fieldvalue" type="text" value={form.currency} onChange={(e) => set('currency', e.target.value.toUpperCase())} maxLength={3} />
+            </div>
+            {isCard && (
+              <>
+                <div className="te-fieldcell">
+                  <span className="te-fieldlabel">Credit limit</span>
+                  <input className="te-fieldvalue" type="number" step="0.01" value={form.credit_limit} onChange={(e) => set('credit_limit', e.target.value)} />
+                </div>
+                <div className="te-fieldcell">
+                  <span className="te-fieldlabel">Statement day</span>
+                  <input className="te-fieldvalue" type="number" min="1" max="31" value={form.statement_day} onChange={(e) => set('statement_day', e.target.value)} />
+                </div>
+                <div className="te-fieldcell">
+                  <span className="te-fieldlabel">Due day</span>
+                  <input className="te-fieldvalue" type="number" min="1" max="31" value={form.due_day} onChange={(e) => set('due_day', e.target.value)} />
+                </div>
+              </>
+            )}
+          </div>
 
-          <label className="te-field">
-            <span>Owner</span>
-            <select value={form.owner} onChange={(e) => set('owner', e.target.value)}>
-              <option value="shared">Shared</option>
+          <div>
+            <span className="te-fieldlabel">Owner</span>
+            <div className="om-scope-list" style={{ marginTop: 10 }}>
+              <button type="button" className="om-scope" data-active={form.owner === 'shared'} onClick={() => set('owner', 'shared')}>
+                Shared
+              </button>
               {members.map((m) => (
-                <option key={m.id} value={m.id}>
+                <button key={m.id} type="button" className="om-scope" data-active={form.owner === m.id} onClick={() => set('owner', m.id)}>
                   {m.display_name}
-                </option>
+                </button>
               ))}
-            </select>
-          </label>
+            </div>
+          </div>
 
           {error && (
             <p className="ov-warn" role="alert" style={{ fontSize: 12.5 }}>
@@ -158,19 +185,37 @@ export default function AccountEditor({ account, householdId, members, onClose, 
             </p>
           )}
 
-          <div className="te-actions">
-            {account && (
-              <button type="button" className="om-btn te-delete" onClick={handleDelete} disabled={saving}>
-                {confirmingDelete ? 'Confirm delete?' : 'Delete'}
-              </button>
-            )}
-            <div className="te-actions-right">
-              <button type="button" className="om-btn" onClick={onClose}>
-                Cancel
-              </button>
-              <button type="submit" className="om-btn ov-btn-primary" disabled={saving}>
-                {saving ? 'Saving…' : 'Save'}
-              </button>
+          <div className="te-sticky-actions">
+            <div className="te-actions" style={{ borderTop: 'none', paddingTop: 0, marginTop: 0 }}>
+              {account && (
+                <button type="button" className="om-btn te-delete" onClick={handleDelete} disabled={saving}>
+                  {confirmingDelete ? 'Confirm delete?' : 'Delete'}
+                </button>
+              )}
+              <div className="te-actions-right">
+                {confirmingClose ? (
+                  <>
+                    <span className="ov-muted" style={{ marginRight: 8 }}>
+                      Discard changes?
+                    </span>
+                    <button type="button" className="om-btn" onClick={onClose}>
+                      Discard
+                    </button>
+                    <button type="button" className="om-btn" onClick={() => setConfirmingClose(false)}>
+                      Keep editing
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button type="button" className="om-btn" onClick={requestClose}>
+                      Cancel
+                    </button>
+                    <button type="submit" className="om-btn ov-btn-primary" disabled={saving}>
+                      {saving ? 'Saving…' : account ? 'Save changes' : 'Add account'}
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         </form>
