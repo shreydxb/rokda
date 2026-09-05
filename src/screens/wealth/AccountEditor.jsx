@@ -4,7 +4,7 @@ import '../money/TransactionEditor.css';
 
 const TYPES = ['checking', 'savings', 'credit_card', 'investment', 'loan', 'cash', 'other'];
 
-function initialForm(account) {
+function initialForm(account, defaultType) {
   if (account) {
     return {
       name: account.name,
@@ -17,11 +17,11 @@ function initialForm(account) {
       due_day: account.due_day !== null ? String(account.due_day) : '',
     };
   }
-  return { name: '', type: 'checking', currency: 'AED', balance: '', owner: 'shared', credit_limit: '', statement_day: '', due_day: '' };
+  return { name: '', type: defaultType ?? 'checking', currency: 'AED', balance: '', owner: 'shared', credit_limit: '', statement_day: '', due_day: '' };
 }
 
-export default function AccountEditor({ account, householdId, members, onClose, onSaved }) {
-  const [form, setForm] = useState(() => initialForm(account));
+export default function AccountEditor({ account, defaultType, householdId, members, onClose, onSaved }) {
+  const [form, setForm] = useState(() => initialForm(account, defaultType));
   const [dirty, setDirty] = useState(false);
   const [confirmingClose, setConfirmingClose] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
