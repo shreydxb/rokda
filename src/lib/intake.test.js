@@ -59,9 +59,11 @@ describe('QA-11: the reviewer states what the item is', () => {
 // The contract that approve_intake (20260905183000_intake_atomic_approval.sql)
 // implements, encoded here so the intended behaviour is pinned and reviewable.
 //
-// This models the SQL; it does not execute it. Verifying the function itself
-// needs a database to run against, and no isolated one exists yet — see
-// docs/environments.md. That limitation is stated in the handoff.
+// This models the SQL; it does not execute it. The function itself is executed
+// against a real PostgreSQL by supabase/test/migration-behaviour.test.sql,
+// which runs in CI and covers the same cases. What neither exercises is
+// row-level security, which needs a hosted environment — see
+// docs/environments.md.
 function approveIntakeContract(store, args) {
   const row = store.intake.get(args.p_intake_id);
   if (!row) throw new Error('not found');
