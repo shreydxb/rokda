@@ -3,6 +3,7 @@ import { rollForward, CADENCES } from './recurring';
 import { trailingAverageByCategory } from './insights';
 import { monthActualsByCategory } from './budget';
 import { scopedHoldingValue, visibleHoldings } from './holdings';
+import { daysSincePriced, isStale } from './valuation';
 
 function startOfDay(d) {
   const nd = new Date(d);
@@ -127,21 +128,23 @@ function categoryAnomalyItems(transactions, categories, scopeMemberId, now) {
   return items;
 }
 
-const HOLDING_STALE_DAYS = 30;
-
+// Staleness is measured against priced_at — the date a valuation was actually
+// confirmed as of — not against when the record was last touched. Reloading the
+// Investments screen or renaming a holding leaves this warning standing
+// (QA-04).
 function staleHoldingItems(holdings, scopeMemberId, now) {
   const items = [];
   for (const h of visibleHoldings(holdings, scopeMemberId)) {
-    const daysSince = h.last_refreshed ? Math.floor((now - new Date(h.last_refreshed)) / 86400000) : null;
-    if (daysSince !== null && daysSince < HOLDING_STALE_DAYS) continue;
+    if (!isStale(h, now)) continue;
+    const daysSince = daysSincePriced(h, now);
     items.push({
       id: `stale-holding-${h.id}`,
       kind: 'stale_holding',
       severity: 'info',
       title: `${h.name} hasn't been repriced`,
       detail: daysSince === null
-        ? `Value AED ${Math.round(scopedHoldingValue(h, scopeMemberId)).toLocaleString('en-AE')} · never refreshed`
-        : `Value AED ${Math.round(scopedHoldingValue(h, scopeMemberId)).toLocaleString('en-AE')} · last refreshed ${daysSince}d ago`,
+        ? `Value AED ${Math.round(scopedHoldingValue(h, scopeMemberId)).toLocaleString('en-AE')} · no valuation confirmed yet`
+        : `Value AED ${Math.round(scopedHoldingValue(h, scopeMemberId)).toLocaleString('en-AE')} · valued ${daysSince}d ago`,
     });
   }
   return items;

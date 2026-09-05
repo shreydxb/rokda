@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { ASSET_CLASS_LABELS } from '../../lib/holdings';
+import { daysSincePriced, historyPointFor, todayISODate, valuationChanged } from '../../lib/valuation';
 import '../money/TransactionEditor.css';
 
 function initialForm(holding) {
@@ -26,6 +27,9 @@ function initialForm(holding) {
 
 export default function HoldingEditor({ holding, householdId, members, onClose, onSaved }) {
   const [form, setForm] = useState(() => initialForm(holding));
+  // A valuation is only as of a date someone states. Editing a name must not
+  // silently certify the stored price as current (QA-04).
+  const [asOf, setAsOf] = useState(() => todayISODate());
   const [dirty, setDirty] = useState(false);
   const [confirmingClose, setConfirmingClose] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -56,6 +60,22 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
 
   const nameError = form.name.trim() === '' ? 'Name it.' : '';
 
+  // Whether this edit touches the numbers at all — drives both the copy above
+  // and whether priced_at moves on save.
+  const repricing =
+    !holding ||
+    valuationChanged(holding, {
+      value_aed: Number(form.value_aed) || 0,
+      quantity: form.quantity.trim() === '' ? null : Number(form.quantity),
+      avg_price: form.avg_price.trim() === '' ? null : Number(form.avg_price),
+      current_price: form.current_price.trim() === '' ? null : Number(form.current_price),
+      invested_value_aed: form.invested_value_aed.trim() === '' ? null : Number(form.invested_value_aed),
+      day_change_pct: form.day_change_pct.trim() === '' ? null : Number(form.day_change_pct),
+    });
+  const daysOld = holding ? daysSincePriced(holding) : null;
+  const lastValuedLabel =
+    daysOld === null ? 'No valuation confirmed yet.' : `Unchanged numbers keep the existing valuation date (${daysOld}d ago).`;
+
   async function handleSave(e) {
     e.preventDefault();
     if (nameError) {
@@ -65,32 +85,56 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
     setSaving(true);
     setError('');
 
-    const payload = {
-      household_id: householdId,
-      name: form.name.trim(),
-      asset_class: form.asset_class,
-      currency: form.currency || 'AED',
+    const valuation = {
       value_aed: Number(form.value_aed) || 0,
-      is_shared: form.owner === 'shared',
-      owner_member_id: form.owner === 'shared' ? null : form.owner,
-      last_refreshed: new Date().toISOString(),
       quantity: form.quantity.trim() === '' ? null : Number(form.quantity),
       avg_price: form.avg_price.trim() === '' ? null : Number(form.avg_price),
       current_price: form.current_price.trim() === '' ? null : Number(form.current_price),
       invested_value_aed: form.invested_value_aed.trim() === '' ? null : Number(form.invested_value_aed),
       day_change_pct: form.day_change_pct.trim() === '' ? null : Number(form.day_change_pct),
     };
+    // priced_at moves only when the numbers actually change. A rename leaves
+    // whatever valuation date was already there, so a stale holding stays
+    // stale (QA-04).
+    const repriced = !holding || valuationChanged(holding, valuation);
+    const payload = {
+      household_id: householdId,
+      name: form.name.trim(),
+      asset_class: form.asset_class,
+      currency: form.currency || 'AED',
+      is_shared: form.owner === 'shared',
+      owner_member_id: form.owner === 'shared' ? null : form.owner,
+      updated_at: new Date().toISOString(),
+      ...valuation,
+      ...(repriced ? { priced_at: new Date(`${asOf}T00:00:00Z`).toISOString() } : {}),
+    };
 
-    const query = holding
-      ? supabase.from('holdings').update(payload).eq('id', holding.id)
-      : supabase.from('holdings').insert(payload);
-
-    const { error: saveError } = await query;
-    setSaving(false);
+    const { data: saved, error: saveError } = holding
+      ? await supabase.from('holdings').update(payload).eq('id', holding.id).select('id').maybeSingle()
+      : await supabase.from('holdings').insert(payload).select('id').maybeSingle();
     if (saveError) {
+      setSaving(false);
       setError(saveError.message);
       return;
     }
+
+    // A confirmed valuation is also a dated history point. Upserting on
+    // (holding_id, as_of) makes confirming the same day twice idempotent
+    // rather than duplicating the point (QA-05).
+    const holdingId = holding?.id ?? saved?.id;
+    if (repriced && holdingId) {
+      const point = historyPointFor(holdingId, asOf, valuation.value_aed);
+      const { error: historyError } = await supabase
+        .from('holding_value_history')
+        .upsert(point, { onConflict: 'holding_id,as_of' });
+      if (historyError) {
+        setSaving(false);
+        setError(`Saved the holding, but its valuation history point failed: ${historyError.message}`);
+        return;
+      }
+    }
+
+    setSaving(false);
     await onSaved();
   }
 
@@ -135,6 +179,31 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
           </div>
           <div className="ov-muted" style={{ fontSize: 11.5, marginTop: -10 }}>
             Value is entered in AED directly — no live FX conversion.
+          </div>
+
+          <div className="te-fieldgrid">
+            <div className="te-fieldcell">
+              <label className="te-fieldlabel" htmlFor="holding-as-of">
+                Valued as of
+              </label>
+              <input
+                id="holding-as-of"
+                className="te-fieldvalue"
+                type="date"
+                value={asOf}
+                max={todayISODate()}
+                onChange={(e) => setAsOf(e.target.value)}
+              />
+            </div>
+            <div className="te-fieldcell te-span2" style={{ alignSelf: 'end' }}>
+              <span className="ov-muted" style={{ fontSize: 11.5 }}>
+                {repricing
+                  ? 'Saving records this as a dated valuation point.'
+                  : holding
+                    ? lastValuedLabel
+                    : 'Saving records this as the first valuation point.'}
+              </span>
+            </div>
           </div>
 
           <div className="te-fieldgrid">
