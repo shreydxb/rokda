@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { formatMoney, formatPct } from '../../lib/money';
 import { netWorthSummary } from '../overviewMath';
 import { closedMonths, crossingYear, fiTarget, forecastInputs, projectSeries, realReturn, goalAt } from '../../lib/forecast';
+import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import ForecastAssumptionsEditor from './ForecastAssumptionsEditor';
 
 const DEFAULTS = { nominal_return_pct: 6.0, inflation_pct: 2.5, safe_withdrawal_pct: 4.0 };
@@ -20,11 +21,13 @@ function deltaLabel(years) {
   return `${years > 0 ? '+' : '−'}${Math.abs(years)} yr${Math.abs(years) === 1 ? '' : 's'}`;
 }
 
-export default function Forecast({ householdId, accounts, transactions, data, loading }) {
+export default function Forecast({ household, accounts, transactions, data, loading }) {
   const navigate = useNavigate();
+  const householdId = household?.id;
   const { assumptions } = data;
   const [mode, setMode] = useState('real');
   const [editing, setEditing] = useState(false);
+  const money = useMoneyDisplay(household);
 
   const now = useMemo(() => new Date(), []);
   const startYear = now.getFullYear();
@@ -144,7 +147,7 @@ export default function Forecast({ householdId, accounts, transactions, data, lo
           <div>
             <div className="ov-kicker">Independence target</div>
             <div className="ov-hero fig">
-              <span className="ov-hero-currency">AED</span> {formatMoney(targetShown)}
+              <span className="ov-hero-currency">{money.code}</span> {money.fmt(targetShown)}
             </div>
             <div style={{ fontSize: 13.5, color: 'var(--ink2)', marginTop: 10 }}>
               {mode === 'real'
@@ -176,11 +179,11 @@ export default function Forecast({ householdId, accounts, transactions, data, lo
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10, fontSize: 12, color: 'var(--ink3)', flexWrap: 'wrap', gap: 12 }}>
             <span>
-              <span style={{ color: 'var(--ink)' }}>{formatPct(pct)}</span> of the way there · {formatMoney(startNetWorth)} today
+              <span style={{ color: 'var(--ink)' }}>{formatPct(pct)}</span> of the way there · {money.fmt(startNetWorth)} today
             </span>
             {leanTarget && (
               <span>
-                Lean number {formatMoney(leanTarget)} marked · essentials only, reached {leanYear ?? 'beyond this projection'}
+                Lean number {money.fmt(leanTarget)} marked · essentials only, reached {leanYear ?? 'beyond this projection'}
               </span>
             )}
           </div>

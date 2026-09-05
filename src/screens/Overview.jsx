@@ -8,6 +8,7 @@ import { PERIOD_LABELS } from '../lib/period';
 import { upcomingItems } from '../lib/recurring';
 import { buildNetWorthSeries, changeOverMonths } from '../lib/netWorth';
 import { buildAttentionItems } from '../lib/attention';
+import { useMoneyDisplay } from '../lib/CurrencyContext';
 import { supabase } from '../lib/supabaseClient';
 import { useOverviewData } from './useOverviewData';
 import {
@@ -34,6 +35,7 @@ export default function Overview() {
   const { household, members, me, loading: householdLoading } = useHousehold();
   const { scope } = useScope();
   const scopeMemberId = resolveScopeMemberId(scope, me, members);
+  const money = useMoneyDisplay(household);
 
   const {
     loading: dataLoading,
@@ -168,13 +170,13 @@ export default function Overview() {
           <section className="ov-hero-section">
             <div className="ov-kicker">Net worth{scope !== 'both' ? ` · ${scopeLabel(scope, me, members)}` : ''}</div>
             <div className="ov-hero fig">
-              <span className="ov-hero-currency">AED</span> {formatMoney(nw.netWorth)}
+              <span className="ov-hero-currency">{money.code}</span> {money.fmt(nw.netWorth)}
             </div>
             {scope === 'both' && (nwChange1mo || nwChange12mo) && (
               <div className="ov-nwchange">
                 {nwChange1mo && (
                   <span className={nwChange1mo.absolute >= 0 ? 'ov-pos' : 'ov-neg'}>
-                    {nwChange1mo.absolute >= 0 ? '▲' : '▼'} {formatSigned(nwChange1mo.absolute)}
+                    {nwChange1mo.absolute >= 0 ? '▲' : '▼'} {money.fmtSigned(nwChange1mo.absolute)}
                   </span>
                 )}
                 {nwChange1mo && <span className="ov-muted"> this month</span>}
@@ -183,7 +185,7 @@ export default function Overview() {
                   <span className="ov-muted">
                     12-mo{' '}
                     <span className={nwChange12mo.absolute >= 0 ? 'ov-pos' : 'ov-neg'}>
-                      {nwChange12mo.pct !== null ? formatPct(nwChange12mo.pct) : formatSigned(nwChange12mo.absolute)}
+                      {nwChange12mo.pct !== null ? formatPct(nwChange12mo.pct) : money.fmtSigned(nwChange12mo.absolute)}
                     </span>
                   </span>
                 )}
@@ -191,10 +193,10 @@ export default function Overview() {
             )}
             <div className="ov-strip">
               <span>
-                Assets <b>{formatMoney(nw.assets)}</b>
+                Assets <b>{money.fmt(nw.assets)}</b>
               </span>
               <span>
-                Liabilities <b>{formatMoney(nw.liabilities)}</b>
+                Liabilities <b>{money.fmt(nw.liabilities)}</b>
               </span>
               {runway.available ? (
                 <span>
@@ -497,7 +499,7 @@ export default function Overview() {
                       </div>
                       <div className={`fig ov-list-amt ${a.type === 'credit_card' || a.type === 'loan' ? 'ov-neg' : ''}`}>
                         {a.type === 'credit_card' || a.type === 'loan' ? '−' : ''}
-                        {formatMoney(a.balance)}
+                        {money.fmt(a.balance)}
                       </div>
                     </div>
                   ))

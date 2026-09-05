@@ -114,6 +114,16 @@
   font-weight: 500;
 }
 
+.om-scope:disabled {
+  cursor: default;
+  color: var(--ink3);
+  opacity: 0.5;
+}
+.om-scope:disabled:hover {
+  background: none;
+  color: var(--ink3);
+}
+
 .om-sidefoot {
   padding: 0 20px;
   display: flex;

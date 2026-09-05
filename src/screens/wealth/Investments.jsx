@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
-import { formatMoney, formatSigned, formatPct } from '../../lib/money';
+import { formatMoney, formatPct } from '../../lib/money';
 import {
   ASSET_CLASS_LABELS,
   GROUP_ORDER,
@@ -15,12 +15,14 @@ import {
   scopedInvestedValue,
   visibleHoldings,
 } from '../../lib/holdings';
+import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { supabase } from '../../lib/supabaseClient';
 import HoldingEditor from './HoldingEditor';
 
 export default function Investments({ household, members, me, data, loading }) {
   const { scope } = useScope();
   const scopeMemberId = resolveScopeMemberId(scope, me, members);
+  const money = useMoneyDisplay(household);
   const { holdings, holdingHistory, reload } = data;
 
   const [group, setGroup] = useState('All');
@@ -78,12 +80,12 @@ export default function Investments({ household, members, me, data, loading }) {
           <section className="wl-hero" style={{ marginTop: 22 }}>
             <div className="ov-kicker">Value{group !== 'All' ? ` · ${group}` : ''}</div>
             <div className="ov-hero fig">
-              <span className="ov-hero-currency">AED</span> {formatMoney(totalValue)}
+              <span className="ov-hero-currency">{money.code}</span> {money.fmt(totalValue)}
             </div>
             {gain.available ? (
               <div className="ov-nwchange">
                 <span className={gain.absolute >= 0 ? 'ov-pos' : 'ov-neg'}>
-                  {gain.absolute >= 0 ? '▲' : '▼'} {formatSigned(gain.absolute)}
+                  {gain.absolute >= 0 ? '▲' : '▼'} {money.fmtSigned(gain.absolute)}
                   {gain.pct !== null ? ` (${formatPct(gain.pct)})` : ''}
                 </span>
                 <span className="ov-muted"> {range}</span>
@@ -135,7 +137,7 @@ export default function Investments({ household, members, me, data, loading }) {
                   <div style={{ flex: 1 }}>
                     <div className="ov-quality-row">
                       <span>{ASSET_CLASS_LABELS[a.assetClass]}</span>
-                      <span className="fig">{formatMoney(a.value)}</span>
+                      <span className="fig">{money.fmt(a.value)}</span>
                     </div>
                     <div className="bud-bar" style={{ marginTop: 6 }}>
                       <span className="bud-bar-spent" style={{ width: `${a.share * 100}%` }} />
@@ -185,10 +187,10 @@ export default function Investments({ household, members, me, data, loading }) {
                         <td>{h.quantity != null ? Number(h.quantity).toLocaleString('en-AE') : '—'}</td>
                         <td>{h.avg_price != null ? formatMoney(h.avg_price, { decimals: 2 }) : '—'}</td>
                         <td>{h.current_price != null ? formatMoney(h.current_price, { decimals: 2 }) : '—'}</td>
-                        <td>{invested !== null ? formatMoney(invested) : '—'}</td>
-                        <td className="fig">{formatMoney(scopedHoldingValue(h, scopeMemberId))}</td>
+                        <td>{invested !== null ? money.fmt(invested) : '—'}</td>
+                        <td className="fig">{money.fmt(scopedHoldingValue(h, scopeMemberId))}</td>
                         <td className={gain ? (gain.absolute >= 0 ? 'ov-pos' : 'ov-neg') : ''}>
-                          {gain ? `${formatSigned(gain.absolute)} (${formatPct(gain.pct)})` : '—'}
+                          {gain ? `${money.fmtSigned(gain.absolute)} (${formatPct(gain.pct)})` : '—'}
                         </td>
                         <td className={h.day_change_pct != null ? (h.day_change_pct >= 0 ? 'ov-pos' : 'ov-neg') : ''}>
                           {h.day_change_pct != null ? `${h.day_change_pct >= 0 ? '+' : ''}${h.day_change_pct.toFixed(2)}%` : '—'}

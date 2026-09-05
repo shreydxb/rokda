@@ -3,6 +3,8 @@ import { useAuth } from '../lib/AuthContext';
 import { useTheme } from '../lib/ThemeContext';
 import { useScope } from '../lib/ScopeContext';
 import { useHousehold } from '../lib/useHousehold';
+import { useMoneyDisplay } from '../lib/CurrencyContext';
+import { CURRENCIES, currencyAvailable } from '../lib/currency';
 import './AppShell.css';
 
 const NAV = [
@@ -16,7 +18,8 @@ export default function AppShell() {
   const { user, signOut } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const { scope, setScope } = useScope();
-  const { me, members } = useHousehold();
+  const { household, me, members } = useHousehold();
+  const { currency, setCurrency } = useMoneyDisplay(household);
   const partnerLabel = members.find((m) => m.id !== me?.id)?.display_name ?? 'Partner';
   const scopes = [
     { id: 'both', label: 'Both' },
@@ -60,6 +63,28 @@ export default function AppShell() {
                   {s.label}
                 </button>
               ))}
+            </div>
+          </div>
+
+          <div className="om-scopewrap">
+            <div className="om-scopelabel">Display currency</div>
+            <div className="om-scope-list" role="group" aria-label="Display currency">
+              {CURRENCIES.map((c) => {
+                const enabled = currencyAvailable(c, household);
+                return (
+                  <button
+                    key={c}
+                    type="button"
+                    className="om-scope"
+                    data-active={currency === c}
+                    disabled={!enabled}
+                    title={enabled ? undefined : 'Set an INR rate in Settings → Household first'}
+                    onClick={() => setCurrency(c)}
+                  >
+                    {c}
+                  </button>
+                );
+              })}
             </div>
           </div>
 

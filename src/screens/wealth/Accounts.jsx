@@ -1,14 +1,16 @@
 import { useState } from 'react';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
-import { formatMoney, formatPct } from '../../lib/money';
+import { formatPct } from '../../lib/money';
 import { utilisation, estimatedStatement, billingCycle } from '../../lib/creditCard';
+import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { supabase } from '../../lib/supabaseClient';
 import AccountEditor from './AccountEditor';
 
 export default function Accounts({ household, members, me, data, loading }) {
   const { scope } = useScope();
   const scopeMemberId = resolveScopeMemberId(scope, me, members);
+  const money = useMoneyDisplay(household);
   const { accounts, transactions, reload } = data;
   const [editing, setEditing] = useState(null);
   const [removingId, setRemovingId] = useState(null);
@@ -53,6 +55,7 @@ export default function Accounts({ household, members, me, data, loading }) {
                   account={a}
                   transactions={transactions}
                   members={members}
+                  money={money}
                   onEdit={setEditing}
                   removing={removingId === a.id}
                   onRemove={() => handleRemove(a.id)}
@@ -76,7 +79,7 @@ export default function Accounts({ household, members, me, data, loading }) {
                       {` · ${a.type.replace('_', ' ')}`}
                     </div>
                   </div>
-                  <div className="fig mn-row-amt">{formatMoney(a.balance)}</div>
+                  <div className="fig mn-row-amt">{money.fmt(a.balance)}</div>
                 </button>
               ))}
             </div>
@@ -103,7 +106,7 @@ export default function Accounts({ household, members, me, data, loading }) {
 
 const CARD_DUE_SOON_DAYS = 10;
 
-function CreditCard({ account, transactions, members, onEdit, removing, onRemove, onCancelRemove }) {
+function CreditCard({ account, transactions, members, money, onEdit, removing, onRemove, onCancelRemove }) {
   const util = utilisation(account);
   const est = estimatedStatement(transactions, account.id, account.statement_day);
   const cycle = account.statement_day ? billingCycle(account.statement_day) : null;
@@ -132,14 +135,14 @@ function CreditCard({ account, transactions, members, onEdit, removing, onRemove
           card
         </div>
 
-        <div className="wl-card-owed fig">{formatMoney(balance)}</div>
+        <div className="wl-card-owed fig">{money.fmt(balance)}</div>
         {util !== null ? (
           <>
             <div className="bud-bar" style={{ marginTop: 8 }}>
               <span className={`bud-bar-spent ${util > 0.8 ? 'bud-bar-over' : ''}`} style={{ width: `${Math.min(100, util * 100)}%` }} />
             </div>
             <div className="ov-muted" style={{ marginTop: 4 }}>
-              {formatPct(util)} of {formatMoney(account.credit_limit)} used
+              {formatPct(util)} of {money.fmt(account.credit_limit)} used
             </div>
           </>
         ) : (
@@ -151,7 +154,7 @@ function CreditCard({ account, transactions, members, onEdit, removing, onRemove
         <div className="wl-card-stats">
           <div>
             <div className="ov-muted">Spent so far</div>
-            <div className="fig">{est ? formatMoney(est.amount) : '—'}</div>
+            <div className="fig">{est ? money.fmt(est.amount) : '—'}</div>
           </div>
           <div>
             <div className="ov-muted">Closes in</div>

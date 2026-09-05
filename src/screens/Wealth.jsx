@@ -29,7 +29,7 @@ export default function Wealth() {
         ))}
       </div>
 
-      {tab === 'networth' && <NetWorth me={me} members={members} data={data} loading={loading} />}
+      {tab === 'networth' && <NetWorth household={household} me={me} members={members} data={data} loading={loading} />}
       {tab === 'accounts' && <Accounts household={household} members={members} me={me} data={data} loading={loading} />}
       {tab === 'investments' && <Investments household={household} members={members} me={me} data={data} loading={loading} />}
     </div>
