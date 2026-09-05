@@ -7,6 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "verify:build": "node scripts/verify-build.mjs",
+    "verify:migrations": "bash scripts/verify-migrations.sh",
+    "compare:migrations": "node scripts/compare-migrations.mjs docs/applied-migrations.json",
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",

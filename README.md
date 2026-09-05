@@ -28,10 +28,12 @@ success while emitting a vendor-only chunk that renders nothing.
 ## Checks
 
 ```bash
-npm run lint          # application source only; design/ is generated and excluded
-npm test              # vitest, including the QA regression suite
+npm run lint               # application source only; design/ is generated and excluded
+npm test                   # vitest, including the QA regression suite
 npm run build
-npm run verify:build  # asserts the bundle actually contains the application
+npm run verify:build       # asserts the bundle actually contains the application
+npm run compare:migrations # repository migrations vs what is applied
+npm run verify:migrations  # build a throwaway database from the migrations (needs a PostgreSQL)
 ```
 
 CI (`.github/workflows/ci.yml`) runs a locked install, lint, tests and build for

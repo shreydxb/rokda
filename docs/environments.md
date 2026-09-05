@@ -60,6 +60,16 @@ handoff says so under "Known limitations".
 
 ## Migrations
 
-`supabase/migrations/` is the repository's history. Applied versions on
-`erggbzbbutsvhleqcddq` are recorded in `docs/migration-reconciliation.md`,
-along with the drift between the two and the reconciliation plan.
+`supabase/migrations/` is the repository's history, and its filenames now carry
+the same version identifiers as the applied migrations on
+`erggbzbbutsvhleqcddq`. `docs/migration-reconciliation.md` records how that was
+established and what the comparison found.
+
+```bash
+npm run compare:migrations   # repository vs docs/applied-migrations.json
+npm run verify:migrations    # build a throwaway database from the migrations
+```
+
+`verify:migrations` needs a PostgreSQL to talk to (libpq environment: PGHOST,
+PGPORT, PGUSER). It creates and drops its own database and never touches an
+existing one. CI runs both against a PostgreSQL 17 service container.

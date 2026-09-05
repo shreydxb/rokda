@@ -1,0 +1,15 @@
+[
+  { "version": "20260903063647", "name": "baseline_schema",            "fingerprint": "909503c6b1982f4184c6c4c8b201a7f5" },
+  { "version": "20260903083752", "name": "recurring",                  "fingerprint": "424fbdc50b2e7ba683ff126a091e424a" },
+  { "version": "20260903084323", "name": "budgets",                    "fingerprint": "c9b6e62a84aa7221592d268db81da789" },
+  { "version": "20260903085026", "name": "intake",                     "fingerprint": "236c770004a0709db1c5de185d0584f7" },
+  { "version": "20260903103555", "name": "net_worth_snapshots",        "fingerprint": "b3281db39923a469f0f7a07ec7c7d0aa" },
+  { "version": "20260903104347", "name": "account_credit_card_fields", "fingerprint": "000509ef10c876c6115e6e350c08761c" },
+  { "version": "20260903104705", "name": "holdings",                   "fingerprint": "fef4e175f1641cec93fd9dce52a6347c" },
+  { "version": "20260903115800", "name": "planning",                   "fingerprint": "1ed1fea0c1bb6cfa32954ba6508788ec" },
+  { "version": "20260903120014", "name": "debts_original_amount",      "fingerprint": "13e41d5d8b50eb7a59e6ed5e013d993f" },
+  { "version": "20260903124126", "name": "settings",                   "fingerprint": "f379a1492e4b649e360a4b146a0da09b" },
+  { "version": "20260905151410", "name": "holding_pricing_fields",     "fingerprint": "7c7d9703e5903b78b48df0845aa29e2d" },
+  { "version": "20260905151910", "name": "household_inr_rate",         "fingerprint": "fe86097c0d0ec638749dc0132635f290" },
+  { "version": "20260905171120", "name": "holdings_commodity_class",   "fingerprint": "df4de737fabb4a2f235dd8fd6002723b" }
+]
