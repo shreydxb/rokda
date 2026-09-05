@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
 import { formatPct } from '../../lib/money';
-import { utilisation, estimatedStatement, billingCycle } from '../../lib/creditCard';
+import { utilisation, estimatedStatement, billingCycle, daysUntilDue } from '../../lib/creditCard';
 import { activeAccounts, archivedAccounts, closurePlan, isArchived } from '../../lib/accounts';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { supabase } from '../../lib/supabaseClient';
@@ -204,13 +204,10 @@ function CreditCard({ account, transactions, members, money, onEdit, plan, busy,
   const closesInDays = cycle ? Math.ceil((cycle.nextClose - new Date()) / 86400000) : null;
   const balance = Number(account.balance);
 
-  let dueSoon = false;
-  if (account.due_day && balance > 0) {
-    const today = new Date();
-    let due = new Date(today.getFullYear(), today.getMonth(), account.due_day);
-    if (due < today) due = new Date(today.getFullYear(), today.getMonth() + 1, account.due_day);
-    dueSoon = Math.round((due - today) / 86400000) <= CARD_DUE_SOON_DAYS;
-  }
+  // Same rule as Overview's attention list: whole days from today, so a card
+  // due today is due today on both screens (QA-07).
+  const daysUntil = balance > 0 ? daysUntilDue(account.due_day) : null;
+  const dueSoon = daysUntil !== null && daysUntil <= CARD_DUE_SOON_DAYS;
 
   return (
     <div className="wl-card">

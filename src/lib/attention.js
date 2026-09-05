@@ -5,6 +5,7 @@ import { monthActualsByCategory } from './budget';
 import { scopedHoldingValue, visibleHoldings } from './holdings';
 import { daysSincePriced, isStale } from './valuation';
 import { parseDay } from './day';
+import { daysUntilDue, nextDueDate } from './creditCard';
 
 function startOfDay(d) {
   const nd = new Date(d);
@@ -68,7 +69,6 @@ const CARD_DUE_WINDOW_DAYS = 10;
 
 // A credit card with a real due_day set, due soon, still carrying a balance.
 function cardDueItems(accounts, scopeMemberId, now) {
-  const today = startOfDay(now);
   const items = [];
   for (const a of accounts) {
     if (a.type !== 'credit_card') continue;
@@ -78,9 +78,10 @@ function cardDueItems(accounts, scopeMemberId, now) {
     const balance = scopedValue(a.balance, a, scopeMemberId);
     if (balance <= 0) continue; // nothing owed
 
-    let due = new Date(today.getFullYear(), today.getMonth(), a.due_day);
-    if (due < today) due = new Date(today.getFullYear(), today.getMonth() + 1, a.due_day);
-    const daysUntil = Math.round((due - today) / 86400000);
+    // Shared with the cards panel, and clamped to the month's length so a card
+    // due on the 31st is due on 28 February (QA-07).
+    const due = nextDueDate(a.due_day, now);
+    const daysUntil = daysUntilDue(a.due_day, now);
     if (daysUntil > CARD_DUE_WINDOW_DAYS) continue;
 
     items.push({

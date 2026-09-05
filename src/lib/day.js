@@ -64,3 +64,25 @@ export function clampToToday(end, now = new Date()) {
 export function daysBetweenDays(from, to) {
   return Math.round((startOfDay(to) - startOfDay(from)) / 86400000);
 }
+
+// Days in a given month. `new Date(y, m + 1, 0)` is the last day of month m.
+export function daysInMonth(year, monthIndex) {
+  return new Date(year, monthIndex + 1, 0).getDate();
+}
+
+// A calendar day in a month, clamped to that month's length. The 31st of
+// February is the 28th (or 29th), not the 3rd of March (QA-07).
+export function atDayOfMonth(year, monthIndex, day) {
+  const normalisedYear = year + Math.floor(monthIndex / 12);
+  const normalisedMonth = ((monthIndex % 12) + 12) % 12;
+  return new Date(normalisedYear, normalisedMonth, Math.min(day, daysInMonth(normalisedYear, normalisedMonth)));
+}
+
+// Add whole months to a date while preserving its ANCHOR day rather than the
+// day it happened to land on last time. Stepping Jan 31 by one month gives
+// Feb 28; stepping that result again gives Mar 31, not Mar 28 — the anchor is
+// remembered, so a short month does not permanently shift the schedule.
+export function addMonthsClamped(anchor, months) {
+  const a = anchor instanceof Date ? anchor : parseDay(anchor);
+  return atDayOfMonth(a.getFullYear(), a.getMonth() + months, a.getDate());
+}

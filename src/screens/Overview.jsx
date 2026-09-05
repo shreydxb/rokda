@@ -396,7 +396,7 @@ export default function Overview() {
               <>
                 <div className="ov-next30-row">
                   {next30.map((r) => (
-                    <div key={r.id} className="ov-next30-cell">
+                    <div key={r.occurrenceKey} className="ov-next30-cell">
                       <div className="ov-muted">{r.dueDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</div>
                       <div className="ov-next30-name">{r.name}</div>
                       <div className={`fig ov-next30-amt ${Number(r.amount) > 0 ? 'ov-pos' : ''}`}>{formatSigned(r.amount)}</div>
