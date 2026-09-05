@@ -19,6 +19,11 @@ export default function NetWorth({ household, me, members, data, loading }) {
   const { accounts, netWorthSnapshots, holdings, reload } = data;
   const [closing, setClosing] = useState(false);
   const [closeError, setCloseError] = useState(null);
+  // The values a close would write, shown for review before anything is
+  // written. Null means "not confirming right now" (SHR-246): today's live
+  // totals must not become a closed month's history without someone actually
+  // looking at the number first.
+  const [closeDraft, setCloseDraft] = useState(null);
 
   const now = useMemo(() => new Date(), []);
   const [selectedIdx, setSelectedIdx] = useState(null);
@@ -51,18 +56,33 @@ export default function NetWorth({ household, me, members, data, loading }) {
   const maxNet = Math.max(1, ...series.map((p) => Math.max(p.net, 0)));
   const pending = pendingClose(netWorthSnapshots, now);
 
-  // Closing writes today's household-wide position as the completed month's
-  // point. Upserting on (household_id, snapshot_date) means closing twice is
-  // idempotent rather than a duplicate or an error (QA-05).
-  async function closeMonth() {
-    if (!pending || !household?.id) return;
+  // Closing is a two-step, explicit act (SHR-246): the button only opens a
+  // review of what would be written — today's live totals, offered as a
+  // starting point, not a fact yet. Nothing is written until "Confirm &
+  // close" is pressed on those (possibly edited) numbers.
+  function reviewClose() {
+    if (!pending) return;
+    const household_wide = netWorthSummary(accounts, null, holdings);
+    setCloseDraft({ assets: household_wide.assets, liabilities: household_wide.liabilities });
+  }
+
+  // Upserting on (household_id, snapshot_date) with ignoreDuplicates means
+  // closing the same month twice from the same session changes nothing — but
+  // it also means a second, stale session cannot silently overwrite a month
+  // another session already closed with different numbers. Whoever closes it
+  // first wins; a later attempt is a no-op, not a clobber.
+  async function confirmClose() {
+    if (!pending || !household?.id || !closeDraft) return;
     setClosing(true);
     setCloseError(null);
-    const household_wide = netWorthSummary(accounts, null, holdings);
     const { error } = await supabase
       .from('net_worth_snapshots')
-      .upsert(closeRowFor(household.id, pending.snapshotDate, household_wide), { onConflict: 'household_id,snapshot_date' });
+      .upsert(closeRowFor(household.id, pending.snapshotDate, closeDraft), {
+        onConflict: 'household_id,snapshot_date',
+        ignoreDuplicates: true,
+      });
     setClosing(false);
+    setCloseDraft(null);
     if (error) {
       setCloseError(error.message);
       return;
@@ -133,15 +153,53 @@ export default function NetWorth({ household, me, members, data, loading }) {
       <section className="wl-history">
         <div className="wl-history-head">
           <div className="ov-kicker">How it's grown</div>
-          {historyAvailable && pending && (
-            <button type="button" className="om-btn" disabled={closing} onClick={closeMonth}>
-              {closing ? 'Closing…' : `Close ${pending.month.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}`}
+          {historyAvailable && pending && !closeDraft && (
+            <button type="button" className="om-btn" disabled={closing} onClick={reviewClose}>
+              {`Close ${pending.month.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}`}
             </button>
           )}
         </div>
         {historyAvailable && !pending && netWorthSnapshots.length > 0 && (
           <div className="ov-muted" style={{ marginBottom: 12 }}>
             Every completed month is closed. Closing again would change nothing.
+          </div>
+        )}
+        {historyAvailable && pending && closeDraft && (
+          <div className="ov-card" style={{ marginBottom: 16, padding: 14 }}>
+            <div className="ov-muted" style={{ marginBottom: 10 }}>
+              Confirm what {pending.month.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })} actually closed at.
+              These start from today's live totals — edit them if they don't reflect that month's actual position.
+            </div>
+            <div className="te-fieldgrid">
+              <div className="te-fieldcell">
+                <span className="te-fieldlabel">Assets</span>
+                <input
+                  className="te-fieldvalue"
+                  type="number"
+                  step="0.01"
+                  value={closeDraft.assets}
+                  onChange={(e) => setCloseDraft((d) => ({ ...d, assets: Number(e.target.value) || 0 }))}
+                />
+              </div>
+              <div className="te-fieldcell">
+                <span className="te-fieldlabel">Liabilities</span>
+                <input
+                  className="te-fieldvalue"
+                  type="number"
+                  step="0.01"
+                  value={closeDraft.liabilities}
+                  onChange={(e) => setCloseDraft((d) => ({ ...d, liabilities: Number(e.target.value) || 0 }))}
+                />
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              <button type="button" className="om-btn" disabled={closing} onClick={() => setCloseDraft(null)}>
+                Cancel
+              </button>
+              <button type="button" className="om-btn ov-btn-primary" disabled={closing} onClick={confirmClose}>
+                {closing ? 'Closing…' : 'Confirm & close'}
+              </button>
+            </div>
           </div>
         )}
         {closeError && (

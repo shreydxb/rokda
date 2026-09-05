@@ -69,6 +69,16 @@ describe('QA-04: valuation freshness', () => {
     expect(valuationChanged(blank, { ...blank, day_change_pct: '' })).toBe(false);
   });
 
+  // SHR-245 QA recheck: a value that's still accurate months later — same
+  // AED figure in June and in September — could not be honestly reconfirmed
+  // without fabricating a numeric change. An explicit reconfirmation (the
+  // caller passes the stored holding back as both `before` and `after`) must
+  // be able to advance priced_at on its own.
+  it('lets an explicit reconfirmation advance the date with no numeric change', () => {
+    expect(valuationChanged(HOLDING, HOLDING)).toBe(false);
+    expect(nextPricedAt(HOLDING, HOLDING, { confirmedAsOf: '2026-09-06' })).toBe('2026-09-06T00:00:00.000Z');
+  });
+
   it('produces a dated history point keyed for idempotent re-confirmation', () => {
     const point = historyPointFor('h1', '2026-09-05', 12_000);
     expect(point).toEqual({ holding_id: 'h1', as_of: '2026-09-05', value_aed: 12_000 });

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { ASSET_CLASS_LABELS } from '../../lib/holdings';
-import { daysSincePriced, historyPointFor, todayISODate, valuationChanged } from '../../lib/valuation';
+import { daysSincePriced, historyPointFor, nextPricedAt, todayISODate, valuationChanged } from '../../lib/valuation';
 import '../money/TransactionEditor.css';
 
 function initialForm(holding) {
@@ -35,6 +35,13 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  // Explicit reconfirmation of an unchanged valuation (SHR-245): distinct from
+  // an ordinary numeric edit, so it must be a deliberate, separate act.
+  const [confirmUnchanged, setConfirmUnchanged] = useState(false);
+  // Once the holdings insert for a brand-new holding succeeds, its id is kept
+  // here so a retry (e.g. after the history write fails) reuses it instead of
+  // inserting a second row (SHR-246: a stable id makes the retry idempotent).
+  const [createdId, setCreatedId] = useState(null);
 
   useEffect(() => {
     const onKey = (e) => {
@@ -93,10 +100,17 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
       invested_value_aed: form.invested_value_aed.trim() === '' ? null : Number(form.invested_value_aed),
       day_change_pct: form.day_change_pct.trim() === '' ? null : Number(form.day_change_pct),
     };
-    // priced_at moves only when the numbers actually change. A rename leaves
-    // whatever valuation date was already there, so a stale holding stays
-    // stale (QA-04).
+    // priced_at moves when the numbers actually change, or when the reviewer
+    // explicitly reconfirms an unchanged value as of the date above. A rename
+    // or a reload does neither, so a stale holding stays stale (QA-04).
     const repriced = !holding || valuationChanged(holding, valuation);
+    const explicitlyConfirmed = !repriced && holding && confirmUnchanged;
+    const nextPriced = repriced
+      ? nextPricedAt(holding, valuation, { confirmedAsOf: asOf })
+      : explicitlyConfirmed
+        ? nextPricedAt(holding, holding, { confirmedAsOf: asOf })
+        : (holding?.priced_at ?? null);
+    const writesHistory = repriced || explicitlyConfirmed;
     const payload = {
       household_id: householdId,
       name: form.name.trim(),
@@ -106,23 +120,35 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
       owner_member_id: form.owner === 'shared' ? null : form.owner,
       updated_at: new Date().toISOString(),
       ...valuation,
-      ...(repriced ? { priced_at: new Date(`${asOf}T00:00:00Z`).toISOString() } : {}),
+      ...(nextPriced ? { priced_at: nextPriced } : {}),
     };
 
-    const { data: saved, error: saveError } = holding
-      ? await supabase.from('holdings').update(payload).eq('id', holding.id).select('id').maybeSingle()
-      : await supabase.from('holdings').insert(payload).select('id').maybeSingle();
-    if (saveError) {
-      setSaving(false);
-      setError(saveError.message);
-      return;
+    // A brand-new holding is inserted at most once: if a prior attempt already
+    // created it (createdId set) but the history write then failed, retrying
+    // must not insert a second row (SHR-246).
+    let holdingId = holding?.id ?? createdId;
+    if (holding) {
+      const { error: saveError } = await supabase.from('holdings').update(payload).eq('id', holding.id);
+      if (saveError) {
+        setSaving(false);
+        setError(saveError.message);
+        return;
+      }
+    } else if (!holdingId) {
+      const { data: saved, error: saveError } = await supabase.from('holdings').insert(payload).select('id').maybeSingle();
+      if (saveError) {
+        setSaving(false);
+        setError(saveError.message);
+        return;
+      }
+      holdingId = saved?.id;
+      setCreatedId(holdingId);
     }
 
     // A confirmed valuation is also a dated history point. Upserting on
     // (holding_id, as_of) makes confirming the same day twice idempotent
     // rather than duplicating the point (QA-05).
-    const holdingId = holding?.id ?? saved?.id;
-    if (repriced && holdingId) {
+    if (writesHistory && holdingId) {
       const point = historyPointFor(holdingId, asOf, valuation.value_aed);
       const { error: historyError } = await supabase
         .from('holding_value_history')
@@ -192,7 +218,10 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
                 type="date"
                 value={asOf}
                 max={todayISODate()}
-                onChange={(e) => setAsOf(e.target.value)}
+                onChange={(e) => {
+                  setAsOf(e.target.value);
+                  setDirty(true);
+                }}
               />
             </div>
             <div className="te-fieldcell te-span2" style={{ alignSelf: 'end' }}>
@@ -205,6 +234,20 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
               </span>
             </div>
           </div>
+
+          {holding && !repricing && (
+            <label className="ov-muted" style={{ fontSize: 11.5, display: 'flex', gap: 8, alignItems: 'center', marginTop: -8 }}>
+              <input
+                type="checkbox"
+                checked={confirmUnchanged}
+                onChange={(e) => {
+                  setConfirmUnchanged(e.target.checked);
+                  setDirty(true);
+                }}
+              />
+              Still worth the same — confirm it as of the date above, without changing any number.
+            </label>
+          )}
 
           <div className="te-fieldgrid">
             <div className="te-fieldcell te-span2">

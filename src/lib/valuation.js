@@ -38,10 +38,22 @@ export function isStale(holding, now = new Date(), staleDays = HOLDING_STALE_DAY
 }
 
 // What a save should write for priced_at. Reloading and non-valuation edits
-// preserve whatever is already there; only a confirmed new valuation moves it.
+// (a rename, a category change) preserve whatever is already there — only a
+// confirmed new valuation moves it.
+//
+// Two things count as "confirmed": the numbers actually changed, or this is
+// an explicit reconfirmation of the value that's already stored — signalled
+// by the caller passing the SAME object for `holding` and `submitted`. An
+// ordinary Save always builds `submitted` fresh from form state, so it can
+// never accidentally look like a reconfirmation; only a dedicated "confirm
+// unchanged" action does that on purpose (SHR-245: a holding whose value
+// truly hasn't moved still needs a way to be marked current).
 export function nextPricedAt(holding, submitted, { confirmedAsOf = null } = {}) {
-  if (!valuationChanged(holding, submitted)) return holding?.priced_at ?? null;
-  if (confirmedAsOf) return new Date(`${confirmedAsOf}T00:00:00Z`).toISOString();
+  if (!confirmedAsOf) return holding?.priced_at ?? null;
+  const reconfirmingAsIs = submitted === holding;
+  if (reconfirmingAsIs || valuationChanged(holding, submitted)) {
+    return new Date(`${confirmedAsOf}T00:00:00Z`).toISOString();
+  }
   return holding?.priced_at ?? null;
 }
 
