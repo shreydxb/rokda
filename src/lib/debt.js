@@ -24,17 +24,19 @@ export function orderDebts(debts, strategy) {
 }
 
 // Rolling payoff: pay every debt's minimum, then dump the extra payment
-// (plus the minimums freed up by any debt that's already cleared) onto the
-// highest-priority debt still open, in the order given.
+// (plus whatever of this month's minimum budget went unused — a debt that's
+// already cleared, or one that pays off with less than its full minimum)
+// onto the highest-priority debt still open, in the order given.
 export function simulatePayoffPlan(orderedDebts, extraPayment, maxMonths = 600) {
   const balances = orderedDebts.map((d) => Number(d.balance));
   const rates = orderedDebts.map((d) => Number(d.apr_pct) / 100 / 12);
   const minimums = orderedDebts.map((d) => Number(d.minimum_payment));
   let totalInterest = 0;
 
-  for (let m = 1; m <= maxMonths; m++) {
-    if (balances.every((b) => b <= 0)) return { months: m - 1, totalInterest };
+  // Debts already paid off before the simulation starts need no month at all.
+  if (balances.every((b) => b <= 0)) return { months: 0, totalInterest };
 
+  for (let m = 1; m <= maxMonths; m++) {
     for (let i = 0; i < balances.length; i++) {
       if (balances[i] <= 0) continue;
       const interest = balances[i] * rates[i];
@@ -42,14 +44,20 @@ export function simulatePayoffPlan(orderedDebts, extraPayment, maxMonths = 600) 
       balances[i] += interest;
     }
 
+    // Every minimum's budget is committed this month, whether or not the
+    // debt it belongs to actually needs all of it: a debt already cleared
+    // frees its whole minimum, and one that clears with less than its
+    // minimum frees the remainder — both join the pool in the SAME month,
+    // not the next one.
     let pool = Number(extraPayment) || 0;
     for (let i = 0; i < balances.length; i++) {
-      if (balances[i] <= 0) pool += minimums[i];
-    }
-
-    for (let i = 0; i < balances.length; i++) {
-      if (balances[i] <= 0) continue;
-      balances[i] -= Math.min(balances[i], minimums[i]);
+      if (balances[i] <= 0) {
+        pool += minimums[i];
+        continue;
+      }
+      const pay = Math.min(balances[i], minimums[i]);
+      balances[i] -= pay;
+      pool += minimums[i] - pay;
     }
 
     for (let i = 0; i < balances.length && pool > 0; i++) {
@@ -58,6 +66,11 @@ export function simulatePayoffPlan(orderedDebts, extraPayment, maxMonths = 600) 
       balances[i] -= pay;
       pool -= pay;
     }
+
+    // Checked at the end of the month that pays it off, not the top of the
+    // next one — otherwise a payoff that lands exactly on maxMonths is never
+    // detected, since there is no maxMonths + 1 iteration to notice it.
+    if (balances.every((b) => b <= 0)) return { months: m, totalInterest };
   }
   return null;
 }
