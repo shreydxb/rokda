@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { formatMoney, formatPct } from '../../lib/money';
 import { firstMatchingRule } from '../../lib/rules';
+import { accountOptionLabel, selectableAccounts } from '../../lib/accounts';
 import './TransactionEditor.css';
 
 export default function Inbox({ household, accounts, categories, data, loading }) {
@@ -81,7 +82,9 @@ function IntakeReview({ item, householdId, accounts, categories, categoryRules, 
   const [amount, setAmount] = useState(item.parsed_amount !== null ? String(item.parsed_amount) : '');
   const [merchant, setMerchant] = useState(item.parsed_merchant ?? '');
   const [date, setDate] = useState(item.parsed_date ?? new Date().toISOString().slice(0, 10));
-  const [accountId, setAccountId] = useState(accounts[0]?.id ?? '');
+  // Intake can only be approved onto an open account (QA-01).
+  const selectable = selectableAccounts(accounts);
+  const [accountId, setAccountId] = useState(selectableAccounts(accounts)[0]?.id ?? '');
   const suggestedRule = item.parsed_category_id ? null : firstMatchingRule(item.parsed_merchant, categoryRules);
   const [categoryId, setCategoryId] = useState(item.parsed_category_id ?? suggestedRule?.category_id ?? '');
 
@@ -166,9 +169,9 @@ function IntakeReview({ item, householdId, accounts, categories, categoryRules, 
           <div className="te-fieldcell">
             <span className="te-fieldlabel">Account</span>
             <select className="te-fieldvalue" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-              {accounts.map((a) => (
+              {selectable.map((a) => (
                 <option key={a.id} value={a.id}>
-                  {a.name}
+                  {accountOptionLabel(a, { accounts: selectable })}
                 </option>
               ))}
             </select>

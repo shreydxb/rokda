@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId, scopedValue } from '../../lib/scope';
+import { isArchived } from '../../lib/accounts';
 import { formatPct } from '../../lib/money';
 import { buildNetWorthSeries, changeOverMonths } from '../../lib/netWorth';
 import { ASSET_CLASS_LABELS, scopedHoldingValue, visibleHoldings } from '../../lib/holdings';
@@ -16,7 +17,10 @@ export default function NetWorth({ household, me, members, data, loading }) {
   const now = useMemo(() => new Date(), []);
   const [selectedIdx, setSelectedIdx] = useState(null);
 
-  const visible = accounts.filter((a) => scopeMemberId === null || a.is_shared || a.owner_member_id === scopeMemberId);
+  // Closed accounts leave today's position but keep their transactions (QA-01).
+  const visible = accounts.filter(
+    (a) => !isArchived(a) && (scopeMemberId === null || a.is_shared || a.owner_member_id === scopeMemberId),
+  );
   const assetRows = visible.filter((a) => !isLiabilityAccount(a));
   const liabilityRows = visible.filter((a) => isLiabilityAccount(a));
   const visibleHoldingRows = visibleHoldings(holdings, scopeMemberId);

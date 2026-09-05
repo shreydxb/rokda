@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
+import { closurePlan, isArchived } from '../../lib/accounts';
 import '../money/TransactionEditor.css';
 
 const TYPES = ['checking', 'savings', 'credit_card', 'investment', 'loan', 'cash', 'other'];
@@ -20,7 +21,7 @@ function initialForm(account, defaultType) {
   return { name: '', type: defaultType ?? 'checking', currency: 'AED', balance: '', owner: 'shared', credit_limit: '', statement_day: '', due_day: '' };
 }
 
-export default function AccountEditor({ account, defaultType, householdId, members, onClose, onSaved }) {
+export default function AccountEditor({ account, defaultType, householdId, members, transactions = [], onClose, onSaved }) {
   const [form, setForm] = useState(() => initialForm(account, defaultType));
   const [dirty, setDirty] = useState(false);
   const [confirmingClose, setConfirmingClose] = useState(false);
@@ -88,16 +89,42 @@ export default function AccountEditor({ account, defaultType, householdId, membe
     await onSaved();
   }
 
-  async function handleDelete() {
+  // Closing keeps the ledger; deleting is only offered for an account that was
+  // never used. The foreign key enforces the same rule server-side (QA-01).
+  const plan = account ? closurePlan(account, transactions) : null;
+
+  async function handleClose() {
     if (!confirmingDelete) {
       setConfirmingDelete(true);
       return;
     }
     setSaving(true);
-    const { error: delError } = await supabase.from('accounts').delete().eq('id', account.id);
+    setError('');
+    const { error: mutationError } =
+      plan.action === 'delete'
+        ? await supabase.from('accounts').delete().eq('id', account.id)
+        : await supabase
+            .from('accounts')
+            .update({ archived_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+            .eq('id', account.id);
     setSaving(false);
-    if (delError) {
-      setError(delError.message);
+    if (mutationError) {
+      setError(mutationError.message);
+      return;
+    }
+    await onSaved();
+  }
+
+  async function handleReopen() {
+    setSaving(true);
+    setError('');
+    const { error: mutationError } = await supabase
+      .from('accounts')
+      .update({ archived_at: null, updated_at: new Date().toISOString() })
+      .eq('id', account.id);
+    setSaving(false);
+    if (mutationError) {
+      setError(mutationError.message);
       return;
     }
     await onSaved();
@@ -179,6 +206,12 @@ export default function AccountEditor({ account, defaultType, householdId, membe
             </div>
           </div>
 
+          {account && confirmingDelete && (
+            <p className="ov-muted" style={{ fontSize: 12.5 }}>
+              {plan.detail}
+            </p>
+          )}
+
           {error && (
             <p className="ov-warn" role="alert" style={{ fontSize: 12.5 }}>
               {error}
@@ -187,9 +220,20 @@ export default function AccountEditor({ account, defaultType, householdId, membe
 
           <div className="te-sticky-actions">
             <div className="te-actions" style={{ borderTop: 'none', paddingTop: 0, marginTop: 0 }}>
-              {account && (
-                <button type="button" className="om-btn te-delete" onClick={handleDelete} disabled={saving}>
-                  {confirmingDelete ? 'Confirm delete?' : 'Delete'}
+              {account && isArchived(account) && (
+                <button type="button" className="om-btn" onClick={handleReopen} disabled={saving}>
+                  Reopen account
+                </button>
+              )}
+              {account && !isArchived(account) && (
+                <button type="button" className="om-btn te-delete" onClick={handleClose} disabled={saving}>
+                  {confirmingDelete
+                    ? plan.action === 'delete'
+                      ? 'Confirm delete?'
+                      : 'Confirm close?'
+                    : plan.action === 'delete'
+                      ? 'Delete'
+                      : 'Close account'}
                 </button>
               )}
               <div className="te-actions-right">

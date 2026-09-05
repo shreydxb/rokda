@@ -70,6 +70,7 @@ function cardDueItems(accounts, scopeMemberId, now) {
   const items = [];
   for (const a of accounts) {
     if (a.type !== 'credit_card') continue;
+    if (a.archived_at != null) continue; // closed card: nothing to chase
     if (!(scopeMemberId === null || a.is_shared || a.owner_member_id === scopeMemberId)) continue;
     if (!a.due_day) continue; // not set yet — nothing honest to say
     const balance = scopedValue(a.balance, a, scopeMemberId);

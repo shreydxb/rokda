@@ -1,4 +1,5 @@
 import { scopedValue } from '../lib/scope';
+import { isArchived } from '../lib/accounts';
 import { chartBuckets, periodBounds } from '../lib/period';
 import { scopedHoldingValue, visibleHoldings } from '../lib/holdings';
 
@@ -10,8 +11,11 @@ function visibleToScope(row, scopeMemberId) {
   return row.is_shared || row.owner_member_id === scopeMemberId;
 }
 
+// Closed accounts are excluded from every current-position figure: they are
+// not part of what the household holds today. Their transactions are separate
+// rows and stay in history untouched (QA-01).
 export function visibleAccounts(accounts, scopeMemberId) {
-  return accounts.filter((a) => visibleToScope(a, scopeMemberId));
+  return accounts.filter((a) => !isArchived(a) && visibleToScope(a, scopeMemberId));
 }
 
 export function netWorthSummary(accounts, scopeMemberId, holdings = []) {

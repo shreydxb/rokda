@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
+import { accountOptionLabel, selectableAccounts } from '../../lib/accounts';
 import { CADENCES } from '../../lib/recurring';
 import './TransactionEditor.css';
 
@@ -35,7 +36,10 @@ function initialForm(item, accounts) {
 }
 
 export default function RecurringEditor({ item, householdId, accounts, categories, members, onClose, onSaved }) {
-  const [form, setForm] = useState(() => initialForm(item, accounts));
+  // Closed accounts stay out of new-entry choices; an existing schedule keeps
+  // the account it already points at (QA-01).
+  const selectable = selectableAccounts(accounts, item?.account_id ?? null);
+  const [form, setForm] = useState(() => initialForm(item, selectableAccounts(accounts, item?.account_id ?? null)));
   const [dirty, setDirty] = useState(false);
   const [confirmingClose, setConfirmingClose] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -189,9 +193,9 @@ export default function RecurringEditor({ item, householdId, accounts, categorie
               <span className="te-fieldlabel">Account</span>
               <select className="te-fieldvalue" value={form.account_id} onChange={(e) => set('account_id', e.target.value)}>
                 <option value="">Not linked</option>
-                {accounts.map((a) => (
+                {selectable.map((a) => (
                   <option key={a.id} value={a.id}>
-                    {a.name}
+                    {accountOptionLabel(a, { members, accounts: selectable })}
                   </option>
                 ))}
               </select>
