@@ -9,6 +9,7 @@ export const ASSET_CLASS_LABELS = {
   crypto: 'Crypto',
   sukuk: 'Sukuk',
   cash: 'Cash',
+  commodity: 'Commodity',
 };
 
 const GROUPS = {
@@ -20,13 +21,14 @@ const GROUPS = {
   crypto: 'Crypto',
   sukuk: 'Sukuk',
   cash: 'Cash',
+  commodity: 'Commodities',
 };
 
 export function groupOf(assetClass) {
   return GROUPS[assetClass] ?? 'Other';
 }
 
-export const GROUP_ORDER = ['All', 'Global', 'UAE', 'India', 'Crypto', 'Sukuk', 'Cash'];
+export const GROUP_ORDER = ['All', 'Global', 'UAE', 'India', 'Crypto', 'Commodities', 'Sukuk', 'Cash'];
 
 export function visibleHoldings(holdings, scopeMemberId, group) {
   return holdings.filter((h) => {
