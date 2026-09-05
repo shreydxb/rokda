@@ -15,16 +15,76 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const MIGRATIONS_DIR = 'supabase/migrations';
 
+// Tokenises just enough SQL to strip comments and collapse insignificant
+// whitespace WITHOUT touching anything inside a string literal ('...') or a
+// quoted identifier ("..."). The previous version lowercased and stripped
+// comment-like text everywhere, including inside literals — so `select 'A'`
+// and `select 'a'` fingerprinted identically, and a `--` inside a string was
+// treated as a comment marker. Two migrations can only be equivalent if
+// their literals and quoted identifiers match byte-for-byte; only the SQL
+// *around* them (keywords, identifiers, whitespace) is case- and
+// whitespace-insensitive.
 export function normalise(sql) {
-  return sql
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/--[^\n]*/g, '')
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .trim();
+  let out = '';
+  let i = 0;
+  let pendingSpace = false;
+  const n = sql.length;
+  const flushSpace = () => {
+    if (pendingSpace && out !== '') out += ' ';
+    pendingSpace = false;
+  };
+  while (i < n) {
+    const two = sql.slice(i, i + 2);
+    if (two === '--') {
+      // Line comment: skip to (not including) the newline.
+      const end = sql.indexOf('\n', i);
+      i = end === -1 ? n : end;
+      pendingSpace = true;
+      continue;
+    }
+    if (two === '/*') {
+      const end = sql.indexOf('*/', i + 2);
+      i = end === -1 ? n : end + 2;
+      pendingSpace = true;
+      continue;
+    }
+    const ch = sql[i];
+    if (ch === "'" || ch === '"') {
+      // A literal or quoted identifier: copied verbatim — case, internal
+      // whitespace and any `--`/`/*` inside it are all part of its value,
+      // not something to normalise away — honouring '' / "" as an escaped
+      // quote inside the same literal.
+      flushSpace();
+      let j = i + 1;
+      while (j < n) {
+        if (sql[j] === ch) {
+          if (sql[j + 1] === ch) {
+            j += 2;
+            continue;
+          }
+          j += 1;
+          break;
+        }
+        j += 1;
+      }
+      out += sql.slice(i, j);
+      i = j;
+      continue;
+    }
+    if (/\s/.test(ch)) {
+      pendingSpace = true;
+      i += 1;
+      continue;
+    }
+    flushSpace();
+    out += ch.toLowerCase();
+    i += 1;
+  }
+  return out.trim();
 }
 
 export function fingerprint(sql) {
@@ -64,7 +124,14 @@ export function compare(repo, applied) {
   return [...rows, ...appliedOnly];
 }
 
-if (process.argv[1] && import.meta.url.endsWith(process.argv[1].split('/').pop())) {
+// Entry-point check via URL comparison rather than string splitting: the
+// previous version split argv[1] on '/' only, so on Windows (backslash
+// paths) it never matched import.meta.url, `npm run compare:migrations`
+// silently printed nothing and exited 0 — a mismatch was invisible there.
+// pathToFileURL normalises the platform path separator either way.
+const isMainModule = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isMainModule) {
   const path = process.argv[2];
   if (!path) {
     console.error('usage: node scripts/compare-migrations.mjs <applied-migrations.json>');
