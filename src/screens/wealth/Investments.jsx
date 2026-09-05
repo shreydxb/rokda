@@ -97,7 +97,13 @@ export default function Investments({ household, members, me, data, loading }) {
                 <span className="ov-muted"> {range}</span>
               </div>
             ) : (
-              <div className="ov-nwchange ov-muted">Not enough history yet for {range}.</div>
+              <div className="ov-nwchange ov-muted">
+                {/* Holding history accumulates from confirmed valuations, not
+                    from time passing (QA-05). */}
+                {holdingHistory.length === 0
+                  ? 'No valuation history yet. Confirming a valuation on a holding records a dated point.'
+                  : `Not enough history yet for ${range}.`}
+              </div>
             )}
             <div className="ov-seg-row" style={{ marginTop: 14 }}>
               {RANGES.map((r) => (

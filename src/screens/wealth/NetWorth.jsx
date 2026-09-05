@@ -3,6 +3,8 @@ import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId, scopedValue } from '../../lib/scope';
 import { isArchived } from '../../lib/accounts';
 import { balanceStatus, unconfirmedAccounts } from '../../lib/balance';
+import { closeRowFor, historyState, pendingClose } from '../../lib/snapshots';
+import { supabase } from '../../lib/supabaseClient';
 import { formatPct } from '../../lib/money';
 import { buildNetWorthSeries, changeOverMonths } from '../../lib/netWorth';
 import { ASSET_CLASS_LABELS, scopedHoldingValue, visibleHoldings } from '../../lib/holdings';
@@ -14,7 +16,9 @@ export default function NetWorth({ household, me, members, data, loading }) {
   const { scope } = useScope();
   const scopeMemberId = resolveScopeMemberId(scope, me, members);
   const money = useMoneyDisplay(household);
-  const { accounts, netWorthSnapshots, holdings } = data;
+  const { accounts, netWorthSnapshots, holdings, reload } = data;
+  const [closing, setClosing] = useState(false);
+  const [closeError, setCloseError] = useState(null);
 
   const now = useMemo(() => new Date(), []);
   const [selectedIdx, setSelectedIdx] = useState(null);
@@ -45,6 +49,26 @@ export default function NetWorth({ household, me, members, data, loading }) {
   const change1mo = historyAvailable ? changeOverMonths(series, 1) : null;
   const change12mo = historyAvailable ? changeOverMonths(series, 12) : null;
   const maxNet = Math.max(1, ...series.map((p) => Math.max(p.net, 0)));
+  const pending = pendingClose(netWorthSnapshots, now);
+
+  // Closing writes today's household-wide position as the completed month's
+  // point. Upserting on (household_id, snapshot_date) means closing twice is
+  // idempotent rather than a duplicate or an error (QA-05).
+  async function closeMonth() {
+    if (!pending || !household?.id) return;
+    setClosing(true);
+    setCloseError(null);
+    const household_wide = netWorthSummary(accounts, null, holdings);
+    const { error } = await supabase
+      .from('net_worth_snapshots')
+      .upsert(closeRowFor(household.id, pending.snapshotDate, household_wide), { onConflict: 'household_id,snapshot_date' });
+    setClosing(false);
+    if (error) {
+      setCloseError(error.message);
+      return;
+    }
+    await reload();
+  }
   const selected = selectedIdx !== null ? series[selectedIdx] : series[series.length - 1];
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
@@ -107,13 +131,34 @@ export default function NetWorth({ household, me, members, data, loading }) {
       </section>
 
       <section className="wl-history">
-        <div className="ov-kicker" style={{ marginBottom: 14 }}>
-          How it's grown
+        <div className="wl-history-head">
+          <div className="ov-kicker">How it's grown</div>
+          {historyAvailable && pending && (
+            <button type="button" className="om-btn" disabled={closing} onClick={closeMonth}>
+              {closing ? 'Closing…' : `Close ${pending.month.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}`}
+            </button>
+          )}
         </div>
+        {historyAvailable && !pending && netWorthSnapshots.length > 0 && (
+          <div className="ov-muted" style={{ marginBottom: 12 }}>
+            Every completed month is closed. Closing again would change nothing.
+          </div>
+        )}
+        {closeError && (
+          <div className="ov-error" role="alert" style={{ marginBottom: 12 }}>
+            Couldn’t close the month: {closeError}
+          </div>
+        )}
         {!historyAvailable ? (
           <div className="ov-muted">Net worth history is tracked household-wide — switch to "Both" to see the trend.</div>
         ) : series.length < 2 ? (
-          <div className="ov-muted">Net worth history builds up month by month — check back after a full month has passed.</div>
+          <div className="ov-muted">
+            {/* History only exists because someone closes a month. Waiting
+                alone never produced a point (QA-05). */}
+            {historyState(netWorthSnapshots) === 'none'
+              ? 'No month has been closed yet, so there is no history to show. Closing a month records today’s balances as that month’s point.'
+              : 'One month has been closed so far. A second gives the first trend.'}
+          </div>
         ) : (
           <>
             <div className="ov-chart" style={{ gap: series.length > 8 ? 4 : 12 }}>

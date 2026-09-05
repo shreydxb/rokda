@@ -192,3 +192,13 @@
   flex: 1;
   min-width: 0;
 }
+
+/* Month close sits with the history heading: history exists because someone
+   closes a month, so the action belongs next to the thing it fills (QA-05). */
+.wl-history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
