@@ -123,3 +123,42 @@
   color: var(--ink);
   border-color: var(--ink3);
 }
+
+.wl-holdwrap {
+  overflow-x: auto;
+}
+.wl-holdtable {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 920px;
+  font-size: 12.5px;
+}
+.wl-holdtable th,
+.wl-holdtable td {
+  text-align: right;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+}
+.wl-holdtable th:first-child,
+.wl-holdtable td:first-child {
+  text-align: left;
+  white-space: normal;
+}
+.wl-holdtable th:nth-child(2),
+.wl-holdtable td:nth-child(2) {
+  text-align: left;
+}
+.wl-holdtable th {
+  color: var(--ink3);
+  font-weight: 400;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.wl-holdrow {
+  cursor: pointer;
+}
+.wl-holdrow:hover td {
+  background: var(--raise);
+}

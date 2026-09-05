@@ -40,6 +40,22 @@ export function scopedHoldingValue(holding, scopeMemberId) {
   return scopedValue(holding.value_aed, holding, scopeMemberId);
 }
 
+export function scopedInvestedValue(holding, scopeMemberId) {
+  if (holding.invested_value_aed == null) return null;
+  return scopedValue(holding.invested_value_aed, holding, scopeMemberId);
+}
+
+// P&L in absolute AED and percent — null when there's no real invested
+// figure to compare against (most holdings today, until entered manually or
+// backed by a real broker import), rather than guessing a cost basis.
+export function holdingGain(holding, scopeMemberId) {
+  const invested = scopedInvestedValue(holding, scopeMemberId);
+  if (invested === null || invested === 0) return null;
+  const value = scopedHoldingValue(holding, scopeMemberId);
+  const absolute = value - invested;
+  return { absolute, pct: absolute / invested };
+}
+
 export function allocationByClass(holdings, scopeMemberId) {
   const totals = new Map();
   let grandTotal = 0;

@@ -11,9 +11,17 @@ function initialForm(holding) {
       currency: holding.currency ?? 'AED',
       value_aed: String(holding.value_aed ?? 0),
       owner: holding.is_shared ? 'shared' : (holding.owner_member_id ?? ''),
+      quantity: holding.quantity != null ? String(holding.quantity) : '',
+      avg_price: holding.avg_price != null ? String(holding.avg_price) : '',
+      current_price: holding.current_price != null ? String(holding.current_price) : '',
+      invested_value_aed: holding.invested_value_aed != null ? String(holding.invested_value_aed) : '',
+      day_change_pct: holding.day_change_pct != null ? String(holding.day_change_pct) : '',
     };
   }
-  return { name: '', asset_class: 'us_equity', currency: 'USD', value_aed: '', owner: 'shared' };
+  return {
+    name: '', asset_class: 'us_equity', currency: 'USD', value_aed: '', owner: 'shared',
+    quantity: '', avg_price: '', current_price: '', invested_value_aed: '', day_change_pct: '',
+  };
 }
 
 export default function HoldingEditor({ holding, householdId, members, onClose, onSaved }) {
@@ -66,6 +74,11 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
       is_shared: form.owner === 'shared',
       owner_member_id: form.owner === 'shared' ? null : form.owner,
       last_refreshed: new Date().toISOString(),
+      quantity: form.quantity.trim() === '' ? null : Number(form.quantity),
+      avg_price: form.avg_price.trim() === '' ? null : Number(form.avg_price),
+      current_price: form.current_price.trim() === '' ? null : Number(form.current_price),
+      invested_value_aed: form.invested_value_aed.trim() === '' ? null : Number(form.invested_value_aed),
+      day_change_pct: form.day_change_pct.trim() === '' ? null : Number(form.day_change_pct),
     };
 
     const query = holding
@@ -142,6 +155,36 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
             <div className="te-fieldcell">
               <span className="te-fieldlabel">Native currency</span>
               <input className="te-fieldvalue" type="text" value={form.currency} onChange={(e) => set('currency', e.target.value.toUpperCase())} maxLength={3} />
+            </div>
+          </div>
+
+          <div>
+            <span className="te-fieldlabel">Pricing detail (optional)</span>
+            <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 4, marginBottom: 10 }}>
+              Fills in the richer holdings table (units, avg price, P&amp;L). Manual for now — there's no live
+              price feed, so "Today" only updates when you re-enter it.
+            </div>
+            <div className="te-fieldgrid">
+              <div className="te-fieldcell">
+                <span className="te-fieldlabel">Units</span>
+                <input className="te-fieldvalue" type="number" step="any" value={form.quantity} onChange={(e) => set('quantity', e.target.value)} placeholder="—" />
+              </div>
+              <div className="te-fieldcell">
+                <span className="te-fieldlabel">Avg price ({form.currency || '—'})</span>
+                <input className="te-fieldvalue" type="number" step="any" value={form.avg_price} onChange={(e) => set('avg_price', e.target.value)} placeholder="—" />
+              </div>
+              <div className="te-fieldcell">
+                <span className="te-fieldlabel">Price now ({form.currency || '—'})</span>
+                <input className="te-fieldvalue" type="number" step="any" value={form.current_price} onChange={(e) => set('current_price', e.target.value)} placeholder="—" />
+              </div>
+              <div className="te-fieldcell">
+                <span className="te-fieldlabel">Invested (AED)</span>
+                <input className="te-fieldvalue" type="number" step="0.01" value={form.invested_value_aed} onChange={(e) => set('invested_value_aed', e.target.value)} placeholder="—" />
+              </div>
+              <div className="te-fieldcell">
+                <span className="te-fieldlabel">Day change (%)</span>
+                <input className="te-fieldvalue" type="number" step="any" value={form.day_change_pct} onChange={(e) => set('day_change_pct', e.target.value)} placeholder="—" />
+              </div>
             </div>
           </div>
 

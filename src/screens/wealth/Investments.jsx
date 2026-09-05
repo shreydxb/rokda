@@ -8,9 +8,11 @@ import {
   RANGES,
   allocationByClass,
   groupOf,
+  holdingGain,
   portfolioGain,
   portfolioSeries,
   scopedHoldingValue,
+  scopedInvestedValue,
   visibleHoldings,
 } from '../../lib/holdings';
 import { supabase } from '../../lib/supabaseClient';
@@ -149,19 +151,53 @@ export default function Investments({ household, members, me, data, loading }) {
             <div className="ov-kicker" style={{ marginBottom: 10 }}>
               Holdings
             </div>
-            <div className="mn-list">
-              {rows.map((h) => (
-                <button key={h.id} type="button" className="mn-row" onClick={() => setEditing(h)}>
-                  <div className="mn-row-main">
-                    <div>{h.name}</div>
-                    <div className="ov-muted">
-                      {ASSET_CLASS_LABELS[h.asset_class]} · {h.currency} ·{' '}
-                      {h.is_shared ? 'Shared' : (members.find((m) => m.id === h.owner_member_id)?.display_name ?? 'Unassigned')}
-                    </div>
-                  </div>
-                  <div className="fig mn-row-amt">{formatMoney(scopedHoldingValue(h, scopeMemberId))}</div>
-                </button>
-              ))}
+            <div className="wl-holdwrap">
+              <table className="wl-holdtable">
+                <thead>
+                  <tr>
+                    <th>Holding</th>
+                    <th>Owner</th>
+                    <th>Ccy</th>
+                    <th>Units</th>
+                    <th>Avg price</th>
+                    <th>Price now</th>
+                    <th>Invested</th>
+                    <th>Value</th>
+                    <th>P&amp;L</th>
+                    <th>Today</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((h) => {
+                    const gain = holdingGain(h, scopeMemberId);
+                    const invested = scopedInvestedValue(h, scopeMemberId);
+                    return (
+                      <tr key={h.id} className="wl-holdrow" onClick={() => setEditing(h)}>
+                        <td>
+                          <div>{h.name}</div>
+                          <div className="ov-muted">
+                            {ASSET_CLASS_LABELS[h.asset_class]} ·{' '}
+                            {h.is_shared ? 'Shared' : (members.find((m) => m.id === h.owner_member_id)?.display_name ?? 'Unassigned')}
+                          </div>
+                        </td>
+                        <td>{h.is_shared ? 'Shared' : (members.find((m) => m.id === h.owner_member_id)?.display_name ?? '—')}</td>
+                        <td>{h.currency}</td>
+                        <td>{h.quantity != null ? Number(h.quantity).toLocaleString('en-AE') : '—'}</td>
+                        <td>{h.avg_price != null ? formatMoney(h.avg_price, { decimals: 2 }) : '—'}</td>
+                        <td>{h.current_price != null ? formatMoney(h.current_price, { decimals: 2 }) : '—'}</td>
+                        <td>{invested !== null ? formatMoney(invested) : '—'}</td>
+                        <td className="fig">{formatMoney(scopedHoldingValue(h, scopeMemberId))}</td>
+                        <td className={gain ? (gain.absolute >= 0 ? 'ov-pos' : 'ov-neg') : ''}>
+                          {gain ? `${formatSigned(gain.absolute)} (${formatPct(gain.pct)})` : '—'}
+                        </td>
+                        <td className={h.day_change_pct != null ? (h.day_change_pct >= 0 ? 'ov-pos' : 'ov-neg') : ''}>
+                          {h.day_change_pct != null ? `${h.day_change_pct >= 0 ? '+' : ''}${h.day_change_pct.toFixed(2)}%` : '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </section>
         </>
