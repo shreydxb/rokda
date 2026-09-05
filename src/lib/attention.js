@@ -6,6 +6,7 @@ import { scopedHoldingValue, visibleHoldings } from './holdings';
 import { daysSincePriced, isStale } from './valuation';
 import { parseDay } from './day';
 import { daysUntilDue, nextDueDate } from './creditCard';
+import { balanceStatus } from './balance';
 
 function startOfDay(d) {
   const nd = new Date(d);
@@ -152,6 +153,29 @@ function staleHoldingItems(holdings, scopeMemberId, now) {
   return items;
 }
 
+// An account nobody has valued is a setup gap, not a zero. Overview said "All
+// caught up" while every balance was unconfirmed (QA-02).
+function unconfirmedBalanceItems(accounts, scopeMemberId, now) {
+  const items = [];
+  for (const a of accounts) {
+    if (a.archived_at != null) continue;
+    if (!(scopeMemberId === null || a.is_shared || a.owner_member_id === scopeMemberId)) continue;
+    const status = balanceStatus(a, now);
+    if (status === 'confirmed') continue;
+    items.push({
+      id: `balance-${a.id}`,
+      kind: 'balance_unset',
+      severity: status === 'unset' ? 'warn' : 'info',
+      title: status === 'unset' ? `${a.name} has no confirmed balance` : `${a.name}'s balance is getting old`,
+      detail:
+        status === 'unset'
+          ? 'Net worth treats it as zero until someone confirms what it actually is.'
+          : `Last confirmed ${Math.floor((now - new Date(a.balance_as_of)) / 86400000)}d ago.`,
+    });
+  }
+  return items;
+}
+
 // Every item here is computed fresh from real data each call — nothing is a
 // fixed template, so which items appear (and how many) changes month to
 // month with the household's actual conditions.
@@ -163,6 +187,7 @@ export function buildAttentionItems({ transactions, recurring, accounts, holding
   return [
     ...reviewItems,
     ...cardDueItems(accounts, scopeMemberId, now),
+    ...unconfirmedBalanceItems(accounts, scopeMemberId, now),
     ...missingRecurringItems(recurring, transactions, scopeMemberId, now),
     ...categoryAnomalyItems(transactions, categories, scopeMemberId, now),
     ...staleHoldingItems(holdings, scopeMemberId, now),

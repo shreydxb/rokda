@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { closurePlan, isArchived } from '../../lib/accounts';
+import { isBalanceConfirmed } from '../../lib/balance';
+import { todayISODate } from '../../lib/valuation';
 import '../money/TransactionEditor.css';
 
 const TYPES = ['checking', 'savings', 'credit_card', 'investment', 'loan', 'cash', 'other'];
@@ -23,6 +25,10 @@ function initialForm(account, defaultType) {
 
 export default function AccountEditor({ account, defaultType, householdId, members, transactions = [], onClose, onSaved }) {
   const [form, setForm] = useState(() => initialForm(account, defaultType));
+  // A balance is a claim someone makes as of a date. Until it is confirmed it
+  // stays unknown rather than becoming a confident zero (QA-02).
+  const [confirmBalance, setConfirmBalance] = useState(() => !account || !isBalanceConfirmed(account));
+  const [balanceAsOf, setBalanceAsOf] = useState(() => todayISODate());
   const [dirty, setDirty] = useState(false);
   const [confirmingClose, setConfirmingClose] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -74,6 +80,10 @@ export default function AccountEditor({ account, defaultType, householdId, membe
       credit_limit: isCard && form.credit_limit ? Number(form.credit_limit) : null,
       statement_day: isCard && form.statement_day ? Number(form.statement_day) : null,
       due_day: isCard && form.due_day ? Number(form.due_day) : null,
+      updated_at: new Date().toISOString(),
+      // Only an explicit confirmation dates the balance. Editing a name or a
+      // due day leaves the existing as-of date exactly where it was.
+      ...(confirmBalance ? { balance_as_of: new Date(`${balanceAsOf}T00:00:00Z`).toISOString() } : {}),
     };
 
     const query = account
@@ -151,8 +161,48 @@ export default function AccountEditor({ account, defaultType, householdId, membe
             <div className="te-hero-label">{isCard ? 'Balance owed' : 'Current balance'}</div>
             <div className="te-hero-row">
               <span className="te-hero-currency">AED</span>
-              <input type="number" step="0.01" className="te-hero-input" value={form.balance} onChange={(e) => set('balance', e.target.value)} placeholder="0" />
+              <input
+                type="number"
+                step="0.01"
+                className="te-hero-input"
+                value={form.balance}
+                onChange={(e) => {
+                  set('balance', e.target.value);
+                  setConfirmBalance(true);
+                }}
+                placeholder="0"
+              />
             </div>
+          </div>
+
+          <div className="te-fieldgrid">
+            <div className="te-fieldcell te-span2">
+              <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12.5 }}>
+                <input type="checkbox" checked={confirmBalance} onChange={(e) => setConfirmBalance(e.target.checked)} />
+                <span>Confirm this balance{form.balance.trim() === '' || Number(form.balance) === 0 ? ' — including that it is zero' : ''}</span>
+              </label>
+            </div>
+            <div className="te-fieldcell">
+              <label className="te-fieldlabel" htmlFor="balance-as-of">
+                Balance as of
+              </label>
+              <input
+                id="balance-as-of"
+                className="te-fieldvalue"
+                type="date"
+                value={balanceAsOf}
+                max={todayISODate()}
+                disabled={!confirmBalance}
+                onChange={(e) => setBalanceAsOf(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="ov-muted" style={{ fontSize: 11.5, marginTop: -10 }}>
+            {confirmBalance
+              ? 'Balances are manual snapshots — this records what you say it is, as of that date.'
+              : account && isBalanceConfirmed(account)
+                ? 'Leaving this unticked keeps the existing balance and its date.'
+                : 'Until you confirm it, this balance is shown as not set rather than as a zero.'}
           </div>
 
           <div className="te-fieldgrid">

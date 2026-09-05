@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId, scopedValue } from '../../lib/scope';
 import { isArchived } from '../../lib/accounts';
+import { balanceStatus, unconfirmedAccounts } from '../../lib/balance';
 import { formatPct } from '../../lib/money';
 import { buildNetWorthSeries, changeOverMonths } from '../../lib/netWorth';
 import { ASSET_CLASS_LABELS, scopedHoldingValue, visibleHoldings } from '../../lib/holdings';
@@ -27,6 +28,7 @@ export default function NetWorth({ household, me, members, data, loading }) {
   const visibleHoldingRows = visibleHoldings(holdings, scopeMemberId);
   // Totals come from the shared basis rather than a parallel calculation, so
   // Wealth, Overview and Forecast cannot drift apart (QA-03).
+  const unconfirmed = unconfirmedAccounts(visible);
   const summary = useMemo(() => netWorthSummary(accounts, scopeMemberId, holdings), [accounts, scopeMemberId, holdings]);
   const liveAssets = summary.assets;
   const liveLiabilities = summary.liabilities;
@@ -54,6 +56,12 @@ export default function NetWorth({ household, me, members, data, loading }) {
         <div className="ov-hero fig">
           <span className="ov-hero-currency">{money.code}</span> {money.fmtBalance(netWorth)}
         </div>
+        {unconfirmed.length > 0 && (
+          <div className="ov-muted" style={{ marginTop: 6, fontSize: 12 }}>
+            Provisional — {unconfirmed.length} account{unconfirmed.length === 1 ? '' : 's'} without a confirmed balance{' '}
+            {unconfirmed.length === 1 ? 'is' : 'are'} counted as zero.
+          </div>
+        )}
         <div className="ov-strip">
           {change1mo && (
             <span>
@@ -186,7 +194,11 @@ function AccountList({ rows, scopeMemberId, members, money, negative }) {
           </div>
           <div className={`fig mn-row-amt ${negative ? 'ov-neg' : ''}`}>
             {negative ? '−' : ''}
-            {money.fmtBalance(scopedValue(a.balance, a, scopeMemberId))}
+            {balanceStatus(a) === 'unset' ? (
+              <span className="ov-muted">Not set</span>
+            ) : (
+              money.fmtBalance(scopedValue(a.balance, a, scopeMemberId))
+            )}
           </div>
         </div>
       ))}

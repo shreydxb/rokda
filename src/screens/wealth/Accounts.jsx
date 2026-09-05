@@ -4,6 +4,7 @@ import { resolveScopeMemberId } from '../../lib/scope';
 import { formatPct } from '../../lib/money';
 import { utilisation, estimatedStatement, billingCycle, daysUntilDue } from '../../lib/creditCard';
 import { activeAccounts, archivedAccounts, closurePlan, isArchived } from '../../lib/accounts';
+import { balanceLabel, balanceStatus } from '../../lib/balance';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { supabase } from '../../lib/supabaseClient';
 import AccountEditor from './AccountEditor';
@@ -172,6 +173,9 @@ export default function Accounts({ household, members, me, data, loading }) {
 }
 
 function AccountRow({ account, members, money, onEdit, action }) {
+  // An unconfirmed balance is unknown, not zero (QA-02).
+  const status = balanceStatus(account);
+  const note = balanceLabel(account);
   const owner = account.is_shared
     ? 'Joint'
     : (members.find((m) => m.id === account.owner_member_id)?.display_name ?? 'Unassigned');
@@ -188,7 +192,16 @@ function AccountRow({ account, members, money, onEdit, action }) {
             {` · ${account.type.replace('_', ' ')}`}
           </div>
         </div>
-        <div className="fig mn-row-amt">{money.fmtBalance(account.balance)}</div>
+        <div className="mn-row-amt" style={{ textAlign: 'right' }}>
+          {status === 'unset' ? (
+            <span className="ov-muted">Set balance</span>
+          ) : (
+            <>
+              <div className="fig">{money.fmtBalance(account.balance)}</div>
+              {note && <div className="ov-muted" style={{ fontSize: 11 }}>{note}</div>}
+            </>
+          )}
+        </div>
       </button>
       {action}
     </div>
@@ -203,6 +216,9 @@ function CreditCard({ account, transactions, members, money, onEdit, plan, busy,
   const cycle = account.statement_day ? billingCycle(account.statement_day) : null;
   const closesInDays = cycle ? Math.ceil((cycle.nextClose - new Date()) / 86400000) : null;
   const balance = Number(account.balance);
+  // "Nothing owed" is a claim; an unconfirmed balance cannot make it (QA-02).
+  const balanceUnset = balanceStatus(account) === 'unset';
+  const balanceNote = balanceLabel(account);
 
   // Same rule as Overview's attention list: whole days from today, so a card
   // due today is due today on both screens (QA-07).
@@ -214,8 +230,12 @@ function CreditCard({ account, transactions, members, money, onEdit, plan, busy,
       <button type="button" className="wl-card-main" onClick={() => onEdit(account)}>
         <div className="wl-card-head">
           <div>{account.name}</div>
-          <span className={`wl-card-chip ${dueSoon ? 'wl-card-chip-warn' : balance === 0 ? 'wl-card-chip-pos' : ''}`}>
-            {balance === 0 ? 'Nothing owed' : dueSoon ? 'Due soon' : 'Open'}
+          <span
+            className={`wl-card-chip ${
+              balanceUnset ? '' : dueSoon ? 'wl-card-chip-warn' : balance === 0 ? 'wl-card-chip-pos' : ''
+            }`}
+          >
+            {balanceUnset ? 'Balance not set' : balance === 0 ? 'Nothing owed' : dueSoon ? 'Due soon' : 'Open'}
           </span>
         </div>
         <div className="ov-muted">
@@ -223,7 +243,12 @@ function CreditCard({ account, transactions, members, money, onEdit, plan, busy,
           card
         </div>
 
-        <div className="wl-card-owed fig">{money.fmtBalance(balance)}</div>
+        <div className="wl-card-owed fig">
+          {balanceUnset ? <span className="ov-muted" style={{ fontSize: 15 }}>Not set</span> : money.fmtBalance(balance)}
+        </div>
+        {!balanceUnset && balanceNote && (
+          <div className="ov-muted" style={{ marginTop: 4, fontSize: 11.5 }}>{balanceNote}</div>
+        )}
         {util !== null ? (
           <>
             <div className="bud-bar" style={{ marginTop: 8 }}>

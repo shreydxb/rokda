@@ -22,6 +22,7 @@ import {
 } from './overviewMath';
 import { parseDay } from '../lib/day';
 import { anyFailed } from '../lib/loadState';
+import { balanceStatus, unconfirmedAccounts } from '../lib/balance';
 import LoadFailure from './LoadFailure';
 import './Overview.css';
 
@@ -31,6 +32,7 @@ const ATTENTION_DESTINATIONS = {
   card_due: '/wealth',
   category_anomaly: '/money',
   stale_holding: '/wealth',
+  balance_unset: '/wealth',
 };
 
 export default function Overview() {
@@ -62,10 +64,15 @@ export default function Overview() {
   const loading = householdLoading || dataLoading;
   const isEmpty = !loading && accounts.length === 0 && transactions.length === 0 && holdings.length === 0;
 
+  const accountRows = useMemo(() => visibleAccounts(accounts, scopeMemberId), [accounts, scopeMemberId]);
   const nw = useMemo(() => netWorthSummary(accounts, scopeMemberId, holdings), [accounts, scopeMemberId, holdings]);
   // A total that silently omits a failed input is worse than no total. Net
   // worth is withheld outright when accounts or holdings didn't load (QA-10).
   const netWorthTrustworthy = !anyFailed(errors, ['accounts', 'holdings']);
+  // Arithmetic over balances nobody has confirmed is provisional, and says so
+  // rather than presenting itself as the household's position (QA-02).
+  const unconfirmed = unconfirmedAccounts(accountRows);
+  const netWorthIsProvisional = unconfirmed.length > 0;
   const nwSeries = useMemo(
     () => buildNetWorthSeries(netWorthSnapshots, nw.assets, nw.liabilities, now),
     [netWorthSnapshots, nw.assets, nw.liabilities, now]
@@ -104,7 +111,6 @@ export default function Overview() {
     [transactions, recurring, accounts, holdings, categories, scopeMemberId, now]
   );
   const recent = visibleRows(transactions, scopeMemberId).slice(0, 8);
-  const accountRows = visibleAccounts(accounts, scopeMemberId);
 
   const lede = isEmpty
     ? 'Nothing recorded yet'
@@ -112,7 +118,9 @@ export default function Overview() {
       ? `${attention.length} thing${attention.length === 1 ? '' : 's'} need${attention.length === 1 ? 's' : ''} a decision`
       : p.rate !== null
         ? `On pace to save ${formatPct(p.rate)} this ${period === 'mtd' ? 'month' : period === 'qtd' ? 'quarter' : 'year'}`
-        : 'All caught up';
+        : netWorthIsProvisional
+          ? 'Set up is incomplete'
+          : 'All caught up';
 
   function showToast(message, undo) {
     setToast({ message, undo });
@@ -184,6 +192,12 @@ export default function Overview() {
                 <span className="ov-hero-unavailable">Not available</span>
               )}
             </div>
+            {netWorthTrustworthy && netWorthIsProvisional && (
+              <div className="ov-muted" style={{ marginTop: 6, fontSize: 12 }}>
+                Provisional — {unconfirmed.length} account{unconfirmed.length === 1 ? '' : 's'} without a confirmed balance{' '}
+                {unconfirmed.length === 1 ? 'is' : 'are'} counted as zero.
+              </div>
+            )}
             {scope === 'both' && (nwChange1mo || nwChange12mo) && (
               <div className="ov-nwchange">
                 {nwChange1mo && (
@@ -517,8 +531,16 @@ export default function Overview() {
                         <div className="ov-muted">{a.is_shared ? 'Joint' : ownerName(a.owner_member_id, members)}</div>
                       </div>
                       <div className={`fig ov-list-amt ${a.type === 'credit_card' || a.type === 'loan' ? 'ov-neg' : ''}`}>
-                        {a.type === 'credit_card' || a.type === 'loan' ? '−' : ''}
-                        {money.fmtBalance(a.balance)}
+                        {balanceStatus(a) === 'unset' ? (
+                          <span className="ov-muted">Not set</span>
+                        ) : (
+                          // A liability reduces the position, so it is shown
+                          // negative — by negating the value, not by prefixing
+                          // a sign that could double up on an overpaid card.
+                          money.fmtBalance(
+                            a.type === 'credit_card' || a.type === 'loan' ? -Number(a.balance) : Number(a.balance),
+                          )
+                        )}
                       </div>
                     </div>
                   ))
