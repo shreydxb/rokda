@@ -39,15 +39,19 @@ language, not its numbers. Real screens use real household data.
   move" framing) — superseded by the real, condition-based detectors being
   built directly (see Linear), not template text to port over.
 
-## Open questions before building the v3-specific features above
+## Open questions — resolved
 
-1. Do we want the AED/USD/INR display toggle in the real app, and if so, what
-   FX source feeds it (manual rate, same as holdings, or the planned live FX
-   feed infra)?
-2. Do we want the richer holdings table now (needs schema migration) or defer
-   until the live price/FX feed work happens?
-3. Do we want in-app add/remove-card UI on the credit cards panel, or is
-   Settings → accounts sufficient?
+All three questions this file used to carry have since been answered by the
+build, and are recorded here rather than left open:
 
-None of these block items #1 (net worth + holdings) or #2 (real Needs
-Attention detectors), which don't depend on this design revision.
+1. **AED/USD/INR display toggle** — built. Display-only conversion from stored
+   AED. USD uses the fixed 3.6725 AED peg; INR uses `households.inr_per_aed`, a
+   manually entered rate, and stays unavailable until someone sets one. There is
+   no live FX feed and none is planned as a release prerequisite.
+2. **Richer holdings table** — built, with the pricing columns added by
+   `20260905150000_holding_pricing_fields.sql` and the commodity asset class by
+   `20260905160000_holdings_commodity_class.sql`.
+3. **In-app card add/remove** — the add and edit paths are built on the cards
+   panel. "Remove" is deliberately **not** a delete: an account with history is
+   closed/archived so its transactions survive (QA-01, SHR-242). Hard deletion
+   remains available only for an account that has never been used.

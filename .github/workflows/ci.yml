@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev, 'claude/**']
+  pull_request:
+
+jobs:
+  verify:
+    name: install / lint / test / build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Locked install: the tree under test must be the tree the lockfile pins.
+      - name: Install (locked)
+        run: npm ci
+
+      - name: Lint (application source only)
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+        env:
+          VITE_COMMIT_SHA: ${{ github.sha }}
+
+      - name: Report build identity
+        run: |
+          echo "commit: ${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "ref: ${{ github.ref }}" >> "$GITHUB_STEP_SUMMARY"
