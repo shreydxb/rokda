@@ -32,6 +32,17 @@ export function netWorthSummary(accounts, scopeMemberId, holdings = []) {
   return { assets, liabilities, netWorth: assets - liabilities };
 }
 
+// The one starting basis shared by Overview, Wealth and Forecast: open account
+// balances plus holdings, household-wide. Returns null — never zero — when
+// there is nothing valued to start from, so a forecast refuses to project from
+// a number the app invented (QA-03).
+export function startingNetWorth(accounts = [], holdings = []) {
+  const hasAccounts = visibleAccounts(accounts, null).length > 0;
+  const hasHoldings = visibleHoldings(holdings, null).length > 0;
+  if (!hasAccounts && !hasHoldings) return null;
+  return netWorthSummary(accounts, null, holdings).netWorth;
+}
+
 export function liquidAssets(accounts, scopeMemberId) {
   return visibleAccounts(accounts, scopeMemberId)
     .filter((a) => LIQUID_TYPES.has(a.type))

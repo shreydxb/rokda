@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatMoney, formatPct } from '../../lib/money';
-import { netWorthSummary } from '../overviewMath';
+import { startingNetWorth } from '../overviewMath';
 import { closedMonths, crossingYear, fiTarget, forecastInputs, projectSeries, realReturn, goalAt } from '../../lib/forecast';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import ForecastAssumptionsEditor from './ForecastAssumptionsEditor';
@@ -21,7 +21,11 @@ function deltaLabel(years) {
   return `${years > 0 ? '+' : '−'}${Math.abs(years)} yr${Math.abs(years) === 1 ? '' : 's'}`;
 }
 
-export default function Forecast({ household, accounts, transactions, data, loading }) {
+// `holdings` is passed in explicitly rather than read off the planning data
+// object, which never had a holdings field: reading `data.holdings` crashed
+// with no accounts and silently dropped holdings from net worth with
+// accounts (QA-03).
+export default function Forecast({ household, accounts = [], transactions = [], holdings = [], data, loading }) {
   const navigate = useNavigate();
   const householdId = household?.id;
   const { assumptions } = data;
@@ -32,8 +36,7 @@ export default function Forecast({ household, accounts, transactions, data, load
   const now = useMemo(() => new Date(), []);
   const startYear = now.getFullYear();
 
-  const startNetWorth =
-    accounts.length > 0 || data.holdings.length > 0 ? netWorthSummary(accounts, null, data.holdings).netWorth : null;
+  const startNetWorth = useMemo(() => startingNetWorth(accounts, holdings), [accounts, holdings]);
   const monthCount = closedMonths(transactions, now).size;
   const inputs = useMemo(() => forecastInputs(transactions, startNetWorth, now), [transactions, startNetWorth, now]);
 

@@ -34,7 +34,14 @@ export default function Planning() {
       {tab === 'goals' && <Goals household={household} members={members} me={me} data={planning} loading={loading} />}
       {tab === 'debt' && <DebtPayoff household={household} members={members} me={me} data={planning} loading={loading} />}
       {tab === 'forecast' && (
-        <Forecast household={household} accounts={overview.accounts} transactions={overview.transactions} data={planning} loading={loading} />
+        <Forecast
+          household={household}
+          accounts={overview.accounts}
+          transactions={overview.transactions}
+          holdings={overview.holdings}
+          data={planning}
+          loading={loading}
+        />
       )}
     </div>
   );

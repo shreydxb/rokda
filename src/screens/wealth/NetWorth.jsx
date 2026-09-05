@@ -7,6 +7,7 @@ import { buildNetWorthSeries, changeOverMonths } from '../../lib/netWorth';
 import { ASSET_CLASS_LABELS, scopedHoldingValue, visibleHoldings } from '../../lib/holdings';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { isLiabilityAccount, isLiquidAccount } from '../useOverviewData';
+import { netWorthSummary } from '../overviewMath';
 
 export default function NetWorth({ household, me, members, data, loading }) {
   const { scope } = useScope();
@@ -24,11 +25,12 @@ export default function NetWorth({ household, me, members, data, loading }) {
   const assetRows = visible.filter((a) => !isLiabilityAccount(a));
   const liabilityRows = visible.filter((a) => isLiabilityAccount(a));
   const visibleHoldingRows = visibleHoldings(holdings, scopeMemberId);
-  const liveAssets =
-    assetRows.reduce((s, a) => s + scopedValue(a.balance, a, scopeMemberId), 0) +
-    visibleHoldingRows.reduce((s, h) => s + scopedHoldingValue(h, scopeMemberId), 0);
-  const liveLiabilities = liabilityRows.reduce((s, a) => s + scopedValue(a.balance, a, scopeMemberId), 0);
-  const netWorth = liveAssets - liveLiabilities;
+  // Totals come from the shared basis rather than a parallel calculation, so
+  // Wealth, Overview and Forecast cannot drift apart (QA-03).
+  const summary = useMemo(() => netWorthSummary(accounts, scopeMemberId, holdings), [accounts, scopeMemberId, holdings]);
+  const liveAssets = summary.assets;
+  const liveLiabilities = summary.liabilities;
+  const netWorth = summary.netWorth;
 
   // net_worth_snapshots are stored as household-wide totals, not split by
   // member, so history only means something when viewing "Both" — a scoped
