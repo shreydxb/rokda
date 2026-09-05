@@ -1,4 +1,5 @@
 import { scopedValue } from './scope';
+import { parseDay } from './day';
 
 export function daysInMonth(year, month) {
   return new Date(year, month, 0).getDate();
@@ -37,7 +38,7 @@ export function projectedClose(actual, elapsedFraction) {
 export function monthActualsByCategory(transactions, year, month, scopeMemberId) {
   const map = new Map();
   for (const t of transactions) {
-    const d = new Date(t.occurred_at);
+    const d = parseDay(t.occurred_at);
     if (d.getFullYear() !== year || d.getMonth() + 1 !== month) continue;
     if (!(scopeMemberId === null || t.is_shared || t.owner_member_id === scopeMemberId)) continue;
     const v = scopedValue(t.amount, t, scopeMemberId);
@@ -52,7 +53,7 @@ export function monthActualsByCategory(transactions, year, month, scopeMemberId)
 export function monthIncome(transactions, year, month, scopeMemberId) {
   let total = 0;
   for (const t of transactions) {
-    const d = new Date(t.occurred_at);
+    const d = parseDay(t.occurred_at);
     if (d.getFullYear() !== year || d.getMonth() + 1 !== month) continue;
     if (!(scopeMemberId === null || t.is_shared || t.owner_member_id === scopeMemberId)) continue;
     const v = scopedValue(t.amount, t, scopeMemberId);

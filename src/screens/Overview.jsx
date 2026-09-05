@@ -21,6 +21,7 @@ import {
   dataQuality,
 } from './overviewMath';
 import './Overview.css';
+import { parseDay } from '../lib/day';
 
 const PERIODS = ['mtd', 'qtd', 'ytd'];
 const ATTENTION_DESTINATIONS = {
@@ -76,7 +77,7 @@ export default function Overview() {
   const composition = useMemo(() => {
     const { start, end } = p;
     const periodTx = transactions.filter((t) => {
-      const d = new Date(t.occurred_at);
+      const d = parseDay(t.occurred_at);
       return d >= start && d < new Date(end.getTime() + 86400000);
     });
     return spendComposition(periodTx, scopeMemberId);
@@ -350,7 +351,14 @@ export default function Overview() {
                 name="Transactions"
                 ok={quality.daysSinceLastTx !== null && quality.daysSinceLastTx <= 3}
                 label={quality.daysSinceLastTx === null ? 'None yet' : quality.daysSinceLastTx === 0 ? 'Today' : `${quality.daysSinceLastTx}d ago`}
-                note={quality.lastTxDate ? `Most recent record ${quality.lastTxDate.toLocaleDateString('en-GB')}` : 'Nothing recorded yet.'}
+                note={
+                  (quality.lastTxDate
+                    ? `Most recent posted record ${quality.lastTxDate.toLocaleDateString('en-GB')}.`
+                    : 'Nothing posted yet.') +
+                  (quality.plannedTx > 0
+                    ? ` ${quality.plannedTx} future-dated record(s) are planned, not counted in spend.`
+                    : '')
+                }
               />
               <QualityItem
                 name="Categorisation"

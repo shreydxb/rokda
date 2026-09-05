@@ -1,4 +1,5 @@
 import { scopedValue } from './scope';
+import { monthKey, parseDay } from './day';
 
 // The current, still-open month is excluded — its spend is partial and would
 // understate a real month. Forecast is always household-wide ("Both"): an
@@ -6,18 +7,22 @@ import { scopedValue } from './scope';
 // which isn't tracked, so scopeMemberId is always null here.
 export function closedMonths(transactions, now = new Date()) {
   const byMonth = new Map();
+  const currentMonth = monthKey(now);
   for (const t of transactions) {
-    const d = new Date(t.occurred_at);
-    const isCurrentMonth = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
-    if (isCurrentMonth) continue;
-    const key = `${d.getFullYear()}-${d.getMonth()}`;
+    const key = monthKey(parseDay(t.occurred_at));
+    // A month is closed only if it is behind the current one. Excluding just
+    // the current month let future-dated records become forecast history
+    // (QA-06).
+    if (key >= currentMonth) continue;
     if (!byMonth.has(key)) byMonth.set(key, { income: 0, spend: 0 });
     const bucket = byMonth.get(key);
     const v = scopedValue(t.amount, t, null);
     if (v >= 0) bucket.income += v;
     else bucket.spend += -v;
   }
-  return byMonth;
+  // Chronological, so "the last 12 closed months" means the newest twelve
+  // rather than whichever twelve happened to be inserted last.
+  return new Map([...byMonth.entries()].sort((a, b) => a[0].localeCompare(b[0])));
 }
 
 // A forecast needs three closed months of spend and at least one account

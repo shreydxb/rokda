@@ -4,6 +4,7 @@ import { trailingAverageByCategory } from './insights';
 import { monthActualsByCategory } from './budget';
 import { scopedHoldingValue, visibleHoldings } from './holdings';
 import { daysSincePriced, isStale } from './valuation';
+import { parseDay } from './day';
 
 function startOfDay(d) {
   const nd = new Date(d);
@@ -45,7 +46,7 @@ function missingRecurringItems(recurring, transactions, scopeMemberId, now) {
     const windowEnd = new Date(prevDue.getTime() + MATCH_WINDOW_DAYS * 86400000);
     const matched = transactions.some((t) => {
       if (r.account_id && t.account_id !== r.account_id) return false;
-      const d = new Date(t.occurred_at);
+      const d = parseDay(t.occurred_at);
       if (d < windowStart || d > windowEnd) return false;
       const amt = Math.abs(Number(t.amount));
       return Math.abs(amt - expectedAmount) <= expectedAmount * MATCH_AMOUNT_TOLERANCE;

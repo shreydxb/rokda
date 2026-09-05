@@ -1,4 +1,5 @@
 import { formatMoney } from './money';
+import { parseDay } from './day';
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -11,7 +12,7 @@ export function goalProgress(goal, contributions, now = new Date()) {
   const pct = target > 0 ? Math.min(1, saved / target) : 0;
 
   const lastContribution = contributions.reduce((latest, c) => {
-    const d = new Date(c.occurred_at);
+    const d = parseDay(c.occurred_at);
     return !latest || d > latest ? d : latest;
   }, null);
 
@@ -35,7 +36,7 @@ export function goalProgress(goal, contributions, now = new Date()) {
   // day this runs.
   const cutoff = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 90);
   const recentSum = contributions
-    .filter((c) => new Date(c.occurred_at) >= cutoff)
+    .filter((c) => parseDay(c.occurred_at) >= cutoff)
     .reduce((s, c) => s + Number(c.amount), 0);
   const monthlyRate = recentSum / 3;
 

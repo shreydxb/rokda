@@ -1,3 +1,5 @@
+import { parseDay } from './day';
+
 export function utilisation(account) {
   if (!account.credit_limit) return null;
   return Number(account.balance) / Number(account.credit_limit);
@@ -22,7 +24,7 @@ export function estimatedStatement(transactions, accountId, statementDay, now = 
   const amount = transactions
     .filter((t) => t.account_id === accountId)
     .filter((t) => {
-      const d = new Date(t.occurred_at);
+      const d = parseDay(t.occurred_at);
       return d >= lastClose && d < nextClose;
     })
     .reduce((sum, t) => sum + Math.max(0, -Number(t.amount)), 0);
