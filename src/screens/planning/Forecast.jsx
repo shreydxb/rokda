@@ -29,7 +29,8 @@ export default function Forecast({ householdId, accounts, transactions, data, lo
   const now = useMemo(() => new Date(), []);
   const startYear = now.getFullYear();
 
-  const startNetWorth = accounts.length > 0 ? netWorthSummary(accounts, null).netWorth : null;
+  const startNetWorth =
+    accounts.length > 0 || data.holdings.length > 0 ? netWorthSummary(accounts, null, data.holdings).netWorth : null;
   const monthCount = closedMonths(transactions, now).size;
   const inputs = useMemo(() => forecastInputs(transactions, startNetWorth, now), [transactions, startNetWorth, now]);
 

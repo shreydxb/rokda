@@ -3,12 +3,13 @@ import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId, scopedValue } from '../../lib/scope';
 import { formatMoney, formatSigned, formatPct } from '../../lib/money';
 import { buildNetWorthSeries, changeOverMonths } from '../../lib/netWorth';
+import { ASSET_CLASS_LABELS, scopedHoldingValue, visibleHoldings } from '../../lib/holdings';
 import { isLiabilityAccount, isLiquidAccount } from '../useOverviewData';
 
 export default function NetWorth({ me, members, data, loading }) {
   const { scope } = useScope();
   const scopeMemberId = resolveScopeMemberId(scope, me, members);
-  const { accounts, netWorthSnapshots } = data;
+  const { accounts, netWorthSnapshots, holdings } = data;
 
   const now = useMemo(() => new Date(), []);
   const [selectedIdx, setSelectedIdx] = useState(null);
@@ -16,7 +17,10 @@ export default function NetWorth({ me, members, data, loading }) {
   const visible = accounts.filter((a) => scopeMemberId === null || a.is_shared || a.owner_member_id === scopeMemberId);
   const assetRows = visible.filter((a) => !isLiabilityAccount(a));
   const liabilityRows = visible.filter((a) => isLiabilityAccount(a));
-  const liveAssets = assetRows.reduce((s, a) => s + scopedValue(a.balance, a, scopeMemberId), 0);
+  const visibleHoldingRows = visibleHoldings(holdings, scopeMemberId);
+  const liveAssets =
+    assetRows.reduce((s, a) => s + scopedValue(a.balance, a, scopeMemberId), 0) +
+    visibleHoldingRows.reduce((s, h) => s + scopedHoldingValue(h, scopeMemberId), 0);
   const liveLiabilities = liabilityRows.reduce((s, a) => s + scopedValue(a.balance, a, scopeMemberId), 0);
   const netWorth = liveAssets - liveLiabilities;
 
@@ -68,6 +72,14 @@ export default function NetWorth({ me, members, data, loading }) {
           Assets
         </div>
         <AccountList rows={assetRows} scopeMemberId={scopeMemberId} members={members} />
+        {visibleHoldingRows.length > 0 && (
+          <>
+            <div className="ov-kicker" style={{ marginBottom: 10, marginTop: 26 }}>
+              Investments
+            </div>
+            <HoldingList rows={visibleHoldingRows} scopeMemberId={scopeMemberId} members={members} />
+          </>
+        )}
         <div className="ov-kicker" style={{ marginBottom: 10, marginTop: 26 }}>
           Liabilities
         </div>
@@ -126,6 +138,27 @@ export default function NetWorth({ me, members, data, loading }) {
           </>
         )}
       </section>
+    </div>
+  );
+}
+
+function HoldingList({ rows, scopeMemberId, members }) {
+  if (rows.length === 0) return <div className="ov-muted">None yet.</div>;
+  return (
+    <div className="mn-list">
+      {rows.map((h) => (
+        <div key={h.id} className="mn-row" style={{ cursor: 'default' }}>
+          <div className="mn-row-main">
+            <div>{h.name}</div>
+            <div className="ov-muted">
+              {h.is_shared ? 'Joint' : (members.find((m) => m.id === h.owner_member_id)?.display_name ?? 'Unassigned')}
+              {' · '}
+              {ASSET_CLASS_LABELS[h.asset_class] ?? h.asset_class}
+            </div>
+          </div>
+          <div className="fig mn-row-amt">{formatMoney(scopedHoldingValue(h, scopeMemberId))}</div>
+        </div>
+      ))}
     </div>
   );
 }

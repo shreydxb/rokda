@@ -7,6 +7,7 @@ import { formatMoney, formatSigned, formatPct } from '../lib/money';
 import { PERIOD_LABELS } from '../lib/period';
 import { upcomingItems } from '../lib/recurring';
 import { buildNetWorthSeries, changeOverMonths } from '../lib/netWorth';
+import { buildAttentionItems } from '../lib/attention';
 import { supabase } from '../lib/supabaseClient';
 import { useOverviewData } from './useOverviewData';
 import {
@@ -21,6 +22,12 @@ import {
 import './Overview.css';
 
 const PERIODS = ['mtd', 'qtd', 'ytd'];
+const ATTENTION_DESTINATIONS = {
+  missing_recurring: '/money',
+  card_due: '/wealth',
+  category_anomaly: '/money',
+  stale_holding: '/wealth',
+};
 
 export default function Overview() {
   const navigate = useNavigate();
@@ -35,6 +42,7 @@ export default function Overview() {
     categories,
     recurring,
     netWorthSnapshots,
+    holdings,
     error,
     reload,
   } = useOverviewData(household?.id);
@@ -46,9 +54,9 @@ export default function Overview() {
 
   const now = useMemo(() => new Date(), []);
   const loading = householdLoading || dataLoading;
-  const isEmpty = !loading && accounts.length === 0 && transactions.length === 0;
+  const isEmpty = !loading && accounts.length === 0 && transactions.length === 0 && holdings.length === 0;
 
-  const nw = useMemo(() => netWorthSummary(accounts, scopeMemberId), [accounts, scopeMemberId]);
+  const nw = useMemo(() => netWorthSummary(accounts, scopeMemberId, holdings), [accounts, scopeMemberId, holdings]);
   const nwSeries = useMemo(
     () => buildNetWorthSeries(netWorthSnapshots, nw.assets, nw.liabilities, now),
     [netWorthSnapshots, nw.assets, nw.liabilities, now]
@@ -82,7 +90,10 @@ export default function Overview() {
   const withoutAutopay = committed.filter((r) => !r.autopay).length;
   const quality = useMemo(() => dataQuality(accounts, transactions, now), [accounts, transactions, now]);
 
-  const attention = transactions.filter((t) => t.needs_review && (scopeMemberId === null || t.is_shared || t.owner_member_id === scopeMemberId));
+  const attention = useMemo(
+    () => buildAttentionItems({ transactions, recurring, accounts, holdings, categories, scopeMemberId, now }),
+    [transactions, recurring, accounts, holdings, categories, scopeMemberId, now]
+  );
   const recent = visibleRows(transactions, scopeMemberId).slice(0, 8);
   const accountRows = visibleAccounts(accounts, scopeMemberId);
 
@@ -278,34 +289,50 @@ export default function Overview() {
                 </div>
               ) : (
                 <div className="ov-attn-list">
-                  {attention.map((t) => (
-                    <div key={t.id} className="ov-attn-row">
-                      <div className="ov-attn-main">
-                        <span>{t.merchant ?? 'Transaction'}</span>
-                        <span className="ov-muted">
-                          {new Date(t.occurred_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} ·{' '}
-                          {formatMoney(t.amount)}
-                        </span>
-                      </div>
-                      <select
-                        className="ov-attn-select"
-                        defaultValue=""
-                        onChange={(e) => e.target.value && categorise(t, e.target.value)}
-                      >
-                        <option value="" disabled>
-                          Categorise…
-                        </option>
-                        {categories.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name}
+                  {attention.map((item) =>
+                    item.kind === 'review' ? (
+                      <div key={item.id} className="ov-attn-row">
+                        <div className="ov-attn-main">
+                          <span>{item.tx.merchant ?? 'Transaction'}</span>
+                          <span className="ov-muted">
+                            {new Date(item.tx.occurred_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} ·{' '}
+                            {formatMoney(item.tx.amount)}
+                          </span>
+                        </div>
+                        <select
+                          className="ov-attn-select"
+                          defaultValue=""
+                          onChange={(e) => e.target.value && categorise(item.tx, e.target.value)}
+                        >
+                          <option value="" disabled>
+                            Categorise…
                           </option>
-                        ))}
-                      </select>
-                      <button type="button" className="om-btn ov-attn-btn" onClick={() => markReviewed(t)}>
-                        Mark reviewed
-                      </button>
-                    </div>
-                  ))}
+                          {categories.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name}
+                            </option>
+                          ))}
+                        </select>
+                        <button type="button" className="om-btn ov-attn-btn" onClick={() => markReviewed(item.tx)}>
+                          Mark reviewed
+                        </button>
+                      </div>
+                    ) : (
+                      <div key={item.id} className="ov-attn-row">
+                        <div className="ov-attn-main">
+                          <span>{item.title}</span>
+                          <span className={item.severity === 'urgent' ? 'ov-warn' : 'ov-muted'}>{item.detail}</span>
+                        </div>
+                        <button
+                          type="button"
+                          className="om-btn ov-attn-btn"
+                          onClick={() => navigate(ATTENTION_DESTINATIONS[item.kind] ?? '/')}
+                        >
+                          Open
+                        </button>
+                      </div>
+                    )
+                  )}
                 </div>
               )}
             </div>

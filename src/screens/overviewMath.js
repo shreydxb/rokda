@@ -1,5 +1,6 @@
 import { scopedValue } from '../lib/scope';
 import { chartBuckets, periodBounds } from '../lib/period';
+import { scopedHoldingValue, visibleHoldings } from '../lib/holdings';
 
 const LIABILITY_TYPES = new Set(['credit_card', 'loan']);
 const LIQUID_TYPES = new Set(['checking', 'savings', 'cash']);
@@ -13,13 +14,16 @@ export function visibleAccounts(accounts, scopeMemberId) {
   return accounts.filter((a) => visibleToScope(a, scopeMemberId));
 }
 
-export function netWorthSummary(accounts, scopeMemberId) {
+export function netWorthSummary(accounts, scopeMemberId, holdings = []) {
   let assets = 0;
   let liabilities = 0;
   for (const a of visibleAccounts(accounts, scopeMemberId)) {
     const v = scopedValue(a.balance, a, scopeMemberId);
     if (LIABILITY_TYPES.has(a.type)) liabilities += v;
     else assets += v;
+  }
+  for (const h of visibleHoldings(holdings, scopeMemberId)) {
+    assets += scopedHoldingValue(h, scopeMemberId);
   }
   return { assets, liabilities, netWorth: assets - liabilities };
 }
