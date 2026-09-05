@@ -14,6 +14,16 @@ The running build identifies itself in the sidebar footer (`build <short sha>`,
 full commit and build time in the tooltip). Netlify supplies `COMMIT_REF`, which
 `vite.config.js` reads; no extra configuration is required for the SHA to appear.
 
+### Build environment variables
+
+`VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` (see `.env.example`) are
+required to *build*, not only to run. Vite inlines them, so without them the
+top-level throw in `src/lib/supabaseClient.js` folds to a constant, the bundler
+eliminates every statement after it, and `npm run build` reports success while
+emitting a vendor-only chunk that renders nothing. `npm run verify:build`
+asserts the application actually survived into the bundle; CI runs it after
+every build with placeholder values.
+
 ## Database
 
 | Role | Supabase project | Ref |

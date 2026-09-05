@@ -22,9 +22,10 @@ export default defineConfig({
     __BUILD_SHA__: JSON.stringify(commitSha()),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
   },
-  // Vitest transforms test files with esbuild; tell it to use the automatic
-  // JSX runtime so component tests don't need a React import.
-  esbuild: { jsx: 'automatic' },
+  // Vitest transforms test files with esbuild and needs to be told to use the
+  // automatic JSX runtime. The production build uses oxc instead and would warn
+  // that the esbuild option is ignored, so it is set only under Vitest.
+  ...(process.env.VITEST ? { esbuild: { jsx: 'automatic' } } : {}),
   test: {
     environment: 'jsdom',
     globals: true,

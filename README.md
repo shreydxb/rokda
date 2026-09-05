@@ -15,15 +15,23 @@ Implements the "Our Money — Command Center v3" design (Direction A · Private 
 
 ```bash
 npm install
+cp .env.example .env   # fill in your Supabase project values
 npm run dev
 ```
+
+`VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` are required for a
+production build as well as for `dev`. They are inlined at build time, so
+without them `src/lib/supabaseClient.js`'s top-level throw folds to a constant,
+the bundler eliminates every statement after it, and `npm run build` reports
+success while emitting a vendor-only chunk that renders nothing.
 
 ## Checks
 
 ```bash
-npm run lint     # application source only; design/ is generated and excluded
-npm test         # vitest, including the QA regression suite
+npm run lint          # application source only; design/ is generated and excluded
+npm test              # vitest, including the QA regression suite
 npm run build
+npm run verify:build  # asserts the bundle actually contains the application
 ```
 
 CI (`.github/workflows/ci.yml`) runs a locked install, lint, tests and build for

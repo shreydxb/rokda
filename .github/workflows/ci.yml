@@ -27,10 +27,19 @@ jobs:
       - name: Test
         run: npm test
 
+      # The build needs Supabase env vars even to produce a usable artifact:
+      # they are inlined at build time, and without them the client's top-level
+      # throw folds to a constant and the bundler eliminates the whole app.
+      # These are placeholders — CI never talks to a database.
       - name: Build
         run: npm run build
         env:
           VITE_COMMIT_SHA: ${{ github.sha }}
+          VITE_SUPABASE_URL: https://ci-placeholder.supabase.co
+          VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_placeholder
+
+      - name: Verify the build actually contains the application
+        run: npm run verify:build
 
       - name: Report build identity
         run: |
