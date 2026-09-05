@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
-import { formatMoney } from '../../lib/money';
+import { formatBalance, formatMoney } from '../../lib/money';
 import { monthActualsByCategory, monthIncome, monthPace, projectedClose } from '../../lib/budget';
 import BudgetEditor from './BudgetEditor';
 
@@ -256,7 +256,7 @@ function YearView({ year, setYear, budgets, transactions, categories, scopeMembe
                 <td>Net saved</td>
                 {netSaved.map((v, i) => (
                   <td key={i} className={v !== null && v < 0 ? 'ov-warn' : ''}>
-                    {v === null ? '—' : formatMoney(v)}
+                    {v === null ? '—' : formatBalance(v)}
                   </td>
                 ))}
               </tr>

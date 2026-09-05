@@ -52,7 +52,7 @@ export default function NetWorth({ household, me, members, data, loading }) {
       <section className="wl-hero">
         <div className="ov-kicker">Net worth</div>
         <div className="ov-hero fig">
-          <span className="ov-hero-currency">{money.code}</span> {money.fmt(netWorth)}
+          <span className="ov-hero-currency">{money.code}</span> {money.fmtBalance(netWorth)}
         </div>
         <div className="ov-strip">
           {change1mo && (
@@ -116,7 +116,7 @@ export default function NetWorth({ household, me, members, data, loading }) {
                   className="ov-col"
                   data-active={(selectedIdx ?? series.length - 1) === i}
                   onClick={() => setSelectedIdx(i)}
-                  aria-label={`${p.label}: net worth ${money.fmt(p.net)}`}
+                  aria-label={`${p.label}: net worth ${money.fmtBalance(p.net)}`}
                 >
                   <div className="ov-col-bars">
                     <span
@@ -132,13 +132,13 @@ export default function NetWorth({ household, me, members, data, loading }) {
               <div className="ov-chart-readout">
                 <span className="fig">{selected.label}</span>
                 <span>
-                  Net <b className="fig">{money.fmt(selected.net)}</b>
+                  Net <b className="fig">{money.fmtBalance(selected.net)}</b>
                 </span>
                 <span>
-                  Assets <b className="fig">{money.fmt(selected.assets)}</b>
+                  Assets <b className="fig">{money.fmtBalance(selected.assets)}</b>
                 </span>
                 <span>
-                  Liabilities <b className="fig">{money.fmt(selected.liabilities)}</b>
+                  Liabilities <b className="fig">{money.fmtBalance(selected.liabilities)}</b>
                 </span>
                 {selected.isLive && <span className="ov-muted">this month, live</span>}
               </div>
@@ -186,7 +186,7 @@ function AccountList({ rows, scopeMemberId, members, money, negative }) {
           </div>
           <div className={`fig mn-row-amt ${negative ? 'ov-neg' : ''}`}>
             {negative ? '−' : ''}
-            {money.fmt(scopedValue(a.balance, a, scopeMemberId))}
+            {money.fmtBalance(scopedValue(a.balance, a, scopeMemberId))}
           </div>
         </div>
       ))}

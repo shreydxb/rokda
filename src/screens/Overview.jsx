@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useHousehold } from '../lib/useHousehold';
 import { useScope } from '../lib/ScopeContext';
 import { resolveScopeMemberId } from '../lib/scope';
-import { formatMoney, formatSigned, formatPct } from '../lib/money';
+import { formatBalance, formatMoney, formatSigned, formatPct } from '../lib/money';
 import { PERIOD_LABELS } from '../lib/period';
 import { upcomingItems } from '../lib/recurring';
 import { buildNetWorthSeries, changeOverMonths } from '../lib/netWorth';
@@ -170,7 +170,7 @@ export default function Overview() {
           <section className="ov-hero-section">
             <div className="ov-kicker">Net worth{scope !== 'both' ? ` · ${scopeLabel(scope, me, members)}` : ''}</div>
             <div className="ov-hero fig">
-              <span className="ov-hero-currency">{money.code}</span> {money.fmt(nw.netWorth)}
+              <span className="ov-hero-currency">{money.code}</span> {money.fmtBalance(nw.netWorth)}
             </div>
             {scope === 'both' && (nwChange1mo || nwChange12mo) && (
               <div className="ov-nwchange">
@@ -193,10 +193,10 @@ export default function Overview() {
             )}
             <div className="ov-strip">
               <span>
-                Assets <b>{money.fmt(nw.assets)}</b>
+                Assets <b>{money.fmtBalance(nw.assets)}</b>
               </span>
               <span>
-                Liabilities <b>{money.fmt(nw.liabilities)}</b>
+                Liabilities <b>{money.fmtBalance(nw.liabilities)}</b>
               </span>
               {runway.available ? (
                 <span>
@@ -298,7 +298,7 @@ export default function Overview() {
                           <span>{item.tx.merchant ?? 'Transaction'}</span>
                           <span className="ov-muted">
                             {new Date(item.tx.occurred_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} ·{' '}
-                            {formatMoney(item.tx.amount)}
+                            {formatBalance(item.tx.amount)}
                           </span>
                         </div>
                         <select
@@ -499,7 +499,7 @@ export default function Overview() {
                       </div>
                       <div className={`fig ov-list-amt ${a.type === 'credit_card' || a.type === 'loan' ? 'ov-neg' : ''}`}>
                         {a.type === 'credit_card' || a.type === 'loan' ? '−' : ''}
-                        {money.fmt(a.balance)}
+                        {money.fmtBalance(a.balance)}
                       </div>
                     </div>
                   ))

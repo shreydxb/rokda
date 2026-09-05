@@ -188,7 +188,7 @@ function AccountRow({ account, members, money, onEdit, action }) {
             {` · ${account.type.replace('_', ' ')}`}
           </div>
         </div>
-        <div className="fig mn-row-amt">{money.fmt(account.balance)}</div>
+        <div className="fig mn-row-amt">{money.fmtBalance(account.balance)}</div>
       </button>
       {action}
     </div>
@@ -226,7 +226,7 @@ function CreditCard({ account, transactions, members, money, onEdit, plan, busy,
           card
         </div>
 
-        <div className="wl-card-owed fig">{money.fmt(balance)}</div>
+        <div className="wl-card-owed fig">{money.fmtBalance(balance)}</div>
         {util !== null ? (
           <>
             <div className="bud-bar" style={{ marginTop: 8 }}>
