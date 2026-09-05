@@ -20,8 +20,10 @@ import {
   runwaySummary,
   dataQuality,
 } from './overviewMath';
-import './Overview.css';
 import { parseDay } from '../lib/day';
+import { anyFailed } from '../lib/loadState';
+import LoadFailure from './LoadFailure';
+import './Overview.css';
 
 const PERIODS = ['mtd', 'qtd', 'ytd'];
 const ATTENTION_DESTINATIONS = {
@@ -33,7 +35,7 @@ const ATTENTION_DESTINATIONS = {
 
 export default function Overview() {
   const navigate = useNavigate();
-  const { household, members, me, loading: householdLoading } = useHousehold();
+  const { household, members, me, loading: householdLoading, error: householdError, reload: reloadHousehold } = useHousehold();
   const { scope } = useScope();
   const scopeMemberId = resolveScopeMemberId(scope, me, members);
   const money = useMoneyDisplay(household);
@@ -46,7 +48,8 @@ export default function Overview() {
     recurring,
     netWorthSnapshots,
     holdings,
-    error,
+    errors,
+    loadedAt,
     reload,
   } = useOverviewData(household?.id);
 
@@ -60,6 +63,9 @@ export default function Overview() {
   const isEmpty = !loading && accounts.length === 0 && transactions.length === 0 && holdings.length === 0;
 
   const nw = useMemo(() => netWorthSummary(accounts, scopeMemberId, holdings), [accounts, scopeMemberId, holdings]);
+  // A total that silently omits a failed input is worse than no total. Net
+  // worth is withheld outright when accounts or holdings didn't load (QA-10).
+  const netWorthTrustworthy = !anyFailed(errors, ['accounts', 'holdings']);
   const nwSeries = useMemo(
     () => buildNetWorthSeries(netWorthSnapshots, nw.assets, nw.liabilities, now),
     [netWorthSnapshots, nw.assets, nw.liabilities, now]
@@ -140,14 +146,13 @@ export default function Overview() {
 
   return (
     <div className="ov">
-      {error && (
-        <div className="ov-error" role="alert">
-          <span>Couldn't load your data. The figures below may be incomplete or stale.</span>
-          <button type="button" className="om-btn" onClick={reload}>
-            Retry
-          </button>
-        </div>
-      )}
+      <LoadFailure
+        errors={{ ...errors, ...(householdError ? { household: householdError } : {}) }}
+        loadedAt={loadedAt}
+        onRetry={async () => {
+          await Promise.all([reloadHousehold(), reload()]);
+        }}
+      />
       <div className="ov-head">
         <div>
           <div className="ov-kicker">
@@ -171,7 +176,13 @@ export default function Overview() {
           <section className="ov-hero-section">
             <div className="ov-kicker">Net worth{scope !== 'both' ? ` · ${scopeLabel(scope, me, members)}` : ''}</div>
             <div className="ov-hero fig">
-              <span className="ov-hero-currency">{money.code}</span> {money.fmtBalance(nw.netWorth)}
+              {netWorthTrustworthy ? (
+                <>
+                  <span className="ov-hero-currency">{money.code}</span> {money.fmtBalance(nw.netWorth)}
+                </>
+              ) : (
+                <span className="ov-hero-unavailable">Not available</span>
+              )}
             </div>
             {scope === 'both' && (nwChange1mo || nwChange12mo) && (
               <div className="ov-nwchange">

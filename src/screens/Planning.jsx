@@ -5,6 +5,7 @@ import { usePlanningData } from './usePlanningData';
 import Goals from './planning/Goals';
 import DebtPayoff from './planning/DebtPayoff';
 import Forecast from './planning/Forecast';
+import LoadFailure from './LoadFailure';
 import './Planning.css';
 
 const TABS = [
@@ -15,7 +16,7 @@ const TABS = [
 
 export default function Planning() {
   const [tab, setTab] = useState('goals');
-  const { household, members, me, loading: householdLoading } = useHousehold();
+  const { household, members, me, loading: householdLoading, error: householdError, reload: reloadHousehold } = useHousehold();
   const overview = useOverviewData(household?.id);
   const planning = usePlanningData(household?.id);
   const loading = householdLoading || overview.loading || planning.loading;
@@ -23,6 +24,13 @@ export default function Planning() {
   return (
     <div className="mn">
       <div className="ov-kicker">Planning</div>
+      <LoadFailure
+        errors={{ ...overview.errors, ...planning.errors, ...(householdError ? { household: householdError } : {}) }}
+        loadedAt={planning.loadedAt ?? overview.loadedAt}
+        onRetry={async () => {
+          await Promise.all([reloadHousehold(), overview.reload(), planning.reload()]);
+        }}
+      />
       <div className="mn-tabs">
         {TABS.map((t) => (
           <button key={t.id} type="button" className="om-tab" data-active={tab === t.id} onClick={() => setTab(t.id)}>

@@ -3,6 +3,7 @@ import { useHousehold } from '../lib/useHousehold';
 import { useOverviewData } from './useOverviewData';
 import Household from './settings/Household';
 import CategoriesRules from './settings/CategoriesRules';
+import LoadFailure from './LoadFailure';
 import './Settings.css';
 
 const TABS = [
@@ -12,13 +13,20 @@ const TABS = [
 
 export default function Settings() {
   const [tab, setTab] = useState('household');
-  const { household, members, me, loading: householdLoading, reload: reloadHousehold } = useHousehold();
+  const { household, members, me, loading: householdLoading, error: householdError, reload: reloadHousehold } = useHousehold();
   const data = useOverviewData(household?.id);
   const loading = householdLoading || data.loading;
 
   return (
     <div className="mn">
       <div className="ov-kicker">Settings</div>
+      <LoadFailure
+        errors={{ ...data.errors, ...(householdError ? { household: householdError } : {}) }}
+        loadedAt={data.loadedAt}
+        onRetry={async () => {
+          await Promise.all([reloadHousehold(), data.reload()]);
+        }}
+      />
       <div className="mn-tabs">
         {TABS.map((t) => (
           <button key={t.id} type="button" className="om-tab" data-active={tab === t.id} onClick={() => setTab(t.id)}>

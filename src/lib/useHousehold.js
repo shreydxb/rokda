@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { supabase } from './supabaseClient';
 import { useAuth } from './AuthContext';
 
-const EMPTY_STATE = { loading: false, household: null, members: [], me: null };
+const EMPTY_STATE = { loading: false, household: null, members: [], me: null, error: null, notAMember: false };
 
 export function useHousehold() {
   const { user } = useAuth();
@@ -21,13 +21,19 @@ export function useHousehold() {
       .eq('user_id', user.id)
       .limit(1);
 
-    if (error || !myRows?.length) {
-      setState(EMPTY_STATE);
+    // A failed lookup and "you are not in a household" are different facts and
+    // were previously both reported as an empty state (QA-10).
+    if (error) {
+      setState({ ...EMPTY_STATE, error });
+      return;
+    }
+    if (!myRows?.length) {
+      setState({ ...EMPTY_STATE, notAMember: true });
       return;
     }
 
     const me = myRows[0];
-    const { data: roster } = await supabase
+    const { data: roster, error: rosterError } = await supabase
       .from('household_members')
       .select('id, display_name, role, user_id')
       .eq('household_id', me.household_id);
@@ -40,8 +46,12 @@ export function useHousehold() {
         inr_per_aed: me.households?.inr_per_aed ?? null,
         inr_rate_set_at: me.households?.inr_rate_set_at ?? null,
       },
-      members: roster ?? [me],
+      // Falling back to just yourself would quietly hide a partner. Say the
+      // roster failed instead.
+      members: rosterError ? [me] : (roster ?? [me]),
       me,
+      error: rosterError ?? null,
+      notAMember: false,
     });
   }, [user]);
 

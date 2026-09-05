@@ -6,6 +6,7 @@ import Recurring from './money/Recurring';
 import Budget from './money/Budget';
 import Insights from './money/Insights';
 import Inbox from './money/Inbox';
+import LoadFailure from './LoadFailure';
 import './Money.css';
 
 const TABS = [
@@ -18,7 +19,7 @@ const TABS = [
 
 export default function Money() {
   const [tab, setTab] = useState('activity');
-  const { household, members, me, loading: householdLoading } = useHousehold();
+  const { household, members, me, loading: householdLoading, error: householdError, reload: reloadHousehold } = useHousehold();
   const data = useOverviewData(household?.id);
   const loading = householdLoading || data.loading;
   const pendingIntake = data.intake?.filter((i) => i.status === 'pending').length ?? 0;
@@ -26,6 +27,13 @@ export default function Money() {
   return (
     <div className="mn">
       <div className="ov-kicker">Money</div>
+      <LoadFailure
+        errors={{ ...data.errors, ...(householdError ? { household: householdError } : {}) }}
+        loadedAt={data.loadedAt}
+        onRetry={async () => {
+          await Promise.all([reloadHousehold(), data.reload()]);
+        }}
+      />
       <div className="mn-tabs">
         {TABS.map((t) => (
           <button key={t.id} type="button" className="om-tab" data-active={tab === t.id} onClick={() => setTab(t.id)}>
