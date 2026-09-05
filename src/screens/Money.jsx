@@ -48,7 +48,13 @@ export default function Money() {
       {tab === 'budget' && <Budget household={household} members={members} me={me} data={data} loading={loading} />}
       {tab === 'insights' && <Insights me={me} members={members} data={data} loading={loading} />}
       {tab === 'inbox' && (
-        <Inbox household={household} accounts={data.accounts} categories={data.categories} data={data} loading={loading} />
+        <Inbox
+          members={members}
+          accounts={data.accounts}
+          categories={data.categories}
+          data={data}
+          loading={loading}
+        />
       )}
     </div>
   );
