@@ -79,7 +79,7 @@ holdings and accounts start unconfirmed).
 
 ## Still outstanding
 
-- The four new migrations in this correction pass are **not applied anywhere**.
+- The five new migrations in this correction pass are **not applied anywhere**.
   Applying them is a deployment decision and is deliberately not part of this
   handoff.
 - Row-level security policies are not exercised by the local harness, which runs
@@ -87,3 +87,38 @@ holdings and accounts start unconfirmed).
   — see `docs/environments.md`, which records that none is isolated yet.
 - `docs/applied-migrations.json` is a snapshot taken on 2026-09-05. Re-export it
   after any future deployment.
+
+## Fingerprint version (762a6c4 recheck, SHR-253)
+
+`normalise()` has been corrected twice since the snapshot above was taken —
+first to stop lowercasing/stripping comment-like text inside string literals
+and quoted identifiers, then to recognise dollar-quoted strings (`$$...$$`,
+`$tag$...$tag$`) instead of falling through the same lowercase-everything
+path. Both fixes changed what a fingerprint is *of*, not just its value: the
+underlying SQL in `docs/applied-migrations.json` did not change, but the
+hash of the same SQL is no longer comparable between the old and new rules.
+
+The correct response to that is **not** to regenerate the applied side's
+fingerprints from the repository's own SQL — that file is a read-only export
+from the live database, and recomputing it locally would make the comparison
+trivially "equivalent" regardless of what is actually applied there,
+defeating the entire point of the check (a prior pass in this correction
+series did exactly this, incorrectly; it has been reverted here).
+
+Instead, `scripts/compare-migrations.mjs` now stamps every fingerprint it
+computes with a `fingerprintVersion` (currently `2`, exported as
+`FINGERPRINT_VERSION`). An applied entry recorded under a different (or
+absent — legacy entries have none) version is reported as
+`stale-fingerprint`: neither "equivalent" nor "differs", because neither is
+actually knowable without re-hashing the original SQL under the current
+rules. This is **not** counted as drift (`compare:migrations` still exits 0
+for it) — it's a distinct, visible "unverifiable" bucket, currently all 13
+already-applied migrations.
+
+**To clear it**: someone with read access to the live database re-runs the
+export query in `scripts/compare-migrations.mjs`'s header comment, regenerates
+each entry's fingerprint with the *current* `fingerprint()` from that raw SQL,
+and adds `"fingerprintVersion": 2` to each entry. Until then, "0 drifting" is
+accurate but incomplete — it means no migration both sides can currently be
+compared under the same rules shows a difference, not that all 13 have been
+freshly re-verified.

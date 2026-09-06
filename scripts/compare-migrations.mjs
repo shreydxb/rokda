@@ -53,6 +53,25 @@ export function normalise(sql) {
       continue;
     }
     const ch = sql[i];
+    if (ch === '$') {
+      // A dollar-quoted string ($$...$$ or $tag$...$tag$ — PL/pgSQL function
+      // bodies are almost always written this way). The previous version had
+      // no notion of these at all: normalise('SELECT $$A$$;') and
+      // normalise('SELECT $$a$$;') both fell through to the generic
+      // lowercase-everything path and compared equal. The opening delimiter
+      // is $, an optional tag (letters/digits/underscore), then $; the
+      // literal runs verbatim until that exact same delimiter repeats.
+      const openMatch = /^\$([A-Za-z_][A-Za-z0-9_]*)?\$/.exec(sql.slice(i));
+      if (openMatch) {
+        const delim = openMatch[0];
+        const closeAt = sql.indexOf(delim, i + delim.length);
+        const end = closeAt === -1 ? n : closeAt + delim.length;
+        flushSpace();
+        out += sql.slice(i, end);
+        i = end;
+        continue;
+      }
+    }
     if (ch === "'" || ch === '"') {
       // A literal or quoted identifier: copied verbatim — case, internal
       // whitespace and any `--`/`/*` inside it are all part of its value,
@@ -91,6 +110,20 @@ export function fingerprint(sql) {
   return createHash('md5').update(normalise(sql)).digest('hex');
 }
 
+// Bumped whenever normalise()'s rules change (762a6c4 recheck, SHR-253: added
+// dollar-quoted-string awareness; the fix before it added literal/quoted-
+// identifier preservation). A fingerprint recorded under an older version is
+// not comparable to one computed now — the SQL may not have changed at all,
+// only the hashing rules did. `docs/applied-migrations.json` is a read-only
+// export from the live database; regenerating ITS fingerprints from the
+// repository's own SQL would make the comparison trivially "equivalent"
+// regardless of what is actually applied, which defeats the point of the
+// check. So that file is never rewritten locally — entries recorded before
+// this version are instead reported as unverifiable until someone with
+// database access re-exports them (see compare()'s 'stale-fingerprint'
+// status below).
+export const FINGERPRINT_VERSION = 2;
+
 export function repoMigrations(dir = MIGRATIONS_DIR) {
   return readdirSync(dir)
     .filter((f) => f.endsWith('.sql'))
@@ -98,7 +131,7 @@ export function repoMigrations(dir = MIGRATIONS_DIR) {
     .map((file) => {
       const [version, ...rest] = file.replace(/\.sql$/, '').split('_');
       const sql = readFileSync(join(dir, file), 'utf8');
-      return { file, version, name: rest.join('_'), sql, fingerprint: fingerprint(sql) };
+      return { file, version, name: rest.join('_'), sql, fingerprint: fingerprint(sql), fingerprintVersion: FINGERPRINT_VERSION };
     });
 }
 
@@ -109,6 +142,20 @@ export function compare(repo, applied) {
   const rows = repo.map((local) => {
     const remote = appliedByName.get(local.name);
     if (!remote) return { name: local.name, status: 'not-applied', localVersion: local.version };
+    // An applied entry recorded under an older fingerprint version can't be
+    // honestly compared: a "differs" here could mean real drift, or just
+    // that the hashing rules changed since it was exported. Neither
+    // "equivalent" nor "differs" is true to say, so it gets its own status
+    // rather than silently becoming one or the other.
+    if ((remote.fingerprintVersion ?? 1) !== FINGERPRINT_VERSION) {
+      return {
+        name: local.name,
+        status: 'stale-fingerprint',
+        localVersion: local.version,
+        appliedVersion: remote.version,
+        versionMatches: local.version === remote.version,
+      };
+    }
     const remoteFingerprint = remote.fingerprint ?? fingerprint(remote.sql ?? '');
     return {
       name: local.name,
@@ -141,17 +188,24 @@ if (isMainModule) {
   const rows = compare(repoMigrations(), applied);
   let drift = 0;
   let pending = 0;
+  let staleFingerprints = 0;
   for (const row of rows) {
     // A migration in the repository that is not applied yet is expected, not
-    // drift: it is waiting for a deployment decision.
+    // drift: it is waiting for a deployment decision. A stale-fingerprint
+    // entry is neither proven equivalent nor proven to differ — it was
+    // recorded under an older, less strict normalise() — so it is flagged on
+    // its own rather than counted as drift (a false failure) or silently
+    // passed as "ok" (a false clean bill).
     const isDrift = row.status === 'differs' || row.status === 'applied-only' || (row.appliedVersion && !row.versionMatches);
     if (isDrift) drift++;
     if (row.status === 'not-applied') pending++;
-    const flag = isDrift ? 'DRIFT ' : row.status === 'not-applied' ? 'pending' : 'ok    ';
+    if (row.status === 'stale-fingerprint') staleFingerprints++;
+    const flag =
+      isDrift ? 'DRIFT ' : row.status === 'not-applied' ? 'pending' : row.status === 'stale-fingerprint' ? 'STALE ' : 'ok    ';
     console.log(
       `${flag.padEnd(8)}${row.name.padEnd(28)} local=${row.localVersion ?? '—'} applied=${row.appliedVersion ?? '—'} ${row.status}`,
     );
   }
-  console.log(`\n${rows.length} migrations; ${drift} drifting, ${pending} awaiting deployment.`);
+  console.log(`\n${rows.length} migrations; ${drift} drifting, ${pending} awaiting deployment, ${staleFingerprints} unverifiable (applied fingerprint predates the current normalise() — re-export needed, see docs/migration-reconciliation.md).`);
   process.exitCode = drift ? 1 : 0;
 }
