@@ -3,8 +3,10 @@
 // invents a number: a failed pull leaves the previous value in place and
 // records the failure, so staleness is visible rather than silently masked.
 //
-// Runs on a daily pg_cron schedule (see the price_feed_schedule migration)
-// and on demand from the Wealth screen's "Refresh" button.
+// Runs weekdays around 3am Gulf time (see the price_refresh_schedule
+// migration — safely after both the US close, ~midnight GST, and the NSE
+// close, ~2-2:30am GST) and on demand from the Wealth screen's "Refresh"
+// button.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
@@ -14,7 +16,11 @@ const TWELVEDATA_API_KEY = Deno.env.get("TWELVEDATA_API_KEY");
 
 const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
-async function refreshFx() {
+// AED-USD is a hard peg (3.6725, fixed by the UAE Central Bank since 1997) —
+// a real constant, not a rate that needs fetching.
+const AED_PER_USD = 3.6725;
+
+async function refreshFx(): Promise<{ ok: boolean; rate: number | null; error?: string }> {
   const { data: existing } = await supabase
     .from("fx_rates")
     .select("*")
@@ -23,8 +29,8 @@ async function refreshFx() {
     .maybeSingle();
 
   try {
-    // Keyless, free, daily-refreshed. AED-USD is a hard peg (3.6725) handled
-    // as a constant in the frontend, so INR is the only rate worth pulling.
+    // Keyless, free, daily-refreshed. AED-USD is the fixed peg above, so
+    // INR is the only rate worth pulling.
     const res = await fetch("https://open.er-api.com/v6/latest/AED");
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const body = await res.json();
@@ -59,12 +65,26 @@ async function refreshFx() {
       fetch_error: message,
       fail_count: (existing?.fail_count ?? 0) + 1,
     });
-    return { ok: false, error: message };
+    // Fall back to whatever rate is already on record so holdings priced in
+    // INR can still be converted today, even though this run's pull failed.
+    return { ok: false, rate: existing?.rate ?? null, error: message };
   }
+}
+
+// AED-equivalent of one unit's worth of native-currency value, or null when
+// the currency isn't one we can convert (only AED/USD/INR are), so callers
+// know to leave that holding's AED value untouched rather than guess.
+function toAed(currency: string, nativeAmount: number, inrPerAed: number | null): number | null {
+  if (currency === "AED") return nativeAmount;
+  if (currency === "USD") return nativeAmount * AED_PER_USD;
+  if (currency === "INR") return inrPerAed ? nativeAmount / inrPerAed : null;
+  return null;
 }
 
 type Holding = {
   id: string;
+  currency: string;
+  quantity: string | null;
   price_symbol: string;
   price_provider: "twelvedata" | "coingecko" | "mfapi";
   price_fetch_fail_count: number;
@@ -139,13 +159,13 @@ async function fetchMfapi(schemeCode: string): Promise<PriceResult> {
   }
 }
 
-async function refreshHoldings() {
+async function refreshHoldings(inrPerAed: number | null) {
   const { data: holdings, error } = await supabase
     .from("holdings")
-    .select("id, price_symbol, price_provider, price_fetch_fail_count")
+    .select("id, currency, quantity, price_symbol, price_provider, price_fetch_fail_count")
     .not("price_symbol", "is", null)
     .not("price_provider", "is", null);
-  if (error || !holdings) return { updated: 0, failed: 0 };
+  if (error || !holdings) return { updated: 0, failed: 0, historyCaptured: 0 };
 
   const byProvider = new Map<string, Holding[]>();
   for (const h of holdings as Holding[]) {
@@ -171,7 +191,11 @@ async function refreshHoldings() {
 
   let updated = 0;
   let failed = 0;
-  const now = new Date().toISOString();
+  let historyCaptured = 0;
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const today = nowIso.slice(0, 10);
+
   for (const h of holdings as Holding[]) {
     const result = results.get(h.id);
     if (!result) continue;
@@ -181,25 +205,44 @@ async function refreshHoldings() {
         .from("holdings")
         .update({ price_fetch_error: result.error, price_fetch_fail_count: h.price_fetch_fail_count + 1 })
         .eq("id", h.id);
-    } else {
-      updated++;
-      await supabase
-        .from("holdings")
-        .update({
-          current_price: result.price,
-          day_change_pct: result.dayChangePct,
-          last_refreshed: now,
-          price_fetch_error: null,
-          price_fetch_fail_count: 0,
-        })
-        .eq("id", h.id);
+      continue;
+    }
+
+    updated++;
+    // Only holdings with real units and a currency we can convert get an
+    // auto-computed AED value; everything else keeps its manually-entered
+    // value_aed exactly as before — this never guesses a number it can't
+    // actually derive.
+    const quantity = h.quantity != null ? Number(h.quantity) : null;
+    const valueAed = quantity != null ? toAed(h.currency, quantity * result.price, inrPerAed) : null;
+
+    await supabase
+      .from("holdings")
+      .update({
+        current_price: result.price,
+        day_change_pct: result.dayChangePct,
+        last_refreshed: nowIso,
+        price_fetch_error: null,
+        price_fetch_fail_count: 0,
+        ...(valueAed !== null ? { value_aed: Math.round(valueAed * 100) / 100 } : {}),
+      })
+      .eq("id", h.id);
+
+    if (valueAed !== null) {
+      const { error: historyError } = await supabase
+        .from("holding_value_history")
+        .upsert({ holding_id: h.id, as_of: today, value_aed: Math.round(valueAed * 100) / 100 }, { onConflict: "holding_id,as_of" });
+      if (!historyError) historyCaptured++;
     }
   }
-  return { updated, failed };
+  return { updated, failed, historyCaptured };
 }
 
 Deno.serve(async () => {
-  const [fx, holdings] = await Promise.all([refreshFx(), refreshHoldings()]);
+  // Sequential, not parallel: holdings priced in INR need this run's own
+  // fx rate (or the last good one) to convert to AED correctly.
+  const fx = await refreshFx();
+  const holdings = await refreshHoldings(fx.rate);
   return new Response(JSON.stringify({ fx, holdings }), {
     headers: { "Content-Type": "application/json" },
   });

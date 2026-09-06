@@ -59,6 +59,10 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
 
   const nameError = form.name.trim() === '' ? 'Name it.' : '';
   const symbolError = form.price_provider && form.price_symbol.trim() === '' ? 'Enter the symbol this provider expects.' : '';
+  // Matches the price-refresh function's own toAed(): only these currencies
+  // have a real conversion path, and units are required to turn a per-unit
+  // price into a total value.
+  const autoValued = !!form.price_provider && form.quantity.trim() !== '' && ['AED', 'USD', 'INR'].includes((form.currency || '').toUpperCase());
 
   async function handleSave(e) {
     e.preventDefault();
@@ -136,11 +140,21 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
             <div className="te-hero-label">Value</div>
             <div className="te-hero-row">
               <span className="te-hero-currency">AED</span>
-              <input type="number" step="0.01" className="te-hero-input" value={form.value_aed} onChange={(e) => set('value_aed', e.target.value)} placeholder="0" />
+              <input
+                type="number"
+                step="0.01"
+                className="te-hero-input"
+                value={form.value_aed}
+                onChange={(e) => set('value_aed', e.target.value)}
+                disabled={autoValued}
+                placeholder="0"
+              />
             </div>
           </div>
           <div className="ov-muted" style={{ fontSize: 11.5, marginTop: -10 }}>
-            Value is entered in AED directly — no live FX conversion.
+            {autoValued
+              ? 'Auto-computed daily from units × live price × FX, so this field is not editable here.'
+              : 'Value is entered in AED directly — no live FX conversion.'}
           </div>
 
           <div className="te-fieldgrid">
@@ -168,7 +182,8 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
             <span className="te-fieldlabel">Pricing detail (optional)</span>
             <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 4, marginBottom: 10 }}>
               Fills in the richer holdings table (units, avg price, P&amp;L). "Price now" and "Day change" are
-              overwritten by the daily refresh below when auto-pricing is on; otherwise they're manual.
+              overwritten by the daily refresh below when auto-pricing is on; otherwise they're manual. With units
+              and a currency the feed can convert (AED, USD, or INR), the Value field above is overwritten too.
             </div>
             <div className="te-fieldgrid">
               <div className="te-fieldcell">
