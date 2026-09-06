@@ -197,29 +197,38 @@ begin
   end;
 end $$;
 
--- SHR-254: an old client writing last_refreshed and a new client writing
--- priced_at must each see the other's write reflected in their own column,
--- so neither reads a stale value regardless of deployment order.
-insert into holdings (id, household_id, name, asset_class, value_aed, is_shared)
-values ('77777777-7777-7777-7777-777777777777', '11111111-1111-1111-1111-111111111111', 'Old-client holding', 'intl_equity', 5000, true);
+-- SHR-254 (762a6c4 recheck): the sync is one-directional. A new-client write
+-- to priced_at propagates to last_refreshed (a legacy reader's benefit), but
+-- a legacy client's write to last_refreshed must NOT move priced_at — that
+-- would resurrect SHR-245 (a rename/refresh falsely certifying a stale
+-- valuation) via the migration's own compatibility shim.
+insert into holdings (id, household_id, name, asset_class, value_aed, is_shared, priced_at)
+values ('77777777-7777-7777-7777-777777777777', '11111111-1111-1111-1111-111111111111', 'Old-client holding', 'intl_equity', 5000, true, '2026-06-01T00:00:00Z');
 do $$
 declare priced timestamptz; refreshed timestamptz;
 begin
-  -- The old client writes only last_refreshed.
-  update holdings set last_refreshed = '2026-09-01T00:00:00Z' where id = '77777777-7777-7777-7777-777777777777';
+  -- The legacy client "refreshes" (or renames, or reloads) and writes only
+  -- last_refreshed, the same way it always has. priced_at must stay exactly
+  -- as it was — a legacy touch is not a confirmed valuation.
+  update holdings set last_refreshed = '2026-09-06T00:00:00Z' where id = '77777777-7777-7777-7777-777777777777';
   select priced_at, last_refreshed into priced, refreshed from holdings where id = '77777777-7777-7777-7777-777777777777';
-  if priced is distinct from refreshed then
-    raise exception 'SHR-254 FAILED: priced_at (%) did not follow last_refreshed (%)', priced, refreshed;
+  if priced is distinct from '2026-06-01T00:00:00Z'::timestamptz then
+    raise exception 'SHR-254 FAILED: a legacy last_refreshed write moved priced_at to %', priced;
+  end if;
+  if refreshed is distinct from '2026-09-06T00:00:00Z'::timestamptz then
+    raise exception 'SHR-254 FAILED: the legacy client''s own write to last_refreshed did not stick (got %)', refreshed;
   end if;
 
-  -- The new client writes only priced_at.
-  update holdings set priced_at = '2026-09-06T00:00:00Z' where id = '77777777-7777-7777-7777-777777777777';
+  -- The new client confirms a real valuation and writes only priced_at.
+  -- That DOES propagate — a genuine confirmed valuation is safe to also
+  -- offer to a legacy reader via last_refreshed.
+  update holdings set priced_at = '2026-09-06T12:00:00Z' where id = '77777777-7777-7777-7777-777777777777';
   select priced_at, last_refreshed into priced, refreshed from holdings where id = '77777777-7777-7777-7777-777777777777';
   if refreshed is distinct from priced then
-    raise exception 'SHR-254 FAILED: last_refreshed (%) did not follow priced_at (%)', refreshed, priced;
+    raise exception 'SHR-254 FAILED: last_refreshed (%) did not follow a genuine priced_at write (%)', refreshed, priced;
   end if;
 
-  raise notice 'SHR-254 ok: priced_at and last_refreshed stay in sync regardless of which one is written';
+  raise notice 'SHR-254 ok: a legacy refresh cannot move priced_at; a genuine reprice still updates last_refreshed for legacy readers';
 end $$;
 
 -- QA-04 / QA-02: the new columns exist and default to "not confirmed".
