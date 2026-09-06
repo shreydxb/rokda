@@ -8,11 +8,16 @@ verified against. This file records what those names refer to.
 | Role | Where | Notes |
 | --- | --- | --- |
 | Production | https://rokda-app.netlify.app | Netlify, deploys from the default branch |
-| Preview | Netlify deploy preview per branch/PR | Same build; the sidebar footer shows the commit |
+| Preview | Not provisioned/verified yet | PR #1 targets dev; confirm base-branch deploy eligibility and preview configuration |
 
-The running build identifies itself in the sidebar footer (`build <short sha>`,
+The correction build identifies itself in the sidebar footer (`build <short sha>`,
 full commit and build time in the tooltip). Netlify supplies `COMMIT_REF`, which
 `vite.config.js` reads; no extra configuration is required for the SHA to appear.
+
+Before enabling preview or dev branch builds, configure their Supabase variables
+to use an isolated synthetic-data database. Configure both `deploy-preview` and
+any enabled `branch-deploy`/dev context; neither should inherit household data
+settings. An absent GitHub check alone does not establish why a preview is missing.
 
 ### Build environment variables
 

@@ -446,7 +446,10 @@ export default function Overview() {
 
           <section className="ov-triple">
             <div>
-              <div className="ov-kicker">Spend composition · {PERIOD_LABELS[period]}</div>
+                <div className="ov-kicker">Gross spending by category · {PERIOD_LABELS[period]}</div>
+                <div className="ov-muted" style={{ marginTop: 6 }}>
+                  Before refunds. Spending totals above include refunds.
+                </div>
               {composition.rows.length === 0 ? (
                 <div className="ov-muted" style={{ marginTop: 12 }}>
                   No spend recorded this period.

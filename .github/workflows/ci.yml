@@ -76,7 +76,7 @@ jobs:
       # Matching table names never proved the applied SQL matched the
       # repository's. This compares normalised SQL, per migration.
       - name: Compare repository migrations with what is applied
-        run: node scripts/compare-migrations.mjs docs/applied-migrations.json
+        run: npm run compare:migrations
 
       # Proves a fresh database is buildable from the repository alone.
       - name: Build a fresh database from the migrations
