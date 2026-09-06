@@ -171,6 +171,20 @@ export function compare(repo, applied) {
   return [...rows, ...appliedOnly];
 }
 
+// A migration in the repository that is not applied yet is expected, not
+// drift: it is waiting for a deployment decision. A stale-fingerprint entry
+// is neither proven equivalent nor proven to differ — it was recorded under
+// an older, less strict normalise() — so it is never counted as drift by
+// itself (including via a version mismatch: without a comparable content
+// hash, a version mismatch alone isn't something this can respons­ibly call
+// drift either) — it is flagged on its own instead of being folded into
+// either a false failure or a false clean bill.
+export function isDrift(row) {
+  return Boolean(
+    row.status === 'differs' || row.status === 'applied-only' || (row.status !== 'stale-fingerprint' && row.appliedVersion && !row.versionMatches),
+  );
+}
+
 // Entry-point check via URL comparison rather than string splitting: the
 // previous version split argv[1] on '/' only, so on Windows (backslash
 // paths) it never matched import.meta.url, `npm run compare:migrations`
@@ -179,9 +193,19 @@ export function compare(repo, applied) {
 const isMainModule = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 
 if (isMainModule) {
-  const path = process.argv[2];
+  // --strict (SHR-253, 81a6bb3 recheck): a green CI run under the default,
+  // informational mode does not by itself establish a completed migration
+  // comparison if any entry is unverifiable — it only establishes that
+  // nothing PROVEN equivalent was found to differ. Release validation needs
+  // to be able to insist on more than that: --strict also fails on any
+  // stale-fingerprint entry, so a release gate can require every migration
+  // to be actually re-verified under the current rules, not just not-yet-
+  // contradicted.
+  const args = process.argv.slice(2).filter((a) => a !== '--strict');
+  const strict = process.argv.includes('--strict');
+  const path = args[0];
   if (!path) {
-    console.error('usage: node scripts/compare-migrations.mjs <applied-migrations.json>');
+    console.error('usage: node scripts/compare-migrations.mjs <applied-migrations.json> [--strict]');
     process.exit(2);
   }
   const applied = JSON.parse(readFileSync(path, 'utf8'));
@@ -190,22 +214,19 @@ if (isMainModule) {
   let pending = 0;
   let staleFingerprints = 0;
   for (const row of rows) {
-    // A migration in the repository that is not applied yet is expected, not
-    // drift: it is waiting for a deployment decision. A stale-fingerprint
-    // entry is neither proven equivalent nor proven to differ — it was
-    // recorded under an older, less strict normalise() — so it is flagged on
-    // its own rather than counted as drift (a false failure) or silently
-    // passed as "ok" (a false clean bill).
-    const isDrift = row.status === 'differs' || row.status === 'applied-only' || (row.appliedVersion && !row.versionMatches);
-    if (isDrift) drift++;
+    const drifted = isDrift(row);
+    if (drifted) drift++;
     if (row.status === 'not-applied') pending++;
     if (row.status === 'stale-fingerprint') staleFingerprints++;
     const flag =
-      isDrift ? 'DRIFT ' : row.status === 'not-applied' ? 'pending' : row.status === 'stale-fingerprint' ? 'STALE ' : 'ok    ';
+      drifted ? 'DRIFT ' : row.status === 'not-applied' ? 'pending' : row.status === 'stale-fingerprint' ? 'STALE ' : 'ok    ';
     console.log(
       `${flag.padEnd(8)}${row.name.padEnd(28)} local=${row.localVersion ?? '—'} applied=${row.appliedVersion ?? '—'} ${row.status}`,
     );
   }
   console.log(`\n${rows.length} migrations; ${drift} drifting, ${pending} awaiting deployment, ${staleFingerprints} unverifiable (applied fingerprint predates the current normalise() — re-export needed, see docs/migration-reconciliation.md).`);
-  process.exitCode = drift ? 1 : 0;
+  if (strict && staleFingerprints > 0) {
+    console.log(`\n--strict: failing on ${staleFingerprints} unverifiable entr${staleFingerprints === 1 ? 'y' : 'ies'}.`);
+  }
+  process.exitCode = drift || (strict && staleFingerprints > 0) ? 1 : 0;
 }

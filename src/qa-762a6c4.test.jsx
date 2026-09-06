@@ -9,28 +9,21 @@ import { closedMonths } from './lib/forecast';
 import { periodSummary } from './screens/overviewMath';
 import { normalise } from '../scripts/compare-migrations.mjs';
 
-const state = vi.hoisted(() => ({ rows: [], histories: [], loseResponse: false }));
+// A minimal, realistic simulation of the `holdings` table: upsert on `id`
+// always commits (a real write either lands or it doesn't reach the table at
+// all — there's no such thing as a write that both "happens" and "doesn't
+// happen"), independent of whether the caller's response is lost.
+const state = vi.hoisted(() => ({ holdings: new Map(), histories: [], loseResponse: false }));
 vi.mock('./lib/supabaseClient', () => ({
   supabase: {
-    from: () => ({
-      insert: (row) => {
-        state.rows.push({ ...row });
-        return {
-          select: () => ({
-            maybeSingle: async () =>
-              state.loseResponse ? { data: null, error: { message: 'Response lost after commit' } } : { data: { id: 'h1' }, error: null },
-          }),
-        };
-      },
-      update: (row) => ({
-        eq: async () => {
-          state.rows[0] = { ...state.rows[0], ...row };
-          return { error: null };
-        },
-      }),
+    from: (table) => ({
       upsert: async (row) => {
-        state.histories.push(row);
-        return { error: state.histories.length === 1 ? { message: 'History unavailable' } : null };
+        if (table === 'holding_value_history') {
+          state.histories.push(row);
+          return { error: state.histories.length === 1 ? { message: 'History unavailable' } : null };
+        }
+        state.holdings.set(row.id, { ...state.holdings.get(row.id), ...row });
+        return { error: state.loseResponse ? { message: 'Response lost after commit' } : null };
       },
     }),
   },
@@ -39,7 +32,7 @@ vi.mock('./lib/supabaseClient', () => ({
 const { default: HoldingEditor } = await import('./screens/wealth/HoldingEditor');
 
 beforeEach(() => {
-  state.rows.length = 0;
+  state.holdings.clear();
   state.histories.length = 0;
   state.loseResponse = false;
 });
@@ -78,9 +71,9 @@ it('changing value after a partial save keeps holding and history consistent', a
   await act(async () => {
     fireEvent.submit(document.querySelector('form'));
   });
-  expect(state.rows).toHaveLength(1);
+  expect(state.holdings.size).toBe(1);
   expect(state.histories.at(-1).value_aed).toBe(200);
-  expect(state.rows[0].value_aed).toBe(200);
+  expect([...state.holdings.values()][0].value_aed).toBe(200);
 });
 
 it('lost insert response followed by retry creates one holding', async () => {
@@ -90,7 +83,7 @@ it('lost insert response followed by retry creates one holding', async () => {
   await act(async () => {
     fireEvent.submit(document.querySelector('form'));
   });
-  expect(state.rows).toHaveLength(1);
+  expect(state.holdings.size).toBe(1);
 });
 
 it('migration comparison distinguishes dollar-quoted SQL literal case', () => {

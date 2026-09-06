@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalise, fingerprint, compare, FINGERPRINT_VERSION } from './compare-migrations.mjs';
+import { normalise, fingerprint, compare, isDrift, FINGERPRINT_VERSION } from './compare-migrations.mjs';
 
 // SHR-253 (QA-12): normalise() used to lowercase and strip comment-like text
 // EVERYWHERE, including inside string literals and quoted identifiers — so
@@ -112,5 +112,42 @@ describe('SHR-253: an applied fingerprint from an older normalise() is unverifia
     const applied = [{ name: 'x', version: '1', fingerprint: fingerprint('select 1;'), fingerprintVersion: FINGERPRINT_VERSION }];
     const [row] = compare(repo, applied);
     expect(row.status).toBe('equivalent');
+  });
+});
+
+// 81a6bb3 recheck (SHR-253): a green CI run under the default, informational
+// mode doesn't by itself establish a completed comparison if any entry is
+// unverifiable. isDrift() is what the CLI uses to decide both the per-row
+// DRIFT flag and the overall exit code; --strict additionally fails on any
+// stale-fingerprint entry (checked at the process level in the CLI, not
+// here, since isDrift() itself never counts staleness as drift).
+describe('SHR-253: isDrift() never counts a stale fingerprint as drift, even with a version mismatch', () => {
+  it('is drift when the version differs and the content IS comparable', () => {
+    // An applied version is assigned at apply time and reconciling a
+    // mismatch is a deliberate, tracked step (docs/migration-reconciliation.md)
+    // — it stays drift-worthy whenever there's an actual fingerprint to
+    // compare against.
+    const row = { status: 'equivalent', appliedVersion: '1', localVersion: '2', versionMatches: false };
+    expect(isDrift(row)).toBe(true);
+  });
+
+  it('is not drift when the fingerprint is stale, even if the version also differs', () => {
+    const row = { status: 'stale-fingerprint', appliedVersion: '1', localVersion: '2', versionMatches: false };
+    expect(isDrift(row)).toBe(false);
+  });
+
+  it('is still drift for a genuine content difference', () => {
+    const row = { status: 'differs', appliedVersion: '1', localVersion: '1', versionMatches: true };
+    expect(isDrift(row)).toBe(true);
+  });
+
+  it('is still drift for an applied-only migration', () => {
+    const row = { status: 'applied-only', appliedVersion: '1' };
+    expect(isDrift(row)).toBe(true);
+  });
+
+  it('is not drift for a migration merely awaiting deployment', () => {
+    const row = { status: 'not-applied', localVersion: '1' };
+    expect(isDrift(row)).toBe(false);
   });
 });

@@ -123,15 +123,18 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
       ...(nextPriced ? { priced_at: nextPriced } : {}),
     };
 
-    // A brand-new holding is inserted at most once. The id is generated and
-    // recorded BEFORE the insert is dispatched — not read back from a
-    // successful response — so a retry can recover even when the response is
-    // lost entirely (network drop, timeout): the write may or may not have
-    // landed, but either way a retry updates that same id instead of risking
-    // a second insert (SHR-246). Once an id is known for this new holding —
-    // from this attempt or an earlier one — every subsequent save (including
-    // one that changes the value again before history ever succeeds) goes
-    // through update, so the stored row always reflects the latest edit.
+    // A brand-new holding's id is generated and recorded BEFORE the first
+    // write is dispatched — not read back from a successful response — so a
+    // retry can recover regardless of what actually happened to that first
+    // attempt. That's the part a plain update-on-retry got wrong (SHR-246,
+    // 81a6bb3 recheck): if the first attempt's insert failed before it ever
+    // committed, no row exists yet, and an update matches zero rows without
+    // raising an error — every retry after that stayed on update forever,
+    // never actually creating the holding. Upserting on the known id instead
+    // handles both outcomes of that first attempt with the same call: if it
+    // never committed, this inserts; if it committed but the response was
+    // lost, this updates in place. Either way, retrying never risks a second
+    // row, and never silently no-ops on a row that was never written.
     let holdingId = holding?.id ?? createdId;
     if (holding) {
       const { error: saveError } = await supabase.from('holdings').update(payload).eq('id', holding.id);
@@ -140,21 +143,12 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
         setError(saveError.message);
         return;
       }
-    } else if (holdingId) {
-      const { error: saveError } = await supabase.from('holdings').update(payload).eq('id', holdingId);
-      if (saveError) {
-        setSaving(false);
-        setError(saveError.message);
-        return;
-      }
     } else {
-      holdingId = crypto.randomUUID();
-      setCreatedId(holdingId);
-      const { error: saveError } = await supabase
-        .from('holdings')
-        .insert({ id: holdingId, ...payload })
-        .select('id')
-        .maybeSingle();
+      if (!holdingId) {
+        holdingId = crypto.randomUUID();
+        setCreatedId(holdingId);
+      }
+      const { error: saveError } = await supabase.from('holdings').upsert({ id: holdingId, ...payload }, { onConflict: 'id' });
       if (saveError) {
         setSaving(false);
         setError(saveError.message);
