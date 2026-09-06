@@ -197,6 +197,31 @@ begin
   end;
 end $$;
 
+-- SHR-254: an old client writing last_refreshed and a new client writing
+-- priced_at must each see the other's write reflected in their own column,
+-- so neither reads a stale value regardless of deployment order.
+insert into holdings (id, household_id, name, asset_class, value_aed, is_shared)
+values ('77777777-7777-7777-7777-777777777777', '11111111-1111-1111-1111-111111111111', 'Old-client holding', 'intl_equity', 5000, true);
+do $$
+declare priced timestamptz; refreshed timestamptz;
+begin
+  -- The old client writes only last_refreshed.
+  update holdings set last_refreshed = '2026-09-01T00:00:00Z' where id = '77777777-7777-7777-7777-777777777777';
+  select priced_at, last_refreshed into priced, refreshed from holdings where id = '77777777-7777-7777-7777-777777777777';
+  if priced is distinct from refreshed then
+    raise exception 'SHR-254 FAILED: priced_at (%) did not follow last_refreshed (%)', priced, refreshed;
+  end if;
+
+  -- The new client writes only priced_at.
+  update holdings set priced_at = '2026-09-06T00:00:00Z' where id = '77777777-7777-7777-7777-777777777777';
+  select priced_at, last_refreshed into priced, refreshed from holdings where id = '77777777-7777-7777-7777-777777777777';
+  if refreshed is distinct from priced then
+    raise exception 'SHR-254 FAILED: last_refreshed (%) did not follow priced_at (%)', refreshed, priced;
+  end if;
+
+  raise notice 'SHR-254 ok: priced_at and last_refreshed stay in sync regardless of which one is written';
+end $$;
+
 -- QA-04 / QA-02: the new columns exist and default to "not confirmed".
 do $$
 declare priced timestamptz; confirmed timestamptz;
