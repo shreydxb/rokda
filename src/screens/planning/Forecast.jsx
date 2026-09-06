@@ -21,7 +21,7 @@ function deltaLabel(years) {
   return `${years > 0 ? '+' : '−'}${Math.abs(years)} yr${Math.abs(years) === 1 ? '' : 's'}`;
 }
 
-export default function Forecast({ household, accounts, transactions, data, loading }) {
+export default function Forecast({ household, accounts, transactions, holdings, data, loading }) {
   const navigate = useNavigate();
   const householdId = household?.id;
   const { assumptions } = data;
@@ -33,7 +33,7 @@ export default function Forecast({ household, accounts, transactions, data, load
   const startYear = now.getFullYear();
 
   const startNetWorth =
-    accounts.length > 0 || data.holdings.length > 0 ? netWorthSummary(accounts, null, data.holdings).netWorth : null;
+    accounts.length > 0 || holdings.length > 0 ? netWorthSummary(accounts, null, holdings).netWorth : null;
   const monthCount = closedMonths(transactions, now).size;
   const inputs = useMemo(() => forecastInputs(transactions, startNetWorth, now), [transactions, startNetWorth, now]);
 
