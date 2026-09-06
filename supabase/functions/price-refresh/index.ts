@@ -86,7 +86,7 @@ type Holding = {
   currency: string;
   quantity: string | null;
   price_symbol: string;
-  price_provider: "twelvedata" | "coingecko" | "mfapi";
+  price_provider: "twelvedata" | "coingecko" | "mfapi" | "yahoo";
   price_fetch_fail_count: number;
 };
 
@@ -159,6 +159,30 @@ async function fetchMfapi(schemeCode: string): Promise<PriceResult> {
   }
 }
 
+// Yahoo Finance's undocumented chart endpoint — no key, no published rate
+// limit, but no SLA either: it's here only because Twelve Data's free tier
+// doesn't reach NSE-listed India equities or DFM-listed UAE equities at
+// all. US/global equities and commodities stay on Twelve Data, which is
+// documented and already verified working. Symbol is Yahoo's own ticker
+// (e.g. "RELIANCE.NS" for NSE, "EMAAR.AE" for Dubai, plain "AAPL" for US).
+async function fetchYahoo(symbol: string): Promise<PriceResult> {
+  try {
+    const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}`, {
+      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36" },
+    });
+    const body = await res.json();
+    if (!res.ok || body?.chart?.error) {
+      throw new Error(body?.chart?.error?.description ?? `HTTP ${res.status}`);
+    }
+    const meta = body?.chart?.result?.[0]?.meta;
+    const price = Number(meta?.regularMarketPrice);
+    const pct = meta?.regularMarketChangePercent != null ? Number(meta.regularMarketChangePercent) : null;
+    return Number.isFinite(price) ? { price, dayChangePct: pct } : { error: "No price in response" };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 async function refreshHoldings(inrPerAed: number | null) {
   const { data: holdings, error } = await supabase
     .from("holdings")
@@ -187,6 +211,10 @@ async function refreshHoldings(inrPerAed: number | null) {
   const mfapi = byProvider.get("mfapi") ?? [];
   for (const h of mfapi) {
     results.set(h.id, await fetchMfapi(h.price_symbol));
+  }
+  const yahoo = byProvider.get("yahoo") ?? [];
+  for (const h of yahoo) {
+    results.set(h.id, await fetchYahoo(h.price_symbol));
   }
 
   let updated = 0;

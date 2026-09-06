@@ -213,14 +213,15 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
             <span className="te-fieldlabel">Auto-pricing (optional)</span>
             <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 4, marginBottom: 10 }}>
               Opts this holding into the daily price feed. Leave "None" to keep entering price/day-change by hand —
-              exchanges the feed can't reach (DFM/ADX-listed UAE equities, most sukuk) have no real option here yet.
+              most sukuk still have no real option here.
             </div>
             <div className="te-fieldgrid">
               <div className="te-fieldcell">
                 <span className="te-fieldlabel">Provider</span>
                 <select className="te-fieldvalue" value={form.price_provider} onChange={(e) => set('price_provider', e.target.value)}>
                   <option value="">None — manual</option>
-                  <option value="twelvedata">Twelve Data (US/global/NSE equities, commodities)</option>
+                  <option value="twelvedata">Twelve Data (US/global equities, commodities)</option>
+                  <option value="yahoo">Yahoo Finance (NSE India, DFM Dubai equities — unofficial)</option>
                   <option value="coingecko">CoinGecko (crypto)</option>
                   <option value="mfapi">mfapi.in (India mutual fund NAV)</option>
                 </select>
@@ -236,7 +237,15 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
                   onChange={(e) => set('price_symbol', e.target.value)}
                   disabled={!form.price_provider}
                   aria-invalid={!!symbolError}
-                  placeholder={form.price_provider === 'mfapi' ? 'e.g. 120503' : form.price_provider === 'coingecko' ? 'e.g. bitcoin' : 'e.g. AAPL or RELIANCE:NSE'}
+                  placeholder={
+                    form.price_provider === 'mfapi'
+                      ? 'e.g. 120503'
+                      : form.price_provider === 'coingecko'
+                        ? 'e.g. bitcoin'
+                        : form.price_provider === 'yahoo'
+                          ? 'e.g. RELIANCE.NS or EMAAR.AE'
+                          : 'e.g. AAPL'
+                  }
                 />
               </div>
             </div>
