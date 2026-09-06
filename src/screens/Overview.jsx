@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useHousehold } from '../lib/useHousehold';
 import { useScope } from '../lib/ScopeContext';
 import { resolveScopeMemberId } from '../lib/scope';
-import { formatMoney, formatSigned, formatPct } from '../lib/money';
+import { formatBalance, formatMoney, formatSigned, formatPct } from '../lib/money';
 import { PERIOD_LABELS } from '../lib/period';
 import { upcomingItems } from '../lib/recurring';
 import { buildNetWorthSeries, changeOverMonths } from '../lib/netWorth';
@@ -20,6 +20,10 @@ import {
   runwaySummary,
   dataQuality,
 } from './overviewMath';
+import { parseDay } from '../lib/day';
+import { anyFailed } from '../lib/loadState';
+import { balanceStatus, unconfirmedAccounts } from '../lib/balance';
+import LoadFailure from './LoadFailure';
 import './Overview.css';
 
 const PERIODS = ['mtd', 'qtd', 'ytd'];
@@ -28,11 +32,12 @@ const ATTENTION_DESTINATIONS = {
   card_due: '/wealth',
   category_anomaly: '/money',
   stale_holding: '/wealth',
+  balance_unset: '/wealth',
 };
 
 export default function Overview() {
   const navigate = useNavigate();
-  const { household, members, me, loading: householdLoading } = useHousehold();
+  const { household, members, me, loading: householdLoading, error: householdError, reload: reloadHousehold } = useHousehold();
   const { scope } = useScope();
   const scopeMemberId = resolveScopeMemberId(scope, me, members);
   const money = useMoneyDisplay(household);
@@ -45,7 +50,8 @@ export default function Overview() {
     recurring,
     netWorthSnapshots,
     holdings,
-    error,
+    errors,
+    loadedAt,
     reload,
   } = useOverviewData(household?.id);
 
@@ -58,7 +64,15 @@ export default function Overview() {
   const loading = householdLoading || dataLoading;
   const isEmpty = !loading && accounts.length === 0 && transactions.length === 0 && holdings.length === 0;
 
+  const accountRows = useMemo(() => visibleAccounts(accounts, scopeMemberId), [accounts, scopeMemberId]);
   const nw = useMemo(() => netWorthSummary(accounts, scopeMemberId, holdings), [accounts, scopeMemberId, holdings]);
+  // A total that silently omits a failed input is worse than no total. Net
+  // worth is withheld outright when accounts or holdings didn't load (QA-10).
+  const netWorthTrustworthy = !anyFailed(errors, ['accounts', 'holdings']);
+  // Arithmetic over balances nobody has confirmed is provisional, and says so
+  // rather than presenting itself as the household's position (QA-02).
+  const unconfirmed = unconfirmedAccounts(accountRows);
+  const netWorthIsProvisional = unconfirmed.length > 0;
   const nwSeries = useMemo(
     () => buildNetWorthSeries(netWorthSnapshots, nw.assets, nw.liabilities, now),
     [netWorthSnapshots, nw.assets, nw.liabilities, now]
@@ -76,7 +90,7 @@ export default function Overview() {
   const composition = useMemo(() => {
     const { start, end } = p;
     const periodTx = transactions.filter((t) => {
-      const d = new Date(t.occurred_at);
+      const d = parseDay(t.occurred_at);
       return d >= start && d < new Date(end.getTime() + 86400000);
     });
     return spendComposition(periodTx, scopeMemberId);
@@ -97,7 +111,6 @@ export default function Overview() {
     [transactions, recurring, accounts, holdings, categories, scopeMemberId, now]
   );
   const recent = visibleRows(transactions, scopeMemberId).slice(0, 8);
-  const accountRows = visibleAccounts(accounts, scopeMemberId);
 
   const lede = isEmpty
     ? 'Nothing recorded yet'
@@ -105,7 +118,9 @@ export default function Overview() {
       ? `${attention.length} thing${attention.length === 1 ? '' : 's'} need${attention.length === 1 ? 's' : ''} a decision`
       : p.rate !== null
         ? `On pace to save ${formatPct(p.rate)} this ${period === 'mtd' ? 'month' : period === 'qtd' ? 'quarter' : 'year'}`
-        : 'All caught up';
+        : netWorthIsProvisional
+          ? 'Set up is incomplete'
+          : 'All caught up';
 
   function showToast(message, undo) {
     setToast({ message, undo });
@@ -139,14 +154,13 @@ export default function Overview() {
 
   return (
     <div className="ov">
-      {error && (
-        <div className="ov-error" role="alert">
-          <span>Couldn't load your data. The figures below may be incomplete or stale.</span>
-          <button type="button" className="om-btn" onClick={reload}>
-            Retry
-          </button>
-        </div>
-      )}
+      <LoadFailure
+        errors={{ ...errors, ...(householdError ? { household: householdError } : {}) }}
+        loadedAt={loadedAt}
+        onRetry={async () => {
+          await Promise.all([reloadHousehold(), reload()]);
+        }}
+      />
       <div className="ov-head">
         <div>
           <div className="ov-kicker">
@@ -170,8 +184,20 @@ export default function Overview() {
           <section className="ov-hero-section">
             <div className="ov-kicker">Net worth{scope !== 'both' ? ` · ${scopeLabel(scope, me, members)}` : ''}</div>
             <div className="ov-hero fig">
-              <span className="ov-hero-currency">{money.code}</span> {money.fmt(nw.netWorth)}
+              {netWorthTrustworthy ? (
+                <>
+                  <span className="ov-hero-currency">{money.code}</span> {money.fmtBalance(nw.netWorth)}
+                </>
+              ) : (
+                <span className="ov-hero-unavailable">Not available</span>
+              )}
             </div>
+            {netWorthTrustworthy && netWorthIsProvisional && (
+              <div className="ov-muted" style={{ marginTop: 6, fontSize: 12 }}>
+                Provisional — {unconfirmed.length} account{unconfirmed.length === 1 ? '' : 's'} without a confirmed balance{' '}
+                {unconfirmed.length === 1 ? 'is' : 'are'} counted as zero.
+              </div>
+            )}
             {scope === 'both' && (nwChange1mo || nwChange12mo) && (
               <div className="ov-nwchange">
                 {nwChange1mo && (
@@ -193,10 +219,10 @@ export default function Overview() {
             )}
             <div className="ov-strip">
               <span>
-                Assets <b>{money.fmt(nw.assets)}</b>
+                Assets <b>{money.fmtBalance(nw.assets)}</b>
               </span>
               <span>
-                Liabilities <b>{money.fmt(nw.liabilities)}</b>
+                Liabilities <b>{money.fmtBalance(nw.liabilities)}</b>
               </span>
               {runway.available ? (
                 <span>
@@ -298,7 +324,7 @@ export default function Overview() {
                           <span>{item.tx.merchant ?? 'Transaction'}</span>
                           <span className="ov-muted">
                             {new Date(item.tx.occurred_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} ·{' '}
-                            {formatMoney(item.tx.amount)}
+                            {formatBalance(item.tx.amount)}
                           </span>
                         </div>
                         <select
@@ -350,7 +376,14 @@ export default function Overview() {
                 name="Transactions"
                 ok={quality.daysSinceLastTx !== null && quality.daysSinceLastTx <= 3}
                 label={quality.daysSinceLastTx === null ? 'None yet' : quality.daysSinceLastTx === 0 ? 'Today' : `${quality.daysSinceLastTx}d ago`}
-                note={quality.lastTxDate ? `Most recent record ${quality.lastTxDate.toLocaleDateString('en-GB')}` : 'Nothing recorded yet.'}
+                note={
+                  (quality.lastTxDate
+                    ? `Most recent posted record ${quality.lastTxDate.toLocaleDateString('en-GB')}.`
+                    : 'Nothing posted yet.') +
+                  (quality.plannedTx > 0
+                    ? ` ${quality.plannedTx} future-dated record(s) are planned, not counted in spend.`
+                    : '')
+                }
               />
               <QualityItem
                 name="Categorisation"
@@ -388,7 +421,7 @@ export default function Overview() {
               <>
                 <div className="ov-next30-row">
                   {next30.map((r) => (
-                    <div key={r.id} className="ov-next30-cell">
+                    <div key={r.occurrenceKey} className="ov-next30-cell">
                       <div className="ov-muted">{r.dueDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</div>
                       <div className="ov-next30-name">{r.name}</div>
                       <div className={`fig ov-next30-amt ${Number(r.amount) > 0 ? 'ov-pos' : ''}`}>{formatSigned(r.amount)}</div>
@@ -498,8 +531,16 @@ export default function Overview() {
                         <div className="ov-muted">{a.is_shared ? 'Joint' : ownerName(a.owner_member_id, members)}</div>
                       </div>
                       <div className={`fig ov-list-amt ${a.type === 'credit_card' || a.type === 'loan' ? 'ov-neg' : ''}`}>
-                        {a.type === 'credit_card' || a.type === 'loan' ? '−' : ''}
-                        {money.fmt(a.balance)}
+                        {balanceStatus(a) === 'unset' ? (
+                          <span className="ov-muted">Not set</span>
+                        ) : (
+                          // A liability reduces the position, so it is shown
+                          // negative — by negating the value, not by prefixing
+                          // a sign that could double up on an overpaid card.
+                          money.fmtBalance(
+                            a.type === 'credit_card' || a.type === 'loan' ? -Number(a.balance) : Number(a.balance),
+                          )
+                        )}
                       </div>
                     </div>
                   ))

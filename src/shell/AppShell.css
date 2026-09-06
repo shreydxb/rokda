@@ -221,3 +221,15 @@
     padding: 24px 20px 60px;
   }
 }
+
+/* Build identity: the deployed preview names its own commit so a QA handoff
+   can be checked against what is actually running. */
+.om-buildid {
+  margin-top: 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: var(--ink3);
+  opacity: 0.75;
+  cursor: default;
+}

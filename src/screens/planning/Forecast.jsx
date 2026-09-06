@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { formatMoney, formatPct } from '../../lib/money';
-import { netWorthSummary } from '../overviewMath';
+import { formatBalance, formatMoney, formatPct } from '../../lib/money';
+import { startingNetWorth } from '../overviewMath';
 import { closedMonths, crossingYear, fiTarget, forecastInputs, projectSeries, realReturn, goalAt } from '../../lib/forecast';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import ForecastAssumptionsEditor from './ForecastAssumptionsEditor';
@@ -21,7 +21,11 @@ function deltaLabel(years) {
   return `${years > 0 ? '+' : '−'}${Math.abs(years)} yr${Math.abs(years) === 1 ? '' : 's'}`;
 }
 
-export default function Forecast({ household, accounts, transactions, data, loading }) {
+// `holdings` is passed in explicitly rather than read off the planning data
+// object, which never had a holdings field: reading `data.holdings` crashed
+// with no accounts and silently dropped holdings from net worth with
+// accounts (QA-03).
+export default function Forecast({ household, accounts = [], transactions = [], holdings = [], data, loading }) {
   const navigate = useNavigate();
   const householdId = household?.id;
   const { assumptions } = data;
@@ -32,8 +36,7 @@ export default function Forecast({ household, accounts, transactions, data, load
   const now = useMemo(() => new Date(), []);
   const startYear = now.getFullYear();
 
-  const startNetWorth =
-    accounts.length > 0 || data.holdings.length > 0 ? netWorthSummary(accounts, null, data.holdings).netWorth : null;
+  const startNetWorth = useMemo(() => startingNetWorth(accounts, holdings), [accounts, holdings]);
   const monthCount = closedMonths(transactions, now).size;
   const inputs = useMemo(() => forecastInputs(transactions, startNetWorth, now), [transactions, startNetWorth, now]);
 
@@ -179,7 +182,7 @@ export default function Forecast({ household, accounts, transactions, data, load
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10, fontSize: 12, color: 'var(--ink3)', flexWrap: 'wrap', gap: 12 }}>
             <span>
-              <span style={{ color: 'var(--ink)' }}>{formatPct(pct)}</span> of the way there · {money.fmt(startNetWorth)} today
+              <span style={{ color: 'var(--ink)' }}>{formatPct(pct)}</span> of the way there · {money.fmtBalance(startNetWorth)} today
             </span>
             {leanTarget && (
               <span>
@@ -216,7 +219,7 @@ export default function Forecast({ household, accounts, transactions, data, load
         </div>
         <div style={{ paddingLeft: 24 }}>
           <div style={{ fontSize: 12, color: 'var(--ink2)' }}>Saving now</div>
-          <div className="fig" style={{ fontSize: 28, marginTop: 6 }}>{formatMoney(inputs.monthlySaving)}</div>
+          <div className="fig" style={{ fontSize: 28, marginTop: 6 }}>{formatBalance(inputs.monthlySaving)}</div>
           <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 5 }}>A month, averaged over the last {inputs.monthCount} closed months</div>
         </div>
       </div>
@@ -268,9 +271,9 @@ export default function Forecast({ household, accounts, transactions, data, load
                   <div className="ov-muted" style={{ marginTop: 3, fontSize: 11.5 }}>Baseline vs the last {inputs.monthCount} months, actual</div>
                 </div>
                 <div style={{ display: 'flex', gap: 20, alignItems: 'baseline' }}>
-                  <span className="ov-muted fig">{formatMoney(assumptions.baseline_monthly_saving)}</span>
+                  <span className="ov-muted fig">{formatBalance(assumptions.baseline_monthly_saving)}</span>
                   <span className={`fig ${inputs.monthlySaving >= Number(assumptions.baseline_monthly_saving) ? 'ov-pos' : 'ov-neg'}`}>
-                    {formatMoney(inputs.monthlySaving)}
+                    {formatBalance(inputs.monthlySaving)}
                   </span>
                 </div>
               </div>
@@ -328,7 +331,7 @@ export default function Forecast({ household, accounts, transactions, data, load
             ['Investment return', `${nominalPct.toFixed(1)}% nominal`],
             ['Inflation', `${inflationPct.toFixed(1)}%`],
             ['Safe withdrawal rate', `${swrPct.toFixed(1)}%`],
-            ['Monthly saving', `${formatMoney(inputs.monthlySaving)} (actual)`],
+            ['Monthly saving', `${formatBalance(inputs.monthlySaving)} (actual)`],
             ['Annual spend', `${formatMoney(inputs.annualSpend)} (actual)`],
             ['Horizon shown', `${HORIZON_YEARS} years`],
           ].map(([label, value]) => (

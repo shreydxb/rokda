@@ -1,4 +1,6 @@
 import { scopedValue } from '../lib/scope';
+import { isArchived } from '../lib/accounts';
+import { clampToToday, daysBetweenDays, endOfDayExclusive, isPosted, monthKey, parseDay, startOfDay } from '../lib/day';
 import { chartBuckets, periodBounds } from '../lib/period';
 import { scopedHoldingValue, visibleHoldings } from '../lib/holdings';
 
@@ -10,8 +12,11 @@ function visibleToScope(row, scopeMemberId) {
   return row.is_shared || row.owner_member_id === scopeMemberId;
 }
 
+// Closed accounts are excluded from every current-position figure: they are
+// not part of what the household holds today. Their transactions are separate
+// rows and stay in history untouched (QA-01).
 export function visibleAccounts(accounts, scopeMemberId) {
-  return accounts.filter((a) => visibleToScope(a, scopeMemberId));
+  return accounts.filter((a) => !isArchived(a) && visibleToScope(a, scopeMemberId));
 }
 
 export function netWorthSummary(accounts, scopeMemberId, holdings = []) {
@@ -28,30 +33,53 @@ export function netWorthSummary(accounts, scopeMemberId, holdings = []) {
   return { assets, liabilities, netWorth: assets - liabilities };
 }
 
+// The one starting basis shared by Overview, Wealth and Forecast: open account
+// balances plus holdings, household-wide. Returns null — never zero — when
+// there is nothing valued to start from, so a forecast refuses to project from
+// a number the app invented (QA-03).
+export function startingNetWorth(accounts = [], holdings = []) {
+  const hasAccounts = visibleAccounts(accounts, null).length > 0;
+  const hasHoldings = visibleHoldings(holdings, null).length > 0;
+  if (!hasAccounts && !hasHoldings) return null;
+  return netWorthSummary(accounts, null, holdings).netWorth;
+}
+
 export function liquidAssets(accounts, scopeMemberId) {
   return visibleAccounts(accounts, scopeMemberId)
     .filter((a) => LIQUID_TYPES.has(a.type))
     .reduce((sum, a) => sum + scopedValue(a.balance, a, scopeMemberId), 0);
 }
 
+// Half-open [start, end) over local calendar days, so a boundary belongs to
+// exactly one window (QA-06).
 function txInRange(transactions, start, end, scopeMemberId) {
   return transactions.filter((t) => {
     if (!visibleToScope(t, scopeMemberId)) return false;
-    const d = new Date(t.occurred_at);
+    const d = parseDay(t.occurred_at);
     return d >= start && d < end;
   });
 }
 
+// A refund is stored positive, like income, but means the opposite: money
+// coming back on an earlier expense, not money earned. It must net against
+// spend rather than inflate income (SHR-252). Every income/spend rollup
+// below routes through this so a refund reads the same way everywhere.
+function applyToIncomeSpend(t, v, totals) {
+  if (t.kind === 'refund') totals.spend -= v;
+  else if (v >= 0) totals.income += v;
+  else totals.spend += -v;
+}
+
 export function periodSummary(transactions, kind, scopeMemberId, now = new Date()) {
   const { start, end } = periodBounds(kind, now);
-  const rows = txInRange(transactions, start, new Date(end.getTime() + 24 * 60 * 60 * 1000), scopeMemberId);
-  let income = 0;
-  let spend = 0;
+  // Up to and including today. The old bound added 24 hours to the current
+  // *timestamp*, so a record dated tomorrow counted as spend today (QA-06).
+  const rows = txInRange(transactions, start, endOfDayExclusive(end), scopeMemberId);
+  const totals = { income: 0, spend: 0 };
   for (const t of rows) {
-    const v = scopedValue(t.amount, t, scopeMemberId);
-    if (v >= 0) income += v;
-    else spend += -v;
+    applyToIncomeSpend(t, scopedValue(t.amount, t, scopeMemberId), totals);
   }
+  const { income, spend } = totals;
   const saved = income - spend;
   const rate = income > 0 ? saved / income : null;
   return { start, end, income, spend, saved, rate, count: rows.length };
@@ -59,14 +87,14 @@ export function periodSummary(transactions, kind, scopeMemberId, now = new Date(
 
 export function buildChartColumns(transactions, kind, scopeMemberId, now = new Date()) {
   return chartBuckets(kind, now).map((bucket) => {
-    const rows = txInRange(transactions, bucket.start, bucket.end, scopeMemberId);
-    let income = 0;
-    let spend = 0;
+    // The still-running bucket stops at today; it must not reach into the
+    // future and count planned records as actuals (QA-06).
+    const rows = txInRange(transactions, bucket.start, clampToToday(bucket.end, now), scopeMemberId);
+    const totals = { income: 0, spend: 0 };
     for (const t of rows) {
-      const v = scopedValue(t.amount, t, scopeMemberId);
-      if (v >= 0) income += v;
-      else spend += -v;
+      applyToIncomeSpend(t, scopedValue(t.amount, t, scopeMemberId), totals);
     }
+    const { income, spend } = totals;
     const saved = income - spend;
     const rate = income > 0 ? saved / income : 0;
     return { ...bucket, income, spend, saved, rate, hasData: rows.length > 0 };
@@ -98,16 +126,24 @@ export function spendComposition(periodTx, scopeMemberId, { topN = 5 } = {}) {
 // skew the average.
 export function runwaySummary(transactions, accounts, scopeMemberId, now = new Date()) {
   const monthly = new Map();
+  const currentMonth = monthKey(now);
   for (const t of transactions) {
     if (!visibleToScope(t, scopeMemberId)) continue;
     const v = scopedValue(t.amount, t, scopeMemberId);
-    if (v >= 0) continue;
-    const d = new Date(t.occurred_at);
-    if (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()) continue;
-    const key = `${d.getFullYear()}-${d.getMonth()}`;
+    if (v >= 0 && t.kind !== 'refund') continue;
+    const key = monthKey(parseDay(t.occurred_at));
+    // The current month is partial, and anything after it is planned, not
+    // spent. Both are excluded from a completed-month average.
+    if (key >= currentMonth) continue;
+    // A refund's v is positive, so -v is negative here and reduces that
+    // month's spend rather than being ignored — the same netting
+    // periodSummary applies (SHR-252).
     monthly.set(key, (monthly.get(key) ?? 0) + -v);
   }
-  const series = [...monthly.values()].slice(-6);
+  // Newest six *by month*, not by arrival order. Transactions come back
+  // newest-first from the API, so taking the last six entries of insertion
+  // order kept the six oldest months (QA-06).
+  const series = [...monthly.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([, total]) => total).slice(-6);
   if (series.length < 2) return { available: false, monthsOfHistory: series.length };
   const avgMonthlySpend = series.reduce((a, b) => a + b, 0) / series.length;
   const liquid = liquidAssets(accounts, scopeMemberId);
@@ -116,10 +152,14 @@ export function runwaySummary(transactions, accounts, scopeMemberId, now = new D
 }
 
 export function dataQuality(accounts, transactions, now = new Date()) {
-  const lastTxDate = transactions.length
-    ? new Date(Math.max(...transactions.map((t) => new Date(t.occurred_at).getTime())))
+  // "Last recorded" means the newest *posted* record. Counting a future-dated
+  // one produced the live Overview's "Transactions −1d ago" (QA-06).
+  const posted = transactions.filter((t) => isPosted(t, now));
+  const planned = transactions.length - posted.length;
+  const lastTxDate = posted.length
+    ? new Date(Math.max(...posted.map((t) => parseDay(t.occurred_at).getTime())))
     : null;
-  const daysSinceLastTx = lastTxDate ? Math.floor((now - lastTxDate) / 86400000) : null;
+  const daysSinceLastTx = lastTxDate ? daysBetweenDays(lastTxDate, startOfDay(now)) : null;
 
   const lastAccountUpdate = accounts.length
     ? new Date(Math.max(...accounts.map((a) => new Date(a.updated_at ?? a.created_at).getTime())))
@@ -130,5 +170,5 @@ export function dataQuality(accounts, transactions, now = new Date()) {
 
   const openReview = transactions.filter((t) => t.needs_review).length;
 
-  return { lastTxDate, daysSinceLastTx, lastAccountUpdate, categorisedPct, openReview, totalTx: transactions.length };
+  return { lastTxDate, daysSinceLastTx, lastAccountUpdate, categorisedPct, openReview, totalTx: transactions.length, plannedTx: planned };
 }

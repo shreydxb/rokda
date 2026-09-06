@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev, 'claude/**']
+  pull_request:
+
+jobs:
+  verify:
+    name: install / lint / test / build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Locked install: the tree under test must be the tree the lockfile pins.
+      - name: Install (locked)
+        run: npm ci
+
+      - name: Lint (application source only)
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      # The build needs Supabase env vars even to produce a usable artifact:
+      # they are inlined at build time, and without them the client's top-level
+      # throw folds to a constant and the bundler eliminates the whole app.
+      # These are placeholders — CI never talks to a database.
+      - name: Build
+        run: npm run build
+        env:
+          VITE_COMMIT_SHA: ${{ github.sha }}
+          VITE_SUPABASE_URL: https://ci-placeholder.supabase.co
+          VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_placeholder
+
+      - name: Verify the build actually contains the application
+        run: npm run verify:build
+
+      - name: Report build identity
+        run: |
+          echo "commit: ${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "ref: ${{ github.ref }}" >> "$GITHUB_STEP_SUMMARY"
+
+  migrations:
+    name: fresh database from supabase/migrations
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Matching table names never proved the applied SQL matched the
+      # repository's. This compares normalised SQL, per migration.
+      - name: Compare repository migrations with what is applied
+        run: node scripts/compare-migrations.mjs docs/applied-migrations.json
+
+      # Proves a fresh database is buildable from the repository alone.
+      - name: Build a fresh database from the migrations
+        run: bash scripts/verify-migrations.sh
+
+      - name: Check the behaviour the migrations guarantee
+        run: |
+          psql -d postgres -v ON_ERROR_STOP=1 -q -c 'create database rokda_behaviour;'
+          psql -d rokda_behaviour -v ON_ERROR_STOP=1 -q -f supabase/test/platform-shim.sql
+          for file in supabase/migrations/*.sql; do
+            psql -d rokda_behaviour -v ON_ERROR_STOP=1 -q -f "$file"
+          done
+          psql -d rokda_behaviour -v ON_ERROR_STOP=1 -f supabase/test/migration-behaviour.test.sql

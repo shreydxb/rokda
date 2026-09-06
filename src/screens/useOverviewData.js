@@ -1,6 +1,33 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 
+// One entry per query. Failures are reported per source rather than collapsed
+// into a single flag, so a screen can say exactly what is missing (QA-10).
+const SOURCES = [
+  { key: 'accounts', run: (id) => supabase.from('accounts').select('*').eq('household_id', id).order('created_at') },
+  {
+    key: 'transactions',
+    run: (id) =>
+      supabase
+        .from('transactions')
+        .select('*, categories(id, name, kind)')
+        .eq('household_id', id)
+        .order('occurred_at', { ascending: false }),
+  },
+  { key: 'categories', run: (id) => supabase.from('categories').select('*').eq('household_id', id).order('name') },
+  { key: 'recurring', run: (id) => supabase.from('recurring').select('*').eq('household_id', id).order('next_due_date') },
+  { key: 'budgets', run: (id) => supabase.from('budgets').select('*').eq('household_id', id) },
+  { key: 'intake', run: (id) => supabase.from('intake').select('*').eq('household_id', id).order('created_at', { ascending: false }) },
+  {
+    key: 'netWorthSnapshots',
+    run: (id) => supabase.from('net_worth_snapshots').select('*').eq('household_id', id).order('snapshot_date'),
+  },
+  { key: 'holdings', run: (id) => supabase.from('holdings').select('*').eq('household_id', id).order('created_at') },
+  // RLS scopes this to the caller's household via a join on holdings, so no explicit filter needed.
+  { key: 'holdingHistory', run: () => supabase.from('holding_value_history').select('*').order('as_of') },
+  { key: 'categoryRules', run: (id) => supabase.from('category_rules').select('*').eq('household_id', id).order('created_at') },
+];
+
 const EMPTY_STATE = {
   loading: false,
   accounts: [],
@@ -13,6 +40,8 @@ const EMPTY_STATE = {
   holdings: [],
   holdingHistory: [],
   categoryRules: [],
+  errors: {},
+  loadedAt: null,
 };
 
 export function useOverviewData(householdId) {
@@ -25,48 +54,25 @@ export function useOverviewData(householdId) {
     }
     setState((s) => ({ ...s, loading: true }));
 
-    const [
-      { data: accounts, error: accErr },
-      { data: transactions, error: txErr },
-      { data: categories, error: catErr },
-      { data: recurring, error: recErr },
-      { data: budgets, error: budErr },
-      { data: intake, error: intakeErr },
-      { data: netWorthSnapshots, error: nwErr },
-      { data: holdings, error: holdErr },
-      { data: holdingHistory, error: histErr },
-      { data: categoryRules, error: ruleErr },
-    ] = await Promise.all([
-      supabase.from('accounts').select('*').eq('household_id', householdId).order('created_at'),
-      supabase
-        .from('transactions')
-        .select('*, categories(id, name, kind)')
-        .eq('household_id', householdId)
-        .order('occurred_at', { ascending: false }),
-      supabase.from('categories').select('*').eq('household_id', householdId).order('name'),
-      supabase.from('recurring').select('*').eq('household_id', householdId).order('next_due_date'),
-      supabase.from('budgets').select('*').eq('household_id', householdId),
-      supabase.from('intake').select('*').eq('household_id', householdId).order('created_at', { ascending: false }),
-      supabase.from('net_worth_snapshots').select('*').eq('household_id', householdId).order('snapshot_date'),
-      supabase.from('holdings').select('*').eq('household_id', householdId).order('created_at'),
-      // RLS scopes this to the caller's household via a join on holdings, so no explicit filter needed.
-      supabase.from('holding_value_history').select('*').order('as_of'),
-      supabase.from('category_rules').select('*').eq('household_id', householdId).order('created_at'),
-    ]);
+    const results = await Promise.all(SOURCES.map((source) => source.run(householdId)));
 
-    setState({
-      loading: false,
-      accounts: accErr ? [] : (accounts ?? []),
-      transactions: txErr ? [] : (transactions ?? []),
-      categories: catErr ? [] : (categories ?? []),
-      recurring: recErr ? [] : (recurring ?? []),
-      budgets: budErr ? [] : (budgets ?? []),
-      intake: intakeErr ? [] : (intake ?? []),
-      netWorthSnapshots: nwErr ? [] : (netWorthSnapshots ?? []),
-      holdings: holdErr ? [] : (holdings ?? []),
-      holdingHistory: histErr ? [] : (holdingHistory ?? []),
-      categoryRules: ruleErr ? [] : (categoryRules ?? []),
-      error: accErr || txErr || catErr || recErr || budErr || intakeErr || nwErr || holdErr || histErr || ruleErr || null,
+    setState((previous) => {
+      const next = { loading: false, errors: {}, loadedAt: previous.loadedAt };
+      let anySucceeded = false;
+      SOURCES.forEach((source, i) => {
+        const { data, error } = results[i];
+        if (error) {
+          // Keep whatever was last known rather than replacing it with an
+          // empty array, which reads as "you have none of these".
+          next[source.key] = previous[source.key];
+          next.errors[source.key] = error;
+        } else {
+          next[source.key] = data ?? [];
+          anySucceeded = true;
+        }
+      });
+      if (anySucceeded) next.loadedAt = new Date();
+      return next;
     });
   }, [householdId]);
 

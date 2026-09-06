@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
+import { closurePlan, isArchived } from '../../lib/accounts';
+import { isBalanceConfirmed } from '../../lib/balance';
+import { todayISODate } from '../../lib/valuation';
 import '../money/TransactionEditor.css';
 
 const TYPES = ['checking', 'savings', 'credit_card', 'investment', 'loan', 'cash', 'other'];
@@ -20,8 +23,12 @@ function initialForm(account, defaultType) {
   return { name: '', type: defaultType ?? 'checking', currency: 'AED', balance: '', owner: 'shared', credit_limit: '', statement_day: '', due_day: '' };
 }
 
-export default function AccountEditor({ account, defaultType, householdId, members, onClose, onSaved }) {
+export default function AccountEditor({ account, defaultType, householdId, members, transactions = [], onClose, onSaved }) {
   const [form, setForm] = useState(() => initialForm(account, defaultType));
+  // A balance is a claim someone makes as of a date. Until it is confirmed it
+  // stays unknown rather than becoming a confident zero (QA-02).
+  const [confirmBalance, setConfirmBalance] = useState(() => !account || !isBalanceConfirmed(account));
+  const [balanceAsOf, setBalanceAsOf] = useState(() => todayISODate());
   const [dirty, setDirty] = useState(false);
   const [confirmingClose, setConfirmingClose] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -73,6 +80,10 @@ export default function AccountEditor({ account, defaultType, householdId, membe
       credit_limit: isCard && form.credit_limit ? Number(form.credit_limit) : null,
       statement_day: isCard && form.statement_day ? Number(form.statement_day) : null,
       due_day: isCard && form.due_day ? Number(form.due_day) : null,
+      updated_at: new Date().toISOString(),
+      // Only an explicit confirmation dates the balance. Editing a name or a
+      // due day leaves the existing as-of date exactly where it was.
+      ...(confirmBalance ? { balance_as_of: new Date(`${balanceAsOf}T00:00:00Z`).toISOString() } : {}),
     };
 
     const query = account
@@ -88,16 +99,42 @@ export default function AccountEditor({ account, defaultType, householdId, membe
     await onSaved();
   }
 
-  async function handleDelete() {
+  // Closing keeps the ledger; deleting is only offered for an account that was
+  // never used. The foreign key enforces the same rule server-side (QA-01).
+  const plan = account ? closurePlan(account, transactions) : null;
+
+  async function handleClose() {
     if (!confirmingDelete) {
       setConfirmingDelete(true);
       return;
     }
     setSaving(true);
-    const { error: delError } = await supabase.from('accounts').delete().eq('id', account.id);
+    setError('');
+    const { error: mutationError } =
+      plan.action === 'delete'
+        ? await supabase.from('accounts').delete().eq('id', account.id)
+        : await supabase
+            .from('accounts')
+            .update({ archived_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+            .eq('id', account.id);
     setSaving(false);
-    if (delError) {
-      setError(delError.message);
+    if (mutationError) {
+      setError(mutationError.message);
+      return;
+    }
+    await onSaved();
+  }
+
+  async function handleReopen() {
+    setSaving(true);
+    setError('');
+    const { error: mutationError } = await supabase
+      .from('accounts')
+      .update({ archived_at: null, updated_at: new Date().toISOString() })
+      .eq('id', account.id);
+    setSaving(false);
+    if (mutationError) {
+      setError(mutationError.message);
       return;
     }
     await onSaved();
@@ -124,8 +161,48 @@ export default function AccountEditor({ account, defaultType, householdId, membe
             <div className="te-hero-label">{isCard ? 'Balance owed' : 'Current balance'}</div>
             <div className="te-hero-row">
               <span className="te-hero-currency">AED</span>
-              <input type="number" step="0.01" className="te-hero-input" value={form.balance} onChange={(e) => set('balance', e.target.value)} placeholder="0" />
+              <input
+                type="number"
+                step="0.01"
+                className="te-hero-input"
+                value={form.balance}
+                onChange={(e) => {
+                  set('balance', e.target.value);
+                  setConfirmBalance(true);
+                }}
+                placeholder="0"
+              />
             </div>
+          </div>
+
+          <div className="te-fieldgrid">
+            <div className="te-fieldcell te-span2">
+              <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12.5 }}>
+                <input type="checkbox" checked={confirmBalance} onChange={(e) => setConfirmBalance(e.target.checked)} />
+                <span>Confirm this balance{form.balance.trim() === '' || Number(form.balance) === 0 ? ' — including that it is zero' : ''}</span>
+              </label>
+            </div>
+            <div className="te-fieldcell">
+              <label className="te-fieldlabel" htmlFor="balance-as-of">
+                Balance as of
+              </label>
+              <input
+                id="balance-as-of"
+                className="te-fieldvalue"
+                type="date"
+                value={balanceAsOf}
+                max={todayISODate()}
+                disabled={!confirmBalance}
+                onChange={(e) => setBalanceAsOf(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="ov-muted" style={{ fontSize: 11.5, marginTop: -10 }}>
+            {confirmBalance
+              ? 'Balances are manual snapshots — this records what you say it is, as of that date.'
+              : account && isBalanceConfirmed(account)
+                ? 'Leaving this unticked keeps the existing balance and its date.'
+                : 'Until you confirm it, this balance is shown as not set rather than as a zero.'}
           </div>
 
           <div className="te-fieldgrid">
@@ -179,6 +256,12 @@ export default function AccountEditor({ account, defaultType, householdId, membe
             </div>
           </div>
 
+          {account && confirmingDelete && (
+            <p className="ov-muted" style={{ fontSize: 12.5 }}>
+              {plan.detail}
+            </p>
+          )}
+
           {error && (
             <p className="ov-warn" role="alert" style={{ fontSize: 12.5 }}>
               {error}
@@ -187,9 +270,20 @@ export default function AccountEditor({ account, defaultType, householdId, membe
 
           <div className="te-sticky-actions">
             <div className="te-actions" style={{ borderTop: 'none', paddingTop: 0, marginTop: 0 }}>
-              {account && (
-                <button type="button" className="om-btn te-delete" onClick={handleDelete} disabled={saving}>
-                  {confirmingDelete ? 'Confirm delete?' : 'Delete'}
+              {account && isArchived(account) && (
+                <button type="button" className="om-btn" onClick={handleReopen} disabled={saving}>
+                  Reopen account
+                </button>
+              )}
+              {account && !isArchived(account) && (
+                <button type="button" className="om-btn te-delete" onClick={handleClose} disabled={saving}>
+                  {confirmingDelete
+                    ? plan.action === 'delete'
+                      ? 'Confirm delete?'
+                      : 'Confirm close?'
+                    : plan.action === 'delete'
+                      ? 'Delete'
+                      : 'Close account'}
                 </button>
               )}
               <div className="te-actions-right">

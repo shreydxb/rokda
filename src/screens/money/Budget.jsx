@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
-import { formatMoney } from '../../lib/money';
-import { monthActualsByCategory, monthIncome, monthPace, projectedClose } from '../../lib/budget';
+import { formatBalance, formatMoney } from '../../lib/money';
+import { monthActualsByCategory, monthIncome, monthPace, monthSpendBreakdown, projectedClose } from '../../lib/budget';
 import BudgetEditor from './BudgetEditor';
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -89,6 +89,10 @@ function MonthView({ cursor, setCursor, budgets, transactions, catById, scopeMem
   const totalBudget = rows.reduce((s, r) => s + Number(r.amount), 0);
   const totalActual = rows.reduce((s, r) => s + (actuals.get(r.category_id) ?? 0), 0);
   const totalProjected = pace.canProject ? projectedClose(totalActual, pace.elapsedFraction) : null;
+  // What was actually spent, budgeted or not. The budgeted subtotal above is
+  // only part of it (QA-09).
+  const spend = monthSpendBreakdown(transactions, rows.map((r) => r.category_id), year, month, scopeMemberId, now);
+  const outsideBudget = spend.unbudgeted + spend.uncategorised;
 
   return (
     <div>
@@ -152,7 +156,7 @@ function MonthView({ cursor, setCursor, budgets, transactions, catById, scopeMem
           })}
           <div className="mn-row bud-total">
             <div className="mn-row-main" style={{ flex: '0 0 180px' }}>
-              <div>Total</div>
+              <div>Budgeted subtotal</div>
             </div>
             <div className="bud-bar-wrap">
               <div className="ov-muted">
@@ -169,6 +173,29 @@ function MonthView({ cursor, setCursor, budgets, transactions, catById, scopeMem
                   )
                 )}
               </div>
+            </div>
+          </div>
+
+          <div className="mn-row bud-total">
+            <div className="mn-row-main" style={{ flex: '0 0 180px' }}>
+              <div>All spending</div>
+            </div>
+            <div className="bud-bar-wrap">
+              <div className="ov-muted">
+                Total <span className="fig">{formatMoney(spend.total)}</span>
+                {outsideBudget > 0 && (
+                  <>
+                    {' · outside budget '}
+                    <span className="fig">{formatMoney(outsideBudget)}</span>
+                    {spend.uncategorised > 0 && ` (${formatMoney(spend.uncategorised)} uncategorised)`}
+                  </>
+                )}
+              </div>
+              {scopeMemberId !== null && (
+                <div className="ov-muted" style={{ marginTop: 4 }}>
+                  Actuals are this person’s share; budgets are the whole household’s, so the two are not like for like.
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -197,11 +224,23 @@ function YearView({ year, setYear, budgets, transactions, categories, scopeMembe
     return catIds.reduce((s, cid) => s + cellValue(cid, month).value, 0);
   });
 
-  const netSaved = Array.from({ length: 12 }, (_, i) => {
+  // Net saved is income minus ALL spending. Subtracting only the budgeted
+  // categories' subtotal made unbudgeted and uncategorised spending disappear
+  // from the figure entirely (QA-09).
+  const breakdowns = Array.from({ length: 12 }, (_, i) => {
     const month = i + 1;
     const isPastOrCurrent = year < now.getFullYear() || (year === now.getFullYear() && month <= now.getMonth() + 1);
     if (!isPastOrCurrent) return null;
-    return monthIncome(transactions, year, month, scopeMemberId) - monthTotals[i];
+    return monthSpendBreakdown(transactions, catIds, year, month, scopeMemberId, now);
+  });
+
+  const outsideBudget = breakdowns.map((b) => (b === null ? null : b.unbudgeted + b.uncategorised));
+  const allSpending = breakdowns.map((b) => (b === null ? null : b.total));
+
+  const netSaved = Array.from({ length: 12 }, (_, i) => {
+    const breakdown = breakdowns[i];
+    if (breakdown === null) return null;
+    return monthIncome(transactions, year, i + 1, scopeMemberId, now) - breakdown.total;
   });
 
   return (
@@ -247,21 +286,37 @@ function YearView({ year, setYear, budgets, transactions, categories, scopeMembe
                 </tr>
               ))}
               <tr className="bud-totalrow">
-                <td>Total</td>
+                <td>Budgeted subtotal</td>
                 {monthTotals.map((t, i) => (
                   <td key={i}>{formatMoney(t)}</td>
+                ))}
+              </tr>
+              <tr>
+                <td>Outside budget</td>
+                {outsideBudget.map((v, i) => (
+                  <td key={i}>{v === null ? '—' : formatMoney(v)}</td>
+                ))}
+              </tr>
+              <tr className="bud-totalrow">
+                <td>All spending</td>
+                {allSpending.map((v, i) => (
+                  <td key={i}>{v === null ? '—' : formatMoney(v)}</td>
                 ))}
               </tr>
               <tr>
                 <td>Net saved</td>
                 {netSaved.map((v, i) => (
                   <td key={i} className={v !== null && v < 0 ? 'ov-warn' : ''}>
-                    {v === null ? '—' : formatMoney(v)}
+                    {v === null ? '—' : formatBalance(v)}
                   </td>
                 ))}
               </tr>
             </tbody>
           </table>
+          <div className="ov-muted" style={{ marginTop: 8, fontSize: 11.5 }}>
+            Net saved is income minus <em>all</em> spending, including categories with no budget and records with no category.
+            {scopeMemberId !== null && ' Actuals are this person’s share; budgets are the whole household’s.'}
+          </div>
         </div>
       )}
     </div>

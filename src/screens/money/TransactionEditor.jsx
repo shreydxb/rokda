@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
+import { accountOptionLabel, selectableAccounts } from '../../lib/accounts';
 import { formatMoney } from '../../lib/money';
 import './TransactionEditor.css';
 
@@ -53,7 +54,10 @@ function findDuplicate(form, allTransactions, excludeId) {
 }
 
 export default function TransactionEditor({ tx, householdId, accounts, categories, members, allTransactions, onClose, onSaved, onOpenOther }) {
-  const [form, setForm] = useState(() => initialForm(tx, accounts));
+  // Closed accounts aren't offered for new entries, but an existing record that
+  // already points at one keeps it so saving doesn't move it (QA-01).
+  const selectable = selectableAccounts(accounts, tx?.account_id ?? null);
+  const [form, setForm] = useState(() => initialForm(tx, selectableAccounts(accounts, tx?.account_id ?? null)));
   const [dirty, setDirty] = useState(false);
   const [duplicateDismissed, setDuplicateDismissed] = useState(false);
   const [confirmingClose, setConfirmingClose] = useState(false);
@@ -226,9 +230,9 @@ export default function TransactionEditor({ tx, householdId, accounts, categorie
                 <option value="" disabled>
                   Choose…
                 </option>
-                {accounts.map((a) => (
+                {selectable.map((a) => (
                   <option key={a.id} value={a.id}>
-                    {a.name}
+                    {accountOptionLabel(a, { members, accounts: selectable })}
                   </option>
                 ))}
               </select>

@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react';
-import { formatMoney, formatSigned } from './money';
+import { formatBalance, formatMoney, formatSigned } from './money';
 import { CURRENCIES, convertFromAed, currencyAvailable, rateNote } from './currency';
 
 const CurrencyContext = createContext(undefined);
@@ -43,10 +43,16 @@ export function useMoneyDisplay(household) {
     const converted = convertFromAed(amountAed, code, household);
     return formatMoney(converted ?? amountAed, opts);
   }
+  // Sign-preserving display for figures that can go negative — net worth,
+  // savings, balances. `fmt` stays a magnitude formatter (QA-08).
+  function fmtBalance(amountAed, opts) {
+    const converted = convertFromAed(amountAed, code, household);
+    return formatBalance(converted ?? amountAed, opts);
+  }
   function fmtSigned(amountAed, opts) {
     const converted = convertFromAed(amountAed, code, household);
     return formatSigned(converted ?? amountAed, opts);
   }
 
-  return { currency, setCurrency, code, fallback: !available, fmt, fmtSigned, rateNote: rateNote(code, household) };
+  return { currency, setCurrency, code, fallback: !available, fmt, fmtBalance, fmtSigned, rateNote: rateNote(code, household) };
 }

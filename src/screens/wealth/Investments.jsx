@@ -16,7 +16,7 @@ import {
   visibleHoldings,
 } from '../../lib/holdings';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
-import { supabase } from '../../lib/supabaseClient';
+import { isStale } from '../../lib/valuation';
 import HoldingEditor from './HoldingEditor';
 
 export default function Investments({ household, members, me, data, loading }) {
@@ -41,18 +41,24 @@ export default function Investments({ household, members, me, data, loading }) {
 
   const allocation = useMemo(() => allocationByClass(rows, scopeMemberId), [rows, scopeMemberId]);
 
-  const lastRefreshed = holdings.reduce((latest, h) => {
-    if (!h.last_refreshed) return latest;
-    const d = new Date(h.last_refreshed);
-    return !latest || d > latest ? d : latest;
+  // The oldest valuation is the honest headline: a portfolio is only as fresh
+  // as its stalest holding. Previously this showed the newest, which a single
+  // recent edit could make look current (QA-04).
+  const oldestPricedAt = holdings.reduce((oldest, h) => {
+    if (!h.priced_at) return oldest;
+    const d = new Date(h.priced_at);
+    return !oldest || d < oldest ? d : oldest;
   }, null);
+  const neverPriced = holdings.filter((h) => !h.priced_at).length;
+  const staleCount = holdings.filter((h) => isStale(h, now)).length;
 
-  async function handleRefresh() {
+  // Reload re-reads what is stored. It does not reprice anything, and it must
+  // never advance a valuation date — pressing it used to dismiss the staleness
+  // warning without retrieving a single price.
+  async function handleReload() {
     setRefreshing(true);
-    const ids = holdings.map((h) => h.id);
-    await supabase.from('holdings').update({ last_refreshed: new Date().toISOString() }).in('id', ids);
-    setRefreshing(false);
     await reload();
+    setRefreshing(false);
   }
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
@@ -91,7 +97,13 @@ export default function Investments({ household, members, me, data, loading }) {
                 <span className="ov-muted"> {range}</span>
               </div>
             ) : (
-              <div className="ov-nwchange ov-muted">Not enough history yet for {range}.</div>
+              <div className="ov-nwchange ov-muted">
+                {/* Holding history accumulates from confirmed valuations, not
+                    from time passing (QA-05). */}
+                {holdingHistory.length === 0
+                  ? 'No valuation history yet. Confirming a valuation on a holding records a dated point.'
+                  : `Not enough history yet for ${range}.`}
+              </div>
             )}
             <div className="ov-seg-row" style={{ marginTop: 14 }}>
               {RANGES.map((r) => (
@@ -116,13 +128,19 @@ export default function Investments({ household, members, me, data, loading }) {
           </section>
 
           <section style={{ marginTop: 34, display: 'flex', alignItems: 'center', gap: 12 }}>
-            <button type="button" className="om-btn" onClick={handleRefresh} disabled={refreshing}>
-              {refreshing ? 'Refreshing…' : 'Refresh'}
+            <button type="button" className="om-btn" onClick={handleReload} disabled={refreshing}>
+              {refreshing ? 'Reloading…' : 'Reload'}
             </button>
             <span className="ov-muted">
-              {lastRefreshed
-                ? `Last refreshed ${lastRefreshed.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} · manual, no live price feed yet`
-                : 'Never refreshed'}
+              {neverPriced > 0 && holdings.length === neverPriced
+                ? 'No holding has a confirmed valuation yet'
+                : oldestPricedAt
+                  ? `Oldest valuation ${oldestPricedAt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` +
+                    (neverPriced > 0 ? ` · ${neverPriced} never valued` : '') +
+                    (staleCount > 0 ? ` · ${staleCount} stale` : '')
+                  : 'No holding has a confirmed valuation yet'}
+              {' · '}
+              Reload re-reads stored values; it does not fetch prices. Confirm a valuation in a holding to reprice it.
             </span>
           </section>
 

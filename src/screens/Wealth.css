@@ -162,3 +162,43 @@
 .wl-holdrow:hover td {
   background: var(--raise);
 }
+
+/* Closing an account is not a delete: the confirmation has to say what
+   happens to the transactions before it is accepted (QA-01). */
+.wl-card-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  font-size: 12.5px;
+  text-align: left;
+}
+
+.wl-card-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* A row that carries its own action (reopen a closed account) alongside the
+   tappable row itself. */
+.mn-row-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.mn-row-wrap .mn-row {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Month close sits with the history heading: history exists because someone
+   closes a month, so the action belongs next to the thing it fills (QA-05). */
+.wl-history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}

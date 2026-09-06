@@ -2,9 +2,11 @@ import { useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { formatMoney, formatPct } from '../../lib/money';
 import { firstMatchingRule } from '../../lib/rules';
+import { accountOptionLabel, selectableAccounts } from '../../lib/accounts';
+import { INTAKE_KINDS, approvalArgs, validateApproval } from '../../lib/intake';
 import './TransactionEditor.css';
 
-export default function Inbox({ household, accounts, categories, data, loading }) {
+export default function Inbox({ members = [], accounts, categories, data, loading }) {
   const { intake, categoryRules, reload } = data;
   const [selectedId, setSelectedId] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -57,8 +59,8 @@ export default function Inbox({ household, accounts, categories, data, loading }
             <IntakeReview
               key={selected.id}
               item={selected}
-              householdId={household?.id}
               accounts={accounts}
+              members={members}
               categories={categories}
               categoryRules={categoryRules}
               saving={saving}
@@ -77,44 +79,59 @@ export default function Inbox({ household, accounts, categories, data, loading }
   );
 }
 
-function IntakeReview({ item, householdId, accounts, categories, categoryRules, saving, setSaving, error, setError, onDone }) {
+// household_id is taken from the intake row inside the RPC rather than passed
+// in, so an approval cannot be redirected to another household.
+function IntakeReview({ item, accounts, members, categories, categoryRules, saving, setSaving, error, setError, onDone }) {
   const [amount, setAmount] = useState(item.parsed_amount !== null ? String(item.parsed_amount) : '');
   const [merchant, setMerchant] = useState(item.parsed_merchant ?? '');
   const [date, setDate] = useState(item.parsed_date ?? new Date().toISOString().slice(0, 10));
-  const [accountId, setAccountId] = useState(accounts[0]?.id ?? '');
+  // Intake can only be approved onto an open account (QA-01).
+  const selectable = selectableAccounts(accounts);
+  const [accountId, setAccountId] = useState(selectableAccounts(accounts)[0]?.id ?? '');
   const suggestedRule = item.parsed_category_id ? null : firstMatchingRule(item.parsed_merchant, categoryRules);
   const [categoryId, setCategoryId] = useState(item.parsed_category_id ?? suggestedRule?.category_id ?? '');
+  // Every item used to be forced to a shared AED expense. The reviewer says
+  // which it is (QA-11).
+  const [kind, setKind] = useState('expense');
+  // Fixed, not user-editable: there is no native-currency conversion yet, and
+  // every dashboard total already treats amount as AED. Letting this field
+  // be typed into let "USD" get entered while the number stayed an
+  // unconverted AED figure — approved, but silently wrong everywhere it was
+  // later read (SHR-252).
+  const currency = 'AED';
+  const [owner, setOwner] = useState('shared');
 
   const lowConfidence = item.confidence !== null && item.confidence < 0.75;
 
+  const form = {
+    accountId,
+    amount,
+    date,
+    kind,
+    categoryId,
+    currency,
+    merchant,
+    isShared: owner === 'shared',
+    ownerMemberId: owner === 'shared' ? null : owner,
+  };
+
+  // One call, one database transaction. The insert and the status update used
+  // to be separate round trips: a failure or a retry between them wrote a
+  // second transaction, and two reviewers could race. The RPC approves a
+  // pending row exactly once and returns the existing result on retry (QA-11).
   async function approve(e) {
     e.preventDefault();
-    if (!amount || Number(amount) <= 0 || !accountId) {
-      setError('Amount and account are required.');
+    const invalid = validateApproval(form);
+    if (invalid) {
+      setError(invalid);
       return;
     }
     setSaving(true);
     setError('');
-    const { error: txError } = await supabase.from('transactions').insert({
-      household_id: householdId,
-      account_id: accountId,
-      category_id: categoryId || null,
-      amount: -Math.abs(Number(amount)),
-      currency: 'AED',
-      merchant: merchant.trim() || null,
-      occurred_at: date,
-      is_shared: true,
-      needs_review: false,
-    });
-    if (txError) {
-      setSaving(false);
-      setError(txError.message);
-      return;
-    }
-    const { error: updError } = await supabase.from('intake').update({ status: 'approved' }).eq('id', item.id);
+    const { error: rpcError } = await supabase.rpc('approve_intake', approvalArgs(item, form));
     setSaving(false);
-    if (updError) {
-      setError(updError.message);
+    if (rpcError) {
+      setError(rpcError.message);
       return;
     }
     await onDone();
@@ -122,7 +139,13 @@ function IntakeReview({ item, householdId, accounts, categories, categoryRules, 
 
   async function reject() {
     setSaving(true);
-    const { error: updError } = await supabase.from('intake').update({ status: 'rejected' }).eq('id', item.id);
+    // Conditional on still being pending, so rejecting cannot undo someone
+    // else's approval.
+    const { error: updError } = await supabase
+      .from('intake')
+      .update({ status: 'rejected' })
+      .eq('id', item.id)
+      .eq('status', 'pending');
     setSaving(false);
     if (updError) {
       setError(updError.message);
@@ -166,12 +189,51 @@ function IntakeReview({ item, householdId, accounts, categories, categoryRules, 
           <div className="te-fieldcell">
             <span className="te-fieldlabel">Account</span>
             <select className="te-fieldvalue" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-              {accounts.map((a) => (
+              {selectable.map((a) => (
                 <option key={a.id} value={a.id}>
-                  {a.name}
+                  {accountOptionLabel(a, { accounts: selectable, members })}
                 </option>
               ))}
             </select>
+          </div>
+          <div className="te-fieldcell">
+            <span className="te-fieldlabel">Currency</span>
+            <input className="te-fieldvalue" type="text" value={currency} disabled />
+          </div>
+        </div>
+        <div className="ov-muted" style={{ fontSize: 11.5, marginTop: -12 }}>
+          AED only for now — there’s no native-currency conversion, so approval can’t mix units.
+        </div>
+
+        <div>
+          <span className="te-fieldlabel">What this is</span>
+          <div className="om-scope-list" style={{ marginTop: 10 }}>
+            {INTAKE_KINDS.map((k) => (
+              <button
+                key={k.id}
+                type="button"
+                className="om-scope"
+                data-active={kind === k.id}
+                title={k.hint}
+                onClick={() => setKind(k.id)}
+              >
+                {k.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <span className="te-fieldlabel">Whose</span>
+          <div className="om-scope-list" style={{ marginTop: 10 }}>
+            <button type="button" className="om-scope" data-active={owner === 'shared'} onClick={() => setOwner('shared')}>
+              Shared
+            </button>
+            {members.map((m) => (
+              <button key={m.id} type="button" className="om-scope" data-active={owner === m.id} onClick={() => setOwner(m.id)}>
+                {m.display_name}
+              </button>
+            ))}
           </div>
         </div>
 

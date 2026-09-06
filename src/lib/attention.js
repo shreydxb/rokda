@@ -3,6 +3,10 @@ import { rollForward, CADENCES } from './recurring';
 import { trailingAverageByCategory } from './insights';
 import { monthActualsByCategory } from './budget';
 import { scopedHoldingValue, visibleHoldings } from './holdings';
+import { daysSincePriced, isStale } from './valuation';
+import { parseDay } from './day';
+import { daysUntilDue, nextDueDate } from './creditCard';
+import { balanceStatus } from './balance';
 
 function startOfDay(d) {
   const nd = new Date(d);
@@ -44,7 +48,7 @@ function missingRecurringItems(recurring, transactions, scopeMemberId, now) {
     const windowEnd = new Date(prevDue.getTime() + MATCH_WINDOW_DAYS * 86400000);
     const matched = transactions.some((t) => {
       if (r.account_id && t.account_id !== r.account_id) return false;
-      const d = new Date(t.occurred_at);
+      const d = parseDay(t.occurred_at);
       if (d < windowStart || d > windowEnd) return false;
       const amt = Math.abs(Number(t.amount));
       return Math.abs(amt - expectedAmount) <= expectedAmount * MATCH_AMOUNT_TOLERANCE;
@@ -66,18 +70,19 @@ const CARD_DUE_WINDOW_DAYS = 10;
 
 // A credit card with a real due_day set, due soon, still carrying a balance.
 function cardDueItems(accounts, scopeMemberId, now) {
-  const today = startOfDay(now);
   const items = [];
   for (const a of accounts) {
     if (a.type !== 'credit_card') continue;
+    if (a.archived_at != null) continue; // closed card: nothing to chase
     if (!(scopeMemberId === null || a.is_shared || a.owner_member_id === scopeMemberId)) continue;
     if (!a.due_day) continue; // not set yet — nothing honest to say
     const balance = scopedValue(a.balance, a, scopeMemberId);
     if (balance <= 0) continue; // nothing owed
 
-    let due = new Date(today.getFullYear(), today.getMonth(), a.due_day);
-    if (due < today) due = new Date(today.getFullYear(), today.getMonth() + 1, a.due_day);
-    const daysUntil = Math.round((due - today) / 86400000);
+    // Shared with the cards panel, and clamped to the month's length so a card
+    // due on the 31st is due on 28 February (QA-07).
+    const due = nextDueDate(a.due_day, now);
+    const daysUntil = daysUntilDue(a.due_day, now);
     if (daysUntil > CARD_DUE_WINDOW_DAYS) continue;
 
     items.push({
@@ -126,21 +131,46 @@ function categoryAnomalyItems(transactions, categories, scopeMemberId, now) {
   return items;
 }
 
-const HOLDING_STALE_DAYS = 30;
-
+// Staleness is measured against priced_at — the date a valuation was actually
+// confirmed as of — not against when the record was last touched. Reloading the
+// Investments screen or renaming a holding leaves this warning standing
+// (QA-04).
 function staleHoldingItems(holdings, scopeMemberId, now) {
   const items = [];
   for (const h of visibleHoldings(holdings, scopeMemberId)) {
-    const daysSince = h.last_refreshed ? Math.floor((now - new Date(h.last_refreshed)) / 86400000) : null;
-    if (daysSince !== null && daysSince < HOLDING_STALE_DAYS) continue;
+    if (!isStale(h, now)) continue;
+    const daysSince = daysSincePriced(h, now);
     items.push({
       id: `stale-holding-${h.id}`,
       kind: 'stale_holding',
       severity: 'info',
       title: `${h.name} hasn't been repriced`,
       detail: daysSince === null
-        ? `Value AED ${Math.round(scopedHoldingValue(h, scopeMemberId)).toLocaleString('en-AE')} · never refreshed`
-        : `Value AED ${Math.round(scopedHoldingValue(h, scopeMemberId)).toLocaleString('en-AE')} · last refreshed ${daysSince}d ago`,
+        ? `Value AED ${Math.round(scopedHoldingValue(h, scopeMemberId)).toLocaleString('en-AE')} · no valuation confirmed yet`
+        : `Value AED ${Math.round(scopedHoldingValue(h, scopeMemberId)).toLocaleString('en-AE')} · valued ${daysSince}d ago`,
+    });
+  }
+  return items;
+}
+
+// An account nobody has valued is a setup gap, not a zero. Overview said "All
+// caught up" while every balance was unconfirmed (QA-02).
+function unconfirmedBalanceItems(accounts, scopeMemberId, now) {
+  const items = [];
+  for (const a of accounts) {
+    if (a.archived_at != null) continue;
+    if (!(scopeMemberId === null || a.is_shared || a.owner_member_id === scopeMemberId)) continue;
+    const status = balanceStatus(a, now);
+    if (status === 'confirmed') continue;
+    items.push({
+      id: `balance-${a.id}`,
+      kind: 'balance_unset',
+      severity: status === 'unset' ? 'warn' : 'info',
+      title: status === 'unset' ? `${a.name} has no confirmed balance` : `${a.name}'s balance is getting old`,
+      detail:
+        status === 'unset'
+          ? 'Net worth treats it as zero until someone confirms what it actually is.'
+          : `Last confirmed ${Math.floor((now - new Date(a.balance_as_of)) / 86400000)}d ago.`,
     });
   }
   return items;
@@ -157,6 +187,7 @@ export function buildAttentionItems({ transactions, recurring, accounts, holding
   return [
     ...reviewItems,
     ...cardDueItems(accounts, scopeMemberId, now),
+    ...unconfirmedBalanceItems(accounts, scopeMemberId, now),
     ...missingRecurringItems(recurring, transactions, scopeMemberId, now),
     ...categoryAnomalyItems(transactions, categories, scopeMemberId, now),
     ...staleHoldingItems(holdings, scopeMemberId, now),
