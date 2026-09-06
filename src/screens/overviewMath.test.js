@@ -1,6 +1,35 @@
 import { describe, it, expect } from 'vitest';
 import { dataQuality, buildChartColumns, periodSummary, runwaySummary } from './overviewMath';
 import { closedMonths, forecastInputs } from '../lib/forecast';
+import { signedAmount } from '../lib/intake';
+
+// SHR-252 (QA-11 recheck): a refund signs positive, like income, but means
+// the opposite — money coming back on an earlier expense. It must net
+// against spend, not inflate income. Ported from the QA document; the row
+// includes `kind`, which is what approve_intake now actually persists (the
+// review's synthetic row omitted it, which is the one thing that couldn't be
+// carried over verbatim — see SHR-252 in Linear for that note).
+describe('SHR-252: a refund does not count as income', () => {
+  const now = new Date(2026, 8, 6);
+
+  it('a lone refund contributes zero income', () => {
+    const row = { amount: signedAmount(100, 'refund'), kind: 'refund', currency: 'AED', occurred_at: '2026-09-05', is_shared: true };
+    expect(periodSummary([row], 'mtd', null, now).income).toBe(0);
+  });
+
+  it('an expense and its matching refund net to zero spend and zero income', () => {
+    const expense = { amount: signedAmount(100, 'expense'), kind: 'expense', occurred_at: '2026-09-05', is_shared: true };
+    const refund = { amount: signedAmount(100, 'refund'), kind: 'refund', occurred_at: '2026-09-06', is_shared: true };
+    const summary = periodSummary([expense, refund], 'mtd', null, now);
+    expect(summary.spend).toBe(0);
+    expect(summary.income).toBe(0);
+  });
+
+  it('income is unaffected by refund handling', () => {
+    const row = { amount: signedAmount(100, 'income'), kind: 'income', occurred_at: '2026-09-05', is_shared: true };
+    expect(periodSummary([row], 'mtd', null, now).income).toBe(100);
+  });
+});
 
 // QA-06 / SHR-247. The three reproductions in the published QA document are
 // reproduced verbatim below, plus the boundary cases the review asked for.

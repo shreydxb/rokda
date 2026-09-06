@@ -163,6 +163,40 @@ begin
   raise notice 'QA-05 ok: two valuations, two dated points; same day twice stays one';
 end $$;
 
+-- SHR-252: a refund is signed positive, like income, but its kind is now
+-- persisted so the application can tell them apart.
+insert into intake (id, household_id, source, parsed_amount, status)
+values ('55555555-5555-5555-5555-555555555558', '11111111-1111-1111-1111-111111111111', 'manual', 75, 'pending');
+do $$
+declare result jsonb; amount numeric; txn_kind text;
+begin
+  result := approve_intake(
+    '55555555-5555-5555-5555-555555555558', '33333333-3333-3333-3333-333333333333',
+    75, date '2026-09-05', 'refund');
+  select t.amount, t.kind into amount, txn_kind from transactions t where t.id = (result ->> 'transaction_id')::uuid;
+  if amount <> 75 then raise exception 'SHR-252 FAILED: refund recorded as %, expected 75', amount; end if;
+  if txn_kind <> 'refund' then raise exception 'SHR-252 FAILED: kind recorded as %, expected refund', txn_kind; end if;
+  raise notice 'SHR-252 ok: a refund is signed positive and its kind is persisted';
+end $$;
+
+-- SHR-252: approval refuses a non-AED currency rather than storing an
+-- unconverted amount that every dashboard total would misread as AED.
+insert into intake (id, household_id, source, parsed_amount, status)
+values ('55555555-5555-5555-5555-555555555559', '11111111-1111-1111-1111-111111111111', 'manual', 40, 'pending');
+do $$
+begin
+  begin
+    perform approve_intake(
+      '55555555-5555-5555-5555-555555555559', '33333333-3333-3333-3333-333333333333',
+      40, date '2026-09-05', 'expense', null, 'USD');
+    raise exception 'SHR-252 FAILED: a USD approval was accepted';
+  exception
+    when raise_exception then
+      if position('AED' in sqlerrm) = 0 then raise; end if;
+      raise notice 'SHR-252 ok: a non-AED currency is refused';
+  end;
+end $$;
+
 -- QA-04 / QA-02: the new columns exist and default to "not confirmed".
 do $$
 declare priced timestamptz; confirmed timestamptz;

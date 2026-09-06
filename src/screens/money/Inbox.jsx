@@ -93,7 +93,12 @@ function IntakeReview({ item, accounts, members, categories, categoryRules, savi
   // Every item used to be forced to a shared AED expense. The reviewer says
   // which it is (QA-11).
   const [kind, setKind] = useState('expense');
-  const [currency, setCurrency] = useState('AED');
+  // Fixed, not user-editable: there is no native-currency conversion yet, and
+  // every dashboard total already treats amount as AED. Letting this field
+  // be typed into let "USD" get entered while the number stayed an
+  // unconverted AED figure — approved, but silently wrong everywhere it was
+  // later read (SHR-252).
+  const currency = 'AED';
   const [owner, setOwner] = useState('shared');
 
   const lowConfidence = item.confidence !== null && item.confidence < 0.75;
@@ -193,14 +198,11 @@ function IntakeReview({ item, accounts, members, categories, categoryRules, savi
           </div>
           <div className="te-fieldcell">
             <span className="te-fieldlabel">Currency</span>
-            <input
-              className="te-fieldvalue"
-              type="text"
-              value={currency}
-              maxLength={3}
-              onChange={(e) => setCurrency(e.target.value.toUpperCase())}
-            />
+            <input className="te-fieldvalue" type="text" value={currency} disabled />
           </div>
+        </div>
+        <div className="ov-muted" style={{ fontSize: 11.5, marginTop: -12 }}>
+          AED only for now — there’s no native-currency conversion, so approval can’t mix units.
         </div>
 
         <div>

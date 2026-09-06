@@ -54,6 +54,15 @@ describe('QA-11: the reviewer states what the item is', () => {
     expect(validateApproval({ ...BASE_FORM, kind: 'transfer' })).toMatch(/expense, income or a refund/i);
     expect(validateApproval({ ...BASE_FORM, isShared: false, ownerMemberId: null })).toMatch(/whose/i);
   });
+
+  // SHR-252: the amount header stays AED while Currency was freely editable,
+  // so "USD" could be entered against a number every dashboard total reads
+  // as AED. Native-currency conversion isn't implemented, so this is refused
+  // rather than silently mixing units.
+  it('refuses a non-AED currency until native-currency conversion exists', () => {
+    expect(validateApproval({ ...BASE_FORM, currency: 'USD' })).toMatch(/AED/);
+    expect(validateApproval({ ...BASE_FORM, currency: 'aed' })).toBeNull();
+  });
 });
 
 // The contract that approve_intake (20260905183000_intake_atomic_approval.sql)

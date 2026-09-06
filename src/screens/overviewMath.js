@@ -60,18 +60,26 @@ function txInRange(transactions, start, end, scopeMemberId) {
   });
 }
 
+// A refund is stored positive, like income, but means the opposite: money
+// coming back on an earlier expense, not money earned. It must net against
+// spend rather than inflate income (SHR-252). Every income/spend rollup
+// below routes through this so a refund reads the same way everywhere.
+function applyToIncomeSpend(t, v, totals) {
+  if (t.kind === 'refund') totals.spend -= v;
+  else if (v >= 0) totals.income += v;
+  else totals.spend += -v;
+}
+
 export function periodSummary(transactions, kind, scopeMemberId, now = new Date()) {
   const { start, end } = periodBounds(kind, now);
   // Up to and including today. The old bound added 24 hours to the current
   // *timestamp*, so a record dated tomorrow counted as spend today (QA-06).
   const rows = txInRange(transactions, start, endOfDayExclusive(end), scopeMemberId);
-  let income = 0;
-  let spend = 0;
+  const totals = { income: 0, spend: 0 };
   for (const t of rows) {
-    const v = scopedValue(t.amount, t, scopeMemberId);
-    if (v >= 0) income += v;
-    else spend += -v;
+    applyToIncomeSpend(t, scopedValue(t.amount, t, scopeMemberId), totals);
   }
+  const { income, spend } = totals;
   const saved = income - spend;
   const rate = income > 0 ? saved / income : null;
   return { start, end, income, spend, saved, rate, count: rows.length };
@@ -82,13 +90,11 @@ export function buildChartColumns(transactions, kind, scopeMemberId, now = new D
     // The still-running bucket stops at today; it must not reach into the
     // future and count planned records as actuals (QA-06).
     const rows = txInRange(transactions, bucket.start, clampToToday(bucket.end, now), scopeMemberId);
-    let income = 0;
-    let spend = 0;
+    const totals = { income: 0, spend: 0 };
     for (const t of rows) {
-      const v = scopedValue(t.amount, t, scopeMemberId);
-      if (v >= 0) income += v;
-      else spend += -v;
+      applyToIncomeSpend(t, scopedValue(t.amount, t, scopeMemberId), totals);
     }
+    const { income, spend } = totals;
     const saved = income - spend;
     const rate = income > 0 ? saved / income : 0;
     return { ...bucket, income, spend, saved, rate, hasData: rows.length > 0 };
@@ -124,11 +130,14 @@ export function runwaySummary(transactions, accounts, scopeMemberId, now = new D
   for (const t of transactions) {
     if (!visibleToScope(t, scopeMemberId)) continue;
     const v = scopedValue(t.amount, t, scopeMemberId);
-    if (v >= 0) continue;
+    if (v >= 0 && t.kind !== 'refund') continue;
     const key = monthKey(parseDay(t.occurred_at));
     // The current month is partial, and anything after it is planned, not
     // spent. Both are excluded from a completed-month average.
     if (key >= currentMonth) continue;
+    // A refund's v is positive, so -v is negative here and reduces that
+    // month's spend rather than being ignored — the same netting
+    // periodSummary applies (SHR-252).
     monthly.set(key, (monthly.get(key) ?? 0) + -v);
   }
   // Newest six *by month*, not by arrival order. Transactions come back

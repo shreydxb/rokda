@@ -21,6 +21,12 @@ export function validateApproval(form) {
   if (!form.date) return 'Enter a date.';
   if (!INTAKE_KINDS.some((k) => k.id === form.kind)) return 'Choose whether this is an expense, income or a refund.';
   if (!form.isShared && !form.ownerMemberId) return 'Choose whose it is, or mark it shared.';
+  // No native-currency conversion exists yet, so every aggregate calculation
+  // treats amount as AED. Approving a non-AED currency here would silently
+  // store an unconverted number that dashboards then misread as AED (SHR-252).
+  if ((form.currency || 'AED').toUpperCase() !== 'AED') {
+    return 'Only AED is supported for approval right now — native-currency conversion isn’t implemented yet.';
+  }
   return null;
 }
 
