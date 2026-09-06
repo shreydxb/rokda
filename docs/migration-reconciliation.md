@@ -122,3 +122,51 @@ and adds `"fingerprintVersion": 2` to each entry. Until then, "0 drifting" is
 accurate but incomplete — it means no migration both sides can currently be
 compared under the same rules shows a difference, not that all 13 have been
 freshly re-verified.
+
+**Cleared (81a6bb3 recheck).** A read-only re-export of
+`supabase_migrations.schema_migrations` from the live project, fingerprinted
+with the current (dollar-quote-aware) `normalise()`, confirmed all 13
+already-applied migrations are genuinely equivalent to this repository's —
+not merely "not yet found to differ" the way `stale-fingerprint` reports.
+`docs/applied-migrations.json` now holds that fresh export
+(`fingerprintVersion: 2` on every entry) and `compare:migrations` reports 0
+unverifiable.
+
+The next `normalise()` change will make these 13 `stale-fingerprint` again —
+that's the design working as intended, not a regression. The same
+re-export-and-refingerprint step above clears it each time.
+
+## Strict vs. informational comparison (81a6bb3 recheck, SHR-253)
+
+A green CI run under the plain command only established that nothing
+*provably* differed — an unverifiable (`stale-fingerprint`) entry doesn't
+fail it. That's an intentional default (an unverifiable entry is real
+information, not something to hide behind a red build), but it means "CI is
+green" was not by itself sufficient to call the migration comparison
+*complete*. `npm run compare:migrations` now runs
+`compare-migrations.mjs ... --strict`, which additionally fails (nonzero
+exit) on any `stale-fingerprint` entry — so CI now only stays green when
+every migration has actually been re-verified under the current rules, not
+just not-yet-contradicted. Drop `--strict` for a purely informational run
+(e.g. while investigating, before a fresh re-export is available) — it still
+reports the same rows, just doesn't fail the process over staleness alone.
+
+## Windows line endings and dollar-quoted literals (81a6bb3 recheck, SHR-253)
+
+`normalise()` preserves everything inside a string/dollar-quoted literal
+verbatim — including internal line endings — so it doesn't erase meaningful
+content. That is exactly right for content, but line-ending *style* isn't
+meaningful SQL: a file checked out with CRLF (Windows' git default,
+`core.autocrlf=true`) fingerprints differently from the same file checked
+out with LF, even though nothing about the migration actually changed. This
+showed up as a false mismatch specifically in dollar-quoted PL/pgSQL
+function bodies, which are long enough to make the line-ending style visible
+to the tokeniser.
+
+The fix is `.gitattributes`, not the tokeniser: `supabase/migrations/*.sql`
+and `scripts/*.mjs` are now pinned to `text eol=lf`, so git always checks
+them out with LF regardless of the platform or the user's `core.autocrlf`
+setting. Trying to fix this inside `normalise()` instead (e.g. collapsing
+`\r\n` to `\n` globally) would risk quietly eating a line-ending difference
+that genuinely is part of a literal's content elsewhere — `.gitattributes`
+removes the platform variable at its source instead.
