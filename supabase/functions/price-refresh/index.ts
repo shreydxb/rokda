@@ -92,12 +92,19 @@ type Holding = {
 
 type PriceResult = { price: number; dayChangePct: number | null } | { error: string };
 
-async function fetchTwelveData(symbols: string[]): Promise<Record<string, PriceResult>> {
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Twelve Data's free tier caps at 8 credits/minute, and each symbol in a
+// multi-symbol /quote call consumes its own credit — a batch of 12 blows
+// straight past that limit and comes back as a global error (every symbol
+// then reads as "not found", not a real per-symbol result). Chunk to 8 per
+// call and pace a minute apart so real batches larger than 8 still succeed
+// instead of failing outright.
+const TWELVEDATA_BATCH_SIZE = 8;
+const TWELVEDATA_BATCH_DELAY_MS = 61_000;
+
+async function fetchTwelveDataBatch(symbols: string[]): Promise<Record<string, PriceResult>> {
   const out: Record<string, PriceResult> = {};
-  if (!TWELVEDATA_API_KEY) {
-    for (const s of symbols) out[s] = { error: "TWELVEDATA_API_KEY not configured" };
-    return out;
-  }
   try {
     const url = `https://api.twelvedata.com/quote?symbol=${encodeURIComponent(symbols.join(","))}&apikey=${TWELVEDATA_API_KEY}`;
     const res = await fetch(url);
@@ -117,6 +124,20 @@ async function fetchTwelveData(symbols: string[]): Promise<Record<string, PriceR
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     for (const s of symbols) out[s] = { error: message };
+  }
+  return out;
+}
+
+async function fetchTwelveData(symbols: string[]): Promise<Record<string, PriceResult>> {
+  if (!TWELVEDATA_API_KEY) {
+    const out: Record<string, PriceResult> = {};
+    for (const s of symbols) out[s] = { error: "TWELVEDATA_API_KEY not configured" };
+    return out;
+  }
+  const out: Record<string, PriceResult> = {};
+  for (let i = 0; i < symbols.length; i += TWELVEDATA_BATCH_SIZE) {
+    if (i > 0) await sleep(TWELVEDATA_BATCH_DELAY_MS);
+    Object.assign(out, await fetchTwelveDataBatch(symbols.slice(i, i + TWELVEDATA_BATCH_SIZE)));
   }
   return out;
 }
@@ -200,7 +221,11 @@ async function refreshHoldings(inrPerAed: number | null) {
   const results = new Map<string, PriceResult>(); // holding id -> result
   const twelvedata = byProvider.get("twelvedata") ?? [];
   if (twelvedata.length) {
-    const prices = await fetchTwelveData(twelvedata.map((h) => h.price_symbol));
+    // Multiple holdings (different lots) can share the same symbol —
+    // dedupe before spending API credits, then fan the shared result back
+    // out to every holding that uses it.
+    const uniqueSymbols = [...new Set(twelvedata.map((h) => h.price_symbol))];
+    const prices = await fetchTwelveData(uniqueSymbols);
     for (const h of twelvedata) results.set(h.id, prices[h.price_symbol] ?? { error: "No response" });
   }
   const coingecko = byProvider.get("coingecko") ?? [];
