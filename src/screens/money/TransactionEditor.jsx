@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
-import { formatMoney } from '../../lib/money';
+import { formatMoney, formatSigned } from '../../lib/money';
 import './TransactionEditor.css';
+
+const FIELD_LABELS = { category: 'Category', amount: 'Amount', account: 'Account', merchant: 'Merchant', scope: 'Scope' };
 
 function initialForm(tx, accounts) {
   if (tx) {
@@ -52,7 +54,50 @@ function findDuplicate(form, allTransactions, excludeId) {
   );
 }
 
-export default function TransactionEditor({ tx, householdId, accounts, categories, members, allTransactions, onClose, onSaved, onOpenOther }) {
+// Diffs the form against the record as it was loaded, one entry per
+// changed field the acceptance criteria calls out. Only meaningful for an
+// edit — there's nothing to diff against on a create.
+function buildEdits(tx, form, { accounts, categories, members }) {
+  const accountName = (id) => accounts.find((a) => a.id === id)?.name ?? 'Unknown account';
+  const categoryName = (id) => (id ? (categories.find((c) => c.id === id)?.name ?? 'Unknown category') : 'Uncategorised');
+  const scopeLabel = (isShared, ownerId) => (isShared ? 'Shared' : (members.find((m) => m.id === ownerId)?.display_name ?? 'Unknown member'));
+
+  const changes = [];
+
+  const oldCategoryId = tx.category_id ?? null;
+  const newCategoryId = form.category_id || null;
+  if (oldCategoryId !== newCategoryId) {
+    changes.push({ field: 'category', old_value: categoryName(oldCategoryId), new_value: categoryName(newCategoryId) });
+  }
+
+  const oldAmount = Number(tx.amount);
+  const newAmount = form.type === 'income' ? Math.abs(Number(form.amount)) : -Math.abs(Number(form.amount));
+  if (Math.abs(oldAmount - newAmount) > 0.001) {
+    changes.push({ field: 'amount', old_value: formatSigned(oldAmount), new_value: formatSigned(newAmount) });
+  }
+
+  if (tx.account_id !== form.account_id) {
+    changes.push({ field: 'account', old_value: accountName(tx.account_id), new_value: accountName(form.account_id) });
+  }
+
+  const oldMerchant = (tx.merchant ?? '').trim();
+  const newMerchant = form.merchant.trim();
+  if (oldMerchant !== newMerchant) {
+    changes.push({ field: 'merchant', old_value: oldMerchant || '(none)', new_value: newMerchant || '(none)' });
+  }
+
+  const oldShared = tx.is_shared;
+  const oldOwner = tx.owner_member_id ?? null;
+  const newShared = form.owner === 'shared';
+  const newOwner = newShared ? null : form.owner;
+  if (oldShared !== newShared || oldOwner !== newOwner) {
+    changes.push({ field: 'scope', old_value: scopeLabel(oldShared, oldOwner), new_value: scopeLabel(newShared, newOwner) });
+  }
+
+  return changes;
+}
+
+export default function TransactionEditor({ tx, householdId, accounts, categories, members, me, allTransactions, onClose, onSaved, onOpenOther }) {
   const [form, setForm] = useState(() => initialForm(tx, accounts));
   const [dirty, setDirty] = useState(false);
   const [duplicateDismissed, setDuplicateDismissed] = useState(false);
@@ -60,6 +105,8 @@ export default function TransactionEditor({ tx, householdId, accounts, categorie
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [history, setHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(!!tx);
 
   useEffect(() => {
     const onKey = (e) => {
@@ -69,6 +116,25 @@ export default function TransactionEditor({ tx, householdId, accounts, categorie
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dirty, confirmingClose]);
+
+  useEffect(() => {
+    if (!tx) return;
+    let cancelled = false;
+    supabase
+      .from('transaction_edits')
+      .select('*')
+      .eq('transaction_id', tx.id)
+      .order('edited_at', { ascending: false })
+      .then(({ data }) => {
+        if (!cancelled) {
+          setHistory(data ?? []);
+          setHistoryLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [tx]);
 
   function set(key, value) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -123,11 +189,22 @@ export default function TransactionEditor({ tx, householdId, accounts, categorie
       : supabase.from('transactions').insert(payload);
 
     const { error: saveError } = await query;
-    setSaving(false);
     if (saveError) {
+      setSaving(false);
       setError(saveError.message);
       return;
     }
+
+    if (tx) {
+      const changes = buildEdits(tx, form, { accounts, categories, members });
+      if (changes.length > 0) {
+        await supabase.from('transaction_edits').insert(
+          changes.map((c) => ({ transaction_id: tx.id, edited_by: me?.id ?? null, field: c.field, old_value: c.old_value, new_value: c.new_value }))
+        );
+      }
+    }
+
+    setSaving(false);
     await onSaved();
   }
 
@@ -275,6 +352,35 @@ export default function TransactionEditor({ tx, householdId, accounts, categorie
             </div>
             <span className={`te-togglestate ${form.needs_review ? 'te-togglestate-warn' : ''}`}>{form.needs_review ? 'Flagged' : 'Clear'}</span>
           </button>
+
+          {tx && (
+            <div>
+              <span className="te-fieldlabel">History</span>
+              <div style={{ marginTop: 8 }}>
+                {historyLoading ? (
+                  <div className="ov-muted" style={{ fontSize: 12 }}>
+                    Loading…
+                  </div>
+                ) : history.length === 0 ? (
+                  <div className="ov-muted" style={{ fontSize: 12 }}>
+                    No edits yet.
+                  </div>
+                ) : (
+                  <div className="mn-list">
+                    {history.map((h) => (
+                      <div key={h.id} className="mn-row" style={{ cursor: 'default' }}>
+                        <div className="ov-muted" style={{ fontSize: 12 }}>
+                          {FIELD_LABELS[h.field] ?? h.field}: {h.old_value ?? '—'} → {h.new_value ?? '—'} ·{' '}
+                          {members.find((m) => m.id === h.edited_by)?.display_name ?? 'Unknown member'} ·{' '}
+                          {new Date(h.edited_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {error && (
             <p className="ov-warn" role="alert" style={{ fontSize: 12.5 }}>
