@@ -22,7 +22,9 @@ export default function NetWorth({ household, me, members, data, loading }) {
   // The values a close would write, shown for review before anything is
   // written. Null means "not confirming right now" (SHR-246): today's live
   // totals must not become a closed month's history without someone actually
-  // looking at the number first.
+  // looking at the number first. Kept as raw strings, not coerced numbers, so
+  // a blank field or a stray non-numeric character is a validation error
+  // instead of silently becoming zero.
   const [closeDraft, setCloseDraft] = useState(null);
 
   const now = useMemo(() => new Date(), []);
@@ -63,30 +65,47 @@ export default function NetWorth({ household, me, members, data, loading }) {
   function reviewClose() {
     if (!pending) return;
     const household_wide = netWorthSummary(accounts, null, holdings);
-    setCloseDraft({ assets: household_wide.assets, liabilities: household_wide.liabilities });
+    setCloseDraft({ assets: String(household_wide.assets), liabilities: String(household_wide.liabilities) });
   }
+
+  const closeDraftAssets = closeDraft ? Number(closeDraft.assets) : null;
+  const closeDraftLiabilities = closeDraft ? Number(closeDraft.liabilities) : null;
+  const closeDraftAssetsError =
+    closeDraft && (closeDraft.assets.trim() === '' || !Number.isFinite(closeDraftAssets)) ? 'Enter a number.' : null;
+  const closeDraftLiabilitiesError =
+    closeDraft && (closeDraft.liabilities.trim() === '' || !Number.isFinite(closeDraftLiabilities)) ? 'Enter a number.' : null;
+  const closeDraftValid = closeDraft && !closeDraftAssetsError && !closeDraftLiabilitiesError;
 
   // Upserting on (household_id, snapshot_date) with ignoreDuplicates means
   // closing the same month twice from the same session changes nothing — but
   // it also means a second, stale session cannot silently overwrite a month
   // another session already closed with different numbers. Whoever closes it
-  // first wins; a later attempt is a no-op, not a clobber.
+  // first wins; a later attempt is a no-op, not a clobber — and .select()
+  // lets that no-op be told apart from a real write, so a stale session is
+  // told plainly rather than reloading as if its numbers had been saved.
   async function confirmClose() {
-    if (!pending || !household?.id || !closeDraft) return;
+    if (!pending || !household?.id || !closeDraftValid) return;
     setClosing(true);
     setCloseError(null);
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('net_worth_snapshots')
-      .upsert(closeRowFor(household.id, pending.snapshotDate, closeDraft), {
+      .upsert(closeRowFor(household.id, pending.snapshotDate, { assets: closeDraftAssets, liabilities: closeDraftLiabilities }), {
         onConflict: 'household_id,snapshot_date',
         ignoreDuplicates: true,
-      });
+      })
+      .select();
     setClosing(false);
-    setCloseDraft(null);
     if (error) {
       setCloseError(error.message);
       return;
     }
+    if (!data || data.length === 0) {
+      setCloseError(
+        `${pending.month.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })} was already closed by another session. Your values were not saved — reload to see what was recorded.`,
+      );
+      return;
+    }
+    setCloseDraft(null);
     await reload();
   }
   const selected = selectedIdx !== null ? series[selectedIdx] : series[series.length - 1];
@@ -168,35 +187,48 @@ export default function NetWorth({ household, me, members, data, loading }) {
           <div className="ov-card" style={{ marginBottom: 16, padding: 14 }}>
             <div className="ov-muted" style={{ marginBottom: 10 }}>
               Confirm what {pending.month.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })} actually closed at.
-              These start from today's live totals — edit them if they don't reflect that month's actual position.
+              These start from today's live totals — edit them if they don't reflect that month's actual position. Stored
+              values are always AED, regardless of the display currency above.
             </div>
             <div className="te-fieldgrid">
               <div className="te-fieldcell">
-                <span className="te-fieldlabel">Assets</span>
+                <span className="te-fieldlabel">Assets (AED)</span>
                 <input
                   className="te-fieldvalue"
                   type="number"
                   step="0.01"
                   value={closeDraft.assets}
-                  onChange={(e) => setCloseDraft((d) => ({ ...d, assets: Number(e.target.value) || 0 }))}
+                  aria-invalid={!!closeDraftAssetsError}
+                  onChange={(e) => setCloseDraft((d) => ({ ...d, assets: e.target.value }))}
                 />
+                {closeDraftAssetsError && (
+                  <span className="ov-warn" style={{ fontSize: 11.5 }}>
+                    {closeDraftAssetsError}
+                  </span>
+                )}
               </div>
               <div className="te-fieldcell">
-                <span className="te-fieldlabel">Liabilities</span>
+                <span className="te-fieldlabel">Liabilities (AED)</span>
                 <input
                   className="te-fieldvalue"
                   type="number"
                   step="0.01"
                   value={closeDraft.liabilities}
-                  onChange={(e) => setCloseDraft((d) => ({ ...d, liabilities: Number(e.target.value) || 0 }))}
+                  aria-invalid={!!closeDraftLiabilitiesError}
+                  onChange={(e) => setCloseDraft((d) => ({ ...d, liabilities: e.target.value }))}
                 />
+                {closeDraftLiabilitiesError && (
+                  <span className="ov-warn" style={{ fontSize: 11.5 }}>
+                    {closeDraftLiabilitiesError}
+                  </span>
+                )}
               </div>
             </div>
             <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
               <button type="button" className="om-btn" disabled={closing} onClick={() => setCloseDraft(null)}>
                 Cancel
               </button>
-              <button type="button" className="om-btn ov-btn-primary" disabled={closing} onClick={confirmClose}>
+              <button type="button" className="om-btn ov-btn-primary" disabled={closing || !closeDraftValid} onClick={confirmClose}>
                 {closing ? 'Closing…' : 'Confirm & close'}
               </button>
             </div>

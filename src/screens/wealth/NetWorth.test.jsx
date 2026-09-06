@@ -1,20 +1,30 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen } from '@testing-library/dom';
 import { renderScreen } from '../../test/renderScreen';
 
 const upserts = [];
+// A real upsert with ignoreDuplicates + .select() returns the written row on
+// a genuine insert, and an empty array when the conflict target already
+// existed and nothing was written. mockUpsertHitsConflict simulates the
+// latter — another session already closed this month (SHR-246).
+let mockUpsertHitsConflict = false;
 vi.mock('../../lib/supabaseClient', () => ({
   supabase: {
     from: (table) => ({
       upsert: (row, options) => {
         upserts.push({ table, row, options });
-        return Promise.resolve({ error: null });
+        return { select: () => Promise.resolve(mockUpsertHitsConflict ? { data: [], error: null } : { data: [row], error: null }) };
       },
     }),
   },
 }));
 
 const { default: NetWorth } = await import('./NetWorth');
+
+beforeEach(() => {
+  upserts.length = 0;
+  mockUpsertHitsConflict = false;
+});
 
 const MEMBERS = [{ id: 'm1', display_name: 'Shreyash' }];
 
@@ -152,5 +162,70 @@ describe('QA-05: closing a month', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  // 762a6c4 recheck (SHR-246): the review inputs coerced a blank or
+  // non-numeric field to zero instead of refusing to close on it.
+  it('blocks Confirm & close when a reviewed value is blank', async () => {
+    const { act } = await import('react');
+    renderScreen(
+      <NetWorth
+        household={{ id: 'hh' }}
+        me={MEMBERS[0]}
+        members={MEMBERS}
+        loading={false}
+        data={{
+          accounts: [{ id: 's1', name: 'Savings', type: 'savings', balance: 1000, is_shared: true, archived_at: null }],
+          netWorthSnapshots: [],
+          holdings: [],
+          reload: vi.fn(),
+        }}
+      />,
+    );
+    await act(async () => {
+      screen.getByRole('button', { name: /^Close / }).click();
+    });
+    const assetsInput = document.querySelector('.te-fieldgrid input[type="number"]');
+    await act(async () => {
+      assetsInput.dispatchEvent(new Event('input', { bubbles: true }));
+      Object.defineProperty(assetsInput, 'value', { value: '', configurable: true });
+      assetsInput.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    const confirmButton = screen.getByRole('button', { name: /Confirm & close/ });
+    expect(confirmButton.disabled).toBe(true);
+    await act(async () => {
+      confirmButton.click();
+    });
+    expect(upserts).toHaveLength(0);
+  });
+
+  // 762a6c4 recheck (SHR-246): report a concurrently-closed month clearly
+  // instead of silently reloading as if the reviewer's own numbers were saved.
+  it('reports a concurrently-closed month instead of silently succeeding', async () => {
+    const { act } = await import('react');
+    mockUpsertHitsConflict = true;
+    const reload = vi.fn();
+    renderScreen(
+      <NetWorth
+        household={{ id: 'hh' }}
+        me={MEMBERS[0]}
+        members={MEMBERS}
+        loading={false}
+        data={{
+          accounts: [{ id: 's1', name: 'Savings', type: 'savings', balance: 1000, is_shared: true, archived_at: null }],
+          netWorthSnapshots: [],
+          holdings: [],
+          reload,
+        }}
+      />,
+    );
+    await act(async () => {
+      screen.getByRole('button', { name: /^Close / }).click();
+    });
+    await act(async () => {
+      screen.getByRole('button', { name: /Confirm & close/ }).click();
+    });
+    expect(screen.getByRole('alert').textContent).toMatch(/already closed by another session/i);
+    expect(reload).not.toHaveBeenCalled();
   });
 });

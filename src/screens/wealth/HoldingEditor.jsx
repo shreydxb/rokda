@@ -123,9 +123,15 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
       ...(nextPriced ? { priced_at: nextPriced } : {}),
     };
 
-    // A brand-new holding is inserted at most once: if a prior attempt already
-    // created it (createdId set) but the history write then failed, retrying
-    // must not insert a second row (SHR-246).
+    // A brand-new holding is inserted at most once. The id is generated and
+    // recorded BEFORE the insert is dispatched — not read back from a
+    // successful response — so a retry can recover even when the response is
+    // lost entirely (network drop, timeout): the write may or may not have
+    // landed, but either way a retry updates that same id instead of risking
+    // a second insert (SHR-246). Once an id is known for this new holding —
+    // from this attempt or an earlier one — every subsequent save (including
+    // one that changes the value again before history ever succeeds) goes
+    // through update, so the stored row always reflects the latest edit.
     let holdingId = holding?.id ?? createdId;
     if (holding) {
       const { error: saveError } = await supabase.from('holdings').update(payload).eq('id', holding.id);
@@ -134,15 +140,26 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
         setError(saveError.message);
         return;
       }
-    } else if (!holdingId) {
-      const { data: saved, error: saveError } = await supabase.from('holdings').insert(payload).select('id').maybeSingle();
+    } else if (holdingId) {
+      const { error: saveError } = await supabase.from('holdings').update(payload).eq('id', holdingId);
       if (saveError) {
         setSaving(false);
         setError(saveError.message);
         return;
       }
-      holdingId = saved?.id;
+    } else {
+      holdingId = crypto.randomUUID();
       setCreatedId(holdingId);
+      const { error: saveError } = await supabase
+        .from('holdings')
+        .insert({ id: holdingId, ...payload })
+        .select('id')
+        .maybeSingle();
+      if (saveError) {
+        setSaving(false);
+        setError(saveError.message);
+        return;
+      }
     }
 
     // A confirmed valuation is also a dated history point. Upserting on
