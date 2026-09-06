@@ -17,7 +17,7 @@ export function useHousehold() {
 
     const { data: myRows, error } = await supabase
       .from('household_members')
-      .select('id, household_id, display_name, role, user_id, households(id, name, inr_per_aed, inr_rate_set_at)')
+      .select('id, household_id, display_name, role, user_id, households(id, name, inr_per_aed, inr_rate_set_at, inr_rate_source)')
       .eq('user_id', user.id)
       .limit(1);
 
@@ -39,6 +39,7 @@ export function useHousehold() {
         name: me.households?.name,
         inr_per_aed: me.households?.inr_per_aed ?? null,
         inr_rate_set_at: me.households?.inr_rate_set_at ?? null,
+        inr_rate_source: me.households?.inr_rate_source ?? 'manual',
       },
       members: roster ?? [me],
       me,

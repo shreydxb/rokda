@@ -29,6 +29,7 @@ export default function Investments({ household, members, me, data, loading }) {
   const [range, setRange] = useState('3M');
   const [editing, setEditing] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState('');
 
   const now = useMemo(() => new Date(), []);
   const rows = useMemo(() => visibleHoldings(holdings, scopeMemberId, group), [holdings, scopeMemberId, group]);
@@ -46,12 +47,21 @@ export default function Investments({ household, members, me, data, loading }) {
     const d = new Date(h.last_refreshed);
     return !latest || d > latest ? d : latest;
   }, null);
+  const autoPriced = holdings.filter((h) => h.price_provider);
+  const failing = autoPriced.filter((h) => h.price_fetch_error);
 
   async function handleRefresh() {
     setRefreshing(true);
-    const ids = holdings.map((h) => h.id);
-    await supabase.from('holdings').update({ last_refreshed: new Date().toISOString() }).in('id', ids);
+    setRefreshError('');
+    const { data, error } = await supabase.functions.invoke('price-refresh');
     setRefreshing(false);
+    if (error) {
+      setRefreshError(error.message ?? 'Refresh failed.');
+      return;
+    }
+    if (data?.fx?.ok === false) {
+      setRefreshError(`FX rate refresh failed: ${data.fx.error}`);
+    }
     await reload();
   }
 
@@ -115,15 +125,29 @@ export default function Investments({ household, members, me, data, loading }) {
             </div>
           </section>
 
-          <section style={{ marginTop: 34, display: 'flex', alignItems: 'center', gap: 12 }}>
-            <button type="button" className="om-btn" onClick={handleRefresh} disabled={refreshing}>
-              {refreshing ? 'Refreshing…' : 'Refresh'}
-            </button>
-            <span className="ov-muted">
-              {lastRefreshed
-                ? `Last refreshed ${lastRefreshed.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} · manual, no live price feed yet`
-                : 'Never refreshed'}
-            </span>
+          <section style={{ marginTop: 34 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <button type="button" className="om-btn" onClick={handleRefresh} disabled={refreshing}>
+                {refreshing ? 'Refreshing…' : 'Refresh'}
+              </button>
+              <span className="ov-muted">
+                {autoPriced.length === 0
+                  ? 'No holding has auto-pricing set up yet — edit one to opt it in.'
+                  : lastRefreshed
+                    ? `Last refreshed ${lastRefreshed.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} · ${autoPriced.length} holding${autoPriced.length === 1 ? '' : 's'} on a live feed`
+                    : 'Never refreshed'}
+              </span>
+            </div>
+            {refreshError && (
+              <div className="ov-warn" style={{ fontSize: 12.5, marginTop: 8 }}>
+                {refreshError}
+              </div>
+            )}
+            {failing.length > 0 && (
+              <div className="ov-warn" style={{ fontSize: 12.5, marginTop: 8 }}>
+                {failing.length} holding{failing.length === 1 ? '' : 's'} failed to refresh and may be stale: {failing.map((h) => h.name).join(', ')}.
+              </div>
+            )}
           </section>
 
           <section style={{ marginTop: 34 }}>
@@ -192,8 +216,15 @@ export default function Investments({ household, members, me, data, loading }) {
                         <td className={gain ? (gain.absolute >= 0 ? 'ov-pos' : 'ov-neg') : ''}>
                           {gain ? `${money.fmtSigned(gain.absolute)} (${formatPct(gain.pct)})` : '—'}
                         </td>
-                        <td className={h.day_change_pct != null ? (h.day_change_pct >= 0 ? 'ov-pos' : 'ov-neg') : ''}>
-                          {h.day_change_pct != null ? `${h.day_change_pct >= 0 ? '+' : ''}${h.day_change_pct.toFixed(2)}%` : '—'}
+                        <td
+                          className={h.price_fetch_error ? 'ov-warn' : h.day_change_pct != null ? (h.day_change_pct >= 0 ? 'ov-pos' : 'ov-neg') : ''}
+                          title={h.price_fetch_error ? `Refresh failed: ${h.price_fetch_error}` : undefined}
+                        >
+                          {h.price_fetch_error
+                            ? 'stale'
+                            : h.day_change_pct != null
+                              ? `${h.day_change_pct >= 0 ? '+' : ''}${h.day_change_pct.toFixed(2)}%`
+                              : '—'}
                         </td>
                       </tr>
                     );

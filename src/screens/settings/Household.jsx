@@ -56,7 +56,7 @@ export default function Household({ household, members, me, loading, reload }) {
     setRateError('');
     const { error } = await supabase
       .from('households')
-      .update({ inr_per_aed: rate, inr_rate_set_at: new Date().toISOString() })
+      .update({ inr_per_aed: rate, inr_rate_set_at: new Date().toISOString(), inr_rate_source: 'manual' })
       .eq('id', household.id);
     setSavingRate(false);
     if (error) {
@@ -105,8 +105,9 @@ export default function Household({ household, members, me, loading, reload }) {
         </div>
         <div className="ov-muted" style={{ fontSize: 11.5, lineHeight: 1.65, marginBottom: 14 }}>
           Everything is still stored and charged in AED. The sidebar toggle only changes what portfolio and net-worth
-          figures are <em>shown as</em>. USD uses the fixed AED peg (3.6725, unchanged since 1997) — INR floats, so it
-          needs a real rate set here by hand; there's no live feed yet.
+          figures are <em>shown as</em>. USD uses the fixed AED peg (3.6725, unchanged since 1997) — INR floats, so a
+          daily feed refreshes it automatically. Entering a rate here overrides that until the next refresh, and
+          exists mainly as a fallback for when the feed has never run.
         </div>
         <form onSubmit={saveRate} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <span className="ov-muted" style={{ fontSize: 13 }}>
@@ -139,8 +140,8 @@ export default function Household({ household, members, me, loading, reload }) {
         </form>
         <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 8 }}>
           {household?.inr_rate_set_at
-            ? `Currently set ${new Date(household.inr_rate_set_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}.`
-            : 'Not set yet — the INR display option stays disabled until it is.'}
+            ? `${household.inr_rate_source === 'auto' ? 'Auto-refreshed' : 'Manually set'} ${new Date(household.inr_rate_set_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}.`
+            : 'Not set yet — the INR display option stays disabled until the daily feed runs or a rate is entered here.'}
         </div>
         {rateError && (
           <p className="ov-warn" role="alert" style={{ fontSize: 12.5, marginTop: 8 }}>

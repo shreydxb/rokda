@@ -16,11 +16,14 @@ function initialForm(holding) {
       current_price: holding.current_price != null ? String(holding.current_price) : '',
       invested_value_aed: holding.invested_value_aed != null ? String(holding.invested_value_aed) : '',
       day_change_pct: holding.day_change_pct != null ? String(holding.day_change_pct) : '',
+      price_provider: holding.price_provider ?? '',
+      price_symbol: holding.price_symbol ?? '',
     };
   }
   return {
     name: '', asset_class: 'us_equity', currency: 'USD', value_aed: '', owner: 'shared',
     quantity: '', avg_price: '', current_price: '', invested_value_aed: '', day_change_pct: '',
+    price_provider: '', price_symbol: '',
   };
 }
 
@@ -55,11 +58,12 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
   }
 
   const nameError = form.name.trim() === '' ? 'Name it.' : '';
+  const symbolError = form.price_provider && form.price_symbol.trim() === '' ? 'Enter the symbol this provider expects.' : '';
 
   async function handleSave(e) {
     e.preventDefault();
-    if (nameError) {
-      setError(nameError);
+    if (nameError || symbolError) {
+      setError(nameError || symbolError);
       return;
     }
     setSaving(true);
@@ -79,6 +83,8 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
       current_price: form.current_price.trim() === '' ? null : Number(form.current_price),
       invested_value_aed: form.invested_value_aed.trim() === '' ? null : Number(form.invested_value_aed),
       day_change_pct: form.day_change_pct.trim() === '' ? null : Number(form.day_change_pct),
+      price_provider: form.price_provider || null,
+      price_symbol: form.price_provider && form.price_symbol.trim() !== '' ? form.price_symbol.trim() : null,
     };
 
     const query = holding
@@ -161,8 +167,8 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
           <div>
             <span className="te-fieldlabel">Pricing detail (optional)</span>
             <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 4, marginBottom: 10 }}>
-              Fills in the richer holdings table (units, avg price, P&amp;L). Manual for now — there's no live
-              price feed, so "Today" only updates when you re-enter it.
+              Fills in the richer holdings table (units, avg price, P&amp;L). "Price now" and "Day change" are
+              overwritten by the daily refresh below when auto-pricing is on; otherwise they're manual.
             </div>
             <div className="te-fieldgrid">
               <div className="te-fieldcell">
@@ -175,7 +181,7 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
               </div>
               <div className="te-fieldcell">
                 <span className="te-fieldlabel">Price now ({form.currency || '—'})</span>
-                <input className="te-fieldvalue" type="number" step="any" value={form.current_price} onChange={(e) => set('current_price', e.target.value)} placeholder="—" />
+                <input className="te-fieldvalue" type="number" step="any" value={form.current_price} onChange={(e) => set('current_price', e.target.value)} disabled={!!form.price_provider} placeholder="—" />
               </div>
               <div className="te-fieldcell">
                 <span className="te-fieldlabel">Invested (AED)</span>
@@ -183,9 +189,48 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
               </div>
               <div className="te-fieldcell">
                 <span className="te-fieldlabel">Day change (%)</span>
-                <input className="te-fieldvalue" type="number" step="any" value={form.day_change_pct} onChange={(e) => set('day_change_pct', e.target.value)} placeholder="—" />
+                <input className="te-fieldvalue" type="number" step="any" value={form.day_change_pct} onChange={(e) => set('day_change_pct', e.target.value)} disabled={!!form.price_provider} placeholder="—" />
               </div>
             </div>
+          </div>
+
+          <div>
+            <span className="te-fieldlabel">Auto-pricing (optional)</span>
+            <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 4, marginBottom: 10 }}>
+              Opts this holding into the daily price feed. Leave "None" to keep entering price/day-change by hand —
+              exchanges the feed can't reach (DFM/ADX-listed UAE equities, most sukuk) have no real option here yet.
+            </div>
+            <div className="te-fieldgrid">
+              <div className="te-fieldcell">
+                <span className="te-fieldlabel">Provider</span>
+                <select className="te-fieldvalue" value={form.price_provider} onChange={(e) => set('price_provider', e.target.value)}>
+                  <option value="">None — manual</option>
+                  <option value="twelvedata">Twelve Data (US/global/NSE equities, commodities)</option>
+                  <option value="coingecko">CoinGecko (crypto)</option>
+                  <option value="mfapi">mfapi.in (India mutual fund NAV)</option>
+                </select>
+              </div>
+              <div className="te-fieldcell te-span2">
+                <span className="te-fieldlabel">
+                  {form.price_provider === 'mfapi' ? 'AMFI scheme code' : form.price_provider === 'coingecko' ? 'CoinGecko coin id' : 'Symbol'}
+                </span>
+                <input
+                  className="te-fieldvalue"
+                  type="text"
+                  value={form.price_symbol}
+                  onChange={(e) => set('price_symbol', e.target.value)}
+                  disabled={!form.price_provider}
+                  aria-invalid={!!symbolError}
+                  placeholder={form.price_provider === 'mfapi' ? 'e.g. 120503' : form.price_provider === 'coingecko' ? 'e.g. bitcoin' : 'e.g. AAPL or RELIANCE:NSE'}
+                />
+              </div>
+            </div>
+            {holding?.price_fetch_error && (
+              <div className="ov-warn" style={{ fontSize: 11.5, marginTop: 8 }}>
+                Last refresh failed: {holding.price_fetch_error}
+                {holding.price_fetch_fail_count > 1 ? ` (${holding.price_fetch_fail_count} attempts since)` : ''}
+              </div>
+            )}
           </div>
 
           <div>
