@@ -1,5 +1,6 @@
 import { scopedValue } from './scope';
 import { monthKey, parseDay } from './day';
+import { applyToIncomeSpend } from './transactionKind';
 
 // The current, still-open month is excluded — its spend is partial and would
 // understate a real month. Forecast is always household-wide ("Both"): an
@@ -16,9 +17,9 @@ export function closedMonths(transactions, now = new Date()) {
     if (key >= currentMonth) continue;
     if (!byMonth.has(key)) byMonth.set(key, { income: 0, spend: 0 });
     const bucket = byMonth.get(key);
-    const v = scopedValue(t.amount, t, null);
-    if (v >= 0) bucket.income += v;
-    else bucket.spend += -v;
+    // A refund nets against spend rather than inflating income, the same as
+    // every other consumer of transaction amounts (SHR-252).
+    applyToIncomeSpend(t, scopedValue(t.amount, t, null), bucket);
   }
   // Chronological, so "the last 12 closed months" means the newest twelve
   // rather than whichever twelve happened to be inserted last.

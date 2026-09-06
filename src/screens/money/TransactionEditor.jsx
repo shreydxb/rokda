@@ -2,12 +2,16 @@ import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { accountOptionLabel, selectableAccounts } from '../../lib/accounts';
 import { formatMoney } from '../../lib/money';
+import { signedAmount } from '../../lib/intake';
 import './TransactionEditor.css';
 
 function initialForm(tx, accounts) {
   if (tx) {
     return {
-      type: Number(tx.amount) >= 0 ? 'income' : 'expense',
+      // A refund is stored positive, like income, but is neither — its own
+      // persisted `kind` is what says which it is (SHR-252). Falling back to
+      // sign only covers a row from before `kind` existed.
+      type: tx.kind ?? (Number(tx.amount) >= 0 ? 'income' : 'expense'),
       amount: String(Math.abs(Number(tx.amount))),
       merchant: tx.merchant ?? '',
       occurred_at: tx.occurred_at,
@@ -90,7 +94,10 @@ export default function TransactionEditor({ tx, householdId, accounts, categorie
 
   const amountError = form.amount.trim() === '' || Number(form.amount) <= 0 ? 'Enter an amount greater than zero.' : '';
   const accountError = !form.account_id ? 'Choose an account.' : '';
-  const kindCategories = categories.filter((c) => c.kind === form.type && (!c.archived || c.id === form.category_id));
+  // A refund reverses an earlier expense, so it draws from the same category
+  // list as an expense rather than having none at all.
+  const categoryKind = form.type === 'refund' ? 'expense' : form.type;
+  const kindCategories = categories.filter((c) => c.kind === categoryKind && (!c.archived || c.id === form.category_id));
 
   const duplicate = useMemo(
     () => (tx ? null : duplicateDismissed ? null : findDuplicate(form, allTransactions, tx?.id)),
@@ -107,12 +114,12 @@ export default function TransactionEditor({ tx, householdId, accounts, categorie
     setSaving(true);
     setError('');
 
-    const signed = form.type === 'income' ? Math.abs(Number(form.amount)) : -Math.abs(Number(form.amount));
     const payload = {
       household_id: householdId,
       account_id: form.account_id,
       category_id: form.category_id || null,
-      amount: signed,
+      amount: signedAmount(form.amount, form.type),
+      kind: form.type,
       currency: 'AED',
       merchant: form.merchant.trim() || null,
       note: form.note.trim() || null,
@@ -173,6 +180,9 @@ export default function TransactionEditor({ tx, householdId, accounts, categorie
             </button>
             <button type="button" className="om-seg" data-active={form.type === 'income'} onClick={() => set('type', 'income')}>
               Income
+            </button>
+            <button type="button" className="om-seg" data-active={form.type === 'refund'} onClick={() => set('type', 'refund')}>
+              Refund
             </button>
           </div>
 

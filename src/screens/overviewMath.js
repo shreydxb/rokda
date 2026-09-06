@@ -3,6 +3,7 @@ import { isArchived } from '../lib/accounts';
 import { clampToToday, daysBetweenDays, endOfDayExclusive, isPosted, monthKey, parseDay, startOfDay } from '../lib/day';
 import { chartBuckets, periodBounds } from '../lib/period';
 import { scopedHoldingValue, visibleHoldings } from '../lib/holdings';
+import { applyToIncomeSpend, isSpendRow } from '../lib/transactionKind';
 
 const LIABILITY_TYPES = new Set(['credit_card', 'loan']);
 const LIQUID_TYPES = new Set(['checking', 'savings', 'cash']);
@@ -58,16 +59,6 @@ function txInRange(transactions, start, end, scopeMemberId) {
     const d = parseDay(t.occurred_at);
     return d >= start && d < end;
   });
-}
-
-// A refund is stored positive, like income, but means the opposite: money
-// coming back on an earlier expense, not money earned. It must net against
-// spend rather than inflate income (SHR-252). Every income/spend rollup
-// below routes through this so a refund reads the same way everywhere.
-function applyToIncomeSpend(t, v, totals) {
-  if (t.kind === 'refund') totals.spend -= v;
-  else if (v >= 0) totals.income += v;
-  else totals.spend += -v;
 }
 
 export function periodSummary(transactions, kind, scopeMemberId, now = new Date()) {
@@ -130,7 +121,7 @@ export function runwaySummary(transactions, accounts, scopeMemberId, now = new D
   for (const t of transactions) {
     if (!visibleToScope(t, scopeMemberId)) continue;
     const v = scopedValue(t.amount, t, scopeMemberId);
-    if (v >= 0 && t.kind !== 'refund') continue;
+    if (!isSpendRow(t, v)) continue;
     const key = monthKey(parseDay(t.occurred_at));
     // The current month is partial, and anything after it is planned, not
     // spent. Both are excluded from a completed-month average.

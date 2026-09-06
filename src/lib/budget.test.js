@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { monthActualsByCategory, monthIncome, monthNetSaved, monthSpendBreakdown } from './budget';
+import { periodSummary } from '../screens/overviewMath';
 
 const NOW = new Date(2026, 8, 30, 12); // 30 September 2026
 
@@ -54,5 +55,28 @@ describe('QA-09: net saved counts all spending', () => {
 
   it('ignores another month entirely', () => {
     expect(monthSpendBreakdown(TRANSACTIONS, [BUDGETED_CATEGORY], 2026, 8, null, NOW).total).toBe(0);
+  });
+});
+
+// SHR-252 (762a6c4 recheck): overviewMath's periodSummary nets a refund
+// against spend, but budget.js had its own separate income/spend split that
+// still classified purely by sign — so Budget and Overview disagreed about
+// the exact same rows. Ported from the QA document.
+describe('SHR-252: Budget agrees with Overview on refunded spending and income', () => {
+  const refundRows = [
+    { amount: -100, kind: 'expense', occurred_at: '2026-08-05', is_shared: true, category_id: 'c' },
+    { amount: 100, kind: 'refund', occurred_at: '2026-08-06', is_shared: true, category_id: 'c' },
+  ];
+  const now = new Date(2026, 7, 31);
+
+  it('matches periodSummary: income 0, spend 0', () => {
+    expect(periodSummary(refundRows, 'mtd', null, now)).toMatchObject({ income: 0, spend: 0 });
+    expect(monthIncome(refundRows, 2026, 8, null, now)).toBe(0);
+    expect(monthSpendBreakdown(refundRows, ['c'], 2026, 8, null, now).total).toBe(0);
+  });
+
+  it('nets the refund against its own category rather than leaving it uncategorised', () => {
+    const byCategory = monthActualsByCategory(refundRows, 2026, 8, null, now);
+    expect(byCategory.get('c')).toBe(0);
   });
 });

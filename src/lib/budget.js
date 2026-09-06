@@ -1,5 +1,6 @@
 import { scopedValue } from './scope';
 import { isPosted, parseDay } from './day';
+import { isIncomeRow, isSpendRow, spendDelta } from './transactionKind';
 
 export function daysInMonth(year, month) {
   return new Date(year, month, 0).getDate();
@@ -36,14 +37,16 @@ export function projectedClose(actual, elapsedFraction) {
 
 // Rows that count as this month's actuals: in the month, visible to the scope,
 // and already posted — a record dated later this month is planned, not spent
-// (QA-06).
+// (QA-06). A refund counts here too (SHR-252): it must net against spend,
+// which means being present in the same rollup as the expense it offsets,
+// not silently excluded because its stored amount is positive.
 function monthSpendRows(transactions, year, month, scopeMemberId, now) {
   return transactions.filter((t) => {
     const d = parseDay(t.occurred_at);
     if (d.getFullYear() !== year || d.getMonth() + 1 !== month) return false;
     if (!(scopeMemberId === null || t.is_shared || t.owner_member_id === scopeMemberId)) return false;
     if (!isPosted(t, now)) return false;
-    return scopedValue(t.amount, t, scopeMemberId) < 0;
+    return isSpendRow(t, scopedValue(t.amount, t, scopeMemberId));
   });
 }
 
@@ -54,7 +57,7 @@ export function monthActualsByCategory(transactions, year, month, scopeMemberId,
   const map = new Map();
   for (const t of monthSpendRows(transactions, year, month, scopeMemberId, now)) {
     if (!t.category_id) continue;
-    map.set(t.category_id, (map.get(t.category_id) ?? 0) + -scopedValue(t.amount, t, scopeMemberId));
+    map.set(t.category_id, (map.get(t.category_id) ?? 0) + spendDelta(t, scopedValue(t.amount, t, scopeMemberId)));
   }
   return map;
 }
@@ -71,7 +74,7 @@ export function monthSpendBreakdown(transactions, budgetedCategoryIds, year, mon
   let unbudgeted = 0;
   let uncategorised = 0;
   for (const t of monthSpendRows(transactions, year, month, scopeMemberId, now)) {
-    const amount = -scopedValue(t.amount, t, scopeMemberId);
+    const amount = spendDelta(t, scopedValue(t.amount, t, scopeMemberId));
     if (!t.category_id) uncategorised += amount;
     else if (budgetedIds.has(t.category_id)) budgeted += amount;
     else unbudgeted += amount;
@@ -94,7 +97,7 @@ export function monthIncome(transactions, year, month, scopeMemberId, now = new 
     if (!(scopeMemberId === null || t.is_shared || t.owner_member_id === scopeMemberId)) continue;
     if (!isPosted(t, now)) continue;
     const v = scopedValue(t.amount, t, scopeMemberId);
-    if (v > 0) total += v;
+    if (isIncomeRow(t, v)) total += v;
   }
   return total;
 }
