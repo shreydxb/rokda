@@ -117,7 +117,6 @@ export default function Activity({ household, members, me, data, loading }) {
           accounts={accounts}
           categories={categories}
           members={members}
-          me={me}
           allTransactions={transactions}
           onOpenOther={(other) => setEditing(other)}
           onClose={() => setEditing(null)}

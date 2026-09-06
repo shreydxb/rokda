@@ -97,7 +97,7 @@ function buildEdits(tx, form, { accounts, categories, members }) {
   return changes;
 }
 
-export default function TransactionEditor({ tx, householdId, accounts, categories, members, me, allTransactions, onClose, onSaved, onOpenOther }) {
+export default function TransactionEditor({ tx, householdId, accounts, categories, members, allTransactions, onClose, onSaved, onOpenOther }) {
   const [form, setForm] = useState(() => initialForm(tx, accounts));
   const [dirty, setDirty] = useState(false);
   const [duplicateDismissed, setDuplicateDismissed] = useState(false);
@@ -198,9 +198,18 @@ export default function TransactionEditor({ tx, householdId, accounts, categorie
     if (tx) {
       const changes = buildEdits(tx, form, { accounts, categories, members });
       if (changes.length > 0) {
-        await supabase.from('transaction_edits').insert(
-          changes.map((c) => ({ transaction_id: tx.id, edited_by: me?.id ?? null, field: c.field, old_value: c.old_value, new_value: c.new_value }))
+        const { error: historyError } = await supabase.from('transaction_edits').insert(
+          changes.map((c) => ({ transaction_id: tx.id, field: c.field, old_value: c.old_value, new_value: c.new_value }))
         );
+        if (historyError) {
+          // The transaction itself is already saved — only the audit trail
+          // failed to record — so surface it without implying the save
+          // didn't happen, and let the user close manually rather than
+          // silently losing the entry.
+          setSaving(false);
+          setError(`Transaction saved, but its edit history couldn't be recorded: ${historyError.message}`);
+          return;
+        }
       }
     }
 
