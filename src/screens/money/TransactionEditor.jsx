@@ -3,6 +3,7 @@ import { supabase } from '../../lib/supabaseClient';
 import { accountOptionLabel, selectableAccounts } from '../../lib/accounts';
 import { formatMoney, formatSigned } from '../../lib/money';
 import { signedAmount } from '../../lib/intake';
+import { findDuplicate } from '../../lib/duplicates';
 import './TransactionEditor.css';
 
 const FIELD_LABELS = { category: 'Category', amount: 'Amount', account: 'Account', merchant: 'Merchant', scope: 'Scope' };
@@ -35,28 +36,6 @@ function initialForm(tx, accounts) {
     note: '',
     needs_review: false,
   };
-}
-
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-// A record like this already exists — same account, same merchant, same
-// amount, within a few days. Real data, not the design's fixed example.
-function findDuplicate(form, allTransactions, excludeId) {
-  const merchant = form.merchant.trim().toLowerCase();
-  const amount = Number(form.amount);
-  if (!merchant || !amount || !form.account_id || !form.occurred_at) return null;
-  const occurred = new Date(form.occurred_at).getTime();
-
-  return (
-    allTransactions.find((t) => {
-      if (t.id === excludeId) return false;
-      if (t.account_id !== form.account_id) return false;
-      if ((t.merchant ?? '').trim().toLowerCase() !== merchant) return false;
-      if (Math.abs(Math.abs(Number(t.amount)) - amount) > 0.01) return false;
-      const diffDays = Math.abs(new Date(t.occurred_at).getTime() - occurred) / DAY_MS;
-      return diffDays <= 3;
-    }) ?? null
-  );
 }
 
 // Diffs the form against the record as it was loaded, one entry per

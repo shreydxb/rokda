@@ -4,6 +4,7 @@ import { formatMoney, formatPct } from '../../lib/money';
 import { firstMatchingRule } from '../../lib/rules';
 import { accountOptionLabel, selectableAccounts } from '../../lib/accounts';
 import { INTAKE_KINDS, approvalArgs, validateApproval } from '../../lib/intake';
+import { findDuplicate } from '../../lib/duplicates';
 import './TransactionEditor.css';
 
 function senderName(item, members) {
@@ -11,8 +12,30 @@ function senderName(item, members) {
   return members.find((m) => m.id === item.member_id)?.display_name ?? null;
 }
 
+// Two pending intake rows for the same merchant/amount, within a few days of
+// each other -- e.g. sent the same expense to the bot twice by accident.
+// Intake has no account yet at this stage, so this only compares
+// merchant/amount/date, unlike the post-approval duplicate check.
+const PENDING_DUPLICATE_WINDOW_DAYS = 3;
+function findDuplicatePending(item, otherPending) {
+  const merchant = (item.parsed_merchant ?? '').trim().toLowerCase();
+  const amount = item.parsed_amount !== null ? Number(item.parsed_amount) : null;
+  if (!merchant || !amount || !item.parsed_date) return null;
+  const occurred = new Date(item.parsed_date).getTime();
+  return (
+    otherPending.find((o) => {
+      if (o.id === item.id) return false;
+      if ((o.parsed_merchant ?? '').trim().toLowerCase() !== merchant) return false;
+      if (o.parsed_amount === null || Math.abs(Number(o.parsed_amount) - amount) > 0.01) return false;
+      if (!o.parsed_date) return false;
+      const diffDays = Math.abs(new Date(o.parsed_date).getTime() - occurred) / 86400000;
+      return diffDays <= PENDING_DUPLICATE_WINDOW_DAYS;
+    }) ?? null
+  );
+}
+
 export default function Inbox({ members = [], accounts, categories, data, loading }) {
-  const { intake, categoryRules, reload } = data;
+  const { intake, categoryRules, transactions, reload } = data;
   const [selectedId, setSelectedId] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -67,6 +90,8 @@ export default function Inbox({ members = [], accounts, categories, data, loadin
               members={members}
               categories={categories}
               categoryRules={categoryRules}
+              allTransactions={transactions ?? []}
+              duplicatePending={findDuplicatePending(selected, pending)}
               saving={saving}
               setSaving={setSaving}
               error={error}
@@ -111,13 +136,20 @@ function ReceiptPhoto({ photoPath }) {
 
 // household_id is taken from the intake row inside the RPC rather than passed
 // in, so an approval cannot be redirected to another household.
-function IntakeReview({ item, sender, accounts, members, categories, categoryRules, saving, setSaving, error, setError, onDone }) {
-  const [amount, setAmount] = useState(item.parsed_amount !== null ? String(item.parsed_amount) : '');
+function IntakeReview({ item, sender, accounts, members, categories, categoryRules, allTransactions, duplicatePending, saving, setSaving, error, setError, onDone }) {
+  // A detected non-AED currency means the parsed amount is in that currency,
+  // not AED -- prefilling it as though it were an AED figure would be
+  // actively misleading, so it's left blank for the reviewer to enter the
+  // real AED-equivalent themselves (a card's actual FX markup isn't
+  // something this app can know, so it never guesses a conversion).
+  const foreignCurrency = item.parsed_currency && item.parsed_currency !== 'AED' ? item.parsed_currency : null;
+  const [amount, setAmount] = useState(!foreignCurrency && item.parsed_amount !== null ? String(item.parsed_amount) : '');
   const [merchant, setMerchant] = useState(item.parsed_merchant ?? '');
   const [date, setDate] = useState(item.parsed_date ?? new Date().toISOString().slice(0, 10));
   // Intake can only be approved onto an open account (QA-01).
   const selectable = selectableAccounts(accounts);
-  const [accountId, setAccountId] = useState(selectableAccounts(accounts)[0]?.id ?? '');
+  const suggestedAccountId = item.parsed_account_id && selectable.some((a) => a.id === item.parsed_account_id) ? item.parsed_account_id : null;
+  const [accountId, setAccountId] = useState(suggestedAccountId ?? selectable[0]?.id ?? '');
   const suggestedRule = item.parsed_category_id ? null : firstMatchingRule(item.parsed_merchant, categoryRules);
   const [categoryId, setCategoryId] = useState(item.parsed_category_id ?? suggestedRule?.category_id ?? '');
   // Every item used to be forced to a shared AED expense. The reviewer says
@@ -130,8 +162,12 @@ function IntakeReview({ item, sender, accounts, members, categories, categoryRul
   // later read (SHR-252).
   const currency = 'AED';
   const [owner, setOwner] = useState('shared');
+  const [duplicateDismissed, setDuplicateDismissed] = useState(false);
 
   const lowConfidence = item.confidence !== null && item.confidence < 0.75;
+  const duplicateTransaction = duplicateDismissed
+    ? null
+    : findDuplicate({ merchant, amount, account_id: accountId, occurred_at: date }, allTransactions, null);
 
   const form = {
     accountId,
@@ -208,6 +244,12 @@ function IntakeReview({ item, sender, accounts, members, categories, categoryRul
             <input type="number" min="0" step="0.01" className="te-hero-input" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" />
           </div>
         </div>
+        {foreignCurrency && (
+          <div className="ov-warn" role="alert" style={{ fontSize: 12.5 }}>
+            Detected as {item.parsed_amount} {foreignCurrency} — this app only tracks AED. Enter the real AED-equivalent amount
+            from your statement below; a card's exchange markup isn't something this can convert for you.
+          </div>
+        )}
 
         <div className="te-fieldgrid">
           <div className="te-fieldcell te-span2">
@@ -227,6 +269,11 @@ function IntakeReview({ item, sender, accounts, members, categories, categoryRul
                 </option>
               ))}
             </select>
+            {suggestedAccountId && accountId === suggestedAccountId && (
+              <div className="ov-muted" style={{ fontSize: 11, marginTop: 4 }}>
+                Suggested from a card-ending match.
+              </div>
+            )}
           </div>
           <div className="te-fieldcell">
             <span className="te-fieldlabel">Currency</span>
@@ -287,6 +334,31 @@ function IntakeReview({ item, sender, accounts, members, categories, categoryRul
         {suggestedRule && categoryId === suggestedRule.category_id && (
           <div className="ov-muted" style={{ fontSize: 11.5, marginTop: -12 }}>
             Suggested by a rule matching "{suggestedRule.pattern}".
+          </div>
+        )}
+
+        {duplicatePending && (
+          <div className="te-duplicate" role="status">
+            <div className="te-duplicate-title">You may have sent this one twice</div>
+            <div className="te-duplicate-body">
+              Another pending entry for {duplicatePending.parsed_merchant}, {formatMoney(duplicatePending.parsed_amount)}, dated within
+              a few days of this one, is also waiting for review. If both are real, approve both as usual; otherwise reject one.
+            </div>
+          </div>
+        )}
+        {duplicateTransaction && (
+          <div className="te-duplicate" role="status">
+            <div className="te-duplicate-title">A record like this already exists</div>
+            <div className="te-duplicate-body">
+              {duplicateTransaction.merchant}, {formatMoney(duplicateTransaction.amount)},{' '}
+              {new Date(duplicateTransaction.occurred_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} — already
+              posted, within a few days of this one. Approving is allowed if the household really spent twice.
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 11 }}>
+              <button type="button" className="om-btn" onClick={() => setDuplicateDismissed(true)}>
+                Both are real
+              </button>
+            </div>
           </div>
         )}
 

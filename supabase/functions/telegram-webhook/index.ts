@@ -68,15 +68,21 @@ function bytesToBase64(bytes: Uint8Array): string {
 type ParsedIntake = {
   merchant: string | null;
   amount: number | null;
+  currency: string | null;
   occurred_at: string | null;
   categoryName: string | null;
+  cardLast4: string | null;
   confidence: number;
 };
 
 // Calls OpenRouter (Gemini 2.5 Flash Lite: cheap, vision-capable, reliable
 // instruction-following) to extract structured fields from raw text and/or a
-// receipt photo. Returns null on any failure -- the caller degrades to "raw
-// content, no suggestions" rather than blocking on this.
+// receipt photo -- including a forwarded/copy-pasted bank SMS, which has its
+// own fairly rigid format ("AED 38.80 spent on card ending 1234 at FILLI
+// CAFE on 05-09-26") that the model is told about explicitly rather than
+// left to guess at like free-form text. Returns null on any failure -- the
+// caller degrades to "raw content, no suggestions" rather than blocking on
+// this.
 async function parseIntakeWithAI(params: {
   rawText: string | null;
   imageBase64: string | null;
@@ -90,9 +96,12 @@ async function parseIntakeWithAI(params: {
   const today = new Date().toISOString().slice(0, 10);
   const instructions =
     `Extract a household expense/income from the message and/or receipt photo below. ` +
+    `The message may be free-form text, or a bank/card SMS notification copy-pasted verbatim (e.g. "AED 38.80 spent on your card ending 1234 at FILLI CAFE LLC DXB on 05-09-26 14:32") -- extract from either the same way. ` +
     `Today's date is ${today}. ` +
     `Respond with ONLY a JSON object, no markdown, matching exactly: ` +
-    `{"merchant": string|null, "amount": number|null, "occurred_at": "YYYY-MM-DD"|null, "category": string|null, "confidence": number} ` +
+    `{"merchant": string|null, "amount": number|null, "currency": string|null, "occurred_at": "YYYY-MM-DD"|null, "category": string|null, "card_last4": string|null, "confidence": number} ` +
+    `"currency" is the real currency of the amount if stated or clearly implied (e.g. "AED", "USD", "INR") -- null if genuinely unstated. Never assume AED just because the household is AED-based -- only state it if the message actually says or implies it. ` +
+    `"card_last4" is the last 4 digits of a card mentioned (e.g. "card ending 1234", "card no. ...1234"), or null if none is mentioned. ` +
     `"category" MUST be exactly one of these household categories, verbatim, or null if none clearly fits -- never invent a category name: ` +
     `${JSON.stringify(categoryNames)}. ` +
     `"confidence" is your own confidence in this extraction, 0 to 1. ` +
@@ -129,17 +138,32 @@ async function parseIntakeWithAI(params: {
         ? Math.max(0, Math.min(1, parsed.confidence))
         : 0;
     const occurredAt = typeof parsed.occurred_at === "string" && /^\d{4}-\d{2}-\d{2}$/.test(parsed.occurred_at) ? parsed.occurred_at : null;
+    const currency = typeof parsed.currency === "string" && /^[A-Za-z]{3}$/.test(parsed.currency.trim()) ? parsed.currency.trim().toUpperCase() : null;
+    const cardLast4 = typeof parsed.card_last4 === "string" && /^\d{4}$/.test(parsed.card_last4.trim()) ? parsed.card_last4.trim() : null;
 
     return {
       merchant: typeof parsed.merchant === "string" && parsed.merchant.trim() ? parsed.merchant.trim() : null,
       amount,
+      currency,
       occurred_at: occurredAt,
       categoryName: typeof parsed.category === "string" ? parsed.category : null,
+      cardLast4,
       confidence,
     };
   } catch {
     return null;
   }
+}
+
+// A card account's name follows the "Name •1234" convention (see
+// accountOptionLabel in the frontend) -- if a bank SMS names a card ending,
+// match it against that suffix. Only trusted when it resolves to exactly
+// one open account; otherwise the reviewer picks manually, same as today.
+async function matchAccountByCardLast4(householdId: string, cardLast4: string | null): Promise<string | null> {
+  if (!cardLast4) return null;
+  const { data: accounts } = await supabase.from("accounts").select("id, name").eq("household_id", householdId).is("archived_at", null);
+  const matches = (accounts ?? []).filter((a: { name: string }) => a.name.includes(cardLast4));
+  return matches.length === 1 ? matches[0].id : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -152,16 +176,36 @@ async function parseIntakeWithAI(params: {
 
 const SCOPE_ENUM = ["me", "partner", "both"];
 
-const TOOLS = [
-  {
-    type: "function",
-    function: {
-      name: "log_expense",
-      description:
-        "The message reports a real expense, income, or refund that already happened (e.g. 'spent 40 on lunch', 'got paid 500'). Call this so it can be captured for review -- never estimate or state the amount yourself.",
-      parameters: { type: "object", properties: {}, additionalProperties: false },
+// update_last_expense is only offered when there's actually a recent pending
+// entry to correct (see the caller) -- offering it unconditionally would
+// invite the model to "correct" something that doesn't exist.
+function buildTools(hasRecentPending: boolean) {
+  const tools: unknown[] = [
+    {
+      type: "function",
+      function: {
+        name: "log_expense",
+        description:
+          "The message reports a real expense, income, or refund that already happened (e.g. 'spent 40 on lunch', 'got paid 500'). Call this so it can be captured for review -- never estimate or state the amount yourself.",
+        parameters: { type: "object", properties: {}, additionalProperties: false },
+      },
     },
-  },
+  ];
+  if (hasRecentPending) {
+    tools.push({
+      type: "function",
+      function: {
+        name: "update_last_expense",
+        description:
+          "The message is explicitly correcting or amending the most recent pending entry just sent (not yet reviewed) -- e.g. 'actually it was 45 not 40', 'sorry I meant lunch', 'correction: ...'. Only use this for a clear, explicit correction signal on that specific recent entry. When in doubt, prefer log_expense instead -- a duplicate entry is caught and flagged for review anyway, but silently overwriting a different real expense is not recoverable.",
+        parameters: { type: "object", properties: {}, additionalProperties: false },
+      },
+    });
+  }
+  return [...tools, ...TOOLS_BASE];
+}
+
+const TOOLS_BASE = [
   {
     type: "function",
     function: {
@@ -368,14 +412,17 @@ async function toolGetBudgetStatus(householdId: string, scopeMemberId: string | 
   };
 }
 
-async function classifyAndRoute(rawText: string, categoryNames: string[]) {
+async function classifyAndRoute(rawText: string, categoryNames: string[], recentPending: { raw_text: string | null; created_at: string } | null) {
   const system =
     `You are a household finance assistant for Rokda, chatting with a household member via Telegram. ` +
     `If their message reports a real expense/income/refund that already happened (e.g. "spent 40 on lunch", "paid the rent"), ALWAYS call log_expense immediately -- even if the category, merchant, or exact amount isn't fully clear. ` +
     `Never ask a clarifying question about an expense to log: category assignment happens later when a human reviews it, not in this chat, and an uncategorised expense is a completely normal, expected outcome -- do not treat that as ambiguity. ` +
     `Only treat a message as ambiguous, and only then reply in plain text with a short clarifying question instead of calling a tool, when it is a QUESTION whose target is genuinely unclear (e.g. asking about an account name that matches nothing, or a category that doesn't fit any real one) -- never for something being logged. ` +
     `If it asks a real question about their finances, call the matching tool to fetch the real number -- you must NEVER answer from your own knowledge or guess a figure; only a tool result is a real number. ` +
-    `Known expense categories (for question tools only, not required for logging): ${JSON.stringify(categoryNames)}.`;
+    `Known expense categories (for question tools only, not required for logging): ${JSON.stringify(categoryNames)}.` +
+    (recentPending
+      ? ` The member's most recently sent entry, still pending review, was: "${recentPending.raw_text}" (sent ${recentPending.created_at}). If and only if this new message is explicitly correcting/amending that same entry, call update_last_expense. A genuinely new, separate expense -- even one sent moments later -- should still call log_expense.`
+      : "");
 
   const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
@@ -386,7 +433,7 @@ async function classifyAndRoute(rawText: string, categoryNames: string[]) {
         { role: "system", content: system },
         { role: "user", content: rawText },
       ],
-      tools: TOOLS,
+      tools: buildTools(recentPending !== null),
       tool_choice: "auto",
     }),
   });
@@ -508,9 +555,48 @@ Deno.serve(async (req) => {
         .eq("kind", "expense")
         .eq("archived", false);
 
-      const routed = await classifyAndRoute(rawText, (categories ?? []).map((c) => c.name));
+      // A recent, still-pending entry from this member -- offered to the
+      // model as something the new message might be correcting rather than
+      // a separate expense. 15 minutes: long enough to catch "wait, actually
+      // ..." a moment later, short enough that it's clearly the same
+      // exchange rather than a much later, unrelated message.
+      const { data: recentPendingRows } = await supabase
+        .from("intake")
+        .select("id, raw_text, created_at")
+        .eq("household_id", member.household_id)
+        .eq("member_id", member.id)
+        .eq("status", "pending")
+        .gt("created_at", new Date(Date.now() - 15 * 60 * 1000).toISOString())
+        .order("created_at", { ascending: false })
+        .limit(1);
+      const recentPending = recentPendingRows?.[0] ?? null;
+
+      const routed = await classifyAndRoute(rawText, (categories ?? []).map((c) => c.name), recentPending);
       const choice = routed?.choices?.[0];
       const toolCall = choice?.message?.tool_calls?.[0];
+
+      if (toolCall?.function?.name === "update_last_expense" && recentPending) {
+        const combinedText = `${recentPending.raw_text ?? ""}\nCorrection: ${rawText}`;
+        const parsed = await parseIntakeWithAI({ rawText: combinedText, imageBase64: null, imageMime: null, categoryNames: (categories ?? []).map((c) => c.name) });
+        const matchedCategory = parsed?.categoryName ? (categories ?? []).find((c) => c.name.toLowerCase() === parsed.categoryName!.toLowerCase()) : null;
+        const matchedAccountId = parsed ? await matchAccountByCardLast4(member.household_id, parsed.cardLast4) : null;
+        await supabase
+          .from("intake")
+          .update({
+            raw_text: combinedText,
+            parsed_merchant: parsed?.merchant ?? null,
+            parsed_amount: parsed?.amount ?? null,
+            parsed_date: parsed?.occurred_at ?? null,
+            parsed_category_id: matchedCategory?.id ?? null,
+            parsed_currency: parsed?.currency ?? null,
+            parsed_account_id: matchedAccountId,
+            confidence: parsed?.confidence ?? 0,
+          })
+          .eq("id", recentPending.id)
+          .eq("status", "pending");
+        await reply(chatId, "Updated your last pending entry — check the Inbox.");
+        return new Response("ok");
+      }
 
       if (toolCall && toolCall.function?.name !== "log_expense") {
         const args = JSON.parse(toolCall.function.arguments || "{}");
@@ -631,6 +717,7 @@ Deno.serve(async (req) => {
       const matchedCategory = parsed.categoryName
         ? (categories ?? []).find((c) => c.name.toLowerCase() === parsed.categoryName!.toLowerCase())
         : null;
+      const matchedAccountId = await matchAccountByCardLast4(member.household_id, parsed.cardLast4);
 
       await supabase
         .from("intake")
@@ -639,6 +726,8 @@ Deno.serve(async (req) => {
           parsed_amount: parsed.amount,
           parsed_date: parsed.occurred_at,
           parsed_category_id: matchedCategory?.id ?? null,
+          parsed_currency: parsed.currency,
+          parsed_account_id: matchedAccountId,
           confidence: parsed.confidence,
         })
         .eq("id", inserted.id);
