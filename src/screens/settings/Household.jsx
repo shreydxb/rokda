@@ -166,7 +166,8 @@ export default function Household({ household, members, me, loading, reload }) {
                   {m.id === me?.id ? ' (you)' : ''}
                 </div>
                 <div className="ov-muted" style={{ marginTop: 3 }}>
-                  {m.role === 'owner' ? 'Owner' : 'Member'} · {m.user_id ? 'Linked to a login' : 'Not linked yet — assign-only'}
+                  {m.role === 'owner' ? 'Owner' : 'Member'} · {m.user_id ? 'Linked to a login' : 'Not linked yet — assign-only'} ·{' '}
+                  {m.telegram_user_id ? 'Telegram linked' : 'Telegram not linked'}
                 </div>
               </div>
             </button>

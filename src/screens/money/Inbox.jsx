@@ -1,10 +1,15 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { formatMoney, formatPct } from '../../lib/money';
 import { firstMatchingRule } from '../../lib/rules';
 import './TransactionEditor.css';
 
-export default function Inbox({ household, accounts, categories, data, loading }) {
+function senderName(item, members) {
+  if (!item.member_id) return null;
+  return members.find((m) => m.id === item.member_id)?.display_name ?? null;
+}
+
+export default function Inbox({ household, members, accounts, categories, data, loading }) {
   const { intake, categoryRules, reload } = data;
   const [selectedId, setSelectedId] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -17,12 +22,8 @@ export default function Inbox({ household, accounts, categories, data, loading }
 
   return (
     <div>
-      <div className="ov-muted" style={{ marginTop: 22, marginBottom: 4 }}>
+      <div className="ov-muted" style={{ marginTop: 22, marginBottom: 20 }}>
         {pending.length} pending
-      </div>
-      <div className="ov-empty-body" style={{ maxWidth: '70ch', marginTop: 0, marginBottom: 20 }}>
-        Real Telegram intake (receipt photos, voice notes) isn't wired up yet — that needs a bot and a parsing
-        pipeline, tracked separately. This reviews whatever lands here, however it lands here.
       </div>
 
       {pending.length === 0 ? (
@@ -45,7 +46,9 @@ export default function Inbox({ household, accounts, categories, data, loading }
                 <div className="mn-row-main">
                   <div>{i.parsed_merchant || 'Unrecognised merchant'}</div>
                   <div className="ov-muted">
-                    {i.source} · {i.confidence !== null ? `${formatPct(i.confidence)} confidence` : 'no confidence score'}
+                    {i.source}
+                    {senderName(i, members) ? ` · ${senderName(i, members)}` : ''} ·{' '}
+                    {i.confidence !== null ? `${formatPct(i.confidence)} confidence` : 'no confidence score'}
                   </div>
                 </div>
                 <div className="fig mn-row-amt">{i.parsed_amount !== null ? formatMoney(i.parsed_amount) : '—'}</div>
@@ -57,6 +60,7 @@ export default function Inbox({ household, accounts, categories, data, loading }
             <IntakeReview
               key={selected.id}
               item={selected}
+              sender={senderName(selected, members)}
               householdId={household?.id}
               accounts={accounts}
               categories={categories}
@@ -77,7 +81,33 @@ export default function Inbox({ household, accounts, categories, data, loading }
   );
 }
 
-function IntakeReview({ item, householdId, accounts, categories, categoryRules, saving, setSaving, error, setError, onDone }) {
+function ReceiptPhoto({ photoPath }) {
+  const [url, setUrl] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    supabase.storage
+      .from('telegram-receipts')
+      .createSignedUrl(photoPath, 300)
+      .then(({ data }) => {
+        if (!cancelled) setUrl(data?.signedUrl ?? null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [photoPath]);
+
+  if (!url) return <div className="ov-muted" style={{ fontSize: 11.5, marginBottom: 16 }}>Loading photo…</div>;
+  return (
+    <img
+      src={url}
+      alt="Receipt"
+      style={{ maxWidth: '100%', maxHeight: 320, borderRadius: 4, marginBottom: 16, display: 'block' }}
+    />
+  );
+}
+
+function IntakeReview({ item, sender, householdId, accounts, categories, categoryRules, saving, setSaving, error, setError, onDone }) {
   const [amount, setAmount] = useState(item.parsed_amount !== null ? String(item.parsed_amount) : '');
   const [merchant, setMerchant] = useState(item.parsed_merchant ?? '');
   const [date, setDate] = useState(item.parsed_date ?? new Date().toISOString().slice(0, 10));
@@ -139,7 +169,9 @@ function IntakeReview({ item, householdId, accounts, categories, categoryRules, 
         ) : (
           'Confirm the details'
         )}
+        {sender && <span className="ov-muted"> · from {sender}</span>}
       </div>
+      {item.photo_path && <ReceiptPhoto photoPath={item.photo_path} />}
       {item.raw_text && (
         <div className="ov-muted" style={{ marginBottom: 16, lineHeight: 1.6, fontSize: 12.5 }}>
           "{item.raw_text}"

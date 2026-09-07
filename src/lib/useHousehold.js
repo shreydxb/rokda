@@ -29,7 +29,7 @@ export function useHousehold() {
     const me = myRows[0];
     const { data: roster } = await supabase
       .from('household_members')
-      .select('id, display_name, role, user_id')
+      .select('id, display_name, role, user_id, telegram_user_id')
       .eq('household_id', me.household_id);
 
     setState({

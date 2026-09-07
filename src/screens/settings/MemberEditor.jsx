@@ -10,6 +10,21 @@ export default function MemberEditor({ member, householdId, isSelf, isLastOwner,
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [linkCode, setLinkCode] = useState(null);
+  const [linkError, setLinkError] = useState('');
+  const [generatingCode, setGeneratingCode] = useState(false);
+
+  async function generateLinkCode() {
+    setGeneratingCode(true);
+    setLinkError('');
+    const { data, error: rpcError } = await supabase.rpc('generate_telegram_link_code', { p_member_id: member.id });
+    setGeneratingCode(false);
+    if (rpcError) {
+      setLinkError(rpcError.message);
+      return;
+    }
+    setLinkCode(data);
+  }
 
   useEffect(() => {
     const onKey = (e) => {
@@ -129,6 +144,36 @@ export default function MemberEditor({ member, householdId, isSelf, isLastOwner,
           {member && !member.user_id && (
             <div className="ov-muted" style={{ fontSize: 11.5 }}>
               Not linked to a login yet. They can still be assigned as an owner of accounts, transactions, and goals.
+            </div>
+          )}
+
+          {member && (
+            <div>
+              <span className="te-fieldlabel">Telegram</span>
+              <div style={{ marginTop: 8 }}>
+                {member.telegram_user_id ? (
+                  <div className="ov-muted" style={{ fontSize: 12.5 }}>Linked.</div>
+                ) : linkCode ? (
+                  <div className="ov-muted" style={{ fontSize: 12.5, lineHeight: 1.7 }}>
+                    Send <span className="fig" style={{ fontSize: 15, color: 'var(--ink)' }}>{linkCode}</span> to the bot within 15
+                    minutes to link this member.
+                  </div>
+                ) : (
+                  <>
+                    <div className="ov-muted" style={{ fontSize: 11.5, marginBottom: 8 }}>
+                      Not linked. Generate a one-time code and send it to the bot to link this member's Telegram account.
+                    </div>
+                    <button type="button" className="om-btn" onClick={generateLinkCode} disabled={generatingCode}>
+                      {generatingCode ? 'Generating…' : 'Generate code'}
+                    </button>
+                  </>
+                )}
+                {linkError && (
+                  <p className="ov-warn" role="alert" style={{ fontSize: 12.5, marginTop: 8 }}>
+                    {linkError}
+                  </p>
+                )}
+              </div>
             </div>
           )}
 
