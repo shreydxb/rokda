@@ -14,8 +14,25 @@
 // before being trusted — an unmatched or low-confidence guess is left
 // uncategorised rather than inventing a plausible-sounding one. A parsing
 // failure never blocks the intake row itself from being captured.
+//
+// SHR-240: a linked member can also just ask a question -- "how much did we
+// spend on groceries this month", "what's our net worth", "when's the FAB Z
+// card due". This never lets the LLM answer from its own knowledge: the
+// model's only job is to pick one of a small set of real, read-only tool
+// functions (backed by the exact same math the frontend screens use, copied
+// into supabase/functions/_shared/applib) and the reply is phrased only from
+// that tool's real result. A message that looks like an already-happened
+// expense/income/refund still goes into `intake` for review, same as ever --
+// this only adds a second path for a question, never a shortcut around
+// human review for a transaction. This routing only applies to a plain text
+// message (no photo/document attached); a photo is presumptively a receipt.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { resolveScopeMemberId } from "../_shared/applib/scope.js";
+import { netWorthSummary } from "../_shared/applib/overviewMath.js";
+import { monthActualsByCategory } from "../_shared/applib/budget.js";
+import { nextDueDate, daysUntilDue } from "../_shared/applib/creditCard.js";
+import { upcomingItems } from "../_shared/applib/recurring.js";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -57,11 +74,9 @@ type ParsedIntake = {
 };
 
 // Calls OpenRouter (Gemini 2.5 Flash Lite: cheap, vision-capable, reliable
-// instruction-following -- matches the model this household is already
-// standardising on for the conversational assistant, SHR-240) to extract
-// structured fields from raw text and/or a receipt photo. Returns null on
-// any failure -- the caller degrades to "raw content, no suggestions"
-// rather than blocking on this.
+// instruction-following) to extract structured fields from raw text and/or a
+// receipt photo. Returns null on any failure -- the caller degrades to "raw
+// content, no suggestions" rather than blocking on this.
 async function parseIntakeWithAI(params: {
   rawText: string | null;
   imageBase64: string | null;
@@ -127,6 +142,284 @@ async function parseIntakeWithAI(params: {
   }
 }
 
+// ---------------------------------------------------------------------------
+// SHR-240: conversational query tools. Each one queries real household data
+// and returns a plain structured result -- never a phrased sentence, never a
+// number the tool itself didn't compute. phraseAnswer() is the only thing
+// that turns a tool result into a sentence, and it is instructed to use only
+// what's in that result.
+// ---------------------------------------------------------------------------
+
+const SCOPE_ENUM = ["me", "partner", "both"];
+
+const TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "log_expense",
+      description:
+        "The message reports a real expense, income, or refund that already happened (e.g. 'spent 40 on lunch', 'got paid 500'). Call this so it can be captured for review -- never estimate or state the amount yourself.",
+      parameters: { type: "object", properties: {}, additionalProperties: false },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_category_spend",
+      description: "Real spend in one household expense category over a period, e.g. 'how much did we spend on groceries this month'.",
+      parameters: {
+        type: "object",
+        properties: {
+          category: { type: "string", description: "The category name as the user said it." },
+          period: { type: "string", enum: ["this_month", "last_month", "this_year"] },
+          scope: {
+            type: "string",
+            enum: SCOPE_ENUM,
+            description: "Whose spend: default 'me' unless the question clearly asks about the whole household ('both') or names the other person ('partner').",
+          },
+        },
+        required: ["category", "period"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_net_worth",
+      description: "Real current net worth (accounts + holdings, minus liabilities), e.g. 'what's our net worth'.",
+      parameters: {
+        type: "object",
+        properties: { scope: { type: "string", enum: SCOPE_ENUM } },
+        required: ["scope"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_account_balance",
+      description: "Real current balance of one specific named account or card, e.g. 'FAB Z card' or 'WIO savings'.",
+      parameters: {
+        type: "object",
+        properties: { account_name: { type: "string" } },
+        required: ["account_name"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_upcoming_bills",
+      description: "Real recurring bills and credit-card due dates in the next 14 days, e.g. 'when's the FAB Z card due' or 'what bills are coming up'.",
+      parameters: {
+        type: "object",
+        properties: { scope: { type: "string", enum: SCOPE_ENUM } },
+        required: ["scope"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_budget_status",
+      description: "Real budgeted amount vs actual spend so far this month for one category.",
+      parameters: {
+        type: "object",
+        properties: {
+          category: { type: "string" },
+          scope: { type: "string", enum: SCOPE_ENUM },
+        },
+        required: ["category"],
+      },
+    },
+  },
+];
+
+function resolveCategoryByName(categories: Array<{ id: string; name: string }>, name: string) {
+  const norm = name.trim().toLowerCase();
+  return categories.find((c) => c.name.toLowerCase() === norm) ?? null;
+}
+
+// monthActualsByCategory is month-scoped; this sums it across whichever
+// months a period actually covers rather than re-deriving the arithmetic.
+function categorySpendForPeriod(
+  transactions: unknown[],
+  categoryId: string,
+  period: string,
+  scopeMemberId: string | null,
+  now: Date
+): number {
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1;
+  if (period === "last_month") {
+    const ly = month === 1 ? year - 1 : year;
+    const lm = month === 1 ? 12 : month - 1;
+    return monthActualsByCategory(transactions as never, ly, lm, scopeMemberId, now).get(categoryId) ?? 0;
+  }
+  if (period === "this_year") {
+    let total = 0;
+    for (let m = 1; m <= month; m++) {
+      total += monthActualsByCategory(transactions as never, year, m, scopeMemberId, now).get(categoryId) ?? 0;
+    }
+    return total;
+  }
+  return monthActualsByCategory(transactions as never, year, month, scopeMemberId, now).get(categoryId) ?? 0;
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+async function toolGetCategorySpend(householdId: string, scopeMemberId: string | null, args: Record<string, unknown>) {
+  const { data: categories } = await supabase
+    .from("categories")
+    .select("id, name")
+    .eq("household_id", householdId)
+    .eq("kind", "expense")
+    .eq("archived", false);
+  const cat = resolveCategoryByName(categories ?? [], String(args.category ?? ""));
+  if (!cat) return { error: "category_not_found", available: (categories ?? []).map((c) => c.name) };
+
+  const { data: transactions } = await supabase
+    .from("transactions")
+    .select("amount, kind, occurred_at, category_id, is_shared, owner_member_id")
+    .eq("household_id", householdId)
+    .eq("category_id", cat.id);
+
+  const spend = categorySpendForPeriod(transactions ?? [], cat.id, String(args.period ?? "this_month"), scopeMemberId, new Date());
+  return { category: cat.name, period: args.period, spend_aed: round2(spend) };
+}
+
+async function toolGetNetWorth(householdId: string, scopeMemberId: string | null) {
+  const [{ data: accounts }, { data: holdings }] = await Promise.all([
+    supabase.from("accounts").select("*").eq("household_id", householdId),
+    supabase.from("holdings").select("*").eq("household_id", householdId),
+  ]);
+  const summary = netWorthSummary((accounts ?? []) as never, scopeMemberId, (holdings ?? []) as never);
+  return {
+    net_worth_aed: round2(summary.netWorth),
+    assets_aed: round2(summary.assets),
+    liabilities_aed: round2(summary.liabilities),
+  };
+}
+
+async function toolGetAccountBalance(householdId: string, args: Record<string, unknown>) {
+  const { data: accounts } = await supabase.from("accounts").select("*").eq("household_id", householdId).is("archived_at", null);
+  const norm = String(args.account_name ?? "").trim().toLowerCase();
+  const matches = (accounts ?? []).filter((a: { name: string }) => a.name.toLowerCase().includes(norm));
+  if (matches.length === 0) return { error: "account_not_found", available: (accounts ?? []).map((a: { name: string }) => a.name) };
+  if (matches.length > 1) return { error: "ambiguous_account", matches: matches.map((a: { name: string }) => a.name) };
+  const a = matches[0] as { name: string; balance: number; balance_aed: number | null; currency: string };
+  return { account: a.name, balance_aed: round2(Number(a.balance_aed ?? a.balance)), currency: a.currency };
+}
+
+async function toolGetUpcomingBills(householdId: string, scopeMemberId: string | null) {
+  const [{ data: recurring }, { data: accounts }] = await Promise.all([
+    supabase.from("recurring").select("*").eq("household_id", householdId),
+    supabase.from("accounts").select("*").eq("household_id", householdId).is("archived_at", null),
+  ]);
+  const now = new Date();
+  const visibleRecurring = (recurring ?? []).filter(
+    (r: { is_shared: boolean; owner_member_id: string | null }) => scopeMemberId === null || r.is_shared || r.owner_member_id === scopeMemberId
+  );
+  const bills = upcomingItems(visibleRecurring as never, 14, now).map((r: { name: string; amount: number; dueDate: Date }) => ({
+    name: r.name,
+    amount_aed: round2(Math.abs(Number(r.amount))),
+    due_date: r.dueDate.toISOString().slice(0, 10),
+  }));
+
+  const cardBills: Array<{ name: string; amount_owed_aed: number; due_date: string }> = [];
+  for (const a of (accounts ?? []) as Array<{ type: string; is_shared: boolean; owner_member_id: string | null; name: string; balance: number; balance_aed: number | null; due_day: number | null }>) {
+    if (a.type !== "credit_card") continue;
+    if (!(scopeMemberId === null || a.is_shared || a.owner_member_id === scopeMemberId)) continue;
+    const bal = Number(a.balance_aed ?? a.balance);
+    if (bal <= 0) continue;
+    const days = daysUntilDue(a.due_day, now);
+    if (days === null || days < 0 || days > 14) continue;
+    cardBills.push({ name: a.name, amount_owed_aed: round2(bal), due_date: nextDueDate(a.due_day, now)!.toISOString().slice(0, 10) });
+  }
+
+  return { recurring: bills, credit_cards: cardBills };
+}
+
+async function toolGetBudgetStatus(householdId: string, scopeMemberId: string | null, args: Record<string, unknown>) {
+  const { data: categories } = await supabase
+    .from("categories")
+    .select("id, name")
+    .eq("household_id", householdId)
+    .eq("kind", "expense")
+    .eq("archived", false);
+  const cat = resolveCategoryByName(categories ?? [], String(args.category ?? ""));
+  if (!cat) return { error: "category_not_found", available: (categories ?? []).map((c) => c.name) };
+
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1;
+  const [{ data: budgetRow }, { data: transactions }] = await Promise.all([
+    supabase.from("budgets").select("amount").eq("household_id", householdId).eq("category_id", cat.id).eq("year", year).eq("month", month).maybeSingle(),
+    supabase.from("transactions").select("amount, kind, occurred_at, category_id, is_shared, owner_member_id").eq("household_id", householdId).eq("category_id", cat.id),
+  ]);
+  const actual = monthActualsByCategory((transactions ?? []) as never, year, month, scopeMemberId, now).get(cat.id) ?? 0;
+  const budgeted = budgetRow ? Number(budgetRow.amount) : null;
+  return {
+    category: cat.name,
+    budgeted_aed: budgeted !== null ? round2(budgeted) : null,
+    actual_aed: round2(actual),
+    remaining_aed: budgeted !== null ? round2(budgeted - actual) : null,
+    note: budgeted === null ? "No budget set for this category this month." : null,
+  };
+}
+
+async function classifyAndRoute(rawText: string, categoryNames: string[]) {
+  const system =
+    `You are a household finance assistant for Rokda, chatting with a household member via Telegram. ` +
+    `If their message reports a real expense/income/refund that already happened (e.g. "spent 40 on lunch", "paid the rent"), ALWAYS call log_expense immediately -- even if the category, merchant, or exact amount isn't fully clear. ` +
+    `Never ask a clarifying question about an expense to log: category assignment happens later when a human reviews it, not in this chat, and an uncategorised expense is a completely normal, expected outcome -- do not treat that as ambiguity. ` +
+    `Only treat a message as ambiguous, and only then reply in plain text with a short clarifying question instead of calling a tool, when it is a QUESTION whose target is genuinely unclear (e.g. asking about an account name that matches nothing, or a category that doesn't fit any real one) -- never for something being logged. ` +
+    `If it asks a real question about their finances, call the matching tool to fetch the real number -- you must NEVER answer from your own knowledge or guess a figure; only a tool result is a real number. ` +
+    `Known expense categories (for question tools only, not required for logging): ${JSON.stringify(categoryNames)}.`;
+
+  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: PARSE_MODEL,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: rawText },
+      ],
+      tools: TOOLS,
+      tool_choice: "auto",
+    }),
+  });
+  if (!res.ok) return null;
+  return res.json();
+}
+
+async function phraseAnswer(question: string, toolResult: unknown): Promise<string | null> {
+  const system =
+    `Answer the user's question in one or two short sentences using ONLY the JSON data given below -- never state a number that isn't in it. ` +
+    `If the data has an "error" field, explain the problem plainly (e.g. list what's in "available") and ask them to rephrase -- do not guess which one they meant. ` +
+    `Amounts are AED unless the data says otherwise. Be direct and brief, like a text message, no markdown.`;
+  try {
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: PARSE_MODEL,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: `Question: ${question}\nData: ${JSON.stringify(toolResult)}` },
+        ],
+      }),
+    });
+    if (!res.ok) return null;
+    const body = await res.json();
+    const text = body?.choices?.[0]?.message?.content;
+    return typeof text === "string" ? text : null;
+  } catch {
+    return null;
+  }
+}
+
 Deno.serve(async (req) => {
   const url = new URL(req.url);
 
@@ -184,7 +477,7 @@ Deno.serve(async (req) => {
           .eq("telegram_link_code", text);
         await reply(
           chatId,
-          `Linked as ${pending.display_name}. Send a receipt photo or a message like "42 aed carrefour groceries" any time.`
+          `Linked as ${pending.display_name}. Send a receipt photo, a message like "42 aed carrefour groceries", or ask a question like "what's our net worth?" any time.`
         );
         return new Response("ok");
       }
@@ -193,8 +486,7 @@ Deno.serve(async (req) => {
     return new Response("ok");
   }
 
-  // Linked member from here on -- everything is intake, nothing is ever
-  // auto-posted as a real transaction.
+  // Linked member from here on.
   const rawText = (typeof message.text === "string" ? message.text : typeof message.caption === "string" ? message.caption : null);
   let photoPath: string | null = null;
   let photoBase64: string | null = null;
@@ -203,6 +495,68 @@ Deno.serve(async (req) => {
   const photos = message.photo as Array<{ file_id: string }> | undefined;
   const doc = message.document as { file_id: string } | undefined;
   const fileId = photos?.length ? photos[photos.length - 1].file_id : doc?.file_id;
+
+  // SHR-240: a plain text message (no photo/document) might be a question
+  // rather than something to log -- route it before ever touching `intake`.
+  // A photo is presumptively a receipt, so this never runs for one.
+  if (rawText && !fileId && OPENROUTER_API_KEY) {
+    try {
+      const { data: categories } = await supabase
+        .from("categories")
+        .select("id, name")
+        .eq("household_id", member.household_id)
+        .eq("kind", "expense")
+        .eq("archived", false);
+
+      const routed = await classifyAndRoute(rawText, (categories ?? []).map((c) => c.name));
+      const choice = routed?.choices?.[0];
+      const toolCall = choice?.message?.tool_calls?.[0];
+
+      if (toolCall && toolCall.function?.name !== "log_expense") {
+        const args = JSON.parse(toolCall.function.arguments || "{}");
+        const { data: members } = await supabase.from("household_members").select("id, display_name").eq("household_id", member.household_id);
+        const scopeMemberId = resolveScopeMemberId(args.scope ?? "me", member, members ?? []);
+
+        let result: unknown;
+        switch (toolCall.function.name) {
+          case "get_category_spend":
+            result = await toolGetCategorySpend(member.household_id, scopeMemberId, args);
+            break;
+          case "get_net_worth":
+            result = await toolGetNetWorth(member.household_id, scopeMemberId);
+            break;
+          case "get_account_balance":
+            result = await toolGetAccountBalance(member.household_id, args);
+            break;
+          case "get_upcoming_bills":
+            result = await toolGetUpcomingBills(member.household_id, scopeMemberId);
+            break;
+          case "get_budget_status":
+            result = await toolGetBudgetStatus(member.household_id, scopeMemberId, args);
+            break;
+          default:
+            result = { error: "unknown_tool" };
+        }
+
+        const answer = await phraseAnswer(rawText, result);
+        await reply(chatId, answer ?? "I found the data but couldn't phrase a reply — please try rephrasing.");
+        return new Response("ok");
+      }
+
+      if (!toolCall && choice?.message?.content) {
+        // No tool call: the model's own text is a clarifying question (or a
+        // decline) -- never a financial answer, since only a tool call can
+        // produce a real number.
+        await reply(chatId, choice.message.content);
+        return new Response("ok");
+      }
+      // toolCall.function.name === "log_expense", or routing produced
+      // nothing usable: fall through to intake capture below.
+    } catch {
+      // Routing failed -- fall through to intake capture rather than
+      // losing the message.
+    }
+  }
 
   if (fileId) {
     try {
