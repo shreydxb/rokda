@@ -181,6 +181,19 @@ const CONFIRM_REGEX = /^(yes|y|yep|yeah|confirm|ok|okay|sure|correct|go ahead|do
 // for this: it only ever reflected the model's certainty about
 // merchant/amount/date, never whether an account or category was found, so
 // those are checked separately here rather than folded into one fuzzy number.
+type PendingIntakeRow = {
+  id: string;
+  raw_text: string | null;
+  created_at: string;
+  parsed_merchant: string | null;
+  parsed_amount: number | string | null;
+  parsed_date: string | null;
+  parsed_category_id: string | null;
+  parsed_account_id: string | null;
+  parsed_currency: string | null;
+  confidence: number | string | null;
+};
+
 function isReadyForFastConfirm(row: {
   parsed_merchant: string | null;
   parsed_amount: number | string | null;
@@ -200,6 +213,82 @@ function isReadyForFastConfirm(row: {
     (row.parsed_currency == null || row.parsed_currency === "AED") &&
     Number(row.confidence ?? 0) >= 0.85
   );
+}
+
+// A word/emoji reply confirming a pending entry, or a 👍/✅ reaction on any
+// message in the chat (see handleReaction below) -- both routes land here so
+// there is exactly one place that calls approve_intake for the fast-confirm
+// path.
+const THUMBS_UP_EMOJIS = new Set(["\u{1F44D}", "✅"]);
+
+async function confirmPendingIntake(chatId: number, recentPending: PendingIntakeRow): Promise<void> {
+  try {
+    const { error: approveError } = await supabase.rpc("approve_intake", {
+      p_intake_id: recentPending.id,
+      p_account_id: recentPending.parsed_account_id,
+      p_amount: recentPending.parsed_amount,
+      p_occurred_at: recentPending.parsed_date,
+      p_kind: "expense",
+      p_category_id: recentPending.parsed_category_id,
+      p_currency: "AED",
+      p_merchant: recentPending.parsed_merchant,
+    });
+    if (approveError) throw approveError;
+    const [{ data: acct }, { data: cat }] = await Promise.all([
+      supabase.from("accounts").select("name").eq("id", recentPending.parsed_account_id).maybeSingle(),
+      recentPending.parsed_category_id
+        ? supabase.from("categories").select("name").eq("id", recentPending.parsed_category_id).maybeSingle()
+        : Promise.resolve({ data: null as { name: string } | null }),
+    ]);
+    await reply(
+      chatId,
+      `Recorded: AED ${Number(recentPending.parsed_amount).toFixed(2)} at ${recentPending.parsed_merchant} (${acct?.name ?? "account"}${cat?.name ? `, ${cat.name}` : ""}) on ${recentPending.parsed_date}.`
+    );
+  } catch {
+    await reply(chatId, "Something went wrong confirming that -- please check the Inbox.");
+  }
+}
+
+// A 👍/✅ reaction (long-press a message in Telegram, no typing needed) on
+// ANY message in the chat -- Telegram's reaction event doesn't carry which
+// pending entry it was meant for, so this trusts the same single signal the
+// "yes" reply already trusts: is there exactly one recent, fully-resolved
+// pending entry for this member right now. Requires the bot's webhook to be
+// registered for "message_reaction" updates (see the ?setup=1 handler).
+async function handleReaction(reaction: Record<string, unknown>): Promise<Response> {
+  const chat = reaction.chat as Record<string, unknown> | undefined;
+  const user = reaction.user as Record<string, unknown> | undefined;
+  const chatId = chat?.id as number | undefined;
+  const fromId = user?.id as number | undefined;
+  const newReaction = reaction.new_reaction as Array<{ type?: string; emoji?: string }> | undefined;
+  if (!chatId || !fromId) return new Response("ok");
+  if (!(newReaction ?? []).some((r) => r.type === "emoji" && THUMBS_UP_EMOJIS.has(r.emoji ?? ""))) {
+    return new Response("ok");
+  }
+
+  const { data: member } = await supabase
+    .from("household_members")
+    .select("id, household_id")
+    .eq("telegram_user_id", fromId)
+    .maybeSingle();
+  if (!member) return new Response("ok");
+
+  const { data: recentPendingRows } = await supabase
+    .from("intake")
+    .select(
+      "id, raw_text, created_at, parsed_merchant, parsed_amount, parsed_date, parsed_category_id, parsed_account_id, parsed_currency, confidence"
+    )
+    .eq("household_id", member.household_id)
+    .eq("member_id", member.id)
+    .eq("status", "pending")
+    .gt("created_at", new Date(Date.now() - PENDING_WINDOW_MS).toISOString())
+    .order("created_at", { ascending: false })
+    .limit(1);
+  const recentPending = recentPendingRows?.[0] ?? null;
+  if (!recentPending || !isReadyForFastConfirm(recentPending)) return new Response("ok");
+
+  await confirmPendingIntake(chatId, recentPending);
+  return new Response("ok");
 }
 
 // ---------------------------------------------------------------------------
@@ -511,7 +600,7 @@ Deno.serve(async (req) => {
   if (req.method === "GET" && url.searchParams.get("setup") === "1") {
     const result = await tgCall("setWebhook", {
       url: `${SUPABASE_URL}/functions/v1/telegram-webhook`,
-      allowed_updates: ["message"],
+      allowed_updates: ["message", "message_reaction"],
     });
     return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
   }
@@ -524,7 +613,11 @@ Deno.serve(async (req) => {
   }
 
   const message = update?.message as Record<string, unknown> | undefined;
-  if (!message) return new Response("ok");
+  if (!message) {
+    const reaction = update?.message_reaction as Record<string, unknown> | undefined;
+    if (reaction) return await handleReaction(reaction);
+    return new Response("ok");
+  }
 
   const chat = message.chat as Record<string, unknown> | undefined;
   const from = message.from as Record<string, unknown> | undefined;
@@ -586,18 +679,7 @@ Deno.serve(async (req) => {
   // actually ..." (or a delayed "yes") a moment later, short enough that
   // it's clearly the same exchange rather than a much later, unrelated
   // message.
-  let recentPending: {
-    id: string;
-    raw_text: string | null;
-    created_at: string;
-    parsed_merchant: string | null;
-    parsed_amount: number | string | null;
-    parsed_date: string | null;
-    parsed_category_id: string | null;
-    parsed_account_id: string | null;
-    parsed_currency: string | null;
-    confidence: number | string | null;
-  } | null = null;
+  let recentPending: PendingIntakeRow | null = null;
 
   if (rawText && !fileId) {
     const { data: recentPendingRows } = await supabase
@@ -613,39 +695,17 @@ Deno.serve(async (req) => {
       .limit(1);
     recentPending = recentPendingRows?.[0] ?? null;
 
-    // A bare "yes" (or similar) confirming a pending entry that's already
-    // fully resolved -- account, category, currency, date, all matched with
-    // high confidence -- records it immediately via the same approve_intake
-    // RPC the Inbox itself calls when a human clicks approve there. This
-    // still requires the member to explicitly say yes -- it skips the Inbox
-    // screen, never the confirmation itself. No LLM call at all, so this
-    // costs nothing beyond a couple of small DB reads.
-    if (recentPending && isReadyForFastConfirm(recentPending) && CONFIRM_REGEX.test(rawText.trim())) {
-      try {
-        const { error: approveError } = await supabase.rpc("approve_intake", {
-          p_intake_id: recentPending.id,
-          p_account_id: recentPending.parsed_account_id,
-          p_amount: recentPending.parsed_amount,
-          p_occurred_at: recentPending.parsed_date,
-          p_kind: "expense",
-          p_category_id: recentPending.parsed_category_id,
-          p_currency: "AED",
-          p_merchant: recentPending.parsed_merchant,
-        });
-        if (approveError) throw approveError;
-        const [{ data: acct }, { data: cat }] = await Promise.all([
-          supabase.from("accounts").select("name").eq("id", recentPending.parsed_account_id).maybeSingle(),
-          recentPending.parsed_category_id
-            ? supabase.from("categories").select("name").eq("id", recentPending.parsed_category_id).maybeSingle()
-            : Promise.resolve({ data: null as { name: string } | null }),
-        ]);
-        await reply(
-          chatId,
-          `Recorded: AED ${Number(recentPending.parsed_amount).toFixed(2)} at ${recentPending.parsed_merchant} (${acct?.name ?? "account"}${cat?.name ? `, ${cat.name}` : ""}) on ${recentPending.parsed_date}.`
-        );
-      } catch {
-        await reply(chatId, "Something went wrong confirming that -- please check the Inbox.");
-      }
+    // A bare "yes" (or a typed 👍/✅ -- a long-press reaction on any message
+    // is handled separately, see handleReaction) confirming a pending entry
+    // that's already fully resolved -- account, category, currency, date,
+    // all matched with high confidence -- records it immediately via the
+    // same approve_intake RPC the Inbox itself calls when a human clicks
+    // approve there. This still requires the member to explicitly confirm --
+    // it skips the Inbox screen, never the confirmation itself. No LLM call
+    // at all, so this costs nothing beyond a couple of small DB reads.
+    const trimmedText = rawText.trim();
+    if (recentPending && isReadyForFastConfirm(recentPending) && (CONFIRM_REGEX.test(trimmedText) || THUMBS_UP_EMOJIS.has(trimmedText))) {
+      await confirmPendingIntake(chatId, recentPending);
       return new Response("ok");
     }
   }
