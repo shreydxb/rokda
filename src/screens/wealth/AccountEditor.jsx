@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import '../money/TransactionEditor.css';
 
-const TYPES = ['checking', 'savings', 'credit_card', 'investment', 'loan', 'cash', 'other'];
+const TYPES = ['checking', 'savings', 'credit_card', 'investment', 'loan', 'cash', 'other', 'fd'];
+const COMPOUNDING = ['simple', 'monthly', 'quarterly', 'half_yearly', 'annually'];
 
 function initialForm(account, defaultType) {
   if (account) {
@@ -15,9 +16,28 @@ function initialForm(account, defaultType) {
       credit_limit: account.credit_limit !== null ? String(account.credit_limit) : '',
       statement_day: account.statement_day !== null ? String(account.statement_day) : '',
       due_day: account.due_day !== null ? String(account.due_day) : '',
+      principal: account.principal !== null ? String(account.principal) : '',
+      interest_rate_pct: account.interest_rate_pct !== null ? String(account.interest_rate_pct) : '',
+      compounding: account.compounding ?? 'simple',
+      opened_date: account.opened_date ?? '',
+      maturity_date: account.maturity_date ?? '',
     };
   }
-  return { name: '', type: defaultType ?? 'checking', currency: 'AED', balance: '', owner: 'shared', credit_limit: '', statement_day: '', due_day: '' };
+  return {
+    name: '',
+    type: defaultType ?? 'checking',
+    currency: 'AED',
+    balance: '',
+    owner: 'shared',
+    credit_limit: '',
+    statement_day: '',
+    due_day: '',
+    principal: '',
+    interest_rate_pct: '',
+    compounding: 'simple',
+    opened_date: '',
+    maturity_date: '',
+  };
 }
 
 export default function AccountEditor({ account, defaultType, householdId, members, onClose, onSaved }) {
@@ -52,6 +72,17 @@ export default function AccountEditor({ account, defaultType, householdId, membe
 
   const nameError = form.name.trim() === '' ? 'Name it.' : '';
   const isCard = form.type === 'credit_card';
+  const isFd = form.type === 'fd';
+
+  function startNewTerm() {
+    setForm((f) => ({
+      ...f,
+      principal: String(account?.balance ?? f.principal),
+      opened_date: new Date().toISOString().slice(0, 10),
+      maturity_date: '',
+    }));
+    setDirty(true);
+  }
 
   async function handleSave(e) {
     e.preventDefault();
@@ -73,6 +104,11 @@ export default function AccountEditor({ account, defaultType, householdId, membe
       credit_limit: isCard && form.credit_limit ? Number(form.credit_limit) : null,
       statement_day: isCard && form.statement_day ? Number(form.statement_day) : null,
       due_day: isCard && form.due_day ? Number(form.due_day) : null,
+      principal: isFd && form.principal ? Number(form.principal) : null,
+      interest_rate_pct: isFd && form.interest_rate_pct ? Number(form.interest_rate_pct) : null,
+      compounding: isFd ? form.compounding : null,
+      opened_date: isFd && form.opened_date ? form.opened_date : null,
+      maturity_date: isFd && form.maturity_date ? form.maturity_date : null,
     };
 
     const query = account
@@ -121,12 +157,32 @@ export default function AccountEditor({ account, defaultType, householdId, membe
 
         <form className="te-form" onSubmit={handleSave}>
           <div>
-            <div className="te-hero-label">{isCard ? 'Balance owed' : 'Current balance'}</div>
+            <div className="te-hero-label">{isCard ? 'Balance owed' : isFd ? 'Current value (auto-calculated)' : 'Current balance'}</div>
             <div className="te-hero-row">
-              <span className="te-hero-currency">AED</span>
-              <input type="number" step="0.01" className="te-hero-input" value={form.balance} onChange={(e) => set('balance', e.target.value)} placeholder="0" />
+              <span className="te-hero-currency">{form.currency || 'AED'}</span>
+              {isFd ? (
+                <span className="te-hero-input" style={{ display: 'flex', alignItems: 'center' }}>
+                  {account ? Number(account.balance).toLocaleString('en-AE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
+                </span>
+              ) : (
+                <input type="number" step="0.01" className="te-hero-input" value={form.balance} onChange={(e) => set('balance', e.target.value)} placeholder="0" />
+              )}
             </div>
+            {isFd && (
+              <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 6 }}>
+                Computed daily from principal, rate and dates below — never edited directly.
+              </div>
+            )}
           </div>
+
+          {isFd && account?.fd_status === 'matured' && (
+            <div className="ov-warn" role="alert" style={{ fontSize: 12.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+              <span>This FD has matured at {Number(account.balance).toLocaleString('en-AE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}. Roll it into a new term?</span>
+              <button type="button" className="om-btn" onClick={startNewTerm}>
+                Start new term
+              </button>
+            </div>
+          )}
 
           <div className="te-fieldgrid">
             <div className="te-fieldcell te-span2">
@@ -160,6 +216,36 @@ export default function AccountEditor({ account, defaultType, householdId, membe
                 <div className="te-fieldcell">
                   <span className="te-fieldlabel">Due day</span>
                   <input className="te-fieldvalue" type="number" min="1" max="31" value={form.due_day} onChange={(e) => set('due_day', e.target.value)} />
+                </div>
+              </>
+            )}
+            {isFd && (
+              <>
+                <div className="te-fieldcell">
+                  <span className="te-fieldlabel">Principal</span>
+                  <input className="te-fieldvalue" type="number" step="0.01" value={form.principal} onChange={(e) => set('principal', e.target.value)} placeholder="e.g. 100000" />
+                </div>
+                <div className="te-fieldcell">
+                  <span className="te-fieldlabel">Interest rate (annual %)</span>
+                  <input className="te-fieldvalue" type="number" step="0.01" value={form.interest_rate_pct} onChange={(e) => set('interest_rate_pct', e.target.value)} placeholder="e.g. 4.5" />
+                </div>
+                <div className="te-fieldcell">
+                  <span className="te-fieldlabel">Compounding</span>
+                  <select className="te-fieldvalue" value={form.compounding} onChange={(e) => set('compounding', e.target.value)}>
+                    {COMPOUNDING.map((c) => (
+                      <option key={c} value={c}>
+                        {c === 'simple' ? 'Simple (paid at maturity)' : c.replace('_', '-')}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="te-fieldcell">
+                  <span className="te-fieldlabel">Opened</span>
+                  <input className="te-fieldvalue" type="date" value={form.opened_date} onChange={(e) => set('opened_date', e.target.value)} />
+                </div>
+                <div className="te-fieldcell">
+                  <span className="te-fieldlabel">Maturity date</span>
+                  <input className="te-fieldvalue" type="date" value={form.maturity_date} onChange={(e) => set('maturity_date', e.target.value)} />
                 </div>
               </>
             )}

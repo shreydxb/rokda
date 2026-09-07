@@ -77,9 +77,11 @@ export default function Accounts({ household, members, me, data, loading }) {
                     <div className="ov-muted">
                       {a.is_shared ? 'Joint' : (members.find((m) => m.id === a.owner_member_id)?.display_name ?? 'Unassigned')}
                       {` · ${a.type.replace('_', ' ')}`}
+                      {a.type === 'fd' && a.maturity_date && ` · matures ${new Date(a.maturity_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`}
+                      {a.type === 'fd' && a.fd_status === 'matured' && ' · matured'}
                     </div>
                   </div>
-                  <div className="fig mn-row-amt">{money.fmt(a.balance)}</div>
+                  <div className="fig mn-row-amt">{money.fmt(a.balance_aed ?? a.balance)}</div>
                 </button>
               ))}
             </div>

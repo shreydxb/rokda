@@ -72,7 +72,7 @@ function cardDueItems(accounts, scopeMemberId, now) {
     if (a.type !== 'credit_card') continue;
     if (!(scopeMemberId === null || a.is_shared || a.owner_member_id === scopeMemberId)) continue;
     if (!a.due_day) continue; // not set yet — nothing honest to say
-    const balance = scopedValue(a.balance, a, scopeMemberId);
+    const balance = scopedValue(a.balance_aed ?? a.balance, a, scopeMemberId);
     if (balance <= 0) continue; // nothing owed
 
     let due = new Date(today.getFullYear(), today.getMonth(), a.due_day);

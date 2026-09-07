@@ -18,7 +18,7 @@ export function netWorthSummary(accounts, scopeMemberId, holdings = []) {
   let assets = 0;
   let liabilities = 0;
   for (const a of visibleAccounts(accounts, scopeMemberId)) {
-    const v = scopedValue(a.balance, a, scopeMemberId);
+    const v = scopedValue(a.balance_aed ?? a.balance, a, scopeMemberId);
     if (LIABILITY_TYPES.has(a.type)) liabilities += v;
     else assets += v;
   }
@@ -31,7 +31,7 @@ export function netWorthSummary(accounts, scopeMemberId, holdings = []) {
 export function liquidAssets(accounts, scopeMemberId) {
   return visibleAccounts(accounts, scopeMemberId)
     .filter((a) => LIQUID_TYPES.has(a.type))
-    .reduce((sum, a) => sum + scopedValue(a.balance, a, scopeMemberId), 0);
+    .reduce((sum, a) => sum + scopedValue(a.balance_aed ?? a.balance, a, scopeMemberId), 0);
 }
 
 function txInRange(transactions, start, end, scopeMemberId) {

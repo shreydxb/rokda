@@ -23,7 +23,7 @@ export default function Goals({ household, members, me, accounts, holdings, data
       .filter((a) => a.goal_id === goalId)
       .reduce((sum, a) => {
         const source = a.account_id ? (accounts ?? []).find((acc) => acc.id === a.account_id) : (holdings ?? []).find((h) => h.id === a.holding_id);
-        const value = Number(source?.balance ?? source?.value_aed ?? 0);
+        const value = Number(source?.balance_aed ?? source?.balance ?? source?.value_aed ?? 0);
         return sum + (value * Number(a.share_pct)) / 100;
       }, 0);
   }

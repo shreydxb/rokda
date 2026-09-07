@@ -21,9 +21,9 @@ export default function NetWorth({ household, me, members, data, loading }) {
   const liabilityRows = visible.filter((a) => isLiabilityAccount(a));
   const visibleHoldingRows = visibleHoldings(holdings, scopeMemberId);
   const liveAssets =
-    assetRows.reduce((s, a) => s + scopedValue(a.balance, a, scopeMemberId), 0) +
+    assetRows.reduce((s, a) => s + scopedValue(a.balance_aed ?? a.balance, a, scopeMemberId), 0) +
     visibleHoldingRows.reduce((s, h) => s + scopedHoldingValue(h, scopeMemberId), 0);
-  const liveLiabilities = liabilityRows.reduce((s, a) => s + scopedValue(a.balance, a, scopeMemberId), 0);
+  const liveLiabilities = liabilityRows.reduce((s, a) => s + scopedValue(a.balance_aed ?? a.balance, a, scopeMemberId), 0);
   const netWorth = liveAssets - liveLiabilities;
 
   // net_worth_snapshots are stored as household-wide totals, not split by
@@ -180,7 +180,7 @@ function AccountList({ rows, scopeMemberId, members, money, negative }) {
           </div>
           <div className={`fig mn-row-amt ${negative ? 'ov-neg' : ''}`}>
             {negative ? '−' : ''}
-            {money.fmt(scopedValue(a.balance, a, scopeMemberId))}
+            {money.fmt(scopedValue(a.balance_aed ?? a.balance, a, scopeMemberId))}
           </div>
         </div>
       ))}
