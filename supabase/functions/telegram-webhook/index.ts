@@ -159,11 +159,47 @@ async function parseIntakeWithAI(params: {
 // accountOptionLabel in the frontend) -- if a bank SMS names a card ending,
 // match it against that suffix. Only trusted when it resolves to exactly
 // one open account; otherwise the reviewer picks manually, same as today.
-async function matchAccountByCardLast4(householdId: string, cardLast4: string | null): Promise<string | null> {
+async function matchAccountByCardLast4(householdId: string, cardLast4: string | null): Promise<{ id: string; name: string } | null> {
   if (!cardLast4) return null;
   const { data: accounts } = await supabase.from("accounts").select("id, name").eq("household_id", householdId).is("archived_at", null);
   const matches = (accounts ?? []).filter((a: { name: string }) => a.name.includes(cardLast4));
-  return matches.length === 1 ? matches[0].id : null;
+  return matches.length === 1 ? matches[0] : null;
+}
+
+const PENDING_WINDOW_MS = 20 * 60 * 1000;
+
+// A short, near-exact "yes" to a fast-confirm prompt (see the bottom of
+// Deno.serve) -- deliberately strict so a real message that happens to start
+// with "yes" (e.g. "yes I know, also spent 40 on lunch") is never mistaken
+// for confirming a pending entry.
+const CONFIRM_REGEX = /^(yes|y|yep|yeah|confirm|ok|okay|sure|correct|go ahead|do it|record it)[.!]?$/i;
+
+// Instant recording (skipping the Inbox entirely) is only offered when every
+// field approve_intake actually requires is already resolved with no
+// guesswork -- account and category matched, currency AED or unstated, and
+// the parser's own confidence high. Confidence alone was never a safe gate
+// for this: it only ever reflected the model's certainty about
+// merchant/amount/date, never whether an account or category was found, so
+// those are checked separately here rather than folded into one fuzzy number.
+function isReadyForFastConfirm(row: {
+  parsed_merchant: string | null;
+  parsed_amount: number | string | null;
+  parsed_date: string | null;
+  parsed_category_id: string | null;
+  parsed_account_id: string | null;
+  parsed_currency: string | null;
+  confidence: number | string | null;
+}): boolean {
+  return (
+    !!row.parsed_merchant &&
+    row.parsed_amount != null &&
+    Number(row.parsed_amount) > 0 &&
+    !!row.parsed_date &&
+    !!row.parsed_category_id &&
+    !!row.parsed_account_id &&
+    (row.parsed_currency == null || row.parsed_currency === "AED") &&
+    Number(row.confidence ?? 0) >= 0.85
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -543,6 +579,77 @@ Deno.serve(async (req) => {
   const doc = message.document as { file_id: string } | undefined;
   const fileId = photos?.length ? photos[photos.length - 1].file_id : doc?.file_id;
 
+  // A recent, still-pending entry from this member -- checked below both as
+  // a fast-confirm target (an exact "yes" reply) and, further down, offered
+  // to the classifier as something a new message might be correcting rather
+  // than a separate expense. 20 minutes: long enough to catch "wait,
+  // actually ..." (or a delayed "yes") a moment later, short enough that
+  // it's clearly the same exchange rather than a much later, unrelated
+  // message.
+  let recentPending: {
+    id: string;
+    raw_text: string | null;
+    created_at: string;
+    parsed_merchant: string | null;
+    parsed_amount: number | string | null;
+    parsed_date: string | null;
+    parsed_category_id: string | null;
+    parsed_account_id: string | null;
+    parsed_currency: string | null;
+    confidence: number | string | null;
+  } | null = null;
+
+  if (rawText && !fileId) {
+    const { data: recentPendingRows } = await supabase
+      .from("intake")
+      .select(
+        "id, raw_text, created_at, parsed_merchant, parsed_amount, parsed_date, parsed_category_id, parsed_account_id, parsed_currency, confidence"
+      )
+      .eq("household_id", member.household_id)
+      .eq("member_id", member.id)
+      .eq("status", "pending")
+      .gt("created_at", new Date(Date.now() - PENDING_WINDOW_MS).toISOString())
+      .order("created_at", { ascending: false })
+      .limit(1);
+    recentPending = recentPendingRows?.[0] ?? null;
+
+    // A bare "yes" (or similar) confirming a pending entry that's already
+    // fully resolved -- account, category, currency, date, all matched with
+    // high confidence -- records it immediately via the same approve_intake
+    // RPC the Inbox itself calls when a human clicks approve there. This
+    // still requires the member to explicitly say yes -- it skips the Inbox
+    // screen, never the confirmation itself. No LLM call at all, so this
+    // costs nothing beyond a couple of small DB reads.
+    if (recentPending && isReadyForFastConfirm(recentPending) && CONFIRM_REGEX.test(rawText.trim())) {
+      try {
+        const { error: approveError } = await supabase.rpc("approve_intake", {
+          p_intake_id: recentPending.id,
+          p_account_id: recentPending.parsed_account_id,
+          p_amount: recentPending.parsed_amount,
+          p_occurred_at: recentPending.parsed_date,
+          p_kind: "expense",
+          p_category_id: recentPending.parsed_category_id,
+          p_currency: "AED",
+          p_merchant: recentPending.parsed_merchant,
+        });
+        if (approveError) throw approveError;
+        const [{ data: acct }, { data: cat }] = await Promise.all([
+          supabase.from("accounts").select("name").eq("id", recentPending.parsed_account_id).maybeSingle(),
+          recentPending.parsed_category_id
+            ? supabase.from("categories").select("name").eq("id", recentPending.parsed_category_id).maybeSingle()
+            : Promise.resolve({ data: null as { name: string } | null }),
+        ]);
+        await reply(
+          chatId,
+          `Recorded: AED ${Number(recentPending.parsed_amount).toFixed(2)} at ${recentPending.parsed_merchant} (${acct?.name ?? "account"}${cat?.name ? `, ${cat.name}` : ""}) on ${recentPending.parsed_date}.`
+        );
+      } catch {
+        await reply(chatId, "Something went wrong confirming that -- please check the Inbox.");
+      }
+      return new Response("ok");
+    }
+  }
+
   // SHR-240: a plain text message (no photo/document) might be a question
   // rather than something to log -- route it before ever touching `intake`.
   // A photo is presumptively a receipt, so this never runs for one.
@@ -555,22 +662,6 @@ Deno.serve(async (req) => {
         .eq("kind", "expense")
         .eq("archived", false);
 
-      // A recent, still-pending entry from this member -- offered to the
-      // model as something the new message might be correcting rather than
-      // a separate expense. 15 minutes: long enough to catch "wait, actually
-      // ..." a moment later, short enough that it's clearly the same
-      // exchange rather than a much later, unrelated message.
-      const { data: recentPendingRows } = await supabase
-        .from("intake")
-        .select("id, raw_text, created_at")
-        .eq("household_id", member.household_id)
-        .eq("member_id", member.id)
-        .eq("status", "pending")
-        .gt("created_at", new Date(Date.now() - 15 * 60 * 1000).toISOString())
-        .order("created_at", { ascending: false })
-        .limit(1);
-      const recentPending = recentPendingRows?.[0] ?? null;
-
       const routed = await classifyAndRoute(rawText, (categories ?? []).map((c) => c.name), recentPending);
       const choice = routed?.choices?.[0];
       const toolCall = choice?.message?.tool_calls?.[0];
@@ -579,22 +670,27 @@ Deno.serve(async (req) => {
         const combinedText = `${recentPending.raw_text ?? ""}\nCorrection: ${rawText}`;
         const parsed = await parseIntakeWithAI({ rawText: combinedText, imageBase64: null, imageMime: null, categoryNames: (categories ?? []).map((c) => c.name) });
         const matchedCategory = parsed?.categoryName ? (categories ?? []).find((c) => c.name.toLowerCase() === parsed.categoryName!.toLowerCase()) : null;
-        const matchedAccountId = parsed ? await matchAccountByCardLast4(member.household_id, parsed.cardLast4) : null;
+        const matchedAccount = parsed ? await matchAccountByCardLast4(member.household_id, parsed.cardLast4) : null;
+        const updatedRow = {
+          parsed_merchant: parsed?.merchant ?? null,
+          parsed_amount: parsed?.amount ?? null,
+          parsed_date: parsed?.occurred_at ?? null,
+          parsed_category_id: matchedCategory?.id ?? null,
+          parsed_currency: parsed?.currency ?? null,
+          parsed_account_id: matchedAccount?.id ?? null,
+          confidence: parsed?.confidence ?? 0,
+        };
         await supabase
           .from("intake")
-          .update({
-            raw_text: combinedText,
-            parsed_merchant: parsed?.merchant ?? null,
-            parsed_amount: parsed?.amount ?? null,
-            parsed_date: parsed?.occurred_at ?? null,
-            parsed_category_id: matchedCategory?.id ?? null,
-            parsed_currency: parsed?.currency ?? null,
-            parsed_account_id: matchedAccountId,
-            confidence: parsed?.confidence ?? 0,
-          })
+          .update({ raw_text: combinedText, ...updatedRow })
           .eq("id", recentPending.id)
           .eq("status", "pending");
-        await reply(chatId, "Updated your last pending entry — check the Inbox.");
+        await reply(
+          chatId,
+          isReadyForFastConfirm(updatedRow)
+            ? `Updated — AED ${Number(updatedRow.parsed_amount).toFixed(2)} at ${updatedRow.parsed_merchant}. Everything matched, so reply "yes" to record it, or edit in the Inbox.`
+            : "Updated your last pending entry — check the Inbox."
+        );
         return new Response("ok");
       }
 
@@ -699,6 +795,7 @@ Deno.serve(async (req) => {
 
   // Parsing is a convenience layered on top of a capture that already
   // succeeded -- its failure must never surface as this message's failure.
+  let fastConfirmSummary: string | null = null;
   try {
     const { data: categories } = await supabase
       .from("categories")
@@ -717,25 +814,35 @@ Deno.serve(async (req) => {
       const matchedCategory = parsed.categoryName
         ? (categories ?? []).find((c) => c.name.toLowerCase() === parsed.categoryName!.toLowerCase())
         : null;
-      const matchedAccountId = await matchAccountByCardLast4(member.household_id, parsed.cardLast4);
+      const matchedAccount = await matchAccountByCardLast4(member.household_id, parsed.cardLast4);
+      const updatedRow = {
+        parsed_merchant: parsed.merchant,
+        parsed_amount: parsed.amount,
+        parsed_date: parsed.occurred_at,
+        parsed_category_id: matchedCategory?.id ?? null,
+        parsed_currency: parsed.currency,
+        parsed_account_id: matchedAccount?.id ?? null,
+        confidence: parsed.confidence,
+      };
 
-      await supabase
-        .from("intake")
-        .update({
-          parsed_merchant: parsed.merchant,
-          parsed_amount: parsed.amount,
-          parsed_date: parsed.occurred_at,
-          parsed_category_id: matchedCategory?.id ?? null,
-          parsed_currency: parsed.currency,
-          parsed_account_id: matchedAccountId,
-          confidence: parsed.confidence,
-        })
-        .eq("id", inserted.id);
+      await supabase.from("intake").update(updatedRow).eq("id", inserted.id);
+
+      // Same bar as the fast-confirm "yes" path above: only invite it when
+      // account, category, currency and date are all already resolved, not
+      // just when the model's own confidence happens to be high.
+      if (isReadyForFastConfirm(updatedRow)) {
+        fastConfirmSummary = `AED ${Number(parsed.amount).toFixed(2)} at ${parsed.merchant} (${matchedAccount!.name}${matchedCategory ? `, ${matchedCategory.name}` : ""}) on ${parsed.occurred_at}`;
+      }
     }
   } catch {
     // Leave the intake row exactly as captured -- raw content, no suggestions.
   }
 
-  await reply(chatId, "Got it — check the Inbox to review.");
+  await reply(
+    chatId,
+    fastConfirmSummary
+      ? `Got it — ${fastConfirmSummary}. Everything matched, so reply "yes" to record it, or edit in the Inbox.`
+      : "Got it — check the Inbox to review."
+  );
   return new Response("ok");
 });
