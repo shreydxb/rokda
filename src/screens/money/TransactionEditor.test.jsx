@@ -17,6 +17,14 @@ vi.mock('../../lib/supabaseClient', () => ({
           return Promise.resolve({ error: null });
         },
       }),
+      // SHR-235: edit history is fetched on mount for an existing
+      // transaction. No history rows are needed for these SHR-252 cases,
+      // so this just resolves empty rather than exercising a real fetch.
+      select: () => ({
+        eq: () => ({
+          order: () => Promise.resolve({ data: [] }),
+        }),
+      }),
     }),
   },
 }));

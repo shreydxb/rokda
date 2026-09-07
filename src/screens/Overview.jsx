@@ -541,7 +541,9 @@ export default function Overview() {
                           // negative — by negating the value, not by prefixing
                           // a sign that could double up on an overpaid card.
                           money.fmtBalance(
-                            a.type === 'credit_card' || a.type === 'loan' ? -Number(a.balance) : Number(a.balance),
+                            a.type === 'credit_card' || a.type === 'loan'
+                              ? -Number(a.balance_aed ?? a.balance)
+                              : Number(a.balance_aed ?? a.balance),
                           )
                         )}
                       </div>
