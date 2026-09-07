@@ -5,6 +5,7 @@ const EMPTY_STATE = {
   loading: false,
   goals: [],
   goalContributions: [],
+  goalAllocations: [],
   debts: [],
   assumptions: null,
 };
@@ -22,12 +23,14 @@ export function usePlanningData(householdId) {
     const [
       { data: goals, error: goalsErr },
       { data: goalContributions, error: contribErr },
+      { data: goalAllocations, error: allocErr },
       { data: debts, error: debtsErr },
       { data: assumptionsRows, error: assumErr },
     ] = await Promise.all([
       supabase.from('goals').select('*').eq('household_id', householdId).order('created_at'),
       // RLS scopes this to the caller's household via a join on goals.
       supabase.from('goal_contributions').select('*').order('occurred_at', { ascending: false }),
+      supabase.from('goal_allocations').select('*').eq('household_id', householdId).order('created_at'),
       supabase.from('debts').select('*').eq('household_id', householdId).order('created_at'),
       supabase.from('planning_assumptions').select('*').eq('household_id', householdId).maybeSingle(),
     ]);
@@ -36,9 +39,10 @@ export function usePlanningData(householdId) {
       loading: false,
       goals: goalsErr ? [] : (goals ?? []),
       goalContributions: contribErr ? [] : (goalContributions ?? []),
+      goalAllocations: allocErr ? [] : (goalAllocations ?? []),
       debts: debtsErr ? [] : (debts ?? []),
       assumptions: assumErr ? null : (assumptionsRows ?? null),
-      error: goalsErr || contribErr || debtsErr || assumErr || null,
+      error: goalsErr || contribErr || allocErr || debtsErr || assumErr || null,
     });
   }, [householdId]);
 

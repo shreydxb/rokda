@@ -17,7 +17,7 @@ function initialForm(goal) {
   return { name: '', note: '', target_amount: '', target_date: '', funding_source: '', owner: 'shared' };
 }
 
-export default function GoalEditor({ goal, contributions, householdId, members, onClose, onSaved }) {
+export default function GoalEditor({ goal, contributions, allocations, accounts, holdings, householdId, members, onClose, onSaved }) {
   const [form, setForm] = useState(() => initialForm(goal));
   const [dirty, setDirty] = useState(false);
   const [confirmingClose, setConfirmingClose] = useState(false);
@@ -26,6 +26,12 @@ export default function GoalEditor({ goal, contributions, householdId, members, 
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const linkableAccounts = accounts ?? [];
+  const linkableHoldings = holdings ?? [];
+  const [allocSource, setAllocSource] = useState(() =>
+    linkableAccounts[0] ? `account:${linkableAccounts[0].id}` : linkableHoldings[0] ? `holding:${linkableHoldings[0].id}` : ''
+  );
+  const [allocSharePct, setAllocSharePct] = useState('100');
 
   useEffect(() => {
     const onKey = (e) => {
@@ -104,6 +110,40 @@ export default function GoalEditor({ goal, contributions, householdId, members, 
     await supabase.from('goal_contributions').delete().eq('id', id);
     setSaving(false);
     await onSaved();
+  }
+
+  async function handleAddAllocation() {
+    const pct = Number(allocSharePct);
+    if (!allocSource || !pct || pct <= 0 || pct > 100) return;
+    const [kind, id] = allocSource.split(':');
+    setSaving(true);
+    setError('');
+    const { error: allocError } = await supabase.from('goal_allocations').insert({
+      household_id: householdId,
+      goal_id: goal.id,
+      account_id: kind === 'account' ? id : null,
+      holding_id: kind === 'holding' ? id : null,
+      share_pct: pct,
+    });
+    setSaving(false);
+    if (allocError) {
+      setError(allocError.message);
+      return;
+    }
+    setAllocSharePct('100');
+    await onSaved();
+  }
+
+  async function handleDeleteAllocation(id) {
+    setSaving(true);
+    await supabase.from('goal_allocations').delete().eq('id', id);
+    setSaving(false);
+    await onSaved();
+  }
+
+  function allocationLabel(a) {
+    if (a.account_id) return linkableAccounts.find((acc) => acc.id === a.account_id)?.name ?? 'Unknown account';
+    return linkableHoldings.find((h) => h.id === a.holding_id)?.name ?? 'Unknown holding';
   }
 
   async function handleDelete() {
@@ -224,6 +264,73 @@ export default function GoalEditor({ goal, contributions, householdId, members, 
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         <span className="fig mn-row-amt">{formatMoney(c.amount)}</span>
                         <button type="button" className="ov-link" style={{ fontSize: 11.5 }} onClick={() => handleDeleteContribution(c.id)}>
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {goal && (linkableAccounts.length > 0 || linkableHoldings.length > 0) && (
+            <div style={{ borderTop: '1px solid var(--rule2)', paddingTop: 18, marginTop: 6 }}>
+              <div className="ov-kicker" style={{ marginBottom: 4 }}>
+                Linked accounts &amp; holdings
+              </div>
+              <div className="ov-muted" style={{ fontSize: 11.5, marginBottom: 12, lineHeight: 1.5 }}>
+                Earmark a share of a real account or holding toward this goal — its current value (interest or growth included)
+                counts toward progress automatically. One account/holding can be split across several goals as long as its shares
+                never add up past 100%.
+              </div>
+              <div className="te-fieldgrid" style={{ alignItems: 'flex-end' }}>
+                <div className="te-fieldcell te-span2">
+                  <span className="te-fieldlabel">Account / holding</span>
+                  <select className="te-fieldvalue" value={allocSource} onChange={(e) => setAllocSource(e.target.value)}>
+                    {linkableAccounts.length > 0 && (
+                      <optgroup label="Accounts">
+                        {linkableAccounts.map((a) => (
+                          <option key={a.id} value={`account:${a.id}`}>
+                            {a.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {linkableHoldings.length > 0 && (
+                      <optgroup label="Holdings">
+                        {linkableHoldings.map((h) => (
+                          <option key={h.id} value={`holding:${h.id}`}>
+                            {h.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </select>
+                </div>
+                <div className="te-fieldcell" style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8 }}>
+                  <div style={{ flex: 1 }}>
+                    <div className="te-fieldlabel">Share %</div>
+                    <input className="te-fieldvalue" type="number" min="1" max="100" step="1" value={allocSharePct} onChange={(e) => setAllocSharePct(e.target.value)} />
+                  </div>
+                  <button type="button" className="om-btn" onClick={handleAddAllocation} disabled={saving || !allocSource}>
+                    Link
+                  </button>
+                </div>
+              </div>
+
+              {(allocations ?? []).length === 0 ? (
+                <div className="ov-muted" style={{ fontSize: 12.5, marginTop: 14 }}>
+                  Nothing linked yet — this goal's progress is only from logged contributions.
+                </div>
+              ) : (
+                <div className="mn-list">
+                  {allocations.map((a) => (
+                    <div key={a.id} className="mn-row" style={{ cursor: 'default' }}>
+                      <div className="mn-row-main">{allocationLabel(a)}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <span className="fig mn-row-amt">{Number(a.share_pct)}%</span>
+                        <button type="button" className="ov-link" style={{ fontSize: 11.5 }} onClick={() => handleDeleteAllocation(a.id)}>
                           Remove
                         </button>
                       </div>

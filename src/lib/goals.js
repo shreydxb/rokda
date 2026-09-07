@@ -3,11 +3,21 @@ import { formatMoney } from './money';
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 // Everything about a goal's progress — saved, last contribution, projected
-// date, status — is derived from its contribution log, never stored on the
-// goal row, so it can't drift out of sync with what was actually logged.
-export function goalProgress(goal, contributions, now = new Date()) {
+// date, status — is derived from its contribution log (plus whatever share
+// of real accounts/holdings is linked to it), never stored on the goal row,
+// so it can't drift out of sync with what was actually logged or with those
+// accounts' live balances.
+//
+// allocatedValue is the sum of each linked account/holding's current value
+// times its share_pct -- real money already sitting somewhere (an FD's
+// balance including interest, a holding's live value), not a cash movement.
+// It's added straight into `saved` but deliberately left out of the
+// monthlyRate/eta projection below, which tracks the *contribution* pace --
+// a holding's value moving with the market isn't a "contribution" and
+// shouldn't be read as one.
+export function goalProgress(goal, contributions, now = new Date(), allocatedValue = 0) {
   const target = Number(goal.target_amount) || 0;
-  const saved = contributions.reduce((s, c) => s + Number(c.amount), 0);
+  const saved = contributions.reduce((s, c) => s + Number(c.amount), 0) + allocatedValue;
   const pct = target > 0 ? Math.min(1, saved / target) : 0;
 
   const lastContribution = contributions.reduce((latest, c) => {

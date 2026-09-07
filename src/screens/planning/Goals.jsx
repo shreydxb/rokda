@@ -7,12 +7,26 @@ import GoalEditor from './GoalEditor';
 
 const STATUS_CHIP = { funded: 'ov-chip-ok', track: 'ov-chip-ok', ahead: 'ov-chip-ok', behind: 'ov-chip-warn' };
 
-export default function Goals({ household, members, me, data, loading }) {
-  const { goals, goalContributions, reload } = data;
+export default function Goals({ household, members, me, accounts, holdings, data, loading }) {
+  const { goals, goalContributions, goalAllocations, reload } = data;
   const { scope } = useScope();
   const scopeMemberId = resolveScopeMemberId(scope, me, members);
   const [editing, setEditing] = useState(null);
   const now = useMemo(() => new Date(), []);
+
+  // A linked account/holding's current value (which already includes FD
+  // interest or investment growth) counts toward a goal at whatever share
+  // was earmarked for it -- real money already sitting somewhere, not a
+  // contribution event.
+  function allocatedValueFor(goalId) {
+    return (goalAllocations ?? [])
+      .filter((a) => a.goal_id === goalId)
+      .reduce((sum, a) => {
+        const source = a.account_id ? (accounts ?? []).find((acc) => acc.id === a.account_id) : (holdings ?? []).find((h) => h.id === a.holding_id);
+        const value = Number(source?.balance ?? source?.value_aed ?? 0);
+        return sum + (value * Number(a.share_pct)) / 100;
+      }, 0);
+  }
 
   // A shared goal counts half toward each individual scope, same as every
   // other joint figure in the app, so "Me" plus "Aparna" reconciles to "Both".
@@ -26,9 +40,11 @@ export default function Goals({ household, members, me, data, loading }) {
           const contributions = goalContributions
             .filter((c) => c.goal_id === g.id)
             .map((c) => ({ ...c, amount: Number(c.amount) * factor }));
-          return { goal: g, contributions, progress: goalProgress(scopedGoal, contributions, now) };
+          const allocatedValue = allocatedValueFor(g.id) * factor;
+          return { goal: g, contributions, progress: goalProgress(scopedGoal, contributions, now, allocatedValue) };
         }),
-    [goals, goalContributions, scopeMemberId, now]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [goals, goalContributions, goalAllocations, accounts, holdings, scopeMemberId, now]
   );
 
   const totalSaved = rows.reduce((s, r) => s + r.progress.saved, 0);
@@ -97,6 +113,9 @@ export default function Goals({ household, members, me, data, loading }) {
         <GoalEditor
           goal={editing === 'new' ? null : editing.goal ?? editing}
           contributions={editing === 'new' ? [] : goalContributions.filter((c) => c.goal_id === (editing.goal ?? editing).id)}
+          allocations={editing === 'new' ? [] : (goalAllocations ?? []).filter((a) => a.goal_id === (editing.goal ?? editing).id)}
+          accounts={accounts ?? []}
+          holdings={holdings ?? []}
           householdId={household?.id}
           members={members}
           onClose={() => setEditing(null)}
