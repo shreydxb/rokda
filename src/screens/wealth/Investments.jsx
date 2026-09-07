@@ -16,6 +16,7 @@ import {
   visibleHoldings,
 } from '../../lib/holdings';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
+import { isStale } from '../../lib/valuation';
 import { supabase } from '../../lib/supabaseClient';
 import HoldingEditor from './HoldingEditor';
 
@@ -42,14 +43,32 @@ export default function Investments({ household, members, me, data, loading }) {
 
   const allocation = useMemo(() => allocationByClass(rows, scopeMemberId), [rows, scopeMemberId]);
 
-  const lastRefreshed = holdings.reduce((latest, h) => {
-    if (!h.last_refreshed) return latest;
-    const d = new Date(h.last_refreshed);
-    return !latest || d > latest ? d : latest;
+  // The oldest valuation is the honest headline: a portfolio is only as fresh
+  // as its stalest holding. Previously this showed the newest, which a single
+  // recent edit could make look current (QA-04).
+  const oldestPricedAt = holdings.reduce((oldest, h) => {
+    if (!h.priced_at) return oldest;
+    const d = new Date(h.priced_at);
+    return !oldest || d < oldest ? d : oldest;
   }, null);
   const autoPriced = holdings.filter((h) => h.price_provider);
   const failing = autoPriced.filter((h) => h.price_fetch_error);
+  const neverPriced = holdings.filter((h) => !h.priced_at).length;
+  const staleCount = holdings.filter((h) => isStale(h, now)).length;
 
+  // Reload re-reads what is stored. It does not reprice anything, and it must
+  // never advance a valuation date — pressing it used to dismiss the staleness
+  // warning without retrieving a single price.
+  async function handleReload() {
+    setRefreshing(true);
+    await reload();
+    setRefreshing(false);
+  }
+
+  // Refresh live prices actually calls the price-refresh feed (SHR-237) for
+  // whatever holdings have opted into a provider (price_provider set) --
+  // distinct from Reload, which never fetches anything and never advances a
+  // valuation date on its own.
   async function handleRefresh() {
     setRefreshing(true);
     setRefreshError('');
@@ -101,7 +120,13 @@ export default function Investments({ household, members, me, data, loading }) {
                 <span className="ov-muted"> {range}</span>
               </div>
             ) : (
-              <div className="ov-nwchange ov-muted">Not enough history yet for {range}.</div>
+              <div className="ov-nwchange ov-muted">
+                {/* Holding history accumulates from confirmed valuations, not
+                    from time passing (QA-05). */}
+                {holdingHistory.length === 0
+                  ? 'No valuation history yet. Confirming a valuation on a holding records a dated point.'
+                  : `Not enough history yet for ${range}.`}
+              </div>
             )}
             <div className="ov-seg-row" style={{ marginTop: 14 }}>
               {RANGES.map((r) => (
@@ -126,17 +151,30 @@ export default function Investments({ household, members, me, data, loading }) {
           </section>
 
           <section style={{ marginTop: 34 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <button type="button" className="om-btn" onClick={handleReload} disabled={refreshing}>
+                {refreshing ? 'Reloading…' : 'Reload'}
+              </button>
               <button type="button" className="om-btn" onClick={handleRefresh} disabled={refreshing}>
-                {refreshing ? 'Refreshing…' : 'Refresh'}
+                {refreshing ? 'Refreshing…' : 'Refresh live prices'}
               </button>
               <span className="ov-muted">
+                {neverPriced > 0 && holdings.length === neverPriced
+                  ? 'No holding has a confirmed valuation yet'
+                  : oldestPricedAt
+                    ? `Oldest valuation ${oldestPricedAt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` +
+                      (neverPriced > 0 ? ` · ${neverPriced} never valued` : '') +
+                      (staleCount > 0 ? ` · ${staleCount} stale` : '')
+                    : 'No holding has a confirmed valuation yet'}
+                {' · '}
                 {autoPriced.length === 0
                   ? 'No holding has auto-pricing set up yet — edit one to opt it in.'
-                  : lastRefreshed
-                    ? `Last refreshed ${lastRefreshed.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} · ${autoPriced.length} holding${autoPriced.length === 1 ? '' : 's'} on a live feed`
-                    : 'Never refreshed'}
+                  : `${autoPriced.length} holding${autoPriced.length === 1 ? '' : 's'} on a live feed`}
               </span>
+            </div>
+            <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 8 }}>
+              Reload re-reads stored values; it does not fetch prices. Refresh live prices calls the live feed for holdings on
+              a provider. Confirm a valuation directly in a holding to reprice one manually.
             </div>
             {refreshError && (
               <div className="ov-warn" style={{ fontSize: 12.5, marginTop: 8 }}>

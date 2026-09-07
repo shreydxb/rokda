@@ -570,3 +570,10 @@
     gap: 30px;
   }
 }
+
+/* A figure that cannot be trusted is named, not rendered as a number (QA-10). */
+.ov-hero-unavailable {
+  color: var(--ink3);
+  font-size: 0.55em;
+  letter-spacing: 0.01em;
+}

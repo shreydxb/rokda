@@ -9,6 +9,8 @@ export function periodBounds(kind, now = new Date()) {
     start.setMonth(0, 1);
   }
   start.setHours(0, 0, 0, 0);
+  // `end` is "now"; callers turn it into an exclusive end-of-today bound. The
+  // window is always whole local days (QA-06).
   return { start, end: now };
 }
 

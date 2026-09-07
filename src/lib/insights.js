@@ -1,5 +1,6 @@
 import { scopedValue } from './scope';
 import { monthActualsByCategory } from './budget';
+import { parseDay } from './day';
 
 // Average of a category's actual spend over the `monthsBack` calendar
 // months strictly before (year, month) that have at least one transaction
@@ -13,7 +14,7 @@ export function trailingAverageByCategory(transactions, year, month, monthsBack,
     const y = d.getFullYear();
     const m = d.getMonth() + 1;
     const hasAny = transactions.some((t) => {
-      const td = new Date(t.occurred_at);
+      const td = parseDay(t.occurred_at);
       return td.getFullYear() === y && td.getMonth() + 1 === m;
     });
     if (!hasAny) continue;

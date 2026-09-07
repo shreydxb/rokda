@@ -1,0 +1,8 @@
+# Pin these to LF regardless of platform/user autocrlf settings (SHR-253,
+# 81a6bb3 recheck): compare-migrations.mjs preserves internal whitespace
+# verbatim inside string/dollar-quoted literals so it doesn't erase
+# meaningful content, but that means a CRLF checkout on Windows fingerprints
+# differently from an LF one for the exact same source — a false "differs"
+# that has nothing to do with the migration's actual content.
+supabase/migrations/*.sql text eol=lf
+scripts/*.mjs text eol=lf

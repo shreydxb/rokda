@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { formatMoney, formatSigned } from '../../lib/money';
+import { parseDay } from '../../lib/day';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const MONTH_LABELS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -18,7 +19,7 @@ export default function ActivityCalendar({ rows, members }) {
   const byDay = useMemo(() => {
     const map = new Map();
     for (const t of rows) {
-      const d = new Date(t.occurred_at);
+      const d = parseDay(t.occurred_at);
       const key = dayKey(d);
       if (!map.has(key)) map.set(key, { spend: 0, income: 0, items: [] });
       const bucket = map.get(key);

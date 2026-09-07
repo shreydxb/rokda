@@ -1,18 +1,22 @@
+import { addMonthsClamped, parseDay, startOfDay } from './day';
+
 const CADENCES = ['weekly', 'monthly', 'quarterly', 'yearly'];
 
-function startOfDay(d) {
-  const nd = new Date(d);
-  nd.setHours(0, 0, 0, 0);
-  return nd;
-}
-
-function step(date, cadence) {
-  const nd = new Date(date);
-  if (cadence === 'weekly') nd.setDate(nd.getDate() + 7);
-  else if (cadence === 'monthly') nd.setMonth(nd.getMonth() + 1);
-  else if (cadence === 'quarterly') nd.setMonth(nd.getMonth() + 3);
-  else if (cadence === 'yearly') nd.setFullYear(nd.getFullYear() + 1);
-  return nd;
+// The nth occurrence of a schedule, always measured from the stored anchor
+// date rather than by repeatedly stepping the previous result. Stepping loses
+// the anchor day in short months: Jan 31 advanced monthly became Mar 3 because
+// "Feb 31" overflowed, and every later occurrence inherited the drift (QA-07).
+export function occurrenceAt(anchorDate, cadence, n) {
+  const anchor = parseDay(anchorDate);
+  if (cadence === 'weekly') {
+    const d = new Date(anchor);
+    d.setDate(d.getDate() + 7 * n);
+    return d;
+  }
+  if (cadence === 'monthly') return addMonthsClamped(anchor, n);
+  if (cadence === 'quarterly') return addMonthsClamped(anchor, 3 * n);
+  if (cadence === 'yearly') return addMonthsClamped(anchor, 12 * n);
+  return anchor;
 }
 
 // Rolls a (possibly past) next_due_date forward by cadence until it's today
@@ -20,23 +24,41 @@ function step(date, cadence) {
 // user having to bump the stored date after every payment.
 export function rollForward(dateStr, cadence, now = new Date()) {
   const today = startOfDay(now);
-  let d = startOfDay(new Date(dateStr));
-  let guard = 0;
-  while (d < today && guard < 1000) {
-    d = step(d, cadence);
-    guard++;
+  for (let n = 0; n < 1000; n++) {
+    const occurrence = occurrenceAt(dateStr, cadence, n);
+    if (occurrence >= today) return occurrence;
   }
-  return d;
+  return occurrenceAt(dateStr, cadence, 0);
 }
 
-export function upcomingItems(rows, days, now = new Date()) {
+// EVERY occurrence inside the window, not just the first. A weekly bill in a
+// 30-day window is five commitments; returning one understated what the
+// household had already committed to (QA-07).
+export function occurrencesInWindow(dateStr, cadence, days, now = new Date()) {
   const today = startOfDay(now);
   const horizon = new Date(today);
   horizon.setDate(horizon.getDate() + days);
+  const occurrences = [];
+  for (let n = 0; n < 1000; n++) {
+    const occurrence = occurrenceAt(dateStr, cadence, n);
+    if (occurrence > horizon) break;
+    if (occurrence >= today) occurrences.push(occurrence);
+  }
+  return occurrences;
+}
+
+export function upcomingItems(rows, days, now = new Date()) {
   return rows
     .filter((r) => r.active !== false)
-    .map((r) => ({ ...r, dueDate: rollForward(r.next_due_date, r.cadence, now) }))
-    .filter((r) => r.dueDate >= today && r.dueDate <= horizon)
+    .flatMap((r) =>
+      occurrencesInWindow(r.next_due_date, r.cadence, days, now).map((dueDate, index) => ({
+        ...r,
+        dueDate,
+        // Rows can now appear more than once in a window, so they need a key
+        // that distinguishes the occurrences.
+        occurrenceKey: `${r.id}@${dueDate.getFullYear()}-${dueDate.getMonth() + 1}-${dueDate.getDate()}#${index}`,
+      })),
+    )
     .sort((a, b) => a.dueDate - b.dueDate);
 }
 

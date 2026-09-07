@@ -274,7 +274,11 @@ async function refreshHoldings(inrPerAed: number | null) {
       .update({
         current_price: result.price,
         day_change_pct: result.dayChangePct,
-        last_refreshed: nowIso,
+        // priced_at, not last_refreshed: a live feed price is a genuine
+        // reprice, and priced_at is what staleness (isStale/daysSincePriced)
+        // is measured against. The holdings_sync_priced_at trigger mirrors
+        // this onto last_refreshed for any remaining legacy reader.
+        priced_at: nowIso,
         price_fetch_error: null,
         price_fetch_fail_count: 0,
         ...(valueAed !== null ? { value_aed: Math.round(valueAed * 100) / 100 } : {}),
