@@ -33,8 +33,9 @@ import { netWorthSummary } from "../_shared/applib/overviewMath.js";
 import { monthActualsByCategory } from "../_shared/applib/budget.js";
 import { nextDueDate, daysUntilDue } from "../_shared/applib/creditCard.js";
 import { upcomingItems } from "../_shared/applib/recurring.js";
-import { isPosted, parseDay } from "../_shared/applib/day.js";
+import { isPosted, parseDay, atDayOfMonth, startOfDay } from "../_shared/applib/day.js";
 import { isSpendRow, spendDelta } from "../_shared/applib/transactionKind.js";
+import { visibleHoldings, scopedHoldingValue, holdingGain, allocationByClass, portfolioGain } from "../_shared/applib/holdings.js";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -548,6 +549,30 @@ const TOOLS_BASE = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "get_holdings",
+      description:
+        "Real investment/holdings data -- either the whole portfolio (total value, allocation by asset class, gain/loss) or one specific named holding (e.g. 'Apple stock', 'Bitcoin', 'HDFC mutual fund'). Use for any question about investments, stocks, crypto, mutual funds, or portfolio performance.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: {
+            type: "string",
+            description: "A specific holding's name as the user said it, if they asked about one in particular. Omit for the whole portfolio.",
+          },
+          range: {
+            type: "string",
+            enum: ["1W", "1M", "3M", "6M", "YTD", "1Y"],
+            description: "Only if asking how holdings have performed over a period, e.g. 'how are my investments doing this month'. Omit for a current snapshot.",
+          },
+          scope: { type: "string", enum: SCOPE_ENUM },
+        },
+        required: ["scope"],
+      },
+    },
+  },
 ];
 
 function resolveCategoryByName(categories: Array<{ id: string; name: string }>, name: string) {
@@ -681,6 +706,99 @@ async function toolGetBudgetStatus(householdId: string, scopeMemberId: string | 
     remaining_aed: budgeted !== null ? round2(budgeted - actual) : null,
     note: budgeted === null ? "No budget set for this category this month." : null,
   };
+}
+
+// Named-holding lookup uses the same "must resolve to exactly one" bar as
+// account/category matching elsewhere in this file -- a name two holdings
+// share abstains rather than guessing which one. With no name, this returns
+// a portfolio-level view instead: total value, allocation by asset class,
+// and an invested-value-based gain (only over holdings that actually have a
+// real invested figure -- see holdingGain, never a guessed cost basis).
+async function toolGetHoldings(householdId: string, scopeMemberId: string | null, args: Record<string, unknown>) {
+  const { data: holdings } = await supabase.from("holdings").select("*").eq("household_id", householdId);
+  const visible = visibleHoldings((holdings ?? []) as never, scopeMemberId) as Array<{
+    id: string;
+    name: string;
+    asset_class: string;
+    quantity: number | null;
+    value_aed: number;
+    invested_value_aed: number | null;
+    day_change_pct: number | null;
+    priced_at: string | null;
+    is_shared: boolean;
+    owner_member_id: string | null;
+  }>;
+
+  const nameArg = typeof args.name === "string" ? args.name.trim() : "";
+  if (nameArg) {
+    const norm = nameArg.toLowerCase();
+    const matches = visible.filter((h) => h.name.toLowerCase().includes(norm));
+    if (matches.length === 0) return { error: "holding_not_found", available: visible.map((h) => h.name) };
+    if (matches.length > 1) return { error: "ambiguous_holding", matches: matches.map((h) => h.name) };
+    const h = matches[0];
+    const gain = holdingGain(h as never, scopeMemberId);
+    return {
+      name: h.name,
+      asset_class: h.asset_class,
+      quantity: h.quantity,
+      value_aed: round2(scopedHoldingValue(h as never, scopeMemberId)),
+      day_change_pct: h.day_change_pct,
+      gain_aed: gain ? round2(gain.absolute) : null,
+      gain_pct: gain ? round2(gain.pct * 100) : null,
+      priced_at: h.priced_at,
+    };
+  }
+
+  const totalValue = visible.reduce((s, h) => s + scopedHoldingValue(h as never, scopeMemberId), 0);
+  const allocation = allocationByClass(visible as never, scopeMemberId).map((a: { assetClass: string; value: number; share: number }) => ({
+    asset_class: a.assetClass,
+    value_aed: round2(a.value),
+    share_pct: round2(a.share * 100),
+  }));
+
+  // Only holdings with a real invested_value_aed contribute to this --
+  // mixing in holdings with no cost basis would silently understate the
+  // gain rather than reflect an unknown one.
+  let investedBasis = 0;
+  let investedNowValue = 0;
+  let anyInvested = false;
+  for (const h of visible) {
+    const gain = holdingGain(h as never, scopeMemberId);
+    if (gain === null) continue;
+    anyInvested = true;
+    const nowValue = scopedHoldingValue(h as never, scopeMemberId);
+    investedNowValue += nowValue;
+    investedBasis += nowValue - gain.absolute;
+  }
+  const overallGain = anyInvested
+    ? { gain_aed: round2(investedNowValue - investedBasis), gain_pct: investedBasis > 0 ? round2(((investedNowValue - investedBasis) / investedBasis) * 100) : null }
+    : null;
+
+  const result: Record<string, unknown> = {
+    total_value_aed: round2(totalValue),
+    allocation,
+    overall_gain: overallGain,
+  };
+
+  const range = typeof args.range === "string" ? args.range : null;
+  if (range) {
+    const ids = visible.map((h) => h.id);
+    const { data: history } = ids.length
+      ? await supabase.from("holding_value_history").select("holding_id, as_of, value_aed").in("holding_id", ids)
+      : { data: [] as Array<{ holding_id: string; as_of: string; value_aed: number }> };
+    const perf = portfolioGain(visible as never, (history ?? []) as never, range, scopeMemberId);
+    result.range = range;
+    result.range_performance = perf.available
+      ? {
+          start_value_aed: round2(perf.startTotal!),
+          now_value_aed: round2(perf.nowTotal),
+          change_aed: round2(perf.absolute!),
+          change_pct: perf.pct !== null ? round2(perf.pct * 100) : null,
+        }
+      : { available: false, note: "Not enough price history to cover that range yet." };
+  }
+
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -925,6 +1043,149 @@ async function runRecurringCheck(): Promise<{ checked: number; nudged: number }>
   return { checked: dueRows?.length ?? 0, nudged };
 }
 
+// Runs alongside runRecurringCheck (see the ?run_recurring_check=1 handler
+// below) across every credit-card account with a due day set: a reminder
+// 1-2 days before (or on) the due date, and, if the balance still shows
+// owing a few days after, an "did you pay this?" nudge. There is no "marked
+// as paid" concept anywhere in this app -- a card's balance is simply
+// updated (manually, or by import) when it changes -- so "overdue" here is
+// the same proxy get_upcoming_bills already uses: balance still positive
+// past the due date. credit_card_nudges dedupes per (account, due date,
+// kind) so the same due date is never re-nagged on the next day's check.
+async function runCreditCardCheck(): Promise<{ checked: number; nudged: number }> {
+  const today = new Date();
+  const { data: cards } = await supabase
+    .from("accounts")
+    .select("id, household_id, name, owner_member_id, is_shared, balance, balance_aed, due_day")
+    .eq("type", "credit_card")
+    .is("archived_at", null)
+    .not("due_day", "is", null);
+
+  let nudged = 0;
+  for (const a of (cards ?? []) as Array<{
+    id: string;
+    household_id: string;
+    name: string;
+    owner_member_id: string | null;
+    is_shared: boolean;
+    balance: number;
+    balance_aed: number | null;
+    due_day: number;
+  }>) {
+    const bal = Number(a.balance_aed ?? a.balance);
+    if (bal <= 0) continue; // nothing owed, nothing to nag about
+
+    try {
+      // The one due date relevant right now: this month's, unless it
+      // hasn't happened yet, in which case it's still last month's that's
+      // the most recently passed one.
+      const thisMonthDue = atDayOfMonth(today.getFullYear(), today.getMonth(), a.due_day);
+      const dueDate = thisMonthDue <= today ? thisMonthDue : atDayOfMonth(today.getFullYear(), today.getMonth() - 1, a.due_day);
+      const daysSinceDue = Math.round((startOfDay(today).getTime() - dueDate.getTime()) / 86400000);
+
+      let kind: "due_soon" | "overdue" | null = null;
+      if (daysSinceDue >= -2 && daysSinceDue <= 0) kind = "due_soon";
+      else if (daysSinceDue >= 3 && daysSinceDue <= 10) kind = "overdue";
+      if (!kind) continue;
+
+      const dueDateStr = dueDate.toISOString().slice(0, 10);
+      const { data: alreadySent } = await supabase
+        .from("credit_card_nudges")
+        .select("account_id")
+        .eq("account_id", a.id)
+        .eq("due_date", dueDateStr)
+        .eq("kind", kind)
+        .maybeSingle();
+      if (alreadySent) continue;
+
+      const { data: members } = await supabase.from("household_members").select("id, telegram_user_id").eq("household_id", a.household_id);
+      const recipients = (
+        a.is_shared ? (members ?? []) : (members ?? []).filter((m: { id: string }) => m.id === a.owner_member_id)
+      ).filter((m: { telegram_user_id: number | null }) => m.telegram_user_id != null) as Array<{ telegram_user_id: number }>;
+
+      const message =
+        kind === "due_soon"
+          ? `${a.name} is due ${dueDateStr} -- outstanding balance AED ${bal.toFixed(2)}.`
+          : `${a.name} was due ${dueDateStr} and still shows AED ${bal.toFixed(2)} owing -- paid it another way, or forgot?`;
+      for (const m of recipients) await reply(m.telegram_user_id, message);
+
+      await supabase.from("credit_card_nudges").insert({ account_id: a.id, due_date: dueDateStr, kind });
+      nudged++;
+    } catch {
+      // One card's nudge failing must never block the rest.
+    }
+  }
+  return { checked: (cards ?? []).length, nudged };
+}
+
+const BUDGET_THRESHOLDS = [100, 90, 80];
+
+// Runs alongside runRecurringCheck (see the ?run_recurring_check=1 handler
+// below), household-wide (budgets are set at the household level, not per
+// member) for every category with a budget set this month: alerts the
+// household once a threshold (80/90/100% used) is newly crossed.
+// budget_alert_nudges dedupes per (household, category, month, threshold)
+// -- a threshold already alerted isn't repeated, but a later, higher
+// threshold crossed the same month still gets its own alert.
+async function runBudgetAlertCheck(): Promise<{ checked: number; nudged: number }> {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1;
+
+  const { data: budgetRows } = await supabase.from("budgets").select("household_id, category_id, amount").eq("year", year).eq("month", month).gt("amount", 0);
+
+  let nudged = 0;
+  for (const b of (budgetRows ?? []) as Array<{ household_id: string; category_id: string; amount: number }>) {
+    try {
+      const { data: category } = await supabase.from("categories").select("name").eq("id", b.category_id).maybeSingle();
+      if (!category) continue;
+
+      const { data: transactions } = await supabase
+        .from("transactions")
+        .select("amount, kind, occurred_at, category_id, is_shared, owner_member_id")
+        .eq("household_id", b.household_id)
+        .eq("category_id", b.category_id);
+      const actual = monthActualsByCategory((transactions ?? []) as never, year, month, null, now).get(b.category_id) ?? 0;
+      const budgeted = Number(b.amount);
+      const pct = (actual / budgeted) * 100;
+
+      // Highest threshold reached, checked in descending order -- the
+      // first one not yet sent gets sent, and the loop stops there (a
+      // lower threshold that jumped straight past isn't backfilled; the
+      // point is "you crossed X%", not a complete history).
+      for (const threshold of BUDGET_THRESHOLDS) {
+        if (pct < threshold) continue;
+        const { data: alreadySent } = await supabase
+          .from("budget_alert_nudges")
+          .select("threshold")
+          .eq("household_id", b.household_id)
+          .eq("category_id", b.category_id)
+          .eq("year", year)
+          .eq("month", month)
+          .eq("threshold", threshold)
+          .maybeSingle();
+        if (alreadySent) break;
+
+        const { data: members } = await supabase.from("household_members").select("id, telegram_user_id").eq("household_id", b.household_id);
+        const recipients = (members ?? []).filter((m: { telegram_user_id: number | null }) => m.telegram_user_id != null) as Array<{ telegram_user_id: number }>;
+
+        const message =
+          threshold >= 100
+            ? `Budget alert: ${category.name} is over budget this month -- AED ${actual.toFixed(2)} spent of AED ${budgeted.toFixed(2)}.`
+            : `Budget alert: ${category.name} has hit ${threshold}% of this month's budget (AED ${actual.toFixed(2)} of AED ${budgeted.toFixed(2)}).`;
+        for (const m of recipients) await reply(m.telegram_user_id, message);
+
+        await supabase.from("budget_alert_nudges").insert({ household_id: b.household_id, category_id: b.category_id, year, month, threshold });
+        nudged++;
+        break;
+      }
+    } catch {
+      // One category's alert failing must never block the rest.
+    }
+  }
+  return { checked: (budgetRows ?? []).length, nudged };
+}
+
 Deno.serve(async (req) => {
   const url = new URL(req.url);
 
@@ -938,12 +1199,16 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
   }
 
-  // Daily recurring-payment check, triggered by pg_cron -- not user-facing,
+  // Daily proactive-reminder check, triggered by pg_cron -- not user-facing,
   // same trust model as ?setup=1 above (this repo has no edge-function
-  // secret-management path to gate it further behind).
+  // secret-management path to gate it further behind). Covers three
+  // independent things in one run: missed recurring bills, credit-card due
+  // dates, and budget thresholds -- kept under the same query param the
+  // existing pg_cron job already calls, rather than adding new jobs for
+  // each.
   if (req.method === "GET" && url.searchParams.get("run_recurring_check") === "1") {
-    const result = await runRecurringCheck();
-    return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
+    const [recurring, creditCards, budgets] = await Promise.all([runRecurringCheck(), runCreditCardCheck(), runBudgetAlertCheck()]);
+    return new Response(JSON.stringify({ recurring, credit_cards: creditCards, budgets }), { headers: { "Content-Type": "application/json" } });
   }
 
   let update: Record<string, unknown>;
@@ -1150,6 +1415,9 @@ Deno.serve(async (req) => {
             break;
           case "get_budget_status":
             result = await toolGetBudgetStatus(member.household_id, scopeMemberId, args);
+            break;
+          case "get_holdings":
+            result = await toolGetHoldings(member.household_id, scopeMemberId, args);
             break;
           default:
             result = { error: "unknown_tool" };
