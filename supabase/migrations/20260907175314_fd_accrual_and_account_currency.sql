@@ -60,7 +60,7 @@ begin
     elsif new.compounding = 'quarterly' then v_periods_per_year := 4;
     elsif new.compounding = 'half_yearly' then v_periods_per_year := 2;
     elsif new.compounding = 'annually' then v_periods_per_year := 1;
-    else v_periods_per_year := null; -- 'simple': interest paid once at maturity, no periodic compounding
+    else v_periods_per_year := null;
     end if;
 
     if v_periods_per_year is null then

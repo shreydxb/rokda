@@ -1,15 +1,182 @@
 [
-  { "version": "20260903063647", "name": "baseline_schema",              "fingerprint": "5a0c93a262360d9ed3d858d0f6400565", "fingerprintVersion": 2 },
-  { "version": "20260903083752", "name": "recurring",                    "fingerprint": "41abc48abd5144c3baa52fbc89681671", "fingerprintVersion": 2 },
-  { "version": "20260903084323", "name": "budgets",                      "fingerprint": "c9b6e62a84aa7221592d268db81da789", "fingerprintVersion": 2 },
-  { "version": "20260903085026", "name": "intake",                       "fingerprint": "236c770004a0709db1c5de185d0584f7", "fingerprintVersion": 2 },
-  { "version": "20260903103555", "name": "net_worth_snapshots",          "fingerprint": "b3281db39923a469f0f7a07ec7c7d0aa", "fingerprintVersion": 2 },
-  { "version": "20260903104347", "name": "account_credit_card_fields",   "fingerprint": "000509ef10c876c6115e6e350c08761c", "fingerprintVersion": 2 },
-  { "version": "20260903104705", "name": "holdings",                     "fingerprint": "3efc59145136db94d2a51c7673ea663d", "fingerprintVersion": 2 },
-  { "version": "20260903115800", "name": "planning",                     "fingerprint": "1ed1fea0c1bb6cfa32954ba6508788ec", "fingerprintVersion": 2 },
-  { "version": "20260903120014", "name": "debts_original_amount",        "fingerprint": "13e41d5d8b50eb7a59e6ed5e013d993f", "fingerprintVersion": 2 },
-  { "version": "20260903124126", "name": "settings",                     "fingerprint": "f379a1492e4b649e360a4b146a0da09b", "fingerprintVersion": 2 },
-  { "version": "20260905151410", "name": "holding_pricing_fields",       "fingerprint": "7c7d9703e5903b78b48df0845aa29e2d", "fingerprintVersion": 2 },
-  { "version": "20260905151910", "name": "household_inr_rate",           "fingerprint": "fe86097c0d0ec638749dc0132635f290", "fingerprintVersion": 2 },
-  { "version": "20260905171120", "name": "holdings_commodity_class",     "fingerprint": "df4de737fabb4a2f235dd8fd6002723b", "fingerprintVersion": 2 }
+  {
+    "version": "20260903063647",
+    "name": "baseline_schema",
+    "fingerprint": "5a0c93a262360d9ed3d858d0f6400565",
+    "fingerprintVersion": 2
+  },
+  {
+    "version": "20260903083752",
+    "name": "recurring",
+    "fingerprint": "41abc48abd5144c3baa52fbc89681671",
+    "fingerprintVersion": 2
+  },
+  {
+    "version": "20260903084323",
+    "name": "budgets",
+    "fingerprint": "c9b6e62a84aa7221592d268db81da789",
+    "fingerprintVersion": 2
+  },
+  {
+    "version": "20260903085026",
+    "name": "intake",
+    "fingerprint": "236c770004a0709db1c5de185d0584f7",
+    "fingerprintVersion": 2
+  },
+  {
+    "version": "20260903103555",
+    "name": "net_worth_snapshots",
+    "fingerprint": "b3281db39923a469f0f7a07ec7c7d0aa",
+    "fingerprintVersion": 2
+  },
+  {
+    "version": "20260903104347",
+    "name": "account_credit_card_fields",
+    "fingerprint": "000509ef10c876c6115e6e350c08761c",
+    "fingerprintVersion": 2
+  },
+  {
+    "version": "20260903104705",
+    "name": "holdings",
+    "fingerprint": "3efc59145136db94d2a51c7673ea663d",
+    "fingerprintVersion": 2
+  },
+  {
+    "version": "20260903115800",
+    "name": "planning",
+    "fingerprint": "1ed1fea0c1bb6cfa32954ba6508788ec",
+    "fingerprintVersion": 2
+  },
+  {
+    "version": "20260903120014",
+    "name": "debts_original_amount",
+    "fingerprint": "13e41d5d8b50eb7a59e6ed5e013d993f",
+    "fingerprintVersion": 2
+  },
+  {
+    "version": "20260903124126",
+    "name": "settings",
+    "fingerprint": "f379a1492e4b649e360a4b146a0da09b",
+    "fingerprintVersion": 2
+  },
+  {
+    "version": "20260905151410",
+    "name": "holding_pricing_fields",
+    "fingerprint": "7c7d9703e5903b78b48df0845aa29e2d",
+    "fingerprintVersion": 2
+  },
+  {
+    "version": "20260905151910",
+    "name": "household_inr_rate",
+    "fingerprint": "fe86097c0d0ec638749dc0132635f290",
+    "fingerprintVersion": 2
+  },
+  {
+    "version": "20260905171120",
+    "name": "holdings_commodity_class",
+    "fingerprint": "df4de737fabb4a2f235dd8fd6002723b",
+    "fingerprintVersion": 2
+  },
+  {
+    "version": "20260906164549",
+    "name": "price_feed_schema",
+    "fingerprint": "3f1239da9dbe78d10387c620aefebccb",
+    "fingerprintVersion": 2
+  },
+  {
+    "version": "20260906164819",
+    "name": "price_refresh_schedule",
+    "fingerprint": "acb552b51ba5ace184762966e889bb7b",
+    "fingerprintVersion": 2
+  },
+  {
+    "version": "20260906165336",
+    "name": "transaction_edits",
+    "fingerprint": "ae37379b7aa96da78c5188b4c71a5811",
+    "fingerprintVersion": 2
+  },
+  {
+    "version": "20260906165939",
+    "name": "transaction_edits_server_side_author",
+    "fingerprint": "c70ab6a1498cba0ffaf3cef4fd4288fe",
+    "fingerprintVersion": 2
+  },
+  {
+    "version": "20260906171147",
+    "name": "restrict_transaction_edit_author_execute",
+    "fingerprint": "6c93f6837736f1fe9e338717548e9ced",
+    "fingerprintVersion": 2
+  },
+  {
+    "version": "20260906171215",
+    "name": "restrict_transaction_edit_author_execute_v2",
+    "fingerprint": "96304c18f3d9d2c9b9793bfcb56b8737",
+    "fingerprintVersion": 2
+  },
+  {
+    "version": "20260906175836",
+    "name": "add_yahoo_price_provider",
+    "fingerprint": "92d2697a9b48d0dcafcfe1c64cb4f51f",
+    "fingerprintVersion": 2
+  },
+  {
+    "version": "20260907060912",
+    "name": "telegram_linking",
+    "fingerprint": "0955e212f2a95f0f342fe96e473703da",
+    "fingerprintVersion": 2
+  },
+  {
+    "version": "20260907060927",
+    "name": "telegram_intake_fields",
+    "fingerprint": "f7653b312a47ea0fb5566e9621b03a59",
+    "fingerprintVersion": 2
+  },
+  {
+    "version": "20260907061533",
+    "name": "pin_telegram_guard_search_path",
+    "fingerprint": "9b2933c4b5ea3d4be895b1412986b5e0",
+    "fingerprintVersion": 2
+  },
+  {
+    "version": "20260907174003",
+    "name": "goal_allocations",
+    "fingerprint": "59a5d41ad0d2bb19f51ab22541a63502",
+    "fingerprintVersion": 2
+  },
+  {
+    "version": "20260907175314",
+    "name": "fd_accrual_and_account_currency",
+    "fingerprint": "588a7cbedaf2ce1475489770be46c82e",
+    "fingerprintVersion": 2
+  },
+  {
+    "version": "20260907181112",
+    "name": "pr1_reconciliation",
+    "fingerprint": "3d4b071cf559d28a41566f5ee9d57617",
+    "fingerprintVersion": 2
+  },
+  {
+    "version": "20260907190612",
+    "name": "intake_currency_account",
+    "fingerprint": "5b1c519398957c1dee69d7a8e0a72a60",
+    "fingerprintVersion": 2
+  },
+  {
+    "version": "20260908071059",
+    "name": "telegram_nudges_and_context",
+    "fingerprint": "2d49d4554daf92653139d5d166cebb27",
+    "fingerprintVersion": 2
+  },
+  {
+    "version": "20260908072523",
+    "name": "recurring_check_cron",
+    "fingerprint": "79009009680a84621183ac6085bc4074",
+    "fingerprintVersion": 2
+  },
+  {
+    "version": "20260908075308",
+    "name": "proactive_nudges_and_rls_fix",
+    "fingerprint": "304780501dd2127627cd3c161e12d16c",
+    "fingerprintVersion": 2
+  }
 ]

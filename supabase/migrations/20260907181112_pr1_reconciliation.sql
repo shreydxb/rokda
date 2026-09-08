@@ -96,9 +96,6 @@ begin
   if p_amount is null or p_amount = 0 then
     raise exception 'an amount is required' using errcode = '22023';
   end if;
-  -- No native-currency conversion for transactions yet (accounts/holdings
-  -- have it; a manually-approved intake row does not) -- refused rather
-  -- than accepted and misread as AED (SHR-252).
   if upper(coalesce(p_currency, 'AED')) <> 'AED' then
     raise exception 'only AED is supported for approval right now' using errcode = 'P0001';
   end if;
