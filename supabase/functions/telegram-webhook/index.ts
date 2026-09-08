@@ -152,6 +152,7 @@ async function parseIntakeWithAI(params: {
     `"account_hint" is the account/card NAME mentioned in the message, if any (e.g. "Wio", "FAB Z", "ENBD Noon", "FAB Islamic") -- a short free-text name, not digits, or null if no account/card is named. ` +
     `"category" MUST be exactly one of these household categories, verbatim, or null if none clearly fits -- never invent a category name: ` +
     `${JSON.stringify(categoryNames)}. ` +
+    `This list mixes broad categories (e.g. "Transport") with specific subcategories of them (e.g. "Salik / Parking / Misc", "Car EMI", "Fuel" -- all under Transport). Always prefer the most specific one that clearly fits over its broader parent: a toll/parking charge is "Salik / Parking / Misc", not "Transport"; a car loan instalment is "Car EMI", not "Transport". Only fall back to the broad parent when nothing more specific applies (e.g. a taxi fare, which fits none of Transport's subcategories). ` +
     `Note: "Noon Minutes" (or "Minutes") is Noon's fast grocery delivery service, not its general marketplace -- categorise it as groceries, not shopping, if a groceries-like category exists. ` +
     `"confidence" is your own confidence in this extraction, 0 to 1. ` +
     `If you cannot determine a field, use null rather than guessing.`;

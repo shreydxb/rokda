@@ -9,6 +9,7 @@ export default function Activity({ household, members, me, data, loading }) {
   const { scope } = useScope();
   const scopeMemberId = resolveScopeMemberId(scope, me, members);
   const { transactions, accounts, categories, reload } = data;
+  const accountById = useMemo(() => new Map(accounts.map((a) => [a.id, a])), [accounts]);
 
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
@@ -91,22 +92,39 @@ export default function Activity({ household, members, me, data, loading }) {
         </div>
       ) : (
         <div className="mn-list">
-          {rows.map((t) => (
-            <button key={t.id} type="button" className="mn-row" onClick={() => setEditing(t)}>
-              <div className="mn-row-main">
-                <div>{t.merchant || 'Transaction'}</div>
-                <div className="ov-muted">
-                  {new Date(t.occurred_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
-                  {' · '}
-                  {t.categories?.name ?? 'Uncategorised'}
-                  {' · '}
-                  {ownerLabel(t, members)}
-                  {t.needs_review ? <span className="ov-warn"> · needs review</span> : null}
+          <div className="om-tx om-tx-head">
+            <div>Date</div>
+            <div>Merchant</div>
+            <div className="om-hide-sm">Category</div>
+            <div className="om-hide-sm">Owner</div>
+            <div className="om-hide-sm">Account</div>
+            <div className="om-tx-amt">Amount</div>
+            <div />
+          </div>
+          {rows.map((t) => {
+            const categoryName = t.categories?.name ?? 'Uncategorised';
+            const owner = ownerLabel(t, members);
+            const account = accountById.get(t.account_id)?.name ?? '—';
+            return (
+              <button key={t.id} type="button" className="om-tx om-tx-row" onClick={() => setEditing(t)}>
+                <div className="om-tx-date">
+                  {new Date(t.occurred_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
                 </div>
-              </div>
-              <div className={`fig mn-row-amt ${Number(t.amount) > 0 ? 'ov-pos' : ''}`}>{formatSigned(t.amount)}</div>
-            </button>
-          ))}
+                <div className="om-tx-merchant">
+                  {t.merchant || 'Transaction'}
+                  {t.needs_review && <span className="om-tx-flag ov-warn"> · needs review</span>}
+                  <div className="om-tx-meta">
+                    {categoryName} · {account} · {owner}
+                  </div>
+                </div>
+                <div className={`om-hide-sm om-tx-cat ${categoryName === 'Uncategorised' ? 'ov-warn' : ''}`}>{categoryName}</div>
+                <div className="om-hide-sm om-tx-owner">{owner}</div>
+                <div className="om-hide-sm om-tx-account">{account}</div>
+                <div className={`fig om-tx-amt ${Number(t.amount) > 0 ? 'ov-pos' : ''}`}>{formatSigned(t.amount)}</div>
+                <div className="om-tx-chev">›</div>
+              </button>
+            );
+          })}
         </div>
       )}
 

@@ -83,6 +83,91 @@
   font-size: 16px;
 }
 
+/* activity: a real per-column table (date/merchant/category/owner/account/
+   amount), not just a two-line row -- matches design/Our Money - Command
+   Center v3.dc.html's om-tx layout, including its narrow-width collapse
+   (category/owner/account fold into one meta line under the merchant). */
+.om-tx {
+  display: grid;
+  grid-template-columns: 74px 1.5fr 1fr 90px 1fr 120px 14px;
+  gap: 16px;
+  align-items: baseline;
+}
+.om-tx-head {
+  padding: 14px 0 10px;
+  margin-top: 12px;
+  border-bottom: 1px solid var(--rule2);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink3);
+}
+.om-tx-row {
+  padding: 12px 0;
+  border-top: 1px solid var(--rule);
+  cursor: pointer;
+  background: none;
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+  text-align: left;
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  font-size: 13.5px;
+}
+.om-tx-row:hover {
+  background: var(--raise);
+}
+.om-tx-date {
+  color: var(--ink3);
+  font-size: 12px;
+}
+.om-tx-merchant {
+  min-width: 0;
+}
+.om-tx-flag {
+  font-size: 11.5px;
+}
+.om-tx-meta {
+  display: none;
+  font-size: 11.5px;
+  color: var(--ink3);
+  margin-top: 3px;
+}
+.om-tx-cat {
+  color: var(--ink2);
+}
+.om-tx-owner,
+.om-tx-account {
+  color: var(--ink2);
+  font-size: 12px;
+}
+.om-tx-amt {
+  text-align: right;
+  font-size: 16px;
+}
+.om-tx-head .om-tx-amt {
+  font-size: inherit;
+}
+.om-tx-chev {
+  color: var(--ink3);
+  font-size: 14px;
+  line-height: 1;
+}
+
+@container (max-width: 720px) {
+  .om-tx {
+    grid-template-columns: 66px minmax(0, 1fr) 108px 14px;
+  }
+  .om-hide-sm {
+    display: none;
+  }
+  .om-tx-meta {
+    display: block;
+  }
+}
+
 /* calendar */
 .cal {
   margin-top: 22px;

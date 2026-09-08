@@ -18,6 +18,17 @@
   flex-direction: column;
   padding: 22px 0 16px;
   gap: 24px;
+  /* Without this the sidebar is just a tall flex item that scrolls away
+     with .om-main on any page long enough to scroll -- the household/
+     currency toggles and sign-out end up needing a scroll back up to
+     reach. Pinning it to the viewport (and letting it scroll internally
+     on very short viewports) keeps it reachable everywhere, matching the
+     one page short enough to never have exposed the problem. */
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  max-height: 100vh;
+  overflow-y: auto;
 }
 
 .om-brand {
