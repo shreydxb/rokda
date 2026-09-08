@@ -28,11 +28,13 @@
 // message (no photo/document attached); a photo is presumptively a receipt.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { resolveScopeMemberId } from "../_shared/applib/scope.js";
+import { resolveScopeMemberId, scopedValue } from "../_shared/applib/scope.js";
 import { netWorthSummary } from "../_shared/applib/overviewMath.js";
 import { monthActualsByCategory } from "../_shared/applib/budget.js";
 import { nextDueDate, daysUntilDue } from "../_shared/applib/creditCard.js";
 import { upcomingItems } from "../_shared/applib/recurring.js";
+import { isPosted, parseDay } from "../_shared/applib/day.js";
+import { isSpendRow, spendDelta } from "../_shared/applib/transactionKind.js";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -256,6 +258,40 @@ async function matchCategoryFromMerchantHistory(householdId: string, merchant: s
   return category ?? null;
 }
 
+// Same check as src/lib/duplicates.js findDuplicate (merchant + amount +
+// account, within 3 days), ported server-side. The Inbox review screen
+// already flags this, but the "yes"/reaction fast-confirm path skips the
+// Inbox entirely -- without this, a resent message with everything already
+// resolved could get confirmed straight into a second real transaction with
+// no warning at all.
+async function findDuplicateTransaction(
+  householdId: string,
+  accountId: string | null,
+  merchant: string | null,
+  amount: number | string | null,
+  occurredAt: string | null
+): Promise<{ id: string; amount: number; occurred_at: string } | null> {
+  const normMerchant = merchant?.trim().toLowerCase();
+  const numAmount = amount != null ? Number(amount) : null;
+  if (!accountId || !normMerchant || !numAmount || !occurredAt) return null;
+  const occurred = new Date(occurredAt).getTime();
+  const DAY_MS = 24 * 60 * 60 * 1000;
+
+  const { data: rows } = await supabase
+    .from("transactions")
+    .select("id, amount, merchant, occurred_at")
+    .eq("household_id", householdId)
+    .eq("account_id", accountId);
+
+  const match = (rows ?? []).find((t: { amount: number; merchant: string | null; occurred_at: string }) => {
+    if ((t.merchant ?? "").trim().toLowerCase() !== normMerchant) return false;
+    if (Math.abs(Math.abs(Number(t.amount)) - numAmount) > 0.01) return false;
+    const diffDays = Math.abs(new Date(t.occurred_at).getTime() - occurred) / DAY_MS;
+    return diffDays <= 3;
+  });
+  return match ? { id: match.id, amount: Number(match.amount), occurred_at: match.occurred_at } : null;
+}
+
 const PENDING_WINDOW_MS = 20 * 60 * 1000;
 
 // A short, near-exact "yes" to a fast-confirm prompt (see the bottom of
@@ -311,8 +347,28 @@ function isReadyForFastConfirm(row: {
 // path.
 const THUMBS_UP_EMOJIS = new Set(["\u{1F44D}", "✅"]);
 
-async function confirmPendingIntake(chatId: number, recentPending: PendingIntakeRow): Promise<void> {
+async function confirmPendingIntake(chatId: number, householdId: string, recentPending: PendingIntakeRow): Promise<void> {
   try {
+    // A final safety check right before writing: the eligibility check that
+    // offered this fast-confirm already ran a duplicate check at parse time,
+    // but a duplicate could exist now that didn't then (e.g. entered
+    // manually in the portal in between). Never silently record a second
+    // real transaction -- fall back to the Inbox instead.
+    const duplicate = await findDuplicateTransaction(
+      householdId,
+      recentPending.parsed_account_id,
+      recentPending.parsed_merchant,
+      recentPending.parsed_amount,
+      recentPending.parsed_date
+    );
+    if (duplicate) {
+      await reply(
+        chatId,
+        `Hold on -- this looks like it might duplicate an existing AED ${duplicate.amount.toFixed(2)} transaction on ${duplicate.occurred_at}. Please review it in the Inbox instead.`
+      );
+      return;
+    }
+
     const { error: approveError } = await supabase.rpc("approve_intake", {
       p_intake_id: recentPending.id,
       p_account_id: recentPending.parsed_account_id,
@@ -377,7 +433,7 @@ async function handleReaction(reaction: Record<string, unknown>): Promise<Respon
   const recentPending = recentPendingRows?.[0] ?? null;
   if (!recentPending || !isReadyForFastConfirm(recentPending)) return new Response("ok");
 
-  await confirmPendingIntake(chatId, recentPending);
+  await confirmPendingIntake(chatId, member.household_id, recentPending);
   return new Response("ok");
 }
 
@@ -627,7 +683,101 @@ async function toolGetBudgetStatus(householdId: string, scopeMemberId: string | 
   };
 }
 
-async function classifyAndRoute(rawText: string, categoryNames: string[], recentPending: { raw_text: string | null; created_at: string } | null) {
+// ---------------------------------------------------------------------------
+// /brief digest -- deterministic, template-built from the same real tools
+// above rather than another LLM call: cheaper, and there's no room for a
+// phrasing pass to drift from the actual numbers on something meant to be
+// glanced at daily. Household-wide (scope=null) rather than "me", since the
+// point is a shared status check, not a personal one.
+// ---------------------------------------------------------------------------
+
+const BRIEF_TRIGGERS = new Set(["brief", "/brief", "digest", "/digest", "summary", "daily brief"]);
+
+// Total spend this month across every category combined -- the tools above
+// only ever total one category at a time, so this reuses the same
+// scope/posted-only rules by hand rather than looping every category through
+// monthActualsByCategory.
+async function toolGetMonthSpendTotal(householdId: string, scopeMemberId: string | null): Promise<number> {
+  const { data: transactions } = await supabase
+    .from("transactions")
+    .select("amount, kind, occurred_at, is_shared, owner_member_id")
+    .eq("household_id", householdId);
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1;
+  let total = 0;
+  for (const t of (transactions ?? []) as Array<{ amount: number; kind: string; occurred_at: string; is_shared: boolean; owner_member_id: string | null }>) {
+    const d = parseDay(t.occurred_at);
+    if (d.getFullYear() !== year || d.getMonth() + 1 !== month) continue;
+    if (!(scopeMemberId === null || t.is_shared || t.owner_member_id === scopeMemberId)) continue;
+    if (!isPosted(t, now)) continue;
+    const v = scopedValue(t.amount, t, scopeMemberId);
+    if (!isSpendRow(t, v)) continue;
+    total += spendDelta(t, v);
+  }
+  return round2(total);
+}
+
+// Every category with a budget set this month that's at or over 90% used --
+// the same threshold the frontend budget bars treat as "watch this".
+async function toolGetBudgetAlerts(householdId: string, scopeMemberId: string | null): Promise<Array<{ category: string; pct: number }>> {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1;
+  const [{ data: budgetRows }, { data: categories }, { data: transactions }] = await Promise.all([
+    supabase.from("budgets").select("category_id, amount").eq("household_id", householdId).eq("year", year).eq("month", month),
+    supabase.from("categories").select("id, name").eq("household_id", householdId),
+    supabase.from("transactions").select("amount, kind, occurred_at, category_id, is_shared, owner_member_id").eq("household_id", householdId),
+  ]);
+  const actualsMap = monthActualsByCategory((transactions ?? []) as never, year, month, scopeMemberId, now);
+  const alerts: Array<{ category: string; pct: number }> = [];
+  for (const b of (budgetRows ?? []) as Array<{ category_id: string; amount: number }>) {
+    const budgeted = Number(b.amount);
+    if (budgeted <= 0) continue;
+    const cat = (categories ?? []).find((c: { id: string; name: string }) => c.id === b.category_id);
+    if (!cat) continue;
+    const actual = actualsMap.get(b.category_id) ?? 0;
+    const pct = round2((actual / budgeted) * 100);
+    if (pct >= 90) alerts.push({ category: cat.name, pct });
+  }
+  return alerts.sort((a, b) => b.pct - a.pct);
+}
+
+async function buildBriefMessage(householdId: string): Promise<string> {
+  const [netWorth, monthSpend, bills, budgetAlerts, pendingResult] = await Promise.all([
+    toolGetNetWorth(householdId, null),
+    toolGetMonthSpendTotal(householdId, null),
+    toolGetUpcomingBills(householdId, null),
+    toolGetBudgetAlerts(householdId, null),
+    supabase.from("intake").select("id", { count: "exact", head: true }).eq("household_id", householdId).eq("status", "pending"),
+  ]);
+
+  const lines: string[] = [];
+  lines.push(`Net worth: AED ${netWorth.net_worth_aed.toLocaleString()}`);
+  lines.push(`Spent this month: AED ${monthSpend.toLocaleString()}`);
+
+  const billLines = [
+    ...bills.recurring.map((r: { name: string; amount_aed: number; due_date: string }) => `${r.name} AED ${r.amount_aed} (${r.due_date})`),
+    ...bills.credit_cards.map((c: { name: string; amount_owed_aed: number; due_date: string }) => `${c.name} AED ${c.amount_owed_aed} (${c.due_date})`),
+  ];
+  lines.push(billLines.length ? `Due in 14 days: ${billLines.join(", ")}` : "Nothing due in the next 14 days.");
+
+  if (budgetAlerts.length) {
+    lines.push(`Budget watch: ${budgetAlerts.map((a) => `${a.category} ${a.pct}%`).join(", ")}`);
+  }
+
+  const pendingCount = pendingResult.count ?? 0;
+  lines.push(pendingCount ? `Inbox: ${pendingCount} item${pendingCount === 1 ? "" : "s"} to review.` : "Inbox is clear.");
+
+  return lines.join("\n");
+}
+
+async function classifyAndRoute(
+  rawText: string,
+  categoryNames: string[],
+  recentPending: { raw_text: string | null; created_at: string } | null,
+  priorContext: { question: string; answer: string } | null
+) {
   const system =
     `You are a household finance assistant for Rokda, chatting with a household member via Telegram. ` +
     `If their message reports a real expense/income/refund that already happened (e.g. "spent 40 on lunch", "paid the rent"), ALWAYS call log_expense immediately -- even if the category, merchant, or exact amount isn't fully clear. ` +
@@ -637,17 +787,27 @@ async function classifyAndRoute(rawText: string, categoryNames: string[], recent
     `Known expense categories (for question tools only, not required for logging): ${JSON.stringify(categoryNames)}.` +
     (recentPending
       ? ` The member's most recently sent entry, still pending review, was: "${recentPending.raw_text}" (sent ${recentPending.created_at}). If and only if this new message is explicitly correcting/amending that same entry, call update_last_expense. A genuinely new, separate expense -- even one sent moments later -- should still call log_expense.`
+      : "") +
+    (priorContext
+      ? ` A short-lived note: the member's previous question was "${priorContext.question}" and the real answer given was "${priorContext.answer}". If this new message is a brief follow-up to that (e.g. "compare that to last month", "what about groceries instead"), use it to fill in what's being asked -- but still only via a fresh tool call; never state a number from the previous answer directly. If this message is unrelated, ignore that note entirely.`
       : "");
+
+  const messages: Array<Record<string, unknown>> = [{ role: "system", content: system }];
+  // The prior exchange is offered as real conversation turns (not just
+  // described in the system prompt) so the model can naturally resolve a
+  // pronoun or an implicit "instead of X" against it.
+  if (priorContext) {
+    messages.push({ role: "user", content: priorContext.question });
+    messages.push({ role: "assistant", content: priorContext.answer });
+  }
+  messages.push({ role: "user", content: rawText });
 
   const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model: PARSE_MODEL,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: rawText },
-      ],
+      messages,
       tools: buildTools(recentPending !== null),
       tool_choice: "auto",
     }),
@@ -682,6 +842,89 @@ async function phraseAnswer(question: string, toolResult: unknown): Promise<stri
   }
 }
 
+// Runs once a day via pg_cron (see the ?run_recurring_check=1 handler below)
+// across ALL households: an active recurring item whose due date passed a
+// few days ago with nothing resembling it in `transactions` gets a one-time
+// nudge to the member(s) it belongs to. recurring_nudges records that a
+// nudge was already sent for a (recurring row, due date) pair so the same
+// missed bill is never re-nagged on the next day's check.
+async function runRecurringCheck(): Promise<{ checked: number; nudged: number }> {
+  const today = new Date();
+  const graceStart = new Date(today);
+  graceStart.setDate(graceStart.getDate() - 10); // don't look back further than 10 days overdue
+  const graceEnd = new Date(today);
+  graceEnd.setDate(graceEnd.getDate() - 3); // give a few days of normal processing time before nudging
+
+  const { data: dueRows } = await supabase
+    .from("recurring")
+    .select("id, household_id, name, owner_member_id, is_shared, amount, next_due_date")
+    .eq("active", true)
+    .gte("next_due_date", graceStart.toISOString().slice(0, 10))
+    .lte("next_due_date", graceEnd.toISOString().slice(0, 10));
+
+  let nudged = 0;
+  for (const r of (dueRows ?? []) as Array<{
+    id: string;
+    household_id: string;
+    name: string;
+    owner_member_id: string | null;
+    is_shared: boolean;
+    amount: number;
+    next_due_date: string;
+  }>) {
+    try {
+      const { data: alreadySent } = await supabase
+        .from("recurring_nudges")
+        .select("recurring_id")
+        .eq("recurring_id", r.id)
+        .eq("due_date", r.next_due_date)
+        .maybeSingle();
+      if (alreadySent) continue;
+
+      // A "match" is anything roughly the right amount (20% tolerance --
+      // bills like DEWA vary month to month) posted within 5 days either
+      // side of the due date. Merchant text isn't checked: it's too
+      // inconsistent between a bank SMS and a manual entry to be a
+      // reliable signal here, and amount + timing is already a fair bar.
+      const windowStart = new Date(r.next_due_date);
+      windowStart.setDate(windowStart.getDate() - 5);
+      const windowEnd = new Date(r.next_due_date);
+      windowEnd.setDate(windowEnd.getDate() + 5);
+      const { data: nearby } = await supabase
+        .from("transactions")
+        .select("id, amount")
+        .eq("household_id", r.household_id)
+        .gte("occurred_at", windowStart.toISOString().slice(0, 10))
+        .lte("occurred_at", windowEnd.toISOString().slice(0, 10));
+      const amount = Math.abs(Number(r.amount));
+      const matched = (nearby ?? []).some((t: { amount: number }) => Math.abs(Math.abs(Number(t.amount)) - amount) <= amount * 0.2);
+      if (matched) continue;
+
+      const { data: members } = await supabase
+        .from("household_members")
+        .select("id, telegram_user_id")
+        .eq("household_id", r.household_id);
+      const recipients = (
+        r.is_shared
+          ? (members ?? [])
+          : (members ?? []).filter((m: { id: string }) => m.id === r.owner_member_id)
+      ).filter((m: { telegram_user_id: number | null }) => m.telegram_user_id != null) as Array<{ telegram_user_id: number }>;
+
+      for (const m of recipients) {
+        await reply(
+          m.telegram_user_id,
+          `I don't see a transaction for "${r.name}" yet (usually around AED ${amount.toFixed(2)}, due ${r.next_due_date}) -- forgot to log it, or paid another way?`
+        );
+      }
+      await supabase.from("recurring_nudges").insert({ recurring_id: r.id, due_date: r.next_due_date });
+      nudged++;
+    } catch {
+      // One recurring row's nudge failing must never block the rest.
+    }
+  }
+  return { checked: dueRows?.length ?? 0, nudged };
+}
+
 Deno.serve(async (req) => {
   const url = new URL(req.url);
 
@@ -692,6 +935,14 @@ Deno.serve(async (req) => {
       url: `${SUPABASE_URL}/functions/v1/telegram-webhook`,
       allowed_updates: ["message", "message_reaction"],
     });
+    return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
+  }
+
+  // Daily recurring-payment check, triggered by pg_cron -- not user-facing,
+  // same trust model as ?setup=1 above (this repo has no edge-function
+  // secret-management path to gate it further behind).
+  if (req.method === "GET" && url.searchParams.get("run_recurring_check") === "1") {
+    const result = await runRecurringCheck();
     return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
   }
 
@@ -718,7 +969,7 @@ Deno.serve(async (req) => {
 
   const { data: member } = await supabase
     .from("household_members")
-    .select("id, household_id, display_name")
+    .select("id, household_id, display_name, telegram_last_question, telegram_last_answer, telegram_last_context_at")
     .eq("telegram_user_id", fromId)
     .maybeSingle();
 
@@ -762,6 +1013,16 @@ Deno.serve(async (req) => {
   const doc = message.document as { file_id: string } | undefined;
   const fileId = photos?.length ? photos[photos.length - 1].file_id : doc?.file_id;
 
+  // "/brief" (and a few aliases) short-circuits straight to a template
+  // digest -- no LLM call, so it's free, and it's checked before anything
+  // else touches `intake` since it's never a question about a specific
+  // entry.
+  if (rawText && !fileId && BRIEF_TRIGGERS.has(rawText.trim().toLowerCase())) {
+    const brief = await buildBriefMessage(member.household_id);
+    await reply(chatId, brief);
+    return new Response("ok");
+  }
+
   // A recent, still-pending entry from this member -- checked below both as
   // a fast-confirm target (an exact "yes" reply) and, further down, offered
   // to the classifier as something a new message might be correcting rather
@@ -795,7 +1056,7 @@ Deno.serve(async (req) => {
     // at all, so this costs nothing beyond a couple of small DB reads.
     const trimmedText = rawText.trim();
     if (recentPending && isReadyForFastConfirm(recentPending) && (CONFIRM_REGEX.test(trimmedText) || THUMBS_UP_EMOJIS.has(trimmedText))) {
-      await confirmPendingIntake(chatId, recentPending);
+      await confirmPendingIntake(chatId, member.household_id, recentPending);
       return new Response("ok");
     }
   }
@@ -812,7 +1073,19 @@ Deno.serve(async (req) => {
         .eq("kind", "expense")
         .eq("archived", false);
 
-      const routed = await classifyAndRoute(rawText, (categories ?? []).map((c) => c.name), recentPending);
+      // A short follow-up ("compare that to last month") only makes sense
+      // in light of the previous exchange, and only when it was recent --
+      // a message ten minutes later is probably still the same
+      // conversation, an hour later is almost certainly a fresh one.
+      const priorContext =
+        member.telegram_last_question &&
+        member.telegram_last_answer &&
+        member.telegram_last_context_at &&
+        Date.now() - new Date(member.telegram_last_context_at).getTime() < PENDING_WINDOW_MS
+          ? { question: member.telegram_last_question as string, answer: member.telegram_last_answer as string }
+          : null;
+
+      const routed = await classifyAndRoute(rawText, (categories ?? []).map((c) => c.name), recentPending, priorContext);
       const choice = routed?.choices?.[0];
       const toolCall = choice?.message?.tool_calls?.[0];
 
@@ -843,9 +1116,13 @@ Deno.serve(async (req) => {
           .update({ raw_text: combinedText, ...updatedRow })
           .eq("id", recentPending.id)
           .eq("status", "pending");
+
+        const correctionDuplicate = isReadyForFastConfirm(updatedRow)
+          ? await findDuplicateTransaction(member.household_id, updatedRow.parsed_account_id, updatedRow.parsed_merchant, updatedRow.parsed_amount, updatedRow.parsed_date)
+          : null;
         await reply(
           chatId,
-          isReadyForFastConfirm(updatedRow)
+          isReadyForFastConfirm(updatedRow) && !correctionDuplicate
             ? `Updated — AED ${Number(updatedRow.parsed_amount).toFixed(2)} at ${updatedRow.parsed_merchant}. Everything matched, so reply "yes" to record it, or edit in the Inbox.`
             : "Updated your last pending entry — check the Inbox."
         );
@@ -880,6 +1157,21 @@ Deno.serve(async (req) => {
 
         const answer = await phraseAnswer(rawText, result);
         await reply(chatId, answer ?? "I found the data but couldn't phrase a reply — please try rephrasing.");
+        if (answer) {
+          // Remembered briefly so a short follow-up ("what about groceries
+          // instead") can be resolved against it -- see priorContext above.
+          // Best-effort and isolated: this must never fall through to the
+          // catch below, which would otherwise treat the already-answered
+          // question as an unrouted message and capture it into intake too.
+          try {
+            await supabase
+              .from("household_members")
+              .update({ telegram_last_question: rawText, telegram_last_answer: answer, telegram_last_context_at: new Date().toISOString() })
+              .eq("id", member.id);
+          } catch {
+            // Not remembering this exchange is fine -- the reply already sent.
+          }
+        }
         return new Response("ok");
       }
 
@@ -1012,12 +1304,16 @@ Deno.serve(async (req) => {
         if (items!.length === 1) {
           // Same bar as the fast-confirm "yes" path above: only invite it
           // when account, category, currency and date are all already
-          // resolved, not just when the model's own confidence is high.
+          // resolved, not just when the model's own confidence is high --
+          // and only when it doesn't look like something already recorded.
           // Multiple items in one message always go to the Inbox instead --
           // one "yes" confirming several different amounts at once is its
           // own source of mistakes.
           if (isReadyForFastConfirm(updatedRow)) {
-            fastConfirmSummary = `AED ${Number(item.amount).toFixed(2)} at ${item.merchant} (${matchedAccount!.name}${matchedCategory ? `, ${matchedCategory.name}` : ""}) on ${item.occurred_at}`;
+            const duplicate = await findDuplicateTransaction(member.household_id, updatedRow.parsed_account_id, item.merchant, item.amount, item.occurred_at);
+            if (!duplicate) {
+              fastConfirmSummary = `AED ${Number(item.amount).toFixed(2)} at ${item.merchant} (${matchedAccount!.name}${matchedCategory ? `, ${matchedCategory.name}` : ""}) on ${item.occurred_at}`;
+            }
           }
         } else {
           multiItemSummaries.push(`AED ${Number(item.amount ?? 0).toFixed(2)}${item.merchant ? ` at ${item.merchant}` : ""}`);
