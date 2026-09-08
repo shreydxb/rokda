@@ -65,7 +65,7 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-type ParsedIntake = {
+type ParsedItem = {
   merchant: string | null;
   amount: number | null;
   currency: string | null;
@@ -76,31 +76,58 @@ type ParsedIntake = {
   confidence: number;
 };
 
+function parseItemFields(parsed: Record<string, unknown>): ParsedItem {
+  const amount = typeof parsed.amount === "number" && Number.isFinite(parsed.amount) ? parsed.amount : null;
+  const confidence =
+    typeof parsed.confidence === "number" && Number.isFinite(parsed.confidence)
+      ? Math.max(0, Math.min(1, parsed.confidence))
+      : 0;
+  const occurredAt = typeof parsed.occurred_at === "string" && /^\d{4}-\d{2}-\d{2}$/.test(parsed.occurred_at) ? parsed.occurred_at : null;
+  const currency = typeof parsed.currency === "string" && /^[A-Za-z]{3}$/.test(parsed.currency.trim()) ? parsed.currency.trim().toUpperCase() : null;
+  const cardLast4 = typeof parsed.card_last4 === "string" && /^\d{4}$/.test(parsed.card_last4.trim()) ? parsed.card_last4.trim() : null;
+  const accountHint = typeof parsed.account_hint === "string" && parsed.account_hint.trim() ? parsed.account_hint.trim() : null;
+
+  return {
+    merchant: typeof parsed.merchant === "string" && parsed.merchant.trim() ? parsed.merchant.trim() : null,
+    amount,
+    currency,
+    occurred_at: occurredAt,
+    categoryName: typeof parsed.category === "string" ? parsed.category : null,
+    cardLast4,
+    accountHint,
+    confidence,
+  };
+}
+
 // Calls OpenRouter (Gemini 2.5 Flash Lite: cheap, vision-capable, reliable
-// instruction-following) to extract structured fields from raw text and/or a
-// receipt photo -- including a forwarded/copy-pasted bank SMS, which has its
-// own fairly rigid format ("AED 38.80 spent on card ending 1234 at FILLI
-// CAFE on 05-09-26") that the model is told about explicitly rather than
-// left to guess at like free-form text. Returns null on any failure -- the
-// caller degrades to "raw content, no suggestions" rather than blocking on
-// this.
+// instruction-following) to extract structured line items from raw text
+// and/or a receipt photo -- including a forwarded/copy-pasted bank SMS,
+// which has its own fairly rigid format ("AED 38.80 spent on card ending
+// 1234 at FILLI CAFE on 05-09-26") that the model is told about explicitly
+// rather than left to guess at like free-form text. A message can describe
+// more than one expense ("bought two plants for 260 and 50") -- this
+// returns one item per distinct amount rather than summing or silently
+// keeping only the first, which is what a single-object result used to do.
+// Returns null on any failure -- the caller degrades to "raw content, no
+// suggestions" rather than blocking on this.
 async function parseIntakeWithAI(params: {
   rawText: string | null;
   imageBase64: string | null;
   imageMime: string | null;
   categoryNames: string[];
-}): Promise<ParsedIntake | null> {
+}): Promise<ParsedItem[] | null> {
   if (!OPENROUTER_API_KEY) return null;
   const { rawText, imageBase64, imageMime, categoryNames } = params;
   if (!rawText && !imageBase64) return null;
 
   const today = new Date().toISOString().slice(0, 10);
   const instructions =
-    `Extract a household expense/income from the message and/or receipt photo below. ` +
-    `The message may be free-form text, or a bank/card SMS notification copy-pasted verbatim (e.g. "AED 38.80 spent on your card ending 1234 at FILLI CAFE LLC DXB on 05-09-26 14:32") -- extract from either the same way. ` +
+    `Extract ALL household expenses/income described in the message and/or receipt photo below. Most messages describe exactly one, but some describe several separate amounts (e.g. "bought two plants for 260 and 50" is TWO expenses -- never sum multiple amounts into one, and never drop any of them). ` +
+    `The message may be free-form text, or a bank/card SMS notification copy-pasted verbatim (e.g. "AED 38.80 spent on your card ending 1234 at FILLI CAFE LLC DXB on 05-09-26 14:32") -- extract from either the same way; a bank SMS almost always describes exactly one. ` +
     `Today's date is ${today}. ` +
     `Respond with ONLY a JSON object, no markdown, matching exactly: ` +
-    `{"merchant": string|null, "amount": number|null, "currency": string|null, "occurred_at": "YYYY-MM-DD"|null, "category": string|null, "card_last4": string|null, "account_hint": string|null, "confidence": number} ` +
+    `{"items": [{"merchant": string|null, "amount": number|null, "currency": string|null, "occurred_at": "YYYY-MM-DD"|null, "category": string|null, "card_last4": string|null, "account_hint": string|null, "confidence": number}, ...]} ` +
+    `One item per distinct amount. Shared details (date, account, merchant if it applies to all) should be repeated on every item rather than left null just because it was only stated once in the message. ` +
     `"currency" is the real currency of the amount if stated or clearly implied (e.g. "AED", "USD", "INR") -- null if genuinely unstated. Never assume AED just because the household is AED-based -- only state it if the message actually says or implies it. ` +
     `"card_last4" is the last 4 digits of a card mentioned (e.g. "card ending 1234", "card no. ...1234"), or null if none is mentioned. ` +
     `"account_hint" is the account/card NAME mentioned in the message, if any (e.g. "Wio", "FAB Z", "ENBD Noon", "FAB Islamic") -- a short free-text name, not digits, or null if no account/card is named. ` +
@@ -133,28 +160,17 @@ async function parseIntakeWithAI(params: {
     const body = await res.json();
     const raw = body?.choices?.[0]?.message?.content;
     if (typeof raw !== "string") return null;
-    const parsed = JSON.parse(raw);
+    const parsedBody = JSON.parse(raw);
 
-    const amount = typeof parsed.amount === "number" && Number.isFinite(parsed.amount) ? parsed.amount : null;
-    const confidence =
-      typeof parsed.confidence === "number" && Number.isFinite(parsed.confidence)
-        ? Math.max(0, Math.min(1, parsed.confidence))
-        : 0;
-    const occurredAt = typeof parsed.occurred_at === "string" && /^\d{4}-\d{2}-\d{2}$/.test(parsed.occurred_at) ? parsed.occurred_at : null;
-    const currency = typeof parsed.currency === "string" && /^[A-Za-z]{3}$/.test(parsed.currency.trim()) ? parsed.currency.trim().toUpperCase() : null;
-    const cardLast4 = typeof parsed.card_last4 === "string" && /^\d{4}$/.test(parsed.card_last4.trim()) ? parsed.card_last4.trim() : null;
-    const accountHint = typeof parsed.account_hint === "string" && parsed.account_hint.trim() ? parsed.account_hint.trim() : null;
+    // Tolerate a flat single-object response (older shape, or the model
+    // ignoring the wrapper) by treating it as a one-item array.
+    const rawItems: unknown[] = Array.isArray(parsedBody?.items) ? parsedBody.items : [parsedBody];
+    const items = rawItems
+      .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null)
+      .map(parseItemFields)
+      .filter((item) => item.amount !== null || item.merchant !== null);
 
-    return {
-      merchant: typeof parsed.merchant === "string" && parsed.merchant.trim() ? parsed.merchant.trim() : null,
-      amount,
-      currency,
-      occurred_at: occurredAt,
-      categoryName: typeof parsed.category === "string" ? parsed.category : null,
-      cardLast4,
-      accountHint,
-      confidence,
-    };
+    return items.length > 0 ? items : null;
   } catch {
     return null;
   }
@@ -802,7 +818,10 @@ Deno.serve(async (req) => {
 
       if (toolCall?.function?.name === "update_last_expense" && recentPending) {
         const combinedText = `${recentPending.raw_text ?? ""}\nCorrection: ${rawText}`;
-        const parsed = await parseIntakeWithAI({ rawText: combinedText, imageBase64: null, imageMime: null, categoryNames: (categories ?? []).map((c) => c.name) });
+        // A correction targets the one existing pending row, so only the
+        // first extracted item is used even if the model finds more --
+        // multi-item corrections aren't supported, same as before.
+        const parsed = (await parseIntakeWithAI({ rawText: combinedText, imageBase64: null, imageMime: null, categoryNames: (categories ?? []).map((c) => c.name) }))?.[0] ?? null;
         const matchedCategory = parsed
           ? (await matchCategoryFromMerchantHistory(member.household_id, parsed.merchant)) ??
             (parsed.categoryName ? (categories ?? []).find((c) => c.name.toLowerCase() === parsed.categoryName!.toLowerCase()) ?? null : null)
@@ -935,6 +954,7 @@ Deno.serve(async (req) => {
   // Parsing is a convenience layered on top of a capture that already
   // succeeded -- its failure must never surface as this message's failure.
   let fastConfirmSummary: string | null = null;
+  const multiItemSummaries: string[] = [];
   try {
     const { data: categories } = await supabase
       .from("categories")
@@ -942,36 +962,69 @@ Deno.serve(async (req) => {
       .eq("household_id", member.household_id)
       .eq("archived", false);
 
-    const parsed = await parseIntakeWithAI({
+    const items = await parseIntakeWithAI({
       rawText,
       imageBase64: photoBase64,
       imageMime: photoMime,
       categoryNames: (categories ?? []).map((c) => c.name),
     });
 
-    if (parsed) {
-      const matchedCategory =
-        (await matchCategoryFromMerchantHistory(member.household_id, parsed.merchant)) ??
-        (parsed.categoryName ? (categories ?? []).find((c) => c.name.toLowerCase() === parsed.categoryName!.toLowerCase()) ?? null : null);
-      const matchedAccount =
-        (await matchAccountByCardLast4(member.household_id, parsed.cardLast4)) ?? (await matchAccountByNameHint(member.household_id, parsed.accountHint));
-      const updatedRow = {
-        parsed_merchant: parsed.merchant,
-        parsed_amount: parsed.amount,
-        parsed_date: parsed.occurred_at,
-        parsed_category_id: matchedCategory?.id ?? null,
-        parsed_currency: parsed.currency,
-        parsed_account_id: matchedAccount?.id ?? null,
-        confidence: parsed.confidence,
-      };
+    // A message can describe more than one expense ("bought two plants for
+    // 260 and 50") -- the first item updates the row already inserted
+    // above, and each additional item gets its OWN new intake row rather
+    // than being summed or dropped, which is what used to happen when only
+    // a single amount was ever extracted. Each item's own DB work is
+    // wrapped separately so one item's failure (a bad category/account
+    // lookup) never costs the others.
+    for (let i = 0; i < (items?.length ?? 0); i++) {
+      const item = items![i];
+      try {
+        const matchedCategory =
+          (await matchCategoryFromMerchantHistory(member.household_id, item.merchant)) ??
+          (item.categoryName ? (categories ?? []).find((c) => c.name.toLowerCase() === item.categoryName!.toLowerCase()) ?? null : null);
+        const matchedAccount =
+          (await matchAccountByCardLast4(member.household_id, item.cardLast4)) ?? (await matchAccountByNameHint(member.household_id, item.accountHint));
+        const updatedRow = {
+          parsed_merchant: item.merchant,
+          parsed_amount: item.amount,
+          parsed_date: item.occurred_at,
+          parsed_category_id: matchedCategory?.id ?? null,
+          parsed_currency: item.currency,
+          parsed_account_id: matchedAccount?.id ?? null,
+          confidence: item.confidence,
+        };
 
-      await supabase.from("intake").update(updatedRow).eq("id", inserted.id);
+        if (i === 0) {
+          await supabase.from("intake").update(updatedRow).eq("id", inserted.id);
+        } else {
+          await supabase.from("intake").insert({
+            household_id: member.household_id,
+            member_id: member.id,
+            source: "telegram",
+            source_ref: `${updateId}#${i}`,
+            raw_text: rawText,
+            photo_path: photoPath,
+            status: "pending",
+            ...updatedRow,
+          });
+        }
 
-      // Same bar as the fast-confirm "yes" path above: only invite it when
-      // account, category, currency and date are all already resolved, not
-      // just when the model's own confidence happens to be high.
-      if (isReadyForFastConfirm(updatedRow)) {
-        fastConfirmSummary = `AED ${Number(parsed.amount).toFixed(2)} at ${parsed.merchant} (${matchedAccount!.name}${matchedCategory ? `, ${matchedCategory.name}` : ""}) on ${parsed.occurred_at}`;
+        if (items!.length === 1) {
+          // Same bar as the fast-confirm "yes" path above: only invite it
+          // when account, category, currency and date are all already
+          // resolved, not just when the model's own confidence is high.
+          // Multiple items in one message always go to the Inbox instead --
+          // one "yes" confirming several different amounts at once is its
+          // own source of mistakes.
+          if (isReadyForFastConfirm(updatedRow)) {
+            fastConfirmSummary = `AED ${Number(item.amount).toFixed(2)} at ${item.merchant} (${matchedAccount!.name}${matchedCategory ? `, ${matchedCategory.name}` : ""}) on ${item.occurred_at}`;
+          }
+        } else {
+          multiItemSummaries.push(`AED ${Number(item.amount ?? 0).toFixed(2)}${item.merchant ? ` at ${item.merchant}` : ""}`);
+        }
+      } catch {
+        // This one item's lookups/writes failed -- move on to the rest
+        // rather than losing the whole message.
       }
     }
   } catch {
@@ -982,7 +1035,9 @@ Deno.serve(async (req) => {
     chatId,
     fastConfirmSummary
       ? `Got it — ${fastConfirmSummary}. Everything matched, so reply "yes" to record it, or edit in the Inbox.`
-      : "Got it — check the Inbox to review."
+      : multiItemSummaries.length > 1
+        ? `Got it — ${multiItemSummaries.length} expenses captured (${multiItemSummaries.join(", ")}). Check the Inbox to review each.`
+        : "Got it — check the Inbox to review."
   );
   return new Response("ok");
 });
