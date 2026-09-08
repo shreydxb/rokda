@@ -11,6 +11,31 @@
 -- It is a TEST harness. It is never applied to a real environment, and it is
 -- deliberately not a migration.
 
+-- Every hosted Supabase project has these three roles built in; migrations
+-- grant/revoke against them by name (e.g. `revoke execute ... from anon,
+-- authenticated`) without ever creating them, since on Supabase they already
+-- exist. `do` + exception guards them against a second run of this shim.
+do $$
+begin
+  create role anon;
+exception when duplicate_object then null;
+end
+$$;
+
+do $$
+begin
+  create role authenticated;
+exception when duplicate_object then null;
+end
+$$;
+
+do $$
+begin
+  create role service_role;
+exception when duplicate_object then null;
+end
+$$;
+
 create schema if not exists auth;
 
 create table if not exists auth.users (
@@ -39,3 +64,47 @@ stable
 as $$
   select coalesce(nullif(current_setting('request.jwt.claim.role', true), ''), current_user);
 $$;
+
+-- Enough of Supabase Storage for one migration's bucket seed + RLS policy:
+-- the buckets/objects tables an insert and a `create policy` reference, and
+-- storage.foldername(), which splits an object path into its directory
+-- segments the same way the real extension does.
+create schema if not exists storage;
+
+create table if not exists storage.buckets (
+  id text primary key,
+  name text not null,
+  public boolean not null default false
+);
+
+create table if not exists storage.objects (
+  id uuid primary key default gen_random_uuid(),
+  bucket_id text references storage.buckets(id),
+  name text
+);
+
+create or replace function storage.foldername(name text)
+returns text[]
+language plpgsql
+immutable
+as $$
+declare
+  parts text[];
+begin
+  parts := string_to_array(name, '/');
+  return parts[1:array_length(parts, 1) - 1];
+end;
+$$;
+
+-- Enough of Supabase Vault for the functions that read secrets by name
+-- (get_telegram_webhook_secret and the cron job bodies) to compile against a
+-- real relation. Empty on a fresh database -- there is no secret to
+-- decrypt here, only the shape a `select ... from vault.decrypted_secrets
+-- where name = ...` needs to exist.
+create schema if not exists vault;
+
+create table if not exists vault.decrypted_secrets (
+  id uuid primary key default gen_random_uuid(),
+  name text,
+  decrypted_secret text
+);

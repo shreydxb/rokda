@@ -178,5 +178,17 @@
     "name": "proactive_nudges_and_rls_fix",
     "fingerprint": "304780501dd2127627cd3c161e12d16c",
     "fingerprintVersion": 2
+  },
+  {
+    "version": "20260908142418",
+    "name": "telegram_webhook_secret",
+    "fingerprint": "7942f57693a71abb66b8613902288beb",
+    "fingerprintVersion": 2
+  },
+  {
+    "version": "20260908142519",
+    "name": "recurring_check_cron_secret",
+    "fingerprint": "9166cd3494eee82272c738d91b4a1ecc",
+    "fingerprintVersion": 2
   }
 ]

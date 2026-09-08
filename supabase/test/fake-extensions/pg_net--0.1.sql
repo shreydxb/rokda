@@ -1,0 +1,5 @@
+-- Intentionally empty: nothing in supabase/migrations calls net.http_get/
+-- net.http_post directly -- every call appears as text inside a dollar-quoted
+-- pg_cron job body, which Postgres never parses at migration-apply time. The
+-- extension only needs to exist so `create extension if not exists pg_net;`
+-- succeeds and the `net` schema is available to reference.

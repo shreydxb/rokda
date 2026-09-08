@@ -1,0 +1,4 @@
+comment = 'CI test-harness stub for pg_cron -- see supabase/test/platform-shim.sql. The real extension requires shared_preload_libraries and restricts cron.schedule() to one fixed database (cron.database_name), which is structurally incompatible with this job''s per-run throwaway database. This stub implements just enough of cron.schedule/cron.unschedule -- the only two calls this repo''s migrations make outside a dollar-quoted string -- to prove the surrounding DDL is valid, without any of the real extension''s scheduling behaviour.'
+default_version = '0.1'
+relocatable = false
+schema = cron

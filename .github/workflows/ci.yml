@@ -49,17 +49,6 @@ jobs:
   migrations:
     name: fresh database from supabase/migrations
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:17
-        env:
-          POSTGRES_PASSWORD: postgres
-        ports: ['5432:5432']
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
     env:
       PGHOST: localhost
       PGPORT: '5432'
@@ -72,6 +61,27 @@ jobs:
         with:
           node-version: 22
           cache: npm
+
+      # A stock postgres:17 service image has neither pg_cron nor pg_net,
+      # both of which the repository's own migrations create extensions for
+      # and call directly (cron.schedule/cron.unschedule -- everything else,
+      # including every net.http_get/http_post call, only ever appears as
+      # text inside a pg_cron job body, never executed at migration-apply
+      # time). The real pg_cron also requires shared_preload_libraries and
+      # restricts scheduling to one fixed database via cron.database_name --
+      # structurally incompatible with this job's per-run throwaway
+      # database. Installing Postgres natively (rather than as a Docker
+      # service) lets this job drop in supabase/test/fake-extensions'
+      # minimal stand-ins before the server ever starts, with no
+      # preload/restart dance and no database-name restriction.
+      - name: Install PostgreSQL and the pg_cron/pg_net test stubs
+        run: |
+          sudo systemctl start postgresql.service
+          PGVER=$(ls /usr/share/postgresql/)
+          sudo cp supabase/test/fake-extensions/*.control supabase/test/fake-extensions/*.sql "/usr/share/postgresql/$PGVER/extension/"
+          sudo systemctl restart postgresql.service
+          sudo -u postgres psql -c "alter user postgres password 'postgres';"
+          pg_isready -h localhost -p 5432 -U postgres
 
       # Matching table names never proved the applied SQL matched the
       # repository's. This compares normalised SQL, per migration.

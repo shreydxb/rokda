@@ -1,0 +1,4 @@
+comment = 'CI test-harness stub for pg_net -- see supabase/test/platform-shim.sql. Real net.http_post/http_get calls in this repo only ever appear as text stored inside a pg_cron job body (never executed at migration-apply time), so a functioning HTTP client is never needed here -- only enough of the API surface for CREATE EXTENSION and the DDL that references it to succeed.'
+default_version = '0.1'
+relocatable = false
+schema = net
