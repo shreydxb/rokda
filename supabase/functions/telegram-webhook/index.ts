@@ -59,6 +59,22 @@ async function reply(chatId: number, text: string) {
   await tgCall("sendMessage", { chat_id: chatId, text });
 }
 
+// The shared secret every request to this function must present (see the
+// check at the top of Deno.serve). Lives in Supabase Vault, not an
+// environment variable -- read via a narrowly-scoped RPC only the
+// service-role client this function already uses can call. A lookup
+// failure (RPC error, or the secret genuinely unset) returns null, which
+// the caller treats as "reject everything" rather than "skip the check".
+async function getTelegramWebhookSecret(): Promise<string | null> {
+  try {
+    const { data, error } = await supabase.rpc("get_telegram_webhook_secret");
+    if (error || typeof data !== "string" || !data) return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
 function bytesToBase64(bytes: Uint8Array): string {
   let binary = "";
   const chunkSize = 8192;
@@ -1076,17 +1092,32 @@ async function runCreditCardCheck(): Promise<{ checked: number; nudged: number }
     if (bal <= 0) continue; // nothing owed, nothing to nag about
 
     try {
-      // The one due date relevant right now: this month's, unless it
-      // hasn't happened yet, in which case it's still last month's that's
-      // the most recently passed one.
-      const thisMonthDue = atDayOfMonth(today.getFullYear(), today.getMonth(), a.due_day);
-      const dueDate = thisMonthDue <= today ? thisMonthDue : atDayOfMonth(today.getFullYear(), today.getMonth() - 1, a.due_day);
-      const daysSinceDue = Math.round((startOfDay(today).getTime() - dueDate.getTime()) / 86400000);
+      // Two different due dates are in play, not one: the upcoming
+      // occurrence (>= today, via nextDueDate -- the same helper
+      // get_upcoming_bills already uses) for the "due soon" window, and the
+      // most recently passed occurrence (one cadence back from that) for
+      // the "still not paid" window. Reusing a single variable for both, by
+      // substituting last month's date whenever this month's hasn't
+      // happened yet, meant a genuinely upcoming due date got silently
+      // replaced by an already-passed one -- so daysSinceDue could never
+      // land in the pre-due window at all, and "1-2 days before" never
+      // fired.
+      const upcoming = nextDueDate(a.due_day, today)!;
+      const daysUntil = daysUntilDue(a.due_day, today)!;
+      const lastPassed = atDayOfMonth(upcoming.getFullYear(), upcoming.getMonth() - 1, a.due_day);
+      const daysSincePassed = Math.round((startOfDay(today).getTime() - lastPassed.getTime()) / 86400000);
 
       let kind: "due_soon" | "overdue" | null = null;
-      if (daysSinceDue >= -2 && daysSinceDue <= 0) kind = "due_soon";
-      else if (daysSinceDue >= 3 && daysSinceDue <= 10) kind = "overdue";
-      if (!kind) continue;
+      let dueDate: Date;
+      if (daysUntil <= 2) {
+        kind = "due_soon";
+        dueDate = upcoming;
+      } else if (daysSincePassed >= 3 && daysSincePassed <= 10) {
+        kind = "overdue";
+        dueDate = lastPassed;
+      } else {
+        continue;
+      }
 
       const dueDateStr = dueDate.toISOString().slice(0, 10);
       const { data: alreadySent } = await supabase
@@ -1189,19 +1220,38 @@ async function runBudgetAlertCheck(): Promise<{ checked: number; nudged: number 
 Deno.serve(async (req) => {
   const url = new URL(req.url);
 
-  // One-time setup: registers this function's own URL as the bot's webhook.
-  // Meant to be hit once by whoever deploys this, not by Telegram itself.
+  // Every route this function serves -- a real Telegram update, the
+  // one-time ?setup=1, and the daily ?run_recurring_check=1 pg_cron call --
+  // requires this same shared secret, checked before anything else (before
+  // parsing the body, before looking at any query param). Without this,
+  // JWT verification being off (required, since Telegram calls this, not a
+  // signed-in user) meant NOTHING verified a request actually came from
+  // Telegram: an arbitrary POST claiming any from.id/chat.id would be
+  // trusted as that household member, and the two GET routes were public
+  // with no check at all. Telegram itself sends this back as
+  // X-Telegram-Bot-Api-Secret-Token once registered via setWebhook's
+  // secret_token (see the ?setup=1 handler below); the cron job sends the
+  // same value as a header (see the recurring_check_cron migration).
+  const expectedSecret = await getTelegramWebhookSecret();
+  if (!expectedSecret || req.headers.get("X-Telegram-Bot-Api-Secret-Token") !== expectedSecret) {
+    return new Response("unauthorized", { status: 401 });
+  }
+
+  // One-time setup: registers this function's own URL as the bot's webhook,
+  // including the secret_token so Telegram starts sending it back on every
+  // future call. Meant to be hit once by whoever deploys this (with the
+  // header already set to the same secret -- this route needs it too, same
+  // as every other), not by Telegram itself.
   if (req.method === "GET" && url.searchParams.get("setup") === "1") {
     const result = await tgCall("setWebhook", {
       url: `${SUPABASE_URL}/functions/v1/telegram-webhook`,
       allowed_updates: ["message", "message_reaction"],
+      secret_token: expectedSecret,
     });
     return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
   }
 
-  // Daily proactive-reminder check, triggered by pg_cron -- not user-facing,
-  // same trust model as ?setup=1 above (this repo has no edge-function
-  // secret-management path to gate it further behind). Covers three
+  // Daily proactive-reminder check, triggered by pg_cron. Covers three
   // independent things in one run: missed recurring bills, credit-card due
   // dates, and budget thresholds -- kept under the same query param the
   // existing pg_cron job already calls, rather than adding new jobs for
