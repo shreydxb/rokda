@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
 import { formatBalance, formatMoney } from '../../lib/money';
-import { monthActualsByCategory, monthIncome, monthPace, monthSpendBreakdown, projectedClose } from '../../lib/budget';
+import { monthActualsByCategory, monthIncome, monthPace, monthSpendBreakdown, projectedClose, rollupActualsByGroup } from '../../lib/budget';
 import BudgetEditor from './BudgetEditor';
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -94,6 +94,22 @@ function MonthView({ cursor, setCursor, budgets, transactions, catById, scopeMem
   const spend = monthSpendBreakdown(transactions, rows.map((r) => r.category_id), year, month, scopeMemberId, now);
   const outsideBudget = spend.unbudgeted + spend.uncategorised;
 
+  // Budgets are almost always set at subcategory level, but a household
+  // categorises inconsistently -- the same kind of purchase sometimes gets
+  // the specific subcategory, sometimes just the broad parent -- so a
+  // subcategory's own budget could read "not started" next to real matching
+  // spend sitting one level up. Grouping by main category and rolling actuals
+  // up to match (rollupActualsByGroup) fixes that at the level someone
+  // actually glances at first; the per-subcategory breakdown is still there,
+  // one click away.
+  const rolledActuals = rollupActualsByGroup(actuals, catById);
+  const groups = new Map();
+  for (const r of rows) {
+    const groupId = catById.get(r.category_id)?.parent_id ?? r.category_id;
+    if (!groups.has(groupId)) groups.set(groupId, []);
+    groups.get(groupId).push(r);
+  }
+
   return (
     <div>
       <div className="cal-nav" style={{ marginTop: 22 }}>
@@ -115,45 +131,19 @@ function MonthView({ cursor, setCursor, budgets, transactions, catById, scopeMem
         </div>
       ) : (
         <div className="mn-list">
-          {rows.map((r) => {
-            const actual = actuals.get(r.category_id) ?? 0;
-            const projected = pace.isPast ? actual : pace.canProject ? projectedClose(actual, pace.elapsedFraction) : null;
-            const over = projected !== null && projected > Number(r.amount);
-            return (
-              <button key={r.id} type="button" className="mn-row bud-row" onClick={() => onEdit(r)}>
-                <div className="mn-row-main" style={{ flex: '0 0 180px' }}>
-                  <div>{catById.get(r.category_id)?.name ?? 'Unknown'}</div>
-                  <div className="ov-muted">
-                    Budget <span className="fig">{formatMoney(r.amount)}</span>
-                  </div>
-                </div>
-                <div className="bud-bar-wrap">
-                  <div className="bud-bar">
-                    <span className="bud-bar-elapsed" style={{ width: `${Math.min(100, pace.elapsedFraction * 100)}%` }} />
-                    <span
-                      className={`bud-bar-spent ${over ? 'bud-bar-over' : ''}`}
-                      style={{ width: `${Math.min(100, (actual / Number(r.amount || 1)) * 100)}%` }}
-                    />
-                  </div>
-                  <div className="ov-muted" style={{ marginTop: 4 }}>
-                    Spent <span className="fig">{formatMoney(actual)}</span>
-                    {' · '}
-                    {pace.isPast ? (
-                      'final'
-                    ) : projected !== null ? (
-                      <>
-                        projected <span className={`fig ${over ? 'ov-warn' : ''}`}>{formatMoney(projected)}</span>
-                      </>
-                    ) : actual > 0 ? (
-                      'too early to project'
-                    ) : (
-                      'not started'
-                    )}
-                  </div>
-                </div>
-              </button>
-            );
-          })}
+          {[...groups.entries()].map(([groupId, groupRows]) => (
+            <BudgetGroup
+              key={groupId}
+              groupId={groupId}
+              groupCategory={catById.get(groupId)}
+              rows={groupRows}
+              actuals={actuals}
+              groupActual={rolledActuals.get(groupId) ?? 0}
+              catById={catById}
+              pace={pace}
+              onEdit={onEdit}
+            />
+          ))}
           <div className="mn-row bud-total">
             <div className="mn-row-main" style={{ flex: '0 0 180px' }}>
               <div>Budgeted subtotal</div>
@@ -201,6 +191,91 @@ function MonthView({ cursor, setCursor, budgets, transactions, catById, scopeMem
         </div>
       )}
     </div>
+  );
+}
+
+function BudgetGroup({ groupId, groupCategory, rows, actuals, groupActual, catById, pace, onEdit }) {
+  const [expanded, setExpanded] = useState(false);
+  const groupBudget = rows.reduce((s, r) => s + Number(r.amount), 0);
+  // A category budgeted directly, with no subcategory also budgeted this
+  // month -- nothing to expand into, so it behaves like a flat row.
+  const isSingle = rows.length === 1 && rows[0].category_id === groupId;
+
+  if (isSingle) {
+    return (
+      <BudgetRow name={groupCategory?.name ?? 'Unknown'} budget={Number(rows[0].amount)} actual={groupActual} pace={pace} onClick={() => onEdit(rows[0])} />
+    );
+  }
+
+  return (
+    <div className="bud-group">
+      <BudgetRow
+        name={groupCategory?.name ?? 'Unknown'}
+        budget={groupBudget}
+        actual={groupActual}
+        pace={pace}
+        onClick={() => setExpanded((v) => !v)}
+        expandable
+        expanded={expanded}
+      />
+      {expanded && (
+        <div className="bud-subrows">
+          {rows.map((r) => (
+            <BudgetRow
+              key={r.id}
+              name={catById.get(r.category_id)?.name ?? 'Unknown'}
+              budget={Number(r.amount)}
+              actual={actuals.get(r.category_id) ?? 0}
+              pace={pace}
+              onClick={() => onEdit(r)}
+              sub
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BudgetRow({ name, budget, actual, pace, onClick, expandable, expanded, sub }) {
+  const projected = pace.isPast ? actual : pace.canProject ? projectedClose(actual, pace.elapsedFraction) : null;
+  const over = projected !== null && projected > budget;
+  return (
+    <button type="button" className={`mn-row bud-row${sub ? ' bud-row-sub' : ''}`} onClick={onClick}>
+      <div className="mn-row-main" style={{ flex: '0 0 180px' }}>
+        <div>
+          {expandable && <span className="bud-chevron">{expanded ? '▾' : '▸'}</span>}
+          {name}
+        </div>
+        <div className="ov-muted">
+          Budget <span className="fig">{formatMoney(budget)}</span>
+        </div>
+      </div>
+      <div className="bud-bar-wrap">
+        <div className="bud-bar">
+          <span className="bud-bar-elapsed" style={{ width: `${Math.min(100, pace.elapsedFraction * 100)}%` }} />
+          <span
+            className={`bud-bar-spent ${over ? 'bud-bar-over' : ''}`}
+            style={{ width: `${Math.min(100, (actual / (budget || 1)) * 100)}%` }}
+          />
+        </div>
+        <div className="ov-muted" style={{ marginTop: 4 }}>
+          Spent <span className="fig">{formatMoney(actual)}</span>
+          {' · '}
+          {pace.isPast ? (
+            'final'
+          ) : projected !== null ? (
+            <>
+              projected <span className={`fig ${over ? 'ov-warn' : ''}`}>{formatMoney(projected)}</span>
+            </>
+          ) : actual > 0 ? (
+            'too early to project'
+          ) : (
+            'not started'
+          )}
+        </div>
+      </div>
+    </button>
   );
 }
 

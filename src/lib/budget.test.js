@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { monthActualsByCategory, monthIncome, monthNetSaved, monthSpendBreakdown } from './budget';
+import { monthActualsByCategory, monthIncome, monthNetSaved, monthSpendBreakdown, rollupActualsByGroup } from './budget';
 import { periodSummary } from '../screens/overviewMath';
 
 const NOW = new Date(2026, 8, 30, 12); // 30 September 2026
@@ -78,5 +78,39 @@ describe('SHR-252: Budget agrees with Overview on refunded spending and income',
   it('nets the refund against its own category rather than leaving it uncategorised', () => {
     const byCategory = monthActualsByCategory(refundRows, 2026, 8, null, now);
     expect(byCategory.get('c')).toBe(0);
+  });
+});
+
+// A budget is almost always set on a subcategory, but the household doesn't
+// always categorise consistently -- the same kind of purchase sometimes gets
+// the specific subcategory, sometimes just the broad parent. rollupActualsByGroup
+// sums both into the parent so a parent-level view reads correctly regardless.
+describe('rollupActualsByGroup', () => {
+  const categories = [
+    { id: 'transport', parent_id: null },
+    { id: 'salik', parent_id: 'transport' },
+    { id: 'fuel', parent_id: 'transport' },
+    { id: 'savings', parent_id: null },
+  ];
+
+  it('sums a subcategory and a direct-to-parent amount into the same group', () => {
+    const actuals = new Map([
+      ['salik', 100],
+      ['transport', 50], // mis-tagged directly to the parent
+      ['fuel', 200],
+    ]);
+    const rolled = rollupActualsByGroup(actuals, categories);
+    expect(rolled.get('transport')).toBe(350);
+  });
+
+  it('groups a top-level category with no children under its own id', () => {
+    const actuals = new Map([['savings', 400]]);
+    expect(rollupActualsByGroup(actuals, categories).get('savings')).toBe(400);
+  });
+
+  it('accepts a categories Map as well as an array', () => {
+    const byId = new Map(categories.map((c) => [c.id, c]));
+    const actuals = new Map([['salik', 100]]);
+    expect(rollupActualsByGroup(actuals, byId).get('transport')).toBe(100);
   });
 });

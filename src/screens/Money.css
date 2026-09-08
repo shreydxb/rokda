@@ -277,6 +277,19 @@
 .bud-bar-spent.bud-bar-over {
   background: var(--neg);
 }
+.bud-chevron {
+  display: inline-block;
+  width: 12px;
+  color: var(--ink3);
+  font-size: 10px;
+}
+.bud-subrows {
+  border-left: 1px solid var(--rule2);
+  margin-left: 8px;
+}
+.bud-row-sub .mn-row-main {
+  padding-left: 20px;
+}
 .bud-total {
   cursor: default;
   border-top: 1px solid var(--rule2);

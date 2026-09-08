@@ -62,6 +62,24 @@ export function monthActualsByCategory(transactions, year, month, scopeMemberId,
   return map;
 }
 
+// Sums a per-category actuals map (as returned by monthActualsByCategory) up
+// to each category's top-level parent -- a subcategory's own spend and
+// anything posted directly against the parent land in the same total, so a
+// parent-level budget row reads correctly regardless of which level a given
+// transaction happened to be categorised at (a real household categorises
+// inconsistently: the same kind of purchase sometimes gets the specific
+// subcategory, sometimes just the broad parent). A category with no parent
+// groups under its own id.
+export function rollupActualsByGroup(actualsByCategory, categories) {
+  const categoryById = categories instanceof Map ? categories : new Map(categories.map((c) => [c.id, c]));
+  const rolled = new Map();
+  for (const [categoryId, amount] of actualsByCategory) {
+    const groupId = categoryById.get(categoryId)?.parent_id ?? categoryId;
+    rolled.set(groupId, (rolled.get(groupId) ?? 0) + amount);
+  }
+  return rolled;
+}
+
 // All spending in the month, split by whether it was budgeted (QA-09).
 //
 // "Net saved" used to be income minus the *budgeted categories'* spend, so
