@@ -72,6 +72,7 @@ type ParsedIntake = {
   occurred_at: string | null;
   categoryName: string | null;
   cardLast4: string | null;
+  accountHint: string | null;
   confidence: number;
 };
 
@@ -99,11 +100,13 @@ async function parseIntakeWithAI(params: {
     `The message may be free-form text, or a bank/card SMS notification copy-pasted verbatim (e.g. "AED 38.80 spent on your card ending 1234 at FILLI CAFE LLC DXB on 05-09-26 14:32") -- extract from either the same way. ` +
     `Today's date is ${today}. ` +
     `Respond with ONLY a JSON object, no markdown, matching exactly: ` +
-    `{"merchant": string|null, "amount": number|null, "currency": string|null, "occurred_at": "YYYY-MM-DD"|null, "category": string|null, "card_last4": string|null, "confidence": number} ` +
+    `{"merchant": string|null, "amount": number|null, "currency": string|null, "occurred_at": "YYYY-MM-DD"|null, "category": string|null, "card_last4": string|null, "account_hint": string|null, "confidence": number} ` +
     `"currency" is the real currency of the amount if stated or clearly implied (e.g. "AED", "USD", "INR") -- null if genuinely unstated. Never assume AED just because the household is AED-based -- only state it if the message actually says or implies it. ` +
     `"card_last4" is the last 4 digits of a card mentioned (e.g. "card ending 1234", "card no. ...1234"), or null if none is mentioned. ` +
+    `"account_hint" is the account/card NAME mentioned in the message, if any (e.g. "Wio", "FAB Z", "ENBD Noon", "FAB Islamic") -- a short free-text name, not digits, or null if no account/card is named. ` +
     `"category" MUST be exactly one of these household categories, verbatim, or null if none clearly fits -- never invent a category name: ` +
     `${JSON.stringify(categoryNames)}. ` +
+    `Note: "Noon Minutes" (or "Minutes") is Noon's fast grocery delivery service, not its general marketplace -- categorise it as groceries, not shopping, if a groceries-like category exists. ` +
     `"confidence" is your own confidence in this extraction, 0 to 1. ` +
     `If you cannot determine a field, use null rather than guessing.`;
 
@@ -140,6 +143,7 @@ async function parseIntakeWithAI(params: {
     const occurredAt = typeof parsed.occurred_at === "string" && /^\d{4}-\d{2}-\d{2}$/.test(parsed.occurred_at) ? parsed.occurred_at : null;
     const currency = typeof parsed.currency === "string" && /^[A-Za-z]{3}$/.test(parsed.currency.trim()) ? parsed.currency.trim().toUpperCase() : null;
     const cardLast4 = typeof parsed.card_last4 === "string" && /^\d{4}$/.test(parsed.card_last4.trim()) ? parsed.card_last4.trim() : null;
+    const accountHint = typeof parsed.account_hint === "string" && parsed.account_hint.trim() ? parsed.account_hint.trim() : null;
 
     return {
       merchant: typeof parsed.merchant === "string" && parsed.merchant.trim() ? parsed.merchant.trim() : null,
@@ -148,6 +152,7 @@ async function parseIntakeWithAI(params: {
       occurred_at: occurredAt,
       categoryName: typeof parsed.category === "string" ? parsed.category : null,
       cardLast4,
+      accountHint,
       confidence,
     };
   } catch {
@@ -164,6 +169,75 @@ async function matchAccountByCardLast4(householdId: string, cardLast4: string | 
   const { data: accounts } = await supabase.from("accounts").select("id, name").eq("household_id", householdId).is("archived_at", null);
   const matches = (accounts ?? []).filter((a: { name: string }) => a.name.includes(cardLast4));
   return matches.length === 1 ? matches[0] : null;
+}
+
+// An account name's own "•1234" card suffix is never what gets said out loud
+// ("paid via FAB Z", not "paid via FAB Z bullet nine four one seven") -- strip
+// it before comparing so the base name is what actually has to match.
+function accountBaseName(name: string): string {
+  return name.replace(/\s*•\s*\d+\s*$/, "").trim().toLowerCase();
+}
+
+// A plain account/card name mentioned in free text (e.g. "paid on Wio",
+// "via FAB Z") -- with only one card per bank the last-4-digits suffix is
+// rarely worth typing, so this matches on name alone. Deliberately
+// one-directional (the account's own base name must contain the hint, never
+// the reverse): "FAB Islamic" said in a message should match the account
+// named "FAB Islamic Etihad" (a shortened mention of the fuller name), but
+// "FAB Z" must NOT match a bare account named plain "FAB" just because "FAB"
+// is a prefix of "FAB Z" -- the reverse direction would let a short, generic
+// account name silently swallow a longer, more specific one. Same safety bar
+// as the card-last4 match either way: only trusted when it resolves to
+// exactly one open account, so a name two accounts share (the household
+// currently has two bare "FAB" and two bare "WIO" accounts alongside the
+// named cards) abstains rather than guessing which one.
+async function matchAccountByNameHint(householdId: string, hint: string | null): Promise<{ id: string; name: string } | null> {
+  const norm = hint?.trim().toLowerCase();
+  if (!norm) return null;
+  const { data: accounts } = await supabase.from("accounts").select("id, name").eq("household_id", householdId).is("archived_at", null);
+  const matches = (accounts ?? []).filter((a: { name: string }) => {
+    const base = accountBaseName(a.name);
+    return base.length > 1 && base.includes(norm);
+  });
+  return matches.length === 1 ? matches[0] : null;
+}
+
+// The household's own past categorisation of a merchant outweighs a fresh
+// guess: once "Moisturiser Alseer" has been approved under Shopping, a later
+// message the model only extracts as "Alseer" should still inherit it rather
+// than getting a fresh, possibly different guess. The model doesn't extract
+// merchant names consistently, so this matches when the NEW merchant is a
+// substring of a PAST one -- deliberately one-directional. The other
+// direction (a short past merchant matching a longer new one) is NOT
+// trusted: a household that once logged plain "Noon" under Shopping must
+// never have that silently applied to "Noon Minutes" later, which is a
+// genuinely different, groceries service the model already knows to
+// distinguish (see the prompt hint above) -- a short generic name matching a
+// longer, more specific one is exactly the false-positive this must avoid.
+async function matchCategoryFromMerchantHistory(householdId: string, merchant: string | null): Promise<{ id: string; name: string } | null> {
+  const norm = merchant?.trim().toLowerCase();
+  if (!norm || norm.length < 3) return null;
+  const { data: rows } = await supabase
+    .from("transactions")
+    .select("merchant, category_id")
+    .eq("household_id", householdId)
+    .not("merchant", "is", null)
+    .not("category_id", "is", null)
+    .order("occurred_at", { ascending: false })
+    .limit(200);
+  if (!rows) return null;
+
+  const counts = new Map<string, number>();
+  for (const r of rows as Array<{ merchant: string; category_id: string }>) {
+    const past = r.merchant.trim().toLowerCase();
+    if (!past.includes(norm)) continue;
+    counts.set(r.category_id, (counts.get(r.category_id) ?? 0) + 1);
+  }
+  if (counts.size === 0) return null;
+  const [topId] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+
+  const { data: category } = await supabase.from("categories").select("id, name").eq("id", topId).maybeSingle();
+  return category ?? null;
 }
 
 const PENDING_WINDOW_MS = 20 * 60 * 1000;
@@ -729,8 +803,13 @@ Deno.serve(async (req) => {
       if (toolCall?.function?.name === "update_last_expense" && recentPending) {
         const combinedText = `${recentPending.raw_text ?? ""}\nCorrection: ${rawText}`;
         const parsed = await parseIntakeWithAI({ rawText: combinedText, imageBase64: null, imageMime: null, categoryNames: (categories ?? []).map((c) => c.name) });
-        const matchedCategory = parsed?.categoryName ? (categories ?? []).find((c) => c.name.toLowerCase() === parsed.categoryName!.toLowerCase()) : null;
-        const matchedAccount = parsed ? await matchAccountByCardLast4(member.household_id, parsed.cardLast4) : null;
+        const matchedCategory = parsed
+          ? (await matchCategoryFromMerchantHistory(member.household_id, parsed.merchant)) ??
+            (parsed.categoryName ? (categories ?? []).find((c) => c.name.toLowerCase() === parsed.categoryName!.toLowerCase()) ?? null : null)
+          : null;
+        const matchedAccount = parsed
+          ? (await matchAccountByCardLast4(member.household_id, parsed.cardLast4)) ?? (await matchAccountByNameHint(member.household_id, parsed.accountHint))
+          : null;
         const updatedRow = {
           parsed_merchant: parsed?.merchant ?? null,
           parsed_amount: parsed?.amount ?? null,
@@ -871,10 +950,11 @@ Deno.serve(async (req) => {
     });
 
     if (parsed) {
-      const matchedCategory = parsed.categoryName
-        ? (categories ?? []).find((c) => c.name.toLowerCase() === parsed.categoryName!.toLowerCase())
-        : null;
-      const matchedAccount = await matchAccountByCardLast4(member.household_id, parsed.cardLast4);
+      const matchedCategory =
+        (await matchCategoryFromMerchantHistory(member.household_id, parsed.merchant)) ??
+        (parsed.categoryName ? (categories ?? []).find((c) => c.name.toLowerCase() === parsed.categoryName!.toLowerCase()) ?? null : null);
+      const matchedAccount =
+        (await matchAccountByCardLast4(member.household_id, parsed.cardLast4)) ?? (await matchAccountByNameHint(member.household_id, parsed.accountHint));
       const updatedRow = {
         parsed_merchant: parsed.merchant,
         parsed_amount: parsed.amount,
