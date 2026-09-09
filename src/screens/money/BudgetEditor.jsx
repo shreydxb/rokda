@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
+import { formatMoney } from '../../lib/money';
 import './TransactionEditor.css';
+
+const MONTH_LABELS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 export default function BudgetEditor({ item, householdId, categories, year, month, onClose, onSaved }) {
   const [categoryId, setCategoryId] = useState(item?.category_id ?? categories.find((c) => c.kind === 'expense')?.id ?? '');
@@ -115,10 +118,36 @@ export default function BudgetEditor({ item, householdId, categories, year, mont
           </div>
 
           {item ? (
-            <div className="te-fieldcell">
-              <span className="te-fieldlabel">Category</span>
-              <div className="te-fieldvalue" style={{ borderBottom: 'none', paddingTop: 4 }}>
-                {categoryName}
+            <div className="te-fieldgrid">
+              <div className="te-fieldcell">
+                <span className="te-fieldlabel">Category</span>
+                <div className="te-fieldvalue" style={{ borderBottom: 'none', paddingTop: 4 }}>
+                  {categoryName}
+                </div>
+              </div>
+              <div className="te-fieldcell">
+                <span className="te-fieldlabel">Applies from</span>
+                <div className="te-fieldvalue" style={{ borderBottom: 'none', paddingTop: 4 }}>
+                  {MONTH_LABELS[month - 1]} {year}
+                </div>
+              </div>
+              <div className="te-fieldcell">
+                <span className="te-fieldlabel">Repeats</span>
+                <div className="te-fieldvalue" style={{ borderBottom: 'none', paddingTop: 4 }}>
+                  Every month
+                </div>
+              </div>
+              <div className="te-fieldcell">
+                <span className="te-fieldlabel">Spent so far</span>
+                <div className="te-fieldvalue" style={{ borderBottom: 'none', paddingTop: 4 }}>
+                  {item.spentSoFar != null ? formatMoney(item.spentSoFar) : '—'}
+                </div>
+              </div>
+              <div className="te-fieldcell">
+                <span className="te-fieldlabel">Projected close</span>
+                <div className="te-fieldvalue" style={{ borderBottom: 'none', paddingTop: 4 }}>
+                  {item.projectedAmount != null ? formatMoney(item.projectedAmount) : '—'}
+                </div>
               </div>
             </div>
           ) : (

@@ -157,3 +157,69 @@ describe('SHR-252: the manual transaction editor persists kind explicitly', () =
     expect(calls.updates[0]).toMatchObject({ amount: 100, kind: 'income' });
   });
 });
+
+const CATEGORIES = [
+  { id: 'util', name: 'Utilities', kind: 'expense', parent_id: null },
+  { id: 'dewa', name: 'DEWA', kind: 'expense', parent_id: 'util' },
+  { id: 'wifi', name: 'Du Wifi', kind: 'expense', parent_id: 'util' },
+  { id: 'groceries', name: 'Groceries', kind: 'expense', parent_id: null },
+];
+
+describe('Category picker: two-level dropdown instead of a flat chip wall', () => {
+  it('only lists top-level categories in the first dropdown', () => {
+    renderScreen(
+      <TransactionEditor tx={null} householdId="hh" accounts={ACCOUNTS} categories={CATEGORIES} members={[]} allTransactions={[]} onClose={() => {}} onSaved={async () => {}} />,
+    );
+    const [categorySelect] = document.querySelectorAll('.te-fieldgrid')[1].querySelectorAll('select');
+    const options = [...categorySelect.options].map((o) => o.textContent);
+    expect(options).toEqual(['Uncategorised', 'Utilities', 'Groceries']);
+    cleanup();
+  });
+
+  it('shows a subcategory dropdown scoped to the chosen main category, and saves the subcategory id', async () => {
+    renderScreen(
+      <TransactionEditor tx={null} householdId="hh" accounts={ACCOUNTS} categories={CATEGORIES} members={[]} allTransactions={[]} onClose={() => {}} onSaved={async () => {}} />,
+    );
+    const fieldgrids = document.querySelectorAll('.te-fieldgrid');
+    const categorySelect = fieldgrids[1].querySelectorAll('select')[0];
+    fireEvent.change(categorySelect, { target: { value: 'util' } });
+
+    const subSelect = document.querySelectorAll('.te-fieldgrid')[1].querySelectorAll('select')[1];
+    expect([...subSelect.options].map((o) => o.textContent)).toEqual(['General', 'DEWA', 'Du Wifi']);
+    fireEvent.change(subSelect, { target: { value: 'dewa' } });
+
+    fireEvent.change(document.querySelector('.te-hero-input'), { target: { value: '250' } });
+    fireEvent.change(fieldgrids[0].querySelectorAll('select')[0], { target: { value: 'acc-1' } });
+    await act(async () => {
+      fireEvent.submit(document.querySelector('form'));
+    });
+    expect(calls.inserts[0]).toMatchObject({ category_id: 'dewa' });
+    cleanup();
+  });
+});
+
+describe('Currency selector: entering a non-AED amount converts to AED on save', () => {
+  it('converts a USD entry to AED using the fixed peg', async () => {
+    renderScreen(
+      <TransactionEditor tx={null} householdId="hh" accounts={ACCOUNTS} categories={[]} members={[]} allTransactions={[]} onClose={() => {}} onSaved={async () => {}} />,
+    );
+    fireEvent.change(document.querySelector('.te-hero-currency-select'), { target: { value: 'USD' } });
+    fireEvent.change(document.querySelector('.te-hero-input'), { target: { value: '100' } });
+    fireEvent.change(document.querySelector('.te-fieldgrid select'), { target: { value: 'acc-1' } });
+    await act(async () => {
+      fireEvent.submit(document.querySelector('form'));
+    });
+    expect(calls.inserts[0].currency).toBe('USD');
+    expect(calls.inserts[0].amount).toBeCloseTo(-367.25, 2);
+    cleanup();
+  });
+
+  it('does not offer INR when the household has no rate set', () => {
+    renderScreen(
+      <TransactionEditor tx={null} householdId="hh" household={{}} accounts={ACCOUNTS} categories={[]} members={[]} allTransactions={[]} onClose={() => {}} onSaved={async () => {}} />,
+    );
+    const options = [...document.querySelector('.te-hero-currency-select').options].map((o) => o.value);
+    expect(options).toEqual(['AED', 'USD']);
+    cleanup();
+  });
+});

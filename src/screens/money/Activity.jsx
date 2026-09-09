@@ -1,9 +1,22 @@
 import { useMemo, useState } from 'react';
 import { useScope } from '../../lib/ScopeContext';
-import { resolveScopeMemberId } from '../../lib/scope';
-import { formatSigned } from '../../lib/money';
+import { resolveScopeMemberId, scopedValue } from '../../lib/scope';
+import { formatSigned, formatMoney } from '../../lib/money';
+import { applyToIncomeSpend } from '../../lib/transactionKind';
 import TransactionEditor from './TransactionEditor';
 import ActivityCalendar from './ActivityCalendar';
+
+// A transaction reads as low-confidence once it's below the same bar the
+// Telegram bot uses to decide a record needs a human look (see
+// isReadyForFastConfirm in intake.js) -- 0.85. Below 0.6 it's flagged as
+// "needs attention" instead, matching how unsure an unreviewed intake row
+// would have to be before this app itself wouldn't auto-suggest it.
+function confidenceFlag(t) {
+  if (t.confidence == null) return null;
+  if (t.confidence < 0.6) return { label: 'needs attention', tone: 'neg' };
+  if (t.confidence < 0.85) return { label: 'low confidence', tone: 'warn' };
+  return null;
+}
 
 export default function Activity({ household, members, me, data, loading, categoryFilter, setCategoryFilter }) {
   const { scope } = useScope();
@@ -29,6 +42,12 @@ export default function Activity({ household, members, me, data, loading, catego
       return true;
     });
   }, [transactions, scopeMemberId, needsReviewOnly, categoryFilter, search]);
+
+  const totals = useMemo(() => {
+    const t = { income: 0, spend: 0 };
+    for (const row of rows) applyToIncomeSpend(row, scopedValue(row.amount, row, scopeMemberId), t);
+    return t;
+  }, [rows, scopeMemberId]);
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
 
@@ -71,6 +90,12 @@ export default function Activity({ household, members, me, data, loading, catego
       </div>
       <div className="mn-count">
         {rows.length} record{rows.length === 1 ? '' : 's'}
+        {rows.length > 0 && (
+          <>
+            {' · '}
+            {formatMoney(totals.spend)} out · {formatMoney(totals.income)} in
+          </>
+        )}
       </div>
 
       {view === 'calendar' ? (
@@ -104,6 +129,7 @@ export default function Activity({ household, members, me, data, loading, catego
             const categoryName = t.categories?.name ?? 'Uncategorised';
             const owner = ownerLabel(t, members);
             const account = accountById.get(t.account_id)?.name ?? '—';
+            const flag = confidenceFlag(t);
             return (
               <button key={t.id} type="button" className="om-tx om-tx-row" onClick={() => setEditing(t)}>
                 <div className="om-tx-date">
@@ -112,6 +138,7 @@ export default function Activity({ household, members, me, data, loading, catego
                 <div className="om-tx-merchant">
                   {t.merchant || 'Transaction'}
                   {t.needs_review && <span className="om-tx-flag ov-warn"> · needs review</span>}
+                  {!t.needs_review && flag && <span className={`om-tx-flag ${flag.tone === 'neg' ? 'ov-neg' : 'ov-warn'}`}> · {flag.label}</span>}
                   <div className="om-tx-meta">
                     {categoryName} · {account} · {owner}
                   </div>
@@ -130,6 +157,7 @@ export default function Activity({ household, members, me, data, loading, catego
       {editing && (
         <TransactionEditor
           tx={editing === 'new' ? null : editing}
+          household={household}
           householdId={household?.id}
           accounts={accounts}
           categories={categories}

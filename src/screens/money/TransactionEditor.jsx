@@ -4,6 +4,7 @@ import { accountOptionLabel, selectableAccounts } from '../../lib/accounts';
 import { formatMoney, formatSigned } from '../../lib/money';
 import { signedAmount } from '../../lib/intake';
 import { findDuplicate } from '../../lib/duplicates';
+import { CURRENCIES, currencyAvailable, convertToAed, rateNote } from '../../lib/currency';
 import './TransactionEditor.css';
 
 const FIELD_LABELS = { category: 'Category', amount: 'Amount', account: 'Account', merchant: 'Merchant', scope: 'Scope' };
@@ -23,6 +24,11 @@ function initialForm(tx, accounts) {
       owner: tx.is_shared ? 'shared' : (tx.owner_member_id ?? ''),
       note: tx.note ?? '',
       needs_review: !!tx.needs_review,
+      // The amount field always holds the AED figure a record was saved
+      // with, so editing an existing record re-shows it in AED even if it
+      // was originally entered in another currency -- only a brand-new
+      // entry gets to pick a currency and have it converted on save.
+      entry_currency: 'AED',
     };
   }
   return {
@@ -35,6 +41,7 @@ function initialForm(tx, accounts) {
     owner: 'shared',
     note: '',
     needs_review: false,
+    entry_currency: 'AED',
   };
 }
 
@@ -81,7 +88,7 @@ function buildEdits(tx, form, { accounts, categories, members }) {
   return changes;
 }
 
-export default function TransactionEditor({ tx, householdId, accounts, categories, members, allTransactions, initial, onClose, onSaved, onOpenOther }) {
+export default function TransactionEditor({ tx, household, householdId, accounts, categories, members, allTransactions, initial, onClose, onSaved, onOpenOther }) {
   // Closed accounts aren't offered for new entries, but an existing record that
   // already points at one keeps it so saving doesn't move it (QA-01).
   const selectable = selectableAccounts(accounts, tx?.account_id ?? null);
@@ -146,12 +153,22 @@ export default function TransactionEditor({ tx, householdId, accounts, categorie
     onClose();
   }
 
-  const amountError = form.amount.trim() === '' || Number(form.amount) <= 0 ? 'Enter an amount greater than zero.' : '';
+  const amountAed = convertToAed(Number(form.amount) || 0, form.entry_currency, household);
+  const amountError =
+    form.amount.trim() === '' || Number(form.amount) <= 0
+      ? 'Enter an amount greater than zero.'
+      : amountAed === null
+        ? `No exchange rate for ${form.entry_currency} yet — set one in Settings first.`
+        : '';
   const accountError = !form.account_id ? 'Choose an account.' : '';
   // A refund reverses an earlier expense, so it draws from the same category
   // list as an expense rather than having none at all.
   const categoryKind = form.type === 'refund' ? 'expense' : form.type;
   const kindCategories = categories.filter((c) => c.kind === categoryKind && (!c.archived || c.id === form.category_id));
+  const mainCategories = kindCategories.filter((c) => !c.parent_id);
+  const selectedCategory = kindCategories.find((c) => c.id === form.category_id);
+  const selectedMainId = selectedCategory ? (selectedCategory.parent_id || selectedCategory.id) : '';
+  const subcategories = kindCategories.filter((c) => c.parent_id === selectedMainId);
 
   const duplicate = useMemo(
     () => (tx ? null : duplicateDismissed ? null : findDuplicate(form, allTransactions, tx?.id)),
@@ -172,9 +189,9 @@ export default function TransactionEditor({ tx, householdId, accounts, categorie
       household_id: householdId,
       account_id: form.account_id,
       category_id: form.category_id || null,
-      amount: signedAmount(form.amount, form.type),
+      amount: signedAmount(amountAed, form.type),
       kind: form.type,
-      currency: 'AED',
+      currency: form.entry_currency,
       merchant: form.merchant.trim() || null,
       note: form.note.trim() || null,
       occurred_at: form.occurred_at,
@@ -263,7 +280,17 @@ export default function TransactionEditor({ tx, householdId, accounts, categorie
           <div>
             <div className="te-hero-label">Amount</div>
             <div className="te-hero-row">
-              <span className="te-hero-currency">AED</span>
+              <select
+                className="te-hero-currency te-hero-currency-select"
+                value={form.entry_currency}
+                onChange={(e) => set('entry_currency', e.target.value)}
+              >
+                {CURRENCIES.filter((code) => currencyAvailable(code, household)).map((code) => (
+                  <option key={code} value={code}>
+                    {code}
+                  </option>
+                ))}
+              </select>
               <input
                 type="number"
                 inputMode="decimal"
@@ -276,6 +303,11 @@ export default function TransactionEditor({ tx, householdId, accounts, categorie
                 placeholder="0"
               />
             </div>
+            {form.entry_currency !== 'AED' && amountAed !== null && (
+              <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 6 }}>
+                ≈ {formatMoney(amountAed)} AED · {rateNote(form.entry_currency, household)}
+              </div>
+            )}
           </div>
 
           {duplicate && (
@@ -323,18 +355,39 @@ export default function TransactionEditor({ tx, householdId, accounts, categorie
             </div>
           </div>
 
-          <div>
-            <span className="te-fieldlabel">Category</span>
-            <div className="te-chips">
-              <button type="button" className="om-seg" data-active={form.category_id === ''} onClick={() => set('category_id', '')}>
-                Uncategorised
-              </button>
-              {kindCategories.map((c) => (
-                <button key={c.id} type="button" className="om-seg" data-active={form.category_id === c.id} onClick={() => set('category_id', c.id)}>
-                  {c.name}
-                </button>
-              ))}
+          <div className="te-fieldgrid">
+            <div className="te-fieldcell">
+              <span className="te-fieldlabel">Category</span>
+              <select
+                className="te-fieldvalue"
+                value={selectedMainId}
+                onChange={(e) => set('category_id', e.target.value)}
+              >
+                <option value="">Uncategorised</option>
+                {mainCategories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
             </div>
+            {subcategories.length > 0 && (
+              <div className="te-fieldcell">
+                <span className="te-fieldlabel">Subcategory</span>
+                <select
+                  className="te-fieldvalue"
+                  value={selectedCategory?.parent_id ? form.category_id : ''}
+                  onChange={(e) => set('category_id', e.target.value || selectedMainId)}
+                >
+                  <option value="">General</option>
+                  {subcategories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
 
           <div>

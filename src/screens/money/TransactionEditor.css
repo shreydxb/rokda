@@ -134,6 +134,16 @@
   padding-bottom: 5px;
   flex: none;
 }
+.te-hero-currency-select {
+  border: none;
+  background: none;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+}
+.te-hero-currency-select:focus {
+  outline: 1px solid var(--rule2);
+}
 .te-hero-input {
   flex: 1;
   min-width: 0;

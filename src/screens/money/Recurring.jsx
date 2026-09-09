@@ -82,6 +82,7 @@ export default function Recurring({ household, members, data, loading }) {
 
       {paying && (
         <TransactionEditor
+          household={household}
           householdId={household?.id}
           accounts={accounts}
           categories={categories}

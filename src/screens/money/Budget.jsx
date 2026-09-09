@@ -150,12 +150,14 @@ function MonthView({ cursor, setCursor, budgets, transactions, catById, scopeMem
                 <span>{Math.round(usedPct * 100)}% used</span>
                 <span>{pace.isPast ? 'Month complete' : `Pace marker · ${Math.round(pace.elapsedFraction * 100)}% of month elapsed`}</span>
               </div>
-              <div className={`bud-tracknote ${trackDiff !== null && trackDiff < 0 ? 'ov-warn' : trackDiff !== null ? 'ov-pos' : ''}`}>
+              <div className={`bud-tracknote ${usedPct > 1 || (trackDiff !== null && trackDiff < 0) ? 'ov-warn' : trackDiff !== null ? 'ov-pos' : ''}`}>
                 {pace.isPast
                   ? `Month closed at ${formatMoney(totalActual)} of ${formatMoney(totalBudget)} budgeted.`
-                  : trackDiff !== null
-                    ? `Tracking ${formatMoney(Math.abs(trackDiff))} ${trackDiff >= 0 ? 'under' : 'over'} pace. Projected close: ${formatMoney(totalProjected)}.`
-                    : 'Too early in the month for a pace reading.'}
+                  : usedPct > 1
+                    ? `Already ${formatMoney(totalActual - totalBudget)} over budget.`
+                    : trackDiff !== null
+                      ? `Tracking ${formatMoney(Math.abs(trackDiff))} ${trackDiff >= 0 ? 'under' : 'over'} pace. Projected close: ${formatMoney(totalProjected)}.`
+                      : 'Too early in the month for a pace reading.'}
               </div>
             </div>
           </section>
@@ -221,16 +223,33 @@ function MonthView({ cursor, setCursor, budgets, transactions, catById, scopeMem
   );
 }
 
+function rowProjection(actual, pace) {
+  return pace.isPast ? actual : pace.canProject ? projectedClose(actual, pace.elapsedFraction) : null;
+}
+
 function BudgetGroup({ groupId, groupCategory, rows, actuals, groupActual, catById, pace, onEdit }) {
   const [expanded, setExpanded] = useState(false);
   const groupBudget = rows.reduce((s, r) => s + Number(r.amount), 0);
   // A category budgeted directly, with no subcategory also budgeted this
   // month -- nothing to expand into, so it behaves like a flat row.
   const isSingle = rows.length === 1 && rows[0].category_id === groupId;
+  // Exactly one budgeted subcategory under this parent: there's no other
+  // subcategory a parent-level transaction could belong to instead, so the
+  // subrow can safely show the same rolled total the group row does rather
+  // than its own (possibly zero) raw actual -- a household categorising
+  // inconsistently shouldn't see this one subcategory read "not started"
+  // right below a group row showing real spend.
+  const onlyBudgetedSubcategory = rows.length === 1;
 
   if (isSingle) {
     return (
-      <BudgetRow name={groupCategory?.name ?? 'Unknown'} budget={Number(rows[0].amount)} actual={groupActual} pace={pace} onClick={() => onEdit(rows[0])} />
+      <BudgetRow
+        name={groupCategory?.name ?? 'Unknown'}
+        budget={Number(rows[0].amount)}
+        actual={groupActual}
+        pace={pace}
+        onClick={() => onEdit({ ...rows[0], spentSoFar: groupActual, projectedAmount: rowProjection(groupActual, pace) })}
+      />
     );
   }
 
@@ -247,17 +266,20 @@ function BudgetGroup({ groupId, groupCategory, rows, actuals, groupActual, catBy
       />
       {expanded && (
         <div className="bud-subrows">
-          {rows.map((r) => (
-            <BudgetRow
-              key={r.id}
-              name={catById.get(r.category_id)?.name ?? 'Unknown'}
-              budget={Number(r.amount)}
-              actual={actuals.get(r.category_id) ?? 0}
-              pace={pace}
-              onClick={() => onEdit(r)}
-              sub
-            />
-          ))}
+          {rows.map((r) => {
+            const subActual = onlyBudgetedSubcategory ? groupActual : (actuals.get(r.category_id) ?? 0);
+            return (
+              <BudgetRow
+                key={r.id}
+                name={catById.get(r.category_id)?.name ?? 'Unknown'}
+                budget={Number(r.amount)}
+                actual={subActual}
+                pace={pace}
+                onClick={() => onEdit({ ...r, spentSoFar: subActual, projectedAmount: rowProjection(subActual, pace) })}
+                sub
+              />
+            );
+          })}
         </div>
       )}
     </div>
@@ -265,8 +287,9 @@ function BudgetGroup({ groupId, groupCategory, rows, actuals, groupActual, catBy
 }
 
 function BudgetRow({ name, budget, actual, pace, onClick, expandable, expanded, sub }) {
-  const projected = pace.isPast ? actual : pace.canProject ? projectedClose(actual, pace.elapsedFraction) : null;
-  const over = projected !== null && projected > budget;
+  const projected = rowProjection(actual, pace);
+  const overNow = actual > budget;
+  const over = overNow || (projected !== null && projected > budget);
   return (
     <button type="button" className={`bud-tr ${sub ? 'bud-tr-sub' : ''}`} onClick={onClick}>
       <div className="bud-tr-name">
@@ -280,7 +303,15 @@ function BudgetRow({ name, budget, actual, pace, onClick, expandable, expanded, 
           <span className={`bud-bar-spent ${over ? 'bud-bar-over' : ''}`} style={{ width: `${Math.min(100, (actual / (budget || 1)) * 100)}%` }} />
         </div>
         <div className={`bud-pacetext ${over ? 'ov-warn' : ''}`}>
-          {pace.isPast ? 'final' : projected !== null ? 'on pace' : actual > 0 ? 'too early to project' : 'not started'}
+          {overNow
+            ? `over by ${formatMoney(actual - budget)}`
+            : pace.isPast
+              ? 'final'
+              : projected !== null
+                ? 'on pace'
+                : actual > 0
+                  ? 'too early to project'
+                  : 'not started'}
         </div>
       </div>
       <div className={`bud-col-num fig ${over ? 'ov-warn' : ''}`}>{projected !== null ? formatMoney(projected) : '—'}</div>

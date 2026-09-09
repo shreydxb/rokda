@@ -27,6 +27,17 @@ export function convertFromAed(amountAed, code, household) {
   return null;
 }
 
+// The inverse of convertFromAed, for entering an amount in a foreign
+// currency and storing it in AED (every transaction is stored in AED
+// regardless of what currency it was entered in). Same null-when-unknown
+// rule as convertFromAed -- never guesses a rate.
+export function convertToAed(amount, code, household) {
+  if (code === 'AED') return amount;
+  if (code === 'USD') return amount / USD_PER_AED;
+  if (code === 'INR') return household?.inr_per_aed != null ? amount / Number(household.inr_per_aed) : null;
+  return null;
+}
+
 export function rateNote(code, household) {
   if (code === 'AED') return null;
   if (code === 'USD') return '1 USD = 3.6725 AED · fixed peg';
