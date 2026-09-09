@@ -229,3 +229,66 @@ describe('QA-05: closing a month', () => {
     expect(reload).not.toHaveBeenCalled();
   });
 });
+
+describe('NetWorth composition bar', () => {
+  it('breaks assets down by class with percentages that sum to the total', () => {
+    renderScreen(
+      <NetWorth
+        household={{ id: 'h1' }}
+        me={MEMBERS[0]}
+        members={MEMBERS}
+        loading={false}
+        data={{
+          accounts: [
+            { id: 'a1', name: 'ENBD', type: 'checking', balance: 30000, balance_as_of: '2026-09-01', is_shared: true, archived_at: null },
+          ],
+          netWorthSnapshots: [],
+          holdings: [
+            { id: 'h1', name: 'VWRA', asset_class: 'equity', value_aed: 60000, is_shared: true, archived_at: null },
+            { id: 'h2', name: 'Gold', asset_class: 'commodity', value_aed: 10000, is_shared: true, archived_at: null },
+          ],
+        }}
+      />,
+    );
+    const legend = document.querySelector('.wl-composition-legend').textContent;
+    expect(legend).toMatch(/Cash.*30%/);
+    expect(legend).toMatch(/equity.*60%/i);
+    expect(legend).toMatch(/Commodity.*10%/i);
+  });
+
+  it('omits the composition bar entirely when there is nothing to break down', () => {
+    renderScreen(
+      <NetWorth
+        household={{ id: 'h1' }}
+        me={MEMBERS[0]}
+        members={MEMBERS}
+        loading={false}
+        data={{ accounts: [], netWorthSnapshots: [], holdings: [] }}
+      />,
+    );
+    expect(document.querySelector('.wl-composition')).toBeNull();
+  });
+});
+
+describe('NetWorth history table', () => {
+  it('shows a row per closed month plus the live month, with change from the prior row', () => {
+    renderScreen(
+      <NetWorth
+        household={{ id: 'h1' }}
+        me={MEMBERS[0]}
+        members={MEMBERS}
+        loading={false}
+        data={{
+          accounts: [
+            { id: 'a1', name: 'ENBD', type: 'checking', balance: 62000, balance_as_of: '2026-09-01', is_shared: true, archived_at: null },
+          ],
+          netWorthSnapshots: [{ snapshot_date: '2026-08-01', assets: 95000, liabilities: 48000 }],
+          holdings: [],
+        }}
+      />,
+    );
+    const table = document.querySelector('.wl-history-table table').textContent;
+    expect(table).toMatch(/Aug 26/);
+    expect(table).toMatch(/live/i);
+  });
+});

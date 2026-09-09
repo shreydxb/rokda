@@ -12,6 +12,35 @@ import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { isLiabilityAccount, isLiquidAccount } from '../useOverviewData';
 import { netWorthSummary } from '../overviewMath';
 
+const COMPOSITION_PALETTE = ['var(--accent)', 'var(--pos)', 'var(--warn)', 'var(--ink2)', 'var(--neg)', 'var(--accent-hover)'];
+
+// A breakdown of assets (accounts + holdings) by class, for the allocation
+// bar -- cash accounts group together, other account types keep their own
+// label, and holdings group by asset class. Liabilities aren't part of this:
+// the bar shows what the household HOLDS, not what it owes.
+function buildComposition(assetRows, holdingRows, scopeMemberId) {
+  const totals = new Map();
+  for (const a of assetRows) {
+    const label = isLiquidAccount(a) ? 'Cash' : (a.type ?? 'Other');
+    const value = balanceStatus(a) === 'unset' ? 0 : scopedValue(a.balance_aed ?? a.balance, a, scopeMemberId);
+    totals.set(label, (totals.get(label) ?? 0) + value);
+  }
+  for (const h of holdingRows) {
+    const label = ASSET_CLASS_LABELS[h.asset_class] ?? h.asset_class ?? 'Other';
+    totals.set(label, (totals.get(label) ?? 0) + scopedHoldingValue(h, scopeMemberId));
+  }
+  const total = [...totals.values()].reduce((s, v) => s + Math.max(0, v), 0);
+  return [...totals.entries()]
+    .filter(([, v]) => v > 0)
+    .sort((a, b) => b[1] - a[1])
+    .map(([label, value], i) => ({
+      label,
+      value,
+      pct: total > 0 ? value / total : 0,
+      color: COMPOSITION_PALETTE[i % COMPOSITION_PALETTE.length],
+    }));
+}
+
 export default function NetWorth({ household, me, members, data, loading }) {
   const { scope } = useScope();
   const scopeMemberId = resolveScopeMemberId(scope, me, members);
@@ -42,6 +71,10 @@ export default function NetWorth({ household, me, members, data, loading }) {
   // (overviewMath.netWorthSummary) already reads balance_aed with a
   // balance fallback, so a non-AED account still converts correctly here.
   const unconfirmed = unconfirmedAccounts(visible);
+  const composition = useMemo(
+    () => buildComposition(assetRows, visibleHoldingRows, scopeMemberId),
+    [assetRows, visibleHoldingRows, scopeMemberId]
+  );
   const summary = useMemo(() => netWorthSummary(accounts, scopeMemberId, holdings), [accounts, scopeMemberId, holdings]);
   const liveAssets = summary.assets;
   const liveLiabilities = summary.liabilities;
@@ -146,6 +179,23 @@ export default function NetWorth({ household, me, members, data, loading }) {
           )}
           {!change1mo && !change12mo && <span className="ov-muted">Not enough history yet for a trend.</span>}
         </div>
+        {composition.length > 0 && (
+          <div className="wl-composition">
+            <div className="wl-composition-bar">
+              {composition.map((c) => (
+                <span key={c.label} style={{ width: `${Math.max(1, c.pct * 100).toFixed(2)}%`, background: c.color }} />
+              ))}
+            </div>
+            <div className="wl-composition-legend">
+              {composition.map((c) => (
+                <span key={c.label}>
+                  <span className="wl-composition-dot" style={{ background: c.color }} />
+                  {c.label} {formatPct(c.pct)} · {money.fmt(c.value)}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
       </section>
 
       <section className="wl-breakdown">
@@ -288,6 +338,38 @@ export default function NetWorth({ household, me, members, data, loading }) {
                 {selected.isLive && <span className="ov-muted">this month, live</span>}
               </div>
             )}
+            <details className="wl-history-table">
+              <summary>History as a table</summary>
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Period</th>
+                    <th scope="col">Assets</th>
+                    <th scope="col">Liabilities</th>
+                    <th scope="col">Net worth</th>
+                    <th scope="col">Change</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {series.map((p, i) => {
+                    const prev = i > 0 ? series[i - 1] : null;
+                    const change = prev ? p.net - prev.net : null;
+                    return (
+                      <tr key={p.label + i}>
+                        <th scope="row">
+                          {p.label}
+                          {p.isLive ? ' (live)' : ''}
+                        </th>
+                        <td>{money.fmtBalance(p.assets)}</td>
+                        <td>{money.fmtBalance(p.liabilities)}</td>
+                        <td>{money.fmtBalance(p.net)}</td>
+                        <td className={change !== null && change < 0 ? 'ov-warn' : ''}>{change !== null ? money.fmtSigned(change) : '—'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </details>
           </>
         )}
       </section>
