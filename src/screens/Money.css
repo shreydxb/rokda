@@ -410,6 +410,33 @@
   }
 }
 
+/* insights: vs-average comparison bar per category row -- a filled bar for
+   this month's actual, and a marker line at the trailing average, on the
+   same 3px track pattern used for the budget bars. */
+.ins-cmp-bar {
+  position: relative;
+  height: 3px;
+  background: var(--rule);
+  margin-top: 8px;
+}
+.ins-cmp-bar-actual {
+  position: absolute;
+  inset: 0 auto 0 0;
+  height: 100%;
+  background: var(--accent);
+}
+.ins-cmp-bar-actual.ov-bar-warn {
+  background: var(--warn);
+}
+.ins-cmp-bar-avg {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 1px;
+  background: var(--ink2);
+  opacity: 0.7;
+}
+
 /* insights: "what moved" cards -- a headline + delta, the evidence
    transaction(s) that actually produced it, and a drill link into Activity
    pre-filtered to that category. */

@@ -63,8 +63,9 @@ export default function Insights({ me, members, data, loading, onDrillIntoActivi
                 const actual = thisMonth.get(cid) ?? 0;
                 const avg = averages.get(cid);
                 const delta = avg && avg > 0 ? (actual - avg) / avg : null;
+                const scale = Math.max(actual, avg ?? 0, 1);
                 return (
-                  <div key={cid} className="mn-row" style={{ cursor: 'default' }}>
+                  <div key={cid} className="mn-row ins-cmp-row" style={{ cursor: 'default' }}>
                     <div className="mn-row-main">
                       <div>{catById.get(cid)?.name ?? 'Uncategorised'}</div>
                       <div className="ov-muted">
@@ -81,6 +82,15 @@ export default function Insights({ me, members, data, loading, onDrillIntoActivi
                           </>
                         ) : (
                           'no prior history'
+                        )}
+                      </div>
+                      <div className="ins-cmp-bar">
+                        <span
+                          className={`ins-cmp-bar-actual ${delta !== null && delta > 0 ? 'ov-bar-warn' : ''}`}
+                          style={{ width: `${Math.min(100, (actual / scale) * 100)}%` }}
+                        />
+                        {avg !== undefined && avg > 0 && (
+                          <span className="ins-cmp-bar-avg" style={{ left: `${Math.min(100, (avg / scale) * 100)}%` }} />
                         )}
                       </div>
                     </div>
