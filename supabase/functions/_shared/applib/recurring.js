@@ -4,27 +4,30 @@ import { addMonthsClamped, parseDay, startOfDay } from './day.js';
 
 // The nth occurrence of a schedule, always measured from the stored anchor
 // date rather than by repeatedly stepping the previous result (QA-07).
-export function occurrenceAt(anchorDate, cadence, n) {
+// intervalCount generalises "every quarter"/"every year" into "every N of
+// this unit" -- see the same parameter in src/lib/recurring.js.
+export function occurrenceAt(anchorDate, cadence, n, intervalCount = 1) {
   const anchor = parseDay(anchorDate);
+  const every = Math.max(1, Number(intervalCount) || 1);
   if (cadence === 'weekly') {
     const d = new Date(anchor);
-    d.setDate(d.getDate() + 7 * n);
+    d.setDate(d.getDate() + 7 * every * n);
     return d;
   }
-  if (cadence === 'monthly') return addMonthsClamped(anchor, n);
-  if (cadence === 'quarterly') return addMonthsClamped(anchor, 3 * n);
-  if (cadence === 'yearly') return addMonthsClamped(anchor, 12 * n);
+  if (cadence === 'monthly') return addMonthsClamped(anchor, every * n);
+  if (cadence === 'quarterly') return addMonthsClamped(anchor, 3 * every * n);
+  if (cadence === 'yearly') return addMonthsClamped(anchor, 12 * every * n);
   return anchor;
 }
 
 // EVERY occurrence inside the window, not just the first (QA-07).
-export function occurrencesInWindow(dateStr, cadence, days, now = new Date()) {
+export function occurrencesInWindow(dateStr, cadence, days, now = new Date(), intervalCount = 1) {
   const today = startOfDay(now);
   const horizon = new Date(today);
   horizon.setDate(horizon.getDate() + days);
   const occurrences = [];
   for (let n = 0; n < 1000; n++) {
-    const occurrence = occurrenceAt(dateStr, cadence, n);
+    const occurrence = occurrenceAt(dateStr, cadence, n, intervalCount);
     if (occurrence > horizon) break;
     if (occurrence >= today) occurrences.push(occurrence);
   }
@@ -35,7 +38,7 @@ export function upcomingItems(rows, days, now = new Date()) {
   return rows
     .filter((r) => r.active !== false)
     .flatMap((r) =>
-      occurrencesInWindow(r.next_due_date, r.cadence, days, now).map((dueDate, index) => ({
+      occurrencesInWindow(r.next_due_date, r.cadence, days, now, r.interval_count).map((dueDate, index) => ({
         ...r,
         dueDate,
         occurrenceKey: `${r.id}@${dueDate.getFullYear()}-${dueDate.getMonth() + 1}-${dueDate.getDate()}#${index}`,

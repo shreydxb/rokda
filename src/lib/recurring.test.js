@@ -137,3 +137,32 @@ describe('billStatus', () => {
     expect(billStatus(bill, [], now)).toMatchObject({ label: 'Upcoming', needsAction: false });
   });
 });
+
+describe('intervalCount: bills that repeat every N units, not just 1', () => {
+  it('a genuinely bi-monthly bill (rent, paid every 2 months) lands two months apart, not one', () => {
+    expect(day(occurrenceAt('2026-09-06', 'monthly', 1, 2))).toBe('2026-11-06');
+    expect(day(occurrenceAt('2026-09-06', 'monthly', 2, 2))).toBe('2027-01-06');
+  });
+
+  it('defaults to every-1 (the old fixed behaviour) when intervalCount is omitted', () => {
+    expect(day(occurrenceAt('2026-09-06', 'monthly', 1))).toBe('2026-10-06');
+  });
+
+  it('rollForward respects intervalCount when finding the next occurrence', () => {
+    // Last paid 6 Sept, due every 2 months -- 6 Sept itself is already past,
+    // so the next occurrence is 6 Nov, not 6 Oct.
+    expect(day(rollForward('2026-09-06', 'monthly', new Date(2026, 8, 10), 2))).toBe('2026-11-06');
+  });
+
+  it('billStatus finds the right due cycle for an every-2-months bill', () => {
+    const rent = { next_due_date: '2026-09-06', cadence: 'monthly', interval_count: 2, amount: -11700 };
+    const now = new Date(2026, 10, 8); // 8 Nov -- just past the 6 Nov cycle
+    expect(billStatus(rent, [], now)).toMatchObject({ label: 'Late' });
+    expect(day(billStatus(rent, [], now).due)).toBe('2026-11-06');
+  });
+
+  it('occurrencesInWindow spaces bi-weekly-style occurrences 2 units apart', () => {
+    const occs = occurrencesInWindow('2026-09-01', 'weekly', 30, new Date(2026, 8, 1), 2);
+    expect(occs.map(day)).toEqual(['2026-09-01', '2026-09-15', '2026-09-29']);
+  });
+});

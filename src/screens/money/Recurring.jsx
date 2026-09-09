@@ -4,6 +4,14 @@ import { billStatus, rollForward } from '../../lib/recurring';
 import RecurringEditor from './RecurringEditor';
 import TransactionEditor from './TransactionEditor';
 
+const UNIT_LABEL = { weekly: 'week', monthly: 'month', quarterly: 'quarter', yearly: 'year' };
+
+function cadenceLabel(r) {
+  const every = Number(r.interval_count) || 1;
+  if (every <= 1) return r.cadence;
+  return `every ${every} ${UNIT_LABEL[r.cadence] ?? r.cadence}s`;
+}
+
 export default function Recurring({ household, members, data, loading }) {
   const { recurring, accounts, categories, transactions, reload } = data;
   const [editing, setEditing] = useState(null);
@@ -125,7 +133,7 @@ function RecurringGroup({ title, rows, members, transactions, now, onEdit, onMar
                     {r.name} {r.active === false && <span className="ov-muted">· paused</span>}
                   </div>
                   <div className="ov-muted">
-                    {r.cadence} · next {rollForward(r.next_due_date, r.cadence, now).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                    {cadenceLabel(r)} · next {rollForward(r.next_due_date, r.cadence, now, r.interval_count).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
                     {' · '}
                     {r.is_shared ? 'Shared' : (members.find((m) => m.id === r.owner_member_id)?.display_name ?? 'Unassigned')}
                     {' · '}

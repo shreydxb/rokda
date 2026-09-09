@@ -11,6 +11,7 @@ function initialForm(item, accounts) {
       amount: String(Math.abs(Number(item.amount))),
       name: item.name ?? '',
       cadence: item.cadence ?? 'monthly',
+      interval_count: String(item.interval_count ?? 1),
       next_due_date: item.next_due_date,
       account_id: item.account_id ?? '',
       category_id: item.category_id ?? '',
@@ -25,6 +26,7 @@ function initialForm(item, accounts) {
     amount: '',
     name: '',
     cadence: 'monthly',
+    interval_count: '1',
     next_due_date: new Date().toISOString().slice(0, 10),
     account_id: accounts[0]?.id ?? '',
     category_id: '',
@@ -70,12 +72,13 @@ export default function RecurringEditor({ item, householdId, accounts, categorie
 
   const amountError = form.amount.trim() === '' || Number(form.amount) <= 0 ? 'Enter an amount greater than zero.' : '';
   const nameError = form.name.trim() === '' ? 'Name it.' : '';
+  const intervalError = !Number.isInteger(Number(form.interval_count)) || Number(form.interval_count) < 1 ? 'Enter a whole number of 1 or more.' : '';
   const kindCategories = categories.filter((c) => c.kind === form.type && (!c.archived || c.id === form.category_id));
 
   async function handleSave(e) {
     e.preventDefault();
-    if (amountError || nameError) {
-      setError(amountError || nameError);
+    if (amountError || nameError || intervalError) {
+      setError(amountError || nameError || intervalError);
       return;
     }
     setSaving(true);
@@ -90,6 +93,7 @@ export default function RecurringEditor({ item, householdId, accounts, categorie
       amount: signed,
       currency: 'AED',
       cadence: form.cadence,
+      interval_count: Number(form.interval_count) || 1,
       next_due_date: form.next_due_date,
       is_shared: form.owner === 'shared',
       owner_member_id: form.owner === 'shared' ? null : form.owner,
@@ -176,11 +180,24 @@ export default function RecurringEditor({ item, householdId, accounts, categorie
               <input className="te-fieldvalue" type="text" value={form.name} onChange={(e) => set('name', e.target.value)} aria-invalid={!!nameError} placeholder="e.g. Salik top-up" />
             </div>
             <div className="te-fieldcell">
+              <span className="te-fieldlabel">Every</span>
+              <input
+                className="te-fieldvalue"
+                type="number"
+                min="1"
+                step="1"
+                inputMode="numeric"
+                value={form.interval_count}
+                onChange={(e) => set('interval_count', e.target.value)}
+                aria-invalid={!!intervalError}
+              />
+            </div>
+            <div className="te-fieldcell">
               <span className="te-fieldlabel">Cadence</span>
               <select className="te-fieldvalue" value={form.cadence} onChange={(e) => set('cadence', e.target.value)}>
                 {CADENCES.map((c) => (
                   <option key={c} value={c}>
-                    {c[0].toUpperCase() + c.slice(1)}
+                    {(Number(form.interval_count) || 1) > 1 ? `${c.replace('ly', '')}s` : c[0].toUpperCase() + c.slice(1)}
                   </option>
                 ))}
               </select>

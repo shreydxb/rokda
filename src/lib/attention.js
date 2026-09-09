@@ -38,7 +38,7 @@ function missingRecurringItems(recurring, transactions, scopeMemberId, now) {
     if (r.active === false) continue;
     if (!(scopeMemberId === null || r.is_shared || r.owner_member_id === scopeMemberId)) continue;
     if (!CADENCES.includes(r.cadence)) continue;
-    const nextDue = rollForward(r.next_due_date, r.cadence, now);
+    const nextDue = rollForward(r.next_due_date, r.cadence, now, r.interval_count);
     const prevDue = stepBack(nextDue, r.cadence);
     const daysLate = Math.round((today - prevDue) / 86400000);
     if (daysLate < RECURRING_GRACE_DAYS || daysLate > RECURRING_LOOKBACK_DAYS) continue;

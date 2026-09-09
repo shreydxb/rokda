@@ -6,41 +6,48 @@ const CADENCES = ['weekly', 'monthly', 'quarterly', 'yearly'];
 // date rather than by repeatedly stepping the previous result. Stepping loses
 // the anchor day in short months: Jan 31 advanced monthly became Mar 3 because
 // "Feb 31" overflowed, and every later occurrence inherited the drift (QA-07).
-export function occurrenceAt(anchorDate, cadence, n) {
+//
+// intervalCount generalises "every quarter"/"every year" into "every N of
+// this unit" -- a bill due every 2 months (rent, in this household's real
+// case) isn't quarterly, and forcing it into the closest built-in cadence
+// would silently mismatch its actual due dates. Defaults to 1, which is
+// exactly the old fixed weekly/monthly/quarterly/yearly behaviour.
+export function occurrenceAt(anchorDate, cadence, n, intervalCount = 1) {
   const anchor = parseDay(anchorDate);
+  const every = Math.max(1, Number(intervalCount) || 1);
   if (cadence === 'weekly') {
     const d = new Date(anchor);
-    d.setDate(d.getDate() + 7 * n);
+    d.setDate(d.getDate() + 7 * every * n);
     return d;
   }
-  if (cadence === 'monthly') return addMonthsClamped(anchor, n);
-  if (cadence === 'quarterly') return addMonthsClamped(anchor, 3 * n);
-  if (cadence === 'yearly') return addMonthsClamped(anchor, 12 * n);
+  if (cadence === 'monthly') return addMonthsClamped(anchor, every * n);
+  if (cadence === 'quarterly') return addMonthsClamped(anchor, 3 * every * n);
+  if (cadence === 'yearly') return addMonthsClamped(anchor, 12 * every * n);
   return anchor;
 }
 
 // Rolls a (possibly past) next_due_date forward by cadence until it's today
 // or later, so a bill paid last month still shows correctly without the
 // user having to bump the stored date after every payment.
-export function rollForward(dateStr, cadence, now = new Date()) {
+export function rollForward(dateStr, cadence, now = new Date(), intervalCount = 1) {
   const today = startOfDay(now);
   for (let n = 0; n < 1000; n++) {
-    const occurrence = occurrenceAt(dateStr, cadence, n);
+    const occurrence = occurrenceAt(dateStr, cadence, n, intervalCount);
     if (occurrence >= today) return occurrence;
   }
-  return occurrenceAt(dateStr, cadence, 0);
+  return occurrenceAt(dateStr, cadence, 0, intervalCount);
 }
 
 // EVERY occurrence inside the window, not just the first. A weekly bill in a
 // 30-day window is five commitments; returning one understated what the
 // household had already committed to (QA-07).
-export function occurrencesInWindow(dateStr, cadence, days, now = new Date()) {
+export function occurrencesInWindow(dateStr, cadence, days, now = new Date(), intervalCount = 1) {
   const today = startOfDay(now);
   const horizon = new Date(today);
   horizon.setDate(horizon.getDate() + days);
   const occurrences = [];
   for (let n = 0; n < 1000; n++) {
-    const occurrence = occurrenceAt(dateStr, cadence, n);
+    const occurrence = occurrenceAt(dateStr, cadence, n, intervalCount);
     if (occurrence > horizon) break;
     if (occurrence >= today) occurrences.push(occurrence);
   }
@@ -51,7 +58,7 @@ export function upcomingItems(rows, days, now = new Date()) {
   return rows
     .filter((r) => r.active !== false)
     .flatMap((r) =>
-      occurrencesInWindow(r.next_due_date, r.cadence, days, now).map((dueDate, index) => ({
+      occurrencesInWindow(r.next_due_date, r.cadence, days, now, r.interval_count).map((dueDate, index) => ({
         ...r,
         dueDate,
         // Rows can now appear more than once in a window, so they need a key
@@ -80,13 +87,13 @@ export function upcomingItems(rows, days, now = new Date()) {
 export function billStatus(row, transactions, now = new Date()) {
   const today = startOfDay(now);
   let n = 0;
-  let occurrence = occurrenceAt(row.next_due_date, row.cadence, 0);
+  let occurrence = occurrenceAt(row.next_due_date, row.cadence, 0, row.interval_count);
   while (occurrence < today && n < 1000) {
     n += 1;
-    occurrence = occurrenceAt(row.next_due_date, row.cadence, n);
+    occurrence = occurrenceAt(row.next_due_date, row.cadence, n, row.interval_count);
   }
   const isPastCycle = n > 0;
-  const due = isPastCycle ? occurrenceAt(row.next_due_date, row.cadence, n - 1) : occurrence;
+  const due = isPastCycle ? occurrenceAt(row.next_due_date, row.cadence, n - 1, row.interval_count) : occurrence;
 
   const amount = Math.abs(Number(row.amount));
   const windowStart = new Date(due);
