@@ -5,14 +5,13 @@ import { formatSigned } from '../../lib/money';
 import TransactionEditor from './TransactionEditor';
 import ActivityCalendar from './ActivityCalendar';
 
-export default function Activity({ household, members, me, data, loading }) {
+export default function Activity({ household, members, me, data, loading, categoryFilter, setCategoryFilter }) {
   const { scope } = useScope();
   const scopeMemberId = resolveScopeMemberId(scope, me, members);
   const { transactions, accounts, categories, reload } = data;
   const accountById = useMemo(() => new Map(accounts.map((a) => [a.id, a])), [accounts]);
 
   const [search, setSearch] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('all');
   const [needsReviewOnly, setNeedsReviewOnly] = useState(false);
   const [view, setView] = useState('list'); // 'list' | 'calendar'
   const [editing, setEditing] = useState(null); // null closed, 'new', or a transaction row

@@ -81,11 +81,20 @@ function buildEdits(tx, form, { accounts, categories, members }) {
   return changes;
 }
 
-export default function TransactionEditor({ tx, householdId, accounts, categories, members, allTransactions, onClose, onSaved, onOpenOther }) {
+export default function TransactionEditor({ tx, householdId, accounts, categories, members, allTransactions, initial, onClose, onSaved, onOpenOther }) {
   // Closed accounts aren't offered for new entries, but an existing record that
   // already points at one keeps it so saving doesn't move it (QA-01).
   const selectable = selectableAccounts(accounts, tx?.account_id ?? null);
-  const [form, setForm] = useState(() => initialForm(tx, selectableAccounts(accounts, tx?.account_id ?? null)));
+  // `initial` only ever pre-fills a genuinely NEW entry (e.g. Recurring's
+  // "Mark paid", which opens this same editor pre-filled from the bill
+  // rather than posting a transaction on its own guess of the account) --
+  // it's spread after initialForm's create-mode defaults, never touching
+  // the tx-vs-null branch everything else (insert/update, dialog title,
+  // delete button) still decides on.
+  const [form, setForm] = useState(() => ({
+    ...initialForm(tx, selectableAccounts(accounts, tx?.account_id ?? null)),
+    ...(!tx && initial ? initial : {}),
+  }));
   const [dirty, setDirty] = useState(false);
   const [duplicateDismissed, setDuplicateDismissed] = useState(false);
   const [confirmingClose, setConfirmingClose] = useState(false);

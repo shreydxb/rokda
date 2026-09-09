@@ -62,4 +62,48 @@ export function upcomingItems(rows, days, now = new Date()) {
     .sort((a, b) => a.dueDate - b.dueDate);
 }
 
+// Whether a posted transaction already matches this bill/income's current
+// due occurrence -- the same matching rule the daily Telegram nudge check
+// uses server-side (amount within 20% tolerance, posted within 5 days
+// either side of the due date). Merchant text isn't checked: it's too
+// inconsistent between a bank SMS and a manual entry to be a reliable
+// signal here, and amount + timing is already a fair bar.
+//
+// rollForward always lands on a FUTURE-or-today occurrence (it assumes
+// every earlier cycle was already paid, which is exactly the display-only
+// convenience it exists for -- see its own comment). Checking payment
+// status needs the opposite: the occurrence one cadence step BEHIND that,
+// which is the cycle that just came due and hasn't been confirmed paid yet.
+// If the schedule's very first occurrence hasn't even arrived (n === 0, the
+// anchor itself is still in the future), there is no past cycle to check --
+// only "upcoming" applies.
+export function billStatus(row, transactions, now = new Date()) {
+  const today = startOfDay(now);
+  let n = 0;
+  let occurrence = occurrenceAt(row.next_due_date, row.cadence, 0);
+  while (occurrence < today && n < 1000) {
+    n += 1;
+    occurrence = occurrenceAt(row.next_due_date, row.cadence, n);
+  }
+  const isPastCycle = n > 0;
+  const due = isPastCycle ? occurrenceAt(row.next_due_date, row.cadence, n - 1) : occurrence;
+
+  const amount = Math.abs(Number(row.amount));
+  const windowStart = new Date(due);
+  windowStart.setDate(windowStart.getDate() - 5);
+  const windowEnd = new Date(due);
+  windowEnd.setDate(windowEnd.getDate() + 5);
+  const posted = transactions.some((t) => {
+    const d = parseDay(t.occurred_at);
+    if (d < windowStart || d > windowEnd) return false;
+    return Math.abs(Math.abs(Number(t.amount)) - amount) <= amount * 0.2;
+  });
+  if (posted) return { label: 'Posted', tone: 'pos', needsAction: false, posted: true, due };
+  if (isPastCycle) return { label: 'Late', tone: 'neg', needsAction: true, posted: false, due };
+
+  const daysUntil = Math.round((due - today) / 86400000);
+  if (daysUntil <= 3) return { label: 'Due soon', tone: 'warn', needsAction: true, posted: false, due };
+  return { label: 'Upcoming', tone: 'mute', needsAction: false, posted: false, due };
+}
+
 export { CADENCES };

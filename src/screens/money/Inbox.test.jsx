@@ -62,6 +62,12 @@ describe('QA-11: Inbox approval goes through one atomic call', () => {
       />,
     );
 
+    // The fixture has no parsed_account_id, so the review panel's direct
+    // Approve is unavailable (nothing to approve onto) -- same as a real
+    // ambiguous-account intake row, this needs the edit form to pick one.
+    await act(async () => {
+      screen.getByRole('button', { name: 'Edit first' }).click();
+    });
     await act(async () => {
       screen.getByRole('button', { name: 'Approve' }).click();
     });
@@ -90,6 +96,9 @@ describe('QA-11: Inbox approval goes through one atomic call', () => {
       />,
     );
 
+    await act(async () => {
+      screen.getByRole('button', { name: 'Edit first' }).click();
+    });
     await act(async () => {
       screen.getByRole('button', { name: 'Income' }).click();
     });

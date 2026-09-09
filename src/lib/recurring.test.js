@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { occurrenceAt, occurrencesInWindow, rollForward, upcomingItems } from './recurring';
+import { billStatus, occurrenceAt, occurrencesInWindow, rollForward, upcomingItems } from './recurring';
 import { billingCycle, daysUntilDue, nextDueDate } from './creditCard';
 
 const day = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -101,5 +101,39 @@ describe('QA-07: credit-card statement and due dates', () => {
 
   it('clamps a due day of 31 to the end of a short month', () => {
     expect(day(nextDueDate(31, new Date(2026, 1, 15)))).toBe('2026-02-28');
+  });
+});
+
+describe('billStatus', () => {
+  const bill = { next_due_date: '2026-09-15', cadence: 'monthly', amount: -500 };
+  const now = new Date(2026, 8, 10);
+
+  it('reads Posted when a matching transaction landed within the tolerance window', () => {
+    const transactions = [{ occurred_at: '2026-09-14', amount: -510 }];
+    expect(billStatus(bill, transactions, now)).toMatchObject({ label: 'Posted', needsAction: false, posted: true });
+  });
+
+  it('does not match a transaction outside the 5-day window even at the right amount', () => {
+    const transactions = [{ occurred_at: '2026-09-02', amount: -500 }];
+    expect(billStatus(bill, transactions, now).posted).toBe(false);
+  });
+
+  it('does not match a transaction inside the window but outside the 20% tolerance', () => {
+    const transactions = [{ occurred_at: '2026-09-15', amount: -700 }];
+    expect(billStatus(bill, transactions, now).posted).toBe(false);
+  });
+
+  it('reads Due soon inside 3 days with nothing posted', () => {
+    const soon = { ...bill, next_due_date: '2026-09-12' };
+    expect(billStatus(soon, [], now)).toMatchObject({ label: 'Due soon', needsAction: true });
+  });
+
+  it('reads Late once the due date has passed with nothing posted', () => {
+    const late = { ...bill, next_due_date: '2026-09-05' };
+    expect(billStatus(late, [], now)).toMatchObject({ label: 'Late', needsAction: true });
+  });
+
+  it('reads Upcoming when due date is more than 3 days out', () => {
+    expect(billStatus(bill, [], now)).toMatchObject({ label: 'Upcoming', needsAction: false });
   });
 });

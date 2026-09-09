@@ -370,7 +370,9 @@
   line-height: 1.5;
 }
 .ov-chip-ok,
-.ov-chip-warn {
+.ov-chip-warn,
+.ov-chip-neg,
+.ov-chip-mute {
   font-size: 10.5px;
   letter-spacing: 0.06em;
   padding: 2px 7px;
@@ -382,6 +384,12 @@
 }
 .ov-chip-warn {
   color: var(--warn);
+}
+.ov-chip-neg {
+  color: var(--neg);
+}
+.ov-chip-mute {
+  color: var(--ink3);
 }
 
 /* next 30 */

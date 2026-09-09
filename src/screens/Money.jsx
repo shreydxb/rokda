@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useHousehold } from '../lib/useHousehold';
 import { useOverviewData } from './useOverviewData';
 import Activity from './money/Activity';
@@ -18,7 +19,16 @@ const TABS = [
 ];
 
 export default function Money() {
-  const [tab, setTab] = useState('activity');
+  const location = useLocation();
+  // Arriving from Overview or another screen can already know which tab/
+  // category the reader wants (e.g. an attention item) -- read once on
+  // mount rather than resetting every time location.state changes for an
+  // unrelated reason.
+  const [tab, setTab] = useState(() => location.state?.tab ?? 'activity');
+  // Insights' "What moved" cards drill into Activity filtered to the
+  // category that moved -- lifted here (not local to Activity) so a card
+  // click can both switch tabs and set the filter in one place.
+  const [categoryFilter, setCategoryFilter] = useState(() => location.state?.categoryId ?? 'all');
   const { household, members, me, loading: householdLoading, error: householdError, reload: reloadHousehold } = useHousehold();
   const data = useOverviewData(household?.id);
   const loading = householdLoading || data.loading;
@@ -43,10 +53,31 @@ export default function Money() {
         ))}
       </div>
 
-      {tab === 'activity' && <Activity household={household} members={members} me={me} data={data} loading={loading} />}
+      {tab === 'activity' && (
+        <Activity
+          household={household}
+          members={members}
+          me={me}
+          data={data}
+          loading={loading}
+          categoryFilter={categoryFilter}
+          setCategoryFilter={setCategoryFilter}
+        />
+      )}
       {tab === 'recurring' && <Recurring household={household} members={members} data={data} loading={loading} />}
       {tab === 'budget' && <Budget household={household} members={members} me={me} data={data} loading={loading} />}
-      {tab === 'insights' && <Insights me={me} members={members} data={data} loading={loading} />}
+      {tab === 'insights' && (
+        <Insights
+          me={me}
+          members={members}
+          data={data}
+          loading={loading}
+          onDrillIntoActivity={(categoryId) => {
+            setCategoryFilter(categoryId);
+            setTab('activity');
+          }}
+        />
+      )}
       {tab === 'inbox' && (
         <Inbox members={members} accounts={data.accounts} categories={data.categories} data={data} loading={loading} />
       )}

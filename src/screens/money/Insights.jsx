@@ -3,12 +3,12 @@ import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
 import { formatMoney, formatPct } from '../../lib/money';
 import { monthActualsByCategory } from '../../lib/budget';
-import { trailingAverageByCategory, topMerchants } from '../../lib/insights';
+import { trailingAverageByCategory, topMerchants, notableMoves } from '../../lib/insights';
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const TRAILING_MONTHS = 6;
 
-export default function Insights({ me, members, data, loading }) {
+export default function Insights({ me, members, data, loading, onDrillIntoActivity }) {
   const { scope } = useScope();
   const scopeMemberId = resolveScopeMemberId(scope, me, members);
   const { transactions, categories } = data;
@@ -26,6 +26,11 @@ export default function Insights({ me, members, data, loading }) {
     [transactions, year, month, scopeMemberId]
   );
   const merchants = useMemo(() => topMerchants(transactions, scopeMemberId), [transactions, scopeMemberId]);
+  const moves = useMemo(
+    () => notableMoves(transactions, year, month, scopeMemberId, catById, now),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [transactions, year, month, scopeMemberId, now]
+  );
 
   const catIds = [...new Set([...thisMonth.keys(), ...averages.keys()])].sort((a, b) => (thisMonth.get(b) ?? 0) - (thisMonth.get(a) ?? 0));
 
@@ -83,6 +88,53 @@ export default function Insights({ me, members, data, loading }) {
                   </div>
                 );
               })}
+            </div>
+          )}
+
+          <div className="ov-kicker" style={{ marginTop: 34, marginBottom: 4 }}>
+            What moved, and on what evidence
+          </div>
+          {moves.length === 0 ? (
+            <div className="ov-muted" style={{ marginTop: 10 }}>
+              {monthsWithData > 0 ? 'Nothing moved far enough from its average to flag.' : 'Needs prior months to compare against.'}
+            </div>
+          ) : (
+            <div className="mn-list">
+              {moves.map((mv) => (
+                <button
+                  key={mv.categoryId}
+                  type="button"
+                  className="mn-row ins-card"
+                  onClick={() => onDrillIntoActivity?.(mv.categoryId)}
+                >
+                  <div className="ins-card-head">
+                    <div className="ins-card-headline">
+                      {mv.categoryName} {mv.delta > 0 ? 'ran' : 'came in'} <span className="fig">{formatMoney(Math.abs(mv.delta))}</span>{' '}
+                      {mv.delta > 0 ? 'over' : 'under'} its average this month
+                    </div>
+                    <div className={mv.delta > 0 ? 'ov-warn' : 'ov-pos'}>
+                      {mv.pct > 0 ? '+' : ''}
+                      {formatPct(mv.pct)}
+                    </div>
+                  </div>
+                  <div className="ov-muted ins-card-evidence">
+                    {mv.evidence.length > 0
+                      ? mv.evidence
+                          .map(
+                            (e) =>
+                              `${e.merchant} ${formatMoney(e.amount)} (${new Date(e.occurred_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })})`
+                          )
+                          .join(', ')
+                      : 'No individual transaction stands out — the move is spread across several.'}
+                  </div>
+                  <div className="ins-card-foot">
+                    <span className="ov-muted">
+                      {formatMoney(mv.actual)} this month vs {formatMoney(mv.avg)} average
+                    </span>
+                    <span className="ov-link">Open in Activity →</span>
+                  </div>
+                </button>
+              ))}
             </div>
           )}
         </div>

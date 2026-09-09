@@ -110,6 +110,9 @@ function MonthView({ cursor, setCursor, budgets, transactions, catById, scopeMem
     groups.get(groupId).push(r);
   }
 
+  const usedPct = totalBudget > 0 ? totalActual / totalBudget : 0;
+  const trackDiff = totalProjected !== null ? totalBudget - totalProjected : null;
+
   return (
     <div>
       <div className="cal-nav" style={{ marginTop: 22 }}>
@@ -130,48 +133,72 @@ function MonthView({ cursor, setCursor, budgets, transactions, catById, scopeMem
           <div className="ov-empty-body">Nothing budgeted for {MONTH_LABELS[month - 1]} {year} yet.</div>
         </div>
       ) : (
-        <div className="mn-list">
-          {[...groups.entries()].map(([groupId, groupRows]) => (
-            <BudgetGroup
-              key={groupId}
-              groupId={groupId}
-              groupCategory={catById.get(groupId)}
-              rows={groupRows}
-              actuals={actuals}
-              groupActual={rolledActuals.get(groupId) ?? 0}
-              catById={catById}
-              pace={pace}
-              onEdit={onEdit}
-            />
-          ))}
-          <div className="mn-row bud-total">
-            <div className="mn-row-main" style={{ flex: '0 0 180px' }}>
-              <div>Budgeted subtotal</div>
-            </div>
-            <div className="bud-bar-wrap">
-              <div className="ov-muted">
-                Budget <span className="fig">{formatMoney(totalBudget)}</span> · Spent{' '}
-                <span className="fig">{formatMoney(totalActual)}</span>
-                {pace.isPast ? (
-                  ' · final'
-                ) : (
-                  totalProjected !== null && (
-                    <>
-                      {' · projected '}
-                      <span className={`fig ${totalProjected > totalBudget ? 'ov-warn' : ''}`}>{formatMoney(totalProjected)}</span>
-                    </>
-                  )
-                )}
+        <>
+          <section className="bud-hero">
+            <div>
+              <div className="ov-kicker">Spent of budget</div>
+              <div className="ov-hero fig">
+                {formatMoney(totalActual)} <span className="bud-hero-of">of {formatMoney(totalBudget)}</span>
               </div>
             </div>
+            <div className="bud-hero-bar-wrap">
+              <div className="bud-bar bud-bar-lg">
+                <span className={`bud-bar-spent ${usedPct > 1 ? 'bud-bar-over' : ''}`} style={{ width: `${Math.min(100, usedPct * 100)}%` }} />
+                <span className="bud-bar-marker" style={{ left: `${Math.min(100, pace.elapsedFraction * 100)}%` }} />
+              </div>
+              <div className="bud-hero-labels">
+                <span>{Math.round(usedPct * 100)}% used</span>
+                <span>{pace.isPast ? 'Month complete' : `Pace marker · ${Math.round(pace.elapsedFraction * 100)}% of month elapsed`}</span>
+              </div>
+              <div className={`bud-tracknote ${trackDiff !== null && trackDiff < 0 ? 'ov-warn' : trackDiff !== null ? 'ov-pos' : ''}`}>
+                {pace.isPast
+                  ? `Month closed at ${formatMoney(totalActual)} of ${formatMoney(totalBudget)} budgeted.`
+                  : trackDiff !== null
+                    ? `Tracking ${formatMoney(Math.abs(trackDiff))} ${trackDiff >= 0 ? 'under' : 'over'} pace. Projected close: ${formatMoney(totalProjected)}.`
+                    : 'Too early in the month for a pace reading.'}
+              </div>
+            </div>
+          </section>
+
+          <div className="bud-table-head">
+            <div>Category</div>
+            <div className="bud-col-num">Spent</div>
+            <div className="bud-col-num">Limit</div>
+            <div>Pace</div>
+            <div className="bud-col-num">Projected</div>
+          </div>
+          <div className="mn-list">
+            {[...groups.entries()].map(([groupId, groupRows]) => (
+              <BudgetGroup
+                key={groupId}
+                groupId={groupId}
+                groupCategory={catById.get(groupId)}
+                rows={groupRows}
+                actuals={actuals}
+                groupActual={rolledActuals.get(groupId) ?? 0}
+                catById={catById}
+                pace={pace}
+                onEdit={onEdit}
+              />
+            ))}
           </div>
 
-          <div className="mn-row bud-total">
-            <div className="mn-row-main" style={{ flex: '0 0 180px' }}>
-              <div>All spending</div>
+          <div className="bud-footer">
+            <div className="bud-footer-row">
+              <span>Budgeted subtotal</span>
+              <span>
+                Budget <span className="fig">{formatMoney(totalBudget)}</span> · Spent <span className="fig">{formatMoney(totalActual)}</span>
+                {pace.isPast ? ' · final' : totalProjected !== null && (
+                  <>
+                    {' · projected '}
+                    <span className={`fig ${totalProjected > totalBudget ? 'ov-warn' : ''}`}>{formatMoney(totalProjected)}</span>
+                  </>
+                )}
+              </span>
             </div>
-            <div className="bud-bar-wrap">
-              <div className="ov-muted">
+            <div className="bud-footer-row">
+              <span>All spending</span>
+              <span>
                 Total <span className="fig">{formatMoney(spend.total)}</span>
                 {outsideBudget > 0 && (
                   <>
@@ -180,15 +207,15 @@ function MonthView({ cursor, setCursor, budgets, transactions, catById, scopeMem
                     {spend.uncategorised > 0 && ` (${formatMoney(spend.uncategorised)} uncategorised)`}
                   </>
                 )}
-              </div>
-              {scopeMemberId !== null && (
-                <div className="ov-muted" style={{ marginTop: 4 }}>
-                  Actuals are this person’s share; budgets are the whole household’s, so the two are not like for like.
-                </div>
-              )}
+              </span>
             </div>
+            {scopeMemberId !== null && (
+              <div className="ov-muted" style={{ marginTop: 4 }}>
+                Actuals are this person’s share; budgets are the whole household’s, so the two are not like for like.
+              </div>
+            )}
           </div>
-        </div>
+        </>
       )}
     </div>
   );
@@ -241,40 +268,22 @@ function BudgetRow({ name, budget, actual, pace, onClick, expandable, expanded, 
   const projected = pace.isPast ? actual : pace.canProject ? projectedClose(actual, pace.elapsedFraction) : null;
   const over = projected !== null && projected > budget;
   return (
-    <button type="button" className={`mn-row bud-row${sub ? ' bud-row-sub' : ''}`} onClick={onClick}>
-      <div className="mn-row-main" style={{ flex: '0 0 180px' }}>
-        <div>
-          {expandable && <span className="bud-chevron">{expanded ? '▾' : '▸'}</span>}
-          {name}
-        </div>
-        <div className="ov-muted">
-          Budget <span className="fig">{formatMoney(budget)}</span>
-        </div>
+    <button type="button" className={`bud-tr ${sub ? 'bud-tr-sub' : ''}`} onClick={onClick}>
+      <div className="bud-tr-name">
+        {expandable && <span className="bud-chevron">{expanded ? '▾' : '▸'}</span>}
+        {name}
       </div>
-      <div className="bud-bar-wrap">
+      <div className="bud-col-num fig">{formatMoney(actual)}</div>
+      <div className="bud-col-num"><span className="bud-limit-chip">{formatMoney(budget)}</span></div>
+      <div className="bud-tr-pace">
         <div className="bud-bar">
-          <span className="bud-bar-elapsed" style={{ width: `${Math.min(100, pace.elapsedFraction * 100)}%` }} />
-          <span
-            className={`bud-bar-spent ${over ? 'bud-bar-over' : ''}`}
-            style={{ width: `${Math.min(100, (actual / (budget || 1)) * 100)}%` }}
-          />
+          <span className={`bud-bar-spent ${over ? 'bud-bar-over' : ''}`} style={{ width: `${Math.min(100, (actual / (budget || 1)) * 100)}%` }} />
         </div>
-        <div className="ov-muted" style={{ marginTop: 4 }}>
-          Spent <span className="fig">{formatMoney(actual)}</span>
-          {' · '}
-          {pace.isPast ? (
-            'final'
-          ) : projected !== null ? (
-            <>
-              projected <span className={`fig ${over ? 'ov-warn' : ''}`}>{formatMoney(projected)}</span>
-            </>
-          ) : actual > 0 ? (
-            'too early to project'
-          ) : (
-            'not started'
-          )}
+        <div className={`bud-pacetext ${over ? 'ov-warn' : ''}`}>
+          {pace.isPast ? 'final' : projected !== null ? 'on pace' : actual > 0 ? 'too early to project' : 'not started'}
         </div>
       </div>
+      <div className={`bud-col-num fig ${over ? 'ov-warn' : ''}`}>{projected !== null ? formatMoney(projected) : '—'}</div>
     </button>
   );
 }
