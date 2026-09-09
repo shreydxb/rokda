@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { screen } from '@testing-library/dom';
+import { screen, fireEvent } from '@testing-library/dom';
 import { MemoryRouter } from 'react-router-dom';
 import { renderScreen } from '../../test/renderScreen';
 import { startingNetWorth } from '../overviewMath';
@@ -82,5 +82,46 @@ describe('QA-03: Forecast renders every input state', () => {
   it('renders accounts plus holdings with enough history to project', () => {
     renderForecast({ accounts: [ACCOUNT], transactions: closedMonthTransactions(now), holdings: [HOLDING] });
     expect(screen.queryByText(/Not enough to project/i)).toBeNull();
+  });
+});
+
+describe('Forecast scenario picker', () => {
+  const now = new Date();
+
+  it('offers Baseline, Conservative, Optimistic and Custom, defaulting to Baseline', () => {
+    renderForecast({
+      accounts: [ACCOUNT],
+      transactions: closedMonthTransactions(now),
+      holdings: [HOLDING],
+      data: { assumptions: { nominal_return_pct: 6, inflation_pct: 2.5, safe_withdrawal_pct: 4 } },
+    });
+    for (const label of ['Baseline', 'Conservative', 'Optimistic', 'Custom']) {
+      expect(screen.getByRole('button', { name: label })).toBeTruthy();
+    }
+    expect(screen.getByRole('button', { name: 'Baseline' }).dataset.active).toBe('true');
+  });
+
+  it('switching to Conservative lowers the assumed return shown on the page', () => {
+    renderForecast({
+      accounts: [ACCOUNT],
+      transactions: closedMonthTransactions(now),
+      holdings: [HOLDING],
+      data: { assumptions: { nominal_return_pct: 6, inflation_pct: 2.5, safe_withdrawal_pct: 4 } },
+    });
+    expect(screen.getByText('6.0% nominal')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Conservative' }));
+    expect(screen.getByRole('button', { name: 'Conservative' }).dataset.active).toBe('true');
+    expect(screen.getByText('4.0% nominal')).toBeTruthy();
+  });
+
+  it('Custom reads "not set" until it has its own saved assumptions', () => {
+    renderForecast({
+      accounts: [ACCOUNT],
+      transactions: closedMonthTransactions(now),
+      holdings: [HOLDING],
+      data: { assumptions: { nominal_return_pct: 6, inflation_pct: 2.5, safe_withdrawal_pct: 4 } },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
+    expect(screen.getByText(/not set yet/i)).toBeTruthy();
   });
 });

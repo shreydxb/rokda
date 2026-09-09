@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatBalance, formatMoney, formatPct } from '../../lib/money';
 import { startingNetWorth } from '../overviewMath';
-import { closedMonths, crossingYear, fiTarget, forecastInputs, projectSeries, realReturn, goalAt } from '../../lib/forecast';
+import { closedMonths, crossingYear, fiTarget, forecastInputs, projectSeries, realReturn, goalAt, scenarioSets } from '../../lib/forecast';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import ForecastAssumptionsEditor from './ForecastAssumptionsEditor';
 
@@ -30,6 +30,7 @@ export default function Forecast({ household, accounts = [], transactions = [], 
   const householdId = household?.id;
   const { assumptions } = data;
   const [mode, setMode] = useState('real');
+  const [fcSet, setFcSet] = useState('baseline');
   const [editing, setEditing] = useState(false);
   const money = useMoneyDisplay(household);
 
@@ -42,9 +43,14 @@ export default function Forecast({ household, accounts = [], transactions = [], 
 
   const nominalPct = assumptions?.nominal_return_pct != null ? Number(assumptions.nominal_return_pct) : DEFAULTS.nominal_return_pct;
   const inflationPct = assumptions?.inflation_pct != null ? Number(assumptions.inflation_pct) : DEFAULTS.inflation_pct;
-  const swrPct = assumptions?.safe_withdrawal_pct != null ? Number(assumptions.safe_withdrawal_pct) : DEFAULTS.safe_withdrawal_pct;
   const leanSpend = assumptions?.lean_annual_spend != null ? Number(assumptions.lean_annual_spend) : null;
   const hasBaseline = !!assumptions?.baseline_set_at;
+
+  const sets = scenarioSets(assumptions, DEFAULTS);
+  const selected = sets[fcSet] ?? sets.baseline;
+  const selNominalPct = selected.nominalPct;
+  const selInflationPct = selected.inflationPct;
+  const selSwrPct = selected.swrPct;
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
 
@@ -85,51 +91,61 @@ export default function Forecast({ household, accounts = [], transactions = [], 
     );
   }
 
-  const rate = mode === 'real' ? realReturn(nominalPct, inflationPct) : nominalPct / 100;
+  const rate = mode === 'real' ? realReturn(selNominalPct, selInflationPct) : selNominalPct / 100;
   const annualSaving = inputs.monthlySaving * 12;
-  const target = fiTarget(inputs.annualSpend, swrPct);
-  const leanTarget = leanSpend ? fiTarget(leanSpend, swrPct) : null;
-  const targetShown = mode === 'real' ? target : Math.round(target * (1 + inflationPct / 100) ** HORIZON_YEARS);
+  const target = fiTarget(inputs.annualSpend, selSwrPct);
+  const leanTarget = leanSpend ? fiTarget(leanSpend, selSwrPct) : null;
+  const targetShown = mode === 'real' ? target : Math.round(target * (1 + selInflationPct / 100) ** HORIZON_YEARS);
 
-  const fireYear = crossingYear({ startYear, startNetWorth, annualSaving, rate, mode, inflationPct, goal: target });
-  const leanYear = leanTarget ? crossingYear({ startYear, startNetWorth, annualSaving, rate, mode, inflationPct, goal: leanTarget }) : null;
+  const fireYear = crossingYear({ startYear, startNetWorth, annualSaving, rate, mode, inflationPct: selInflationPct, goal: target });
+  const leanYear = leanTarget ? crossingYear({ startYear, startNetWorth, annualSaving, rate, mode, inflationPct: selInflationPct, goal: leanTarget }) : null;
 
-  const baselineRate = hasBaseline ? (mode === 'real' ? realReturn(Number(assumptions.baseline_nominal_return_pct), inflationPct) : Number(assumptions.baseline_nominal_return_pct) / 100) : null;
+  const baselineRate = hasBaseline ? (mode === 'real' ? realReturn(Number(assumptions.baseline_nominal_return_pct), selInflationPct) : Number(assumptions.baseline_nominal_return_pct) / 100) : null;
   const baselineSaving = hasBaseline ? Number(assumptions.baseline_monthly_saving) * 12 : null;
   const planYear = hasBaseline
-    ? crossingYear({ startYear, startNetWorth, annualSaving: baselineSaving, rate: baselineRate, mode, inflationPct, goal: target })
+    ? crossingYear({ startYear, startNetWorth, annualSaving: baselineSaving, rate: baselineRate, mode, inflationPct: selInflationPct, goal: target })
     : null;
   const aheadBy = yearsDelta(fireYear, planYear);
 
+  const liveRate = mode === 'real' ? realReturn(nominalPct, inflationPct) : nominalPct / 100;
+  const savingEffectYear = hasBaseline
+    ? crossingYear({ startYear, startNetWorth, annualSaving, rate: baselineRate, mode, inflationPct, goal: target })
+    : null;
+  const savingEffect = yearsDelta(planYear, savingEffectYear);
+  const returnEffectYear = hasBaseline
+    ? crossingYear({ startYear, startNetWorth, annualSaving: baselineSaving, rate: liveRate, mode, inflationPct, goal: target })
+    : null;
+  const returnEffect = yearsDelta(planYear, returnEffectYear);
+
   const pct = target > 0 ? startNetWorth / target : 0;
 
-  const series = projectSeries({ startYear, startNetWorth, annualSaving, rate, mode, inflationPct, horizonYears: HORIZON_YEARS, step: STEP });
+  const series = projectSeries({ startYear, startNetWorth, annualSaving, rate, mode, inflationPct: selInflationPct, horizonYears: HORIZON_YEARS, step: STEP });
   const planSeries = hasBaseline
-    ? projectSeries({ startYear, startNetWorth, annualSaving: baselineSaving, rate: baselineRate, mode, inflationPct, horizonYears: HORIZON_YEARS, step: STEP })
+    ? projectSeries({ startYear, startNetWorth, annualSaving: baselineSaving, rate: baselineRate, mode, inflationPct: selInflationPct, horizonYears: HORIZON_YEARS, step: STEP })
     : null;
-  const targetLine = series.map((p) => goalAt(p.yearsOut, target, mode, inflationPct));
+  const targetLine = series.map((p) => goalAt(p.yearsOut, target, mode, selInflationPct));
   const maxValue = Math.max(...series.map((p) => p.value), ...targetLine, ...(planSeries?.map((p) => p.value) ?? []), 1);
 
   const scenarios = [
     (() => {
       const bump = Math.max(500, Math.round((inputs.monthlySaving * 0.25) / 100) * 100) || 1000;
-      const yr = crossingYear({ startYear, startNetWorth, annualSaving: annualSaving + bump * 12, rate, mode, inflationPct, goal: target });
+      const yr = crossingYear({ startYear, startNetWorth, annualSaving: annualSaving + bump * 12, rate, mode, inflationPct: selInflationPct, goal: target });
       const d = yearsDelta(fireYear, yr);
       return { name: `Save AED ${formatMoney(bump)} more a month`, note: 'Redirect any budget underspend instead of letting it drift', deltaYears: d, delta: deltaLabel(d) };
     })(),
     (() => {
-      const lowerNominal = Math.max(0, nominalPct - 2);
-      const lowerRate = mode === 'real' ? realReturn(lowerNominal, inflationPct) : lowerNominal / 100;
-      const yr = crossingYear({ startYear, startNetWorth, annualSaving, rate: lowerRate, mode, inflationPct, goal: target });
+      const lowerNominal = Math.max(0, selNominalPct - 2);
+      const lowerRate = mode === 'real' ? realReturn(lowerNominal, selInflationPct) : lowerNominal / 100;
+      const yr = crossingYear({ startYear, startNetWorth, annualSaving, rate: lowerRate, mode, inflationPct: selInflationPct, goal: target });
       const d = yearsDelta(fireYear, yr);
-      return { name: `Markets return ${lowerNominal.toFixed(1)}% instead of ${nominalPct.toFixed(1)}%`, note: 'A long flat stretch — the main risk to the date', deltaYears: d, delta: deltaLabel(d) };
+      return { name: `Markets return ${lowerNominal.toFixed(1)}% instead of ${selNominalPct.toFixed(1)}%`, note: 'A long flat stretch — the main risk to the date', deltaYears: d, delta: deltaLabel(d) };
     })(),
     (() => {
-      const higherNominal = nominalPct + 2;
-      const higherRate = mode === 'real' ? realReturn(higherNominal, inflationPct) : higherNominal / 100;
-      const yr = crossingYear({ startYear, startNetWorth, annualSaving, rate: higherRate, mode, inflationPct, goal: target });
+      const higherNominal = selNominalPct + 2;
+      const higherRate = mode === 'real' ? realReturn(higherNominal, selInflationPct) : higherNominal / 100;
+      const yr = crossingYear({ startYear, startNetWorth, annualSaving, rate: higherRate, mode, inflationPct: selInflationPct, goal: target });
       const d = yearsDelta(fireYear, yr);
-      return { name: `Markets return ${higherNominal.toFixed(1)}% instead of ${nominalPct.toFixed(1)}%`, note: 'The upside case, same contributions', deltaYears: d, delta: deltaLabel(d) };
+      return { name: `Markets return ${higherNominal.toFixed(1)}% instead of ${selNominalPct.toFixed(1)}%`, note: 'The upside case, same contributions', deltaYears: d, delta: deltaLabel(d) };
     })(),
     ...(leanTarget
       ? [
@@ -170,6 +186,62 @@ export default function Forecast({ household, accounts = [], transactions = [], 
             <button type="button" className="om-btn" onClick={() => setEditing(true)}>
               Edit assumptions
             </button>
+          </div>
+        </div>
+
+        <div
+          style={{
+            display: 'flex',
+            gap: 8,
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            marginTop: 26,
+            paddingBottom: 18,
+            borderBottom: '1px solid var(--rule)',
+          }}
+        >
+          <span style={{ fontSize: 11.5, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--ink3)', marginRight: 6 }}>Scenario</span>
+          {Object.values(sets).map((s) => (
+            <button key={s.key} type="button" className="om-seg" data-active={fcSet === s.key} onClick={() => setFcSet(s.key)}>
+              {s.label}
+            </button>
+          ))}
+          <span className="ov-muted" style={{ fontSize: 11.5, marginLeft: 'auto' }}>
+            {selected.meta}
+          </span>
+        </div>
+
+        <div style={{ marginTop: 20, border: '1px solid var(--rule2)', borderRadius: 3, padding: '16px 18px' }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
+            <div style={{ fontSize: 13.5 }}>Based on these assumptions</div>
+            <button type="button" className="om-link" style={{ fontSize: 11.5, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', font: 'inherit' }} onClick={() => setEditing(true)}>
+              Edit →
+            </button>
+          </div>
+          <div className="ov-quality-grid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', marginTop: 14 }}>
+            {[
+              ['Investment return', `${selNominalPct.toFixed(1)}% nominal`],
+              ['Inflation', `${selInflationPct.toFixed(1)}%`],
+              ['Safe withdrawal rate', `${selSwrPct.toFixed(1)}%`],
+              ['Monthly saving', `${formatBalance(inputs.monthlySaving)} (actual)`],
+              ['Annual spend', `${formatMoney(inputs.annualSpend)} (actual)`],
+              ['Horizon shown', `${HORIZON_YEARS} years`],
+            ].map(([label, value]) => (
+              <div key={label}>
+                <div style={{ fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--ink3)' }}>{label}</div>
+                <div className="fig" style={{ fontSize: 13.5, marginTop: 5 }}>{value}</div>
+              </div>
+            ))}
+          </div>
+          <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 15, lineHeight: 1.7, maxWidth: '84ch' }}>
+            {fcSet === 'baseline' &&
+              'Change any one of these and every figure on this page moves. Dates are shown to the year, never the month: a single percentage point on the return assumption shifts the independence year by roughly two to three years, so a precise date would be false precision.'}
+            {fcSet === 'custom' &&
+              (sets.custom.meta.startsWith('Not set')
+                ? "This scenario hasn't been edited yet, so it's shown identical to Baseline. Edit assumptions while Custom is selected to save your own numbers."
+                : "This scenario is your own and isn't the household baseline. Figures below follow it, but nothing is compared against plan until Baseline is edited to match.")}
+            {(fcSet === 'conservative' || fcSet === 'optimistic') &&
+              `A ${selected.label.toLowerCase()} reading of the same balance sheet. Only the return and inflation assumptions differ from Baseline — monthly saving and spend are unchanged. Dates are shown to the year, never the month.`}
           </div>
         </div>
 
@@ -214,7 +286,7 @@ export default function Forecast({ household, accounts = [], transactions = [], 
           <div style={{ fontSize: 12, color: 'var(--ink2)' }}>{mode === 'real' ? 'Real return assumed' : 'Nominal return assumed'}</div>
           <div className="fig" style={{ fontSize: 28, marginTop: 6 }}>{(rate * 100).toFixed(1)}%</div>
           <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 5 }}>
-            {mode === 'real' ? `${nominalPct.toFixed(1)}% nominal less ${inflationPct.toFixed(1)}% inflation` : `Before inflation of ${inflationPct.toFixed(1)}%`}
+            {mode === 'real' ? `${selNominalPct.toFixed(1)}% nominal less ${selInflationPct.toFixed(1)}% inflation` : `Before inflation of ${selInflationPct.toFixed(1)}%`}
           </div>
         </div>
         <div style={{ paddingLeft: 24 }}>
@@ -265,26 +337,44 @@ export default function Forecast({ household, accounts = [], transactions = [], 
             <div className="ov-muted" style={{ fontSize: 12.5 }}>Save assumptions once to start tracking planned vs actual.</div>
           ) : (
             <div className="mn-list">
-              <div className="mn-row" style={{ cursor: 'default' }}>
-                <div className="mn-row-main">
-                  <div>Monthly saving</div>
-                  <div className="ov-muted" style={{ marginTop: 3, fontSize: 11.5 }}>Baseline vs the last {inputs.monthCount} months, actual</div>
+              <div className="mn-row" style={{ cursor: 'default', display: 'block' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20, alignItems: 'baseline' }}>
+                  <div className="mn-row-main">
+                    <div>Monthly saving</div>
+                    <div className="ov-muted" style={{ marginTop: 3, fontSize: 11.5 }}>Baseline vs the last {inputs.monthCount} months, actual</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 20, alignItems: 'baseline' }}>
+                    <span className="ov-muted fig">{formatBalance(assumptions.baseline_monthly_saving)}</span>
+                    <span className={`fig ${inputs.monthlySaving >= Number(assumptions.baseline_monthly_saving) ? 'ov-pos' : 'ov-neg'}`}>
+                      {formatBalance(inputs.monthlySaving)}
+                    </span>
+                  </div>
                 </div>
-                <div style={{ display: 'flex', gap: 20, alignItems: 'baseline' }}>
-                  <span className="ov-muted fig">{formatBalance(assumptions.baseline_monthly_saving)}</span>
-                  <span className={`fig ${inputs.monthlySaving >= Number(assumptions.baseline_monthly_saving) ? 'ov-pos' : 'ov-neg'}`}>
-                    {formatBalance(inputs.monthlySaving)}
-                  </span>
+                <div className={`ov-muted ${savingEffect < 0 ? 'ov-pos' : savingEffect > 0 ? 'ov-neg' : ''}`} style={{ fontSize: 11.5, marginTop: 5 }}>
+                  {savingEffect === null
+                    ? '—'
+                    : savingEffect === 0
+                      ? 'No effect on the independence year'
+                      : `${savingEffect < 0 ? 'Pulls the date forward' : 'Pushes the date back'} ${Math.abs(savingEffect)} yr${Math.abs(savingEffect) === 1 ? '' : 's'}`}
                 </div>
               </div>
-              <div className="mn-row" style={{ cursor: 'default' }}>
-                <div className="mn-row-main">
-                  <div>Investment return</div>
-                  <div className="ov-muted" style={{ marginTop: 3, fontSize: 11.5 }}>Baseline vs current assumption</div>
+              <div className="mn-row" style={{ cursor: 'default', display: 'block' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20, alignItems: 'baseline' }}>
+                  <div className="mn-row-main">
+                    <div>Investment return</div>
+                    <div className="ov-muted" style={{ marginTop: 3, fontSize: 11.5 }}>Baseline vs current assumption</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 20, alignItems: 'baseline' }}>
+                    <span className="ov-muted fig">{Number(assumptions.baseline_nominal_return_pct).toFixed(1)}%</span>
+                    <span className="fig">{nominalPct.toFixed(1)}%</span>
+                  </div>
                 </div>
-                <div style={{ display: 'flex', gap: 20, alignItems: 'baseline' }}>
-                  <span className="ov-muted fig">{Number(assumptions.baseline_nominal_return_pct).toFixed(1)}%</span>
-                  <span className="fig">{nominalPct.toFixed(1)}%</span>
+                <div className={`ov-muted ${returnEffect < 0 ? 'ov-pos' : returnEffect > 0 ? 'ov-neg' : ''}`} style={{ fontSize: 11.5, marginTop: 5 }}>
+                  {returnEffect === null
+                    ? '—'
+                    : returnEffect === 0
+                      ? 'No effect on the independence year'
+                      : `${returnEffect < 0 ? 'Pulls the date forward' : 'Pushes the date back'} ${Math.abs(returnEffect)} yr${Math.abs(returnEffect) === 1 ? '' : 's'}`}
                 </div>
               </div>
               <div className="mn-row" style={{ cursor: 'default' }}>
@@ -322,37 +412,12 @@ export default function Forecast({ household, accounts = [], transactions = [], 
         </div>
       </div>
 
-      <section style={{ marginTop: 44, paddingBottom: 40 }}>
-        <div className="ov-kicker" style={{ marginBottom: 12 }}>
-          Based on these assumptions
-        </div>
-        <div className="ov-quality-grid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))' }}>
-          {[
-            ['Investment return', `${nominalPct.toFixed(1)}% nominal`],
-            ['Inflation', `${inflationPct.toFixed(1)}%`],
-            ['Safe withdrawal rate', `${swrPct.toFixed(1)}%`],
-            ['Monthly saving', `${formatBalance(inputs.monthlySaving)} (actual)`],
-            ['Annual spend', `${formatMoney(inputs.annualSpend)} (actual)`],
-            ['Horizon shown', `${HORIZON_YEARS} years`],
-          ].map(([label, value]) => (
-            <div key={label}>
-              <div style={{ fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--ink3)' }}>{label}</div>
-              <div className="fig" style={{ fontSize: 13.5, marginTop: 5 }}>{value}</div>
-            </div>
-          ))}
-        </div>
-        <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 15, lineHeight: 1.7, maxWidth: '84ch' }}>
-          Change any one of these and every figure on this page moves. Dates are shown to the year, never the month: a single
-          percentage point on the return assumption shifts the independence year by roughly two to three years, so a precise date
-          would be false precision.
-        </div>
-      </section>
-
       {editing && (
         <ForecastAssumptionsEditor
           householdId={householdId}
           assumptions={assumptions}
           currentMonthlySaving={inputs.monthlySaving}
+          scenario={fcSet}
           onClose={() => setEditing(false)}
           onSaved={async () => {
             setEditing(false);
