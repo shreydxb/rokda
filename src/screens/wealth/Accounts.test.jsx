@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, within } from '@testing-library/dom';
+import { screen, within, fireEvent } from '@testing-library/dom';
 import { act } from 'react';
 import { renderScreen } from '../../test/renderScreen';
 
@@ -145,5 +145,24 @@ describe('Credit card "of limit used" reflects real transactions, not just a man
     renderAccounts({ accounts: [card], transactions: [] });
     const text = document.querySelector('.wl-card').textContent;
     expect(text).toMatch(/25%/);
+  });
+});
+
+describe('Accounts: group by type / by owner toggle', () => {
+  const SAVINGS = { id: 'sv1', name: 'Emirates NBD Savings', type: 'savings', balance: 5000, balance_as_of: '2026-09-01', is_shared: true, archived_at: null, owner_member_id: null };
+  const PERSONAL = { id: 'ch1', name: "Shreyash's checking", type: 'checking', balance: 3000, balance_as_of: '2026-09-01', is_shared: false, archived_at: null, owner_member_id: 'm1' };
+
+  it('defaults to grouping by type', () => {
+    renderAccounts({ accounts: [SAVINGS, PERSONAL], transactions: [] });
+    expect(screen.getByRole('button', { name: 'By type' }).dataset.active).toBe('true');
+    expect(screen.getByText('Savings')).toBeTruthy();
+    expect(screen.getByText('Checking')).toBeTruthy();
+  });
+
+  it('switches to grouping by owner, with Joint first', () => {
+    renderAccounts({ accounts: [SAVINGS, PERSONAL], transactions: [] });
+    fireEvent.click(screen.getByRole('button', { name: 'By owner' }));
+    expect(screen.getByText('Joint')).toBeTruthy();
+    expect(screen.getByText('Shreyash')).toBeTruthy();
   });
 });

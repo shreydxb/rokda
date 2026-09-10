@@ -19,6 +19,7 @@ export default function Accounts({ household, members, me, data, loading }) {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [showClosed, setShowClosed] = useState(false);
+  const [groupBy, setGroupBy] = useState('type'); // 'type' | 'owner'
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
 
@@ -69,7 +70,13 @@ export default function Accounts({ household, members, me, data, loading }) {
   return (
     <div>
       <div className="mn-filters">
-        <div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button type="button" className="om-seg" data-active={groupBy === 'type'} onClick={() => setGroupBy('type')}>
+            By type
+          </button>
+          <button type="button" className="om-seg" data-active={groupBy === 'owner'} onClick={() => setGroupBy('owner')}>
+            By owner
+          </button>
           {closed.length > 0 && (
             <button type="button" className="om-tab" data-active={showClosed} onClick={() => setShowClosed((v) => !v)}>
               {showClosed ? 'Hide' : 'Show'} closed ({closed.length})
@@ -116,13 +123,19 @@ export default function Accounts({ household, members, me, data, loading }) {
             </div>
           )}
 
-          {other.length > 0 && (
-            <div className="mn-list" style={{ marginTop: cards.length > 0 ? 30 : 22 }}>
-              {other.map((a) => (
-                <AccountRow key={a.id} account={a} members={members} money={money} onEdit={() => setEditing(a)} />
-              ))}
-            </div>
-          )}
+          {other.length > 0 &&
+            groupAccounts(other, groupBy, members).map(([label, rows], i) => (
+              <div key={label} style={{ marginTop: i === 0 ? (cards.length > 0 ? 30 : 22) : 26 }}>
+                <div className="ov-kicker" style={{ marginBottom: 8 }}>
+                  {label}
+                </div>
+                <div className="mn-list">
+                  {rows.map((a) => (
+                    <AccountRow key={a.id} account={a} members={members} money={money} onEdit={() => setEditing(a)} />
+                  ))}
+                </div>
+              </div>
+            ))}
 
           {showClosed && closed.length > 0 && (
             <>
@@ -209,6 +222,30 @@ function AccountRow({ account, members, money, onEdit, action }) {
       {action}
     </div>
   );
+}
+
+// Groups a flat account list into labelled sections, in a stable, sensible
+// order -- "by type" reads account.type alphabetically grouped (matching how
+// the credit-card grid above is already effectively grouped); "by owner"
+// puts Joint first, then each member.
+function groupAccounts(rows, by, members) {
+  const labelFor =
+    by === 'owner'
+      ? (a) => (a.is_shared ? 'Joint' : (members.find((m) => m.id === a.owner_member_id)?.display_name ?? 'Unassigned'))
+      : (a) => a.type.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  const groups = new Map();
+  for (const a of rows) {
+    const label = labelFor(a);
+    if (!groups.has(label)) groups.set(label, []);
+    groups.get(label).push(a);
+  }
+  const ordered = [...groups.entries()];
+  if (by === 'owner') {
+    ordered.sort(([a], [b]) => (a === 'Joint' ? -1 : b === 'Joint' ? 1 : a.localeCompare(b)));
+  } else {
+    ordered.sort(([a], [b]) => a.localeCompare(b));
+  }
+  return ordered;
 }
 
 const CARD_DUE_SOON_DAYS = 10;
