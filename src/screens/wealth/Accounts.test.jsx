@@ -166,3 +166,24 @@ describe('Accounts: group by type / by owner toggle', () => {
     expect(screen.getByText('Shreyash')).toBeTruthy();
   });
 });
+
+describe('Credit card usage line leads with the real AED amount, not just a rounded percentage', () => {
+  it('shows "X of Y used" with the real spend amount when the percentage would round to 0%', () => {
+    const card = { ...CARD, statement_day: 1, credit_limit: 25100, balance: 0 };
+    const now = new Date(2026, 8, 10);
+    const transactions = [
+      { id: 't1', account_id: 'card-1', amount: -32, occurred_at: '2026-09-01', is_shared: true },
+      { id: 't2', account_id: 'card-1', amount: -19, occurred_at: '2026-09-03', is_shared: true },
+      { id: 't3', account_id: 'card-1', amount: -16, occurred_at: '2026-09-04', is_shared: true },
+    ];
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    try {
+      renderAccounts({ accounts: [card], transactions });
+      const text = document.querySelector('.wl-card').textContent;
+      expect(text).toMatch(/67.*of.*25,100.*used/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

@@ -301,7 +301,11 @@ function CreditCard({ account, transactions, members, money, onEdit, plan, busy,
               <span className={`bud-bar-spent ${util > 0.8 ? 'bud-bar-over' : ''}`} style={{ width: `${Math.min(100, util * 100)}%` }} />
             </div>
             <div className="ov-muted" style={{ marginTop: 4 }}>
-              {formatPct(util)} of {money.fmt(account.credit_limit)} used
+              {/* Leads with the real AED figure, not just the rounded
+                  percentage -- a genuine AED 67 of a 25,100 limit rounds to
+                  "0%", which reads identically to "nothing is known" even
+                  though the amount is real, transaction-driven data. */}
+              {money.fmt(est ? est.amount : account.balance)} of {money.fmt(account.credit_limit)} used ({formatPct(util)})
             </div>
           </>
         ) : (
