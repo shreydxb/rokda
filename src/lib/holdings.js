@@ -58,6 +58,49 @@ export function holdingGain(holding, scopeMemberId) {
   return { absolute, pct: absolute / invested };
 }
 
+// Portfolio-level "change today" from each holding's own day_change_pct
+// (set by the nightly price-refresh, straight from the price provider) --
+// weighted by scoped value, so a big holder moving 1% counts for more than
+// a small one moving 5%. Holdings with no day_change_pct (never
+// auto-priced, or the day's refresh failed) are excluded from both the
+// weighted total and the base it's a percentage of, rather than treated as
+// flat -- a silent flat 0% would understate real movement.
+export function portfolioDayChange(holdings, scopeMemberId) {
+  let priced = 0;
+  let absolute = 0;
+  let baseValue = 0;
+  for (const h of holdings) {
+    if (h.day_change_pct == null) continue;
+    priced += 1;
+    const value = scopedHoldingValue(h, scopeMemberId);
+    const changeFraction = h.day_change_pct / 100;
+    // value = yesterday's value * (1 + change); solve back for yesterday's.
+    const prevValue = value / (1 + changeFraction);
+    absolute += value - prevValue;
+    baseValue += prevValue;
+  }
+  if (priced === 0) return { available: false, absolute: 0, pct: null };
+  return { available: true, absolute, pct: baseValue > 0 ? absolute / baseValue : null };
+}
+
+// Portfolio-wide invested total and P&L to date, from whichever holdings
+// actually carry a real invested_value_aed -- never a guessed cost basis.
+export function portfolioInvestedAndGain(holdings, scopeMemberId) {
+  let invested = 0;
+  let value = 0;
+  let coveredCount = 0;
+  for (const h of holdings) {
+    const inv = scopedInvestedValue(h, scopeMemberId);
+    if (inv === null) continue;
+    coveredCount += 1;
+    invested += inv;
+    value += scopedHoldingValue(h, scopeMemberId);
+  }
+  if (coveredCount === 0) return { available: false, invested: 0, absolute: 0, pct: null };
+  const absolute = value - invested;
+  return { available: true, invested, absolute, pct: invested > 0 ? absolute / invested : null };
+}
+
 export function allocationByClass(holdings, scopeMemberId) {
   const totals = new Map();
   let grandTotal = 0;

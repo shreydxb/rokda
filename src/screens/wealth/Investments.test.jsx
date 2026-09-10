@@ -69,3 +69,68 @@ describe('QA-04: Investments reload does not certify prices', () => {
     expect(screen.getByText(/Oldest valuation/i)).toBeTruthy();
   });
 });
+
+const PRICED_HOLDING = {
+  id: 'h2',
+  name: 'AAPL',
+  asset_class: 'us_equity',
+  currency: 'USD',
+  is_shared: false,
+  value_aed: 20000,
+  invested_value_aed: 15000,
+  day_change_pct: 2,
+  priced_at: '2026-09-09T00:00:00Z',
+  owner_member_id: 'm1',
+};
+
+describe('Investments: portfolio overview stats', () => {
+  it('shows Invested, Profit and loss to date, and Change today', () => {
+    renderScreen(
+      <Investments
+        household={{ id: 'h' }}
+        members={MEMBERS}
+        me={MEMBERS[0]}
+        loading={false}
+        data={{ holdings: [PRICED_HOLDING], holdingHistory: [], reload: vi.fn() }}
+      />,
+    );
+    expect(screen.getByText('Invested')).toBeTruthy();
+    expect(screen.getByText('Profit and loss to date')).toBeTruthy();
+    expect(screen.getByText('Change today')).toBeTruthy();
+  });
+});
+
+describe('Investments: holdings table shows owner once, not duplicated under the name', () => {
+  it('does not repeat the owner in the name cell subtitle', () => {
+    renderScreen(
+      <Investments
+        household={{ id: 'h' }}
+        members={MEMBERS}
+        me={MEMBERS[0]}
+        loading={false}
+        data={{ holdings: [PRICED_HOLDING], holdingHistory: [], reload: vi.fn() }}
+      />,
+    );
+    const nameCell = screen.getByText('AAPL').parentElement;
+    expect(nameCell.textContent).not.toMatch(/Shreyash/);
+    // The Owner column is the only place the name should appear.
+    expect(screen.getAllByText('Shreyash')).toHaveLength(1);
+  });
+});
+
+describe('Investments: table currency and % of total', () => {
+  it('labels Invested/Value columns with the display currency and shows % of total under Value', () => {
+    renderScreen(
+      <Investments
+        household={{ id: 'h' }}
+        members={MEMBERS}
+        me={MEMBERS[0]}
+        loading={false}
+        data={{ holdings: [PRICED_HOLDING], holdingHistory: [], reload: vi.fn() }}
+      />,
+    );
+    expect(screen.getByText('Invested (AED)')).toBeTruthy();
+    expect(screen.getByText('Value (AED)')).toBeTruthy();
+    expect(screen.getByText(/100%.*of total/)).toBeTruthy();
+  });
+});
