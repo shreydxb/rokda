@@ -292,3 +292,84 @@ describe('NetWorth history table', () => {
     expect(table).toMatch(/live/i);
   });
 });
+
+describe('NetWorth: investments rolled into Assets, not a separate section', () => {
+  it('shows one "Investments" line with the total, not each holding listed separately', () => {
+    renderScreen(
+      <NetWorth
+        household={{ id: 'h1' }}
+        me={MEMBERS[0]}
+        members={MEMBERS}
+        loading={false}
+        data={{
+          accounts: [{ id: 'a1', name: 'ENBD', type: 'checking', balance: 10000, balance_as_of: '2026-09-01', is_shared: true, archived_at: null }],
+          netWorthSnapshots: [],
+          holdings: [
+            { id: 'h1', name: 'VWRA', asset_class: 'equity', value_aed: 60000, is_shared: true, archived_at: null },
+            { id: 'h2', name: 'Gold', asset_class: 'commodity', value_aed: 10000, is_shared: true, archived_at: null },
+          ],
+        }}
+      />,
+    );
+    expect(screen.getByText('Investments')).toBeTruthy();
+    expect(screen.queryByText('VWRA')).toBeNull();
+    expect(screen.queryByText('Gold')).toBeNull();
+    expect(screen.getByText('2 holdings')).toBeTruthy();
+  });
+
+  it('shows Total assets including both accounts and holdings', () => {
+    renderScreen(
+      <NetWorth
+        household={{ id: 'h1' }}
+        me={MEMBERS[0]}
+        members={MEMBERS}
+        loading={false}
+        data={{
+          accounts: [{ id: 'a1', name: 'ENBD', type: 'checking', balance: 10000, balance_as_of: '2026-09-01', is_shared: true, archived_at: null }],
+          netWorthSnapshots: [],
+          holdings: [{ id: 'h1', name: 'VWRA', asset_class: 'equity', value_aed: 60000, is_shared: true, archived_at: null }],
+        }}
+      />,
+    );
+    const totalRow = [...document.querySelectorAll('.wl-total-row')].find((r) => r.textContent.includes('Total assets'));
+    expect(totalRow.textContent).toMatch(/70,000/);
+  });
+});
+
+describe('NetWorth: Monthly change section', () => {
+  it('lists a signed change per closed month, matching the history table', () => {
+    renderScreen(
+      <NetWorth
+        household={{ id: 'h1' }}
+        me={MEMBERS[0]}
+        members={MEMBERS}
+        loading={false}
+        data={{
+          accounts: [],
+          netWorthSnapshots: [
+            { snapshot_date: '2026-07-01', assets: 90000, liabilities: 50000 },
+            { snapshot_date: '2026-08-01', assets: 95000, liabilities: 48000 },
+          ],
+          holdings: [],
+        }}
+      />,
+    );
+    expect(screen.getByText('Monthly change')).toBeTruthy();
+    const rows = [...document.querySelectorAll('.wl-change-row')];
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.some((r) => r.textContent.includes('+7,000'))).toBe(true);
+  });
+
+  it('omits the section entirely when there is no history', () => {
+    renderScreen(
+      <NetWorth
+        household={{ id: 'h1' }}
+        me={MEMBERS[0]}
+        members={MEMBERS}
+        loading={false}
+        data={{ accounts: [], netWorthSnapshots: [], holdings: [] }}
+      />,
+    );
+    expect(screen.queryByText('Monthly change')).toBeNull();
+  });
+});

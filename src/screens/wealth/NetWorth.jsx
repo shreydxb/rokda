@@ -147,78 +147,131 @@ export default function NetWorth({ household, me, members, data, loading }) {
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
 
+  const investmentsTotal = visibleHoldingRows.reduce((s, h) => s + scopedHoldingValue(h, scopeMemberId), 0);
+  // Same last-6-closed-months delta the history table's Change column shows,
+  // just as a compact list -- the design's "Monthly change" section is that
+  // same figure, not a second calculation that could disagree with it.
+  const monthlyChanges = historyAvailable
+    ? series
+        .slice(-6)
+        .map((p) => {
+          const prevIdx = series.indexOf(p) - 1;
+          const prev = prevIdx >= 0 ? series[prevIdx] : null;
+          return { label: p.label, change: prev ? p.net - prev.net : null };
+        })
+        .filter((c) => c.change !== null)
+    : [];
+
   return (
     <div>
       <section className="wl-hero">
-        <div className="ov-kicker">Net worth</div>
-        <div className="ov-hero fig">
-          <span className="ov-hero-currency">{money.code}</span> {money.fmtBalance(netWorth)}
-        </div>
-        {unconfirmed.length > 0 && (
-          <div className="ov-muted" style={{ marginTop: 6, fontSize: 12 }}>
-            Provisional — {unconfirmed.length} account{unconfirmed.length === 1 ? '' : 's'} without a confirmed balance{' '}
-            {unconfirmed.length === 1 ? 'is' : 'are'} counted as zero.
-          </div>
-        )}
-        <div className="ov-strip">
-          {change1mo && (
-            <span>
-              <span className={change1mo.absolute >= 0 ? 'ov-pos' : 'ov-neg'}>
-                {change1mo.absolute >= 0 ? '▲' : '▼'} {money.fmtSigned(change1mo.absolute)}
-              </span>{' '}
-              this month
-            </span>
-          )}
-          {change12mo && (
-            <span>
-              12-mo{' '}
-              <span className={change12mo.absolute >= 0 ? 'ov-pos' : 'ov-neg'}>
-                {change12mo.pct !== null ? formatPct(change12mo.pct) : money.fmtSigned(change12mo.absolute)}
-              </span>
-            </span>
-          )}
-          {!change1mo && !change12mo && <span className="ov-muted">Not enough history yet for a trend.</span>}
-        </div>
-        {composition.length > 0 && (
-          <div className="wl-composition">
-            <div className="wl-composition-bar">
-              {composition.map((c) => (
-                <span key={c.label} style={{ width: `${Math.max(1, c.pct * 100).toFixed(2)}%`, background: c.color }} />
-              ))}
+        <div className="wl-hero-row">
+          <div>
+            <div className="ov-kicker">Net worth</div>
+            <div className="ov-hero fig">
+              <span className="ov-hero-currency">{money.code}</span> {money.fmtBalance(netWorth)}
             </div>
-            <div className="wl-composition-legend">
-              {composition.map((c) => (
-                <span key={c.label}>
-                  <span className="wl-composition-dot" style={{ background: c.color }} />
-                  {c.label} {formatPct(c.pct)} · {money.fmt(c.value)}
+            {unconfirmed.length > 0 && (
+              <div className="ov-muted" style={{ marginTop: 6, fontSize: 12 }}>
+                Provisional — {unconfirmed.length} account{unconfirmed.length === 1 ? '' : 's'} without a confirmed balance{' '}
+                {unconfirmed.length === 1 ? 'is' : 'are'} counted as zero.
+              </div>
+            )}
+            <div className="ov-strip">
+              {change1mo && (
+                <span>
+                  <span className={change1mo.absolute >= 0 ? 'ov-pos' : 'ov-neg'}>
+                    {change1mo.absolute >= 0 ? '▲' : '▼'} {money.fmtSigned(change1mo.absolute)}
+                  </span>{' '}
+                  this month
                 </span>
-              ))}
+              )}
+              {change12mo && (
+                <span>
+                  12-mo{' '}
+                  <span className={change12mo.absolute >= 0 ? 'ov-pos' : 'ov-neg'}>
+                    {change12mo.pct !== null ? formatPct(change12mo.pct) : money.fmtSigned(change12mo.absolute)}
+                  </span>
+                </span>
+              )}
+              {!change1mo && !change12mo && <span className="ov-muted">Not enough history yet for a trend.</span>}
             </div>
           </div>
-        )}
+          {composition.length > 0 && (
+            <div className="wl-composition">
+              <div className="ov-kicker" style={{ marginBottom: 10 }}>
+                Composition
+              </div>
+              <div className="wl-composition-bar">
+                {composition.map((c) => (
+                  <span key={c.label} style={{ width: `${Math.max(1, c.pct * 100).toFixed(2)}%`, background: c.color }} />
+                ))}
+              </div>
+              <div className="wl-composition-legend">
+                {composition.map((c) => (
+                  <span key={c.label}>
+                    <span className="wl-composition-dot" style={{ background: c.color }} />
+                    {c.label} {formatPct(c.pct)} · {money.fmt(c.value)}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       </section>
 
-      <section className="wl-breakdown">
-        <div className="ov-kicker" style={{ marginBottom: 10 }}>
-          Assets
-        </div>
-        <AccountList rows={assetRows} scopeMemberId={scopeMemberId} members={members} money={money} />
-        {visibleHoldingRows.length > 0 && (
-          <>
-            <div className="ov-kicker" style={{ marginBottom: 10, marginTop: 26 }}>
-              Investments
+      <section className="wl-breakdown wl-breakdown-grid">
+        <div>
+          <div className="ov-kicker" style={{ marginBottom: 10 }}>
+            Assets
+          </div>
+          <AccountList rows={assetRows} scopeMemberId={scopeMemberId} members={members} money={money} />
+          {investmentsTotal > 0 && (
+            <div className="mn-row" style={{ cursor: 'default' }}>
+              <div className="mn-row-main">
+                <div>Investments</div>
+                <div className="ov-muted">
+                  {visibleHoldingRows.length} holding{visibleHoldingRows.length === 1 ? '' : 's'}
+                </div>
+              </div>
+              <div className="fig mn-row-amt">{money.fmt(investmentsTotal)}</div>
             </div>
-            <HoldingList rows={visibleHoldingRows} scopeMemberId={scopeMemberId} members={members} money={money} />
-          </>
-        )}
-        <div className="ov-kicker" style={{ marginBottom: 10, marginTop: 26 }}>
-          Liabilities
+          )}
+          <div className="wl-total-row">
+            <span>Total assets</span>
+            <span className="fig">{money.fmtBalance(liveAssets)}</span>
+          </div>
         </div>
-        {liabilityRows.length === 0 ? (
-          <div className="ov-muted">None.</div>
-        ) : (
-          <AccountList rows={liabilityRows} scopeMemberId={scopeMemberId} members={members} money={money} negative />
-        )}
+        <div>
+          <div className="ov-kicker" style={{ marginBottom: 10 }}>
+            Liabilities
+          </div>
+          {liabilityRows.length === 0 ? (
+            <div className="ov-muted">None.</div>
+          ) : (
+            <AccountList rows={liabilityRows} scopeMemberId={scopeMemberId} members={members} money={money} negative />
+          )}
+          <div className="wl-total-row">
+            <span>Total liabilities</span>
+            <span className="fig ov-neg">{liveLiabilities > 0 ? `−${money.fmt(liveLiabilities)}` : money.fmt(0)}</span>
+          </div>
+
+          {monthlyChanges.length > 0 && (
+            <>
+              <div className="ov-kicker" style={{ marginTop: 30, marginBottom: 10 }}>
+                Monthly change
+              </div>
+              <div>
+                {monthlyChanges.map((c) => (
+                  <div key={c.label} className="wl-change-row">
+                    <span className="ov-muted">{c.label}</span>
+                    <span className={`fig ${c.change >= 0 ? 'ov-pos' : 'ov-neg'}`}>{money.fmtSigned(c.change)}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
       </section>
 
       <section className="wl-history">
@@ -377,26 +430,6 @@ export default function NetWorth({ household, me, members, data, loading }) {
   );
 }
 
-function HoldingList({ rows, scopeMemberId, members, money }) {
-  if (rows.length === 0) return <div className="ov-muted">None yet.</div>;
-  return (
-    <div className="mn-list">
-      {rows.map((h) => (
-        <div key={h.id} className="mn-row" style={{ cursor: 'default' }}>
-          <div className="mn-row-main">
-            <div>{h.name}</div>
-            <div className="ov-muted">
-              {h.is_shared ? 'Joint' : (members.find((m) => m.id === h.owner_member_id)?.display_name ?? 'Unassigned')}
-              {' · '}
-              {ASSET_CLASS_LABELS[h.asset_class] ?? h.asset_class}
-            </div>
-          </div>
-          <div className="fig mn-row-amt">{money.fmt(scopedHoldingValue(h, scopeMemberId))}</div>
-        </div>
-      ))}
-    </div>
-  );
-}
 
 function AccountList({ rows, scopeMemberId, members, money, negative }) {
   if (rows.length === 0) return <div className="ov-muted">None yet.</div>;
