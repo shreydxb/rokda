@@ -1,0 +1,57 @@
+name: Deploy to GitHub Pages
+
+# A free, credit-free fallback for viewing the live app when Netlify's
+# build minutes run out -- same Supabase backend, just a different static
+# host for the built frontend. The Supabase URL/key below are the public
+# anon key, not secrets: they're the same values already embedded in every
+# Netlify build's bundle, visible to anyone via browser devtools.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build
+        run: npm run build
+        env:
+          GH_PAGES: true
+          VITE_COMMIT_SHA: ${{ github.sha }}
+          VITE_SUPABASE_URL: https://erggbzbbutsvhleqcddq.supabase.co
+          VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_GolXgP4BiNh0BLBLkEgioA_BTLmKEW2
+      # BrowserRouter needs a same-URL fallback for deep links (e.g. /money) --
+      # GitHub Pages has no server-side rewrite, so 404.html is the standard
+      # trick: it's served for any unmatched path, and being a copy of
+      # index.html it boots the app, which then reads the real path itself.
+      - name: SPA fallback for client-side routing
+        run: cp dist/index.html dist/404.html
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

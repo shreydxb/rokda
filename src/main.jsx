@@ -14,7 +14,7 @@ createRoot(document.getElementById('root')).render(
       <AuthProvider>
         <ScopeProvider>
           <CurrencyProvider>
-            <BrowserRouter>
+            <BrowserRouter basename={import.meta.env.BASE_URL}>
               <App />
             </BrowserRouter>
           </CurrencyProvider>

@@ -18,6 +18,11 @@ function commitSha() {
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  // Netlify serves this app from its domain root, so base stays '/' there.
+  // GitHub Pages (the credit-free fallback when Netlify runs out of build
+  // minutes) serves a project site from /<repo>/ instead -- the Pages
+  // workflow sets GH_PAGES=true so only that build picks up the prefix.
+  base: process.env.GH_PAGES ? '/rokda/' : '/',
   define: {
     __BUILD_SHA__: JSON.stringify(commitSha()),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
