@@ -1164,7 +1164,13 @@ async function runBudgetAlertCheck(): Promise<{ checked: number; nudged: number 
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
 
-  const { data: budgetRows } = await supabase.from("budgets").select("household_id, category_id, amount").eq("year", year).eq("month", month).gt("amount", 0);
+  const { data: budgetRows } = await supabase
+    .from("budgets")
+    .select("household_id, category_id, amount")
+    .eq("year", year)
+    .eq("month", month)
+    .eq("alerts_enabled", true)
+    .gt("amount", 0);
 
   let nudged = 0;
   for (const b of (budgetRows ?? []) as Array<{ household_id: string; category_id: string; amount: number }>) {

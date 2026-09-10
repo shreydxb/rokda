@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
 import { formatBalance, formatMoney } from '../../lib/money';
-import { monthActualsByCategory, monthIncome, monthPace, monthSpendBreakdown, projectedClose, rollupActualsByGroup } from '../../lib/budget';
+import { monthActualsByCategory, monthIncome, monthPace, monthSpendBreakdown, rollupActualsByGroup } from '../../lib/budget';
 import BudgetEditor from './BudgetEditor';
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -88,7 +88,6 @@ function MonthView({ cursor, setCursor, budgets, transactions, catById, scopeMem
 
   const totalBudget = rows.reduce((s, r) => s + Number(r.amount), 0);
   const totalActual = rows.reduce((s, r) => s + (actuals.get(r.category_id) ?? 0), 0);
-  const totalProjected = pace.canProject ? projectedClose(totalActual, pace.elapsedFraction) : null;
   // What was actually spent, budgeted or not. The budgeted subtotal above is
   // only part of it (QA-09).
   const spend = monthSpendBreakdown(transactions, rows.map((r) => r.category_id), year, month, scopeMemberId, now);
@@ -111,7 +110,6 @@ function MonthView({ cursor, setCursor, budgets, transactions, catById, scopeMem
   }
 
   const usedPct = totalBudget > 0 ? totalActual / totalBudget : 0;
-  const trackDiff = totalProjected !== null ? totalBudget - totalProjected : null;
 
   return (
     <div>
@@ -150,14 +148,12 @@ function MonthView({ cursor, setCursor, budgets, transactions, catById, scopeMem
                 <span>{Math.round(usedPct * 100)}% used</span>
                 <span>{pace.isPast ? 'Month complete' : `Pace marker · ${Math.round(pace.elapsedFraction * 100)}% of month elapsed`}</span>
               </div>
-              <div className={`bud-tracknote ${usedPct > 1 || (trackDiff !== null && trackDiff < 0) ? 'ov-warn' : trackDiff !== null ? 'ov-pos' : ''}`}>
+              <div className={`bud-tracknote ${usedPct > 1 ? 'ov-warn' : ''}`}>
                 {pace.isPast
                   ? `Month closed at ${formatMoney(totalActual)} of ${formatMoney(totalBudget)} budgeted.`
                   : usedPct > 1
                     ? `Already ${formatMoney(totalActual - totalBudget)} over budget.`
-                    : trackDiff !== null
-                      ? `Tracking ${formatMoney(Math.abs(trackDiff))} ${trackDiff >= 0 ? 'under' : 'over'} pace. Projected close: ${formatMoney(totalProjected)}.`
-                      : 'Too early in the month for a pace reading.'}
+                    : `${Math.round(pace.elapsedFraction * 100)}% of the month gone, ${Math.round(usedPct * 100)}% of budget spent.`}
               </div>
             </div>
           </section>
@@ -167,7 +163,6 @@ function MonthView({ cursor, setCursor, budgets, transactions, catById, scopeMem
             <div className="bud-col-num">Spent</div>
             <div className="bud-col-num">Limit</div>
             <div>Pace</div>
-            <div className="bud-col-num">Projected</div>
           </div>
           <div className="mn-list">
             {[...groups.entries()].map(([groupId, groupRows]) => (
@@ -190,12 +185,7 @@ function MonthView({ cursor, setCursor, budgets, transactions, catById, scopeMem
               <span>Budgeted subtotal</span>
               <span>
                 Budget <span className="fig">{formatMoney(totalBudget)}</span> · Spent <span className="fig">{formatMoney(totalActual)}</span>
-                {pace.isPast ? ' · final' : totalProjected !== null && (
-                  <>
-                    {' · projected '}
-                    <span className={`fig ${totalProjected > totalBudget ? 'ov-warn' : ''}`}>{formatMoney(totalProjected)}</span>
-                  </>
-                )}
+                {pace.isPast && ' · final'}
               </span>
             </div>
             <div className="bud-footer-row">
@@ -223,10 +213,6 @@ function MonthView({ cursor, setCursor, budgets, transactions, catById, scopeMem
   );
 }
 
-function rowProjection(actual, pace) {
-  return pace.isPast ? actual : pace.canProject ? projectedClose(actual, pace.elapsedFraction) : null;
-}
-
 function BudgetGroup({ groupId, groupCategory, rows, actuals, groupActual, catById, pace, onEdit }) {
   const [expanded, setExpanded] = useState(false);
   const groupBudget = rows.reduce((s, r) => s + Number(r.amount), 0);
@@ -248,7 +234,7 @@ function BudgetGroup({ groupId, groupCategory, rows, actuals, groupActual, catBy
         budget={Number(rows[0].amount)}
         actual={groupActual}
         pace={pace}
-        onClick={() => onEdit({ ...rows[0], spentSoFar: groupActual, projectedAmount: rowProjection(groupActual, pace) })}
+        onClick={() => onEdit({ ...rows[0], spentSoFar: groupActual })}
       />
     );
   }
@@ -275,7 +261,7 @@ function BudgetGroup({ groupId, groupCategory, rows, actuals, groupActual, catBy
                 budget={Number(r.amount)}
                 actual={subActual}
                 pace={pace}
-                onClick={() => onEdit({ ...r, spentSoFar: subActual, projectedAmount: rowProjection(subActual, pace) })}
+                onClick={() => onEdit({ ...r, spentSoFar: subActual })}
                 sub
               />
             );
@@ -287,9 +273,7 @@ function BudgetGroup({ groupId, groupCategory, rows, actuals, groupActual, catBy
 }
 
 function BudgetRow({ name, budget, actual, pace, onClick, expandable, expanded, sub }) {
-  const projected = rowProjection(actual, pace);
   const overNow = actual > budget;
-  const over = overNow || (projected !== null && projected > budget);
   return (
     <button type="button" className={`bud-tr ${sub ? 'bud-tr-sub' : ''}`} onClick={onClick}>
       <div className="bud-tr-name">
@@ -300,21 +284,12 @@ function BudgetRow({ name, budget, actual, pace, onClick, expandable, expanded, 
       <div className="bud-col-num"><span className="bud-limit-chip">{formatMoney(budget)}</span></div>
       <div className="bud-tr-pace">
         <div className="bud-bar">
-          <span className={`bud-bar-spent ${over ? 'bud-bar-over' : ''}`} style={{ width: `${Math.min(100, (actual / (budget || 1)) * 100)}%` }} />
+          <span className={`bud-bar-spent ${overNow ? 'bud-bar-over' : ''}`} style={{ width: `${Math.min(100, (actual / (budget || 1)) * 100)}%` }} />
         </div>
-        <div className={`bud-pacetext ${over ? 'ov-warn' : ''}`}>
-          {overNow
-            ? `over by ${formatMoney(actual - budget)}`
-            : pace.isPast
-              ? 'final'
-              : projected !== null
-                ? 'on pace'
-                : actual > 0
-                  ? 'too early to project'
-                  : 'not started'}
+        <div className={`bud-pacetext ${overNow ? 'ov-warn' : ''}`}>
+          {overNow ? `over by ${formatMoney(actual - budget)}` : pace.isPast ? 'final' : actual > 0 ? 'tracking' : 'not started'}
         </div>
       </div>
-      <div className={`bud-col-num fig ${over ? 'ov-warn' : ''}`}>{projected !== null ? formatMoney(projected) : '—'}</div>
     </button>
   );
 }

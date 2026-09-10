@@ -82,6 +82,14 @@
   margin-left: auto;
 }
 
+/* Save/Cancel grouped together on the left, Delete pushed to the far right
+   -- matching the design's footer order, rather than Delete-left/Save-right. */
+.te-actions-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .te-delete {
   color: var(--neg);
   border-color: var(--rule2);

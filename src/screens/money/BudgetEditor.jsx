@@ -9,6 +9,7 @@ export default function BudgetEditor({ item, householdId, categories, year, mont
   const [categoryId, setCategoryId] = useState(item?.category_id ?? categories.find((c) => c.kind === 'expense')?.id ?? '');
   const [amount, setAmount] = useState(item ? String(item.amount) : '');
   const [applyTo, setApplyTo] = useState('month'); // 'month' | 'year'
+  const [alertsEnabled, setAlertsEnabled] = useState(item?.alerts_enabled !== false);
   const [dirty, setDirty] = useState(false);
   const [confirmingClose, setConfirmingClose] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -51,6 +52,7 @@ export default function BudgetEditor({ item, householdId, categories, year, mont
       year,
       month: m,
       amount: Number(amount),
+      alerts_enabled: alertsEnabled,
     }));
 
     const { error: saveError } = await supabase.from('budgets').upsert(rows, {
@@ -143,12 +145,6 @@ export default function BudgetEditor({ item, householdId, categories, year, mont
                   {item.spentSoFar != null ? formatMoney(item.spentSoFar) : '—'}
                 </div>
               </div>
-              <div className="te-fieldcell">
-                <span className="te-fieldlabel">Projected close</span>
-                <div className="te-fieldvalue" style={{ borderBottom: 'none', paddingTop: 4 }}>
-                  {item.projectedAmount != null ? formatMoney(item.projectedAmount) : '—'}
-                </div>
-              </div>
             </div>
           ) : (
             <div>
@@ -202,6 +198,21 @@ export default function BudgetEditor({ item, householdId, categories, year, mont
             </div>
           </div>
 
+          <button
+            type="button"
+            className="te-togglerow"
+            onClick={() => {
+              setAlertsEnabled((v) => !v);
+              setDirty(true);
+            }}
+          >
+            <div>
+              <div className="te-togglelabel">Budget alerts</div>
+              <div className="te-togglenote">Telegram nudge at 80%, 90% and over budget</div>
+            </div>
+            <span className={`te-togglestate ${alertsEnabled ? '' : 'te-togglestate-warn'}`}>{alertsEnabled ? 'On' : 'Off'}</span>
+          </button>
+
           {error && (
             <p className="ov-warn" role="alert" style={{ fontSize: 12.5 }}>
               {error}
@@ -210,12 +221,7 @@ export default function BudgetEditor({ item, householdId, categories, year, mont
 
           <div className="te-sticky-actions">
             <div className="te-actions" style={{ borderTop: 'none', paddingTop: 0, marginTop: 0 }}>
-              {item && (
-                <button type="button" className="om-btn te-delete" onClick={handleDelete} disabled={saving}>
-                  {confirmingDelete ? 'Confirm delete?' : 'Delete'}
-                </button>
-              )}
-              <div className="te-actions-right">
+              <div className="te-actions-left">
                 {confirmingClose ? (
                   <>
                     <span className="ov-muted" style={{ marginRight: 8 }}>
@@ -230,15 +236,20 @@ export default function BudgetEditor({ item, householdId, categories, year, mont
                   </>
                 ) : (
                   <>
-                    <button type="button" className="om-btn" onClick={requestClose}>
-                      Cancel
-                    </button>
                     <button type="submit" className="om-btn ov-btn-primary" disabled={saving}>
                       {saving ? 'Saving…' : 'Save'}
+                    </button>
+                    <button type="button" className="om-btn" onClick={requestClose}>
+                      Cancel
                     </button>
                   </>
                 )}
               </div>
+              {item && (
+                <button type="button" className="om-btn te-delete" onClick={handleDelete} disabled={saving}>
+                  {confirmingDelete ? 'Confirm delete?' : 'Delete'}
+                </button>
+              )}
             </div>
           </div>
         </form>

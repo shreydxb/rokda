@@ -120,3 +120,30 @@ describe('QA-01: removing a card must not erase its transactions', () => {
     expect(calls[0].payload.archived_at).toBeNull();
   });
 });
+
+describe('Credit card "of limit used" reflects real transactions, not just a manual balance', () => {
+  it('shows real billing-cycle spend even when the balance was never manually confirmed', () => {
+    const card = { ...CARD, statement_day: 25, credit_limit: 31000, balance: 0 };
+    const now = new Date(2026, 8, 10); // 10 Sept, inside the 25 Aug - 25 Sept cycle
+    const transactions = [
+      { id: 't1', account_id: 'card-1', amount: -12000, occurred_at: '2026-09-03', is_shared: true },
+      { id: 't2', account_id: 'card-1', amount: -3000, occurred_at: '2026-09-05', is_shared: true },
+    ];
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    try {
+      renderAccounts({ accounts: [card], transactions });
+      const text = document.querySelector('.wl-card').textContent;
+      expect(text).toMatch(/48%|15,000/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('falls back to the manual balance snapshot when there is no statement day to compute a cycle from', () => {
+    const card = { ...CARD, statement_day: null, credit_limit: 10000, balance: 2500 };
+    renderAccounts({ accounts: [card], transactions: [] });
+    const text = document.querySelector('.wl-card').textContent;
+    expect(text).toMatch(/25%/);
+  });
+});

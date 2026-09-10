@@ -2,6 +2,13 @@
    Warm near-black canvas, serif money figures, hairline rules instead of cards. */
 
 :root {
+  /* Tells the browser this app paints its own light/dark chrome, so native
+     controls (a <select>'s popup listbox, its <option> rows, scrollbars)
+     follow --canvas/--ink below instead of falling back to the OS theme --
+     without this, a select's closed face could read the app's dark palette
+     while its open popup rendered native OS light chrome, or vice versa. */
+  color-scheme: dark;
+
   /* type */
   --font-fig: 'Newsreader', serif; /* money figures only */
   --font-ui: 'IBM Plex Sans', sans-serif; /* labels, body, nav */
@@ -35,6 +42,7 @@
 }
 
 :root[data-theme='light'] {
+  color-scheme: light;
   --canvas: #f8f5ef;
   --raise: rgba(26, 23, 18, 0.028);
   --ink: #1a1712;

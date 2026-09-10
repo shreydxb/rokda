@@ -214,8 +214,14 @@ function AccountRow({ account, members, money, onEdit, action }) {
 const CARD_DUE_SOON_DAYS = 10;
 
 function CreditCard({ account, transactions, members, money, onEdit, plan, busy, onRemove, onCancelRemove }) {
-  const util = utilisation(account);
   const est = estimatedStatement(transactions, account.id, account.statement_day);
+  // "Of limit used" is driven by real transactions this billing cycle
+  // whenever a statement day is set, not the manual balance snapshot --
+  // a card with a confirmed balance of AED 0 (nobody has valued it yet)
+  // otherwise showed "0 of limit" no matter how much had actually been
+  // charged to it. Falls back to the manual snapshot only when there's no
+  // statement day to compute a cycle from.
+  const util = est ? (account.credit_limit ? est.amount / Number(account.credit_limit) : null) : utilisation(account);
   const cycle = account.statement_day ? billingCycle(account.statement_day) : null;
   const closesInDays = cycle ? Math.ceil((cycle.nextClose - new Date()) / 86400000) : null;
   const balance = Number(account.balance);
