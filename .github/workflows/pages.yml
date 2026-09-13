@@ -5,8 +5,21 @@ name: Deploy to GitHub Pages
 # host for the built frontend. The Supabase URL/key below are the public
 # anon key, not secrets: they're the same values already embedded in every
 # Netlify build's bundle, visible to anyone via browser devtools.
+#
+# Publishing waits for CI (QA pass 3, O1). This used to run on `push` to
+# main, in parallel with CI, so the two races: on the merge of #7 the deploy
+# job finished at 15:46:54 and CI at 15:47:03 -- Pages published nine seconds
+# before the tests that were meant to gate it. That was harmless only because
+# CI happened to pass; a red commit would have reached the live site with
+# nothing able to stop it. `workflow_run` inverts the order: CI has to
+# conclude before this workflow exists at all, and the job below refuses to
+# start unless it concluded SUCCESS.
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    # CI also runs on dev, claude/** and pull requests. This filter is on the
+    # branch of the run that TRIGGERED this one, so only main ever publishes.
     branches: [main]
   workflow_dispatch:
 
@@ -21,9 +34,24 @@ concurrency:
 
 jobs:
   build:
+    # A failed or cancelled CI run still fires workflow_run, carrying its
+    # conclusion -- without this the gate would be decorative. A manual
+    # workflow_dispatch has no upstream run and is deliberately still allowed,
+    # since that is the "Netlify is out of minutes, publish now" escape hatch.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     steps:
+      # workflow_run does NOT check out the commit that was verified: it
+      # defaults to the tip of the default branch, which by now may be a later,
+      # unverified commit. Pinning to the triggering run's head_sha is what
+      # makes "this deploy is the commit CI passed" true rather than usually
+      # true. It is also what keeps VITE_COMMIT_SHA below honest -- that value
+      # is embedded in the bundle and is exactly how a QA pass identifies which
+      # build a host is serving.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -33,15 +61,29 @@ jobs:
         run: npm run build
         env:
           GH_PAGES: true
-          VITE_COMMIT_SHA: ${{ github.sha }}
+          VITE_COMMIT_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
           VITE_SUPABASE_URL: https://erggbzbbutsvhleqcddq.supabase.co
           VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_GolXgP4BiNh0BLBLkEgioA_BTLmKEW2
+
+      # A build with no env silently tree-shakes the whole app out (see
+      # .env.example), producing an artifact that "succeeds" and renders
+      # nothing. CI checks this for its own placeholder build; the artifact
+      # that actually reaches users deserves the same check.
+      - name: Verify the build actually contains the application
+        run: npm run verify:build
+
       # BrowserRouter needs a same-URL fallback for deep links (e.g. /money) --
       # GitHub Pages has no server-side rewrite, so 404.html is the standard
       # trick: it's served for any unmatched path, and being a copy of
       # index.html it boots the app, which then reads the real path itself.
       - name: SPA fallback for client-side routing
         run: cp dist/index.html dist/404.html
+
+      - name: Report what is being published
+        run: |
+          echo "publishing: ${{ github.event.workflow_run.head_sha || github.sha }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "gated by: ${{ github.event_name == 'workflow_dispatch' && 'manual dispatch (CI not consulted)' || format('CI run {0}, conclusion {1}', github.event.workflow_run.id, github.event.workflow_run.conclusion) }}" >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
