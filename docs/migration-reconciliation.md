@@ -170,3 +170,67 @@ setting. Trying to fix this inside `normalise()` instead (e.g. collapsing
 `\r\n` to `\n` globally) would risk quietly eating a line-ending difference
 that genuinely is part of a literal's content elsewhere — `.gitattributes`
 removes the platform variable at its source instead.
+
+## Second reconciliation: six migrations, and "pending" meaning two things (QA re-run, 10 Sep 2026)
+
+The 10 September QA re-run read the comparison output
+
+    38 migrations; 0 drifting, 6 awaiting deployment, 0 unverifiable (applied
+    fingerprint predates the current normalise() — re-export needed, …)
+
+as evidence that the migration identity problem had returned. Two separate
+things were wrong, and neither was drift.
+
+**The snapshot was incomplete, not stale.** Every one of the 32 entries in
+`docs/applied-migrations.json` was already recorded at `fingerprintVersion`
+2, so nothing was unverifiable — the count said `0`. The "re-export needed"
+parenthetical printed unconditionally as part of the summary string, so a
+perfectly clean run still advised a re-export. That wording is why a complete
+comparison read as a stale one. The summary now names each state on its own
+line and only mentions a re-export when something actually is unverifiable.
+
+**"Awaiting deployment" was covering two unrelated situations.** `compare()`
+pairs by name, so the six were reported as `not-applied` purely because the
+committed snapshot didn't list them — not because production lacked them. All
+six were in fact live:
+
+| migration | repo version | applied version | how it diverged |
+| --- | --- | --- | --- |
+| `price_refresh_weekday_schedule` | 20260906180000 | *(unrecorded)* | applied, never written to `schema_migrations` |
+| `price_refresh_schedule_timeout` | 20260906181700 | *(unrecorded)* | applied, never written to `schema_migrations` |
+| `forecast_scenarios` | 20260909100000 | 20260909120108 | applied under a different version id |
+| `transaction_confidence` | 20260909110000 | 20260909135324 | applied under a different version id |
+| `recurring_interval_count` | 20260909120000 | 20260909140133 | applied under a different version id |
+| `budget_alerts_enabled` | 20260910090000 | 20260910155345 | applied under a different version id |
+
+The two `price_refresh` rows were the worse case: their effects were plainly
+present in `cron.job` (the weekday schedule and the 120s `pg_net` timeout)
+while no ledger row claimed them. A migration whose effects exist but whose
+record does not is invisible to every check built on `schema_migrations`.
+
+### What was done
+
+1. The two unrecorded migrations were backfilled into
+   `supabase_migrations.schema_migrations` — recording history only; the SQL
+   was not re-run, since `cron.job` already showed it had been. Each row's
+   stored `statements` was then read back and its md5 compared against the
+   repository file to prove the recorded SQL is the applied SQL. (The first
+   attempt differed by one byte — an em dash transcribed as `--` — which is
+   why the read-back check exists rather than trusting the write.)
+2. The four renumbered migrations were renamed in `supabase/migrations` to the
+   version ids production actually assigned them. Relative order is unchanged,
+   so `verify-migrations.sh` (which globs in filename order) builds the same
+   schema.
+3. `docs/applied-migrations.json` was extended to all 38 entries, with each
+   new fingerprint computed from the **live** `statements` column — never from
+   repository SQL, per the rule above.
+4. `classify()` now separates the four states a release decision turns on:
+   `applied-equivalent`, `version-mismatch`, `drift`, and `pending` (plus
+   `unverifiable`). `isDrift()` is unchanged, so CI accepts exactly what it
+   accepted before — only the report's wording changed. A migration that is
+   live in production can no longer print as "awaiting deployment".
+
+Verified afterwards: 38 migrations, all `applied-equivalent` with matching
+version ids. Replaying the pre-fix filenames against the current snapshot
+reports 4 × `version-mismatch` and 0 × `pending`, which is the distinction the
+QA re-run asked for.

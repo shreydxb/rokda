@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalise, fingerprint, compare, isDrift, FINGERPRINT_VERSION } from './compare-migrations.mjs';
+import { normalise, fingerprint, compare, classify, isDrift, FINGERPRINT_VERSION } from './compare-migrations.mjs';
 
 // SHR-253 (QA-12): normalise() used to lowercase and strip comment-like text
 // EVERYWHERE, including inside string literals and quoted identifiers — so
@@ -149,5 +149,53 @@ describe('SHR-253: isDrift() never counts a stale fingerprint as drift, even wit
   it('is not drift for a migration merely awaiting deployment', () => {
     const row = { status: 'not-applied', localVersion: '1' };
     expect(isDrift(row)).toBe(false);
+  });
+});
+
+// QA re-run (10 Sep): a migration already live in production was printed as
+// "awaiting deployment" because the applied-side export didn't list it. The
+// release decision turns on telling those cases apart, so the four states get
+// distinct labels — without changing what CI accepts (isDrift is untouched).
+describe('QA re-run: classify() separates pending from an applied version mismatch', () => {
+  it('calls an applied, equivalent, same-id migration applied-equivalent', () => {
+    expect(classify({ status: 'equivalent', appliedVersion: '1', localVersion: '1', versionMatches: true })).toBe(
+      'applied-equivalent',
+    );
+  });
+
+  it('calls an applied, equivalent migration under a different id a version-mismatch, never pending', () => {
+    const row = { status: 'equivalent', appliedVersion: '20260909120108', localVersion: '20260909100000', versionMatches: false };
+    expect(classify(row)).toBe('version-mismatch');
+    expect(classify(row)).not.toBe('pending');
+  });
+
+  it('calls a real content difference drift', () => {
+    expect(classify({ status: 'differs', appliedVersion: '1', localVersion: '1', versionMatches: true })).toBe('drift');
+  });
+
+  it('calls a migration applied but absent from the repository drift', () => {
+    expect(classify({ status: 'applied-only', appliedVersion: '1' })).toBe('drift');
+  });
+
+  it('calls a repository-only migration pending', () => {
+    expect(classify({ status: 'not-applied', localVersion: '1' })).toBe('pending');
+  });
+
+  it('calls a stale applied fingerprint unverifiable', () => {
+    expect(classify({ status: 'stale-fingerprint', appliedVersion: '1', localVersion: '2', versionMatches: false })).toBe(
+      'unverifiable',
+    );
+  });
+
+  it('agrees with isDrift on every failing state', () => {
+    const failing = ['drift', 'version-mismatch'];
+    const rows = [
+      { status: 'differs', appliedVersion: '1', localVersion: '1', versionMatches: true },
+      { status: 'applied-only', appliedVersion: '1' },
+      { status: 'equivalent', appliedVersion: '1', localVersion: '2', versionMatches: false },
+      { status: 'equivalent', appliedVersion: '1', localVersion: '1', versionMatches: true },
+      { status: 'not-applied', localVersion: '1' },
+    ];
+    for (const row of rows) expect(failing.includes(classify(row))).toBe(isDrift(row));
   });
 });
