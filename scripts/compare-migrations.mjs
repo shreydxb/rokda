@@ -185,6 +185,42 @@ export function isDrift(row) {
   );
 }
 
+// QA re-run (10 Sep): "pending" was doing too much work. A migration already
+// applied to production, but recorded there under a different version id than
+// its repository filename, paired correctly by name — yet if the applied-side
+// export simply didn't list it, it fell to 'not-applied' and printed as
+// "awaiting deployment". A production-deployed migration reading as pending in
+// release CI is the one thing this report must never say, so the four states a
+// release decision actually turns on are named separately:
+//
+//   applied-equivalent — applied, same content, same version id. Nothing to do.
+//   version-mismatch   — applied and content-equivalent, but the ids disagree.
+//                        Not a content risk; still a release-blocking identity
+//                        problem, and reconciled deliberately (see
+//                        docs/migration-reconciliation.md).
+//   drift              — content actually differs, or production has a
+//                        migration the repository doesn't.
+//   pending            — in the repository, not applied anywhere. Expected;
+//                        waiting on a deployment decision.
+//   unverifiable       — applied fingerprint predates the current normalise().
+//
+// isDrift() keeps its exact meaning: version-mismatch and drift both fail, so
+// splitting the label changes what the report SAYS, never what CI accepts.
+export function classify(row) {
+  if (row.status === 'stale-fingerprint') return 'unverifiable';
+  if (row.status === 'differs' || row.status === 'applied-only') return 'drift';
+  if (row.status === 'not-applied') return 'pending';
+  return row.versionMatches ? 'applied-equivalent' : 'version-mismatch';
+}
+
+const LABELS = {
+  'applied-equivalent': 'ok      ',
+  'version-mismatch': 'VERSION ',
+  drift: 'DRIFT   ',
+  pending: 'pending ',
+  unverifiable: 'STALE   ',
+};
+
 // Entry-point check via URL comparison rather than string splitting: the
 // previous version split argv[1] on '/' only, so on Windows (backslash
 // paths) it never matched import.meta.url, `npm run compare:migrations`
@@ -210,23 +246,35 @@ if (isMainModule) {
   }
   const applied = JSON.parse(readFileSync(path, 'utf8'));
   const rows = compare(repoMigrations(), applied);
-  let drift = 0;
-  let pending = 0;
-  let staleFingerprints = 0;
+  const tally = { 'applied-equivalent': 0, 'version-mismatch': 0, drift: 0, pending: 0, unverifiable: 0 };
   for (const row of rows) {
-    const drifted = isDrift(row);
-    if (drifted) drift++;
-    if (row.status === 'not-applied') pending++;
-    if (row.status === 'stale-fingerprint') staleFingerprints++;
-    const flag =
-      drifted ? 'DRIFT ' : row.status === 'not-applied' ? 'pending' : row.status === 'stale-fingerprint' ? 'STALE ' : 'ok    ';
+    const state = classify(row);
+    tally[state]++;
     console.log(
-      `${flag.padEnd(8)}${row.name.padEnd(28)} local=${row.localVersion ?? '—'} applied=${row.appliedVersion ?? '—'} ${row.status}`,
+      `${LABELS[state]}${row.name.padEnd(30)} local=${row.localVersion ?? '—'} applied=${row.appliedVersion ?? '—'} ${state}`,
     );
   }
-  console.log(`\n${rows.length} migrations; ${drift} drifting, ${pending} awaiting deployment, ${staleFingerprints} unverifiable (applied fingerprint predates the current normalise() — re-export needed, see docs/migration-reconciliation.md).`);
-  if (strict && staleFingerprints > 0) {
-    console.log(`\n--strict: failing on ${staleFingerprints} unverifiable entr${staleFingerprints === 1 ? 'y' : 'ies'}.`);
+
+  // Each state is named on its own line rather than folded into one sentence:
+  // the previous summary put "N unverifiable" next to a parenthetical about
+  // re-exporting that printed unconditionally, so a run with zero stale
+  // entries still advised a re-export — which is how a clean comparison came
+  // to be read as a stale one.
+  const failing = tally.drift + tally['version-mismatch'];
+  console.log(`\n${rows.length} migrations`);
+  console.log(`  ${tally['applied-equivalent']} applied, equivalent, same version id`);
+  console.log(`  ${tally['version-mismatch']} applied and equivalent but under a DIFFERENT version id`);
+  console.log(`  ${tally.drift} drifting (content differs, or applied but absent from the repository)`);
+  console.log(`  ${tally.pending} awaiting deployment (in the repository, not applied)`);
+  console.log(`  ${tally.unverifiable} unverifiable`);
+  if (tally['version-mismatch'] > 0) {
+    console.log(`\nReconcile the version ids above — see docs/migration-reconciliation.md.`);
   }
-  process.exitCode = drift || (strict && staleFingerprints > 0) ? 1 : 0;
+  if (tally.unverifiable > 0) {
+    console.log(`\n${tally.unverifiable} applied fingerprint(s) predate the current normalise(); a re-export is needed to verify them — see docs/migration-reconciliation.md.`);
+  }
+  if (strict && tally.unverifiable > 0) {
+    console.log(`--strict: failing on ${tally.unverifiable} unverifiable entr${tally.unverifiable === 1 ? 'y' : 'ies'}.`);
+  }
+  process.exitCode = failing || (strict && tally.unverifiable > 0) ? 1 : 0;
 }
