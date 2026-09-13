@@ -199,3 +199,47 @@ describe('QA re-run: classify() separates pending from an applied version mismat
     for (const row of rows) expect(failing.includes(classify(row))).toBe(isDrift(row));
   });
 });
+
+// QA re-run follow-up: the Supabase GitHub integration does not store a
+// migration the way the CLI does. It splits the file into statements and drops
+// each terminating semicolon -- tenant_qualified_foreign_keys came back as 48
+// statements missing exactly 48 semicolons -- so the export has to rejoin them
+// with `;` to reconstruct the file. These pin the two properties that makes
+// safe: the semicolon genuinely matters to the fingerprint (so putting it back
+// is necessary), and the blank lines the splitter discards genuinely do not (so
+// putting it back is sufficient).
+describe('QA re-run: statements split and rejoined by the platform fingerprint as the original', () => {
+  it('is NOT blind to a missing statement terminator -- which is why the export rejoins with one', () => {
+    expect(fingerprint('select 1;\nselect 2;')).not.toBe(fingerprint('select 1\nselect 2'));
+  });
+
+  it('is blind to the blank lines between statements that the splitter discards', () => {
+    const authored = "alter table t add column a int;\n\nalter table t add column b int;\n";
+    const rejoined = "alter table t add column a int;\nalter table t add column b int;";
+    expect(fingerprint(authored)).toBe(fingerprint(rejoined));
+  });
+
+  it('reconstructs a real multi-statement migration exactly, comments and all', () => {
+    const authored = [
+      '-- a leading comment',
+      'create table t (id int);',
+      '',
+      '-- another comment',
+      'alter table t add column b int;',
+      '',
+    ].join('\n');
+    // What the platform stores: statements without terminators, rejoined with ';'.
+    const stored = ['-- a leading comment\ncreate table t (id int)', '-- another comment\nalter table t add column b int'];
+    const rejoined = `${stored.join(';\n')};`;
+    expect(fingerprint(authored)).toBe(fingerprint(rejoined));
+  });
+
+  // The semicolons inside a PL/pgSQL body are content, not separators. If the
+  // export's rejoin ever leaked into a function body it would corrupt it, and
+  // normalise() has to be able to tell the two apart.
+  it('keeps semicolons inside a dollar-quoted body as content', () => {
+    const body = "create function f() returns int language plpgsql as $$ begin return 1; end; $$;";
+    expect(normalise(body)).toContain('begin return 1; end;');
+    expect(fingerprint(body)).not.toBe(fingerprint(body.replace('return 1; end;', 'return 1 end')));
+  });
+});

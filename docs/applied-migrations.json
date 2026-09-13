@@ -226,5 +226,17 @@
   "name": "budget_alerts_enabled",
   "fingerprint": "56585cd4cd562d6d9aaeed0c8f4c8c21",
   "fingerprintVersion": 2
+ },
+ {
+  "version": "20260913090000",
+  "name": "tenant_qualified_foreign_keys",
+  "fingerprint": "f9c83a2ed377b6f2f4c50286dde65f33",
+  "fingerprintVersion": 2
+ },
+ {
+  "version": "20260913100000",
+  "name": "owner_role_authorization",
+  "fingerprint": "b71c4edd59f3b1c1db1be51ae8e2ab1e",
+  "fingerprintVersion": 2
  }
 ]
