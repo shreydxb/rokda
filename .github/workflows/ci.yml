@@ -46,6 +46,42 @@ jobs:
           echo "commit: ${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
           echo "ref: ${{ github.ref }}" >> "$GITHUB_STEP_SUMMARY"
 
+  # CI was green for five days while telegram-webhook ran an 8 Sep build and
+  # main carried two behaviour changes, because nothing here ever looked at
+  # what was deployed. This closes that: git SHA -> deployed Edge Function
+  # source, both directions.
+  functions:
+    name: deployed Edge Functions match this commit
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Deployed state is only readable with an access token, and a pull
+      # request from a fork never gets one. Rather than let "not checked"
+      # quietly read as "no drift" -- the exact way the migration snapshot
+      # reported 0 drifting while covering 32 of 38 migrations -- the two
+      # cases are separated: on main a missing token FAILS, everywhere else
+      # it is an explicit warning that parity was not established.
+      - name: Compare deployed Edge Functions with this commit
+        run: |
+          if [ -n "$SUPABASE_ACCESS_TOKEN" ] && [ -n "$SUPABASE_PROJECT_REF" ]; then
+            npm run verify:functions
+          elif [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            echo "::error::No Supabase credentials, so deployment parity was not checked. On main that is a failure, not a pass."
+            exit 1
+          else
+            echo "::warning::Deployment parity NOT checked — no Supabase credentials on this ref. This run does not establish that production matches this commit."
+            echo "deployment parity: not checked (no credentials on this ref)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   migrations:
     name: fresh database from supabase/migrations
     runs-on: ubuntu-latest
