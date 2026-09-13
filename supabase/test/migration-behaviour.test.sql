@@ -242,4 +242,147 @@ begin
   raise notice 'QA-04/QA-02 ok: valuations and balances start unconfirmed';
 end $$;
 
+-- QA §7: a second household, so the cross-household checks can actually fail.
+--
+-- Every tenant-integrity check QA ran against production came back clean while
+-- production held exactly one household -- which made those checks incapable
+-- of failing. These build the second household the real database does not have
+-- yet, and then try to commit the corruption on purpose.
+insert into households (id, name) values ('99999999-9999-9999-9999-999999999999', 'Other household');
+insert into household_members (id, household_id, display_name)
+values ('99999999-9999-9999-9999-99999999000a', '99999999-9999-9999-9999-999999999999', 'Other member');
+insert into accounts (id, household_id, name, type, balance, is_shared)
+values ('99999999-9999-9999-9999-99999999000b', '99999999-9999-9999-9999-999999999999', 'Other card', 'credit_card', 0, true);
+insert into categories (id, household_id, name, kind)
+values ('99999999-9999-9999-9999-99999999000c', '99999999-9999-9999-9999-999999999999', 'Other food', 'expense');
+insert into categories (id, household_id, name, kind)
+values ('88888888-8888-8888-8888-88888888000c', '11111111-1111-1111-1111-111111111111', 'Our food', 'expense');
+
+-- QA §7: the database refuses a reference that reaches into another household.
+do $$
+declare
+  attempts text[] := array[
+    'insert into transactions (household_id, account_id, amount, occurred_at) values (''11111111-1111-1111-1111-111111111111'', ''99999999-9999-9999-9999-99999999000b'', -10, ''2026-09-01'')',
+    'insert into transactions (household_id, account_id, category_id, amount, occurred_at) values (''11111111-1111-1111-1111-111111111111'', ''33333333-3333-3333-3333-333333333333'', ''99999999-9999-9999-9999-99999999000c'', -10, ''2026-09-01'')',
+    'insert into transactions (household_id, account_id, owner_member_id, amount, occurred_at) values (''11111111-1111-1111-1111-111111111111'', ''33333333-3333-3333-3333-333333333333'', ''99999999-9999-9999-9999-99999999000a'', -10, ''2026-09-01'')',
+    'insert into recurring (household_id, name, amount, cadence, next_due_date, account_id) values (''11111111-1111-1111-1111-111111111111'', ''Rent'', 100, ''monthly'', ''2026-10-01'', ''99999999-9999-9999-9999-99999999000b'')',
+    'insert into categories (household_id, name, kind, parent_id) values (''11111111-1111-1111-1111-111111111111'', ''Dining'', ''expense'', ''99999999-9999-9999-9999-99999999000c'')',
+    'insert into budgets (household_id, category_id, year, month, amount) values (''11111111-1111-1111-1111-111111111111'', ''99999999-9999-9999-9999-99999999000c'', 2026, 10, 500)',
+    'insert into accounts (household_id, name, type, owner_member_id) values (''11111111-1111-1111-1111-111111111111'', ''Joint'', ''savings'', ''99999999-9999-9999-9999-99999999000a'')',
+    'insert into intake (household_id, parsed_account_id) values (''11111111-1111-1111-1111-111111111111'', ''99999999-9999-9999-9999-99999999000b'')',
+    'insert into intake (household_id, parsed_category_id) values (''11111111-1111-1111-1111-111111111111'', ''99999999-9999-9999-9999-99999999000c'')',
+    'insert into category_rules (household_id, category_id, pattern) values (''11111111-1111-1111-1111-111111111111'', ''99999999-9999-9999-9999-99999999000c'', ''x'')'
+  ];
+  stmt text;
+  allowed int := 0;
+begin
+  foreach stmt in array attempts loop
+    begin
+      execute stmt;
+      allowed := allowed + 1;
+      raise warning 'QA-§7 FAILED: cross-household write was allowed: %', stmt;
+    exception
+      when foreign_key_violation then null;  -- the tenant-qualified key did its job
+    end;
+  end loop;
+  if allowed > 0 then
+    raise exception 'QA-§7 FAILED: % cross-household write(s) accepted', allowed;
+  end if;
+  raise notice 'QA-§7 ok: all % cross-household writes refused', array_length(attempts, 1);
+end $$;
+
+-- QA §7: the same references WITHIN one household still work. A constraint
+-- that refuses everything would pass the test above and break the product.
+do $$
+declare txn uuid;
+begin
+  insert into transactions (household_id, account_id, category_id, owner_member_id, amount, occurred_at)
+  values ('11111111-1111-1111-1111-111111111111', '33333333-3333-3333-3333-333333333333',
+          '88888888-8888-8888-8888-88888888000c', '22222222-2222-2222-2222-222222222222', -42, '2026-09-02')
+  returning id into txn;
+  if txn is null then raise exception 'QA-§7 FAILED: a legitimate same-household insert was refused'; end if;
+
+  -- MATCH SIMPLE: an unset optional reference is still unset, not a violation.
+  insert into transactions (household_id, account_id, amount, occurred_at)
+  values ('11111111-1111-1111-1111-111111111111', '33333333-3333-3333-3333-333333333333', -7, '2026-09-02');
+  raise notice 'QA-§7 ok: same-household and null-optional references still accepted';
+end $$;
+
+-- QA §7: ON DELETE SET NULL must null ONLY the reference, not household_id.
+--
+-- A bare SET NULL on a composite key nulls every column in it, household_id
+-- included, and household_id is NOT NULL -- so this would fail outright rather
+-- than clear the owner. The column list in the constraint is what prevents it.
+do $$
+declare n int;
+begin
+  insert into household_members (id, household_id, display_name)
+  values ('88888888-8888-8888-8888-88888888000a', '11111111-1111-1111-1111-111111111111', 'Leaver');
+  insert into transactions (id, household_id, account_id, owner_member_id, amount, occurred_at)
+  values ('88888888-8888-8888-8888-88888888000d', '11111111-1111-1111-1111-111111111111',
+          '33333333-3333-3333-3333-333333333333', '88888888-8888-8888-8888-88888888000a', -5, '2026-09-03');
+
+  delete from household_members where id = '88888888-8888-8888-8888-88888888000a';
+
+  select count(*) into n from transactions
+  where id = '88888888-8888-8888-8888-88888888000d'
+    and owner_member_id is null
+    and household_id = '11111111-1111-1111-1111-111111111111';
+  if n <> 1 then raise exception 'QA-§7 FAILED: removing a member did not cleanly null the owner'; end if;
+  raise notice 'QA-§7 ok: removing a member nulls the owner and keeps household_id';
+end $$;
+
+-- QA §7: approve_intake names the offending parameter instead of leaving the
+-- caller to decode a constraint violation, and writes nothing when it refuses.
+do $$
+declare
+  before_count int;
+  after_count int;
+begin
+  select count(*) into before_count from transactions;
+
+  insert into intake (id, household_id, source, raw_text, parsed_amount, status)
+  values ('77777777-7777-7777-7777-77777777000a', '11111111-1111-1111-1111-111111111111', 'manual', 'x', 50, 'pending');
+
+  begin
+    perform approve_intake('77777777-7777-7777-7777-77777777000a',
+                           '99999999-9999-9999-9999-99999999000b', 50, date '2026-09-04');
+    raise exception 'QA-§7 FAILED: approve_intake accepted another household''s account';
+  exception
+    when insufficient_privilege then null;
+  end;
+
+  begin
+    perform approve_intake('77777777-7777-7777-7777-77777777000a',
+                           '33333333-3333-3333-3333-333333333333', 50, date '2026-09-04',
+                           'expense', '99999999-9999-9999-9999-99999999000c');
+    raise exception 'QA-§7 FAILED: approve_intake accepted another household''s category';
+  exception
+    when insufficient_privilege then null;
+  end;
+
+  begin
+    perform approve_intake('77777777-7777-7777-7777-77777777000a',
+                           '33333333-3333-3333-3333-333333333333', 50, date '2026-09-04',
+                           'expense', null, 'AED', null, true, '99999999-9999-9999-9999-99999999000a');
+    raise exception 'QA-§7 FAILED: approve_intake accepted another household''s member';
+  exception
+    when insufficient_privilege then null;
+  end;
+
+  select count(*) into after_count from transactions;
+  if after_count <> before_count then
+    raise exception 'QA-§7 FAILED: a refused approval still wrote % transaction(s)', after_count - before_count;
+  end if;
+
+  -- And the same call, entirely within one household, still works.
+  perform approve_intake('77777777-7777-7777-7777-77777777000a',
+                         '33333333-3333-3333-3333-333333333333', 50, date '2026-09-04',
+                         'expense', '88888888-8888-8888-8888-88888888000c');
+  if (select status from intake where id = '77777777-7777-7777-7777-77777777000a') <> 'approved' then
+    raise exception 'QA-§7 FAILED: a legitimate approval did not go through';
+  end if;
+  raise notice 'QA-§7 ok: approve_intake refuses foreign ids, writes nothing, still approves its own';
+end $$;
+
 rollback;
