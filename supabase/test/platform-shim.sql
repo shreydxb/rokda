@@ -36,7 +36,22 @@ exception when duplicate_object then null;
 end
 $$;
 
+-- Supabase grants these to its API roles on every project; a bare Postgres
+-- grants nothing, so without them `set role authenticated` cannot reach a
+-- single table and RLS policies can never actually be exercised. Default
+-- privileges rather than a one-off grant, because every table here is created
+-- later, by the migrations.
+grant usage on schema public to anon, authenticated, service_role;
+alter default privileges in schema public
+  grant select, insert, update, delete on tables to anon, authenticated, service_role;
+alter default privileges in schema public
+  grant usage, select on sequences to anon, authenticated, service_role;
+
 create schema if not exists auth;
+
+-- auth.uid() and auth.role() are called from inside RLS policies and trigger
+-- functions that run as the CALLER, so the API roles need to reach them.
+grant usage on schema auth to anon, authenticated, service_role;
 
 create table if not exists auth.users (
   id uuid primary key default gen_random_uuid(),

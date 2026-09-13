@@ -136,3 +136,18 @@ jobs:
             psql -d rokda_behaviour -v ON_ERROR_STOP=1 -q -f "$file"
           done
           psql -d rokda_behaviour -v ON_ERROR_STOP=1 -f supabase/test/migration-behaviour.test.sql
+
+      # The step above runs as a superuser, which BYPASSES row-level security --
+      # it proves constraints and functions and structurally cannot prove a
+      # policy. This one sets role to `authenticated` and supplies the JWT
+      # claims PostgREST would, so the policies are actually evaluated. Worth
+      # having separately: the last-owner trigger passed every superuser test
+      # while still letting a signed-in last owner delete themselves.
+      - name: Check the row-level security policies as a signed-in user
+        run: |
+          psql -d postgres -v ON_ERROR_STOP=1 -q -c 'create database rokda_rls;'
+          psql -d rokda_rls -v ON_ERROR_STOP=1 -q -f supabase/test/platform-shim.sql
+          for file in supabase/migrations/*.sql; do
+            psql -d rokda_rls -v ON_ERROR_STOP=1 -q -f "$file"
+          done
+          psql -d rokda_rls -v ON_ERROR_STOP=1 -f supabase/test/rls-policies.test.sql
