@@ -298,7 +298,12 @@ function CreditCard({ account, transactions, members, money, onEdit, plan, busy,
         {util !== null ? (
           <>
             <div className="bud-bar" style={{ marginTop: 8 }}>
-              <span className={`bud-bar-spent ${util > 0.8 ? 'bud-bar-over' : ''}`} style={{ width: `${Math.min(100, util * 100)}%` }} />
+              {/* A cycle whose refunds exceed its charges is a real net
+                  credit, so est.amount may be negative. A negative width is
+                  invalid CSS and would silently leave the bar at its default
+                  size, so the bar floors at empty while the figure below still
+                  states the actual signed amount. */}
+              <span className={`bud-bar-spent ${util > 0.8 ? 'bud-bar-over' : ''}`} style={{ width: `${Math.max(0, Math.min(100, util * 100))}%` }} />
             </div>
             <div className="ov-muted" style={{ marginTop: 4 }}>
               {/* Leads with the real AED figure, not just the rounded
