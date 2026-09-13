@@ -141,3 +141,71 @@ CI reads both from repository secrets of the same names. The comparison
 itself (`scripts/compare-functions.mjs`) is pure and unit-tested; the fetching
 lives in `scripts/verify-function-parity.sh`, the same split as
 `compare-migrations.mjs` and `verify-migrations.sh`.
+
+## Release gating
+
+Two things decide whether a commit can reach users: whether publishing waits
+for verification, and whether anything can reach `main` without being verified
+at all. The first is solved in the workflows; the second is a repository
+setting, and settings that live only in a web UI are exactly the kind of thing
+that drifts silently. `docs/main-ruleset.json` is that setting written down.
+
+### Publishing waits for CI
+
+`.github/workflows/pages.yml` triggers on `workflow_run` of CI, not on `push`.
+Both used to fire on a push to `main` and ran in parallel, so they raced: on the
+merge of #7, Pages finished at 15:46:54 and CI at 15:47:03 -- the site published
+nine seconds before the tests meant to gate it. Harmless only because CI passed.
+
+Two details carry the guarantee, and both are easy to lose in a refactor:
+
+- The checkout is pinned to `github.event.workflow_run.head_sha`. A
+  `workflow_run` workflow does NOT check out the commit that was verified; it
+  defaults to the tip of the default branch, which by then may be a later,
+  unverified commit.
+- `VITE_COMMIT_SHA` uses that same `head_sha`. It is embedded in the bundle and
+  is how a QA pass identifies which build a host is serving, so `github.sha`
+  there would stamp the artifact with a commit it was not built from.
+
+`workflow_dispatch` remains and deliberately does not consult CI -- it is the
+"Netlify is out of minutes, publish now" escape hatch Pages exists for. The run
+summary records which of the two paths published.
+
+Verified on the merge of #8: CI finished at 16:26:03 and the Pages run started
+at 16:26:05, with `event: workflow_run`.
+
+### `main` accepts only verified merges
+
+Recorded in `docs/main-ruleset.json`: a repository ruleset targeting the default
+branch that restricts deletions, blocks force pushes, requires a pull request,
+and requires all three CI jobs.
+
+Three choices in it are deliberate rather than defaults:
+
+- **Zero required approvals.** A pull request is required, but no approval is.
+  The sole owner cannot approve their own pull request, so any higher number
+  would make the branch unmergeable rather than more reviewed.
+- **No bypass actors.** It applies to repository admins too. An exception for
+  the only admin is the same as no rule, and "prevent an accidental direct push
+  to `main`" is most of the point.
+- **Strict / up to date.** A branch must carry current `main` before it merges,
+  so a green result cannot be one that never saw what it is merging into.
+
+Apply it with credentials that carry repository administration rights:
+
+```
+gh api --method POST repos/shreydxb/rokda/rulesets --input docs/main-ruleset.json
+```
+
+or Settings -> Rules -> Rulesets -> New branch ruleset, which takes the same
+fields. Confirm afterwards with `gh api repos/shreydxb/rokda/rulesets`; an empty
+array means nothing is enforced, whatever this file says.
+
+The three required contexts must match the CI job names exactly
+(`install / lint / test / build`, `fresh database from supabase/migrations`,
+`deployed Edge Functions match this commit`). A context named here but never
+reported blocks every merge; a job renamed in `ci.yml` without being renamed
+here stops gating silently, which is the worse of the two failures.
+
+Netlify's checks are deliberately not required: they conclude `neutral`, which
+is not success, and requiring them would block merges.
