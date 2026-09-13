@@ -32,6 +32,12 @@ trap 'rm -rf "$WORKDIR"' EXIT
 mkdir -p "$WORKDIR/supabase/functions"
 LIST_JSON="$WORKDIR/deployed-list.json"
 
+# The CLI expects to be run inside a project directory. This is a throwaway one
+# holding only the download, deliberately NOT the repository's own -- writing
+# the deployment into supabase/functions would overwrite the source side of the
+# comparison and the check would then compare the deployment against itself.
+printf 'project_id = "%s"\n' "$PROJECT_REF" > "$WORKDIR/supabase/config.toml"
+
 # The list comes from the Management API rather than `supabase functions list`:
 # the endpoint is documented to return JSON, whereas the CLI's JSON output flag
 # is a global that differs between subcommands. The CLI is still used for the

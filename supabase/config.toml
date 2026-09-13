@@ -1,0 +1,30 @@
+# Supabase CLI project configuration.
+#
+# This file exists for one reason that matters: JWT verification per Edge
+# Function. Without it, `supabase functions deploy telegram-webhook` deploys
+# with verify_jwt defaulting to TRUE, the platform gateway rejects every
+# request that has no Authorization header, and Telegram -- which sends
+# X-Telegram-Bot-Api-Secret-Token and no JWT -- gets 401ed before the function
+# ever runs. The bot stops working, and it looks like a Telegram problem rather
+# than a deploy flag.
+#
+# `--no-verify-jwt` on the command line does the same job, but only for whoever
+# remembers to type it. Declaring it here makes the setting part of the
+# repository, which is the whole point of the deployment-parity work: production
+# configuration should be reproducible from a commit, not from a habit.
+project_id = "erggbzbbutsvhleqcddq"
+
+# Authenticated by a shared secret in X-Telegram-Bot-Api-Secret-Token, checked
+# in the function before any payload is parsed (and the same boundary guards the
+# ?run_recurring_check=1 cron route). It must NOT also require a JWT.
+[functions.telegram-webhook]
+verify_jwt = false
+
+# Invoked by pg_cron with a service-role bearer token, so JWT verification stays
+# on for both. These match what is deployed today; they are written down so a
+# redeploy cannot silently change them either.
+[functions.price-refresh]
+verify_jwt = true
+
+[functions.fd-accrual]
+verify_jwt = true
