@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../lib/AuthContext';
 import { useTheme } from '../lib/ThemeContext';
@@ -102,7 +103,13 @@ export default function AppShell() {
         </aside>
 
         <main className="om-main">
-          <Outlet />
+          {/* The lazily loaded routes land here (see App.jsx). The shell --
+              nav, scope and currency pickers -- stays rendered while a chunk
+              arrives, so switching tabs shows the same skeleton the screens
+              use for their own loading rather than an empty page. */}
+          <Suspense fallback={<div className="ov-skel" aria-busy="true" />}>
+            <Outlet />
+          </Suspense>
         </main>
       </div>
     </div>

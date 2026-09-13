@@ -244,5 +244,11 @@
   "name": "restrict_roster_insert",
   "fingerprint": "cadc6d001eaec74187f4e0e1680ead51",
   "fingerprintVersion": 2
+ },
+ {
+  "version": "20260913170137",
+  "name": "rls_initplan_and_last_fk_index",
+  "fingerprint": "81d17e05713c6315abfe114a7c4deb78",
+  "fingerprintVersion": 2
  }
 ]
