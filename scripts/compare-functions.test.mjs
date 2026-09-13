@@ -30,7 +30,12 @@ describe('function closure: what a function is actually built from', () => {
     write('repo/_shared/b.js', "export * from './c.js';\nexport const b = 1;");
     write('repo/_shared/c.js', 'export const c = 2;');
     const closure = functionClosure(join(root, 'repo'), 'a');
-    expect([...closure.keys()].sort()).toEqual(['_shared/b.js', '_shared/c.js', 'a/index.ts']);
+    // functionClosure() keys are native filesystem paths -- it builds them
+    // with join()/normalize() -- so a literal '/' here asserts Windows is
+    // POSIX and fails there on a correct implementation. manifest() is the
+    // canonical surface that normalises to '/', and its assertion below is
+    // deliberately left spelling them that way.
+    expect([...closure.keys()].sort()).toEqual([join('_shared', 'b.js'), join('_shared', 'c.js'), join('a', 'index.ts')].sort());
   });
 
   it('does not follow jsr:, npm: or https: specifiers', () => {
@@ -39,13 +44,13 @@ describe('function closure: what a function is actually built from', () => {
       ["import 'jsr:@supabase/functions-js/edge-runtime.d.ts';", "import { createClient } from 'jsr:@supabase/supabase-js@2';", "import x from 'npm:left-pad';", "import y from 'https://example.com/y.js';"].join('\n'),
     );
     const closure = functionClosure(join(root, 'repo'), 'a');
-    expect([...closure.keys()]).toEqual(['a/index.ts']);
+    expect([...closure.keys()]).toEqual([join('a', 'index.ts')]);
   });
 
   it('records a relative import whose file is missing rather than throwing', () => {
     write('repo/a/index.ts', "import { gone } from '../_shared/gone.js';");
     const closure = functionClosure(join(root, 'repo'), 'a');
-    expect(closure.get('_shared/gone.js')).toBe(null);
+    expect(closure.get(join('_shared', 'gone.js'))).toBe(null);
     expect(manifest(join(root, 'repo'), 'a').files['../_shared/gone.js']).toBe('missing');
   });
 
