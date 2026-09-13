@@ -27,6 +27,23 @@ export default defineConfig({
     __BUILD_SHA__: JSON.stringify(commitSha()),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
   },
+  build: {
+    rolldownOptions: {
+      output: {
+        // Without this the dependencies land in whichever shared chunk the
+        // bundler happens to build first and the file is named after some
+        // arbitrary module inside it -- a 222 kB chunk called
+        // "LoadFailure-<hash>.js", after a small error component that is
+        // nowhere near that size. The bytes were right and the label was
+        // actively misleading: the next person measuring what the app ships
+        // reads that name and draws the wrong conclusion. Naming the group
+        // makes the build say what it is.
+        advancedChunks: {
+          groups: [{ name: 'vendor', test: /[\\/]node_modules[\\/]/ }],
+        },
+      },
+    },
+  },
   // Vitest transforms test files with esbuild and needs to be told to use the
   // automatic JSX runtime. The production build uses oxc instead and would warn
   // that the esbuild option is ignored, so it is set only under Vitest.
