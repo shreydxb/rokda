@@ -72,33 +72,31 @@ for (const route of ROUTES) {
     const { documentOverflow, offenders } = await horizontalOverflow(page);
     await page.screenshot({ path: testInfo.outputPath(`${route.name}-${testInfo.project.name}.png`), fullPage: true });
 
+    expect(text, `${route.path} leaked a raw value into the UI`).not.toMatch(/NaN|undefined|\[object Object\]/);
     expect(errors, `console/page errors on ${route.path}`).toEqual([]);
     expect(documentOverflow, `page scrolls sideways; offenders: ${offenders.join(' | ')}`).toBe(false);
   });
 }
 
-test('empty household: every screen says something rather than nothing', async ({ page }) => {
-  const errors = watchErrors(page);
-  await stubSupabase(page, { empty: true });
-  for (const route of ROUTES) {
+// One test per route rather than one loop over all five: a loop shares a
+// single timeout budget across five navigations and fails as a timeout that
+// says nothing about which screen is broken.
+for (const route of ROUTES) {
+  test(`${route.name}: empty household still says something`, async ({ page }, testInfo) => {
+    const errors = watchErrors(page);
+    await stubSupabase(page, { empty: true });
     await gotoReady(page, route.path);
+
     const text = (await page.locator('.om-main').innerText()).trim();
+    await page.screenshot({ path: testInfo.outputPath(`${route.name}-empty-${testInfo.project.name}.png`), fullPage: true });
+
     // A brand-new household is a real state. A blank panel here is the bug
     // that only ever ships because nobody looked at it with no data.
     expect(text.length, `${route.path} rendered a blank screen with no data`).toBeGreaterThan(20);
-    expect(text, `${route.path} showed a raw NaN/undefined with no data`).not.toMatch(/NaN|undefined|\[object Object\]/);
-  }
-  expect(errors, 'console/page errors with an empty household').toEqual([]);
-});
-
-test('no screen prints NaN, undefined or [object Object]', async ({ page }) => {
-  await stubSupabase(page);
-  for (const route of ROUTES) {
-    await gotoReady(page, route.path);
-    const text = await page.locator('.om-main').innerText();
-    expect(text, `${route.path} leaked a raw value into the UI`).not.toMatch(/NaN|undefined|\[object Object\]/);
-  }
-});
+    expect(text, `${route.path} leaked a raw value with no data`).not.toMatch(/NaN|undefined|\[object Object\]/);
+    expect(errors, `console/page errors on ${route.path} with an empty household`).toEqual([]);
+  });
+}
 
 test('keyboard: tab reaches the nav and focus is visible', async ({ page }) => {
   await stubSupabase(page);

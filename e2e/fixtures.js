@@ -182,6 +182,14 @@ export async function stubSupabase(page, { empty = false, tables = {} } = {}) {
     localStorage.setItem('sb-e2e-auth-token', JSON.stringify(session));
   }, SESSION);
 
+  // Web fonts are stubbed rather than fetched. Otherwise the suite needs
+  // internet access to pass, and fails with a console error in any sandbox
+  // whose egress is restricted -- a failure about the network, dressed up as a
+  // failure about the app. Layout is measured in fallback fonts as a result,
+  // so this suite is for structure and overflow, not letter-exact spacing.
+  await page.route(/fonts\.(googleapis|gstatic)\.com/, (route) =>
+    route.fulfill({ status: 200, contentType: 'text/css', body: '' }));
+
   await page.route('**/auth/v1/**', async (route) => {
     const url = route.request().url();
     if (url.includes('/logout')) return route.fulfill({ status: 204, body: '' });
