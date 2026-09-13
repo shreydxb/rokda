@@ -29,3 +29,6 @@ dist-ssr
 
 # Supabase CLI scratch (created by `supabase functions deploy`)
 supabase/.temp
+
+# Playwright run output (screenshots, traces, error contexts)
+e2e/.artifacts/
