@@ -6,10 +6,29 @@
 // collapse whitespace — and reports, per migration, whether the SQL is
 // equivalent.
 //
-// The applied side is a JSON file exported read-only from the target database:
+// The applied side is a JSON file exported read-only from the target database.
+// How the platform STORED a migration decides how to read it back:
 //
-//   select version, name, array_to_string(statements, E'\n') as sql
+//   select version, name,
+//          case when array_length(statements, 1) > 1
+//               then array_to_string(statements, E';\n') || ';'
+//               else array_to_string(statements, E'\n')
+//          end as sql
 //   from supabase_migrations.schema_migrations order by version;
+//
+// The CLI and dashboard record a migration as ONE statement holding the whole
+// file, terminators and all -- that is the `else` branch, and it is what the
+// first 38 entries here were exported with. The GitHub integration instead
+// splits the file into statements and stores them as an array WITHOUT their
+// terminating semicolons: `tenant_qualified_foreign_keys` came back as 48
+// statements missing exactly 48 semicolons. Joining that with a plain newline
+// produces SQL that differs from the repository file by those 48 characters, so
+// every migration deployed through the integration would fingerprint as drift.
+// Rejoining with the semicolon puts back precisely what the splitter removed.
+//
+// The branch matters: appending a terminator unconditionally would CHANGE 27 of
+// the 38 single-statement entries, because those files end with a trailing
+// comment rather than with `;`.
 //
 // Usage: node scripts/compare-migrations.mjs docs/applied-migrations.json
 import { createHash } from 'node:crypto';
