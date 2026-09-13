@@ -51,3 +51,44 @@ A transaction dated after today is **planned**. It is excluded from actual
 spend, income, averages and the running chart column, and its date is never
 rewritten to make that true. Overview reports the newest *posted* record and
 says how many records are planned.
+
+## A household is a boundary the database enforces, not one the app remembers
+
+Every reference from one household-scoped row to another carries `household_id`
+through a composite foreign key, against a `unique (household_id, id)` on the
+parent. A transaction in one household cannot point at another household's
+account, category or member — the database refuses the write, whoever makes it.
+
+This replaced 21 plain single-column foreign keys. Each of those proved the
+referenced row *existed* and said nothing about whose it was, and row-level
+security did not cover the gap: the policies test the row's own `household_id`,
+so a row with a correct `household_id` and a foreign `account_id` satisfied
+them. Until this landed, the only thing keeping the ledger clean was
+application code getting it right every time.
+
+The 10 September QA pass ran 25 integrity checks against production and found
+nothing wrong. That was true and nearly uninformative: production holds one
+household, so no cross-household check in that list *could* fail. The
+regression suite now builds a second household specifically so those checks can
+fail, and asserts they don't.
+
+Two mechanics this depends on, both easy to get wrong:
+
+- **MATCH SIMPLE** (the default) is what keeps optional references optional. A
+  composite key with any NULL column is not checked, so an unset `category_id`
+  still means unset. `MATCH FULL` would demand all-or-nothing across the pair
+  and break every optional reference.
+- **`ON DELETE SET NULL (column)`** — with the column list — is required. A bare
+  `SET NULL` nulls every column in the key including `household_id`, which is
+  `NOT NULL`, so removing a member would fail outright instead of clearing the
+  owner. Needs PostgreSQL 15 or newer.
+
+`approve_intake()` also checks its three id parameters against the intake row's
+household before writing. The constraints already make a cross-household
+approval impossible; the function's checks exist so the caller gets a sentence
+naming the offending parameter rather than a foreign-key violation naming a
+constraint.
+
+Not yet covered: `transaction_edits` holds no `household_id` of its own, so its
+`edited_by` and `transaction_id` could in principle disagree. Constraining it
+needs a column added first, which is its own change.
