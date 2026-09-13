@@ -25,7 +25,7 @@
 //   node scripts/compare-functions.mjs <deployed-functions-dir> <deployed-list.json>
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { dirname, join, normalize, relative, resolve } from 'node:path';
+import { dirname, join, normalize, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export const FUNCTIONS_DIR = 'supabase/functions';
