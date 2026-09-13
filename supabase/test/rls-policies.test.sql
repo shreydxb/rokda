@@ -106,7 +106,7 @@ begin
 end $$;
 
 -- QA pass 3 P1: the same escalation, taken through INSERT instead of UPDATE.
--- Every one of these was ALLOWED before 20260913120000, and the first two were
+-- Every one of these was ALLOWED before 20260913153028, and the first two were
 -- reproduced against production as a real `authenticated` role.
 do $$
 declare n int;

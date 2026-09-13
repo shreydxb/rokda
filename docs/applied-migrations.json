@@ -238,5 +238,11 @@
   "name": "owner_role_authorization",
   "fingerprint": "b71c4edd59f3b1c1db1be51ae8e2ab1e",
   "fingerprintVersion": 2
+ },
+ {
+  "version": "20260913153028",
+  "name": "restrict_roster_insert",
+  "fingerprint": "cadc6d001eaec74187f4e0e1680ead51",
+  "fingerprintVersion": 2
  }
 ]
