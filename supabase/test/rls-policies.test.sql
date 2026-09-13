@@ -105,8 +105,83 @@ begin
   raise notice 'QA-§8 ok: a member can still edit their own row';
 end $$;
 
+-- QA pass 3 P1: the same escalation, taken through INSERT instead of UPDATE.
+-- Every one of these was ALLOWED before 20260913120000, and the first two were
+-- reproduced against production as a real `authenticated` role.
+do $$
+declare n int;
+begin
+  -- Leave, then come back as an owner. guard_household_member_role() is a
+  -- BEFORE UPDATE trigger and never sees this; only the INSERT policy can
+  -- refuse it. The delete is real, so this runs in its own subtransaction --
+  -- catching the exception below rolls the delete back along with it.
+  begin
+    delete from household_members where id = 'e1000000-0000-0000-0000-00000000000b';
+    insert into household_members (id, household_id, display_name, role, user_id)
+    values ('e1000000-0000-0000-0000-00000000000b', 'd1000000-0000-0000-0000-000000000001',
+            'Escalated', 'owner', '0b000000-0000-0000-0000-00000000000b');
+    raise exception 'QA-P1 FAILED: a member left and rejoined as an owner';
+  exception
+    when insufficient_privilege then null;
+  end;
+
+  select count(*) into n from household_members
+  where id = 'e1000000-0000-0000-0000-00000000000b' and role = 'member';
+  if n <> 1 then raise exception 'QA-P1 FAILED: the delete/re-insert attempt did not roll back cleanly'; end if;
+
+  -- Walk into a household they were never in, as its owner. This one is a
+  -- cross-tenant read, not merely a wrong role: the roster row is what makes
+  -- every other table's policy return that household's rows.
+  begin
+    insert into household_members (household_id, display_name, role, user_id)
+    values ('d2000000-0000-0000-0000-000000000002', 'Intruder', 'owner',
+            '0b000000-0000-0000-0000-00000000000b');
+    raise exception 'QA-P1 FAILED: a signed-in user self-joined another household';
+  exception
+    when insufficient_privilege then null;
+  end;
+
+  -- And a member may not add anyone at all, placeholder included.
+  begin
+    insert into household_members (household_id, display_name, role, user_id)
+    values ('d1000000-0000-0000-0000-000000000001', 'Added by a member', 'member', null);
+    raise exception 'QA-P1 FAILED: a member added a roster row';
+  exception
+    when insufficient_privilege then null;
+  end;
+
+  if exists (select 1 from household_members
+             where household_id = 'd2000000-0000-0000-0000-000000000002'
+               and user_id = '0b000000-0000-0000-0000-00000000000b') then
+    raise exception 'QA-P1 FAILED: an intruder row survived';
+  end if;
+  raise notice 'QA-P1 ok: INSERT cannot mint an owner, join a household, or add a member';
+end $$;
+
 -- ------------------------------------------------------------------- owner
 set request.jwt.claim.sub = '0a000000-0000-0000-0000-00000000000a';
+
+-- QA pass 3 P1: the owner-gated policy must still allow the only roster insert
+-- the app actually performs -- Settings adding a placeholder member -- and must
+-- not let an owner of one household reach into another.
+do $$
+declare n int;
+begin
+  insert into household_members (id, household_id, display_name, role, user_id)
+  values ('e1000000-0000-0000-0000-00000000000d', 'd1000000-0000-0000-0000-000000000001',
+          'Added by owner', 'member', null);
+  select count(*) into n from household_members where id = 'e1000000-0000-0000-0000-00000000000d';
+  if n <> 1 then raise exception 'QA-P1 FAILED: an owner could not add a placeholder member'; end if;
+
+  begin
+    insert into household_members (household_id, display_name, role, user_id)
+    values ('d2000000-0000-0000-0000-000000000002', 'Reaching across', 'owner', null);
+    raise exception 'QA-P1 FAILED: an owner added a member to a household they do not own';
+  exception
+    when insufficient_privilege then null;
+  end;
+  raise notice 'QA-P1 ok: an owner adds members to their own household only';
+end $$;
 
 do $$
 declare n int;
@@ -183,6 +258,103 @@ begin
       raise notice 'QA-§7 ok: tenant-qualified keys hold for a signed-in user as well';
   end;
 end $$;
+
+-- QA pass 3 P1: bootstrap. Closing the self-join clause removes the only route
+-- by which a household could ever be created, so create_household() replaces it
+-- -- and it has to be the only route, for somebody in no household at all.
+reset role;
+insert into auth.users (id, email) values
+  ('0c000000-0000-0000-0000-00000000000c', 'newcomer@example.test');
+
+set role authenticated;
+set request.jwt.claim.sub = '0c000000-0000-0000-0000-00000000000c';
+
+do $$
+declare new_household uuid; n int;
+begin
+  -- A stranger still cannot let themselves into an existing household. This is
+  -- the property the old bootstrap clause traded away to get bootstrap.
+  begin
+    insert into household_members (household_id, display_name, role, user_id)
+    values ('d1000000-0000-0000-0000-000000000001', 'Stranger', 'owner',
+            '0c000000-0000-0000-0000-00000000000c');
+    raise exception 'QA-P1 FAILED: a stranger self-joined an existing household';
+  exception
+    when insufficient_privilege then null;
+  end;
+
+  -- Nor build a tenancy by hand out of a raw household row.
+  begin
+    insert into households (id, name)
+    values ('d3000000-0000-0000-0000-000000000003', 'Handmade');
+    raise exception 'QA-P1 FAILED: a household was created outside create_household()';
+  exception
+    when insufficient_privilege then null;
+  end;
+
+  -- The supported path works, and makes them an owner of their OWN household.
+  new_household := create_household('Newcomer household', 'Newcomer');
+  if not is_household_owner(new_household) then
+    raise exception 'QA-P1 FAILED: create_household() did not make the caller an owner';
+  end if;
+  if is_household_member('d1000000-0000-0000-0000-000000000001') then
+    raise exception 'QA-P1 FAILED: create_household() leaked membership of an existing household';
+  end if;
+  select count(*) into n from household_members where household_id = new_household;
+  if n <> 1 then raise exception 'QA-P1 FAILED: a new household started with % members, expected 1', n; end if;
+
+  -- ...once. useHousehold() resolves one membership per user; a second would
+  -- make which household you see arbitrary.
+  begin
+    perform create_household('Second household', 'Newcomer again');
+    raise exception 'QA-P1 FAILED: a user created a second household';
+  exception
+    when unique_violation then null;
+  end;
+
+  raise notice 'QA-P1 ok: create_household() is the only bootstrap, and a one-off';
+end $$;
+
+-- QA §10: the internal helpers are no longer reachable as RPCs. The point of
+-- doing this here, after every invariant above has already been proven against
+-- the same database, is that the invariants are proven WITH the grants revoked
+-- -- a trigger keeps firing without EXECUTE, and these tests are the evidence.
+do $$
+begin
+  begin
+    perform household_members_keep_an_owner();
+    raise exception 'QA-§10 FAILED: a SECURITY DEFINER trigger helper was callable directly';
+  exception
+    when insufficient_privilege then null;
+  end;
+
+  begin
+    perform guard_household_member_role();
+    raise exception 'QA-§10 FAILED: the role guard was callable directly';
+  exception
+    when insufficient_privilege then null;
+  end;
+
+  -- The membership helper must stay callable: the RLS policies that use it are
+  -- evaluated as the caller, so revoking this from authenticated would take
+  -- every policy down with it.
+  perform is_household_member('d1000000-0000-0000-0000-000000000001');
+  raise notice 'QA-§10 ok: trigger helpers are not RPCs; the membership helper still is';
+end $$;
+
+reset role;
+set role anon;
+do $$
+begin
+  begin
+    perform is_household_member('d1000000-0000-0000-0000-000000000001');
+    raise exception 'QA-§10 FAILED: anon could still execute is_household_member()';
+  exception
+    when insufficient_privilege then null;
+  end;
+  raise notice 'QA-§10 ok: anon cannot execute the membership helper';
+end $$;
+reset role;
 
 -- A household can still be deleted outright: the cascade takes the roster with
 -- it, and that is not "a household left without an owner".

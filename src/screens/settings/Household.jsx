@@ -30,6 +30,9 @@ export default function Household({ household, members, me, loading, reload }) {
   const nameDirty = name.trim() !== '' && name.trim() !== household?.name;
   const rateDirty = inrRate.trim() !== '' && Number(inrRate) !== Number(household?.inr_per_aed);
   const owners = members.filter((m) => m.role === 'owner');
+  // Adding a member is owner-only in the database now, so a non-owner pressing
+  // this would get a raw policy error instead of a button that does nothing.
+  const iAmOwner = me?.role === 'owner';
 
   async function saveName(e) {
     e.preventDefault();
@@ -153,9 +156,11 @@ export default function Household({ household, members, me, loading, reload }) {
       <section style={{ marginTop: 40 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 14 }}>
           <div className="ov-kicker">Members</div>
-          <button type="button" className="om-btn mn-add" onClick={() => setEditing('new')}>
-            + Member
-          </button>
+          {iAmOwner && (
+            <button type="button" className="om-btn mn-add" onClick={() => setEditing('new')}>
+              + Member
+            </button>
+          )}
         </div>
         <div className="mn-list">
           {members.map((m) => (
@@ -176,6 +181,7 @@ export default function Household({ household, members, me, loading, reload }) {
         <div className="ov-muted" style={{ marginTop: 14, fontSize: 11.5, lineHeight: 1.65, maxWidth: '80ch' }}>
           A member without a linked login can still own accounts, transactions, and goals — useful for adding a partner before
           they have their own account. Sending them an actual invite isn't wired up yet.
+          {!iAmOwner && ' Only an owner can add or remove members.'}
         </div>
       </section>
 
