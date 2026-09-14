@@ -48,6 +48,21 @@ describe('QA-03: Forecast net-worth basis', () => {
     expect(startingNetWorth([ACCOUNT], [])).toBe(50_000);
   });
 
+  it('still projects from a balance nobody has confirmed, and Forecast says it is provisional', () => {
+    // QA pass 3, O4. An unconfirmed balance is unknown in the strict sense,
+    // but withholding the whole projection would disagree with Overview, which
+    // shows net worth over the same doubt and labels it. Shown and labelled,
+    // not withheld.
+    expect(startingNetWorth([ACCOUNT], [])).toBe(50_000);
+  });
+
+  it('refuses a foreign balance nobody has converted, which is unknown rather than unconfirmed', () => {
+    // Different kind of doubt: not "is this figure current" but "what is this
+    // figure, in dirhams". There is no number to label provisional (O3).
+    const inr = { id: 'i1', type: 'savings', currency: 'INR', balance: 10_000, balance_aed: null, is_shared: true, archived_at: null };
+    expect(startingNetWorth([inr], [])).toBeNull();
+  });
+
   it('reports "nothing to start from" as null, not a confident zero', () => {
     expect(startingNetWorth([], [])).toBeNull();
   });
@@ -82,6 +97,19 @@ describe('QA-03: Forecast renders every input state', () => {
   it('renders accounts plus holdings with enough history to project', () => {
     renderForecast({ accounts: [ACCOUNT], transactions: closedMonthTransactions(now), holdings: [HOLDING] });
     expect(screen.queryByText(/Not enough to project/i)).toBeNull();
+  });
+
+  it('marks the projection provisional while a contributing balance is unconfirmed', () => {
+    // ACCOUNT has no balance_as_of, so the figure is the best available
+    // picture rather than a settled one, and the screen has to say so.
+    renderForecast({ accounts: [ACCOUNT], transactions: closedMonthTransactions(now), holdings: [HOLDING] });
+    expect(screen.getByText(/provisional/i)).toBeTruthy();
+  });
+
+  it('drops the provisional note once the balance is confirmed', () => {
+    const confirmed = { ...ACCOUNT, balance_as_of: '2026-09-01T00:00:00Z' };
+    renderForecast({ accounts: [confirmed], transactions: closedMonthTransactions(now), holdings: [HOLDING] });
+    expect(screen.queryByText(/provisional/i)).toBeNull();
   });
 });
 

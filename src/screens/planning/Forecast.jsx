@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatBalance, formatMoney, formatPct } from '../../lib/money';
 import { startingNetWorth } from '../overviewMath';
+import { isArchived } from '../../lib/accounts';
+import { unconfirmedAccounts } from '../../lib/balance';
 import { closedMonths, crossingYear, fiTarget, forecastInputs, projectSeries, realReturn, goalAt, scenarioSets } from '../../lib/forecast';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import ForecastAssumptionsEditor from './ForecastAssumptionsEditor';
@@ -38,6 +40,15 @@ export default function Forecast({ household, accounts = [], transactions = [], 
   const startYear = now.getFullYear();
 
   const startNetWorth = useMemo(() => startingNetWorth(accounts, holdings), [accounts, holdings]);
+  // A projection resting on balances nobody has confirmed is still worth
+  // showing -- it is the household's best available picture -- but it must not
+  // present itself as settled. Same call Overview makes about net worth
+  // (QA-02), so the two screens agree about the same doubt rather than one
+  // withholding what the other displays.
+  const basisProvisional = useMemo(
+    () => unconfirmedAccounts((accounts ?? []).filter((a) => !isArchived(a))).length > 0,
+    [accounts],
+  );
   const monthCount = closedMonths(transactions, now).size;
   const inputs = useMemo(() => forecastInputs(transactions, startNetWorth, now), [transactions, startNetWorth, now]);
 
@@ -76,7 +87,9 @@ export default function Forecast({ household, accounts = [], transactions = [], 
             style={{ display: 'flex', justifyContent: 'space-between', gap: 16, padding: '12px 0', borderTop: '1px solid var(--rule)', borderBottom: '1px solid var(--rule)', fontSize: 13.5 }}
           >
             <span>Starting net worth</span>
-            <span className="ov-muted">{startNetWorth !== null ? 'known' : 'needs one account valuation'}</span>
+            <span className="ov-muted">
+              {startNetWorth === null ? 'needs one account valuation' : basisProvisional ? 'provisional · balances not confirmed' : 'known'}
+            </span>
           </div>
         </div>
         <div style={{ display: 'flex', gap: 10, marginTop: 24, flexWrap: 'wrap' }}>
@@ -255,6 +268,7 @@ export default function Forecast({ household, accounts = [], transactions = [], 
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10, fontSize: 12, color: 'var(--ink3)', flexWrap: 'wrap', gap: 12 }}>
             <span>
               <span style={{ color: 'var(--ink)' }}>{formatPct(pct)}</span> of the way there · {money.fmtBalance(startNetWorth)} today
+              {basisProvisional && ' · provisional, some balances are unconfirmed'}
             </span>
             {leanTarget && (
               <span>

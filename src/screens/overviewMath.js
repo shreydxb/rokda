@@ -1,5 +1,5 @@
 import { scopedValue } from '../lib/scope';
-import { isArchived } from '../lib/accounts';
+import { accountValueAed, isAccountValued, isArchived } from '../lib/accounts';
 import { clampToToday, daysBetweenDays, endOfDayExclusive, isPosted, monthKey, parseDay, startOfDay } from '../lib/day';
 import { chartBuckets, periodBounds } from '../lib/period';
 import { scopedHoldingValue, visibleHoldings } from '../lib/holdings';
@@ -23,15 +23,24 @@ export function visibleAccounts(accounts, scopeMemberId) {
 export function netWorthSummary(accounts, scopeMemberId, holdings = []) {
   let assets = 0;
   let liabilities = 0;
+  // Accounts whose AED value is unknown -- a foreign balance nobody has
+  // converted. They are counted, not silently dropped, so a caller can say the
+  // total is incomplete instead of presenting it as the whole picture.
+  let unvalued = 0;
   for (const a of visibleAccounts(accounts, scopeMemberId)) {
-    const v = scopedValue(a.balance_aed ?? a.balance, a, scopeMemberId);
+    const aed = accountValueAed(a);
+    if (aed === null) {
+      unvalued += 1;
+      continue;
+    }
+    const v = scopedValue(aed, a, scopeMemberId);
     if (LIABILITY_TYPES.has(a.type)) liabilities += v;
     else assets += v;
   }
   for (const h of visibleHoldings(holdings, scopeMemberId)) {
     assets += scopedHoldingValue(h, scopeMemberId);
   }
-  return { assets, liabilities, netWorth: assets - liabilities };
+  return { assets, liabilities, netWorth: assets - liabilities, unvalued };
 }
 
 // The one starting basis shared by Overview, Wealth and Forecast: open account
@@ -39,16 +48,26 @@ export function netWorthSummary(accounts, scopeMemberId, holdings = []) {
 // there is nothing valued to start from, so a forecast refuses to project from
 // a number the app invented (QA-03).
 export function startingNetWorth(accounts = [], holdings = []) {
-  const hasAccounts = visibleAccounts(accounts, null).length > 0;
+  // "Nothing valued to start from" used to mean "no rows at all", which let a
+  // foreign account nobody had converted stand in as a basis of zero -- an
+  // invented number, which is the thing this function exists to refuse
+  // (QA pass 3, O4). An account counts when its AED value is actually known.
+  //
+  // Deliberately NOT gated on balance confirmation. An unconfirmed balance is
+  // unknown in the strict sense, but refusing to project at all would break
+  // from how the rest of the app treats the same doubt: Overview shows net
+  // worth and labels it provisional rather than withholding it. Forecast does
+  // the same, and says so on the figure.
+  const valuedAccounts = visibleAccounts(accounts, null).filter(isAccountValued);
   const hasHoldings = visibleHoldings(holdings, null).length > 0;
-  if (!hasAccounts && !hasHoldings) return null;
+  if (valuedAccounts.length === 0 && !hasHoldings) return null;
   return netWorthSummary(accounts, null, holdings).netWorth;
 }
 
 export function liquidAssets(accounts, scopeMemberId) {
   return visibleAccounts(accounts, scopeMemberId)
     .filter((a) => LIQUID_TYPES.has(a.type))
-    .reduce((sum, a) => sum + scopedValue(a.balance_aed ?? a.balance, a, scopeMemberId), 0);
+    .reduce((sum, a) => sum + scopedValue(accountValueAed(a) ?? 0, a, scopeMemberId), 0);
 }
 
 // Half-open [start, end) over local calendar days, so a boundary belongs to

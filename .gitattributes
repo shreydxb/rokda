@@ -6,3 +6,14 @@
 # that has nothing to do with the migration's actual content.
 supabase/migrations/*.sql text eol=lf
 scripts/*.mjs text eol=lf
+
+# Same reason, for the Edge Functions (QA pass 3 deploy). compare-functions.mjs
+# hashes file contents byte-for-byte to prove the deployed function IS this
+# commit, so a CRLF checkout deploys CRLF and every file reads as "differs"
+# -- including the ones nobody touched, which is how this was spotted: a
+# Windows clone deployed, and all ten files in the closure disagreed at once.
+#
+# The pin belongs here rather than in the comparator: normalising newlines
+# before hashing would weaken the check into "same apart from whitespace",
+# and the whole point is that the deployed bytes are the committed bytes.
+supabase/functions/** text eol=lf

@@ -74,3 +74,44 @@ export function accountOptionLabel(account, { members = [], accounts = [] } = {}
   if (isArchived(account)) parts.push('closed');
   return parts.filter(Boolean).join(' · ');
 }
+
+// ---------------------------------------------------------------- valuation
+
+// The AED value of an account, or null when it genuinely is not known.
+//
+// `balance_aed` is written by the account trigger when the row is saved. A
+// non-AED account that has never been converted has null there, and the old
+// `balance_aed ?? balance` fallback then presented a foreign amount as though
+// it were dirhams -- 10,000 rupees counted as 10,000 dirhams in net worth
+// (QA pass 3, O3). An AED account needs no conversion, so its own balance is
+// the answer.
+//
+// Null means unknown, and unknown is not zero. Callers must decide what to do
+// with it rather than have a number chosen for them.
+export function accountValueAed(account) {
+  if (account?.balance_aed != null) return Number(account.balance_aed);
+  const currency = String(account?.currency ?? 'AED').toUpperCase();
+  if (currency === 'AED') return Number(account?.balance ?? 0);
+  return null;
+}
+
+export function isAccountValued(account) {
+  return accountValueAed(account) !== null;
+}
+
+// A fixed deposit's balance is derived: compute_account_derived_fields()
+// calculates it from principal, rate and dates, and the daily fd-accrual job
+// touches every active FD so that trigger recomputes it against today. There
+// is nothing for anyone to confirm (QA pass 3, O4).
+//
+// These two live here rather than in balance.js because overviewMath.js needs
+// them and is mirrored into _shared/applib for the Edge Functions, which have
+// no copy of balance.js. balance.js re-exports them, so every existing import
+// keeps working and there is still exactly one definition.
+export function isDerivedBalance(account) {
+  return account?.type === 'fd' && account?.principal != null && account?.interest_rate_pct != null;
+}
+
+export function isBalanceConfirmed(account) {
+  return isDerivedBalance(account) || account?.balance_as_of != null;
+}
