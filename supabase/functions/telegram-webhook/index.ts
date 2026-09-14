@@ -85,6 +85,9 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
+type IntakeKind = "expense" | "income" | "refund";
+const INTAKE_KIND_VALUES = new Set<IntakeKind>(["expense", "income", "refund"]);
+
 type ParsedItem = {
   merchant: string | null;
   amount: number | null;
@@ -94,6 +97,7 @@ type ParsedItem = {
   cardLast4: string | null;
   accountHint: string | null;
   confidence: number;
+  kind: IntakeKind;
 };
 
 function parseItemFields(parsed: Record<string, unknown>): ParsedItem {
@@ -106,6 +110,10 @@ function parseItemFields(parsed: Record<string, unknown>): ParsedItem {
   const currency = typeof parsed.currency === "string" && /^[A-Za-z]{3}$/.test(parsed.currency.trim()) ? parsed.currency.trim().toUpperCase() : null;
   const cardLast4 = typeof parsed.card_last4 === "string" && /^\d{4}$/.test(parsed.card_last4.trim()) ? parsed.card_last4.trim() : null;
   const accountHint = typeof parsed.account_hint === "string" && parsed.account_hint.trim() ? parsed.account_hint.trim() : null;
+  // Defaults to 'expense' -- the model is asked for this explicitly (see the
+  // prompt below), but an unrecognised or missing value must never silently
+  // become something other than today's existing behaviour.
+  const kind: IntakeKind = typeof parsed.kind === "string" && INTAKE_KIND_VALUES.has(parsed.kind as IntakeKind) ? (parsed.kind as IntakeKind) : "expense";
 
   return {
     merchant: typeof parsed.merchant === "string" && parsed.merchant.trim() ? parsed.merchant.trim() : null,
@@ -116,6 +124,7 @@ function parseItemFields(parsed: Record<string, unknown>): ParsedItem {
     cardLast4,
     accountHint,
     confidence,
+    kind,
   };
 }
 
@@ -146,12 +155,13 @@ async function parseIntakeWithAI(params: {
   // permanently, with nothing downstream to notice.
   const today = householdToday();
   const instructions =
-    `Extract ALL household expenses/income described in the message and/or receipt photo below. Most messages describe exactly one, but some describe several separate amounts (e.g. "bought two plants for 260 and 50" is TWO expenses -- never sum multiple amounts into one, and never drop any of them). ` +
+    `Extract ALL household expenses/income/refunds described in the message and/or receipt photo below. Most messages describe exactly one, but some describe several separate amounts (e.g. "bought two plants for 260 and 50" is TWO expenses -- never sum multiple amounts into one, and never drop any of them). ` +
     `The message may be free-form text, or a bank/card SMS notification copy-pasted verbatim (e.g. "AED 38.80 spent on your card ending 1234 at FILLI CAFE LLC DXB on 05-09-26 14:32") -- extract from either the same way; a bank SMS almost always describes exactly one. ` +
     `Today's date is ${today}. ` +
     `Respond with ONLY a JSON object, no markdown, matching exactly: ` +
-    `{"items": [{"merchant": string|null, "amount": number|null, "currency": string|null, "occurred_at": "YYYY-MM-DD"|null, "category": string|null, "card_last4": string|null, "account_hint": string|null, "confidence": number}, ...]} ` +
+    `{"items": [{"merchant": string|null, "amount": number|null, "currency": string|null, "occurred_at": "YYYY-MM-DD"|null, "category": string|null, "card_last4": string|null, "account_hint": string|null, "confidence": number, "kind": "expense"|"income"|"refund"}, ...]} ` +
     `One item per distinct amount. Shared details (date, account, merchant if it applies to all) should be repeated on every item rather than left null just because it was only stated once in the message. ` +
+    `"kind" is "expense" if money left the account (a purchase, a bill paid, an EMI) -- this is the default for almost everything. "income" if money arrived that ISN'T tied to a specific earlier expense (a salary credit, a gift received, interest, cashback treated as a reward rather than a refund). "refund" if money came back specifically because an earlier purchase was returned, cancelled or reimbursed (e.g. "got a refund from Noon for the return", "airline refunded my ticket"). When genuinely unsure between income and refund, prefer "income" -- a refund wrongly filed as income is a smaller mistake than one that tries and fails to link to a specific past purchase. ` +
     `"currency" is the real currency of the amount if stated or clearly implied (e.g. "AED", "USD", "INR") -- null if genuinely unstated. Never assume AED just because the household is AED-based -- only state it if the message actually says or implies it. ` +
     `"card_last4" is the last 4 digits of a card mentioned (e.g. "card ending 1234", "card no. ...1234"), or null if none is mentioned. ` +
     `"account_hint" is the account/card NAME mentioned in the message, if any (e.g. "Wio", "FAB Z", "ENBD Noon", "FAB Islamic") -- a short free-text name, not digits, or null if no account/card is named. ` +
@@ -340,6 +350,7 @@ type PendingIntakeRow = {
   parsed_category_id: string | null;
   parsed_account_id: string | null;
   parsed_currency: string | null;
+  parsed_kind: string | null;
   confidence: number | string | null;
 };
 
@@ -392,12 +403,16 @@ async function confirmPendingIntake(chatId: number, householdId: string, recentP
       return;
     }
 
+    // Falls back to 'expense' for a row the parser never classified (e.g.
+    // parsed_kind is null on an old row from before this column existed) --
+    // exactly today's prior hardcoded behaviour, now just explicit about it.
+    const kind = (recentPending.parsed_kind as IntakeKind | null) ?? "expense";
     const { error: approveError } = await supabase.rpc("approve_intake", {
       p_intake_id: recentPending.id,
       p_account_id: recentPending.parsed_account_id,
       p_amount: recentPending.parsed_amount,
       p_occurred_at: recentPending.parsed_date,
-      p_kind: "expense",
+      p_kind: kind,
       p_category_id: recentPending.parsed_category_id,
       p_currency: "AED",
       p_merchant: recentPending.parsed_merchant,
@@ -409,9 +424,10 @@ async function confirmPendingIntake(chatId: number, householdId: string, recentP
         ? supabase.from("categories").select("name").eq("id", recentPending.parsed_category_id).maybeSingle()
         : Promise.resolve({ data: null as { name: string } | null }),
     ]);
+    const kindLabel = kind === "income" ? "income " : kind === "refund" ? "refund " : "";
     await reply(
       chatId,
-      `Recorded: AED ${Number(recentPending.parsed_amount).toFixed(2)} at ${recentPending.parsed_merchant} (${acct?.name ?? "account"}${cat?.name ? `, ${cat.name}` : ""}) on ${recentPending.parsed_date}.`
+      `Recorded: AED ${Number(recentPending.parsed_amount).toFixed(2)} ${kindLabel}at ${recentPending.parsed_merchant} (${acct?.name ?? "account"}${cat?.name ? `, ${cat.name}` : ""}) on ${recentPending.parsed_date}.`
     );
   } catch {
     await reply(chatId, "Something went wrong confirming that -- please check the Inbox.");
@@ -445,7 +461,7 @@ async function handleReaction(reaction: Record<string, unknown>): Promise<Respon
   const { data: recentPendingRows } = await supabase
     .from("intake")
     .select(
-      "id, raw_text, created_at, parsed_merchant, parsed_amount, parsed_date, parsed_category_id, parsed_account_id, parsed_currency, confidence"
+      "id, raw_text, created_at, parsed_merchant, parsed_amount, parsed_date, parsed_category_id, parsed_account_id, parsed_currency, parsed_kind, confidence"
     )
     .eq("household_id", member.household_id)
     .eq("member_id", member.id)
@@ -592,6 +608,23 @@ const TOOLS_BASE = [
           scope: { type: "string", enum: SCOPE_ENUM },
         },
         required: ["scope"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "log_goal_contribution",
+      description:
+        "The message reports money being put toward a savings or debt-payoff GOAL specifically (e.g. 'put 500 toward emergency fund', 'added 1000 to the house downpayment goal', 'paid 300 extra on the car loan goal'). This is a goal-tracking entry only -- it never touches any account balance or the ledger, so never also call log_expense for the same message. If the message is just an ordinary purchase or bill with no named goal, use log_expense instead.",
+      parameters: {
+        type: "object",
+        properties: {
+          goal_name: { type: "string", description: "The goal's name as the user said it." },
+          amount: { type: "number", description: "The AED amount put toward the goal." },
+          occurred_at: { type: "string", description: "YYYY-MM-DD if a date is stated; omit to use today." },
+        },
+        required: ["goal_name", "amount"],
       },
     },
   },
@@ -838,6 +871,29 @@ async function toolGetHoldings(householdId: string, scopeMemberId: string | null
   return result;
 }
 
+// Writes straight to goal_contributions, the same table and same trust level
+// the web Goal editor's own "Log a contribution" button already uses --
+// there is no review queue for this table today (unlike an expense/income,
+// it never touches an account balance or the ledger, so a mistake here is
+// cheap to fix: delete the row and re-log). Same "must resolve to exactly
+// one" bar as account/category/holding matching elsewhere in this file.
+async function toolLogGoalContribution(householdId: string, args: Record<string, unknown>) {
+  const { data: goals } = await supabase.from("goals").select("id, name").eq("household_id", householdId);
+  const norm = String(args.goal_name ?? "").trim().toLowerCase();
+  const matches = (goals ?? []).filter((g: { name: string }) => g.name.toLowerCase().includes(norm));
+  if (matches.length === 0) return { error: "goal_not_found", available: (goals ?? []).map((g: { name: string }) => g.name) };
+  if (matches.length > 1) return { error: "ambiguous_goal", matches: matches.map((g: { name: string }) => g.name) };
+
+  const amount = Number(args.amount);
+  if (!amount || amount <= 0) return { error: "invalid_amount" };
+  const occurredAt = typeof args.occurred_at === "string" && /^\d{4}-\d{2}-\d{2}$/.test(args.occurred_at) ? args.occurred_at : householdToday();
+
+  const goal = matches[0] as { id: string; name: string };
+  const { error } = await supabase.from("goal_contributions").insert({ goal_id: goal.id, amount, occurred_at: occurredAt });
+  if (error) return { error: "write_failed" };
+  return { goal: goal.name, amount_aed: round2(amount), occurred_at: occurredAt };
+}
+
 // ---------------------------------------------------------------------------
 // /brief digest -- deterministic, template-built from the same real tools
 // above rather than another LLM call: cheaper, and there's no room for a
@@ -961,7 +1017,8 @@ async function classifyAndRoute(
 ) {
   const system =
     `You are a household finance assistant for Rokda, chatting with a household member via Telegram. ` +
-    `If their message reports a real expense/income/refund that already happened (e.g. "spent 40 on lunch", "paid the rent"), ALWAYS call log_expense immediately -- even if the category, merchant, or exact amount isn't fully clear. ` +
+    `If their message reports a real expense/income/refund that already happened (e.g. "spent 40 on lunch", "paid the rent", "got paid my salary", "got a refund from Noon"), ALWAYS call log_expense immediately -- even if the category, merchant, or exact amount isn't fully clear. log_expense covers all three: the extraction step itself decides which one from the wording, you don't need to. ` +
+    `EXCEPTION: if the message specifically says money is going toward a named savings or debt-payoff GOAL (e.g. "put 500 toward emergency fund", "added 1000 to the house downpayment goal"), call log_goal_contribution instead -- never log_expense for that message, since a goal contribution never touches an account balance or the ledger. An ordinary purchase or bill with no named goal is still log_expense. ` +
     `Never ask a clarifying question about an expense to log: category assignment happens later when a human reviews it, not in this chat, and an uncategorised expense is a completely normal, expected outcome -- do not treat that as ambiguity. ` +
     `Only treat a message as ambiguous, and only then reply in plain text with a short clarifying question instead of calling a tool, when it is a QUESTION whose target is genuinely unclear (e.g. asking about an account name that matches nothing, or a category that doesn't fit any real one) -- never for something being logged. ` +
     `If it asks a real question about their finances, call the matching tool to fetch the real number -- you must NEVER answer from your own knowledge or guess a figure; only a tool result is a real number. ` +
@@ -1611,7 +1668,7 @@ Deno.serve(async (req) => {
     const { data: recentPendingRows } = await supabase
       .from("intake")
       .select(
-        "id, raw_text, created_at, parsed_merchant, parsed_amount, parsed_date, parsed_category_id, parsed_account_id, parsed_currency, confidence"
+        "id, raw_text, created_at, parsed_merchant, parsed_amount, parsed_date, parsed_category_id, parsed_account_id, parsed_currency, parsed_kind, confidence"
       )
       .eq("household_id", member.household_id)
       .eq("member_id", member.id)
@@ -1684,6 +1741,7 @@ Deno.serve(async (req) => {
           parsed_category_id: matchedCategory?.id ?? null,
           parsed_currency: parsed?.currency ?? null,
           parsed_account_id: matchedAccount?.id ?? null,
+          parsed_kind: parsed?.kind ?? null,
           confidence: parsed?.confidence ?? 0,
         };
         await supabase
@@ -1728,6 +1786,9 @@ Deno.serve(async (req) => {
             break;
           case "get_holdings":
             result = await toolGetHoldings(member.household_id, scopeMemberId, args);
+            break;
+          case "log_goal_contribution":
+            result = await toolLogGoalContribution(member.household_id, args);
             break;
           default:
             result = { error: "unknown_tool" };
@@ -1861,6 +1922,7 @@ Deno.serve(async (req) => {
           parsed_category_id: matchedCategory?.id ?? null,
           parsed_currency: item.currency,
           parsed_account_id: matchedAccount?.id ?? null,
+          parsed_kind: item.kind,
           confidence: item.confidence,
         };
 
@@ -1890,7 +1952,8 @@ Deno.serve(async (req) => {
           if (isReadyForFastConfirm(updatedRow)) {
             const duplicate = await findDuplicateTransaction(member.household_id, updatedRow.parsed_account_id, item.merchant, item.amount, item.occurred_at);
             if (!duplicate) {
-              fastConfirmSummary = `AED ${Number(item.amount).toFixed(2)} at ${item.merchant} (${matchedAccount!.name}${matchedCategory ? `, ${matchedCategory.name}` : ""}) on ${item.occurred_at}`;
+              const kindLabel = item.kind === "income" ? "income " : item.kind === "refund" ? "refund " : "";
+              fastConfirmSummary = `AED ${Number(item.amount).toFixed(2)} ${kindLabel}at ${item.merchant} (${matchedAccount!.name}${matchedCategory ? `, ${matchedCategory.name}` : ""}) on ${item.occurred_at}`;
             }
           }
         } else {
