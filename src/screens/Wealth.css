@@ -18,7 +18,11 @@
 }
 @media (max-width: 720px) {
   .wl-breakdown-grid {
-    grid-template-columns: 1fr;
+    /* Same reason as Overview's .ov-triple: bare `1fr` cannot shrink below its
+       content's min-content width, which is what the two-column rule above
+       uses minmax(0, ...) to avoid. Not currently reproducing here, but it is
+       the same latent fault waiting on wide enough content. */
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
