@@ -250,5 +250,11 @@
   "name": "rls_initplan_and_last_fk_index",
   "fingerprint": "81d17e05713c6315abfe114a7c4deb78",
   "fingerprintVersion": 2
+ },
+ {
+  "version": "20260914073306",
+  "name": "last_owner_race",
+  "fingerprint": "36960228cbece9b0b1ccd35e93a186e0",
+  "fingerprintVersion": 2
  }
 ]
