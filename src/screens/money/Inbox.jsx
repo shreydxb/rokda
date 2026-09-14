@@ -85,7 +85,10 @@ export default function Inbox({ members = [], accounts, categories, data, loadin
         accountId: item.parsed_account_id,
         amount: item.parsed_amount,
         date: item.parsed_date,
-        kind: 'expense',
+        // Trusts the parser's own classification (SHR-282) -- a confidently-
+        // parsed salary credit bulk-approved here must not silently become a
+        // negative expense just because this was never asked interactively.
+        kind: item.parsed_kind ?? 'expense',
         categoryId: item.parsed_category_id,
         currency: 'AED',
         merchant: item.parsed_merchant,
@@ -268,7 +271,9 @@ function IntakeReview({ item, sender, accounts, members, categories, categoryRul
       accountId: item.parsed_account_id,
       amount: item.parsed_amount,
       date: item.parsed_date,
-      kind: 'expense',
+      // Trusts the parser's own classification (SHR-282), same reasoning as
+      // approveConfident above.
+      kind: item.parsed_kind ?? 'expense',
       categoryId: item.parsed_category_id,
       currency: 'AED',
       merchant: item.parsed_merchant,
@@ -414,8 +419,10 @@ function IntakeEditForm({ item, sender, accounts, members, categories, categoryR
   const suggestedRule = item.parsed_category_id ? null : firstMatchingRule(item.parsed_merchant, categoryRules);
   const [categoryId, setCategoryId] = useState(item.parsed_category_id ?? suggestedRule?.category_id ?? '');
   // Every item used to be forced to a shared AED expense. The reviewer says
-  // which it is (QA-11).
-  const [kind, setKind] = useState('expense');
+  // which it is (QA-11) -- pre-filled from the parser's own classification
+  // (SHR-282) when it made one, so a salary credit opens already set to
+  // Income rather than always starting at Expense.
+  const [kind, setKind] = useState(item.parsed_kind ?? 'expense');
   // Fixed, not user-editable: there is no native-currency conversion yet, and
   // every dashboard total already treats amount as AED. Letting this field
   // be typed into let "USD" get entered while the number stayed an

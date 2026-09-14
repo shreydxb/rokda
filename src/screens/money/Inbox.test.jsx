@@ -113,4 +113,31 @@ describe('QA-11: Inbox approval goes through one atomic call', () => {
     expect(calls[0].args.p_is_shared).toBe(false);
     expect(calls[0].args.p_owner_member_id).toBe('m2');
   });
+
+  // SHR-282: Telegram's own parser can classify a message as income/refund
+  // now, and that classification must not be silently discarded the moment
+  // a human opens the review form -- the whole point is to save the reviewer
+  // from having to notice and re-select something the parser already knew.
+  it('pre-fills the kind selector from the parser\'s own classification instead of always starting at Expense', async () => {
+    const parsedAsIncome = { ...ITEM, parsed_kind: 'income' };
+    renderScreen(
+      <Inbox
+        members={MEMBERS}
+        accounts={ACCOUNTS}
+        categories={[]}
+        loading={false}
+        data={{ intake: [parsedAsIncome], categoryRules: [], reload: vi.fn().mockResolvedValue(undefined) }}
+      />,
+    );
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Edit first' }).click();
+    });
+    // No click on "Income" here -- it should already be the active choice.
+    await act(async () => {
+      screen.getByRole('button', { name: 'Approve' }).click();
+    });
+
+    expect(calls[0].args.p_kind).toBe('income');
+  });
 });
