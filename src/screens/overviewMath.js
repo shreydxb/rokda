@@ -1,5 +1,5 @@
 import { scopedValue } from '../lib/scope';
-import { accountValueAed, isAccountValued, isBalanceConfirmed, isArchived } from '../lib/accounts';
+import { accountValueAed, isAccountValued, isArchived } from '../lib/accounts';
 import { clampToToday, daysBetweenDays, endOfDayExclusive, isPosted, monthKey, parseDay, startOfDay } from '../lib/day';
 import { chartBuckets, periodBounds } from '../lib/period';
 import { scopedHoldingValue, visibleHoldings } from '../lib/holdings';
@@ -48,12 +48,17 @@ export function netWorthSummary(accounts, scopeMemberId, holdings = []) {
 // there is nothing valued to start from, so a forecast refuses to project from
 // a number the app invented (QA-03).
 export function startingNetWorth(accounts = [], holdings = []) {
-  // "Nothing valued to start from" used to mean "no rows at all", so an
-  // account that existed but whose balance nobody had confirmed returned 0 --
-  // precisely the invented number the comment above forbids, and enough to
-  // make a forecast look ready (QA pass 3, O4). An account counts only if its
-  // AED value is known AND somebody (or the FD trigger) has vouched for it.
-  const valuedAccounts = visibleAccounts(accounts, null).filter((a) => isAccountValued(a) && isBalanceConfirmed(a));
+  // "Nothing valued to start from" used to mean "no rows at all", which let a
+  // foreign account nobody had converted stand in as a basis of zero -- an
+  // invented number, which is the thing this function exists to refuse
+  // (QA pass 3, O4). An account counts when its AED value is actually known.
+  //
+  // Deliberately NOT gated on balance confirmation. An unconfirmed balance is
+  // unknown in the strict sense, but refusing to project at all would break
+  // from how the rest of the app treats the same doubt: Overview shows net
+  // worth and labels it provisional rather than withholding it. Forecast does
+  // the same, and says so on the figure.
+  const valuedAccounts = visibleAccounts(accounts, null).filter(isAccountValued);
   const hasHoldings = visibleHoldings(holdings, null).length > 0;
   if (valuedAccounts.length === 0 && !hasHoldings) return null;
   return netWorthSummary(accounts, null, holdings).netWorth;
