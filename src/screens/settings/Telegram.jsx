@@ -2,13 +2,20 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import '../money/TransactionEditor.css';
 
-const DEFAULTS = { recurring_enabled: true, credit_card_enabled: true, cash_cover_enabled: true, brief_enabled: true };
+const DEFAULTS = {
+  recurring_enabled: true,
+  credit_card_enabled: true,
+  cash_cover_enabled: true,
+  brief_enabled: true,
+  unusual_spend_enabled: true,
+};
 
 const SIGNALS = [
   { key: 'recurring_enabled', label: 'Missed recurring bills', note: "Nudge when a bill's due date passes with nothing logged for it" },
   { key: 'credit_card_enabled', label: 'Credit card due dates', note: 'Nudge 1-2 days before a card is due, and again if it still shows owing after' },
   { key: 'cash_cover_enabled', label: 'Cash cover', note: "Weekly warning if liquid balances can't cover what's due in the next 7 days" },
   { key: 'brief_enabled', label: 'Weekly & month-end brief', note: 'The /brief digest, sent automatically every Monday and after each month closes' },
+  { key: 'unusual_spend_enabled', label: 'Unusual spend', note: "Nudge once when a category runs well past its usual trailing average -- a deliberately high bar to avoid false alarms" },
 ];
 
 export default function Telegram({ household, loading }) {
@@ -24,7 +31,7 @@ export default function Telegram({ household, loading }) {
     setPrefsLoading(true);
     supabase
       .from('telegram_notification_prefs')
-      .select('recurring_enabled, credit_card_enabled, cash_cover_enabled, brief_enabled')
+      .select('recurring_enabled, credit_card_enabled, cash_cover_enabled, brief_enabled, unusual_spend_enabled')
       .eq('household_id', household.id)
       .maybeSingle()
       .then(({ data, error: fetchError }) => {
