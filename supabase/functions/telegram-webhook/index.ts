@@ -36,6 +36,7 @@ import { upcomingItems } from "../_shared/applib/recurring.js";
 import { isPosted, parseDay, atDayOfMonth, startOfDay, householdToday, householdYearMonth } from "../_shared/applib/day.js";
 import { isSpendRow, spendDelta } from "../_shared/applib/transactionKind.js";
 import { visibleHoldings, scopedHoldingValue, holdingGain, allocationByClass, portfolioGain } from "../_shared/applib/holdings.js";
+import { cashCoverStatus } from "../_shared/applib/cashCover.js";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -700,6 +701,23 @@ async function toolGetUpcomingBills(householdId: string, scopeMemberId: string |
   return { recurring: bills, credit_cards: cardBills };
 }
 
+// Household-wide (scope=null), like /brief -- "can we cover what's due" is a
+// shared question, not a personal one. Reuses toolGetUpcomingBills's 14-day
+// bill list rather than re-querying recurring/credit-card rows a second
+// time; cashCoverStatus narrows it down to the tighter `days` window itself.
+async function toolGetCashCover(householdId: string, days = 7) {
+  const [{ data: accounts }, bills] = await Promise.all([
+    supabase.from("accounts").select("*").eq("household_id", householdId).is("archived_at", null),
+    toolGetUpcomingBills(householdId, null),
+  ]);
+  return cashCoverStatus((accounts ?? []) as never, bills as never, { days, today: parseDay(householdToday()) });
+}
+
+function formatCashCoverLine(status: { liquidAed: number; dueAed: number; days: number; covered: boolean; shortfallAed: number }) {
+  const base = `Cash cover: AED ${status.liquidAed.toLocaleString()} liquid vs AED ${status.dueAed.toLocaleString()} due in the next ${status.days} days`;
+  return status.covered ? `${base} -- covered.` : `${base} -- short by AED ${status.shortfallAed.toLocaleString()}.`;
+}
+
 async function toolGetBudgetStatus(householdId: string, scopeMemberId: string | null, args: Record<string, unknown>) {
   const { data: categories } = await supabase
     .from("categories")
@@ -830,17 +848,18 @@ async function toolGetHoldings(householdId: string, scopeMemberId: string | null
 
 const BRIEF_TRIGGERS = new Set(["brief", "/brief", "digest", "/digest", "summary", "daily brief"]);
 
-// Total spend this month across every category combined -- the tools above
-// only ever total one category at a time, so this reuses the same
+// Total spend for a given month across every category combined -- the tools
+// above only ever total one category at a time, so this reuses the same
 // scope/posted-only rules by hand rather than looping every category through
-// monthActualsByCategory.
-async function toolGetMonthSpendTotal(householdId: string, scopeMemberId: string | null): Promise<number> {
+// monthActualsByCategory. Takes an explicit year/month (rather than always
+// "now") so the month-end review can total the month that just ended, not
+// whatever month it happens to be when the check runs.
+async function toolGetMonthSpendTotalFor(householdId: string, year: number, month: number, scopeMemberId: string | null): Promise<number> {
   const { data: transactions } = await supabase
     .from("transactions")
     .select("amount, kind, occurred_at, is_shared, owner_member_id")
     .eq("household_id", householdId);
   const now = new Date();
-  const { year, month } = householdYearMonth(now);
   let total = 0;
   for (const t of (transactions ?? []) as Array<{ amount: number; kind: string; occurred_at: string; is_shared: boolean; owner_member_id: string | null }>) {
     const d = parseDay(t.occurred_at);
@@ -852,6 +871,11 @@ async function toolGetMonthSpendTotal(householdId: string, scopeMemberId: string
     total += spendDelta(t, v);
   }
   return round2(total);
+}
+
+async function toolGetMonthSpendTotal(householdId: string, scopeMemberId: string | null): Promise<number> {
+  const { year, month } = householdYearMonth(new Date());
+  return toolGetMonthSpendTotalFor(householdId, year, month, scopeMemberId);
 }
 
 // Every category with a budget set this month that's at or over 90% used --
@@ -879,11 +903,12 @@ async function toolGetBudgetAlerts(householdId: string, scopeMemberId: string | 
 }
 
 async function buildBriefMessage(householdId: string): Promise<string> {
-  const [netWorth, monthSpend, bills, budgetAlerts, pendingResult] = await Promise.all([
+  const [netWorth, monthSpend, bills, budgetAlerts, cashCover, pendingResult] = await Promise.all([
     toolGetNetWorth(householdId, null),
     toolGetMonthSpendTotal(householdId, null),
     toolGetUpcomingBills(householdId, null),
     toolGetBudgetAlerts(householdId, null),
+    toolGetCashCover(householdId),
     supabase.from("intake").select("id", { count: "exact", head: true }).eq("household_id", householdId).eq("status", "pending"),
   ]);
 
@@ -901,9 +926,30 @@ async function buildBriefMessage(householdId: string): Promise<string> {
     lines.push(`Budget watch: ${budgetAlerts.map((a) => `${a.category} ${a.pct}%`).join(", ")}`);
   }
 
+  lines.push(formatCashCoverLine(cashCover));
+
   const pendingCount = pendingResult.count ?? 0;
   lines.push(pendingCount ? `Inbox: ${pendingCount} item${pendingCount === 1 ? "" : "s"} to review.` : "Inbox is clear.");
 
+  return lines.join("\n");
+}
+
+// Fires once, right after a month closes (see runMonthlyBriefCheck), summing
+// up the month that just ended rather than "this month" -- by the time this
+// runs, householdYearMonth(now) already names the new month.
+async function buildMonthlyReviewMessage(householdId: string, year: number, month: number): Promise<string> {
+  const [netWorth, monthSpend, cashCover] = await Promise.all([
+    toolGetNetWorth(householdId, null),
+    toolGetMonthSpendTotalFor(householdId, year, month, null),
+    toolGetCashCover(householdId),
+  ]);
+  const monthLabel = new Date(year, month - 1, 1).toLocaleString("en-US", { month: "long", year: "numeric" });
+  const lines: string[] = [
+    `${monthLabel} in review:`,
+    `Spent: AED ${monthSpend.toLocaleString()}`,
+    `Net worth now: AED ${netWorth.net_worth_aed.toLocaleString()}`,
+    formatCashCoverLine(cashCover),
+  ];
   return lines.join("\n");
 }
 
@@ -1243,6 +1289,149 @@ async function runBudgetAlertCheck(): Promise<{ checked: number; nudged: number 
   return { checked: (budgetRows ?? []).length, nudged };
 }
 
+// Every household with at least one member who has ever linked Telegram --
+// the target list for the checks below, same as how the nudge checks above
+// find who to notify, just at the household level instead of per-item.
+async function householdsWithLinkedTelegram(): Promise<string[]> {
+  const { data } = await supabase.from("household_members").select("household_id").not("telegram_user_id", "is", null);
+  return [...new Set((data ?? []).map((m: { household_id: string }) => m.household_id))];
+}
+
+async function telegramRecipients(householdId: string): Promise<number[]> {
+  const { data } = await supabase.from("household_members").select("telegram_user_id").eq("household_id", householdId).not("telegram_user_id", "is", null);
+  return (data ?? []).map((m: { telegram_user_id: number }) => m.telegram_user_id);
+}
+
+// The Monday of the week a given calendar day falls in, as the same
+// 'YYYY-MM-DD' shape used everywhere else in this file -- the dedupe key for
+// the weekly brief and the cash-cover nudge, so either firing twice in the
+// same week (a cron retry, a slow first run) is a no-op the second time.
+function mondayOfWeek(dateStr: string): string {
+  const d = parseDay(dateStr);
+  const day = d.getDay(); // 0 = Sunday .. 6 = Saturday
+  d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
+  return d.toISOString().slice(0, 10);
+}
+
+// Runs daily alongside the other checks (see the ?run_recurring_check=1
+// handler below) but only actually sends on a Monday -- the brief itself is
+// weekly, the check for whether to send it doesn't need its own schedule.
+// brief_sends dedupes per (household, 'weekly', that Monday's date) so a
+// retry the same day is a no-op.
+async function runWeeklyBriefCheck(): Promise<{ sent: number }> {
+  const today = householdToday();
+  if (parseDay(today).getDay() !== 1) return { sent: 0 };
+
+  let sent = 0;
+  for (const householdId of await householdsWithLinkedTelegram()) {
+    try {
+      const periodKey = mondayOfWeek(today);
+      const { data: alreadySent } = await supabase
+        .from("brief_sends")
+        .select("household_id")
+        .eq("household_id", householdId)
+        .eq("kind", "weekly")
+        .eq("period_key", periodKey)
+        .maybeSingle();
+      if (alreadySent) continue;
+
+      const recipients = await telegramRecipients(householdId);
+      if (!recipients.length) continue;
+
+      const brief = await buildBriefMessage(householdId);
+      for (const chatId of recipients) await reply(chatId, `This week:\n${brief}`);
+      await supabase.from("brief_sends").insert({ household_id: householdId, kind: "weekly", period_key: periodKey });
+      sent++;
+    } catch {
+      // One household's brief failing must never block the rest.
+    }
+  }
+  return { sent };
+}
+
+// Same pattern as the weekly check, but fires on the 1st of the month and
+// summarises the month that just ended (see buildMonthlyReviewMessage) --
+// by the time this runs, "this month" already names the new one.
+async function runMonthlyBriefCheck(): Promise<{ sent: number }> {
+  const today = householdToday();
+  if (parseDay(today).getDate() !== 1) return { sent: 0 };
+
+  // today is already a resolved 'YYYY-MM-DD' calendar day (see day.js) --
+  // read year/month straight out of it rather than round-tripping back
+  // through a Date and a second timezone-aware format.
+  const [yearStr, monthStr] = today.split("-");
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+  const prevYear = month === 1 ? year - 1 : year;
+  const prevMonth = month === 1 ? 12 : month - 1;
+  const periodKey = `${prevYear}-${String(prevMonth).padStart(2, "0")}`;
+
+  let sent = 0;
+  for (const householdId of await householdsWithLinkedTelegram()) {
+    try {
+      const { data: alreadySent } = await supabase
+        .from("brief_sends")
+        .select("household_id")
+        .eq("household_id", householdId)
+        .eq("kind", "monthly")
+        .eq("period_key", periodKey)
+        .maybeSingle();
+      if (alreadySent) continue;
+
+      const recipients = await telegramRecipients(householdId);
+      if (!recipients.length) continue;
+
+      const review = await buildMonthlyReviewMessage(householdId, prevYear, prevMonth);
+      for (const chatId of recipients) await reply(chatId, review);
+      await supabase.from("brief_sends").insert({ household_id: householdId, kind: "monthly", period_key: periodKey });
+      sent++;
+    } catch {
+      // One household's review failing must never block the rest.
+    }
+  }
+  return { sent };
+}
+
+// Runs daily (unlike the weekly/monthly briefs above) since a shortfall is
+// urgent, not a status update -- but only actually nudges once per week
+// while it persists. cash_cover_nudges dedupes per (household, that week's
+// Monday) so a household that's short all week hears about it once, not
+// every morning; if the shortfall clears and later reopens the same week,
+// it still stays quiet until the following Monday -- same tradeoff the
+// budget-threshold nudge makes for a threshold that stays crossed.
+async function runCashCoverCheck(): Promise<{ checked: number; nudged: number }> {
+  const today = householdToday();
+  const periodKey = mondayOfWeek(today);
+
+  let nudged = 0;
+  const households = await householdsWithLinkedTelegram();
+  for (const householdId of households) {
+    try {
+      const status = await toolGetCashCover(householdId);
+      if (status.covered) continue;
+
+      const { data: alreadySent } = await supabase
+        .from("cash_cover_nudges")
+        .select("household_id")
+        .eq("household_id", householdId)
+        .eq("period_key", periodKey)
+        .maybeSingle();
+      if (alreadySent) continue;
+
+      const recipients = await telegramRecipients(householdId);
+      if (!recipients.length) continue;
+
+      const message = `${formatCashCoverLine(status)} Might be worth checking before those bills land.`;
+      for (const chatId of recipients) await reply(chatId, message);
+      await supabase.from("cash_cover_nudges").insert({ household_id: householdId, period_key: periodKey });
+      nudged++;
+    } catch {
+      // One household's cash-cover check failing must never block the rest.
+    }
+  }
+  return { checked: households.length, nudged };
+}
+
 Deno.serve(async (req) => {
   const url = new URL(req.url);
 
@@ -1277,14 +1466,26 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
   }
 
-  // Daily proactive-reminder check, triggered by pg_cron. Covers three
+  // Daily proactive-reminder check, triggered by pg_cron. Covers six
   // independent things in one run: missed recurring bills, credit-card due
-  // dates, and budget thresholds -- kept under the same query param the
-  // existing pg_cron job already calls, rather than adding new jobs for
-  // each.
+  // dates, budget thresholds, a weekly brief (Mondays only), a month-end
+  // review (1st of the month only) and a cash-cover warning -- kept under
+  // the same query param the existing pg_cron job already calls, rather
+  // than adding new jobs for each. The weekly/monthly checks no-op on every
+  // day but their own, so running them daily costs nothing.
   if (req.method === "GET" && url.searchParams.get("run_recurring_check") === "1") {
-    const [recurring, creditCards, budgets] = await Promise.all([runRecurringCheck(), runCreditCardCheck(), runBudgetAlertCheck()]);
-    return new Response(JSON.stringify({ recurring, credit_cards: creditCards, budgets }), { headers: { "Content-Type": "application/json" } });
+    const [recurring, creditCards, budgets, weeklyBrief, monthlyBrief, cashCover] = await Promise.all([
+      runRecurringCheck(),
+      runCreditCardCheck(),
+      runBudgetAlertCheck(),
+      runWeeklyBriefCheck(),
+      runMonthlyBriefCheck(),
+      runCashCoverCheck(),
+    ]);
+    return new Response(
+      JSON.stringify({ recurring, credit_cards: creditCards, budgets, weekly_brief: weeklyBrief, monthly_brief: monthlyBrief, cash_cover: cashCover }),
+      { headers: { "Content-Type": "application/json" } }
+    );
   }
 
   let update: Record<string, unknown>;
