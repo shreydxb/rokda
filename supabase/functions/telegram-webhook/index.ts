@@ -992,7 +992,7 @@ async function runRecurringCheck(): Promise<{ checked: number; nudged: number }>
 
   const { data: dueRows } = await supabase
     .from("recurring")
-    .select("id, household_id, name, owner_member_id, is_shared, amount, next_due_date")
+    .select("id, household_id, name, owner_member_id, is_shared, amount, next_due_date, account_id, category_id")
     .eq("active", true)
     .gte("next_due_date", graceStart.toISOString().slice(0, 10))
     .lte("next_due_date", graceEnd.toISOString().slice(0, 10));
@@ -1006,6 +1006,8 @@ async function runRecurringCheck(): Promise<{ checked: number; nudged: number }>
     is_shared: boolean;
     amount: number;
     next_due_date: string;
+    account_id: string | null;
+    category_id: string | null;
   }>) {
     try {
       const { data: alreadySent } = await supabase
@@ -1016,21 +1018,39 @@ async function runRecurringCheck(): Promise<{ checked: number; nudged: number }>
         .maybeSingle();
       if (alreadySent) continue;
 
-      // A "match" is anything roughly the right amount (20% tolerance --
-      // bills like DEWA vary month to month) posted within 5 days either
-      // side of the due date. Merchant text isn't checked: it's too
-      // inconsistent between a bank SMS and a manual entry to be a
-      // reliable signal here, and amount + timing is already a fair bar.
+      // What counts as "this bill was paid".
+      //
+      // Amount and timing alone are not a fair bar, whatever the previous
+      // comment here claimed (QA pass 3, §15). A 20% tolerance on a 6,500
+      // rent matches anything from 5,200 to 7,800, and the window is eleven
+      // days wide, so a single card purchase in that range silently stood in
+      // for the rent -- and the nudge that should have said "I don't see the
+      // rent" never went out. A false match is the expensive direction here:
+      // it suppresses the one message whose entire job is to catch a payment
+      // nobody logged.
+      //
+      // So the structured fields the recurring row already carries have to
+      // agree too. They are ids, not fuzzy text: an exact comparison with no
+      // new ways to be wrong. Merchant text stays out for the reason given
+      // before -- a bank SMS and a hand-typed entry rarely agree.
+      //
+      // Each only applies when the recurring row actually names one. A bill
+      // paid from a different account than configured now nudges, which is
+      // the right way round: an extra "forgot to log it, or paid another
+      // way?" costs a message, a missed one costs a payment.
       const windowStart = new Date(r.next_due_date);
       windowStart.setDate(windowStart.getDate() - 5);
       const windowEnd = new Date(r.next_due_date);
       windowEnd.setDate(windowEnd.getDate() + 5);
-      const { data: nearby } = await supabase
+      let nearbyQuery = supabase
         .from("transactions")
-        .select("id, amount")
+        .select("id, amount, account_id, category_id")
         .eq("household_id", r.household_id)
         .gte("occurred_at", windowStart.toISOString().slice(0, 10))
         .lte("occurred_at", windowEnd.toISOString().slice(0, 10));
+      if (r.account_id) nearbyQuery = nearbyQuery.eq("account_id", r.account_id);
+      if (r.category_id) nearbyQuery = nearbyQuery.eq("category_id", r.category_id);
+      const { data: nearby } = await nearbyQuery;
       const amount = Math.abs(Number(r.amount));
       const matched = (nearby ?? []).some((t: { amount: number }) => Math.abs(Math.abs(Number(t.amount)) - amount) <= amount * 0.2);
       if (matched) continue;
