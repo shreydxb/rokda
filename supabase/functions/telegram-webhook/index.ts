@@ -1036,12 +1036,15 @@ async function runRecurringCheck(): Promise<{ checked: number; nudged: number }>
   const graceEnd = new Date(today);
   graceEnd.setDate(graceEnd.getDate() - 3); // give a few days of normal processing time before nudging
 
-  const { data: dueRows } = await supabase
-    .from("recurring")
-    .select("id, household_id, name, owner_member_id, is_shared, amount, next_due_date, account_id, category_id")
-    .eq("active", true)
-    .gte("next_due_date", graceStart.toISOString().slice(0, 10))
-    .lte("next_due_date", graceEnd.toISOString().slice(0, 10));
+  const [{ data: dueRows }, prefs] = await Promise.all([
+    supabase
+      .from("recurring")
+      .select("id, household_id, name, owner_member_id, is_shared, amount, next_due_date, account_id, category_id")
+      .eq("active", true)
+      .gte("next_due_date", graceStart.toISOString().slice(0, 10))
+      .lte("next_due_date", graceEnd.toISOString().slice(0, 10)),
+    telegramPrefsMap(),
+  ]);
 
   let nudged = 0;
   for (const r of (dueRows ?? []) as Array<{
@@ -1055,6 +1058,7 @@ async function runRecurringCheck(): Promise<{ checked: number; nudged: number }>
     account_id: string | null;
     category_id: string | null;
   }>) {
+    if (!prefEnabled(prefs, r.household_id, "recurring_enabled")) continue;
     try {
       const { data: alreadySent } = await supabase
         .from("recurring_nudges")
@@ -1137,12 +1141,15 @@ async function runRecurringCheck(): Promise<{ checked: number; nudged: number }>
 // kind) so the same due date is never re-nagged on the next day's check.
 async function runCreditCardCheck(): Promise<{ checked: number; nudged: number }> {
   const today = new Date();
-  const { data: cards } = await supabase
-    .from("accounts")
-    .select("id, household_id, name, owner_member_id, is_shared, balance, balance_aed, due_day")
-    .eq("type", "credit_card")
-    .is("archived_at", null)
-    .not("due_day", "is", null);
+  const [{ data: cards }, prefs] = await Promise.all([
+    supabase
+      .from("accounts")
+      .select("id, household_id, name, owner_member_id, is_shared, balance, balance_aed, due_day")
+      .eq("type", "credit_card")
+      .is("archived_at", null)
+      .not("due_day", "is", null),
+    telegramPrefsMap(),
+  ]);
 
   let nudged = 0;
   for (const a of (cards ?? []) as Array<{
@@ -1155,6 +1162,7 @@ async function runCreditCardCheck(): Promise<{ checked: number; nudged: number }
     balance_aed: number | null;
     due_day: number;
   }>) {
+    if (!prefEnabled(prefs, a.household_id, "credit_card_enabled")) continue;
     const bal = Number(a.balance_aed ?? a.balance);
     if (bal <= 0) continue; // nothing owed, nothing to nag about
 
@@ -1302,6 +1310,25 @@ async function telegramRecipients(householdId: string): Promise<number[]> {
   return (data ?? []).map((m: { telegram_user_id: number }) => m.telegram_user_id);
 }
 
+type TelegramPrefRow = { household_id: string; recurring_enabled: boolean; credit_card_enabled: boolean; cash_cover_enabled: boolean; brief_enabled: boolean };
+type TelegramPrefKey = "recurring_enabled" | "credit_card_enabled" | "cash_cover_enabled" | "brief_enabled";
+
+// Fetched once per check run (the table has one row per household, so this
+// is cheap) rather than once per item/household inside a loop.
+async function telegramPrefsMap(): Promise<Map<string, TelegramPrefRow>> {
+  const { data } = await supabase.from("telegram_notification_prefs").select("*");
+  const map = new Map<string, TelegramPrefRow>();
+  for (const row of (data ?? []) as TelegramPrefRow[]) map.set(row.household_id, row);
+  return map;
+}
+
+// No row for a household means every signal is on -- see this table's own
+// migration comment for why (additive: nothing changes for a household that
+// never visits the new Telegram settings tab).
+function prefEnabled(prefs: Map<string, TelegramPrefRow>, householdId: string, key: TelegramPrefKey): boolean {
+  return prefs.get(householdId)?.[key] ?? true;
+}
+
 // The Monday of the week a given calendar day falls in, as the same
 // 'YYYY-MM-DD' shape used everywhere else in this file -- the dedupe key for
 // the weekly brief and the cash-cover nudge, so either firing twice in the
@@ -1323,7 +1350,9 @@ async function runWeeklyBriefCheck(): Promise<{ sent: number }> {
   if (parseDay(today).getDay() !== 1) return { sent: 0 };
 
   let sent = 0;
+  const prefs = await telegramPrefsMap();
   for (const householdId of await householdsWithLinkedTelegram()) {
+    if (!prefEnabled(prefs, householdId, "brief_enabled")) continue;
     try {
       const periodKey = mondayOfWeek(today);
       const { data: alreadySent } = await supabase
@@ -1367,7 +1396,9 @@ async function runMonthlyBriefCheck(): Promise<{ sent: number }> {
   const periodKey = `${prevYear}-${String(prevMonth).padStart(2, "0")}`;
 
   let sent = 0;
+  const prefs = await telegramPrefsMap();
   for (const householdId of await householdsWithLinkedTelegram()) {
+    if (!prefEnabled(prefs, householdId, "brief_enabled")) continue;
     try {
       const { data: alreadySent } = await supabase
         .from("brief_sends")
@@ -1405,7 +1436,9 @@ async function runCashCoverCheck(): Promise<{ checked: number; nudged: number }>
 
   let nudged = 0;
   const households = await householdsWithLinkedTelegram();
+  const prefs = await telegramPrefsMap();
   for (const householdId of households) {
+    if (!prefEnabled(prefs, householdId, "cash_cover_enabled")) continue;
     try {
       const status = await toolGetCashCover(householdId);
       if (status.covered) continue;

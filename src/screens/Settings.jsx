@@ -3,12 +3,14 @@ import { useHousehold } from '../lib/useHousehold';
 import { useOverviewData } from './useOverviewData';
 import Household from './settings/Household';
 import CategoriesRules from './settings/CategoriesRules';
+import Telegram from './settings/Telegram';
 import LoadFailure from './LoadFailure';
 import './Settings.css';
 
 const TABS = [
   { id: 'household', label: 'Household' },
   { id: 'categories', label: 'Categories & rules' },
+  { id: 'telegram', label: 'Telegram' },
 ];
 
 export default function Settings() {
@@ -39,6 +41,7 @@ export default function Settings() {
         <Household household={household} members={members} me={me} loading={loading} reload={reloadHousehold} />
       )}
       {tab === 'categories' && <CategoriesRules household={household} data={data} loading={loading} />}
+      {tab === 'telegram' && <Telegram household={household} loading={loading} />}
     </div>
   );
 }
