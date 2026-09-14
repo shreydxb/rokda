@@ -209,3 +209,28 @@ here stops gating silently, which is the worse of the two failures.
 
 Netlify's checks are deliberately not required: they conclude `neutral`, which
 is not success, and requiring them would block merges.
+
+## Leaked password protection: not available, not forgotten
+
+The security advisor flags `auth_leaked_password_protection` on every run. It
+stays flagged, deliberately.
+
+Supabase's own documentation is explicit: *"Leaked password protection is
+available on the Pro Plan and above."* The `our-money` organisation is on the
+free plan, so the setting is not switched off — it does not exist to switch.
+Looking for it in the dashboard and failing to find it is the expected outcome,
+and worth writing down so the next person does not go hunting again.
+
+What it would buy is rejection of passwords known to appear in breach corpora,
+via HaveIBeenPwned. This project has exactly one login. A password manager
+produces the same outcome for that one account at no cost, which is why the
+plan is not being upgraded for this alone.
+
+What IS available on the free plan, on the same settings page
+(Authentication → Sign In / Providers → Email), and worth setting:
+
+- a minimum password length above the 8-character default;
+- required character classes — digits, lower and uppercase, symbols.
+
+Revisit if the household ever grows past people who can be told to use a
+password manager, or if the project moves to Pro for another reason.
