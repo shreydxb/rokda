@@ -44,8 +44,24 @@ describe('QA-03: Forecast net-worth basis', () => {
     expect(startingNetWorth([], [HOLDING])).toBe(20_000);
   });
 
-  it('works from accounts alone', () => {
-    expect(startingNetWorth([ACCOUNT], [])).toBe(50_000);
+  it('works from accounts alone, once a balance has been confirmed', () => {
+    expect(startingNetWorth([{ ...ACCOUNT, balance_as_of: '2026-09-01T00:00:00Z' }], [])).toBe(50_000);
+  });
+
+  it('refuses to start from a balance nobody has confirmed', () => {
+    // QA pass 3, O4. docs/decisions.md: an unconfirmed balance is UNKNOWN, not
+    // zero -- so projecting thirty years off it is projecting off a number the
+    // app invented, which is the thing startingNetWorth exists to refuse.
+    // The household is told to confirm the balance instead; the attention list
+    // already asks for exactly that.
+    expect(startingNetWorth([ACCOUNT], [])).toBeNull();
+  });
+
+  it('accepts a fixed deposit without one, because its balance is derived', () => {
+    // Nothing for a human to confirm: the trigger computes it and fd-accrual
+    // keeps it current. Refusing here would be waiting on the impossible.
+    const fd = { id: 'fd1', type: 'fd', principal: 10_000, interest_rate_pct: 6, balance: 10_600, balance_as_of: null, is_shared: true, archived_at: null };
+    expect(startingNetWorth([fd], [])).toBe(10_600);
   });
 
   it('reports "nothing to start from" as null, not a confident zero', () => {

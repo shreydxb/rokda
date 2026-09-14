@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { dataQuality, buildChartColumns, periodSummary, runwaySummary } from './overviewMath';
+import { dataQuality, buildChartColumns, liquidAssets, netWorthSummary, periodSummary, runwaySummary } from './overviewMath';
 import { closedMonths, forecastInputs } from '../lib/forecast';
 import { signedAmount } from '../lib/intake';
 
@@ -187,5 +187,42 @@ describe('QA-06: planned versus posted', () => {
     const current = columns[columns.length - 1];
     expect(current.spend).toBe(0);
     expect(current.hasData).toBe(false);
+  });
+});
+
+// QA pass 3, O3: `balance_aed ?? balance` treated a missing conversion as if
+// the native amount were already dirhams.
+describe('O3: an unconverted foreign balance is unknown, not AED', () => {
+  const aed = { id: 'a', type: 'savings', currency: 'AED', balance: 100, balance_aed: null, is_shared: true, archived_at: null };
+  const inr = { id: 'b', type: 'savings', currency: 'INR', balance: 10_000, balance_aed: null, is_shared: true, archived_at: null };
+  const inrConverted = { ...inr, balance_aed: 425 };
+
+  it('does not count 10,000 rupees as 10,000 dirhams', () => {
+    // The old fallback returned 10,100 here: a hundred dirhams of savings
+    // reported as ten thousand, from a column that was simply null.
+    const summary = netWorthSummary([aed, inr], null, []);
+    expect(summary.netWorth).toBe(100);
+    expect(summary.unvalued).toBe(1);
+  });
+
+  it('counts it once it has been converted', () => {
+    const summary = netWorthSummary([aed, inrConverted], null, []);
+    expect(summary.netWorth).toBe(525);
+    expect(summary.unvalued).toBe(0);
+  });
+
+  it('still treats an AED account with no conversion as its own balance', () => {
+    // Nothing to convert, so nothing is unknown.
+    expect(netWorthSummary([aed], null, []).netWorth).toBe(100);
+    expect(netWorthSummary([aed], null, []).unvalued).toBe(0);
+  });
+
+  it('keeps an unknown value out of liquid assets rather than inventing one', () => {
+    expect(liquidAssets([aed, inr], null)).toBe(100);
+  });
+
+  it('reports how many accounts it could not value, so a total can say it is partial', () => {
+    expect(netWorthSummary([inr], null, []).unvalued).toBe(1);
+    expect(netWorthSummary([inr], null, []).netWorth).toBe(0);
   });
 });

@@ -6,31 +6,15 @@
 // an account nobody has valued reads as a confirmed zero — "Nothing owed" on a
 // card with recorded spending. An unconfirmed balance is unknown, and says so.
 
+import { isDerivedBalance, isBalanceConfirmed } from './accounts';
+
 export const BALANCE_STALE_DAYS = 45;
 
-// A fixed deposit's balance is not a human assertion and never will be. The
-// database computes it from principal, rate and dates
-// (compute_account_derived_fields), and the daily fd-accrual job touches every
-// active FD so that trigger recomputes it against today. There is nothing for
-// anyone to confirm (QA pass 3, O4).
-//
-// Waiting for a confirmation that cannot arrive is what made one deposit count
-// two ways on a single screen: netWorthSummary() includes balance_aed in the
-// total, while NetWorth's composition bar contributed zero for anything
-// "unset" -- so the bar's shares did not add up to the total printed above
-// them. The attention list then asked for the impossible, and did it while
-// stating something false: "net worth treats it as zero until someone
-// confirms what it actually is", when net worth was already counting it.
-//
-// An FD without the inputs to compute from is not derived, and falls back to
-// the ordinary rules.
-export function isDerivedBalance(account) {
-  return account?.type === 'fd' && account?.principal != null && account?.interest_rate_pct != null;
-}
-
-export function isBalanceConfirmed(account) {
-  return isDerivedBalance(account) || account?.balance_as_of != null;
-}
+// isDerivedBalance/isBalanceConfirmed moved to accounts.js so that
+// overviewMath.js -- which is mirrored into _shared/applib, where balance.js
+// does not exist -- can apply the same rule instead of restating it. Re-exported
+// here because this is where the rest of the app expects to find them.
+export { isDerivedBalance, isBalanceConfirmed } from './accounts';
 
 export function daysSinceBalanceConfirmed(account, now = new Date()) {
   // Keyed off the stamp itself, not off isBalanceConfirmed: a derived balance
