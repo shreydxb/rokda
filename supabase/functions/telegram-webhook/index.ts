@@ -33,7 +33,7 @@ import { netWorthSummary } from "../_shared/applib/overviewMath.js";
 import { monthActualsByCategory } from "../_shared/applib/budget.js";
 import { nextDueDate, daysUntilDue } from "../_shared/applib/creditCard.js";
 import { upcomingItems } from "../_shared/applib/recurring.js";
-import { isPosted, parseDay, atDayOfMonth, startOfDay } from "../_shared/applib/day.js";
+import { isPosted, parseDay, atDayOfMonth, startOfDay, householdToday, householdYearMonth } from "../_shared/applib/day.js";
 import { isSpendRow, spendDelta } from "../_shared/applib/transactionKind.js";
 import { visibleHoldings, scopedHoldingValue, holdingGain, allocationByClass, portfolioGain } from "../_shared/applib/holdings.js";
 
@@ -139,7 +139,11 @@ async function parseIntakeWithAI(params: {
   const { rawText, imageBase64, imageMime, categoryNames } = params;
   if (!rawText && !imageBase64) return null;
 
-  const today = new Date().toISOString().slice(0, 10);
+  // Dubai, not UTC. This is the date the parser dates an expense to, so
+  // deriving it from a UTC runtime filed everything logged between
+  // midnight and 04:00 Dubai under the previous day -- in the ledger,
+  // permanently, with nothing downstream to notice.
+  const today = householdToday();
   const instructions =
     `Extract ALL household expenses/income described in the message and/or receipt photo below. Most messages describe exactly one, but some describe several separate amounts (e.g. "bought two plants for 260 and 50" is TWO expenses -- never sum multiple amounts into one, and never drop any of them). ` +
     `The message may be free-form text, or a bank/card SMS notification copy-pasted verbatim (e.g. "AED 38.80 spent on your card ending 1234 at FILLI CAFE LLC DXB on 05-09-26 14:32") -- extract from either the same way; a bank SMS almost always describes exactly one. ` +
@@ -606,8 +610,7 @@ function categorySpendForPeriod(
   scopeMemberId: string | null,
   now: Date
 ): number {
-  const year = now.getFullYear();
-  const month = now.getMonth() + 1;
+  const { year, month } = householdYearMonth(now);
   if (period === "last_month") {
     const ly = month === 1 ? year - 1 : year;
     const lm = month === 1 ? 12 : month - 1;
@@ -708,8 +711,7 @@ async function toolGetBudgetStatus(householdId: string, scopeMemberId: string | 
   if (!cat) return { error: "category_not_found", available: (categories ?? []).map((c) => c.name) };
 
   const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth() + 1;
+  const { year, month } = householdYearMonth(now);
   const [{ data: budgetRow }, { data: transactions }] = await Promise.all([
     supabase.from("budgets").select("amount").eq("household_id", householdId).eq("category_id", cat.id).eq("year", year).eq("month", month).maybeSingle(),
     supabase.from("transactions").select("amount, kind, occurred_at, category_id, is_shared, owner_member_id").eq("household_id", householdId).eq("category_id", cat.id),
@@ -838,8 +840,7 @@ async function toolGetMonthSpendTotal(householdId: string, scopeMemberId: string
     .select("amount, kind, occurred_at, is_shared, owner_member_id")
     .eq("household_id", householdId);
   const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth() + 1;
+  const { year, month } = householdYearMonth(now);
   let total = 0;
   for (const t of (transactions ?? []) as Array<{ amount: number; kind: string; occurred_at: string; is_shared: boolean; owner_member_id: string | null }>) {
     const d = parseDay(t.occurred_at);
@@ -857,8 +858,7 @@ async function toolGetMonthSpendTotal(householdId: string, scopeMemberId: string
 // the same threshold the frontend budget bars treat as "watch this".
 async function toolGetBudgetAlerts(householdId: string, scopeMemberId: string | null): Promise<Array<{ category: string; pct: number }>> {
   const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth() + 1;
+  const { year, month } = householdYearMonth(now);
   const [{ data: budgetRows }, { data: categories }, { data: transactions }] = await Promise.all([
     supabase.from("budgets").select("category_id, amount").eq("household_id", householdId).eq("year", year).eq("month", month),
     supabase.from("categories").select("id, name").eq("household_id", householdId),
@@ -1161,8 +1161,7 @@ const BUDGET_THRESHOLDS = [100, 90, 80];
 // threshold crossed the same month still gets its own alert.
 async function runBudgetAlertCheck(): Promise<{ checked: number; nudged: number }> {
   const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth() + 1;
+  const { year, month } = householdYearMonth(now);
 
   const { data: budgetRows } = await supabase
     .from("budgets")

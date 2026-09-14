@@ -86,3 +86,38 @@ export function addMonthsClamped(anchor, months) {
   const a = anchor instanceof Date ? anchor : parseDay(anchor);
   return atDayOfMonth(a.getFullYear(), a.getMonth() + months, a.getDate());
 }
+
+// The household's calendar day, wherever this code happens to run.
+//
+// Everything above reads a STORED date as a local calendar day, which is right
+// in the browser: the household is in Dubai and so is the browser. It is wrong
+// in an Edge Function. Deno runs in UTC, four hours behind Dubai, so deriving
+// "today" from `new Date()` there names the previous day from 00:00 to 04:00
+// Dubai every night -- and a Telegram expense logged at 1am was dated
+// yesterday, in the ledger, permanently.
+//
+// So a calendar day derived from an INSTANT has to name its zone rather than
+// trust whichever runtime it is in. Reading a stored `date` string still needs
+// no zone at all: it is already a calendar day.
+export const HOUSEHOLD_TIME_ZONE = 'Asia/Dubai';
+
+// formatToParts rather than a locale that happens to render ISO order: the
+// output goes straight into a Postgres `date`, so the format is load-bearing
+// and should not depend on a locale's formatting conventions.
+export function householdToday(now = new Date(), timeZone = HOUSEHOLD_TIME_ZONE) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now);
+  const part = (type) => parts.find((p) => p.type === type).value;
+  return `${part('year')}-${part('month')}-${part('day')}`;
+}
+
+// The month a household is currently in, for "this month" totals. Same reason:
+// at 00:30 Dubai on the 1st, UTC is still the previous month.
+export function householdYearMonth(now = new Date(), timeZone = HOUSEHOLD_TIME_ZONE) {
+  const [year, month] = householdToday(now, timeZone).split('-');
+  return { year: Number(year), month: Number(month) };
+}
