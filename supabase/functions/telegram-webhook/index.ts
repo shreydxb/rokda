@@ -37,6 +37,7 @@ import { isPosted, parseDay, atDayOfMonth, startOfDay, householdToday, household
 import { isSpendRow, spendDelta } from "../_shared/applib/transactionKind.js";
 import { visibleHoldings, scopedHoldingValue, holdingGain, allocationByClass, portfolioGain } from "../_shared/applib/holdings.js";
 import { cashCoverStatus } from "../_shared/applib/cashCover.js";
+import { notableMoves } from "../_shared/applib/insights.js";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -1367,8 +1368,15 @@ async function telegramRecipients(householdId: string): Promise<number[]> {
   return (data ?? []).map((m: { telegram_user_id: number }) => m.telegram_user_id);
 }
 
-type TelegramPrefRow = { household_id: string; recurring_enabled: boolean; credit_card_enabled: boolean; cash_cover_enabled: boolean; brief_enabled: boolean };
-type TelegramPrefKey = "recurring_enabled" | "credit_card_enabled" | "cash_cover_enabled" | "brief_enabled";
+type TelegramPrefRow = {
+  household_id: string;
+  recurring_enabled: boolean;
+  credit_card_enabled: boolean;
+  cash_cover_enabled: boolean;
+  brief_enabled: boolean;
+  unusual_spend_enabled: boolean;
+};
+type TelegramPrefKey = "recurring_enabled" | "credit_card_enabled" | "cash_cover_enabled" | "brief_enabled" | "unusual_spend_enabled";
 
 // Fetched once per check run (the table has one row per household, so this
 // is cheap) rather than once per item/household inside a loop.
@@ -1522,6 +1530,73 @@ async function runCashCoverCheck(): Promise<{ checked: number; nudged: number }>
   return { checked: households.length, nudged };
 }
 
+// A far more conservative bar than the web Insights screen's own
+// "notable move" default (20% off average + AED 50) -- that screen is
+// something a member glances at, this is a push notification, and a
+// too-sensitive nudge trains the household to ignore it, which defeats
+// the point (SHR-283). minPct: 2 means the category has to be running at
+// least 3x its trailing average (avg + 2*avg); minAbsolute keeps a
+// low-average category (a few AED) from being flagged by a single
+// otherwise-ordinary purchase.
+const UNUSUAL_SPEND_MIN_PCT = 2;
+const UNUSUAL_SPEND_MIN_ABSOLUTE = 300;
+
+// Runs daily alongside the other checks. Reuses the same trailing-average
+// math the web Insights screen shows informationally (notableMoves), just
+// with the much stricter bar above. unusual_spend_nudges dedupes per
+// (household, category, month) -- flagged once, not re-nagged every day
+// even if the category keeps climbing further past the bar.
+async function runUnusualSpendCheck(): Promise<{ checked: number; nudged: number }> {
+  const now = new Date();
+  const { year, month } = householdYearMonth(now);
+  const households = await householdsWithLinkedTelegram();
+  const prefs = await telegramPrefsMap();
+
+  let nudged = 0;
+  for (const householdId of households) {
+    if (!prefEnabled(prefs, householdId, "unusual_spend_enabled")) continue;
+    try {
+      const [{ data: transactions }, { data: categories }] = await Promise.all([
+        supabase.from("transactions").select("amount, kind, occurred_at, category_id, is_shared, owner_member_id").eq("household_id", householdId),
+        supabase.from("categories").select("id, name").eq("household_id", householdId),
+      ]);
+      const catById = new Map((categories ?? []).map((c: { id: string; name: string }) => [c.id, c]));
+
+      const moves = notableMoves((transactions ?? []) as never, year, month, null, catById, now, {
+        minPct: UNUSUAL_SPEND_MIN_PCT,
+        minAbsolute: UNUSUAL_SPEND_MIN_ABSOLUTE,
+      });
+      if (!moves.length) continue;
+
+      const recipients = await telegramRecipients(householdId);
+      if (!recipients.length) continue;
+
+      for (const move of moves as Array<{ categoryId: string; categoryName: string; actual: number; avg: number; evidence: Array<{ merchant: string; amount: number }> }>) {
+        const { data: alreadySent } = await supabase
+          .from("unusual_spend_nudges")
+          .select("household_id")
+          .eq("household_id", householdId)
+          .eq("category_id", move.categoryId)
+          .eq("year", year)
+          .eq("month", month)
+          .maybeSingle();
+        if (alreadySent) continue;
+
+        const biggest = move.evidence[0];
+        const evidenceNote = biggest ? ` The biggest single hit was AED ${biggest.amount.toFixed(2)} at ${biggest.merchant}.` : "";
+        const message = `Unusual spend: ${move.categoryName} is at AED ${move.actual.toFixed(2)} this month, well above its usual AED ${move.avg.toFixed(2)}.${evidenceNote}`;
+        for (const chatId of recipients) await reply(chatId, message);
+
+        await supabase.from("unusual_spend_nudges").insert({ household_id: householdId, category_id: move.categoryId, year, month });
+        nudged++;
+      }
+    } catch {
+      // One household's unusual-spend check failing must never block the rest.
+    }
+  }
+  return { checked: households.length, nudged };
+}
+
 Deno.serve(async (req) => {
   const url = new URL(req.url);
 
@@ -1564,16 +1639,25 @@ Deno.serve(async (req) => {
   // than adding new jobs for each. The weekly/monthly checks no-op on every
   // day but their own, so running them daily costs nothing.
   if (req.method === "GET" && url.searchParams.get("run_recurring_check") === "1") {
-    const [recurring, creditCards, budgets, weeklyBrief, monthlyBrief, cashCover] = await Promise.all([
+    const [recurring, creditCards, budgets, weeklyBrief, monthlyBrief, cashCover, unusualSpend] = await Promise.all([
       runRecurringCheck(),
       runCreditCardCheck(),
       runBudgetAlertCheck(),
       runWeeklyBriefCheck(),
       runMonthlyBriefCheck(),
       runCashCoverCheck(),
+      runUnusualSpendCheck(),
     ]);
     return new Response(
-      JSON.stringify({ recurring, credit_cards: creditCards, budgets, weekly_brief: weeklyBrief, monthly_brief: monthlyBrief, cash_cover: cashCover }),
+      JSON.stringify({
+        recurring,
+        credit_cards: creditCards,
+        budgets,
+        weekly_brief: weeklyBrief,
+        monthly_brief: monthlyBrief,
+        cash_cover: cashCover,
+        unusual_spend: unusualSpend,
+      }),
       { headers: { "Content-Type": "application/json" } }
     );
   }
