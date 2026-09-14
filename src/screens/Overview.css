@@ -574,7 +574,14 @@
   }
   .ov-split,
   .ov-triple {
-    grid-template-columns: 1fr;
+    /* minmax(0, 1fr), not 1fr. Bare `1fr` means minmax(auto, 1fr), and that
+       `auto` floor is the item's min-content width -- so the column refuses to
+       shrink below whatever its widest unbreakable content happens to be. The
+       desktop rules above use minmax(0, ...) for exactly this reason; dropping
+       it here put it back. Measured at 390px before the fix: the grid was
+       350px wide and its single column resolved to 496px, so the whole page
+       scrolled sideways on a phone. */
+    grid-template-columns: minmax(0, 1fr);
     gap: 30px;
   }
 }

@@ -27,12 +27,20 @@ async function gotoReady(page, path) {
   // actually matters instead: the shell, then the route's own content.
   await page.goto(path, { waitUntil: 'domcontentloaded' });
   await expect(page.locator('.om-main')).toBeVisible();
-  await page
-    .waitForFunction(() => {
-      const main = document.querySelector('.om-main');
-      return main && !main.querySelector('.ov-skel') && main.innerText.trim().length > 20;
-    }, null, { timeout: 15_000 })
-    .catch(() => {});
+
+  // Assert readiness rather than best-effort waiting for it. The first version
+  // swallowed the timeout and let the test assert on whatever was on screen,
+  // so a route that was merely slow reported as "rendered a blank screen" --
+  // a fake finding, and the worst kind, because it accuses the app of a bug
+  // the harness invented. expect.poll retries and then fails saying what it
+  // actually saw.
+  await expect
+    .poll(async () => (await page.locator('.om-main').innerText()).trim().length, {
+      timeout: 15_000,
+      message: `${path} never rendered content`,
+    })
+    .toBeGreaterThan(20);
+  await expect(page.locator('.om-main .ov-skel')).toHaveCount(0);
 }
 
 // Anything wider than the viewport means a sideways scrollbar on a phone,
