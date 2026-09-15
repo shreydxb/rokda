@@ -18,6 +18,106 @@ const SIGNALS = [
   { key: 'unusual_spend_enabled', label: 'Unusual spend', note: "Nudge once when a category runs well past its usual trailing average -- a deliberately high bar to avoid false alarms" },
 ];
 
+const STATS_WINDOW_DAYS = 30;
+
+// SHR-288: household-scoped visibility into the bot's own LLM calls (which
+// classify_and_route/parse_intake/phrase_answer, model, tokens, latency,
+// success/failure) -- never the prompt/response content itself, which isn't
+// stored anywhere (see the telegram_call_log migration for why).
+function TelegramStats({ household }) {
+  const [rows, setRows] = useState(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!household?.id) return;
+    let cancelled = false;
+    const since = new Date();
+    since.setDate(since.getDate() - STATS_WINDOW_DAYS);
+    supabase
+      .from('telegram_call_log')
+      .select('occurred_at, success, total_tokens')
+      .eq('household_id', household.id)
+      .gte('occurred_at', since.toISOString())
+      .then(({ data, error: fetchError }) => {
+        if (cancelled) return;
+        if (fetchError) setError(fetchError.message);
+        else setRows(data ?? []);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [household?.id]);
+
+  if (error) {
+    return (
+      <p className="ov-warn" role="alert" style={{ fontSize: 12.5 }}>
+        {error}
+      </p>
+    );
+  }
+  if (rows === null) return <div className="ov-skel" aria-busy="true" />;
+
+  const total = rows.length;
+  if (total === 0) {
+    return (
+      <p className="ov-muted" style={{ fontSize: 12.5 }}>
+        No Telegram activity recorded in the last {STATS_WINDOW_DAYS} days yet.
+      </p>
+    );
+  }
+
+  const successCount = rows.filter((r) => r.success).length;
+  const successRate = Math.round((successCount / total) * 100);
+  const totalTokens = rows.reduce((sum, r) => sum + (r.total_tokens ?? 0), 0);
+
+  // Grouped by the browser's local calendar day -- this is an operational
+  // activity count, not ledger math, so it doesn't need the household-day
+  // rigor transactions do.
+  const byDay = new Map();
+  for (const r of rows) {
+    const day = new Date(r.occurred_at).toLocaleDateString('en-CA');
+    byDay.set(day, (byDay.get(day) ?? 0) + 1);
+  }
+  const days = [...byDay.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1)).slice(0, 14);
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 24, marginBottom: 14 }}>
+        <div>
+          <div style={{ fontSize: 20, fontWeight: 600 }}>{total}</div>
+          <div className="ov-muted" style={{ fontSize: 12 }}>
+            Calls
+          </div>
+        </div>
+        <div>
+          <div style={{ fontSize: 20, fontWeight: 600 }}>{successRate}%</div>
+          <div className="ov-muted" style={{ fontSize: 12 }}>
+            Success rate
+          </div>
+        </div>
+        <div>
+          <div style={{ fontSize: 20, fontWeight: 600 }}>{totalTokens.toLocaleString()}</div>
+          <div className="ov-muted" style={{ fontSize: 12 }}>
+            Tokens used
+          </div>
+        </div>
+      </div>
+      <table style={{ width: '100%', fontSize: 12.5, borderCollapse: 'collapse' }}>
+        <tbody>
+          {days.map(([day, count]) => (
+            <tr key={day}>
+              <td className="ov-muted" style={{ padding: '2px 0' }}>
+                {day}
+              </td>
+              <td style={{ textAlign: 'right', padding: '2px 0' }}>{count}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function Telegram({ household, loading }) {
   const [prefs, setPrefs] = useState(DEFAULTS);
   const [prefsLoading, setPrefsLoading] = useState(true);
@@ -99,6 +199,11 @@ export default function Telegram({ household, loading }) {
           {error}
         </p>
       )}
+
+      <h3 style={{ fontSize: 13, margin: '28px 0 10px', textTransform: 'uppercase', letterSpacing: 0.4 }} className="ov-muted">
+        Activity, last {STATS_WINDOW_DAYS} days
+      </h3>
+      <TelegramStats household={household} />
     </div>
   );
 }
