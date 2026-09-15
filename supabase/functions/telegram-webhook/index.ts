@@ -61,6 +61,42 @@ async function reply(chatId: number, text: string) {
   await tgCall("sendMessage", { chat_id: chatId, text });
 }
 
+type TelegramCallKind = "classify_and_route" | "parse_intake" | "phrase_answer";
+
+// SHR-288: metadata about every OpenRouter call this bot makes -- model,
+// token counts, latency, success/failure -- so volume and reliability can be
+// seen without keeping the actual prompt/response content (which is the
+// household's raw financial messages, and deliberately not duplicated here).
+// Best-effort: a logging failure must never break the Telegram reply it's
+// describing.
+async function logTelegramCall(entry: {
+  callKind: TelegramCallKind;
+  householdId: string | null;
+  memberId: string | null;
+  model: string | null;
+  latencyMs: number;
+  success: boolean;
+  usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null;
+  errorType?: string | null;
+}): Promise<void> {
+  try {
+    await supabase.from("telegram_call_log").insert({
+      household_id: entry.householdId,
+      member_id: entry.memberId,
+      call_kind: entry.callKind,
+      model: entry.model,
+      prompt_tokens: entry.usage?.prompt_tokens ?? null,
+      completion_tokens: entry.usage?.completion_tokens ?? null,
+      total_tokens: entry.usage?.total_tokens ?? null,
+      latency_ms: entry.latencyMs,
+      success: entry.success,
+      error_type: entry.errorType ?? null,
+    });
+  } catch {
+    // Never let logging itself break the actual Telegram flow.
+  }
+}
+
 // The shared secret every request to this function must present (see the
 // check at the top of Deno.serve). Lives in Supabase Vault, not an
 // environment variable -- read via a narrowly-scoped RPC only the
@@ -145,9 +181,11 @@ async function parseIntakeWithAI(params: {
   imageBase64: string | null;
   imageMime: string | null;
   categoryNames: string[];
+  householdId?: string | null;
+  memberId?: string | null;
 }): Promise<ParsedItem[] | null> {
   if (!OPENROUTER_API_KEY) return null;
-  const { rawText, imageBase64, imageMime, categoryNames } = params;
+  const { rawText, imageBase64, imageMime, categoryNames, householdId = null, memberId = null } = params;
   if (!rawText && !imageBase64) return null;
 
   // Dubai, not UTC. This is the date the parser dates an expense to, so
@@ -179,6 +217,7 @@ async function parseIntakeWithAI(params: {
     content.push({ type: "image_url", image_url: { url: `data:${imageMime};base64,${imageBase64}` } });
   }
 
+  const startedAt = Date.now();
   try {
     const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
@@ -192,8 +231,28 @@ async function parseIntakeWithAI(params: {
         response_format: { type: "json_object" },
       }),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      await logTelegramCall({
+        callKind: "parse_intake",
+        householdId,
+        memberId,
+        model: PARSE_MODEL,
+        latencyMs: Date.now() - startedAt,
+        success: false,
+        errorType: `http_${res.status}`,
+      });
+      return null;
+    }
     const body = await res.json();
+    await logTelegramCall({
+      callKind: "parse_intake",
+      householdId,
+      memberId,
+      model: PARSE_MODEL,
+      latencyMs: Date.now() - startedAt,
+      success: true,
+      usage: body?.usage,
+    });
     const raw = body?.choices?.[0]?.message?.content;
     if (typeof raw !== "string") return null;
     const parsedBody = JSON.parse(raw);
@@ -208,6 +267,15 @@ async function parseIntakeWithAI(params: {
 
     return items.length > 0 ? items : null;
   } catch {
+    await logTelegramCall({
+      callKind: "parse_intake",
+      householdId,
+      memberId,
+      model: PARSE_MODEL,
+      latencyMs: Date.now() - startedAt,
+      success: false,
+      errorType: "exception",
+    });
     return null;
   }
 }
@@ -1014,7 +1082,9 @@ async function classifyAndRoute(
   rawText: string,
   categoryNames: string[],
   recentPending: { raw_text: string | null; created_at: string } | null,
-  priorContext: { question: string; answer: string } | null
+  priorContext: { question: string; answer: string } | null,
+  householdId: string | null = null,
+  memberId: string | null = null
 ) {
   const system =
     `You are a household finance assistant for Rokda, chatting with a household member via Telegram. ` +
@@ -1041,25 +1111,68 @@ async function classifyAndRoute(
   }
   messages.push({ role: "user", content: rawText });
 
-  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
+  const startedAt = Date.now();
+  try {
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: PARSE_MODEL,
+        messages,
+        tools: buildTools(recentPending !== null),
+        tool_choice: "auto",
+      }),
+    });
+    if (!res.ok) {
+      await logTelegramCall({
+        callKind: "classify_and_route",
+        householdId,
+        memberId,
+        model: PARSE_MODEL,
+        latencyMs: Date.now() - startedAt,
+        success: false,
+        errorType: `http_${res.status}`,
+      });
+      return null;
+    }
+    const body = await res.json();
+    await logTelegramCall({
+      callKind: "classify_and_route",
+      householdId,
+      memberId,
       model: PARSE_MODEL,
-      messages,
-      tools: buildTools(recentPending !== null),
-      tool_choice: "auto",
-    }),
-  });
-  if (!res.ok) return null;
-  return res.json();
+      latencyMs: Date.now() - startedAt,
+      success: true,
+      usage: body?.usage,
+    });
+    return body;
+  } catch (err) {
+    // Logged, then re-thrown unchanged -- this function's own callers already
+    // wrap it in a try/catch and must keep seeing an exception, not a value.
+    await logTelegramCall({
+      callKind: "classify_and_route",
+      householdId,
+      memberId,
+      model: PARSE_MODEL,
+      latencyMs: Date.now() - startedAt,
+      success: false,
+      errorType: "exception",
+    });
+    throw err;
+  }
 }
 
-async function phraseAnswer(question: string, toolResult: unknown): Promise<string | null> {
+async function phraseAnswer(
+  question: string,
+  toolResult: unknown,
+  householdId: string | null = null,
+  memberId: string | null = null
+): Promise<string | null> {
   const system =
     `Answer the user's question in one or two short sentences using ONLY the JSON data given below -- never state a number that isn't in it. ` +
     `If the data has an "error" field, explain the problem plainly (e.g. list what's in "available") and ask them to rephrase -- do not guess which one they meant. ` +
     `Amounts are AED unless the data says otherwise. Be direct and brief, like a text message, no markdown.`;
+  const startedAt = Date.now();
   try {
     const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
@@ -1072,11 +1185,40 @@ async function phraseAnswer(question: string, toolResult: unknown): Promise<stri
         ],
       }),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      await logTelegramCall({
+        callKind: "phrase_answer",
+        householdId,
+        memberId,
+        model: PARSE_MODEL,
+        latencyMs: Date.now() - startedAt,
+        success: false,
+        errorType: `http_${res.status}`,
+      });
+      return null;
+    }
     const body = await res.json();
+    await logTelegramCall({
+      callKind: "phrase_answer",
+      householdId,
+      memberId,
+      model: PARSE_MODEL,
+      latencyMs: Date.now() - startedAt,
+      success: true,
+      usage: body?.usage,
+    });
     const text = body?.choices?.[0]?.message?.content;
     return typeof text === "string" ? text : null;
   } catch {
+    await logTelegramCall({
+      callKind: "phrase_answer",
+      householdId,
+      memberId,
+      model: PARSE_MODEL,
+      latencyMs: Date.now() - startedAt,
+      success: false,
+      errorType: "exception",
+    });
     return null;
   }
 }
@@ -1801,7 +1943,7 @@ Deno.serve(async (req) => {
           ? { question: member.telegram_last_question as string, answer: member.telegram_last_answer as string }
           : null;
 
-      const routed = await classifyAndRoute(rawText, (categories ?? []).map((c) => c.name), recentPending, priorContext);
+      const routed = await classifyAndRoute(rawText, (categories ?? []).map((c) => c.name), recentPending, priorContext, member.household_id, member.id);
       const choice = routed?.choices?.[0];
       const toolCall = choice?.message?.tool_calls?.[0];
 
@@ -1810,7 +1952,15 @@ Deno.serve(async (req) => {
         // A correction targets the one existing pending row, so only the
         // first extracted item is used even if the model finds more --
         // multi-item corrections aren't supported, same as before.
-        const parsed = (await parseIntakeWithAI({ rawText: combinedText, imageBase64: null, imageMime: null, categoryNames: (categories ?? []).map((c) => c.name) }))?.[0] ?? null;
+        const parsed =
+          (await parseIntakeWithAI({
+            rawText: combinedText,
+            imageBase64: null,
+            imageMime: null,
+            categoryNames: (categories ?? []).map((c) => c.name),
+            householdId: member.household_id,
+            memberId: member.id,
+          }))?.[0] ?? null;
         const matchedCategory = parsed
           ? (await matchCategoryFromMerchantHistory(member.household_id, parsed.merchant)) ??
             (parsed.categoryName ? (categories ?? []).find((c) => c.name.toLowerCase() === parsed.categoryName!.toLowerCase()) ?? null : null)
@@ -1878,7 +2028,7 @@ Deno.serve(async (req) => {
             result = { error: "unknown_tool" };
         }
 
-        const answer = await phraseAnswer(rawText, result);
+        const answer = await phraseAnswer(rawText, result, member.household_id, member.id);
         await reply(chatId, answer ?? "I found the data but couldn't phrase a reply — please try rephrasing.");
         if (answer) {
           // Remembered briefly so a short follow-up ("what about groceries
@@ -1982,6 +2132,8 @@ Deno.serve(async (req) => {
       imageBase64: photoBase64,
       imageMime: photoMime,
       categoryNames: (categories ?? []).map((c) => c.name),
+      householdId: member.household_id,
+      memberId: member.id,
     });
 
     // A message can describe more than one expense ("bought two plants for
