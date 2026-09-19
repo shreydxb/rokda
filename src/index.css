@@ -77,6 +77,16 @@ input {
   border-color: var(--rule2);
   background: var(--raise);
 }
+/* .om-seg is also used on a <select> (Activity's category filter). Scoped to
+   the element, not the class, so the many om-seg *buttons* elsewhere keep
+   their transparent look -- only the select's own open popup needs a real
+   background, for the same reason .te-fieldvalue does (see its comment in
+   TransactionEditor.css): an author-set `color` without a matching
+   background-color makes the popup ignore color-scheme and fall back to the
+   OS's light Canvas. */
+select.om-seg {
+  background-color: var(--canvas);
+}
 
 .om-btn {
   display: inline-flex;
