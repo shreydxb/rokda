@@ -1,20 +1,20 @@
 # Backup and restore
 
-**Status: the commands below are verified; the household's real data has never
-been exported or restored.** The procedure in §3–§4 was executed end to end on
-13 September 2026 against a synthetic household in a local PostgreSQL built
-from `supabase/migrations` — dump, restore, fingerprint diff clean, no dangling
-memberships. What that establishes is that the commands work and the
-verification detects failure. What it does not establish is that *this
-project's* data can be got back, which needs the drill run against a real
-export (§4).
-
-That distinction is the point of writing this down: every QA pass so far has
-been able to say the migrations are green, and none has been able to say the
-data can be got back.
+**Status: verified against the real household data (SHR-285, 19 September
+2026).** A real export of production (`erggbzbbutsvhleqcddq`) was taken,
+restored into a scratch Supabase project, and diffed — clean. See the
+drill-history table in §4 for the result, and the note under "Restoring into a
+real Supabase project" for a real correction this run surfaced: `pg_restore
+--disable-triggers` (as originally written below) only works against a
+self-hosted Postgres where the connecting role is a true superuser. It is
+not — a hosted project's `postgres` role cannot disable the system foreign-key
+trigger objects, so the drill had to switch to `session_replication_role`
+instead. That fix is now the documented method for restoring into a real
+Supabase project.
 
 A green migration pipeline is not a backup. It reproduces the *schema* from
-`supabase/migrations`; it reproduces none of the household's ledger.
+`supabase/migrations`; it reproduces none of the household's ledger. That is
+what §3–§4 below actually exercise, and now have, for real.
 
 ## 1. What would actually have to come back
 
@@ -163,6 +163,54 @@ Note that the local shim supplies `auth.users`, `auth.uid()` and the API roles
 so the migrations apply to a bare PostgreSQL. It is a test harness, never
 applied to a real environment.
 
+### Restoring into a real Supabase project instead of a bare PostgreSQL
+
+The commands above were only ever proven against a local, self-hosted
+PostgreSQL, where the connecting `postgres` role is a genuine superuser and
+`ALTER TABLE ... DISABLE TRIGGER` on the system foreign-key trigger objects
+just works. **It does not work the same way against a real Supabase
+project.** Measured running the SHR-285 drill: `pg_restore --disable-triggers`
+against a live Supabase project's `postgres` role fails with `must be owner of
+table users` and `permission denied: "RI_ConstraintTrigger_..." is a system
+trigger` — that role is not a true superuser there, so it cannot disable
+those triggers, and the restore silently falls back to the exact
+foreign-key-ordering failure §4 already documents above (a database that
+looks restored and contains no ledger).
+
+There is no schema first-then-`platform-shim` step either when the target is
+a real Supabase project — it already has real `auth`, `storage`, `vault` and
+`cron` schemas; just apply the repository's migrations directly:
+
+```bash
+for f in supabase/migrations/*.sql; do
+  psql "$TARGET_URL" -v ON_ERROR_STOP=1 -q -f "$f"
+done
+```
+
+Then restore data with foreign-key and trigger enforcement turned off at the
+*session* level instead of per-table — this is the Supabase-documented
+pattern for bulk loads, and it works with the privileges a project's
+`postgres` role actually has:
+
+```bash
+pg_restore --data-only --no-owner --no-privileges -f auth-users.sql "rokda-auth-users-$STAMP.dump"
+pg_restore --data-only --no-owner --no-privileges -f public.sql "rokda-public-$STAMP.dump"
+
+{
+  echo "SET session_replication_role = replica;"
+  cat auth-users.sql public.sql
+  echo "SET session_replication_role = DEFAULT;"
+} > combined-restore.sql
+
+psql "$TARGET_URL" -v ON_ERROR_STOP=1 -f combined-restore.sql
+```
+
+`auth.users` restores fine even with the plain `pg_restore -d` form above —
+its own disable/enable-trigger wrapper statements fail the same permission
+way, but `pg_restore` reports them as "errors ignored" and the actual `COPY`
+underneath still runs, so it is only `public`'s foreign-key-heavy tables that
+actually need the `session_replication_role` route.
+
 ### Verifying it
 
 ```bash
@@ -199,14 +247,16 @@ Then check the things a fingerprint cannot see:
 | Drill run | Scope | Result |
 | --- | --- | --- |
 | 2026-09-13 | Synthetic household, local PostgreSQL 16 | Fingerprint identical; 0 dangling memberships; `--disable-triggers` failure mode measured |
-| _pending_ | **Real export of `erggbzbbutsvhleqcddq`** | — |
+| 2026-09-19 | **Real export of `erggbzbbutsvhleqcddq`**, restored into a scratch Supabase project (`rokda-restore-drill-scratch`, deleted after) | Fingerprint identical across all tables and `auth.users`; 0 dangling memberships; total account balance figure matched production exactly. Surfaced the `session_replication_role` fix documented above — `--disable-triggers` doesn't work against a real Supabase project's `postgres` role. |
 
 ## 5. Recovering for real
 
 Order matters, because the app fails differently at each stage and it is easy
 to conclude the restore failed when it is merely incomplete.
 
-1. **Restore schema then data**, as in §4, into the new project.
+1. **Restore schema then data** into the new project, using the "Restoring
+   into a real Supabase project" method in §4 — the plain `--disable-triggers`
+   form earlier in §4 does not work here.
 2. **Re-provision the secrets.** They are not in the dump.
    - `telegram_webhook_secret` — must match what Telegram sends. Re-run
      `setWebhook` with a new `secret_token` and store the same value in the
