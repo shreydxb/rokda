@@ -144,7 +144,8 @@
 }
 .te-hero-currency-select {
   border: none;
-  background: none;
+  /* Same popup-background fix as .te-fieldvalue above. */
+  background-color: var(--canvas);
   cursor: pointer;
   appearance: none;
   -webkit-appearance: none;
@@ -196,7 +197,12 @@
   border-radius: 0;
   padding: 9px 0;
   font-size: 14px;
-  background: none;
+  /* A <select>'s open popup falls back to the OS's light Canvas background
+     the moment an author sets `color` without a matching background-color --
+     color-scheme on :root alone isn't enough once that happens. Matches the
+     drawer's own background (TransactionEditor.css:.te-drawer), so this is
+     visually a no-op for text inputs and only fixes the select popup. */
+  background-color: var(--canvas);
   color: var(--ink);
   font-family: inherit;
 }

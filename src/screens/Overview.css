@@ -327,7 +327,11 @@
   font-size: 13.5px;
 }
 .ov-attn-select {
-  background: none;
+  /* Same popup-background fix as TransactionEditor.css's .te-fieldvalue --
+     an author-set `color` without a matching background-color makes the
+     open popup fall back to the OS's light Canvas regardless of
+     color-scheme. */
+  background-color: var(--canvas);
   border: 1px solid var(--rule2);
   border-radius: var(--radius-sm);
   padding: 5px 8px;
