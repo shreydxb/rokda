@@ -32,7 +32,7 @@ import { resolveScopeMemberId, scopedValue } from "../_shared/applib/scope.js";
 import { netWorthSummary } from "../_shared/applib/overviewMath.js";
 import { monthActualsByCategory } from "../_shared/applib/budget.js";
 import { nextDueDate, daysUntilDue } from "../_shared/applib/creditCard.js";
-import { upcomingItems } from "../_shared/applib/recurring.js";
+import { lastDueOccurrence, upcomingItems } from "../_shared/applib/recurring.js";
 import { isPosted, parseDay, atDayOfMonth, startOfDay, householdToday, householdYearMonth } from "../_shared/applib/day.js";
 import { isSpendRow, spendDelta } from "../_shared/applib/transactionKind.js";
 import { visibleHoldings, scopedHoldingValue, holdingGain, allocationByClass, portfolioGain } from "../_shared/applib/holdings.js";
@@ -1235,36 +1235,57 @@ async function runRecurringCheck(): Promise<{ checked: number; nudged: number }>
   graceStart.setDate(graceStart.getDate() - 10); // don't look back further than 10 days overdue
   const graceEnd = new Date(today);
   graceEnd.setDate(graceEnd.getDate() - 3); // give a few days of normal processing time before nudging
+  const graceStartStr = graceStart.toISOString().slice(0, 10);
+  const graceEndStr = graceEnd.toISOString().slice(0, 10);
 
-  const [{ data: dueRows }, prefs] = await Promise.all([
+  const [{ data: activeRows }, prefs] = await Promise.all([
     supabase
       .from("recurring")
-      .select("id, household_id, name, owner_member_id, is_shared, amount, next_due_date, account_id, category_id")
-      .eq("active", true)
-      .gte("next_due_date", graceStart.toISOString().slice(0, 10))
-      .lte("next_due_date", graceEnd.toISOString().slice(0, 10)),
+      .select("id, household_id, name, owner_member_id, is_shared, amount, next_due_date, cadence, interval_count, account_id, category_id")
+      .eq("active", true),
     telegramPrefsMap(),
   ]);
 
+  // next_due_date is a "last known" anchor, not a live field -- nothing
+  // advances it automatically, and the household is expected to hand-edit it
+  // only when they get around to it (see the recurring table's own migration
+  // comment). Filtering on it directly, as this used to, meant a bill's due
+  // date scrolling more than graceStart days into the past made this check
+  // stop seeing it forever, silently, even though the bill keeps recurring
+  // every cadence after that. lastDueOccurrence rolls the stored anchor
+  // forward to whichever cycle is ACTUALLY due right now -- the same way
+  // upcomingItems/billStatus already do everywhere else this app shows a due
+  // date -- so a stale anchor no longer matters.
+  const dueRows = (
+    (activeRows ?? []) as Array<{
+      id: string;
+      household_id: string;
+      name: string;
+      owner_member_id: string | null;
+      is_shared: boolean;
+      amount: number;
+      next_due_date: string;
+      cadence: string;
+      interval_count: number;
+      account_id: string | null;
+      category_id: string | null;
+    }>
+  )
+    .map((r) => {
+      const due = lastDueOccurrence(r.next_due_date, r.cadence, today, r.interval_count);
+      return due ? { ...r, dueDate: due.toISOString().slice(0, 10) } : null;
+    })
+    .filter((r): r is NonNullable<typeof r> => r !== null && r.dueDate >= graceStartStr && r.dueDate <= graceEndStr);
+
   let nudged = 0;
-  for (const r of (dueRows ?? []) as Array<{
-    id: string;
-    household_id: string;
-    name: string;
-    owner_member_id: string | null;
-    is_shared: boolean;
-    amount: number;
-    next_due_date: string;
-    account_id: string | null;
-    category_id: string | null;
-  }>) {
+  for (const r of dueRows) {
     if (!prefEnabled(prefs, r.household_id, "recurring_enabled")) continue;
     try {
       const { data: alreadySent } = await supabase
         .from("recurring_nudges")
         .select("recurring_id")
         .eq("recurring_id", r.id)
-        .eq("due_date", r.next_due_date)
+        .eq("due_date", r.dueDate)
         .maybeSingle();
       if (alreadySent) continue;
 
@@ -1288,9 +1309,9 @@ async function runRecurringCheck(): Promise<{ checked: number; nudged: number }>
       // paid from a different account than configured now nudges, which is
       // the right way round: an extra "forgot to log it, or paid another
       // way?" costs a message, a missed one costs a payment.
-      const windowStart = new Date(r.next_due_date);
+      const windowStart = new Date(r.dueDate);
       windowStart.setDate(windowStart.getDate() - 5);
-      const windowEnd = new Date(r.next_due_date);
+      const windowEnd = new Date(r.dueDate);
       windowEnd.setDate(windowEnd.getDate() + 5);
       let nearbyQuery = supabase
         .from("transactions")
@@ -1318,16 +1339,16 @@ async function runRecurringCheck(): Promise<{ checked: number; nudged: number }>
       for (const m of recipients) {
         await reply(
           m.telegram_user_id,
-          `I don't see a transaction for "${r.name}" yet (usually around AED ${amount.toFixed(2)}, due ${r.next_due_date}) -- forgot to log it, or paid another way?`
+          `I don't see a transaction for "${r.name}" yet (usually around AED ${amount.toFixed(2)}, due ${r.dueDate}) -- forgot to log it, or paid another way?`
         );
       }
-      await supabase.from("recurring_nudges").insert({ recurring_id: r.id, due_date: r.next_due_date });
+      await supabase.from("recurring_nudges").insert({ recurring_id: r.id, due_date: r.dueDate });
       nudged++;
     } catch {
       // One recurring row's nudge failing must never block the rest.
     }
   }
-  return { checked: dueRows?.length ?? 0, nudged };
+  return { checked: dueRows.length, nudged };
 }
 
 // Runs alongside runRecurringCheck (see the ?run_recurring_check=1 handler

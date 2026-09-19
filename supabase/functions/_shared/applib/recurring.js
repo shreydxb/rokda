@@ -34,6 +34,25 @@ export function occurrencesInWindow(dateStr, cadence, days, now = new Date(), in
   return occurrences;
 }
 
+// The most recent occurrence that has already come due as of `now`, or null
+// if the very first occurrence (the stored anchor itself) hasn't arrived yet.
+// Mirrors billStatus's own walk in src/lib/recurring.js: rollForward always
+// lands on a future-or-today occurrence (fine for display, since it assumes
+// every earlier cycle was already paid), but checking payment status needs
+// the opposite -- the cycle that just came due and hasn't been confirmed
+// paid yet, however stale the stored anchor date has gotten since.
+export function lastDueOccurrence(dateStr, cadence, now = new Date(), intervalCount = 1) {
+  const today = startOfDay(now);
+  let n = 0;
+  let occurrence = occurrenceAt(dateStr, cadence, 0, intervalCount);
+  if (occurrence >= today) return null;
+  while (occurrence < today && n < 1000) {
+    n += 1;
+    occurrence = occurrenceAt(dateStr, cadence, n, intervalCount);
+  }
+  return occurrenceAt(dateStr, cadence, n - 1, intervalCount);
+}
+
 export function upcomingItems(rows, days, now = new Date()) {
   return rows
     .filter((r) => r.active !== false)
