@@ -129,6 +129,25 @@ export function fingerprint(sql) {
   return createHash('md5').update(normalise(sql)).digest('hex');
 }
 
+// The same fingerprint with a single trailing statement terminator ignored.
+//
+// The GitHub integration stores a one-statement migration with its final ';'
+// stripped, so a repository file ending in ';' fingerprints as drift against a
+// database holding exactly the same statement. One real entry does this today
+// (20260914200000_intake_parsed_kind.sql), and calling a correct database
+// "drifting" is the kind of false alarm that teaches people to ignore the
+// check.
+//
+// It is a SECOND value rather than a change to normalise() because the
+// committed snapshot stores fingerprints, not SQL: changing the hashing rules
+// would make all 43 existing entries unverifiable and turn the CI check red
+// until someone with database access re-exports them. Only the very last
+// terminator is trimmed, so a separator BETWEEN statements still counts --
+// `a; b` and `a b` remain different.
+export function framingFingerprint(sql) {
+  return createHash('md5').update(normalise(sql).replace(/\s*;$/, '')).digest('hex');
+}
+
 // Bumped whenever normalise()'s rules change (762a6c4 recheck, SHR-253: added
 // dollar-quoted-string awareness; the fix before it added literal/quoted-
 // identifier preservation). A fingerprint recorded under an older version is
@@ -150,7 +169,15 @@ export function repoMigrations(dir = MIGRATIONS_DIR) {
     .map((file) => {
       const [version, ...rest] = file.replace(/\.sql$/, '').split('_');
       const sql = readFileSync(join(dir, file), 'utf8');
-      return { file, version, name: rest.join('_'), sql, fingerprint: fingerprint(sql), fingerprintVersion: FINGERPRINT_VERSION };
+      return {
+        file,
+        version,
+        name: rest.join('_'),
+        sql,
+        fingerprint: fingerprint(sql),
+        framingFingerprint: framingFingerprint(sql),
+        fingerprintVersion: FINGERPRINT_VERSION,
+      };
     });
 }
 
@@ -176,9 +203,15 @@ export function compare(repo, applied) {
       };
     }
     const remoteFingerprint = remote.fingerprint ?? fingerprint(remote.sql ?? '');
+    // Exact first. Only if that differs is the framing-insensitive pair
+    // consulted, and only when the applied side actually recorded one -- an
+    // older snapshot has no such field and is compared exactly, as before.
+    const agrees =
+      local.fingerprint === remoteFingerprint ||
+      (remote.framingFingerprint != null && local.framingFingerprint === remote.framingFingerprint);
     return {
       name: local.name,
-      status: local.fingerprint === remoteFingerprint ? 'equivalent' : 'differs',
+      status: agrees ? 'equivalent' : 'differs',
       localVersion: local.version,
       appliedVersion: remote.version,
       versionMatches: local.version === remote.version,

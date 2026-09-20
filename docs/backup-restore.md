@@ -116,11 +116,16 @@ pg_dump "$SOURCE_URL" \
 
 # The receipt files. No pg_dump contains object BYTES — the database holds only
 # the paths, and intake.photo_path pointing at a file that is not there is a
-# receipt gone for good. The CLI walks the bucket; it needs the same project
-# ref and an access token as the other tooling.
-supabase storage cp --recursive \
-  "ss:///telegram-receipts" "rokda-storage-$STAMP/" \
-  --project-ref "$SUPABASE_PROJECT_REF"
+# receipt gone for good.
+#
+# `supabase storage` has no --project-ref: it acts on the LINKED project, and
+# is behind --experimental. The flag was silently wrong here, which is the
+# worse direction of the two -- a backup you believe you have is not one.
+# Check what is linked before trusting the copy, and check the copy after.
+supabase link --project-ref "$SUPABASE_PROJECT_REF"
+supabase storage cp --recursive --experimental \
+  "ss:///telegram-receipts" "rokda-storage-$STAMP/"
+test -d "rokda-storage-$STAMP" && find "rokda-storage-$STAMP" -type f | wc -l
 
 # What the data SHOULD look like, captured at the same moment. Now covers the
 # auth columns a sign-in depends on, auth.identities, and the storage objects'
@@ -160,7 +165,7 @@ done
 
 # Then the data.
 pg_restore --data-only --disable-triggers --no-owner --no-privileges \
-  -d rokda_restore_drill "rokda-auth-users-$STAMP.dump"
+  -d rokda_restore_drill "rokda-auth-$STAMP.dump"
 pg_restore --data-only --disable-triggers --no-owner --no-privileges \
   -d rokda_restore_drill "rokda-public-$STAMP.dump"
 ```
@@ -225,7 +230,7 @@ pattern for bulk loads, and it works with the privileges a project's
 `postgres` role actually has:
 
 ```bash
-pg_restore --data-only --no-owner --no-privileges -f auth-users.sql "rokda-auth-users-$STAMP.dump"
+pg_restore --data-only --no-owner --no-privileges -f auth-users.sql "rokda-auth-$STAMP.dump"
 pg_restore --data-only --no-owner --no-privileges -f public.sql "rokda-public-$STAMP.dump"
 
 {
@@ -313,10 +318,15 @@ cannot, because none of those four is a row in `public`.
 3. **Restore the receipt files** into the new project's bucket. The database
    holds paths; nothing in it holds bytes.
 
+   `supabase storage` has no `--project-ref`: it acts on the linked project,
+   and is still behind `--experimental`. Link first, and check what you
+   linked before copying anything into it.
+
    ```bash
-   supabase storage cp --recursive \
-     "rokda-storage-$STAMP/" "ss:///telegram-receipts" \
-     --project-ref "$NEW_PROJECT_REF"
+   supabase link --project-ref "$NEW_PROJECT_REF"
+   supabase projects list        # confirm the bullet is on the NEW project
+   supabase storage cp --recursive --experimental \
+     "rokda-storage-$STAMP/" "ss:///telegram-receipts"
    ```
 
 4. **Re-provision the vault secrets.** They are not in the dump.
@@ -364,10 +374,13 @@ cannot, because none of those four is a row in `public`.
    `npm run compare:migrations` reads every migration as pending. Mark them
    applied without re-running them:
 
+   `migration repair` takes a connection, not a project ref. `$NEW_DB_URL` is
+   the new project's connection string -- the same one §3 uses.
+
    ```bash
    for f in supabase/migrations/*.sql; do
      supabase migration repair --status applied "$(basename "$f" | cut -d_ -f1)" \
-       --project-ref "$NEW_PROJECT_REF"
+       --db-url "$NEW_DB_URL"
    done
    ```
 
@@ -377,8 +390,17 @@ cannot, because none of those four is a row in `public`.
    silently ships no application at all when these are missing.
 10. **Run the release check against the new project**:
 
+    Set **both**. `verify:release` prefers `SUPABASE_DB_URL`, so a recovery
+    shell that still holds the old one would read the OLD project's ledger and
+    label the result with the new project's ref -- a recovery reporting success
+    against the database it was replacing. The exporter now refuses when the
+    two disagree, but the reason it could happen is that only one was ever set
+    here.
+
     ```bash
-    SUPABASE_PROJECT_REF=$NEW_PROJECT_REF npm run verify:release
+    SUPABASE_DB_URL=$NEW_DB_URL \
+    SUPABASE_PROJECT_REF=$NEW_PROJECT_REF \
+      npm run verify:release
     ```
 
     This exports the new project's migration ledger fresh and requires every

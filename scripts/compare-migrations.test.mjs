@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalise, fingerprint, compare, classify, isDrift, FINGERPRINT_VERSION } from './compare-migrations.mjs';
+import { normalise, fingerprint, compare, classify, isDrift, FINGERPRINT_VERSION , framingFingerprint} from './compare-migrations.mjs';
 
 // SHR-253 (QA-12): normalise() used to lowercase and strip comment-like text
 // EVERYWHERE, including inside string literals and quoted identifiers — so
@@ -241,5 +241,50 @@ describe('QA re-run: statements split and rejoined by the platform fingerprint a
     const body = "create function f() returns int language plpgsql as $$ begin return 1; end; $$;";
     expect(normalise(body)).toContain('begin return 1; end;');
     expect(fingerprint(body)).not.toBe(fingerprint(body.replace('return 1; end;', 'return 1 end')));
+  });
+});
+
+// The GitHub integration stores a one-statement migration with its terminating
+// ';' stripped. The repo file has one. That framing difference fingerprinted
+// as drift on a database that was in fact correct -- one real entry,
+// 20260914200000_intake_parsed_kind.sql, does exactly this.
+describe('a trailing statement terminator is framing, not SQL', () => {
+  const stored = 'alter table intake add column parsed_kind text';
+
+  it('agrees on a file ending in ; and the same statement stored without one', () => {
+    expect(framingFingerprint(`${stored};`)).toBe(framingFingerprint(stored));
+    expect(framingFingerprint(`${stored};\n`)).toBe(framingFingerprint(stored));
+  });
+
+  it('leaves the exact fingerprint alone, so existing snapshots stay valid', () => {
+    // Changing normalise() itself would have made all 43 committed entries
+    // unverifiable and turned the CI check red until a re-export.
+    expect(fingerprint(`${stored};`)).not.toBe(fingerprint(stored));
+    expect(FINGERPRINT_VERSION).toBe(2);
+  });
+
+  it('still distinguishes statements separated by a semicolon', () => {
+    // Only the LAST terminator is framing. A separator BETWEEN statements is
+    // the difference between one statement and two.
+    expect(framingFingerprint('select 1; select 2;')).not.toBe(framingFingerprint('select 1 select 2'));
+  });
+
+  it('does not collapse a semicolon inside a literal', () => {
+    expect(framingFingerprint("select 'a;'")).not.toBe(framingFingerprint("select 'a'"));
+  });
+
+  it('still reports genuinely different SQL as different', () => {
+    expect(framingFingerprint('alter table intake add column a text;')).not.toBe(
+      framingFingerprint('alter table intake add column b text;'),
+    );
+  });
+
+  it('accepts a terminator difference only when both sides recorded one', () => {
+    const repo = [{ file: 'f.sql', version: '1', name: 'm', sql: `${stored};`, fingerprint: fingerprint(`${stored};`), framingFingerprint: framingFingerprint(`${stored};`), fingerprintVersion: FINGERPRINT_VERSION }];
+    const withField = [{ version: '1', name: 'm', fingerprint: fingerprint(stored), framingFingerprint: framingFingerprint(stored), fingerprintVersion: FINGERPRINT_VERSION }];
+    const without = [{ version: '1', name: 'm', fingerprint: fingerprint(stored), fingerprintVersion: FINGERPRINT_VERSION }];
+    expect(compare(repo, withField)[0].status).toBe('equivalent');
+    // An older snapshot has no such field: compared exactly, as before.
+    expect(compare(repo, without)[0].status).toBe('differs');
   });
 });

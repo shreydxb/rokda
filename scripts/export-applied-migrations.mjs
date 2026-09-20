@@ -38,7 +38,7 @@
 import { execFileSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { fingerprint, FINGERPRINT_VERSION } from './compare-migrations.mjs';
+import { fingerprint, framingFingerprint, FINGERPRINT_VERSION } from './compare-migrations.mjs';
 
 // How the platform STORED a migration decides how to read it back -- see the
 // long note at the top of compare-migrations.mjs. The CLI and dashboard record
@@ -63,6 +63,10 @@ export function snapshotFromRows(rows, { projectRef = null, now = new Date() } =
     version: String(row.version),
     name: String(row.name),
     fingerprint: fingerprint(row.sql ?? ''),
+    // Recorded alongside the exact one so a terminator the platform strips
+    // cannot read as drift. Older snapshots have no such field and are
+    // compared exactly, exactly as before.
+    framingFingerprint: framingFingerprint(row.sql ?? ''),
     fingerprintVersion: FINGERPRINT_VERSION,
   }));
   return {
@@ -135,12 +139,82 @@ export function parsePsqlLedger(raw) {
     });
 }
 
-export function fetchLedgerViaPsql({ dbUrl, exec = execFileSync }) {
-  const out = exec(
-    'psql',
-    [dbUrl, '-At', '-R', RECORD_SEP, '-F', FIELD_SEP, '-v', 'ON_ERROR_STOP=1', '-c', LEDGER_QUERY],
-    { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
-  );
+// Which project a connection string actually points at. Supabase spells this
+// two ways: a direct host `db.<ref>.supabase.co`, and a pooler host with the
+// ref in the username, `postgres.<ref>`. Returns null when it is neither --
+// a local or self-hosted database, which we cannot and should not second-guess.
+export function projectRefFromDbUrl(dbUrl) {
+  let url;
+  try {
+    url = new URL(dbUrl);
+  } catch {
+    return null;
+  }
+  const direct = /^db\.([a-z0-9]{16,})\.supabase\.(co|com)$/.exec(url.hostname);
+  if (direct) return direct[1];
+  if (url.hostname.endsWith('.pooler.supabase.com')) {
+    const [, ref] = decodeURIComponent(url.username).split('.');
+    return ref ?? null;
+  }
+  return null;
+}
+
+// The recovery runbook's last step used to change only SUPABASE_PROJECT_REF.
+// This function prefers SUPABASE_DB_URL, so a recovery shell that still had
+// the OLD connection string exported would read the OLD ledger and write it
+// into a snapshot LABELLED with the new project's ref -- a recovery reporting
+// success against the database it was supposed to be replacing. Setting both
+// is now checked rather than assumed.
+export function assertSameProject({ dbUrl, projectRef }) {
+  if (!dbUrl || !projectRef) return;
+  const fromUrl = projectRefFromDbUrl(dbUrl);
+  if (fromUrl && fromUrl !== projectRef) {
+    throw new Error(
+      `SUPABASE_DB_URL points at project ${fromUrl} but SUPABASE_PROJECT_REF is ${projectRef}. ` +
+        'Refusing to read one project and label the result with another -- set both to the same project.',
+    );
+  }
+}
+
+// psql takes the connection string as an argument, which puts the password in
+// argv: visible in the process list, and -- the part that actually bites --
+// repeated verbatim in execFileSync's thrown error and stack. A local test
+// with a synthetic password and a refused connection put it in both. The
+// password travels in the environment instead, where libpq expects it, and
+// anything that still escapes is redacted before it can reach a log.
+export function splitDbUrl(dbUrl) {
+  try {
+    const url = new URL(dbUrl);
+    const password = decodeURIComponent(url.password);
+    if (!password) return { safeUrl: dbUrl, password: null };
+    url.password = '';
+    return { safeUrl: url.toString(), password };
+  } catch {
+    return { safeUrl: dbUrl, password: null };
+  }
+}
+
+const redact = (text, secret) =>
+  secret ? String(text ?? '').split(secret).join('***') : String(text ?? '');
+
+export function fetchLedgerViaPsql({ dbUrl, exec = execFileSync, env = process.env }) {
+  const { safeUrl, password } = splitDbUrl(dbUrl);
+  let out;
+  try {
+    out = exec(
+      'psql',
+      [safeUrl, '-At', '-R', RECORD_SEP, '-F', FIELD_SEP, '-v', 'ON_ERROR_STOP=1', '-c', LEDGER_QUERY],
+      {
+        encoding: 'utf8',
+        maxBuffer: 64 * 1024 * 1024,
+        env: password ? { ...env, PGPASSWORD: password } : env,
+      },
+    );
+  } catch (cause) {
+    // Rethrown rather than passed through: the original carries argv, stdout
+    // and stderr, any of which may quote the connection string back.
+    throw new Error(`psql failed while reading the migration ledger: ${redact(cause?.message, password)}`);
+  }
   const rows = parsePsqlLedger(out);
   if (rows.length === 0) {
     throw new Error('The migration ledger came back empty. Refusing to write a snapshot that says nothing is applied.');
@@ -164,6 +238,10 @@ if (isMainModule) {
     console.error('  to export, and writing the repository back to itself would make the comparison a tautology.');
     process.exit(1);
   }
+
+  // Checked before either path runs, so a mismatch fails immediately rather
+  // than after a successful read of the wrong database.
+  assertSameProject({ dbUrl, projectRef });
 
   let rows;
   if (dbUrl) {

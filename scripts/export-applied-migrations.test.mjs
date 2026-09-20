@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { fetchLedger, fetchLedgerViaPsql, LEDGER_QUERY, parsePsqlLedger, snapshotFromRows } from './export-applied-migrations.mjs';
+import { assertSameProject, fetchLedger, fetchLedgerViaPsql, LEDGER_QUERY, parsePsqlLedger, projectRefFromDbUrl, snapshotFromRows } from './export-applied-migrations.mjs';
 import { classify, compare, fingerprint, FINGERPRINT_VERSION } from './compare-migrations.mjs';
 
 // QA #7: the committed snapshot covered 43 of 49 migrations, so six deployed
@@ -156,5 +156,78 @@ describe('reading the ledger over a direct connection', () => {
 
   it('refuses an empty ledger, same as the API transport', () => {
     expect(() => fetchLedgerViaPsql({ dbUrl: 'x', exec: () => '' })).toThrow(/empty/i);
+  });
+});
+
+// A recovery shell that still has the old SUPABASE_DB_URL exported, with only
+// SUPABASE_PROJECT_REF changed, used to read the OLD ledger and write it into
+// a snapshot labelled with the NEW project -- a recovery verifying itself
+// against the database it was replacing.
+describe('reading one project and labelling it another', () => {
+  const OLD = 'postgresql://postgres:pw@db.aaaaaaaaaaaaaaaa.supabase.co:5432/postgres';
+  const POOLER = 'postgresql://postgres.bbbbbbbbbbbbbbbb:pw@aws-0-eu-central-1.pooler.supabase.com:6543/postgres';
+
+  it('reads the project ref out of a direct connection string', () => {
+    expect(projectRefFromDbUrl(OLD)).toBe('aaaaaaaaaaaaaaaa');
+  });
+
+  it('reads it out of a pooler connection string, where it lives in the username', () => {
+    expect(projectRefFromDbUrl(POOLER)).toBe('bbbbbbbbbbbbbbbb');
+  });
+
+  it('says nothing about a database it cannot identify', () => {
+    expect(projectRefFromDbUrl('postgresql://postgres:pw@localhost:5432/postgres')).toBeNull();
+    expect(projectRefFromDbUrl('not a url')).toBeNull();
+  });
+
+  it('refuses when the connection and the declared project disagree', () => {
+    expect(() => assertSameProject({ dbUrl: OLD, projectRef: 'bbbbbbbbbbbbbbbb' }))
+      .toThrow(/points at project aaaaaaaaaaaaaaaa but SUPABASE_PROJECT_REF is bbbbbbbbbbbbbbbb/);
+  });
+
+  it('allows them when they agree, and when there is nothing to compare', () => {
+    expect(() => assertSameProject({ dbUrl: OLD, projectRef: 'aaaaaaaaaaaaaaaa' })).not.toThrow();
+    expect(() => assertSameProject({ dbUrl: OLD, projectRef: null })).not.toThrow();
+    expect(() => assertSameProject({ dbUrl: 'postgresql://postgres:pw@localhost/postgres', projectRef: 'x' })).not.toThrow();
+  });
+});
+
+describe('the database password stays out of argv and out of errors', () => {
+  const SECRET = 'synthetic-not-a-real-password';
+  const URL_WITH_SECRET = `postgresql://postgres:${SECRET}@db.aaaaaaaaaaaaaaaa.supabase.co:5432/postgres`;
+
+  it('passes psql a connection string with no password in it', () => {
+    let seenArgs = null;
+    let seenEnv = null;
+    fetchLedgerViaPsql({
+      dbUrl: URL_WITH_SECRET,
+      env: {},
+      exec: (_cmd, args, opts) => {
+        seenArgs = args;
+        seenEnv = opts.env;
+        return `1\u001f2\u001fselect 1;`.replace(/1\u001f2/, '20260101000000\u001finit');
+      },
+    });
+    expect(seenArgs.join(' ')).not.toContain(SECRET);
+    // libpq reads it from the environment, which is not echoed in errors.
+    expect(seenEnv.PGPASSWORD).toBe(SECRET);
+  });
+
+  it('keeps the password out of a failure, message and stack alike', () => {
+    // The real execFileSync failure repeats argv, stdout and stderr. This
+    // stands in for one that quotes the connection string back.
+    const boom = () => {
+      throw new Error(`Command failed: psql ${URL_WITH_SECRET} -c '...'`);
+    };
+    let thrown;
+    try {
+      fetchLedgerViaPsql({ dbUrl: URL_WITH_SECRET, env: {}, exec: boom });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeDefined();
+    expect(thrown.message).not.toContain(SECRET);
+    expect(thrown.message).toContain('***');
+    expect(String(thrown.stack)).not.toContain(SECRET);
   });
 });
