@@ -7,7 +7,8 @@ import { join } from 'node:path';
 // Telegram bot therefore shared 41 function names across 11 files with no
 // check that they still agreed, which is a silent-drift surface over exactly
 // the code that decides money: accountValueAed, netWorthSummary,
-// portfolioValueChange, cashCoverStatus.
+// portfolioValueChange, cashCoverStatus. 51 exports across 12 files share a
+// name with their source counterpart and are compared here.
 //
 // Drift here would not fail anything. The app would say one number and the
 // bot another, both confidently, and the first sign would be someone noticing
@@ -250,10 +251,13 @@ describe('the applib mirrors agree with the code they were copied from', () => {
   });
 
   it('actually compares the function bodies it claims to', () => {
-    // 41 shared functions across 11 mirrored files when this was written. The
-    // floor is deliberately below that so ordinary trimming does not trip it,
-    // and far enough above zero that a parser that stopped matching would.
-    expect(comparisons.length).toBeGreaterThanOrEqual(35);
+    // 51 shared exports across 12 mirrored files when this was written. The
+    // floor sits just under that: low enough that trimming one or two helpers
+    // from a mirror does not trip it, high enough that a parser quietly
+    // covering less than it used to does. A floor set far below the real
+    // number is the failure it is supposed to prevent -- it would let a third
+    // of the coverage disappear without a word.
+    expect(comparisons.length).toBeGreaterThanOrEqual(48);
     const unparseable = comparisons.filter((c) => c.mirror === null || c.source === null);
     expect(unparseable.map((c) => `${c.file}:${c.name}`)).toEqual([]);
   });
