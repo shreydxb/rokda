@@ -10,7 +10,7 @@ import {
   groupOf,
   holdingGain,
   portfolioDayChange,
-  portfolioGain,
+  portfolioValueChange,
   portfolioInvestedAndGain,
   portfolioSeries,
   scopedHoldingValue,
@@ -40,7 +40,12 @@ export default function Investments({ household, members, me, data, loading }) {
   const groupsPresent = ['All', ...GROUP_ORDER.filter((g) => g !== 'All' && holdings.some((h) => groupOf(h.asset_class) === g))];
 
   const totalValue = rows.reduce((s, h) => s + scopedHoldingValue(h, scopeMemberId), 0);
-  const gain = useMemo(() => portfolioGain(rows, holdingHistory, range, scopeMemberId, now), [rows, holdingHistory, range, scopeMemberId, now]);
+  // Named for what it is, not for what a reader hopes it is: this moves when
+  // money is added or taken out, not only when prices do (QA #5).
+  const valueChange = useMemo(
+    () => portfolioValueChange(rows, holdingHistory, range, scopeMemberId, now),
+    [rows, holdingHistory, range, scopeMemberId, now],
+  );
   const series = useMemo(() => portfolioSeries(rows, holdingHistory, scopeMemberId, now), [rows, holdingHistory, scopeMemberId, now]);
   const rangedSeries = useMemo(() => {
     const cutoff = rangeStart(range, now);
@@ -156,14 +161,24 @@ export default function Investments({ household, members, me, data, loading }) {
               <div className="ov-hero fig">
                 <span className="ov-hero-currency">{money.code}</span> {money.fmt(totalValue)}
               </div>
-              {gain.available ? (
-                <div className="ov-nwchange">
-                  <span className={gain.absolute >= 0 ? 'ov-pos' : 'ov-neg'}>
-                    {gain.absolute >= 0 ? '▲' : '▼'} {money.fmtSigned(gain.absolute)}
-                    {gain.pct !== null ? ` (${formatPct(gain.pct)})` : ''}
-                  </span>
-                  <span className="ov-muted"> {range}</span>
-                </div>
+              {valueChange.available ? (
+                <>
+                  <div className="ov-nwchange">
+                    <span className={valueChange.absolute >= 0 ? 'ov-pos' : 'ov-neg'}>
+                      {valueChange.absolute >= 0 ? '▲' : '▼'} {money.fmtSigned(valueChange.absolute)}
+                      {valueChange.pct !== null ? ` (${formatPct(valueChange.pct)})` : ''}
+                    </span>
+                    <span className="ov-muted"> change in value · {range}</span>
+                  </div>
+                  {/* Deposits and withdrawals move this figure exactly as a
+                      price move does -- adding AED 5,000 at an unchanged
+                      price shows as a AED 5,000 "gain" (QA #5). Saying so is
+                      the whole fix available today: telling the two apart
+                      needs dated contributions, which nothing records yet. */}
+                  <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 2 }}>
+                    Includes money added or withdrawn, not investment return alone.
+                  </div>
+                </>
               ) : (
                 <div className="ov-nwchange ov-muted">
                   {/* Holding history accumulates from confirmed valuations, not

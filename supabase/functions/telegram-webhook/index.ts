@@ -43,7 +43,7 @@ import { nextDueDate, daysUntilDue } from "../_shared/applib/creditCard.js";
 import { lastDueOccurrence, upcomingItems } from "../_shared/applib/recurring.js";
 import { isPosted, parseDay, atDayOfMonth, startOfDay, householdToday, householdYearMonth } from "../_shared/applib/day.js";
 import { isSpendRow, spendDelta } from "../_shared/applib/transactionKind.js";
-import { visibleHoldings, scopedHoldingValue, holdingGain, allocationByClass, portfolioGain } from "../_shared/applib/holdings.js";
+import { visibleHoldings, scopedHoldingValue, holdingGain, allocationByClass, portfolioValueChange } from "../_shared/applib/holdings.js";
 import { cashCoverStatus } from "../_shared/applib/cashCover.js";
 import { notableMoves } from "../_shared/applib/insights.js";
 
@@ -1024,14 +1024,21 @@ async function toolGetHoldings(householdId: string, scopeMemberId: string | null
     const { data: history } = ids.length
       ? await supabase.from("holding_value_history").select("holding_id, as_of, value_aed").in("holding_id", ids)
       : { data: [] as Array<{ holding_id: string; as_of: string; value_aed: number }> };
-    const perf = portfolioGain(visible as never, (history ?? []) as never, range, scopeMemberId);
+    const change = portfolioValueChange(visible as never, (history ?? []) as never, range, scopeMemberId);
     result.range = range;
-    result.range_performance = perf.available
+    // Deliberately not called "performance" any more. It moves when money is
+    // added or withdrawn exactly as it moves on a price change, and
+    // phraseAnswer may only use what a tool returns -- so if the caveat is not
+    // in the result, the bot cannot help reporting a deposit as a gain
+    // (QA #5).
+    result.range_value_change = change.available
       ? {
-          start_value_aed: round2(perf.startTotal!),
-          now_value_aed: round2(perf.nowTotal),
-          change_aed: round2(perf.absolute!),
-          change_pct: perf.pct !== null ? round2(perf.pct * 100) : null,
+          start_value_aed: round2(change.startTotal!),
+          now_value_aed: round2(change.nowTotal),
+          change_aed: round2(change.absolute!),
+          change_pct: change.pct !== null ? round2(change.pct * 100) : null,
+          includes_contributions: true,
+          note: "Change in portfolio value. Includes money added or withdrawn during the range, so it is not investment return on its own.",
         }
       : { available: false, note: "Not enough price history to cover that range yet." };
   }

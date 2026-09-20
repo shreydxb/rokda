@@ -131,12 +131,25 @@ function valueAsOf(history, holdingId, date) {
   return points.reduce((latest, p) => (new Date(p.as_of) > new Date(latest.as_of) ? p : latest)).value_aed;
 }
 
-// Portfolio-level gain over a range: sums each visible holding's start
-// value (from history) and current value, scoped, then diffs the totals —
-// so shared holdings split correctly and the result is value-weighted.
-// Returns null if none of the holdings have history reaching that far back
-// (rather than silently computing from a partial, misleading subset).
-export function portfolioGain(holdings, history, range, scopeMemberId, now = new Date()) {
+// How much the portfolio's VALUE moved over a range: sums each visible
+// holding's start value (from history) and current value, scoped, then diffs
+// the totals -- so shared holdings split correctly and the result is
+// value-weighted. Returns unavailable if any holding lacks history reaching
+// that far back, rather than silently computing from a partial subset.
+//
+// This is not investment performance, and it was named `portfolioGain` and
+// shown as a gain until QA #5 pointed out what that means in practice: start
+// a range holding AED 10,000, add AED 5,000 at an unchanged price, and it
+// reported +AED 5,000 / +50% when the investments earned nothing. A
+// withdrawal becomes a "loss" the same way.
+//
+// The arithmetic is not fixable from here. Two market values cannot tell
+// deposits apart from appreciation; a real return needs dated contributions
+// and withdrawals, which nothing in this app records yet (holding_value_history
+// stores values, not flows). So the function says what it actually computes,
+// in its name and in the `includesContributions` flag every caller renders,
+// rather than continuing to call a number a gain when it is not one.
+export function portfolioValueChange(holdings, history, range, scopeMemberId, now = new Date()) {
   const startDate = rangeStartDate(range, now);
   let startTotal = 0;
   let nowTotal = 0;
@@ -151,11 +164,11 @@ export function portfolioGain(holdings, history, range, scopeMemberId, now = new
     }
   }
   if (coveredCount === 0 || coveredCount < holdings.length) {
-    return { available: coveredCount > 0 && coveredCount === holdings.length, nowTotal, startTotal: null, absolute: null, pct: null };
+    return { available: coveredCount > 0 && coveredCount === holdings.length, nowTotal, startTotal: null, absolute: null, pct: null, includesContributions: true };
   }
   const absolute = nowTotal - startTotal;
   const pct = startTotal > 0 ? absolute / startTotal : null;
-  return { available: true, nowTotal, startTotal, absolute, pct };
+  return { available: true, nowTotal, startTotal, absolute, pct, includesContributions: true };
 }
 
 // Chart series: portfolio total at each historical date any holding has a
