@@ -51,7 +51,15 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
-    include: ['src/**/*.test.{js,jsx}', 'scripts/**/*.test.mjs'],
+    // supabase/functions/_shared/applib is plain ESM the Edge Functions import
+    // directly, so its pure logic is unit-testable here alongside the app's.
+    // Before this, nothing in supabase/functions had a test at all -- which is
+    // how the fast-confirm targeting bug (QA #2) stayed invisible.
+    include: [
+      'src/**/*.test.{js,jsx}',
+      'scripts/**/*.test.mjs',
+      'supabase/functions/**/*.test.js',
+    ],
     setupFiles: ['./src/test/setup.js'],
   },
 })

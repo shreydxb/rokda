@@ -29,6 +29,13 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { resolveScopeMemberId, scopedValue } from "../_shared/applib/scope.js";
+import {
+  ambiguousConfirmMessage,
+  isConfirmationText,
+  isReadyForFastConfirm,
+  resolveConfirmTarget,
+  THUMBS_UP_EMOJIS,
+} from "../_shared/applib/telegramConfirm.js";
 import { netWorthSummary } from "../_shared/applib/overviewMath.js";
 import { monthActualsByCategory } from "../_shared/applib/budget.js";
 import { nextDueDate, daysUntilDue } from "../_shared/applib/creditCard.js";
@@ -57,8 +64,52 @@ async function tgCall(method: string, body: Record<string, unknown>) {
   return res.json();
 }
 
-async function reply(chatId: number, text: string) {
-  await tgCall("sendMessage", { chat_id: chatId, text });
+// Returns the message_id Telegram assigned to what we just sent, or null if
+// the send failed or the response did not carry one. The fast-confirm prompt
+// is the one caller that needs it: that id is what a later "yes" reply or 👍
+// reaction points back at, and so is what ties a confirmation to one specific
+// intake rather than to whatever happens to be newest (QA #2).
+async function reply(chatId: number, text: string): Promise<number | null> {
+  const res = (await tgCall("sendMessage", { chat_id: chatId, text })) as
+    | { result?: { message_id?: number } }
+    | undefined;
+  return res?.result?.message_id ?? null;
+}
+
+// QA #2, half two: Telegram redelivers an update whenever the webhook does not
+// answer 200 in time, and every side effect below used to run again on that
+// second delivery. For a "yes" confirmation that was not merely wasteful --
+// the first delivery approved one entry, and by the time the second arrived
+// "the newest pending entry" was a DIFFERENT one, so the retry approved that
+// too.
+//
+// The primary key on telegram_update_log is the whole mechanism: the first
+// delivery inserts, a redelivery raises 23505, and we stop. See that table's
+// migration for why at-most-once is the right trade here.
+//
+// Returns true when this update has been seen before and must not be handled.
+// A failure that is NOT a duplicate-key error (the table is unreachable, say)
+// returns false: losing the dedupe is bad, but silently dropping the
+// household's messages because a bookkeeping table is down is worse.
+async function alreadyHandled(updateId: unknown): Promise<boolean> {
+  if (typeof updateId !== "number") return false;
+  const { error } = await supabase.from("telegram_update_log").insert({ update_id: updateId });
+  return error?.code === "23505";
+}
+
+// telegram_update_log only has to outlive Telegram's own retry window, which
+// is minutes. A week is generous and keeps the table from growing without
+// bound. Runs with the other daily passes; a failure here is invisible and
+// harmless, so it is swallowed rather than allowed to fail that request.
+async function pruneTelegramUpdateLog(): Promise<void> {
+  try {
+    await supabase
+      .from("telegram_update_log")
+      .delete()
+      .lt("received_at", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString());
+  } catch {
+    // Best-effort housekeeping.
+  }
 }
 
 type TelegramCallKind = "classify_and_route" | "parse_intake" | "phrase_answer";
@@ -396,21 +447,14 @@ async function findDuplicateTransaction(
 
 const PENDING_WINDOW_MS = 20 * 60 * 1000;
 
-// A short, near-exact "yes" to a fast-confirm prompt (see the bottom of
-// Deno.serve) -- deliberately strict so a real message that happens to start
-// with "yes" (e.g. "yes I know, also spent 40 on lunch") is never mistaken
-// for confirming a pending entry.
-const CONFIRM_REGEX = /^(yes|y|yep|yeah|confirm|ok|okay|sure|correct|go ahead|do it|record it)[.!]?$/i;
-
-// Instant recording (skipping the Inbox entirely) is only offered when every
-// field approve_intake actually requires is already resolved with no
-// guesswork -- account and category matched, currency AED or unstated, and
-// the parser's own confidence high. Confidence alone was never a safe gate
-// for this: it only ever reflected the model's certainty about
-// merchant/amount/date, never whether an account or category was found, so
-// those are checked separately here rather than folded into one fuzzy number.
+// CONFIRM_REGEX, isReadyForFastConfirm, resolveConfirmTarget and
+// ambiguousConfirmMessage all live in _shared/applib/telegramConfirm.js --
+// see the import at the top of this file. They are pure, and they decide which
+// entry a confirmation records, so they are kept where a unit test can reach
+// them (QA #2).
 type PendingIntakeRow = {
   id: string;
+  status: string;
   raw_text: string | null;
   created_at: string;
   parsed_merchant: string | null;
@@ -421,34 +465,57 @@ type PendingIntakeRow = {
   parsed_currency: string | null;
   parsed_kind: string | null;
   confidence: number | string | null;
+  // The bot's own fast-confirm prompt for this row, when one was sent. This
+  // is what makes a confirmation refer to a specific entry (QA #2).
+  confirm_chat_id: number | null;
+  confirm_message_id: number | null;
 };
 
-function isReadyForFastConfirm(row: {
-  parsed_merchant: string | null;
-  parsed_amount: number | string | null;
-  parsed_date: string | null;
-  parsed_category_id: string | null;
-  parsed_account_id: string | null;
-  parsed_currency: string | null;
-  confidence: number | string | null;
-}): boolean {
-  return (
-    !!row.parsed_merchant &&
-    row.parsed_amount != null &&
-    Number(row.parsed_amount) > 0 &&
-    !!row.parsed_date &&
-    !!row.parsed_category_id &&
-    !!row.parsed_account_id &&
-    (row.parsed_currency == null || row.parsed_currency === "AED") &&
-    Number(row.confidence ?? 0) >= 0.85
-  );
+const RECENT_INTAKE_COLUMNS =
+  "id, status, raw_text, created_at, parsed_merchant, parsed_amount, parsed_date, parsed_category_id, parsed_account_id, parsed_currency, parsed_kind, confidence, confirm_chat_id, confirm_message_id";
+
+// Every entry this member could still be talking about, newest first --
+// including ones already approved or rejected. Two reasons it is not filtered
+// to pending, both about deciding WHICH entry a confirmation means (QA #2):
+// knowing whether more than one candidate exists, and being able to tell
+// "you replied to an entry that is already recorded" apart from "you replied
+// to something that was never a prompt". The cap is a sanity bound -- more
+// than a handful of entries inside 20 minutes is already a case the
+// fast-confirm path refuses to guess about.
+async function recentIntakes(householdId: string, memberId: string): Promise<PendingIntakeRow[]> {
+  const { data } = await supabase
+    .from("intake")
+    .select(RECENT_INTAKE_COLUMNS)
+    .eq("household_id", householdId)
+    .eq("member_id", memberId)
+    .gt("created_at", new Date(Date.now() - PENDING_WINDOW_MS).toISOString())
+    .order("created_at", { ascending: false })
+    .limit(10);
+  return (data ?? []) as PendingIntakeRow[];
 }
 
-// A word/emoji reply confirming a pending entry, or a 👍/✅ reaction on any
-// message in the chat (see handleReaction below) -- both routes land here so
-// there is exactly one place that calls approve_intake for the fast-confirm
-// path.
-const THUMBS_UP_EMOJIS = new Set(["\u{1F44D}", "✅"]);
+// A word/emoji reply confirming a pending entry, or a 👍/✅ reaction on one of
+// the bot's own prompts (see handleReaction below) -- both routes land in
+// confirmPendingIntake below, so there is exactly one place that calls
+// approve_intake for the fast-confirm path.
+
+// Sends a fast-confirm prompt and records, on the intake it is about, which
+// message that prompt turned out to be. Everything that later resolves a "yes"
+// or a 👍 back to one specific entry depends on this write having happened
+// (QA #2).
+//
+// The prompt is sent first and recorded second, so a failure to record costs
+// the binding but never the message. Losing the binding degrades to the
+// unaddressed case -- confirmable while it is the only entry waiting, refused
+// with a question when it is not -- which is the safe direction.
+async function sendFastConfirmPrompt(chatId: number, intakeId: string, text: string): Promise<void> {
+  const messageId = await reply(chatId, text);
+  if (messageId == null) return;
+  await supabase
+    .from("intake")
+    .update({ confirm_chat_id: chatId, confirm_message_id: messageId })
+    .eq("id", intakeId);
+}
 
 async function confirmPendingIntake(chatId: number, householdId: string, recentPending: PendingIntakeRow): Promise<void> {
   try {
@@ -503,17 +570,18 @@ async function confirmPendingIntake(chatId: number, householdId: string, recentP
   }
 }
 
-// A 👍/✅ reaction (long-press a message in Telegram, no typing needed) on
-// ANY message in the chat -- Telegram's reaction event doesn't carry which
-// pending entry it was meant for, so this trusts the same single signal the
-// "yes" reply already trusts: is there exactly one recent, fully-resolved
-// pending entry for this member right now. Requires the bot's webhook to be
+// A 👍/✅ reaction (long-press a message in Telegram, no typing needed) on one
+// of the bot's own fast-confirm prompts. The reaction event carries the
+// message_id it was placed on, which is exactly the id recorded on the intake
+// when that prompt was sent -- so this route resolves to one specific entry
+// rather than to whichever is newest. Requires the bot's webhook to be
 // registered for "message_reaction" updates (see the ?setup=1 handler).
 async function handleReaction(reaction: Record<string, unknown>): Promise<Response> {
   const chat = reaction.chat as Record<string, unknown> | undefined;
   const user = reaction.user as Record<string, unknown> | undefined;
   const chatId = chat?.id as number | undefined;
   const fromId = user?.id as number | undefined;
+  const messageId = reaction.message_id as number | undefined;
   const newReaction = reaction.new_reaction as Array<{ type?: string; emoji?: string }> | undefined;
   if (!chatId || !fromId) return new Response("ok");
   if (!(newReaction ?? []).some((r) => r.type === "emoji" && THUMBS_UP_EMOJIS.has(r.emoji ?? ""))) {
@@ -527,21 +595,14 @@ async function handleReaction(reaction: Record<string, unknown>): Promise<Respon
     .maybeSingle();
   if (!member) return new Response("ok");
 
-  const { data: recentPendingRows } = await supabase
-    .from("intake")
-    .select(
-      "id, raw_text, created_at, parsed_merchant, parsed_amount, parsed_date, parsed_category_id, parsed_account_id, parsed_currency, parsed_kind, confidence"
-    )
-    .eq("household_id", member.household_id)
-    .eq("member_id", member.id)
-    .eq("status", "pending")
-    .gt("created_at", new Date(Date.now() - PENDING_WINDOW_MS).toISOString())
-    .order("created_at", { ascending: false })
-    .limit(1);
-  const recentPending = recentPendingRows?.[0] ?? null;
-  if (!recentPending || !isReadyForFastConfirm(recentPending)) return new Response("ok");
-
-  await confirmPendingIntake(chatId, member.household_id, recentPending);
+  // Unlike a typed "yes", a reaction always names the message it is on, so
+  // this route can always be exact. A 👍 on a message that isn't one of our
+  // fast-confirm prompts confirms nothing at all now -- it used to approve
+  // whatever was newest (QA #2).
+  const recentRows = await recentIntakes(member.household_id, member.id);
+  const target = resolveConfirmTarget(recentRows, chatId, messageId ?? null);
+  if (target.kind === "one") await confirmPendingIntake(chatId, member.household_id, target.row);
+  else if (target.kind === "ambiguous") await reply(chatId, ambiguousConfirmMessage(target.rows));
   return new Response("ok");
 }
 
@@ -1811,6 +1872,9 @@ Deno.serve(async (req) => {
       runCashCoverCheck(),
       runUnusualSpendCheck(),
     ]);
+    // Housekeeping, not a check: nothing reports on it and nothing depends on
+    // it having run today.
+    await pruneTelegramUpdateLog();
     return new Response(
       JSON.stringify({
         recurring,
@@ -1831,6 +1895,10 @@ Deno.serve(async (req) => {
   } catch {
     return new Response("ok");
   }
+
+  // Before ANY side effect, and before the message/reaction split so both
+  // routes are covered: a redelivered update is dropped here (QA #2).
+  if (await alreadyHandled(update?.update_id)) return new Response("ok");
 
   const message = update?.message as Record<string, unknown> | undefined;
   if (!message) {
@@ -1912,18 +1980,12 @@ Deno.serve(async (req) => {
   let recentPending: PendingIntakeRow | null = null;
 
   if (rawText && !fileId) {
-    const { data: recentPendingRows } = await supabase
-      .from("intake")
-      .select(
-        "id, raw_text, created_at, parsed_merchant, parsed_amount, parsed_date, parsed_category_id, parsed_account_id, parsed_currency, parsed_kind, confidence"
-      )
-      .eq("household_id", member.household_id)
-      .eq("member_id", member.id)
-      .eq("status", "pending")
-      .gt("created_at", new Date(Date.now() - PENDING_WINDOW_MS).toISOString())
-      .order("created_at", { ascending: false })
-      .limit(1);
-    recentPending = recentPendingRows?.[0] ?? null;
+    const recentRows = await recentIntakes(member.household_id, member.id);
+    // The correction flow further down asks "is this new message fixing the
+    // last thing I sent?", for which the newest entry still awaiting review is
+    // the right and only candidate. Confirmation is the case that needed more
+    // than that.
+    recentPending = recentRows.find((r) => r.status === "pending") ?? null;
 
     // A bare "yes" (or a typed 👍/✅ -- a long-press reaction on any message
     // is handled separately, see handleReaction) confirming a pending entry
@@ -1933,10 +1995,26 @@ Deno.serve(async (req) => {
     // approve there. This still requires the member to explicitly confirm --
     // it skips the Inbox screen, never the confirmation itself. No LLM call
     // at all, so this costs nothing beyond a couple of small DB reads.
+    //
+    // WHICH entry it confirms comes from resolveConfirmTarget, not from
+    // recency: a "yes" sent as a Telegram reply names its prompt, and an
+    // unaddressed "yes" with several entries waiting is answered with a
+    // question rather than a guess (QA #2).
     const trimmedText = rawText.trim();
-    if (recentPending && isReadyForFastConfirm(recentPending) && (CONFIRM_REGEX.test(trimmedText) || THUMBS_UP_EMOJIS.has(trimmedText))) {
-      await confirmPendingIntake(chatId, member.household_id, recentPending);
-      return new Response("ok");
+    if (isConfirmationText(trimmedText)) {
+      const repliedTo = (message.reply_to_message as { message_id?: number } | undefined)?.message_id ?? null;
+      const target = resolveConfirmTarget(recentRows, chatId, repliedTo);
+      if (target.kind === "one") {
+        await confirmPendingIntake(chatId, member.household_id, target.row);
+        return new Response("ok");
+      }
+      if (target.kind === "ambiguous") {
+        await reply(chatId, ambiguousConfirmMessage(target.rows));
+        return new Response("ok");
+      }
+      // kind === "none": nothing confirmable is waiting, so this "yes" is not
+      // a confirmation at all. Fall through and let it be treated as ordinary
+      // text, exactly as before.
     }
   }
 
@@ -2008,12 +2086,15 @@ Deno.serve(async (req) => {
         const correctionDuplicate = isReadyForFastConfirm(updatedRow)
           ? await findDuplicateTransaction(member.household_id, updatedRow.parsed_account_id, updatedRow.parsed_merchant, updatedRow.parsed_amount, updatedRow.parsed_date)
           : null;
-        await reply(
-          chatId,
-          isReadyForFastConfirm(updatedRow) && !correctionDuplicate
-            ? `Updated — AED ${Number(updatedRow.parsed_amount).toFixed(2)} at ${updatedRow.parsed_merchant}. Everything matched, so reply "yes" to record it, or edit in the Inbox.`
-            : "Updated your last pending entry — check the Inbox."
-        );
+        if (isReadyForFastConfirm(updatedRow) && !correctionDuplicate) {
+          await sendFastConfirmPrompt(
+            chatId,
+            recentPending.id,
+            `Updated — AED ${Number(updatedRow.parsed_amount).toFixed(2)} at ${updatedRow.parsed_merchant}. Everything matched, so reply "yes" to record it, or edit in the Inbox.`
+          );
+        } else {
+          await reply(chatId, "Updated your last pending entry — check the Inbox.");
+        }
         return new Response("ok");
       }
 
@@ -2225,13 +2306,22 @@ Deno.serve(async (req) => {
     // Leave the intake row exactly as captured -- raw content, no suggestions.
   }
 
-  await reply(
-    chatId,
-    fastConfirmSummary
-      ? `Got it — ${fastConfirmSummary}. Everything matched, so reply "yes" to record it, or edit in the Inbox.`
-      : multiItemSummaries.length > 1
+  if (fastConfirmSummary) {
+    // fastConfirmSummary is only ever set for a single-item message, whose one
+    // item is the row inserted above -- so that is the intake this prompt is
+    // about. A multi-item message deliberately offers no fast confirm at all.
+    await sendFastConfirmPrompt(
+      chatId,
+      inserted.id,
+      `Got it — ${fastConfirmSummary}. Everything matched, so reply "yes" to record it, or edit in the Inbox.`
+    );
+  } else {
+    await reply(
+      chatId,
+      multiItemSummaries.length > 1
         ? `Got it — ${multiItemSummaries.length} expenses captured (${multiItemSummaries.join(", ")}). Check the Inbox to review each.`
         : "Got it — check the Inbox to review."
-  );
+    );
+  }
   return new Response("ok");
 });
