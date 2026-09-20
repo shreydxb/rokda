@@ -57,35 +57,32 @@ export function isConfirmable(row) {
 //   { kind: 'none' }             -- confirm nothing
 //   { kind: 'ambiguous', rows }  -- several possible, ask rather than guess
 //
-// `rows` is every recent intake from this member, whatever its status -- not
-// just the confirmable ones. That matters for the second case below: telling
-// "you named an entry that can no longer be confirmed" apart from "you replied
-// to something that was never a prompt" is only possible if the already-handled
-// entries are still in view.
+//   `bound`   the intake carrying the prompt this confirmation was aimed at,
+//             looked up by (confirm_chat_id, confirm_message_id) -- or null
+//             when nothing was aimed at, or when the database says no such
+//             prompt exists.
+//   `recent`  the member's recent intakes, for the unaddressed case only.
 //
-// `promptMessageId` is the message the member replied to or reacted on, or null
-// when the "yes" was sent on its own. That id is the only thing in a Telegram
-// update that says which entry was meant, so it decides first.
-export function resolveConfirmTarget(rows, chatId, promptMessageId) {
-  const all = rows ?? [];
-
-  if (promptMessageId != null) {
-    const bound = all.find((r) => r.confirm_chat_id === chatId && r.confirm_message_id === promptMessageId);
-    if (bound) {
-      // A reply aimed at a prompt we sent is unambiguous, so it is honoured
-      // even when other entries are also waiting. If that entry is no longer
-      // confirmable -- already approved, or edited in the Inbox until it needs
-      // review -- this stops rather than moving on to another row. The member
-      // named an entry; a different one is not a better answer than none, and
-      // moving on is exactly how the original bug recorded the wrong expense.
-      return isConfirmable(bound) ? { kind: 'one', row: bound } : { kind: 'none' };
-    }
-    // Replied to something that is not one of our prompts at all -- an earlier
-    // message of their own, say, or one older than this window. That carries no
-    // target, so fall through and treat it as an unaddressed "yes".
+// The caller MUST resolve `bound` with a direct lookup, not by searching
+// `recent`. That distinction is the whole correctness argument here, and
+// getting it wrong is how the original bug came back in a narrower form:
+// `recent` is capped and time-windowed, so searching it cannot tell "you
+// replied to something that was never a prompt" apart from "you replied to a
+// prompt I did not happen to fetch". Treating the second as the first falls
+// through to the unaddressed rule and confirms a DIFFERENT entry -- which is
+// precisely QA #2. intake_confirm_prompt_idx exists for that lookup.
+export function resolveConfirmTarget({ bound = null, recent = [] } = {}) {
+  if (bound) {
+    // A reply aimed at a prompt we sent is unambiguous, so it is honoured
+    // however old it is and however many other entries are waiting. If that
+    // entry is no longer confirmable -- already approved, or edited in the
+    // Inbox until it needs review -- this stops rather than moving on to
+    // another row. The member named an entry; a different one is not a better
+    // answer than none.
+    return isConfirmable(bound) ? { kind: 'one', row: bound } : { kind: 'none' };
   }
 
-  const ready = all.filter(isConfirmable);
+  const ready = (recent ?? []).filter(isConfirmable);
   if (ready.length === 0) return { kind: 'none' };
   if (ready.length === 1) return { kind: 'one', row: ready[0] };
   // The case that used to silently pick one. Recency is not evidence about
