@@ -95,16 +95,29 @@ export function portfolioInvestedAndGain(holdings, scopeMemberId) {
   let invested = 0;
   let value = 0;
   let coveredCount = 0;
+  let pending = 0;
   for (const h of holdings) {
     const inv = scopedInvestedValue(h, scopeMemberId);
     if (inv === null) continue;
+    // The same placeholder zero holdingGain refuses to compare against, one
+    // level up -- and the aggregate kept doing exactly what the row was fixed
+    // to stop doing (QA #6). A holding with a real AED 10,000 cost basis and
+    // no valuation yet contributed its whole cost as a loss, so one new
+    // holding made the entire portfolio read -100%.
+    //
+    // Counted rather than silently dropped: a P&L figure that omits a holding
+    // is incomplete, and the caller has to be able to say so.
+    if (isAwaitingFirstValuation(h)) {
+      pending += 1;
+      continue;
+    }
     coveredCount += 1;
     invested += inv;
     value += scopedHoldingValue(h, scopeMemberId);
   }
-  if (coveredCount === 0) return { available: false, invested: 0, absolute: 0, pct: null };
+  if (coveredCount === 0) return { available: false, invested: 0, absolute: 0, pct: null, pending };
   const absolute = value - invested;
-  return { available: true, invested, absolute, pct: invested > 0 ? absolute / invested : null };
+  return { available: true, invested, absolute, pct: invested > 0 ? absolute / invested : null, pending };
 }
 
 export function allocationByClass(holdings, scopeMemberId) {

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { ASSET_CLASS_LABELS } from '../../lib/holdings';
-import { daysSincePriced, historyPointFor, nextPricedAt, todayISODate, valuationChanged } from '../../lib/valuation';
+import { daysSincePriced, historyPointFor, isPendingValuation, nextPricedAt, todayISODate, valueFieldFor, valuationChanged } from '../../lib/valuation';
 import '../money/TransactionEditor.css';
 
 function initialForm(holding) {
@@ -10,7 +10,7 @@ function initialForm(holding) {
       name: holding.name,
       asset_class: holding.asset_class,
       currency: holding.currency ?? 'AED',
-      value_aed: String(holding.value_aed ?? 0),
+      value_aed: valueFieldFor(holding),
       owner: holding.is_shared ? 'shared' : (holding.owner_member_id ?? ''),
       quantity: holding.quantity != null ? String(holding.quantity) : '',
       avg_price: holding.avg_price != null ? String(holding.avg_price) : '',
@@ -81,7 +81,7 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
   // a 100% loss against any cost basis until the first refresh landed -- or
   // permanently, if that refresh failed (QA #6). The stored 0 stays (the
   // column is not null), but nothing is allowed to treat it as a measurement.
-  const pendingValuation = autoValued && form.value_aed.trim() === '';
+  const pendingValuation = isPendingValuation({ holding, valueField: form.value_aed, autoValued });
 
   // Whether this edit touches the numbers at all — drives both the copy above
   // and whether priced_at moves on save.
