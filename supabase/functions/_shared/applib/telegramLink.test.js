@@ -5,6 +5,7 @@ import {
   LINK_ATTEMPT_WINDOW_MS,
   linkAttemptRefusal,
   linkTokenFromMessage,
+  looksLikeLinkToken,
 } from './telegramLink.js';
 
 // QA #8: a six-digit code, live for fifteen minutes, checked against every
@@ -66,5 +67,41 @@ describe('reading a token out of a message', () => {
     expect(linkTokenFromMessage('/start')).toBe('');
     expect(linkTokenFromMessage('')).toBe('');
     expect(linkTokenFromMessage(null)).toBe('');
+  });
+});
+
+// Found auditing the QA #8 fix: every non-empty message from an unlinked
+// sender was counted as a failed attempt, so a new member who said "hi" a few
+// times before generating a token locked themselves out -- and was told "too
+// many incorrect codes" about codes they never entered.
+describe('what counts as a guess at all', () => {
+  it('recognises a real token', () => {
+    expect(looksLikeLinkToken('0f8cb1e4a2d94f6b8c1e2a3b4c5d6e7f')).toBe(true);
+    // gen_random_uuid() renders lowercase, but a copy-paste that upper-cases
+    // is still plainly a guess.
+    expect(looksLikeLinkToken('0F8CB1E4A2D94F6B8C1E2A3B4C5D6E7F')).toBe(true);
+    expect(looksLikeLinkToken('  0f8cb1e4a2d94f6b8c1e2a3b4c5d6e7f  ')).toBe(true);
+  });
+
+  it('does not count ordinary chatter from someone who has no token yet', () => {
+    for (const t of ['hi', 'hello?', 'how do I link this', 'yes', '', null]) {
+      expect(looksLikeLinkToken(t)).toBe(false);
+    }
+  });
+
+  it('does not count a near-miss that could never match a token', () => {
+    // Too short, too long, or not hex: none of these can equal a 32-hex
+    // token, so none of them was ever a guess.
+    expect(looksLikeLinkToken('123456')).toBe(false);
+    expect(looksLikeLinkToken('0f8cb1e4a2d94f6b8c1e2a3b4c5d6e7')).toBe(false);
+    expect(looksLikeLinkToken('0f8cb1e4a2d94f6b8c1e2a3b4c5d6e7ff')).toBe(false);
+    expect(looksLikeLinkToken('zf8cb1e4a2d94f6b8c1e2a3b4c5d6e7f')).toBe(false);
+  });
+
+  it('still counts a token-shaped guess, which is the only thing that could be one', () => {
+    // The throttle loses nothing by ignoring everything else: an attacker has
+    // to send 32 hex characters to have any chance of matching.
+    const guess = linkTokenFromMessage('/start 0f8cb1e4a2d94f6b8c1e2a3b4c5d6e7f');
+    expect(looksLikeLinkToken(guess)).toBe(true);
   });
 });

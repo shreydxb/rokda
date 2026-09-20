@@ -30,7 +30,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { resolveScopeMemberId, scopedValue } from "../_shared/applib/scope.js";
 import { isPrivateChat } from "../_shared/applib/telegramChat.js";
-import { LINK_ATTEMPT_WINDOW_MS, linkAttemptRefusal, linkTokenFromMessage } from "../_shared/applib/telegramLink.js";
+import { LINK_ATTEMPT_WINDOW_MS, linkAttemptRefusal, linkTokenFromMessage, looksLikeLinkToken } from "../_shared/applib/telegramLink.js";
 import {
   ambiguousConfirmMessage,
   isConfirmationText,
@@ -2135,10 +2135,17 @@ Deno.serve(async (req) => {
     const candidate = linkTokenFromMessage(text);
 
     if (candidate) {
-      const blocked = await linkAttemptBlocked(fromId);
-      if (blocked) {
-        await reply(chatId, blocked);
-        return new Response("ok");
+      // Only token-shaped text is a guess, and only a guess is throttled or
+      // counted. Ordinary chatter from somebody who has not generated a token
+      // yet is answered with the instructions below and costs them nothing.
+      const isGuess = looksLikeLinkToken(candidate);
+
+      if (isGuess) {
+        const blocked = await linkAttemptBlocked(fromId);
+        if (blocked) {
+          await reply(chatId, blocked);
+          return new Response("ok");
+        }
       }
 
       const { data: pending } = await supabase
@@ -2178,12 +2185,12 @@ Deno.serve(async (req) => {
         // The token was valid a moment ago and is not now: someone else
         // redeemed it, or it expired between the two statements. Saying so
         // beats claiming a link that does not exist.
-        await recordLinkFailure(fromId);
+        if (isGuess) await recordLinkFailure(fromId);
         await reply(chatId, "That code was just used or has expired. Generate a fresh one in Settings → Household.");
         return new Response("ok");
       }
 
-      await recordLinkFailure(fromId);
+      if (isGuess) await recordLinkFailure(fromId);
     }
     await reply(chatId, "This Telegram account isn't linked to a Rokda household yet. Generate a code in Settings → Household and send it to me.");
     return new Response("ok");
