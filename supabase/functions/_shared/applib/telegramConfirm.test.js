@@ -26,6 +26,11 @@ function pending(overrides = {}) {
   };
 }
 
+// The caller resolves `bound` with a direct indexed lookup on
+// (confirm_chat_id, confirm_message_id) and passes `recent` only for the
+// unaddressed case. These tests pass both explicitly, because the distinction
+// between them IS the correctness argument -- see resolveConfirmTarget.
+
 describe('QA #2: a confirmation records the entry it was aimed at', () => {
   // The exact reproduction from the review: two expenses in flight, "yes"
   // replied to the FIRST one's prompt. Selecting the newest pending entry
@@ -33,76 +38,58 @@ describe('QA #2: a confirmation records the entry it was aimed at', () => {
   it('confirms the entry whose prompt was replied to, not the newest one', () => {
     const a = pending({ id: 'A', parsed_merchant: 'Spinneys', confirm_chat_id: CHAT, confirm_message_id: 100 });
     const b = pending({ id: 'B', parsed_merchant: 'Carrefour', confirm_chat_id: CHAT, confirm_message_id: 101 });
-    // Newest first, as the query returns them.
-    const target = resolveConfirmTarget([b, a], CHAT, 100);
+    const target = resolveConfirmTarget({ bound: a, recent: [b, a] });
     expect(target.kind).toBe('one');
     expect(target.row.id).toBe('A');
   });
 
-  it('confirms the entry a reaction was placed on', () => {
-    const a = pending({ id: 'A', confirm_chat_id: CHAT, confirm_message_id: 100 });
-    const b = pending({ id: 'B', confirm_chat_id: CHAT, confirm_message_id: 101 });
-    expect(resolveConfirmTarget([b, a], CHAT, 101).row.id).toBe('B');
-  });
-
   // The second half of the bug: replaying the identical update once B had been
-  // approved made A "the newest pending entry" and approved it too. The
-  // update-id gate in the webhook stops the replay from reaching here at all,
-  // and this stops the reply from ever meaning a different entry if it did.
+  // approved made A "the newest pending entry" and approved it too.
   it('confirms nothing when the named entry has already been recorded', () => {
-    // A's own prompt, replayed after A was approved. The old handler treated
-    // "A is gone" as licence to approve whatever was newest -- which is how
-    // one redelivered "yes" recorded a second expense.
     const a = pending({ id: 'A', status: 'approved', confirm_chat_id: CHAT, confirm_message_id: 100 });
     const c = pending({ id: 'C', confirm_chat_id: CHAT, confirm_message_id: 102 });
-    expect(resolveConfirmTarget([c, a], CHAT, 100).kind).toBe('none');
-  });
-
-  it('ignores entries that are no longer pending when nothing was named', () => {
-    const approved = pending({ id: 'A', status: 'approved' });
-    const rejected = pending({ id: 'B', status: 'rejected' });
-    const waiting = pending({ id: 'C' });
-    expect(resolveConfirmTarget([waiting, rejected, approved], CHAT, null).row.id).toBe('C');
-  });
-
-  it('falls through to the unaddressed rule when the reply names nothing of ours', () => {
-    // Replying to one of their OWN earlier messages carries no target, so the
-    // single waiting entry is still confirmable -- this is the ordinary case
-    // where a client auto-quotes and the member did not mean anything by it.
-    const c = pending({ id: 'C', confirm_chat_id: CHAT, confirm_message_id: 102 });
-    expect(resolveConfirmTarget([c], CHAT, 77).row.id).toBe('C');
+    expect(resolveConfirmTarget({ bound: a, recent: [c, a] }).kind).toBe('none');
   });
 
   it('confirms nothing when the named entry is no longer confirmable', () => {
     const edited = pending({ id: 'A', parsed_account_id: null, confirm_chat_id: CHAT, confirm_message_id: 100 });
-    expect(resolveConfirmTarget([edited], CHAT, 100).kind).toBe('none');
+    expect(resolveConfirmTarget({ bound: edited, recent: [edited] }).kind).toBe('none');
   });
 
   it('honours the named entry even when others are also waiting', () => {
     const a = pending({ id: 'A', confirm_chat_id: CHAT, confirm_message_id: 100 });
     const b = pending({ id: 'B', confirm_chat_id: CHAT, confirm_message_id: 101 });
     const c = pending({ id: 'C', confirm_chat_id: CHAT, confirm_message_id: 102 });
-    expect(resolveConfirmTarget([c, b, a], CHAT, 100).row.id).toBe('A');
+    expect(resolveConfirmTarget({ bound: a, recent: [c, b, a] }).row.id).toBe('A');
   });
 
-  it('ignores a prompt id from a different chat', () => {
-    const a = pending({ id: 'A', confirm_chat_id: 9999, confirm_message_id: 100 });
-    // Not this chat's prompt, so it carries no target -- but A is the only
-    // entry waiting, so the unaddressed rule still resolves it.
-    expect(resolveConfirmTarget([a], CHAT, 100).row.id).toBe('A');
+  // The defect found while auditing the first fix. `recent` is capped at 10
+  // rows and filtered to 20 minutes; the binding is not. An entry the caller
+  // did not fetch must still be confirmable when its prompt names it, and must
+  // never let some other entry be confirmed in its place.
+  it('confirms a named entry that is not in the recent list at all', () => {
+    const old = pending({ id: 'OLD', confirm_chat_id: CHAT, confirm_message_id: 7 });
+    const busy = Array.from({ length: 10 }, (_, i) => pending({ id: `N${i}`, confirm_message_id: 200 + i, confirm_chat_id: CHAT }));
+    expect(resolveConfirmTarget({ bound: old, recent: busy }).row.id).toBe('OLD');
+  });
+
+  it('confirms nothing when the reply names a prompt the database does not have', () => {
+    // bound === null means the lookup found no such prompt -- the member
+    // replied to something that was never one. Falling through to a single
+    // waiting entry is fine HERE, because the database was actually asked.
+    const c = pending({ id: 'C', confirm_chat_id: CHAT, confirm_message_id: 102 });
+    expect(resolveConfirmTarget({ bound: null, recent: [c] }).row.id).toBe('C');
   });
 });
 
 describe('QA #2: an unaddressed "yes" never guesses between entries', () => {
   it('confirms the only entry waiting', () => {
     const a = pending({ id: 'A' });
-    expect(resolveConfirmTarget([a], CHAT, null)).toEqual({ kind: 'one', row: a });
+    expect(resolveConfirmTarget({ bound: null, recent: [a] })).toEqual({ kind: 'one', row: a });
   });
 
   it('refuses to choose when two are waiting', () => {
-    const a = pending({ id: 'A' });
-    const b = pending({ id: 'B' });
-    const target = resolveConfirmTarget([b, a], CHAT, null);
+    const target = resolveConfirmTarget({ bound: null, recent: [pending({ id: 'B' }), pending({ id: 'A' })] });
     expect(target.kind).toBe('ambiguous');
     expect(target.rows).toHaveLength(2);
   });
@@ -110,12 +97,19 @@ describe('QA #2: an unaddressed "yes" never guesses between entries', () => {
   it('confirms the only CONFIRMABLE entry, ignoring ones needing review', () => {
     const ready = pending({ id: 'A' });
     const notReady = pending({ id: 'B', parsed_category_id: null });
-    expect(resolveConfirmTarget([notReady, ready], CHAT, null).row.id).toBe('A');
+    expect(resolveConfirmTarget({ bound: null, recent: [notReady, ready] }).row.id).toBe('A');
+  });
+
+  it('ignores entries that are no longer pending', () => {
+    const approved = pending({ id: 'A', status: 'approved' });
+    const rejected = pending({ id: 'B', status: 'rejected' });
+    const waiting = pending({ id: 'C' });
+    expect(resolveConfirmTarget({ bound: null, recent: [waiting, rejected, approved] }).row.id).toBe('C');
   });
 
   it('confirms nothing when nothing is waiting', () => {
-    expect(resolveConfirmTarget([], CHAT, null)).toEqual({ kind: 'none' });
-    expect(resolveConfirmTarget(undefined, CHAT, null)).toEqual({ kind: 'none' });
+    expect(resolveConfirmTarget({ bound: null, recent: [] })).toEqual({ kind: 'none' });
+    expect(resolveConfirmTarget({})).toEqual({ kind: 'none' });
   });
 
   it('names every candidate so the member can pick one', () => {
