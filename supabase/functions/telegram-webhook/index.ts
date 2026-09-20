@@ -542,6 +542,39 @@ async function recentIntakes(householdId: string, memberId: string): Promise<Pen
   return (data ?? []) as PendingIntakeRow[];
 }
 
+// The intake whose fast-confirm prompt is THIS message, found by the prompt
+// itself rather than by searching the recent list.
+//
+// This is the lookup intake_confirm_prompt_idx was created for, and for a
+// while nothing performed it: the binding was resolved in memory over
+// recentIntakes(), which is capped at 10 rows and filtered to a 20-minute
+// window. A prompt outside either bound then looked identical to a message
+// that was never a prompt, so the handler fell through to the unaddressed rule
+// and confirmed a DIFFERENT entry -- QA #2 again, in a narrower form. Reproduced
+// by test: reply to a prompt not in the fetched list, and another entry was
+// recorded.
+//
+// No window and no limit here on purpose. A prompt is a prompt however old it
+// is, and the pair is unique enough that age adds nothing. Scoped to the
+// member so one person's reply can never resolve to another's entry.
+async function intakeForPrompt(
+  householdId: string,
+  memberId: string,
+  chatId: number,
+  messageId: number | null
+): Promise<PendingIntakeRow | null> {
+  if (messageId == null) return null;
+  const { data } = await supabase
+    .from("intake")
+    .select(RECENT_INTAKE_COLUMNS)
+    .eq("household_id", householdId)
+    .eq("member_id", memberId)
+    .eq("confirm_chat_id", chatId)
+    .eq("confirm_message_id", messageId)
+    .maybeSingle();
+  return (data as PendingIntakeRow | null) ?? null;
+}
+
 // A word/emoji reply confirming a pending entry, or a 👍/✅ reaction on one of
 // the bot's own prompts (see handleReaction below) -- both routes land in
 // confirmPendingIntake below, so there is exactly one place that calls
@@ -651,8 +684,11 @@ async function handleReaction(reaction: Record<string, unknown>): Promise<Respon
   // this route can always be exact. A 👍 on a message that isn't one of our
   // fast-confirm prompts confirms nothing at all now -- it used to approve
   // whatever was newest (QA #2).
-  const recentRows = await recentIntakes(member.household_id, member.id);
-  const target = resolveConfirmTarget(recentRows, chatId, messageId ?? null);
+  const [bound, recentRows] = await Promise.all([
+    intakeForPrompt(member.household_id, member.id, chatId, messageId ?? null),
+    recentIntakes(member.household_id, member.id),
+  ]);
+  const target = resolveConfirmTarget({ bound, recent: recentRows });
   if (target.kind === "one") await confirmPendingIntake(chatId, member.household_id, target.row);
   else if (target.kind === "ambiguous") await reply(chatId, ambiguousConfirmMessage(target.rows));
   return new Response("ok");
@@ -2172,7 +2208,8 @@ Deno.serve(async (req) => {
     const trimmedText = rawText.trim();
     if (isConfirmationText(trimmedText)) {
       const repliedTo = (message.reply_to_message as { message_id?: number } | undefined)?.message_id ?? null;
-      const target = resolveConfirmTarget(recentRows, chatId, repliedTo);
+      const bound = await intakeForPrompt(member.household_id, member.id, chatId, repliedTo);
+      const target = resolveConfirmTarget({ bound, recent: recentRows });
       if (target.kind === "one") {
         await confirmPendingIntake(chatId, member.household_id, target.row);
         return new Response("ok");
