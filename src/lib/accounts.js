@@ -99,6 +99,31 @@ export function isAccountValued(account) {
   return accountValueAed(account) !== null;
 }
 
+// The open accounts whose AED value nobody knows. Any total built from
+// accounts is incomplete by exactly this much, and the whole point of QA #4 is
+// that "incomplete" has to travel with the number rather than being discarded
+// at the first caller: a total that quietly omits an unconverted loan reads as
+// the complete picture, and is wrong in the direction that flatters.
+//
+// Closed accounts are excluded, matching every other current-position figure:
+// they are not part of what the household holds today, so a missing conversion
+// on one is not a gap in today's total.
+export function unvaluedAccounts(accounts = []) {
+  return accounts.filter((a) => !isArchived(a) && !isAccountValued(a));
+}
+
+// The one sentence every screen uses for that gap, so Overview, Wealth,
+// Forecast and the bot describe the same condition the same way instead of
+// each inventing wording (or, worse, each choosing differently what to
+// mention).
+export function unvaluedNote(count, { capitalised = true } = {}) {
+  if (!count) return null;
+  const noun = count === 1 ? 'account' : 'accounts';
+  const verb = count === 1 ? 'has' : 'have';
+  const lead = capitalised ? 'Excludes' : 'excludes';
+  return `${lead} ${count} ${noun} in another currency that ${verb} no AED conversion yet.`;
+}
+
 // A fixed deposit's balance is derived: compute_account_derived_fields()
 // calculates it from principal, rate and dates, and the daily fd-accrual job
 // touches every active FD so that trigger recomputes it against today. There

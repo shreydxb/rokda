@@ -45,6 +45,17 @@ export default function MemberEditor({ member, householdId, isSelf, isLastOwner,
 
   const nameError = displayName.trim() === '' ? 'Name it.' : '';
 
+  // Owner is an administrative grant, and the database resolves it through the
+  // member's linked auth user (is_household_owner). A row with no login cannot
+  // be that person, so making one an owner produced a household with an owner
+  // nobody could sign in as -- and no way back, since only an owner can repair
+  // the roster (QA #3). The database refuses it now; the chip stops offering
+  // it, so the refusal is not the first anyone hears of it.
+  //
+  // A member with no login loses nothing else by this: what they can OWN --
+  // accounts, transactions, goals -- is a different column entirely.
+  const canBeOwner = !!member?.user_id;
+
   async function handleSave(e) {
     e.preventDefault();
     if (nameError) {
@@ -124,7 +135,7 @@ export default function MemberEditor({ member, householdId, isSelf, isLastOwner,
                   type="button"
                   className="om-seg"
                   data-active={role === r}
-                  disabled={isLastOwner}
+                  disabled={isLastOwner || (r === 'owner' && !canBeOwner)}
                   onClick={() => {
                     setRole(r);
                     setDirty(true);
@@ -140,10 +151,16 @@ export default function MemberEditor({ member, householdId, isSelf, isLastOwner,
               This is the only owner — add another owner before changing this one to a member.
             </div>
           )}
+          {!isLastOwner && !canBeOwner && (
+            <div className="ov-muted" style={{ fontSize: 11.5, marginTop: -10 }}>
+              Owner is unavailable until they have a login — an owner administers the household, which means signing in.
+            </div>
+          )}
 
           {member && !member.user_id && (
             <div className="ov-muted" style={{ fontSize: 11.5 }}>
-              Not linked to a login yet. They can still be assigned as an owner of accounts, transactions, and goals.
+              Not linked to a login yet. They can still be the owner of accounts, transactions and goals — that is separate from
+              the household role above.
             </div>
           )}
 
@@ -154,9 +171,26 @@ export default function MemberEditor({ member, householdId, isSelf, isLastOwner,
                 {member.telegram_user_id ? (
                   <div className="ov-muted" style={{ fontSize: 12.5 }}>Linked.</div>
                 ) : linkCode ? (
+                  // The code used to be six digits, which a stranger could
+                  // guess inside its fifteen-minute life. It is now a 122-bit
+                  // token (QA #8), so it is copied rather than read out --
+                  // hence the block layout, the wrap, and the copy button.
                   <div className="ov-muted" style={{ fontSize: 12.5, lineHeight: 1.7 }}>
-                    Send <span className="fig" style={{ fontSize: 15, color: 'var(--ink)' }}>{linkCode}</span> to the bot within 15
-                    minutes to link this member.
+                    <div
+                      className="fig"
+                      style={{ fontSize: 12.5, color: 'var(--ink)', wordBreak: 'break-all', userSelect: 'all', marginBottom: 6 }}
+                    >
+                      {linkCode}
+                    </div>
+                    <button
+                      type="button"
+                      className="om-btn"
+                      onClick={() => navigator.clipboard?.writeText(linkCode)}
+                      style={{ marginBottom: 6 }}
+                    >
+                      Copy
+                    </button>
+                    <div>Send it to the bot within 15 minutes to link this member. It works once.</div>
                   </div>
                 ) : (
                   <>

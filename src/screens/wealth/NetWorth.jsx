@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId, scopedValue } from '../../lib/scope';
-import { isArchived } from '../../lib/accounts';
+import { accountValueAed, isArchived, unvaluedAccounts, unvaluedNote } from '../../lib/accounts';
 import { balanceStatus, unconfirmedAccounts } from '../../lib/balance';
 import { closeRowFor, historyState, pendingClose } from '../../lib/snapshots';
 import { supabase } from '../../lib/supabaseClient';
@@ -22,7 +22,13 @@ function buildComposition(assetRows, holdingRows, scopeMemberId) {
   const totals = new Map();
   for (const a of assetRows) {
     const label = isLiquidAccount(a) ? 'Cash' : (a.type ?? 'Other');
-    const value = balanceStatus(a) === 'unset' ? 0 : scopedValue(a.balance_aed ?? a.balance, a, scopeMemberId);
+    // An unconverted foreign balance contributes nothing to the allocation
+    // bar rather than contributing its native number as though it were
+    // dirhams -- the bar is proportions of an AED total, and a rupee figure
+    // in it silently rescales every other slice (QA #4). The hero above says
+    // the total is incomplete, which covers the bar too.
+    const aed = accountValueAed(a);
+    const value = balanceStatus(a) === 'unset' || aed === null ? 0 : scopedValue(aed, a, scopeMemberId);
     totals.set(label, (totals.get(label) ?? 0) + value);
   }
   for (const h of holdingRows) {
@@ -68,14 +74,20 @@ export default function NetWorth({ household, me, members, data, loading }) {
   const visibleHoldingRows = visibleHoldings(holdings, scopeMemberId);
   // Totals come from the shared basis rather than a parallel calculation, so
   // Wealth, Overview and Forecast cannot drift apart (QA-03). That basis
-  // (overviewMath.netWorthSummary) already reads balance_aed with a
-  // balance fallback, so a non-AED account still converts correctly here.
+  // (overviewMath.netWorthSummary) skips an account whose AED value is
+  // unknown -- it does NOT fall back to the native amount -- and reports how
+  // many it skipped, which is what `unvalued` below surfaces (QA #4).
   const unconfirmed = unconfirmedAccounts(visible);
   const composition = useMemo(
     () => buildComposition(assetRows, visibleHoldingRows, scopeMemberId),
     [assetRows, visibleHoldingRows, scopeMemberId]
   );
   const summary = useMemo(() => netWorthSummary(accounts, scopeMemberId, holdings), [accounts, scopeMemberId, holdings]);
+  // Memoised rather than computed inline: the React Compiler cannot prove an
+  // imported call on `visible` leaves it alone, and bails out of optimising
+  // this whole component if one sits loose among the derived arrays that the
+  // memos above depend on.
+  const unvalued = useMemo(() => unvaluedAccounts(visible), [visible]);
   const liveAssets = summary.assets;
   const liveLiabilities = summary.liabilities;
   const netWorth = summary.netWorth;
@@ -175,6 +187,13 @@ export default function NetWorth({ household, me, members, data, loading }) {
               <div className="ov-muted" style={{ marginTop: 6, fontSize: 12 }}>
                 Provisional — {unconfirmed.length} account{unconfirmed.length === 1 ? '' : 's'} without a confirmed balance{' '}
                 {unconfirmed.length === 1 ? 'is' : 'are'} counted as zero.
+              </div>
+            )}
+            {/* Not the same as provisional: these are not counted as zero,
+                they are not in the total at all (QA #4). */}
+            {unvalued.length > 0 && (
+              <div className="ov-warn" style={{ marginTop: 6, fontSize: 12 }}>
+                Incomplete — {unvaluedNote(unvalued.length, { capitalised: false })} ({unvalued.map((a) => a.name).join(', ')})
               </div>
             )}
             <div className="ov-strip">
@@ -295,6 +314,17 @@ export default function NetWorth({ household, me, members, data, loading }) {
               These start from today's live totals — edit them if they don't reflect that month's actual position. Stored
               values are always AED, regardless of the display currency above.
             </div>
+            {/* A month-end close is written down and compared against for
+                years. Starting it from a total that silently omits an
+                unconverted account bakes that omission into the history
+                (QA #4), so the gap is named here rather than only on the
+                hero above. */}
+            {unvalued.length > 0 && (
+              <div className="ov-warn" style={{ marginBottom: 10, fontSize: 12 }}>
+                These totals {unvaluedNote(unvalued.length, { capitalised: false })} Convert{' '}
+                {unvalued.map((a) => a.name).join(', ')} first, or adjust the figures by hand.
+              </div>
+            )}
             <div className="te-fieldgrid">
               <div className="te-fieldcell">
                 <span className="te-fieldlabel">Assets (AED)</span>
@@ -448,8 +478,12 @@ function AccountList({ rows, scopeMemberId, members, money, negative }) {
             {negative ? '−' : ''}
             {balanceStatus(a) === 'unset' ? (
               <span className="ov-muted">Not set</span>
+            ) : accountValueAed(a) === null ? (
+              <span className="ov-muted">
+                {a.currency} {Number(a.balance ?? 0).toLocaleString('en-AE')} · not converted
+              </span>
             ) : (
-              money.fmtBalance(scopedValue(a.balance_aed ?? a.balance, a, scopeMemberId))
+              money.fmtBalance(scopedValue(accountValueAed(a), a, scopeMemberId))
             )}
           </div>
         </div>

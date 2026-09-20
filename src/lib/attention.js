@@ -7,6 +7,7 @@ import { daysSincePriced, isStale } from './valuation';
 import { parseDay } from './day';
 import { daysUntilDue, nextDueDate } from './creditCard';
 import { balanceStatus } from './balance';
+import { accountValueAed } from './accounts';
 
 function startOfDay(d) {
   const nd = new Date(d);
@@ -76,8 +77,14 @@ function cardDueItems(accounts, scopeMemberId, now) {
     if (a.archived_at != null) continue; // closed card: nothing to chase
     if (!(scopeMemberId === null || a.is_shared || a.owner_member_id === scopeMemberId)) continue;
     if (!a.due_day) continue; // not set yet — nothing honest to say
-    const balance = scopedValue(a.balance_aed ?? a.balance, a, scopeMemberId);
-    if (balance <= 0) continue; // nothing owed
+    // A card in another currency with no AED conversion: `balance_aed ??
+    // balance` used to report the native number as dirhams owed (QA #4).
+    // There is nothing honest to say about the amount, so the item says that
+    // instead of a figure -- the due date is still worth chasing.
+    const aed = accountValueAed(a);
+    const balance = aed === null ? null : scopedValue(aed, a, scopeMemberId);
+    if (balance !== null && balance <= 0) continue; // nothing owed
+    if (balance === null && Number(a.balance ?? 0) <= 0) continue; // nothing owed in its own currency either
 
     // Shared with the cards panel, and clamped to the month's length so a card
     // due on the 31st is due on 28 February (QA-07).
@@ -90,7 +97,10 @@ function cardDueItems(accounts, scopeMemberId, now) {
       kind: 'card_due',
       severity: 'urgent',
       title: `${a.name} payment due ${daysUntil <= 0 ? 'today' : `in ${daysUntil}d`}`,
-      detail: `Due ${due.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} · AED ${balance.toLocaleString('en-AE')} owed, nothing recorded paid yet`,
+      detail:
+        balance === null
+          ? `Due ${due.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} · ${a.currency} ${Number(a.balance ?? 0).toLocaleString('en-AE')} owed, not converted to AED, nothing recorded paid yet`
+          : `Due ${due.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} · AED ${balance.toLocaleString('en-AE')} owed, nothing recorded paid yet`,
     });
   }
   return items;

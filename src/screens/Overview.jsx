@@ -23,6 +23,7 @@ import {
 import { parseDay } from '../lib/day';
 import { anyFailed } from '../lib/loadState';
 import { balanceStatus, unconfirmedAccounts } from '../lib/balance';
+import { accountValueAed, unvaluedNote } from '../lib/accounts';
 import LoadFailure from './LoadFailure';
 import './Overview.css';
 
@@ -196,6 +197,16 @@ export default function Overview() {
               <div className="ov-muted" style={{ marginTop: 6, fontSize: 12 }}>
                 Provisional — {unconfirmed.length} account{unconfirmed.length === 1 ? '' : 's'} without a confirmed balance{' '}
                 {unconfirmed.length === 1 ? 'is' : 'are'} counted as zero.
+              </div>
+            )}
+            {/* Separate from "provisional", and separate on purpose: an
+                account with no AED conversion is not counted as zero, it is
+                not counted at all. netWorthSummary has always returned that
+                count; nothing used to read it, so an unconverted loan simply
+                vanished from a total that still looked complete (QA #4). */}
+            {netWorthTrustworthy && nw.unvalued > 0 && (
+              <div className="ov-warn" style={{ marginTop: 6, fontSize: 12 }}>
+                Incomplete — {unvaluedNote(nw.unvalued, { capitalised: false })}
               </div>
             )}
             {scope === 'both' && (nwChange1mo || nwChange12mo) && (
@@ -536,14 +547,19 @@ export default function Overview() {
                       <div className={`fig ov-list-amt ${a.type === 'credit_card' || a.type === 'loan' ? 'ov-neg' : ''}`}>
                         {balanceStatus(a) === 'unset' ? (
                           <span className="ov-muted">Not set</span>
+                        ) : accountValueAed(a) === null ? (
+                          // A foreign balance with no conversion. Printing it
+                          // under the AED heading -- which `balance_aed ??
+                          // balance` did -- turned INR 20,000 into "AED
+                          // 20,000" right next to a headline that had excluded
+                          // it entirely (QA #4).
+                          <span className="ov-muted">{a.currency} {Number(a.balance ?? 0).toLocaleString('en-AE')} · not converted</span>
                         ) : (
                           // A liability reduces the position, so it is shown
                           // negative — by negating the value, not by prefixing
                           // a sign that could double up on an overpaid card.
                           money.fmtBalance(
-                            a.type === 'credit_card' || a.type === 'loan'
-                              ? -Number(a.balance_aed ?? a.balance)
-                              : Number(a.balance_aed ?? a.balance),
+                            a.type === 'credit_card' || a.type === 'loan' ? -accountValueAed(a) : accountValueAed(a),
                           )
                         )}
                       </div>

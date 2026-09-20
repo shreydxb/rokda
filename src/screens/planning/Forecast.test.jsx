@@ -111,6 +111,48 @@ describe('QA-03: Forecast renders every input state', () => {
     renderForecast({ accounts: [confirmed], transactions: closedMonthTransactions(now), holdings: [HOLDING] });
     expect(screen.queryByText(/provisional/i)).toBeNull();
   });
+
+  // QA #4: the reproduction from that review. A confirmed foreign loan with
+  // no AED conversion is skipped by startingNetWorth, and every existing check
+  // on this screen passed -- the basis was not null, and nothing was
+  // unconfirmed -- so a projection ran from a net worth with a debt missing
+  // from it and said nothing.
+  it('says the basis is incomplete when an account has no AED conversion', () => {
+    const confirmed = { ...ACCOUNT, balance_as_of: '2026-09-01T00:00:00Z', balance_aed: 50_000, currency: 'AED' };
+    const foreignLoan = {
+      id: 'l1',
+      name: 'India home loan',
+      type: 'loan',
+      currency: 'INR',
+      balance: 500_000,
+      balance_aed: null,
+      balance_as_of: '2026-09-01T00:00:00Z',
+      is_shared: true,
+      archived_at: null,
+    };
+    renderForecast({ accounts: [confirmed, foreignLoan], transactions: closedMonthTransactions(now), holdings: [HOLDING] });
+    expect(screen.getByText(/no AED conversion/i)).toBeTruthy();
+    // And it is not merely relabelling the old warning: nothing here is
+    // unconfirmed, so "provisional" would never have fired.
+    expect(screen.queryByText(/balances not confirmed/i)).toBeNull();
+  });
+
+  it('drops the incomplete note once the conversion exists', () => {
+    const confirmed = { ...ACCOUNT, balance_as_of: '2026-09-01T00:00:00Z', balance_aed: 50_000, currency: 'AED' };
+    const converted = {
+      id: 'l1',
+      name: 'India home loan',
+      type: 'loan',
+      currency: 'INR',
+      balance: 500_000,
+      balance_aed: 21_000,
+      balance_as_of: '2026-09-01T00:00:00Z',
+      is_shared: true,
+      archived_at: null,
+    };
+    renderForecast({ accounts: [confirmed, converted], transactions: closedMonthTransactions(now), holdings: [HOLDING] });
+    expect(screen.queryByText(/no AED conversion/i)).toBeNull();
+  });
 });
 
 describe('Forecast scenario picker', () => {

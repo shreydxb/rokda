@@ -75,6 +75,14 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
   // price into a total value.
   const autoValued = !!form.price_provider && form.quantity.trim() !== '' && ['AED', 'USD', 'INR'].includes((form.currency || '').toUpperCase());
 
+  // An auto-valued holding whose value field is blank because it is disabled
+  // and nothing has priced it yet. `Number('') || 0` turned that into a
+  // confirmed zero: stamped priced_at, wrote a zero history point, and showed
+  // a 100% loss against any cost basis until the first refresh landed -- or
+  // permanently, if that refresh failed (QA #6). The stored 0 stays (the
+  // column is not null), but nothing is allowed to treat it as a measurement.
+  const pendingValuation = autoValued && form.value_aed.trim() === '';
+
   // Whether this edit touches the numbers at all — drives both the copy above
   // and whether priced_at moves on save.
   const repricing =
@@ -115,12 +123,20 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
     // or a reload does neither, so a stale holding stays stale (QA-04).
     const repriced = !holding || valuationChanged(holding, valuation);
     const explicitlyConfirmed = !repriced && holding && confirmUnchanged;
-    const nextPriced = repriced
-      ? nextPricedAt(holding, valuation, { confirmedAsOf: asOf })
-      : explicitlyConfirmed
-        ? nextPricedAt(holding, holding, { confirmedAsOf: asOf })
-        : (holding?.priced_at ?? null);
-    const writesHistory = repriced || explicitlyConfirmed;
+    // A pending valuation confirms nothing, so it moves no date and records no
+    // history point. priced_at stays null, which every reader already treats
+    // as "never valued" -- the staleness banner, the editor's own copy, and
+    // now holdingGain (QA #6). The price feed sets it on the first successful
+    // refresh, and a failed refresh correctly leaves it unset rather than
+    // leaving a fresh-looking zero behind.
+    const nextPriced = pendingValuation
+      ? null
+      : repriced
+        ? nextPricedAt(holding, valuation, { confirmedAsOf: asOf })
+        : explicitlyConfirmed
+          ? nextPricedAt(holding, holding, { confirmedAsOf: asOf })
+          : (holding?.priced_at ?? null);
+    const writesHistory = !pendingValuation && (repriced || explicitlyConfirmed);
     const payload = {
       household_id: householdId,
       name: form.name.trim(),
@@ -228,13 +244,15 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
                 value={form.value_aed}
                 onChange={(e) => set('value_aed', e.target.value)}
                 disabled={autoValued}
-                placeholder="0"
+                placeholder={autoValued ? 'Awaiting first price' : '0'}
               />
             </div>
           </div>
           <div className="ov-muted" style={{ fontSize: 11.5, marginTop: -10 }}>
             {autoValued
-              ? 'Auto-computed daily from units × live price × FX, so this field is not editable here.'
+              ? pendingValuation
+                ? 'Auto-computed daily from units × live price × FX. Saving now records the holding with no value yet — it stays "not valued" until the first price refresh succeeds, rather than being recorded as worth zero.'
+                : 'Auto-computed daily from units × live price × FX, so this field is not editable here.'
               : 'Value is entered in AED directly — no live FX conversion.'}
           </div>
 

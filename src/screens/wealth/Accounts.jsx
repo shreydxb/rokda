@@ -3,7 +3,7 @@ import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
 import { formatPct } from '../../lib/money';
 import { utilisation, estimatedStatement, billingCycle, daysUntilDue } from '../../lib/creditCard';
-import { activeAccounts, archivedAccounts, closurePlan, isArchived } from '../../lib/accounts';
+import { accountValueAed, activeAccounts, archivedAccounts, closurePlan, isArchived } from '../../lib/accounts';
 import { balanceLabel, balanceStatus } from '../../lib/balance';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { supabase } from '../../lib/supabaseClient';
@@ -211,9 +211,20 @@ function AccountRow({ account, members, money, onEdit, action }) {
         <div className="mn-row-amt" style={{ textAlign: 'right' }}>
           {status === 'unset' ? (
             <span className="ov-muted">Set balance</span>
+          ) : accountValueAed(account) === null ? (
+            // No AED conversion yet. Showing the native amount under an AED
+            // label -- which `balance_aed ?? balance` did -- is the one
+            // outcome worse than showing nothing (QA #4): it reads as a
+            // dirham figure and is off by the exchange rate.
+            <>
+              <div className="fig">
+                {account.currency} {Number(account.balance ?? 0).toLocaleString('en-AE')}
+              </div>
+              <div className="ov-warn" style={{ fontSize: 11 }}>Not converted to AED</div>
+            </>
           ) : (
             <>
-              <div className="fig">{money.fmtBalance(account.balance_aed ?? account.balance)}</div>
+              <div className="fig">{money.fmtBalance(accountValueAed(account))}</div>
               {note && <div className="ov-muted" style={{ fontSize: 11 }}>{note}</div>}
             </>
           )}

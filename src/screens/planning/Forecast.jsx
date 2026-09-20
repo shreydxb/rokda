@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatBalance, formatMoney, formatPct } from '../../lib/money';
 import { startingNetWorth } from '../overviewMath';
-import { isArchived } from '../../lib/accounts';
+import { isArchived, unvaluedAccounts } from '../../lib/accounts';
 import { unconfirmedAccounts } from '../../lib/balance';
 import { closedMonths, crossingYear, fiTarget, forecastInputs, projectSeries, realReturn, goalAt, scenarioSets } from '../../lib/forecast';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
@@ -49,6 +49,15 @@ export default function Forecast({ household, accounts = [], transactions = [], 
     () => unconfirmedAccounts((accounts ?? []).filter((a) => !isArchived(a))).length > 0,
     [accounts],
   );
+  // A different kind of doubt again, and the one this screen used to miss
+  // entirely (QA #4). "Provisional" means a number nobody has re-checked
+  // lately. This means a number that is not in the basis AT ALL: an account
+  // in another currency with no AED conversion is skipped by
+  // startingNetWorth, so a household with AED 100 in savings and an
+  // unconverted foreign loan projected from 100 with no hint that a debt was
+  // dropped. Confirming that loan's balance does nothing about it, which is
+  // why the provisional flag never fired.
+  const unvaluedCount = useMemo(() => unvaluedAccounts(accounts ?? []).length, [accounts]);
   const monthCount = closedMonths(transactions, now).size;
   const inputs = useMemo(() => forecastInputs(transactions, startNetWorth, now), [transactions, startNetWorth, now]);
 
@@ -88,7 +97,13 @@ export default function Forecast({ household, accounts = [], transactions = [], 
           >
             <span>Starting net worth</span>
             <span className="ov-muted">
-              {startNetWorth === null ? 'needs one account valuation' : basisProvisional ? 'provisional · balances not confirmed' : 'known'}
+              {startNetWorth === null
+                ? 'needs one account valuation'
+                : unvaluedCount > 0
+                  ? `incomplete · ${unvaluedCount} account${unvaluedCount === 1 ? '' : 's'} with no AED conversion`
+                  : basisProvisional
+                    ? 'provisional · balances not confirmed'
+                    : 'known'}
             </span>
           </div>
         </div>
@@ -268,6 +283,8 @@ export default function Forecast({ household, accounts = [], transactions = [], 
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10, fontSize: 12, color: 'var(--ink3)', flexWrap: 'wrap', gap: 12 }}>
             <span>
               <span style={{ color: 'var(--ink)' }}>{formatPct(pct)}</span> of the way there · {money.fmtBalance(startNetWorth)} today
+              {unvaluedCount > 0 &&
+                ` · incomplete, ${unvaluedCount} account${unvaluedCount === 1 ? '' : 's'} in another currency with no AED conversion`}
               {basisProvisional && ' · provisional, some balances are unconfirmed'}
             </span>
             {leanTarget && (

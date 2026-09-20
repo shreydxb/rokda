@@ -5,7 +5,11 @@ create table cron.job (
   jobid bigint generated always as identity primary key,
   jobname text unique,
   schedule text not null,
-  command text not null
+  command text not null,
+  -- Real pg_cron has this, and a job can be scheduled, correctly aimed and
+  -- switched off. scripts/verify-cron-targets.sql checks for exactly that, so
+  -- the stand-in needs the column or the check cannot run offline.
+  active boolean not null default true
 );
 
 create function cron.schedule(job_name text, schedule text, command text)

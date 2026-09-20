@@ -27,6 +27,21 @@ export function valuationChanged(before, after) {
   return VALUATION_FIELDS.some((field) => numeric(before?.[field]) !== numeric(after?.[field]));
 }
 
+// A holding nothing has ever put a number on. holdings.value_aed is `not null
+// default 0`, so a row created before its first price refresh stores a zero
+// that nobody asserted -- and a zero that means "unknown" is not the same fact
+// as a zero that means "this is worth nothing" (QA #6). priced_at is what
+// tells them apart: it is set only when a valuation is actually confirmed, by
+// a person or by the price feed, and it was backfilled for every legacy row
+// (see docs/holdings-priced-at-migration.md), so null here really does mean
+// never.
+//
+// Callers must not present the stored 0 as a measurement: no gain against a
+// cost basis, no history point, no "valued today".
+export function isAwaitingFirstValuation(holding) {
+  return !!holding && holding.priced_at == null;
+}
+
 export function daysSincePriced(holding, now = new Date()) {
   if (!holding?.priced_at) return null;
   return Math.floor((now - new Date(holding.priced_at)) / 86400000);

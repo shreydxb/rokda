@@ -332,6 +332,224 @@ begin
   raise notice 'QA-§7 ok: removing a member nulls the owner and keeps household_id';
 end $$;
 
+-- QA #3: an owner whose login goes away must not stay an owner.
+--
+-- household_members.user_id is `on delete set null`, so deleting an auth user
+-- rewrites the roster row with nobody asking. The row used to keep
+-- role = 'owner' while losing the only thing is_household_owner() resolves it
+-- through -- a label pointing at no one, which the last-owner trigger happily
+-- counts as an owner.
+--
+-- Deleting one of two owners' accounts demotes that row, because the household
+-- can afford to lose it. Deleting the last owner's account is refused outright,
+-- because it cannot.
+do $$
+declare role_now text; owners_with_login int;
+begin
+  insert into households (id, name) values ('aaaaaaaa-0000-0000-0000-00000000000b', 'Unlink test');
+  insert into auth.users (id, email) values
+    ('aaaaaaaa-1111-0000-0000-00000000000c', 'first@example.test'),
+    ('aaaaaaaa-1111-0000-0000-00000000000d', 'second@example.test');
+  insert into household_members (id, household_id, display_name, role, user_id) values
+    ('aaaaaaaa-2222-0000-0000-00000000000c', 'aaaaaaaa-0000-0000-0000-00000000000b', 'First', 'owner', 'aaaaaaaa-1111-0000-0000-00000000000c'),
+    ('aaaaaaaa-2222-0000-0000-00000000000d', 'aaaaaaaa-0000-0000-0000-00000000000b', 'Second', 'owner', 'aaaaaaaa-1111-0000-0000-00000000000d');
+
+  delete from auth.users where id = 'aaaaaaaa-1111-0000-0000-00000000000d';
+
+  select role into role_now from household_members where id = 'aaaaaaaa-2222-0000-0000-00000000000d';
+  if role_now <> 'member' then
+    raise exception 'QA-#3 FAILED: an owner whose login was deleted is still role %', role_now;
+  end if;
+
+  select count(*) into owners_with_login from household_members
+  where household_id = 'aaaaaaaa-0000-0000-0000-00000000000b' and role = 'owner' and user_id is not null;
+  if owners_with_login <> 1 then
+    raise exception 'QA-#3 FAILED: % owners can sign in, expected 1', owners_with_login;
+  end if;
+
+  -- Now the same deletion for the LAST owner. There is nobody to fall back to,
+  -- so the account deletion itself must fail -- with the ownership message,
+  -- not a constraint nobody deleting an account has heard of.
+  begin
+    delete from auth.users where id = 'aaaaaaaa-1111-0000-0000-00000000000c';
+    raise exception 'QA-#3 FAILED: deleting the last owner''s login left the household ownerless';
+  exception
+    when check_violation then null;
+  end;
+
+  select count(*) into owners_with_login from household_members
+  where household_id = 'aaaaaaaa-0000-0000-0000-00000000000b' and role = 'owner' and user_id is not null;
+  if owners_with_login <> 1 then
+    raise exception 'QA-#3 FAILED: the household ended with % signed-in owners, expected 1', owners_with_login;
+  end if;
+  raise notice 'QA-#3 ok: losing a login demotes the row; losing the last owner''s login is refused';
+end $$;
+
+-- QA #3: the label and the login cannot be separated by hand either.
+do $$
+begin
+  begin
+    insert into household_members (household_id, display_name, role, user_id)
+    values ('aaaaaaaa-0000-0000-0000-00000000000b', 'Unloggable', 'owner', null);
+    raise exception 'QA-#3 FAILED: an owner row with no login was inserted';
+  exception
+    when check_violation then null;
+  end;
+
+  begin
+    update household_members set user_id = null
+    where id = 'aaaaaaaa-2222-0000-0000-00000000000c';
+    raise exception 'QA-#3 FAILED: the last owner unlinked their own login';
+  exception
+    when check_violation then null;
+  end;
+  raise notice 'QA-#3 ok: an owner row cannot be created or edited into having no login';
+end $$;
+
+-- QA #7: the scheduled jobs the migrations create must at least be well formed.
+--
+-- The pg_cron/pg_net stubs record a job and never execute its body, so nothing
+-- here proves the HTTP call succeeds -- that needs the real project, and a
+-- successful pg_cron dispatch is not proof of downstream HTTP success even
+-- there. What this does prove is the part that is decidable offline and was
+-- checked by nothing: that each job exists, on the schedule intended, calling
+-- the endpoint intended, carrying the authentication that endpoint requires.
+--
+-- Worth having because every one of those can be broken silently. The webhook
+-- rejects any request without its shared secret, and the price function is
+-- behind JWT verification: drop either header while editing these migrations
+-- and cron keeps dispatching happily while the far end 401s every night.
+do $$
+declare cmd text; sched text;
+begin
+  select command, schedule into cmd, sched from cron.job where jobname = 'weekday-price-refresh';
+  if cmd is null then raise exception 'QA-#7 FAILED: the migrations do not create weekday-price-refresh'; end if;
+  if sched <> '0 23 * * 0,1,2,3,4' then
+    raise exception 'QA-#7 FAILED: weekday-price-refresh runs on %, expected weekdays at 23:00', sched;
+  end if;
+  if position('/functions/v1/price-refresh' in cmd) = 0 then
+    raise exception 'QA-#7 FAILED: weekday-price-refresh does not call the price-refresh function';
+  end if;
+  -- price-refresh is deployed with verify_jwt = true (supabase/config.toml),
+  -- so the job must present a bearer token, and it must come from the vault
+  -- rather than being pasted into the migration.
+  if position('Authorization' in cmd) = 0 or position('vault.decrypted_secrets' in cmd) = 0 then
+    raise exception 'QA-#7 FAILED: weekday-price-refresh does not authenticate from the vault';
+  end if;
+
+  -- QA #1: this one existed only in production. It was scheduled by hand and
+  -- was in no migration, so a rebuilt project never accrued fixed-deposit
+  -- interest -- silently, because the app keeps working and the numbers just
+  -- stop moving.
+  select command, schedule into cmd, sched from cron.job where jobname = 'daily-fd-accrual';
+  if cmd is null then raise exception 'QA-#1 FAILED: the migrations do not create daily-fd-accrual'; end if;
+  if sched <> '0 23 * * *' then
+    raise exception 'QA-#1 FAILED: daily-fd-accrual runs on %, expected daily at 23:00', sched;
+  end if;
+  if position('/functions/v1/fd-accrual' in cmd) = 0 then
+    raise exception 'QA-#1 FAILED: daily-fd-accrual does not call the fd-accrual function';
+  end if;
+  if position('Authorization' in cmd) = 0 or position('vault.decrypted_secrets' in cmd) = 0 then
+    raise exception 'QA-#1 FAILED: daily-fd-accrual does not authenticate from the vault';
+  end if;
+
+  select command, schedule into cmd, sched from cron.job where jobname = 'daily-recurring-nudge-check';
+  if cmd is null then raise exception 'QA-#7 FAILED: the migrations do not create daily-recurring-nudge-check'; end if;
+  if sched <> '0 5 * * *' then
+    raise exception 'QA-#7 FAILED: daily-recurring-nudge-check runs on %, expected daily at 05:00', sched;
+  end if;
+  if position('run_recurring_check=1' in cmd) = 0 then
+    raise exception 'QA-#7 FAILED: daily-recurring-nudge-check does not call the recurring-check route';
+  end if;
+  -- The webhook checks this header before parsing anything; without it every
+  -- nightly run is rejected and nothing says so.
+  if position('X-Telegram-Bot-Api-Secret-Token' in cmd) = 0 then
+    raise exception 'QA-#7 FAILED: daily-recurring-nudge-check sends no shared secret';
+  end if;
+
+  raise notice 'QA-#7/#1 ok: all three scheduled jobs are created by migrations, well formed and authenticated';
+end $$;
+
+-- QA #8: the link token must come from somewhere unguessable.
+--
+-- It was `lpad(floor(random() * 1000000)::text, 6, '0')` -- one of a million
+-- values, from a PRNG that is not meant to be unpredictable, live for fifteen
+-- minutes and checked against every unlinked sender who messages the bot.
+--
+-- generate_telegram_link_code() is SECURITY DEFINER but still checks
+-- is_household_member(), which resolves through auth.uid() -- so the claim has
+-- to be set even here, where RLS itself is bypassed. Set transaction-locally
+-- and cleared at the end of the block so nothing after it inherits an
+-- identity.
+do $$
+declare
+  v_member uuid := 'bbbbbbbb-2222-0000-0000-00000000000a';
+  v_codes text[] := '{}';
+  v_code text;
+  v_expires timestamptz;
+  i int;
+begin
+  insert into households (id, name) values ('bbbbbbbb-0000-0000-0000-00000000000a', 'Link token test');
+  insert into auth.users (id, email) values ('bbbbbbbb-1111-0000-0000-00000000000a', 'link@example.test');
+  insert into household_members (id, household_id, display_name, role, user_id)
+  values (v_member, 'bbbbbbbb-0000-0000-0000-00000000000a', 'Linker', 'owner', 'bbbbbbbb-1111-0000-0000-00000000000a');
+
+  perform set_config('request.jwt.claim.sub', 'bbbbbbbb-1111-0000-0000-00000000000a', true);
+
+  for i in 1..25 loop
+    v_code := generate_telegram_link_code(v_member);
+
+    -- Six digits was the whole problem. Anything that short is guessable
+    -- inside the token's own lifetime whatever the source.
+    if length(v_code) <> 32 then
+      raise exception 'QA-#8 FAILED: link token is % characters, expected 32', length(v_code);
+    end if;
+    if v_code !~ '^[0-9a-f]{32}$' then
+      raise exception 'QA-#8 FAILED: link token % is not lowercase hex', v_code;
+    end if;
+    -- A generator that can repeat inside one session is not drawing from what
+    -- it claims to be drawing from.
+    if v_code = any(v_codes) then
+      raise exception 'QA-#8 FAILED: generate_telegram_link_code repeated a token within % calls', i;
+    end if;
+    v_codes := v_codes || v_code;
+  end loop;
+
+  -- The token is stored on the row and expires; both are what the webhook
+  -- checks before redeeming.
+  select telegram_link_code, telegram_link_code_expires_at into v_code, v_expires
+  from household_members where id = v_member;
+  if v_code <> v_codes[array_length(v_codes, 1)] then
+    raise exception 'QA-#8 FAILED: the latest token was not stored on the member row';
+  end if;
+  if v_expires is null or v_expires <= now() or v_expires > now() + interval '16 minutes' then
+    raise exception 'QA-#8 FAILED: token expiry is %, expected within the next 15 minutes', v_expires;
+  end if;
+
+  perform set_config('request.jwt.claim.sub', '', true);
+  raise notice 'QA-#8 ok: link tokens are 32 hex characters from a cryptographic source, stored with a 15-minute expiry';
+end $$;
+
+-- QA #8: failed attempts have somewhere to be counted, and it is not readable
+-- by a household.
+do $$
+begin
+  if to_regclass('public.telegram_link_attempts') is null then
+    raise exception 'QA-#8 FAILED: telegram_link_attempts does not exist, so nothing can rate-limit guessing';
+  end if;
+  if not exists (
+    select 1 from pg_tables where schemaname = 'public' and tablename = 'telegram_link_attempts' and rowsecurity
+  ) then
+    raise exception 'QA-#8 FAILED: telegram_link_attempts has RLS disabled';
+  end if;
+  -- No policies is the intent, not an oversight: the sender is by definition
+  -- not in a household, so there is no household to scope these rows to.
+  if exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'telegram_link_attempts') then
+    raise exception 'QA-#8 FAILED: telegram_link_attempts has a policy; it should be service-role only';
+  end if;
+  raise notice 'QA-#8 ok: failed link attempts are recorded service-role-only, invisible to every client';
+end $$;
+
 -- QA §7: approve_intake names the offending parameter instead of leaving the
 -- caller to decode a constraint violation, and writes nothing when it refuses.
 do $$

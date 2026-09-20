@@ -3,6 +3,7 @@ import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
 import { formatMoney } from '../../lib/money';
 import { goalProgress, lastContributionLabel } from '../../lib/goals';
+import { accountValueAed } from '../../lib/accounts';
 import GoalEditor from './GoalEditor';
 
 const STATUS_CHIP = { funded: 'ov-chip-ok', track: 'ov-chip-ok', ahead: 'ov-chip-ok', behind: 'ov-chip-warn' };
@@ -23,7 +24,12 @@ export default function Goals({ household, members, me, accounts, holdings, data
       .filter((a) => a.goal_id === goalId)
       .reduce((sum, a) => {
         const source = a.account_id ? (accounts ?? []).find((acc) => acc.id === a.account_id) : (holdings ?? []).find((h) => h.id === a.holding_id);
-        const value = Number(source?.balance_aed ?? source?.balance ?? source?.value_aed ?? 0);
+        // An account earmarked for a goal but never converted to AED counts
+        // as nothing toward it, rather than counting its native amount as
+        // dirhams (QA #4) -- an INR 20,000 savings account was crediting a
+        // goal with AED 20,000. Zero understates; the old fallback
+        // overstated by the exchange rate and looked authoritative.
+        const value = a.account_id ? (accountValueAed(source) ?? 0) : Number(source?.value_aed ?? 0);
         return sum + (value * Number(a.share_pct)) / 100;
       }, 0);
   }

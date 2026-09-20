@@ -79,6 +79,28 @@ npm run verify:migrations    # build a throwaway database from the migrations
 PGPORT, PGUSER). It creates and drops its own database and never touches an
 existing one. CI runs both against a PostgreSQL 17 service container.
 
+## Edge Functions — environment secrets
+
+Three values the functions read at runtime are set on the platform, per
+project, and are in no dump, no repository and not in the vault either. They
+were missing from the recovery runbook entirely until QA #1 — the functions
+deploy and run fine without them, and every outbound call fails.
+
+| secret | without it |
+| --- | --- |
+| `TELEGRAM_BOT_TOKEN` | the bot cannot send a single message |
+| `OPENROUTER_API_KEY` | every parse and every question falls back to "check the Inbox" |
+| `TWELVEDATA_API_KEY` | the nightly price refresh fetches nothing and holdings quietly stop moving |
+
+`SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are injected by the platform and
+must not be set by hand.
+
+Nothing in CI can check these: reading them back is not something the
+Management API offers, and a check that could read them would be a check that
+could leak them. They are verified by use — see the rehearsal checklist in
+`docs/backup-restore.md` §5, which is the only thing that actually exercises
+all three.
+
 ## Edge Functions — deployment parity
 
 The 10 September QA re-run found `telegram-webhook` running an 8 September
@@ -95,10 +117,26 @@ directions:
 | state | meaning | blocks? |
 | --- | --- | --- |
 | `in-sync` | deployed source matches this commit | no |
-| `stale-deployment` | deployed, but the source differs | **yes** |
+| `stale-deployment` | deployed, but the source differs | **yes on `main`**, reported only on a branch |
 | `orphan-deployment` | deployed with no source in this repository | **yes** |
-| `not-deployed` | in this repository, never deployed | no |
+| `not-deployed` | in this repository, never deployed | no, until `--require-deployed` (see below) |
 | `unreadable` | deployed, but its source could not be downloaded | **yes** |
+
+Two of those depend on which ref is being checked, and the distinction is the
+same pre-merge/release split the migration comparison uses.
+
+- `--branch`, passed by CI on anything that is not `main`: a source difference
+  is this branch's proposed change awaiting a deploy it cannot have yet, so it
+  is reported and does not block. Without this, every PR that touches an Edge
+  Function is permanently red and the check cannot serve as a merge gate. On
+  `main` it blocks again — that is where the 8 September drift showed up.
+- `--require-deployed`, passed by `npm run verify:release` after a deploy: a
+  function `supabase/config.toml` declares must actually be live.
+
+Neither flag softens the rest. An orphan deployment, a function the platform is
+not serving, an unreadable one, and `verify_jwt` disagreeing with
+`supabase/config.toml` all block in every mode: they are statements about
+production, and no branch excuses them.
 
 Both directions are needed. Source → deployment is the drift above.
 Deployment → source is the other half: when this was written

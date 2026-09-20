@@ -1,5 +1,6 @@
-// Synced copy of src/lib/accounts.js (isArchived and accountValueAed are what
-// is used server-side) -- see scope.js in this same directory for why.
+// Synced copy of src/lib/accounts.js (isArchived, accountValueAed and the
+// unvalued helpers are what is used server-side) -- see scope.js in this same
+// directory for why.
 export function isArchived(account) {
   return account?.archived_at != null;
 }
@@ -16,4 +17,26 @@ export function accountValueAed(account) {
   const currency = String(account?.currency ?? 'AED').toUpperCase();
   if (currency === 'AED') return Number(account?.balance ?? 0);
   return null;
+}
+
+export function isAccountValued(account) {
+  return accountValueAed(account) !== null;
+}
+
+// The open accounts whose AED value nobody knows. Any total built from accounts
+// is incomplete by exactly this much, and the bot has to be able to say so --
+// a /brief or a "what's our net worth" that quietly omits an unconverted loan
+// reads as the complete picture (QA #4).
+export function unvaluedAccounts(accounts = []) {
+  return accounts.filter((a) => !isArchived(a) && !isAccountValued(a));
+}
+
+// The same sentence the web app uses, so the bot and the screens describe the
+// same gap in the same words.
+export function unvaluedNote(count, { capitalised = true } = {}) {
+  if (!count) return null;
+  const noun = count === 1 ? 'account' : 'accounts';
+  const verb = count === 1 ? 'has' : 'have';
+  const lead = capitalised ? 'Excludes' : 'excludes';
+  return `${lead} ${count} ${noun} in another currency that ${verb} no AED conversion yet.`;
 }

@@ -256,14 +256,38 @@ if (isMainModule) {
   // stale-fingerprint entry, so a release gate can require every migration
   // to be actually re-verified under the current rules, not just not-yet-
   // contradicted.
-  const args = process.argv.slice(2).filter((a) => a !== '--strict');
-  const strict = process.argv.includes('--strict');
+  //
+  // --require-applied (QA #7) is the other half, and the one that makes this a
+  // release check rather than a second pre-merge check. `pending` means "in
+  // the repository, not applied", which before a deploy is a correct and
+  // expected answer -- so the default mode prints it and passes. After a
+  // deploy it means production is missing a migration this commit says it
+  // should have, and the whole comparison is then describing a schema nobody
+  // is running.
+  //
+  // This is also what stopped the committed snapshot's staleness from
+  // mattering in the way it did: six migrations that were live read as
+  // "awaiting deployment" purely because the snapshot predated them, and
+  // --strict accepted it. Under --require-applied that run fails, and
+  // verify-release.sh does not use the committed snapshot at all -- it exports
+  // live state fresh, the same way the function check already does.
+  const flags = new Set(process.argv.slice(2).filter((a) => a.startsWith('--')));
+  const args = process.argv.slice(2).filter((a) => !a.startsWith('--'));
+  const strict = flags.has('--strict');
+  const requireApplied = flags.has('--require-applied');
   const path = args[0];
   if (!path) {
-    console.error('usage: node scripts/compare-migrations.mjs <applied-migrations.json> [--strict]');
+    console.error('usage: node scripts/compare-migrations.mjs <applied-migrations.json> [--strict] [--require-applied]');
     process.exit(2);
   }
-  const applied = JSON.parse(readFileSync(path, 'utf8'));
+  const appliedFile = JSON.parse(readFileSync(path, 'utf8'));
+  // An export may be a bare array (the original shape) or an object carrying
+  // provenance alongside it. Both are read; only the second can say when it
+  // was taken, which is the difference between a stale snapshot you can see
+  // and one you cannot.
+  const applied = Array.isArray(appliedFile) ? appliedFile : (appliedFile.migrations ?? []);
+  const exportedAt = Array.isArray(appliedFile) ? null : (appliedFile.exportedAt ?? null);
+  const exportedFrom = Array.isArray(appliedFile) ? null : (appliedFile.projectRef ?? null);
   const rows = compare(repoMigrations(), applied);
   const tally = { 'applied-equivalent': 0, 'version-mismatch': 0, drift: 0, pending: 0, unverifiable: 0 };
   for (const row of rows) {
@@ -286,6 +310,13 @@ if (isMainModule) {
   console.log(`  ${tally.drift} drifting (content differs, or applied but absent from the repository)`);
   console.log(`  ${tally.pending} awaiting deployment (in the repository, not applied)`);
   console.log(`  ${tally.unverifiable} unverifiable`);
+  // Always printed, because "which database is this, and how long ago" is the
+  // question a comparison against a file cannot answer for itself.
+  console.log(
+    exportedAt
+      ? `  applied side: exported ${exportedAt}${exportedFrom ? ` from ${exportedFrom}` : ''}`
+      : `  applied side: ${path} (no export date recorded — run npm run export:migrations to refresh it)`,
+  );
   if (tally['version-mismatch'] > 0) {
     console.log(`\nReconcile the version ids above — see docs/migration-reconciliation.md.`);
   }
@@ -295,5 +326,12 @@ if (isMainModule) {
   if (strict && tally.unverifiable > 0) {
     console.log(`--strict: failing on ${tally.unverifiable} unverifiable entr${tally.unverifiable === 1 ? 'y' : 'ies'}.`);
   }
-  process.exitCode = failing || (strict && tally.unverifiable > 0) ? 1 : 0;
+  if (requireApplied && tally.pending > 0) {
+    console.log(
+      `--require-applied: failing on ${tally.pending} migration(s) this commit has and the database does not.` +
+        ` Deploy them, or run this without --require-applied if you are checking before a deploy rather than after one.`,
+    );
+  }
+  process.exitCode =
+    failing || (strict && tally.unverifiable > 0) || (requireApplied && tally.pending > 0) ? 1 : 0;
 }
