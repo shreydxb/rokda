@@ -212,21 +212,44 @@ writing a snapshot nobody read from a database.
 
 ## Deploying an Edge Function
 
-`.github/workflows/deploy-functions.yml`, run by hand
-(Actions → Deploy Edge Functions → Run workflow), deploys one function or all
-three with the Supabase CLI from a checkout, then re-runs the parity check with
-`--require-deployed` so a deploy that half-landed fails rather than reporting
-success.
+**Something already deploys them on a push to `main`, and it is not in this
+repository.** On 20 September all three functions went from v34/v61/v28 to
+v35/v62/v29 with one shared `updated_at`, about a minute after `ac4d164`
+merged. No workflow here did it, and a manual deploy attempted at the same
+moment failed with a 403. The Supabase GitHub integration — the same one that
+posts the "Supabase Preview" check — is the only remaining candidate.
 
-Deploying **from a checkout** is what applies `supabase/config.toml`, and that
-file is the only thing keeping `telegram-webhook` on `verify_jwt = false`. Any
-other deployment path silently re-enables JWT verification, the gateway 401s
-every Telegram call before the function runs, and it presents as a Telegram
-outage rather than a deploy flag.
+That is inference from timing, not something confirmed against the
+integration's own settings. **Confirm it in the Supabase dashboard
+(Integrations → GitHub) before relying on it**, because two things follow from
+it that matter:
 
-It is deliberately manual. Deploying is a decision about production, and the
-drift this repository's checks exist to catch is better answered by making
-deploys easy and verified than by making them implicit in a merge.
+1. Nobody has to deploy by hand, and a merge to `main` is a production
+   deployment. `npm run verify:functions` on `main` is what tells you it
+   landed — it went green on `ac4d164` once that deploy completed.
+2. It is unknown whether that path applies `supabase/config.toml`.
+   `telegram-webhook` is still `verify_jwt = false` afterwards, but that is
+   equally consistent with the platform having preserved the existing setting
+   rather than reading the file. If it does not read the file, `config.toml` is
+   not enforcing anything and the `verify_jwt` comparison in
+   `compare-functions.mjs` is guarding a value nothing sets. Worth settling,
+   since deploying `telegram-webhook` with JWT verification on 401s every
+   Telegram call at the gateway and presents as a Telegram outage.
+
+A manual `deploy-functions.yml` workflow existed briefly and was removed: it
+was built on the belief that nothing deployed automatically, and it could not
+work anyway, because `SUPABASE_ACCESS_TOKEN` is read-scoped (see below). If a
+manual path is ever needed, the CLI form is
+`npx supabase functions deploy <slug> --project-ref <ref>` run from a checkout,
+which does apply `config.toml`.
+
+### What the CI token can and cannot do
+
+`SUPABASE_ACCESS_TOKEN` is **read-scoped**. It lists and downloads Edge
+Functions — which is all `npm run verify:functions` needs — and it is refused,
+with a 403 naming account privileges, for both deploying a function and
+querying the database. That single limitation is why `npm run verify:release`
+needs `SUPABASE_DB_URL` rather than going through the Management API.
 
 ## Release gating
 
