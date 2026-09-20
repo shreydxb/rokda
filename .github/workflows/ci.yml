@@ -70,10 +70,19 @@ jobs:
       # reported 0 drifting while covering 32 of 38 migrations -- the two
       # cases are separated: on main a missing token FAILS, everywhere else
       # it is an explicit warning that parity was not established.
+      # --branch on anything that is not main. A branch that changes a function
+      # differs from production by construction and cannot be deployed until it
+      # merges, so blocking on that difference makes every such PR permanently
+      # red and the check useless as a merge gate. It is still reported, and
+      # everything a branch cannot excuse -- an orphan deployment, a function
+      # the platform is not serving, verify_jwt disagreeing with config.toml --
+      # still blocks here. On main the source difference blocks again, which is
+      # where the 8 Sep drift this job exists for actually showed up.
       - name: Compare deployed Edge Functions with this commit
         run: |
+          if [ "$GITHUB_REF" = "refs/heads/main" ]; then BRANCH_FLAG=""; else BRANCH_FLAG="--branch"; fi
           if [ -n "$SUPABASE_ACCESS_TOKEN" ] && [ -n "$SUPABASE_PROJECT_REF" ]; then
-            npm run verify:functions
+            npm run verify:functions -- $BRANCH_FLAG
           elif [ "$GITHUB_REF" = "refs/heads/main" ]; then
             echo "::error::No Supabase credentials, so deployment parity was not checked. On main that is a failure, not a pass."
             exit 1

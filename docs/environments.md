@@ -117,10 +117,26 @@ directions:
 | state | meaning | blocks? |
 | --- | --- | --- |
 | `in-sync` | deployed source matches this commit | no |
-| `stale-deployment` | deployed, but the source differs | **yes** |
+| `stale-deployment` | deployed, but the source differs | **yes on `main`**, reported only on a branch |
 | `orphan-deployment` | deployed with no source in this repository | **yes** |
-| `not-deployed` | in this repository, never deployed | no |
+| `not-deployed` | in this repository, never deployed | no, until `--require-deployed` (see below) |
 | `unreadable` | deployed, but its source could not be downloaded | **yes** |
+
+Two of those depend on which ref is being checked, and the distinction is the
+same pre-merge/release split the migration comparison uses.
+
+- `--branch`, passed by CI on anything that is not `main`: a source difference
+  is this branch's proposed change awaiting a deploy it cannot have yet, so it
+  is reported and does not block. Without this, every PR that touches an Edge
+  Function is permanently red and the check cannot serve as a merge gate. On
+  `main` it blocks again — that is where the 8 September drift showed up.
+- `--require-deployed`, passed by `npm run verify:release` after a deploy: a
+  function `supabase/config.toml` declares must actually be live.
+
+Neither flag softens the rest. An orphan deployment, a function the platform is
+not serving, an unreadable one, and `verify_jwt` disagreeing with
+`supabase/config.toml` all block in every mode: they are statements about
+production, and no branch excuses them.
 
 Both directions are needed. Source → deployment is the drift above.
 Deployment → source is the other half: when this was written

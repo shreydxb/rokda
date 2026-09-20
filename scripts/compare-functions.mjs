@@ -208,6 +208,10 @@ export function repoFunctionSlugs(functionsRoot = FUNCTIONS_DIR) {
 //                    actually be live. Off by default, because between merging
 //                    a new function and deploying it, not-deployed is a
 //                    deployment decision rather than a fault.
+//   `branch`         this ref is not the deployed line, so "production is not
+//                    running this commit" is not a fault -- it is the whole
+//                    point of a branch. See isBlocking() for why the other
+//                    states still block here.
 export function compare({
   repo,
   deployedManifests,
@@ -215,6 +219,7 @@ export function compare({
   declared = {},
   deployedState = {},
   requireDeployed = false,
+  branch = false,
 }) {
   const repoBySlug = new Map(repo.map((m) => [m.slug, m]));
   const deployedBySlug = new Map(deployedManifests.map((m) => [m.slug, m]));
@@ -252,6 +257,9 @@ export function compare({
       slug,
       state: local.digest === live.digest ? 'in-sync' : 'stale-deployment',
       required,
+      // On a branch, a source difference is this branch's proposed change
+      // awaiting a deploy it cannot have yet -- reported, not blocking.
+      sourceParityAdvisory: branch,
       repoDigest: local.digest,
       deployedDigest: live.digest,
       platformStatus,
@@ -325,7 +333,16 @@ function differingFiles(local, live) {
 // A function the platform is not actively serving blocks for the same reason:
 // whatever its source says, it is not answering.
 export function isBlocking(row) {
-  if (row.state === 'stale-deployment' || row.state === 'orphan-deployment' || row.state === 'unreadable') return true;
+  // The one state whose meaning depends on which ref is being checked. On main
+  // it is the finding this whole check exists for -- telegram-webhook ran an
+  // 8 Sep build for five days while main had moved on. On a branch it is
+  // unavoidable and says nothing: a branch that changes a function is
+  // different from production by construction, and cannot be deployed until it
+  // merges, so blocking on it makes every such PR permanently red and the
+  // check useless as a merge gate. Everything else below is a statement about
+  // production that no branch excuses.
+  if (row.state === 'stale-deployment') return !row.sourceParityAdvisory;
+  if (row.state === 'orphan-deployment' || row.state === 'unreadable') return true;
   if (row.state === 'not-deployed') return !!row.required;
   if (row.configState === 'drift') return true;
   if (row.platformStatus != null && row.platformStatus !== 'ACTIVE') return true;
@@ -345,9 +362,10 @@ const isMainModule = process.argv[1] && import.meta.url === pathToFileURL(proces
 if (isMainModule) {
   const args = process.argv.slice(2);
   const requireDeployed = args.includes('--require-deployed');
+  const branch = args.includes('--branch');
   const [deployedDir, listPath] = args.filter((a) => !a.startsWith('--'));
   if (!deployedDir || !listPath) {
-    console.error('usage: node scripts/compare-functions.mjs <deployed-functions-dir> <deployed-list.json> [--require-deployed]');
+    console.error('usage: node scripts/compare-functions.mjs <deployed-functions-dir> <deployed-list.json> [--require-deployed] [--branch]');
     console.error('  both are produced by scripts/verify-function-parity.sh — run that instead.');
     process.exit(2);
   }
@@ -366,7 +384,7 @@ if (isMainModule) {
   const repo = repoFunctionSlugs().map((slug) => manifest(FUNCTIONS_DIR, slug));
   const deployedManifests = deployedSlugs.map((slug) => manifest(deployedDir, slug)).filter(Boolean);
 
-  const rows = compare({ repo, deployedManifests, deployedSlugs, declared, deployedState, requireDeployed });
+  const rows = compare({ repo, deployedManifests, deployedSlugs, declared, deployedState, requireDeployed, branch });
   const tally = { 'in-sync': 0, 'stale-deployment': 0, 'not-deployed': 0, 'orphan-deployment': 0, unreadable: 0 };
   let configDrift = 0;
   let notActive = 0;
@@ -394,7 +412,12 @@ if (isMainModule) {
 
   const blocking = rows.filter(isBlocking).length;
   const requiredMissing = rows.filter((r) => r.state === 'not-deployed' && r.required).length;
-  console.log(`\n${rows.length} functions${requireDeployed ? ' (release mode: every function config.toml declares must be live)' : ''}`);
+  const mode = requireDeployed
+    ? ' (release mode: every function config.toml declares must be live)'
+    : branch
+      ? ' (branch mode: a source difference is this branch awaiting deployment, not production drift)'
+      : '';
+  console.log(`\n${rows.length} functions${mode}`);
   console.log(`  ${tally['in-sync']} in sync with this commit`);
   console.log(`  ${tally['stale-deployment']} deployed but DIFFERENT from this commit`);
   console.log(`  ${tally['orphan-deployment']} deployed with NO source in this repository`);
@@ -404,7 +427,11 @@ if (isMainModule) {
   console.log(`  ${notActive} deployed but not ACTIVE`);
 
   if (tally['stale-deployment'] > 0) {
-    console.log(`\nRedeploy the function(s) above: supabase functions deploy <slug> --project-ref <ref>`);
+    console.log(
+      branch
+        ? `\n${tally['stale-deployment']} function(s) above differ from production because this branch changes them. Deploy after merging: supabase functions deploy <slug> --project-ref <ref>`
+        : `\nRedeploy the function(s) above: supabase functions deploy <slug> --project-ref <ref>`,
+    );
   }
   if (tally['orphan-deployment'] > 0) {
     console.log(`Remove or commit the orphan(s) above: supabase functions delete <slug> --project-ref <ref>`);

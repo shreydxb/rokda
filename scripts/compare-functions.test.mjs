@@ -309,3 +309,72 @@ describe('reading verify_jwt out of supabase/config.toml', () => {
     expect(declaredFunctionConfig(join(root, 'nope.toml'))).toEqual({});
   });
 });
+
+// A PR that changes an Edge Function is different from production by
+// construction, and cannot be deployed until it merges. Blocking on that made
+// every such PR permanently red -- which is what happened to the PR carrying
+// this very change, and is why the check needs to know which ref it is on.
+describe('branch mode: a proposed change is not production drift', () => {
+  function staleRow({ branch }) {
+    return compare({
+      repo: [{ slug: 'telegram-webhook', digest: 'new', files: { 'index.ts': 'a' } }],
+      deployedManifests: [{ slug: 'telegram-webhook', digest: 'old', files: { 'index.ts': 'b' } }],
+      deployedSlugs: ['telegram-webhook'],
+      declared: { 'telegram-webhook': { verifyJwt: false } },
+      deployedState: { 'telegram-webhook': { verifyJwt: false, status: 'ACTIVE' } },
+      branch,
+    })[0];
+  }
+
+  it('blocks a stale deployment on the deployed line', () => {
+    // The finding this whole check exists for: telegram-webhook ran an 8 Sep
+    // build for five days while main had moved on.
+    const row = staleRow({ branch: false });
+    expect(row.state).toBe('stale-deployment');
+    expect(isBlocking(row)).toBe(true);
+  });
+
+  it('reports the same difference on a branch without blocking it', () => {
+    const row = staleRow({ branch: true });
+    expect(row.state).toBe('stale-deployment');
+    expect(row.sourceParityAdvisory).toBe(true);
+    expect(isBlocking(row)).toBe(false);
+  });
+
+  it('still blocks everything a branch cannot excuse', () => {
+    const rows = compare({
+      repo: [{ slug: 'telegram-webhook', digest: 'd', files: {} }],
+      deployedManifests: [
+        { slug: 'telegram-webhook', digest: 'd', files: {} },
+        { slug: 'scratch', digest: 'x', files: {} },
+      ],
+      deployedSlugs: ['scratch', 'telegram-webhook'],
+      declared: { 'telegram-webhook': { verifyJwt: false } },
+      // Config drift and a function running from no commit are statements
+      // about production, true whichever ref is being checked.
+      deployedState: {
+        'telegram-webhook': { verifyJwt: true, status: 'ACTIVE' },
+        scratch: { verifyJwt: true, status: 'ACTIVE' },
+      },
+      branch: true,
+    });
+    const webhook = rows.find((r) => r.slug === 'telegram-webhook');
+    const orphan = rows.find((r) => r.slug === 'scratch');
+    expect(webhook.configState).toBe('drift');
+    expect(isBlocking(webhook)).toBe(true);
+    expect(orphan.state).toBe('orphan-deployment');
+    expect(isBlocking(orphan)).toBe(true);
+  });
+
+  it('still blocks a function the platform is not serving', () => {
+    const row = compare({
+      repo: [{ slug: 'telegram-webhook', digest: 'd', files: {} }],
+      deployedManifests: [{ slug: 'telegram-webhook', digest: 'd', files: {} }],
+      deployedSlugs: ['telegram-webhook'],
+      declared: { 'telegram-webhook': { verifyJwt: false } },
+      deployedState: { 'telegram-webhook': { verifyJwt: false, status: 'REMOVED' } },
+      branch: true,
+    })[0];
+    expect(isBlocking(row)).toBe(true);
+  });
+});
