@@ -59,7 +59,8 @@ export default function PlanSummary({ members, me, accounts, transactions, holdi
   const canProjectDebt = extraPayment !== null && extraPayment > 0 && cardAssumptionSet && debts.length > 0;
   const debtPlan = useMemo(() => (canProjectDebt ? simulatePayoffPlan(orderedFull, extraPayment) : null), [canProjectDebt, orderedFull, extraPayment]);
 
-  const startNetWorth = accounts.length > 0 || holdings.length > 0 ? netWorthSummary(accounts, null, holdings).netWorth : null;
+  const netWorth = netWorthSummary(accounts, null, holdings);
+  const startNetWorth = accounts.length > 0 || holdings.length > 0 ? netWorth.netWorth : null;
   const monthCount = closedMonths(transactions, now).size;
   const forecast = useMemo(() => forecastInputs(transactions, startNetWorth, now), [transactions, startNetWorth, now]);
   const nominalPct = assumptions?.nominal_return_pct != null ? Number(assumptions.nominal_return_pct) : DEFAULTS.nominal_return_pct;
@@ -153,7 +154,17 @@ export default function PlanSummary({ members, me, accounts, transactions, holdi
         <SummaryCard
           label="Independence"
           figure={forecast.ready ? String(fireYear ?? '60+ yrs out') : '—'}
-          note={forecast.ready ? `${formatPct(startNetWorth / fireTarget)} of the way to ${formatMoney(fireTarget)}` : 'Not enough data to project'}
+          note={
+            forecast.ready
+              ? // The progress figure rests on a net worth that skips any
+                // account with no AED conversion, so it reads high when one
+                // of those is a debt (QA #4). Say so here rather than only on
+                // Forecast, since this card is what most people look at.
+                `${formatPct(startNetWorth / fireTarget)} of the way to ${formatMoney(fireTarget)}${
+                  netWorth.unvalued > 0 ? ` · incomplete, ${netWorth.unvalued} not converted to AED` : ''
+                }`
+              : 'Not enough data to project'
+          }
           cta="Forecast"
           onClick={() => onOpenTab('forecast')}
         />

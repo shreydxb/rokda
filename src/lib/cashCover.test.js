@@ -78,13 +78,39 @@ describe('cashCoverStatus', () => {
     const accounts = [CHECKING, SAVINGS]; // 5000 liquid
     const bills = { recurring: [{ amount_aed: 4000, due_date: '2026-09-16' }], credit_cards: [] };
     const status = cashCoverStatus(accounts, bills, { days: 7, today });
-    expect(status).toEqual({ liquidAed: 5000, dueAed: 4000, days: 7, covered: true, shortfallAed: 0 });
+    expect(status).toEqual({ liquidAed: 5000, dueAed: 4000, days: 7, covered: true, shortfallAed: 0, unvalued: 0 });
   });
 
   it('reports the exact shortfall when liquid falls short', () => {
     const accounts = [CASH]; // 500 liquid
     const bills = { recurring: [{ amount_aed: 4000, due_date: '2026-09-16' }], credit_cards: [] };
     const status = cashCoverStatus(accounts, bills, { days: 7, today });
-    expect(status).toEqual({ liquidAed: 500, dueAed: 4000, days: 7, covered: false, shortfallAed: 3500 });
+    expect(status).toEqual({ liquidAed: 500, dueAed: 4000, days: 7, covered: false, shortfallAed: 3500, unvalued: 0 });
+  });
+
+  // QA #4: liquidTotalAed can only treat an unconverted balance as zero.
+  // That is defensible arithmetic and an indefensible verdict on its own --
+  // a household with an unconverted savings account can be told it is short
+  // when it is not. The count travels with the verdict so the caller can say
+  // the figure is incomplete.
+  it('reports how many liquid accounts have no AED conversion', () => {
+    const accounts = [CASH, UNCONVERTED_INR_SAVINGS];
+    const bills = { recurring: [{ amount_aed: 4000, due_date: '2026-09-16' }], credit_cards: [] };
+    const status = cashCoverStatus(accounts, bills, { days: 7, today });
+    expect(status.liquidAed).toBe(500);
+    expect(status.unvalued).toBe(1);
+  });
+
+  it('counts no unvalued accounts once the conversion exists', () => {
+    const converted = { ...UNCONVERTED_INR_SAVINGS, balance_aed: 4300 };
+    const status = cashCoverStatus([CASH, converted], { recurring: [], credit_cards: [] }, { days: 7, today });
+    expect(status.liquidAed).toBe(4800);
+    expect(status.unvalued).toBe(0);
+  });
+
+  it('ignores a closed account with no conversion, same as every other current figure', () => {
+    const closed = { ...UNCONVERTED_INR_SAVINGS, archived_at: '2026-01-01T00:00:00Z' };
+    const status = cashCoverStatus([CASH, closed], { recurring: [], credit_cards: [] }, { days: 7, today });
+    expect(status.unvalued).toBe(0);
   });
 });

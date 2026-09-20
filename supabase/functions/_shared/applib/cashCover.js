@@ -5,7 +5,7 @@
 // what's coming due soon, or is that liquidity really sitting somewhere
 // else (an FD, a brokerage account) that isn't a same-day source of cash.
 
-import { accountValueAed, isArchived } from './accounts.js';
+import { accountValueAed, isArchived, unvaluedAccounts } from './accounts.js';
 import { parseDay } from './day.js';
 
 // Deliberately excludes: credit_card/loan (liabilities, not cover),
@@ -22,6 +22,15 @@ export function isLiquidAccount(account) {
 
 export function liquidTotalAed(accounts = []) {
   return accounts.filter(isLiquidAccount).reduce((sum, a) => sum + (accountValueAed(a) ?? 0), 0);
+}
+
+// The liquid accounts whose AED value nobody knows. `liquidTotalAed` treats
+// them as zero, which is the only arithmetic available -- but a zero that
+// stands for "unknown" is exactly what turns a shortfall warning into a
+// confident wrong answer, in either direction. cashCoverStatus reports the
+// count so the caller can say the cover figure is incomplete (QA #4).
+export function unvaluedLiquidAccounts(accounts = []) {
+  return unvaluedAccounts(accounts).filter(isLiquidAccount);
 }
 
 // `bills` is the same shape getUpcomingBills/toolGetUpcomingBills already
@@ -52,5 +61,9 @@ export function cashCoverStatus(accounts, bills, { days = 7, today = new Date() 
   const liquidAed = round2(liquidTotalAed(accounts));
   const dueAed = round2(dueWithinAed(bills, days, today));
   const covered = liquidAed >= dueAed;
-  return { liquidAed, dueAed, days, covered, shortfallAed: covered ? 0 : round2(dueAed - liquidAed) };
+  // `unvalued` travels with the verdict rather than being folded into it:
+  // an unconverted savings account means the cover figure understates, so a
+  // "covered" answer is still trustworthy while a shortfall might not be.
+  const unvalued = unvaluedLiquidAccounts(accounts ?? []).length;
+  return { liquidAed, dueAed, days, covered, shortfallAed: covered ? 0 : round2(dueAed - liquidAed), unvalued };
 }

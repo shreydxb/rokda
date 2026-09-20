@@ -37,6 +37,7 @@ import {
   THUMBS_UP_EMOJIS,
 } from "../_shared/applib/telegramConfirm.js";
 import { netWorthSummary } from "../_shared/applib/overviewMath.js";
+import { accountValueAed, unvaluedAccounts, unvaluedNote } from "../_shared/applib/accounts.js";
 import { monthActualsByCategory } from "../_shared/applib/budget.js";
 import { nextDueDate, daysUntilDue } from "../_shared/applib/creditCard.js";
 import { lastDueOccurrence, upcomingItems } from "../_shared/applib/recurring.js";
@@ -818,10 +819,16 @@ async function toolGetNetWorth(householdId: string, scopeMemberId: string | null
     supabase.from("holdings").select("*").eq("household_id", householdId),
   ]);
   const summary = netWorthSummary((accounts ?? []) as never, scopeMemberId, (holdings ?? []) as never);
+  // The count of accounts the total could not include travels with the
+  // total. phraseAnswer is told to use only what a tool returns, so if this
+  // is dropped here the bot cannot say the figure is incomplete -- and a net
+  // worth quietly missing a foreign loan is the exact failure QA #4 found.
   return {
     net_worth_aed: round2(summary.netWorth),
     assets_aed: round2(summary.assets),
     liabilities_aed: round2(summary.liabilities),
+    unconverted_accounts: summary.unvalued,
+    ...(summary.unvalued > 0 ? { incomplete: unvaluedNote(summary.unvalued) } : {}),
   };
 }
 
@@ -832,7 +839,14 @@ async function toolGetAccountBalance(householdId: string, args: Record<string, u
   if (matches.length === 0) return { error: "account_not_found", available: (accounts ?? []).map((a: { name: string }) => a.name) };
   if (matches.length > 1) return { error: "ambiguous_account", matches: matches.map((a: { name: string }) => a.name) };
   const a = matches[0] as { name: string; balance: number; balance_aed: number | null; currency: string };
-  return { account: a.name, balance_aed: round2(Number(a.balance_aed ?? a.balance)), currency: a.currency };
+  const aed = accountValueAed(a);
+  // No conversion yet: report the native balance as native rather than
+  // relabelling it AED. `balance_aed ?? balance` answered "what's in the
+  // India account" with "AED 20,000" when it holds 20,000 rupees (QA #4).
+  if (aed === null) {
+    return { account: a.name, balance: round2(Number(a.balance ?? 0)), currency: a.currency, balance_aed: null, note: "no AED conversion recorded for this account" };
+  }
+  return { account: a.name, balance_aed: round2(aed), currency: a.currency };
 }
 
 async function toolGetUpcomingBills(householdId: string, scopeMemberId: string | null) {
@@ -854,14 +868,27 @@ async function toolGetUpcomingBills(householdId: string, scopeMemberId: string |
   for (const a of (accounts ?? []) as Array<{ type: string; is_shared: boolean; owner_member_id: string | null; name: string; balance: number; balance_aed: number | null; due_day: number | null }>) {
     if (a.type !== "credit_card") continue;
     if (!(scopeMemberId === null || a.is_shared || a.owner_member_id === scopeMemberId)) continue;
-    const bal = Number(a.balance_aed ?? a.balance);
-    if (bal <= 0) continue;
+    // A card with no AED conversion has no AED amount owed. It is still a
+    // bill, so it is still listed -- with its amount marked unknown rather
+    // than with its native balance wearing an "_aed" label (QA #4).
+    const aed = accountValueAed(a);
+    if ((aed ?? Number(a.balance ?? 0)) <= 0) continue;
     const days = daysUntilDue(a.due_day, now);
     if (days === null || days < 0 || days > 14) continue;
-    cardBills.push({ name: a.name, amount_owed_aed: round2(bal), due_date: nextDueDate(a.due_day, now)!.toISOString().slice(0, 10) });
+    cardBills.push({
+      name: a.name,
+      amount_owed_aed: aed === null ? null : round2(aed),
+      ...(aed === null ? { amount_owed: round2(Number(a.balance ?? 0)), currency: a.currency, note: "no AED conversion recorded" } : {}),
+      due_date: nextDueDate(a.due_day, now)!.toISOString().slice(0, 10),
+    } as never);
   }
 
-  return { recurring: bills, credit_cards: cardBills };
+  const unconverted = unvaluedAccounts((accounts ?? []) as never).length;
+  return {
+    recurring: bills,
+    credit_cards: cardBills,
+    ...(unconverted > 0 ? { unconverted_accounts: unconverted } : {}),
+  };
 }
 
 // Household-wide (scope=null), like /brief -- "can we cover what's due" is a
@@ -876,9 +903,20 @@ async function toolGetCashCover(householdId: string, days = 7) {
   return cashCoverStatus((accounts ?? []) as never, bills as never, { days, today: parseDay(householdToday()) });
 }
 
-function formatCashCoverLine(status: { liquidAed: number; dueAed: number; days: number; covered: boolean; shortfallAed: number }) {
+function formatCashCoverLine(status: {
+  liquidAed: number;
+  dueAed: number;
+  days: number;
+  covered: boolean;
+  shortfallAed: number;
+  unvalued?: number;
+}) {
   const base = `Cash cover: AED ${status.liquidAed.toLocaleString()} liquid vs AED ${status.dueAed.toLocaleString()} due in the next ${status.days} days`;
-  return status.covered ? `${base} -- covered.` : `${base} -- short by AED ${status.shortfallAed.toLocaleString()}.`;
+  const verdict = status.covered ? `${base} -- covered.` : `${base} -- short by AED ${status.shortfallAed.toLocaleString()}.`;
+  // A "short by" warning built on a liquid figure that omits an unconverted
+  // account can be wrong in the direction that causes action (QA #4), so the
+  // omission is stated on the same line as the verdict it undermines.
+  return status.unvalued ? `${verdict} ${unvaluedNote(status.unvalued)}` : verdict;
 }
 
 async function toolGetBudgetStatus(householdId: string, scopeMemberId: string | null, args: Record<string, unknown>) {
@@ -1099,12 +1137,21 @@ async function buildBriefMessage(householdId: string): Promise<string> {
   ]);
 
   const lines: string[] = [];
-  lines.push(`Net worth: AED ${netWorth.net_worth_aed.toLocaleString()}`);
+  // The incompleteness rides on the same line as the figure it qualifies --
+  // a separate footnote at the bottom of a digest is a footnote nobody reads
+  // (QA #4).
+  lines.push(
+    `Net worth: AED ${netWorth.net_worth_aed.toLocaleString()}${netWorth.incomplete ? ` (${netWorth.incomplete})` : ""}`
+  );
   lines.push(`Spent this month: AED ${monthSpend.toLocaleString()}`);
 
   const billLines = [
     ...bills.recurring.map((r: { name: string; amount_aed: number; due_date: string }) => `${r.name} AED ${r.amount_aed} (${r.due_date})`),
-    ...bills.credit_cards.map((c: { name: string; amount_owed_aed: number; due_date: string }) => `${c.name} AED ${c.amount_owed_aed} (${c.due_date})`),
+    ...bills.credit_cards.map((c: { name: string; amount_owed_aed: number | null; amount_owed?: number; currency?: string; due_date: string }) =>
+      c.amount_owed_aed === null
+        ? `${c.name} ${c.currency} ${c.amount_owed} not converted (${c.due_date})`
+        : `${c.name} AED ${c.amount_owed_aed} (${c.due_date})`
+    ),
   ];
   lines.push(billLines.length ? `Due in 14 days: ${billLines.join(", ")}` : "Nothing due in the next 14 days.");
 
@@ -1133,7 +1180,7 @@ async function buildMonthlyReviewMessage(householdId: string, year: number, mont
   const lines: string[] = [
     `${monthLabel} in review:`,
     `Spent: AED ${monthSpend.toLocaleString()}`,
-    `Net worth now: AED ${netWorth.net_worth_aed.toLocaleString()}`,
+    `Net worth now: AED ${netWorth.net_worth_aed.toLocaleString()}${netWorth.incomplete ? ` (${netWorth.incomplete})` : ""}`,
     formatCashCoverLine(cashCover),
   ];
   return lines.join("\n");
@@ -1445,8 +1492,15 @@ async function runCreditCardCheck(): Promise<{ checked: number; nudged: number }
     due_day: number;
   }>) {
     if (!prefEnabled(prefs, a.household_id, "credit_card_enabled")) continue;
-    const bal = Number(a.balance_aed ?? a.balance);
+    // A reminder that names an amount has to name a real one. With no AED
+    // conversion there is no AED amount, and `balance_aed ?? balance` sent
+    // the native number out as dirhams (QA #4). Skipping the card entirely
+    // would trade a wrong number for a missed bill, so the nudge goes out
+    // with the amount described in its own currency instead.
+    const aed = accountValueAed(a);
+    const bal = aed ?? Number(a.balance ?? 0);
     if (bal <= 0) continue; // nothing owed, nothing to nag about
+    const owedLabel = aed === null ? `${a.currency} ${bal.toFixed(2)} (not converted to AED)` : `AED ${bal.toFixed(2)}`;
 
     try {
       // Two different due dates are in play, not one: the upcoming
@@ -1493,8 +1547,8 @@ async function runCreditCardCheck(): Promise<{ checked: number; nudged: number }
 
       const message =
         kind === "due_soon"
-          ? `${a.name} is due ${dueDateStr} -- outstanding balance AED ${bal.toFixed(2)}.`
-          : `${a.name} was due ${dueDateStr} and still shows AED ${bal.toFixed(2)} owing -- paid it another way, or forgot?`;
+          ? `${a.name} is due ${dueDateStr} -- outstanding balance ${owedLabel}.`
+          : `${a.name} was due ${dueDateStr} and still shows ${owedLabel} owing -- paid it another way, or forgot?`;
       for (const m of recipients) await reply(m.telegram_user_id, message);
 
       await supabase.from("credit_card_nudges").insert({ account_id: a.id, due_date: dueDateStr, kind });

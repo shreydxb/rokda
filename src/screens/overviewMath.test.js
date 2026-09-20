@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { dataQuality, buildChartColumns, liquidAssets, netWorthSummary, periodSummary, runwaySummary } from './overviewMath';
+import { dataQuality, buildChartColumns, liquidAssets, netWorthSummary, periodSummary, runwaySummary, startingNetWorth } from './overviewMath';
+import { unvaluedAccounts, unvaluedNote } from '../lib/accounts';
+import { unconfirmedAccounts } from '../lib/balance';
 import { closedMonths, forecastInputs } from '../lib/forecast';
 import { signedAmount } from '../lib/intake';
 
@@ -224,5 +226,79 @@ describe('O3: an unconverted foreign balance is unknown, not AED', () => {
   it('reports how many accounts it could not value, so a total can say it is partial', () => {
     expect(netWorthSummary([inr], null, []).unvalued).toBe(1);
     expect(netWorthSummary([inr], null, []).netWorth).toBe(0);
+  });
+});
+
+// QA #4: the helper above was correct and nothing read its answer. These
+// cover the exact reproduction from that review -- a confirmed foreign LOAN,
+// so the missing number is a debt and the incomplete total flatters.
+describe('QA #4: an unvalued liability is missing from the total, not zero in it', () => {
+  const savings = {
+    id: 's',
+    type: 'savings',
+    currency: 'AED',
+    balance: 100,
+    balance_aed: 100,
+    balance_as_of: '2026-09-19',
+    is_shared: true,
+    archived_at: null,
+  };
+  const foreignLoan = {
+    id: 'l',
+    type: 'loan',
+    currency: 'INR',
+    balance: 500_000,
+    balance_aed: null,
+    // Confirmed, which is the point: every "is this figure current" check
+    // passes, so nothing but `unvalued` can report the gap.
+    balance_as_of: '2026-09-19',
+    is_shared: true,
+    archived_at: null,
+  };
+
+  it('reports net worth as 100 AND says one account could not be valued', () => {
+    const summary = netWorthSummary([savings, foreignLoan], null, []);
+    expect(summary.netWorth).toBe(100);
+    expect(summary.liabilities).toBe(0);
+    // Without this the 100 reads as the whole picture while a real debt is
+    // missing from it.
+    expect(summary.unvalued).toBe(1);
+  });
+
+  it('the gap survives confirmation, which is why a provisional check misses it', () => {
+    expect(unconfirmedAccounts([savings, foreignLoan])).toHaveLength(0);
+    expect(unvaluedAccounts([savings, foreignLoan])).toHaveLength(1);
+  });
+
+  it('reports no gap once the loan is converted, and counts it as a liability', () => {
+    const converted = { ...foreignLoan, balance_aed: 21_000 };
+    const summary = netWorthSummary([savings, converted], null, []);
+    expect(summary.liabilities).toBe(21_000);
+    expect(summary.netWorth).toBe(-20_900);
+    expect(summary.unvalued).toBe(0);
+  });
+
+  it('ignores a closed unconverted account, matching every other current figure', () => {
+    const closed = { ...foreignLoan, archived_at: '2026-01-01T00:00:00Z' };
+    expect(netWorthSummary([savings, closed], null, []).unvalued).toBe(0);
+    expect(unvaluedAccounts([savings, closed])).toHaveLength(0);
+  });
+
+  it('gives Forecast a basis that is partial, not null, so the warning has to come from unvalued', () => {
+    // startingNetWorth returns null only when NOTHING is valued. With a mix it
+    // returns the partial total, which is why Forecast now reads the count.
+    expect(startingNetWorth([savings, foreignLoan], [])).toBe(100);
+    expect(startingNetWorth([foreignLoan], [])).toBeNull();
+  });
+});
+
+describe('QA #4: the note every screen shares says the same thing', () => {
+  it('is null when nothing is missing, so callers can render it unconditionally', () => {
+    expect(unvaluedNote(0)).toBeNull();
+  });
+
+  it('agrees with itself in number', () => {
+    expect(unvaluedNote(1)).toContain('1 account in another currency that has');
+    expect(unvaluedNote(3)).toContain('3 accounts in another currency that have');
   });
 });
