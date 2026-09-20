@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isLiquidAccount, liquidTotalAed, dueWithinAed, cashCoverStatus } from './cashCover';
+import { isLiquidAccount, liquidTotalAed, dueWithinAed, unvaluedDueBills, cashCoverStatus, formatCashCoverLine } from './cashCover';
 
 const CHECKING = { id: 'a1', type: 'checking', balance: 3000, balance_aed: 3000, currency: 'AED', archived_at: null };
 const SAVINGS = { id: 'a2', type: 'savings', balance: 2000, balance_aed: 2000, currency: 'AED', archived_at: null };
@@ -78,14 +78,14 @@ describe('cashCoverStatus', () => {
     const accounts = [CHECKING, SAVINGS]; // 5000 liquid
     const bills = { recurring: [{ amount_aed: 4000, due_date: '2026-09-16' }], credit_cards: [] };
     const status = cashCoverStatus(accounts, bills, { days: 7, today });
-    expect(status).toEqual({ liquidAed: 5000, dueAed: 4000, days: 7, covered: true, shortfallAed: 0, unvalued: 0 });
+    expect(status).toEqual({ liquidAed: 5000, dueAed: 4000, days: 7, covered: true, certain: true, shortfallAed: 0, unvalued: 0, unvaluedDue: 0 });
   });
 
   it('reports the exact shortfall when liquid falls short', () => {
     const accounts = [CASH]; // 500 liquid
     const bills = { recurring: [{ amount_aed: 4000, due_date: '2026-09-16' }], credit_cards: [] };
     const status = cashCoverStatus(accounts, bills, { days: 7, today });
-    expect(status).toEqual({ liquidAed: 500, dueAed: 4000, days: 7, covered: false, shortfallAed: 3500, unvalued: 0 });
+    expect(status).toEqual({ liquidAed: 500, dueAed: 4000, days: 7, covered: false, certain: true, shortfallAed: 3500, unvalued: 0, unvaluedDue: 0 });
   });
 
   // QA #4: liquidTotalAed can only treat an unconverted balance as zero.
@@ -112,5 +112,101 @@ describe('cashCoverStatus', () => {
     const closed = { ...UNCONVERTED_INR_SAVINGS, archived_at: '2026-01-01T00:00:00Z' };
     const status = cashCoverStatus([CASH, closed], { recurring: [], credit_cards: [] }, { days: 7, today });
     expect(status.unvalued).toBe(0);
+  });
+});
+
+// An amount nobody knows is not zero. The QA #4 fix propagated that through
+// the ASSET side -- an unconverted savings account stopped counting as AED.
+// The liability side kept doing exactly what the asset side had stopped
+// doing, and it points the other way: an unknown asset makes a shortfall
+// warning suspect, an unknown bill makes a CLEAN verdict suspect, which is
+// the direction that stops someone acting.
+describe('what is due but has no AED amount', () => {
+  const today = new Date('2026-09-15T00:00:00Z');
+  // A US-dollar card that was never converted. toolGetUpcomingBills lists it
+  // with amount_owed_aed null, exactly like this.
+  const UNCONVERTED_CARD = { name: 'US card', amount_owed_aed: null, amount: 5000, currency: 'USD', due_date: '2026-09-17' };
+  // A rupee subscription. `recurring` has a currency column and no converted
+  // column at all, so there is no AED figure for it anywhere.
+  const UNCONVERTED_BILL = { name: 'Rupee subscription', amount_aed: null, amount: 3000, currency: 'INR', due_date: '2026-09-16' };
+
+  it('does not add an unknown amount into the due total as zero', () => {
+    const bills = { recurring: [], credit_cards: [UNCONVERTED_CARD] };
+    expect(dueWithinAed(bills, 7, today)).toBe(0);
+    expect(unvaluedDueBills(bills, 7, today)).toBe(1);
+  });
+
+  it('counts unknowns from both bills and cards, and only inside the window', () => {
+    const bills = {
+      recurring: [UNCONVERTED_BILL, { amount_aed: null, due_date: '2026-10-30' }],
+      credit_cards: [UNCONVERTED_CARD],
+    };
+    expect(unvaluedDueBills(bills, 7, today)).toBe(2);
+  });
+
+  it('still treats a genuine zero as known', () => {
+    const bills = { recurring: [{ amount_aed: 0, due_date: '2026-09-16' }], credit_cards: [] };
+    expect(unvaluedDueBills(bills, 7, today)).toBe(0);
+  });
+
+  it('refuses to call a verdict certain when something due has no AED amount', () => {
+    // AED 500 liquid against a USD 5,000 card due in two days. The old code
+    // summed that card as zero and reported "covered" with no caveat.
+    const status = cashCoverStatus([CASH], { recurring: [], credit_cards: [UNCONVERTED_CARD] }, { days: 7, today });
+    expect(status.dueAed).toBe(0);
+    expect(status.covered).toBe(true);
+    expect(status.certain).toBe(false);
+    expect(status.unvaluedDue).toBe(1);
+  });
+
+  it('keeps an unknown bill out of the liquid-account caveat, which points the other way', () => {
+    const status = cashCoverStatus([CASH], { recurring: [], credit_cards: [UNCONVERTED_CARD] }, { days: 7, today });
+    // unvalued counts unconverted LIQUID ACCOUNTS. A credit card is not one,
+    // which is why the old caveat never fired for this case.
+    expect(status.unvalued).toBe(0);
+    expect(status.unvaluedDue).toBe(1);
+  });
+
+  it('is certain again when every due amount is known', () => {
+    const bills = { recurring: [{ amount_aed: 200, due_date: '2026-09-16' }], credit_cards: [] };
+    const status = cashCoverStatus([CASH], bills, { days: 7, today });
+    expect(status.certain).toBe(true);
+    expect(status.unvaluedDue).toBe(0);
+    expect(status.covered).toBe(true);
+  });
+});
+
+// The sentence is the product. A caveat that exists in the return value but
+// never reaches the reader is the same defect with an extra step.
+describe('the sentence the bot says', () => {
+  const today = new Date('2026-09-15T00:00:00Z');
+  const UNCONVERTED_CARD = { name: 'US card', amount_owed_aed: null, amount: 5000, currency: 'USD', due_date: '2026-09-17' };
+
+  it('does not say "covered" when something due has no AED amount', () => {
+    const status = cashCoverStatus([CASH], { recurring: [], credit_cards: [UNCONVERTED_CARD] }, { days: 7, today });
+    const line = formatCashCoverLine(status);
+    // This is the whole defect: AED 500 against an unconverted USD 5,000 card
+    // due in two days used to read "AED 0 due ... -- covered."
+    expect(line).not.toMatch(/-- covered\./);
+    expect(line).toMatch(/can't say whether that is covered/);
+    expect(line).toMatch(/no AED amount/);
+  });
+
+  it('still says covered plainly when every due amount is known', () => {
+    const bills = { recurring: [{ amount_aed: 200, due_date: '2026-09-16' }], credit_cards: [] };
+    expect(formatCashCoverLine(cashCoverStatus([CASH], bills, { days: 7, today }))).toMatch(/-- covered\./);
+  });
+
+  it('still states a shortfall, as a floor, when an amount is unknown', () => {
+    const bills = { recurring: [{ amount_aed: 4000, due_date: '2026-09-16' }], credit_cards: [UNCONVERTED_CARD] };
+    const line = formatCashCoverLine(cashCoverStatus([CASH], bills, { days: 7, today }));
+    expect(line).toMatch(/short by at least AED 3,500/);
+    expect(line).toMatch(/no AED amount/);
+  });
+
+  it('keeps the existing unconverted-liquid-account caveat', () => {
+    const bills = { recurring: [{ amount_aed: 4000, due_date: '2026-09-16' }], credit_cards: [] };
+    const line = formatCashCoverLine(cashCoverStatus([CASH, UNCONVERTED_INR_SAVINGS], bills, { days: 7, today }));
+    expect(line).toMatch(/no AED conversion yet/);
   });
 });
