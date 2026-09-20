@@ -1,24 +1,27 @@
 import { describe, expect, it } from 'vitest';
+import { parse } from '@babel/parser';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 // supabase/functions/_shared/applib/* are described in their own headers as
 // "synced copy of src/lib/...". Nothing enforced that. The app and the
-// Telegram bot therefore shared 41 function names across 11 files with no
-// check that they still agreed, which is a silent-drift surface over exactly
-// the code that decides money: accountValueAed, netWorthSummary,
-// portfolioValueChange, cashCoverStatus. 51 exports across 12 files share a
-// name with their source counterpart and are compared here.
+// Telegram bot therefore share the code that decides money -- accountValueAed,
+// netWorthSummary, portfolioValueChange, cashCoverStatus -- with no check that
+// the two copies still agree. Drift would fail nothing: the app would say one
+// number and the bot another, both confidently.
 //
-// Drift here would not fail anything. The app would say one number and the
-// bot another, both confidently, and the first sign would be someone noticing
-// two answers to the same question.
+// The copies are deliberately TRIMMED -- the bot's version omits what it does
+// not need -- so a byte diff is the wrong instrument. This compares the
+// declarations present in BOTH, by parsing them.
 //
-// The copies are deliberately TRIMMED -- the bot's version omits functions it
-// does not need -- so a byte diff is the wrong instrument. This compares the
-// bodies of the functions present in BOTH, ignoring comments and whitespace,
-// which is the same normalise-then-compare idea compare-migrations.mjs uses
-// on SQL.
+// It used to compare them with a hand-written tokeniser, and an independent
+// review took that apart. Three functions had only their DESTRUCTURED
+// PARAMETERS compared, never their bodies, because the extractor took the
+// first `{` after the name -- and they counted as successful comparisons, so
+// every guard rail this file has still passed. Regex literals after `)`,
+// nested templates, default arguments and whitespace inside string literals
+// were all wrong too. That approach is gone rather than patched a third time:
+// deciding where a JavaScript declaration ends is a parser's job.
 
 const APPLIB = 'supabase/functions/_shared/applib';
 
@@ -31,217 +34,127 @@ function sourceCounterpart(name) {
   return null;
 }
 
-// A `/` in JavaScript is either division or the start of a regex literal, and
-// nothing but context tells them apart. Getting this wrong is not a harmless
-// parse error here: `s.replace(/[}]/g, '')` read as division leaves a bare `}`
-// that closes the function body early, and BOTH copies truncate at the same
-// point, so two different bodies compare equal and the check passes on drift
-// it should have caught. The heuristic is the usual one -- a `/` that follows
-// an operator, an opening bracket, or a keyword cannot be division, because
-// there is no left-hand operand for it to divide.
-const BEFORE_REGEX = /(?:[(,=:[!&|?{};+\-*%^~<>]|\breturn|\btypeof|\bcase|\bin|\bof|\bnew|\bdelete|\bvoid|\bdo|\belse)\s*$/;
-
-function startsRegex(emitted) {
-  return emitted.trim() === '' || BEFORE_REGEX.test(emitted);
+function parseModule(code, file) {
+  try {
+    return parse(code, { sourceType: 'module', plugins: ['jsx'] });
+  } catch (cause) {
+    throw new Error(`could not parse ${file}: ${cause.message}`);
+  }
 }
 
-// Advance past one string, template or regex literal starting at `code[i]`,
-// returning [text, nextIndex]. Shared by the normaliser and the brace matcher
-// so they can never disagree about where a literal ends.
-function readLiteral(code, i, emitted) {
-  const ch = code[i];
-  if (ch === "'" || ch === '"' || ch === '`') {
-    let out = ch;
-    i += 1;
-    while (i < code.length) {
-      if (code[i] === '\\') {
-        out += code.slice(i, i + 2);
-        i += 2;
-        continue;
+// Everything that distinguishes two ASTs *as programs*, with everything that
+// does not -- source positions, comments, parser bookkeeping -- removed. Note
+// what is NOT stripped: string and template values, numeric literals, default
+// arguments and parameter names all survive, because each of them can change
+// what the code computes.
+const IGNORED_KEYS = new Set([
+  'start', 'end', 'loc', 'range', 'leadingComments', 'trailingComments',
+  'innerComments', 'comments', 'extra', 'errors', 'tokens', 'directives',
+]);
+
+function shape(node) {
+  if (Array.isArray(node)) return node.map(shape);
+  if (node === null || typeof node !== 'object') return node;
+  const out = {};
+  for (const key of Object.keys(node).sort()) {
+    if (IGNORED_KEYS.has(key)) continue;
+    out[key] = shape(node[key]);
+  }
+  return out;
+}
+
+const fingerprint = (node) => JSON.stringify(shape(node));
+
+// Top-level bindings by name, whatever form they take: function declarations,
+// `const x = ...` (including arrow functions), classes. An arrow-function
+// export was previously invisible to the collector entirely.
+function declarations(ast) {
+  const found = new Map();
+  const add = (name, node, exported) => {
+    if (name && !found.has(name)) found.set(name, { node, exported });
+  };
+
+  for (const stmt of ast.program.body) {
+    const isExport = stmt.type === 'ExportNamedDeclaration';
+    const decl = isExport ? stmt.declaration : stmt;
+    if (!decl) continue;
+    if (decl.type === 'FunctionDeclaration' || decl.type === 'ClassDeclaration') {
+      add(decl.id?.name, decl, isExport);
+    } else if (decl.type === 'VariableDeclaration') {
+      for (const d of decl.declarations) {
+        if (d.id.type === 'Identifier') add(d.id.name, d, isExport);
       }
-      out += code[i];
-      i += 1;
-      if (code[i - 1] === ch) break;
     }
-    return [out, i];
   }
-  if (ch === '/' && startsRegex(emitted)) {
-    let out = '/';
-    let inClass = false;
-    i += 1;
-    while (i < code.length) {
-      const c = code[i];
-      if (c === '\\') {
-        out += code.slice(i, i + 2);
-        i += 2;
-        continue;
-      }
-      // An unescaped `\n` means this was division after all, not a regex --
-      // regex literals cannot span lines. Bail rather than swallow the file.
-      if (c === '\n') return null;
-      out += c;
-      i += 1;
-      if (c === '[') inClass = true;
-      else if (c === ']') inClass = false;
-      else if (c === '/' && !inClass) break;
+  return found;
+}
+
+// Two differences in an import path are deliberate and must not read as
+// drift: Deno requires the `.js` extension where Vite omits it, and applib is
+// flat where src/lib and src/screens are not ('./overviewMath.js' against
+// '../screens/overviewMath'). Comparing the module's basename keeps both
+// while still catching an import that points somewhere genuinely different.
+function moduleKey(source) {
+  if (!source.startsWith('.')) return source;
+  return source.replace(/\.js$/, '').split('/').pop();
+}
+
+// What each module pulls in. A mirror that imports a different helper computes
+// something different however identical its own body looks.
+function importMap(ast) {
+  const out = new Map();
+  for (const stmt of ast.program.body) {
+    if (stmt.type !== 'ImportDeclaration') continue;
+    for (const spec of stmt.specifiers) {
+      const imported = spec.imported?.name ?? spec.local.name;
+      out.set(spec.local.name, `${imported} from ${moduleKey(stmt.source.value)}`);
     }
-    // Trailing flags (g, i, u, ...) belong to the literal.
-    while (i < code.length && /[a-z]/.test(code[i])) {
-      out += code[i];
-      i += 1;
-    }
-    return [out, i];
   }
-  return null;
-}
-
-// Strip comments and collapse whitespace, without touching string, template or
-// regex contents -- the same reason compare-migrations.mjs tokenises rather
-// than running a regex over everything.
-export function normaliseSource(code) {
-  let out = '';
-  let i = 0;
-  while (i < code.length) {
-    const two = code.slice(i, i + 2);
-    if (two === '//') {
-      const end = code.indexOf('\n', i);
-      i = end === -1 ? code.length : end;
-      out += ' ';
-      continue;
-    }
-    if (two === '/*') {
-      const end = code.indexOf('*/', i + 2);
-      i = end === -1 ? code.length : end + 2;
-      out += ' ';
-      continue;
-    }
-    const literal = readLiteral(code, i, out);
-    if (literal) {
-      out += literal[0];
-      i = literal[1];
-      continue;
-    }
-    out += code[i];
-    i += 1;
-  }
-  return out.replace(/\s+/g, ' ').trim();
-}
-
-// The full text of `export function NAME(...) { ... }`, brace-matched.
-export function functionSource(code, name) {
-  const header = new RegExp(`export\\s+function\\s+${name}\\s*\\(`);
-  const start = code.search(header);
-  if (start === -1) return null;
-  const open = code.indexOf('{', start);
-  if (open === -1) return null;
-  const normalised = normaliseSource(code.slice(open));
-  let depth = 0;
-  let i = 0;
-  while (i < normalised.length) {
-    // Skip literal contents so a brace inside one cannot close the body.
-    const literal = readLiteral(normalised, i, normalised.slice(0, i));
-    if (literal) {
-      i = literal[1];
-      continue;
-    }
-    const ch = normalised[i];
-    if (ch === '{') depth += 1;
-    if (ch === '}') {
-      depth -= 1;
-      if (depth === 0) return normalised.slice(0, i + 1);
-    }
-    i += 1;
-  }
-  return null;
-}
-
-// `export const NAME = <value>;` -- a shared constant is drift-prone in exactly
-// the same way a function body is. HOUSEHOLD_TIME_ZONE decides what "today"
-// means for both the app and the bot; if the two copies ever disagreed, every
-// date boundary would land differently on each side.
-export function constantSource(code, name) {
-  const header = new RegExp(`export\\s+const\\s+${name}\\s*=`);
-  const start = code.search(header);
-  if (start === -1) return null;
-  const normalised = normaliseSource(code.slice(start));
-  let depth = 0;
-  let i = 0;
-  while (i < normalised.length) {
-    const literal = readLiteral(normalised, i, normalised.slice(0, i));
-    if (literal) {
-      i = literal[1];
-      continue;
-    }
-    const ch = normalised[i];
-    if (ch === '{' || ch === '[' || ch === '(') depth += 1;
-    else if (ch === '}' || ch === ']' || ch === ')') depth -= 1;
-    else if (ch === ';' && depth === 0) return normalised.slice(0, i + 1);
-    i += 1;
-  }
-  return null;
-}
-
-function exportedFunctions(code) {
-  return [...code.matchAll(/export\s+function\s+([A-Za-z0-9_]+)\s*\(/g)].map((m) => m[1]);
-}
-
-function exportedConstants(code) {
-  return [...code.matchAll(/export\s+const\s+([A-Za-z0-9_]+)\s*=/g)].map((m) => m[1]);
-}
-
-// Every name a mirrored file exports, whatever form the export takes.
-function allExportedNames(code) {
-  return [...code.matchAll(/export\s+(?:function|const|class|let|var)\s+([A-Za-z0-9_]+)/g)].map((m) => m[1]);
+  return out;
 }
 
 const mirrors = readdirSync(APPLIB)
   .filter((f) => f.endsWith('.js') && !f.endsWith('.test.js'))
   .map((file) => ({ file, src: sourceCounterpart(file) }));
 
-// Collected once so the suite can assert on its own coverage. A parity check
-// that quietly stops comparing anything still passes.
-const comparisons = [];
-
-// Mirror exports with no counterpart in src, and therefore nothing to compare
-// against. lastDueOccurrence is genuinely bot-only: the webhook rolls a stored
-// anchor forward to find the last occurrence on or before today, which no
-// screen needs. Anything else appearing here is drift, not a design choice.
+// Mirror declarations with no counterpart in src, and therefore nothing to
+// compare against. lastDueOccurrence is genuinely bot-only: the webhook rolls
+// a stored anchor forward to find the last occurrence on or before today,
+// which no screen needs. Anything else appearing here is drift, not a choice.
 const KNOWN_BOT_ONLY = ['recurring.js:lastDueOccurrence'];
+
+const comparisons = [];
+const importComparisons = [];
 const unaccounted = [];
+
 for (const { file, src } of mirrors) {
   if (!src) continue;
-  const mirrorCode = readFileSync(join(APPLIB, file), 'utf8');
-  const srcCode = readFileSync(src, 'utf8');
+  const mirrorAst = parseModule(readFileSync(join(APPLIB, file), 'utf8'), join(APPLIB, file));
+  const srcAst = parseModule(readFileSync(src, 'utf8'), src);
 
-  const srcFns = exportedFunctions(srcCode);
-  for (const name of exportedFunctions(mirrorCode).filter((n) => srcFns.includes(n))) {
+  const mirrorDecls = declarations(mirrorAst);
+  const srcDecls = declarations(srcAst);
+
+  for (const [name, mine] of mirrorDecls) {
+    const theirs = srcDecls.get(name);
+    if (!theirs) {
+      unaccounted.push(`${file}:${name}`);
+      continue;
+    }
     comparisons.push({
       file,
       src,
       name,
-      mirror: functionSource(mirrorCode, name),
-      source: functionSource(srcCode, name),
+      exported: mine.exported,
+      agree: fingerprint(mine.node) === fingerprint(theirs.node),
     });
   }
 
-  const srcConsts = exportedConstants(srcCode);
-  for (const name of exportedConstants(mirrorCode).filter((n) => srcConsts.includes(n))) {
-    comparisons.push({
-      file,
-      src,
-      name,
-      mirror: constantSource(mirrorCode, name),
-      source: constantSource(srcCode, name),
-    });
-  }
-
-  // A name the mirror exports but the source does not is never compared --
-  // there is nothing to compare it against. That silence is the hole this
-  // file exists to close, so each one has to be a deliberate, listed choice
-  // rather than something that slid past.
-  const srcNames = allExportedNames(srcCode);
-  for (const name of allExportedNames(mirrorCode)) {
-    if (!srcNames.includes(name)) unaccounted.push(`${file}:${name}`);
+  const mirrorImports = importMap(mirrorAst);
+  const srcImports = importMap(srcAst);
+  for (const [local, spec] of mirrorImports) {
+    if (!srcImports.has(local)) continue;
+    importComparisons.push({ file, local, agree: srcImports.get(local) === spec });
   }
 }
 
@@ -250,24 +163,33 @@ describe('the applib mirrors agree with the code they were copied from', () => {
     expect(mirrors.length).toBeGreaterThan(5);
   });
 
-  it('actually compares the function bodies it claims to', () => {
-    // 51 shared exports across 12 mirrored files when this was written. The
-    // floor sits just under that: low enough that trimming one or two helpers
-    // from a mirror does not trip it, high enough that a parser quietly
-    // covering less than it used to does. A floor set far below the real
-    // number is the failure it is supposed to prevent -- it would let a third
-    // of the coverage disappear without a word.
-    expect(comparisons.length).toBeGreaterThanOrEqual(48);
-    const unparseable = comparisons.filter((c) => c.mirror === null || c.source === null);
-    expect(unparseable.map((c) => `${c.file}:${c.name}`)).toEqual([]);
+  it('compares whole declarations, exported and private alike', () => {
+    // 66 shared declarations across 12 mirrored files when this was written:
+    // 53 exported and 13 private. An independent audit of the same files,
+    // using its own Babel pass, counted 51 exported and 12 private before
+    // cashCover.js gained unvaluedDueBills, formatCashCoverLine and
+    // billsDueWithin -- which is exactly this, and a useful cross-check that
+    // the collector is not quietly missing a category.
+    //
+    // The floors sit just under the real numbers: low enough that trimming a
+    // helper from a mirror does not trip them, high enough that a collector
+    // covering less than it used to does.
+    expect(comparisons.length).toBeGreaterThanOrEqual(62);
+    expect(comparisons.filter((c) => c.exported).length).toBeGreaterThanOrEqual(50);
+    // Private helpers were outside the old comparison entirely. billsDueWithin
+    // in cashCover.js is one: not exported, and it decides what counts as due.
+    expect(comparisons.some((c) => !c.exported)).toBe(true);
   });
 
-  it('leaves no mirror export silently uncompared', () => {
-    // If this fails, a mirrored file grew an export its source counterpart
-    // does not have, so nothing checks it. Either add it to src (it is drift)
-    // or list it as bot-only with a reason. Widening the list without one is
-    // how the check goes quiet.
+  it('leaves no mirror declaration silently uncompared', () => {
+    // Either add it to src (it is drift) or list it as bot-only with a
+    // reason. Widening the list without one is how the check goes quiet.
     expect(unaccounted).toEqual(KNOWN_BOT_ONLY);
+  });
+
+  it('checks that both copies import the same things', () => {
+    expect(importComparisons.length).toBeGreaterThanOrEqual(24);
+    expect(importComparisons.filter((c) => !c.agree)).toEqual([]);
   });
 
   for (const { file, src } of mirrors) {
@@ -276,70 +198,72 @@ describe('the applib mirrors agree with the code they were copied from', () => {
     if (!src) continue;
 
     it(`${file} matches ${src}`, () => {
-      const mirrorCode = readFileSync(join(APPLIB, file), 'utf8');
-      const srcCode = readFileSync(src, 'utf8');
-      const shared = [
-        ...exportedFunctions(mirrorCode).filter((n) => exportedFunctions(srcCode).includes(n)),
-        ...exportedConstants(mirrorCode).filter((n) => exportedConstants(srcCode).includes(n)),
-      ];
-      expect(shared.length).toBeGreaterThan(0);
-
-      const drifted = comparisons
-        .filter((c) => c.file === file)
-        // A body this cannot parse is reported, not skipped: silently passing
-        // on it would be the same failure as not checking at all.
-        .filter((c) => c.mirror === null || c.source === null || c.mirror !== c.source)
-        .map((c) => c.name);
-      expect(drifted).toEqual([]);
+      const mine = comparisons.filter((c) => c.file === file);
+      expect(mine.length).toBeGreaterThan(0);
+      expect(mine.filter((c) => !c.agree).map((c) => c.name)).toEqual([]);
     });
   }
 });
 
-// The check is only worth its green tick if the parser underneath it is sound.
-// These lock in the two ways it could pass vacuously: truncating both copies
-// at the same wrong place, or failing to find a body at all.
-describe('the parser the parity check rests on', () => {
-  const body = (src) => functionSource(src, 'f');
+// A parity check is only worth its green tick if it would go red. Each case
+// below is one the previous hand-written extractor got wrong, run against
+// synthetic pairs so the assertions do not depend on today's real files.
+describe('the comparison would actually catch drift', () => {
+  const compare = (a, b) => {
+    const da = declarations(parseModule(a, 'a.js')).get('f');
+    const db = declarations(parseModule(b, 'b.js')).get('f');
+    return fingerprint(da.node) === fingerprint(db.node);
+  };
 
-  it('does not let a brace inside a regex literal end the body early', () => {
-    // This was a real false pass: `/[}]/` read as division truncated both
-    // copies to `{ return s.replace(/[}` , which compared equal while the
-    // bodies differed.
-    const a = `export function f(s) { return s.replace(/[}]/g, ''); }`;
-    const b = `export function f(s) { return s.replace(/[}]/g, 'X'); }`;
-    expect(body(a)).toBe(`{ return s.replace(/[}]/g, ''); }`);
-    expect(body(a)).not.toBe(body(b));
+  it('catches a changed body behind a destructured parameter', () => {
+    // The old extractor compared `{ days = 7 }` -- the parameter object --
+    // and never reached the body, for cashCoverStatus, unvaluedNote and
+    // notableMoves. All three reported agreement whatever their bodies did.
+    expect(compare(
+      'export function f(a, { days = 7 } = {}) { return a * days; }',
+      'export function f(a, { days = 7 } = {}) { return a + days; }',
+    )).toBe(false);
   });
 
-  it('does not let a quote inside a regex literal swallow the rest of the file', () => {
-    const a = `export function f(s) { return /['"]/.test(s) ? 1 : 2; }`;
-    const b = `export function f(s) { return /['"]/.test(s) ? 1 : 3; }`;
-    expect(body(a)).not.toBeNull();
-    expect(body(a)).not.toBe(body(b));
+  it('catches a changed default argument', () => {
+    expect(compare(
+      'export function f(a, { days = 7 } = {}) { return a * days; }',
+      'export function f(a, { days = 30 } = {}) { return a * days; }',
+    )).toBe(false);
   });
 
-  it('still reads a slash that is division, not a regex', () => {
-    expect(body(`export function f(a, b) { return a / b; }`)).toBe('{ return a / b; }');
-    expect(body(`export function f(a, b) { return a / b / 2; }`)).toBe('{ return a / b / 2; }');
+  it('catches a body change after a regex literal containing a brace', () => {
+    expect(compare(
+      "export function f(s) { if (s) return s.replace(/[}]/g, ''); return 1; }",
+      "export function f(s) { if (s) return s.replace(/[}]/g, ''); return 2; }",
+    )).toBe(false);
   });
 
-  it('ignores comments but not the code around them', () => {
-    const a = `export function f(x) { // it's one\n return x + 1; }`;
-    const b = `export function f(x) { // it's two\n return x + 1; }`;
-    const c = `export function f(x) { // it's one\n return x + 2; }`;
-    expect(body(a)).toBe(body(b));
-    expect(body(a)).not.toBe(body(c));
+  it('catches a body change after a nested template literal', () => {
+    expect(compare(
+      'export function f(x) { return `a${`}`}` + 1; }',
+      'export function f(x) { return `a${`}`}` + 2; }',
+    )).toBe(false);
   });
 
-  it('keeps braces inside strings and templates out of the brace count', () => {
-    expect(body('export function f(x) { return `a${x}b}`; }')).toBe('{ return `a${x}b}`; }');
-    expect(body(`export function f() { return '}'; }`)).toBe(`{ return '}'; }`);
+  it('catches whitespace that is inside a string literal', () => {
+    // The old normaliser collapsed all whitespace, including inside literals,
+    // so 'a  b' and 'a b' compared equal.
+    expect(compare("export function f() { return 'a  b'; }", "export function f() { return 'a b'; }")).toBe(false);
   });
 
-  it('reads a constant declaration up to its own semicolon', () => {
-    expect(constantSource(`export const Z = 'Asia/Dubai';\nexport const Y = 1;`, 'Z'))
-      .toBe(`export const Z = 'Asia/Dubai';`);
-    expect(constantSource(`export const Z = { a: 1, b: [2, 3] };\nconst other = 4;`, 'Z'))
-      .toBe('export const Z = { a: 1, b: [2, 3] };');
+  it('catches a changed numeric literal', () => {
+    expect(compare('export function f() { return 0.85; }', 'export function f() { return 0.9; }')).toBe(false);
+  });
+
+  it('catches drift in an arrow-function export', () => {
+    expect(compare('export const f = (x) => x * 2;', 'export const f = (x) => x * 3;')).toBe(false);
+  });
+
+  it('ignores comments and formatting, which are not behaviour', () => {
+    expect(compare(
+      'export function f(x) {\n  // one\n  return x + 1;\n}',
+      'export function f(x) { /* two */ return x + 1; }',
+    )).toBe(true);
   });
 });
