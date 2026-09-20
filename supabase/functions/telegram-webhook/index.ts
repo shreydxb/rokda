@@ -29,6 +29,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { resolveScopeMemberId, scopedValue } from "../_shared/applib/scope.js";
+import { isPrivateChat } from "../_shared/applib/telegramChat.js";
 import {
   ambiguousConfirmMessage,
   isConfirmationText,
@@ -585,6 +586,10 @@ async function handleReaction(reaction: Record<string, unknown>): Promise<Respon
   const messageId = reaction.message_id as number | undefined;
   const newReaction = reaction.new_reaction as Array<{ type?: string; emoji?: string }> | undefined;
   if (!chatId || !fromId) return new Response("ok");
+  // Same boundary as a typed message: a 👍 in a group must not record an
+  // expense or draw a reply carrying an amount. Silently, since a reaction is
+  // not addressed to anyone.
+  if (!isPrivateChat(chat)) return new Response("ok");
   if (!(newReaction ?? []).some((r) => r.type === "emoji" && THUMBS_UP_EMOJIS.has(r.emoji ?? ""))) {
     return new Response("ok");
   }
@@ -1913,7 +1918,20 @@ Deno.serve(async (req) => {
       allowed_updates: ["message", "message_reaction"],
       secret_token: expectedSecret,
     });
-    return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
+    // getMe reports can_join_groups and can_read_all_group_messages, which are
+    // BotFather settings with no API to set them and no other way to see them.
+    // The handler refuses non-private chats regardless, so this is not the
+    // control -- it is how whoever deploys this can check that the bot is also
+    // not being invited into groups in the first place.
+    const me = (await tgCall("getMe", {})) as { result?: { can_join_groups?: boolean; can_read_all_group_messages?: boolean } };
+    return new Response(
+      JSON.stringify({
+        set_webhook: result,
+        bot: me?.result ?? null,
+        note: "can_join_groups should be false (BotFather -> /setjoingroups -> Disable). Financial replies are refused outside private chats either way.",
+      }),
+      { headers: { "Content-Type": "application/json" } }
+    );
   }
 
   // Daily proactive-reminder check, triggered by pg_cron. Covers six
@@ -1974,6 +1992,18 @@ Deno.serve(async (req) => {
   const fromId = from?.id as number | undefined;
   const updateId = update.update_id;
   if (!chatId || !fromId) return new Response("ok");
+
+  // Before the member lookup, so a group conversation never reaches anything
+  // that reads or writes household data (see isPrivateChat). A command gets a
+  // one-line answer so the sender knows why nothing happened; anything else is
+  // ignored, because answering every message in a group is its own problem.
+  if (!isPrivateChat(chat)) {
+    const groupText = typeof message.text === "string" ? message.text.trim() : "";
+    if (groupText.startsWith("/")) {
+      await reply(chatId, "I only work in a direct message — open a private chat with me and try again there.");
+    }
+    return new Response("ok");
+  }
 
   const { data: member } = await supabase
     .from("household_members")
