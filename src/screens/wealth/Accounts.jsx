@@ -269,7 +269,24 @@ function CreditCard({ account, transactions, members, money, onEdit, plan, busy,
   // otherwise showed "0 of limit" no matter how much had actually been
   // charged to it. Falls back to the manual snapshot only when there's no
   // statement day to compute a cycle from.
-  const util = est ? (account.credit_limit ? est.amount / Number(account.credit_limit) : null) : utilisation(account);
+  // est.amount is built from `transactions`, which are AED. credit_limit is in
+  // the CARD's own currency. Dividing one by the other mixed them: AED 367.25
+  // of cycle spending against a USD 1,000 limit read 36.7% instead of 10%.
+  // There is no credit_limit_aed to convert with, so a non-AED card gets no
+  // percentage at all rather than a wrong one -- the same call QA #4 made for
+  // every other unconvertible figure.
+  //
+  // The manual-snapshot fallback is unaffected: balance and credit_limit are
+  // both native, so that ratio was always self-consistent.
+  const cardIsAed = String(account.currency ?? 'AED').toUpperCase() === 'AED';
+  const util = est
+    ? cardIsAed && account.credit_limit
+      ? est.amount / Number(account.credit_limit)
+      : null
+    : utilisation(account);
+  // Told apart so the copy can say which it is: a card with no limit recorded
+  // is a different situation from one whose limit cannot be compared.
+  const utilBlockedByCurrency = util === null && !!est && !cardIsAed && !!account.credit_limit;
   const cycle = account.statement_day ? billingCycle(account.statement_day) : null;
   const closesInDays = cycle ? Math.ceil((cycle.nextClose - new Date()) / 86400000) : null;
   const balance = Number(account.balance);
@@ -301,8 +318,22 @@ function CreditCard({ account, transactions, members, money, onEdit, plan, busy,
         </div>
 
         <div className="wl-card-owed fig">
-          {balanceUnset ? <span className="ov-muted" style={{ fontSize: 15 }}>Not set</span> : money.fmtBalance(balance)}
+          {balanceUnset ? (
+            <span className="ov-muted" style={{ fontSize: 15 }}>Not set</span>
+          ) : accountValueAed(account) === null ? (
+            // This component bypasses AccountRow entirely, and so bypassed its
+            // QA #4 repair: a USD 100 balance was printed through
+            // money.fmtBalance and read as AED 100.
+            <>
+              {account.currency} {Number(account.balance ?? 0).toLocaleString('en-AE')}
+            </>
+          ) : (
+            money.fmtBalance(accountValueAed(account))
+          )}
         </div>
+        {!balanceUnset && accountValueAed(account) === null && (
+          <div className="ov-warn" style={{ marginTop: 4, fontSize: 11 }}>Not converted to AED</div>
+        )}
         {!balanceUnset && balanceNote && (
           <div className="ov-muted" style={{ marginTop: 4, fontSize: 11.5 }}>{balanceNote}</div>
         )}
@@ -321,12 +352,16 @@ function CreditCard({ account, transactions, members, money, onEdit, plan, busy,
                   percentage -- a genuine AED 67 of a 25,100 limit rounds to
                   "0%", which reads identically to "nothing is known" even
                   though the amount is real, transaction-driven data. */}
-              {money.fmt(est ? est.amount : account.balance)} of {money.fmt(account.credit_limit)} used ({formatPct(util)})
+              {est
+                ? `${money.fmt(est.amount)} of ${money.fmt(account.credit_limit)} used (${formatPct(util)})`
+                : `${account.currency} ${Number(account.balance ?? 0).toLocaleString('en-AE')} of ${account.currency} ${Number(account.credit_limit).toLocaleString('en-AE')} used (${formatPct(util)})`}
             </div>
           </>
         ) : (
           <div className="ov-muted" style={{ marginTop: 8 }}>
-            No limit set yet
+            {utilBlockedByCurrency
+              ? `Limit is ${account.currency} ${Number(account.credit_limit).toLocaleString('en-AE')}; cycle spending is in AED, so the share used can't be worked out without a conversion.`
+              : 'No limit set yet'}
           </div>
         )}
 

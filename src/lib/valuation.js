@@ -42,6 +42,31 @@ export function isAwaitingFirstValuation(holding) {
   return !!holding && holding.priced_at == null;
 }
 
+// What the editor's value field should hold when a holding is reopened.
+//
+// holdings.value_aed is `not null default 0`, so a holding awaiting its first
+// valuation stores a numeric 0. Rehydrating that as the string '0' is how the
+// placeholder got certified: '0' is not blank, so the editor stopped treating
+// the holding as pending, and the next save -- correcting a quantity, say --
+// stamped priced_at and wrote a zero history point for a value nobody ever
+// supplied (QA #6). Blank is what it means, so blank is what comes back.
+export function valueFieldFor(holding) {
+  if (!holding) return '';
+  return isAwaitingFirstValuation(holding) ? '' : String(holding.value_aed ?? 0);
+}
+
+// Whether this edit is still awaiting a first valuation, and so must certify
+// nothing: no priced_at, no history point.
+//
+// `autoValued` is derived from the form (a price provider, a quantity, a
+// convertible currency) and was the only input. On reopen that is not enough:
+// a holding already known to have never been valued stays pending until
+// someone actually types a number, whatever the form's other fields say.
+export function isPendingValuation({ holding = null, valueField = '', autoValued = false } = {}) {
+  if (String(valueField).trim() !== '') return false;
+  return autoValued || isAwaitingFirstValuation(holding);
+}
+
 export function daysSincePriced(holding, now = new Date()) {
   if (!holding?.priced_at) return null;
   return Math.floor((now - new Date(holding.priced_at)) / 86400000);

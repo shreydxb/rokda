@@ -30,10 +30,17 @@ describe('portfolioDayChange', () => {
 });
 
 describe('portfolioInvestedAndGain', () => {
+  // priced_at is on every fixture here on purpose. It was backfilled for every
+  // legacy row (docs/holdings-priced-at-migration.md), so null genuinely means
+  // "never valued" rather than "old row" -- and a fixture without it is now a
+  // holding awaiting its first valuation, which is a different case with its
+  // own tests below.
+  const PRICED = '2026-09-01T00:00:00Z';
+
   it('sums invested and P&L across holdings that actually carry a cost basis', () => {
     const holdings = [
-      { id: 'h1', value_aed: 12000, invested_value_aed: 10000, is_shared: true },
-      { id: 'h2', value_aed: 5000, invested_value_aed: 4000, is_shared: true },
+      { id: 'h1', value_aed: 12000, invested_value_aed: 10000, is_shared: true, priced_at: PRICED },
+      { id: 'h2', value_aed: 5000, invested_value_aed: 4000, is_shared: true, priced_at: PRICED },
     ];
     const result = portfolioInvestedAndGain(holdings, null);
     expect(result).toMatchObject({ available: true, invested: 14000, absolute: 3000 });
@@ -42,8 +49,8 @@ describe('portfolioInvestedAndGain', () => {
 
   it('excludes holdings with no real invested figure rather than guessing', () => {
     const holdings = [
-      { id: 'h1', value_aed: 12000, invested_value_aed: 10000, is_shared: true },
-      { id: 'h2', value_aed: 5000, invested_value_aed: null, is_shared: true },
+      { id: 'h1', value_aed: 12000, invested_value_aed: 10000, is_shared: true, priced_at: PRICED },
+      { id: 'h2', value_aed: 5000, invested_value_aed: null, is_shared: true, priced_at: PRICED },
     ];
     const result = portfolioInvestedAndGain(holdings, null);
     expect(result.invested).toBe(10000);
@@ -51,7 +58,7 @@ describe('portfolioInvestedAndGain', () => {
   });
 
   it('is unavailable when no holding has an invested figure', () => {
-    const result = portfolioInvestedAndGain([{ id: 'h1', value_aed: 100, invested_value_aed: null, is_shared: true }], null);
+    const result = portfolioInvestedAndGain([{ id: 'h1', value_aed: 100, invested_value_aed: null, is_shared: true, priced_at: PRICED }], null);
     expect(result.available).toBe(false);
   });
 });
@@ -138,5 +145,50 @@ describe('QA #6: a never-valued holding has no gain to report', () => {
   it('reports an ordinary gain unchanged', () => {
     const priced = { id: 'h1', value_aed: 12_000, invested_value_aed: 10_000, is_shared: true, priced_at: PRICED };
     expect(holdingGain(priced, null)).toEqual({ absolute: 2_000, pct: 0.2 });
+  });
+});
+
+// QA #6 reached the individual holding row and stopped there. holdingGain
+// refuses to compare a placeholder zero against a cost basis; the aggregate
+// one level up kept doing exactly that.
+describe('a holding awaiting its first valuation is not a loss', () => {
+  const priced = {
+    id: 'h1', is_shared: true, owner_member_id: null,
+    value_aed: 12000, invested_value_aed: 10000, priced_at: '2026-09-01T00:00:00Z',
+  };
+  // value_aed is 0 because the column is not null, not because it is worthless.
+  const pending = {
+    id: 'h2', is_shared: true, owner_member_id: null,
+    value_aed: 0, invested_value_aed: 10000, priced_at: null,
+  };
+
+  it('does not report a 100% loss on a brand-new holding', () => {
+    const gain = portfolioInvestedAndGain([pending], null);
+    // Old behaviour: invested 10000, value 0, absolute -10000, pct -1.
+    expect(gain.available).toBe(false);
+    expect(gain.absolute).toBe(0);
+    expect(gain.pct).toBeNull();
+    expect(gain.pending).toBe(1);
+  });
+
+  it('leaves it out of a portfolio that also holds priced positions', () => {
+    const gain = portfolioInvestedAndGain([priced, pending], null);
+    expect(gain.available).toBe(true);
+    expect(gain.invested).toBe(10000);
+    expect(gain.absolute).toBe(2000);
+    expect(gain.pct).toBeCloseTo(0.2);
+    // Reported, not silently dropped: the figure omits a holding.
+    expect(gain.pending).toBe(1);
+  });
+
+  it('counts nothing pending once every holding is valued', () => {
+    expect(portfolioInvestedAndGain([priced], null).pending).toBe(0);
+  });
+
+  it('still ignores holdings with no cost basis at all', () => {
+    const noBasis = { ...priced, id: 'h3', invested_value_aed: null };
+    const gain = portfolioInvestedAndGain([priced, noBasis], null);
+    expect(gain.invested).toBe(10000);
+    expect(gain.pending).toBe(0);
   });
 });
