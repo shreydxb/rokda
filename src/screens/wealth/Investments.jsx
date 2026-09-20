@@ -18,7 +18,7 @@ import {
   visibleHoldings,
 } from '../../lib/holdings';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
-import { isStale } from '../../lib/valuation';
+import { isAwaitingFirstValuation, isStale } from '../../lib/valuation';
 import { supabase } from '../../lib/supabaseClient';
 import HoldingEditor from './HoldingEditor';
 
@@ -161,6 +161,15 @@ export default function Investments({ household, members, me, data, loading }) {
               <div className="ov-hero fig">
                 <span className="ov-hero-currency">{money.code}</span> {money.fmt(totalValue)}
               </div>
+              {/* Those holdings contribute their placeholder 0 to this total,
+                  because 0 is the only number they have. Saying so keeps the
+                  total from reading as the whole portfolio (QA #6). */}
+              {neverPriced > 0 && (
+                <div className="ov-warn" style={{ fontSize: 11.5, marginTop: 2 }}>
+                  Excludes {neverPriced} holding{neverPriced === 1 ? '' : 's'} that {neverPriced === 1 ? 'has' : 'have'} never been
+                  valued — {neverPriced === 1 ? 'it counts' : 'they count'} as zero until a price arrives.
+                </div>
+              )}
               {valueChange.available ? (
                 <>
                   <div className="ov-nwchange">
@@ -329,11 +338,21 @@ export default function Investments({ household, members, me, data, loading }) {
                         <td>{h.current_price != null ? formatMoney(h.current_price, { decimals: 2 }) : '—'}</td>
                         <td>{invested !== null ? money.fmt(invested) : '—'}</td>
                         <td>
-                          <div className="fig">{money.fmt(value)}</div>
-                          {pctOfTotal !== null && (
-                            <div className="ov-muted" style={{ fontSize: 11 }}>
-                              {formatPct(pctOfTotal)} of total
-                            </div>
+                          {/* The stored 0 on a holding nothing has priced yet
+                              is a placeholder the column demanded, not a
+                              measurement -- printing it as AED 0 is what made
+                              a new holding look like a total loss (QA #6). */}
+                          {isAwaitingFirstValuation(h) ? (
+                            <span className="ov-muted">Not valued yet</span>
+                          ) : (
+                            <>
+                              <div className="fig">{money.fmt(value)}</div>
+                              {pctOfTotal !== null && (
+                                <div className="ov-muted" style={{ fontSize: 11 }}>
+                                  {formatPct(pctOfTotal)} of total
+                                </div>
+                              )}
+                            </>
                           )}
                         </td>
                         <td className={gain ? (gain.absolute >= 0 ? 'ov-pos' : 'ov-neg') : ''}>

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { portfolioDayChange, portfolioInvestedAndGain, portfolioValueChange } from './holdings';
+import { holdingGain, portfolioDayChange, portfolioInvestedAndGain, portfolioValueChange } from './holdings';
 
 describe('portfolioDayChange', () => {
   it('weights each holding change by its value, not a flat average', () => {
@@ -113,5 +113,30 @@ describe('QA #5: portfolio value change is not investment return', () => {
     expect(result.nowTotal).toBe(7_500);
     expect(result.startTotal).toBe(5_000);
     expect(result.absolute).toBe(2_500);
+  });
+});
+
+// QA #6: holdings.value_aed is `not null default 0`, so a holding created
+// before its first price refresh stores a zero nobody asserted. Measuring
+// that placeholder against a real cost basis reported a total loss on a
+// brand-new holding.
+describe('QA #6: a never-valued holding has no gain to report', () => {
+  const PRICED = '2026-09-19T00:00:00Z';
+
+  it('reports no gain rather than a 100% loss before the first price arrives', () => {
+    const pending = { id: 'h1', value_aed: 0, invested_value_aed: 10_000, is_shared: true, priced_at: null };
+    expect(holdingGain(pending, null)).toBeNull();
+  });
+
+  it('reports the real loss once a price has actually been recorded', () => {
+    const priced = { id: 'h1', value_aed: 0, invested_value_aed: 10_000, is_shared: true, priced_at: PRICED };
+    // A genuine wipeout is still a wipeout -- the fix suppresses the
+    // unasserted zero, not a measured one.
+    expect(holdingGain(priced, null)).toEqual({ absolute: -10_000, pct: -1 });
+  });
+
+  it('reports an ordinary gain unchanged', () => {
+    const priced = { id: 'h1', value_aed: 12_000, invested_value_aed: 10_000, is_shared: true, priced_at: PRICED };
+    expect(holdingGain(priced, null)).toEqual({ absolute: 2_000, pct: 0.2 });
   });
 });

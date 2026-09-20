@@ -4,6 +4,7 @@
 // get_holdings tool needs: gain/loss, allocation by class, and range
 // performance against holding_value_history.
 import { scopedValue } from './scope.js';
+import { isAwaitingFirstValuation } from './valuation.js';
 
 const GROUPS = {
   us_equity: 'Global',
@@ -42,6 +43,11 @@ export function scopedInvestedValue(holding, scopeMemberId) {
 // figure to compare against (most holdings today, until entered manually or
 // backed by a real broker import), rather than guessing a cost basis.
 export function holdingGain(holding, scopeMemberId) {
+  // A holding that has never been valued stores 0 because the column demands
+  // a number, not because it is worth nothing. Comparing that placeholder
+  // against a real cost basis reported a 100% loss on a brand-new holding
+  // (QA #6). There is no valuation to compare, so there is no gain to report.
+  if (isAwaitingFirstValuation(holding)) return null;
   const invested = scopedInvestedValue(holding, scopeMemberId);
   if (invested === null || invested === 0) return null;
   const value = scopedHoldingValue(holding, scopeMemberId);
