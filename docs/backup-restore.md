@@ -16,6 +16,69 @@ A green migration pipeline is not a backup. It reproduces the *schema* from
 `supabase/migrations`; it reproduces none of the household's ledger. That is
 what §3–§4 below actually exercise, and now have, for real.
 
+## 0. The shell this assumes, and the machine you will actually be on
+
+**Every command below is bash.** `$(...)`, `export`, `test`, `find`, single
+quotes around connection strings — none of it runs in Windows PowerShell, and
+the failure is immediate and total: the first line errors and nothing after it
+means anything.
+
+This was found on 20 September 2026 by attempting the drill from the machine
+the household actually owns, which runs Windows. The runbook had been written,
+reviewed twice and corrected once without anyone checking that. A recovery
+procedure that assumes a shell the operator does not have is not a procedure;
+it is a description of one. The moment it matters is the moment there is least
+patience for discovering it.
+
+**On Windows, do the whole drill inside WSL.** Not a PowerShell translation of
+it: two copies of a recovery procedure means the one you follow under pressure
+is the one nobody tested.
+
+In PowerShell as Administrator, once:
+
+```powershell
+wsl --install
+```
+
+That installs Ubuntu and needs a reboot. Everything from §3 onward is then run
+inside Ubuntu, where this document applies as written. Install its two tools
+there:
+
+```bash
+# PostgreSQL 17 client. Supabase runs 17.x and pg_dump 16 or older REFUSES to
+# dump it -- an error that reads like a connection problem and is not one.
+sudo apt update && sudo apt install -y postgresql-client-17
+pg_dump --version    # must be 17.x
+
+# The Supabase CLI, for the storage copy and migration repair.
+curl -fsSL https://github.com/supabase/cli/releases/latest/download/supabase_linux_amd64.tar.gz \
+  | tar -xz -C /tmp && sudo mv /tmp/supabase /usr/local/bin/
+supabase login
+```
+
+If `postgresql-client-17` is not found, Ubuntu's default repositories are
+behind; add PostgreSQL's own:
+
+```bash
+sudo apt install -y curl ca-certificates
+sudo install -d /usr/share/postgresql-common/pgdg
+sudo curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+  --fail https://www.postgresql.org/media/keys/ACCC4CF8.asc
+echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+  https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+  | sudo tee /etc/apt/sources.list.d/pgdg.list
+sudo apt update && sudo apt install -y postgresql-client-17
+```
+
+**Where the files land matters.** WSL can read the Windows drives under
+`/mnt/c`, and the §3 outputs are the household's complete financial history.
+Writing them inside the WSL filesystem alone means they live in a virtual disk
+most backup tools do not see. Write them somewhere on `/mnt/c` that your
+ordinary backups already cover, or copy them out afterwards.
+
+A macOS or Linux machine needs none of this: `brew install postgresql@17` or
+the distribution's `postgresql-client-17`, plus the CLI, and §3 works directly.
+
 ## 1. What would actually have to come back
 
 Rokda's data is small and almost entirely unreconstructable. As of
@@ -295,6 +358,7 @@ Then check the things a fingerprint cannot see:
 | --- | --- | --- |
 | 2026-09-13 | Synthetic household, local PostgreSQL 16 | Fingerprint identical; 0 dangling memberships; `--disable-triggers` failure mode measured |
 | 2026-09-19 | **Real export of `erggbzbbutsvhleqcddq`**, restored into a scratch Supabase project (`rokda-restore-drill-scratch`, deleted after) | Fingerprint identical across all tables and `auth.users`; 0 dangling memberships; total account balance figure matched production exactly. Surfaced the `session_replication_role` fix documented above — `--disable-triggers` doesn't work against a real Supabase project's `postgres` role. |
+| 2026-09-20 | First attempt from the household's own machine | **Not a pass — stopped at step zero.** The machine runs Windows PowerShell; `pg_dump`, `psql` and the Supabase CLI were all absent, and every command in this document is bash. Nothing in `docs/` had ever named an operating system. §0 above now states the assumption and gives the WSL route. |
 | 2026-09-20 | Scope of the drill re-examined after QA #1 | **Not a pass.** The 09-19 run is still valid for what it covered, and what it covered was narrower than it read: the export had no storage objects and no `auth.identities`, the fingerprint digested user ids only, a migration replay produced two of the three cron jobs and pointed both at the old project, and nothing exercised a login, a receipt, the bot or a scheduled run. All of that is fixed or written down above; none of it has been rehearsed yet. The next drill must run §5's checklist end to end. |
 
 ## 5. Recovering for real
