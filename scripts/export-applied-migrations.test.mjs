@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { fetchLedger, LEDGER_QUERY, snapshotFromRows } from './export-applied-migrations.mjs';
+import { fetchLedger, fetchLedgerViaPsql, LEDGER_QUERY, parsePsqlLedger, snapshotFromRows } from './export-applied-migrations.mjs';
 import { classify, compare, fingerprint, FINGERPRINT_VERSION } from './compare-migrations.mjs';
 
 // QA #7: the committed snapshot covered 43 of 49 migrations, so six deployed
@@ -99,5 +99,62 @@ describe('fetching the ledger', () => {
   it('fails loudly when the response is not JSON at all', async () => {
     const fetchImpl = async () => ({ ok: true, status: 200, text: async () => '<html>gateway</html>' });
     await expect(fetchLedger({ projectRef: 'r', accessToken: 't', fetchImpl })).rejects.toThrow(/did not return JSON/);
+  });
+});
+
+// The Management API transport turned out not to be usable on this project:
+// the first real run returned 403, "your account does not have the necessary
+// privileges to access this endpoint", from a token that lists and downloads
+// Edge Functions perfectly well. A direct connection is both the available
+// transport and the better one -- it returns the SQL in full, so the content
+// fingerprint keeps meaning something.
+describe('reading the ledger over a direct connection', () => {
+  const RS = '\x1e';
+  const FS = '\x1f';
+
+  it('keeps multi-line SQL whole', () => {
+    // Every migration in this repository is multi-line and full of newlines,
+    // semicolons and pipes. A newline-or-pipe split truncates all of them, and
+    // truncated SQL fingerprints as drift against a database that is correct.
+    const sql = 'create table x (\n  a int -- note\n);\nselect 1 | 2;';
+    const rows = parsePsqlLedger(`20260101000000${FS}first${FS}${sql}${RS}`);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toEqual({ version: '20260101000000', name: 'first', sql });
+  });
+
+  it('reads several migrations', () => {
+    const raw = [`1${FS}a${FS}select 1;`, `2${FS}b${FS}select 2;`].join(RS) + RS;
+    expect(parsePsqlLedger(raw).map((r) => r.name)).toEqual(['a', 'b']);
+  });
+
+  it('does not truncate SQL that contains a separator byte', () => {
+    // Paranoia, but the failure it prevents is silent.
+    const sql = `select '${FS}';`;
+    expect(parsePsqlLedger(`1${FS}a${FS}${sql}${RS}`)[0].sql).toBe(sql);
+  });
+
+  it('ignores the trailing empty record psql leaves behind', () => {
+    expect(parsePsqlLedger(`1${FS}a${FS}select 1;${RS}`)).toHaveLength(1);
+    expect(parsePsqlLedger('')).toEqual([]);
+  });
+
+  it('asks psql for control-character delimiters and stops on error', () => {
+    let seen = null;
+    fetchLedgerViaPsql({
+      dbUrl: 'postgresql://example',
+      exec: (bin, args) => {
+        seen = { bin, args };
+        return `1${FS}a${FS}select 1;${RS}`;
+      },
+    });
+    expect(seen.bin).toBe('psql');
+    expect(seen.args).toContain('-At');
+    expect(seen.args).toContain('ON_ERROR_STOP=1');
+    expect(seen.args).toContain(LEDGER_QUERY);
+    expect(seen.args[0]).toBe('postgresql://example');
+  });
+
+  it('refuses an empty ledger, same as the API transport', () => {
+    expect(() => fetchLedgerViaPsql({ dbUrl: 'x', exec: () => '' })).toThrow(/empty/i);
   });
 });

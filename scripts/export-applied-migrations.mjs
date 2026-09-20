@@ -17,11 +17,25 @@
 // that. A release decision should never rest on a checked-in description of
 // production.
 //
-//   SUPABASE_ACCESS_TOKEN=... SUPABASE_PROJECT_REF=... \
-//     node scripts/export-applied-migrations.mjs [output.json]
+// Two transports, because the obvious one turned out not to be available here.
+// The first real run of this script failed with a 403 from the Management API:
+// "Your account does not have the necessary privileges to access this
+// endpoint." The same token lists and downloads Edge Functions perfectly well
+// -- the database-query endpoints are simply not in what it may do, and that
+// is an account-level grant rather than anything this repository controls.
+//
+// So a direct connection is preferred when one is configured, and it is the
+// better transport anyway: it is the same connection string docs/backup-restore.md
+// §3 already uses for pg_dump, it returns the migration SQL in full so the
+// content fingerprint keeps its meaning, and it does not depend on the
+// privileges attached to a platform token.
+//
+//   SUPABASE_DB_URL=postgresql://... node scripts/export-applied-migrations.mjs [out.json]
+//   SUPABASE_ACCESS_TOKEN=... SUPABASE_PROJECT_REF=... node scripts/export-applied-migrations.mjs [out.json]
 //
 // Default output is docs/applied-migrations.json; pass a path to write
 // elsewhere (which is what the release check does).
+import { execFileSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { fingerprint, FINGERPRINT_VERSION } from './compare-migrations.mjs';
@@ -95,21 +109,71 @@ export async function fetchLedger({ projectRef, accessToken, fetchImpl = fetch }
   return rows;
 }
 
+// psql rather than a Postgres driver: this repository has no pg dependency, the
+// runner and every machine that follows the backup runbook already has psql,
+// and adding a driver to ship one read would be the larger change.
+//
+// -At gives unaligned, tuple-only output and -R/-F set record and field
+// separators to control characters, so migration SQL -- which is full of
+// newlines, pipes and semicolons -- cannot be confused with the delimiters
+// around it. A naive newline/pipe split silently truncates every multi-line
+// migration, which is all of them.
+const RECORD_SEP = '\x1e';
+const FIELD_SEP = '\x1f';
+
+export function parsePsqlLedger(raw) {
+  return raw
+    .split(RECORD_SEP)
+    .map((record) => record.trim())
+    .filter((record) => record !== '')
+    .map((record) => {
+      const [version, name, ...sql] = record.split(FIELD_SEP);
+      // sql is rejoined rather than taken as [2]: a separator appearing inside
+      // the SQL would otherwise truncate it, and truncated SQL fingerprints as
+      // drift against a database that is actually correct.
+      return { version, name, sql: sql.join(FIELD_SEP) };
+    });
+}
+
+export function fetchLedgerViaPsql({ dbUrl, exec = execFileSync }) {
+  const out = exec(
+    'psql',
+    [dbUrl, '-At', '-R', RECORD_SEP, '-F', FIELD_SEP, '-v', 'ON_ERROR_STOP=1', '-c', LEDGER_QUERY],
+    { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
+  );
+  const rows = parsePsqlLedger(out);
+  if (rows.length === 0) {
+    throw new Error('The migration ledger came back empty. Refusing to write a snapshot that says nothing is applied.');
+  }
+  return rows;
+}
+
 const isMainModule = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 
 if (isMainModule) {
   const out = process.argv[2] ?? 'docs/applied-migrations.json';
   const projectRef = process.env.SUPABASE_PROJECT_REF;
   const accessToken = process.env.SUPABASE_ACCESS_TOKEN;
-  if (!projectRef || !accessToken) {
-    console.error('export-applied-migrations: SUPABASE_ACCESS_TOKEN and SUPABASE_PROJECT_REF are required.');
-    console.error('  The applied side can only be read from the database. Without them there is nothing to export,');
-    console.error('  and writing the repository back to itself would make the comparison a tautology.');
+  const dbUrl = process.env.SUPABASE_DB_URL;
+
+  if (!dbUrl && !(projectRef && accessToken)) {
+    console.error('export-applied-migrations: no way to reach the database.');
+    console.error('  Set SUPABASE_DB_URL (preferred — the same connection string docs/backup-restore.md §3 uses),');
+    console.error('  or SUPABASE_ACCESS_TOKEN plus SUPABASE_PROJECT_REF for the Management API.');
+    console.error('  The applied side can only be read from the database: without one of those there is nothing');
+    console.error('  to export, and writing the repository back to itself would make the comparison a tautology.');
     process.exit(1);
   }
 
-  const rows = await fetchLedger({ projectRef, accessToken });
-  const snapshot = snapshotFromRows(rows, { projectRef });
+  let rows;
+  if (dbUrl) {
+    console.log('export-applied-migrations: reading the ledger over a direct connection');
+    rows = fetchLedgerViaPsql({ dbUrl });
+  } else {
+    console.log('export-applied-migrations: reading the ledger through the Management API');
+    rows = await fetchLedger({ projectRef, accessToken });
+  }
+  const snapshot = snapshotFromRows(rows, { projectRef: projectRef ?? null });
   writeFileSync(out, `${JSON.stringify(snapshot, null, 2)}\n`);
   console.log(`export-applied-migrations: wrote ${snapshot.migrations.length} applied migrations to ${out}`);
   console.log(`  ${snapshot.migrations[0].version} … ${snapshot.migrations.at(-1).version}`);
