@@ -171,9 +171,26 @@ export default function MemberEditor({ member, householdId, isSelf, isLastOwner,
                 {member.telegram_user_id ? (
                   <div className="ov-muted" style={{ fontSize: 12.5 }}>Linked.</div>
                 ) : linkCode ? (
+                  // The code used to be six digits, which a stranger could
+                  // guess inside its fifteen-minute life. It is now a 122-bit
+                  // token (QA #8), so it is copied rather than read out --
+                  // hence the block layout, the wrap, and the copy button.
                   <div className="ov-muted" style={{ fontSize: 12.5, lineHeight: 1.7 }}>
-                    Send <span className="fig" style={{ fontSize: 15, color: 'var(--ink)' }}>{linkCode}</span> to the bot within 15
-                    minutes to link this member.
+                    <div
+                      className="fig"
+                      style={{ fontSize: 12.5, color: 'var(--ink)', wordBreak: 'break-all', userSelect: 'all', marginBottom: 6 }}
+                    >
+                      {linkCode}
+                    </div>
+                    <button
+                      type="button"
+                      className="om-btn"
+                      onClick={() => navigator.clipboard?.writeText(linkCode)}
+                      style={{ marginBottom: 6 }}
+                    >
+                      Copy
+                    </button>
+                    <div>Send it to the bot within 15 minutes to link this member. It works once.</div>
                   </div>
                 ) : (
                   <>

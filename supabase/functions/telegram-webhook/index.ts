@@ -30,6 +30,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { resolveScopeMemberId, scopedValue } from "../_shared/applib/scope.js";
 import { isPrivateChat } from "../_shared/applib/telegramChat.js";
+import { LINK_ATTEMPT_WINDOW_MS, linkAttemptRefusal, linkTokenFromMessage } from "../_shared/applib/telegramLink.js";
 import {
   ambiguousConfirmMessage,
   isConfirmationText,
@@ -99,6 +100,41 @@ async function alreadyHandled(updateId: unknown): Promise<boolean> {
   return error?.code === "23505";
 }
 
+// Counts the rows; _shared/applib/telegramLink.js decides what they mean. See
+// there for why an unlinked sender gets a bounded number of guesses at all.
+async function linkAttemptBlocked(fromId: number): Promise<string | null> {
+  const since = new Date(Date.now() - LINK_ATTEMPT_WINDOW_MS).toISOString();
+  const [{ count: sender }, { count: global }] = await Promise.all([
+    supabase
+      .from("telegram_link_attempts")
+      .select("id", { count: "exact", head: true })
+      .eq("telegram_user_id", fromId)
+      .gt("attempted_at", since),
+    supabase.from("telegram_link_attempts").select("id", { count: "exact", head: true }).gt("attempted_at", since),
+  ]);
+  return linkAttemptRefusal({ sender, global });
+}
+
+async function recordLinkFailure(fromId: number): Promise<void> {
+  try {
+    await supabase.from("telegram_link_attempts").insert({ telegram_user_id: fromId });
+  } catch {
+    // Best-effort. A counter that failed to increment must not also refuse the
+    // person a chance to type their code correctly.
+  }
+}
+
+// A successful link ends the sender's history, so an ordinary member who
+// mistypes once and then succeeds is not one failure closer to a lockout the
+// next time they relink a device.
+async function clearLinkFailures(fromId: number): Promise<void> {
+  try {
+    await supabase.from("telegram_link_attempts").delete().eq("telegram_user_id", fromId);
+  } catch {
+    // Best-effort.
+  }
+}
+
 // telegram_update_log only has to outlive Telegram's own retry window, which
 // is minutes. A week is generous and keeps the table from growing without
 // bound. Runs with the other daily passes; a failure here is invisible and
@@ -109,6 +145,16 @@ async function pruneTelegramUpdateLog(): Promise<void> {
       .from("telegram_update_log")
       .delete()
       .lt("received_at", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString());
+  } catch {
+    // Best-effort housekeeping.
+  }
+  try {
+    // Link attempts only matter inside their 15-minute window; a day is kept
+    // so a burst is still legible afterwards rather than having erased itself.
+    await supabase
+      .from("telegram_link_attempts")
+      .delete()
+      .lt("attempted_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
   } catch {
     // Best-effort housekeeping.
   }
@@ -2013,11 +2059,23 @@ Deno.serve(async (req) => {
 
   if (!member) {
     const text = typeof message.text === "string" ? message.text.trim() : "";
-    if (text) {
+    // A Telegram deep link (https://t.me/<bot>?start=<token>) arrives as
+    // "/start <token>". The token is short enough to be a deep-link payload,
+    // so accepting both shapes costs one line and means a link in Settings
+    // would work without touching this again.
+    const candidate = linkTokenFromMessage(text);
+
+    if (candidate) {
+      const blocked = await linkAttemptBlocked(fromId);
+      if (blocked) {
+        await reply(chatId, blocked);
+        return new Response("ok");
+      }
+
       const { data: pending } = await supabase
         .from("household_members")
         .select("id, display_name")
-        .eq("telegram_link_code", text)
+        .eq("telegram_link_code", candidate)
         .gt("telegram_link_code_expires_at", new Date().toISOString())
         .maybeSingle();
 
@@ -2025,17 +2083,38 @@ Deno.serve(async (req) => {
         // Uses the service-role client, which the guard trigger on
         // household_members explicitly exempts (see the telegram_linking
         // migration) -- this is the one path allowed to set telegram_user_id.
-        await supabase
+        //
+        // The code-qualified WHERE makes two simultaneous redemptions of one
+        // token safe: only one can match. It did not make the LOSER honest --
+        // the loser's update matched zero rows and was told "Linked" anyway,
+        // because nothing read the result (QA #8). Selecting back the affected
+        // row is what tells the two apart.
+        const { data: linked } = await supabase
           .from("household_members")
           .update({ telegram_user_id: fromId, telegram_link_code: null, telegram_link_code_expires_at: null })
           .eq("id", pending.id)
-          .eq("telegram_link_code", text);
-        await reply(
-          chatId,
-          `Linked as ${pending.display_name}. Send a receipt photo, a message like "42 aed carrefour groceries", or ask a question like "what's our net worth?" any time.`
-        );
+          .eq("telegram_link_code", candidate)
+          .select("id")
+          .maybeSingle();
+
+        if (linked) {
+          await clearLinkFailures(fromId);
+          await reply(
+            chatId,
+            `Linked as ${pending.display_name}. Send a receipt photo, a message like "42 aed carrefour groceries", or ask a question like "what's our net worth?" any time.`
+          );
+          return new Response("ok");
+        }
+
+        // The token was valid a moment ago and is not now: someone else
+        // redeemed it, or it expired between the two statements. Saying so
+        // beats claiming a link that does not exist.
+        await recordLinkFailure(fromId);
+        await reply(chatId, "That code was just used or has expired. Generate a fresh one in Settings → Household.");
         return new Response("ok");
       }
+
+      await recordLinkFailure(fromId);
     }
     await reply(chatId, "This Telegram account isn't linked to a Rokda household yet. Generate a code in Settings → Household and send it to me.");
     return new Response("ok");
