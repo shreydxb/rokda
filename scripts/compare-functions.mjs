@@ -333,19 +333,32 @@ function differingFiles(local, live) {
 // A function the platform is not actively serving blocks for the same reason:
 // whatever its source says, it is not answering.
 export function isBlocking(row) {
+  // Config and platform status come FIRST, because they are statements about
+  // production that hold whatever branch is being checked and whatever the
+  // source says.
+  //
+  // They used to come last, after an early return for stale-deployment. On a
+  // branch that changed a function's source -- which is every branch that
+  // touches one -- that early return fired and these were never reached. A
+  // webhook whose gateway rejects every Telegram call with 401, or one the
+  // platform has THROTTLED or REMOVED, reported blocking:false as long as the
+  // same branch also edited its source. The advisory was meant to excuse one
+  // thing, a branch not being deployed yet, and quietly excused two others
+  // that have nothing to do with branches.
+  if (row.configState === 'drift') return true;
+  if (row.platformStatus != null && row.platformStatus !== 'ACTIVE') return true;
+
+  if (row.state === 'orphan-deployment' || row.state === 'unreadable') return true;
+  if (row.state === 'not-deployed') return !!row.required;
+
   // The one state whose meaning depends on which ref is being checked. On main
   // it is the finding this whole check exists for -- telegram-webhook ran an
   // 8 Sep build for five days while main had moved on. On a branch it is
   // unavoidable and says nothing: a branch that changes a function is
   // different from production by construction, and cannot be deployed until it
   // merges, so blocking on it makes every such PR permanently red and the
-  // check useless as a merge gate. Everything else below is a statement about
-  // production that no branch excuses.
+  // check useless as a merge gate.
   if (row.state === 'stale-deployment') return !row.sourceParityAdvisory;
-  if (row.state === 'orphan-deployment' || row.state === 'unreadable') return true;
-  if (row.state === 'not-deployed') return !!row.required;
-  if (row.configState === 'drift') return true;
-  if (row.platformStatus != null && row.platformStatus !== 'ACTIVE') return true;
   return false;
 }
 

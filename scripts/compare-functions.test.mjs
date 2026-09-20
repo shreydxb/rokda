@@ -378,3 +378,41 @@ describe('branch mode: a proposed change is not production drift', () => {
     expect(isBlocking(row)).toBe(true);
   });
 });
+
+// Branch mode makes a source difference advisory, which is right: a branch
+// that changes a function is different from production by construction. It
+// used to return early on that, so two checks that have nothing to do with
+// branches were skipped whenever the same branch also edited the source.
+describe('branch mode excuses being undeployed, and nothing else', () => {
+  const onABranchThatChangedTheSource = {
+    state: 'stale-deployment',
+    sourceParityAdvisory: true,
+    platformStatus: 'ACTIVE',
+    configState: 'match',
+  };
+
+  it('does not block on source alone', () => {
+    expect(isBlocking(onABranchThatChangedTheSource)).toBe(false);
+  });
+
+  it('still blocks when the gateway config has drifted', () => {
+    // verify_jwt drift on telegram-webhook means every Telegram call is being
+    // 401ed at the gateway right now, however green the source looks.
+    expect(isBlocking({ ...onABranchThatChangedTheSource, configState: 'drift' })).toBe(true);
+  });
+
+  it('still blocks when the platform is not serving the function', () => {
+    for (const platformStatus of ['THROTTLED', 'REMOVED', 'INACTIVE']) {
+      expect(isBlocking({ ...onABranchThatChangedTheSource, platformStatus })).toBe(true);
+    }
+  });
+
+  it('still blocks on an orphan or unreadable deployment', () => {
+    expect(isBlocking({ ...onABranchThatChangedTheSource, state: 'orphan-deployment' })).toBe(true);
+    expect(isBlocking({ ...onABranchThatChangedTheSource, state: 'unreadable' })).toBe(true);
+  });
+
+  it('keeps blocking on stale source when it is not advisory, as on main', () => {
+    expect(isBlocking({ ...onABranchThatChangedTheSource, sourceParityAdvisory: false })).toBe(true);
+  });
+});
