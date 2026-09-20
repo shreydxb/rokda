@@ -46,7 +46,7 @@ import { lastDueOccurrence, upcomingItems } from "../_shared/applib/recurring.js
 import { isPosted, parseDay, atDayOfMonth, startOfDay, householdToday, householdYearMonth } from "../_shared/applib/day.js";
 import { isSpendRow, spendDelta } from "../_shared/applib/transactionKind.js";
 import { visibleHoldings, scopedHoldingValue, holdingGain, allocationByClass, portfolioValueChange } from "../_shared/applib/holdings.js";
-import { cashCoverStatus } from "../_shared/applib/cashCover.js";
+import { cashCoverStatus, formatCashCoverLine } from "../_shared/applib/cashCover.js";
 import { notableMoves } from "../_shared/applib/insights.js";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -945,11 +945,23 @@ async function toolGetUpcomingBills(householdId: string, scopeMemberId: string |
   const visibleRecurring = (recurring ?? []).filter(
     (r: { is_shared: boolean; owner_member_id: string | null }) => scopeMemberId === null || r.is_shared || r.owner_member_id === scopeMemberId
   );
-  const bills = upcomingItems(visibleRecurring as never, 14, now).map((r: { name: string; amount: number; dueDate: Date }) => ({
-    name: r.name,
-    amount_aed: round2(Math.abs(Number(r.amount))),
-    due_date: r.dueDate.toISOString().slice(0, 10),
-  }));
+  // A recurring row carries its own currency and there is no converted column
+  // for it anywhere, so a non-AED bill has no AED amount -- the same position
+  // a never-converted account is in. Labelling its native figure `amount_aed`
+  // is the "10,000 rupees counted as 10,000 dirhams" defect (QA #4), and this
+  // sum feeds the cash-cover verdict, so it is stated as unknown instead.
+  const bills = upcomingItems(visibleRecurring as never, 14, now).map(
+    (r: { name: string; amount: number; currency: string | null; dueDate: Date }) => {
+      const native = round2(Math.abs(Number(r.amount)));
+      const isAed = String(r.currency ?? "AED").toUpperCase() === "AED";
+      return {
+        name: r.name,
+        amount_aed: isAed ? native : null,
+        ...(isAed ? {} : { amount: native, currency: r.currency, note: "no AED conversion recorded" }),
+        due_date: r.dueDate.toISOString().slice(0, 10),
+      };
+    }
+  );
 
   const cardBills: Array<{ name: string; amount_owed_aed: number; due_date: string }> = [];
   for (const a of (accounts ?? []) as Array<{ type: string; is_shared: boolean; owner_member_id: string | null; name: string; balance: number; balance_aed: number | null; due_day: number | null }>) {
@@ -988,22 +1000,6 @@ async function toolGetCashCover(householdId: string, days = 7) {
     toolGetUpcomingBills(householdId, null),
   ]);
   return cashCoverStatus((accounts ?? []) as never, bills as never, { days, today: parseDay(householdToday()) });
-}
-
-function formatCashCoverLine(status: {
-  liquidAed: number;
-  dueAed: number;
-  days: number;
-  covered: boolean;
-  shortfallAed: number;
-  unvalued?: number;
-}) {
-  const base = `Cash cover: AED ${status.liquidAed.toLocaleString()} liquid vs AED ${status.dueAed.toLocaleString()} due in the next ${status.days} days`;
-  const verdict = status.covered ? `${base} -- covered.` : `${base} -- short by AED ${status.shortfallAed.toLocaleString()}.`;
-  // A "short by" warning built on a liquid figure that omits an unconverted
-  // account can be wrong in the direction that causes action (QA #4), so the
-  // omission is stated on the same line as the verdict it undermines.
-  return status.unvalued ? `${verdict} ${unvaluedNote(status.unvalued)}` : verdict;
 }
 
 async function toolGetBudgetStatus(householdId: string, scopeMemberId: string | null, args: Record<string, unknown>) {
@@ -1878,7 +1874,10 @@ async function runCashCoverCheck(): Promise<{ checked: number; nudged: number }>
     if (!prefEnabled(prefs, householdId, "cash_cover_enabled")) continue;
     try {
       const status = await toolGetCashCover(householdId);
-      if (status.covered) continue;
+      // A "covered" built on a due total that is missing an unknown amount
+      // must not silence the warning -- that is the one direction where being
+      // wrong stops someone acting (QA #4).
+      if (status.covered && status.certain) continue;
 
       const { data: alreadySent } = await supabase
         .from("cash_cover_nudges")
