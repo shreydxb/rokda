@@ -29,7 +29,12 @@ export default function Household({ household, members, me, loading, reload }) {
 
   const nameDirty = name.trim() !== '' && name.trim() !== household?.name;
   const rateDirty = inrRate.trim() !== '' && Number(inrRate) !== Number(household?.inr_per_aed);
-  const owners = members.filter((m) => m.role === 'owner');
+  // Owners who can actually sign in. The database now guarantees these are the
+  // same set -- an owner row must have a user_id -- but the check the "last
+  // owner" guard depends on is "can anyone still administer this household",
+  // and counting labels is what let a placeholder stand in for an owner in the
+  // first place (QA #3). Say what is meant.
+  const owners = members.filter((m) => m.role === 'owner' && m.user_id != null);
   // Adding a member is owner-only in the database now, so a non-owner pressing
   // this would get a raw policy error instead of a button that does nothing.
   const iAmOwner = me?.role === 'owner';
@@ -180,7 +185,8 @@ export default function Household({ household, members, me, loading, reload }) {
         </div>
         <div className="ov-muted" style={{ marginTop: 14, fontSize: 11.5, lineHeight: 1.65, maxWidth: '80ch' }}>
           A member without a linked login can still own accounts, transactions, and goals — useful for adding a partner before
-          they have their own account. Sending them an actual invite isn't wired up yet.
+          they have their own account. They cannot be a household owner, though: that role is about administering the roster,
+          which needs a login. Sending them an actual invite isn't wired up yet.
           {!iAmOwner && ' Only an owner can add or remove members.'}
         </div>
       </section>

@@ -23,7 +23,12 @@ begin;
 -- tracked in the ledger before they ever sign in.
 insert into auth.users (id, email) values
   ('0a000000-0000-0000-0000-00000000000a', 'owner@example.test'),
-  ('0b000000-0000-0000-0000-00000000000b', 'member@example.test');
+  ('0b000000-0000-0000-0000-00000000000b', 'member@example.test'),
+  -- The other household's owner needs a login of its own now: an owner row
+  -- with no user_id is refused outright (household_members_owner_has_login,
+  -- QA #3). Nothing below ever signs in as them -- they exist to be reached
+  -- for, and failed to be reached.
+  ('0d000000-0000-0000-0000-00000000000d', 'their-owner@example.test');
 
 insert into households (id, name) values
   ('d1000000-0000-0000-0000-000000000001', 'Ours'),
@@ -33,7 +38,7 @@ insert into household_members (id, household_id, display_name, role, user_id) va
   ('e1000000-0000-0000-0000-00000000000a', 'd1000000-0000-0000-0000-000000000001', 'Owner', 'owner', '0a000000-0000-0000-0000-00000000000a'),
   ('e1000000-0000-0000-0000-00000000000b', 'd1000000-0000-0000-0000-000000000001', 'Member', 'member', '0b000000-0000-0000-0000-00000000000b'),
   ('e1000000-0000-0000-0000-00000000000c', 'd1000000-0000-0000-0000-000000000001', 'Placeholder', 'member', null),
-  ('e2000000-0000-0000-0000-00000000000a', 'd2000000-0000-0000-0000-000000000002', 'Their owner', 'owner', null);
+  ('e2000000-0000-0000-0000-00000000000a', 'd2000000-0000-0000-0000-000000000002', 'Their owner', 'owner', '0d000000-0000-0000-0000-00000000000d');
 
 set role authenticated;
 set request.jwt.claim.role = 'authenticated';
@@ -236,6 +241,61 @@ begin
   where household_id = 'd1000000-0000-0000-0000-000000000001' and role = 'owner';
   if n <> 1 then raise exception 'QA-§8 FAILED: the household ended with % owners, expected 1', n; end if;
   raise notice 'QA-§8 ok: the last owner cannot be demoted, deleted, or demoted en masse';
+end $$;
+
+-- ------------------------------------------- an owner who can actually sign in
+--
+-- QA #3, reproduced exactly as reported: the real owner promotes the
+-- placeholder member (user_id null), then demotes themselves. Both writes used
+-- to succeed, leaving owner_rows = 1 and zero owners able to sign in --
+-- is_household_owner() false for everybody, and a roster nobody can ever
+-- repair. The last-owner trigger could not see it, because it counts the label
+-- and the label was still there.
+--
+-- Signed in as the household's only owner. e1...000b was demoted in the block
+-- above, so 000b is the owner now.
+do $$
+declare n int;
+begin
+  begin
+    update household_members set role = 'owner'
+    where id = 'e1000000-0000-0000-0000-00000000000c';
+    raise exception 'QA-#3 FAILED: a placeholder with no login was made an owner';
+  exception
+    when check_violation then null;
+  end;
+
+  -- The step the promotion was for. It must still be refused, and for the
+  -- original reason: there is still only one owner.
+  begin
+    update household_members set role = 'member'
+    where id = 'e1000000-0000-0000-0000-00000000000b';
+    raise exception 'QA-#3 FAILED: the last owner stepped down after a failed promotion';
+  exception
+    when check_violation then null;
+  end;
+
+  select count(*) into n from household_members
+  where household_id = 'd1000000-0000-0000-0000-000000000001'
+    and role = 'owner' and user_id is not null;
+  if n <> 1 then
+    raise exception 'QA-#3 FAILED: the household has % owners who can sign in, expected 1', n;
+  end if;
+
+  -- And the thing this must not have broken: promoting someone who DOES have a
+  -- login still works, and only then can the current owner step down.
+  update household_members set role = 'owner'
+  where id = 'e1000000-0000-0000-0000-00000000000a';
+  update household_members set role = 'member'
+  where id = 'e1000000-0000-0000-0000-00000000000b';
+
+  select count(*) into n from household_members
+  where household_id = 'd1000000-0000-0000-0000-000000000001'
+    and role = 'owner' and user_id is not null;
+  if n <> 1 then
+    raise exception 'QA-#3 FAILED: handing over ownership left % signed-in owners, expected 1', n;
+  end if;
+  raise notice 'QA-#3 ok: a placeholder cannot be made owner, and handover between logins still works';
 end $$;
 
 -- QA §7 seen from the API side: the tenant-qualified keys hold for a signed-in

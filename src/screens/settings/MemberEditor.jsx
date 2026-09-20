@@ -45,6 +45,17 @@ export default function MemberEditor({ member, householdId, isSelf, isLastOwner,
 
   const nameError = displayName.trim() === '' ? 'Name it.' : '';
 
+  // Owner is an administrative grant, and the database resolves it through the
+  // member's linked auth user (is_household_owner). A row with no login cannot
+  // be that person, so making one an owner produced a household with an owner
+  // nobody could sign in as -- and no way back, since only an owner can repair
+  // the roster (QA #3). The database refuses it now; the chip stops offering
+  // it, so the refusal is not the first anyone hears of it.
+  //
+  // A member with no login loses nothing else by this: what they can OWN --
+  // accounts, transactions, goals -- is a different column entirely.
+  const canBeOwner = !!member?.user_id;
+
   async function handleSave(e) {
     e.preventDefault();
     if (nameError) {
@@ -124,7 +135,7 @@ export default function MemberEditor({ member, householdId, isSelf, isLastOwner,
                   type="button"
                   className="om-seg"
                   data-active={role === r}
-                  disabled={isLastOwner}
+                  disabled={isLastOwner || (r === 'owner' && !canBeOwner)}
                   onClick={() => {
                     setRole(r);
                     setDirty(true);
@@ -140,10 +151,16 @@ export default function MemberEditor({ member, householdId, isSelf, isLastOwner,
               This is the only owner — add another owner before changing this one to a member.
             </div>
           )}
+          {!isLastOwner && !canBeOwner && (
+            <div className="ov-muted" style={{ fontSize: 11.5, marginTop: -10 }}>
+              Owner is unavailable until they have a login — an owner administers the household, which means signing in.
+            </div>
+          )}
 
           {member && !member.user_id && (
             <div className="ov-muted" style={{ fontSize: 11.5 }}>
-              Not linked to a login yet. They can still be assigned as an owner of accounts, transactions, and goals.
+              Not linked to a login yet. They can still be the owner of accounts, transactions and goals — that is separate from
+              the household role above.
             </div>
           )}
 

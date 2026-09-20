@@ -332,6 +332,80 @@ begin
   raise notice 'QA-§7 ok: removing a member nulls the owner and keeps household_id';
 end $$;
 
+-- QA #3: an owner whose login goes away must not stay an owner.
+--
+-- household_members.user_id is `on delete set null`, so deleting an auth user
+-- rewrites the roster row with nobody asking. The row used to keep
+-- role = 'owner' while losing the only thing is_household_owner() resolves it
+-- through -- a label pointing at no one, which the last-owner trigger happily
+-- counts as an owner.
+--
+-- Deleting one of two owners' accounts demotes that row, because the household
+-- can afford to lose it. Deleting the last owner's account is refused outright,
+-- because it cannot.
+do $$
+declare role_now text; owners_with_login int;
+begin
+  insert into households (id, name) values ('aaaaaaaa-0000-0000-0000-00000000000b', 'Unlink test');
+  insert into auth.users (id, email) values
+    ('aaaaaaaa-1111-0000-0000-00000000000c', 'first@example.test'),
+    ('aaaaaaaa-1111-0000-0000-00000000000d', 'second@example.test');
+  insert into household_members (id, household_id, display_name, role, user_id) values
+    ('aaaaaaaa-2222-0000-0000-00000000000c', 'aaaaaaaa-0000-0000-0000-00000000000b', 'First', 'owner', 'aaaaaaaa-1111-0000-0000-00000000000c'),
+    ('aaaaaaaa-2222-0000-0000-00000000000d', 'aaaaaaaa-0000-0000-0000-00000000000b', 'Second', 'owner', 'aaaaaaaa-1111-0000-0000-00000000000d');
+
+  delete from auth.users where id = 'aaaaaaaa-1111-0000-0000-00000000000d';
+
+  select role into role_now from household_members where id = 'aaaaaaaa-2222-0000-0000-00000000000d';
+  if role_now <> 'member' then
+    raise exception 'QA-#3 FAILED: an owner whose login was deleted is still role %', role_now;
+  end if;
+
+  select count(*) into owners_with_login from household_members
+  where household_id = 'aaaaaaaa-0000-0000-0000-00000000000b' and role = 'owner' and user_id is not null;
+  if owners_with_login <> 1 then
+    raise exception 'QA-#3 FAILED: % owners can sign in, expected 1', owners_with_login;
+  end if;
+
+  -- Now the same deletion for the LAST owner. There is nobody to fall back to,
+  -- so the account deletion itself must fail -- with the ownership message,
+  -- not a constraint nobody deleting an account has heard of.
+  begin
+    delete from auth.users where id = 'aaaaaaaa-1111-0000-0000-00000000000c';
+    raise exception 'QA-#3 FAILED: deleting the last owner''s login left the household ownerless';
+  exception
+    when check_violation then null;
+  end;
+
+  select count(*) into owners_with_login from household_members
+  where household_id = 'aaaaaaaa-0000-0000-0000-00000000000b' and role = 'owner' and user_id is not null;
+  if owners_with_login <> 1 then
+    raise exception 'QA-#3 FAILED: the household ended with % signed-in owners, expected 1', owners_with_login;
+  end if;
+  raise notice 'QA-#3 ok: losing a login demotes the row; losing the last owner''s login is refused';
+end $$;
+
+-- QA #3: the label and the login cannot be separated by hand either.
+do $$
+begin
+  begin
+    insert into household_members (household_id, display_name, role, user_id)
+    values ('aaaaaaaa-0000-0000-0000-00000000000b', 'Unloggable', 'owner', null);
+    raise exception 'QA-#3 FAILED: an owner row with no login was inserted';
+  exception
+    when check_violation then null;
+  end;
+
+  begin
+    update household_members set user_id = null
+    where id = 'aaaaaaaa-2222-0000-0000-00000000000c';
+    raise exception 'QA-#3 FAILED: the last owner unlinked their own login';
+  exception
+    when check_violation then null;
+  end;
+  raise notice 'QA-#3 ok: an owner row cannot be created or edited into having no login';
+end $$;
+
 -- QA §7: approve_intake names the offending parameter instead of leaving the
 -- caller to decode a constraint violation, and writes nothing when it refuses.
 do $$
