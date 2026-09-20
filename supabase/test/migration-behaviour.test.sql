@@ -437,6 +437,22 @@ begin
     raise exception 'QA-#7 FAILED: weekday-price-refresh does not authenticate from the vault';
   end if;
 
+  -- QA #1: this one existed only in production. It was scheduled by hand and
+  -- was in no migration, so a rebuilt project never accrued fixed-deposit
+  -- interest -- silently, because the app keeps working and the numbers just
+  -- stop moving.
+  select command, schedule into cmd, sched from cron.job where jobname = 'daily-fd-accrual';
+  if cmd is null then raise exception 'QA-#1 FAILED: the migrations do not create daily-fd-accrual'; end if;
+  if sched <> '0 23 * * *' then
+    raise exception 'QA-#1 FAILED: daily-fd-accrual runs on %, expected daily at 23:00', sched;
+  end if;
+  if position('/functions/v1/fd-accrual' in cmd) = 0 then
+    raise exception 'QA-#1 FAILED: daily-fd-accrual does not call the fd-accrual function';
+  end if;
+  if position('Authorization' in cmd) = 0 or position('vault.decrypted_secrets' in cmd) = 0 then
+    raise exception 'QA-#1 FAILED: daily-fd-accrual does not authenticate from the vault';
+  end if;
+
   select command, schedule into cmd, sched from cron.job where jobname = 'daily-recurring-nudge-check';
   if cmd is null then raise exception 'QA-#7 FAILED: the migrations do not create daily-recurring-nudge-check'; end if;
   if sched <> '0 5 * * *' then
@@ -451,7 +467,7 @@ begin
     raise exception 'QA-#7 FAILED: daily-recurring-nudge-check sends no shared secret';
   end if;
 
-  raise notice 'QA-#7 ok: both scheduled jobs the migrations create are well formed and authenticated';
+  raise notice 'QA-#7/#1 ok: all three scheduled jobs are created by migrations, well formed and authenticated';
 end $$;
 
 -- QA §7: approve_intake names the offending parameter instead of leaving the

@@ -36,26 +36,44 @@ Rokda's data is small and almost entirely unreconstructable. As of
 
 The remaining tables are empty today and will not stay that way.
 
-Four things live outside the `public` schema and are missed by the obvious
-`pg_dump` of it. Three of them break the app if they are absent:
+Several things live outside the `public` schema and are missed by the obvious
+`pg_dump` of it. Most of them break the app if they are absent:
 
 - **`auth.users`** (1 row). `household_members.user_id` references it, and
   `useHousehold()` resolves the household by exactly that column. Restore the
   public schema alone and every membership points at nothing: the owner signs
   in successfully and the app reports they are not in a household.
+- **`auth.identities`** (1 row). The link between a login and the provider that
+  authenticates it. This was missed entirely until the QA #1 review — not
+  exported, not fingerprinted. Whether GoTrue can complete a password sign-in
+  without it is not something this document can settle by reasoning; §5 now
+  rehearses an actual login instead.
 - **`vault.secrets`** (2: `telegram_webhook_secret`, `service_role_key`).
   Encrypted with a key that does not travel with a dump. These are
   **re-provisioned, not restored** — see §5.
+- **Edge Function environment secrets** (`TELEGRAM_BOT_TOKEN`,
+  `OPENROUTER_API_KEY`, `TWELVEDATA_API_KEY`). Not in any dump, not in git, and
+  not in the vault either — they are set on the platform, per function. Without
+  them the functions deploy and run and every outbound call fails. Also
+  re-provisioned, see §5.
 - **`cron.job`** (3: `daily-fd-accrual` 23:00, `daily-recurring-nudge-check`
-  05:00, `weekday-price-refresh` 23:00 Sun–Thu). Recreated by the migrations,
-  but their bodies read the vault secrets above, so they are inert until those
-  are back.
-- **`storage`** (1 bucket, 0 objects). Nothing to lose today; check again
-  before trusting that.
+  05:00, `weekday-price-refresh` 23:00 Sun–Thu). All three are created by the
+  migrations now — `daily-fd-accrual` was scheduled by hand and existed in no
+  migration, so a rebuilt project simply never accrued fixed-deposit interest
+  (QA #1). Their bodies read the vault secrets above, so they are inert until
+  those are back, **and they carry the project URL they were built with**, so
+  they need retargeting in a replacement project. One call does it; §5 makes it
+  a step and `scripts/verify-cron-targets.sql` checks it.
+- **`storage`** (1 bucket, **1 object** — a Telegram receipt, referenced by
+  `intake.photo_path`). This section said "0 objects, nothing to lose today"
+  while that receipt was already there: nothing noticed, because nothing looked.
+  Object bytes are in no `pg_dump`; §3 exports them separately and the
+  fingerprint now digests their metadata.
 
 Edge Functions and the schema itself are in git and are not part of this
-problem. `npm run compare:migrations` and `npm run verify:functions` already
-prove that half.
+problem. `npm run compare:migrations` and `npm run verify:functions` prove that
+half before a deploy; `npm run verify:release` proves it against live state
+after one.
 
 ## 2. What the platform gives you
 
@@ -84,21 +102,35 @@ pg_dump "$SOURCE_URL" \
   --schema=public \
   --file="rokda-public-$STAMP.dump"
 
-# The logins. Separate because auth is Supabase-managed: restoring the whole
-# schema over a live project's auth is not something to do casually, but
-# without these rows the memberships dangle.
+# The logins, and the identities that authenticate them. Separate because auth
+# is Supabase-managed: restoring the whole schema over a live project's auth is
+# not something to do casually, but without these rows the memberships dangle.
+# auth.identities was missing from this command until QA #1 — auth.users alone
+# may not be enough for GoTrue to complete a sign-in, and a restore is the
+# wrong moment to find out.
 pg_dump "$SOURCE_URL" \
   --format=custom \
   --no-owner --no-privileges \
-  --table='auth.users' \
-  --file="rokda-auth-users-$STAMP.dump"
+  --table='auth.users' --table='auth.identities' \
+  --file="rokda-auth-$STAMP.dump"
 
-# What the data SHOULD look like, captured at the same moment.
+# The receipt files. No pg_dump contains object BYTES — the database holds only
+# the paths, and intake.photo_path pointing at a file that is not there is a
+# receipt gone for good. The CLI walks the bucket; it needs the same project
+# ref and an access token as the other tooling.
+supabase storage cp --recursive \
+  "ss:///telegram-receipts" "rokda-storage-$STAMP/" \
+  --project-ref "$SUPABASE_PROJECT_REF"
+
+# What the data SHOULD look like, captured at the same moment. Now covers the
+# auth columns a sign-in depends on, auth.identities, and the storage objects'
+# metadata — not just public rows and a list of user ids (QA #1).
 psql -At -f scripts/data-fingerprint.sql "$SOURCE_URL" > "rokda-fingerprint-$STAMP.txt"
 ```
 
-Keep the three files together: a dump whose fingerprint was taken at a
-different moment proves nothing about that dump.
+Keep the four outputs together: a dump whose fingerprint was taken at a
+different moment proves nothing about that dump, and a database without its
+receipts is not the household's records.
 
 Store them off the platform they came from — a different provider, or local
 disk with its own backup. Treat them as containing the household's complete
@@ -218,8 +250,18 @@ psql -At -f scripts/data-fingerprint.sql "$RESTORED_URL" > /tmp/restored.txt
 diff "rokda-fingerprint-$STAMP.txt" /tmp/restored.txt && echo "restore verified"
 ```
 
-A clean diff means every table has the same rows with the same contents, and
-`auth.users` carries the same ids. That is the claim worth making.
+A clean diff means every table has the same rows with the same contents, the
+auth columns a sign-in depends on are unchanged, `auth.identities` came across,
+and the storage objects' metadata matches. That is the claim worth making —
+and it is a bigger claim than it was, because the fingerprint used to digest
+`auth.users` ids **alone**. Ids matching proves memberships resolve; it proves
+nothing about whether anyone can sign in, so a restore with a changed email or
+a lost password hash passed with an identical fingerprint (QA #1).
+
+It is still not a claim about a working project. The storage digest covers
+object metadata, not bytes; nothing here exercises GoTrue, the bot, or a
+scheduled run. Those are §5's rehearsal checklist, and they are the difference
+between "the data restores" and "we can recover".
 
 Then check the things a fingerprint cannot see:
 
@@ -248,32 +290,127 @@ Then check the things a fingerprint cannot see:
 | --- | --- | --- |
 | 2026-09-13 | Synthetic household, local PostgreSQL 16 | Fingerprint identical; 0 dangling memberships; `--disable-triggers` failure mode measured |
 | 2026-09-19 | **Real export of `erggbzbbutsvhleqcddq`**, restored into a scratch Supabase project (`rokda-restore-drill-scratch`, deleted after) | Fingerprint identical across all tables and `auth.users`; 0 dangling memberships; total account balance figure matched production exactly. Surfaced the `session_replication_role` fix documented above — `--disable-triggers` doesn't work against a real Supabase project's `postgres` role. |
+| 2026-09-20 | Scope of the drill re-examined after QA #1 | **Not a pass.** The 09-19 run is still valid for what it covered, and what it covered was narrower than it read: the export had no storage objects and no `auth.identities`, the fingerprint digested user ids only, a migration replay produced two of the three cron jobs and pointed both at the old project, and nothing exercised a login, a receipt, the bot or a scheduled run. All of that is fixed or written down above; none of it has been rehearsed yet. The next drill must run §5's checklist end to end. |
 
 ## 5. Recovering for real
 
 Order matters, because the app fails differently at each stage and it is easy
 to conclude the restore failed when it is merely incomplete.
 
+The QA #1 review found this list short in ways that all pointed the same
+direction: every step here used to be about database rows, and a working
+project is more than its rows. The drill proved restoration of the data it
+included. It did not establish working authentication, attachments, bot or
+scheduled services — and a fingerprint match plus a correct headline total
+cannot, because none of those four is a row in `public`.
+
 1. **Restore schema then data** into the new project, using the "Restoring
    into a real Supabase project" method in §4 — the plain `--disable-triggers`
    form earlier in §4 does not work here.
-2. **Re-provision the secrets.** They are not in the dump.
+2. **Restore the auth rows** from `rokda-auth-*.dump` (both `auth.users` and
+   `auth.identities`). Without them every membership dangles and the owner
+   signs in to a household the app says they are not in.
+3. **Restore the receipt files** into the new project's bucket. The database
+   holds paths; nothing in it holds bytes.
+
+   ```bash
+   supabase storage cp --recursive \
+     "rokda-storage-$STAMP/" "ss:///telegram-receipts" \
+     --project-ref "$NEW_PROJECT_REF"
+   ```
+
+4. **Re-provision the vault secrets.** They are not in the dump.
    - `telegram_webhook_secret` — must match what Telegram sends. Re-run
      `setWebhook` with a new `secret_token` and store the same value in the
      vault; the two are one secret in two places. See `docs/environments.md`.
    - `service_role_key` — the new project's own key, not the old one.
-3. **Redeploy the Edge Functions** from git, then prove it:
-   `npm run verify:functions`. Do not assume a deploy landed.
-4. **Check the cron jobs exist and are active** (`select jobname, active from
-   cron.job`). The migrations create them; their bodies read the secrets from
-   step 2, so an untouched-looking job can still be doing nothing.
-5. **Repoint the frontend** at the new project ref and publishable key
+5. **Re-provision the Edge Function environment secrets.** A separate place
+   from the vault, and missed entirely until QA #1. Set on the new project
+   (Dashboard → Edge Functions → Secrets, or `supabase secrets set`):
+   - `TELEGRAM_BOT_TOKEN` — without it the bot cannot send a single message.
+   - `OPENROUTER_API_KEY` — without it every parse and every question falls
+     back to "check the Inbox".
+   - `TWELVEDATA_API_KEY` — without it the nightly price refresh fetches
+     nothing and holdings quietly stop moving.
+
+   `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are injected by the platform;
+   do not set those by hand.
+6. **Redeploy the Edge Functions** from git, then prove it:
+   `npm run verify:functions`. Do not assume a deploy landed. Deploying from a
+   checkout applies `supabase/config.toml`, which is what keeps
+   `telegram-webhook` on `verify_jwt = false`; deploying it any other way gives
+   Telegram a gateway 401 on every call.
+7. **Retarget the scheduled jobs.** The migrations create all three, with the
+   URL of whichever project built them — so after a restore they call the OLD
+   project using the NEW project's credentials, nightly, and cron reports a
+   successful dispatch every time.
+
+   ```sql
+   select schedule_all_jobs('https://<new-project-ref>.supabase.co');
+   ```
+
+   Then check it, rather than assuming:
+
+   ```bash
+   psql -v base_url="https://$NEW_PROJECT_REF.supabase.co" \
+        -f scripts/verify-cron-targets.sql "$NEW_PROJECT_URL"
+   ```
+
+   That fails on a job that is missing, inactive, aimed at another project, or
+   no longer carrying the authentication its endpoint requires.
+8. **Reconcile the migration history.** Applying the migrations with `psql`
+   populates the schema and leaves `supabase_migrations.schema_migrations`
+   empty, so the CLI believes nothing has been applied and
+   `npm run compare:migrations` reads every migration as pending. Mark them
+   applied without re-running them:
+
+   ```bash
+   for f in supabase/migrations/*.sql; do
+     supabase migration repair --status applied "$(basename "$f" | cut -d_ -f1)" \
+       --project-ref "$NEW_PROJECT_REF"
+   done
+   ```
+
+9. **Repoint the frontend** at the new project ref and publishable key
    (`VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`) in both hosts'
    settings, and rebuild. `npm run verify:build` catches the build that
    silently ships no application at all when these are missing.
-6. **Re-run `npm run compare:migrations`** against the new project. A recovery
-   that leaves migration history disagreeing with the repository has recreated
-   the drift problem while the data was still warm.
+10. **Run the release check against the new project**:
+
+    ```bash
+    SUPABASE_PROJECT_REF=$NEW_PROJECT_REF npm run verify:release
+    ```
+
+    This exports the new project's migration ledger fresh and requires every
+    migration in this commit to be applied, every function declared in
+    `config.toml` to be live and serving, and each one's `verify_jwt` to match.
+    It replaces the old step 6, which re-ran `compare:migrations` against the
+    *committed* snapshot file and so could not see the new project at all.
+
+### Then rehearse the four things rows cannot prove
+
+A matching fingerprint says the data came back. Each of these is a separate
+claim, and each one has its own way of failing silently.
+
+- [ ] **Sign in.** Not "the user row is present" — actually authenticate as the
+      owner, in the rebuilt frontend, and land on a household with its data.
+      This is the one the fingerprint genuinely cannot settle, since
+      `auth.identities` may or may not be required for GoTrue to complete a
+      password login.
+- [ ] **Open a receipt.** Find the intake row with a `photo_path` and view the
+      image through the app. A restored path pointing at a file that was never
+      copied looks exactly like a working restore until someone clicks it.
+- [ ] **Talk to the bot.** Send an expense from the linked Telegram account and
+      confirm it records. This exercises the webhook secret, the bot token, the
+      OpenRouter key and the function deployment in one message.
+- [ ] **Watch a scheduled run.** Wait for (or trigger) one nightly job and read
+      the function's logs, not `cron.job`. A successful pg_cron dispatch says
+      the request left; it says nothing about what answered.
+
+Until all four have been done once in a replacement project, the honest
+statement is "the data restores", not "we can recover". Accepting an untested
+cutover is a reasonable risk to take deliberately — it was not reasonable while
+the omissions above were unknown.
 
 ## 6. What would make this stronger
 
@@ -283,6 +420,12 @@ drill has been run at least once.
 - Automate the export on a schedule, to storage outside this Supabase account,
   and alert when one does not appear. An unmonitored backup job is a backup job
   that stopped some time ago.
+- Find a way for the scheduled jobs to learn their own project URL. Postgres
+  exposes nothing carrying the project ref, so `schedule_all_jobs()` takes it
+  as an argument and a replay still seeds the URL of whatever project built the
+  migration. One call fixes it and one script checks it, which is a long way
+  from where this was — but a job that could not be aimed wrongly would be
+  better than one that is checked.
 - Keep the fingerprint from each export. A silently emptying table shows up as
   a shrinking row count long before anyone notices in the app.
 - Re-run the drill on a calendar, not on alarm. The first time a restore is
