@@ -36,6 +36,13 @@ import {
   isConfirmationText,
   isReadyForFastConfirm,
   resolveConfirmTarget,
+  resolveCorrectionTarget,
+  unknownPromptMessage,
+  lookupUnavailableMessage,
+  PROMPT_UNADDRESSED,
+  PROMPT_FOUND,
+  PROMPT_UNKNOWN,
+  PROMPT_FAILED,
   THUMBS_UP_EMOJIS,
 } from "../_shared/applib/telegramConfirm.js";
 import { netWorthSummary } from "../_shared/applib/overviewMath.js";
@@ -522,33 +529,13 @@ type PendingIntakeRow = {
 const RECENT_INTAKE_COLUMNS =
   "id, status, raw_text, created_at, parsed_merchant, parsed_amount, parsed_date, parsed_category_id, parsed_account_id, parsed_currency, parsed_kind, confidence, confirm_chat_id, confirm_message_id";
 
-// Every entry this member could still be talking about, newest first --
-// including ones already approved or rejected. Two reasons it is not filtered
-// to pending, both about deciding WHICH entry a confirmation means (QA #2):
-// knowing whether more than one candidate exists, and being able to tell
-// "you replied to an entry that is already recorded" apart from "you replied
-// to something that was never a prompt". The cap is a sanity bound -- more
-// than a handful of entries inside 20 minutes is already a case the
-// fast-confirm path refuses to guess about.
-async function recentIntakes(householdId: string, memberId: string): Promise<PendingIntakeRow[]> {
-  const { data } = await supabase
-    .from("intake")
-    .select(RECENT_INTAKE_COLUMNS)
-    .eq("household_id", householdId)
-    .eq("member_id", memberId)
-    .gt("created_at", new Date(Date.now() - PENDING_WINDOW_MS).toISOString())
-    .order("created_at", { ascending: false })
-    .limit(10);
-  return (data ?? []) as PendingIntakeRow[];
-}
-
 // The intake whose fast-confirm prompt is THIS message, found by the prompt
 // itself rather than by searching the recent list.
 //
 // This is the lookup intake_confirm_prompt_idx was created for, and for a
 // while nothing performed it: the binding was resolved in memory over
-// recentIntakes(), which is capped at 10 rows and filtered to a 20-minute
-// window. A prompt outside either bound then looked identical to a message
+// a capped, time-windowed recent list rather than by a query -- ten rows, a
+// 20-minute window. A prompt outside either bound looked identical to a message
 // that was never a prompt, so the handler fell through to the unaddressed rule
 // and confirmed a DIFFERENT entry -- QA #2 again, in a narrower form. Reproduced
 // by test: reply to a prompt not in the fetched list, and another entry was
@@ -557,14 +544,19 @@ async function recentIntakes(householdId: string, memberId: string): Promise<Pen
 // No window and no limit here on purpose. A prompt is a prompt however old it
 // is, and the pair is unique enough that age adds nothing. Scoped to the
 // member so one person's reply can never resolve to another's entry.
+type PromptLookup = { kind: string; row: PendingIntakeRow | null };
+
 async function intakeForPrompt(
   householdId: string,
   memberId: string,
   chatId: number,
   messageId: number | null
-): Promise<PendingIntakeRow | null> {
-  if (messageId == null) return null;
-  const { data } = await supabase
+): Promise<PromptLookup> {
+  // Nothing was aimed at. This is the ONLY outcome that may fall back to a
+  // recent-candidate rule.
+  if (messageId == null) return { kind: PROMPT_UNADDRESSED, row: null };
+
+  const { data, error } = await supabase
     .from("intake")
     .select(RECENT_INTAKE_COLUMNS)
     .eq("household_id", householdId)
@@ -572,7 +564,43 @@ async function intakeForPrompt(
     .eq("confirm_chat_id", chatId)
     .eq("confirm_message_id", messageId)
     .maybeSingle();
-  return (data as PendingIntakeRow | null) ?? null;
+
+  // The error used to be discarded, which made a failed query identical to
+  // "no such prompt" -- and that fell through to the unaddressed rule and
+  // confirmed an entry the member never named. A database error must never
+  // be able to decide which expense gets recorded.
+  if (error) return { kind: PROMPT_FAILED, row: null };
+  if (!data) return { kind: PROMPT_UNKNOWN, row: null };
+  return { kind: PROMPT_FOUND, row: data as PendingIntakeRow };
+}
+
+// Entries a bare, unaddressed "yes" could plausibly mean. Filtered to pending
+// in SQL rather than fetched-then-filtered: the previous query deliberately
+// included approved and rejected rows, so nine recent approvals could push a
+// second pending entry past its cap of ten and make an ambiguous case look
+// like a single obvious one -- a decision taken from an incomplete list, which
+// is the shape of QA #2 itself. Asking for one more row than the cap is how
+// truncation is detected rather than assumed away.
+const CONFIRM_CANDIDATE_CAP = 25;
+
+async function confirmCandidates(
+  householdId: string,
+  memberId: string
+): Promise<{ rows: PendingIntakeRow[]; truncated: boolean }> {
+  const { data, error } = await supabase
+    .from("intake")
+    .select(RECENT_INTAKE_COLUMNS)
+    .eq("household_id", householdId)
+    .eq("member_id", memberId)
+    .eq("status", "pending")
+    .gt("created_at", new Date(Date.now() - PENDING_WINDOW_MS).toISOString())
+    .order("created_at", { ascending: false })
+    .limit(CONFIRM_CANDIDATE_CAP + 1);
+  // A failed candidate query is reported as truncated, not as "none waiting":
+  // an empty list from an error would silently mean "nothing to confirm".
+  if (error) return { rows: [], truncated: true };
+  const rows = (data ?? []) as PendingIntakeRow[];
+  return { rows: rows.slice(0, CONFIRM_CANDIDATE_CAP), truncated: rows.length > CONFIRM_CANDIDATE_CAP };
 }
 
 // A word/emoji reply confirming a pending entry, or a 👍/✅ reaction on one of
@@ -684,13 +712,19 @@ async function handleReaction(reaction: Record<string, unknown>): Promise<Respon
   // this route can always be exact. A 👍 on a message that isn't one of our
   // fast-confirm prompts confirms nothing at all now -- it used to approve
   // whatever was newest (QA #2).
-  const [bound, recentRows] = await Promise.all([
-    intakeForPrompt(member.household_id, member.id, chatId, messageId ?? null),
-    recentIntakes(member.household_id, member.id),
-  ]);
-  const target = resolveConfirmTarget({ bound, recent: recentRows });
+  // A reaction always names the message it is on, so this route is ALWAYS
+  // addressed -- there is no such thing as an unaddressed 👍. No candidate
+  // list is fetched or passed: a reaction on something that is not one of our
+  // prompts must confirm nothing, and the surest way to guarantee that is to
+  // give the resolver nothing to fall back to. The previous code did pass a
+  // recent list, and a 👍 on an unrelated message approved the sole pending
+  // entry while a comment claimed it confirmed nothing.
+  const look = await intakeForPrompt(member.household_id, member.id, chatId, messageId ?? null);
+  const target = resolveConfirmTarget({ lookup: look.kind, row: look.row });
   if (target.kind === "one") await confirmPendingIntake(chatId, member.household_id, target.row);
-  else if (target.kind === "ambiguous") await reply(chatId, ambiguousConfirmMessage(target.rows));
+  else if (target.kind === "unavailable") await reply(chatId, lookupUnavailableMessage());
+  // 'unknown' and 'none' stay silent here: a reaction on an ordinary message
+  // is not a question, and answering every stray 👍 would be noise.
   return new Response("ok");
 }
 
@@ -2184,13 +2218,30 @@ Deno.serve(async (req) => {
   // message.
   let recentPending: PendingIntakeRow | null = null;
 
+  // Resolved once and shared by the confirmation and correction paths below,
+  // because they have the SAME targeting problem. The correction path used to
+  // take `recentRows.find(status === "pending")` -- the newest pending entry,
+  // whatever the member had actually replied to -- so replying to A with
+  // "actually 42" amended B.
+  let promptLookup: PromptLookup = { kind: PROMPT_UNADDRESSED, row: null };
+  let candidates: { rows: PendingIntakeRow[]; truncated: boolean } = { rows: [], truncated: false };
+
   if (rawText && !fileId) {
-    const recentRows = await recentIntakes(member.household_id, member.id);
-    // The correction flow further down asks "is this new message fixing the
-    // last thing I sent?", for which the newest entry still awaiting review is
-    // the right and only candidate. Confirmation is the case that needed more
-    // than that.
-    recentPending = recentRows.find((r) => r.status === "pending") ?? null;
+    const repliedTo = (message.reply_to_message as { message_id?: number } | undefined)?.message_id ?? null;
+    [promptLookup, candidates] = await Promise.all([
+      intakeForPrompt(member.household_id, member.id, chatId, repliedTo),
+      confirmCandidates(member.household_id, member.id),
+    ]);
+
+    // What a correction would amend, decided by the same rules as a
+    // confirmation: an addressed message amends what it names or nothing.
+    const correction = resolveCorrectionTarget({
+      lookup: promptLookup.kind,
+      row: promptLookup.row,
+      recent: candidates.rows,
+      truncated: candidates.truncated,
+    });
+    recentPending = correction.kind === "one" ? correction.row : null;
 
     // A bare "yes" (or a typed 👍/✅ -- a long-press reaction on any message
     // is handled separately, see handleReaction) confirming a pending entry
@@ -2207,15 +2258,28 @@ Deno.serve(async (req) => {
     // question rather than a guess (QA #2).
     const trimmedText = rawText.trim();
     if (isConfirmationText(trimmedText)) {
-      const repliedTo = (message.reply_to_message as { message_id?: number } | undefined)?.message_id ?? null;
-      const bound = await intakeForPrompt(member.household_id, member.id, chatId, repliedTo);
-      const target = resolveConfirmTarget({ bound, recent: recentRows });
+      const target = resolveConfirmTarget({
+        lookup: promptLookup.kind,
+        row: promptLookup.row,
+        recent: candidates.rows,
+        truncated: candidates.truncated,
+      });
       if (target.kind === "one") {
         await confirmPendingIntake(chatId, member.household_id, target.row);
         return new Response("ok");
       }
       if (target.kind === "ambiguous") {
         await reply(chatId, ambiguousConfirmMessage(target.rows));
+        return new Response("ok");
+      }
+      // Addressed at a message that is not a prompt we hold -- most likely a
+      // superseded one. Say so rather than falling through to a guess.
+      if (target.kind === "unknown") {
+        await reply(chatId, unknownPromptMessage());
+        return new Response("ok");
+      }
+      if (target.kind === "unavailable") {
+        await reply(chatId, lookupUnavailableMessage());
         return new Response("ok");
       }
       // kind === "none": nothing confirmable is waiting, so this "yes" is not
