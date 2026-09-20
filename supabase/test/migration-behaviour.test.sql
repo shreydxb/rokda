@@ -406,6 +406,54 @@ begin
   raise notice 'QA-#3 ok: an owner row cannot be created or edited into having no login';
 end $$;
 
+-- QA #7: the scheduled jobs the migrations create must at least be well formed.
+--
+-- The pg_cron/pg_net stubs record a job and never execute its body, so nothing
+-- here proves the HTTP call succeeds -- that needs the real project, and a
+-- successful pg_cron dispatch is not proof of downstream HTTP success even
+-- there. What this does prove is the part that is decidable offline and was
+-- checked by nothing: that each job exists, on the schedule intended, calling
+-- the endpoint intended, carrying the authentication that endpoint requires.
+--
+-- Worth having because every one of those can be broken silently. The webhook
+-- rejects any request without its shared secret, and the price function is
+-- behind JWT verification: drop either header while editing these migrations
+-- and cron keeps dispatching happily while the far end 401s every night.
+do $$
+declare cmd text; sched text;
+begin
+  select command, schedule into cmd, sched from cron.job where jobname = 'weekday-price-refresh';
+  if cmd is null then raise exception 'QA-#7 FAILED: the migrations do not create weekday-price-refresh'; end if;
+  if sched <> '0 23 * * 0,1,2,3,4' then
+    raise exception 'QA-#7 FAILED: weekday-price-refresh runs on %, expected weekdays at 23:00', sched;
+  end if;
+  if position('/functions/v1/price-refresh' in cmd) = 0 then
+    raise exception 'QA-#7 FAILED: weekday-price-refresh does not call the price-refresh function';
+  end if;
+  -- price-refresh is deployed with verify_jwt = true (supabase/config.toml),
+  -- so the job must present a bearer token, and it must come from the vault
+  -- rather than being pasted into the migration.
+  if position('Authorization' in cmd) = 0 or position('vault.decrypted_secrets' in cmd) = 0 then
+    raise exception 'QA-#7 FAILED: weekday-price-refresh does not authenticate from the vault';
+  end if;
+
+  select command, schedule into cmd, sched from cron.job where jobname = 'daily-recurring-nudge-check';
+  if cmd is null then raise exception 'QA-#7 FAILED: the migrations do not create daily-recurring-nudge-check'; end if;
+  if sched <> '0 5 * * *' then
+    raise exception 'QA-#7 FAILED: daily-recurring-nudge-check runs on %, expected daily at 05:00', sched;
+  end if;
+  if position('run_recurring_check=1' in cmd) = 0 then
+    raise exception 'QA-#7 FAILED: daily-recurring-nudge-check does not call the recurring-check route';
+  end if;
+  -- The webhook checks this header before parsing anything; without it every
+  -- nightly run is rejected and nothing says so.
+  if position('X-Telegram-Bot-Api-Secret-Token' in cmd) = 0 then
+    raise exception 'QA-#7 FAILED: daily-recurring-nudge-check sends no shared secret';
+  end if;
+
+  raise notice 'QA-#7 ok: both scheduled jobs the migrations create are well formed and authenticated';
+end $$;
+
 -- QA §7: approve_intake names the offending parameter instead of leaving the
 -- caller to decode a constraint violation, and writes nothing when it refuses.
 do $$

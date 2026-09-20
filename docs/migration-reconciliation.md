@@ -85,8 +85,24 @@ holdings and accounts start unconfirmed).
 - Row-level security policies are not exercised by the local harness, which runs
   as a superuser. Verifying RLS, and two-user access, needs a hosted environment
   — see `docs/environments.md`, which records that none is isolated yet.
-- `docs/applied-migrations.json` is a snapshot taken on 2026-09-05. Re-export it
-  after any future deployment.
+- `docs/applied-migrations.json` is a snapshot, so it goes stale, and a stale
+  one does not fail loudly — it makes live migrations read as "awaiting
+  deployment". That is exactly what happened: it covered 43 of 49 applied
+  migrations, six deployed migrations printed as pending, and `--strict`
+  accepted the run (QA #7). Two things changed as a result.
+
+  Re-exporting is now one command, `npm run export:migrations` (needs
+  `SUPABASE_ACCESS_TOKEN` and `SUPABASE_PROJECT_REF`), and what it writes
+  records `exportedAt` and `projectRef` — so the comparison prints how old its
+  own evidence is instead of presenting a months-old file as the state of
+  production.
+
+  More importantly, the release gate no longer reads this file at all.
+  `npm run verify:release` exports the ledger fresh into a temp file and
+  compares against that, with `--require-applied` so a migration this commit
+  has and the database does not is a failure rather than a note. This file is
+  now only the offline, pre-merge comparison — where "pending" is a correct
+  answer, because the deploy has not happened yet.
 
 ## Fingerprint version (762a6c4 recheck, SHR-253)
 
@@ -115,10 +131,12 @@ rules. This is **not** counted as drift (`compare:migrations` still exits 0
 for it) — it's a distinct, visible "unverifiable" bucket, currently all 13
 already-applied migrations.
 
-**To clear it**: someone with read access to the live database re-runs the
-export query in `scripts/compare-migrations.mjs`'s header comment, regenerates
-each entry's fingerprint with the *current* `fingerprint()` from that raw SQL,
-and adds `"fingerprintVersion": 2` to each entry. Until then, "0 drifting" is
+**To clear it**: run `npm run export:migrations`. That is
+`scripts/export-applied-migrations.mjs`, which runs the export query against
+the live database (through the Management API's read-only endpoint, so a
+verification step cannot change what it verifies) and fingerprints every entry
+with the *current* `fingerprint()` at `fingerprintVersion` 2. It replaced doing
+those three steps by hand. Until then, "0 drifting" is
 accurate but incomplete — it means no migration both sides can currently be
 compared under the same rules shows a difference, not that all 13 have been
 freshly re-verified.

@@ -151,3 +151,51 @@ jobs:
             psql -d rokda_rls -v ON_ERROR_STOP=1 -q -f "$file"
           done
           psql -d rokda_rls -v ON_ERROR_STOP=1 -f supabase/test/rls-policies.test.sql
+
+      # The suites above run one statement at a time, and the bugs this script
+      # covers only exist between two of them: under READ COMMITTED, two
+      # sessions each removing a DIFFERENT owner both read a snapshot taken
+      # before the other committed. scripts/verify-concurrency.sh has existed
+      # since that fix and nothing ever ran it, so the regression it guards was
+      # unprotected in CI (QA #7).
+      - name: Check the concurrent cases the single-session suites cannot reach
+        run: npm run verify:concurrency
+
+  # QA #7: everything above answers a question about the REPOSITORY -- do the
+  # tests pass, does a fresh database build, does the committed snapshot agree
+  # with the committed migrations. None of it can say what production is
+  # running, and the two checks that could were each one step short: the
+  # migration comparison read a checked-in file that covered 43 of 49
+  # migrations, and the function comparison never looked at whether a function
+  # was deployed at all or how its JWT verification was configured.
+  #
+  # This job asks the question the others cannot, against live state fetched
+  # fresh, and only where the answer is meaningful: on main, after a deploy.
+  # On a branch there is nothing to assert -- production is not supposed to be
+  # running that commit yet.
+  release:
+    name: production matches main
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: [verify, migrations]
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install (locked)
+        run: npm ci
+
+      # No credential fallback here, unlike the functions job: that one runs on
+      # every ref including forks, where a missing token is a fact about the
+      # ref rather than a fault. This job only ever runs on main, where a
+      # missing token means the release was not verified -- and "not checked"
+      # reading as "passed" is the exact failure this whole job exists to stop.
+      - name: Verify production is running this commit
+        run: npm run verify:release

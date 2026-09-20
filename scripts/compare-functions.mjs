@@ -135,6 +135,48 @@ export function manifest(functionsRoot, slug) {
   };
 }
 
+export const CONFIG_PATH = 'supabase/config.toml';
+
+// What supabase/config.toml declares each function's verify_jwt to be.
+//
+// This is deliberately read from config.toml rather than from a list kept
+// here: that file is what `supabase functions deploy` actually applies, so it
+// is the only expectation that cannot drift from the deploy itself. It already
+// declares all three functions, and its own header explains why -- deploying
+// telegram-webhook with the default verify_jwt = true makes the gateway 401
+// every Telegram call before the function runs, and the bot stops working in a
+// way that looks like a Telegram problem.
+//
+// Nothing compared this. Source hashes cannot see it: turning JWT verification
+// on for the webhook breaks the bot completely without changing a single byte
+// of source, and parity reported in-sync throughout (QA #7).
+//
+// A deliberately small parser -- this reads one shape, `[functions.<slug>]`
+// followed by `verify_jwt = true|false`, and ignores everything else.
+export function declaredFunctionConfig(configPath = CONFIG_PATH) {
+  if (!existsSync(configPath)) return {};
+  const declared = {};
+  let slug = null;
+  for (const raw of readFileSync(configPath, 'utf8').split('\n')) {
+    const line = raw.replace(/#.*$/, '').trim();
+    if (line === '') continue;
+    const section = line.match(/^\[functions\.([A-Za-z0-9_-]+)\]$/);
+    if (section) {
+      slug = section[1];
+      declared[slug] ??= {};
+      continue;
+    }
+    if (line.startsWith('[')) {
+      slug = null;
+      continue;
+    }
+    if (!slug) continue;
+    const setting = line.match(/^verify_jwt\s*=\s*(true|false)$/);
+    if (setting) declared[slug].verifyJwt = setting[1] === 'true';
+  }
+  return declared;
+}
+
 export function repoFunctionSlugs(functionsRoot = FUNCTIONS_DIR) {
   return readdirSync(functionsRoot)
     .filter((name) => !NOT_A_FUNCTION.has(name))
@@ -156,36 +198,98 @@ export function repoFunctionSlugs(functionsRoot = FUNCTIONS_DIR) {
 //                     deployment -> source half.
 //   unreadable        deployed, but its source could not be downloaded, so
 //                     parity is unproven rather than proven either way.
-export function compare({ repo, deployedManifests, deployedSlugs }) {
+// Source parity is one of two questions about a deployment. The other is
+// whether it is deployed at all, and running as configured -- neither of which
+// a source hash can answer (QA #7).
+//
+//   `declared`       supabase/config.toml, keyed by slug (declaredFunctionConfig)
+//   `deployedState`  the platform's own list, keyed by slug: { verifyJwt, status }
+//   `requireDeployed` release mode -- a function this repository declares must
+//                    actually be live. Off by default, because between merging
+//                    a new function and deploying it, not-deployed is a
+//                    deployment decision rather than a fault.
+export function compare({
+  repo,
+  deployedManifests,
+  deployedSlugs,
+  declared = {},
+  deployedState = {},
+  requireDeployed = false,
+}) {
   const repoBySlug = new Map(repo.map((m) => [m.slug, m]));
   const deployedBySlug = new Map(deployedManifests.map((m) => [m.slug, m]));
   const rows = [];
 
+  // Declared in config.toml, deployed, or both: any of the three makes this a
+  // function the release cares about.
+  const configFor = (slug) => {
+    const want = declared[slug]?.verifyJwt;
+    const got = deployedState[slug]?.verifyJwt;
+    if (want === undefined) return { configState: 'undeclared', expectedVerifyJwt: null, deployedVerifyJwt: got ?? null };
+    if (got === undefined) return { configState: 'unknown', expectedVerifyJwt: want, deployedVerifyJwt: null };
+    return { configState: want === got ? 'ok' : 'drift', expectedVerifyJwt: want, deployedVerifyJwt: got };
+  };
+
   for (const slug of [...repoBySlug.keys()].sort()) {
     const local = repoBySlug.get(slug);
+    // Required when the repository declares how it should be configured --
+    // which is what config.toml is for. A function with source but no
+    // declaration is not yet part of the release contract.
+    const required = requireDeployed && declared[slug] !== undefined;
     if (!deployedSlugs.includes(slug)) {
-      rows.push({ slug, state: 'not-deployed', repoDigest: local.digest });
+      rows.push({ slug, state: 'not-deployed', required, repoDigest: local.digest, configState: 'n/a' });
       continue;
     }
     const live = deployedBySlug.get(slug);
+    // A function the platform lists but is not serving is not deployed in any
+    // sense that matters; the source could match perfectly.
+    const platformStatus = deployedState[slug]?.status ?? null;
     if (!live) {
-      rows.push({ slug, state: 'unreadable', repoDigest: local.digest });
+      rows.push({ slug, state: 'unreadable', required, repoDigest: local.digest, platformStatus, ...configFor(slug) });
       continue;
     }
     rows.push({
       slug,
       state: local.digest === live.digest ? 'in-sync' : 'stale-deployment',
+      required,
       repoDigest: local.digest,
       deployedDigest: live.digest,
+      platformStatus,
       differingFiles: local.digest === live.digest ? [] : differingFiles(local, live),
+      ...configFor(slug),
     });
   }
 
   for (const slug of [...deployedSlugs].sort()) {
-    if (!repoBySlug.has(slug)) rows.push({ slug, state: 'orphan-deployment', deployedDigest: deployedBySlug.get(slug)?.digest });
+    if (!repoBySlug.has(slug)) {
+      rows.push({
+        slug,
+        state: 'orphan-deployment',
+        required: false,
+        deployedDigest: deployedBySlug.get(slug)?.digest,
+        platformStatus: deployedState[slug]?.status ?? null,
+        ...configFor(slug),
+      });
+    }
   }
 
   return rows;
+}
+
+// The platform's own view of each deployed function, keyed by slug. Kept
+// beside the manifest walk rather than folded into it: this comes from the
+// list endpoint and describes the deployment, not its source.
+export function deployedStateFromList(list) {
+  const byStatus = {};
+  for (const fn of list ?? []) {
+    const slug = fn.slug ?? fn.name;
+    if (!slug) continue;
+    byStatus[slug] = {
+      verifyJwt: typeof fn.verify_jwt === 'boolean' ? fn.verify_jwt : undefined,
+      status: fn.status ?? null,
+    };
+  }
+  return byStatus;
 }
 
 // Which files to point a human at. Both sides are keyed from their own
@@ -205,12 +309,27 @@ function differingFiles(local, live) {
 
 // stale-deployment and orphan-deployment fail: production is not running this
 // commit, or is running something that is in no commit. not-deployed does not
-// -- a function committed but not yet released is a deployment decision, the
-// same way a pending migration is. unreadable fails too: an unproven parity
-// claim is not a passing one, which is the lesson of the migration snapshot
-// reading "0 drifting" while covering 32 of 38.
+// by default -- a function committed but not yet released is a deployment
+// decision, the same way a pending migration is -- but it does under
+// `requireDeployed`, which is what makes a release check a release check
+// rather than a second pre-merge check (QA #7). unreadable fails too: an
+// unproven parity claim is not a passing one, which is the lesson of the
+// migration snapshot reading "0 drifting" while covering 32 of 38.
+//
+// Config drift always blocks, in either mode. It is not a timing question: a
+// function deployed with verify_jwt different from what this repository
+// declares is misconfigured right now, and in the webhook's case that means
+// every Telegram call is being 401ed at the gateway while every source hash
+// still matches.
+//
+// A function the platform is not actively serving blocks for the same reason:
+// whatever its source says, it is not answering.
 export function isBlocking(row) {
-  return row.state === 'stale-deployment' || row.state === 'orphan-deployment' || row.state === 'unreadable';
+  if (row.state === 'stale-deployment' || row.state === 'orphan-deployment' || row.state === 'unreadable') return true;
+  if (row.state === 'not-deployed') return !!row.required;
+  if (row.configState === 'drift') return true;
+  if (row.platformStatus != null && row.platformStatus !== 'ACTIVE') return true;
+  return false;
 }
 
 const LABELS = {
@@ -224,30 +343,48 @@ const LABELS = {
 const isMainModule = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 
 if (isMainModule) {
-  const [deployedDir, listPath] = process.argv.slice(2);
+  const args = process.argv.slice(2);
+  const requireDeployed = args.includes('--require-deployed');
+  const [deployedDir, listPath] = args.filter((a) => !a.startsWith('--'));
   if (!deployedDir || !listPath) {
-    console.error('usage: node scripts/compare-functions.mjs <deployed-functions-dir> <deployed-list.json>');
+    console.error('usage: node scripts/compare-functions.mjs <deployed-functions-dir> <deployed-list.json> [--require-deployed]');
     console.error('  both are produced by scripts/verify-function-parity.sh — run that instead.');
     process.exit(2);
   }
 
+  const deployedList = JSON.parse(readFileSync(listPath, 'utf8'));
   // The deployed slug list comes from the platform, not from what happened to
   // download: a function that failed to unbundle must read as unreadable, not
   // quietly vanish from the comparison.
-  const deployedSlugs = JSON.parse(readFileSync(listPath, 'utf8'))
+  const deployedSlugs = deployedList
     .map((fn) => fn.slug ?? fn.name)
     .filter(Boolean)
     .sort();
 
+  const declared = declaredFunctionConfig();
+  const deployedState = deployedStateFromList(deployedList);
   const repo = repoFunctionSlugs().map((slug) => manifest(FUNCTIONS_DIR, slug));
   const deployedManifests = deployedSlugs.map((slug) => manifest(deployedDir, slug)).filter(Boolean);
 
-  const rows = compare({ repo, deployedManifests, deployedSlugs });
+  const rows = compare({ repo, deployedManifests, deployedSlugs, declared, deployedState, requireDeployed });
   const tally = { 'in-sync': 0, 'stale-deployment': 0, 'not-deployed': 0, 'orphan-deployment': 0, unreadable: 0 };
+  let configDrift = 0;
+  let notActive = 0;
 
   for (const row of rows) {
     tally[row.state]++;
-    console.log(`${LABELS[row.state]}${row.slug.padEnd(24)} repo=${(row.repoDigest ?? '—').slice(0, 12)} deployed=${(row.deployedDigest ?? '—').slice(0, 12)} ${row.state}`);
+    const jwt =
+      row.configState === 'drift'
+        ? ` verify_jwt=${row.deployedVerifyJwt} EXPECTED ${row.expectedVerifyJwt}`
+        : row.configState === 'ok'
+          ? ` verify_jwt=${row.deployedVerifyJwt}`
+          : '';
+    const status = row.platformStatus && row.platformStatus !== 'ACTIVE' ? ` status=${row.platformStatus}` : '';
+    console.log(
+      `${LABELS[row.state]}${row.slug.padEnd(24)} repo=${(row.repoDigest ?? '—').slice(0, 12)} deployed=${(row.deployedDigest ?? '—').slice(0, 12)} ${row.state}${jwt}${status}`,
+    );
+    if (row.configState === 'drift') configDrift++;
+    if (row.platformStatus != null && row.platformStatus !== 'ACTIVE') notActive++;
     for (const file of row.differingFiles ?? []) {
       console.log(`           ${file.file}`);
       console.log(`             repo     ${file.repo.slice(0, 12)}`);
@@ -256,18 +393,27 @@ if (isMainModule) {
   }
 
   const blocking = rows.filter(isBlocking).length;
-  console.log(`\n${rows.length} functions`);
+  const requiredMissing = rows.filter((r) => r.state === 'not-deployed' && r.required).length;
+  console.log(`\n${rows.length} functions${requireDeployed ? ' (release mode: every function config.toml declares must be live)' : ''}`);
   console.log(`  ${tally['in-sync']} in sync with this commit`);
   console.log(`  ${tally['stale-deployment']} deployed but DIFFERENT from this commit`);
   console.log(`  ${tally['orphan-deployment']} deployed with NO source in this repository`);
-  console.log(`  ${tally['not-deployed']} in this repository, not deployed`);
+  console.log(`  ${tally['not-deployed']} in this repository, not deployed${requiredMissing > 0 ? ` (${requiredMissing} of them REQUIRED)` : ''}`);
   console.log(`  ${tally.unreadable} deployed but unreadable`);
+  console.log(`  ${configDrift} with verify_jwt DIFFERENT from supabase/config.toml`);
+  console.log(`  ${notActive} deployed but not ACTIVE`);
 
   if (tally['stale-deployment'] > 0) {
     console.log(`\nRedeploy the function(s) above: supabase functions deploy <slug> --project-ref <ref>`);
   }
   if (tally['orphan-deployment'] > 0) {
     console.log(`Remove or commit the orphan(s) above: supabase functions delete <slug> --project-ref <ref>`);
+  }
+  if (configDrift > 0) {
+    console.log(`Redeploying applies supabase/config.toml's verify_jwt; deploying with --no-verify-jwt by hand is what drifts it.`);
+  }
+  if (requiredMissing > 0) {
+    console.log(`A function declared in supabase/config.toml is not live. Deploy it, or remove its declaration.`);
   }
 
   process.exitCode = blocking > 0 ? 1 : 0;

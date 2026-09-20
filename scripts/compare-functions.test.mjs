@@ -2,7 +2,15 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { compare, functionClosure, isBlocking, manifest, repoFunctionSlugs } from './compare-functions.mjs';
+import {
+  compare,
+  declaredFunctionConfig,
+  deployedStateFromList,
+  functionClosure,
+  isBlocking,
+  manifest,
+  repoFunctionSlugs,
+} from './compare-functions.mjs';
 
 // QA re-run (10 Sep): telegram-webhook ran a 8 Sep build for five days while
 // main carried two behaviour changes, and CI stayed green because nothing
@@ -169,5 +177,135 @@ describe('deployment -> source: functions running with no committed source', () 
     });
     expect(row.state).toBe('unreadable');
     expect(isBlocking(row)).toBe(true);
+  });
+});
+
+// QA #7: source hashes answer one question about a deployment. These are the
+// two they structurally cannot answer -- is it deployed at all, and is it
+// running as this repository says it should be.
+describe('deployment configuration, which no source hash can see', () => {
+  const DECLARED = { 'telegram-webhook': { verifyJwt: false }, 'price-refresh': { verifyJwt: true } };
+
+  function rowsFor(live, { requireDeployed = false, repoSlugs = ['telegram-webhook'] } = {}) {
+    const repo = repoSlugs.map((slug) => ({ slug, digest: `d-${slug}`, files: {} }));
+    const deployedSlugs = live.map((f) => f.slug).sort();
+    const deployedManifests = live.map((f) => ({ slug: f.slug, digest: `d-${f.slug}`, files: {} }));
+    return compare({
+      repo,
+      deployedManifests,
+      deployedSlugs,
+      declared: DECLARED,
+      deployedState: deployedStateFromList(live),
+      requireDeployed,
+    });
+  }
+
+  it('blocks when verify_jwt differs from config.toml, with the source identical', () => {
+    // The reported hole exactly: turning JWT verification on for the webhook
+    // makes the gateway 401 every Telegram call before the function runs, and
+    // not one byte of source changes.
+    const [row] = rowsFor([{ slug: 'telegram-webhook', status: 'ACTIVE', verify_jwt: true }]);
+    expect(row.state).toBe('in-sync');
+    expect(row.configState).toBe('drift');
+    expect(row.expectedVerifyJwt).toBe(false);
+    expect(isBlocking(row)).toBe(true);
+  });
+
+  it('passes when verify_jwt matches', () => {
+    const [row] = rowsFor([{ slug: 'telegram-webhook', status: 'ACTIVE', verify_jwt: false }]);
+    expect(row.configState).toBe('ok');
+    expect(isBlocking(row)).toBe(false);
+  });
+
+  it('blocks a function the platform is not actively serving', () => {
+    const [row] = rowsFor([{ slug: 'telegram-webhook', status: 'REMOVED', verify_jwt: false }]);
+    expect(row.state).toBe('in-sync');
+    expect(isBlocking(row)).toBe(true);
+  });
+
+  it('reports config as unknown rather than ok when the platform did not say', () => {
+    const [row] = rowsFor([{ slug: 'telegram-webhook', status: 'ACTIVE' }]);
+    expect(row.configState).toBe('unknown');
+    // Unknown is not drift: it is a gap in what the list returned, and the
+    // source comparison still stands on its own.
+    expect(isBlocking(row)).toBe(false);
+  });
+
+  it('leaves a function config.toml says nothing about undeclared', () => {
+    const rows = rowsFor([{ slug: 'scratch', status: 'ACTIVE', verify_jwt: true }], { repoSlugs: ['scratch'] });
+    expect(rows[0].configState).toBe('undeclared');
+    expect(isBlocking(rows[0])).toBe(false);
+  });
+});
+
+describe('release mode: a declared function must actually be live', () => {
+  const DECLARED = { 'telegram-webhook': { verifyJwt: false } };
+
+  function notDeployedRow({ requireDeployed }) {
+    return compare({
+      repo: [{ slug: 'telegram-webhook', digest: 'd', files: {} }],
+      deployedManifests: [],
+      deployedSlugs: [],
+      declared: DECLARED,
+      deployedState: {},
+      requireDeployed,
+    })[0];
+  }
+
+  it('treats a missing deployment as a deployment decision before release', () => {
+    // Deleting just the deployed webhook produced a nonblocking not-deployed.
+    // That is right between merging a function and deploying it, and wrong as
+    // a statement about production.
+    const row = notDeployedRow({ requireDeployed: false });
+    expect(row.state).toBe('not-deployed');
+    expect(isBlocking(row)).toBe(false);
+  });
+
+  it('treats the same missing deployment as a failure at release', () => {
+    const row = notDeployedRow({ requireDeployed: true });
+    expect(row.state).toBe('not-deployed');
+    expect(row.required).toBe(true);
+    expect(isBlocking(row)).toBe(true);
+  });
+
+  it('does not require a function this repository has not declared', () => {
+    const row = compare({
+      repo: [{ slug: 'scratch', digest: 'd', files: {} }],
+      deployedManifests: [],
+      deployedSlugs: [],
+      declared: DECLARED,
+      deployedState: {},
+      requireDeployed: true,
+    })[0];
+    expect(row.required).toBe(false);
+    expect(isBlocking(row)).toBe(false);
+  });
+});
+
+describe('reading verify_jwt out of supabase/config.toml', () => {
+  it('reads the real file, so the expectation cannot drift from the deploy', () => {
+    // config.toml is what `supabase functions deploy` applies. Keeping a
+    // second list in the checker would just be another thing to go stale.
+    const declared = declaredFunctionConfig();
+    expect(declared['telegram-webhook'].verifyJwt).toBe(false);
+    expect(declared['price-refresh'].verifyJwt).toBe(true);
+    expect(declared['fd-accrual'].verifyJwt).toBe(true);
+  });
+
+  it('ignores comments, other sections, and settings it does not understand', () => {
+    write('config.toml', [
+      'project_id = "abc"',
+      '# [functions.commented-out]',
+      '[auth]',
+      'verify_jwt = true',
+      '[functions.real]',
+      'verify_jwt = false  # inline comment',
+      'import_map = "./map.json"',
+    ].join('\n'));
+    expect(declaredFunctionConfig(join(root, 'config.toml'))).toEqual({ real: { verifyJwt: false } });
+  });
+
+  it('returns nothing rather than throwing when the file is absent', () => {
+    expect(declaredFunctionConfig(join(root, 'nope.toml'))).toEqual({});
   });
 });

@@ -74,5 +74,10 @@ while IFS= read -r slug; do
   fi
 done <<< "$slugs"
 
+# --require-deployed turns "in the repository, not deployed" from an expected
+# state into a failure. It belongs to a release check, not a pre-merge one:
+# before a deploy, a merged-but-unreleased function is a deployment decision,
+# and after one it means production is missing something this commit declares
+# (QA #7). scripts/verify-release.sh passes it; ordinary CI does not.
 echo "verify-function-parity: comparing against $(git rev-parse --short HEAD)"
-node scripts/compare-functions.mjs "$WORKDIR/supabase/functions" "$LIST_JSON"
+node scripts/compare-functions.mjs "$WORKDIR/supabase/functions" "$LIST_JSON" "$@"

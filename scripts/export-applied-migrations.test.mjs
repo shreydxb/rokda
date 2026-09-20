@@ -1,0 +1,103 @@
+import { describe, expect, it } from 'vitest';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fetchLedger, LEDGER_QUERY, snapshotFromRows } from './export-applied-migrations.mjs';
+import { classify, compare, fingerprint, FINGERPRINT_VERSION } from './compare-migrations.mjs';
+
+// QA #7: the committed snapshot covered 43 of 49 migrations, so six deployed
+// migrations printed as "awaiting deployment" and --strict accepted the run.
+// Refreshing it has to be one command, and what that command writes has to
+// say how old it is.
+
+function repoRows() {
+  return readdirSync('supabase/migrations')
+    .filter((f) => f.endsWith('.sql'))
+    .sort()
+    .map((file) => {
+      const [version, ...rest] = file.replace(/\.sql$/, '').split('_');
+      return { version, name: rest.join('_'), sql: readFileSync(join('supabase/migrations', file), 'utf8') };
+    });
+}
+
+describe('what an export writes', () => {
+  it('records when it was taken and which project it came from', () => {
+    // The whole failure was a file being read as current when it was not.
+    const snapshot = snapshotFromRows([{ version: '20260101000000', name: 'x', sql: 'select 1;' }], {
+      projectRef: 'abcdef',
+      now: new Date('2026-09-20T10:00:00Z'),
+    });
+    expect(snapshot.exportedAt).toBe('2026-09-20T10:00:00.000Z');
+    expect(snapshot.projectRef).toBe('abcdef');
+  });
+
+  it('fingerprints under the current normalise(), not an older one', () => {
+    const snapshot = snapshotFromRows([{ version: '20260101000000', name: 'x', sql: 'select 1; -- trailing' }]);
+    expect(snapshot.migrations[0].fingerprintVersion).toBe(FINGERPRINT_VERSION);
+    expect(snapshot.migrations[0].fingerprint).toBe(fingerprint('select 1; -- trailing'));
+  });
+
+  it('round-trips: an export of exactly this repository compares as fully applied', () => {
+    // The end-to-end shape check. If the comparison could not read what the
+    // exporter writes, the release gate would report drift on a database that
+    // matches perfectly -- a failure mode as bad as the one being fixed.
+    const snapshot = snapshotFromRows(repoRows(), { projectRef: 'test' });
+    const rows = compare(
+      repoRows().map((r) => ({
+        file: `${r.version}_${r.name}.sql`,
+        version: r.version,
+        name: r.name,
+        sql: r.sql,
+        fingerprint: fingerprint(r.sql),
+        fingerprintVersion: FINGERPRINT_VERSION,
+      })),
+      snapshot.migrations,
+    );
+    const states = rows.map(classify);
+    expect(states.every((s) => s === 'applied-equivalent')).toBe(true);
+    expect(states).not.toContain('pending');
+  });
+});
+
+describe('fetching the ledger', () => {
+  const ok = (body) => ({ ok: true, status: 200, text: async () => JSON.stringify(body) });
+
+  it('asks the read-only endpoint, so a verification step cannot change what it verifies', async () => {
+    let seen = null;
+    await fetchLedger({
+      projectRef: 'abcdef',
+      accessToken: 't',
+      fetchImpl: async (url, init) => {
+        seen = { url, init };
+        return ok([{ version: '1', name: 'a', sql: 'select 1' }]);
+      },
+    });
+    expect(seen.url).toBe('https://api.supabase.com/v1/projects/abcdef/database/query/read-only');
+    expect(seen.init.headers.Authorization).toBe('Bearer t');
+    expect(JSON.parse(seen.init.body).query).toBe(LEDGER_QUERY);
+  });
+
+  it('reads rows whether or not they arrive wrapped in an envelope', async () => {
+    const row = { version: '1', name: 'a', sql: 'select 1' };
+    for (const body of [[row], { result: [row] }, { rows: [row] }]) {
+      const rows = await fetchLedger({ projectRef: 'r', accessToken: 't', fetchImpl: async () => ok(body) });
+      expect(rows).toEqual([row]);
+    }
+  });
+
+  it('refuses an empty ledger rather than writing "nothing is applied"', async () => {
+    // Writing that file would make every repository migration read as
+    // pending -- the same false story the stale snapshot told, with a fresh
+    // timestamp on it.
+    await expect(fetchLedger({ projectRef: 'r', accessToken: 't', fetchImpl: async () => ok([]) })).rejects.toThrow(/empty/i);
+  });
+
+  it('fails loudly on an error response instead of writing a partial snapshot', async () => {
+    const fetchImpl = async () => ({ ok: false, status: 401, text: async () => '{"message":"Unauthorized"}' });
+    await expect(fetchLedger({ projectRef: 'r', accessToken: 'bad', fetchImpl })).rejects.toThrow(/401/);
+  });
+
+  it('fails loudly when the response is not JSON at all', async () => {
+    const fetchImpl = async () => ({ ok: true, status: 200, text: async () => '<html>gateway</html>' });
+    await expect(fetchLedger({ projectRef: 'r', accessToken: 't', fetchImpl })).rejects.toThrow(/did not return JSON/);
+  });
+});
