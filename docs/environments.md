@@ -180,6 +180,54 @@ itself (`scripts/compare-functions.mjs`) is pure and unit-tested; the fetching
 lives in `scripts/verify-function-parity.sh`, the same split as
 `compare-migrations.mjs` and `verify-migrations.sh`.
 
+## Reading the live migration ledger
+
+`npm run export:migrations` and `npm run verify:release` both need to read
+`supabase_migrations.schema_migrations` from the live project. There are two
+transports, and which one is available is not a matter of preference.
+
+The Management API's `POST /v1/projects/{ref}/database/query/read-only` was the
+first choice and does not work here. Its first real run returned:
+
+```
+403 {"message":"Your account does not have the necessary privileges to access this endpoint."}
+```
+
+from the same `SUPABASE_ACCESS_TOKEN` that lists and downloads Edge Functions
+without trouble. The database-query endpoints need a grant this token does not
+have, and that is account-level — not something this repository can fix.
+
+So the preferred transport is a **direct connection**, via `SUPABASE_DB_URL`:
+the same connection string `docs/backup-restore.md` §3 already uses for
+`pg_dump` (Dashboard → Connect → Session pooler). It is also the better one on
+the merits — it returns each migration's SQL in full, so the content
+fingerprint keeps meaning something, where a versions-only endpoint would
+degrade the check to name matching, which is exactly what QA-12 was written to
+stop trusting.
+
+The Management API path is kept as a fallback for a project whose token does
+have the grant. `export-applied-migrations.mjs` prefers `SUPABASE_DB_URL` when
+it is set and falls back to the token; with neither, it fails rather than
+writing a snapshot nobody read from a database.
+
+## Deploying an Edge Function
+
+`.github/workflows/deploy-functions.yml`, run by hand
+(Actions → Deploy Edge Functions → Run workflow), deploys one function or all
+three with the Supabase CLI from a checkout, then re-runs the parity check with
+`--require-deployed` so a deploy that half-landed fails rather than reporting
+success.
+
+Deploying **from a checkout** is what applies `supabase/config.toml`, and that
+file is the only thing keeping `telegram-webhook` on `verify_jwt = false`. Any
+other deployment path silently re-enables JWT verification, the gateway 401s
+every Telegram call before the function runs, and it presents as a Telegram
+outage rather than a deploy flag.
+
+It is deliberately manual. Deploying is a decision about production, and the
+drift this repository's checks exist to catch is better answered by making
+deploys easy and verified than by making them implicit in a merge.
+
 ## Release gating
 
 Two things decide whether a commit can reach users: whether publishing waits
