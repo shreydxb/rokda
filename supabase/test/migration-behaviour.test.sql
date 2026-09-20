@@ -385,6 +385,42 @@ begin
   raise notice 'QA-#3 ok: losing a login demotes the row; losing the last owner''s login is refused';
 end $$;
 
+-- QA #3: the trigger order this depends on, asserted rather than assumed.
+--
+-- household_members_unlinked_owner_demotes must fire AFTER
+-- household_members_guard_role. PostgreSQL fires BEFORE triggers on one event
+-- in alphabetical name order, and that is the only thing putting them in the
+-- right order -- "u" sorts after "g", and nothing says so anywhere the next
+-- person renaming a trigger would look.
+--
+-- Running the wrong way round does not fail visibly here: the demote sets
+-- new.role, the guard then sees a role change it did not authorise, and an
+-- ORDINARY ACCOUNT DELETION starts failing with "only an owner can change a
+-- member's role" -- an error about roles, raised by deleting a login, nowhere
+-- near the trigger that caused it. Cheap to assert, miserable to debug.
+do $$
+declare demote_name text; guard_name text;
+begin
+  select tgname into guard_name from pg_trigger
+  where tgrelid = 'public.household_members'::regclass
+    and not tgisinternal and tgname = 'household_members_guard_role';
+  select tgname into demote_name from pg_trigger
+  where tgrelid = 'public.household_members'::regclass
+    and not tgisinternal and tgname = 'household_members_unlinked_owner_demotes';
+
+  if guard_name is null or demote_name is null then
+    raise exception 'QA-#3 FAILED: expected both the role guard and the demote trigger, found guard=% demote=%',
+      guard_name, demote_name;
+  end if;
+
+  if demote_name <= guard_name then
+    raise exception 'QA-#3 FAILED: % must sort AFTER % so it fires second; renaming either one breaks deleting an auth account',
+      demote_name, guard_name;
+  end if;
+
+  raise notice 'QA-#3 ok: the demote trigger is ordered after the role guard, which is what makes an account deletion work';
+end $$;
+
 -- QA #3: the label and the login cannot be separated by hand either.
 do $$
 begin

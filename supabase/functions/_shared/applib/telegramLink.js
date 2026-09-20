@@ -41,6 +41,23 @@ export function linkAttemptRefusal({ sender, global }) {
   return null;
 }
 
+// Is this text even shaped like a token? 32 hex characters, as
+// generate_telegram_link_code() produces.
+//
+// This decides what counts as a failed ATTEMPT, and the distinction matters
+// for the person, not the attacker. Every non-empty message from an unlinked
+// sender used to be counted, so somebody told "message the bot" who sent
+// "hi", "hello?", "how do I link this" had burned three of their five
+// attempts before they ever had a token -- and the refusal they eventually
+// hit says "too many incorrect codes", about codes they never entered.
+//
+// Nothing is given up by ignoring the rest. A string that is not 32 hex
+// characters cannot match a token that always is, so it was never a guess;
+// counting it only ever punished the one person the throttle is not for.
+export function looksLikeLinkToken(text) {
+  return /^[0-9a-f]{32}$/i.test(String(text ?? '').trim());
+}
+
 // A Telegram deep link (https://t.me/<bot>?start=<token>) arrives as
 // "/start <token>". The token is short enough to be a deep-link payload, so
 // both shapes are accepted and a link in Settings would work without touching
