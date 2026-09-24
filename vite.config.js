@@ -44,10 +44,6 @@ export default defineConfig({
       },
     },
   },
-  // Vitest transforms test files with esbuild and needs to be told to use the
-  // automatic JSX runtime. The production build uses oxc instead and would warn
-  // that the esbuild option is ignored, so it is set only under Vitest.
-  ...(process.env.VITEST ? { esbuild: { jsx: 'automatic' } } : {}),
   test: {
     environment: 'jsdom',
     globals: true,
