@@ -45,10 +45,14 @@ inside Ubuntu, where this document applies as written. Install its two tools
 there:
 
 ```bash
-# PostgreSQL 17 client. Supabase runs 17.x and pg_dump 16 or older REFUSES to
-# dump it -- an error that reads like a connection problem and is not one.
-sudo apt update && sudo apt install -y postgresql-client-17
-pg_dump --version    # must be 17.x
+# The PostgreSQL client. The rule is that pg_dump must be at least as new as
+# the server: 18 dumps a 17.6 server fine, 16 REFUSES -- and that refusal
+# reads like a connection problem when it is not one. Supabase runs 17.6, so
+# anything 17 or above works. Do NOT install `postgresql-client-common`, which
+# is what the shell suggests when pg_dump is missing: it is the shared
+# scaffolding and contains no pg_dump at all.
+sudo apt update && sudo apt install -y postgresql-client
+pg_dump --version    # must be 17.x or newer; Ubuntu 26.04 gives 18.6
 
 # The Supabase CLI, for the storage copy and migration repair.
 curl -fsSL https://github.com/supabase/cli/releases/latest/download/supabase_linux_amd64.tar.gz \
@@ -56,8 +60,8 @@ curl -fsSL https://github.com/supabase/cli/releases/latest/download/supabase_lin
 supabase login
 ```
 
-If `postgresql-client-17` is not found, Ubuntu's default repositories are
-behind; add PostgreSQL's own:
+If the version that installs is older than 17 -- possible on an older Ubuntu
+release -- add PostgreSQL's own repository and install the pinned package:
 
 ```bash
 sudo apt install -y curl ca-certificates
@@ -77,7 +81,8 @@ most backup tools do not see. Write them somewhere on `/mnt/c` that your
 ordinary backups already cover, or copy them out afterwards.
 
 A macOS or Linux machine needs none of this: `brew install postgresql@17` or
-the distribution's `postgresql-client-17`, plus the CLI, and §3 works directly.
+the distribution's `postgresql-client`, plus the CLI, and §3 works directly --
+subject to the same rule, that the client is no older than the 17.6 server.
 
 ## 1. What would actually have to come back
 
@@ -359,6 +364,7 @@ Then check the things a fingerprint cannot see:
 | 2026-09-13 | Synthetic household, local PostgreSQL 16 | Fingerprint identical; 0 dangling memberships; `--disable-triggers` failure mode measured |
 | 2026-09-19 | **Real export of `erggbzbbutsvhleqcddq`**, restored into a scratch Supabase project (`rokda-restore-drill-scratch`, deleted after) | Fingerprint identical across all tables and `auth.users`; 0 dangling memberships; total account balance figure matched production exactly. Surfaced the `session_replication_role` fix documented above — `--disable-triggers` doesn't work against a real Supabase project's `postgres` role. |
 | 2026-09-20 | First attempt from the household's own machine | **Not a pass — stopped at step zero.** The machine runs Windows PowerShell; `pg_dump`, `psql` and the Supabase CLI were all absent, and every command in this document is bash. Nothing in `docs/` had ever named an operating system. §0 above now states the assumption and gives the WSL route. |
+| 2026-09-21 | §0 followed for real on Windows | **Tooling stage passed.** WSL2 Ubuntu 26.04.1, `postgresql-client` → pg_dump 18.6, Supabase CLI 2.117.0, both working. Corrected §0: it had pinned `postgresql-client-17`, which is not a package on 26.04, and the client-newer-than-server rule matters more than the exact version. The export itself was deferred, not attempted. |
 | 2026-09-20 | Scope of the drill re-examined after QA #1 | **Not a pass.** The 09-19 run is still valid for what it covered, and what it covered was narrower than it read: the export had no storage objects and no `auth.identities`, the fingerprint digested user ids only, a migration replay produced two of the three cron jobs and pointed both at the old project, and nothing exercised a login, a receipt, the bot or a scheduled run. All of that is fixed or written down above; none of it has been rehearsed yet. The next drill must run §5's checklist end to end. |
 
 ## 5. Recovering for real
