@@ -67,6 +67,21 @@ export function isConfirmable(row) {
 //   failed       the lookup itself did not work. We do not know whether a
 //                prompt exists, and acting on a guess here would record money
 //                on the strength of a database error.
+/**
+ * Types for TypeScript callers (the webhook imports this file). Without them
+ * TypeScript infers parameter types from the defaults below -- `row = null`
+ * reads as "row is always null", `recent = []` as `never[]` -- and rejects
+ * every real call site. Generic over the caller's own row type, and the
+ * result is a discriminated union, so `kind === 'one'` narrows to a row that
+ * is guaranteed present rather than `T | null | undefined`.
+ *
+ * @typedef {{ status?: unknown }} IntakeRow
+ */
+/**
+ * @template {IntakeRow} T
+ * @typedef {{ kind: 'one', row: T } | { kind: 'none' } | { kind: 'unknown' } | { kind: 'unavailable' } | { kind: 'ambiguous', rows: T[] }} Target
+ */
+
 export const PROMPT_UNADDRESSED = 'unaddressed';
 export const PROMPT_FOUND = 'found';
 export const PROMPT_UNKNOWN = 'unknown';
@@ -90,6 +105,11 @@ export const PROMPT_FAILED = 'failed';
 // for it -- and must never infer it by searching `recent`. `recent` is
 // windowed and capped, so searching it cannot tell "never a prompt" apart
 // from "a prompt I did not happen to fetch".
+/**
+ * @template {IntakeRow} T
+ * @param {{ lookup?: string, row?: T | null, recent?: T[], truncated?: boolean }} [input]
+ * @returns {Target<T>}
+ */
 export function resolveConfirmTarget({ lookup = PROMPT_UNADDRESSED, row = null, recent = [], truncated = false } = {}) {
   // Not knowing is not the same as knowing there is nothing. A failed lookup
   // used to be indistinguishable from "no such prompt" because the error was
@@ -123,6 +143,11 @@ export function resolveConfirmTarget({ lookup = PROMPT_UNADDRESSED, row = null, 
 // newest pending entry, so replying to A with a correction amended B. The
 // only difference is what counts as a candidate -- a correction can amend an
 // entry that is merely pending, not one that is ready for fast confirm.
+/**
+ * @template {IntakeRow} T
+ * @param {{ lookup?: string, row?: T | null, recent?: T[], truncated?: boolean }} [input]
+ * @returns {Target<T>}
+ */
 export function resolveCorrectionTarget({ lookup = PROMPT_UNADDRESSED, row = null, recent = [], truncated = false } = {}) {
   if (lookup === PROMPT_FAILED) return { kind: 'unavailable' };
   if (lookup === PROMPT_FOUND) {

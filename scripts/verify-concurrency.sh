@@ -101,6 +101,29 @@ else
   fail=1
 fi
 
+echo "verify-concurrency: two deliveries of the same Telegram update (SHR-303)"
+# Telegram retries a webhook it thinks failed, so the same update_id can arrive
+# while the first delivery is still being processed. Exactly one may claim it;
+# the other must be told it is busy -- never fresh, and never "completed",
+# which would make the caller answer 200 and end Telegram's retries.
+psql -d "$DB" -v ON_ERROR_STOP=1 -q <<'SQL'
+set client_min_messages = warning;
+create table if not exists race_claims (result text);
+truncate race_claims;
+delete from telegram_update_log;
+SQL
+CLAIM="insert into race_claims select claim_telegram_update(9100001);"
+overlap "$CLAIM" &
+overlap "$CLAIM" &
+wait
+outcome=$(psql -At -d "$DB" -c "select string_agg(result, ',' order by result) from race_claims")
+if [ "$outcome" = "busy,claimed" ]; then
+  echo "  ok   concurrent claims of one update: exactly one claimed ($outcome)"
+else
+  echo "  FAIL concurrent claims of one update gave '$outcome', expected 'busy,claimed'" >&2
+  fail=1
+fi
+
 if [ "$fail" -ne 0 ]; then
   echo "verify-concurrency: FAILED" >&2
   exit 1

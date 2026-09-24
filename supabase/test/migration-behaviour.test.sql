@@ -639,4 +639,82 @@ begin
   raise notice 'QA-§7 ok: approve_intake refuses foreign ids, writes nothing, still approves its own';
 end $$;
 
+-- SHR-303: an update claim records whether processing finished, so a crash
+-- before capture is retried instead of being suppressed forever.
+do $$
+declare r text;
+begin
+  -- A fresh update is claimed, and a second claim while it is live is not.
+  if claim_telegram_update(9000001) <> 'claimed' then
+    raise exception 'SHR-303 FAILED: a fresh update was not claimed';
+  end if;
+  -- A live claim is 'busy', not 'completed': the caller must answer non-200
+  -- so Telegram retries, rather than 200, which would end the retries.
+  if claim_telegram_update(9000001) <> 'busy' then
+    raise exception 'SHR-303 FAILED: a live claim was not reported busy';
+  end if;
+
+  -- A handler that caught an error releases the claim; the next redelivery
+  -- must reclaim it rather than drop it. This is the silent-loss case.
+  update telegram_update_log set status = 'failed' where update_id = 9000001;
+  if claim_telegram_update(9000001) <> 'claimed' then
+    raise exception 'SHR-303 FAILED: a failed update was not reclaimed on redelivery';
+  end if;
+  if (select attempts from telegram_update_log where update_id = 9000001) <> 2 then
+    raise exception 'SHR-303 FAILED: reclaiming did not count the attempt';
+  end if;
+
+  -- A crash that ran no handler at all leaves 'processing' behind. Within the
+  -- lease it is still someone else's; past it, it is reclaimable.
+  update telegram_update_log set claimed_at = now() - interval '10 minutes' where update_id = 9000001;
+  if claim_telegram_update(9000001) <> 'claimed' then
+    raise exception 'SHR-303 FAILED: a claim abandoned past its lease was not reclaimable';
+  end if;
+
+  -- A completed update is never processed again, however old.
+  update telegram_update_log set status = 'completed', claimed_at = now() - interval '10 minutes'
+   where update_id = 9000001;
+  if claim_telegram_update(9000001) <> 'completed' then
+    raise exception 'SHR-303 FAILED: a completed update was not reported completed';
+  end if;
+  raise notice 'SHR-303 ok: fresh, busy, failed, abandoned and completed claims each behave';
+end $$;
+
+-- SHR-303: the ordinary app roles cannot claim updates.
+do $$
+begin
+  if has_function_privilege('authenticated', 'claim_telegram_update(bigint, interval)', 'execute')
+     or has_function_privilege('anon', 'claim_telegram_update(bigint, interval)', 'execute') then
+    raise exception 'SHR-303 FAILED: claim_telegram_update is executable by an app role';
+  end if;
+  raise notice 'SHR-303 ok: only service_role can claim updates';
+end $$;
+
+-- SHR-303: a redelivered goal contribution is one row, not two.
+insert into goals (id, household_id, name, target_amount)
+values ('55555555-5555-5555-5555-555555550001', '11111111-1111-1111-1111-111111111111', 'House', 100000),
+       ('55555555-5555-5555-5555-555555550002', '11111111-1111-1111-1111-111111111111', 'Car', 50000);
+do $$
+begin
+  insert into goal_contributions (goal_id, amount, occurred_at, source, source_ref)
+  values ('55555555-5555-5555-5555-555555550001', 500, date '2026-09-24', 'telegram', '9000002');
+  begin
+    insert into goal_contributions (goal_id, amount, occurred_at, source, source_ref)
+    values ('55555555-5555-5555-5555-555555550001', 500, date '2026-09-24', 'telegram', '9000002');
+    raise exception 'SHR-303 FAILED: the same delivery recorded a goal contribution twice';
+  exception
+    when unique_violation then null;
+  end;
+
+  -- Keyed per goal: one message funding two goals is not a redelivery.
+  insert into goal_contributions (goal_id, amount, occurred_at, source, source_ref)
+  values ('55555555-5555-5555-5555-555555550002', 200, date '2026-09-24', 'telegram', '9000002');
+
+  -- Contributions entered in the app carry no source_ref and are unconstrained.
+  insert into goal_contributions (goal_id, amount, occurred_at)
+  values ('55555555-5555-5555-5555-555555550001', 500, date '2026-09-24'),
+         ('55555555-5555-5555-5555-555555550001', 500, date '2026-09-24');
+  raise notice 'SHR-303 ok: a redelivered contribution is refused; two goals and app entries are not';
+end $$;
+
 rollback;
