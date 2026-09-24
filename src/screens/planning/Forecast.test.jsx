@@ -8,7 +8,7 @@ import Forecast from './Forecast';
 vi.mock('../../lib/supabaseClient', () => ({ supabase: {} }));
 
 const ACCOUNT = { id: 'a1', name: 'ADCB', type: 'savings', balance: 50_000, is_shared: true, archived_at: null };
-const HOLDING = { id: 'h1', name: 'VWRA', asset_class: 'equity', value_aed: 20_000, is_shared: true };
+const HOLDING = { id: 'h1', name: 'VWRA', asset_class: 'equity', value_aed: 20_000, is_shared: true, priced_at: '2026-06-01T00:00:00Z' };
 
 // Three closed months of spend, which is what a forecast needs before it will
 // project anything at all.
