@@ -29,6 +29,15 @@
   --warn: #c99a52;
   --neutralbar: rgba(242, 237, 228, 0.2);
 
+  /* chart series, in fixed order: identity, never rank. Validated as an
+     adjacent set (series-1, accent, series-3) for colour-vision deficiency
+     and contrast against --canvas. The accent sits a hair above the dark
+     lightness band; it stays because it is the brand colour every chart
+     already uses. */
+  --series-1: #4f84ba;
+  --series-2: var(--accent);
+  --series-3: #0f9b89;
+
   /* radius: sharp/editorial, not rounded */
   --radius-sm: 2px;
   --radius-md: 3px;
@@ -56,4 +65,7 @@
   --neg: #a8443c;
   --warn: #8a6320;
   --neutralbar: rgba(26, 23, 18, 0.16);
+  --series-1: #316ca5;
+  --series-2: var(--accent);
+  --series-3: #008c7a;
 }

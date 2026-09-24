@@ -1,0 +1,145 @@
+/* Shared chart chrome. Marks carry colour; everything else here is
+   hairlines and muted ink, so the data is the loudest thing on the page. */
+
+.ch {
+  position: relative;
+  width: 100%;
+  margin-top: 14px;
+  touch-action: pan-y;
+}
+.ch svg {
+  display: block;
+  overflow: visible;
+}
+.ch:focus-visible {
+  outline-offset: 6px;
+}
+
+.ch-tick {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  fill: var(--ink3);
+}
+.ch-tick-active {
+  fill: var(--ink);
+}
+.ch-grid {
+  stroke: var(--rule);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+.ch-zero {
+  stroke: var(--rule2);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+.ch-band {
+  fill: var(--raise);
+}
+.ch-crosshair {
+  stroke: var(--rule2);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+.ch-reference {
+  fill: none;
+  stroke: var(--ink2);
+  stroke-width: 1.5;
+}
+.ch-reference-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  fill: var(--ink2);
+  paint-order: stroke;
+  stroke: var(--canvas);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+.ch-hit {
+  fill: transparent;
+  cursor: crosshair;
+}
+.ch-seg {
+  transition: opacity var(--ease);
+}
+
+.ch-legend {
+  display: flex;
+  gap: 8px 18px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  font-size: 11.5px;
+  color: var(--ink2);
+}
+.ch-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.ch-swatch {
+  width: 9px;
+  height: 9px;
+  display: block;
+  flex: none;
+}
+.ch-linekey {
+  width: 14px;
+  height: 0;
+  border-top: 2px solid;
+  display: block;
+  flex: none;
+}
+
+/* Two small charts side by side, one above the other on a phone. */
+.ch-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 36px;
+}
+@media (max-width: 820px) {
+  .ch-pair {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 26px;
+  }
+}
+
+/* Table view of a chart: every value the chart draws, reachable without
+   hovering. */
+.ch-table {
+  margin-top: 16px;
+  font-size: 12px;
+}
+.ch-table summary {
+  cursor: pointer;
+  color: var(--ink2);
+  font-size: 11.5px;
+}
+.ch-table-wrap {
+  overflow-x: auto;
+  margin-top: 10px;
+}
+.ch-table table {
+  border-collapse: collapse;
+  width: 100%;
+}
+.ch-table th,
+.ch-table td {
+  text-align: right;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+}
+.ch-table th:first-child,
+.ch-table td:first-child {
+  text-align: left;
+}
+.ch-table th {
+  color: var(--ink3);
+  font-weight: 400;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.ch-table tr[data-active='true'] td {
+  background: var(--raise);
+}

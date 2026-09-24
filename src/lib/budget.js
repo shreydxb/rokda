@@ -80,6 +80,32 @@ export function rollupActualsByGroup(actualsByCategory, categories) {
   return rolled;
 }
 
+// A month's spending split the way the Budget screen lays it out: by
+// top-level group. Each group row rolls its subcategories and the parent
+// itself together (rollupActualsByGroup), so the totals under those rows have
+// to be built from the same rolled figures or the table stops adding up --
+// the hero used to read "0 of 300" above a group row showing 250 spent,
+// because it summed only the budgeted categories' own spend.
+//
+// `groups`: every group containing a budgeted category, with its rolled
+// spend. `inBudgetedGroups`: their sum. `outside`: everything else,
+// uncategorised spend included. inBudgetedGroups + outside is always the
+// month's total, the same total monthSpendBreakdown reports.
+// `byCategory` is the unrolled per-category map, for subcategory rows.
+export function budgetGroupSpend(transactions, budgetedCategoryIds, categories, year, month, scopeMemberId, now = new Date()) {
+  const categoryById = categories instanceof Map ? categories : new Map(categories.map((c) => [c.id, c]));
+  const byCategory = monthActualsByCategory(transactions, year, month, scopeMemberId, now);
+  const rolled = rollupActualsByGroup(byCategory, categoryById);
+  const groups = new Map();
+  for (const id of budgetedCategoryIds ?? []) {
+    const groupId = categoryById.get(id)?.parent_id ?? id;
+    groups.set(groupId, rolled.get(groupId) ?? 0);
+  }
+  const inBudgetedGroups = [...groups.values()].reduce((sum, v) => sum + v, 0);
+  const { total, uncategorised } = monthSpendBreakdown(transactions, budgetedCategoryIds, year, month, scopeMemberId, now);
+  return { groups, byCategory, inBudgetedGroups, outside: total - inBudgetedGroups, uncategorised, total };
+}
+
 // All spending in the month, split by whether it was budgeted (QA-09).
 //
 // "Net saved" used to be income minus the *budgeted categories'* spend, so

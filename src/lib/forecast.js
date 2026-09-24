@@ -75,14 +75,6 @@ function goalAt(years, goal, mode, inflationPct) {
   return mode === 'real' ? goal : goal * (1 + inflationPct / 100) ** years;
 }
 
-export function projectSeries({ startYear, startNetWorth, annualSaving, rate, mode, inflationPct, horizonYears = 30, step = 3 }) {
-  const points = [];
-  for (let n = 0; n <= horizonYears; n += step) {
-    points.push({ year: startYear + n, yearsOut: n, value: futureValue(n, rate, startNetWorth, annualSaving, mode, inflationPct) });
-  }
-  return points;
-}
-
 // First year the projection reaches the goal, or null if it doesn't within
 // maxYears — an honest "beyond what's shown" rather than an invented date.
 export function crossingYear({ startYear, startNetWorth, annualSaving, rate, mode, inflationPct, goal, maxYears = 60 }) {
@@ -132,6 +124,42 @@ export function scenarioSets(assumptions, defaults) {
       swrPct: hasCustom ? Number(assumptions.custom_safe_withdrawal_pct) : swr,
     },
   };
+}
+
+// Year-by-year path of a projection, split into what it is made of: the
+// starting net worth, the saving added on top of it, and the growth on both.
+// The same loop as futureValue, so `value` is identical to it for every year
+// and the three parts always add up to `value`.
+export function projectYears({ startNetWorth, annualSaving, rate, mode, inflationPct, years }) {
+  const inflation = inflationPct / 100;
+  let value = startNetWorth;
+  let saved = 0;
+  const out = [{ yearsOut: 0, value, start: startNetWorth, saved: 0, growth: 0 }];
+  for (let i = 0; i < years; i++) {
+    const added = annualSaving * (mode === 'real' ? 1 : (1 + inflation) ** (i + 1));
+    value = value * (1 + rate) + added;
+    saved += added;
+    out.push({ yearsOut: i + 1, value, start: startNetWorth, saved, growth: value - startNetWorth - saved });
+  }
+  return out;
+}
+
+// The saving a year it would take to reach the goal in exactly `years` --
+// the solve-for-the-payment direction of crossingYear. The projection is
+// linear in the saving, value = start's growth + saving x (what one unit a
+// year compounds to), so this is exact rather than a search. In nominal mode
+// the saving grows with inflation exactly as it does in the projection, so
+// the figure is in today's money either way.
+//
+// 0 when growth on the starting net worth gets there alone; null when there
+// is no year to solve for.
+export function requiredAnnualSaving({ startNetWorth, rate, mode, inflationPct, goal, years }) {
+  if (!(years > 0)) return null;
+  const fromStart = futureValue(years, rate, startNetWorth, 0, mode, inflationPct);
+  const perUnit = futureValue(years, rate, 0, 1, mode, inflationPct);
+  const needed = goalAt(years, goal, mode, inflationPct) - fromStart;
+  if (needed <= 0) return 0;
+  return needed / perUnit;
 }
 
 export { goalAt, futureValue };

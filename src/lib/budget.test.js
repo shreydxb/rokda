@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { monthActualsByCategory, monthIncome, monthNetSaved, monthSpendBreakdown, rollupActualsByGroup } from './budget';
+import { budgetGroupSpend, monthActualsByCategory, monthIncome, monthNetSaved, monthSpendBreakdown, rollupActualsByGroup } from './budget';
 import { periodSummary } from '../screens/overviewMath';
 
 const NOW = new Date(2026, 8, 30, 12); // 30 September 2026
@@ -112,5 +112,43 @@ describe('rollupActualsByGroup', () => {
     const byId = new Map(categories.map((c) => [c.id, c]));
     const actuals = new Map([['salik', 100]]);
     expect(rollupActualsByGroup(actuals, byId).get('transport')).toBe(100);
+  });
+});
+
+describe('budgetGroupSpend: totals built from the same rolled figures as the group rows', () => {
+  const CATEGORIES = [
+    { id: 'util', name: 'Utilities', parent_id: null },
+    { id: 'dewa', name: 'DEWA', parent_id: 'util' },
+    { id: 'net', name: 'Internet', parent_id: 'util' },
+    { id: 'fun', name: 'Fun', parent_id: null },
+  ];
+  const ROWS = [
+    { id: 'p', occurred_at: '2026-09-02', amount: -250, is_shared: true, category_id: 'util' }, // posted to the parent
+    { id: 'd', occurred_at: '2026-09-03', amount: -100, is_shared: true, category_id: 'dewa' },
+    { id: 'n', occurred_at: '2026-09-04', amount: -80, is_shared: true, category_id: 'net' }, // unbudgeted sibling
+    { id: 'f', occurred_at: '2026-09-05', amount: -40, is_shared: true, category_id: 'fun' }, // unbudgeted group
+    { id: 'u', occurred_at: '2026-09-06', amount: -30, is_shared: true, category_id: null },
+  ];
+
+  it('rolls a budgeted subcategory up to its group, as the group row does', () => {
+    const s = budgetGroupSpend(ROWS, ['dewa'], CATEGORIES, 2026, 9, null, NOW);
+    expect(s.groups.get('util')).toBe(430);
+    expect(s.inBudgetedGroups).toBe(430);
+    expect(s.byCategory.get('dewa')).toBe(100);
+  });
+
+  it('always adds up to the same month total as monthSpendBreakdown', () => {
+    const s = budgetGroupSpend(ROWS, ['dewa'], CATEGORIES, 2026, 9, null, NOW);
+    expect(s.inBudgetedGroups + s.outside).toBe(s.total);
+    expect(s.total).toBe(monthSpendBreakdown(ROWS, ['dewa'], 2026, 9, null, NOW).total);
+    expect(s.outside).toBe(70); // the unbudgeted group plus uncategorised
+    expect(s.uncategorised).toBe(30);
+  });
+
+  it('halves shared rows for one person, like every other rollup', () => {
+    const both = budgetGroupSpend(ROWS, ['dewa'], CATEGORIES, 2026, 9, null, NOW);
+    const one = budgetGroupSpend(ROWS, ['dewa'], CATEGORIES, 2026, 9, 'm1', NOW);
+    expect(one.total * 2).toBe(both.total);
+    expect(one.groups.get('util') * 2).toBe(both.groups.get('util'));
   });
 });

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { stubSupabase } from './fixtures.js';
+import { data, stubSupabase } from './fixtures.js';
 
 const ROUTES = [
   { path: '/', name: 'overview' },
@@ -103,6 +103,49 @@ for (const route of ROUTES) {
     expect(text.length, `${route.path} rendered a blank screen with no data`).toBeGreaterThan(20);
     expect(text, `${route.path} leaked a raw value with no data`).not.toMatch(/NaN|undefined|\[object Object\]/);
     expect(errors, `console/page errors on ${route.path} with an empty household`).toEqual([]);
+  });
+}
+
+// Views behind a tab, which the per-route loop above never opens: the
+// Forecast headline row overflowed a phone for as long as it existed, unseen,
+// because Planning lands on Plan. The fixture gets income and spend for four
+// closed months so Forecast projects rather than showing its empty state.
+const SUBVIEWS = [
+  { name: 'forecast', path: '/planning', tabs: ['Forecast'], expectText: 'What it would take' },
+  { name: 'goals', path: '/planning', tabs: ['Goals'], expectText: 'a month to reach it by' },
+  { name: 'budget-year', path: '/money', tabs: ['Budget', 'Year'], expectText: 'Net saved each month' },
+];
+
+function closedMonthsOfHistory() {
+  const now = new Date();
+  const day = (back, d) => {
+    const x = new Date(now.getFullYear(), now.getMonth() - back, d);
+    return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+  };
+  const [salary, , groceries] = data.transactions;
+  const rows = [];
+  for (let back = 1; back <= 4; back++) {
+    rows.push({ ...salary, id: `77777777-9999-4000-8000-00000000010${back}`, occurred_at: day(back, 1), created_at: `${day(back, 1)}T09:00:00+00:00` });
+    rows.push({ ...groceries, id: `77777777-9999-4000-8000-00000000020${back}`, occurred_at: day(back, 9), created_at: `${day(back, 9)}T09:00:00+00:00` });
+  }
+  return [...data.transactions, ...rows];
+}
+
+for (const view of SUBVIEWS) {
+  test(`${view.name}: renders, no errors, no horizontal overflow`, async ({ page }, testInfo) => {
+    const errors = watchErrors(page);
+    await stubSupabase(page, { tables: { transactions: closedMonthsOfHistory() } });
+    await gotoReady(page, view.path);
+    for (const tab of view.tabs) await page.getByRole('button', { name: tab, exact: true }).first().click();
+    await expect(page.locator('.om-main')).toContainText(view.expectText);
+
+    const text = (await page.locator('.om-main').innerText()).trim();
+    const { documentOverflow, offenders } = await horizontalOverflow(page);
+    await page.screenshot({ path: testInfo.outputPath(`${view.name}-${testInfo.project.name}.png`), fullPage: true });
+
+    expect(text, `${view.name} leaked a raw value into the UI`).not.toMatch(/NaN|undefined|\[object Object\]|Infinity/);
+    expect(errors, `console/page errors on ${view.name}`).toEqual([]);
+    expect(documentOverflow, `page scrolls sideways; offenders: ${offenders.join(' | ')}`).toBe(false);
   });
 }
 

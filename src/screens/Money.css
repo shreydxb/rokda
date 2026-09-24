@@ -677,3 +677,33 @@
   font-weight: 500;
   border-top: 1px solid var(--rule2);
 }
+
+/* Year view: group rows, subcategory rows, the year total and the month the
+   charts above are pointing at. */
+.bud-grouprow td {
+  font-weight: 500;
+}
+.bud-subrow td {
+  color: var(--ink2);
+  font-size: 12px;
+}
+.bud-subrow td:first-child {
+  padding-left: 22px;
+}
+.bud-year .bud-col-sum {
+  border-left: 1px solid var(--rule2);
+}
+.bud-year .bud-col-active {
+  background: var(--raise);
+}
+.bud-year {
+  min-width: 1080px;
+}
+/* The category column stays put while the months scroll under it. */
+.bud-year th:first-child,
+.bud-year td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--canvas);
+}

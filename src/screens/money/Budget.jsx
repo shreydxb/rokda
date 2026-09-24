@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
-import { formatBalance, formatMoney } from '../../lib/money';
-import { monthActualsByCategory, monthIncome, monthPace, monthSpendBreakdown, rollupActualsByGroup } from '../../lib/budget';
+import { formatBalance, formatCompact, formatMoney } from '../../lib/money';
+import { budgetGroupSpend, monthIncome, monthPace } from '../../lib/budget';
+import { ChartLegend, ColumnChart, LineChart } from '../../charts/Charts';
 import BudgetEditor from './BudgetEditor';
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -83,15 +84,17 @@ function MonthView({ cursor, setCursor, budgets, transactions, catById, scopeMem
   const year = cursor.getFullYear();
   const month = cursor.getMonth() + 1;
   const rows = budgets.filter((b) => b.year === year && b.month === month);
-  const actuals = monthActualsByCategory(transactions, year, month, scopeMemberId);
   const pace = monthPace(year, month, now);
 
+  // What was actually spent, budgeted or not (QA-09), split by the same
+  // groups the rows below show -- so the hero, the rows and the footer are
+  // one set of figures that adds up, and the year view reads the same month
+  // identically.
+  const spend = budgetGroupSpend(transactions, rows.map((r) => r.category_id), catById, year, month, scopeMemberId, now);
+  const actuals = spend.byCategory;
   const totalBudget = rows.reduce((s, r) => s + Number(r.amount), 0);
-  const totalActual = rows.reduce((s, r) => s + (actuals.get(r.category_id) ?? 0), 0);
-  // What was actually spent, budgeted or not. The budgeted subtotal above is
-  // only part of it (QA-09).
-  const spend = monthSpendBreakdown(transactions, rows.map((r) => r.category_id), year, month, scopeMemberId, now);
-  const outsideBudget = spend.unbudgeted + spend.uncategorised;
+  const totalActual = spend.inBudgetedGroups;
+  const outsideBudget = spend.outside;
 
   // Budgets are almost always set at subcategory level, but a household
   // categorises inconsistently -- the same kind of purchase sometimes gets
@@ -101,7 +104,7 @@ function MonthView({ cursor, setCursor, budgets, transactions, catById, scopeMem
   // up to match (rollupActualsByGroup) fixes that at the level someone
   // actually glances at first; the per-subcategory breakdown is still there,
   // one click away.
-  const rolledActuals = rollupActualsByGroup(actuals, catById);
+  const rolledActuals = spend.groups;
   const groups = new Map();
   for (const r of rows) {
     const groupId = catById.get(r.category_id)?.parent_id ?? r.category_id;
@@ -294,44 +297,90 @@ function BudgetRow({ name, budget, actual, pace, onClick, expandable, expanded, 
   );
 }
 
+const sum = (values) => values.reduce((s, v) => s + (v ?? 0), 0);
+
+// The year at a glance, laid out like a family budget sheet: one row per
+// budgeted group (subcategories beneath it when there are several), each
+// month's actuals to date and budgets for the months ahead, then a year
+// total, a monthly average and each group's share of what was spent. Every
+// actual comes from budgetGroupSpend, the same figures the month view shows,
+// so a month reads identically in either view and every column adds up.
 function YearView({ year, setYear, budgets, transactions, categories, scopeMemberId, now }) {
-  const catIds = [...new Set(budgets.filter((b) => b.year === year).map((b) => b.category_id))];
+  const [activeMonth, setActiveMonth] = useState(null);
   const catById = new Map(categories.map((c) => [c.id, c]));
+  const yearBudgets = budgets.filter((b) => b.year === year);
+  const catIds = [...new Set(yearBudgets.map((b) => b.category_id))];
+  const groupOf = (id) => catById.get(id)?.parent_id ?? id;
+  const nameOf = (id) => catById.get(id)?.name ?? 'Unknown';
 
-  function cellValue(categoryId, month) {
-    const isPastOrCurrent =
-      year < now.getFullYear() || (year === now.getFullYear() && month <= now.getMonth() + 1);
-    if (isPastOrCurrent) {
-      const actuals = monthActualsByCategory(transactions, year, month, scopeMemberId);
-      return { value: actuals.get(categoryId) ?? 0, kind: 'actual' };
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+  const isActual = (m) => year < currentYear || (year === currentYear && m <= currentMonth);
+  // The current month is still open: it counts toward totals but not toward
+  // an average, where a half-month would drag every category down.
+  const isClosed = (m) => year < currentYear || (year === currentYear && m < currentMonth);
+  const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1);
+
+  const months = MONTHS.map((m) =>
+    isActual(m)
+      ? {
+          m,
+          actual: true,
+          spend: budgetGroupSpend(transactions, catIds, catById, year, m, scopeMemberId, now),
+          income: monthIncome(transactions, year, m, scopeMemberId, now),
+        }
+      : { m, actual: false },
+  );
+  const planned = (ids, m) => sum(yearBudgets.filter((b) => b.month === m && ids.includes(b.category_id)).map((b) => Number(b.amount)));
+
+  // Groups in order of what they took this year, biggest first.
+  const groupIds = [...new Set(catIds.map(groupOf))];
+  const groups = groupIds.map((gid) => {
+    const members = catIds.filter((id) => groupOf(id) === gid).sort((a, b) => nameOf(a).localeCompare(nameOf(b)));
+    const cells = months.map((mo) => (mo.actual ? { value: mo.spend.groups.get(gid) ?? 0, kind: 'actual' } : { value: planned(members, mo.m), kind: 'planned' }));
+    // One budgeted category in the group -- the group itself or its only
+    // budgeted subcategory -- is one row, as in the month view. Several get a
+    // row each, plus "other" for spend in the group that none of them holds
+    // (posted to the parent, or to an unbudgeted sibling), so the rows add up
+    // to the group.
+    let children = [];
+    if (members.length > 1) {
+      children = members.map((cid) => ({
+        key: cid,
+        name: cid === gid ? `${nameOf(gid)} · general` : nameOf(cid),
+        cells: months.map((mo) => (mo.actual ? { value: mo.spend.byCategory.get(cid) ?? 0, kind: 'actual' } : { value: planned([cid], mo.m), kind: 'planned' })),
+      }));
+      const other = months.map((mo, i) => (mo.actual ? { value: cells[i].value - sum(children.map((c) => c.cells[i].value)), kind: 'actual' } : { value: 0, kind: 'planned' }));
+      if (other.some((c) => Math.abs(c.value) >= 0.005)) children.push({ key: `${gid}-other`, name: `Other ${nameOf(gid)}`, cells: other, other: true });
     }
-    const b = budgets.find((x) => x.year === year && x.month === month && x.category_id === categoryId);
-    return { value: b ? Number(b.amount) : 0, kind: 'planned' };
-  }
-
-  const monthTotals = Array.from({ length: 12 }, (_, i) => {
-    const month = i + 1;
-    return catIds.reduce((s, cid) => s + cellValue(cid, month).value, 0);
+    const subtitle = members.length === 1 && members[0] !== gid ? nameOf(members[0]) : null;
+    return { gid, name: nameOf(gid), subtitle, cells, children, actualTotal: sum(cells.filter((c) => c.kind === 'actual').map((c) => c.value)) };
   });
+  groups.sort((a, b) => b.actualTotal - a.actualTotal || a.name.localeCompare(b.name));
 
-  // Net saved is income minus ALL spending. Subtracting only the budgeted
-  // categories' subtotal made unbudgeted and uncategorised spending disappear
-  // from the figure entirely (QA-09).
-  const breakdowns = Array.from({ length: 12 }, (_, i) => {
-    const month = i + 1;
-    const isPastOrCurrent = year < now.getFullYear() || (year === now.getFullYear() && month <= now.getMonth() + 1);
-    if (!isPastOrCurrent) return null;
-    return monthSpendBreakdown(transactions, catIds, year, month, scopeMemberId, now);
-  });
+  const budgetedCells = MONTHS.map((_, i) => sum(groups.map((g) => g.cells[i].value)));
+  const outside = months.map((mo) => (mo.actual ? mo.spend.outside : null));
+  const allSpending = months.map((mo) => (mo.actual ? mo.spend.total : null));
+  const income = months.map((mo) => (mo.actual ? mo.income : null));
+  // Net saved is income minus ALL spending, not the budgeted subtotal
+  // (QA-09).
+  const netSaved = months.map((mo) => (mo.actual ? mo.income - mo.spend.total : null));
+  let running = 0;
+  const savedSoFar = netSaved.map((v) => (v === null ? null : (running += v)));
 
-  const outsideBudget = breakdowns.map((b) => (b === null ? null : b.unbudgeted + b.uncategorised));
-  const allSpending = breakdowns.map((b) => (b === null ? null : b.total));
+  const actualSpendTotal = sum(allSpending);
+  const anyActual = months.some((mo) => mo.actual);
+  const closedIdx = MONTHS.map((m, i) => (isClosed(m) ? i : null)).filter((i) => i !== null);
+  // Average per month: over closed months when there are any; a year with
+  // none yet (all ahead, or only the open month) averages what is shown.
+  const averageOf = (cells) => {
+    const idx = closedIdx.length ? closedIdx : MONTHS.map((_, i) => i).filter((i) => cells[i] !== null);
+    return idx.length ? sum(idx.map((i) => cells[i])) / idx.length : null;
+  };
+  const values = (cells) => cells.map((c) => c.value);
 
-  const netSaved = Array.from({ length: 12 }, (_, i) => {
-    const breakdown = breakdowns[i];
-    if (breakdown === null) return null;
-    return monthIncome(transactions, year, i + 1, scopeMemberId, now) - breakdown.total;
-  });
+  const active = activeMonth ?? (year === currentYear ? currentMonth - 1 : anyActual ? 11 : null);
+  const activeCol = (i) => (i === active ? 'bud-col-active' : undefined);
 
   return (
     <div>
@@ -345,6 +394,72 @@ function YearView({ year, setYear, budgets, transactions, categories, scopeMembe
         </button>
       </div>
 
+      {anyActual && (
+        <section style={{ marginTop: 22 }}>
+          <div className="ch-pair">
+            <div>
+              <div className="ov-kicker">Net saved each month</div>
+              <ColumnChart
+                columns={MONTHS.map((m, i) => ({ key: m, label: MONTH_LABELS[i], values: [netSaved[i] ?? 0], muted: netSaved[i] === null }))}
+                series={[{ key: 'net', label: 'Net saved', color: (v) => (v < 0 ? 'var(--neg)' : 'var(--pos)') }]}
+                height={150}
+                formatTick={formatCompact}
+                labelEvery={2}
+                activeIndex={active}
+                onActiveChange={setActiveMonth}
+                ariaLabel={`Net saved each month of ${year}: income minus all spending. Use the arrow keys to move between months.`}
+              />
+            </div>
+            <div>
+              <div className="ov-kicker">Saved so far in {year}</div>
+              <LineChart
+                points={MONTHS.map((m, i) => ({ key: m, label: MONTH_LABELS[i], value: savedSoFar[i] }))}
+                color="var(--accent)"
+                height={150}
+                formatTick={formatCompact}
+                labelEvery={2}
+                activeIndex={active}
+                onActiveChange={setActiveMonth}
+                ariaLabel={`Running total of net saved through ${year}. Use the arrow keys to move between months.`}
+              />
+            </div>
+          </div>
+          {active !== null && (
+            <div className="ov-chart-readout">
+              <span className="fig">
+                {MONTH_LABELS[active]} {year}
+              </span>
+              {netSaved[active] === null ? (
+                <span>Not reached yet · budgeted {formatMoney(budgetedCells[active])}</span>
+              ) : (
+                <>
+                  <span>
+                    Income <b className="fig">{formatMoney(income[active])}</b>
+                  </span>
+                  <span>
+                    Spending <b className="fig">{formatMoney(allSpending[active])}</b>
+                  </span>
+                  <span>
+                    Net saved <b className={`fig ${netSaved[active] < 0 ? 'ov-neg' : ''}`}>{formatBalance(netSaved[active])}</b>
+                  </span>
+                  <span>
+                    So far this year <b className="fig">{formatBalance(savedSoFar[active])}</b>
+                  </span>
+                  {year === currentYear && active === currentMonth - 1 && <span className="ov-muted">month still open</span>}
+                </>
+              )}
+            </div>
+          )}
+          <ChartLegend
+            items={[
+              { label: 'Saved', color: 'var(--pos)' },
+              { label: 'Overspent', color: 'var(--neg)' },
+              { label: 'Running total', color: 'var(--accent)', kind: 'line' },
+            ]}
+          />
+        </section>
+      )}
+
       {catIds.length === 0 ? (
         <div className="ov-empty">
           <div className="ov-empty-kicker">No budget set</div>
@@ -355,60 +470,117 @@ function YearView({ year, setYear, budgets, transactions, categories, scopeMembe
           <table className="bud-year">
             <thead>
               <tr>
-                <th>Category</th>
-                {MONTH_LABELS.map((m) => (
-                  <th key={m}>{m}</th>
+                <th scope="col">Category</th>
+                {MONTH_LABELS.map((m, i) => (
+                  <th key={m} scope="col" className={activeCol(i)}>
+                    {m}
+                  </th>
                 ))}
+                <th scope="col" className="bud-col-sum">Total</th>
+                <th scope="col" title="Per month, over the months already closed">
+                  Avg / mo
+                </th>
+                <th scope="col" title="Share of everything actually spent this year">
+                  Share
+                </th>
               </tr>
             </thead>
             <tbody>
-              {catIds.map((cid) => (
-                <tr key={cid}>
-                  <td>{catById.get(cid)?.name ?? 'Unknown'}</td>
-                  {Array.from({ length: 12 }, (_, i) => {
-                    const { value, kind } = cellValue(cid, i + 1);
-                    return (
-                      <td key={i} className={kind === 'planned' ? 'bud-planned' : ''}>
-                        {formatMoney(value)}
-                      </td>
-                    );
-                  })}
-                </tr>
+              {groups.map((g) => (
+                <YearGroupRows key={g.gid} group={g} activeCol={activeCol} averageOf={averageOf} values={values} actualSpendTotal={actualSpendTotal} />
               ))}
               <tr className="bud-totalrow">
                 <td>Budgeted subtotal</td>
-                {monthTotals.map((t, i) => (
-                  <td key={i}>{formatMoney(t)}</td>
+                {budgetedCells.map((v, i) => (
+                  <td key={i} className={activeCol(i)}>
+                    {formatMoney(v)}
+                  </td>
                 ))}
+                <td className="bud-col-sum">{formatMoney(sum(budgetedCells))}</td>
+                <td>{formatMoney(averageOf(budgetedCells))}</td>
+                <td>{anyActual && actualSpendTotal > 0 ? `${Math.round((sum(groups.map((g) => g.actualTotal)) / actualSpendTotal) * 100)}%` : '—'}</td>
               </tr>
+              <SummaryRow label="Outside budget" cells={outside} activeCol={activeCol} average={averageOf(outside)} />
+              <SummaryRow label="All spending" cells={allSpending} activeCol={activeCol} average={averageOf(allSpending)} total />
+              <SummaryRow label="Income" cells={income} activeCol={activeCol} average={averageOf(income)} />
+              <SummaryRow label="Net saved" cells={netSaved} activeCol={activeCol} average={averageOf(netSaved)} signed />
               <tr>
-                <td>Outside budget</td>
-                {outsideBudget.map((v, i) => (
-                  <td key={i}>{v === null ? '—' : formatMoney(v)}</td>
-                ))}
-              </tr>
-              <tr className="bud-totalrow">
-                <td>All spending</td>
-                {allSpending.map((v, i) => (
-                  <td key={i}>{v === null ? '—' : formatMoney(v)}</td>
-                ))}
-              </tr>
-              <tr>
-                <td>Net saved</td>
-                {netSaved.map((v, i) => (
-                  <td key={i} className={v !== null && v < 0 ? 'ov-warn' : ''}>
+                <td>Saved so far</td>
+                {savedSoFar.map((v, i) => (
+                  <td key={i} className={[activeCol(i), v !== null && v < 0 ? 'ov-warn' : ''].filter(Boolean).join(' ') || undefined}>
                     {v === null ? '—' : formatBalance(v)}
                   </td>
                 ))}
+                <td className="bud-col-sum">—</td>
+                <td>—</td>
+                <td>—</td>
               </tr>
             </tbody>
           </table>
-          <div className="ov-muted" style={{ marginTop: 8, fontSize: 11.5 }}>
-            Net saved is income minus <em>all</em> spending, including categories with no budget and records with no category.
+          <div className="ov-muted" style={{ marginTop: 8, fontSize: 11.5, lineHeight: 1.6 }}>
+            Months to date show what was spent; months ahead show the budget, in italics. Total adds the two. Each group counts
+            everything spent in it, subcategories included, the same as the month view. Net saved is income minus <em>all</em>{' '}
+            spending, including categories with no budget and records with no category.
             {scopeMemberId !== null && ' Actuals are this person’s share; budgets are the whole household’s.'}
           </div>
         </div>
       )}
     </div>
+  );
+}
+
+function YearGroupRows({ group, activeCol, averageOf, values, actualSpendTotal }) {
+  const cells = values(group.cells);
+  return (
+    <>
+      <tr className={group.children.length ? 'bud-grouprow' : undefined}>
+        <td>
+          {group.name}
+          {group.subtitle && <span className="ov-muted"> · {group.subtitle}</span>}
+        </td>
+        {group.cells.map((c, i) => (
+          <td key={i} className={[activeCol(i), c.kind === 'planned' ? 'bud-planned' : ''].filter(Boolean).join(' ') || undefined}>
+            {formatMoney(c.value)}
+          </td>
+        ))}
+        <td className="bud-col-sum">{formatMoney(sum(cells))}</td>
+        <td>{formatMoney(averageOf(cells))}</td>
+        <td>{actualSpendTotal > 0 ? `${Math.round((group.actualTotal / actualSpendTotal) * 100)}%` : '—'}</td>
+      </tr>
+      {group.children.map((child) => {
+        const childCells = values(child.cells);
+        return (
+          <tr key={child.key} className="bud-subrow">
+            <td className={child.other ? 'ov-muted' : undefined}>{child.name}</td>
+            {child.cells.map((c, i) => (
+              <td key={i} className={[activeCol(i), c.kind === 'planned' ? 'bud-planned' : ''].filter(Boolean).join(' ') || undefined}>
+                {child.other && c.kind === 'planned' ? '—' : formatBalance(c.value)}
+              </td>
+            ))}
+            <td className="bud-col-sum">{formatBalance(sum(childCells))}</td>
+            <td>{formatBalance(averageOf(childCells))}</td>
+            <td />
+          </tr>
+        );
+      })}
+    </>
+  );
+}
+
+function SummaryRow({ label, cells, activeCol, average, total = false, signed = false }) {
+  const fmt = signed ? formatBalance : formatMoney;
+  const known = cells.filter((v) => v !== null);
+  return (
+    <tr className={total ? 'bud-totalrow' : undefined}>
+      <td>{label}</td>
+      {cells.map((v, i) => (
+        <td key={i} className={[activeCol(i), signed && v !== null && v < 0 ? 'ov-warn' : ''].filter(Boolean).join(' ') || undefined}>
+          {v === null ? '—' : fmt(v)}
+        </td>
+      ))}
+      <td className="bud-col-sum">{known.length ? fmt(sum(known)) : '—'}</td>
+      <td>{average === null ? '—' : fmt(average)}</td>
+      <td />
+    </tr>
   );
 }

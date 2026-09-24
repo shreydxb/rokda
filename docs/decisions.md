@@ -92,3 +92,41 @@ constraint.
 Not yet covered: `transaction_edits` holds no `household_id` of its own, so its
 `edited_by` and `transaction_id` could in principle disagree. Constraining it
 needs a column added first, which is its own change.
+
+## Budget totals are built from the rows they sit under
+
+The Budget screen groups spending by top-level category, and a group row counts
+everything spent in that group: its subcategories and anything posted to the
+parent itself (`rollupActualsByGroup`). Every total on the screen is built from
+those same group figures (`budgetGroupSpend`), so the month hero, the rows, the
+footer and the year view all read one month identically, and each adds up:
+
+- **Budgeted subtotal** is the sum of the group rows.
+- **Outside budget** is everything else, including uncategorised spending.
+- **Budgeted subtotal + outside budget = all spending**, always.
+- **Net saved** is income minus *all* spending (QA-09, unchanged).
+
+In the year view, a group with several budgeted subcategories shows each of them
+plus an **Other** row for spend none of them holds, so the rows add up to the
+group.
+
+Per-category alerts (Telegram budget watch, Overview attention) still judge each
+budgeted category on its own spend. That is a narrower question, "is DEWA over
+DEWA's budget", and it agrees with the subcategory rows.
+
+## Goals: one derivation, and a monthly figure with no assumed growth
+
+Saved-so-far, status and ETA come from `scopedGoalRows` wherever they appear.
+The Plan summary used to derive them separately and left out linked accounts
+and holdings, so it disagreed with the Goals tab for any account-funded goal.
+
+The "needs X a month" figure spreads what is left over the whole calendar months
+to the target date. It assumes no investment growth: a goal carries no return
+assumption, and a monthly figure that quietly counted on one would be a promise
+the app cannot keep.
+
+## Forecast figures follow the display currency
+
+Every figure on Forecast is shown in the selected display currency, not only the
+hero. A USD hero above AED detail lines read as two different targets. Stored
+values stay in AED.
