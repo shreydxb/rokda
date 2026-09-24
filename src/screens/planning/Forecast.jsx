@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatBalance, formatMoney, formatPct } from '../../lib/money';
-import { startingNetWorth } from '../overviewMath';
-import { isArchived, unvaluedAccounts } from '../../lib/accounts';
+import { incompleteNote, netWorthSummary, startingNetWorth } from '../overviewMath';
+import { isArchived } from '../../lib/accounts';
 import { unconfirmedAccounts } from '../../lib/balance';
 import { closedMonths, crossingYear, fiTarget, forecastInputs, projectSeries, realReturn, goalAt, scenarioSets } from '../../lib/forecast';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
@@ -57,7 +57,15 @@ export default function Forecast({ household, accounts = [], transactions = [], 
   // unconverted foreign loan projected from 100 with no hint that a debt was
   // dropped. Confirming that loan's balance does nothing about it, which is
   // why the provisional flag never fired.
-  const unvaluedCount = useMemo(() => unvaluedAccounts(accounts ?? []).length, [accounts]);
+  //
+  // A holding that has never been valued is the same kind of gap: it is not in
+  // the basis either (SHR-292). Both counts come from the one household-wide
+  // summary startingNetWorth itself uses, so the note and the figure agree.
+  const basisGaps = useMemo(() => {
+    const s = netWorthSummary(accounts ?? [], null, holdings ?? []);
+    return { accounts: s.unvalued, holdings: s.unpricedHoldings };
+  }, [accounts, holdings]);
+  const basisIncomplete = incompleteNote(basisGaps, { capitalised: false, sentence: false });
   const monthCount = closedMonths(transactions, now).size;
   const inputs = useMemo(() => forecastInputs(transactions, startNetWorth, now), [transactions, startNetWorth, now]);
 
@@ -99,8 +107,8 @@ export default function Forecast({ household, accounts = [], transactions = [], 
             <span className="ov-muted">
               {startNetWorth === null
                 ? 'needs one account valuation'
-                : unvaluedCount > 0
-                  ? `incomplete · ${unvaluedCount} account${unvaluedCount === 1 ? '' : 's'} with no AED conversion`
+                : basisIncomplete
+                  ? `incomplete · ${basisIncomplete}`
                   : basisProvisional
                     ? 'provisional · balances not confirmed'
                     : 'known'}
@@ -283,8 +291,7 @@ export default function Forecast({ household, accounts = [], transactions = [], 
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10, fontSize: 12, color: 'var(--ink3)', flexWrap: 'wrap', gap: 12 }}>
             <span>
               <span style={{ color: 'var(--ink)' }}>{formatPct(pct)}</span> of the way there · {money.fmtBalance(startNetWorth)} today
-              {unvaluedCount > 0 &&
-                ` · incomplete, ${unvaluedCount} account${unvaluedCount === 1 ? '' : 's'} in another currency with no AED conversion`}
+              {basisIncomplete && ` · incomplete, ${basisIncomplete}`}
               {basisProvisional && ' · provisional, some balances are unconfirmed'}
             </span>
             {leanTarget && (

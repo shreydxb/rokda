@@ -45,14 +45,15 @@ import {
   PROMPT_FAILED,
   THUMBS_UP_EMOJIS,
 } from "../_shared/applib/telegramConfirm.js";
-import { netWorthSummary } from "../_shared/applib/overviewMath.js";
-import { accountValueAed, unvaluedAccounts, unvaluedNote } from "../_shared/applib/accounts.js";
+import { incompleteNote, netWorthSummary } from "../_shared/applib/overviewMath.js";
+import { accountValueAed, unvaluedAccounts } from "../_shared/applib/accounts.js";
 import { monthActualsByCategory } from "../_shared/applib/budget.js";
 import { nextDueDate, daysUntilDue } from "../_shared/applib/creditCard.js";
 import { lastDueOccurrence, upcomingItems } from "../_shared/applib/recurring.js";
 import { isPosted, parseDay, atDayOfMonth, startOfDay, householdToday, householdYearMonth } from "../_shared/applib/day.js";
 import { isSpendRow, spendDelta } from "../_shared/applib/transactionKind.js";
 import { visibleHoldings, scopedHoldingValue, holdingGain, allocationByClass, portfolioValueChange } from "../_shared/applib/holdings.js";
+import { isAwaitingFirstValuation } from "../_shared/applib/valuation.js";
 import { cashCoverStatus, formatCashCoverLine } from "../_shared/applib/cashCover.js";
 import { notableMoves } from "../_shared/applib/insights.js";
 
@@ -1012,7 +1013,10 @@ async function toolGetNetWorth(householdId: string, scopeMemberId: string | null
     assets_aed: round2(summary.assets),
     liabilities_aed: round2(summary.liabilities),
     unconverted_accounts: summary.unvalued,
-    ...(summary.unvalued > 0 ? { incomplete: unvaluedNote(summary.unvalued) } : {}),
+    unvalued_holdings: summary.unpricedHoldings,
+    ...(incompleteNote({ accounts: summary.unvalued, holdings: summary.unpricedHoldings })
+      ? { incomplete: incompleteNote({ accounts: summary.unvalued, holdings: summary.unpricedHoldings }) }
+      : {}),
   };
 }
 
@@ -1159,7 +1163,10 @@ async function toolGetHoldings(householdId: string, scopeMemberId: string | null
       name: h.name,
       asset_class: h.asset_class,
       quantity: h.quantity,
-      value_aed: round2(scopedHoldingValue(h as never, scopeMemberId)),
+      // A never-valued holding stores a placeholder 0; reporting it as a
+      // value would have the bot say it is worth nothing (SHR-292).
+      value_aed: isAwaitingFirstValuation(h as never) ? null : round2(scopedHoldingValue(h as never, scopeMemberId)),
+      ...(isAwaitingFirstValuation(h as never) ? { note: "never valued yet" } : {}),
       day_change_pct: h.day_change_pct,
       gain_aed: gain ? round2(gain.absolute) : null,
       gain_pct: gain ? round2(gain.pct * 100) : null,
@@ -1168,6 +1175,9 @@ async function toolGetHoldings(householdId: string, scopeMemberId: string | null
   }
 
   const totalValue = visible.reduce((s, h) => s + scopedHoldingValue(h as never, scopeMemberId), 0);
+  // Their placeholder 0 adds nothing to the total, which must not then read as
+  // the whole portfolio -- the same note Investments shows (SHR-292).
+  const unvaluedHoldings = visible.filter((h) => isAwaitingFirstValuation(h as never)).length;
   const allocation = allocationByClass(visible as never, scopeMemberId).map((a: { assetClass: string; value: number; share: number }) => ({
     asset_class: a.assetClass,
     value_aed: round2(a.value),
@@ -1194,6 +1204,9 @@ async function toolGetHoldings(householdId: string, scopeMemberId: string | null
 
   const result: Record<string, unknown> = {
     total_value_aed: round2(totalValue),
+    ...(unvaluedHoldings > 0
+      ? { unvalued_holdings: unvaluedHoldings, incomplete: incompleteNote({ holdings: unvaluedHoldings }) }
+      : {}),
     allocation,
     overall_gain: overallGain,
   };

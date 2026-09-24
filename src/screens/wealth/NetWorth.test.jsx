@@ -244,8 +244,8 @@ describe('NetWorth composition bar', () => {
           ],
           netWorthSnapshots: [],
           holdings: [
-            { id: 'h1', name: 'VWRA', asset_class: 'equity', value_aed: 60000, is_shared: true, archived_at: null },
-            { id: 'h2', name: 'Gold', asset_class: 'commodity', value_aed: 10000, is_shared: true, archived_at: null },
+            { id: 'h1', name: 'VWRA', asset_class: 'equity', value_aed: 60000, is_shared: true, archived_at: null, priced_at: '2026-06-01T00:00:00Z' },
+            { id: 'h2', name: 'Gold', asset_class: 'commodity', value_aed: 10000, is_shared: true, archived_at: null, priced_at: '2026-06-01T00:00:00Z' },
           ],
         }}
       />,
@@ -305,8 +305,8 @@ describe('NetWorth: investments rolled into Assets, not a separate section', () 
           accounts: [{ id: 'a1', name: 'ENBD', type: 'checking', balance: 10000, balance_as_of: '2026-09-01', is_shared: true, archived_at: null }],
           netWorthSnapshots: [],
           holdings: [
-            { id: 'h1', name: 'VWRA', asset_class: 'equity', value_aed: 60000, is_shared: true, archived_at: null },
-            { id: 'h2', name: 'Gold', asset_class: 'commodity', value_aed: 10000, is_shared: true, archived_at: null },
+            { id: 'h1', name: 'VWRA', asset_class: 'equity', value_aed: 60000, is_shared: true, archived_at: null, priced_at: '2026-06-01T00:00:00Z' },
+            { id: 'h2', name: 'Gold', asset_class: 'commodity', value_aed: 10000, is_shared: true, archived_at: null, priced_at: '2026-06-01T00:00:00Z' },
           ],
         }}
       />,
@@ -327,7 +327,7 @@ describe('NetWorth: investments rolled into Assets, not a separate section', () 
         data={{
           accounts: [{ id: 'a1', name: 'ENBD', type: 'checking', balance: 10000, balance_as_of: '2026-09-01', is_shared: true, archived_at: null }],
           netWorthSnapshots: [],
-          holdings: [{ id: 'h1', name: 'VWRA', asset_class: 'equity', value_aed: 60000, is_shared: true, archived_at: null }],
+          holdings: [{ id: 'h1', name: 'VWRA', asset_class: 'equity', value_aed: 60000, is_shared: true, archived_at: null, priced_at: '2026-06-01T00:00:00Z' }],
         }}
       />,
     );

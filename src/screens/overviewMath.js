@@ -3,6 +3,7 @@ import { accountValueAed, isAccountValued, isArchived } from '../lib/accounts';
 import { clampToToday, daysBetweenDays, endOfDayExclusive, isPosted, monthKey, parseDay, startOfDay } from '../lib/day';
 import { chartBuckets, periodBounds } from '../lib/period';
 import { scopedHoldingValue, visibleHoldings } from '../lib/holdings';
+import { isAwaitingFirstValuation } from '../lib/valuation';
 import { applyToIncomeSpend, isSpendRow } from '../lib/transactionKind';
 
 const LIABILITY_TYPES = new Set(['credit_card', 'loan']);
@@ -37,10 +38,37 @@ export function netWorthSummary(accounts, scopeMemberId, holdings = []) {
     if (LIABILITY_TYPES.has(a.type)) liabilities += v;
     else assets += v;
   }
+  // Holdings that have never been valued, counted for the same reason. Their
+  // stored value_aed is a placeholder 0 the column demands, not a measurement
+  // (QA #6), so adding it made a total that silently left them out read as
+  // complete (SHR-292). Investments and the P&L figure already said so; net
+  // worth did not.
+  let unpricedHoldings = 0;
   for (const h of visibleHoldings(holdings, scopeMemberId)) {
+    if (isAwaitingFirstValuation(h)) {
+      unpricedHoldings += 1;
+      continue;
+    }
     assets += scopedHoldingValue(h, scopeMemberId);
   }
-  return { assets, liabilities, netWorth: assets - liabilities, unvalued };
+  return { assets, liabilities, netWorth: assets - liabilities, unvalued, unpricedHoldings };
+}
+
+// What a net-worth total leaves out, in the one wording every surface uses:
+// Overview, Wealth, Forecast, the plan summary and the bot. `accounts` is
+// netWorthSummary's `unvalued`, `holdings` its `unpricedHoldings`. Null when
+// nothing is missing, so a caller can use it as the condition too.
+// `sentence: false` drops the full stop for use inside a " · "-joined line.
+export function incompleteNote({ accounts = 0, holdings = 0 } = {}, { capitalised = true, sentence = true } = {}) {
+  const parts = [];
+  if (accounts) {
+    parts.push(`${accounts} ${accounts === 1 ? 'account' : 'accounts'} in another currency that ${accounts === 1 ? 'has' : 'have'} no AED conversion yet`);
+  }
+  if (holdings) {
+    parts.push(`${holdings} ${holdings === 1 ? 'holding' : 'holdings'} that ${holdings === 1 ? 'has' : 'have'} never been valued`);
+  }
+  if (parts.length === 0) return null;
+  return `${capitalised ? 'Excludes' : 'excludes'} ${parts.join(', and ')}${sentence ? '.' : ''}`;
 }
 
 // The one starting basis shared by Overview, Wealth and Forecast: open account
@@ -59,8 +87,11 @@ export function startingNetWorth(accounts = [], holdings = []) {
   // worth and labels it provisional rather than withholding it. Forecast does
   // the same, and says so on the figure.
   const valuedAccounts = visibleAccounts(accounts, null).filter(isAccountValued);
-  const hasHoldings = visibleHoldings(holdings, null).length > 0;
-  if (valuedAccounts.length === 0 && !hasHoldings) return null;
+  // The same rule for holdings: one that has never been valued is not a
+  // basis, so a household whose only holding is awaiting its first price has
+  // nothing to project from rather than a start of zero (SHR-292).
+  const hasValuedHoldings = visibleHoldings(holdings, null).some((h) => !isAwaitingFirstValuation(h));
+  if (valuedAccounts.length === 0 && !hasValuedHoldings) return null;
   return netWorthSummary(accounts, null, holdings).netWorth;
 }
 

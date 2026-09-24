@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId, scopedValue } from '../../lib/scope';
-import { accountValueAed, isArchived, unvaluedAccounts, unvaluedNote } from '../../lib/accounts';
+import { accountValueAed, isArchived, unvaluedAccounts } from '../../lib/accounts';
 import { balanceStatus, unconfirmedAccounts } from '../../lib/balance';
 import { closeRowFor, historyState, pendingClose } from '../../lib/snapshots';
 import { supabase } from '../../lib/supabaseClient';
@@ -10,7 +10,8 @@ import { buildNetWorthSeries, changeOverMonths } from '../../lib/netWorth';
 import { ASSET_CLASS_LABELS, scopedHoldingValue, visibleHoldings } from '../../lib/holdings';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { isLiabilityAccount, isLiquidAccount } from '../useOverviewData';
-import { netWorthSummary } from '../overviewMath';
+import { incompleteNote, netWorthSummary } from '../overviewMath';
+import { isAwaitingFirstValuation } from '../../lib/valuation';
 
 const COMPOSITION_PALETTE = ['var(--accent)', 'var(--pos)', 'var(--warn)', 'var(--ink2)', 'var(--neg)', 'var(--accent-hover)'];
 
@@ -88,6 +89,12 @@ export default function NetWorth({ household, me, members, data, loading }) {
   // this whole component if one sits loose among the derived arrays that the
   // memos above depend on.
   const unvalued = useMemo(() => unvaluedAccounts(visible), [visible]);
+  // Holdings the total leaves out for the same reason: never valued, so the
+  // placeholder 0 they store is not in it (SHR-292). Named alongside the
+  // unconverted accounts so the note says exactly what is missing.
+  const unpriced = useMemo(() => visibleHoldingRows.filter(isAwaitingFirstValuation), [visibleHoldingRows]);
+  const gaps = { accounts: unvalued.length, holdings: unpriced.length };
+  const gapNames = [...unvalued, ...unpriced].map((r) => r.name).join(', ');
   const liveAssets = summary.assets;
   const liveLiabilities = summary.liabilities;
   const netWorth = summary.netWorth;
@@ -191,9 +198,9 @@ export default function NetWorth({ household, me, members, data, loading }) {
             )}
             {/* Not the same as provisional: these are not counted as zero,
                 they are not in the total at all (QA #4). */}
-            {unvalued.length > 0 && (
+            {incompleteNote(gaps) && (
               <div className="ov-warn" style={{ marginTop: 6, fontSize: 12 }}>
-                Incomplete — {unvaluedNote(unvalued.length, { capitalised: false })} ({unvalued.map((a) => a.name).join(', ')})
+                Incomplete — {incompleteNote(gaps, { capitalised: false })} ({gapNames})
               </div>
             )}
             <div className="ov-strip">
@@ -319,10 +326,10 @@ export default function NetWorth({ household, me, members, data, loading }) {
                 unconverted account bakes that omission into the history
                 (QA #4), so the gap is named here rather than only on the
                 hero above. */}
-            {unvalued.length > 0 && (
+            {incompleteNote(gaps) && (
               <div className="ov-warn" style={{ marginBottom: 10, fontSize: 12 }}>
-                These totals {unvaluedNote(unvalued.length, { capitalised: false })} Convert{' '}
-                {unvalued.map((a) => a.name).join(', ')} first, or adjust the figures by hand.
+                These totals {incompleteNote(gaps, { capitalised: false })} Convert or value {gapNames} first, or adjust the
+                figures by hand.
               </div>
             )}
             <div className="te-fieldgrid">

@@ -5,7 +5,7 @@ import { formatMoney, formatPct } from '../../lib/money';
 import { goalProgress } from '../../lib/goals';
 import { orderDebts, simulatePayoffPlan } from '../../lib/debt';
 import { closedMonths, crossingYear, fiTarget, forecastInputs } from '../../lib/forecast';
-import { netWorthSummary } from '../overviewMath';
+import { incompleteNote, netWorthSummary, startingNetWorth } from '../overviewMath';
 
 const DEFAULTS = { nominal_return_pct: 6.0, inflation_pct: 2.5, safe_withdrawal_pct: 4.0 };
 
@@ -59,8 +59,14 @@ export default function PlanSummary({ members, me, accounts, transactions, holdi
   const canProjectDebt = extraPayment !== null && extraPayment > 0 && cardAssumptionSet && debts.length > 0;
   const debtPlan = useMemo(() => (canProjectDebt ? simulatePayoffPlan(orderedFull, extraPayment) : null), [canProjectDebt, orderedFull, extraPayment]);
 
-  const netWorth = netWorthSummary(accounts, null, holdings);
-  const startNetWorth = accounts.length > 0 || holdings.length > 0 ? netWorth.netWorth : null;
+  // The same basis Forecast projects from, not a rule of this card's own:
+  // "any account or holding exists" let a household whose only holding had
+  // never been valued start from that holding's placeholder 0 (SHR-292).
+  const startNetWorth = useMemo(() => startingNetWorth(accounts, holdings), [accounts, holdings]);
+  const basisIncomplete = useMemo(() => {
+    const s = netWorthSummary(accounts, null, holdings);
+    return incompleteNote({ accounts: s.unvalued, holdings: s.unpricedHoldings }, { capitalised: false, sentence: false });
+  }, [accounts, holdings]);
   const monthCount = closedMonths(transactions, now).size;
   const forecast = useMemo(() => forecastInputs(transactions, startNetWorth, now), [transactions, startNetWorth, now]);
   const nominalPct = assumptions?.nominal_return_pct != null ? Number(assumptions.nominal_return_pct) : DEFAULTS.nominal_return_pct;
@@ -158,10 +164,11 @@ export default function PlanSummary({ members, me, accounts, transactions, holdi
             forecast.ready
               ? // The progress figure rests on a net worth that skips any
                 // account with no AED conversion, so it reads high when one
-                // of those is a debt (QA #4). Say so here rather than only on
-                // Forecast, since this card is what most people look at.
+                // of those is a debt (QA #4), and any holding never valued
+                // (SHR-292). Say so here rather than only on Forecast, since
+                // this card is what most people look at.
                 `${formatPct(startNetWorth / fireTarget)} of the way to ${formatMoney(fireTarget)}${
-                  netWorth.unvalued > 0 ? ` · incomplete, ${netWorth.unvalued} not converted to AED` : ''
+                  basisIncomplete ? ` · incomplete, ${basisIncomplete}` : ''
                 }`
               : 'Not enough data to project'
           }

@@ -13,6 +13,7 @@ import { supabase } from '../lib/supabaseClient';
 import { useOverviewData } from './useOverviewData';
 import {
   netWorthSummary,
+  incompleteNote,
   visibleAccounts,
   periodSummary,
   buildChartColumns,
@@ -23,7 +24,7 @@ import {
 import { parseDay } from '../lib/day';
 import { anyFailed } from '../lib/loadState';
 import { balanceStatus, unconfirmedAccounts } from '../lib/balance';
-import { accountValueAed, unvaluedNote } from '../lib/accounts';
+import { accountValueAed } from '../lib/accounts';
 import LoadFailure from './LoadFailure';
 import './Overview.css';
 
@@ -204,9 +205,9 @@ export default function Overview() {
                 not counted at all. netWorthSummary has always returned that
                 count; nothing used to read it, so an unconverted loan simply
                 vanished from a total that still looked complete (QA #4). */}
-            {netWorthTrustworthy && nw.unvalued > 0 && (
+            {netWorthTrustworthy && incompleteNote({ accounts: nw.unvalued, holdings: nw.unpricedHoldings }) && (
               <div className="ov-warn" style={{ marginTop: 6, fontSize: 12 }}>
-                Incomplete — {unvaluedNote(nw.unvalued, { capitalised: false })}
+                Incomplete — {incompleteNote({ accounts: nw.unvalued, holdings: nw.unpricedHoldings }, { capitalised: false })}
               </div>
             )}
             {scope === 'both' && (nwChange1mo || nwChange12mo) && (
