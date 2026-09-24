@@ -65,13 +65,37 @@ const PARSE_MODEL = "google/gemini-2.5-flash-lite";
 const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 const TG_API = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
 
+// Every Telegram URL carries the bot token in its path, and a failed fetch
+// carries its URL. Deno's own message is a bland "fetch failed", but its
+// `cause` reads "error sending request for url (https://api.telegram.org/
+// bot<TOKEN>/sendMessage)", and the runtime's uncaught-error printer follows
+// the cause chain -- so a DNS failure reaching Telegram used to print the full
+// token into the function logs (SHR-303, reproduced with a synthetic token).
+//
+// Any failure is therefore replaced here by an error naming only what was
+// being attempted, with no cause attached. What went wrong at the network
+// layer is not worth a credential.
+async function telegramFetch(url: string, init: RequestInit | undefined, what: string): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch {
+    throw new Error(`telegram ${what} failed`);
+  }
+}
+
 async function tgCall(method: string, body: Record<string, unknown>) {
-  const res = await fetch(`${TG_API}/${method}`, {
+  const res = await telegramFetch(`${TG_API}/${method}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-  });
-  return res.json();
+  }, method);
+  try {
+    return await res.json();
+  } catch {
+    // A non-JSON body (a proxy's HTML error page, say) is a failed call, not
+    // something to quote into a log.
+    throw new Error(`telegram ${method} returned an unreadable response`);
+  }
 }
 
 // Returns the message_id Telegram assigned to what we just sent, or null if
@@ -86,25 +110,64 @@ async function reply(chatId: number, text: string): Promise<number | null> {
   return res?.result?.message_id ?? null;
 }
 
-// QA #2, half two: Telegram redelivers an update whenever the webhook does not
-// answer 200 in time, and every side effect below used to run again on that
-// second delivery. For a "yes" confirmation that was not merely wasteful --
-// the first delivery approved one entry, and by the time the second arrived
-// "the newest pending entry" was a DIFFERENT one, so the retry approved that
-// too.
+// QA #2, half two, revised in SHR-303. Telegram redelivers an update whenever
+// the webhook does not answer 200 in time, so every update is claimed before
+// it is handled and settled after.
 //
-// The primary key on telegram_update_log is the whole mechanism: the first
-// delivery inserts, a redelivery raises 23505, and we stop. See that table's
-// migration for why at-most-once is the right trade here.
+// The first version inserted into telegram_update_log up front and treated a
+// duplicate key as "seen". That could only record receipt, so a crash between
+// the log insert and the capture turned the redelivery into a silent drop --
+// and a loss mode unique to this table, since intake's own delivery key
+// (intake_source_ref_key) already made a second capture harmless. It also
+// treated every error that was not a duplicate key as "not seen" and carried
+// on, reasoning that dropping messages because a bookkeeping table is down is
+// worse than losing dedupe. That was a false choice: there is a third option,
+// which is to answer non-200 and let Telegram retry. If the table is down, the
+// capture that follows would fail too, so refusing costs nothing.
 //
-// Returns true when this update has been seen before and must not be handled.
-// A failure that is NOT a duplicate-key error (the table is unreachable, say)
-// returns false: losing the dedupe is bad, but silently dropping the
-// household's messages because a bookkeeping table is down is worse.
-async function alreadyHandled(updateId: unknown): Promise<boolean> {
-  if (typeof updateId !== "number") return false;
-  const { error } = await supabase.from("telegram_update_log").insert({ update_id: updateId });
-  return error?.code === "23505";
+// See claim_telegram_update for why 'completed' and 'busy' are distinct.
+type Claim = "claimed" | "completed" | "busy" | "unknown" | "untracked";
+
+async function claimUpdate(updateId: unknown): Promise<Claim> {
+  // No numeric update_id means nothing to dedupe on. Rare -- Telegram always
+  // sends one -- and the per-side-effect keys below still hold.
+  if (typeof updateId !== "number") return "untracked";
+  try {
+    const { data, error } = await supabase.rpc("claim_telegram_update", { p_update_id: updateId });
+    if (error) return "unknown";
+    if (data === "claimed" || data === "completed" || data === "busy") return data;
+    return "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+// Best effort by design. If marking 'completed' fails, the update was handled
+// and Telegram has its 200; the row lapses harmlessly. If marking 'failed'
+// fails, the row stays 'processing', and claimUpdate answers 'busy' -- a
+// non-200 -- to every retry until the lease lapses and the update is
+// reclaimed. Either way nothing here is allowed to throw.
+async function settleUpdate(updateId: unknown, status: "completed" | "failed"): Promise<void> {
+  if (typeof updateId !== "number") return;
+  try {
+    await supabase.from("telegram_update_log").update({ status }).eq("update_id", updateId);
+  } catch {
+    // See above.
+  }
+}
+
+// The handler's only log line. Operational metadata only: where it failed,
+// which update, and the error's class name. Never the message -- a message
+// can quote a URL, a row, or the text a member sent -- and never the stack.
+function logFailure(where: string, updateId: unknown, err: unknown): void {
+  console.error(
+    JSON.stringify({
+      event: "telegram_webhook_failure",
+      where,
+      update_id: typeof updateId === "number" ? updateId : null,
+      error: err instanceof Error ? err.name : typeof err,
+    })
+  );
 }
 
 // Counts the rows; _shared/applib/telegramLink.js decides what they mean. See
@@ -998,7 +1061,7 @@ async function toolGetUpcomingBills(householdId: string, scopeMemberId: string |
   );
 
   const cardBills: Array<{ name: string; amount_owed_aed: number; due_date: string }> = [];
-  for (const a of (accounts ?? []) as Array<{ type: string; is_shared: boolean; owner_member_id: string | null; name: string; balance: number; balance_aed: number | null; due_day: number | null }>) {
+  for (const a of (accounts ?? []) as Array<{ type: string; is_shared: boolean; owner_member_id: string | null; name: string; balance: number; balance_aed: number | null; currency: string; due_day: number | null }>) {
     if (a.type !== "credit_card") continue;
     if (!(scopeMemberId === null || a.is_shared || a.owner_member_id === scopeMemberId)) continue;
     // A card with no AED conversion has no AED amount owed. It is still a
@@ -1169,7 +1232,7 @@ async function toolGetHoldings(householdId: string, scopeMemberId: string | null
 // it never touches an account balance or the ledger, so a mistake here is
 // cheap to fix: delete the row and re-log). Same "must resolve to exactly
 // one" bar as account/category/holding matching elsewhere in this file.
-async function toolLogGoalContribution(householdId: string, args: Record<string, unknown>) {
+async function toolLogGoalContribution(householdId: string, args: Record<string, unknown>, updateId: unknown) {
   const { data: goals } = await supabase.from("goals").select("id, name").eq("household_id", householdId);
   const norm = String(args.goal_name ?? "").trim().toLowerCase();
   const matches = (goals ?? []).filter((g: { name: string }) => g.name.toLowerCase().includes(norm));
@@ -1181,8 +1244,18 @@ async function toolLogGoalContribution(householdId: string, args: Record<string,
   const occurredAt = typeof args.occurred_at === "string" && /^\d{4}-\d{2}-\d{2}$/.test(args.occurred_at) ? args.occurred_at : householdToday();
 
   const goal = matches[0] as { id: string; name: string };
-  const { error } = await supabase.from("goal_contributions").insert({ goal_id: goal.id, amount, occurred_at: occurredAt });
-  if (error) return { error: "write_failed" };
+  // Keyed by the Telegram update, like intake's source_ref, so a redelivered
+  // "put 500 toward the house goal" cannot record a second contribution
+  // (SHR-303). The unique index answers 23505 for the redelivery, which is
+  // the same outcome as the first write, so it reports success.
+  const sourceRef = typeof updateId === "number" ? String(updateId) : null;
+  const { error } = await supabase.from("goal_contributions").insert({
+    goal_id: goal.id,
+    amount,
+    occurred_at: occurredAt,
+    ...(sourceRef ? { source: "telegram", source_ref: sourceRef } : {}),
+  });
+  if (error && error.code !== "23505") return { error: "write_failed" };
   return { goal: goal.name, amount_aed: round2(amount), occurred_at: occurredAt };
 }
 
@@ -1613,6 +1686,7 @@ async function runCreditCardCheck(): Promise<{ checked: number; nudged: number }
     is_shared: boolean;
     balance: number;
     balance_aed: number | null;
+    currency: string;
     due_day: number;
   }>) {
     if (!prefEnabled(prefs, a.household_id, "credit_card_enabled")) continue;
@@ -2002,7 +2076,7 @@ async function runUnusualSpendCheck(): Promise<{ checked: number; nudged: number
   return { checked: households.length, nudged };
 }
 
-Deno.serve(async (req) => {
+async function handleRequest(req: Request): Promise<Response> {
   const url = new URL(req.url);
 
   // Every route this function serves -- a real Telegram update, the
@@ -2091,9 +2165,31 @@ Deno.serve(async (req) => {
   }
 
   // Before ANY side effect, and before the message/reaction split so both
-  // routes are covered: a redelivered update is dropped here (QA #2).
-  if (await alreadyHandled(update?.update_id)) return new Response("ok");
+  // routes are covered (QA #2, SHR-303). Only 'completed' is answered 200
+  // without processing. 'busy' and 'unknown' are answered non-200 so that
+  // Telegram retries: busy because the run holding the claim may yet fail,
+  // unknown because a database error must never decide to proceed.
+  const claim = await claimUpdate(update?.update_id);
+  if (claim === "completed") return new Response("ok");
+  if (claim === "busy" || claim === "unknown") return new Response("retry later", { status: 503 });
 
+  try {
+    const response = await processUpdate(update);
+    await settleUpdate(update?.update_id, "completed");
+    return response;
+  } catch (err) {
+    // Released, so the redelivery this 500 provokes is processed rather than
+    // dropped. That is the silent-loss case this replaces.
+    await settleUpdate(update?.update_id, "failed");
+    logFailure("process_update", update?.update_id, err);
+    return new Response("retry later", { status: 500 });
+  }
+}
+
+// Everything a claimed update does. Lifted out of the request handler so that
+// one wrapper decides the claim's outcome: an early `return` in here is a
+// completed update, and a throw is a failed one.
+async function processUpdate(update: Record<string, unknown>): Promise<Response> {
   const message = update?.message as Record<string, unknown> | undefined;
   if (!message) {
     const reaction = update?.message_reaction as Record<string, unknown> | undefined;
@@ -2299,6 +2395,17 @@ Deno.serve(async (req) => {
   // rather than something to log -- route it before ever touching `intake`.
   // A photo is presumptively a receipt, so this never runs for one.
   if (rawText && !fileId && OPENROUTER_API_KEY) {
+    // Set once the message has been committed to something OTHER than intake
+    // capture: a correction, a routed tool, or a clarifying reply. The catch
+    // below falls through to capture, which is right only while routing itself
+    // is what failed. After a tool has run, a failure -- Telegram unreachable
+    // for the reply, say -- used to fall through as well, so "put 500 toward
+    // the house goal" was recorded as a contribution AND captured as a pending
+    // expense; confirm that entry and the 500 counted twice (SHR-303, found by
+    // the handler tests). A committed message now rethrows instead, so the
+    // update is released and retried, and the delivery keys make the retry
+    // harmless.
+    let committedElsewhere = false;
     try {
       const { data: categories } = await supabase
         .from("categories")
@@ -2324,6 +2431,7 @@ Deno.serve(async (req) => {
       const toolCall = choice?.message?.tool_calls?.[0];
 
       if (toolCall?.function?.name === "update_last_expense" && recentPending) {
+        committedElsewhere = true;
         const combinedText = `${recentPending.raw_text ?? ""}\nCorrection: ${rawText}`;
         // A correction targets the one existing pending row, so only the
         // first extracted item is used even if the model finds more --
@@ -2376,6 +2484,7 @@ Deno.serve(async (req) => {
       }
 
       if (toolCall && toolCall.function?.name !== "log_expense") {
+        committedElsewhere = true;
         const args = JSON.parse(toolCall.function.arguments || "{}");
         const { data: members } = await supabase.from("household_members").select("id, display_name").eq("household_id", member.household_id);
         const scopeMemberId = resolveScopeMemberId(args.scope ?? "me", member, members ?? []);
@@ -2401,7 +2510,7 @@ Deno.serve(async (req) => {
             result = await toolGetHoldings(member.household_id, scopeMemberId, args);
             break;
           case "log_goal_contribution":
-            result = await toolLogGoalContribution(member.household_id, args);
+            result = await toolLogGoalContribution(member.household_id, args, updateId);
             break;
           default:
             result = { error: "unknown_tool" };
@@ -2428,6 +2537,7 @@ Deno.serve(async (req) => {
       }
 
       if (!toolCall && choice?.message?.content) {
+        committedElsewhere = true;
         // No tool call: the model's own text is a clarifying question (or a
         // decline) -- never a financial answer, since only a tool call can
         // produce a real number.
@@ -2436,9 +2546,10 @@ Deno.serve(async (req) => {
       }
       // toolCall.function.name === "log_expense", or routing produced
       // nothing usable: fall through to intake capture below.
-    } catch {
-      // Routing failed -- fall through to intake capture rather than
-      // losing the message.
+    } catch (err) {
+      // Routing failed -- fall through to intake capture rather than losing
+      // the message. But only if routing is what failed: see committedElsewhere.
+      if (committedElsewhere) throw err;
     }
   }
 
@@ -2447,7 +2558,7 @@ Deno.serve(async (req) => {
       const fileInfo = await tgCall("getFile", { file_id: fileId });
       const filePath = fileInfo?.result?.file_path as string | undefined;
       if (filePath) {
-        const fileRes = await fetch(`https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${filePath}`);
+        const fileRes = await telegramFetch(`https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${filePath}`, undefined, "getFile download");
         const bytes = new Uint8Array(await fileRes.arrayBuffer());
         const contentType = fileRes.headers.get("content-type") ?? "image/jpeg";
         const ext = filePath.split(".").pop() || "jpg";
@@ -2489,9 +2600,18 @@ Deno.serve(async (req) => {
   if (insertError) {
     if (insertError.code !== "23505") {
       // Anything other than 23505 (unique_violation on source_ref, meaning
-      // Telegram redelivered an update already captured) is a real failure.
+      // this update was already captured) is a real failure.
       await reply(chatId, "Something went wrong saving that — please try again.");
+      return new Response("ok");
     }
+    // Already captured. This used to stay silent, which was right when a
+    // redelivery meant "Telegram never saw our 200 for a run that replied".
+    // Since SHR-303 a completed update is answered before it gets here, so
+    // this is reached only when an earlier run captured the expense and then
+    // failed or crashed -- most likely before it could say so. Staying silent
+    // then leaves the member with a recorded expense and no word that it was.
+    // A short acknowledgement is never wrong: at worst it repeats one.
+    await reply(chatId, "Got that one already — it's in the Inbox.");
     return new Response("ok");
   }
 
@@ -2601,4 +2721,17 @@ Deno.serve(async (req) => {
     );
   }
   return new Response("ok");
+}
+
+// The last line of defence. Nothing below Deno.serve used to catch, so any
+// exception reached the runtime, which prints the error and its whole cause
+// chain -- how the bot token could reach the logs. Anything that still escapes
+// is recorded as metadata only.
+Deno.serve(async (req) => {
+  try {
+    return await handleRequest(req);
+  } catch (err) {
+    logFailure("request", null, err);
+    return new Response("error", { status: 500 });
+  }
 });

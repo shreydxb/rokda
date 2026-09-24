@@ -50,6 +50,44 @@ jobs:
   # main carried two behaviour changes, because nothing here ever looked at
   # what was deployed. This closes that: git SHA -> deployed Edge Function
   # source, both directions.
+  edge:
+    name: Edge Functions type-check and handler tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      # Until SHR-303 nothing type-checked these functions: no Deno in any job,
+      # and verify:functions compares against the DEPLOYED source rather than
+      # validating the repository's. The first check found seven type errors in
+      # telegram-webhook, every one from code shipped and reviewed by eye.
+      #
+      # --node-modules-dir=none: the repository root has a node_modules for the
+      # web app, which Deno would otherwise adopt and then fail to resolve the
+      # Edge runtime's own npm dependencies from.
+      - name: Type-check every Edge Function
+        run: |
+          for fn in supabase/functions/*/index.ts; do
+            echo "deno check $fn"
+            deno check --node-modules-dir=none "$fn"
+          done
+
+      # Drives the real telegram-webhook handler with only the network faked:
+      # database errors on the claim, a crash between claim and capture, a
+      # failure after capture, concurrent redelivery, a redelivered goal
+      # contribution, and a DNS failure that must not put the bot token in the
+      # logs. The claim's atomicity itself is proven against real Postgres in
+      # the migrations job.
+      - name: Handler tests
+        run: >
+          deno test --node-modules-dir=none
+          --allow-env --allow-read
+          --allow-net=api.telegram.org,openrouter.ai,supabase.test
+          supabase/functions/telegram-webhook/index.test.ts
+
   functions:
     name: deployed Edge Functions match this commit
     runs-on: ubuntu-latest
@@ -185,7 +223,7 @@ jobs:
   release:
     name: production matches main
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    needs: [verify, migrations]
+    needs: [verify, edge, migrations]
     runs-on: ubuntu-latest
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
