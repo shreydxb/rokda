@@ -362,6 +362,37 @@ export function isBlocking(row) {
   return false;
 }
 
+// Whether this comparison fails ONLY because deployed source differs from this
+// commit -- every blocking row a stale deployment that the platform is serving
+// with the configuration this repository declares, and nothing else wrong.
+//
+// That is the one failure that can be a deploy still in flight rather than
+// drift (SHR-304). On main the Supabase GitHub integration deploys a pushed
+// function at about the same moment CI starts, so the first comparison can
+// read the previous build and turn main red -- which also stops GitHub Pages,
+// since that publishes only after CI succeeds. Anything else blocking is a
+// statement about production that no amount of waiting changes: an orphan, an
+// unreadable deployment, verify_jwt drift, a function the platform is not
+// serving, a required function missing. Those must fail immediately, and so
+// must a stale row carrying any of them.
+export function onlyAwaitingDeploy(rows) {
+  const blocking = rows.filter(isBlocking);
+  return (
+    blocking.length > 0 &&
+    blocking.every(
+      (r) =>
+        r.state === 'stale-deployment' &&
+        r.configState !== 'drift' &&
+        (r.platformStatus == null || r.platformStatus === 'ACTIVE'),
+    )
+  );
+}
+
+// Exit status: 0 parity, 1 a failure waiting cannot fix, 3 a failure that
+// might be a deploy in flight (onlyAwaitingDeploy). verify-function-parity.sh
+// retries on 3 when it has been told to wait, and otherwise treats it as 1.
+export const EXIT_AWAITING_DEPLOY = 3;
+
 const LABELS = {
   'in-sync': 'ok       ',
   'stale-deployment': 'STALE    ',
@@ -456,5 +487,5 @@ if (isMainModule) {
     console.log(`A function declared in supabase/config.toml is not live. Deploy it, or remove its declaration.`);
   }
 
-  process.exitCode = blocking > 0 ? 1 : 0;
+  process.exitCode = blocking === 0 ? 0 : onlyAwaitingDeploy(rows) ? EXIT_AWAITING_DEPLOY : 1;
 }
