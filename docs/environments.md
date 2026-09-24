@@ -138,6 +138,35 @@ not serving, an unreadable one, and `verify_jwt` disagreeing with
 `supabase/config.toml` all block in every mode: they are statements about
 production, and no branch excuses them.
 
+### Waiting for a deploy that is in flight (SHR-304)
+
+On `main` the Supabase GitHub integration deploys a pushed function at about
+the moment CI starts, so the first comparison can read the previous build. It
+did for #38 and #40 on 24 September. Each time `main` went red with nothing
+wrong, and GitHub Pages, which publishes only after CI succeeds, stayed a
+release behind until the job was re-run by hand.
+
+So `compare-functions.mjs` exits **3** when the *only* thing blocking is a
+stale deployment. That means served, with `verify_jwt` as declared, and nothing
+else wrong anywhere. `verify-function-parity.sh` then re-fetches and
+re-compares every 20 seconds, for up to `AWAIT_DEPLOY_SECONDS`, and only if
+this commit changed something under `supabase/functions` or
+`supabase/config.toml`. CI sets that to 300 seconds on `main` and 0 everywhere
+else. The rules that keep this from hiding real problems:
+
+- A commit that changed no function gets no wait. With nothing on its way, a
+  stale deployment is the 8 September drift, and it fails at once.
+- Drift that is still there when the time runs out is a failure, not a delay.
+- An orphan, an unreadable or unserved function, `verify_jwt` drift, or a
+  required function that isn't deployed is never waited out, even when a
+  stale function shows up alongside it.
+- Without `HEAD~1` (a depth-1 checkout) the script can't tell whether the
+  commit changed a function, so it doesn't wait. Both CI jobs check out with
+  `fetch-depth: 2`.
+
+`scripts/verify-function-parity.test.mjs` runs the real script against stand-ins
+for the Management API and the CLI and covers each of these cases.
+
 Both directions are needed. Source → deployment is the drift above.
 Deployment → source is the other half: when this was written
 `telegram-setup-check` and `deploy-test-scratch` were both live in production

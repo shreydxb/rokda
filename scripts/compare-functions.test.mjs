@@ -9,6 +9,7 @@ import {
   functionClosure,
   isBlocking,
   manifest,
+  onlyAwaitingDeploy,
   repoFunctionSlugs,
 } from './compare-functions.mjs';
 
@@ -414,5 +415,38 @@ describe('branch mode excuses being undeployed, and nothing else', () => {
 
   it('keeps blocking on stale source when it is not advisory, as on main', () => {
     expect(isBlocking({ ...onABranchThatChangedTheSource, sourceParityAdvisory: false })).toBe(true);
+  });
+});
+
+// SHR-304: the one failure a deploy in flight can explain, told apart from
+// every failure it cannot.
+describe('onlyAwaitingDeploy: which failures are worth waiting out', () => {
+  const stale = { slug: 'telegram-webhook', state: 'stale-deployment', configState: 'ok', platformStatus: 'ACTIVE' };
+  const ok = { slug: 'fd-accrual', state: 'in-sync', configState: 'ok', platformStatus: 'ACTIVE' };
+
+  it('is true when the only thing wrong is deployed source that differs', () => {
+    expect(onlyAwaitingDeploy([stale, ok])).toBe(true);
+  });
+
+  it('is false when nothing is wrong, so a pass is never reported as a wait', () => {
+    expect(onlyAwaitingDeploy([ok])).toBe(false);
+  });
+
+  it('is false when the stale function also has verify_jwt drift', () => {
+    expect(onlyAwaitingDeploy([{ ...stale, configState: 'drift' }])).toBe(false);
+  });
+
+  it('is false when the stale function is not being served', () => {
+    expect(onlyAwaitingDeploy([{ ...stale, platformStatus: 'THROTTLED' }])).toBe(false);
+  });
+
+  it('is false when anything else blocks alongside the stale function', () => {
+    expect(onlyAwaitingDeploy([stale, { slug: 'scratch', state: 'orphan-deployment', configState: 'undeclared' }])).toBe(false);
+    expect(onlyAwaitingDeploy([stale, { slug: 'x', state: 'unreadable', configState: 'ok' }])).toBe(false);
+    expect(onlyAwaitingDeploy([stale, { slug: 'y', state: 'not-deployed', required: true, configState: 'n/a' }])).toBe(false);
+  });
+
+  it('ignores an advisory difference on a branch, which is not blocking at all', () => {
+    expect(onlyAwaitingDeploy([{ ...stale, sourceParityAdvisory: true }])).toBe(false);
   });
 });

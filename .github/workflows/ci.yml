@@ -94,8 +94,19 @@ jobs:
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+      # On main, a push that changes an Edge Function is being deployed by the
+      # Supabase GitHub integration while this job runs. Without a wait the
+      # first comparison could read the previous build, turn main red, and keep
+      # GitHub Pages a release behind -- it happened for #38 and #40 (SHR-304).
+      # The script waits only when the sole failure is a stale deployment AND
+      # this commit changed supabase/functions; drift, verify_jwt, an orphan or
+      # a function not being served still fail at once. Zero everywhere else.
+      AWAIT_DEPLOY_SECONDS: ${{ github.ref == 'refs/heads/main' && '300' || '0' }}
     steps:
+      # Depth 2 so the script can see what this commit changed (HEAD~1).
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
       - uses: actions/setup-node@v4
         with:
@@ -236,8 +247,15 @@ jobs:
       # the migration SQL in full, so the content fingerprint keeps meaning
       # something. Same connection string docs/backup-restore.md §3 uses.
       SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      # Same race as the functions job, and this job starts only ~40s later
+      # (SHR-304). It has never lost it, but nothing guarantees the deploy is
+      # faster than the jobs this one waits on.
+      AWAIT_DEPLOY_SECONDS: '300'
     steps:
+      # Depth 2 so verify-function-parity.sh can see what this commit changed.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
       - uses: actions/setup-node@v4
         with:
