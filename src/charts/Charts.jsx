@@ -267,6 +267,93 @@ export function LineChart({
   );
 }
 
+// A range of outcomes: a band between a low and a high series, with lines
+// drawn over it. For series that are ordered and never cross -- a pessimistic,
+// central and optimistic projection -- so the band's edges are told apart by
+// position and their end labels, not by colour, and colour is kept for the
+// one or two lines that matter. `lines`: [{ key, label, values, color }].
+// `edgeLabels`: optional { low, high } text at the band's right-hand ends.
+export function RangeChart({
+  labels,
+  low,
+  high,
+  lines = [],
+  reference = null,
+  edgeLabels = null,
+  height = 220,
+  formatTick = String,
+  labelEvery = 1,
+  activeIndex = null,
+  onActiveChange = () => {},
+  ariaLabel,
+}) {
+  const [ref, width] = useChartWidth();
+  const count = labels.length;
+  const plotW = Math.max(40, width - AXIS_W - PAD_RIGHT - 84);
+  const band = plotW / Math.max(1, count);
+  const all = [...low, ...high, ...lines.flatMap((l) => l.values), ...(reference?.values ?? [])].filter(Number.isFinite);
+  const { min, max, ticks } = niceTicks(Math.min(...all), Math.max(...all));
+  const scale = yScale(min, max, height);
+  const y = (v) => PAD_TOP + scale(v);
+  const x = (i) => AXIS_W + band * (i + 0.5);
+  const path = (values) => values.map((v, i) => `${i === 0 ? 'M' : 'L'}${x(i)},${y(v)}`).join(' ');
+  const bandPath = `${path(high)} ${[...low].reverse().map((v, k) => `L${x(count - 1 - k)},${y(v)}`).join(' ')} Z`;
+  const endX = x(count - 1) + 8;
+  const endY = (v) => y(v) + 3.5;
+
+  return (
+    <div
+      ref={ref}
+      className="ch"
+      role="group"
+      aria-roledescription="chart"
+      aria-label={ariaLabel}
+      tabIndex={0}
+      onKeyDown={(e) => handleKey(e, activeIndex, count, onActiveChange)}
+    >
+      <svg width={width} height={PAD_TOP + height + X_AXIS_H} aria-hidden="true">
+        <Axis ticks={ticks} y={y} width={width - 84} formatTick={formatTick} />
+        <path d={bandPath} fill="var(--ink2)" opacity={0.1} />
+        <path d={path(low)} fill="none" stroke="var(--ink3)" strokeWidth={1.5} />
+        <path d={path(high)} fill="none" stroke="var(--ink3)" strokeWidth={1.5} />
+        {reference && <path className="ch-reference" d={path(reference.values)} />}
+        {reference?.label && (
+          <text className="ch-reference-label" x={AXIS_W + 4} y={y(reference.values[0]) - 6}>
+            {reference.label}
+          </text>
+        )}
+        {lines.map((l) => (
+          <path key={l.key} d={path(l.values)} fill="none" stroke={l.color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+        ))}
+        {edgeLabels && (
+          <>
+            <text className="ch-tick" x={endX} y={endY(high[count - 1])}>
+              {edgeLabels.high}
+            </text>
+            <text className="ch-tick" x={endX} y={endY(low[count - 1])}>
+              {edgeLabels.low}
+            </text>
+          </>
+        )}
+        {activeIndex !== null && (
+          <>
+            <line className="ch-crosshair" x1={x(activeIndex)} x2={x(activeIndex)} y1={PAD_TOP} y2={PAD_TOP + height} />
+            {lines.map((l) => (
+              <circle key={l.key} cx={x(activeIndex)} cy={y(l.values[activeIndex])} r={4.5} fill={l.color} stroke="var(--canvas)" strokeWidth={2} />
+            ))}
+          </>
+        )}
+        {xLabels(count, band, labelEvery, activeIndex).map((i) => (
+          <text key={i} className={`ch-tick ${i === activeIndex ? 'ch-tick-active' : ''}`} x={x(i)} y={PAD_TOP + height + 15} textAnchor="middle">
+            {labels[i]}
+          </text>
+        ))}
+        <rect className="ch-hit" x={AXIS_W} y={0} width={plotW} height={PAD_TOP + height + X_AXIS_H} {...pointerHandlers(count, onActiveChange)} />
+      </svg>
+    </div>
+  );
+}
+
 // Legend keys mirror the mark: a square for bars and areas, a short stroke
 // for lines. Text stays in ink; the colour is only ever on the key.
 export function ChartLegend({ items }) {
