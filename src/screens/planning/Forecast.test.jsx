@@ -266,3 +266,53 @@ describe('Forecast: lasting other income lowers the target', () => {
     expect(screen.getByText(/1 other income source counted on Drawdown/)).toBeTruthy();
   });
 });
+
+describe('Forecast: scenarios side by side', () => {
+  const now = new Date();
+  function saving() {
+    return [
+      ...closedMonthTransactions(now),
+      ...[1, 2, 3].map((back, i) => {
+        const d = new Date(now.getFullYear(), now.getMonth() - back, 1);
+        return { id: `i${i}`, amount: 6000, kind: 'income', occurred_at: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`, is_shared: true };
+      }),
+    ];
+  }
+  const crossing = (label) => [...document.querySelectorAll('.fc-crossings .om-seg')].find((b) => b.textContent.startsWith(label));
+
+  it('gives every scenario its own independence year, ordered as the scenarios are', () => {
+    renderForecast({ accounts: [ACCOUNT], transactions: saving(), holdings: [HOLDING] });
+    const year = (label) => Number(crossing(label).querySelector('b').textContent);
+    expect(year('Optimistic')).toBeLessThanOrEqual(year('Baseline'));
+    expect(year('Baseline')).toBeLessThanOrEqual(year('Conservative'));
+    expect(crossing('Custom')).toBeUndefined();
+    expect(screen.getByText(/Custom joins the chart/)).toBeTruthy();
+  });
+
+  it('picking a scenario there switches the whole screen to it', () => {
+    renderForecast({ accounts: [ACCOUNT], transactions: saving(), holdings: [HOLDING] });
+    fireEvent.click(crossing('Conservative'));
+    expect(screen.getByText('4.0% nominal')).toBeTruthy();
+  });
+
+  it('draws Custom once it has its own assumptions', () => {
+    renderForecast({
+      accounts: [ACCOUNT],
+      transactions: saving(),
+      holdings: [HOLDING],
+      data: {
+        assumptions: {
+          nominal_return_pct: 6,
+          inflation_pct: 2.5,
+          safe_withdrawal_pct: 4,
+          custom_nominal_return_pct: 7,
+          custom_inflation_pct: 2,
+          custom_safe_withdrawal_pct: 3.5,
+          custom_updated_at: '2026-09-01T00:00:00Z',
+        },
+      },
+    });
+    expect(crossing('Custom')).toBeTruthy();
+    expect(screen.queryByText(/Custom joins the chart/)).toBeNull();
+  });
+});

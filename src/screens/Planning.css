@@ -157,3 +157,18 @@
     min-width: 100%;
   }
 }
+
+/* Forecast: each scenario's independence year, which also picks the
+   scenario the rest of the screen shows. */
+.fc-crossings {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  font-size: 12px;
+}
+.fc-crossings .om-seg b {
+  font-weight: 400;
+  margin-left: 6px;
+}

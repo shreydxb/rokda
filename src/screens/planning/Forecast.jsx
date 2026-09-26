@@ -7,7 +7,7 @@ import { unconfirmedAccounts } from '../../lib/balance';
 import { closedMonths, crossingYear, fiTarget, forecastInputs, independenceTarget, projectYears, realReturn, requiredAnnualSaving, goalAt, scenarioSets } from '../../lib/forecast';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import ForecastAssumptionsEditor from './ForecastAssumptionsEditor';
-import { ChartLegend, ColumnChart } from '../../charts/Charts';
+import { ChartLegend, ColumnChart, RangeChart } from '../../charts/Charts';
 
 const DEFAULTS = { nominal_return_pct: 6.0, inflation_pct: 2.5, safe_withdrawal_pct: 4.0 };
 const HORIZON_YEARS = 30;
@@ -47,6 +47,8 @@ export default function Forecast({ household, accounts = [], transactions = [], 
   const [activeYear, setActiveYear] = useState(null);
   // The year the "what it would take" line solves for; null is the default.
   const [solveYear, setSolveYear] = useState(null);
+  // The year the scenario overlay's readout is on; null follows the default.
+  const [overlayYear, setOverlayYear] = useState(null);
   // Every figure on this screen follows the display currency, not only the
   // hero: a USD hero above AED detail lines read as two different targets.
   const money = useMoneyDisplay(household);
@@ -211,6 +213,36 @@ export default function Forecast({ household, accounts = [], transactions = [], 
   // year rather than a hair short of it.
   const requiredMonthly = requiredAnnual === null ? null : Math.ceil(requiredAnnual / 12);
   const extraMonthly = requiredMonthly === null ? null : requiredMonthly - inputs.monthlySaving;
+
+  // Every scenario on one chart. Each runs on its own return and inflation and
+  // is judged against its own target (Custom may carry its own withdrawal
+  // rate); monthly saving and spend are the same for all, as on the rest of
+  // this screen. Custom joins only once it has values of its own -- until
+  // then it is Baseline drawn twice.
+  const hasCustom = assumptions?.custom_updated_at != null;
+  const runs = Object.values(sets)
+    .filter((s) => s.key !== 'custom' || hasCustom)
+    .map((s) => {
+      const runRate = mode === 'real' ? realReturn(s.nominalPct, s.inflationPct) : s.nominalPct / 100;
+      const runTarget = independenceTarget(inputs.annualSpend, s.swrPct, incomes).target;
+      return {
+        ...s,
+        values: projectYears({ startNetWorth, annualSaving, rate: runRate, mode, inflationPct: s.inflationPct, years: HORIZON_YEARS }).map((p) => p.value),
+        year: crossingYear({ startYear, startNetWorth, annualSaving, rate: runRate, mode, inflationPct: s.inflationPct, goal: runTarget }),
+      };
+    });
+  const runOf = (key) => runs.find((r) => r.key === key);
+  const cons = runOf('conservative');
+  const opt = runOf('optimistic');
+  // Per year rather than assuming which edge is lower: in nominal terms the
+  // higher-inflation scenario also saves more, so the order is not a given.
+  const bandLow = cons.values.map((v, i) => Math.min(v, opt.values[i]));
+  const bandHigh = cons.values.map((v, i) => Math.max(v, opt.values[i]));
+  const optOnTop = opt.values[HORIZON_YEARS] >= cons.values[HORIZON_YEARS];
+  // Starts on the year Baseline crosses, where the spread between scenarios
+  // is the question; today every scenario reads the same.
+  const baselineCross = runOf('baseline').year;
+  const overlayIdx = overlayYear ?? (baselineCross !== null && baselineCross - startYear <= HORIZON_YEARS ? baselineCross - startYear : HORIZON_YEARS);
 
   const scenarios = [
     (() => {
@@ -520,6 +552,64 @@ export default function Forecast({ household, accounts = [], transactions = [], 
             </table>
           </div>
         </details>
+      </section>
+
+      <section style={{ marginTop: 44 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+          <div className="ov-kicker">Scenarios side by side</div>
+          <div className="ov-muted" style={{ fontSize: 11.5 }}>
+            Same saving and spend in each · only the return and inflation assumptions differ
+          </div>
+        </div>
+        <RangeChart
+          labels={path.map((p) => String(startYear + p.yearsOut))}
+          low={bandLow}
+          high={bandHigh}
+          lines={[
+            { key: 'baseline', label: 'Baseline', values: runOf('baseline').values, color: 'var(--accent)' },
+            ...(hasCustom ? [{ key: 'custom', label: 'Custom', values: runOf('custom').values, color: 'var(--series-1)' }] : []),
+          ]}
+          reference={{ values: targetPath, label: `Target · ${selected.label}` }}
+          edgeLabels={{ high: optOnTop ? 'Optimistic' : 'Conservative', low: optOnTop ? 'Conservative' : 'Optimistic' }}
+          height={220}
+          formatTick={money.fmtCompact}
+          labelEvery={5}
+          activeIndex={overlayIdx}
+          onActiveChange={setOverlayYear}
+          ariaLabel={`Projected net worth under each scenario, ${startYear} to ${startYear + HORIZON_YEARS}: the band runs from Conservative to Optimistic, with Baseline${hasCustom ? ' and Custom' : ''} drawn over it. Use the arrow keys to move between years.`}
+        />
+        <div className="ov-chart-readout">
+          <span className="fig">{startYear + overlayIdx}</span>
+          {runs.map((r) => (
+            <span key={r.key}>
+              {r.label} <b className="fig">{money.fmtBalance(r.values[overlayIdx])}</b>
+            </span>
+          ))}
+          <span className="ov-muted">
+            Target {money.fmt(targetPath[overlayIdx])} ({selected.label})
+          </span>
+        </div>
+        <ChartLegend
+          items={[
+            { label: 'Baseline', color: 'var(--accent)', kind: 'line' },
+            ...(hasCustom ? [{ label: 'Custom', color: 'var(--series-1)', kind: 'line' }] : []),
+            { label: 'Conservative to Optimistic', color: 'color-mix(in srgb, var(--ink2) 25%, transparent)' },
+            { label: `Target, ${selected.label}`, color: 'var(--ink2)', kind: 'line' },
+          ]}
+        />
+        <div className="fc-crossings">
+          <span className="ov-muted">Independent by</span>
+          {runs.map((r) => (
+            <button key={r.key} type="button" className="om-seg" data-active={fcSet === r.key} onClick={() => setFcSet(r.key)}>
+              {r.label} <b className="fig">{r.year ?? '60+ yrs'}</b>
+            </button>
+          ))}
+        </div>
+        {!hasCustom && (
+          <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 8 }}>
+            Custom joins the chart once it has its own assumptions — until then it is the same as Baseline.
+          </div>
+        )}
       </section>
 
       <div className="fc-g2">
