@@ -1,2 +1,55 @@
 /* Shares the generic tab/list/row primitives (mn-*) defined for Money. */
 @import './Money.css';
+
+/* Categories: two lists side by side, one above the other on a phone. */
+.sc-lists {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 44px;
+}
+@media (max-width: 820px) {
+  .sc-lists {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 28px;
+  }
+}
+.mn-row.sc-subrow {
+  padding-left: 22px;
+  color: var(--ink2);
+  font-size: 13px;
+}
+
+/* Starter categories picker. */
+.sc-group {
+  padding: 10px 0;
+  border-top: 1px solid var(--rule);
+}
+.sc-grouphead {
+  font-size: 13.5px;
+}
+.sc-children {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 6px 16px;
+  margin-top: 8px;
+  padding-left: 24px;
+}
+.sc-children.sc-flat {
+  padding-left: 0;
+  margin-top: 0;
+}
+.sc-check {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.sc-check input {
+  margin-top: 2px;
+  accent-color: var(--accent);
+}
+.sc-check[data-have='true'] {
+  color: var(--ink3);
+  cursor: default;
+}
