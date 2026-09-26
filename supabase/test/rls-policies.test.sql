@@ -40,11 +40,51 @@ insert into household_members (id, household_id, display_name, role, user_id) va
   ('e1000000-0000-0000-0000-00000000000c', 'd1000000-0000-0000-0000-000000000001', 'Placeholder', 'member', null),
   ('e2000000-0000-0000-0000-00000000000a', 'd2000000-0000-0000-0000-000000000002', 'Their owner', 'owner', '0d000000-0000-0000-0000-00000000000d');
 
+-- Independence income: one row in the other household, to be reached for.
+insert into independence_income (id, household_id, name, kind, amount) values
+  ('f2000000-0000-0000-0000-000000000001', 'd2000000-0000-0000-0000-000000000002', 'Their rent', 'yearly', 36000);
+
 set role authenticated;
 set request.jwt.claim.role = 'authenticated';
 
 -- ---------------------------------------------------------------- non-owner
 set request.jwt.claim.sub = '0b000000-0000-0000-0000-00000000000b';
+
+-- Independence income is household data like any other planning row: a
+-- member reads and writes their own household's, and cannot see, add to or
+-- move a row into another household.
+do $$
+declare n int;
+begin
+  insert into independence_income (household_id, name, kind, amount, starts_after_years, lasts_years)
+  values ('d1000000-0000-0000-0000-000000000001', 'Flat rent', 'yearly', 48000, 0, null);
+  select count(*) into n from independence_income;
+  if n <> 1 then raise exception 'independence_income FAILED: a member sees % rows, expected only their own 1', n; end if;
+
+  begin
+    insert into independence_income (household_id, name, kind, amount)
+    values ('d2000000-0000-0000-0000-000000000002', 'Planted', 'lump_sum', 1000);
+    raise exception 'independence_income FAILED: a member wrote into another household';
+  exception
+    when insufficient_privilege then null;
+  end;
+
+  begin
+    update independence_income set household_id = 'd2000000-0000-0000-0000-000000000002' where name = 'Flat rent';
+    raise exception 'independence_income FAILED: a member moved a row into another household';
+  exception
+    when insufficient_privilege then null;
+  end;
+
+  update independence_income set amount = 1 where id = 'f2000000-0000-0000-0000-000000000001';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'independence_income FAILED: a member updated another household''s row'; end if;
+
+  delete from independence_income where name = 'Flat rent';
+  get diagnostics n = row_count;
+  if n <> 1 then raise exception 'independence_income FAILED: a member could not delete their own row'; end if;
+  raise notice 'independence_income ok: own household only, in every direction';
+end $$;
 
 -- QA §8: a member cannot promote themselves.
 do $$

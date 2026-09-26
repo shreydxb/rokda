@@ -717,4 +717,39 @@ begin
   raise notice 'SHR-303 ok: a redelivered contribution is refused; two goals and app entries are not';
 end $$;
 
+-- Independence income: the shapes that mean nothing are refused at the source.
+do $$
+begin
+  insert into independence_income (household_id, name, kind, amount, starts_after_years, lasts_years)
+  values ('11111111-1111-1111-1111-111111111111', 'Rent', 'yearly', 48000, 2, 20);
+  insert into independence_income (household_id, name, kind, amount, starts_after_years)
+  values ('11111111-1111-1111-1111-111111111111', 'Gratuity', 'lump_sum', 90000, 0);
+
+  begin
+    insert into independence_income (household_id, name, kind, amount, lasts_years)
+    values ('11111111-1111-1111-1111-111111111111', 'Sale', 'lump_sum', 1000, 5);
+    raise exception 'independence_income FAILED: a lump sum accepted a duration';
+  exception when check_violation then null;
+  end;
+  begin
+    insert into independence_income (household_id, name, kind, amount)
+    values ('11111111-1111-1111-1111-111111111111', 'Nothing', 'yearly', 0);
+    raise exception 'independence_income FAILED: a zero amount was accepted';
+  exception when check_violation then null;
+  end;
+  begin
+    insert into independence_income (household_id, name, kind, amount)
+    values ('11111111-1111-1111-1111-111111111111', '   ', 'yearly', 100);
+    raise exception 'independence_income FAILED: a blank name was accepted';
+  exception when check_violation then null;
+  end;
+  begin
+    insert into independence_income (household_id, name, kind, amount)
+    values ('11111111-1111-1111-1111-111111111111', 'Pension', 'monthly', 100);
+    raise exception 'independence_income FAILED: an unknown kind was accepted';
+  exception when check_violation then null;
+  end;
+  raise notice 'independence_income ok: lump sums take no duration; amounts, names and kinds are checked';
+end $$;
+
 rollback;

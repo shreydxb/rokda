@@ -4,7 +4,7 @@ import { formatPct } from '../../lib/money';
 import { incompleteNote, netWorthSummary, startingNetWorth } from '../overviewMath';
 import { isArchived } from '../../lib/accounts';
 import { unconfirmedAccounts } from '../../lib/balance';
-import { closedMonths, crossingYear, fiTarget, forecastInputs, projectYears, realReturn, requiredAnnualSaving, goalAt, scenarioSets } from '../../lib/forecast';
+import { closedMonths, crossingYear, fiTarget, forecastInputs, independenceTarget, projectYears, realReturn, requiredAnnualSaving, goalAt, scenarioSets } from '../../lib/forecast';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import ForecastAssumptionsEditor from './ForecastAssumptionsEditor';
 import { ChartLegend, ColumnChart } from '../../charts/Charts';
@@ -144,8 +144,12 @@ export default function Forecast({ household, accounts = [], transactions = [], 
 
   const rate = mode === 'real' ? realReturn(selNominalPct, selInflationPct) : selNominalPct / 100;
   const annualSaving = inputs.monthlySaving * 12;
-  const target = fiTarget(inputs.annualSpend, selSwrPct);
-  const leanTarget = leanSpend ? fiTarget(leanSpend, selSwrPct) : null;
+  // Lasting income (from day one, for good) does what spending less would, so
+  // it comes off both targets. The same function feeds Drawdown and the Plan
+  // summary.
+  const incomes = data.independenceIncome ?? [];
+  const { target, lastingIncome, otherCount } = independenceTarget(inputs.annualSpend, selSwrPct, incomes);
+  const leanTarget = leanSpend ? fiTarget(Math.max(0, leanSpend - lastingIncome), selSwrPct) : null;
   // The target is spend ÷ the withdrawal rate, so the multiple follows the
   // rate: 25× only at 4%. It used to say 25× whatever the rate was.
   const spendMultiple = Number((100 / selSwrPct).toFixed(1));
@@ -254,6 +258,8 @@ export default function Forecast({ household, accounts = [], transactions = [], 
               {mode === 'real'
                 ? `${spendMultiple}× today's spend of ${money.fmt(inputs.annualSpend)} a year, in today's money`
                 : `${spendMultiple}× spend, grown to ${startYear + HORIZON_YEARS} at ${selInflationPct.toFixed(1)}% inflation`}
+              {lastingIncome > 0 && `, less ${money.fmt(lastingIncome)} a year of lasting other income`}
+              {otherCount > 0 && ` · ${otherCount} other income source${otherCount === 1 ? '' : 's'} counted on Drawdown`}
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>

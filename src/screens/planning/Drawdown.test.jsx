@@ -59,3 +59,35 @@ describe('Drawdown: how long the money lasts', () => {
     expect(screen.getByText('Not enough to project')).toBeTruthy();
   });
 });
+
+describe('Drawdown: other income once working stops', () => {
+  const RENT = { id: 'r1', name: 'Flat rent', kind: 'yearly', amount: 24000, starts_after_years: 0, lasts_years: null, note: '' };
+  const GRATUITY = { id: 'g1', name: 'Gratuity', kind: 'lump_sum', amount: 90000, starts_after_years: 0, lasts_years: null, note: '' };
+
+  it('lists each source and says when it pays', () => {
+    renderDrawdown({ data: { assumptions: null, independenceIncome: [RENT, GRATUITY] } });
+    expect(screen.getByText('Flat rent')).toBeTruthy();
+    expect(screen.getByText(/From the first year, for good · lowers the target/)).toBeTruthy();
+    expect(screen.getByText(/One-off, in the first year of independence/)).toBeTruthy();
+  });
+
+  it('lowers the target by lasting income, the same as Forecast', () => {
+    // 48,000 spend less 24,000 of lasting rent, at 4%: 600,000.
+    renderDrawdown({ data: { assumptions: null, independenceIncome: [RENT] } });
+    expect(screen.getByText(/from AED 600,000/)).toBeTruthy();
+  });
+
+  it('makes today’s pot last longer', () => {
+    renderDrawdown({ data: { assumptions: null, independenceIncome: [RENT] } });
+    fireEvent.click(screen.getByText(/Stopping today/));
+    // 200,000 paying 24,000 a year (48,000 less rent) lasts far past the 4 years it does alone.
+    expect(screen.queryByText('4 years')).toBeNull();
+  });
+
+  it('offers to add one when there are none', () => {
+    renderDrawdown();
+    expect(screen.getByText(/None added/)).toBeTruthy();
+    fireEvent.click(screen.getByText('+ Income'));
+    expect(screen.getByRole('dialog', { name: 'Add income' })).toBeTruthy();
+  });
+});

@@ -130,3 +130,20 @@ the app cannot keep.
 Every figure on Forecast is shown in the selected display currency, not only the
 hero. A USD hero above AED detail lines read as two different targets. Stored
 values stay in AED.
+
+## Other income once working stops
+
+`independence_income` holds money a household expects after it stops working,
+other than its own savings: yearly (rent, part-time work) or a one-off sum (an
+end-of-service gratuity, a planned sale). Amounts are AED in today's money;
+timing counts from the first year of independence, not a calendar year.
+
+- **Drawdown** spends it before the pot each year. Income above the year's
+  spending, and every lump sum, goes into the pot.
+- **The independence target** (Forecast, Drawdown, Plan summary, all through
+  `independenceTarget`) drops only by yearly income that starts at
+  independence and lasts for good. That income does exactly what spending
+  less would. A later start, an end date or a lump sum has no honest place in
+  a multiple-of-spend target, so those are counted on Drawdown and Forecast
+  says how many were left out.
+- Amounts are entered after tax. Nothing in the app models tax.

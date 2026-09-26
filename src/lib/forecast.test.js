@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { closedMonths, crossingYear, drawdownPath, futureValue, potForWithdrawal, projectYears, realReturn, requiredAnnualSaving, scenarioSets, sustainableWithdrawal } from './forecast';
+import { closedMonths, crossingYear, drawdownPath, fiTarget, futureValue, incomeInYear, independenceTarget, potForWithdrawal, projectYears, realReturn, requiredAnnualSaving, scenarioSets, sustainableWithdrawal } from './forecast';
 
 const DEFAULTS = { nominal_return_pct: 6.0, inflation_pct: 2.5, safe_withdrawal_pct: 4.0 };
 
@@ -167,5 +167,60 @@ describe('drawdown: how long a pot lasts', () => {
     expect(potForWithdrawal({ annualWithdrawal: 10000, rate: 0, years: 30 })).toBe(300000);
     expect(drawdownPath({ start: 0, annualWithdrawal: 1000, rate: 0.03 }).lastsYears).toBe(0);
     expect(sustainableWithdrawal({ start: -5, rate: 0.03, years: 10 })).toBe(0);
+  });
+});
+
+describe('other income in independence', () => {
+  const rent = { kind: 'yearly', amount: 20000, starts_after_years: 0, lasts_years: null };
+  const laterWork = { kind: 'yearly', amount: 10000, starts_after_years: 2, lasts_years: 3 };
+  const gratuity = { kind: 'lump_sum', amount: 90000, starts_after_years: 1, lasts_years: null };
+
+  it('pays yearly income from its start, for its duration, and a lump sum once', () => {
+    const incomes = [rent, laterWork, gratuity];
+    expect(incomeInYear(incomes, 0)).toEqual({ yearly: 20000, lump: 0 });
+    expect(incomeInYear(incomes, 1)).toEqual({ yearly: 20000, lump: 90000 });
+    expect(incomeInYear(incomes, 2).yearly).toBe(30000);
+    expect(incomeInYear(incomes, 4).yearly).toBe(30000);
+    expect(incomeInYear(incomes, 5).yearly).toBe(20000);
+  });
+
+  it('lowers the target only by lasting income from day one, and counts the rest', () => {
+    const { target, lastingIncome, otherCount } = independenceTarget(60000, 4, [rent, laterWork, gratuity]);
+    expect(lastingIncome).toBe(20000);
+    expect(target).toBe(fiTarget(40000, 4));
+    expect(otherCount).toBe(2);
+    expect(independenceTarget(60000, 4, []).target).toBe(fiTarget(60000, 4));
+    // Income beyond spending leaves nothing to fund, not a negative target.
+    expect(independenceTarget(10000, 4, [rent]).target).toBe(0);
+  });
+
+  it('spends income before the pot', () => {
+    // 100 pot, spending 30, with 20 a year of rent: the pot pays 10 a year.
+    const { path, lastsYears } = drawdownPath({ start: 100, annualWithdrawal: 30, rate: 0, maxYears: 12, incomes: [{ ...rent, amount: 20 }] });
+    expect(path[1].withdrawn).toBe(10);
+    expect(path[1].income).toBe(20);
+    expect(lastsYears).toBe(10);
+  });
+
+  it('adds a lump sum and surplus income to the pot', () => {
+    const { path } = drawdownPath({ start: 100, annualWithdrawal: 30, rate: 0, maxYears: 3, incomes: [{ ...gratuity, amount: 50 }, { ...rent, amount: 40 }] });
+    // Year 1: 40 of income covers 30 of spend, 10 goes in. Year 2: plus 50.
+    expect(path[1].balance).toBe(110);
+    expect(path[2].balance).toBe(170);
+  });
+
+  it('solves the spend and the pot with income, and agrees with the path', () => {
+    const rate = realReturn(6, 2.5);
+    const incomes = [rent, laterWork, gratuity];
+    const w = sustainableWithdrawal({ start: 800000, rate, years: 40, incomes });
+    expect(drawdownPath({ start: 800000, annualWithdrawal: w, rate, maxYears: 60, incomes }).lastsYears ?? 99).toBeGreaterThanOrEqual(40);
+    expect(drawdownPath({ start: 800000, annualWithdrawal: w + 5, rate, maxYears: 60, incomes }).lastsYears).toBeLessThan(40);
+    const pot = potForWithdrawal({ annualWithdrawal: 70000, rate, years: 40, incomes });
+    expect(drawdownPath({ start: pot, annualWithdrawal: 70000, rate, maxYears: 60, incomes }).lastsYears ?? 99).toBeGreaterThanOrEqual(40);
+    expect(drawdownPath({ start: pot - 5, annualWithdrawal: 70000, rate, maxYears: 60, incomes }).lastsYears).toBeLessThan(40);
+  });
+
+  it('needs no pot when income covers the spending', () => {
+    expect(potForWithdrawal({ annualWithdrawal: 15000, rate: 0.03, years: 30, incomes: [rent] })).toBe(0);
   });
 });
