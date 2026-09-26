@@ -251,3 +251,18 @@ describe('Forecast: projection breakdown and the solve-for-a-year line', () => {
     expect(screen.queryByText(/Save AED/)).toBeNull();
   });
 });
+
+describe('Forecast: lasting other income lowers the target', () => {
+  it('takes it off the spend the target is built on, and counts the rest', () => {
+    const now = new Date();
+    const incomes = [
+      { id: 'r1', name: 'Rent', kind: 'yearly', amount: 6000, starts_after_years: 0, lasts_years: null },
+      { id: 'g1', name: 'Gratuity', kind: 'lump_sum', amount: 50000, starts_after_years: 0, lasts_years: null },
+    ];
+    renderForecast({ accounts: [ACCOUNT], transactions: closedMonthTransactions(now), holdings: [HOLDING], data: { assumptions: null, independenceIncome: incomes } });
+    // 12,000 a year of spend less 6,000 of rent, at 4%: 150,000.
+    expect(screen.getByText('150,000', { selector: '.ov-hero *, .ov-hero' })).toBeTruthy();
+    expect(screen.getByText(/less 6,000 a year of lasting other income/)).toBeTruthy();
+    expect(screen.getByText(/1 other income source counted on Drawdown/)).toBeTruthy();
+  });
+});

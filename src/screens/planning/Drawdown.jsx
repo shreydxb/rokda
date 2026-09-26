@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
 import { startingNetWorth } from '../overviewMath';
-import { drawdownPath, fiTarget, forecastInputs, potForWithdrawal, realReturn, scenarioSets, sustainableWithdrawal } from '../../lib/forecast';
+import { drawdownPath, forecastInputs, independenceTarget, potForWithdrawal, realReturn, scenarioSets, sustainableWithdrawal } from '../../lib/forecast';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { LineChart } from '../../charts/Charts';
+import IncomeEditor from './IncomeEditor';
 
 const DEFAULTS = { nominal_return_pct: 6.0, inflation_pct: 2.5, safe_withdrawal_pct: 4.0 };
 const MAX_YEARS = 60;
@@ -25,6 +26,8 @@ export default function Drawdown({ household, accounts = [], transactions = [], 
   const [returnOffset, setReturnOffset] = useState(0); // pp added to the scenario's nominal return
   const [lastFor, setLastFor] = useState(40);
   const [activeYear, setActiveYear] = useState(null);
+  const [editing, setEditing] = useState(null); // null | 'new' | an income row
+  const incomes = data.independenceIncome ?? [];
 
   const startNetWorth = useMemo(() => startingNetWorth(accounts, holdings), [accounts, holdings]);
   const inputs = useMemo(() => forecastInputs(transactions, startNetWorth, now), [transactions, startNetWorth, now]);
@@ -54,33 +57,37 @@ export default function Drawdown({ household, accounts = [], transactions = [], 
   const rate = realReturn(nominalPct, selected.inflationPct);
   const leanSpend = assumptions?.lean_annual_spend != null ? Number(assumptions.lean_annual_spend) : null;
   const spend = spendKind === 'lean' && leanSpend ? leanSpend : inputs.annualSpend;
-  const target = fiTarget(inputs.annualSpend, selected.swrPct);
+  // The same target Forecast and the Plan summary show, lasting income and all.
+  const { target } = independenceTarget(inputs.annualSpend, selected.swrPct, incomes);
   const pot = potKind === 'today' ? startNetWorth : target;
 
-  const { path, lastsYears } = drawdownPath({ start: pot, annualWithdrawal: spend, rate, maxYears: MAX_YEARS });
+  const { path, lastsYears } = drawdownPath({ start: pot, annualWithdrawal: spend, rate, maxYears: MAX_YEARS, incomes });
   // Show the run-out and a few empty years after it, not decades of zero.
   const shownYears = lastsYears === null ? MAX_YEARS : Math.min(MAX_YEARS, Math.max(10, lastsYears + 5));
   const shown = path.slice(0, shownYears + 1);
   const activeIdx = activeYear ?? (lastsYears !== null ? Math.min(lastsYears, shownYears) : shownYears);
   const active = shown[activeIdx];
 
-  const maxSpend = sustainableWithdrawal({ start: pot, rate, years: lastFor });
-  const potNeeded = potForWithdrawal({ annualWithdrawal: spend, rate, years: lastFor });
-  const withdrawalRate = pot > 0 ? spend / pot : null;
+  const maxSpend = sustainableWithdrawal({ start: pot, rate, years: lastFor, incomes });
+  const potNeeded = potForWithdrawal({ annualWithdrawal: spend, rate, years: lastFor, incomes });
+  // What the pot itself pays out in the first year, after other income.
+  const withdrawalRate = pot > 0 ? path[1].withdrawn / pot : null;
+  const incomeTotal = path.reduce((s, p) => s + p.income, 0);
 
   return (
     <div>
       <section className="pl-hero" style={{ marginTop: 22 }}>
         <div className="ov-kicker">How long it lasts</div>
         <div className="ov-hero fig">
-          {pot <= 0 ? 'Nothing to draw on' : lastsYears === null ? `${MAX_YEARS}+ years` : `${lastsYears} year${lastsYears === 1 ? '' : 's'}`}
+          {pot <= 0 && !incomes.length ? 'Nothing to draw on' : lastsYears === null ? `${MAX_YEARS}+ years` : `${lastsYears} year${lastsYears === 1 ? '' : 's'}`}
         </div>
         <div style={{ fontSize: 13.5, color: 'var(--ink2)', marginTop: 10, lineHeight: 1.6 }}>
-          {pot <= 0
+          {pot <= 0 && !incomes.length
             ? 'Net worth today is not above zero, so there is no pot to spend from yet.'
             : lastsYears === null
               ? `Spending ${money.code} ${money.fmt(spend)} a year from ${money.code} ${money.fmt(pot)} never runs it down: growth at ${(rate * 100).toFixed(1)}% real keeps up with the spending.`
               : `Spending ${money.code} ${money.fmt(spend)} a year from ${money.code} ${money.fmt(pot)}, at ${(rate * 100).toFixed(1)}% real, runs out in year ${lastsYears + 1}.`}
+          {incomes.length > 0 && ` Other income of ${money.code} ${money.fmt(incomeTotal)} over ${MAX_YEARS} years is spent before the pot.`}
         </div>
 
         <div className="dd-controls">
@@ -141,12 +148,12 @@ export default function Drawdown({ household, accounts = [], transactions = [], 
 
       <div className="fc-kpis">
         <div className="fc-kpi">
-          <div style={{ fontSize: 12, color: 'var(--ink2)' }}>Withdrawal rate</div>
+          <div style={{ fontSize: 12, color: 'var(--ink2)' }}>Drawn from the pot</div>
           <div className="fig" style={{ fontSize: 28, marginTop: 6 }}>{withdrawalRate === null ? '—' : `${(withdrawalRate * 100).toFixed(1)}%`}</div>
-          <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 5 }}>Of the starting pot, in the first year</div>
+          <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 5 }}>Of the starting pot, in the first year{incomes.length ? ', after other income' : ''}</div>
         </div>
         <div className="fc-kpi">
-          <div style={{ fontSize: 12, color: 'var(--ink2)' }}>Spent in total</div>
+          <div style={{ fontSize: 12, color: 'var(--ink2)' }}>Taken from the pot</div>
           <div className="fig" style={{ fontSize: 28, marginTop: 6 }}>{money.fmt(path.reduce((s, p) => s + p.withdrawn, 0))}</div>
           <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 5 }}>
             {lastsYears === null ? `Over ${MAX_YEARS} years, with the pot still there` : 'Before the pot runs out'}
@@ -193,6 +200,40 @@ export default function Drawdown({ household, accounts = [], transactions = [], 
       </section>
 
       <section style={{ marginTop: 40 }}>
+        <div className="ov-section-head">
+          <div className="ov-kicker">Other income once working stops</div>
+          <button type="button" className="om-btn" onClick={() => setEditing('new')}>
+            + Income
+          </button>
+        </div>
+        {incomes.length === 0 ? (
+          <div className="ov-muted" style={{ fontSize: 12.5, lineHeight: 1.65, maxWidth: '84ch' }}>
+            None added. Rent from a property, part-time or consulting work, or a one-off sum such as an end-of-service gratuity
+            would all go here, and each one is spent before the pot is touched.
+          </div>
+        ) : (
+          <div className="mn-list">
+            {incomes.map((row) => (
+              <button key={row.id} type="button" className="mn-row" onClick={() => setEditing(row)}>
+                <div className="mn-row-main">
+                  <div>{row.name}</div>
+                  <div className="ov-muted" style={{ marginTop: 3, fontSize: 11.5 }}>
+                    {describeIncome(row)}
+                  </div>
+                </div>
+                <div className="fig mn-row-amt">
+                  {money.fmt(Number(row.amount))}
+                  <span className="ov-muted" style={{ fontSize: 11.5 }}>
+                    {row.kind === 'lump_sum' ? ' once' : ' a year'}
+                  </span>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section style={{ marginTop: 40 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
           <div className="ov-kicker">What is left each year</div>
           <div className="ov-muted" style={{ fontSize: 11.5 }}>
@@ -215,12 +256,17 @@ export default function Drawdown({ household, accounts = [], transactions = [], 
             Left <b className="fig">{money.fmt(active.balance)}</b>
           </span>
           <span>
-            Spent <b className="fig">{money.fmt(active.withdrawn)}</b>
+            From the pot <b className="fig">{money.fmt(active.withdrawn)}</b>
           </span>
+          {incomes.length > 0 && (
+            <span>
+              Other income <b className="fig">{money.fmt(active.income)}</b>
+            </span>
+          )}
           <span>
             Earned <b className="fig">{money.fmt(active.growth)}</b>
           </span>
-          {active.year > 0 && active.withdrawn < spend - 1e-3 && <span className="ov-neg">{active.withdrawn > 0 ? 'Only partly covered' : 'Nothing left'}</span>}
+          {lastsYears !== null && active.year > lastsYears && <span className="ov-neg">Not fully covered</span>}
         </div>
         <details className="ch-table">
           <summary>Year by year, as a table</summary>
@@ -229,7 +275,8 @@ export default function Drawdown({ household, accounts = [], transactions = [], 
               <thead>
                 <tr>
                   <th scope="col">Year</th>
-                  <th scope="col">Spent</th>
+                  {incomes.length > 0 && <th scope="col">Other income</th>}
+                  <th scope="col">From the pot</th>
                   <th scope="col">Earned</th>
                   <th scope="col">Left</th>
                 </tr>
@@ -238,6 +285,7 @@ export default function Drawdown({ household, accounts = [], transactions = [], 
                 {shown.map((p, i) => (
                   <tr key={p.year} data-active={i === activeIdx}>
                     <td className="fig">{p.year}</td>
+                    {incomes.length > 0 && <td className="fig">{money.fmt(p.income)}</td>}
                     <td className="fig">{money.fmt(p.withdrawn)}</td>
                     <td className="fig">{money.fmt(p.growth)}</td>
                     <td className="fig">{money.fmt(p.balance)}</td>
@@ -252,6 +300,27 @@ export default function Drawdown({ household, accounts = [], transactions = [], 
           shortens how long a pot lasts more than the same fall later. No tax is taken out.
         </div>
       </section>
+
+      {editing && (
+        <IncomeEditor
+          row={editing === 'new' ? null : editing}
+          householdId={household?.id}
+          onClose={() => setEditing(null)}
+          onSaved={async () => {
+            setEditing(null);
+            await data.reload();
+          }}
+        />
+      )}
     </div>
   );
+}
+
+function describeIncome(row) {
+  const start = Number(row.starts_after_years) || 0;
+  if (row.kind === 'lump_sum') return start === 0 ? 'One-off, in the first year of independence' : `One-off, ${start} year${start === 1 ? '' : 's'} in`;
+  const from = start === 0 ? 'From the first year' : `From ${start} year${start === 1 ? '' : 's'} in`;
+  const lasts = row.lasts_years == null ? 'for good' : `for ${row.lasts_years} year${Number(row.lasts_years) === 1 ? '' : 's'}`;
+  const lowersTarget = start === 0 && row.lasts_years == null ? ' · lowers the target' : '';
+  return `${from}, ${lasts}${lowersTarget}`;
 }

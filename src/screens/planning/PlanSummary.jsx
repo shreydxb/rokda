@@ -4,7 +4,7 @@ import { resolveScopeMemberId } from '../../lib/scope';
 import { formatMoney, formatPct } from '../../lib/money';
 import { scopedGoalRows } from '../../lib/goals';
 import { orderDebts, simulatePayoffPlan } from '../../lib/debt';
-import { closedMonths, crossingYear, fiTarget, forecastInputs, realReturn } from '../../lib/forecast';
+import { closedMonths, crossingYear, forecastInputs, independenceTarget, realReturn } from '../../lib/forecast';
 import { incompleteNote, netWorthSummary, startingNetWorth } from '../overviewMath';
 
 const DEFAULTS = { nominal_return_pct: 6.0, inflation_pct: 2.5, safe_withdrawal_pct: 4.0 };
@@ -82,7 +82,7 @@ export default function PlanSummary({ members, me, accounts, transactions, holdi
   const nominalPct = assumptions?.nominal_return_pct != null ? Number(assumptions.nominal_return_pct) : DEFAULTS.nominal_return_pct;
   const inflationPct = assumptions?.inflation_pct != null ? Number(assumptions.inflation_pct) : DEFAULTS.inflation_pct;
   const swrPct = assumptions?.safe_withdrawal_pct != null ? Number(assumptions.safe_withdrawal_pct) : DEFAULTS.safe_withdrawal_pct;
-  const fireTarget = forecast.ready ? fiTarget(forecast.annualSpend, swrPct) : null;
+  const fireTarget = forecast.ready ? independenceTarget(forecast.annualSpend, swrPct, data.independenceIncome ?? []).target : null;
   const fireYear = forecast.ready
     ? crossingYear({
         startYear: now.getFullYear(),

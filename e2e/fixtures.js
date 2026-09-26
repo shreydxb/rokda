@@ -138,6 +138,11 @@ export const data = {
 
   planning_assumptions: [{ household_id: HH, nominal_return_pct: 6, inflation_pct: 2.5, safe_withdrawal_pct: 4, lean_annual_spend: 90000, debt_extra_payment: 0, debt_assume_no_new_card_spend: true, baseline_set_at: ts(monthsAgo(1)), baseline_nominal_return_pct: 6, baseline_inflation_pct: 2.5, baseline_monthly_saving: 4000, updated_at: ts(monthsAgo(1)), custom_nominal_return_pct: null, custom_inflation_pct: null, custom_safe_withdrawal_pct: null, custom_updated_at: null }],
 
+  independence_income: [
+    { id: 'a2a2a2a2-0000-4000-8000-000000000001', household_id: HH, name: 'Flat rent', kind: 'yearly', amount: 24000, starts_after_years: 0, lasts_years: null, note: '', created_at: ts(monthsAgo(1)), updated_at: ts(monthsAgo(1)) },
+    { id: 'a2a2a2a2-0000-4000-8000-000000000002', household_id: HH, name: 'End-of-service gratuity', kind: 'lump_sum', amount: 90000, starts_after_years: 0, lasts_years: null, note: '', created_at: ts(monthsAgo(1)), updated_at: ts(monthsAgo(1)) },
+  ],
+
   category_rules: [{ id: 'b2b2b2b2-0000-4000-8000-000000000001', household_id: HH, category_id: C_GROCERIES, pattern: 'spinneys', match_type: 'contains', archived: false, created_at: ts(monthsAgo(3)), updated_at: ts(monthsAgo(1)) }],
 
   transaction_edits: [],

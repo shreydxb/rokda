@@ -164,45 +164,116 @@ export function requiredAnnualSaving({ startNetWorth, rate, mode, inflationPct, 
 
 export { goalAt, futureValue };
 
+// Other income once working stops (independence_income rows): rent, part-time
+// work, a gratuity. `offset` is the year of independence counted from 0, the
+// same way the rows count `starts_after_years`. A yearly row pays from its
+// start for `lasts_years` years, or for good when that is null; a lump sum
+// pays once, in its start year. All in today's money.
+export function incomeInYear(incomes = [], offset) {
+  let yearly = 0;
+  let lump = 0;
+  for (const row of incomes) {
+    const amount = Number(row.amount) || 0;
+    const start = Number(row.starts_after_years) || 0;
+    if (row.kind === 'lump_sum') {
+      if (offset === start) lump += amount;
+    } else if (offset >= start && (row.lasts_years == null || offset < start + Number(row.lasts_years))) {
+      yearly += amount;
+    }
+  }
+  return { yearly, lump };
+}
+
+// The independence target, less what lasting income already covers. A yearly
+// income that starts the day work stops and never ends does exactly what
+// spending less would, so it comes off the spend the target is built on.
+// Anything else -- a later start, an end date, a lump sum -- has no honest
+// place in a multiple-of-spend target; Drawdown models those year by year, and
+// `otherCount` says how many were left out here.
+export function independenceTarget(annualSpend, safeWithdrawalPct, incomes = []) {
+  const lasting = incomes.filter((r) => r.kind !== 'lump_sum' && !(Number(r.starts_after_years) > 0) && r.lasts_years == null);
+  const lastingIncome = lasting.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  return {
+    target: fiTarget(Math.max(0, annualSpend - lastingIncome), safeWithdrawalPct),
+    lastingIncome,
+    otherCount: incomes.length - lasting.length,
+  };
+}
+
 // The other side of independence: a pot being spent. Everything here is in
 // today's money -- the withdrawal stays the same real amount every year and
 // the pot grows at the real return -- which is the same as a withdrawal
 // rising with inflation on a pot growing at the nominal return.
 //
-// Each year's spending comes out at the start of the year and the rest grows.
-// A year the pot cannot fully cover takes what is left and the pot is empty
-// from then on; `lastsYears` counts the years that were covered in full, or is
-// null when the pot never runs short inside `maxYears`.
-export function drawdownPath({ start, annualWithdrawal, rate, maxYears = 60 }) {
-  const path = [{ year: 0, balance: start, withdrawn: 0, growth: 0 }];
+// Each year, other income is spent first; only the rest comes out of the pot,
+// at the start of the year, and what is left grows. Income beyond the year's
+// spending goes into the pot, as does a lump sum. A year the pot cannot fully
+// cover takes what is left. `lastsYears` counts the years covered in full
+// before the first shortfall, or is null when there is none inside
+// `maxYears`.
+export function drawdownPath({ start, annualWithdrawal, rate, maxYears = 60, incomes = [] }) {
+  const path = [{ year: 0, balance: start, withdrawn: 0, growth: 0, income: 0 }];
   let balance = start;
   let lastsYears = null;
   for (let y = 1; y <= maxYears; y++) {
-    const withdrawn = Math.min(annualWithdrawal, Math.max(0, balance));
+    const { yearly, lump } = incomeInYear(incomes, y - 1);
+    balance += lump + Math.max(0, yearly - annualWithdrawal);
+    const needed = Math.max(0, annualWithdrawal - yearly);
+    const withdrawn = Math.min(needed, Math.max(0, balance));
     const after = balance - withdrawn;
     const growth = after > 0 ? after * rate : 0;
     balance = Math.max(0, after + growth);
-    path.push({ year: y, balance, withdrawn, growth });
+    path.push({ year: y, balance, withdrawn, growth, income: yearly + lump });
     // A shortfall under a thousandth of a unit is float noise, not a year the
     // pot failed to cover.
-    if (lastsYears === null && withdrawn < annualWithdrawal - 1e-3) lastsYears = y - 1;
+    if (lastsYears === null && withdrawn < needed - 1e-3) lastsYears = y - 1;
   }
   return { path, lastsYears };
 }
 
-// The most a pot can pay out each year, in today's money, and run out after
-// exactly `years` -- the annuity-due payment, since each year's spending comes
-// out at its start.
-export function sustainableWithdrawal({ start, rate, years }) {
-  if (!(years > 0) || start <= 0) return 0;
-  if (rate === 0) return start / years;
-  return (start * rate) / ((1 + rate) * (1 - (1 + rate) ** -years));
+const covers = (args, years) => {
+  const { lastsYears } = drawdownPath({ ...args, maxYears: Math.max(years, 1) });
+  return lastsYears === null || lastsYears >= years;
+};
+
+// Largest x in [lo, hi] for which ok(x) holds, assuming ok is monotone
+// (true then false). To within `tolerance`.
+function bisect(ok, lo, hi, tolerance) {
+  if (!ok(lo)) return lo;
+  while (hi - lo > tolerance) {
+    const mid = (lo + hi) / 2;
+    if (ok(mid)) lo = mid;
+    else hi = mid;
+  }
+  return lo;
 }
 
-// The pot a yearly spend needs to last `years`: the inverse of
-// sustainableWithdrawal.
-export function potForWithdrawal({ annualWithdrawal, rate, years }) {
+// The most a pot can pay out each year, in today's money, and still cover
+// `years` years. Without other income that is the annuity-due payment, exact;
+// with it the timing of each income matters, so it is found by bisection on
+// drawdownPath itself, to the nearest unit.
+export function sustainableWithdrawal({ start, rate, years, incomes = [] }) {
+  if (!(years > 0)) return 0;
+  if (!incomes.length) {
+    if (start <= 0) return 0;
+    if (rate === 0) return start / years;
+    return (start * rate) / ((1 + rate) * (1 - (1 + rate) ** -years));
+  }
+  const incomeTotal = incomes.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  const hi = Math.max(0, start) + incomeTotal * (years + 1) + 1;
+  return bisect((w) => covers({ start, annualWithdrawal: w, rate, incomes }, years), 0, hi, 0.5);
+}
+
+// The pot a yearly spend needs to cover `years` years: the inverse of
+// sustainableWithdrawal, found the same two ways.
+export function potForWithdrawal({ annualWithdrawal, rate, years, incomes = [] }) {
   if (!(years > 0) || annualWithdrawal <= 0) return 0;
-  if (rate === 0) return annualWithdrawal * years;
-  return (annualWithdrawal * (1 + rate) * (1 - (1 + rate) ** -years)) / rate;
+  if (!incomes.length) {
+    if (rate === 0) return annualWithdrawal * years;
+    return (annualWithdrawal * (1 + rate) * (1 - (1 + rate) ** -years)) / rate;
+  }
+  const hi = annualWithdrawal * years + 1;
+  // Smallest pot that covers: bisect on "does not cover" and step past it.
+  const notEnough = bisect((p) => !covers({ start: p, annualWithdrawal, rate, incomes }, years), 0, hi, 0.5);
+  return covers({ start: 0, annualWithdrawal, rate, incomes }, years) ? 0 : notEnough + 0.5;
 }
