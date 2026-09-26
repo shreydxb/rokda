@@ -147,3 +147,21 @@ timing counts from the first year of independence, not a calendar year.
   a multiple-of-spend target, so those are counted on Drawdown and Forecast
   says how many were left out.
 - Amounts are entered after tax. Nothing in the app models tax.
+
+## Savings categories are targets, not spending
+
+`categories.is_savings` marks an expense category that holds money set aside
+rather than spent (a household's "Savings & Investments", say).
+
+- **Its budget is a savings target.** The Budget screen shows it apart from the
+  spending budget, against what the month actually saved: income less all
+  spending, the same net saved shown everywhere else. It is never part of the
+  budgeted subtotal, so a savings allocation cannot make a month look
+  underspent.
+- **Nothing is filed under it as spending.** The transaction, recurring, Inbox
+  and rule pickers leave savings categories out, as do the Telegram bot's
+  category lists (expense capture, parsing, category spend and budget status).
+  A record already filed there keeps showing its category rather than silently
+  losing it.
+- Transaction arithmetic is unchanged: spend and income are still decided by
+  `transactionKind.js` alone, in the app and the bot alike.

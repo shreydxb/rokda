@@ -164,6 +164,7 @@ export default function BudgetEditor({ item, householdId, categories, year, mont
                       }}
                     >
                       {c.name}
+                      {c.is_savings && ' · savings target'}
                     </button>
                   ))}
               </div>

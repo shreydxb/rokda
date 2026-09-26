@@ -12,6 +12,12 @@ export default function Budget({ household, me, members, data, loading }) {
   const { scope } = useScope();
   const scopeMemberId = resolveScopeMemberId(scope, me, members);
   const { transactions, categories, budgets, reload } = data;
+  // A savings category's budget is a savings target, not money to spend: it
+  // stays out of every spending total below and is shown against what the
+  // month actually saved.
+  const savingsIds = new Set(categories.filter((c) => c.is_savings).map((c) => c.id));
+  const spendBudgets = budgets.filter((b) => !savingsIds.has(b.category_id));
+  const savingsBudgets = budgets.filter((b) => savingsIds.has(b.category_id));
 
   const [view, setView] = useState('month'); // 'month' | 'year'
   const now = useMemo(() => new Date(), []);
@@ -43,7 +49,8 @@ export default function Budget({ household, me, members, data, loading }) {
         <MonthView
           cursor={cursor}
           setCursor={setCursor}
-          budgets={budgets}
+          budgets={spendBudgets}
+          savingsBudgets={savingsBudgets}
           transactions={transactions}
           catById={catById}
           scopeMemberId={scopeMemberId}
@@ -54,7 +61,8 @@ export default function Budget({ household, me, members, data, loading }) {
         <YearView
           year={yearCursor}
           setYear={setYearCursor}
-          budgets={budgets}
+          budgets={spendBudgets}
+          savingsBudgets={savingsBudgets}
           transactions={transactions}
           categories={categories}
           scopeMemberId={scopeMemberId}
@@ -80,7 +88,7 @@ export default function Budget({ household, me, members, data, loading }) {
   );
 }
 
-function MonthView({ cursor, setCursor, budgets, transactions, catById, scopeMemberId, now, onEdit }) {
+function MonthView({ cursor, setCursor, budgets, savingsBudgets, transactions, catById, scopeMemberId, now, onEdit }) {
   const year = cursor.getFullYear();
   const month = cursor.getMonth() + 1;
   const rows = budgets.filter((b) => b.year === year && b.month === month);
@@ -212,7 +220,57 @@ function MonthView({ cursor, setCursor, budgets, transactions, catById, scopeMem
           </div>
         </>
       )}
+
+      <SavingsTarget
+        rows={savingsBudgets.filter((b) => b.year === year && b.month === month)}
+        saved={monthIncome(transactions, year, month, scopeMemberId, now) - spend.total}
+        pace={pace}
+        catById={catById}
+        scoped={scopeMemberId !== null}
+        onEdit={onEdit}
+      />
     </div>
+  );
+}
+
+// What the month set out to save against what it did: income less ALL
+// spending, the same net saved the year view and Overview show. Saving is
+// what is left over, so there is nothing to file under the savings category
+// itself -- the target is met by spending less than was earned.
+function SavingsTarget({ rows, saved, pace, catById, scoped, onEdit }) {
+  if (rows.length === 0) return null;
+  const target = rows.reduce((s, r) => s + Number(r.amount), 0);
+  const pct = target > 0 ? saved / target : 0;
+  const names = rows.map((r) => catById.get(r.category_id)?.name ?? 'Savings').join(', ');
+  const verdict = saved >= target ? 'met' : pace.isPast ? 'short' : 'so far';
+  return (
+    <section className="bud-savings">
+      <div className="bud-savings-head">
+        <div className="ov-kicker" style={{ marginBottom: 0 }}>
+          Savings target
+        </div>
+        <button type="button" className="om-link bud-savings-edit" onClick={() => onEdit(rows[0])}>
+          {names} · edit
+        </button>
+      </div>
+      <div className="bud-savings-figs">
+        <span className="fig bud-savings-saved" data-negative={saved < 0}>
+          {formatBalance(saved)}
+        </span>
+        <span className="ov-muted">
+          saved of <span className="fig">{formatMoney(target)}</span>
+          {verdict === 'met' ? ' · target met' : verdict === 'short' ? ` · ${formatMoney(target - saved)} short` : ' so far this month'}
+        </span>
+      </div>
+      <div className="bud-bar bud-bar-lg">
+        <span className="bud-bar-spent bud-bar-save" style={{ width: `${Math.max(0, Math.min(100, pct * 100))}%` }} />
+      </div>
+      <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 8, lineHeight: 1.6 }}>
+        Saved is income less all spending this month. The target is not counted in the budget above: money set aside is not
+        money spent.
+        {scoped && ' Saved is this person’s share; the target is the whole household’s.'}
+      </div>
+    </section>
   );
 }
 
@@ -305,7 +363,7 @@ const sum = (values) => values.reduce((s, v) => s + (v ?? 0), 0);
 // total, a monthly average and each group's share of what was spent. Every
 // actual comes from budgetGroupSpend, the same figures the month view shows,
 // so a month reads identically in either view and every column adds up.
-function YearView({ year, setYear, budgets, transactions, categories, scopeMemberId, now }) {
+function YearView({ year, setYear, budgets, savingsBudgets = [], transactions, categories, scopeMemberId, now }) {
   const [activeMonth, setActiveMonth] = useState(null);
   const catById = new Map(categories.map((c) => [c.id, c]));
   const yearBudgets = budgets.filter((b) => b.year === year);
@@ -365,6 +423,10 @@ function YearView({ year, setYear, budgets, transactions, categories, scopeMembe
   // Net saved is income minus ALL spending, not the budgeted subtotal
   // (QA-09).
   const netSaved = months.map((mo) => (mo.actual ? mo.income - mo.spend.total : null));
+  // The savings target per month, when one is set: a line on the net-saved
+  // chart and its own row, never part of the budgeted subtotal.
+  const target = MONTHS.map((m) => sum(savingsBudgets.filter((b) => b.year === year && b.month === m).map((b) => Number(b.amount))));
+  const hasTarget = target.some((t) => t > 0);
   let running = 0;
   const savedSoFar = netSaved.map((v) => (v === null ? null : (running += v)));
 
@@ -402,6 +464,7 @@ function YearView({ year, setYear, budgets, transactions, categories, scopeMembe
               <ColumnChart
                 columns={MONTHS.map((m, i) => ({ key: m, label: MONTH_LABELS[i], values: [netSaved[i] ?? 0], muted: netSaved[i] === null }))}
                 series={[{ key: 'net', label: 'Net saved', color: (v) => (v < 0 ? 'var(--neg)' : 'var(--pos)') }]}
+                reference={hasTarget ? { values: target, label: 'Target' } : null}
                 height={150}
                 formatTick={formatCompact}
                 labelEvery={2}
@@ -455,6 +518,7 @@ function YearView({ year, setYear, budgets, transactions, categories, scopeMembe
               { label: 'Saved', color: 'var(--pos)' },
               { label: 'Overspent', color: 'var(--neg)' },
               { label: 'Running total', color: 'var(--accent)', kind: 'line' },
+              ...(hasTarget ? [{ label: 'Savings target', color: 'var(--ink2)', kind: 'line' }] : []),
             ]}
           />
         </section>
@@ -504,6 +568,7 @@ function YearView({ year, setYear, budgets, transactions, categories, scopeMembe
               <SummaryRow label="All spending" cells={allSpending} activeCol={activeCol} average={averageOf(allSpending)} total />
               <SummaryRow label="Income" cells={income} activeCol={activeCol} average={averageOf(income)} />
               <SummaryRow label="Net saved" cells={netSaved} activeCol={activeCol} average={averageOf(netSaved)} signed />
+              {hasTarget && <SummaryRow label="Savings target" cells={target} activeCol={activeCol} average={averageOf(target)} />}
               <tr>
                 <td>Saved so far</td>
                 {savedSoFar.map((v, i) => (

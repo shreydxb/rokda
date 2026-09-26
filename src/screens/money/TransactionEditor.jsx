@@ -164,7 +164,9 @@ export default function TransactionEditor({ tx, household, householdId, accounts
   // A refund reverses an earlier expense, so it draws from the same category
   // list as an expense rather than having none at all.
   const categoryKind = form.type === 'refund' ? 'expense' : form.type;
-  const kindCategories = categories.filter((c) => c.kind === categoryKind && (!c.archived || c.id === form.category_id));
+  // Savings categories hold money set aside, not spent, so nothing new is
+  // filed under them; a record already there keeps showing where it is.
+  const kindCategories = categories.filter((c) => c.kind === categoryKind && ((!c.archived && !c.is_savings) || c.id === form.category_id));
   const mainCategories = kindCategories.filter((c) => !c.parent_id);
   const selectedCategory = kindCategories.find((c) => c.id === form.category_id);
   const selectedMainId = selectedCategory ? (selectedCategory.parent_id || selectedCategory.id) : '';

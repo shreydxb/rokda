@@ -707,3 +707,42 @@
   z-index: 1;
   background: var(--canvas);
 }
+
+/* Budget: the savings target, shown apart from the spending budget. */
+.bud-savings {
+  margin-top: 30px;
+  padding-top: 20px;
+  border-top: 1px solid var(--rule);
+}
+.bud-savings-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.bud-savings-edit {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11.5px;
+  padding: 0;
+}
+.bud-savings-figs {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 10px 0 12px;
+}
+.bud-savings-saved {
+  font-size: 28px;
+}
+.bud-savings-saved[data-negative='true'] {
+  color: var(--neg);
+}
+.bud-bar-spent.bud-bar-save {
+  background: var(--pos);
+}

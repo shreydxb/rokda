@@ -752,4 +752,18 @@ begin
   raise notice 'independence_income ok: lump sums take no duration; amounts, names and kinds are checked';
 end $$;
 
+-- A savings category is an expense category set aside; income cannot be one.
+do $$
+begin
+  insert into categories (household_id, name, kind, is_savings)
+  values ('11111111-1111-1111-1111-111111111111', 'Savings & Investments', 'expense', true);
+  begin
+    insert into categories (household_id, name, kind, is_savings)
+    values ('11111111-1111-1111-1111-111111111111', 'Interest', 'income', true);
+    raise exception 'is_savings FAILED: an income category was marked as savings';
+  exception when check_violation then null;
+  end;
+  raise notice 'is_savings ok: only expense categories can be savings';
+end $$;
+
 rollback;
