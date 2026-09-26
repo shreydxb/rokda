@@ -5,6 +5,7 @@ import '../money/TransactionEditor.css';
 export default function CategoryEditor({ category, householdId, onClose, onSaved }) {
   const [name, setName] = useState(category?.name ?? '');
   const [kind, setKind] = useState(category?.kind ?? 'expense');
+  const [isSavings, setIsSavings] = useState(!!category?.is_savings);
   const [dirty, setDirty] = useState(false);
   const [confirmingClose, setConfirmingClose] = useState(false);
   const [error, setError] = useState('');
@@ -38,7 +39,9 @@ export default function CategoryEditor({ category, householdId, onClose, onSaved
     setSaving(true);
     setError('');
 
-    const payload = { name: name.trim(), kind };
+    // Only an expense category can be savings (the database refuses the
+    // rest); switching to income clears it rather than failing the save.
+    const payload = { name: name.trim(), kind, is_savings: kind === 'expense' && isSavings };
     const query = category
       ? supabase.from('categories').update(payload).eq('id', category.id)
       : supabase.from('categories').insert({ ...payload, household_id: householdId });
@@ -114,6 +117,26 @@ export default function CategoryEditor({ category, householdId, onClose, onSaved
               ))}
             </div>
           </div>
+
+          {kind === 'expense' && (
+            <button
+              type="button"
+              className="te-togglerow"
+              onClick={() => {
+                setIsSavings((v) => !v);
+                setDirty(true);
+              }}
+            >
+              <div>
+                <div className="te-togglelabel">Savings, not spending</div>
+                <div className="te-togglenote">
+                  For money set aside. Its budget becomes a savings target, measured against what each month saves, and it is kept out of
+                  spending totals and out of the lists spending is filed under.
+                </div>
+              </div>
+              <span className="te-togglestate">{isSavings ? 'Savings' : 'Spending'}</span>
+            </button>
+          )}
 
           {category && (
             <button type="button" className="te-togglerow" onClick={toggleArchived} disabled={saving}>

@@ -147,7 +147,7 @@ export default function CategoriesRules({ household, data, loading }) {
         <RuleEditor
           rule={editingRule === 'new' ? null : editingRule}
           householdId={household?.id}
-          categories={categories.filter((c) => !c.archived)}
+          categories={categories.filter((c) => !c.archived && !c.is_savings)}
           onClose={() => setEditingRule(null)}
           onSaved={async () => {
             setEditingRule(null);
@@ -169,6 +169,7 @@ function CategoryList({ title, rows, onEdit }) {
   const row = (c, sub) => (
     <button key={c.id} type="button" className={`mn-row ${sub ? 'sc-subrow' : ''}`} onClick={() => onEdit(c)} style={{ opacity: c.archived ? 0.6 : 1 }}>
       <div className="mn-row-main">{c.name}</div>
+      {c.is_savings && <span className="ov-chip-ok">Savings</span>}
       {c.archived && <span className="ov-muted">Archived</span>}
     </button>
   );

@@ -198,6 +198,18 @@ describe('Category picker: two-level dropdown instead of a flat chip wall', () =
   });
 });
 
+describe('Category picker: savings categories are not somewhere spending goes', () => {
+  it('leaves a savings category out of the list', () => {
+    const withSavings = [...CATEGORIES, { id: 'save', name: 'Savings & Investments', kind: 'expense', parent_id: null, is_savings: true }];
+    renderScreen(
+      <TransactionEditor tx={null} householdId="hh" accounts={ACCOUNTS} categories={withSavings} members={[]} allTransactions={[]} onClose={() => {}} onSaved={async () => {}} />,
+    );
+    const [categorySelect] = document.querySelectorAll('.te-fieldgrid')[1].querySelectorAll('select');
+    expect([...categorySelect.options].map((o) => o.textContent)).toEqual(['Uncategorised', 'Utilities', 'Groceries']);
+    cleanup();
+  });
+});
+
 describe('Currency selector: entering a non-AED amount converts to AED on save', () => {
   it('converts a USD entry to AED using the fixed peg', async () => {
     renderScreen(

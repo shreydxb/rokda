@@ -73,7 +73,8 @@ export default function RecurringEditor({ item, householdId, accounts, categorie
   const amountError = form.amount.trim() === '' || Number(form.amount) <= 0 ? 'Enter an amount greater than zero.' : '';
   const nameError = form.name.trim() === '' ? 'Name it.' : '';
   const intervalError = !Number.isInteger(Number(form.interval_count)) || Number(form.interval_count) < 1 ? 'Enter a whole number of 1 or more.' : '';
-  const kindCategories = categories.filter((c) => c.kind === form.type && (!c.archived || c.id === form.category_id));
+  // Savings categories are targets, not somewhere spending is filed.
+  const kindCategories = categories.filter((c) => c.kind === form.type && ((!c.archived && !c.is_savings) || c.id === form.category_id));
 
   async function handleSave(e) {
     e.preventDefault();

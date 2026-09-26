@@ -984,7 +984,9 @@ async function toolGetCategorySpend(householdId: string, scopeMemberId: string |
     .select("id, name")
     .eq("household_id", householdId)
     .eq("kind", "expense")
-    .eq("archived", false);
+    .eq("archived", false)
+    // Savings categories are targets, not spending (is_savings).
+    .eq("is_savings", false);
   const cat = resolveCategoryByName(categories ?? [], String(args.category ?? ""));
   if (!cat) return { error: "category_not_found", available: (categories ?? []).map((c) => c.name) };
 
@@ -1109,7 +1111,9 @@ async function toolGetBudgetStatus(householdId: string, scopeMemberId: string | 
     .select("id, name")
     .eq("household_id", householdId)
     .eq("kind", "expense")
-    .eq("archived", false);
+    .eq("archived", false)
+    // Savings categories are targets, not spending (is_savings).
+    .eq("is_savings", false);
   const cat = resolveCategoryByName(categories ?? [], String(args.category ?? ""));
   if (!cat) return { error: "category_not_found", available: (categories ?? []).map((c) => c.name) };
 
@@ -2425,7 +2429,9 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
         .select("id, name")
         .eq("household_id", member.household_id)
         .eq("kind", "expense")
-        .eq("archived", false);
+        .eq("archived", false)
+        // Nothing is filed under a savings category as spending.
+        .eq("is_savings", false);
 
       // A short follow-up ("compare that to last month") only makes sense
       // in light of the previous exchange, and only when it was recent --
@@ -2637,7 +2643,9 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
       .from("categories")
       .select("id, name")
       .eq("household_id", member.household_id)
-      .eq("archived", false);
+      .eq("archived", false)
+      // Nothing is filed under a savings category as spending.
+      .eq("is_savings", false);
 
     const items = await parseIntakeWithAI({
       rawText,

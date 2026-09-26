@@ -589,7 +589,7 @@ function IntakeEditForm({ item, sender, accounts, members, categories, categoryR
               Uncategorised
             </button>
             {categories
-              .filter((c) => !c.archived || c.id === categoryId)
+              .filter((c) => (!c.archived && !c.is_savings) || c.id === categoryId)
               .map((c) => (
                 <button key={c.id} type="button" className="om-seg" data-active={categoryId === c.id} onClick={() => setCategoryId(c.id)}>
                   {c.name}

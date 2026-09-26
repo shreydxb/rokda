@@ -136,3 +136,47 @@ describe('Budget: the year view adds up like a budget sheet', () => {
     expect(screen.getByText('Saved so far in 2026')).toBeTruthy();
   });
 });
+
+describe('Budget: a savings category is a target, not spending', () => {
+  const CATS = [
+    { id: 'food', name: 'Groceries', kind: 'expense', parent_id: null },
+    { id: 'save', name: 'Savings & Investments', kind: 'expense', parent_id: null, is_savings: true },
+  ];
+  const BUDGETS = [
+    { id: 'b1', category_id: 'food', year: 2026, month: 9, amount: 2000 },
+    { id: 'b2', category_id: 'save', year: 2026, month: 9, amount: 3000 },
+    { id: 'b3', category_id: 'save', year: 2026, month: 10, amount: 3000 },
+  ];
+  const TXNS = [
+    { id: 'i', amount: 10000, kind: 'income', occurred_at: '2026-09-01', is_shared: true, category_id: null },
+    { id: 'g', amount: -1500, kind: 'expense', occurred_at: '2026-09-02', is_shared: true, category_id: 'food' },
+  ];
+  const render = () =>
+    renderScreen(
+      <Budget household={{ id: 'h' }} me={{ id: 'm1' }} members={MEMBERS} loading={false} data={{ transactions: TXNS, categories: CATS, budgets: BUDGETS, reload: vi.fn() }} />,
+    );
+
+  it('keeps the target out of the spending budget', () => {
+    render();
+    // 1,500 of 2,000 -- not of 5,000.
+    expect(screen.getByText('of 2,000')).toBeTruthy();
+    expect(screen.queryByText('of 5,000')).toBeNull();
+  });
+
+  it('shows the target against what the month saved', () => {
+    render();
+    expect(screen.getByText('Savings target')).toBeTruthy();
+    // 10,000 income less 1,500 spent = 8,500 saved of a 3,000 target.
+    expect(screen.getByText('8,500')).toBeTruthy();
+    expect(screen.getByText(/target met/)).toBeTruthy();
+  });
+
+  it('gives the target its own row in the year view, outside the budgeted subtotal', () => {
+    render();
+    fireEvent.click(screen.getByText('Year'));
+    const cells = (label) => [...screen.getByText(label, { selector: 'td' }).closest('tr').querySelectorAll('td')].map((td) => td.textContent);
+    expect(cells('Savings target')[10]).toBe('3,000');
+    expect(cells('Budgeted subtotal')[10]).toBe('0');
+    expect(screen.queryByText('Savings & Investments', { selector: 'td' })).toBeNull();
+  });
+});
