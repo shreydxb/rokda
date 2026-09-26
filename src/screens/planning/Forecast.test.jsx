@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { screen, fireEvent } from '@testing-library/dom';
 import { MemoryRouter } from 'react-router-dom';
 import { renderScreen } from '../../test/renderScreen';
@@ -193,5 +193,61 @@ describe('Forecast scenario picker', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
     expect(screen.getByText(/not set yet/i)).toBeTruthy();
+  });
+});
+
+describe('Forecast: projection breakdown and the solve-for-a-year line', () => {
+  const now = new Date();
+  // Income as well as spend, so the household saves and a crossing year exists.
+  function savingHousehold() {
+    return [
+      ...closedMonthTransactions(now),
+      ...[1, 2, 3].map((back, i) => {
+        const d = new Date(now.getFullYear(), now.getMonth() - back, 1);
+        return {
+          id: `i${i}`,
+          amount: 6000,
+          kind: 'income',
+          occurred_at: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`,
+          is_shared: true,
+        };
+      }),
+    ];
+  }
+
+  afterEach(() => localStorage.clear());
+
+  it('offers every projected year as a table, split into its parts', () => {
+    renderForecast({ accounts: [ACCOUNT], transactions: savingHousehold(), holdings: [HOLDING] });
+    const rows = document.querySelectorAll('.ch-table tbody tr');
+    expect(rows).toHaveLength(31);
+    expect(screen.getAllByText('Saving from here on').length).toBeGreaterThan(0);
+  });
+
+  it('solves for a chosen year, and moves with the stepper', () => {
+    renderForecast({ accounts: [ACCOUNT], transactions: savingHousehold(), holdings: [HOLDING] });
+    expect(screen.getByText('What it would take')).toBeTruthy();
+    const year = document.querySelector('.fc-solve-year .fig');
+    const before = Number(year.textContent);
+    fireEvent.click(screen.getByLabelText('One year later'));
+    expect(Number(year.textContent)).toBe(before + 1);
+    expect(screen.getByText(/a month/, { selector: '.fc-solve-answer' })).toBeTruthy();
+  });
+
+  it('states the spend multiple the withdrawal rate implies, not always 25×', () => {
+    renderForecast({
+      accounts: [ACCOUNT],
+      transactions: savingHousehold(),
+      holdings: [HOLDING],
+      data: { assumptions: { nominal_return_pct: 6, inflation_pct: 2.5, safe_withdrawal_pct: 3.5 } },
+    });
+    expect(screen.getByText(/28\.6× today's spend/)).toBeTruthy();
+  });
+
+  it('shows detail figures in the display currency, like the hero above them', () => {
+    localStorage.setItem('rokda:currency', 'USD');
+    renderForecast({ accounts: [ACCOUNT], transactions: savingHousehold(), holdings: [HOLDING] });
+    expect(screen.getByText(/^Save USD .* more a month$/)).toBeTruthy();
+    expect(screen.queryByText(/Save AED/)).toBeNull();
   });
 });

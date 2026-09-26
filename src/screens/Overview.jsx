@@ -269,7 +269,10 @@ export default function Overview() {
               </div>
               <div>
                 <div className="ov-kpi-label">Savings rate</div>
-                <div className="ov-kpi-fig fig ov-pos">{p.rate !== null ? formatPct(p.rate) : '—'}</div>
+                {/* Coloured by its sign: a month that spent more than it earned
+                    has a negative rate, and painting that green said the
+                    opposite of the figure. */}
+                <div className={`ov-kpi-fig fig ${p.rate === null ? '' : p.rate < 0 ? 'ov-neg' : 'ov-pos'}`}>{p.rate !== null ? formatPct(p.rate) : '—'}</div>
               </div>
             </div>
           </section>
@@ -307,7 +310,7 @@ export default function Overview() {
                     Spend <b className="fig">{formatMoney(selected.spend)}</b>
                   </span>
                   <span>
-                    Rate <b className="fig ov-pos">{selected.income > 0 ? formatPct(selected.rate) : '—'}</b>
+                    Rate <b className={`fig ${selected.income > 0 ? (selected.rate < 0 ? 'ov-neg' : 'ov-pos') : ''}`}>{selected.income > 0 ? formatPct(selected.rate) : '—'}</b>
                   </span>
                 </div>
               )}

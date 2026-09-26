@@ -1,16 +1,24 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { formatBalance, formatMoney, formatPct } from '../../lib/money';
+import { formatPct } from '../../lib/money';
 import { incompleteNote, netWorthSummary, startingNetWorth } from '../overviewMath';
 import { isArchived } from '../../lib/accounts';
 import { unconfirmedAccounts } from '../../lib/balance';
-import { closedMonths, crossingYear, fiTarget, forecastInputs, projectSeries, realReturn, goalAt, scenarioSets } from '../../lib/forecast';
+import { closedMonths, crossingYear, fiTarget, forecastInputs, projectYears, realReturn, requiredAnnualSaving, goalAt, scenarioSets } from '../../lib/forecast';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import ForecastAssumptionsEditor from './ForecastAssumptionsEditor';
+import { ChartLegend, ColumnChart } from '../../charts/Charts';
 
 const DEFAULTS = { nominal_return_pct: 6.0, inflation_pct: 2.5, safe_withdrawal_pct: 4.0 };
 const HORIZON_YEARS = 30;
-const STEP = 3;
+const SOLVE_MAX_YEARS = 60;
+
+// Fixed order, so each part keeps its colour whatever the numbers do.
+const PARTS = [
+  { key: 'start', label: 'Net worth today', color: 'var(--series-1)' },
+  { key: 'saved', label: 'Saving from here on', color: 'var(--series-2)' },
+  { key: 'growth', label: 'Growth', color: 'var(--series-3)' },
+];
 
 function yearsDelta(fromYear, toYear) {
   if (fromYear === null || toYear === null) return null;
@@ -34,6 +42,13 @@ export default function Forecast({ household, accounts = [], transactions = [], 
   const [mode, setMode] = useState('real');
   const [fcSet, setFcSet] = useState('baseline');
   const [editing, setEditing] = useState(false);
+  // Which projected year the chart and its readout are on; null follows the
+  // default (the crossing year, or the end of the horizon).
+  const [activeYear, setActiveYear] = useState(null);
+  // The year the "what it would take" line solves for; null is the default.
+  const [solveYear, setSolveYear] = useState(null);
+  // Every figure on this screen follows the display currency, not only the
+  // hero: a USD hero above AED detail lines read as two different targets.
   const money = useMoneyDisplay(household);
 
   const now = useMemo(() => new Date(), []);
@@ -131,6 +146,9 @@ export default function Forecast({ household, accounts = [], transactions = [], 
   const annualSaving = inputs.monthlySaving * 12;
   const target = fiTarget(inputs.annualSpend, selSwrPct);
   const leanTarget = leanSpend ? fiTarget(leanSpend, selSwrPct) : null;
+  // The target is spend ÷ the withdrawal rate, so the multiple follows the
+  // rate: 25× only at 4%. It used to say 25× whatever the rate was.
+  const spendMultiple = Number((100 / selSwrPct).toFixed(1));
   const targetShown = mode === 'real' ? target : Math.round(target * (1 + selInflationPct / 100) ** HORIZON_YEARS);
 
   const fireYear = crossingYear({ startYear, startNetWorth, annualSaving, rate, mode, inflationPct: selInflationPct, goal: target });
@@ -143,31 +161,59 @@ export default function Forecast({ household, accounts = [], transactions = [], 
     : null;
   const aheadBy = yearsDelta(fireYear, planYear);
 
+  // "Assumed vs actual" compares the saved baseline against today's actuals
+  // under the household's own inflation assumption, whichever scenario is
+  // being viewed -- so its reference year is computed on that same basis.
+  // Measuring the effects against planYear (built on the viewed scenario's
+  // inflation) reported a return effect under Conservative even with the
+  // return unchanged.
   const liveRate = mode === 'real' ? realReturn(nominalPct, inflationPct) : nominalPct / 100;
-  const savingEffectYear = hasBaseline
-    ? crossingYear({ startYear, startNetWorth, annualSaving, rate: baselineRate, mode, inflationPct, goal: target })
+  const baselineRateLive = hasBaseline
+    ? mode === 'real'
+      ? realReturn(Number(assumptions.baseline_nominal_return_pct), inflationPct)
+      : Number(assumptions.baseline_nominal_return_pct) / 100
     : null;
-  const savingEffect = yearsDelta(planYear, savingEffectYear);
+  const planYearLive = hasBaseline
+    ? crossingYear({ startYear, startNetWorth, annualSaving: baselineSaving, rate: baselineRateLive, mode, inflationPct, goal: target })
+    : null;
+  const savingEffectYear = hasBaseline
+    ? crossingYear({ startYear, startNetWorth, annualSaving, rate: baselineRateLive, mode, inflationPct, goal: target })
+    : null;
+  const savingEffect = yearsDelta(planYearLive, savingEffectYear);
   const returnEffectYear = hasBaseline
     ? crossingYear({ startYear, startNetWorth, annualSaving: baselineSaving, rate: liveRate, mode, inflationPct, goal: target })
     : null;
-  const returnEffect = yearsDelta(planYear, returnEffectYear);
+  const returnEffect = yearsDelta(planYearLive, returnEffectYear);
 
   const pct = target > 0 ? startNetWorth / target : 0;
 
-  const series = projectSeries({ startYear, startNetWorth, annualSaving, rate, mode, inflationPct: selInflationPct, horizonYears: HORIZON_YEARS, step: STEP });
-  const planSeries = hasBaseline
-    ? projectSeries({ startYear, startNetWorth, annualSaving: baselineSaving, rate: baselineRate, mode, inflationPct: selInflationPct, horizonYears: HORIZON_YEARS, step: STEP })
-    : null;
-  const targetLine = series.map((p) => goalAt(p.yearsOut, target, mode, selInflationPct));
-  const maxValue = Math.max(...series.map((p) => p.value), ...targetLine, ...(planSeries?.map((p) => p.value) ?? []), 1);
+  // Yearly, not every third year: the crossing year is shown to the year, so
+  // the chart has to be able to show that year too.
+  const path = projectYears({ startNetWorth, annualSaving, rate, mode, inflationPct: selInflationPct, years: HORIZON_YEARS });
+  const targetPath = path.map((p) => goalAt(p.yearsOut, target, mode, selInflationPct));
+  const crossIdx = fireYear !== null && fireYear - startYear <= HORIZON_YEARS ? fireYear - startYear : null;
+  const shownIdx = activeYear ?? crossIdx ?? HORIZON_YEARS;
+  const shown = path[shownIdx];
+  const shownTarget = targetPath[shownIdx];
+  const columns = path.map((p) => ({ key: p.yearsOut, label: String(startYear + p.yearsOut), values: [p.start, p.saved, p.growth] }));
+
+  // The other direction: pick a year, get the monthly saving it takes. Starts
+  // three years ahead of the projected date, the question most people ask
+  // first; with no date in reach it starts twenty years out.
+  const defaultSolveYear = fireYear !== null ? Math.max(startYear + 1, Math.min(startYear + SOLVE_MAX_YEARS, fireYear - 3)) : startYear + 20;
+  const solveFor = solveYear ?? defaultSolveYear;
+  const requiredAnnual = requiredAnnualSaving({ startNetWorth, rate, mode, inflationPct: selInflationPct, goal: target, years: solveFor - startYear });
+  // Rounded up to a whole unit so the figure shown really does cross in that
+  // year rather than a hair short of it.
+  const requiredMonthly = requiredAnnual === null ? null : Math.ceil(requiredAnnual / 12);
+  const extraMonthly = requiredMonthly === null ? null : requiredMonthly - inputs.monthlySaving;
 
   const scenarios = [
     (() => {
       const bump = Math.max(500, Math.round((inputs.monthlySaving * 0.25) / 100) * 100) || 1000;
       const yr = crossingYear({ startYear, startNetWorth, annualSaving: annualSaving + bump * 12, rate, mode, inflationPct: selInflationPct, goal: target });
       const d = yearsDelta(fireYear, yr);
-      return { name: `Save AED ${formatMoney(bump)} more a month`, note: 'Redirect any budget underspend instead of letting it drift', deltaYears: d, delta: deltaLabel(d) };
+      return { name: `Save ${money.code} ${money.fmt(bump)} more a month`, note: 'Redirect any budget underspend instead of letting it drift', deltaYears: d, delta: deltaLabel(d) };
     })(),
     (() => {
       const lowerNominal = Math.max(0, selNominalPct - 2);
@@ -187,7 +233,7 @@ export default function Forecast({ household, accounts = [], transactions = [], 
       ? [
           {
             name: 'Retire on essentials only',
-            note: `Target drops to ${formatMoney(leanTarget)}`,
+            note: `Target drops to ${money.code} ${money.fmt(leanTarget)}`,
             deltaYears: yearsDelta(fireYear, leanYear),
             delta: deltaLabel(yearsDelta(fireYear, leanYear)),
           },
@@ -206,8 +252,8 @@ export default function Forecast({ household, accounts = [], transactions = [], 
             </div>
             <div style={{ fontSize: 13.5, color: 'var(--ink2)', marginTop: 10 }}>
               {mode === 'real'
-                ? `25× today's spend of ${formatMoney(inputs.annualSpend)} a year, in today's money`
-                : `25× spend, grown to ${startYear + HORIZON_YEARS} at ${inflationPct.toFixed(1)}% inflation`}
+                ? `${spendMultiple}× today's spend of ${money.fmt(inputs.annualSpend)} a year, in today's money`
+                : `${spendMultiple}× spend, grown to ${startYear + HORIZON_YEARS} at ${selInflationPct.toFixed(1)}% inflation`}
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -259,8 +305,8 @@ export default function Forecast({ household, accounts = [], transactions = [], 
               ['Investment return', `${selNominalPct.toFixed(1)}% nominal`],
               ['Inflation', `${selInflationPct.toFixed(1)}%`],
               ['Safe withdrawal rate', `${selSwrPct.toFixed(1)}%`],
-              ['Monthly saving', `${formatBalance(inputs.monthlySaving)} (actual)`],
-              ['Annual spend', `${formatMoney(inputs.annualSpend)} (actual)`],
+              ['Monthly saving', `${money.fmtBalance(inputs.monthlySaving)} (actual)`],
+              ['Annual spend', `${money.fmt(inputs.annualSpend)} (actual)`],
               ['Horizon shown', `${HORIZON_YEARS} years`],
             ].map(([label, value]) => (
               <div key={label}>
@@ -303,15 +349,15 @@ export default function Forecast({ household, accounts = [], transactions = [], 
         </div>
       </section>
 
-      <div className="ov-quality-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginTop: 32 }}>
-        <div style={{ paddingRight: 24, borderRight: '1px solid var(--rule)' }}>
+      <div className="fc-kpis">
+        <div className="fc-kpi">
           <div style={{ fontSize: 12, color: 'var(--ink2)' }}>Independent by</div>
           <div className="fig" style={{ fontSize: 28, marginTop: 6 }}>
             {fireYear ?? '60+ yrs out'}
           </div>
           <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 5 }}>{fireYear ? `${fireYear - startYear} years from now` : 'Beyond what a 60-year projection shows'}</div>
         </div>
-        <div style={{ padding: '0 24px', borderRight: '1px solid var(--rule)' }}>
+        <div className="fc-kpi">
           <div style={{ fontSize: 12, color: 'var(--ink2)' }}>Against baseline</div>
           <div className="fig" style={{ fontSize: 28, marginTop: 6, color: aheadBy > 0 ? 'var(--pos)' : aheadBy < 0 ? 'var(--neg)' : 'var(--ink)' }}>
             {aheadBy !== null ? deltaLabel(aheadBy) : '—'}
@@ -320,52 +366,157 @@ export default function Forecast({ household, accounts = [], transactions = [], 
             {hasBaseline ? `Baseline assumptions, applied to today's numbers, cross in ${planYear ?? '60+ yrs'}` : 'No baseline saved yet — set assumptions once to start comparing'}
           </div>
         </div>
-        <div style={{ padding: '0 24px', borderRight: '1px solid var(--rule)' }}>
+        <div className="fc-kpi">
           <div style={{ fontSize: 12, color: 'var(--ink2)' }}>{mode === 'real' ? 'Real return assumed' : 'Nominal return assumed'}</div>
           <div className="fig" style={{ fontSize: 28, marginTop: 6 }}>{(rate * 100).toFixed(1)}%</div>
           <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 5 }}>
             {mode === 'real' ? `${selNominalPct.toFixed(1)}% nominal less ${selInflationPct.toFixed(1)}% inflation` : `Before inflation of ${selInflationPct.toFixed(1)}%`}
           </div>
         </div>
-        <div style={{ paddingLeft: 24 }}>
+        <div className="fc-kpi">
           <div style={{ fontSize: 12, color: 'var(--ink2)' }}>Saving now</div>
-          <div className="fig" style={{ fontSize: 28, marginTop: 6 }}>{formatBalance(inputs.monthlySaving)}</div>
+          <div className="fig" style={{ fontSize: 28, marginTop: 6 }}>{money.fmtBalance(inputs.monthlySaving)}</div>
           <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 5 }}>A month, averaged over the last {inputs.monthCount} closed months</div>
         </div>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 40, gap: 16, flexWrap: 'wrap' }}>
-        <div className="ov-kicker">Projection</div>
-        <div className="ov-muted" style={{ fontSize: 11.5 }}>
-          {mode === 'real' ? 'Inflation stripped out · bars are net worth in what it buys today' : 'Nominal AED · bigger numbers, each one buying less'}
-        </div>
-      </div>
-
-      <section style={{ marginTop: 18 }}>
-        <div className="ov-chart">
-          {series.map((p, i) => {
-            const hit = p.value >= targetLine[i];
-            return (
-              <div key={p.year} className="ov-col" data-active={hit}>
-                <div className="ov-col-bars">
-                  <span className="ov-bar-inc" style={{ height: `${Math.max(2, (p.value / maxValue) * 100)}%`, opacity: hit ? 1 : 0.65 }} />
-                </div>
-                <div className="ov-col-label">{p.year}</div>
-              </div>
-            );
-          })}
-        </div>
-        <div style={{ display: 'flex', gap: 20, marginTop: 16, fontSize: 11.5, color: 'var(--ink2)', flexWrap: 'wrap' }}>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-            <span style={{ width: 9, height: 9, background: 'var(--accent)', display: 'block' }} />
-            Projected net worth, {mode === 'real' ? "today's money" : 'nominal AED'}
+      <section style={{ marginTop: 34 }}>
+        <div className="ov-kicker">What it would take</div>
+        <div className="fc-solve">
+          <span>To be independent by</span>
+          <span className="fc-solve-year">
+            <button
+              type="button"
+              className="fc-solve-step"
+              aria-label="One year earlier"
+              disabled={solveFor <= startYear + 1}
+              onClick={() => setSolveYear(solveFor - 1)}
+            >
+              −
+            </button>
+            <span className="fig" aria-live="polite">
+              {solveFor}
+            </span>
+            <button
+              type="button"
+              className="fc-solve-step"
+              aria-label="One year later"
+              disabled={solveFor >= startYear + SOLVE_MAX_YEARS}
+              onClick={() => setSolveYear(solveFor + 1)}
+            >
+              +
+            </button>
           </span>
-          <span className="ov-muted">Target {formatMoney(target)} · crosses {fireYear ?? 'beyond this projection'}</span>
-          {hasBaseline && <span className="ov-muted">Baseline crosses {planYear ?? 'beyond this projection'}</span>}
+          <span className="fc-solve-answer">
+            {requiredMonthly === 0 ? (
+              <>growth on today's net worth gets there with no further saving</>
+            ) : (
+              <>
+                save{' '}
+                <b className="fig">
+                  {money.code} {money.fmt(requiredMonthly)}
+                </b>{' '}
+                a month
+                <span className="ov-muted">
+                  {' · '}
+                  {extraMonthly > 0
+                    ? `${money.fmt(extraMonthly)} more than the ${money.fmtBalance(inputs.monthlySaving)} you save now`
+                    : extraMonthly < 0
+                      ? `${money.fmt(-extraMonthly)} less than you save now`
+                      : 'exactly what you save now'}
+                </span>
+              </>
+            )}
+          </span>
+        </div>
+        <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 8, lineHeight: 1.6, maxWidth: '84ch' }}>
+          Same assumptions as everything above, solved the other way round: from a chosen year back to the monthly saving, in today's
+          money.
         </div>
       </section>
 
-      <div className="ov-g2" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.1fr) minmax(0,1fr)', gap: 44, marginTop: 44 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 40, gap: 16, flexWrap: 'wrap' }}>
+        <div className="ov-kicker">Projection</div>
+        <div className="ov-muted" style={{ fontSize: 11.5 }}>
+          {mode === 'real' ? "Inflation stripped out · net worth in what it buys today" : `Nominal ${money.code} · bigger numbers, each one buying less`}
+        </div>
+      </div>
+
+      <section>
+        <ColumnChart
+          columns={columns}
+          series={PARTS}
+          reference={{ values: targetPath, label: 'Target' }}
+          height={220}
+          formatTick={money.fmtCompact}
+          labelEvery={5}
+          activeIndex={shownIdx}
+          onActiveChange={setActiveYear}
+          ariaLabel={`Projected net worth by year, ${startYear} to ${startYear + HORIZON_YEARS}, split into today's net worth, saving and growth, against the target. Use the arrow keys to move between years.`}
+        />
+        <div className="ov-chart-readout">
+          <span className="fig">{startYear + shownIdx}</span>
+          <span>
+            Projected <b className="fig">{money.fmtBalance(shown.value)}</b>
+          </span>
+          {PARTS.map((part) => (
+            <span key={part.key} className="ch-key">
+              <i className="ch-swatch" style={{ background: part.color }} />
+              {part.label} <b className="fig">{money.fmtBalance(shown[part.key])}</b>
+            </span>
+          ))}
+          <span className={shown.value >= shownTarget ? 'ov-pos' : undefined}>
+            {shown.value >= shownTarget ? 'Past the target' : `${formatPct(shown.value / shownTarget)} of the target`}
+          </span>
+        </div>
+        <ChartLegend
+          items={[
+            ...PARTS.map((part) => ({ label: part.label, color: part.color })),
+            {
+              label: `Target ${money.code} ${money.fmt(target)}${mode === 'real' ? '' : ' today, grown with inflation'} · crossed ${fireYear ?? 'beyond this projection'}${
+                hasBaseline ? ` · baseline crosses ${planYear ?? 'beyond this projection'}` : ''
+              }`,
+              color: 'var(--ink2)',
+              kind: 'line',
+            },
+          ]}
+        />
+        <details className="ch-table">
+          <summary>Year by year, as a table</summary>
+          <div className="ch-table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Year</th>
+                  {PARTS.map((part) => (
+                    <th key={part.key} scope="col">
+                      {part.label}
+                    </th>
+                  ))}
+                  <th scope="col">Projected</th>
+                  <th scope="col">Target</th>
+                </tr>
+              </thead>
+              <tbody>
+                {path.map((p, i) => (
+                  <tr key={p.yearsOut} data-active={i === shownIdx}>
+                    <td className="fig">{startYear + p.yearsOut}</td>
+                    {PARTS.map((part) => (
+                      <td key={part.key} className="fig">
+                        {money.fmtBalance(p[part.key])}
+                      </td>
+                    ))}
+                    <td className="fig">{money.fmtBalance(p.value)}</td>
+                    <td className="fig ov-muted">{money.fmt(targetPath[i])}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      </section>
+
+      <div className="fc-g2">
         <div>
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 14, gap: 14 }}>
             <div className="ov-kicker">Assumed vs actual</div>
@@ -382,9 +533,9 @@ export default function Forecast({ household, accounts = [], transactions = [], 
                     <div className="ov-muted" style={{ marginTop: 3, fontSize: 11.5 }}>Baseline vs the last {inputs.monthCount} months, actual</div>
                   </div>
                   <div style={{ display: 'flex', gap: 20, alignItems: 'baseline' }}>
-                    <span className="ov-muted fig">{formatBalance(assumptions.baseline_monthly_saving)}</span>
+                    <span className="ov-muted fig">{money.fmtBalance(assumptions.baseline_monthly_saving)}</span>
                     <span className={`fig ${inputs.monthlySaving >= Number(assumptions.baseline_monthly_saving) ? 'ov-pos' : 'ov-neg'}`}>
-                      {formatBalance(inputs.monthlySaving)}
+                      {money.fmtBalance(inputs.monthlySaving)}
                     </span>
                   </div>
                 </div>

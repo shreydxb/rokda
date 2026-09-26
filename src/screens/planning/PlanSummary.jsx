@@ -2,9 +2,9 @@ import { useMemo } from 'react';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
 import { formatMoney, formatPct } from '../../lib/money';
-import { goalProgress } from '../../lib/goals';
+import { scopedGoalRows } from '../../lib/goals';
 import { orderDebts, simulatePayoffPlan } from '../../lib/debt';
-import { closedMonths, crossingYear, fiTarget, forecastInputs } from '../../lib/forecast';
+import { closedMonths, crossingYear, fiTarget, forecastInputs, realReturn } from '../../lib/forecast';
 import { incompleteNote, netWorthSummary, startingNetWorth } from '../overviewMath';
 
 const DEFAULTS = { nominal_return_pct: 6.0, inflation_pct: 2.5, safe_withdrawal_pct: 4.0 };
@@ -21,24 +21,26 @@ function monthsToLabel(months) {
 // Composes the same goal/debt/forecast outputs Goals, DebtPayoff and Forecast
 // already compute — no new financial math lives here, just a next-action read.
 export default function PlanSummary({ members, me, accounts, transactions, holdings, data, loading, onOpenTab }) {
-  const { goals, goalContributions, debts, assumptions } = data;
+  const { goals, goalContributions, goalAllocations, debts, assumptions } = data;
   const { scope } = useScope();
   const scopeMemberId = resolveScopeMemberId(scope, me, members);
   const now = useMemo(() => new Date(), []);
 
+  // Same rows the Goals tab shows, linked accounts and holdings included.
+  // This card used to leave them out, so for a goal funded from an account it
+  // showed less saved, and more goals behind, than the tab it links to.
   const goalRows = useMemo(
     () =>
-      goals
-        .filter((g) => scopeMemberId === null || g.is_shared || g.owner_member_id === scopeMemberId)
-        .map((g) => {
-          const factor = scopeMemberId === null || !g.is_shared ? 1 : 0.5;
-          const scopedGoal = { ...g, target_amount: Number(g.target_amount) * factor };
-          const contributions = goalContributions
-            .filter((c) => c.goal_id === g.id)
-            .map((c) => ({ ...c, amount: Number(c.amount) * factor }));
-          return { goal: g, progress: goalProgress(scopedGoal, contributions, now) };
-        }),
-    [goals, goalContributions, scopeMemberId, now]
+      scopedGoalRows({
+        goals,
+        contributions: goalContributions,
+        allocations: goalAllocations ?? [],
+        accounts: accounts ?? [],
+        holdings: holdings ?? [],
+        scopeMemberId,
+        now,
+      }),
+    [goals, goalContributions, goalAllocations, accounts, holdings, scopeMemberId, now]
   );
   const goalsSaved = goalRows.reduce((s, r) => s + r.progress.saved, 0);
   const goalsTarget = goalRows.reduce((s, r) => s + r.progress.target, 0);
@@ -48,10 +50,18 @@ export default function PlanSummary({ members, me, accounts, transactions, holdi
     () =>
       debts
         .filter((d) => scopeMemberId === null || d.is_shared || d.owner_member_id === scopeMemberId)
-        .map((d) => ({ ...d, balance: Number(d.balance) * (scopeMemberId === null || !d.is_shared ? 1 : 0.5) })),
+        .map((d) => {
+          const factor = scopeMemberId === null || !d.is_shared ? 1 : 0.5;
+          return { ...d, balance: Number(d.balance) * factor, original_amount: d.original_amount != null ? Number(d.original_amount) * factor : null };
+        }),
     [debts, scopeMemberId]
   );
   const totalOwed = visibleDebts.reduce((s, d) => s + Number(d.balance), 0);
+  // Paid down so far, over the debts whose original amount is known -- the
+  // same per-debt "paid down" the Debt payoff tab draws, summed.
+  const withOriginal = visibleDebts.filter((d) => d.original_amount > 0);
+  const originalTotal = withOriginal.reduce((s, d) => s + d.original_amount, 0);
+  const paidDown = originalTotal > 0 ? Math.max(0, 1 - withOriginal.reduce((s, d) => s + d.balance, 0) / originalTotal) : null;
 
   const orderedFull = useMemo(() => orderDebts(debts, 'avalanche'), [debts]);
   const extraPayment = assumptions?.debt_extra_payment != null ? Number(assumptions.debt_extra_payment) : null;
@@ -78,7 +88,7 @@ export default function PlanSummary({ members, me, accounts, transactions, holdi
         startYear: now.getFullYear(),
         startNetWorth,
         annualSaving: forecast.monthlySaving * 12,
-        rate: (1 + nominalPct / 100) / (1 + inflationPct / 100) - 1,
+        rate: realReturn(nominalPct, inflationPct),
         mode: 'real',
         inflationPct,
         goal: fireTarget,
@@ -134,10 +144,11 @@ export default function PlanSummary({ members, me, accounts, transactions, holdi
 
   return (
     <div>
-      <section className="ov-quality-grid" style={{ marginTop: 22 }}>
+      <section className="ov-quality-grid" style={{ marginTop: 22, rowGap: 26 }}>
         <SummaryCard
           label="Goals"
           figure={goalRows.length > 0 ? formatMoney(goalsSaved) : '—'}
+          progress={goalRows.length > 0 && goalsTarget > 0 ? goalsSaved / goalsTarget : null}
           note={goalRows.length > 0 ? `of ${formatMoney(goalsTarget)} target · ${goalRows.length} goal${goalRows.length === 1 ? '' : 's'}` : 'No goals yet'}
           cta="Goals"
           onClick={() => onOpenTab('goals')}
@@ -145,6 +156,8 @@ export default function PlanSummary({ members, me, accounts, transactions, holdi
         <SummaryCard
           label="Debt payoff"
           figure={visibleDebts.length > 0 ? `−${formatMoney(totalOwed)}` : '—'}
+          progress={paidDown}
+          progressLabel={paidDown !== null ? `${formatPct(paidDown)} paid down` : null}
           note={
             visibleDebts.length === 0
               ? 'No debts on record'
@@ -160,6 +173,7 @@ export default function PlanSummary({ members, me, accounts, transactions, holdi
         <SummaryCard
           label="Independence"
           figure={forecast.ready ? String(fireYear ?? '60+ yrs out') : '—'}
+          progress={forecast.ready && fireTarget > 0 ? startNetWorth / fireTarget : null}
           note={
             forecast.ready
               ? // The progress figure rests on a net worth that skips any
@@ -206,7 +220,7 @@ export default function PlanSummary({ members, me, accounts, transactions, holdi
   );
 }
 
-function SummaryCard({ label, figure, note, cta, onClick }) {
+function SummaryCard({ label, figure, note, cta, onClick, progress = null, progressLabel = null }) {
   return (
     <div style={{ cursor: 'pointer' }} onClick={onClick} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && onClick()}>
       <div className="ov-quality-row">
@@ -214,7 +228,15 @@ function SummaryCard({ label, figure, note, cta, onClick }) {
         <span className="ov-link">{cta} →</span>
       </div>
       <div className="fig" style={{ fontSize: 22, marginTop: 8 }}>{figure}</div>
-      <div className="ov-muted ov-quality-note" style={{ marginTop: 5 }}>{note}</div>
+      {progress !== null && (
+        <div className="bud-bar" style={{ marginTop: 10, height: 4 }} aria-hidden="true">
+          <span className="bud-bar-spent" style={{ width: `${Math.max(0, Math.min(1, progress)) * 100}%` }} />
+        </div>
+      )}
+      <div className="ov-muted ov-quality-note" style={{ marginTop: 7 }}>
+        {note}
+        {progressLabel && ` · ${progressLabel}`}
+      </div>
     </div>
   );
 }

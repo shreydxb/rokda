@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react';
-import { formatBalance, formatMoney, formatSigned } from './money';
+import { formatBalance, formatCompact, formatMoney, formatSigned } from './money';
 import { CURRENCIES, convertFromAed, currencyAvailable, rateNote } from './currency';
 
 const CurrencyContext = createContext(undefined);
@@ -54,5 +54,12 @@ export function useMoneyDisplay(household) {
     return formatSigned(converted ?? amountAed, opts);
   }
 
-  return { currency, setCurrency, code, fallback: !available, fmt, fmtBalance, fmtSigned, rateNote: rateNote(code, household) };
+  // Abbreviated (1.2M), for chart axes -- the same conversion as the rest, so
+  // an axis never reads in one currency while its figures read in another.
+  function fmtCompact(amountAed) {
+    const converted = convertFromAed(amountAed, code, household);
+    return formatCompact(converted ?? amountAed);
+  }
+
+  return { currency, setCurrency, code, fallback: !available, fmt, fmtBalance, fmtSigned, fmtCompact, rateNote: rateNote(code, household) };
 }

@@ -2,8 +2,7 @@ import { useMemo, useState } from 'react';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
 import { formatMoney } from '../../lib/money';
-import { goalProgress, lastContributionLabel } from '../../lib/goals';
-import { accountValueAed } from '../../lib/accounts';
+import { lastContributionLabel, scopedGoalRows } from '../../lib/goals';
 import GoalEditor from './GoalEditor';
 
 const STATUS_CHIP = { funded: 'ov-chip-ok', track: 'ov-chip-ok', ahead: 'ov-chip-ok', behind: 'ov-chip-warn' };
@@ -15,46 +14,30 @@ export default function Goals({ household, members, me, accounts, holdings, data
   const [editing, setEditing] = useState(null);
   const now = useMemo(() => new Date(), []);
 
-  // A linked account/holding's current value (which already includes FD
-  // interest or investment growth) counts toward a goal at whatever share
-  // was earmarked for it -- real money already sitting somewhere, not a
-  // contribution event.
-  function allocatedValueFor(goalId) {
-    return (goalAllocations ?? [])
-      .filter((a) => a.goal_id === goalId)
-      .reduce((sum, a) => {
-        const source = a.account_id ? (accounts ?? []).find((acc) => acc.id === a.account_id) : (holdings ?? []).find((h) => h.id === a.holding_id);
-        // An account earmarked for a goal but never converted to AED counts
-        // as nothing toward it, rather than counting its native amount as
-        // dirhams (QA #4) -- an INR 20,000 savings account was crediting a
-        // goal with AED 20,000. Zero understates; the old fallback
-        // overstated by the exchange rate and looked authoritative.
-        const value = a.account_id ? (accountValueAed(source) ?? 0) : Number(source?.value_aed ?? 0);
-        return sum + (value * Number(a.share_pct)) / 100;
-      }, 0);
-  }
-
-  // A shared goal counts half toward each individual scope, same as every
-  // other joint figure in the app, so "Me" plus "Aparna" reconciles to "Both".
+  // The same derivation the Plan summary uses (lib/goals), so the two tabs
+  // agree on what is saved and which goals are behind.
   const rows = useMemo(
     () =>
-      goals
-        .filter((g) => scopeMemberId === null || g.is_shared || g.owner_member_id === scopeMemberId)
-        .map((g) => {
-          const factor = scopeMemberId === null || !g.is_shared ? 1 : 0.5;
-          const scopedGoal = { ...g, target_amount: Number(g.target_amount) * factor };
-          const contributions = goalContributions
-            .filter((c) => c.goal_id === g.id)
-            .map((c) => ({ ...c, amount: Number(c.amount) * factor }));
-          const allocatedValue = allocatedValueFor(g.id) * factor;
-          return { goal: g, contributions, progress: goalProgress(scopedGoal, contributions, now, allocatedValue) };
-        }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+      scopedGoalRows({
+        goals,
+        contributions: goalContributions,
+        allocations: goalAllocations ?? [],
+        accounts: accounts ?? [],
+        holdings: holdings ?? [],
+        scopeMemberId,
+        now,
+      }),
     [goals, goalContributions, goalAllocations, accounts, holdings, scopeMemberId, now]
   );
 
   const totalSaved = rows.reduce((s, r) => s + r.progress.saved, 0);
   const totalTarget = rows.reduce((s, r) => s + r.progress.target, 0);
+  // Only goals with a date still ahead have a monthly figure to add up; one
+  // already past its date needs its whole remainder now, which is a lump sum,
+  // not a rate.
+  const dated = rows.filter((r) => r.need && !r.need.due);
+  const combinedNeed = dated.reduce((s, r) => s + r.need.perMonth, 0);
+  const combinedPace = dated.reduce((s, r) => s + (r.progress.monthlyRate ?? 0), 0);
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
 
@@ -76,9 +59,25 @@ export default function Goals({ household, members, me, accounts, holdings, data
         </div>
       ) : (
         <>
+          <section className="gl-summary">
+            <div className="bud-bar bud-bar-lg">
+              <span className="bud-bar-spent" style={{ width: `${totalTarget > 0 ? Math.min(100, (totalSaved / totalTarget) * 100) : 0}%` }} />
+            </div>
+            <div className="gl-summary-row">
+              <span>
+                <b className="fig">{totalTarget > 0 ? Math.round(Math.min(1, totalSaved / totalTarget) * 100) : 0}%</b> of all goal targets saved
+              </span>
+              {dated.length > 0 && (
+                <span>
+                  {dated.length === 1 ? 'The dated goal needs' : `${dated.length} dated goals need`}{' '}
+                  <b className="fig">{formatMoney(combinedNeed)}</b> a month · recent pace <b className="fig">{formatMoney(combinedPace)}</b>
+                </span>
+              )}
+            </div>
+          </section>
           <section style={{ marginTop: 22 }}>
             <div className="mn-list">
-              {rows.map(({ goal, progress }) => (
+              {rows.map(({ goal, progress, need }) => (
                 <button key={goal.id} type="button" className="mn-row" onClick={() => setEditing(goal)} style={{ alignItems: 'flex-start' }}>
                   <div className="mn-row-main">
                     <div>{goal.name}</div>
@@ -92,6 +91,7 @@ export default function Goals({ household, members, me, accounts, holdings, data
                         {Math.round(progress.pct * 100)}% funded · last paid in {lastContributionLabel(progress.lastContribution)}
                       </div>
                     </div>
+                    {need && <GoalNeed need={need} behind={progress.status === 'behind'} />}
                   </div>
                   <div style={{ textAlign: 'right', flex: 'none' }}>
                     <div className="fig mn-row-amt">{formatMoney(progress.saved)}</div>
@@ -110,7 +110,8 @@ export default function Goals({ household, members, me, accounts, holdings, data
           </section>
           <div className="ov-muted" style={{ marginTop: 14, fontSize: 11.5, lineHeight: 1.65, maxWidth: '80ch' }}>
             Target dates project the recent contribution rate forward. They come from what has actually been transferred, not from a
-            commitment, and they move whenever a contribution is missed.
+            commitment, and they move whenever a contribution is missed. The monthly figure works the other way: what is left, spread
+            over the whole months to the target date, with no investment growth assumed.
           </div>
         </>
       )}
@@ -131,6 +132,28 @@ export default function Goals({ household, members, me, accounts, holdings, data
           }}
         />
       )}
+    </div>
+  );
+}
+
+// The target date's side of the question: what it needs each month from now.
+// Coloured only when the status chip already says Behind, so the two never
+// contradict each other near the edge of the on-track tolerance.
+function GoalNeed({ need, behind }) {
+  if (need.due) {
+    return (
+      <div className="gl-need" data-behind={need.remaining > 0}>
+        <b className="fig">{formatMoney(need.remaining)}</b> still needed · the target date of {need.byLabel} has arrived
+      </div>
+    );
+  }
+  return (
+    <div className="gl-need" data-behind={behind}>
+      Needs <b className="fig">{formatMoney(need.perMonth)}</b> a month to reach it by {need.byLabel}
+      <span className="ov-muted">
+        {' '}
+        · {need.monthsLeft} month{need.monthsLeft === 1 ? '' : 's'} left
+      </span>
     </div>
   );
 }

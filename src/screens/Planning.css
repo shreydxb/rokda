@@ -6,3 +6,154 @@
   padding-bottom: 26px;
   border-bottom: 1px solid var(--rule);
 }
+
+/* Goals: all targets at a glance, above the per-goal rows. */
+.gl-summary {
+  margin-top: 22px;
+}
+.gl-summary-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px 24px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--ink3);
+}
+.gl-summary-row b {
+  color: var(--ink);
+  font-weight: 400;
+  font-size: 14px;
+}
+.gl-need {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--ink2);
+}
+.gl-need b {
+  color: var(--ink);
+  font-weight: 400;
+  font-size: 13.5px;
+}
+.gl-need[data-behind='true'] b {
+  color: var(--warn);
+}
+
+/* Forecast: what a chosen independence year would take. */
+.fc-solve {
+  display: flex;
+  align-items: center;
+  gap: 10px 14px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--rule2);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+}
+.fc-solve-year {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.fc-solve-year .fig {
+  font-size: 18px;
+  min-width: 3.2em;
+  text-align: center;
+}
+.fc-solve-step {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--rule2);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--ink2);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+}
+.fc-solve-step:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: var(--ink3);
+}
+.fc-solve-step:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.fc-solve-answer b {
+  font-weight: 400;
+  font-size: 16px;
+}
+
+/* Forecast headline figures: four across, two by two on a phone (four
+   across overflowed a 390px screen). */
+.fc-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 32px;
+}
+.fc-kpi {
+  padding: 0 24px;
+  border-right: 1px solid var(--rule);
+}
+.fc-kpi:first-child {
+  padding-left: 0;
+}
+.fc-kpi:last-child {
+  border-right: none;
+}
+.fc-g2 {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: 44px;
+  margin-top: 44px;
+}
+@media (max-width: 820px) {
+  .fc-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: 24px;
+  }
+  .fc-kpi:nth-child(odd) {
+    padding-left: 0;
+  }
+  .fc-kpi:nth-child(even) {
+    border-right: none;
+    padding-right: 0;
+  }
+  .fc-g2 {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 32px;
+  }
+}
+
+/* Drawdown: the what-if controls under the headline. */
+.dd-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 24px;
+}
+.dd-control {
+  display: flex;
+  align-items: center;
+  gap: 8px 12px;
+  flex-wrap: wrap;
+}
+.dd-label {
+  min-width: 190px;
+  font-size: 11.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink3);
+}
+.dd-segs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+@media (max-width: 820px) {
+  .dd-label {
+    min-width: 100%;
+  }
+}

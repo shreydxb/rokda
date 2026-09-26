@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { LineChart } from '../../charts/Charts';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId, scopedValue } from '../../lib/scope';
 import { accountValueAed, isArchived, unvaluedAccounts } from '../../lib/accounts';
@@ -109,7 +110,6 @@ export default function NetWorth({ household, me, members, data, loading }) {
   );
   const change1mo = historyAvailable ? changeOverMonths(series, 1) : null;
   const change12mo = historyAvailable ? changeOverMonths(series, 12) : null;
-  const maxNet = Math.max(1, ...series.map((p) => Math.max(p.net, 0)));
   const pending = pendingClose(netWorthSnapshots, now);
 
   // Closing is a two-step, explicit act (SHR-246): the button only opens a
@@ -393,26 +393,18 @@ export default function NetWorth({ household, me, members, data, loading }) {
           </div>
         ) : (
           <>
-            <div className="ov-chart" style={{ gap: series.length > 8 ? 4 : 12 }}>
-              {series.map((p, i) => (
-                <button
-                  key={p.label + i}
-                  type="button"
-                  className="ov-col"
-                  data-active={(selectedIdx ?? series.length - 1) === i}
-                  onClick={() => setSelectedIdx(i)}
-                  aria-label={`${p.label}: net worth ${money.fmtBalance(p.net)}`}
-                >
-                  <div className="ov-col-bars">
-                    <span
-                      className="ov-bar-inc"
-                      style={{ height: `${Math.max(2, (p.net / maxNet) * 100)}%`, opacity: p.isLive ? 1 : 0.7 }}
-                    />
-                  </div>
-                  <div className="ov-col-label">{p.label}</div>
-                </button>
-              ))}
-            </div>
+            {/* A line, not bars: this is one quantity changing over time, and it
+                can go below zero. The bars floored every negative month at a 2%
+                sliver, drawing net debt as a small positive net worth. */}
+            <LineChart
+              points={series.map((p, i) => ({ key: p.label + i, label: p.label, value: p.net }))}
+              height={170}
+              formatTick={money.fmtCompact}
+              labelEvery={Math.max(1, Math.ceil(series.length / 8))}
+              activeIndex={selectedIdx ?? series.length - 1}
+              onActiveChange={setSelectedIdx}
+              ariaLabel="Net worth at each closed month, and this month live. Use the arrow keys to move between months."
+            />
             {selected && (
               <div className="ov-chart-readout">
                 <span className="fig">{selected.label}</span>

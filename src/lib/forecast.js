@@ -75,14 +75,6 @@ function goalAt(years, goal, mode, inflationPct) {
   return mode === 'real' ? goal : goal * (1 + inflationPct / 100) ** years;
 }
 
-export function projectSeries({ startYear, startNetWorth, annualSaving, rate, mode, inflationPct, horizonYears = 30, step = 3 }) {
-  const points = [];
-  for (let n = 0; n <= horizonYears; n += step) {
-    points.push({ year: startYear + n, yearsOut: n, value: futureValue(n, rate, startNetWorth, annualSaving, mode, inflationPct) });
-  }
-  return points;
-}
-
 // First year the projection reaches the goal, or null if it doesn't within
 // maxYears — an honest "beyond what's shown" rather than an invented date.
 export function crossingYear({ startYear, startNetWorth, annualSaving, rate, mode, inflationPct, goal, maxYears = 60 }) {
@@ -134,4 +126,83 @@ export function scenarioSets(assumptions, defaults) {
   };
 }
 
+// Year-by-year path of a projection, split into what it is made of: the
+// starting net worth, the saving added on top of it, and the growth on both.
+// The same loop as futureValue, so `value` is identical to it for every year
+// and the three parts always add up to `value`.
+export function projectYears({ startNetWorth, annualSaving, rate, mode, inflationPct, years }) {
+  const inflation = inflationPct / 100;
+  let value = startNetWorth;
+  let saved = 0;
+  const out = [{ yearsOut: 0, value, start: startNetWorth, saved: 0, growth: 0 }];
+  for (let i = 0; i < years; i++) {
+    const added = annualSaving * (mode === 'real' ? 1 : (1 + inflation) ** (i + 1));
+    value = value * (1 + rate) + added;
+    saved += added;
+    out.push({ yearsOut: i + 1, value, start: startNetWorth, saved, growth: value - startNetWorth - saved });
+  }
+  return out;
+}
+
+// The saving a year it would take to reach the goal in exactly `years` --
+// the solve-for-the-payment direction of crossingYear. The projection is
+// linear in the saving, value = start's growth + saving x (what one unit a
+// year compounds to), so this is exact rather than a search. In nominal mode
+// the saving grows with inflation exactly as it does in the projection, so
+// the figure is in today's money either way.
+//
+// 0 when growth on the starting net worth gets there alone; null when there
+// is no year to solve for.
+export function requiredAnnualSaving({ startNetWorth, rate, mode, inflationPct, goal, years }) {
+  if (!(years > 0)) return null;
+  const fromStart = futureValue(years, rate, startNetWorth, 0, mode, inflationPct);
+  const perUnit = futureValue(years, rate, 0, 1, mode, inflationPct);
+  const needed = goalAt(years, goal, mode, inflationPct) - fromStart;
+  if (needed <= 0) return 0;
+  return needed / perUnit;
+}
+
 export { goalAt, futureValue };
+
+// The other side of independence: a pot being spent. Everything here is in
+// today's money -- the withdrawal stays the same real amount every year and
+// the pot grows at the real return -- which is the same as a withdrawal
+// rising with inflation on a pot growing at the nominal return.
+//
+// Each year's spending comes out at the start of the year and the rest grows.
+// A year the pot cannot fully cover takes what is left and the pot is empty
+// from then on; `lastsYears` counts the years that were covered in full, or is
+// null when the pot never runs short inside `maxYears`.
+export function drawdownPath({ start, annualWithdrawal, rate, maxYears = 60 }) {
+  const path = [{ year: 0, balance: start, withdrawn: 0, growth: 0 }];
+  let balance = start;
+  let lastsYears = null;
+  for (let y = 1; y <= maxYears; y++) {
+    const withdrawn = Math.min(annualWithdrawal, Math.max(0, balance));
+    const after = balance - withdrawn;
+    const growth = after > 0 ? after * rate : 0;
+    balance = Math.max(0, after + growth);
+    path.push({ year: y, balance, withdrawn, growth });
+    // A shortfall under a thousandth of a unit is float noise, not a year the
+    // pot failed to cover.
+    if (lastsYears === null && withdrawn < annualWithdrawal - 1e-3) lastsYears = y - 1;
+  }
+  return { path, lastsYears };
+}
+
+// The most a pot can pay out each year, in today's money, and run out after
+// exactly `years` -- the annuity-due payment, since each year's spending comes
+// out at its start.
+export function sustainableWithdrawal({ start, rate, years }) {
+  if (!(years > 0) || start <= 0) return 0;
+  if (rate === 0) return start / years;
+  return (start * rate) / ((1 + rate) * (1 - (1 + rate) ** -years));
+}
+
+// The pot a yearly spend needs to last `years`: the inverse of
+// sustainableWithdrawal.
+export function potForWithdrawal({ annualWithdrawal, rate, years }) {
+  if (!(years > 0) || annualWithdrawal <= 0) return 0;
+  if (rate === 0) return annualWithdrawal * years;
+  return (annualWithdrawal * (1 + rate) * (1 - (1 + rate) ** -years)) / rate;
+}
