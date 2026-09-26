@@ -114,6 +114,7 @@ const SUBVIEWS = [
   { name: 'forecast', path: '/planning', tabs: ['Forecast'], expectText: 'What it would take' },
   { name: 'goals', path: '/planning', tabs: ['Goals'], expectText: 'a month to reach it by' },
   { name: 'budget-year', path: '/money', tabs: ['Budget', 'Year'], expectText: 'Net saved each month' },
+  { name: 'drawdown', path: '/planning', tabs: ['Drawdown'], expectText: 'How long it lasts' },
 ];
 
 function closedMonthsOfHistory() {

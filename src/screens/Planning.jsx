@@ -6,6 +6,7 @@ import PlanSummary from './planning/PlanSummary';
 import Goals from './planning/Goals';
 import DebtPayoff from './planning/DebtPayoff';
 import Forecast from './planning/Forecast';
+import Drawdown from './planning/Drawdown';
 import LoadFailure from './LoadFailure';
 import './Planning.css';
 
@@ -14,6 +15,7 @@ const TABS = [
   { id: 'goals', label: 'Goals' },
   { id: 'debt', label: 'Debt payoff' },
   { id: 'forecast', label: 'Forecast' },
+  { id: 'drawdown', label: 'Drawdown' },
 ];
 
 export default function Planning() {
@@ -74,6 +76,17 @@ export default function Planning() {
           holdings={overview.holdings}
           data={planning}
           loading={loading}
+        />
+      )}
+      {tab === 'drawdown' && (
+        <Drawdown
+          household={household}
+          accounts={overview.accounts}
+          transactions={overview.transactions}
+          holdings={overview.holdings}
+          data={planning}
+          loading={loading}
+          onOpenTab={setTab}
         />
       )}
     </div>

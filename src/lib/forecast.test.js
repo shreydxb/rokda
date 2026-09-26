@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { closedMonths, crossingYear, futureValue, projectYears, realReturn, requiredAnnualSaving, scenarioSets } from './forecast';
+import { closedMonths, crossingYear, drawdownPath, futureValue, potForWithdrawal, projectYears, realReturn, requiredAnnualSaving, scenarioSets, sustainableWithdrawal } from './forecast';
 
 const DEFAULTS = { nominal_return_pct: 6.0, inflation_pct: 2.5, safe_withdrawal_pct: 4.0 };
 
@@ -124,5 +124,48 @@ describe('requiredAnnualSaving: what a chosen independence year takes', () => {
   it('is zero when growth alone gets there, and null with no year to solve', () => {
     expect(requiredAnnualSaving({ ...base, startNetWorth: 1900000, mode: 'real', years: 10 })).toBe(0);
     expect(requiredAnnualSaving({ ...base, mode: 'real', years: 0 })).toBeNull();
+  });
+});
+
+describe('drawdown: how long a pot lasts', () => {
+  it('covers whole years and then runs out', () => {
+    // 100 at 0% paying 30 a year: three full years, a fourth only in part.
+    const { path, lastsYears } = drawdownPath({ start: 100, annualWithdrawal: 30, rate: 0, maxYears: 10 });
+    expect(lastsYears).toBe(3);
+    expect(path[4].withdrawn).toBe(10);
+    expect(path[5].balance).toBe(0);
+  });
+
+  it('never runs out when growth outpaces spending', () => {
+    const { lastsYears, path } = drawdownPath({ start: 1000000, annualWithdrawal: 20000, rate: 0.04, maxYears: 60 });
+    expect(lastsYears).toBeNull();
+    expect(path[60].balance).toBeGreaterThan(1000000);
+  });
+
+  it('agrees with the closed form for how long a pot lasts', () => {
+    // n = −ln(1 − P·r / (w·(1+r))) / ln(1+r): 25× spend at a 3.4% real return
+    // covers 51 full years.
+    const rate = realReturn(6, 2.5);
+    const n = -Math.log(1 - (25 * rate) / (1 + rate)) / Math.log(1 + rate);
+    const { lastsYears } = drawdownPath({ start: 25 * 40000, annualWithdrawal: 40000, rate, maxYears: 80 });
+    expect(lastsYears).toBe(Math.floor(n));
+    expect(lastsYears).toBe(51);
+  });
+
+  it('the sustainable withdrawal empties the pot in exactly that many years', () => {
+    const rate = realReturn(6, 2.5);
+    for (const years of [20, 30, 45]) {
+      const w = sustainableWithdrawal({ start: 1000000, rate, years });
+      expect(drawdownPath({ start: 1000000, annualWithdrawal: w * 0.999999, rate, maxYears: 60 }).lastsYears).toBe(years);
+      expect(drawdownPath({ start: 1000000, annualWithdrawal: w * 1.001, rate, maxYears: 60 }).lastsYears).toBe(years - 1);
+      expect(potForWithdrawal({ annualWithdrawal: w, rate, years })).toBeCloseTo(1000000, 4);
+    }
+  });
+
+  it('handles a zero return and an empty pot', () => {
+    expect(sustainableWithdrawal({ start: 300000, rate: 0, years: 30 })).toBe(10000);
+    expect(potForWithdrawal({ annualWithdrawal: 10000, rate: 0, years: 30 })).toBe(300000);
+    expect(drawdownPath({ start: 0, annualWithdrawal: 1000, rate: 0.03 }).lastsYears).toBe(0);
+    expect(sustainableWithdrawal({ start: -5, rate: 0.03, years: 10 })).toBe(0);
   });
 });

@@ -163,3 +163,46 @@ export function requiredAnnualSaving({ startNetWorth, rate, mode, inflationPct, 
 }
 
 export { goalAt, futureValue };
+
+// The other side of independence: a pot being spent. Everything here is in
+// today's money -- the withdrawal stays the same real amount every year and
+// the pot grows at the real return -- which is the same as a withdrawal
+// rising with inflation on a pot growing at the nominal return.
+//
+// Each year's spending comes out at the start of the year and the rest grows.
+// A year the pot cannot fully cover takes what is left and the pot is empty
+// from then on; `lastsYears` counts the years that were covered in full, or is
+// null when the pot never runs short inside `maxYears`.
+export function drawdownPath({ start, annualWithdrawal, rate, maxYears = 60 }) {
+  const path = [{ year: 0, balance: start, withdrawn: 0, growth: 0 }];
+  let balance = start;
+  let lastsYears = null;
+  for (let y = 1; y <= maxYears; y++) {
+    const withdrawn = Math.min(annualWithdrawal, Math.max(0, balance));
+    const after = balance - withdrawn;
+    const growth = after > 0 ? after * rate : 0;
+    balance = Math.max(0, after + growth);
+    path.push({ year: y, balance, withdrawn, growth });
+    // A shortfall under a thousandth of a unit is float noise, not a year the
+    // pot failed to cover.
+    if (lastsYears === null && withdrawn < annualWithdrawal - 1e-3) lastsYears = y - 1;
+  }
+  return { path, lastsYears };
+}
+
+// The most a pot can pay out each year, in today's money, and run out after
+// exactly `years` -- the annuity-due payment, since each year's spending comes
+// out at its start.
+export function sustainableWithdrawal({ start, rate, years }) {
+  if (!(years > 0) || start <= 0) return 0;
+  if (rate === 0) return start / years;
+  return (start * rate) / ((1 + rate) * (1 - (1 + rate) ** -years));
+}
+
+// The pot a yearly spend needs to last `years`: the inverse of
+// sustainableWithdrawal.
+export function potForWithdrawal({ annualWithdrawal, rate, years }) {
+  if (!(years > 0) || annualWithdrawal <= 0) return 0;
+  if (rate === 0) return annualWithdrawal * years;
+  return (annualWithdrawal * (1 + rate) * (1 - (1 + rate) ** -years)) / rate;
+}
