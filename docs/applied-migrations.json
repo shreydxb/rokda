@@ -256,5 +256,17 @@
   "name": "last_owner_race",
   "fingerprint": "36960228cbece9b0b1ccd35e93a186e0",
   "fingerprintVersion": 2
+ },
+ {
+  "version": "20260926083525",
+  "name": "independence_income",
+  "fingerprint": "0651e3eb9231d1a6a4d2cafc96f896e1",
+  "fingerprintVersion": 2
+ },
+ {
+  "version": "20260926094558",
+  "name": "category_is_savings",
+  "fingerprint": "11f08bc3345e573fc6c43ed0394cae92",
+  "fingerprintVersion": 2
  }
 ]
