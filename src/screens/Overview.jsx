@@ -5,7 +5,7 @@ import { useScope } from '../lib/ScopeContext';
 import { resolveScopeMemberId } from '../lib/scope';
 import { formatBalance, formatMoney, formatSigned, formatPct } from '../lib/money';
 import { PERIOD_LABELS } from '../lib/period';
-import { upcomingItems } from '../lib/recurring';
+import { nativeAmountLabel, upcomingItems } from '../lib/recurring';
 import { buildNetWorthSeries, changeOverMonths } from '../lib/netWorth';
 import { buildAttentionItems } from '../lib/attention';
 import { useMoneyDisplay } from '../lib/CurrencyContext';
@@ -440,6 +440,7 @@ export default function Overview() {
                       <div className="ov-muted">{r.dueDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</div>
                       <div className="ov-next30-name">{r.name}</div>
                       <div className={`fig ov-next30-amt ${Number(r.amount) > 0 ? 'ov-pos' : ''}`}>{formatSigned(r.amount)}</div>
+                      {nativeAmountLabel(r) && <div className="ov-muted">{nativeAmountLabel(r)}</div>}
                       <div className={Number(r.amount) < 0 && !r.autopay ? 'ov-warn' : 'ov-muted'}>
                         {Number(r.amount) > 0 ? 'expected' : r.autopay ? 'autopay' : 'no autopay'}
                       </div>

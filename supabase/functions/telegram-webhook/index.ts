@@ -1048,19 +1048,17 @@ async function toolGetUpcomingBills(householdId: string, scopeMemberId: string |
   const visibleRecurring = (recurring ?? []).filter(
     (r: { is_shared: boolean; owner_member_id: string | null }) => scopeMemberId === null || r.is_shared || r.owner_member_id === scopeMemberId
   );
-  // A recurring row carries its own currency and there is no converted column
-  // for it anywhere, so a non-AED bill has no AED amount -- the same position
-  // a never-converted account is in. Labelling its native figure `amount_aed`
-  // is the "10,000 rupees counted as 10,000 dirhams" defect (QA #4), and this
-  // sum feeds the cash-cover verdict, so it is stated as unknown instead.
+  // `amount` is always AED: for a bill in rupees or dollars the database
+  // computes it from `native_amount` (the rupee rate follows households'),
+  // so a premium of 89,554 rupees is never counted as 89,554 dirhams (QA #4).
+  // The figure actually owed is passed alongside in its own currency.
   const bills = upcomingItems(visibleRecurring as never, 14, now).map(
-    (r: { name: string; amount: number; currency: string | null; dueDate: Date }) => {
-      const native = round2(Math.abs(Number(r.amount)));
+    (r: { name: string; amount: number; currency: string | null; native_amount: number | null; dueDate: Date }) => {
       const isAed = String(r.currency ?? "AED").toUpperCase() === "AED";
       return {
         name: r.name,
-        amount_aed: isAed ? native : null,
-        ...(isAed ? {} : { amount: native, currency: r.currency, note: "no AED conversion recorded" }),
+        amount_aed: round2(Math.abs(Number(r.amount))),
+        ...(isAed || r.native_amount == null ? {} : { amount: round2(Math.abs(Number(r.native_amount))), currency: r.currency }),
         due_date: r.dueDate.toISOString().slice(0, 10),
       };
     }
@@ -1563,7 +1561,7 @@ async function runRecurringCheck(): Promise<{ checked: number; nudged: number }>
   const [{ data: activeRows }, prefs] = await Promise.all([
     supabase
       .from("recurring")
-      .select("id, household_id, name, owner_member_id, is_shared, amount, next_due_date, cadence, interval_count, account_id, category_id")
+      .select("id, household_id, name, owner_member_id, is_shared, amount, next_due_date, ends_on, cadence, interval_count, account_id, category_id")
       .eq("active", true),
     telegramPrefsMap(),
   ]);
@@ -1587,6 +1585,7 @@ async function runRecurringCheck(): Promise<{ checked: number; nudged: number }>
       is_shared: boolean;
       amount: number;
       next_due_date: string;
+      ends_on: string | null;
       cadence: string;
       interval_count: number;
       account_id: string | null;
@@ -1597,7 +1596,8 @@ async function runRecurringCheck(): Promise<{ checked: number; nudged: number }>
       const due = lastDueOccurrence(r.next_due_date, r.cadence, today, r.interval_count);
       return due ? { ...r, dueDate: due.toISOString().slice(0, 10) } : null;
     })
-    .filter((r): r is NonNullable<typeof r> => r !== null && r.dueDate >= graceStartStr && r.dueDate <= graceEndStr);
+    // Nothing is due after a schedule's last date (the final EMI or premium).
+    .filter((r): r is NonNullable<typeof r> => r !== null && r.dueDate >= graceStartStr && r.dueDate <= graceEndStr && (!r.ends_on || r.dueDate <= r.ends_on));
 
   let nudged = 0;
   for (const r of dueRows) {

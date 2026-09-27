@@ -887,4 +887,60 @@ begin
   raise notice 'debt accounts ok: one loan or card account per debt, in its own household';
 end $$;
 
+-- Policies and plans: a reminder in rupees keeps its rupee figure and an AED
+-- amount that follows the household's rate; one in rupees is refused until a
+-- rate exists; an end date cannot come before the schedule starts. A dated
+-- lump sum is a lump sum. A category can be marked as stopping with work.
+do $$
+declare
+  aed numeric;
+begin
+  update households set inr_per_aed = null where id = '11111111-1111-1111-1111-111111111111';
+  begin
+    insert into recurring (household_id, name, amount, currency, native_amount, cadence, next_due_date)
+    values ('11111111-1111-1111-1111-111111111111', 'LIC', 0, 'INR', -89554, 'yearly', '2026-11-11');
+    raise exception 'policies FAILED: a rupee reminder was accepted with no rate';
+  exception when check_violation then null;
+  end;
+  update households set inr_per_aed = 26 where id = '11111111-1111-1111-1111-111111111111';
+  insert into recurring (id, household_id, name, amount, currency, native_amount, cadence, next_due_date, ends_on)
+  values ('efefefef-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'LIC', 0, 'INR', -89554, 'yearly', '2026-11-11', '2034-11-11');
+  select amount into aed from recurring where id = 'efefefef-0000-0000-0000-000000000001';
+  if aed <> -3444.38 then
+    raise exception 'policies FAILED: ₹89,554 at 26 became % AED', aed;
+  end if;
+  update households set inr_per_aed = 25 where id = '11111111-1111-1111-1111-111111111111';
+  select amount into aed from recurring where id = 'efefefef-0000-0000-0000-000000000001';
+  if aed <> -3582.16 then
+    raise exception 'policies FAILED: the AED amount did not follow the new rate (got %)', aed;
+  end if;
+  update recurring set amount = -1 where id = 'efefefef-0000-0000-0000-000000000001';
+  select amount into aed from recurring where id = 'efefefef-0000-0000-0000-000000000001';
+  if aed <> -3582.16 then
+    raise exception 'policies FAILED: an AED amount written over a rupee reminder stuck (got %)', aed;
+  end if;
+  begin
+    insert into recurring (household_id, name, amount, currency, native_amount, cadence, next_due_date)
+    values ('11111111-1111-1111-1111-111111111111', 'Half', -5, 'AED', -5, 'monthly', '2026-10-01');
+    raise exception 'policies FAILED: an AED reminder carried a second amount';
+  exception when check_violation then null;
+  end;
+  begin
+    insert into recurring (household_id, name, amount, cadence, next_due_date, ends_on)
+    values ('11111111-1111-1111-1111-111111111111', 'Backwards', -5, 'monthly', '2026-10-01', '2026-09-01');
+    raise exception 'policies FAILED: a schedule ending before it starts was accepted';
+  exception when check_violation then null;
+  end;
+  insert into independence_income (household_id, name, kind, amount, in_year, currency)
+  values ('11111111-1111-1111-1111-111111111111', 'LIC A maturity', 'lump_sum', 4350000, 2044, 'INR');
+  begin
+    insert into independence_income (household_id, name, kind, amount, in_year)
+    values ('11111111-1111-1111-1111-111111111111', 'Pension', 'yearly', 1000, 2044);
+    raise exception 'policies FAILED: a yearly income was given a calendar year';
+  exception when check_violation then null;
+  end;
+  update categories set stops_after_work = true where household_id = '11111111-1111-1111-1111-111111111111';
+  raise notice 'policies ok: rupee reminders follow the rate, schedules end, dated lump sums, stopping categories';
+end $$;
+
 rollback;

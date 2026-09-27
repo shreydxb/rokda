@@ -58,13 +58,17 @@ export function upcomingItems(rows, days, now = new Date()) {
   return rows
     .filter((r) => r.active !== false)
     .flatMap((r) =>
-      occurrencesInWindow(r.next_due_date, r.cadence, days, now, r.interval_count).map((dueDate, index) => ({
-        ...r,
-        dueDate,
-        // Rows can now appear more than once in a window, so they need a key
-        // that distinguishes the occurrences.
-        occurrenceKey: `${r.id}@${dueDate.getFullYear()}-${dueDate.getMonth() + 1}-${dueDate.getDate()}#${index}`,
-      })),
+      occurrencesInWindow(r.next_due_date, r.cadence, days, now, r.interval_count)
+        // A schedule with an end date (the last EMI, the last premium) has no
+        // occurrences after it.
+        .filter((dueDate) => !r.ends_on || dueDate <= parseDay(r.ends_on))
+        .map((dueDate, index) => ({
+          ...r,
+          dueDate,
+          // Rows can now appear more than once in a window, so they need a key
+          // that distinguishes the occurrences.
+          occurrenceKey: `${r.id}@${dueDate.getFullYear()}-${dueDate.getMonth() + 1}-${dueDate.getDate()}#${index}`,
+        })),
     )
     .sort((a, b) => a.dueDate - b.dueDate);
 }
@@ -94,6 +98,8 @@ export function billStatus(row, transactions, now = new Date()) {
   }
   const isPastCycle = n > 0;
   const due = isPastCycle ? occurrenceAt(row.next_due_date, row.cadence, n - 1, row.interval_count) : occurrence;
+  // Past its last date, a schedule has nothing left to pay.
+  if (row.ends_on && due > parseDay(row.ends_on)) return { label: 'Ended', tone: 'mute', needsAction: false, posted: false, due: null };
 
   const amount = Math.abs(Number(row.amount));
   const windowStart = new Date(due);
@@ -111,6 +117,21 @@ export function billStatus(row, transactions, now = new Date()) {
   const daysUntil = Math.round((due - today) / 86400000);
   if (daysUntil <= 3) return { label: 'Due soon', tone: 'warn', needsAction: true, posted: false, due };
   return { label: 'Upcoming', tone: 'mute', needsAction: false, posted: false, due };
+}
+
+// Whether a schedule has had its last occurrence: its next one would fall
+// after its end date.
+export function hasEnded(row, now = new Date()) {
+  return !!row.ends_on && rollForward(row.next_due_date, row.cadence, now, row.interval_count) > parseDay(row.ends_on);
+}
+
+// The amount in the currency it is set in: "₹89,554" for a premium in rupees.
+// Null for an AED schedule, whose `amount` already is that figure.
+export function nativeAmountLabel(row) {
+  if (!row.currency || row.currency === 'AED' || row.native_amount == null) return null;
+  const symbol = { INR: '₹', USD: '$' }[row.currency] ?? `${row.currency} `;
+  const locale = row.currency === 'INR' ? 'en-IN' : 'en-US';
+  return `${symbol}${Math.abs(Number(row.native_amount)).toLocaleString(locale, { maximumFractionDigits: 0 })}`;
 }
 
 export { CADENCES };
