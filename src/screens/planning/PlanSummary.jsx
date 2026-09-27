@@ -3,7 +3,7 @@ import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
 import { formatMoney, formatPct } from '../../lib/money';
 import { scopedGoalRows } from '../../lib/goals';
-import { orderDebts, simulatePayoffPlan } from '../../lib/debt';
+import { debtsWithAccounts, orderDebts, simulatePayoffPlan } from '../../lib/debt';
 import { budgetPlan, closedMonths, crossingYear, forecastInputs, independenceTarget, realReturn } from '../../lib/forecast';
 import { agesLabel, lifePlanStop } from '../../lib/lifePlan';
 import { incompleteNote, netWorthSummary, startingNetWorth } from '../overviewMath';
@@ -22,7 +22,9 @@ function monthsToLabel(months) {
 // Composes the same goal/debt/forecast outputs Goals, DebtPayoff and Forecast
 // already compute — no new financial math lives here, just a next-action read.
 export default function PlanSummary({ members, me, accounts, transactions, holdings, budgets = [], categories = [], data, loading, onOpenTab }) {
-  const { goals, goalContributions, goalAllocations, debts, assumptions } = data;
+  const { goals, goalContributions, goalAllocations, assumptions } = data;
+  // At their linked accounts' balances, as Debt payoff shows them.
+  const debts = useMemo(() => debtsWithAccounts(data.debts, accounts ?? []), [data.debts, accounts]);
   const { scope } = useScope();
   const scopeMemberId = resolveScopeMemberId(scope, me, members);
   const now = useMemo(() => new Date(), []);
@@ -183,11 +185,13 @@ export default function PlanSummary({ members, me, accounts, transactions, holdi
           note={
             visibleDebts.length === 0
               ? 'No debts on record'
-              : canProjectDebt && debtPlan
-                ? `Debt-free in ${monthsToLabel(debtPlan.months)}`
-                : canProjectDebt
-                  ? "Doesn't clear within 50 years at this rate"
-                  : 'No payoff date set'
+              : `${
+                  canProjectDebt && debtPlan
+                    ? `Debt-free in ${monthsToLabel(debtPlan.months)}`
+                    : canProjectDebt
+                      ? "Doesn't clear within 50 years at this rate"
+                      : 'No payoff date set'
+                }${visibleDebts.some((d) => !d.inNetWorth) ? ' · not all in net worth' : ''}`
           }
           cta="Debt payoff"
           onClick={() => onOpenTab('debt')}

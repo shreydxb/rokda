@@ -1,3 +1,5 @@
+import { accountValueAed, isArchived } from './accounts';
+
 // Simulates paying a single debt at its minimum only: interest accrues on
 // the balance each month, then the minimum is applied. If the minimum
 // doesn't even cover a month's interest the balance never clears — that
@@ -73,4 +75,17 @@ export function simulatePayoffPlan(orderedDebts, extraPayment, maxMonths = 600) 
     if (balances.every((b) => b <= 0)) return { months: m, totalInterest };
   }
   return null;
+}
+
+// A debt linked to a loan or card account owes what that account says: the
+// account is the one balance, and it is what net worth counts. A debt with no
+// account, or whose account is closed or has no AED value, keeps the balance
+// last entered on it, and `inNetWorth` says net worth does not see it.
+export function debtsWithAccounts(debts, accounts = []) {
+  const byId = new Map(accounts.map((a) => [a.id, a]));
+  return debts.map((d) => {
+    const account = d.account_id ? (byId.get(d.account_id) ?? null) : null;
+    const value = account && !isArchived(account) ? accountValueAed(account) : null;
+    return { ...d, balance: value !== null ? Math.abs(value) : Number(d.balance), account, inNetWorth: value !== null };
+  });
 }

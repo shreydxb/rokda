@@ -85,7 +85,9 @@ export default function Planning() {
           loading={loading}
         />
       )}
-      {tab === 'debt' && <DebtPayoff household={household} members={members} me={me} data={planning} loading={loading} />}
+      {tab === 'debt' && (
+        <DebtPayoff household={household} members={members} me={me} accounts={overview.accounts} data={planning} loading={loading} onReload={overview.reload} />
+      )}
       {tab === 'forecast' && (
         <Forecast
           household={household}

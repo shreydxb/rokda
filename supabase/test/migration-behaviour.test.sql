@@ -848,4 +848,43 @@ begin
   raise notice 'goal costs ok: rates only on today''s costs, rates and priorities in range';
 end $$;
 
+-- Debt accounts: a debt links to one loan or card account in its own
+-- household, never to an asset, and never two debts to one account. Closing
+-- the loan's account by deleting it leaves the debt, unlinked.
+do $$
+declare
+  linked uuid;
+begin
+  insert into accounts (id, household_id, name, type, balance, is_shared)
+  values ('cdcdcdcd-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'Car loan', 'loan', 40000, true);
+  insert into debts (id, household_id, name, balance, apr_pct, minimum_payment, account_id)
+  values ('cdcdcdcd-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'Car loan', 40000, 3.5, 2193, 'cdcdcdcd-0000-0000-0000-000000000001');
+  begin
+    insert into debts (household_id, name, balance, apr_pct, minimum_payment, account_id)
+    values ('11111111-1111-1111-1111-111111111111', 'Twice', 1, 1, 1, 'cdcdcdcd-0000-0000-0000-000000000001');
+    raise exception 'debt accounts FAILED: two debts were linked to one account';
+  exception when unique_violation then null;
+  end;
+  begin
+    insert into accounts (id, household_id, name, type, balance, is_shared)
+    values ('cdcdcdcd-0000-0000-0000-000000000003', '11111111-1111-1111-1111-111111111111', 'Savings', 'savings', 10, true);
+    insert into debts (household_id, name, balance, apr_pct, minimum_payment, account_id)
+    values ('11111111-1111-1111-1111-111111111111', 'Asset', 1, 1, 1, 'cdcdcdcd-0000-0000-0000-000000000003');
+    raise exception 'debt accounts FAILED: a savings account was accepted as a debt';
+  exception when check_violation then null;
+  end;
+  begin
+    insert into debts (household_id, name, balance, apr_pct, minimum_payment, account_id)
+    values ('11111111-1111-1111-1111-111111111111', 'Theirs', 1, 1, 1, '99999999-9999-9999-9999-99999999000b');
+    raise exception 'debt accounts FAILED: another household''s card was accepted';
+  exception when foreign_key_violation then null;
+  end;
+  delete from accounts where id = 'cdcdcdcd-0000-0000-0000-000000000001';
+  select account_id into linked from debts where id = 'cdcdcdcd-0000-0000-0000-000000000002';
+  if linked is not null then
+    raise exception 'debt accounts FAILED: the debt kept a deleted account';
+  end if;
+  raise notice 'debt accounts ok: one loan or card account per debt, in its own household';
+end $$;
+
 rollback;
