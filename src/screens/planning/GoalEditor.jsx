@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { formatMoney } from '../../lib/money';
+import { DEFAULT_INFLATION_PCT, goalCostAtDate } from '../../lib/goals';
 import '../money/TransactionEditor.css';
 
 function initialForm(goal) {
@@ -12,12 +13,15 @@ function initialForm(goal) {
       target_date: goal.target_date ?? '',
       funding_source: goal.funding_source ?? '',
       owner: goal.is_shared ? 'shared' : (goal.owner_member_id ?? ''),
+      cost_today: !!goal.cost_today,
+      inflation_pct: goal.inflation_pct != null ? String(Number(goal.inflation_pct)) : '',
+      priority: goal.priority != null ? String(goal.priority) : '',
     };
   }
-  return { name: '', note: '', target_amount: '', target_date: '', funding_source: '', owner: 'shared' };
+  return { name: '', note: '', target_amount: '', target_date: '', funding_source: '', owner: 'shared', cost_today: false, inflation_pct: '', priority: '' };
 }
 
-export default function GoalEditor({ goal, contributions, allocations, accounts, holdings, householdId, members, onClose, onSaved }) {
+export default function GoalEditor({ goal, contributions, allocations, accounts, holdings, householdId, members, inflationPct = DEFAULT_INFLATION_PCT, onClose, onSaved }) {
   const [form, setForm] = useState(() => initialForm(goal));
   const [dirty, setDirty] = useState(false);
   const [confirmingClose, setConfirmingClose] = useState(false);
@@ -57,11 +61,20 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
 
   const nameError = form.name.trim() === '' ? 'Name it.' : '';
   const targetError = !form.target_amount || Number(form.target_amount) <= 0 ? 'Set a target above zero.' : '';
+  const rateText = String(form.inflation_pct).trim();
+  const priorityText = String(form.priority).trim();
+  const rateError = form.cost_today && rateText !== '' && !(Number.isFinite(Number(rateText)) && Number(rateText) >= -10 && Number(rateText) <= 30) ? 'A yearly rise between −10% and 30%.' : '';
+  const priorityError = priorityText !== '' && !(/^\d+$/.test(priorityText) && Number(priorityText) >= 1 && Number(priorityText) <= 999) ? 'Priority is a whole number from 1.' : '';
+  // What a today's cost comes to on the date, shown while it is being typed.
+  const costOnDate =
+    form.cost_today && form.target_date && Number(form.target_amount) > 0 && !rateError
+      ? goalCostAtDate({ target_amount: form.target_amount, target_date: form.target_date, cost_today: true, inflation_pct: rateText === '' ? null : rateText }, new Date(), inflationPct)
+      : null;
 
   async function handleSave(e) {
     e.preventDefault();
-    if (nameError || targetError) {
-      setError(nameError || targetError);
+    if (nameError || targetError || rateError || priorityError) {
+      setError(nameError || targetError || rateError || priorityError);
       return;
     }
     setSaving(true);
@@ -76,6 +89,9 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
       funding_source: form.funding_source.trim(),
       is_shared: form.owner === 'shared',
       owner_member_id: form.owner === 'shared' ? null : form.owner,
+      cost_today: form.cost_today,
+      inflation_pct: form.cost_today && rateText !== '' ? Number(rateText) : null,
+      priority: priorityText === '' ? null : Number(priorityText),
     };
 
     const query = goal ? supabase.from('goals').update(payload).eq('id', goal.id) : supabase.from('goals').insert(payload);
@@ -184,6 +200,34 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
               <span className="te-hero-currency">AED</span>
               <input type="number" step="0.01" className="te-hero-input" value={form.target_amount} onChange={(e) => set('target_amount', e.target.value)} aria-invalid={!!targetError} placeholder="0" />
             </div>
+            <div className="om-scope-list" style={{ marginTop: 12 }}>
+              <button type="button" className="om-scope" data-active={!form.cost_today} onClick={() => set('cost_today', false)}>
+                Amount on the date
+              </button>
+              <button type="button" className="om-scope" data-active={form.cost_today} onClick={() => set('cost_today', true)}>
+                Today&rsquo;s cost
+              </button>
+            </div>
+            {form.cost_today && (
+              <div className="te-fieldcell" style={{ marginTop: 12 }}>
+                <span className="te-fieldlabel">Rises by · % a year</span>
+                <input
+                  className="te-fieldvalue"
+                  type="number"
+                  step="0.1"
+                  value={form.inflation_pct}
+                  onChange={(e) => set('inflation_pct', e.target.value)}
+                  placeholder={`blank: ${inflationPct}%, general inflation`}
+                  aria-label="Rises by, percent a year"
+                  aria-invalid={!!rateError}
+                />
+                <span className="ov-muted" style={{ fontSize: 11.5, marginTop: 6 }}>
+                  {costOnDate !== null
+                    ? `About ${formatMoney(costOnDate)} by ${form.target_date.slice(0, 4)}, the amount progress is measured against.`
+                    : 'Set a date to see what it will cost then. Education and medical costs often rise faster than prices in general.'}
+                </span>
+              </div>
+            )}
           </div>
 
           <div className="te-fieldgrid">
@@ -199,7 +243,20 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
               <span className="te-fieldlabel">Note</span>
               <input className="te-fieldvalue" type="text" value={form.note} onChange={(e) => set('note', e.target.value)} placeholder="What this is for" />
             </div>
-            <div className="te-fieldcell te-span2">
+            <div className="te-fieldcell">
+              <span className="te-fieldlabel">Priority</span>
+              <input
+                className="te-fieldvalue"
+                type="number"
+                step="1"
+                value={form.priority}
+                onChange={(e) => set('priority', e.target.value)}
+                placeholder="1 = first"
+                aria-label="Priority"
+                aria-invalid={!!priorityError}
+              />
+            </div>
+            <div className="te-fieldcell">
               <span className="te-fieldlabel">Funding source</span>
               <input
                 className="te-fieldvalue"

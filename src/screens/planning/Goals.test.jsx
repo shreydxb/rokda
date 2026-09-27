@@ -68,3 +68,22 @@ describe('Plan summary uses the same independence target as Forecast and Drawdow
     expect(screen.getByText(/of the way to 600,000/)).toBeTruthy();
   });
 });
+
+describe('Goals: today\'s costs and funding in priority order', () => {
+  const VILLA = { id: 'g2', name: 'Villa', target_amount: 1000000, target_date: '2044-09-01', is_shared: true, owner_member_id: null, note: '', funding_source: '', cost_today: true, inflation_pct: 8, priority: 1 };
+
+  it('shows what a today\'s cost comes to on its date', () => {
+    renderScreen(<Goals household={{ id: 'h' }} members={MEMBERS} me={{ id: 'm1' }} accounts={ACCOUNTS} holdings={[]} data={{ ...DATA, goals: [GOAL, VILLA] }} loading={false} />);
+    // 1,000,000 at 8% for the 18 years to Sep 2044.
+    expect(screen.getByText(/1,000,000 today, rising 8% a year · about 3,996,019 by 2044/)).toBeTruthy();
+  });
+
+  it('covers goals in priority order from what is set aside, then the rest of net worth', () => {
+    renderScreen(<Goals household={{ id: 'h' }} members={MEMBERS} me={{ id: 'm1' }} accounts={ACCOUNTS} holdings={[]} data={{ ...DATA, goals: [GOAL, VILLA] }} loading={false} />);
+    expect(screen.getByText('Funding in priority order')).toBeTruthy();
+    const rows = [...document.querySelectorAll('.ch-table tbody tr')].map((r) => r.textContent);
+    // The villa is priority 1, so it comes first and takes the 15,000 not set aside for the emergency fund.
+    expect(rows[0]).toMatch(/^1Villa · 2044/);
+    expect(rows[1]).toMatch(/^—Emergency fund · 2027/);
+  });
+});

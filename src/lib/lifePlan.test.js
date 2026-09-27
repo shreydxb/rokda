@@ -173,3 +173,12 @@ describe('goalsOnTimeline', () => {
     expect(goalsOnTimeline(goals, 2026, 0).map((g) => g.id)).toEqual(['d', 'a']);
   });
 });
+
+describe('goalsOnTimeline: today\'s costs', () => {
+  it('moves a today\'s cost by its own rate less general inflation', () => {
+    const villa = { id: 'v', name: 'Villa', target_amount: '1000', target_date: '2036-06-01', cost_today: true, inflation_pct: '8', counts_in_life_plan: true };
+    expect(goalsOnTimeline([villa], 2026, 2.5)[0].amount).toBeCloseTo(1000 * (1.08 / 1.025) ** 10, 6);
+    // At the general rate, a today's cost stays the same in today's money.
+    expect(goalsOnTimeline([{ ...villa, inflation_pct: null }], 2026, 2.5)[0].amount).toBeCloseTo(1000, 9);
+  });
+});

@@ -821,4 +821,31 @@ begin
   raise notice 'life plan ok: ages stay in their household and range; retirement settings are checked';
 end $$;
 
+-- Goal costs: a today's cost may carry its own rate; a rate on an amount-on-
+-- the-date means nothing and is refused, as are rates and priorities out of range.
+do $$
+begin
+  insert into goals (household_id, name, target_amount, target_date, cost_today, inflation_pct, priority)
+  values ('11111111-1111-1111-1111-111111111111', 'Villa', 5000000, date '2044-09-01', true, 8, 1);
+  begin
+    insert into goals (household_id, name, target_amount, cost_today, inflation_pct)
+    values ('11111111-1111-1111-1111-111111111111', 'Rated', 100, false, 5);
+    raise exception 'goal costs FAILED: a rate was accepted on an amount on the date';
+  exception when check_violation then null;
+  end;
+  begin
+    insert into goals (household_id, name, target_amount, cost_today, inflation_pct)
+    values ('11111111-1111-1111-1111-111111111111', 'Wild', 100, true, 45);
+    raise exception 'goal costs FAILED: a 45%% yearly rise was accepted';
+  exception when check_violation then null;
+  end;
+  begin
+    insert into goals (household_id, name, target_amount, priority)
+    values ('11111111-1111-1111-1111-111111111111', 'Zero', 100, 0);
+    raise exception 'goal costs FAILED: a priority of 0 was accepted';
+  exception when check_violation then null;
+  end;
+  raise notice 'goal costs ok: rates only on today''s costs, rates and priorities in range';
+end $$;
+
 rollback;

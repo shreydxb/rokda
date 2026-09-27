@@ -1,5 +1,6 @@
 import { incomeInYear } from './forecast';
 import { parseDay } from './day';
+import { goalInflationPct } from './goals';
 
 // The life plan: one year-by-year timeline from this year to the end of the
 // longest life expectancy, the calculation a financial adviser's "cash
@@ -36,18 +37,23 @@ export function agesIn(people, year) {
   return people.map((p) => ({ name: p.name, age: year - p.birthYear, planned: year <= p.birthYear + p.lifeExpectancy }));
 }
 
-// Dated goals the plan pays out of the pot. A goal's target is what it will
-// cost on its date, so it is brought back to today's money at the general
-// inflation rate; a date already past is paid this year. Goals with no date,
-// or marked as money kept rather than spent (an emergency fund), stay off the
-// timeline.
+// Dated goals the plan pays out of the pot, in today's money. A target that
+// is the amount on the date is brought back at the general inflation rate. A
+// target stated as today's cost grows at the goal's own rate, so in today's
+// money it moves only by the difference: a villa rising at 8% while prices
+// rise at 2.5% costs more of today's money each year it waits. A date already
+// past is paid this year. Goals with no date, or marked as money kept rather
+// than spent (an emergency fund), stay off the timeline.
 export function goalsOnTimeline(goals, startYear, inflationPct) {
   const inflation = inflationPct / 100;
   return goals
     .filter((g) => g.target_date && g.counts_in_life_plan !== false && Number(g.target_amount) > 0)
     .map((g) => {
       const year = Math.max(startYear, parseDay(g.target_date).getFullYear());
-      return { id: g.id, name: g.name, year, amount: Number(g.target_amount) / (1 + inflation) ** (year - startYear) };
+      const n = year - startYear;
+      const target = Number(g.target_amount);
+      const amount = g.cost_today ? target * ((1 + goalInflationPct(g, inflationPct) / 100) / (1 + inflation)) ** n : target / (1 + inflation) ** n;
+      return { id: g.id, name: g.name, year, amount };
     })
     .sort((a, b) => a.year - b.year);
 }

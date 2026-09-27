@@ -112,7 +112,7 @@ for (const route of ROUTES) {
 // closed months so Forecast projects rather than showing its empty state.
 const SUBVIEWS = [
   { name: 'forecast', path: '/planning', tabs: ['Forecast'], expectText: 'What it would take' },
-  { name: 'goals', path: '/planning', tabs: ['Goals'], expectText: 'a month to reach it by' },
+  { name: 'goals', path: '/planning', tabs: ['Goals'], expectText: 'Funding in priority order' },
   { name: 'budget-year', path: '/money', tabs: ['Budget', 'Year'], expectText: 'Net saved each month' },
   { name: 'drawdown', path: '/planning', tabs: ['Drawdown', 'Fall in year 1'], expectText: 'The same fall, early or late' },
   // The fixture's own data: two closed months and a budget, so Drawdown

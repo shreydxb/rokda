@@ -166,6 +166,32 @@ rather than spent (a household's "Savings & Investments", say).
 - Transaction arithmetic is unchanged: spend and income are still decided by
   `transactionKind.js` alone, in the app and the bot alike.
 
+## Goals: today's cost, their own inflation, and funding in priority order
+
+A goal years away is easier to state at today's cost, and different goals rise
+at different rates. Education and medical costs rise faster than prices in
+general, and a UAE goal slower than an Indian one.
+
+- **`goals.cost_today`:** the target is today's cost and grows at
+  `goals.inflation_pct` (or the household's general inflation when blank)
+  until its date (`goalCostAtDate`). Otherwise the target is already the amount
+  on the date, as before. A rate on an amount-on-the-date is refused by the
+  database.
+- **Progress is measured against the cost on the date**, on Goals and the Plan
+  summary alike. Today's price saved is not shown as funded, and the monthly
+  figure spreads the grown amount.
+- **The Life plan** moves a today's cost by its own rate less general
+  inflation, so a goal rising faster than prices costs more of today's money
+  each year it waits.
+- **Funding in priority order** (`fundInPriority`) is the financial plan's
+  view. What each dated goal needs set aside today (its cost on the date,
+  discounted at Forecast's expected return) is covered first by money already
+  earmarked for that goal. The rest of net worth then covers goals in priority
+  order, unnumbered goals last and earliest first; what is left is the top-up.
+  It is household-wide, so it shows for Both only. The sum of what is needed
+  today is the adviser's "Financial Freedom Number" without retirement, which
+  is on the Life plan.
+
 ## Life plan: one timeline, from today to the last life expectancy
 
 An adviser's "cash adequacy" sheet answers one question: does the money last?

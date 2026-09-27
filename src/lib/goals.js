@@ -4,6 +4,30 @@ import { accountValueAed } from './accounts';
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
+// The planning default, the same as Forecast's until the household saves its own.
+export const DEFAULT_INFLATION_PCT = 2.5;
+
+// Whole months from this month to the target's, as years; never negative.
+export function yearsUntil(targetDate, now = new Date()) {
+  const target = parseDay(targetDate);
+  const months = (target.getFullYear() - now.getFullYear()) * 12 + (target.getMonth() - now.getMonth());
+  return Math.max(0, months) / 12;
+}
+
+// The goal's own inflation rate, or the household's general one.
+export function goalInflationPct(goal, generalInflationPct = DEFAULT_INFLATION_PCT) {
+  return goal.inflation_pct != null ? Number(goal.inflation_pct) : generalInflationPct;
+}
+
+// What a goal costs on its date. A target stated as today's cost grows at the
+// goal's inflation until then -- Rs 5 Cr today at 8% is about Rs 20 Cr in 18
+// years. Otherwise the target already is the amount on the date.
+export function goalCostAtDate(goal, now = new Date(), generalInflationPct = DEFAULT_INFLATION_PCT) {
+  const target = Number(goal.target_amount) || 0;
+  if (!goal.cost_today || !goal.target_date) return target;
+  return target * (1 + goalInflationPct(goal, generalInflationPct) / 100) ** yearsUntil(goal.target_date, now);
+}
+
 // Everything about a goal's progress — saved, last contribution, projected
 // date, status — is derived from its contribution log (plus whatever share
 // of real accounts/holdings is linked to it), never stored on the goal row,
@@ -131,12 +155,15 @@ export function allocatedValue(goalId, allocations = [], accounts = [], holdings
 //
 // A shared goal counts half toward each individual scope, same as every other
 // joint figure in the app, so "Me" plus the partner reconciles to "Both".
-export function scopedGoalRows({ goals = [], contributions = [], allocations = [], accounts = [], holdings = [], scopeMemberId = null, now = new Date() }) {
+export function scopedGoalRows({ goals = [], contributions = [], allocations = [], accounts = [], holdings = [], scopeMemberId = null, now = new Date(), inflationPct = DEFAULT_INFLATION_PCT }) {
   return goals
     .filter((g) => scopeMemberId === null || g.is_shared || g.owner_member_id === scopeMemberId)
     .map((g) => {
       const factor = scopeMemberId === null || !g.is_shared ? 1 : 0.5;
-      const scopedGoal = { ...g, target_amount: Number(g.target_amount) * factor };
+      // Progress and the monthly figure are measured against what the goal
+      // will cost on its date, so a goal stated at today's cost is not shown
+      // as funded when it only has today's price saved.
+      const scopedGoal = { ...g, target_amount: goalCostAtDate(g, now, inflationPct) * factor };
       const goalContributions = contributions.filter((c) => c.goal_id === g.id).map((c) => ({ ...c, amount: Number(c.amount) * factor }));
       const allocated = allocatedValue(g.id, allocations, accounts, holdings) * factor;
       const progress = goalProgress(scopedGoal, goalContributions, now, allocated);
@@ -176,5 +203,55 @@ export function monthlyNeed(goal, progress, now = new Date()) {
     // Positive: the recent pace falls short of what the date needs by this
     // much a month.
     shortfall: perMonth - pace,
+  };
+}
+
+// Goals funded in priority order, the way a financial plan does it: each goal
+// needs its cost on its date, less what that much would grow to by then at the
+// expected return -- the "current value needed". What is already set aside for
+// a goal counts first; the household's other money (net worth not already
+// earmarked for a goal) then covers goals in order, priority 1 first and
+// unnumbered goals after, earliest date first, until it runs out. Whatever is
+// left uncovered is the top-up a goal needs today.
+//
+// Only dated goals: without a date there is nothing to discount to today.
+export function fundInPriority({ rows, freeMoney, returnPct, now = new Date() }) {
+  const rate = returnPct / 100;
+  const ordered = rows
+    .filter((r) => r.goal.target_date)
+    .slice()
+    .sort((a, b) => {
+      const pa = a.goal.priority ?? Infinity;
+      const pb = b.goal.priority ?? Infinity;
+      if (pa !== pb) return pa - pb;
+      return String(a.goal.target_date).localeCompare(String(b.goal.target_date));
+    });
+  let left = Math.max(0, freeMoney);
+  const goals = ordered.map((r) => {
+    const years = yearsUntil(r.goal.target_date, now);
+    const costAtDate = r.progress.target;
+    const neededToday = costAtDate / (1 + rate) ** years;
+    const saved = Math.min(r.progress.saved, neededToday);
+    const fromFree = Math.min(left, neededToday - saved);
+    left -= fromFree;
+    const covered = saved + fromFree;
+    return {
+      goal: r.goal,
+      years,
+      costAtDate,
+      neededToday,
+      saved,
+      fromFree,
+      covered,
+      pct: neededToday > 0 ? covered / neededToday : 1,
+      topUp: Math.max(0, neededToday - covered),
+    };
+  });
+  return {
+    goals,
+    neededToday: goals.reduce((s, g) => s + g.neededToday, 0),
+    covered: goals.reduce((s, g) => s + g.covered, 0),
+    topUp: goals.reduce((s, g) => s + g.topUp, 0),
+    freeLeft: left,
   };
 }
