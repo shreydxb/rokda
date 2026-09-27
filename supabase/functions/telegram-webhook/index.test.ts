@@ -47,6 +47,10 @@ type Backend = {
   };
   // What OpenRouter's router answers for a message: a tool name plus args.
   route?: { tool: string; args: Row };
+  // What the parser extracts from a message; unset, it answers prose, which
+  // the handler treats as a failed parse.
+  parse?: Row[];
+  parsePrompts: string[];
 };
 
 let backend: Backend;
@@ -73,6 +77,7 @@ function reset(): void {
     telegramSent: [],
     requests: [],
     faults: {},
+    parsePrompts: [],
   };
 }
 
@@ -257,6 +262,13 @@ async function openrouter(req: Request): Promise<Response> {
       usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
     });
   }
+  const text = JSON.stringify(body.messages ?? []);
+  if (text.includes("Extract ALL")) {
+    backend.parsePrompts.push(text);
+    if (backend.parse) {
+      return json({ choices: [{ message: { content: JSON.stringify({ items: backend.parse }) } }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } });
+    }
+  }
   return json({ choices: [{ message: { content: "Done." } }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } });
 }
 
@@ -294,7 +306,7 @@ Deno.env.set("TELEGRAM_BOT_TOKEN", TOKEN);
 Deno.env.set("OPENROUTER_API_KEY", "openrouter-test");
 
 reset();
-await import("./index.ts");
+const { pickAccountByHint } = await import("./index.ts");
 assert(handler!, "index.ts did not register a handler with Deno.serve");
 
 // ---------------------------------------------------------------------------
@@ -491,6 +503,56 @@ freshTest("a failure outside update processing is caught by the last line of def
   const event = JSON.parse(logged[logged.length - 1]);
   assertEquals(event.where, "request");
   assertEquals(event.update_id, null);
+});
+
+// ---------------------------------------------------------------------------
+// Naming a card, and a router that names a tool the bot does not have
+// ---------------------------------------------------------------------------
+
+const MARRIOTT = { id: "66666666-6666-4666-8666-666666666666", household_id: HOUSEHOLD, name: "ENBD Marriott •8643", archived_at: null };
+const NOON = { id: "77777777-7777-4777-8777-777777777777", household_id: HOUSEHOLD, name: "ENBD Noon •1657", archived_at: null };
+const FAB_Z = { id: "88888888-8888-4888-8888-888888888888", household_id: HOUSEHOLD, name: "FAB Z •9417", archived_at: null };
+const FAB = { id: "99999999-9999-4999-8999-999999999999", household_id: HOUSEHOLD, name: "FAB", archived_at: null };
+
+Deno.test("a card named misspelt, shortened or with filler words still resolves to the one card it means", () => {
+  const accounts = [MARRIOTT, NOON, FAB_Z, FAB];
+  for (const hint of ["marriot", "Marriott", "ENBD Marriot", "marriot card", "my marriott credit card", "Mariott"]) {
+    assertEquals(pickAccountByHint(accounts, hint)?.name, "ENBD Marriott •8643", hint);
+  }
+  assertEquals(pickAccountByHint(accounts, "noon")?.name, "ENBD Noon •1657");
+  assertEquals(pickAccountByHint(accounts, "fab z card")?.name, "FAB Z •9417");
+  // A name two accounts share, or a bank's name alone, abstains.
+  assertEquals(pickAccountByHint(accounts, "enbd"), null);
+  assertEquals(pickAccountByHint(accounts, "fab"), null);
+  // Nothing close enough is not a guess.
+  assertEquals(pickAccountByHint(accounts, "wio"), null);
+  assertEquals(pickAccountByHint(accounts, "card"), null);
+});
+
+freshTest("an expense on a card named misspelt is filed to that card", async () => {
+  backend.tables.accounts.push(MARRIOTT, NOON);
+  backend.parse = [{ merchant: "Dewa", amount: 504, currency: null, occurred_at: "2026-09-24", category: null, card_last4: null, account_hint: "marriot", confidence: 1, kind: "expense" }];
+  await handler(textUpdate(7101, "Dewa 504 marriot"));
+  assertEquals(capturedIntake().length, 1);
+  assertEquals(capturedIntake()[0].parsed_account_id, MARRIOTT.id);
+  // The parser is told the household's own card names to choose from.
+  assert(backend.parsePrompts[0].includes("ENBD Marriott"), "the parser was not given the account names");
+  assert(!backend.parsePrompts[0].includes("8643"), "the card digits reached the parser as part of a name");
+});
+
+freshTest("a tool the bot does not have is captured as an expense, not answered with an error", async () => {
+  backend.route = { tool: "log_expenses", args: {} };
+  const res = await handler(textUpdate(7102, "spent 40 on lunch"));
+  assertEquals(res.status, 200);
+  assertEquals(capturedIntake().length, 1);
+  const replies = backend.telegramSent.map((m) => String(m.body.text ?? ""));
+  assert(!replies.some((t) => t.includes("unknown_tool")), `the member was told: ${replies.join(" | ")}`);
+});
+
+freshTest("a correction with nothing pending is captured as a new entry", async () => {
+  backend.route = { tool: "update_last_expense", args: {} };
+  await handler(textUpdate(7103, "actually 45"));
+  assertEquals(capturedIntake().length, 1);
 });
 
 // Restore globals for anything that runs after this module.

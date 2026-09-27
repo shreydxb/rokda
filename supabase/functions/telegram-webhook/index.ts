@@ -363,6 +363,9 @@ async function parseIntakeWithAI(params: {
   // midnight and 04:00 Dubai under the previous day -- in the ledger,
   // permanently, with nothing downstream to notice.
   const today = householdToday();
+  // The household's own account and card names, so a hint comes back as one
+  // of them ("marriot" -> "ENBD Marriott") rather than as whatever was typed.
+  const accountNames = householdId ? await openAccountNames(householdId) : [];
   const instructions =
     `Extract ALL household expenses/income/refunds described in the message and/or receipt photo below. Most messages describe exactly one, but some describe several separate amounts (e.g. "bought two plants for 260 and 50" is TWO expenses -- never sum multiple amounts into one, and never drop any of them). ` +
     `The message may be free-form text, or a bank/card SMS notification copy-pasted verbatim (e.g. "AED 38.80 spent on your card ending 1234 at FILLI CAFE LLC DXB on 05-09-26 14:32") -- extract from either the same way; a bank SMS almost always describes exactly one. ` +
@@ -374,6 +377,9 @@ async function parseIntakeWithAI(params: {
     `"currency" is the real currency of the amount if stated or clearly implied (e.g. "AED", "USD", "INR") -- null if genuinely unstated. Never assume AED just because the household is AED-based -- only state it if the message actually says or implies it. ` +
     `"card_last4" is the last 4 digits of a card mentioned (e.g. "card ending 1234", "card no. ...1234"), or null if none is mentioned. ` +
     `"account_hint" is the account/card NAME mentioned in the message, if any (e.g. "Wio", "FAB Z", "ENBD Noon", "FAB Islamic") -- a short free-text name, not digits, or null if no account/card is named. ` +
+    (accountNames.length
+      ? `The household's accounts and cards are ${JSON.stringify(accountNames)}: when the message names one of them, even misspelt or shortened (e.g. "marriot" for "ENBD Marriott"), "account_hint" MUST be that name exactly as listed. A word that is plainly the merchant or what was bought is not an account. `
+      : "") +
     `"category" MUST be exactly one of these household categories, verbatim, or null if none clearly fits -- never invent a category name: ` +
     `${JSON.stringify(categoryNames)}. ` +
     `This list mixes broad categories (e.g. "Transport") with specific subcategories of them (e.g. "Salik / Parking / Misc", "Car EMI", "Fuel" -- all under Transport). Always prefer the most specific one that clearly fits over its broader parent: a toll/parking charge is "Salik / Parking / Misc", not "Transport"; a car loan instalment is "Car EMI", not "Transport". Only fall back to the broad parent when nothing more specific applies (e.g. a taxi fare, which fits none of Transport's subcategories). ` +
@@ -450,6 +456,17 @@ async function parseIntakeWithAI(params: {
   }
 }
 
+// The question tools the router can call, each answered below.
+const QUESTION_TOOLS = new Set([
+  "get_category_spend",
+  "get_net_worth",
+  "get_account_balance",
+  "get_upcoming_bills",
+  "get_budget_status",
+  "get_holdings",
+  "log_goal_contribution",
+]);
+
 // A card account's name follows the "Name •1234" convention (see
 // accountOptionLabel in the frontend) -- if a bank SMS names a card ending,
 // match it against that suffix. Only trusted when it resolves to exactly
@@ -482,14 +499,73 @@ function accountBaseName(name: string): string {
 // currently has two bare "FAB" and two bare "WIO" accounts alongside the
 // named cards) abstains rather than guessing which one.
 async function matchAccountByNameHint(householdId: string, hint: string | null): Promise<{ id: string; name: string } | null> {
-  const norm = hint?.trim().toLowerCase();
-  if (!norm) return null;
+  if (!hint?.trim()) return null;
   const { data: accounts } = await supabase.from("accounts").select("id, name").eq("household_id", householdId).is("archived_at", null);
-  const matches = (accounts ?? []).filter((a: { name: string }) => {
+  return pickAccountByHint((accounts ?? []) as Array<{ id: string; name: string }>, hint);
+}
+
+// Words said around a card's name that are not part of it ("my marriott
+// card", "via FAB Z credit card").
+const HINT_FILLER = new Set(["card", "cards", "credit", "debit", "account", "a/c", "acc", "bank", "via", "on", "the", "my", "using", "with", "from", "cc"]);
+
+// One typo apart: a letter added, dropped or changed.
+function withinOneEdit(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let i = 0;
+  let j = 0;
+  let edits = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) {
+      i++;
+      j++;
+      continue;
+    }
+    if (++edits > 1) return false;
+    if (a.length > b.length) i++;
+    else if (b.length > a.length) j++;
+    else {
+      i++;
+      j++;
+    }
+  }
+  return edits + (a.length - i) + (b.length - j) <= 1;
+}
+
+// The account a spoken or typed hint names, or null. Exact containment first,
+// as before. Failing that, every word of the hint (filler aside) must match a
+// word of the account's name: the whole word, the start of it ("marriot" in
+// "marriott", at least three letters) or within one typo (five letters or
+// more). Still
+// one-directional and still only trusted when exactly one open account fits,
+// so "FAB Z" never matches a plain "FAB" and a name two accounts share
+// abstains.
+export function pickAccountByHint<T extends { name: string }>(accounts: T[], hint: string): T | null {
+  const norm = hint.trim().toLowerCase();
+  if (!norm) return null;
+  const exact = accounts.filter((a) => {
     const base = accountBaseName(a.name);
     return base.length > 1 && base.includes(norm);
   });
-  return matches.length === 1 ? matches[0] : null;
+  if (exact.length === 1) return exact[0];
+  if (exact.length > 1) return null;
+  const words = norm.split(/[\s•]+/).filter((w) => w && !HINT_FILLER.has(w) && !/^\d+$/.test(w));
+  if (!words.length) return null;
+  const fuzzy = accounts.filter((a) => {
+    const baseWords = accountBaseName(a.name).split(/\s+/).filter(Boolean);
+    return words.every((w) => baseWords.some((b) => w === b || (w.length >= 3 && b.startsWith(w)) || (w.length >= 5 && withinOneEdit(w, b))));
+  });
+  return fuzzy.length === 1 ? fuzzy[0] : null;
+}
+
+// Base names of the household's open accounts, for the parser to choose from.
+async function openAccountNames(householdId: string): Promise<string[]> {
+  try {
+    const { data } = await supabase.from("accounts").select("name").eq("household_id", householdId).is("archived_at", null);
+    return [...new Set(((data ?? []) as Array<{ name: string }>).map((a) => a.name.replace(/\s*•\s*\d+\s*$/, "").trim()).filter(Boolean))];
+  } catch {
+    return [];
+  }
 }
 
 // The household's own past categorisation of a merchant outweighs a fresh
@@ -2502,7 +2578,12 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
         return new Response("ok");
       }
 
-      if (toolCall && toolCall.function?.name !== "log_expense") {
+      // Only a question tool the bot actually has answers here. A name it
+      // does not know (the router can invent one), or update_last_expense
+      // with nothing pending, used to reply "Error: unknown_tool"; it falls
+      // through to capture instead, the same as log_expense, so the message
+      // is never lost.
+      if (toolCall && QUESTION_TOOLS.has(toolCall.function?.name)) {
         committedElsewhere = true;
         const args = JSON.parse(toolCall.function.arguments || "{}");
         const { data: members } = await supabase.from("household_members").select("id, display_name").eq("household_id", member.household_id);
@@ -2531,8 +2612,6 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
           case "log_goal_contribution":
             result = await toolLogGoalContribution(member.household_id, args, updateId);
             break;
-          default:
-            result = { error: "unknown_tool" };
         }
 
         const answer = await phraseAnswer(rawText, result, member.household_id, member.id);
