@@ -128,7 +128,9 @@ export const data = {
     { id: 'cccccccc-0000-4000-8000-000000000002', household_id: HH, snapshot_date: monthsAgo(1), assets: 158000, liabilities: 3500, created_at: ts(monthsAgo(1)) },
   ],
 
-  goals: [{ id: 'dddddddd-0000-4000-8000-000000000001', household_id: HH, owner_member_id: null, is_shared: true, name: 'Emergency fund', note: null, target_amount: 100000, target_date: `${now.getFullYear() + 1}-12-31`, funding_source: 'savings', created_at: ts(monthsAgo(6)), updated_at: ts(monthsAgo(1)) }],
+  goals: [
+    { id: 'dddddddd-0000-4000-8000-000000000001', household_id: HH, owner_member_id: null, is_shared: true, name: 'Emergency fund', note: null, target_amount: 100000, target_date: `${now.getFullYear() + 1}-12-31`, funding_source: 'savings', created_at: ts(monthsAgo(6)), updated_at: ts(monthsAgo(1)), counts_in_life_plan: false },
+    { id: 'dddddddd-0000-4000-8000-000000000002', household_id: HH, owner_member_id: null, is_shared: true, name: 'Car', note: null, target_amount: 60000, target_date: `${now.getFullYear() + 2}-06-30`, funding_source: '', created_at: ts(monthsAgo(2)), updated_at: ts(monthsAgo(1)), counts_in_life_plan: true }],
 
   goal_allocations: [{ id: 'eeeeeeee-0000-4000-8000-000000000001', household_id: HH, goal_id: 'dddddddd-0000-4000-8000-000000000001', account_id: A_SAVINGS, holding_id: null, share_pct: 100, note: null, created_at: ts(monthsAgo(3)), updated_at: ts(monthsAgo(1)) }],
 
@@ -136,7 +138,13 @@ export const data = {
 
   debts: [{ id: 'a1a1a1a1-0000-4000-8000-000000000001', household_id: HH, owner_member_id: null, is_shared: true, name: 'Car loan', note: null, balance: 42000, apr_pct: 4.5, minimum_payment: 1200, custom_rank: null, created_at: ts(monthsAgo(6)), updated_at: ts(monthsAgo(1)), original_amount: 60000 }],
 
-  planning_assumptions: [{ household_id: HH, nominal_return_pct: 6, inflation_pct: 2.5, safe_withdrawal_pct: 4, lean_annual_spend: 90000, debt_extra_payment: 0, debt_assume_no_new_card_spend: true, baseline_set_at: ts(monthsAgo(1)), baseline_nominal_return_pct: 6, baseline_inflation_pct: 2.5, baseline_monthly_saving: 4000, updated_at: ts(monthsAgo(1)), custom_nominal_return_pct: null, custom_inflation_pct: null, custom_safe_withdrawal_pct: null, custom_updated_at: null }],
+  planning_assumptions: [{ household_id: HH, nominal_return_pct: 6, inflation_pct: 2.5, safe_withdrawal_pct: 4, lean_annual_spend: 90000, debt_extra_payment: 0, debt_assume_no_new_card_spend: true, baseline_set_at: ts(monthsAgo(1)), baseline_nominal_return_pct: 6, baseline_inflation_pct: 2.5, baseline_monthly_saving: 4000, updated_at: ts(monthsAgo(1)), custom_nominal_return_pct: null, custom_inflation_pct: null, custom_safe_withdrawal_pct: null, custom_updated_at: null, retirement_year: 2050, retirement_annual_spend: 110000, retirement_return_pct: 5, survivor_spend_pct: 70 }],
+
+  // Ages for the life plan, one member planned a little longer than the other.
+  member_life: [
+    { member_id: ME, household_id: HH, birth_year: 1990, life_expectancy: 85, created_at: ts(monthsAgo(1)), updated_at: ts(monthsAgo(1)) },
+    { member_id: PARTNER, household_id: HH, birth_year: 1992, life_expectancy: 88, created_at: ts(monthsAgo(1)), updated_at: ts(monthsAgo(1)) },
+  ],
 
   independence_income: [
     { id: 'a2a2a2a2-0000-4000-8000-000000000001', household_id: HH, name: 'Flat rent', kind: 'yearly', amount: 24000, starts_after_years: 0, lasts_years: null, note: '', created_at: ts(monthsAgo(1)), updated_at: ts(monthsAgo(1)) },
