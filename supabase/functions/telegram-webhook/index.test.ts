@@ -306,7 +306,7 @@ Deno.env.set("TELEGRAM_BOT_TOKEN", TOKEN);
 Deno.env.set("OPENROUTER_API_KEY", "openrouter-test");
 
 reset();
-const { pickAccountByHint } = await import("./index.ts");
+const { merchantHistoryMatches, pickAccountByHint } = await import("./index.ts");
 assert(handler!, "index.ts did not register a handler with Deno.serve");
 
 // ---------------------------------------------------------------------------
@@ -553,6 +553,20 @@ freshTest("a correction with nothing pending is captured as a new entry", async 
   backend.route = { tool: "update_last_expense", args: {} };
   await handler(textUpdate(7103, "actually 45"));
   assertEquals(capturedIntake().length, 1);
+});
+
+Deno.test("a brand does not inherit the category of its own sub-service", () => {
+  // Plain "Noon" is the marketplace; "Noon Minutes" is grocery delivery.
+  assertEquals(merchantHistoryMatches("Noon", "Noon Minutes"), false);
+  assertEquals(merchantHistoryMatches("Careem", "Careem Food"), false);
+  // The same merchant, however it was capitalised, still matches.
+  assertEquals(merchantHistoryMatches("noon", "Noon"), true);
+  assertEquals(merchantHistoryMatches("Noon Minutes", "NOON MINUTES"), true);
+  // A shortened name still inherits from the fuller one it came from.
+  assertEquals(merchantHistoryMatches("Alseer", "Moisturiser Alseer"), true);
+  assertEquals(merchantHistoryMatches("Filli", "Filli Cafe LLC"), false);
+  assertEquals(merchantHistoryMatches("Burger King", "Burger King Al Barsha"), false);
+  assertEquals(merchantHistoryMatches("Mall of the Emirates", "BRED Mall of the Emirates"), true);
 });
 
 // Restore globals for anything that runs after this module.
