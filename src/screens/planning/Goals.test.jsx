@@ -25,12 +25,14 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe('Goals: the monthly figure a target date needs', () => {
-  it('spreads what is left over the months to the target date', () => {
+  it('for the household, gives what the priority plan still needs, saved monthly at the expected return', () => {
     renderScreen(<Goals household={{ id: 'h' }} members={MEMBERS} me={{ id: 'm1' }} accounts={ACCOUNTS} holdings={[]} data={DATA} loading={false} />);
-    // 100,000 − (5,000 logged + 20,000 linked) = 75,000 over Oct 2026..Dec 2027.
-    expect(screen.getByText(/to reach it by Dec 2027/)).toBeTruthy();
-    expect(screen.getAllByText('5,000').length).toBeGreaterThan(0);
-    expect(screen.getByText(/15 months left/)).toBeTruthy();
+    const row = document.querySelector('.gl-need').textContent;
+    expect(row).toMatch(/^Needs [\d,]+ a month to reach it by Dec 2027 · invested at 6\.0%, after \d+% is covered$/);
+    const perMonth = row.match(/^Needs ([\d,]+)/)[1];
+    // The summary, the row and the table give the one figure.
+    expect(document.querySelector('.gl-summary-row').textContent).toContain(`Dated goals still need ${perMonth} a month, invested at 6.0%`);
+    expect([...document.querySelectorAll('tbody td')].some((td) => td.textContent === perMonth)).toBe(true);
   });
 });
 

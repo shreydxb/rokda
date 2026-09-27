@@ -50,8 +50,15 @@ export default function Goals({ household, members, me, accounts, holdings, data
   // already past its date needs its whole remainder now, which is a lump sum,
   // not a rate.
   const dated = rows.filter((r) => r.need && !r.need.due);
-  const combinedNeed = dated.reduce((s, r) => s + r.need.perMonth, 0);
   const combinedPace = dated.reduce((s, r) => s + (r.progress.monthlyRate ?? 0), 0);
+  // One monthly figure. For the household it is the priority plan's: what
+  // each goal still needs after what is set aside and the rest of net worth
+  // cover it, saved monthly at the expected return. For one person, whose
+  // share of net worth is not split, it is the plain remainder spread over the
+  // months left.
+  const fundingById = new Map((funding?.goals ?? []).map((g) => [g.goal.id, g]));
+  const combinedNeed = funding ? funding.monthly : dated.reduce((s, r) => s + r.need.perMonth, 0);
+  const needLabel = funding ? 'still need' : 'need';
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
 
@@ -83,8 +90,9 @@ export default function Goals({ household, members, me, accounts, holdings, data
               </span>
               {dated.length > 0 && (
                 <span>
-                  {dated.length === 1 ? 'The dated goal needs' : `${dated.length} dated goals need`}{' '}
-                  <b className="fig">{formatMoney(combinedNeed)}</b> a month · recent pace <b className="fig">{formatMoney(combinedPace)}</b>
+                  {funding ? 'Dated goals still need' : dated.length === 1 ? 'The dated goal needs' : `${dated.length} dated goals ${needLabel}`}{' '}
+                  <b className="fig">{formatMoney(combinedNeed)}</b> a month{funding ? `, invested at ${returnPct.toFixed(1)}%` : ''} · recent pace{' '}
+                  <b className="fig">{formatMoney(combinedPace)}</b>
                 </span>
               )}
             </div>
@@ -111,7 +119,7 @@ export default function Goals({ household, members, me, accounts, holdings, data
                         {Math.round(progress.pct * 100)}% funded · last paid in {lastContributionLabel(progress.lastContribution)}
                       </div>
                     </div>
-                    {need && <GoalNeed need={need} behind={progress.status === 'behind'} />}
+                    {need && <GoalNeed need={need} funded={fundingById.get(goal.id)} returnPct={returnPct} behind={progress.status === 'behind'} />}
                   </div>
                   <div style={{ textAlign: 'right', flex: 'none' }}>
                     <div className="fig mn-row-amt">{formatMoney(progress.saved)}</div>
@@ -131,8 +139,10 @@ export default function Goals({ household, members, me, accounts, holdings, data
           {funding && funding.goals.length > 0 && <PriorityFunding funding={funding} returnPct={returnPct} />}
           <div className="ov-muted" style={{ marginTop: 14, fontSize: 11.5, lineHeight: 1.65, maxWidth: '80ch' }}>
             Target dates project the recent contribution rate forward. They come from what has actually been transferred, not from a
-            commitment, and they move whenever a contribution is missed. The monthly figure works the other way: what is left, spread
-            over the whole months to the target date, with no investment growth assumed.
+            commitment, and they move whenever a contribution is missed. The monthly figure works the other way:{' '}
+            {funding
+              ? `what each goal still needs once what is set aside and the rest of your net worth cover it in priority order, saved each month to its date at ${returnPct.toFixed(1)}%.`
+              : 'what is left, spread over the whole months to the target date, with no investment growth assumed.'}
           </div>
         </>
       )}
@@ -161,7 +171,23 @@ export default function Goals({ household, members, me, accounts, holdings, data
 // The target date's side of the question: what it needs each month from now.
 // Coloured only when the status chip already says Behind, so the two never
 // contradict each other near the edge of the on-track tolerance.
-function GoalNeed({ need, behind }) {
+function GoalNeed({ need, funded = null, returnPct, behind }) {
+  // The household's priority plan, where there is one: the same figure the
+  // table below and the summary add up.
+  if (funded && !need.due) {
+    if (funded.topUp <= 0) {
+      return <div className="gl-need">Covered today, in priority order, by what is set aside and your other savings</div>;
+    }
+    return (
+      <div className="gl-need" data-behind={behind}>
+        Needs <b className="fig">{formatMoney(funded.monthly)}</b> a month to reach it by {need.byLabel}
+        <span className="ov-muted">
+          {' '}
+          · invested at {returnPct.toFixed(1)}%, after {Math.round(funded.pct * 100)}% is covered
+        </span>
+      </div>
+    );
+  }
   if (need.due) {
     return (
       <div className="gl-need" data-behind={need.remaining > 0}>
@@ -215,6 +241,7 @@ function PriorityFunding({ funding, returnPct }) {
                 <th scope="col">Needed today</th>
                 <th scope="col">Covered</th>
                 <th scope="col">Top-up today</th>
+                <th scope="col">Or a month</th>
               </tr>
             </thead>
             <tbody>
@@ -229,6 +256,7 @@ function PriorityFunding({ funding, returnPct }) {
                   <td className="fig">{formatMoney(g.neededToday)}</td>
                   <td className="fig">{Math.round(g.pct * 100)}%</td>
                   <td className={`fig ${g.topUp > 0 ? 'ov-neg' : ''}`}>{g.topUp > 0 ? formatMoney(g.topUp) : '—'}</td>
+                  <td className="fig">{g.topUp > 0 && g.monthsLeft > 0 ? formatMoney(g.monthly) : '—'}</td>
                 </tr>
               ))}
             </tbody>

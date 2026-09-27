@@ -377,3 +377,34 @@ would.
   whenever something is marked. It is today's spending on the same basis
   (budget or closed months) less those categories, and the screen names what
   it left out. A figure saved in the plan still wins.
+
+## Drawdown is the Life plan's stress test
+
+Drawdown and the Life plan both answered "does the money last", from
+different starting points. Drawdown started from the 25× target, ran for 40
+years whatever the ages, and could not see goals or policy maturities.
+
+- **Once ages are set, Drawdown starts where the Life plan leaves off**
+  (`lifePlanHandover`). It takes the pot on the day work stops, the plan's
+  spending after, and the years to the plan's end. It also takes the plan's
+  other income from that year, with a policy maturing after the stop as a lump
+  sum in its year. It uses the scenario Drawdown has selected.
+- **What stays Drawdown's own:** the market fall early or late, the return
+  after independence, and "Make it last". They answer how much room the plan
+  has, which the Life plan does not.
+- The target and "stopping today" stay as choices. Spending for one, and goals
+  after the stop, are counted only on the Life plan, and the screen says so.
+
+## Goals shows one monthly figure
+
+Goals said a goal needed its whole remainder spread over the months left,
+with no growth, while the priority table below said the same goal was already
+covered by other savings. Both were called a monthly need.
+
+- **For the household, the monthly figure is the priority plan's.** It is the
+  top-up still missing after what is set aside and the rest of net worth cover
+  goals in priority order, saved each month to the goal's date at the
+  expected return. Valued today, those payments equal the top-up exactly. The
+  summary, each goal and the table's "Or a month" column all show it.
+- **For one person it stays the plain remainder over the months left.** Net
+  worth is not split by person, so there is no priority plan to take it from.

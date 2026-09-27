@@ -227,14 +227,18 @@ export function fundInPriority({ rows, freeMoney, returnPct, now = new Date() })
       return String(a.goal.target_date).localeCompare(String(b.goal.target_date));
     });
   let left = Math.max(0, freeMoney);
+  const monthlyRate = (1 + rate) ** (1 / 12) - 1;
   const goals = ordered.map((r) => {
     const years = yearsUntil(r.goal.target_date, now);
+    const target = parseDay(r.goal.target_date);
+    const monthsLeft = Math.max(0, (target.getFullYear() - now.getFullYear()) * 12 + (target.getMonth() - now.getMonth()));
     const costAtDate = r.progress.target;
     const neededToday = costAtDate / (1 + rate) ** years;
     const saved = Math.min(r.progress.saved, neededToday);
     const fromFree = Math.min(left, neededToday - saved);
     left -= fromFree;
     const covered = saved + fromFree;
+    const topUp = Math.max(0, neededToday - covered);
     return {
       goal: r.goal,
       years,
@@ -244,7 +248,12 @@ export function fundInPriority({ rows, freeMoney, returnPct, now = new Date() })
       fromFree,
       covered,
       pct: neededToday > 0 ? covered / neededToday : 1,
-      topUp: Math.max(0, neededToday - covered),
+      topUp,
+      monthsLeft,
+      // The same top-up as a saving each month to the goal's date, invested
+      // at the same return: what closes the gap, spread out. A goal due this
+      // month or earlier needs the whole top-up now.
+      monthly: topUp <= 0 ? 0 : monthsLeft <= 0 ? topUp : monthlyRate > 0 ? (topUp * monthlyRate) / (1 - (1 + monthlyRate) ** -monthsLeft) : topUp / monthsLeft,
     };
   });
   return {
@@ -252,6 +261,7 @@ export function fundInPriority({ rows, freeMoney, returnPct, now = new Date() })
     neededToday: goals.reduce((s, g) => s + g.neededToday, 0),
     covered: goals.reduce((s, g) => s + g.covered, 0),
     topUp: goals.reduce((s, g) => s + g.topUp, 0),
+    monthly: goals.filter((g) => g.monthsLeft > 0).reduce((s, g) => s + g.monthly, 0),
     freeLeft: left,
   };
 }

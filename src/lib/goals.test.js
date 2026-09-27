@@ -150,4 +150,24 @@ describe('fundInPriority', () => {
   it('leaves undated goals out', () => {
     expect(fundInPriority({ rows: [row('a', 1, null, 100)], freeMoney: 0, returnPct: 5, now }).goals).toEqual([]);
   });
+
+  it('spreads the top-up into a monthly saving, invested at the same return, that is worth exactly the top-up today', () => {
+    const result = fundInPriority({ rows: [row('a', 1, '2031-09-01', 100_000)], freeMoney: 20_000, returnPct: 6, now });
+    const g = result.goals[0];
+    expect(g.monthsLeft).toBe(60);
+    const i = 1.06 ** (1 / 12) - 1;
+    // Sixty payments at that rate, valued today.
+    const worthToday = g.monthly * ((1 - (1 + i) ** -60) / i);
+    expect(worthToday).toBeCloseTo(g.topUp, 6);
+    expect(result.monthly).toBeCloseTo(g.monthly, 9);
+  });
+
+  it('needs nothing a month for a goal already covered, and the whole top-up for one due now', () => {
+    const covered = fundInPriority({ rows: [row('a', 1, '2031-09-01', 100)], freeMoney: 1000, returnPct: 6, now });
+    expect(covered.goals[0].monthly).toBe(0);
+    const due = fundInPriority({ rows: [row('a', 1, '2026-09-30', 100)], freeMoney: 0, returnPct: 0, now });
+    expect(due.goals[0]).toMatchObject({ monthsLeft: 0, monthly: 100 });
+    // A lump sum due now is not a monthly rate, so the total leaves it out.
+    expect(due.monthly).toBe(0);
+  });
 });
