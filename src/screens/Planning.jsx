@@ -51,6 +51,8 @@ export default function Planning() {
           accounts={overview.accounts}
           transactions={overview.transactions}
           holdings={overview.holdings}
+          budgets={overview.budgets}
+          categories={overview.categories}
           data={planning}
           loading={loading}
           onOpenTab={setTab}
@@ -74,6 +76,8 @@ export default function Planning() {
           accounts={overview.accounts}
           transactions={overview.transactions}
           holdings={overview.holdings}
+          budgets={overview.budgets}
+          categories={overview.categories}
           data={planning}
           loading={loading}
         />
@@ -84,6 +88,8 @@ export default function Planning() {
           accounts={overview.accounts}
           transactions={overview.transactions}
           holdings={overview.holdings}
+          budgets={overview.budgets}
+          categories={overview.categories}
           data={planning}
           loading={loading}
           onOpenTab={setTab}

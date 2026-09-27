@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { MARKET_FALL, closedMonths, crossingYear, drawdownPath, fiTarget, futureValue, incomeInYear, independenceTarget, marketReturns, potForWithdrawal, projectYears, realReturn, requiredAnnualSaving, scenarioSets, sustainableWithdrawal } from './forecast';
+import { MARKET_FALL, budgetPlan, closedMonths, crossingYear, drawdownPath, fiTarget, forecastInputs, futureValue, incomeInYear, independenceTarget, marketReturns, potForWithdrawal, projectYears, realReturn, requiredAnnualSaving, scenarioSets, sustainableWithdrawal } from './forecast';
 
 const DEFAULTS = { nominal_return_pct: 6.0, inflation_pct: 2.5, safe_withdrawal_pct: 4.0 };
 
@@ -289,5 +289,60 @@ describe('a market fall while drawing down', () => {
     const { lastsYears } = drawdownPath({ start: pot, annualWithdrawal: 10000, rate: -0.05, maxYears: 20, returns });
     expect(lastsYears === null || lastsYears >= 20).toBe(true);
     expect(drawdownPath({ start: pot - 100, annualWithdrawal: 10000, rate: -0.05, maxYears: 20, returns }).lastsYears).toBeLessThan(20);
+  });
+});
+
+describe('budgetPlan and the budget standing in for history', () => {
+  const now = new Date(2026, 8, 27); // 27 Sep 2026
+  const cats = [
+    { id: 'rent', kind: 'expense', is_savings: false },
+    { id: 'food', kind: 'expense', is_savings: false },
+    { id: 'save', kind: 'expense', is_savings: true },
+    { id: 'pay', kind: 'income', is_savings: false },
+  ];
+  const b = (category_id, year, month, amount) => ({ category_id, year, month, amount: String(amount) });
+  const everyMonth2026 = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].flatMap((m) => [b('rent', 2026, m, 6000), b('food', 2026, m, 2000), b('save', 2026, m, 1500), b('pay', 2026, m, 20000)]);
+
+  it('averages spending and the savings target from this month forward, leaving out income budgets', () => {
+    expect(budgetPlan(everyMonth2026, cats, now)).toEqual({ monthlySpend: 8000, monthlySaving: 1500, monthCount: 4 });
+  });
+
+  it('reads the months ahead, not the past', () => {
+    const rows = [b('rent', 2026, 3, 99000), b('rent', 2026, 10, 5000), b('rent', 2026, 11, 7000)];
+    expect(budgetPlan(rows, cats, now)).toEqual({ monthlySpend: 6000, monthlySaving: 0, monthCount: 2 });
+  });
+
+  it('falls back to the latest past months when nothing ahead is budgeted', () => {
+    const rows = [b('rent', 2025, 1, 1000), ...[3, 4, 5].map((m) => b('rent', 2026, m, 3000))];
+    const plan = budgetPlan(rows, cats, now);
+    expect(plan.monthCount).toBe(4);
+    expect(plan.monthlySpend).toBe(2500);
+  });
+
+  it('is null with no spending budget', () => {
+    expect(budgetPlan([], cats, now)).toBeNull();
+    expect(budgetPlan([b('save', 2026, 10, 500)], cats, now)).toBeNull();
+  });
+
+  const septemberOnly = [{ id: 't1', amount: -900, kind: 'expense', occurred_at: '2026-09-03', is_shared: true }];
+
+  it('stands in for fewer than three closed months, and says so', () => {
+    const plan = budgetPlan(everyMonth2026, cats, now);
+    const inputs = forecastInputs(septemberOnly, 100000, now, plan);
+    expect(inputs).toMatchObject({ ready: true, source: 'budget', monthCount: 0, budgetMonths: 4, annualSpend: 96000, monthlySaving: 1500, avgMonthlyIncome: 9500 });
+  });
+
+  it('steps aside once three months have closed', () => {
+    const history = [6, 7, 8].flatMap((m) => [
+      { id: `i${m}`, amount: 10000, kind: 'income', occurred_at: `2026-0${m}-05`, is_shared: true },
+      { id: `s${m}`, amount: -4000, kind: 'expense', occurred_at: `2026-0${m}-06`, is_shared: true },
+    ]);
+    const inputs = forecastInputs(history, 100000, now, budgetPlan(everyMonth2026, cats, now));
+    expect(inputs).toMatchObject({ ready: true, source: 'actual', annualSpend: 48000, monthlySaving: 6000 });
+  });
+
+  it('still needs a net worth to start from, and a budget to stand in', () => {
+    expect(forecastInputs(septemberOnly, null, now, budgetPlan(everyMonth2026, cats, now)).ready).toBe(false);
+    expect(forecastInputs(septemberOnly, 100000, now, null)).toMatchObject({ ready: false, source: null });
   });
 });
