@@ -4,7 +4,7 @@ import { resolveScopeMemberId } from '../../lib/scope';
 import { formatMoney, formatPct } from '../../lib/money';
 import { scopedGoalRows } from '../../lib/goals';
 import { orderDebts, simulatePayoffPlan } from '../../lib/debt';
-import { closedMonths, crossingYear, forecastInputs, independenceTarget, realReturn } from '../../lib/forecast';
+import { budgetPlan, closedMonths, crossingYear, forecastInputs, independenceTarget, realReturn } from '../../lib/forecast';
 import { incompleteNote, netWorthSummary, startingNetWorth } from '../overviewMath';
 
 const DEFAULTS = { nominal_return_pct: 6.0, inflation_pct: 2.5, safe_withdrawal_pct: 4.0 };
@@ -20,7 +20,7 @@ function monthsToLabel(months) {
 
 // Composes the same goal/debt/forecast outputs Goals, DebtPayoff and Forecast
 // already compute — no new financial math lives here, just a next-action read.
-export default function PlanSummary({ members, me, accounts, transactions, holdings, data, loading, onOpenTab }) {
+export default function PlanSummary({ members, me, accounts, transactions, holdings, budgets = [], categories = [], data, loading, onOpenTab }) {
   const { goals, goalContributions, goalAllocations, debts, assumptions } = data;
   const { scope } = useScope();
   const scopeMemberId = resolveScopeMemberId(scope, me, members);
@@ -78,7 +78,9 @@ export default function PlanSummary({ members, me, accounts, transactions, holdi
     return incompleteNote({ accounts: s.unvalued, holdings: s.unpricedHoldings }, { capitalised: false, sentence: false });
   }, [accounts, holdings]);
   const monthCount = closedMonths(transactions, now).size;
-  const forecast = useMemo(() => forecastInputs(transactions, startNetWorth, now), [transactions, startNetWorth, now]);
+  // The same inputs Forecast and Drawdown use, the budget standing in included.
+  const plan = useMemo(() => budgetPlan(budgets, categories, now), [budgets, categories, now]);
+  const forecast = useMemo(() => forecastInputs(transactions, startNetWorth, now, plan), [transactions, startNetWorth, now, plan]);
   const nominalPct = assumptions?.nominal_return_pct != null ? Number(assumptions.nominal_return_pct) : DEFAULTS.nominal_return_pct;
   const inflationPct = assumptions?.inflation_pct != null ? Number(assumptions.inflation_pct) : DEFAULTS.inflation_pct;
   const swrPct = assumptions?.safe_withdrawal_pct != null ? Number(assumptions.safe_withdrawal_pct) : DEFAULTS.safe_withdrawal_pct;
@@ -112,7 +114,7 @@ export default function PlanSummary({ members, me, accounts, transactions, holdi
       key: 'forecast',
       text:
         monthCount < 3
-          ? `Independence needs three closed months of spend · has ${monthCount}`
+          ? `Independence needs three closed months of spend or a budget · has ${monthCount}`
           : 'Independence needs a starting account valuation',
       tab: 'forecast',
       cta: 'Open Forecast',
@@ -183,7 +185,7 @@ export default function PlanSummary({ members, me, accounts, transactions, holdi
                 // this card is what most people look at.
                 `${formatPct(startNetWorth / fireTarget)} of the way to ${formatMoney(fireTarget)}${
                   basisIncomplete ? ` · incomplete, ${basisIncomplete}` : ''
-                }`
+                }${forecast.source === 'budget' ? ' · from your budget' : ''}`
               : 'Not enough data to project'
           }
           cta="Forecast"

@@ -115,6 +115,9 @@ const SUBVIEWS = [
   { name: 'goals', path: '/planning', tabs: ['Goals'], expectText: 'a month to reach it by' },
   { name: 'budget-year', path: '/money', tabs: ['Budget', 'Year'], expectText: 'Net saved each month' },
   { name: 'drawdown', path: '/planning', tabs: ['Drawdown', 'Fall in year 1'], expectText: 'The same fall, early or late' },
+  // The fixture's own data: two closed months and a budget, so Drawdown
+  // projects from the budget and must say so.
+  { name: 'drawdown-from-budget', path: '/planning', tabs: ['Drawdown'], expectText: 'From your budget, for now', history: false },
   { name: 'starter-categories', path: '/settings', tabs: ['Categories & rules', 'Starter set'], expectText: 'Starter categories' },
 ];
 
@@ -136,7 +139,7 @@ function closedMonthsOfHistory() {
 for (const view of SUBVIEWS) {
   test(`${view.name}: renders, no errors, no horizontal overflow`, async ({ page }, testInfo) => {
     const errors = watchErrors(page);
-    await stubSupabase(page, { tables: { transactions: closedMonthsOfHistory() } });
+    await stubSupabase(page, view.history === false ? {} : { tables: { transactions: closedMonthsOfHistory() } });
     await gotoReady(page, view.path);
     for (const tab of view.tabs) await page.getByRole('button', { name: tab, exact: true }).first().click();
     await expect(page.locator('.om-main')).toContainText(view.expectText);

@@ -26,20 +26,71 @@ export function closedMonths(transactions, now = new Date()) {
   return new Map([...byMonth.entries()].sort((a, b) => a[0].localeCompare(b[0])));
 }
 
+// What the household's budget says it will spend and save in a month, for a
+// household too new to have three closed months of its own. Spending is every
+// expense budget except savings categories; saving is the savings target
+// (categories.is_savings). Averaged over the budgeted months from this one
+// forward, up to a year out -- what the household plans to do next -- or, when
+// nothing ahead is budgeted, the latest twelve before it. Null when no month
+// has a spending budget.
+export function budgetPlan(budgets = [], categories = [], now = new Date()) {
+  const catById = new Map(categories.map((c) => [c.id, c]));
+  const byMonth = new Map();
+  for (const b of budgets) {
+    const cat = catById.get(b.category_id);
+    if (!cat || cat.kind !== 'expense') continue;
+    const key = Number(b.year) * 12 + (Number(b.month) - 1);
+    const m = byMonth.get(key) ?? { spend: 0, saving: 0 };
+    if (cat.is_savings) m.saving += Number(b.amount) || 0;
+    else m.spend += Number(b.amount) || 0;
+    byMonth.set(key, m);
+  }
+  const current = now.getFullYear() * 12 + now.getMonth();
+  const budgeted = [...byMonth.keys()].filter((k) => byMonth.get(k).spend > 0).sort((a, b) => a - b);
+  const ahead = budgeted.filter((k) => k >= current && k < current + 12);
+  const chosen = ahead.length ? ahead : budgeted.filter((k) => k < current).slice(-12);
+  if (!chosen.length) return null;
+  const avg = (field) => chosen.reduce((s, k) => s + byMonth.get(k)[field], 0) / chosen.length;
+  return { monthlySpend: avg('spend'), monthlySaving: avg('saving'), monthCount: chosen.length };
+}
+
 // A forecast needs three closed months of spend and at least one account
 // valuation to start from — otherwise a target would be invented, not
 // derived. Averages over up to the last 12 closed months.
-export function forecastInputs(transactions, startNetWorth, now = new Date()) {
+//
+// Until there are three closed months, a budget (budgetPlan) stands in: the
+// household's own stated plan rather than an invented figure. `source` says
+// which one the numbers came from -- 'actual' or 'budget' -- so every screen
+// can say so, and the budget steps aside by itself once the third month
+// closes. From a budget there is no recorded income; saving is the savings
+// target, and income is taken as spend plus that saving.
+export function forecastInputs(transactions, startNetWorth, now = new Date(), plan = null) {
   const months = [...closedMonths(transactions, now).values()].slice(-12);
   const monthCount = months.length;
-  const ready = monthCount >= 3 && startNetWorth !== null;
+  const hasNetWorth = startNetWorth !== null;
+  if (monthCount < 3 && hasNetWorth && plan) {
+    return {
+      ready: true,
+      source: 'budget',
+      monthCount,
+      budgetMonths: plan.monthCount,
+      hasNetWorth,
+      avgMonthlyIncome: plan.monthlySpend + plan.monthlySaving,
+      avgMonthlySpend: plan.monthlySpend,
+      annualSpend: plan.monthlySpend * 12,
+      monthlySaving: plan.monthlySaving,
+      startNetWorth,
+    };
+  }
+  const ready = monthCount >= 3 && hasNetWorth;
   if (!ready) {
-    return { ready, monthCount, hasNetWorth: startNetWorth !== null, avgMonthlyIncome: 0, avgMonthlySpend: 0, annualSpend: 0, monthlySaving: 0, startNetWorth: startNetWorth ?? 0 };
+    return { ready, source: null, monthCount, hasNetWorth, avgMonthlyIncome: 0, avgMonthlySpend: 0, annualSpend: 0, monthlySaving: 0, startNetWorth: startNetWorth ?? 0 };
   }
   const avgMonthlyIncome = months.reduce((s, m) => s + m.income, 0) / monthCount;
   const avgMonthlySpend = months.reduce((s, m) => s + m.spend, 0) / monthCount;
   return {
     ready,
+    source: 'actual',
     monthCount,
     hasNetWorth: true,
     avgMonthlyIncome,

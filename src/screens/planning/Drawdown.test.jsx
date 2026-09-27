@@ -151,3 +151,23 @@ describe('Drawdown: a market fall, early or late', () => {
     expect(late.textContent).toMatch(/The pot is gone before year 10/);
   });
 });
+
+describe('Drawdown: the budget stands in until three months close', () => {
+  const now = new Date();
+  const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+  const categories = [{ id: 'rent', kind: 'expense', is_savings: false }];
+  const budgets = [{ id: 'b1', category_id: 'rent', year: now.getFullYear(), month: now.getMonth() + 1, amount: '4000' }];
+
+  it('shows how long it lasts from the budgeted spend, and says where it came from', () => {
+    renderDrawdown({ transactions: [{ id: 'o1', amount: -900, kind: 'expense', occurred_at: thisMonth, is_shared: true }], budgets, categories });
+    // 4,000 a month budgeted: the same 48,000 a year as three months of history.
+    expect(hero()).toBe('51 years');
+    expect(screen.getByRole('note').textContent).toMatch(/From your budget, for now/);
+    expect(screen.getByText(/Budgeted · 48K a year/)).toBeTruthy();
+  });
+
+  it('with neither history nor a budget, says both would do', () => {
+    renderDrawdown({ transactions: [] });
+    expect(screen.getByText(/or a\s+monthly budget until then/)).toBeTruthy();
+  });
+});

@@ -4,7 +4,8 @@ import { formatPct } from '../../lib/money';
 import { incompleteNote, netWorthSummary, startingNetWorth } from '../overviewMath';
 import { isArchived } from '../../lib/accounts';
 import { unconfirmedAccounts } from '../../lib/balance';
-import { closedMonths, crossingYear, fiTarget, forecastInputs, independenceTarget, projectYears, realReturn, requiredAnnualSaving, goalAt, scenarioSets } from '../../lib/forecast';
+import { budgetPlan, closedMonths, crossingYear, fiTarget, forecastInputs, independenceTarget, projectYears, realReturn, requiredAnnualSaving, goalAt, scenarioSets } from '../../lib/forecast';
+import BudgetBasis from './BudgetBasis';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import ForecastAssumptionsEditor from './ForecastAssumptionsEditor';
 import { ChartLegend, ColumnChart, RangeChart } from '../../charts/Charts';
@@ -35,7 +36,7 @@ function deltaLabel(years) {
 // object, which never had a holdings field: reading `data.holdings` crashed
 // with no accounts and silently dropped holdings from net worth with
 // accounts (QA-03).
-export default function Forecast({ household, accounts = [], transactions = [], holdings = [], data, loading }) {
+export default function Forecast({ household, accounts = [], transactions = [], holdings = [], budgets = [], categories = [], data, loading }) {
   const navigate = useNavigate();
   const householdId = household?.id;
   const { assumptions } = data;
@@ -84,7 +85,11 @@ export default function Forecast({ household, accounts = [], transactions = [], 
   }, [accounts, holdings]);
   const basisIncomplete = incompleteNote(basisGaps, { capitalised: false, sentence: false });
   const monthCount = closedMonths(transactions, now).size;
-  const inputs = useMemo(() => forecastInputs(transactions, startNetWorth, now), [transactions, startNetWorth, now]);
+  // Until three months close, the budget stands in (forecastInputs).
+  const plan = useMemo(() => budgetPlan(budgets, categories, now), [budgets, categories, now]);
+  const inputs = useMemo(() => forecastInputs(transactions, startNetWorth, now, plan), [transactions, startNetWorth, now, plan]);
+  const fromBudget = inputs.source === 'budget';
+  const basisWord = fromBudget ? 'budgeted' : 'actual';
 
   const nominalPct = assumptions?.nominal_return_pct != null ? Number(assumptions.nominal_return_pct) : DEFAULTS.nominal_return_pct;
   const inflationPct = assumptions?.inflation_pct != null ? Number(assumptions.inflation_pct) : DEFAULTS.inflation_pct;
@@ -115,7 +120,7 @@ export default function Forecast({ household, accounts = [], transactions = [], 
         <div style={{ marginTop: 26, display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, padding: '12px 0', borderTop: '1px solid var(--rule)', fontSize: 13.5 }}>
             <span>Annual spend</span>
-            <span className="ov-muted">{monthCount >= 3 ? 'known' : `needs three closed months · has ${monthCount}`}</span>
+            <span className="ov-muted">{monthCount >= 3 ? 'known' : `needs three closed months or a budget · has ${monthCount}`}</span>
           </div>
           <div
             style={{ display: 'flex', justifyContent: 'space-between', gap: 16, padding: '12px 0', borderTop: '1px solid var(--rule)', borderBottom: '1px solid var(--rule)', fontSize: 13.5 }}
@@ -279,6 +284,7 @@ export default function Forecast({ household, accounts = [], transactions = [], 
 
   return (
     <div>
+      <BudgetBasis inputs={inputs} />
       <section className="pl-hero" style={{ marginTop: 22 }}>
         <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 20, flexWrap: 'wrap' }}>
           <div>
@@ -288,7 +294,7 @@ export default function Forecast({ household, accounts = [], transactions = [], 
             </div>
             <div style={{ fontSize: 13.5, color: 'var(--ink2)', marginTop: 10 }}>
               {mode === 'real'
-                ? `${spendMultiple}× today's spend of ${money.fmt(inputs.annualSpend)} a year, in today's money`
+                ? `${spendMultiple}× ${fromBudget ? 'your budgeted' : "today's"} spend of ${money.fmt(inputs.annualSpend)} a year, in today's money`
                 : `${spendMultiple}× spend, grown to ${startYear + HORIZON_YEARS} at ${selInflationPct.toFixed(1)}% inflation`}
               {lastingIncome > 0 && `, less ${money.fmt(lastingIncome)} a year of lasting other income`}
               {otherCount > 0 && ` · ${otherCount} other income source${otherCount === 1 ? '' : 's'} counted on Drawdown`}
@@ -343,8 +349,8 @@ export default function Forecast({ household, accounts = [], transactions = [], 
               ['Investment return', `${selNominalPct.toFixed(1)}% nominal`],
               ['Inflation', `${selInflationPct.toFixed(1)}%`],
               ['Safe withdrawal rate', `${selSwrPct.toFixed(1)}%`],
-              ['Monthly saving', `${money.fmtBalance(inputs.monthlySaving)} (actual)`],
-              ['Annual spend', `${money.fmt(inputs.annualSpend)} (actual)`],
+              ['Monthly saving', `${money.fmtBalance(inputs.monthlySaving)} (${basisWord})`],
+              ['Annual spend', `${money.fmt(inputs.annualSpend)} (${basisWord})`],
               ['Horizon shown', `${HORIZON_YEARS} years`],
             ].map(([label, value]) => (
               <div key={label}>
@@ -414,7 +420,9 @@ export default function Forecast({ household, accounts = [], transactions = [], 
         <div className="fc-kpi">
           <div style={{ fontSize: 12, color: 'var(--ink2)' }}>Saving now</div>
           <div className="fig" style={{ fontSize: 28, marginTop: 6 }}>{money.fmtBalance(inputs.monthlySaving)}</div>
-          <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 5 }}>A month, averaged over the last {inputs.monthCount} closed months</div>
+          <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 5 }}>
+            {fromBudget ? 'A month, your savings target in the budget' : `A month, averaged over the last ${inputs.monthCount} closed months`}
+          </div>
         </div>
       </div>
 

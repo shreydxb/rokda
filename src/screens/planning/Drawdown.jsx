@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
 import { startingNetWorth } from '../overviewMath';
-import { MARKET_FALL, drawdownPath, forecastInputs, independenceTarget, marketReturns, potForWithdrawal, realReturn, scenarioSets, sustainableWithdrawal } from '../../lib/forecast';
+import { MARKET_FALL, budgetPlan, drawdownPath, forecastInputs, independenceTarget, marketReturns, potForWithdrawal, realReturn, scenarioSets, sustainableWithdrawal } from '../../lib/forecast';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { LineChart } from '../../charts/Charts';
 import IncomeEditor from './IncomeEditor';
+import BudgetBasis from './BudgetBasis';
 
 const DEFAULTS = { nominal_return_pct: 6.0, inflation_pct: 2.5, safe_withdrawal_pct: 4.0 };
 const MAX_YEARS = 60;
@@ -28,7 +29,7 @@ const lastsText = (years) => (years === null ? `${MAX_YEARS}+ years` : `${years}
 // the real return.
 //
 // The controls are what-ifs held on this screen only; nothing here is saved.
-export default function Drawdown({ household, accounts = [], transactions = [], holdings = [], data, loading, onOpenTab }) {
+export default function Drawdown({ household, accounts = [], transactions = [], holdings = [], budgets = [], categories = [], data, loading, onOpenTab }) {
   const { assumptions } = data;
   const money = useMoneyDisplay(household);
   const now = useMemo(() => new Date(), []);
@@ -43,7 +44,9 @@ export default function Drawdown({ household, accounts = [], transactions = [], 
   const incomes = data.independenceIncome ?? [];
 
   const startNetWorth = useMemo(() => startingNetWorth(accounts, holdings), [accounts, holdings]);
-  const inputs = useMemo(() => forecastInputs(transactions, startNetWorth, now), [transactions, startNetWorth, now]);
+  // Until three months close, the budget stands in (forecastInputs).
+  const plan = useMemo(() => budgetPlan(budgets, categories, now), [budgets, categories, now]);
+  const inputs = useMemo(() => forecastInputs(transactions, startNetWorth, now, plan), [transactions, startNetWorth, now, plan]);
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
 
@@ -52,8 +55,8 @@ export default function Drawdown({ household, accounts = [], transactions = [], 
       <div className="ov-empty" style={{ marginTop: 22 }}>
         <div className="ov-empty-kicker">Not enough to project</div>
         <div className="ov-empty-body">
-          How long money lasts depends on what the household spends and holds. Both come from recorded activity and account
-          valuations, the same inputs Forecast needs.
+          How long money lasts depends on what the household spends and holds: three finished months of recorded spending, or a
+          monthly budget until then, and an account valuation. The same inputs Forecast needs.
         </div>
         <div className="ov-empty-actions">
           <button type="button" className="om-btn" onClick={() => onOpenTab?.('forecast')}>
@@ -97,6 +100,7 @@ export default function Drawdown({ household, accounts = [], transactions = [], 
 
   return (
     <div>
+      <BudgetBasis inputs={inputs} />
       <section className="pl-hero" style={{ marginTop: 22 }}>
         <div className="ov-kicker">How long it lasts</div>
         <div className="ov-hero fig">
@@ -128,7 +132,7 @@ export default function Drawdown({ household, accounts = [], transactions = [], 
             <span className="dd-label">Spending</span>
             <div className="dd-segs">
               <button type="button" className="om-seg" data-active={spendKind === 'actual'} onClick={() => setSpendKind('actual')}>
-                Today's · {money.fmtCompact(inputs.annualSpend)} a year
+                {inputs.source === 'budget' ? 'Budgeted' : "Today's"} · {money.fmtCompact(inputs.annualSpend)} a year
               </button>
               {leanSpend ? (
                 <button type="button" className="om-seg" data-active={spendKind === 'lean'} onClick={() => setSpendKind('lean')}>

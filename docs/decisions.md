@@ -166,6 +166,27 @@ rather than spent (a household's "Savings & Investments", say).
 - Transaction arithmetic is unchanged: spend and income are still decided by
   `transactionKind.js` alone, in the app and the bot alike.
 
+## A budget stands in for spending history, until three months close
+
+Forecast, Drawdown and the Plan summary estimate a year's spending from the
+average of at least three closed months. A household that has only just
+started recording has none, and saw "Not enough to project" on all three for
+months.
+
+- **Until three months close, the budget stands in** (`budgetPlan`,
+  `forecastInputs`). Spending is the monthly spending budget, not counting
+  savings categories. Saving is the savings target. Both are averaged over the
+  budgeted months from this one forward, up to a year out, or else the latest
+  twelve budgeted months.
+- **It is the household's own stated plan, not a figure the app made up**,
+  which is the line the empty state has always held. Every screen that uses it
+  says so, in the same note (`BudgetBasis`), and the Plan summary card adds
+  "from your budget".
+- **It steps aside on its own.** Once the third month closes, recorded spending
+  is used and the note goes away.
+- A budget has no income in it, so income is taken as spending plus the savings
+  target. Nothing else reads it.
+
 ## Drawdown tests a market fall, early or late
 
 A steady return every year hides the biggest risk to a pot being spent: a

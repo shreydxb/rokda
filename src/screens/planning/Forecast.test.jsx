@@ -316,3 +316,43 @@ describe('Forecast: scenarios side by side', () => {
     expect(screen.queryByText(/Custom joins the chart/)).toBeNull();
   });
 });
+
+// A household like the one in production: spending recorded only in the
+// month still open, a full budget, and accounts to start from.
+describe('Forecast: the budget stands in until three months close', () => {
+  const now = new Date();
+  const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+  const openMonthOnly = [{ id: 'o1', amount: -900, kind: 'expense', occurred_at: thisMonth, is_shared: true }];
+  const categories = [
+    { id: 'rent', kind: 'expense', is_savings: false },
+    { id: 'save', kind: 'expense', is_savings: true },
+  ];
+  const budgets = [0, 1, 2].flatMap((ahead) => {
+    const d = new Date(now.getFullYear(), now.getMonth() + ahead, 1);
+    return [
+      { id: `r${ahead}`, category_id: 'rent', year: d.getFullYear(), month: d.getMonth() + 1, amount: '4000' },
+      { id: `s${ahead}`, category_id: 'save', year: d.getFullYear(), month: d.getMonth() + 1, amount: '1000' },
+    ];
+  });
+
+  it('projects from the budget and says so', () => {
+    renderForecast({ accounts: [ACCOUNT], transactions: openMonthOnly, budgets, categories });
+    expect(screen.queryByText('Not enough to project')).toBeNull();
+    expect(screen.getByRole('note').textContent).toMatch(/From your budget, for now\..*averaged over 3 budgeted months.*none yet/);
+    // 4,000 a month budgeted is 48,000 a year; 25× at 4% is 1,200,000.
+    expect(screen.getByText(/25× your budgeted spend of 48,000 a year/)).toBeTruthy();
+    expect(screen.getByText('A month, your savings target in the budget')).toBeTruthy();
+  });
+
+  it('without a budget still says what it needs', () => {
+    renderForecast({ accounts: [ACCOUNT], transactions: openMonthOnly, budgets: [], categories });
+    expect(screen.getByText('Not enough to project')).toBeTruthy();
+    expect(screen.getByText(/needs three closed months or a budget · has 0/)).toBeTruthy();
+  });
+
+  it('actual spending takes over once three months have closed', () => {
+    renderForecast({ accounts: [ACCOUNT], transactions: closedMonthTransactions(now), budgets, categories });
+    expect(screen.queryByRole('note')).toBeNull();
+    expect(screen.getByText(/today's spend of 12,000 a year/)).toBeTruthy();
+  });
+});
