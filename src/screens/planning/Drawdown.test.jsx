@@ -2,6 +2,8 @@ import { afterEach, describe, it, expect, vi } from 'vitest';
 import { screen, fireEvent } from '@testing-library/dom';
 import { renderScreen } from '../../test/renderScreen';
 import Drawdown from './Drawdown';
+import { lifePlan, lifePlanBasis, lifePlanHandover, planPeople } from '../../lib/lifePlan';
+import { forecastInputs } from '../../lib/forecast';
 
 vi.mock('../../lib/supabaseClient', () => ({ supabase: {} }));
 
@@ -169,5 +171,53 @@ describe('Drawdown: the budget stands in until three months close', () => {
   it('with neither history nor a budget, says both would do', () => {
     renderDrawdown({ transactions: [] });
     expect(screen.getByText(/or a\s+monthly budget until then/)).toBeTruthy();
+  });
+});
+
+describe('Drawdown: the Life plan under stress', () => {
+  const members = [
+    { id: 'm1', display_name: 'Shreyash' },
+    { id: 'm2', display_name: 'Tarika' },
+  ];
+  const memberLife = [
+    { member_id: 'm1', birth_year: 1994, life_expectancy: 80 },
+    { member_id: 'm2', birth_year: 1994, life_expectancy: 85 },
+  ];
+  const thisYear = new Date().getFullYear();
+
+  function expected(data) {
+    const inputs = forecastInputs(history(), 200000, new Date(), null);
+    const basis = lifePlanBasis({ people: planPeople(members, memberLife), assumptions: null, inputs, startNetWorth: 200000, goals: [], incomes: data.independenceIncome ?? [], household: { inr_per_aed: 25 }, startYear: thisYear });
+    return { basis, handover: lifePlanHandover(basis) };
+  }
+
+  it('starts where the Life plan leaves off: its pot, its spending, the years to its end', () => {
+    const data = { assumptions: null, memberLife };
+    const { handover, basis } = expected(data);
+    renderDrawdown({ members, data, household: { id: 'h', inr_per_aed: 25 }, onOpenTab: vi.fn() });
+    expect(handover.stopYear).toBe(2054);
+    expect(handover.years).toBe(2079 - 2054 + 1);
+    expect(handover.pot).toBeCloseTo(lifePlan(basis.args).potAtStop, 6);
+    const note = document.querySelector('.dd-from-plan').textContent;
+    expect(note).toMatch(/^From your Life plan: work stops in 2054 \(Shreyash 60 · Tarika 60\) with AED [\d,]+, and has to last 26 years, to 2079\./);
+    expect(screen.getByText('26 yrs')).toBeTruthy();
+    expect(screen.getByText(/^Life plan, 2054 ·/).getAttribute('data-active')).toBe('true');
+  });
+
+  it('counts a policy maturing after work stops as a lump sum in its year', () => {
+    const maturity = { id: 'l', name: 'LIC', kind: 'lump_sum', amount: 2500000, currency: 'INR', in_year: 2060, starts_after_years: 0 };
+    const { handover } = expected({ independenceIncome: [maturity] });
+    expect(handover.incomes).toEqual([expect.objectContaining({ name: 'LIC', kind: 'lump_sum', starts_after_years: 6 })]);
+    expect(handover.incomes[0].amount).toBeCloseTo(100000 / 1.025 ** (2060 - thisYear), 6);
+  });
+
+  it('still offers the target and today, and opens the Life plan', () => {
+    const onOpenTab = vi.fn();
+    renderDrawdown({ members, data: { assumptions: null, memberLife }, onOpenTab });
+    fireEvent.click(screen.getByText(/Stopping today/));
+    expect(document.querySelector('.dd-from-plan')).toBeNull();
+    fireEvent.click(screen.getByText(/^Life plan, 2054 ·/));
+    fireEvent.click(screen.getByText('Open Life plan'));
+    expect(onOpenTab).toHaveBeenCalledWith('life');
   });
 });

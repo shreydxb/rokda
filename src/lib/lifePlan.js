@@ -324,3 +324,28 @@ export function agesLabel(ages) {
     .map((a) => `${a.name} ${a.age}`)
     .join(' · ');
 }
+
+// Where the Life plan leaves the household on the day work stops, for
+// Drawdown to put under stress: the pot then, the spending after, the years
+// it has to last, and the plan's other income from that year on -- income
+// timed from the stop, and sums paid in a set year (a policy maturity) as
+// lump sums counted from it. All in today's money, as both screens are.
+// Goals due after work stops and spending for one are the Life plan's alone.
+export function lifePlanHandover(basis) {
+  const result = lifePlan(basis.args);
+  const { stopYear, endYear } = basis;
+  const later = basis.inflows
+    .filter((i) => i.year >= stopYear)
+    .map((i) => ({ id: i.id, name: i.name, kind: 'lump_sum', amount: i.amount, starts_after_years: i.year - stopYear, lasts_years: null }));
+  return {
+    stopYear,
+    endYear,
+    years: endYear - stopYear + 1,
+    pot: result.potAtStop ?? 0,
+    spend: basis.spendChoice.value,
+    spendLabel: basis.spendChoice.label,
+    incomes: [...basis.incomes, ...later],
+    goalsAfter: basis.goals.filter((g) => g.year >= stopYear),
+    lasts: result.lasts,
+  };
+}

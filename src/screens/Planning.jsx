@@ -105,6 +105,7 @@ export default function Planning() {
       {tab === 'drawdown' && (
         <Drawdown
           household={household}
+          members={members}
           accounts={overview.accounts}
           transactions={overview.transactions}
           holdings={overview.holdings}
