@@ -4,7 +4,7 @@ import { formatPct } from '../../lib/money';
 import { incompleteNote, netWorthSummary, startingNetWorth } from '../overviewMath';
 import { isArchived } from '../../lib/accounts';
 import { unconfirmedAccounts } from '../../lib/balance';
-import { budgetPlan, closedMonths, crossingYear, fiTarget, forecastInputs, independenceTarget, projectYears, realReturn, requiredAnnualSaving, goalAt, scenarioSets } from '../../lib/forecast';
+import { budgetPlan, closedMonths, crossingYear, fiTarget, forecastInputs, goalAt, incomesFromStop, independenceTarget, projectYears, realReturn, requiredAnnualSaving, scenarioSets, spendThatStops } from '../../lib/forecast';
 import { agesLabel, lifePlanStop } from '../../lib/lifePlan';
 import BudgetBasis from './BudgetBasis';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
@@ -115,10 +115,12 @@ export default function Forecast({ household, members = [], accounts = [], trans
         startNetWorth,
         goals: data.goals ?? [],
         incomes: data.independenceIncome ?? [],
+        household,
+        stopping: spendThatStops({ inputs, transactions, budgets, categories, now }),
         startYear,
         fcSet,
       }),
-    [members, data.memberLife, assumptions, inputs, startNetWorth, data.goals, data.independenceIncome, startYear, fcSet]
+    [members, data.memberLife, assumptions, inputs, startNetWorth, data.goals, data.independenceIncome, household, transactions, budgets, categories, now, startYear, fcSet]
   );
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
@@ -173,7 +175,7 @@ export default function Forecast({ household, members = [], accounts = [], trans
   // Lasting income (from day one, for good) does what spending less would, so
   // it comes off both targets. The same function feeds Drawdown and the Plan
   // summary.
-  const incomes = data.independenceIncome ?? [];
+  const incomes = incomesFromStop(data.independenceIncome ?? [], household);
   const { target, lastingIncome, otherCount } = independenceTarget(inputs.annualSpend, selSwrPct, incomes);
   const leanTarget = leanSpend ? fiTarget(Math.max(0, leanSpend - lastingIncome), selSwrPct) : null;
   // The target is spend ÷ the withdrawal rate, so the multiple follows the

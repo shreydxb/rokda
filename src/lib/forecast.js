@@ -1,6 +1,7 @@
 import { scopedValue } from './scope';
 import { monthKey, parseDay } from './day';
 import { applyToIncomeSpend } from './transactionKind';
+import { convertToAed } from './currency';
 
 // The current, still-open month is excluded — its spend is partial and would
 // understate a real month. Forecast is always household-wide ("Both"): an
@@ -33,25 +34,76 @@ export function closedMonths(transactions, now = new Date()) {
 // forward, up to a year out -- what the household plans to do next -- or, when
 // nothing ahead is budgeted, the latest twelve before it. Null when no month
 // has a spending budget.
-export function budgetPlan(budgets = [], categories = [], now = new Date()) {
+const budgetKey = (b) => Number(b.year) * 12 + (Number(b.month) - 1);
+
+function budgetByMonth(budgets, categories) {
   const catById = new Map(categories.map((c) => [c.id, c]));
   const byMonth = new Map();
   for (const b of budgets) {
     const cat = catById.get(b.category_id);
     if (!cat || cat.kind !== 'expense') continue;
-    const key = Number(b.year) * 12 + (Number(b.month) - 1);
+    const key = budgetKey(b);
     const m = byMonth.get(key) ?? { spend: 0, saving: 0 };
     if (cat.is_savings) m.saving += Number(b.amount) || 0;
     else m.spend += Number(b.amount) || 0;
     byMonth.set(key, m);
   }
+  return byMonth;
+}
+
+// The budgeted months a plan is averaged over (see budgetPlan).
+function chosenBudgetMonths(byMonth, now) {
   const current = now.getFullYear() * 12 + now.getMonth();
   const budgeted = [...byMonth.keys()].filter((k) => byMonth.get(k).spend > 0).sort((a, b) => a - b);
   const ahead = budgeted.filter((k) => k >= current && k < current + 12);
-  const chosen = ahead.length ? ahead : budgeted.filter((k) => k < current).slice(-12);
+  return ahead.length ? ahead : budgeted.filter((k) => k < current).slice(-12);
+}
+
+export function budgetPlan(budgets = [], categories = [], now = new Date()) {
+  const byMonth = budgetByMonth(budgets, categories);
+  const chosen = chosenBudgetMonths(byMonth, now);
   if (!chosen.length) return null;
   const avg = (field) => chosen.reduce((s, k) => s + byMonth.get(k)[field], 0) / chosen.length;
   return { monthlySpend: avg('spend'), monthlySaving: avg('saving'), monthCount: chosen.length };
+}
+
+// A year's spending in each expense category, on the same basis as
+// forecastInputs' annualSpend: the budget's chosen months while it stands in,
+// otherwise the last twelve closed months. Savings categories are left out,
+// as they are from spending. Keyed by category id.
+export function annualSpendByCategory({ inputs, transactions = [], budgets = [], categories = [], now = new Date() }) {
+  const spendCats = new Set(categories.filter((c) => c.kind === 'expense' && !c.is_savings).map((c) => c.id));
+  const totals = new Map();
+  const add = (id, v) => totals.set(id, (totals.get(id) ?? 0) + v);
+  if (!inputs?.ready) return totals;
+  if (inputs.source === 'budget') {
+    const chosen = new Set(chosenBudgetMonths(budgetByMonth(budgets, categories), now));
+    for (const b of budgets) {
+      if (spendCats.has(b.category_id) && chosen.has(budgetKey(b))) add(b.category_id, ((Number(b.amount) || 0) * 12) / chosen.size);
+    }
+    return totals;
+  }
+  const months = new Set([...closedMonths(transactions, now).keys()].slice(-12));
+  for (const t of transactions) {
+    if (!spendCats.has(t.category_id) || !months.has(monthKey(parseDay(t.occurred_at)))) continue;
+    const bucket = { income: 0, spend: 0 };
+    applyToIncomeSpend(t, scopedValue(t.amount, t, null), bucket);
+    add(t.category_id, (bucket.spend * 12) / months.size);
+  }
+  return totals;
+}
+
+// The part of that spending the household expects to have stopped once work
+// does -- rent on a home it will own, a loan's instalments -- from the
+// categories marked stops_after_work. The Life plan leaves it out of spending
+// after work stops.
+export function spendThatStops(args) {
+  const byCategory = annualSpendByCategory(args);
+  const rows = (args.categories ?? [])
+    .filter((c) => c.stops_after_work && byCategory.get(c.id) > 0)
+    .map((c) => ({ id: c.id, name: c.name, annual: byCategory.get(c.id) }))
+    .sort((a, b) => b.annual - a.annual);
+  return { annual: rows.reduce((s, r) => s + r.annual, 0), categories: rows };
 }
 
 // A forecast needs three closed months of spend and at least one account
@@ -220,6 +272,18 @@ export { goalAt, futureValue };
 // same way the rows count `starts_after_years`. A yearly row pays from its
 // start for `lasts_years` years, or for good when that is null; a lump sum
 // pays once, in its start year. All in today's money.
+// Other income timed from the year work stops, in AED: a row set in rupees is
+// converted at today's rate, and one that cannot be converted (no rate yet) is
+// left out rather than counted as dirhams. A lump sum paid in a fixed calendar
+// year (`in_year`, a policy maturity) is left out too: it lands whenever that
+// year comes, so only the Life plan, which runs by calendar year, places it.
+export function incomesFromStop(incomes = [], household = null) {
+  return incomes
+    .filter((r) => r.in_year == null)
+    .map((r) => ({ ...r, amount: convertToAed(Number(r.amount) || 0, r.currency ?? 'AED', household) }))
+    .filter((r) => r.amount !== null);
+}
+
 export function incomeInYear(incomes = [], offset) {
   let yearly = 0;
   let lump = 0;

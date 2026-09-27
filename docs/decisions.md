@@ -332,3 +332,48 @@ apart.
   "not in net worth".
 - The debt keeps what an account has no place for: the rate, the minimum
   payment and the original amount.
+
+## Reminders that end, and reminders in rupees
+
+- **`recurring.ends_on`** is the last date a schedule falls on (the last EMI,
+  premium or deposit). Nothing after it is shown, totalled, flagged as missing
+  on Overview, or nudged by the bot.
+- **`amount` stays AED.** A schedule set in INR or USD keeps its own figure in
+  `native_amount`, and a trigger computes `amount` from it: the peg for USD,
+  `households.inr_per_aed` for INR. When the rate changes, the INR rows follow
+  it. Every screen and the bot already read `amount` as AED, so none of them
+  needed a conversion of their own. A rupee reminder is refused until a rate
+  exists, rather than guessed.
+
+## Sums paid in a set year
+
+A policy maturing in 2044 pays in 2044 whatever year work stops, so other
+income timed "N years after work stops" cannot place it.
+
+- **`independence_income.in_year`** marks a lump sum paid in a fixed calendar
+  year. Its amount is what will be paid then, like a goal's amount on its
+  date. `currency` lets any row be in rupees or dollars.
+- **Only the Life plan counts it.** The plan runs by calendar year, so it adds
+  the sum to the pot at the start of that year, working or not. It converts at
+  today's rate and brings the sum back to today's money at the plan's
+  inflation. Drawdown and the independence target count only income timed
+  from the stop year.
+- **The rupee's drift against the dirham is not modelled.** A maturity in 20
+  years converted at today's rate probably overstates it in dirhams. The note
+  under the plan says so. A currency assumption would be one more guess
+  presented as precision.
+
+## Spending after work stops leaves out what will have stopped
+
+Today's spending includes rent and loan instalments. Copied unchanged into
+retirement, it pushed the stop year later than the household's own plan
+would.
+
+- **`categories.stops_after_work`** marks spending expected to have ended by
+  then. The Life plan's editor lists the spending categories with a year's
+  spending in each, and hints at names like rent or EMI. It never ticks them
+  by default: which home will be owned is the household's call.
+- **"Less what stops" becomes the default** spending after work stops,
+  whenever something is marked. It is today's spending on the same basis
+  (budget or closed months) less those categories, and the screen names what
+  it left out. A figure saved in the plan still wins.

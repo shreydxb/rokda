@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { agesIn, agesLabel, earliestStop, extraSavingNeeded, goalsOnTimeline, lifePlan, lifePlanBasis, lifePlanStop, maxRetirementSpend, planEndYear, planPeople, potNeededAt } from './lifePlan';
+import { agesIn, agesLabel, datedIncomesOnTimeline, earliestStop, extraSavingNeeded, goalsOnTimeline, lifePlan, lifePlanBasis, lifePlanStop, maxRetirementSpend, planEndYear, planPeople, potNeededAt } from './lifePlan';
 import { projectYears, realReturn } from './forecast';
 
 const people = [
@@ -207,5 +207,44 @@ describe('lifePlanStop: the one answer to when work can stop', () => {
   it('has no answer until someone\'s age is set, or with nothing to project from', () => {
     expect(lifePlanStop({ ...args, memberLife: [] })).toBeNull();
     expect(lifePlanStop({ ...args, inputs: { ready: false } })).toBeNull();
+  });
+});
+
+describe('sums paid in a set year (policy maturities)', () => {
+  const household = { inr_per_aed: 25 };
+  const lic = { id: 'a', name: 'LIC A maturity', kind: 'lump_sum', amount: 4_350_000, currency: 'INR', in_year: 2044 };
+
+  it('converts at today\'s rate and brings the amount back to today\'s money', () => {
+    expect(datedIncomesOnTimeline([lic], 2026, 2.5, household)).toEqual([{ id: 'a', name: 'LIC A maturity', year: 2044, amount: 174_000 / 1.025 ** 18 }]);
+  });
+
+  it('leaves out a year already past, and a rupee sum with no rate', () => {
+    expect(datedIncomesOnTimeline([{ ...lic, in_year: 2025 }], 2026, 2.5, household)).toEqual([]);
+    expect(datedIncomesOnTimeline([lic], 2026, 2.5, { inr_per_aed: null })).toEqual([]);
+  });
+
+  it('adds the sum to the pot in its year, while still working', () => {
+    const inflows = [{ id: 'a', name: 'LIC A maturity', year: 2044, amount: 100_000 }];
+    const plan = lifePlan({ ...base, inflows });
+    const without = lifePlan(base);
+    const y = plan.rows.find((r) => r.year === 2044);
+    expect(y.working).toBe(true);
+    expect(y.inflows.map((i) => i.name)).toEqual(['LIC A maturity']);
+    expect(y.income).toBe(100_000);
+    expect(y.end - without.rows.find((r) => r.year === 2044).end).toBeCloseTo(100_000 * (1 + base.preRate), 4);
+  });
+
+  it('is kept apart from income timed from the stop year', () => {
+    const basis = lifePlanBasis({
+      people,
+      assumptions: null,
+      inputs: { ready: true, monthlySaving: 5000, annualSpend: 60_000, source: 'actual' },
+      startNetWorth: 100_000,
+      incomes: [lic, { id: 'g', name: 'Gratuity', kind: 'lump_sum', amount: 32_740, starts_after_years: 0 }],
+      household,
+      startYear: 2026,
+    });
+    expect(basis.args.incomes.map((i) => i.name)).toEqual(['Gratuity']);
+    expect(basis.args.inflows.map((i) => i.name)).toEqual(['LIC A maturity']);
   });
 });

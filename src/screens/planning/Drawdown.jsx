@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { startingNetWorth } from '../overviewMath';
-import { MARKET_FALL, budgetPlan, drawdownPath, forecastInputs, independenceTarget, marketReturns, potForWithdrawal, realReturn, scenarioSets, sustainableWithdrawal } from '../../lib/forecast';
+import { budgetPlan, drawdownPath, forecastInputs, incomesFromStop, independenceTarget, MARKET_FALL, marketReturns, potForWithdrawal, realReturn, scenarioSets, sustainableWithdrawal } from '../../lib/forecast';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { LineChart } from '../../charts/Charts';
 import IncomeEditor from './IncomeEditor';
@@ -41,7 +41,11 @@ export default function Drawdown({ household, accounts = [], transactions = [], 
   const [market, setMarket] = useState('steady');
   const [activeYear, setActiveYear] = useState(null);
   const [editing, setEditing] = useState(null); // null | 'new' | an income row
-  const incomes = data.independenceIncome ?? [];
+  // Every row is listed and edited here; the sums below count only income
+  // timed from the year work stops, in AED. A sum paid in a set year (a
+  // policy maturity) is placed by the Life plan, which runs by calendar year.
+  const incomeRows = data.independenceIncome ?? [];
+  const incomes = incomesFromStop(incomeRows, household);
 
   const startNetWorth = useMemo(() => startingNetWorth(accounts, holdings), [accounts, holdings]);
   // Until three months close, the budget stands in (forecastInputs).
@@ -244,14 +248,14 @@ export default function Drawdown({ household, accounts = [], transactions = [], 
             + Income
           </button>
         </div>
-        {incomes.length === 0 ? (
+        {incomeRows.length === 0 ? (
           <div className="ov-muted" style={{ fontSize: 12.5, lineHeight: 1.65, maxWidth: '84ch' }}>
             None added. Rent from a property, part-time or consulting work, or a one-off sum such as an end-of-service gratuity
             would all go here, and each one is spent before the pot is touched.
           </div>
         ) : (
           <div className="mn-list">
-            {incomes.map((row) => (
+            {incomeRows.map((row) => (
               <button key={row.id} type="button" className="mn-row" onClick={() => setEditing(row)}>
                 <div className="mn-row-main">
                   <div>{row.name}</div>
@@ -260,7 +264,7 @@ export default function Drawdown({ household, accounts = [], transactions = [], 
                   </div>
                 </div>
                 <div className="fig mn-row-amt">
-                  {money.fmt(Number(row.amount))}
+                  {nativeIncomeLabel(row) ?? money.fmt(Number(row.amount))}
                   <span className="ov-muted" style={{ fontSize: 11.5 }}>
                     {row.kind === 'lump_sum' ? ' once' : ' a year'}
                   </span>
@@ -392,7 +396,15 @@ function marketNote(o, steady) {
   return `${lost} year${lost === 1 ? '' : 's'} shorter than steady`;
 }
 
+// A row set in another currency, in that currency: "₹43,50,000".
+function nativeIncomeLabel(row) {
+  if (!row.currency || row.currency === 'AED') return null;
+  const symbol = { INR: '₹', USD: '$' }[row.currency] ?? `${row.currency} `;
+  return `${symbol}${Number(row.amount).toLocaleString(row.currency === 'INR' ? 'en-IN' : 'en-US', { maximumFractionDigits: 0 })}`;
+}
+
 function describeIncome(row) {
+  if (row.in_year != null) return `Paid in ${row.in_year} · counted on the Life plan in that year`;
   const start = Number(row.starts_after_years) || 0;
   if (row.kind === 'lump_sum') return start === 0 ? 'One-off, in the first year of independence' : `One-off, ${start} year${start === 1 ? '' : 's'} in`;
   const from = start === 0 ? 'From the first year' : `From ${start} year${start === 1 ? '' : 's'} in`;

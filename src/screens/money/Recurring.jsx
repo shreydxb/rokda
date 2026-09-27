@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { formatMoney, formatSigned } from '../../lib/money';
-import { billStatus, rollForward } from '../../lib/recurring';
+import { billStatus, hasEnded, nativeAmountLabel, rollForward } from '../../lib/recurring';
 import RecurringEditor from './RecurringEditor';
 import TransactionEditor from './TransactionEditor';
 
@@ -22,8 +22,10 @@ export default function Recurring({ household, members, data, loading }) {
 
   const bills = recurring.filter((r) => Number(r.amount) < 0);
   const income = recurring.filter((r) => Number(r.amount) >= 0);
-  const fixedTotal = bills.filter((r) => r.is_fixed).reduce((s, r) => s + -Number(r.amount), 0);
-  const variableTotal = bills.filter((r) => !r.is_fixed).reduce((s, r) => s + -Number(r.amount), 0);
+  // Totals are of what is still to pay: a finished schedule is not a commitment.
+  const live = bills.filter((r) => !hasEnded(r, now));
+  const fixedTotal = live.filter((r) => r.is_fixed).reduce((s, r) => s + -Number(r.amount), 0);
+  const variableTotal = live.filter((r) => !r.is_fixed).reduce((s, r) => s + -Number(r.amount), 0);
   const committedShare = fixedTotal + variableTotal > 0 ? fixedTotal / (fixedTotal + variableTotal) : null;
 
   return (
@@ -76,6 +78,7 @@ export default function Recurring({ household, members, data, loading }) {
       {editing && (
         <RecurringEditor
           item={editing === 'new' ? null : editing}
+          household={household}
           householdId={household?.id}
           accounts={accounts}
           categories={categories}
@@ -125,6 +128,9 @@ function RecurringGroup({ title, rows, members, transactions, now, onEdit, onMar
       <div className="mn-list">
         {rows.map((r) => {
           const status = billStatus(r, transactions, now);
+          const ended = hasEnded(r, now);
+          const native = nativeAmountLabel(r);
+          const endLabel = r.ends_on ? new Date(`${r.ends_on}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : null;
           return (
             <div key={r.id} className="mn-row-wrap">
               <button type="button" className="mn-row" onClick={() => onEdit(r)}>
@@ -133,7 +139,10 @@ function RecurringGroup({ title, rows, members, transactions, now, onEdit, onMar
                     {r.name} {r.active === false && <span className="ov-muted">· paused</span>}
                   </div>
                   <div className="ov-muted">
-                    {cadenceLabel(r)} · next {rollForward(r.next_due_date, r.cadence, now, r.interval_count).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                    {cadenceLabel(r)} ·{' '}
+                    {ended
+                      ? `ended ${endLabel}`
+                      : `next ${rollForward(r.next_due_date, r.cadence, now, r.interval_count).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}${endLabel ? `, last ${endLabel}` : ''}`}
                     {' · '}
                     {r.is_shared ? 'Shared' : (members.find((m) => m.id === r.owner_member_id)?.display_name ?? 'Unassigned')}
                     {' · '}
@@ -143,7 +152,10 @@ function RecurringGroup({ title, rows, members, transactions, now, onEdit, onMar
                     <span className={`ov-chip-${status.tone === 'pos' ? 'ok' : status.tone}`}>{status.label}</span>
                   </div>
                 </div>
-                <div className={`fig mn-row-amt ${Number(r.amount) > 0 ? 'ov-pos' : ''}`}>{formatSigned(r.amount)}</div>
+                <div className={`fig mn-row-amt ${Number(r.amount) > 0 ? 'ov-pos' : ''}`}>
+                  {formatSigned(r.amount)}
+                  {native && <div className="ov-muted" style={{ fontSize: 11.5, fontWeight: 400 }}>{native}</div>}
+                </div>
               </button>
               {status.needsAction && (
                 <button

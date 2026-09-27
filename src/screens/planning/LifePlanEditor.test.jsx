@@ -3,7 +3,7 @@ import { screen, fireEvent, waitFor } from '@testing-library/dom';
 import { renderScreen } from '../../test/renderScreen';
 import LifePlanEditor from './LifePlanEditor';
 
-const calls = vi.hoisted(() => ({ upserts: [], deletes: [] }));
+const calls = vi.hoisted(() => ({ upserts: [], deletes: [], updates: [] }));
 vi.mock('../../lib/supabaseClient', () => ({
   supabase: {
     from: (table) => ({
@@ -11,6 +11,12 @@ vi.mock('../../lib/supabaseClient', () => ({
         calls.upserts.push({ table, row, options });
         return { error: null };
       },
+      update: (patch) => ({
+        eq: async (column, value) => {
+          calls.updates.push({ table, patch, value });
+          return { error: null };
+        },
+      }),
       delete: () => ({
         in: async (column, values) => {
           calls.deletes.push({ table, column, values });
@@ -37,6 +43,7 @@ const type = (label, value) => fireEvent.change(screen.getByLabelText(label), { 
 beforeEach(() => {
   calls.upserts.length = 0;
   calls.deletes.length = 0;
+  calls.updates.length = 0;
 });
 
 describe('LifePlanEditor', () => {
@@ -100,5 +107,30 @@ describe('LifePlanEditor', () => {
     type('Age to plan Shreyash to', '80');
     fireEvent.click(screen.getByText('Save plan'));
     expect(screen.getByRole('alert').textContent).toMatch(/already have ended/);
+  });
+});
+
+describe('LifePlanEditor: spending that stops', () => {
+  const categories = [
+    { id: 'rent', name: 'Rent', kind: 'expense' },
+    { id: 'emi', name: 'Car EMI', kind: 'expense', stops_after_work: true },
+    { id: 'food', name: 'Groceries', kind: 'expense' },
+    { id: 'save', name: 'Savings & Investments', kind: 'expense', is_savings: true },
+  ];
+  const spendByCategory = new Map([
+    ['rent', 70200],
+    ['emi', 26316],
+    ['food', 24000],
+  ]);
+  const memberLife = [{ member_id: 'm1', birth_year: 1994, life_expectancy: 80 }];
+
+  it('lists spending categories by size, hints at the usual ones, and saves only what changed', async () => {
+    const { onSaved } = renderEditor({ categories, spendByCategory, memberLife });
+    const labels = [...document.querySelectorAll('.lp-stop-list label')].map((l) => l.textContent);
+    expect(labels).toEqual(['Rent70,200 a year· often stops', 'Car EMI26,316 a year', 'Groceries24,000 a year']);
+    fireEvent.click(screen.getByLabelText(/^Rent/));
+    fireEvent.click(screen.getByText('Save plan'));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(calls.updates).toEqual([{ table: 'categories', patch: { stops_after_work: true }, value: 'rent' }]);
   });
 });

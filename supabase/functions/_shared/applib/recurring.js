@@ -57,11 +57,15 @@ export function upcomingItems(rows, days, now = new Date()) {
   return rows
     .filter((r) => r.active !== false)
     .flatMap((r) =>
-      occurrencesInWindow(r.next_due_date, r.cadence, days, now, r.interval_count).map((dueDate, index) => ({
-        ...r,
-        dueDate,
-        occurrenceKey: `${r.id}@${dueDate.getFullYear()}-${dueDate.getMonth() + 1}-${dueDate.getDate()}#${index}`,
-      })),
+      occurrencesInWindow(r.next_due_date, r.cadence, days, now, r.interval_count)
+        // A schedule with an end date (the last EMI, the last premium) has no
+        // occurrences after it.
+        .filter((dueDate) => !r.ends_on || dueDate <= parseDay(r.ends_on))
+        .map((dueDate, index) => ({
+          ...r,
+          dueDate,
+          occurrenceKey: `${r.id}@${dueDate.getFullYear()}-${dueDate.getMonth() + 1}-${dueDate.getDate()}#${index}`,
+        })),
     )
     .sort((a, b) => a.dueDate - b.dueDate);
 }

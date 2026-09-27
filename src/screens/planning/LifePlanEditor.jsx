@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
+import { formatMoney } from '../../lib/money';
 import '../money/TransactionEditor.css';
 
 // Who the life plan is for, and what it assumes about the years after work
@@ -9,6 +10,8 @@ import '../money/TransactionEditor.css';
 const whole = (v) => /^\d+$/.test(String(v).trim());
 const numeric = (v) => String(v).trim() !== '' && Number.isFinite(Number(v));
 const blank = (v) => String(v ?? '').trim() === '';
+// Names that usually stop by the time work does: a hint, never a default.
+const USUALLY_STOPS = /\b(rent|emi|loan|mortgage|instal?ments?)\b/i;
 
 function initialForm(members, memberLife, assumptions) {
   const byMember = new Map(memberLife.map((r) => [r.member_id, r]));
@@ -29,8 +32,13 @@ function initialForm(members, memberLife, assumptions) {
   };
 }
 
-export default function LifePlanEditor({ householdId, members, memberLife, assumptions, onClose, onSaved }) {
+export default function LifePlanEditor({ householdId, members, memberLife, assumptions, categories = [], spendByCategory = new Map(), onClose, onSaved }) {
   const [form, setForm] = useState(() => initialForm(members, memberLife, assumptions));
+  // Spending categories, the ones with spending first, and which of them stop.
+  const spendCategories = categories
+    .filter((c) => c.kind === 'expense' && !c.is_savings && (!c.archived || c.stops_after_work))
+    .sort((a, b) => (spendByCategory.get(b.id) ?? 0) - (spendByCategory.get(a.id) ?? 0) || a.name.localeCompare(b.name));
+  const [stops, setStops] = useState(() => new Set(categories.filter((c) => c.stops_after_work).map((c) => c.id)));
   const [dirty, setDirty] = useState(false);
   const [confirmingClose, setConfirmingClose] = useState(false);
   const [error, setError] = useState('');
@@ -48,6 +56,16 @@ export default function LifePlanEditor({ householdId, members, memberLife, assum
 
   function set(key, value) {
     setForm((f) => ({ ...f, [key]: value }));
+    setDirty(true);
+  }
+
+  function toggleStop(id) {
+    setStops((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
     setDirty(true);
   }
 
@@ -101,7 +119,9 @@ export default function LifePlanEditor({ householdId, members, memberLife, assum
       updated_at: now,
     }));
     const cleared = form.people.filter((p) => p.had && blank(p.birthYear) && blank(p.lifeExpectancy)).map((p) => p.id);
+    const changedStops = categories.filter((c) => !!c.stops_after_work !== stops.has(c.id));
     const results = await Promise.all([
+      ...changedStops.map((c) => supabase.from('categories').update({ stops_after_work: stops.has(c.id) }).eq('id', c.id)),
       supabase.from('member_life').upsert(rows, { onConflict: 'member_id' }),
       cleared.length ? supabase.from('member_life').delete().in('member_id', cleared) : Promise.resolve({ error: null }),
       supabase.from('planning_assumptions').upsert(
@@ -211,7 +231,7 @@ export default function LifePlanEditor({ householdId, members, memberLife, assum
                 step="100"
                 value={form.spend}
                 onChange={(e) => set('spend', e.target.value)}
-                placeholder="blank: today's spending"
+                placeholder="blank: today's, less what stops"
                 aria-label="Spending a year after work stops"
               />
             </div>
@@ -242,6 +262,26 @@ export default function LifePlanEditor({ householdId, members, memberLife, assum
               />
             </div>
           </div>
+
+          {spendCategories.length > 0 && (
+            <div>
+              <span className="te-fieldlabel">Stops when work stops</span>
+              <div className="ov-muted" style={{ fontSize: 11.5, lineHeight: 1.6, marginTop: 6 }}>
+                Spending you expect to have ended by then: rent on a home you will own, instalments on a loan that will be paid off. Left
+                blank above, spending after work stops is today&rsquo;s less these.
+              </div>
+              <div className="lp-stop-list" style={{ display: 'grid', gap: 6, marginTop: 10 }}>
+                {spendCategories.map((c) => (
+                  <label key={c.id} style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: 13 }}>
+                    <input type="checkbox" checked={stops.has(c.id)} onChange={() => toggleStop(c.id)} />
+                    <span>{c.name}</span>
+                    {spendByCategory.get(c.id) > 0 && <span className="ov-muted fig" style={{ fontSize: 11.5 }}>{formatMoney(spendByCategory.get(c.id))} a year</span>}
+                    {!stops.has(c.id) && USUALLY_STOPS.test(c.name) && <span className="ov-muted" style={{ fontSize: 11.5 }}>· often stops</span>}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="ov-muted" style={{ fontSize: 11.5, lineHeight: 1.6 }}>
             The return is before inflation, like the one in Forecast&rsquo;s assumptions, and moves with the scenario. Spending for one applies

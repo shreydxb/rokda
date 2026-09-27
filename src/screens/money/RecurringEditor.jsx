@@ -2,13 +2,18 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { accountOptionLabel, selectableAccounts } from '../../lib/accounts';
 import { CADENCES } from '../../lib/recurring';
+import { convertToAed, rateNote } from '../../lib/currency';
+import { formatMoney } from '../../lib/money';
 import './TransactionEditor.css';
 
 function initialForm(item, accounts) {
   if (item) {
     return {
       type: Number(item.amount) >= 0 ? 'income' : 'expense',
-      amount: String(Math.abs(Number(item.amount))),
+      currency: item.currency ?? 'AED',
+      // A schedule in rupees is edited in rupees; its AED amount follows.
+      amount: String(Math.abs(Number(item.native_amount ?? item.amount))),
+      ends_on: item.ends_on ?? '',
       name: item.name ?? '',
       cadence: item.cadence ?? 'monthly',
       interval_count: String(item.interval_count ?? 1),
@@ -23,7 +28,9 @@ function initialForm(item, accounts) {
   }
   return {
     type: 'expense',
+    currency: 'AED',
     amount: '',
+    ends_on: '',
     name: '',
     cadence: 'monthly',
     interval_count: '1',
@@ -37,7 +44,7 @@ function initialForm(item, accounts) {
   };
 }
 
-export default function RecurringEditor({ item, householdId, accounts, categories, members, onClose, onSaved }) {
+export default function RecurringEditor({ item, household = null, householdId, accounts, categories, members, onClose, onSaved }) {
   // Closed accounts stay out of new-entry choices; an existing schedule keeps
   // the account it already points at (QA-01).
   const selectable = selectableAccounts(accounts, item?.account_id ?? null);
@@ -72,14 +79,17 @@ export default function RecurringEditor({ item, householdId, accounts, categorie
 
   const amountError = form.amount.trim() === '' || Number(form.amount) <= 0 ? 'Enter an amount greater than zero.' : '';
   const nameError = form.name.trim() === '' ? 'Name it.' : '';
+  const endError = form.ends_on && form.ends_on < form.next_due_date ? 'The last date cannot be before the next due date.' : '';
+  // The AED figure every total uses, at today's rate for rupees.
+  const amountAed = form.currency === 'AED' ? null : convertToAed(Number(form.amount) || 0, form.currency, household);
   const intervalError = !Number.isInteger(Number(form.interval_count)) || Number(form.interval_count) < 1 ? 'Enter a whole number of 1 or more.' : '';
   // Savings categories are targets, not somewhere spending is filed.
   const kindCategories = categories.filter((c) => c.kind === form.type && ((!c.archived && !c.is_savings) || c.id === form.category_id));
 
   async function handleSave(e) {
     e.preventDefault();
-    if (amountError || nameError || intervalError) {
-      setError(amountError || nameError || intervalError);
+    if (amountError || nameError || intervalError || endError) {
+      setError(amountError || nameError || intervalError || endError);
       return;
     }
     setSaving(true);
@@ -91,8 +101,12 @@ export default function RecurringEditor({ item, householdId, accounts, categorie
       name: form.name.trim(),
       account_id: form.account_id || null,
       category_id: form.category_id || null,
-      amount: signed,
-      currency: 'AED',
+      // For another currency the database computes `amount` from
+      // `native_amount`; this AED figure is only what it is replaced with.
+      amount: form.currency === 'AED' ? signed : Math.sign(signed) * Math.abs(amountAed ?? 0),
+      currency: form.currency,
+      native_amount: form.currency === 'AED' ? null : signed,
+      ends_on: form.ends_on || null,
       cadence: form.cadence,
       interval_count: Number(form.interval_count) || 1,
       next_due_date: form.next_due_date,
@@ -160,7 +174,13 @@ export default function RecurringEditor({ item, householdId, accounts, categorie
           <div>
             <div className="te-hero-label">Amount</div>
             <div className="te-hero-row">
-              <span className="te-hero-currency">AED</span>
+              <select className="te-hero-currency-select" value={form.currency} onChange={(e) => set('currency', e.target.value)} aria-label="Currency">
+                {['AED', 'INR', 'USD'].map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
               <input
                 type="number"
                 inputMode="decimal"
@@ -170,9 +190,17 @@ export default function RecurringEditor({ item, householdId, accounts, categorie
                 value={form.amount}
                 onChange={(e) => set('amount', e.target.value)}
                 aria-invalid={!!amountError}
+                aria-label="Amount"
                 placeholder="0"
               />
             </div>
+            {form.currency !== 'AED' && (
+              <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 6 }}>
+                {amountAed === null
+                  ? 'Set an AED/INR rate in Settings first: totals are in AED.'
+                  : `≈ AED ${formatMoney(amountAed)} at today's rate (${rateNote(form.currency, household)}), and it follows the rate.`}
+              </div>
+            )}
           </div>
 
           <div className="te-fieldgrid">
@@ -206,6 +234,12 @@ export default function RecurringEditor({ item, householdId, accounts, categorie
             <div className="te-fieldcell">
               <span className="te-fieldlabel">Next due date</span>
               <input className="te-fieldvalue" type="date" value={form.next_due_date} onChange={(e) => set('next_due_date', e.target.value)} />
+            </div>
+            <div className="te-fieldcell">
+              <label className="te-fieldlabel" htmlFor="recurring-ends-on">
+                Last one on
+              </label>
+              <input id="recurring-ends-on" className="te-fieldvalue" type="date" value={form.ends_on} onChange={(e) => set('ends_on', e.target.value)} aria-invalid={!!endError} />
             </div>
             <div className="te-fieldcell te-span2">
               <span className="te-fieldlabel">Account</span>

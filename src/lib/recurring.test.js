@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { billStatus, occurrenceAt, occurrencesInWindow, rollForward, upcomingItems } from './recurring';
+import { billStatus, hasEnded, nativeAmountLabel, occurrenceAt, occurrencesInWindow, rollForward, upcomingItems } from './recurring';
+import { buildAttentionItems } from './attention';
 import { billingCycle, daysUntilDue, nextDueDate } from './creditCard';
 
 const day = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -164,5 +165,37 @@ describe('intervalCount: bills that repeat every N units, not just 1', () => {
   it('occurrencesInWindow spaces bi-weekly-style occurrences 2 units apart', () => {
     const occs = occurrencesInWindow('2026-09-01', 'weekly', 30, new Date(2026, 8, 1), 2);
     expect(occs.map(day)).toEqual(['2026-09-01', '2026-09-15', '2026-09-29']);
+  });
+});
+
+describe('schedules that end', () => {
+  const emi = { id: 'emi', name: 'Car EMI', amount: -2193, cadence: 'monthly', next_due_date: '2030-05-03', ends_on: '2030-07-03', active: true };
+  const now = new Date(2030, 4, 1);
+
+  it('shows no occurrence after the last date', () => {
+    expect(upcomingItems([emi], 120, now).map((r) => day(r.dueDate))).toEqual(['2030-05-03', '2030-06-03', '2030-07-03']);
+  });
+
+  it('is ended once its next occurrence would fall after the last date', () => {
+    expect(hasEnded(emi, new Date(2030, 6, 3))).toBe(false);
+    expect(hasEnded(emi, new Date(2030, 6, 4))).toBe(true);
+    expect(hasEnded({ ...emi, ends_on: null }, new Date(2040, 0, 1))).toBe(false);
+  });
+
+  it('has nothing to pay, and nothing to chase, after it ends', () => {
+    const later = new Date(2030, 7, 20);
+    expect(billStatus(emi, [], later)).toMatchObject({ label: 'Ended', needsAction: false });
+    // The July instalment is still owed until it posts.
+    expect(billStatus(emi, [], new Date(2030, 6, 10))).toMatchObject({ label: 'Late', needsAction: true });
+    const items = buildAttentionItems({ transactions: [], recurring: [emi], accounts: [], holdings: [], categories: [], scopeMemberId: null, now: later });
+    expect(items.filter((i) => i.kind === 'missing_recurring')).toEqual([]);
+  });
+});
+
+describe('nativeAmountLabel', () => {
+  it('gives a rupee schedule its rupee figure, grouped the Indian way', () => {
+    expect(nativeAmountLabel({ currency: 'INR', native_amount: -150000, amount: -5749.72 })).toBe('₹1,50,000');
+    expect(nativeAmountLabel({ currency: 'USD', native_amount: -100, amount: -367.25 })).toBe('$100');
+    expect(nativeAmountLabel({ currency: 'AED', native_amount: null, amount: -500 })).toBeNull();
   });
 });

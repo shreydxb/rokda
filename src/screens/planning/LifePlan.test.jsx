@@ -49,7 +49,7 @@ function renderPlan({ data = {}, ...props } = {}) {
   const reload = vi.fn();
   renderScreen(
     <LifePlan
-      household={{ id: 'h' }}
+      household={{ id: 'h', inr_per_aed: 25 }}
       members={MEMBERS}
       accounts={[ACCOUNT]}
       transactions={history()}
@@ -126,6 +126,36 @@ describe('LifePlan: the timeline', () => {
     const future = Number(atStop().replace(/[^0-9]/g, ''));
     // 28 years at 2.5% inflation.
     expect(future / today).toBeCloseTo(1.025 ** (2054 - thisYear), 3);
+  });
+});
+
+describe('LifePlan: spending that stops', () => {
+  it('leaves out spending marked as stopping, and names it', () => {
+    const categories = [
+      { id: 'rent', name: 'Rent', kind: 'expense', stops_after_work: true },
+      { id: 'food', name: 'Groceries', kind: 'expense' },
+    ];
+    const tx = history().map((t) => (t.kind === 'expense' ? { ...t, amount: -1000, category_id: 'food' } : t));
+    const rent = [1, 2, 3].map((back) => {
+      const d = new Date(new Date().getFullYear(), new Date().getMonth() - back, 5);
+      return { id: `rent${back}`, amount: -3000, kind: 'expense', category_id: 'rent', is_shared: true, occurred_at: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-05` };
+    });
+    renderPlan({ transactions: [...tx, ...rent], categories });
+    const active = document.querySelector('.dd-segs .om-seg[data-active="true"]').textContent;
+    // 48,000 a year spent, 36,000 of it rent: 12,000 left once work stops.
+    expect(active).toBe('Less what stops · 12K a year');
+    expect(document.querySelector('.lp-stops').textContent).toMatch(/^Leaves out Rent 36K a year, expected to have stopped by then\./);
+  });
+});
+
+describe('LifePlan: sums paid in a set year', () => {
+  it('adds a policy maturity to the pot in its year, and says so', () => {
+    const maturity = { id: 'l', name: 'LIC A maturity', kind: 'lump_sum', amount: 4350000, currency: 'INR', in_year: thisYear + 10, starts_after_years: 0 };
+    renderPlan({ data: { independenceIncome: [maturity] } });
+    expect(screen.getByText(new RegExp(`LIC A maturity \\(${thisYear + 10}\\) is added in its year, converted at today's rate`))).toBeTruthy();
+    const row = [...document.querySelectorAll('tbody tr')].find((tr) => tr.textContent.startsWith(String(thisYear + 10)));
+    // 174,000 AED paid then, in today's money at 2.5% inflation.
+    expect(row.textContent).toContain((174000 / 1.025 ** 10).toLocaleString('en-US', { maximumFractionDigits: 0 }).slice(0, 5));
   });
 });
 

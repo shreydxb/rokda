@@ -1,4 +1,5 @@
-import { incomeInYear, realReturn, scenarioSets } from './forecast';
+import { incomeInYear, incomesFromStop, realReturn, scenarioSets } from './forecast';
+import { convertToAed } from './currency';
 import { parseDay } from './day';
 import { goalInflationPct } from './goals';
 
@@ -58,13 +59,35 @@ export function goalsOnTimeline(goals, startYear, inflationPct) {
     .sort((a, b) => a.year - b.year);
 }
 
+// Lump sums paid in a fixed year -- a policy maturing in 2044 -- in today's
+// money. The amount is what will be paid that year, like a goal's amount on
+// its date, so it is converted to AED at today's rate and brought back at the
+// general inflation rate. The rupee's own drift against the dirham is not
+// modelled. A year already past has been paid, and one with no rate yet is
+// left out.
+export function datedIncomesOnTimeline(incomes, startYear, inflationPct, household = null) {
+  const inflation = inflationPct / 100;
+  return incomes
+    .filter((r) => r.in_year != null && Number(r.in_year) >= startYear)
+    .map((r) => {
+      const aed = convertToAed(Number(r.amount) || 0, r.currency ?? 'AED', household);
+      if (aed === null) return null;
+      const year = Number(r.in_year);
+      return { id: r.id, name: r.name, year, amount: aed / (1 + inflation) ** (year - startYear) };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.year - b.year);
+}
+
 // The timeline itself.
 //
 // `retireYear` is the first year without work: saving stops and spending from
 // the pot starts. `retireSpend` is the household's yearly spending then; once
 // only one person is still planned for, it is `survivorPct` of that. Other
 // income (independence_income rows) counts from `retireYear`, the same way
-// Drawdown counts it from independence.
+// Drawdown counts it from independence. `inflows` are sums paid in a fixed
+// year (datedIncomesOnTimeline), added to the pot at the start of that year
+// whether or not work has stopped.
 export function lifePlan({
   startYear,
   people,
@@ -77,6 +100,7 @@ export function lifePlan({
   survivorPct = 100,
   goals = [],
   incomes = [],
+  inflows = [],
 }) {
   const endYear = planEndYear(people);
   const rows = [];
@@ -92,9 +116,11 @@ export function lifePlan({
     const { yearly, lump } = working ? { yearly: 0, lump: 0 } : incomeInYear(incomes, year - retireYear);
     const due = goals.filter((g) => g.year === year);
     const goalOutflow = due.reduce((s, g) => s + g.amount, 0);
+    const arriving = inflows.filter((i) => i.year === year);
+    const inflow = arriving.reduce((s, i) => s + i.amount, 0);
 
     // Income beyond the year's spending, and any lump sum, goes into the pot.
-    const balance = pot + lump + Math.max(0, yearly - spend);
+    const balance = pot + lump + inflow + Math.max(0, yearly - spend);
     const needed = Math.max(0, spend - yearly) + goalOutflow;
     const paid = Math.min(needed, Math.max(0, balance));
     let short = needed - paid;
@@ -110,7 +136,7 @@ export function lifePlan({
     // A shortfall under a thousandth of a unit is float noise.
     if (short < 1e-3) short = 0;
     if (short > 0 && shortYear === null) shortYear = year;
-    rows.push({ year, working, forOne, start, saving, spend, income: yearly + lump, goals: due, goalOutflow, paid, short, growth, end });
+    rows.push({ year, working, forOne, start, saving, spend, income: yearly + lump + inflow, inflows: arriving, goals: due, goalOutflow, paid, short, growth, end });
     pot = end;
   }
   return { rows, endYear, shortYear, lasts: shortYear === null, left: pot, potAtStop };
@@ -206,7 +232,11 @@ export function planPeople(members = [], memberLife = []) {
 // Forecast -- so they cannot disagree about when work can stop. `fcSet`,
 // `stopOverride` and `spendKind` are the Life plan tab's what-ifs; the other
 // screens leave them unset and so read the saved plan.
-export function lifePlanBasis({ people, assumptions, inputs, startNetWorth, goals = [], incomes = [], startYear, fcSet = 'baseline', stopOverride = null, spendKind = null }) {
+//
+// `stopping` is spendThatStops: when some of today's spending will have
+// stopped by then, spending after work stops leaves it out unless a figure has
+// been saved for the plan.
+export function lifePlanBasis({ people, assumptions, inputs, startNetWorth, goals = [], incomes = [], household = null, stopping = null, startYear, fcSet = 'baseline', stopOverride = null, spendKind = null }) {
   const endYear = planEndYear(people);
   const sets = scenarioSets(assumptions, LIFE_PLAN_DEFAULTS);
   const selected = sets[fcSet] ?? sets.baseline;
@@ -226,12 +256,15 @@ export function lifePlanBasis({ people, assumptions, inputs, startNetWorth, goal
   const leanSpend = assumptions?.lean_annual_spend != null ? Number(assumptions.lean_annual_spend) : null;
   const spendOptions = [
     ...(plannedSpend != null ? [{ key: 'planned', label: 'Planned', value: plannedSpend }] : []),
+    ...(stopping?.annual > 0 ? [{ key: 'less', label: 'Less what stops', value: Math.max(0, inputs.annualSpend - stopping.annual) }] : []),
     { key: 'today', label: inputs.source === 'budget' ? 'Budgeted' : "Today's", value: inputs.annualSpend },
     ...(leanSpend ? [{ key: 'lean', label: 'Essentials', value: leanSpend }] : []),
   ];
   const spendChoice = spendOptions.find((o) => o.key === spendKind) ?? spendOptions[0];
   const survivorPct = assumptions?.survivor_spend_pct != null ? Number(assumptions.survivor_spend_pct) : 100;
   const timelineGoals = goalsOnTimeline(goals, startYear, inflationPct);
+  const fromStop = incomesFromStop(incomes, household);
+  const inflows = datedIncomesOnTimeline(incomes, startYear, inflationPct, household);
 
   return {
     endYear,
@@ -244,8 +277,10 @@ export function lifePlanBasis({ people, assumptions, inputs, startNetWorth, goal
     spendOptions,
     spendChoice,
     survivorPct,
+    stopping,
     goals: timelineGoals,
-    incomes,
+    incomes: fromStop,
+    inflows,
     args: {
       startYear,
       people,
@@ -257,7 +292,8 @@ export function lifePlanBasis({ people, assumptions, inputs, startNetWorth, goal
       retireSpend: spendChoice.value,
       survivorPct,
       goals: timelineGoals,
-      incomes,
+      incomes: fromStop,
+      inflows,
     },
   };
 }

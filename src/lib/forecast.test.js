@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { MARKET_FALL, budgetPlan, closedMonths, crossingYear, drawdownPath, fiTarget, forecastInputs, futureValue, incomeInYear, independenceTarget, marketReturns, potForWithdrawal, projectYears, realReturn, requiredAnnualSaving, scenarioSets, sustainableWithdrawal } from './forecast';
+import { annualSpendByCategory, budgetPlan, closedMonths, crossingYear, drawdownPath, fiTarget, forecastInputs, futureValue, incomeInYear, incomesFromStop, independenceTarget, MARKET_FALL, marketReturns, potForWithdrawal, projectYears, realReturn, requiredAnnualSaving, scenarioSets, spendThatStops, sustainableWithdrawal } from './forecast';
 
 const DEFAULTS = { nominal_return_pct: 6.0, inflation_pct: 2.5, safe_withdrawal_pct: 4.0 };
 
@@ -344,5 +344,63 @@ describe('budgetPlan and the budget standing in for history', () => {
   it('still needs a net worth to start from, and a budget to stand in', () => {
     expect(forecastInputs(septemberOnly, null, now, budgetPlan(everyMonth2026, cats, now)).ready).toBe(false);
     expect(forecastInputs(septemberOnly, 100000, now, null)).toMatchObject({ ready: false, source: null });
+  });
+});
+
+describe('incomesFromStop', () => {
+  it('converts rupee income at today\'s rate, and leaves out sums paid in a set year and rows it cannot convert', () => {
+    const rows = [
+      { id: 'r', name: 'Flat rent', kind: 'yearly', amount: 260_000, currency: 'INR', starts_after_years: 0 },
+      { id: 'g', name: 'Gratuity', kind: 'lump_sum', amount: 32_740, starts_after_years: 0 },
+      { id: 'l', name: 'LIC', kind: 'lump_sum', amount: 4_350_000, currency: 'INR', in_year: 2044 },
+    ];
+    expect(incomesFromStop(rows, { inr_per_aed: 26 }).map((r) => [r.id, r.amount])).toEqual([
+      ['r', 10_000],
+      ['g', 32_740],
+    ]);
+    expect(incomesFromStop(rows, { inr_per_aed: null }).map((r) => r.id)).toEqual(['g']);
+  });
+});
+
+describe('spendThatStops', () => {
+  const now = new Date(2026, 8, 27);
+  const categories = [
+    { id: 'rent', name: 'Rent', kind: 'expense', stops_after_work: true },
+    { id: 'emi', name: 'Car EMI', kind: 'expense', stops_after_work: true },
+    { id: 'food', name: 'Groceries', kind: 'expense' },
+    { id: 'save', name: 'Savings', kind: 'expense', is_savings: true, stops_after_work: true },
+  ];
+
+  it('reads the budget while it stands in, over the same months', () => {
+    const budgets = [9, 10].flatMap((month) => [
+      { category_id: 'rent', year: 2026, month, amount: 5850 },
+      { category_id: 'emi', year: 2026, month, amount: 2193 },
+      { category_id: 'food', year: 2026, month, amount: 2000 },
+      { category_id: 'save', year: 2026, month, amount: 3000 },
+    ]);
+    const inputs = { ready: true, source: 'budget' };
+    const result = spendThatStops({ inputs, budgets, categories, now });
+    expect(result.categories).toEqual([
+      { id: 'rent', name: 'Rent', annual: 70_200 },
+      { id: 'emi', name: 'Car EMI', annual: 26_316 },
+    ]);
+    expect(result.annual).toBe(96_516);
+    // Savings are not spending, stopped or not.
+    expect(annualSpendByCategory({ inputs, budgets, categories, now }).has('save')).toBe(false);
+  });
+
+  it('reads the last closed months once there are three', () => {
+    const transactions = [6, 7, 8].flatMap((m) => [
+      { id: `r${m}`, amount: -5850, kind: 'expense', category_id: 'rent', occurred_at: `2026-0${m}-06`, is_shared: true },
+      { id: `f${m}`, amount: -2000, kind: 'expense', category_id: 'food', occurred_at: `2026-0${m}-10`, is_shared: true },
+    ]);
+    // The open month is not counted.
+    transactions.push({ id: 'now', amount: -9999, kind: 'expense', category_id: 'rent', occurred_at: '2026-09-06', is_shared: true });
+    const result = spendThatStops({ inputs: { ready: true, source: 'actual' }, transactions, categories, now });
+    expect(result.annual).toBeCloseTo(70_200, 6);
+  });
+
+  it('is nothing until the inputs are ready', () => {
+    expect(spendThatStops({ inputs: { ready: false }, categories, now })).toEqual({ annual: 0, categories: [] });
   });
 });

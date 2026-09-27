@@ -3,22 +3,30 @@ import { supabase } from '../../lib/supabaseClient';
 import '../money/TransactionEditor.css';
 
 // One source of money once working stops: rent, part-time work, or a one-off
-// sum such as an end-of-service gratuity. Amounts are AED in today's money,
-// and timing counts from the first year of independence, not a calendar year,
+// sum such as an end-of-service gratuity. Amounts are in today's money, and
+// timing counts from the first year of independence, not a calendar year,
 // because the independence year is itself a projection.
+//
+// The exception is a one-off sum paid in a set year whatever happens to work,
+// such as a policy maturing in 2044: its year is fixed, and its amount is what
+// will be paid then, as the policy states it. Any of these can be in rupees or
+// dollars, converted at today's rate.
 function initialForm(row) {
   if (row) {
     return {
       name: row.name,
       note: row.note ?? '',
       kind: row.kind,
+      timing: row.in_year != null ? 'year' : 'stop',
+      in_year: row.in_year != null ? String(row.in_year) : '',
+      currency: row.currency ?? 'AED',
       amount: String(row.amount ?? ''),
       starts_after_years: String(row.starts_after_years ?? 0),
       lasts: row.lasts_years == null ? 'forever' : 'years',
       lasts_years: row.lasts_years != null ? String(row.lasts_years) : '',
     };
   }
-  return { name: '', note: '', kind: 'yearly', amount: '', starts_after_years: '0', lasts: 'forever', lasts_years: '' };
+  return { name: '', note: '', kind: 'yearly', timing: 'stop', in_year: '', currency: 'AED', amount: '', starts_after_years: '0', lasts: 'forever', lasts_years: '' };
 }
 
 const whole = (v) => /^\d+$/.test(String(v).trim());
@@ -54,13 +62,17 @@ export default function IncomeEditor({ row, householdId, onClose, onSaved }) {
   }
 
   const yearly = form.kind === 'yearly';
+  const dated = !yearly && form.timing === 'year';
+  const thisYear = new Date().getFullYear();
   // The same limits the database enforces, said here in words first.
   const problem =
     form.name.trim() === ''
       ? 'Name it.'
       : !(Number(form.amount) > 0)
         ? 'Enter an amount above zero.'
-        : !whole(form.starts_after_years) || Number(form.starts_after_years) > 60
+        : dated && (!whole(form.in_year) || Number(form.in_year) < thisYear || Number(form.in_year) > 2200)
+          ? `Enter the year it is paid, ${thisYear} or later.`
+          : !dated && (!whole(form.starts_after_years) || Number(form.starts_after_years) > 60)
           ? 'Start between 0 and 60 years into independence.'
           : yearly && form.lasts === 'years' && (!whole(form.lasts_years) || Number(form.lasts_years) < 1 || Number(form.lasts_years) > 60)
             ? 'Say how many years it pays, from 1 to 60.'
@@ -79,8 +91,10 @@ export default function IncomeEditor({ row, householdId, onClose, onSaved }) {
       name: form.name.trim(),
       note: form.note.trim(),
       kind: form.kind,
+      currency: form.currency,
       amount: Number(form.amount),
-      starts_after_years: Number(form.starts_after_years),
+      in_year: dated ? Number(form.in_year) : null,
+      starts_after_years: dated ? 0 : Number(form.starts_after_years),
       lasts_years: yearly && form.lasts === 'years' ? Number(form.lasts_years) : null,
       updated_at: new Date().toISOString(),
     };
@@ -141,9 +155,25 @@ export default function IncomeEditor({ row, householdId, onClose, onSaved }) {
           </div>
 
           <div>
-            <div className="te-hero-label">{yearly ? 'Amount a year, in today’s money' : 'Amount, in today’s money'}</div>
+            {!yearly && (
+              <div className="om-scope-list" style={{ marginBottom: 14 }}>
+                <button type="button" className="om-scope" data-active={!dated} onClick={() => set('timing', 'stop')}>
+                  Once work stops
+                </button>
+                <button type="button" className="om-scope" data-active={dated} onClick={() => set('timing', 'year')}>
+                  In a set year
+                </button>
+              </div>
+            )}
+            <div className="te-hero-label">{yearly ? 'Amount a year, in today’s money' : dated ? 'Amount paid that year, as the policy states it' : 'Amount, in today’s money'}</div>
             <div className="te-hero-row">
-              <span className="te-hero-currency">AED</span>
+              <select className="te-hero-currency-select" value={form.currency} onChange={(e) => set('currency', e.target.value)} aria-label="Currency">
+                {['AED', 'INR', 'USD'].map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
               <input type="number" step="0.01" min="0" className="te-hero-input" value={form.amount} onChange={(e) => set('amount', e.target.value)} placeholder="0" aria-label="Amount" />
             </div>
           </div>
@@ -160,19 +190,26 @@ export default function IncomeEditor({ row, householdId, onClose, onSaved }) {
                 aria-label="Name"
               />
             </div>
-            <div className="te-fieldcell te-span2">
-              <span className="te-fieldlabel">{yearly ? 'Starts after (years into independence)' : 'Paid after (years into independence)'}</span>
-              <input
-                className="te-fieldvalue"
-                type="number"
-                min="0"
-                max="60"
-                step="1"
-                value={form.starts_after_years}
-                onChange={(e) => set('starts_after_years', e.target.value)}
-                aria-label="Starts after years"
-              />
-            </div>
+            {dated ? (
+              <div className="te-fieldcell te-span2">
+                <span className="te-fieldlabel">Paid in</span>
+                <input className="te-fieldvalue" type="number" step="1" value={form.in_year} onChange={(e) => set('in_year', e.target.value)} placeholder="e.g. 2044" aria-label="Paid in year" />
+              </div>
+            ) : (
+              <div className="te-fieldcell te-span2">
+                <span className="te-fieldlabel">{yearly ? 'Starts after (years into independence)' : 'Paid after (years into independence)'}</span>
+                <input
+                  className="te-fieldvalue"
+                  type="number"
+                  min="0"
+                  max="60"
+                  step="1"
+                  value={form.starts_after_years}
+                  onChange={(e) => set('starts_after_years', e.target.value)}
+                  aria-label="Starts after years"
+                />
+              </div>
+            )}
             {yearly && (
               <div className="te-fieldcell te-span2">
                 <span className="te-fieldlabel">Pays for</span>
@@ -209,7 +246,9 @@ export default function IncomeEditor({ row, householdId, onClose, onSaved }) {
           <div className="ov-muted" style={{ fontSize: 11.5, lineHeight: 1.6 }}>
             {yearly
               ? 'Income that starts in the first year of independence and pays for good lowers the independence target. The rest is counted year by year on Drawdown.'
-              : 'A one-off sum is added to the pot in the year it arrives. It does not change the independence target.'}{' '}
+              : dated
+                ? 'Added to the pot in that year on the Life plan, whether or not work has stopped, brought back to today’s money at the plan’s inflation. Drawdown and the independence target leave it out.'
+                : 'A one-off sum is added to the pot in the year it arrives. It does not change the independence target.'}{' '}
             Enter it after tax.
           </div>
 
