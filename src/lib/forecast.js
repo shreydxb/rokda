@@ -211,7 +211,10 @@ export function independenceTarget(annualSpend, safeWithdrawalPct, incomes = [])
 // cover takes what is left. `lastsYears` counts the years covered in full
 // before the first shortfall, or is null when there is none inside
 // `maxYears`.
-export function drawdownPath({ start, annualWithdrawal, rate, maxYears = 60, incomes = [] }) {
+//
+// `returns`, when given, is a real return per year (index 0 is year 1) that
+// replaces `rate` wherever it has a number -- see marketReturns.
+export function drawdownPath({ start, annualWithdrawal, rate, maxYears = 60, incomes = [], returns = null }) {
   const path = [{ year: 0, balance: start, withdrawn: 0, growth: 0, income: 0 }];
   let balance = start;
   let lastsYears = null;
@@ -221,9 +224,10 @@ export function drawdownPath({ start, annualWithdrawal, rate, maxYears = 60, inc
     const needed = Math.max(0, annualWithdrawal - yearly);
     const withdrawn = Math.min(needed, Math.max(0, balance));
     const after = balance - withdrawn;
-    const growth = after > 0 ? after * rate : 0;
+    const r = returns?.[y - 1] ?? rate;
+    const growth = after > 0 ? after * r : 0;
     balance = Math.max(0, after + growth);
-    path.push({ year: y, balance, withdrawn, growth, income: yearly + lump });
+    path.push({ year: y, balance, withdrawn, growth, income: yearly + lump, rate: r });
     // A shortfall under a thousandth of a unit is float noise, not a year the
     // pot failed to cover.
     if (lastsYears === null && withdrawn < needed - 1e-3) lastsYears = y - 1;
@@ -249,31 +253,54 @@ function bisect(ok, lo, hi, tolerance) {
 }
 
 // The most a pot can pay out each year, in today's money, and still cover
-// `years` years. Without other income that is the annuity-due payment, exact;
-// with it the timing of each income matters, so it is found by bisection on
-// drawdownPath itself, to the nearest unit.
-export function sustainableWithdrawal({ start, rate, years, incomes = [] }) {
+// `years` years. With a steady return and no other income that is the
+// annuity-due payment, exact; otherwise the timing of each income or bad year
+// matters, so it is found by bisection on drawdownPath itself, to the nearest
+// unit.
+export function sustainableWithdrawal({ start, rate, years, incomes = [], returns = null }) {
   if (!(years > 0)) return 0;
-  if (!incomes.length) {
+  if (!incomes.length && !returns) {
     if (start <= 0) return 0;
     if (rate === 0) return start / years;
     return (start * rate) / ((1 + rate) * (1 - (1 + rate) ** -years));
   }
   const incomeTotal = incomes.reduce((s, r) => s + (Number(r.amount) || 0), 0);
   const hi = Math.max(0, start) + incomeTotal * (years + 1) + 1;
-  return bisect((w) => covers({ start, annualWithdrawal: w, rate, incomes }, years), 0, hi, 0.5);
+  return bisect((w) => covers({ start, annualWithdrawal: w, rate, incomes, returns }, years), 0, hi, 0.5);
 }
 
 // The pot a yearly spend needs to cover `years` years: the inverse of
 // sustainableWithdrawal, found the same two ways.
-export function potForWithdrawal({ annualWithdrawal, rate, years, incomes = [] }) {
+export function potForWithdrawal({ annualWithdrawal, rate, years, incomes = [], returns = null }) {
   if (!(years > 0) || annualWithdrawal <= 0) return 0;
-  if (!incomes.length) {
+  if (!incomes.length && !returns) {
     if (rate === 0) return annualWithdrawal * years;
     return (annualWithdrawal * (1 + rate) * (1 - (1 + rate) ** -years)) / rate;
   }
-  const hi = annualWithdrawal * years + 1;
+  const args = { annualWithdrawal, rate, incomes, returns };
+  // A pot big enough for every year to lose as much as the worst year is
+  // surely enough: each year's spending, grown back by what that loss takes.
+  const worst = Math.max(-0.99, Math.min(rate, ...(returns ?? []).filter(Number.isFinite)));
+  const hi = worst < 0 ? annualWithdrawal * years * (1 + worst) ** -years + 1 : annualWithdrawal * years + 1;
   // Smallest pot that covers: bisect on "does not cover" and step past it.
-  const notEnough = bisect((p) => !covers({ start: p, annualWithdrawal, rate, incomes }, years), 0, hi, 0.5);
-  return covers({ start: 0, annualWithdrawal, rate, incomes }, years) ? 0 : notEnough + 0.5;
+  const notEnough = bisect((p) => !covers({ ...args, start: p }, years), 0, hi, 0.5);
+  return covers({ ...args, start: 0 }, years) ? 0 : notEnough + 0.5;
+}
+
+// A market fall while the pot is being spent: this real return in the first
+// year of it, then the second, then back to the steady return. Illustrative,
+// not a forecast -- about what a pot of mixed investments and cash lost after
+// inflation in a bad stretch such as 2008.
+export const MARKET_FALL = [-0.2, -0.1];
+
+// Year-by-year real returns for drawdownPath: null for a steady return, else
+// the steady rate with MARKET_FALL starting in `fallYear` (1 = the first year
+// of independence). The same fall early or late shows sequence risk alone:
+// the returns are the same set of numbers, only their order differs.
+export function marketReturns(rate, fallYear, maxYears = 60) {
+  if (!fallYear) return null;
+  return Array.from({ length: maxYears }, (_, i) => {
+    const k = i + 1 - fallYear;
+    return k >= 0 && k < MARKET_FALL.length ? MARKET_FALL[k] : rate;
+  });
 }

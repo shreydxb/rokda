@@ -114,7 +114,7 @@ const SUBVIEWS = [
   { name: 'forecast', path: '/planning', tabs: ['Forecast'], expectText: 'What it would take' },
   { name: 'goals', path: '/planning', tabs: ['Goals'], expectText: 'a month to reach it by' },
   { name: 'budget-year', path: '/money', tabs: ['Budget', 'Year'], expectText: 'Net saved each month' },
-  { name: 'drawdown', path: '/planning', tabs: ['Drawdown'], expectText: 'How long it lasts' },
+  { name: 'drawdown', path: '/planning', tabs: ['Drawdown', 'Fall in year 1'], expectText: 'The same fall, early or late' },
   { name: 'starter-categories', path: '/settings', tabs: ['Categories & rules', 'Starter set'], expectText: 'Starter categories' },
 ];
 
