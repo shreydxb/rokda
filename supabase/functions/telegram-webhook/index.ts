@@ -383,7 +383,7 @@ async function parseIntakeWithAI(params: {
     `"category" MUST be exactly one of these household categories, verbatim, or null if none clearly fits -- never invent a category name: ` +
     `${JSON.stringify(categoryNames)}. ` +
     `This list mixes broad categories (e.g. "Transport") with specific subcategories of them (e.g. "Salik / Parking / Misc", "Car EMI", "Fuel" -- all under Transport). Always prefer the most specific one that clearly fits over its broader parent: a toll/parking charge is "Salik / Parking / Misc", not "Transport"; a car loan instalment is "Car EMI", not "Transport". Only fall back to the broad parent when nothing more specific applies (e.g. a taxi fare, which fits none of Transport's subcategories). ` +
-    `Note: "Noon Minutes" (or "Minutes") is Noon's fast grocery delivery service, not its general marketplace -- categorise it as groceries, not shopping, if a groceries-like category exists. ` +
+    `Noon is three different services, told apart by the name the payment shows: "Noon Minutes" (or "Minutes") is grocery delivery -- a groceries category; plain "Noon" on its own is Noon Food, restaurant delivery -- a food or dining category; "noon.com" (or "Noon.com") is the marketplace -- a shopping category. Apply this unless the message itself says what was bought. ` +
     `"confidence" is your own confidence in this extraction, 0 to 1. ` +
     `If you cannot determine a field, use null rather than guessing.`;
 

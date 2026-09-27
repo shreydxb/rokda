@@ -538,6 +538,8 @@ freshTest("an expense on a card named misspelt is filed to that card", async () 
   // The parser is told the household's own card names to choose from.
   assert(backend.parsePrompts[0].includes("ENBD Marriott"), "the parser was not given the account names");
   assert(!backend.parsePrompts[0].includes("8643"), "the card digits reached the parser as part of a name");
+  // Noon's three services each have their own category.
+  assert(backend.parsePrompts[0].includes("plain \\\"Noon\\\" on its own is Noon Food"), "the parser was not told how to tell Noon's services apart");
 });
 
 freshTest("a tool the bot does not have is captured as an expense, not answered with an error", async () => {
