@@ -28,10 +28,14 @@ function renderDrawdown(props = {}) {
 
 afterEach(() => localStorage.clear());
 
+// The headline figure. Each market's figure is repeated in the comparison
+// below it, so the hero is read on its own.
+const hero = () => document.querySelector('.ov-hero').textContent;
+
 describe('Drawdown: how long the money lasts', () => {
   it('starts from the independence target, which at 4% and 3.4% real lasts 51 years', () => {
     renderDrawdown();
-    expect(screen.getByText('51 years')).toBeTruthy();
+    expect(hero()).toBe('51 years');
     expect(screen.getByText(/Spending AED 48,000 a year from AED 1,200,000/)).toBeTruthy();
   });
 
@@ -39,13 +43,13 @@ describe('Drawdown: how long the money lasts', () => {
     renderDrawdown();
     fireEvent.click(screen.getByText(/Stopping today/));
     // 200,000 at 48,000 a year runs out in the fifth year.
-    expect(screen.getByText('4 years')).toBeTruthy();
+    expect(hero()).toBe('4 years');
   });
 
   it('a lower return shortens it', () => {
     renderDrawdown();
     fireEvent.click(screen.getByLabelText('Lower return'));
-    expect(screen.queryByText('51 years')).toBeNull();
+    expect(hero()).not.toBe('51 years');
   });
 
   it('says there is nothing to draw on when net worth is not above zero', () => {
@@ -81,7 +85,7 @@ describe('Drawdown: other income once working stops', () => {
     renderDrawdown({ data: { assumptions: null, independenceIncome: [RENT] } });
     fireEvent.click(screen.getByText(/Stopping today/));
     // 200,000 paying 24,000 a year (48,000 less rent) lasts far past the 4 years it does alone.
-    expect(screen.queryByText('4 years')).toBeNull();
+    expect(hero()).not.toBe('4 years');
   });
 
   it('offers to add one when there are none', () => {
@@ -89,5 +93,61 @@ describe('Drawdown: other income once working stops', () => {
     expect(screen.getByText(/None added/)).toBeTruthy();
     fireEvent.click(screen.getByText('+ Income'));
     expect(screen.getByRole('dialog', { name: 'Add income' })).toBeTruthy();
+  });
+});
+
+describe('Drawdown: a market fall, early or late', () => {
+  it('compares the same fall in year 1 and year 10 against steady', () => {
+    renderDrawdown();
+    const cards = [...document.querySelectorAll('.dd-market')];
+    const years = (card) => Number(card.querySelector('.fig').textContent.match(/^(\d+) years?$/)[1]);
+    expect(cards.map((c) => c.firstChild.textContent)).toEqual(['Steady', 'Fall in year 1', 'Fall in year 10']);
+    expect(years(cards[0])).toBe(51);
+    // The same fall costs more when it comes first.
+    expect(years(cards[1])).toBeLessThan(years(cards[2]));
+    expect(years(cards[2])).toBeLessThan(51);
+    expect(cards[1].textContent).toMatch(/years? shorter than steady/);
+  });
+
+  it('choosing a fall moves the headline, the answer and the chart with it', () => {
+    renderDrawdown();
+    const early = [...document.querySelectorAll('.dd-market')][1];
+    const earlyYears = early.querySelector('.fig').textContent;
+    fireEvent.click(screen.getByRole('button', { name: 'Fall in year 1' }));
+    expect(hero()).toBe(earlyYears);
+    expect(screen.getByText(/A fall of 20% then 10% after inflation starts in year 1\./)).toBeTruthy();
+    expect(screen.getByText(/even with the fall in year 1/)).toBeTruthy();
+    // The steady path stays on the chart to compare against.
+    expect(screen.getByText('Steady', { selector: 'text' })).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: 'Return' })).toBeTruthy();
+  });
+
+  it('shows a year the pot lost money as a loss, not a gain', () => {
+    renderDrawdown();
+    fireEvent.click(screen.getByText(/Stopping today/));
+    fireEvent.click(screen.getByRole('button', { name: 'Fall in year 1' }));
+    // 200,000 less 48,000 spent is 152,000; 20% of that is lost in year 1.
+    const year1 = screen.getAllByRole('row').find((r) => r.firstChild?.textContent === '1');
+    expect(year1.textContent).toMatch(/−30,400/);
+    expect(year1.textContent).toMatch(/−20\.0%/);
+  });
+
+  it('keeps working when the chosen year is past the end of a shorter chart', () => {
+    renderDrawdown();
+    // Pick the last year of the 60-year chart, then shorten the chart.
+    const chart = document.querySelector('.ch');
+    chart.focus();
+    fireEvent.keyDown(chart, { key: 'End' });
+    fireEvent.click(screen.getByText(/Stopping today/));
+    fireEvent.click(screen.getByRole('button', { name: 'Fall in year 1' }));
+    expect(hero()).toMatch(/years?$/);
+    expect(document.querySelector('.ov-chart-readout').textContent).toMatch(/^Year \d+/);
+  });
+
+  it('a late fall changes nothing for a pot already gone', () => {
+    renderDrawdown();
+    fireEvent.click(screen.getByText(/Stopping today/));
+    const late = [...document.querySelectorAll('.dd-market')][2];
+    expect(late.textContent).toMatch(/The pot is gone before year 10/);
   });
 });

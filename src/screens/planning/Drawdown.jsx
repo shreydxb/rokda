@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { startingNetWorth } from '../overviewMath';
-import { drawdownPath, forecastInputs, independenceTarget, potForWithdrawal, realReturn, scenarioSets, sustainableWithdrawal } from '../../lib/forecast';
+import { MARKET_FALL, drawdownPath, forecastInputs, independenceTarget, marketReturns, potForWithdrawal, realReturn, scenarioSets, sustainableWithdrawal } from '../../lib/forecast';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { LineChart } from '../../charts/Charts';
 import IncomeEditor from './IncomeEditor';
@@ -8,6 +8,18 @@ import IncomeEditor from './IncomeEditor';
 const DEFAULTS = { nominal_return_pct: 6.0, inflation_pct: 2.5, safe_withdrawal_pct: 4.0 };
 const MAX_YEARS = 60;
 const RETURN_STEP = 0.5;
+// The year the market fall starts in, for each choice. The same fall early or
+// late: the difference between them is the order of returns and nothing else.
+const MARKETS = [
+  { key: 'steady', label: 'Steady', fallYear: null },
+  { key: 'early', label: 'Fall in year 1', fallYear: 1 },
+  { key: 'late', label: 'Fall in year 10', fallYear: 10 },
+];
+const pct = (r) => `${Math.round(Math.abs(r) * 100)}%`;
+// A year's return, signed with the same minus the money figures use.
+const returnText = (r) => `${r < 0 ? '−' : ''}${Math.abs(r * 100).toFixed(1)}%`;
+const FALL_WORDS = `${pct(MARKET_FALL[0])} then ${pct(MARKET_FALL[1])}`;
+const lastsText = (years) => (years === null ? `${MAX_YEARS}+ years` : `${years} year${years === 1 ? '' : 's'}`);
 
 // "How long will it last": the spending side of independence, on the same
 // basis as Forecast -- the same recorded spend, the same scenarios, the same
@@ -25,6 +37,7 @@ export default function Drawdown({ household, accounts = [], transactions = [], 
   const [spendKind, setSpendKind] = useState('actual'); // 'actual' | 'lean'
   const [returnOffset, setReturnOffset] = useState(0); // pp added to the scenario's nominal return
   const [lastFor, setLastFor] = useState(40);
+  const [market, setMarket] = useState('steady');
   const [activeYear, setActiveYear] = useState(null);
   const [editing, setEditing] = useState(null); // null | 'new' | an income row
   const incomes = data.independenceIncome ?? [];
@@ -61,15 +74,23 @@ export default function Drawdown({ household, accounts = [], transactions = [], 
   const { target } = independenceTarget(inputs.annualSpend, selected.swrPct, incomes);
   const pot = potKind === 'today' ? startNetWorth : target;
 
-  const { path, lastsYears } = drawdownPath({ start: pot, annualWithdrawal: spend, rate, maxYears: MAX_YEARS, incomes });
+  const base = { start: pot, annualWithdrawal: spend, rate, maxYears: MAX_YEARS, incomes };
+  const outcomes = MARKETS.map((m) => ({ ...m, ...drawdownPath({ ...base, returns: marketReturns(rate, m.fallYear, MAX_YEARS) }) }));
+  const chosen = outcomes.find((o) => o.key === market);
+  const steady = outcomes[0];
+  const returns = marketReturns(rate, chosen.fallYear, MAX_YEARS);
+  const { path, lastsYears } = chosen;
   // Show the run-out and a few empty years after it, not decades of zero.
   const shownYears = lastsYears === null ? MAX_YEARS : Math.min(MAX_YEARS, Math.max(10, lastsYears + 5));
   const shown = path.slice(0, shownYears + 1);
-  const activeIdx = activeYear ?? (lastsYears !== null ? Math.min(lastsYears, shownYears) : shownYears);
+  // A year picked on a longer chart (before switching market or pot) is held
+  // to the end of this one.
+  const activeIdx = Math.min(activeYear ?? (lastsYears !== null ? lastsYears : shownYears), shownYears);
   const active = shown[activeIdx];
 
-  const maxSpend = sustainableWithdrawal({ start: pot, rate, years: lastFor, incomes });
-  const potNeeded = potForWithdrawal({ annualWithdrawal: spend, rate, years: lastFor, incomes });
+  const maxSpend = sustainableWithdrawal({ start: pot, rate, years: lastFor, incomes, returns });
+  const potNeeded = potForWithdrawal({ annualWithdrawal: spend, rate, years: lastFor, incomes, returns });
+  const fallWhen = chosen.fallYear ? ` A fall of ${FALL_WORDS} after inflation starts in year ${chosen.fallYear}.` : '';
   // What the pot itself pays out in the first year, after other income.
   const withdrawalRate = pot > 0 ? path[1].withdrawn / pot : null;
   const incomeTotal = path.reduce((s, p) => s + p.income, 0);
@@ -79,7 +100,7 @@ export default function Drawdown({ household, accounts = [], transactions = [], 
       <section className="pl-hero" style={{ marginTop: 22 }}>
         <div className="ov-kicker">How long it lasts</div>
         <div className="ov-hero fig">
-          {pot <= 0 && !incomes.length ? 'Nothing to draw on' : lastsYears === null ? `${MAX_YEARS}+ years` : `${lastsYears} year${lastsYears === 1 ? '' : 's'}`}
+          {pot <= 0 && !incomes.length ? 'Nothing to draw on' : lastsText(lastsYears)}
         </div>
         <div style={{ fontSize: 13.5, color: 'var(--ink2)', marginTop: 10, lineHeight: 1.6 }}>
           {pot <= 0 && !incomes.length
@@ -87,6 +108,7 @@ export default function Drawdown({ household, accounts = [], transactions = [], 
             : lastsYears === null
               ? `Spending ${money.code} ${money.fmt(spend)} a year from ${money.code} ${money.fmt(pot)} never runs it down: growth at ${(rate * 100).toFixed(1)}% real keeps up with the spending.`
               : `Spending ${money.code} ${money.fmt(spend)} a year from ${money.code} ${money.fmt(pot)}, at ${(rate * 100).toFixed(1)}% real, runs out in year ${lastsYears + 1}.`}
+          {pot > 0 || incomes.length ? fallWhen : ''}
           {incomes.length > 0 && ` Other income of ${money.code} ${money.fmt(incomeTotal)} over ${MAX_YEARS} years is spent before the pot.`}
         </div>
 
@@ -121,6 +143,16 @@ export default function Drawdown({ household, accounts = [], transactions = [], 
               {Object.values(sets).map((s) => (
                 <button key={s.key} type="button" className="om-seg" data-active={fcSet === s.key} onClick={() => setFcSet(s.key)}>
                   {s.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="dd-control">
+            <span className="dd-label">Markets</span>
+            <div className="dd-segs">
+              {MARKETS.map((m) => (
+                <button key={m.key} type="button" className="om-seg" data-active={market === m.key} onClick={() => setMarket(m.key)}>
+                  {m.label}
                 </button>
               ))}
             </div>
@@ -161,8 +193,10 @@ export default function Drawdown({ household, accounts = [], transactions = [], 
         </div>
         <div className="fc-kpi">
           <div style={{ fontSize: 12, color: 'var(--ink2)' }}>Earned by the pot</div>
-          <div className="fig" style={{ fontSize: 28, marginTop: 6 }}>{money.fmt(path.reduce((s, p) => s + p.growth, 0))}</div>
-          <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 5 }}>Growth on what was left each year</div>
+          <div className="fig" style={{ fontSize: 28, marginTop: 6 }}>{money.fmtBalance(path.reduce((s, p) => s + p.growth, 0))}</div>
+          <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 5 }}>
+            Growth on what was left each year{chosen.fallYear ? ', less what the fall took' : ''}
+          </div>
         </div>
         <div className="fc-kpi">
           <div style={{ fontSize: 12, color: 'var(--ink2)' }}>Left after {MAX_YEARS} years</div>
@@ -190,7 +224,7 @@ export default function Drawdown({ household, accounts = [], transactions = [], 
             <b className="fig">
               {money.code} {money.fmt(maxSpend)}
             </b>{' '}
-            a year from this pot
+            a year from this pot{chosen.fallYear ? `, even with the fall in year ${chosen.fallYear}` : ''}
             <span className="ov-muted">
               {' · or, to keep spending '}
               {money.fmt(spend)}, start with {money.code} {money.fmt(potNeeded)}
@@ -242,13 +276,14 @@ export default function Drawdown({ household, accounts = [], transactions = [], 
         </div>
         <LineChart
           points={shown.map((p) => ({ key: p.year, label: `Yr ${p.year}`, value: p.balance }))}
+          reference={chosen.fallYear ? { values: steady.path.map((p) => p.balance), label: 'Steady' } : null}
           color="var(--series-1)"
           height={200}
           formatTick={money.fmtCompact}
           labelEvery={shownYears > 30 ? 10 : 5}
           activeIndex={activeIdx}
           onActiveChange={setActiveYear}
-          ariaLabel={`What is left of the pot each year of drawing on it, over ${shownYears} years. Use the arrow keys to move between years.`}
+          ariaLabel={`What is left of the pot each year of drawing on it, over ${shownYears} years${chosen.fallYear ? `, with a market fall in year ${chosen.fallYear} and the steady path for comparison` : ''}. Use the arrow keys to move between years.`}
         />
         <div className="ov-chart-readout">
           <span className="fig">Year {active.year}</span>
@@ -264,8 +299,13 @@ export default function Drawdown({ household, accounts = [], transactions = [], 
             </span>
           )}
           <span>
-            Earned <b className="fig">{money.fmt(active.growth)}</b>
+            Earned <b className="fig">{money.fmtBalance(active.growth)}</b>
           </span>
+          {chosen.fallYear && active.year > 0 && (
+            <span>
+              Return <b className="fig">{returnText(active.rate)}</b>
+            </span>
+          )}
           {lastsYears !== null && active.year > lastsYears && <span className="ov-neg">Not fully covered</span>}
         </div>
         <details className="ch-table">
@@ -278,6 +318,7 @@ export default function Drawdown({ household, accounts = [], transactions = [], 
                   {incomes.length > 0 && <th scope="col">Other income</th>}
                   <th scope="col">From the pot</th>
                   <th scope="col">Earned</th>
+                  {chosen.fallYear && <th scope="col">Return</th>}
                   <th scope="col">Left</th>
                 </tr>
               </thead>
@@ -287,7 +328,8 @@ export default function Drawdown({ household, accounts = [], transactions = [], 
                     <td className="fig">{p.year}</td>
                     {incomes.length > 0 && <td className="fig">{money.fmt(p.income)}</td>}
                     <td className="fig">{money.fmt(p.withdrawn)}</td>
-                    <td className="fig">{money.fmt(p.growth)}</td>
+                    <td className="fig">{money.fmtBalance(p.growth)}</td>
+                    {chosen.fallYear && <td className="fig">{p.year === 0 ? '' : returnText(p.rate)}</td>}
                     <td className="fig">{money.fmt(p.balance)}</td>
                   </tr>
                 ))}
@@ -295,11 +337,30 @@ export default function Drawdown({ household, accounts = [], transactions = [], 
             </table>
           </div>
         </details>
-        <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 14, lineHeight: 1.65, maxWidth: '84ch' }}>
-          A steady return every year is an assumption, not a forecast. Real markets fall in some years, and a fall early in drawdown
-          shortens how long a pot lasts more than the same fall later. No tax is taken out.
-        </div>
       </section>
+
+      {(pot > 0 || incomes.length > 0) && (
+        <section style={{ marginTop: 40 }}>
+          <div className="ov-kicker">The same fall, early or late</div>
+          <div className="ov-muted" style={{ fontSize: 12.5, lineHeight: 1.65, maxWidth: '84ch', marginTop: 8 }}>
+            A steady return every year is an assumption, not a forecast. Here the pot loses {FALL_WORDS} after inflation over two
+            years, about what mixed investments lost in a bad stretch such as 2008, and earns the steady return otherwise. The fall
+            is the same both times; only when it comes differs.
+          </div>
+          <div className="fc-kpis dd-markets">
+            {outcomes.map((o) => (
+              <button key={o.key} type="button" className="fc-kpi dd-market" data-active={market === o.key} onClick={() => setMarket(o.key)}>
+                <div style={{ fontSize: 12, color: 'var(--ink2)' }}>{o.label}</div>
+                <div className="fig" style={{ fontSize: 28, marginTop: 6 }}>
+                  {lastsText(o.lastsYears)}
+                </div>
+                <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 5 }}>{marketNote(o, steady)}</div>
+              </button>
+            ))}
+          </div>
+          <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 14 }}>No tax is taken out.</div>
+        </section>
+      )}
 
       {editing && (
         <IncomeEditor
@@ -314,6 +375,17 @@ export default function Drawdown({ household, accounts = [], transactions = [], 
       )}
     </div>
   );
+}
+
+// What a market choice did, against the steady path.
+function marketNote(o, steady) {
+  if (!o.fallYear) return 'The return every year';
+  if (steady.lastsYears !== null && steady.lastsYears < o.fallYear - 1) return `The pot is gone before year ${o.fallYear}`;
+  if (o.lastsYears === steady.lastsYears) return 'No shorter than steady';
+  if (o.lastsYears === null) return `Still ${MAX_YEARS}+ years`;
+  if (steady.lastsYears === null) return `Down from ${MAX_YEARS}+ years`;
+  const lost = steady.lastsYears - o.lastsYears;
+  return `${lost} year${lost === 1 ? '' : 's'} shorter than steady`;
 }
 
 function describeIncome(row) {

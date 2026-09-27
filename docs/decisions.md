@@ -166,6 +166,29 @@ rather than spent (a household's "Savings & Investments", say).
 - Transaction arithmetic is unchanged: spend and income are still decided by
   `transactionKind.js` alone, in the app and the bot alike.
 
+## Drawdown tests a market fall, early or late
+
+A steady return every year hides the biggest risk to a pot being spent: a
+fall in the first years, when selling to live locks the loss in. Drawdown
+offers one fall, not a simulation.
+
+- **The fall.** −20% then −10% real, in two consecutive years, and the
+  scenario's steady real return every other year (`MARKET_FALL`,
+  `marketReturns`). It is roughly what a mix of investments and cash lost
+  after inflation in a stretch like 2008. It is illustrative, not a forecast,
+  and the screen says so.
+- **Year 1 against year 10.** The two choices are the same set of returns in
+  a different order, so any difference between them is sequence risk and
+  nothing else. A comparison row shows all three outcomes, and picking one
+  sets the rest of the screen.
+- **Everything follows the choice:** how long the pot lasts, the KPIs, and
+  "Make it last", which then answers what spending survives that fall. With a
+  fall, the solvers use bisection on `drawdownPath` itself, since the
+  closed-form annuity only holds for a steady return.
+- No Monte Carlo. Random runs would give a probability that looks precise
+  but rests on a guessed distribution. One named, repeatable fall is easier to
+  reason about and to check.
+
 ## Edge Functions pin their Supabase imports to an exact version
 
 All three Edge Functions import `jsr:@supabase/supabase-js@2.117.2` and

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { closedMonths, crossingYear, drawdownPath, fiTarget, futureValue, incomeInYear, independenceTarget, potForWithdrawal, projectYears, realReturn, requiredAnnualSaving, scenarioSets, sustainableWithdrawal } from './forecast';
+import { MARKET_FALL, closedMonths, crossingYear, drawdownPath, fiTarget, futureValue, incomeInYear, independenceTarget, marketReturns, potForWithdrawal, projectYears, realReturn, requiredAnnualSaving, scenarioSets, sustainableWithdrawal } from './forecast';
 
 const DEFAULTS = { nominal_return_pct: 6.0, inflation_pct: 2.5, safe_withdrawal_pct: 4.0 };
 
@@ -222,5 +222,72 @@ describe('other income in independence', () => {
 
   it('needs no pot when income covers the spending', () => {
     expect(potForWithdrawal({ annualWithdrawal: 15000, rate: 0.03, years: 30, incomes: [rent] })).toBe(0);
+  });
+});
+
+describe('a market fall while drawing down', () => {
+  const rate = 0.03;
+  const base = { start: 1000000, annualWithdrawal: 50000, rate, maxYears: 60 };
+
+  it('a steady market is exactly the path without returns', () => {
+    expect(marketReturns(rate, null)).toBeNull();
+    expect(drawdownPath({ ...base, returns: null })).toEqual(drawdownPath(base));
+  });
+
+  it('puts the fall in the chosen year and the steady return everywhere else', () => {
+    const r = marketReturns(rate, 10, 60);
+    expect(r).toHaveLength(60);
+    expect(r[8]).toBe(rate);
+    expect(r[9]).toBe(MARKET_FALL[0]);
+    expect(r[10]).toBe(MARKET_FALL[1]);
+    expect(r[11]).toBe(rate);
+  });
+
+  it('applies the fall to what is left after the year’s spending', () => {
+    const { path } = drawdownPath({ ...base, returns: marketReturns(rate, 1) });
+    // 1,000,000 less 50,000 = 950,000, then 20% down.
+    expect(path[1].balance).toBeCloseTo(760000, 6);
+    expect(path[1].rate).toBe(-0.2);
+    expect(path[1].growth).toBeCloseTo(-190000, 6);
+    // 760,000 less 50,000 = 710,000, then 10% down.
+    expect(path[2].balance).toBeCloseTo(639000, 6);
+  });
+
+  it('the same fall costs more years early than late', () => {
+    const steady = drawdownPath(base).lastsYears;
+    const early = drawdownPath({ ...base, returns: marketReturns(rate, 1) }).lastsYears;
+    const late = drawdownPath({ ...base, returns: marketReturns(rate, 10) }).lastsYears;
+    expect(early).toBeLessThan(late);
+    expect(late).toBeLessThan(steady);
+  });
+
+  it('the solvers answer for the fall, and invert each other', () => {
+    const returns = marketReturns(rate, 1);
+    const steadyMax = sustainableWithdrawal({ start: 1000000, rate, years: 30 });
+    const w = sustainableWithdrawal({ start: 1000000, rate, years: 30, returns });
+    expect(w).toBeLessThan(steadyMax);
+    // Spending that much, the pot lasts the 30 years and not much more.
+    const { lastsYears } = drawdownPath({ start: 1000000, annualWithdrawal: w, rate, maxYears: 30, returns });
+    expect(lastsYears === null || lastsYears >= 30).toBe(true);
+    const pot = potForWithdrawal({ annualWithdrawal: w, rate, years: 30, returns });
+    expect(Math.abs(pot - 1000000)).toBeLessThan(50);
+  });
+
+  it('finds the pot for other income when the return is below inflation', () => {
+    // A negative real return used to cap the search at spend × years, too
+    // small a pot for any return that loses money.
+    const incomes = [{ kind: 'lump_sum', amount: 1000, starts_after_years: 5 }];
+    const pot = potForWithdrawal({ annualWithdrawal: 10000, rate: -0.02, years: 20, incomes });
+    expect(pot).toBeGreaterThan(10000 * 20);
+    const { lastsYears } = drawdownPath({ start: pot, annualWithdrawal: 10000, rate: -0.02, maxYears: 20, incomes });
+    expect(lastsYears === null || lastsYears >= 20).toBe(true);
+  });
+
+  it('finds the pot even when the return is negative every year', () => {
+    const returns = marketReturns(-0.05, 1);
+    const pot = potForWithdrawal({ annualWithdrawal: 10000, rate: -0.05, years: 20, returns });
+    const { lastsYears } = drawdownPath({ start: pot, annualWithdrawal: 10000, rate: -0.05, maxYears: 20, returns });
+    expect(lastsYears === null || lastsYears >= 20).toBe(true);
+    expect(drawdownPath({ start: pot - 100, annualWithdrawal: 10000, rate: -0.05, maxYears: 20, returns }).lastsYears).toBeLessThan(20);
   });
 });

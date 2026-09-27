@@ -181,9 +181,13 @@ export function ColumnChart({
 }
 
 // One series as a 2px line over a 10% wash down to zero. A null value is a
-// gap in the line (a month not reached yet), not a zero.
+// gap in the line (a month not reached yet), not a zero. `reference`, when
+// given, is a second path to compare against -- { values, label } in the
+// same order as `points` -- drawn as a thin ink line under the series, the
+// same mark RangeChart uses, so colour stays with the one series that matters.
 export function LineChart({
   points,
+  reference = null,
   color = 'var(--accent)',
   area = true,
   height = 180,
@@ -197,11 +201,17 @@ export function LineChart({
   const count = points.length;
   const plotW = Math.max(40, width - AXIS_W - PAD_RIGHT);
   const band = plotW / Math.max(1, count);
-  const values = points.map((p) => p.value).filter((v) => v !== null && Number.isFinite(v));
+  const values = [...points.map((p) => p.value), ...(reference?.values ?? [])].filter((v) => v !== null && Number.isFinite(v));
   const { min, max, ticks } = niceTicks(Math.min(...values), Math.max(...values));
   const scale = yScale(min, max, height);
   const y = (v) => PAD_TOP + scale(v);
   const x = (i) => AXIS_W + band * (i + 0.5);
+  const refPath = reference
+    ? reference.values
+        .slice(0, count)
+        .map((v, i) => `${i === 0 ? 'M' : 'L'}${x(i)},${y(v)}`)
+        .join(' ')
+    : null;
 
   // Contiguous runs of known values, each drawn as its own line and wash.
   const runs = [];
@@ -228,6 +238,13 @@ export function LineChart({
     >
       <svg width={width} height={PAD_TOP + height + X_AXIS_H} aria-hidden="true">
         <Axis ticks={ticks} y={y} width={width} formatTick={formatTick} />
+        {refPath && <path className="ch-reference" d={refPath} />}
+        {reference?.label && (
+          // At the right-hand end: both lines often start from the same value.
+          <text className="ch-reference-label" x={x(count - 1)} y={y(reference.values[count - 1]) - 6} textAnchor="end">
+            {reference.label}
+          </text>
+        )}
         {runs.map((r) => {
           const line = r.map((i, k) => `${k === 0 ? 'M' : 'L'}${x(i)},${y(points[i].value)}`).join(' ');
           const wash = `${line} L${x(r[r.length - 1])},${y(0)} L${x(r[0])},${y(0)} Z`;
