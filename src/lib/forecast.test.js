@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { MARKET_FALL, budgetPlan, closedMonths, crossingYear, drawdownPath, fiTarget, forecastInputs, futureValue, incomeInYear, independenceTarget, marketReturns, potForWithdrawal, projectYears, realReturn, requiredAnnualSaving, scenarioSets, sustainableWithdrawal } from './forecast';
+import { budgetPlan, closedMonths, crossingYear, drawdownPath, fiTarget, forecastInputs, futureValue, incomeInYear, incomesFromStop, independenceTarget, MARKET_FALL, marketReturns, potForWithdrawal, projectYears, realReturn, requiredAnnualSaving, scenarioSets, sustainableWithdrawal } from './forecast';
 
 const DEFAULTS = { nominal_return_pct: 6.0, inflation_pct: 2.5, safe_withdrawal_pct: 4.0 };
 
@@ -344,5 +344,20 @@ describe('budgetPlan and the budget standing in for history', () => {
   it('still needs a net worth to start from, and a budget to stand in', () => {
     expect(forecastInputs(septemberOnly, null, now, budgetPlan(everyMonth2026, cats, now)).ready).toBe(false);
     expect(forecastInputs(septemberOnly, 100000, now, null)).toMatchObject({ ready: false, source: null });
+  });
+});
+
+describe('incomesFromStop', () => {
+  it('converts rupee income at today\'s rate, and leaves out sums paid in a set year and rows it cannot convert', () => {
+    const rows = [
+      { id: 'r', name: 'Flat rent', kind: 'yearly', amount: 260_000, currency: 'INR', starts_after_years: 0 },
+      { id: 'g', name: 'Gratuity', kind: 'lump_sum', amount: 32_740, starts_after_years: 0 },
+      { id: 'l', name: 'LIC', kind: 'lump_sum', amount: 4_350_000, currency: 'INR', in_year: 2044 },
+    ];
+    expect(incomesFromStop(rows, { inr_per_aed: 26 }).map((r) => [r.id, r.amount])).toEqual([
+      ['r', 10_000],
+      ['g', 32_740],
+    ]);
+    expect(incomesFromStop(rows, { inr_per_aed: null }).map((r) => r.id)).toEqual(['g']);
   });
 });

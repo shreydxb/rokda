@@ -115,12 +115,14 @@ export default function LifePlan({
     startNetWorth,
     goals: data.goals ?? [],
     incomes: data.independenceIncome ?? [],
+    household,
     startYear,
     fcSet,
     stopOverride,
     spendKind,
   });
-  const { endYear, sets, selected, inflationPct, postNominal, savedStop, stopYear, spendOptions, spendChoice, survivorPct, goals, incomes, args } = basis;
+  const { endYear, sets, selected, inflationPct, postNominal, savedStop, stopYear, spendOptions, spendChoice, survivorPct, goals, incomes, inflows, args } = basis;
+  const anyIncome = incomes.length > 0 || inflows.length > 0;
   const result = lifePlan(args);
   const need = potNeededAt(args);
   const earliest = earliestStop(args);
@@ -265,7 +267,7 @@ export default function LifePlan({
           <div className="fig" style={{ fontSize: 28, marginTop: 6 }}>{need === null ? '—' : money.fmt(shown(need, stopYear))}</div>
           <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 5 }}>
             To last to {endYear}
-            {incomes.length ? ', other income counted' : ''}
+            {anyIncome ? ', other income counted' : ''}
           </div>
         </div>
         <div className="fc-kpi">
@@ -392,6 +394,11 @@ export default function LifePlan({
               Spent <b className="fig">{money.fmt(shown(active.spend, active.year))}</b>
             </span>
           )}
+          {active.inflows.length > 0 && (
+            <span>
+              {active.inflows.map((i) => i.name).join(', ')} arrives
+            </span>
+          )}
           {active.income > 0 && (
             <span>
               Other income <b className="fig">{money.fmt(shown(active.income, active.year))}</b>
@@ -418,7 +425,7 @@ export default function LifePlan({
                   <th scope="col">Ages</th>
                   <th scope="col">Pot at start</th>
                   <th scope="col">Saved or spent</th>
-                  {incomes.length > 0 && <th scope="col">Other income</th>}
+                  {anyIncome && <th scope="col">Other income</th>}
                   <th scope="col">Goals</th>
                   <th scope="col">Earned</th>
                   <th scope="col">Note</th>
@@ -437,7 +444,7 @@ export default function LifePlan({
                       <td>{agesText(r.year)}</td>
                       <td className="fig">{money.fmt(shown(r.start, r.year))}</td>
                       <td className="fig">{r.working ? money.fmtSigned(shown(r.saving, r.year)) : `−${money.fmt(shown(r.spend, r.year))}`}</td>
-                      {incomes.length > 0 && <td className="fig">{r.income > 0 ? money.fmt(shown(r.income, r.year)) : ''}</td>}
+                      {anyIncome && <td className="fig">{r.income > 0 ? money.fmt(shown(r.income, r.year)) : ''}</td>}
                       <td>{r.goals.length ? `${r.goals.map((g) => g.name).join(', ')} −${money.fmt(shown(r.goalOutflow, r.year))}` : ''}</td>
                       <td className="fig">{money.fmtBalance(shown(r.growth, r.year))}</td>
                       <td className={r.short > 0 ? 'ov-neg' : undefined}>{notes.join(' · ')}</td>
@@ -458,7 +465,10 @@ export default function LifePlan({
         {inputs.source === 'budget' ? ', your savings target in the budget' : `, the average of the last ${inputs.monthCount} closed months`}, kept the
         same in today&rsquo;s money until work stops.
         {people.length > 1 && survivorPct !== 100 && ` Once one person remains, spending is ${survivorPct}% of the couple's.`}
-        {incomes.length > 0 && ` ${incomes.length} source${incomes.length === 1 ? '' : 's'} of other income from Drawdown count from ${stopYear}.`} No tax is
+        {incomes.length > 0 && ` ${incomes.length} source${incomes.length === 1 ? '' : 's'} of other income from Drawdown count from ${stopYear}.`}
+        {inflows.length > 0 &&
+          ` ${inflows.map((i) => `${i.name} (${i.year})`).join(', ')} ${inflows.length === 1 ? 'is' : 'are'} added in ${inflows.length === 1 ? 'its' : 'their'} year, converted at today's rate: the rupee's drift against the dirham is not modelled.`}{' '}
+        No tax is
         taken out.
       </div>
 

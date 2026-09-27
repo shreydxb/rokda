@@ -4,7 +4,7 @@ import { resolveScopeMemberId } from '../../lib/scope';
 import { formatMoney, formatPct } from '../../lib/money';
 import { scopedGoalRows } from '../../lib/goals';
 import { debtsWithAccounts, orderDebts, simulatePayoffPlan } from '../../lib/debt';
-import { budgetPlan, closedMonths, crossingYear, forecastInputs, independenceTarget, realReturn } from '../../lib/forecast';
+import { budgetPlan, closedMonths, crossingYear, forecastInputs, incomesFromStop, independenceTarget, realReturn } from '../../lib/forecast';
 import { agesLabel, lifePlanStop } from '../../lib/lifePlan';
 import { incompleteNote, netWorthSummary, startingNetWorth } from '../overviewMath';
 
@@ -21,7 +21,7 @@ function monthsToLabel(months) {
 
 // Composes the same goal/debt/forecast outputs Goals, DebtPayoff and Forecast
 // already compute — no new financial math lives here, just a next-action read.
-export default function PlanSummary({ members, me, accounts, transactions, holdings, budgets = [], categories = [], data, loading, onOpenTab }) {
+export default function PlanSummary({ household = null, members, me, accounts, transactions, holdings, budgets = [], categories = [], data, loading, onOpenTab }) {
   const { goals, goalContributions, goalAllocations, assumptions } = data;
   // At their linked accounts' balances, as Debt payoff shows them.
   const debts = useMemo(() => debtsWithAccounts(data.debts, accounts ?? []), [data.debts, accounts]);
@@ -89,7 +89,7 @@ export default function PlanSummary({ members, me, accounts, transactions, holdi
   const nominalPct = assumptions?.nominal_return_pct != null ? Number(assumptions.nominal_return_pct) : DEFAULTS.nominal_return_pct;
   const inflationPct = assumptions?.inflation_pct != null ? Number(assumptions.inflation_pct) : DEFAULTS.inflation_pct;
   const swrPct = assumptions?.safe_withdrawal_pct != null ? Number(assumptions.safe_withdrawal_pct) : DEFAULTS.safe_withdrawal_pct;
-  const fireTarget = forecast.ready ? independenceTarget(forecast.annualSpend, swrPct, data.independenceIncome ?? []).target : null;
+  const fireTarget = forecast.ready ? independenceTarget(forecast.annualSpend, swrPct, incomesFromStop(data.independenceIncome ?? [], household)).target : null;
   const fireYear = forecast.ready
     ? crossingYear({
         startYear: now.getFullYear(),
@@ -114,9 +114,10 @@ export default function PlanSummary({ members, me, accounts, transactions, holdi
         startNetWorth,
         goals: goals ?? [],
         incomes: data.independenceIncome ?? [],
+        household,
         startYear: now.getFullYear(),
       }),
-    [members, data.memberLife, assumptions, forecast, startNetWorth, goals, data.independenceIncome, now]
+    [members, data.memberLife, assumptions, forecast, startNetWorth, goals, data.independenceIncome, household, now]
   );
 
   const actions = [

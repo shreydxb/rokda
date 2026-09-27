@@ -1,6 +1,7 @@
 import { scopedValue } from './scope';
 import { monthKey, parseDay } from './day';
 import { applyToIncomeSpend } from './transactionKind';
+import { convertToAed } from './currency';
 
 // The current, still-open month is excluded — its spend is partial and would
 // understate a real month. Forecast is always household-wide ("Both"): an
@@ -220,6 +221,18 @@ export { goalAt, futureValue };
 // same way the rows count `starts_after_years`. A yearly row pays from its
 // start for `lasts_years` years, or for good when that is null; a lump sum
 // pays once, in its start year. All in today's money.
+// Other income timed from the year work stops, in AED: a row set in rupees is
+// converted at today's rate, and one that cannot be converted (no rate yet) is
+// left out rather than counted as dirhams. A lump sum paid in a fixed calendar
+// year (`in_year`, a policy maturity) is left out too: it lands whenever that
+// year comes, so only the Life plan, which runs by calendar year, places it.
+export function incomesFromStop(incomes = [], household = null) {
+  return incomes
+    .filter((r) => r.in_year == null)
+    .map((r) => ({ ...r, amount: convertToAed(Number(r.amount) || 0, r.currency ?? 'AED', household) }))
+    .filter((r) => r.amount !== null);
+}
+
 export function incomeInYear(incomes = [], offset) {
   let yearly = 0;
   let lump = 0;
