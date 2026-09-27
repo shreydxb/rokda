@@ -2,13 +2,17 @@ import { useMemo, useState } from 'react';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
 import { formatMoney } from '../../lib/money';
-import { lastContributionLabel, scopedGoalRows } from '../../lib/goals';
+import { DEFAULT_INFLATION_PCT, fundInPriority, goalCostAtDate, goalInflationPct, lastContributionLabel, scopedGoalRows } from '../../lib/goals';
+import { startingNetWorth } from '../overviewMath';
 import GoalEditor from './GoalEditor';
 
 const STATUS_CHIP = { funded: 'ov-chip-ok', track: 'ov-chip-ok', ahead: 'ov-chip-ok', behind: 'ov-chip-warn' };
 
 export default function Goals({ household, members, me, accounts, holdings, data, loading }) {
-  const { goals, goalContributions, goalAllocations, reload } = data;
+  const { goals, goalContributions, goalAllocations, assumptions, reload } = data;
+  const inflationPct = assumptions?.inflation_pct != null ? Number(assumptions.inflation_pct) : DEFAULT_INFLATION_PCT;
+  // The same expected return Forecast projects with.
+  const returnPct = assumptions?.nominal_return_pct != null ? Number(assumptions.nominal_return_pct) : 6;
   const { scope } = useScope();
   const scopeMemberId = resolveScopeMemberId(scope, me, members);
   const [editing, setEditing] = useState(null);
@@ -26,9 +30,19 @@ export default function Goals({ household, members, me, accounts, holdings, data
         holdings: holdings ?? [],
         scopeMemberId,
         now,
+        inflationPct,
       }),
-    [goals, goalContributions, goalAllocations, accounts, holdings, scopeMemberId, now]
+    [goals, goalContributions, goalAllocations, accounts, holdings, scopeMemberId, now, inflationPct]
   );
+
+  // Funding in priority order is a household question: all of its money
+  // against all of its goals, so it is worked out for Both only.
+  const funding = useMemo(() => {
+    if (scopeMemberId !== null) return null;
+    const netWorth = startingNetWorth(accounts ?? [], holdings ?? []) ?? 0;
+    const earmarked = rows.reduce((s, r) => s + r.progress.saved, 0);
+    return fundInPriority({ rows, freeMoney: netWorth - earmarked, returnPct, now });
+  }, [rows, scopeMemberId, accounts, holdings, returnPct, now]);
 
   const totalSaved = rows.reduce((s, r) => s + r.progress.saved, 0);
   const totalTarget = rows.reduce((s, r) => s + r.progress.target, 0);
@@ -83,6 +97,12 @@ export default function Goals({ household, members, me, accounts, holdings, data
                     <div>{goal.name}</div>
                     {goal.note && <div className="ov-muted" style={{ marginTop: 4 }}>{goal.note}</div>}
                     {goal.funding_source && <div className="ov-muted" style={{ marginTop: 4 }}>From {goal.funding_source}</div>}
+                    {goal.cost_today && goal.target_date && (
+                      <div className="ov-muted" style={{ marginTop: 4 }}>
+                        {formatMoney(Number(goal.target_amount))} today, rising {goalInflationPct(goal, inflationPct)}% a year · about{' '}
+                        {formatMoney(goalCostAtDate(goal, now, inflationPct))} by {String(goal.target_date).slice(0, 4)}
+                      </div>
+                    )}
                     <div style={{ marginTop: 10, maxWidth: 260 }}>
                       <div className="bud-bar">
                         <span className="bud-bar-spent" style={{ width: `${progress.pct * 100}%` }} />
@@ -108,6 +128,7 @@ export default function Goals({ household, members, me, accounts, holdings, data
               ))}
             </div>
           </section>
+          {funding && funding.goals.length > 0 && <PriorityFunding funding={funding} returnPct={returnPct} />}
           <div className="ov-muted" style={{ marginTop: 14, fontSize: 11.5, lineHeight: 1.65, maxWidth: '80ch' }}>
             Target dates project the recent contribution rate forward. They come from what has actually been transferred, not from a
             commitment, and they move whenever a contribution is missed. The monthly figure works the other way: what is left, spread
@@ -125,6 +146,7 @@ export default function Goals({ household, members, me, accounts, holdings, data
           holdings={holdings ?? []}
           householdId={household?.id}
           members={members}
+          inflationPct={inflationPct}
           onClose={() => setEditing(null)}
           onSaved={async () => {
             setEditing(null);
@@ -155,5 +177,69 @@ function GoalNeed({ need, behind }) {
         · {need.monthsLeft} month{need.monthsLeft === 1 ? '' : 's'} left
       </span>
     </div>
+  );
+}
+
+// The financial plan's view of goals: what each needs set aside today to be
+// paid on its date, covered in priority order by what is already earmarked and
+// then by the household's other money, and the top-up still missing.
+function PriorityFunding({ funding, returnPct }) {
+  return (
+    <section style={{ marginTop: 34 }}>
+      <div className="ov-kicker">Funding in priority order</div>
+      <div className="gl-summary-row" style={{ marginTop: 10 }}>
+        <span>
+          Needed today for every dated goal <b className="fig">{formatMoney(funding.neededToday)}</b>
+        </span>
+        <span>
+          Covered <b className="fig">{formatMoney(funding.covered)}</b>
+          {funding.topUp > 0 ? (
+            <>
+              {' · '}short <b className="fig ov-neg">{formatMoney(funding.topUp)}</b>
+            </>
+          ) : (
+            ' · every goal covered'
+          )}
+        </span>
+      </div>
+      <div className="ch-table" style={{ marginTop: 14 }}>
+        <div className="ch-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Priority</th>
+                <th scope="col" style={{ textAlign: 'left' }}>
+                  Goal
+                </th>
+                <th scope="col">On its date</th>
+                <th scope="col">Needed today</th>
+                <th scope="col">Covered</th>
+                <th scope="col">Top-up today</th>
+              </tr>
+            </thead>
+            <tbody>
+              {funding.goals.map((g) => (
+                <tr key={g.goal.id}>
+                  <td className="fig">{g.goal.priority ?? '—'}</td>
+                  <td style={{ textAlign: 'left' }}>
+                    {g.goal.name}
+                    <span className="ov-muted"> · {String(g.goal.target_date).slice(0, 4)}</span>
+                  </td>
+                  <td className="fig">{formatMoney(g.costAtDate)}</td>
+                  <td className="fig">{formatMoney(g.neededToday)}</td>
+                  <td className="fig">{Math.round(g.pct * 100)}%</td>
+                  <td className={`fig ${g.topUp > 0 ? 'ov-neg' : ''}`}>{g.topUp > 0 ? formatMoney(g.topUp) : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div className="ov-muted" style={{ marginTop: 10, fontSize: 11.5, lineHeight: 1.65, maxWidth: '80ch' }}>
+        Needed today is what would grow to each goal&rsquo;s cost by its date at {returnPct.toFixed(1)}% a year, Forecast&rsquo;s expected
+        return. Money already set aside for a goal counts first; the rest of your net worth then covers goals in priority order, unnumbered
+        goals last and earliest first. Retirement is on the Life plan, which pays these goals out of the same money.
+      </div>
+    </section>
   );
 }

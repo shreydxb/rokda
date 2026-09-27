@@ -130,7 +130,7 @@ export const data = {
 
   goals: [
     { id: 'dddddddd-0000-4000-8000-000000000001', household_id: HH, owner_member_id: null, is_shared: true, name: 'Emergency fund', note: null, target_amount: 100000, target_date: `${now.getFullYear() + 1}-12-31`, funding_source: 'savings', created_at: ts(monthsAgo(6)), updated_at: ts(monthsAgo(1)), counts_in_life_plan: false },
-    { id: 'dddddddd-0000-4000-8000-000000000002', household_id: HH, owner_member_id: null, is_shared: true, name: 'Car', note: null, target_amount: 60000, target_date: `${now.getFullYear() + 2}-06-30`, funding_source: '', created_at: ts(monthsAgo(2)), updated_at: ts(monthsAgo(1)), counts_in_life_plan: true }],
+    { id: 'dddddddd-0000-4000-8000-000000000002', household_id: HH, owner_member_id: null, is_shared: true, name: 'Car', note: null, target_amount: 60000, target_date: `${now.getFullYear() + 2}-06-30`, funding_source: '', created_at: ts(monthsAgo(2)), updated_at: ts(monthsAgo(1)), counts_in_life_plan: true, cost_today: true, inflation_pct: 3, priority: 1 }],
 
   goal_allocations: [{ id: 'eeeeeeee-0000-4000-8000-000000000001', household_id: HH, goal_id: 'dddddddd-0000-4000-8000-000000000001', account_id: A_SAVINGS, holding_id: null, share_pct: 100, note: null, created_at: ts(monthsAgo(3)), updated_at: ts(monthsAgo(1)) }],
 

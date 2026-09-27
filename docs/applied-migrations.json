@@ -352,5 +352,12 @@
   "fingerprint": "1f516e300ece9971c8a17364b5645285",
   "framingFingerprint": "fe073163104c9ae54f1636ee03e6d6f4",
   "fingerprintVersion": 2
+ },
+ {
+  "version": "20260927124719",
+  "name": "goal_costs",
+  "fingerprint": "6f9ac81662221239b78e17f81f615aad",
+  "framingFingerprint": "ce5ad1cee8eae27d03cbf406034456a0",
+  "fingerprintVersion": 2
  }
 ]

@@ -29,6 +29,7 @@ export default function PlanSummary({ members, me, accounts, transactions, holdi
   // Same rows the Goals tab shows, linked accounts and holdings included.
   // This card used to leave them out, so for a goal funded from an account it
   // showed less saved, and more goals behind, than the tab it links to.
+  const goalInflation = data.assumptions?.inflation_pct != null ? Number(data.assumptions.inflation_pct) : undefined;
   const goalRows = useMemo(
     () =>
       scopedGoalRows({
@@ -39,8 +40,9 @@ export default function PlanSummary({ members, me, accounts, transactions, holdi
         holdings: holdings ?? [],
         scopeMemberId,
         now,
+        inflationPct: goalInflation,
       }),
-    [goals, goalContributions, goalAllocations, accounts, holdings, scopeMemberId, now]
+    [goals, goalContributions, goalAllocations, accounts, holdings, scopeMemberId, now, goalInflation]
   );
   const goalsSaved = goalRows.reduce((s, r) => s + r.progress.saved, 0);
   const goalsTarget = goalRows.reduce((s, r) => s + r.progress.target, 0);
