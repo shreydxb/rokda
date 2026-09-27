@@ -68,6 +68,11 @@ jobs:
       # --node-modules-dir=none: the repository root has a node_modules for the
       # web app, which Deno would otherwise adopt and then fail to resolve the
       # Edge runtime's own npm dependencies from.
+      #
+      # The functions pin supabase-js to an exact version. With `@2`, a run in
+      # the minutes after a Supabase release resolved the new JSR package but
+      # not its npm dependencies, which Deno's 24-hour minimum age still
+      # blocked (docs/decisions.md).
       - name: Type-check every Edge Function
         run: |
           for fn in supabase/functions/*/index.ts; do
