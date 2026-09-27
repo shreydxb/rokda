@@ -366,5 +366,12 @@
   "fingerprint": "a6d1a6505ab668d294a9eddf3881a906",
   "framingFingerprint": "0984b41037fb00e28b44933b057103d1",
   "fingerprintVersion": 2
+ },
+ {
+  "version": "20260927202534",
+  "name": "policies_and_stopping_spend",
+  "fingerprint": "aca551e568a228b7946474cfe8ace7c2",
+  "framingFingerprint": "2610f47f3681a398d383ab02f44ae5c1",
+  "fingerprintVersion": 2
  }
 ]
