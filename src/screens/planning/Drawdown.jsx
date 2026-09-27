@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { startingNetWorth } from '../overviewMath';
-import { budgetPlan, drawdownPath, forecastInputs, incomesFromStop, independenceTarget, MARKET_FALL, marketReturns, potForWithdrawal, realReturn, scenarioSets, sustainableWithdrawal } from '../../lib/forecast';
+import { budgetPlan, drawdownPath, forecastInputs, incomesFromStop, independenceTarget, MARKET_FALL, marketReturns, potForWithdrawal, realReturn, scenarioSets, spendThatStops, sustainableWithdrawal } from '../../lib/forecast';
+import { agesIn, agesLabel, lifePlanBasis, lifePlanHandover, planPeople } from '../../lib/lifePlan';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { LineChart } from '../../charts/Charts';
 import IncomeEditor from './IncomeEditor';
@@ -28,16 +29,22 @@ const lastsText = (years) => (years === null ? `${MAX_YEARS}+ years` : `${years}
 // in today's money: the yearly spend keeps its buying power, the pot grows at
 // the real return.
 //
+// Once the Life plan exists, this is its stress test: it starts where the
+// plan leaves the household on the day work stops -- that pot, that spending,
+// the years to the plan's end, the same later income -- and asks what a
+// market fall or a lower return would do to it. The Life plan answers whether
+// the money lasts; this screen answers how much room there is.
+//
 // The controls are what-ifs held on this screen only; nothing here is saved.
-export default function Drawdown({ household, accounts = [], transactions = [], holdings = [], budgets = [], categories = [], data, loading, onOpenTab }) {
+export default function Drawdown({ household, members = [], accounts = [], transactions = [], holdings = [], budgets = [], categories = [], data, loading, onOpenTab }) {
   const { assumptions } = data;
   const money = useMoneyDisplay(household);
   const now = useMemo(() => new Date(), []);
   const [fcSet, setFcSet] = useState('baseline');
-  const [potKind, setPotKind] = useState('target'); // 'target' | 'today'
-  const [spendKind, setSpendKind] = useState('actual'); // 'actual' | 'lean'
+  const [potChoice, setPotKind] = useState(null); // 'plan' | 'target' | 'today'; null follows the plan when there is one
+  const [spendChoice, setSpendKind] = useState(null); // 'plan' | 'actual' | 'lean'; null as above
   const [returnOffset, setReturnOffset] = useState(0); // pp added to the scenario's nominal return
-  const [lastFor, setLastFor] = useState(40);
+  const [lastForChoice, setLastFor] = useState(null); // null: the years the plan needs, or 40
   const [market, setMarket] = useState('steady');
   const [activeYear, setActiveYear] = useState(null);
   const [editing, setEditing] = useState(null); // null | 'new' | an income row
@@ -51,6 +58,25 @@ export default function Drawdown({ household, accounts = [], transactions = [], 
   // Until three months close, the budget stands in (forecastInputs).
   const plan = useMemo(() => budgetPlan(budgets, categories, now), [budgets, categories, now]);
   const inputs = useMemo(() => forecastInputs(transactions, startNetWorth, now, plan), [transactions, startNetWorth, now, plan]);
+  // Where the Life plan leaves the household when work stops, on this
+  // screen's scenario. Null until someone's age is set.
+  const handover = useMemo(() => {
+    const people = planPeople(members, data.memberLife ?? []);
+    if (!people.length || !inputs.ready) return null;
+    const basis = lifePlanBasis({
+      people,
+      assumptions,
+      inputs,
+      startNetWorth,
+      goals: data.goals ?? [],
+      incomes: data.independenceIncome ?? [],
+      household,
+      stopping: spendThatStops({ inputs, transactions, budgets, categories, now }),
+      startYear: now.getFullYear(),
+      fcSet,
+    });
+    return { ...lifePlanHandover(basis), people };
+  }, [members, data.memberLife, data.goals, data.independenceIncome, inputs, assumptions, startNetWorth, household, transactions, budgets, categories, now, fcSet]);
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
 
@@ -76,12 +102,19 @@ export default function Drawdown({ household, accounts = [], transactions = [], 
   const nominalPct = Math.max(0, selected.nominalPct + returnOffset);
   const rate = realReturn(nominalPct, selected.inflationPct);
   const leanSpend = assumptions?.lean_annual_spend != null ? Number(assumptions.lean_annual_spend) : null;
-  const spend = spendKind === 'lean' && leanSpend ? leanSpend : inputs.annualSpend;
+  const potKind = potChoice ?? (handover ? 'plan' : 'target');
+  const spendKind = spendChoice ?? (handover ? 'plan' : 'actual');
+  const fromPlan = potKind === 'plan' && handover;
+  const spend = spendKind === 'plan' && handover ? handover.spend : spendKind === 'lean' && leanSpend ? leanSpend : inputs.annualSpend;
   // The same target Forecast and the Plan summary show, lasting income and all.
   const { target } = independenceTarget(inputs.annualSpend, selected.swrPct, incomes);
-  const pot = potKind === 'today' ? startNetWorth : target;
+  const pot = fromPlan ? handover.pot : potKind === 'today' ? startNetWorth : target;
+  // From the plan, the income is the plan's from its stop year on, the
+  // policy maturities that land after it included.
+  const drawIncomes = fromPlan ? handover.incomes : incomes;
+  const lastFor = lastForChoice ?? (handover ? Math.min(MAX_YEARS, handover.years) : 40);
 
-  const base = { start: pot, annualWithdrawal: spend, rate, maxYears: MAX_YEARS, incomes };
+  const base = { start: pot, annualWithdrawal: spend, rate, maxYears: MAX_YEARS, incomes: drawIncomes };
   const outcomes = MARKETS.map((m) => ({ ...m, ...drawdownPath({ ...base, returns: marketReturns(rate, m.fallYear, MAX_YEARS) }) }));
   const chosen = outcomes.find((o) => o.key === market);
   const steady = outcomes[0];
@@ -95,8 +128,8 @@ export default function Drawdown({ household, accounts = [], transactions = [], 
   const activeIdx = Math.min(activeYear ?? (lastsYears !== null ? lastsYears : shownYears), shownYears);
   const active = shown[activeIdx];
 
-  const maxSpend = sustainableWithdrawal({ start: pot, rate, years: lastFor, incomes, returns });
-  const potNeeded = potForWithdrawal({ annualWithdrawal: spend, rate, years: lastFor, incomes, returns });
+  const maxSpend = sustainableWithdrawal({ start: pot, rate, years: lastFor, incomes: drawIncomes, returns });
+  const potNeeded = potForWithdrawal({ annualWithdrawal: spend, rate, years: lastFor, incomes: drawIncomes, returns });
   const fallWhen = chosen.fallYear ? ` A fall of ${FALL_WORDS} after inflation starts in year ${chosen.fallYear}.` : '';
   // What the pot itself pays out in the first year, after other income.
   const withdrawalRate = pot > 0 ? path[1].withdrawn / pot : null;
@@ -108,22 +141,41 @@ export default function Drawdown({ household, accounts = [], transactions = [], 
       <section className="pl-hero" style={{ marginTop: 22 }}>
         <div className="ov-kicker">How long it lasts</div>
         <div className="ov-hero fig">
-          {pot <= 0 && !incomes.length ? 'Nothing to draw on' : lastsText(lastsYears)}
+          {pot <= 0 && !drawIncomes.length ? 'Nothing to draw on' : lastsText(lastsYears)}
         </div>
+        {fromPlan && (
+          <div className="dd-from-plan" style={{ fontSize: 13.5, marginTop: 10, lineHeight: 1.6 }}>
+            From your Life plan: work stops in <b className="fig">{handover.stopYear}</b> ({agesLabel(agesIn(handover.people, handover.stopYear))}) with{' '}
+            {money.code} {money.fmt(pot)}, and has to last {handover.years} years, to {handover.endYear}.{' '}
+            {lastsYears === null || lastsYears >= handover.years
+              ? `At a steady ${(rate * 100).toFixed(1)}% it does; the fall below shows how much room that leaves.`
+              : `At ${(rate * 100).toFixed(1)}% here it runs out ${handover.years - lastsYears} year${handover.years - lastsYears === 1 ? '' : 's'} early.`}{' '}
+            {onOpenTab && (
+              <button type="button" className="om-link" style={{ background: 'none', border: 'none', padding: 0, color: 'var(--accent)', cursor: 'pointer', font: 'inherit' }} onClick={() => onOpenTab('life')}>
+                Open Life plan
+              </button>
+            )}
+          </div>
+        )}
         <div style={{ fontSize: 13.5, color: 'var(--ink2)', marginTop: 10, lineHeight: 1.6 }}>
-          {pot <= 0 && !incomes.length
+          {pot <= 0 && !drawIncomes.length
             ? 'Net worth today is not above zero, so there is no pot to spend from yet.'
             : lastsYears === null
               ? `Spending ${money.code} ${money.fmt(spend)} a year from ${money.code} ${money.fmt(pot)} never runs it down: growth at ${(rate * 100).toFixed(1)}% real keeps up with the spending.`
               : `Spending ${money.code} ${money.fmt(spend)} a year from ${money.code} ${money.fmt(pot)}, at ${(rate * 100).toFixed(1)}% real, runs out in year ${lastsYears + 1}.`}
-          {pot > 0 || incomes.length ? fallWhen : ''}
-          {incomes.length > 0 && ` Other income of ${money.code} ${money.fmt(incomeTotal)} over ${MAX_YEARS} years is spent before the pot.`}
+          {pot > 0 || drawIncomes.length ? fallWhen : ''}
+          {drawIncomes.length > 0 && ` Other income of ${money.code} ${money.fmt(incomeTotal)} over ${MAX_YEARS} years is spent before the pot.`}
         </div>
 
         <div className="dd-controls">
           <div className="dd-control">
             <span className="dd-label">Start from</span>
             <div className="dd-segs">
+              {handover && (
+                <button type="button" className="om-seg" data-active={potKind === 'plan'} onClick={() => setPotKind('plan')}>
+                  Life plan, {handover.stopYear} · {money.fmtCompact(handover.pot)}
+                </button>
+              )}
               <button type="button" className="om-seg" data-active={potKind === 'target'} onClick={() => setPotKind('target')}>
                 Your target · {money.fmtCompact(target)}
               </button>
@@ -135,6 +187,11 @@ export default function Drawdown({ household, accounts = [], transactions = [], 
           <div className="dd-control">
             <span className="dd-label">Spending</span>
             <div className="dd-segs">
+              {handover && (
+                <button type="button" className="om-seg" data-active={spendKind === 'plan'} onClick={() => setSpendKind('plan')}>
+                  Life plan · {money.fmtCompact(handover.spend)} a year
+                </button>
+              )}
               <button type="button" className="om-seg" data-active={spendKind === 'actual'} onClick={() => setSpendKind('actual')}>
                 {inputs.source === 'budget' ? 'Budgeted' : "Today's"} · {money.fmtCompact(inputs.annualSpend)} a year
               </button>
@@ -190,7 +247,7 @@ export default function Drawdown({ household, accounts = [], transactions = [], 
         <div className="fc-kpi">
           <div style={{ fontSize: 12, color: 'var(--ink2)' }}>Drawn from the pot</div>
           <div className="fig" style={{ fontSize: 28, marginTop: 6 }}>{withdrawalRate === null ? '—' : `${(withdrawalRate * 100).toFixed(1)}%`}</div>
-          <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 5 }}>Of the starting pot, in the first year{incomes.length ? ', after other income' : ''}</div>
+          <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 5 }}>Of the starting pot, in the first year{drawIncomes.length ? ', after other income' : ''}</div>
         </div>
         <div className="fc-kpi">
           <div style={{ fontSize: 12, color: 'var(--ink2)' }}>Taken from the pot</div>
@@ -301,7 +358,7 @@ export default function Drawdown({ household, accounts = [], transactions = [], 
           <span>
             From the pot <b className="fig">{money.fmt(active.withdrawn)}</b>
           </span>
-          {incomes.length > 0 && (
+          {drawIncomes.length > 0 && (
             <span>
               Other income <b className="fig">{money.fmt(active.income)}</b>
             </span>
@@ -323,7 +380,7 @@ export default function Drawdown({ household, accounts = [], transactions = [], 
               <thead>
                 <tr>
                   <th scope="col">Year</th>
-                  {incomes.length > 0 && <th scope="col">Other income</th>}
+                  {drawIncomes.length > 0 && <th scope="col">Other income</th>}
                   <th scope="col">From the pot</th>
                   <th scope="col">Earned</th>
                   {chosen.fallYear && <th scope="col">Return</th>}
@@ -334,7 +391,7 @@ export default function Drawdown({ household, accounts = [], transactions = [], 
                 {shown.map((p, i) => (
                   <tr key={p.year} data-active={i === activeIdx}>
                     <td className="fig">{p.year}</td>
-                    {incomes.length > 0 && <td className="fig">{money.fmt(p.income)}</td>}
+                    {drawIncomes.length > 0 && <td className="fig">{money.fmt(p.income)}</td>}
                     <td className="fig">{money.fmt(p.withdrawn)}</td>
                     <td className="fig">{money.fmtBalance(p.growth)}</td>
                     {chosen.fallYear && <td className="fig">{p.year === 0 ? '' : returnText(p.rate)}</td>}
@@ -347,7 +404,7 @@ export default function Drawdown({ household, accounts = [], transactions = [], 
         </details>
       </section>
 
-      {(pot > 0 || incomes.length > 0) && (
+      {(pot > 0 || drawIncomes.length > 0) && (
         <section style={{ marginTop: 40 }}>
           <div className="ov-kicker">The same fall, early or late</div>
           <div className="ov-muted" style={{ fontSize: 12.5, lineHeight: 1.65, maxWidth: '84ch', marginTop: 8 }}>
@@ -366,7 +423,13 @@ export default function Drawdown({ household, accounts = [], transactions = [], 
               </button>
             ))}
           </div>
-          <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 14 }}>No tax is taken out.</div>
+          <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 14 }}>
+            No tax is taken out.
+            {fromPlan &&
+              ` Spending stays the same every year here: the Life plan's lower spending once one person remains${
+                handover.goalsAfter.length ? `, and ${handover.goalsAfter.map((g) => `${g.name} (${g.year})`).join(', ')},` : ''
+              } are counted there, not here.`}
+          </div>
         </section>
       )}
 
