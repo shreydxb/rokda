@@ -258,6 +258,83 @@
   "fingerprintVersion": 2
  },
  {
+  "version": "20260914180000",
+  "name": "brief_and_cash_cover",
+  "fingerprint": "fb7172c4ee6673e4b610e65e31141c68",
+  "framingFingerprint": "b7d7b82cc0e19249682e79b88cbc52b8",
+  "fingerprintVersion": 2
+ },
+ {
+  "version": "20260914190000",
+  "name": "telegram_notification_prefs",
+  "fingerprint": "d7a319b4cd4d2ad5056d50ee7705f7de",
+  "framingFingerprint": "45e9ec6a59090cb5cdd129a58a43ed53",
+  "fingerprintVersion": 2
+ },
+ {
+  "version": "20260914200000",
+  "name": "intake_parsed_kind",
+  "fingerprint": "db75eb9620afb240a99fff3e5256162a",
+  "framingFingerprint": "db75eb9620afb240a99fff3e5256162a",
+  "fingerprintVersion": 2
+ },
+ {
+  "version": "20260914210000",
+  "name": "unusual_spend_nudges",
+  "fingerprint": "51f7cf67166e9a5ee7f073790338d0c5",
+  "framingFingerprint": "79278f7c73485d5616ed7c6799ebed22",
+  "fingerprintVersion": 2
+ },
+ {
+  "version": "20260915180000",
+  "name": "telegram_call_log",
+  "fingerprint": "cb3704fd50c22123cd5fac981a44d2f5",
+  "framingFingerprint": "368187021fda515f86c10983db47519b",
+  "fingerprintVersion": 2
+ },
+ {
+  "version": "20260919100000",
+  "name": "shr149_fk_index_reaudit",
+  "fingerprint": "8a3b706d5d7aa02ffb252e83536f1a33",
+  "framingFingerprint": "37078f2c2934d3dbe455e20f7ccd1cf1",
+  "fingerprintVersion": 2
+ },
+ {
+  "version": "20260920100000",
+  "name": "telegram_confirm_binding",
+  "fingerprint": "4ca62350b271ba417d5c7123667ef1a8",
+  "framingFingerprint": "c041346853e0bba35d636c048bf985c0",
+  "fingerprintVersion": 2
+ },
+ {
+  "version": "20260920110000",
+  "name": "owner_requires_login",
+  "fingerprint": "119ac5b78a59a11812682129d66ca104",
+  "framingFingerprint": "29c5007c2eda5d70734397e7b7c48eb8",
+  "fingerprintVersion": 2
+ },
+ {
+  "version": "20260920120000",
+  "name": "schedule_all_jobs",
+  "fingerprint": "f81331e16a95bc84670a3f1367fc339f",
+  "framingFingerprint": "75e79f7de32a1b481a936ab2d786b118",
+  "fingerprintVersion": 2
+ },
+ {
+  "version": "20260920130000",
+  "name": "telegram_link_token",
+  "fingerprint": "a2941e1eb8412ef012c192177fd48702",
+  "framingFingerprint": "029fda5dd9d3799b92ae591d42276060",
+  "fingerprintVersion": 2
+ },
+ {
+  "version": "20260924100000",
+  "name": "telegram_update_claims",
+  "fingerprint": "255218b551d440ac46fc6471fe1edca5",
+  "framingFingerprint": "8d144184d9a0af8feef4d6756d169c66",
+  "fingerprintVersion": 2
+ },
+ {
   "version": "20260926083525",
   "name": "independence_income",
   "fingerprint": "0651e3eb9231d1a6a4d2cafc96f896e1",
