@@ -7,11 +7,13 @@ import Goals from './planning/Goals';
 import DebtPayoff from './planning/DebtPayoff';
 import Forecast from './planning/Forecast';
 import Drawdown from './planning/Drawdown';
+import LifePlan from './planning/LifePlan';
 import LoadFailure from './LoadFailure';
 import './Planning.css';
 
 const TABS = [
   { id: 'plan', label: 'Plan' },
+  { id: 'life', label: 'Life plan' },
   { id: 'goals', label: 'Goals' },
   { id: 'debt', label: 'Debt payoff' },
   { id: 'forecast', label: 'Forecast' },
@@ -48,6 +50,20 @@ export default function Planning() {
           household={household}
           members={members}
           me={me}
+          accounts={overview.accounts}
+          transactions={overview.transactions}
+          holdings={overview.holdings}
+          budgets={overview.budgets}
+          categories={overview.categories}
+          data={planning}
+          loading={loading}
+          onOpenTab={setTab}
+        />
+      )}
+      {tab === 'life' && (
+        <LifePlan
+          household={household}
+          members={members}
           accounts={overview.accounts}
           transactions={overview.transactions}
           holdings={overview.holdings}

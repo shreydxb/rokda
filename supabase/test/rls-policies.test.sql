@@ -44,6 +44,10 @@ insert into household_members (id, household_id, display_name, role, user_id) va
 insert into independence_income (id, household_id, name, kind, amount) values
   ('f2000000-0000-0000-0000-000000000001', 'd2000000-0000-0000-0000-000000000002', 'Their rent', 'yearly', 36000);
 
+-- Life plan ages: the other household's owner has theirs set.
+insert into member_life (member_id, household_id, birth_year, life_expectancy) values
+  ('e2000000-0000-0000-0000-00000000000a', 'd2000000-0000-0000-0000-000000000002', 1980, 85);
+
 set role authenticated;
 set request.jwt.claim.role = 'authenticated';
 
@@ -84,6 +88,36 @@ begin
   get diagnostics n = row_count;
   if n <> 1 then raise exception 'independence_income FAILED: a member could not delete their own row'; end if;
   raise notice 'independence_income ok: own household only, in every direction';
+end $$;
+
+-- Life plan ages: a member sets them for anyone in their own household --
+-- including a placeholder with no login, which is how a partner is often
+-- tracked -- and cannot see or reach the other household's.
+do $$
+declare n int;
+begin
+  insert into member_life (member_id, household_id, birth_year, life_expectancy) values
+    ('e1000000-0000-0000-0000-00000000000b', 'd1000000-0000-0000-0000-000000000001', 1994, 80),
+    ('e1000000-0000-0000-0000-00000000000c', 'd1000000-0000-0000-0000-000000000001', 1994, 85);
+  select count(*) into n from member_life;
+  if n <> 2 then raise exception 'member_life FAILED: a member sees % rows, expected their own household''s 2', n; end if;
+
+  begin
+    insert into member_life (member_id, household_id, birth_year, life_expectancy)
+    values ('e2000000-0000-0000-0000-00000000000a', 'd2000000-0000-0000-0000-000000000002', 1990, 90);
+    raise exception 'member_life FAILED: a member wrote into another household';
+  exception
+    when insufficient_privilege then null;
+  end;
+
+  update member_life set life_expectancy = 99 where member_id = 'e2000000-0000-0000-0000-00000000000a';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'member_life FAILED: a member updated another household''s row'; end if;
+
+  update member_life set life_expectancy = 82 where member_id = 'e1000000-0000-0000-0000-00000000000c';
+  get diagnostics n = row_count;
+  if n <> 1 then raise exception 'member_life FAILED: a member could not update their household''s placeholder'; end if;
+  raise notice 'member_life ok: own household only, placeholders included';
 end $$;
 
 -- QA §8: a member cannot promote themselves.

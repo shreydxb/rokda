@@ -229,3 +229,27 @@
   font-weight: 500;
   color: var(--ink);
 }
+
+/* Life plan: the goals the timeline pays out of the pot, each with its own
+   switch, and a kept goal shown as such. */
+.lp-goal {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  cursor: pointer;
+}
+.lp-goal .mn-row-main {
+  flex: 1;
+  min-width: 0;
+}
+.lp-goal input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  flex: none;
+}
+.lp-goal[data-muted='true'] .mn-row-main > div:first-child,
+.lp-goal[data-muted='true'] .mn-row-amt {
+  color: var(--ink3);
+}

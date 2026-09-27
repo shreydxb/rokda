@@ -118,6 +118,8 @@ const SUBVIEWS = [
   // The fixture's own data: two closed months and a budget, so Drawdown
   // projects from the budget and must say so.
   { name: 'drawdown-from-budget', path: '/planning', tabs: ['Drawdown'], expectText: 'From your budget, for now', history: false },
+  { name: 'life-plan', path: '/planning', tabs: ['Life plan'], expectText: 'The pot, year by year' },
+  { name: 'life-plan-setup', path: '/planning', tabs: ['Life plan'], expectText: 'Set up your life plan', tables: { member_life: [] } },
   { name: 'starter-categories', path: '/settings', tabs: ['Categories & rules', 'Starter set'], expectText: 'Starter categories' },
 ];
 
@@ -139,7 +141,7 @@ function closedMonthsOfHistory() {
 for (const view of SUBVIEWS) {
   test(`${view.name}: renders, no errors, no horizontal overflow`, async ({ page }, testInfo) => {
     const errors = watchErrors(page);
-    await stubSupabase(page, view.history === false ? {} : { tables: { transactions: closedMonthsOfHistory() } });
+    await stubSupabase(page, { tables: { ...(view.history === false ? {} : { transactions: closedMonthsOfHistory() }), ...(view.tables ?? {}) } });
     await gotoReady(page, view.path);
     for (const tab of view.tabs) await page.getByRole('button', { name: tab, exact: true }).first().click();
     await expect(page.locator('.om-main')).toContainText(view.expectText);

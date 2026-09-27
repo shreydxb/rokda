@@ -345,5 +345,12 @@
   "name": "category_is_savings",
   "fingerprint": "11f08bc3345e573fc6c43ed0394cae92",
   "fingerprintVersion": 2
+ },
+ {
+  "version": "20260927121232",
+  "name": "life_plan",
+  "fingerprint": "1f516e300ece9971c8a17364b5645285",
+  "framingFingerprint": "fe073163104c9ae54f1636ee03e6d6f4",
+  "fingerprintVersion": 2
  }
 ]

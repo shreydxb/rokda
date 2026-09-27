@@ -766,4 +766,59 @@ begin
   raise notice 'is_savings ok: only expense categories can be savings';
 end $$;
 
+-- Life plan: ages belong to a member of the same household, in a sane range;
+-- the retirement settings refuse figures that mean nothing.
+do $$
+declare n int;
+begin
+  insert into household_members (id, household_id, display_name)
+  values ('abababab-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'Planner');
+  insert into member_life (member_id, household_id, birth_year, life_expectancy)
+  values ('abababab-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 1994, 85);
+
+  begin
+    -- A member of another household, filed under this one.
+    insert into member_life (member_id, household_id, birth_year, life_expectancy)
+    values ('99999999-9999-9999-9999-99999999000a', '11111111-1111-1111-1111-111111111111', 1994, 85);
+    raise exception 'life plan FAILED: ages were filed against another household''s member';
+  exception when foreign_key_violation then null;
+  end;
+  begin
+    update member_life set life_expectancy = 30 where member_id = 'abababab-0000-0000-0000-000000000001';
+    raise exception 'life plan FAILED: a life expectancy of 30 was accepted';
+  exception when check_violation then null;
+  end;
+  begin
+    update member_life set birth_year = 1850 where member_id = 'abababab-0000-0000-0000-000000000001';
+    raise exception 'life plan FAILED: a birth year of 1850 was accepted';
+  exception when check_violation then null;
+  end;
+
+  insert into planning_assumptions (household_id, retirement_year, retirement_annual_spend, retirement_return_pct, survivor_spend_pct)
+  values ('11111111-1111-1111-1111-111111111111', 2054, 61000, 8.5, 50)
+  on conflict (household_id) do update set retirement_year = excluded.retirement_year;
+  begin
+    update planning_assumptions set survivor_spend_pct = 0 where household_id = '11111111-1111-1111-1111-111111111111';
+    raise exception 'life plan FAILED: spending of 0%% for one person was accepted';
+  exception when check_violation then null;
+  end;
+  begin
+    update planning_assumptions set retirement_annual_spend = -1 where household_id = '11111111-1111-1111-1111-111111111111';
+    raise exception 'life plan FAILED: negative retirement spending was accepted';
+  exception when check_violation then null;
+  end;
+
+  -- A goal counts on the timeline unless the household says otherwise.
+  insert into goals (id, household_id, name, target_amount, target_date)
+  values ('abababab-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'Second car', 45000, date '2027-06-01');
+  select count(*) into n from goals where id = 'abababab-0000-0000-0000-000000000002' and counts_in_life_plan;
+  if n <> 1 then raise exception 'life plan FAILED: a new goal was left off the timeline'; end if;
+
+  -- Removing the member removes their ages with them.
+  delete from household_members where id = 'abababab-0000-0000-0000-000000000001';
+  select count(*) into n from member_life where member_id = 'abababab-0000-0000-0000-000000000001';
+  if n <> 0 then raise exception 'life plan FAILED: ages outlived the member they belong to'; end if;
+  raise notice 'life plan ok: ages stay in their household and range; retirement settings are checked';
+end $$;
+
 rollback;

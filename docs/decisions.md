@@ -166,6 +166,44 @@ rather than spent (a household's "Savings & Investments", say).
 - Transaction arithmetic is unchanged: spend and income are still decided by
   `transactionKind.js` alone, in the app and the bot alike.
 
+## Life plan: one timeline, from today to the last life expectancy
+
+An adviser's "cash adequacy" sheet answers one question: does the money last?
+Forecast and Drawdown each answered half of it, and goals sat on a screen of
+their own. The Life plan tab puts them on one timeline (`lib/lifePlan.js`).
+
+- **One formula for every year.** While working, the pot grows at the real
+  return and the year's saving is added at the end, exactly as Forecast
+  projects. Once work stops, spending comes out at the start of the year, other
+  income first, exactly as in Drawdown. A goal is paid at the start of its
+  year. The pot never goes below zero, and the first year it cannot pay is the
+  year the plan runs out. The adviser's sheets computed some years differently
+  from their neighbours; a single loop cannot.
+- **Ages are per member** (`member_life`: birth year, age to plan to), kept
+  apart from `household_members`, which carries roles and ownership guards. A
+  person is planned for to the end of the year they reach that age; the plan
+  ends when the last of them does.
+- **Stopping work is a year**, saved as `planning_assumptions.retirement_year`.
+  The screen's stepper is a what-if until "Make this the plan". Until a year
+  is saved, 60 is assumed and the screen says so.
+- **After work stops:** spending (`retirement_annual_spend`, today's money),
+  the return (`retirement_return_pct`, which moves with the scenario) and
+  spending once one person remains (`survivor_spend_pct`) are optional. Blank
+  means the same as now.
+- **Goals:** a dated goal is paid out of the pot in its year, and its target is
+  taken as the cost on that date, brought back to today's money.
+  `goals.counts_in_life_plan` marks a goal that is money kept rather than spent,
+  such as an emergency fund. Undated goals are listed but not on the timeline.
+- **What it would take** gives three levers: the earliest year work could stop,
+  extra saving a month, and the most that could be spent. When a goal falls
+  short while still working, stopping later does not help, so the screen names
+  the goal and the gap instead.
+- **Today's money by default.** "Future money" shows the same figures grown at
+  the scenario's inflation, the way an adviser's sheets show them.
+- The maths reproduces the adviser's retirement corpus to the rupee (a test
+  pins it). Not yet modelled: a separate inflation rate per goal, dated changes
+  to cash flow such as a loan ending, and tax.
+
 ## A budget stands in for spending history, until three months close
 
 Forecast, Drawdown and the Plan summary estimate a year's spending from the
