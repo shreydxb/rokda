@@ -356,3 +356,40 @@ describe('Forecast: the budget stands in until three months close', () => {
     expect(screen.getByText(/today's spend of 12,000 a year/)).toBeTruthy();
   });
 });
+
+describe('Forecast: the Life plan answers when work can stop', () => {
+  const now = new Date();
+  const members = [{ id: 'm1', display_name: 'Shreyash' }];
+  const memberLife = [{ member_id: 'm1', birth_year: 1994, life_expectancy: 80 }];
+  // Spending 1,000 a month on 5,000 of income.
+  const withIncome = () => [
+    ...closedMonthTransactions(now),
+    ...[1, 2, 3].map((back) => {
+      const d = new Date(now.getFullYear(), now.getMonth() - back, 15);
+      return { id: `in${back}`, amount: 5000, kind: 'income', occurred_at: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-15`, is_shared: true };
+    }),
+  ];
+  const kpiLabel = () => document.querySelector('.fc-kpi div').textContent;
+
+  it('shows the Life plan year and links to it, keeping its own target as money that lasts forever', () => {
+    const onOpenTab = vi.fn();
+    renderForecast({
+      members,
+      accounts: [ACCOUNT],
+      holdings: [HOLDING],
+      transactions: withIncome(),
+      data: { assumptions: null, memberLife, goals: [], independenceIncome: [] },
+      onOpenTab,
+    });
+    expect(document.querySelector('.fc-lifeplan').textContent).toMatch(/^Your life plan: you could stop working in \d{4} \(Shreyash \d+\), with the money lasting to 2074\. The target here is stricter: money that lasts forever at 4\.0% a year/);
+    expect(kpiLabel()).toBe('Lasts forever by');
+    fireEvent.click(screen.getByText('Open Life plan'));
+    expect(onOpenTab).toHaveBeenCalledWith('life');
+  });
+
+  it('keeps the independence year as the answer while no ages are set', () => {
+    renderForecast({ members, accounts: [ACCOUNT], holdings: [HOLDING], transactions: withIncome() });
+    expect(document.querySelector('.fc-lifeplan')).toBeNull();
+    expect(kpiLabel()).toBe('Independent by');
+  });
+});

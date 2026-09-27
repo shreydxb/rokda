@@ -5,6 +5,7 @@ import { formatMoney, formatPct } from '../../lib/money';
 import { scopedGoalRows } from '../../lib/goals';
 import { orderDebts, simulatePayoffPlan } from '../../lib/debt';
 import { budgetPlan, closedMonths, crossingYear, forecastInputs, independenceTarget, realReturn } from '../../lib/forecast';
+import { agesLabel, lifePlanStop } from '../../lib/lifePlan';
 import { incompleteNote, netWorthSummary, startingNetWorth } from '../overviewMath';
 
 const DEFAULTS = { nominal_return_pct: 6.0, inflation_pct: 2.5, safe_withdrawal_pct: 4.0 };
@@ -98,6 +99,23 @@ export default function PlanSummary({ members, me, accounts, transactions, holdi
         goal: fireTarget,
       })
     : null;
+  // With ages set, the Life plan answers when work can stop: the first year
+  // its money lasts to the end. The 25x target above is money that lasts
+  // forever, decades later, and used to be the only answer here.
+  const stop = useMemo(
+    () =>
+      lifePlanStop({
+        members: members ?? [],
+        memberLife: data.memberLife ?? [],
+        assumptions,
+        inputs: forecast,
+        startNetWorth,
+        goals: goals ?? [],
+        incomes: data.independenceIncome ?? [],
+        startYear: now.getFullYear(),
+      }),
+    [members, data.memberLife, assumptions, forecast, startNetWorth, goals, data.independenceIncome, now]
+  );
 
   const actions = [
     behindGoals.length > 0 && {
@@ -174,25 +192,41 @@ export default function PlanSummary({ members, me, accounts, transactions, holdi
           cta="Debt payoff"
           onClick={() => onOpenTab('debt')}
         />
-        <SummaryCard
-          label="Independence"
-          figure={forecast.ready ? String(fireYear ?? '60+ yrs out') : '—'}
-          progress={forecast.ready && fireTarget > 0 ? startNetWorth / fireTarget : null}
-          note={
-            forecast.ready
-              ? // The progress figure rests on a net worth that skips any
-                // account with no AED conversion, so it reads high when one
-                // of those is a debt (QA #4), and any holding never valued
-                // (SHR-292). Say so here rather than only on Forecast, since
-                // this card is what most people look at.
-                `${formatPct(startNetWorth / fireTarget)} of the way to ${formatMoney(fireTarget)}${
-                  basisIncomplete ? ` · incomplete, ${basisIncomplete}` : ''
-                }${forecast.source === 'budget' ? ' · from your budget' : ''}`
-              : 'Not enough data to project'
-          }
-          cta="Forecast"
-          onClick={() => onOpenTab('forecast')}
-        />
+        {stop ? (
+          <SummaryCard
+            label="Stop working"
+            figure={stop.earliest !== null ? String(stop.earliest) : 'No year lasts'}
+            note={
+              stop.earliest !== null
+                ? `${agesLabel(stop.ages)} · the money lasts to ${stop.endYear}${stop.earliest > stop.stopYear ? ` · not by your plan's ${stop.stopYear}` : ''}${
+                    basisIncomplete ? ` · incomplete, ${basisIncomplete}` : ''
+                  }${forecast.source === 'budget' ? ' · from your budget' : ''}`
+                : 'A goal falls short while still working'
+            }
+            cta="Life plan"
+            onClick={() => onOpenTab('life')}
+          />
+        ) : (
+          <SummaryCard
+            label="Independence"
+            figure={forecast.ready ? String(fireYear ?? '60+ yrs out') : '—'}
+            progress={forecast.ready && fireTarget > 0 ? startNetWorth / fireTarget : null}
+            note={
+              forecast.ready
+                ? // The progress figure rests on a net worth that skips any
+                  // account with no AED conversion, so it reads high when one
+                  // of those is a debt (QA #4), and any holding never valued
+                  // (SHR-292). Say so here rather than only on Forecast, since
+                  // this card is what most people look at.
+                  `${formatPct(startNetWorth / fireTarget)} of the way to ${formatMoney(fireTarget)}${
+                    basisIncomplete ? ` · incomplete, ${basisIncomplete}` : ''
+                  }${forecast.source === 'budget' ? ' · from your budget' : ''}`
+                : 'Not enough data to project'
+            }
+            cta="Forecast"
+            onClick={() => onOpenTab('forecast')}
+          />
+        )}
       </section>
 
       <section style={{ marginTop: 40 }}>

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { agesIn, earliestStop, extraSavingNeeded, goalsOnTimeline, lifePlan, maxRetirementSpend, planEndYear, potNeededAt } from './lifePlan';
+import { agesIn, agesLabel, earliestStop, extraSavingNeeded, goalsOnTimeline, lifePlan, lifePlanBasis, lifePlanStop, maxRetirementSpend, planEndYear, planPeople, potNeededAt } from './lifePlan';
 import { projectYears, realReturn } from './forecast';
 
 const people = [
@@ -180,5 +180,32 @@ describe('goalsOnTimeline: today\'s costs', () => {
     expect(goalsOnTimeline([villa], 2026, 2.5)[0].amount).toBeCloseTo(1000 * (1.08 / 1.025) ** 10, 6);
     // At the general rate, a today's cost stays the same in today's money.
     expect(goalsOnTimeline([{ ...villa, inflation_pct: null }], 2026, 2.5)[0].amount).toBeCloseTo(1000, 9);
+  });
+});
+
+describe('lifePlanStop: the one answer to when work can stop', () => {
+  const members = [
+    { id: 'm1', display_name: 'Shreyash' },
+    { id: 'm2', display_name: 'Tarika' },
+  ];
+  const memberLife = [
+    { member_id: 'm1', birth_year: 1994, life_expectancy: 80 },
+    { member_id: 'm2', birth_year: 1994, life_expectancy: 85 },
+  ];
+  const inputs = { ready: true, monthlySaving: 6000, annualSpend: 48000, source: 'history' };
+  const args = { members, memberLife, assumptions: null, inputs, startNetWorth: 200_000, startYear: 2026 };
+
+  it('is the first year the saved plan lasts, as the Life plan tab finds it', () => {
+    const stop = lifePlanStop(args);
+    const basis = lifePlanBasis({ ...args, people: planPeople(members, memberLife) });
+    expect(stop.earliest).toBe(earliestStop(basis.args));
+    expect(stop.endYear).toBe(2079);
+    expect(agesLabel(stop.ages)).toBe(`Shreyash ${stop.earliest - 1994} · Tarika ${stop.earliest - 1994}`);
+    expect(lifePlan({ ...basis.args, retireYear: stop.earliest }).lasts).toBe(true);
+  });
+
+  it('has no answer until someone\'s age is set, or with nothing to project from', () => {
+    expect(lifePlanStop({ ...args, memberLife: [] })).toBeNull();
+    expect(lifePlanStop({ ...args, inputs: { ready: false } })).toBeNull();
   });
 });

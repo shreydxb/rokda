@@ -89,6 +89,7 @@ export default function Planning() {
       {tab === 'forecast' && (
         <Forecast
           household={household}
+          members={members}
           accounts={overview.accounts}
           transactions={overview.transactions}
           holdings={overview.holdings}
@@ -96,6 +97,7 @@ export default function Planning() {
           categories={overview.categories}
           data={planning}
           loading={loading}
+          onOpenTab={setTab}
         />
       )}
       {tab === 'drawdown' && (

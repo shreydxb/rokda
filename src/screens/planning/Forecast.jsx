@@ -5,6 +5,7 @@ import { incompleteNote, netWorthSummary, startingNetWorth } from '../overviewMa
 import { isArchived } from '../../lib/accounts';
 import { unconfirmedAccounts } from '../../lib/balance';
 import { budgetPlan, closedMonths, crossingYear, fiTarget, forecastInputs, independenceTarget, projectYears, realReturn, requiredAnnualSaving, goalAt, scenarioSets } from '../../lib/forecast';
+import { agesLabel, lifePlanStop } from '../../lib/lifePlan';
 import BudgetBasis from './BudgetBasis';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import ForecastAssumptionsEditor from './ForecastAssumptionsEditor';
@@ -36,7 +37,7 @@ function deltaLabel(years) {
 // object, which never had a holdings field: reading `data.holdings` crashed
 // with no accounts and silently dropped holdings from net worth with
 // accounts (QA-03).
-export default function Forecast({ household, accounts = [], transactions = [], holdings = [], budgets = [], categories = [], data, loading }) {
+export default function Forecast({ household, members = [], accounts = [], transactions = [], holdings = [], budgets = [], categories = [], data, loading, onOpenTab }) {
   const navigate = useNavigate();
   const householdId = household?.id;
   const { assumptions } = data;
@@ -101,6 +102,24 @@ export default function Forecast({ household, accounts = [], transactions = [], 
   const selNominalPct = selected.nominalPct;
   const selInflationPct = selected.inflationPct;
   const selSwrPct = selected.swrPct;
+  // The Life plan's answer to when work can stop, on this scenario. Where it
+  // exists it is the answer; the target here is the stricter one of money
+  // that lasts forever.
+  const stop = useMemo(
+    () =>
+      lifePlanStop({
+        members,
+        memberLife: data.memberLife ?? [],
+        assumptions,
+        inputs,
+        startNetWorth,
+        goals: data.goals ?? [],
+        incomes: data.independenceIncome ?? [],
+        startYear,
+        fcSet,
+      }),
+    [members, data.memberLife, assumptions, inputs, startNetWorth, data.goals, data.independenceIncome, startYear, fcSet]
+  );
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
 
@@ -393,9 +412,29 @@ export default function Forecast({ household, accounts = [], transactions = [], 
         </div>
       </section>
 
+      {stop && (
+        <div className="fc-lifeplan" style={{ marginTop: 22, border: '1px solid var(--rule2)', borderRadius: 3, padding: '14px 18px', display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
+          <div style={{ fontSize: 13.5, lineHeight: 1.6, maxWidth: '84ch' }}>
+            {stop.earliest !== null ? (
+              <>
+                Your life plan: you could stop working in <b className="fig">{stop.earliest}</b> ({agesLabel(stop.ages)}), with the money lasting to {stop.endYear}.
+              </>
+            ) : (
+              <>Your life plan: no stop-work year lasts, because a goal falls short while still working.</>
+            )}{' '}
+            <span className="ov-muted">The target here is stricter: money that lasts forever at {selSwrPct.toFixed(1)}% a year{fireYear ? `, reached in ${fireYear}` : ''}.</span>
+          </div>
+          {onOpenTab && (
+            <button type="button" className="om-btn" onClick={() => onOpenTab('life')}>
+              Open Life plan
+            </button>
+          )}
+        </div>
+      )}
+
       <div className="fc-kpis">
         <div className="fc-kpi">
-          <div style={{ fontSize: 12, color: 'var(--ink2)' }}>Independent by</div>
+          <div style={{ fontSize: 12, color: 'var(--ink2)' }}>{stop ? 'Lasts forever by' : 'Independent by'}</div>
           <div className="fig" style={{ fontSize: 28, marginTop: 6 }}>
             {fireYear ?? '60+ yrs out'}
           </div>
