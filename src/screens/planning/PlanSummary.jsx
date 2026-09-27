@@ -4,7 +4,7 @@ import { resolveScopeMemberId } from '../../lib/scope';
 import { formatMoney, formatPct } from '../../lib/money';
 import { scopedGoalRows } from '../../lib/goals';
 import { debtsWithAccounts, orderDebts, simulatePayoffPlan } from '../../lib/debt';
-import { budgetPlan, closedMonths, crossingYear, forecastInputs, incomesFromStop, independenceTarget, realReturn } from '../../lib/forecast';
+import { budgetPlan, closedMonths, crossingYear, forecastInputs, incomesFromStop, independenceTarget, realReturn, spendThatStops } from '../../lib/forecast';
 import { agesLabel, lifePlanStop } from '../../lib/lifePlan';
 import { incompleteNote, netWorthSummary, startingNetWorth } from '../overviewMath';
 
@@ -86,6 +86,7 @@ export default function PlanSummary({ household = null, members, me, accounts, t
   // The same inputs Forecast and Drawdown use, the budget standing in included.
   const plan = useMemo(() => budgetPlan(budgets, categories, now), [budgets, categories, now]);
   const forecast = useMemo(() => forecastInputs(transactions, startNetWorth, now, plan), [transactions, startNetWorth, now, plan]);
+  const stopping = useMemo(() => spendThatStops({ inputs: forecast, transactions, budgets, categories, now }), [forecast, transactions, budgets, categories, now]);
   const nominalPct = assumptions?.nominal_return_pct != null ? Number(assumptions.nominal_return_pct) : DEFAULTS.nominal_return_pct;
   const inflationPct = assumptions?.inflation_pct != null ? Number(assumptions.inflation_pct) : DEFAULTS.inflation_pct;
   const swrPct = assumptions?.safe_withdrawal_pct != null ? Number(assumptions.safe_withdrawal_pct) : DEFAULTS.safe_withdrawal_pct;
@@ -115,9 +116,10 @@ export default function PlanSummary({ household = null, members, me, accounts, t
         goals: goals ?? [],
         incomes: data.independenceIncome ?? [],
         household,
+        stopping,
         startYear: now.getFullYear(),
       }),
-    [members, data.memberLife, assumptions, forecast, startNetWorth, goals, data.independenceIncome, household, now]
+    [members, data.memberLife, assumptions, forecast, startNetWorth, goals, data.independenceIncome, household, stopping, now]
   );
 
   const actions = [

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { startingNetWorth } from '../overviewMath';
-import { budgetPlan, forecastInputs } from '../../lib/forecast';
+import { annualSpendByCategory, budgetPlan, forecastInputs, spendThatStops } from '../../lib/forecast';
 import { agesIn, agesLabel, earliestStop, extraSavingNeeded, lifePlan, lifePlanBasis, maxRetirementSpend, planPeople, potNeededAt } from '../../lib/lifePlan';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { ChartLegend, ColumnChart } from '../../charts/Charts';
@@ -48,6 +48,7 @@ export default function LifePlan({
   const startNetWorth = useMemo(() => startingNetWorth(accounts, holdings), [accounts, holdings]);
   const plan = useMemo(() => budgetPlan(budgets, categories, now), [budgets, categories, now]);
   const inputs = useMemo(() => forecastInputs(transactions, startNetWorth, now, plan), [transactions, startNetWorth, now, plan]);
+  const stopping = useMemo(() => spendThatStops({ inputs, transactions, budgets, categories, now }), [inputs, transactions, budgets, categories, now]);
 
   // The people planned for: members with a birth year and an age to plan to.
   const people = useMemo(() => planPeople(members, data.memberLife ?? []), [members, data.memberLife]);
@@ -60,6 +61,8 @@ export default function LifePlan({
       members={members}
       memberLife={data.memberLife ?? []}
       assumptions={assumptions}
+      categories={categories}
+      spendByCategory={annualSpendByCategory({ inputs, transactions, budgets, categories, now })}
       onClose={() => setEditing(false)}
       onSaved={async () => {
         setEditing(false);
@@ -116,6 +119,7 @@ export default function LifePlan({
     goals: data.goals ?? [],
     incomes: data.independenceIncome ?? [],
     household,
+    stopping,
     startYear,
     fcSet,
     stopOverride,
@@ -227,6 +231,14 @@ export default function LifePlan({
               ))}
             </div>
           </div>
+          {spendChoice.key === 'less' && (
+            <div className="ov-muted lp-stops" style={{ fontSize: 11.5, lineHeight: 1.6 }}>
+              Leaves out {stopping.categories.map((c) => `${c.name} ${money.fmtCompact(c.annual)}`).join(', ')} a year, expected to have stopped by then.{' '}
+              <button type="button" className="om-link" style={{ background: 'none', border: 'none', padding: 0, color: 'var(--accent)', cursor: 'pointer', font: 'inherit' }} onClick={() => setEditing(true)}>
+                Change
+              </button>
+            </div>
+          )}
           <div className="dd-control">
             <span className="dd-label">Scenario</span>
             <div className="dd-segs">

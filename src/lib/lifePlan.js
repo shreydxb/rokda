@@ -232,7 +232,11 @@ export function planPeople(members = [], memberLife = []) {
 // Forecast -- so they cannot disagree about when work can stop. `fcSet`,
 // `stopOverride` and `spendKind` are the Life plan tab's what-ifs; the other
 // screens leave them unset and so read the saved plan.
-export function lifePlanBasis({ people, assumptions, inputs, startNetWorth, goals = [], incomes = [], household = null, startYear, fcSet = 'baseline', stopOverride = null, spendKind = null }) {
+//
+// `stopping` is spendThatStops: when some of today's spending will have
+// stopped by then, spending after work stops leaves it out unless a figure has
+// been saved for the plan.
+export function lifePlanBasis({ people, assumptions, inputs, startNetWorth, goals = [], incomes = [], household = null, stopping = null, startYear, fcSet = 'baseline', stopOverride = null, spendKind = null }) {
   const endYear = planEndYear(people);
   const sets = scenarioSets(assumptions, LIFE_PLAN_DEFAULTS);
   const selected = sets[fcSet] ?? sets.baseline;
@@ -252,6 +256,7 @@ export function lifePlanBasis({ people, assumptions, inputs, startNetWorth, goal
   const leanSpend = assumptions?.lean_annual_spend != null ? Number(assumptions.lean_annual_spend) : null;
   const spendOptions = [
     ...(plannedSpend != null ? [{ key: 'planned', label: 'Planned', value: plannedSpend }] : []),
+    ...(stopping?.annual > 0 ? [{ key: 'less', label: 'Less what stops', value: Math.max(0, inputs.annualSpend - stopping.annual) }] : []),
     { key: 'today', label: inputs.source === 'budget' ? 'Budgeted' : "Today's", value: inputs.annualSpend },
     ...(leanSpend ? [{ key: 'lean', label: 'Essentials', value: leanSpend }] : []),
   ];
@@ -272,6 +277,7 @@ export function lifePlanBasis({ people, assumptions, inputs, startNetWorth, goal
     spendOptions,
     spendChoice,
     survivorPct,
+    stopping,
     goals: timelineGoals,
     incomes: fromStop,
     inflows,

@@ -4,7 +4,7 @@ import { formatPct } from '../../lib/money';
 import { incompleteNote, netWorthSummary, startingNetWorth } from '../overviewMath';
 import { isArchived } from '../../lib/accounts';
 import { unconfirmedAccounts } from '../../lib/balance';
-import { budgetPlan, closedMonths, crossingYear, fiTarget, forecastInputs, incomesFromStop, independenceTarget, projectYears, realReturn, requiredAnnualSaving, goalAt, scenarioSets } from '../../lib/forecast';
+import { budgetPlan, closedMonths, crossingYear, fiTarget, forecastInputs, goalAt, incomesFromStop, independenceTarget, projectYears, realReturn, requiredAnnualSaving, scenarioSets, spendThatStops } from '../../lib/forecast';
 import { agesLabel, lifePlanStop } from '../../lib/lifePlan';
 import BudgetBasis from './BudgetBasis';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
@@ -116,10 +116,11 @@ export default function Forecast({ household, members = [], accounts = [], trans
         goals: data.goals ?? [],
         incomes: data.independenceIncome ?? [],
         household,
+        stopping: spendThatStops({ inputs, transactions, budgets, categories, now }),
         startYear,
         fcSet,
       }),
-    [members, data.memberLife, assumptions, inputs, startNetWorth, data.goals, data.independenceIncome, household, startYear, fcSet]
+    [members, data.memberLife, assumptions, inputs, startNetWorth, data.goals, data.independenceIncome, household, transactions, budgets, categories, now, startYear, fcSet]
   );
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
