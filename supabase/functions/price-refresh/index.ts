@@ -7,8 +7,8 @@
 // migration — safely after both the US close, ~midnight GST, and the NSE
 // close, ~2-2:30am GST) and on demand from the Wealth screen's "Refresh"
 // button.
-import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "jsr:@supabase/supabase-js@2";
+import "jsr:@supabase/functions-js@2.117.2/edge-runtime.d.ts";
+import { createClient } from "jsr:@supabase/supabase-js@2.117.2";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;

@@ -26,8 +26,8 @@
 // this only adds a second path for a question, never a shortcut around
 // human review for a transaction. This routing only applies to a plain text
 // message (no photo/document attached); a photo is presumptively a receipt.
-import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "jsr:@supabase/supabase-js@2";
+import "jsr:@supabase/functions-js@2.117.2/edge-runtime.d.ts";
+import { createClient } from "jsr:@supabase/supabase-js@2.117.2";
 import { resolveScopeMemberId, scopedValue } from "../_shared/applib/scope.js";
 import { isPrivateChat } from "../_shared/applib/telegramChat.js";
 import { LINK_ATTEMPT_WINDOW_MS, linkAttemptRefusal, linkTokenFromMessage, looksLikeLinkToken } from "../_shared/applib/telegramLink.js";

@@ -165,3 +165,23 @@ rather than spent (a household's "Savings & Investments", say).
   losing it.
 - Transaction arithmetic is unchanged: spend and income are still decided by
   `transactionKind.js` alone, in the app and the bot alike.
+
+## Edge Functions pin their Supabase imports to an exact version
+
+All three Edge Functions import `jsr:@supabase/supabase-js@2.117.2` and
+`jsr:@supabase/functions-js@2.117.2`, not `@2` or an unversioned
+specifier.
+
+- **Why.** Deno will not resolve a package published less than 24 hours ago.
+  Supabase publishes each release to JSR about two minutes before its npm
+  dependencies (`@supabase/auth-js` and the rest). With `@2`, a `deno check`
+  that runs inside that window takes the new JSR release, then cannot resolve
+  its npm dependencies. That broke main's CI for #47: the check ran 24h 0m 22s
+  after `supabase-js` 2.117.2 reached JSR and 1m 40s too early for `auth-js`.
+  An exact version resolves the same way every time.
+- **What it costs.** A new Supabase release is no longer picked up by the next
+  deploy on its own. To take one, change the version in all three
+  `index.ts` files together. Keep the two packages on the same version, and
+  wait until the release is more than a day old.
+- The age check itself stays on. It is a supply-chain guard, and turning it
+  off to get green would trade a real protection for a timing race.
