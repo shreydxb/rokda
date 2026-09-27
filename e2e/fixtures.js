@@ -136,7 +136,7 @@ export const data = {
 
   goal_contributions: [{ id: 'ffffffff-0000-4000-8000-000000000001', goal_id: 'dddddddd-0000-4000-8000-000000000001', amount: 5000, occurred_at: monthsAgo(1), note: null, created_at: ts(monthsAgo(1)) }],
 
-  debts: [{ id: 'a1a1a1a1-0000-4000-8000-000000000001', household_id: HH, owner_member_id: null, is_shared: true, name: 'Car loan', note: null, balance: 42000, apr_pct: 4.5, minimum_payment: 1200, custom_rank: null, created_at: ts(monthsAgo(6)), updated_at: ts(monthsAgo(1)), original_amount: 60000 }],
+  debts: [{ id: 'a1a1a1a1-0000-4000-8000-000000000001', household_id: HH, owner_member_id: null, is_shared: true, name: 'Car loan', note: null, balance: 42000, apr_pct: 4.5, minimum_payment: 1200, custom_rank: null, account_id: null, created_at: ts(monthsAgo(6)), updated_at: ts(monthsAgo(1)), original_amount: 60000 }],
 
   planning_assumptions: [{ household_id: HH, nominal_return_pct: 6, inflation_pct: 2.5, safe_withdrawal_pct: 4, lean_annual_spend: 90000, debt_extra_payment: 0, debt_assume_no_new_card_spend: true, baseline_set_at: ts(monthsAgo(1)), baseline_nominal_return_pct: 6, baseline_inflation_pct: 2.5, baseline_monthly_saving: 4000, updated_at: ts(monthsAgo(1)), custom_nominal_return_pct: null, custom_inflation_pct: null, custom_safe_withdrawal_pct: null, custom_updated_at: null, retirement_year: 2050, retirement_annual_spend: 110000, retirement_return_pct: 5, survivor_spend_pct: 70 }],
 

@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
 import { formatMoney } from '../../lib/money';
-import { amortizeMinimumOnly, orderDebts, simulatePayoffPlan } from '../../lib/debt';
+import { amortizeMinimumOnly, debtsWithAccounts, orderDebts, simulatePayoffPlan } from '../../lib/debt';
 import DebtEditor from './DebtEditor';
 import DebtPlanEditor from './DebtPlanEditor';
 
@@ -27,8 +27,11 @@ function monthsToLabel(months) {
   return `${years} yr ${rem} mo`;
 }
 
-export default function DebtPayoff({ household, members, me, data, loading }) {
-  const { debts, assumptions, reload } = data;
+export default function DebtPayoff({ household, members, me, accounts = [], data, loading, onReload }) {
+  const { assumptions, reload } = data;
+  // Each debt at its linked account's balance: the one figure net worth uses too.
+  const debts = useMemo(() => debtsWithAccounts(data.debts, accounts), [data.debts, accounts]);
+  const unlinked = debts.filter((d) => !d.inNetWorth);
   const { scope } = useScope();
   const scopeMemberId = resolveScopeMemberId(scope, me, members);
   const [strategy, setStrategy] = useState('avalanche');
@@ -119,6 +122,12 @@ export default function DebtPayoff({ household, members, me, data, loading }) {
           <div className="ov-muted" style={{ marginTop: 14, fontSize: 12.5, lineHeight: 1.65, maxWidth: '78ch' }}>
             {STRATEGY_NOTE[strategy]}
           </div>
+          {unlinked.length > 0 && (
+            <div className="ov-warn debt-unlinked" style={{ marginTop: 12, fontSize: 12.5, lineHeight: 1.65, maxWidth: '78ch' }}>
+              {unlinked.length === 1 ? `${unlinked[0].name} is` : `${unlinked.length} debts are`} not in net worth. Open {unlinked.length === 1 ? 'it' : 'each'} and link a loan
+              account, or create one, so the amount owed counts.
+            </div>
+          )}
 
           <section style={{ marginTop: 18 }}>
             <div className="mn-list">
@@ -129,7 +138,7 @@ export default function DebtPayoff({ household, members, me, data, loading }) {
                     key={d.id}
                     type="button"
                     className="mn-row"
-                    onClick={() => setEditing(debts.find((raw) => raw.id === d.id))}
+                    onClick={() => setEditing(data.debts.find((raw) => raw.id === d.id))}
                     style={{ alignItems: 'center' }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: 16, flex: 1, minWidth: 0 }}>
@@ -139,6 +148,11 @@ export default function DebtPayoff({ household, members, me, data, loading }) {
                       <div className="mn-row-main">
                         <div>{d.name}</div>
                         {d.note && <div className="ov-muted" style={{ marginTop: 3 }}>{d.note}</div>}
+                        {!d.inNetWorth && (
+                          <div style={{ marginTop: 6 }}>
+                            <span className="ov-chip-warn">{d.account ? 'Account not valued: not in net worth' : 'No account: not in net worth'}</span>
+                          </div>
+                        )}
                         {paidPct !== null && (
                           <div style={{ marginTop: 8, maxWidth: 220 }}>
                             <div className="bud-bar" style={{ height: 3 }}>
@@ -222,10 +236,13 @@ export default function DebtPayoff({ household, members, me, data, loading }) {
           debt={editing === 'new' ? null : editing}
           householdId={household?.id}
           members={members}
+          accounts={accounts}
+          debts={data.debts}
           onClose={() => setEditing(null)}
           onSaved={async () => {
             setEditing(null);
-            await reload();
+            // The debt may have made or changed its account, so both reload.
+            await Promise.all([reload(), onReload?.()]);
           }}
         />
       )}

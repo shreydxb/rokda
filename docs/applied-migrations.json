@@ -359,5 +359,12 @@
   "fingerprint": "6f9ac81662221239b78e17f81f615aad",
   "framingFingerprint": "ce5ad1cee8eae27d03cbf406034456a0",
   "fingerprintVersion": 2
+ },
+ {
+  "version": "20260927173652",
+  "name": "debt_accounts",
+  "fingerprint": "a6d1a6505ab668d294a9eddf3881a906",
+  "framingFingerprint": "0984b41037fb00e28b44933b057103d1",
+  "fingerprintVersion": 2
  }
 ]

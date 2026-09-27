@@ -1,24 +1,39 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
+import { isArchived } from '../../lib/accounts';
+import { formatMoney } from '../../lib/money';
 import '../money/TransactionEditor.css';
 
-function initialForm(debt) {
+// Where a debt's balance lives: a loan or card account, so net worth counts it.
+// NEW makes the account along with the debt; '' leaves the debt unlinked.
+const NEW = 'new';
+
+const owed = (account) => Math.abs(Number(account.balance ?? 0));
+
+function initialForm(debt, linked) {
   if (debt) {
     return {
       name: debt.name,
       note: debt.note ?? '',
-      balance: String(debt.balance ?? ''),
+      account: debt.account_id ?? '',
+      balance: String(linked ? owed(linked) : (debt.balance ?? '')),
       original_amount: debt.original_amount != null ? String(debt.original_amount) : '',
       apr_pct: String(debt.apr_pct ?? ''),
       minimum_payment: String(debt.minimum_payment ?? ''),
       owner: debt.is_shared ? 'shared' : (debt.owner_member_id ?? ''),
     };
   }
-  return { name: '', note: '', balance: '', original_amount: '', apr_pct: '', minimum_payment: '', owner: 'shared' };
+  return { name: '', note: '', account: NEW, balance: '', original_amount: '', apr_pct: '', minimum_payment: '', owner: 'shared' };
 }
 
-export default function DebtEditor({ debt, householdId, members, onClose, onSaved }) {
-  const [form, setForm] = useState(() => initialForm(debt));
+export default function DebtEditor({ debt, householdId, members, accounts = [], debts = [], onClose, onSaved }) {
+  // Open loan and card accounts no other debt already plans for: one plan per loan.
+  const takenByOthers = new Set(debts.filter((d) => d.account_id && d.id !== debt?.id).map((d) => d.account_id));
+  const liabilityAccounts = accounts.filter((a) => (a.type === 'loan' || a.type === 'credit_card') && !takenByOthers.has(a.id) && (!isArchived(a) || a.id === debt?.account_id));
+  const [form, setForm] = useState(() => initialForm(debt, accounts.find((a) => a.id === debt?.account_id)));
+  const linked = form.account && form.account !== NEW ? (accounts.find((a) => a.id === form.account) ?? null) : null;
+  // A balance in another currency is kept in Wealth, where its currency is.
+  const foreign = linked && String(linked.currency ?? 'AED').toUpperCase() !== 'AED';
   const [dirty, setDirty] = useState(false);
   const [confirmingClose, setConfirmingClose] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -36,6 +51,17 @@ export default function DebtEditor({ debt, householdId, members, onClose, onSave
 
   function set(key, value) {
     setForm((f) => ({ ...f, [key]: value }));
+    setDirty(true);
+  }
+
+  // Linking an account takes its balance and owner: the account is the record.
+  function chooseAccount(id) {
+    const account = accounts.find((a) => a.id === id);
+    setForm((f) => ({
+      ...f,
+      account: id,
+      ...(account ? { balance: String(owed(account)), owner: account.is_shared ? 'shared' : (account.owner_member_id ?? 'shared') } : {}),
+    }));
     setDirty(true);
   }
 
@@ -58,26 +84,60 @@ export default function DebtEditor({ debt, householdId, members, onClose, onSave
     }
     setSaving(true);
     setError('');
+    const fail = (message) => {
+      setSaving(false);
+      setError(message);
+    };
+
+    // The loan's account first, so the debt can point at it.
+    let accountId = linked?.id ?? null;
+    let createdAccount = null;
+    if (form.account === NEW) {
+      const { data: created, error: accountError } = await supabase
+        .from('accounts')
+        .insert({
+          household_id: householdId,
+          name: form.name.trim(),
+          type: 'loan',
+          currency: 'AED',
+          balance: Number(form.balance),
+          is_shared: form.owner === 'shared',
+          owner_member_id: form.owner === 'shared' ? null : form.owner,
+          balance_as_of: new Date().toISOString(),
+        })
+        .select('id')
+        .single();
+      if (accountError) return fail(accountError.message);
+      accountId = created.id;
+      createdAccount = created.id;
+    } else if (linked && !foreign && Number(form.balance) !== owed(linked)) {
+      // A new balance entered here is a new balance for the account, confirmed today.
+      const now = new Date().toISOString();
+      const { error: accountError } = await supabase.from('accounts').update({ balance: Number(form.balance), balance_as_of: now, updated_at: now }).eq('id', linked.id);
+      if (accountError) return fail(accountError.message);
+    }
 
     const payload = {
       household_id: householdId,
       name: form.name.trim(),
       note: form.note.trim(),
-      balance: Number(form.balance),
+      balance: foreign ? Math.abs(Number(linked.balance_aed ?? form.balance)) : Number(form.balance),
       original_amount: form.original_amount ? Number(form.original_amount) : null,
       apr_pct: Number(form.apr_pct) || 0,
       minimum_payment: Number(form.minimum_payment) || 0,
       is_shared: form.owner === 'shared',
       owner_member_id: form.owner === 'shared' ? null : form.owner,
+      account_id: accountId,
     };
 
     const query = debt ? supabase.from('debts').update(payload).eq('id', debt.id) : supabase.from('debts').insert(payload);
     const { error: saveError } = await query;
-    setSaving(false);
     if (saveError) {
-      setError(saveError.message);
-      return;
+      // Leave no account behind for a debt that was never saved.
+      if (createdAccount) await supabase.from('accounts').delete().eq('id', createdAccount);
+      return fail(saveError.message);
     }
+    setSaving(false);
     await onSaved();
   }
 
@@ -117,7 +177,36 @@ export default function DebtEditor({ debt, householdId, members, onClose, onSave
             <div className="te-hero-label">Balance owed</div>
             <div className="te-hero-row">
               <span className="te-hero-currency">AED</span>
-              <input type="number" step="0.01" className="te-hero-input" value={form.balance} onChange={(e) => set('balance', e.target.value)} aria-invalid={!!balanceError} placeholder="0" />
+              {foreign ? (
+                <span className="te-hero-input fig">{linked.balance_aed != null ? formatMoney(Math.abs(Number(linked.balance_aed))) : '—'}</span>
+              ) : (
+                <input type="number" step="0.01" className="te-hero-input" value={form.balance} onChange={(e) => set('balance', e.target.value)} aria-invalid={!!balanceError} placeholder="0" aria-label="Balance owed" />
+              )}
+            </div>
+            {foreign && <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 6 }}>{linked.name} is in {linked.currency}: update its balance in Wealth.</div>}
+          </div>
+
+          <div className="te-fieldgrid">
+            <div className="te-fieldcell te-span2">
+              <label className="te-fieldlabel" htmlFor="debt-account">
+                Account
+              </label>
+              <select id="debt-account" className="te-fieldvalue" value={form.account} onChange={(e) => chooseAccount(e.target.value)}>
+                {!debt?.account_id && <option value={NEW}>Create a loan account</option>}
+                {liabilityAccounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name} ({a.type === 'loan' ? 'loan' : 'card'})
+                  </option>
+                ))}
+                <option value="">Not linked: not in net worth</option>
+              </select>
+              <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 6 }}>
+                {form.account === NEW
+                  ? 'A loan account is added in Wealth with this balance, so net worth counts it.'
+                  : linked
+                    ? 'The balance is the account\'s: a change here updates it, and net worth counts it.'
+                    : 'Net worth does not count a debt with no account.'}
+              </div>
             </div>
           </div>
 

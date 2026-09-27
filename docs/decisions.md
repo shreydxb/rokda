@@ -293,3 +293,42 @@ specifier.
   wait until the release is more than a day old.
 - The age check itself stays on. It is a supply-chain guard, and turning it
   off to get green would trade a real protection for a timing race.
+
+## One answer to "when can we stop working"
+
+Forecast and the Plan summary used to answer with the year net worth reaches
+25× spending, money that lasts forever. The Life plan answers with the first
+year the money lasts to the last life expectancy. For this household that was
+2068 against 2058, on three screens that looked like they were asking the same
+question.
+
+- **Once ages are set, the Life plan is the answer.** The Plan summary's card
+  becomes "Stop working", with the Life plan's earliest year and the ages then,
+  and links to the Life plan. Forecast shows the same year above its figures
+  and links to it. Before ages are set, both keep the 25× year.
+- **Forecast keeps its target** as the stricter comparison, relabelled "Lasts
+  forever by": a pot that never shrinks, where the Life plan's may be spent
+  down to zero at the end.
+- **One basis.** All three screens build the plan with `lifePlanBasis`, so
+  they cannot drift on returns, spending, goals or other income. Forecast runs
+  it on the scenario it has selected; the Plan summary on the baseline.
+
+## A debt's balance lives in its loan account
+
+Debt payoff kept its own balances, and accounts kept theirs. A loan entered
+only on Debt payoff never reached net worth; one entered in both drifted
+apart.
+
+- **`debts.account_id`** links a debt to a loan or credit card account in the
+  same household (tenant foreign key, one debt per account, a trigger refusing
+  asset accounts). Deleting the account unlinks the debt rather than deleting
+  it.
+- **The account's balance is the amount owed.** Debt payoff and the Plan
+  summary read it (`debtsWithAccounts`). A new balance entered on the debt is
+  written to the account and dates its confirmation. An account in another
+  currency is updated in Wealth, where its currency is.
+- **A new debt creates its loan account by default**, so net worth counts it
+  from the start. "Not linked" is still offered, and such a debt is marked
+  "not in net worth".
+- The debt keeps what an account has no place for: the rate, the minimum
+  payment and the original amount.

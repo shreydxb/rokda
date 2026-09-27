@@ -1,15 +1,12 @@
 import { useMemo, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { startingNetWorth } from '../overviewMath';
-import { budgetPlan, forecastInputs, realReturn, scenarioSets } from '../../lib/forecast';
-import { agesIn, earliestStop, extraSavingNeeded, goalsOnTimeline, lifePlan, maxRetirementSpend, planEndYear, potNeededAt } from '../../lib/lifePlan';
+import { budgetPlan, forecastInputs } from '../../lib/forecast';
+import { agesIn, agesLabel, earliestStop, extraSavingNeeded, lifePlan, lifePlanBasis, maxRetirementSpend, planPeople, potNeededAt } from '../../lib/lifePlan';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { ChartLegend, ColumnChart } from '../../charts/Charts';
 import BudgetBasis from './BudgetBasis';
 import LifePlanEditor from './LifePlanEditor';
-
-const DEFAULTS = { nominal_return_pct: 6.0, inflation_pct: 2.5, safe_withdrawal_pct: 4.0 };
-const DEFAULT_STOP_AGE = 60;
 
 // Fixed order, so each phase keeps its colour whatever the numbers do.
 const PHASES = [
@@ -53,12 +50,7 @@ export default function LifePlan({
   const inputs = useMemo(() => forecastInputs(transactions, startNetWorth, now, plan), [transactions, startNetWorth, now, plan]);
 
   // The people planned for: members with a birth year and an age to plan to.
-  const people = useMemo(() => {
-    const byMember = new Map((data.memberLife ?? []).map((r) => [r.member_id, r]));
-    return members
-      .filter((m) => byMember.has(m.id))
-      .map((m) => ({ id: m.id, name: m.display_name, birthYear: byMember.get(m.id).birth_year, lifeExpectancy: byMember.get(m.id).life_expectancy }));
-  }, [members, data.memberLife]);
+  const people = useMemo(() => planPeople(members, data.memberLife ?? []), [members, data.memberLife]);
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
 
@@ -116,46 +108,19 @@ export default function LifePlan({
     );
   }
 
-  const endYear = planEndYear(people);
-  const sets = scenarioSets(assumptions, DEFAULTS);
-  const selected = sets[fcSet] ?? sets.baseline;
-  const inflationPct = selected.inflationPct;
-  const preRate = realReturn(selected.nominalPct, inflationPct);
-  // A return set for after work stops moves with the scenario, like the one before.
-  const postNominal =
-    assumptions?.retirement_return_pct != null ? Number(assumptions.retirement_return_pct) + (selected.nominalPct - sets.baseline.nominalPct) : selected.nominalPct;
-  const postRate = realReturn(postNominal, inflationPct);
-
-  const clampYear = (y) => Math.min(endYear, Math.max(startYear, y));
-  const savedStop = assumptions?.retirement_year != null ? clampYear(Number(assumptions.retirement_year)) : null;
-  const defaultStop = clampYear(people[0].birthYear + DEFAULT_STOP_AGE);
-  const stopYear = stopOverride ?? savedStop ?? defaultStop;
-
-  const plannedSpend = assumptions?.retirement_annual_spend != null ? Number(assumptions.retirement_annual_spend) : null;
-  const leanSpend = assumptions?.lean_annual_spend != null ? Number(assumptions.lean_annual_spend) : null;
-  const spendOptions = [
-    ...(plannedSpend != null ? [{ key: 'planned', label: 'Planned', value: plannedSpend }] : []),
-    { key: 'today', label: inputs.source === 'budget' ? 'Budgeted' : "Today's", value: inputs.annualSpend },
-    ...(leanSpend ? [{ key: 'lean', label: 'Essentials', value: leanSpend }] : []),
-  ];
-  const spendChoice = spendOptions.find((o) => o.key === spendKind) ?? spendOptions[0];
-  const survivorPct = assumptions?.survivor_spend_pct != null ? Number(assumptions.survivor_spend_pct) : 100;
-
-  const goals = goalsOnTimeline(data.goals ?? [], startYear, inflationPct);
-  const incomes = data.independenceIncome ?? [];
-  const args = {
-    startYear,
+  const basis = lifePlanBasis({
     people,
-    retireYear: stopYear,
-    startPot: startNetWorth,
-    annualSaving: inputs.monthlySaving * 12,
-    preRate,
-    postRate,
-    retireSpend: spendChoice.value,
-    survivorPct,
-    goals,
-    incomes,
-  };
+    assumptions,
+    inputs,
+    startNetWorth,
+    goals: data.goals ?? [],
+    incomes: data.independenceIncome ?? [],
+    startYear,
+    fcSet,
+    stopOverride,
+    spendKind,
+  });
+  const { endYear, sets, selected, inflationPct, postNominal, savedStop, stopYear, spendOptions, spendChoice, survivorPct, goals, incomes, args } = basis;
   const result = lifePlan(args);
   const need = potNeededAt(args);
   const earliest = earliestStop(args);
@@ -166,11 +131,7 @@ export default function LifePlan({
   // an adviser's sheets show it.
   const inflation = inflationPct / 100;
   const shown = (value, year) => (mode === 'nominal' ? value * (1 + inflation) ** (year - startYear) : value);
-  const agesText = (year) =>
-    agesIn(people, year)
-      .filter((a) => a.planned)
-      .map((a) => `${a.name} ${a.age}`)
-      .join(' · ');
+  const agesText = (year) => agesLabel(agesIn(people, year));
 
   const shortRow = result.shortYear !== null ? result.rows.find((r) => r.year === result.shortYear) : null;
   const firstForOne = result.rows.find((r) => r.forOne)?.year ?? null;

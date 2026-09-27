@@ -1,4 +1,4 @@
-import { incomeInYear } from './forecast';
+import { incomeInYear, realReturn, scenarioSets } from './forecast';
 import { parseDay } from './day';
 import { goalInflationPct } from './goals';
 
@@ -185,4 +185,106 @@ export function extraSavingNeeded(args) {
 // Null when even spending nothing falls short, because of the goals.
 export function maxRetirementSpend(args) {
   return largestPassing((s) => lastsWith(args, { retireSpend: s }));
+}
+
+// The planning defaults every screen falls back to, the same as Forecast's.
+export const LIFE_PLAN_DEFAULTS = { nominal_return_pct: 6.0, inflation_pct: 2.5, safe_withdrawal_pct: 4.0 };
+// When no stop-work year is saved: the first person's 60th year.
+export const DEFAULT_STOP_AGE = 60;
+
+// The people planned for: household members with a birth year and an age to
+// plan to (member_life), in roster order.
+export function planPeople(members = [], memberLife = []) {
+  const byMember = new Map(memberLife.map((r) => [r.member_id, r]));
+  return members
+    .filter((m) => byMember.has(m.id))
+    .map((m) => ({ id: m.id, name: m.display_name, birthYear: byMember.get(m.id).birth_year, lifeExpectancy: byMember.get(m.id).life_expectancy }));
+}
+
+// Everything the life plan runs on, built from the household's saved data one
+// way for every screen that shows it -- the Life plan tab, the Plan summary and
+// Forecast -- so they cannot disagree about when work can stop. `fcSet`,
+// `stopOverride` and `spendKind` are the Life plan tab's what-ifs; the other
+// screens leave them unset and so read the saved plan.
+export function lifePlanBasis({ people, assumptions, inputs, startNetWorth, goals = [], incomes = [], startYear, fcSet = 'baseline', stopOverride = null, spendKind = null }) {
+  const endYear = planEndYear(people);
+  const sets = scenarioSets(assumptions, LIFE_PLAN_DEFAULTS);
+  const selected = sets[fcSet] ?? sets.baseline;
+  const inflationPct = selected.inflationPct;
+  const preRate = realReturn(selected.nominalPct, inflationPct);
+  // A return set for after work stops moves with the scenario, like the one before.
+  const postNominal =
+    assumptions?.retirement_return_pct != null ? Number(assumptions.retirement_return_pct) + (selected.nominalPct - sets.baseline.nominalPct) : selected.nominalPct;
+  const postRate = realReturn(postNominal, inflationPct);
+
+  const clampYear = (y) => Math.min(endYear, Math.max(startYear, y));
+  const savedStop = assumptions?.retirement_year != null ? clampYear(Number(assumptions.retirement_year)) : null;
+  const defaultStop = clampYear(people[0].birthYear + DEFAULT_STOP_AGE);
+  const stopYear = stopOverride ?? savedStop ?? defaultStop;
+
+  const plannedSpend = assumptions?.retirement_annual_spend != null ? Number(assumptions.retirement_annual_spend) : null;
+  const leanSpend = assumptions?.lean_annual_spend != null ? Number(assumptions.lean_annual_spend) : null;
+  const spendOptions = [
+    ...(plannedSpend != null ? [{ key: 'planned', label: 'Planned', value: plannedSpend }] : []),
+    { key: 'today', label: inputs.source === 'budget' ? 'Budgeted' : "Today's", value: inputs.annualSpend },
+    ...(leanSpend ? [{ key: 'lean', label: 'Essentials', value: leanSpend }] : []),
+  ];
+  const spendChoice = spendOptions.find((o) => o.key === spendKind) ?? spendOptions[0];
+  const survivorPct = assumptions?.survivor_spend_pct != null ? Number(assumptions.survivor_spend_pct) : 100;
+  const timelineGoals = goalsOnTimeline(goals, startYear, inflationPct);
+
+  return {
+    endYear,
+    sets,
+    selected,
+    inflationPct,
+    postNominal,
+    savedStop,
+    stopYear,
+    spendOptions,
+    spendChoice,
+    survivorPct,
+    goals: timelineGoals,
+    incomes,
+    args: {
+      startYear,
+      people,
+      retireYear: stopYear,
+      startPot: startNetWorth,
+      annualSaving: inputs.monthlySaving * 12,
+      preRate,
+      postRate,
+      retireSpend: spendChoice.value,
+      survivorPct,
+      goals: timelineGoals,
+      incomes,
+    },
+  };
+}
+
+// The household's one answer to "when could we stop working": the first year
+// the saved life plan lasts to the end. The Plan summary and Forecast show it
+// rather than a rule of their own, so they agree with the Life plan tab. Null
+// until someone's age is set, or while there is nothing to project from.
+export function lifePlanStop({ members, memberLife, inputs, ...rest }) {
+  const people = planPeople(members, memberLife);
+  if (people.length === 0 || !inputs?.ready) return null;
+  const basis = lifePlanBasis({ people, inputs, ...rest });
+  const earliest = earliestStop(basis.args);
+  return {
+    people,
+    endYear: basis.endYear,
+    earliest,
+    ages: earliest !== null ? agesIn(people, earliest) : null,
+    lasts: lifePlan(basis.args).lasts,
+    stopYear: basis.stopYear,
+  };
+}
+
+// "Shreyash 60 · Tarika 60": the ages of everyone still planned for.
+export function agesLabel(ages) {
+  return ages
+    .filter((a) => a.planned)
+    .map((a) => `${a.name} ${a.age}`)
+    .join(' · ');
 }
