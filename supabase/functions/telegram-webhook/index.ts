@@ -580,6 +580,23 @@ async function openAccountNames(householdId: string): Promise<string[]> {
 // genuinely different, groceries service the model already knows to
 // distinguish (see the prompt hint above) -- a short generic name matching a
 // longer, more specific one is exactly the false-positive this must avoid.
+//
+// The same holds the other way round: a brand is not its own sub-service.
+// Plain "Noon" (the marketplace) inherited Groceries from "Noon Minutes"
+// because "noon" is a substring of "noon minutes". A past merchant that is
+// the new name plus more words after it ("Noon" + "Minutes", "Careem" +
+// "Food") is a different service, so it does not count.
+export function merchantHistoryMatches(newMerchant: string, pastMerchant: string): boolean {
+  const norm = newMerchant.trim().toLowerCase();
+  const past = pastMerchant.trim().toLowerCase();
+  if (!norm || !past.includes(norm)) return false;
+  if (past === norm) return true;
+  const words = norm.split(/\s+/);
+  const pastWords = past.split(/\s+/);
+  const isLeadingWords = pastWords.length > words.length && words.every((w, i) => pastWords[i] === w);
+  return !isLeadingWords;
+}
+
 async function matchCategoryFromMerchantHistory(householdId: string, merchant: string | null): Promise<{ id: string; name: string } | null> {
   const norm = merchant?.trim().toLowerCase();
   if (!norm || norm.length < 3) return null;
@@ -595,8 +612,7 @@ async function matchCategoryFromMerchantHistory(householdId: string, merchant: s
 
   const counts = new Map<string, number>();
   for (const r of rows as Array<{ merchant: string; category_id: string }>) {
-    const past = r.merchant.trim().toLowerCase();
-    if (!past.includes(norm)) continue;
+    if (!merchantHistoryMatches(norm, r.merchant)) continue;
     counts.set(r.category_id, (counts.get(r.category_id) ?? 0) + 1);
   }
   if (counts.size === 0) return null;
