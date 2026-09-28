@@ -5,7 +5,7 @@ import CategoryEditor from './CategoryEditor';
 import RuleEditor from './RuleEditor';
 import StarterCategories from './StarterCategories';
 
-export default function CategoriesRules({ household, data, loading }) {
+export default function CategoriesRules({ household, members = [], data, loading }) {
   const { categories, categoryRules, reload } = data;
   const [showArchived, setShowArchived] = useState(false);
   const [editingCategory, setEditingCategory] = useState(null);
@@ -74,7 +74,7 @@ export default function CategoriesRules({ household, data, loading }) {
         ) : (
           <div className="sc-lists">
             <CategoryList title="Income" rows={income} onEdit={setEditingCategory} />
-            <CategoryList title="Expense" rows={expense} onEdit={setEditingCategory} />
+            <CategoryList title="Expense" rows={expense} members={members} onEdit={setEditingCategory} />
           </div>
         )}
       </section>
@@ -123,6 +123,7 @@ export default function CategoriesRules({ household, data, loading }) {
         <CategoryEditor
           category={editingCategory === 'new' ? null : editingCategory}
           householdId={household?.id}
+          members={members}
           onClose={() => setEditingCategory(null)}
           onSaved={async () => {
             setEditingCategory(null);
@@ -162,13 +163,14 @@ export default function CategoriesRules({ household, data, loading }) {
 // Groups with their subcategories beneath them, as the budget lays them out.
 // A subcategory whose group is not in this list (archived and hidden, say)
 // stays visible at the top level rather than disappearing with it.
-function CategoryList({ title, rows, onEdit }) {
+function CategoryList({ title, rows, members = [], onEdit }) {
   const ids = new Set(rows.map((c) => c.id));
   const top = rows.filter((c) => !c.parent_id || !ids.has(c.parent_id));
   const childrenOf = (id) => rows.filter((c) => c.parent_id === id);
   const row = (c, sub) => (
     <button key={c.id} type="button" className={`mn-row ${sub ? 'sc-subrow' : ''}`} onClick={() => onEdit(c)} style={{ opacity: c.archived ? 0.6 : 1 }}>
       <div className="mn-row-main">{c.name}</div>
+      {c.owner_member_id && <span className="ov-muted">{members.find((m) => m.id === c.owner_member_id)?.display_name}</span>}
       {c.is_savings && <span className="ov-chip-ok">Savings</span>}
       {c.archived && <span className="ov-muted">Archived</span>}
     </button>

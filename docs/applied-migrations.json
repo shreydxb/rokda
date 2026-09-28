@@ -380,5 +380,12 @@
   "fingerprint": "a41e4e45261b189a0f7cfa5dbd03749f",
   "framingFingerprint": "2e33869f8690984cbbf225051eac56f6",
   "fingerprintVersion": 2
+ },
+ {
+  "version": "20260928200204",
+  "name": "category_owner",
+  "fingerprint": "d43df0052e3f384edecc51cf5e835bdf",
+  "framingFingerprint": "2ab5ebfb594c669a063b1a4daefd1767",
+  "fingerprintVersion": 2
  }
 ]

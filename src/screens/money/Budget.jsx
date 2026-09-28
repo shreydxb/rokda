@@ -5,13 +5,14 @@ import { formatBalance, formatCompact, formatMoney } from '../../lib/money';
 import { budgetGroupSpend, monthIncome, monthPace } from '../../lib/budget';
 import { ChartLegend, ColumnChart, LineChart } from '../../charts/Charts';
 import BudgetEditor from './BudgetEditor';
+import { categoryOwner, householdShare } from '../../lib/share';
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 export default function Budget({ household, me, members, data, loading }) {
   const { scope } = useScope();
   const scopeMemberId = resolveScopeMemberId(scope, me, members);
-  const { transactions, categories, budgets, reload } = data;
+  const { transactions, categories, budgets, accounts = [], recurring = [], reload } = data;
   // A savings category's budget is a savings target, not money to spend: it
   // stays out of every spending total below and is shown against what the
   // month actually saved.
@@ -56,6 +57,7 @@ export default function Budget({ household, me, members, data, loading }) {
           scopeMemberId={scopeMemberId}
           now={now}
           onEdit={setEditing}
+          share={{ members, categories, budgets, transactions, accounts, recurring }}
         />
       ) : (
         <YearView
@@ -88,7 +90,7 @@ export default function Budget({ household, me, members, data, loading }) {
   );
 }
 
-function MonthView({ cursor, setCursor, budgets, savingsBudgets, transactions, catById, scopeMemberId, now, onEdit }) {
+function MonthView({ cursor, setCursor, budgets, savingsBudgets, transactions, catById, scopeMemberId, now, onEdit, share }) {
   const year = cursor.getFullYear();
   const month = cursor.getMonth() + 1;
   const rows = budgets.filter((b) => b.year === year && b.month === month);
@@ -121,6 +123,13 @@ function MonthView({ cursor, setCursor, budgets, savingsBudgets, transactions, c
   }
 
   const usedPct = totalBudget > 0 ? totalActual / totalBudget : 0;
+  // Whose line each budget row is, shown beside its name when it is one
+  // person's own rather than the household's.
+  const members = share?.members ?? [];
+  const ownerName = (categoryId) => {
+    const id = categoryOwner(categoryId, catById);
+    return id ? (members.find((m) => m.id === id)?.display_name ?? null) : null;
+  };
 
   return (
     <div>
@@ -187,6 +196,7 @@ function MonthView({ cursor, setCursor, budgets, savingsBudgets, transactions, c
                 catById={catById}
                 pace={pace}
                 onEdit={onEdit}
+                ownerName={ownerName}
               />
             ))}
           </div>
@@ -229,7 +239,90 @@ function MonthView({ cursor, setCursor, budgets, savingsBudgets, transactions, c
         scoped={scopeMemberId !== null}
         onEdit={onEdit}
       />
+
+      {members.length === 2 && <HouseholdShare {...share} year={year} month={month} pace={pace} now={now} />}
     </div>
+  );
+}
+
+// Who carries what this month. Each person's budget is their own lines plus
+// their split of the shared ones; below it, what each has paid so far against
+// their part of what was spent, and the one transfer that evens it up.
+// Household-wide whatever the scope: a split is between the two of you.
+function HouseholdShare({ members, categories, budgets, transactions, accounts, recurring, year, month, pace, now }) {
+  const share = householdShare({ members, categories, budgets, transactions, accounts, recurring, year, month, now });
+  const planned = share.people.some((p) => p.planned > 0 || p.savingPlanned > 0);
+  if (!planned && share.spent === 0) return null;
+  const pctLabel = share.people.map((p) => `${p.member.display_name} ${Math.round(p.pct * 100)}%`).join(' · ');
+  return (
+    <section className="bud-savings bud-share" aria-label="Household share">
+      <div className="bud-savings-head">
+        <div className="ov-kicker" style={{ marginBottom: 0 }}>
+          Household share
+        </div>
+        <span className="ov-muted" style={{ fontSize: 11.5 }}>
+          Shared costs split {share.basis === 'income' ? `by income: ${pctLabel}` : 'evenly'}
+        </span>
+      </div>
+
+      {planned && (
+        <div className="bud-share-table" role="table" aria-label="Planned by person">
+          <div className="bud-share-row bud-share-headrow" role="row">
+            <span role="columnheader">Planned</span>
+            <span role="columnheader" className="bud-col-num">Own</span>
+            <span role="columnheader" className="bud-col-num">Share of shared</span>
+            <span role="columnheader" className="bud-col-num">Spending</span>
+            <span role="columnheader" className="bud-col-num">Saving</span>
+          </div>
+          {share.people.map((p) => (
+            <div key={p.member.id} className="bud-share-row" role="row">
+              <span role="cell">{p.member.display_name}</span>
+              <span role="cell" className="bud-col-num fig">{formatMoney(p.ownPlanned)}</span>
+              <span role="cell" className="bud-col-num fig">{formatMoney(p.sharedPlanned)}</span>
+              <span role="cell" className="bud-col-num fig">{formatMoney(p.planned)}</span>
+              <span role="cell" className="bud-col-num fig">{formatMoney(p.savingPlanned)}</span>
+            </div>
+          ))}
+          <div className="bud-share-row bud-share-foot" role="row">
+            <span role="cell">Shared lines</span>
+            <span role="cell" className="bud-col-num" />
+            <span role="cell" className="bud-col-num fig">{formatMoney(share.planned.shared)}</span>
+            <span role="cell" className="bud-col-num" />
+            <span role="cell" className="bud-col-num fig">{formatMoney(share.plannedSaving.shared)}</span>
+          </div>
+        </div>
+      )}
+
+      {share.spent > 0 && !pace.isFuture && (
+        <>
+          <div className="bud-share-settle">
+            {share.settle ? (
+              <>
+                {share.settle.from.display_name} owes {share.settle.to.display_name}{' '}
+                <span className="fig">{formatMoney(share.settle.amount)}</span>
+                {pace.isPast ? ' for the month' : ' so far'}
+              </>
+            ) : (
+              <>Even {pace.isPast ? 'for the month' : 'so far'}</>
+            )}
+          </div>
+          <div className="bud-share-paid">
+            {share.people.map((p) => (
+              <span key={p.member.id} className="ov-muted">
+                {p.member.display_name} paid <span className="fig">{formatMoney(p.paid)}</span> of their part{' '}
+                <span className="fig">{formatMoney(p.responsible)}</span>
+              </span>
+            ))}
+          </div>
+        </>
+      )}
+
+      <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 8, lineHeight: 1.6 }}>
+        Whose cost a category is is set in Settings → Categories; subcategories follow their group. Paid is spending from each
+        person’s own accounts and cards, a joint account’s split the same way; uncategorised spending counts as shared.
+        {share.basis === 'even' && ' Add each salary as an income reminder to split by income instead.'}
+      </div>
+    </section>
   );
 }
 
@@ -274,7 +367,7 @@ function SavingsTarget({ rows, saved, pace, catById, scoped, onEdit }) {
   );
 }
 
-function BudgetGroup({ groupId, groupCategory, rows, actuals, groupActual, catById, pace, onEdit }) {
+function BudgetGroup({ groupId, groupCategory, rows, actuals, groupActual, catById, pace, onEdit, ownerName = () => null }) {
   const [expanded, setExpanded] = useState(false);
   const groupBudget = rows.reduce((s, r) => s + Number(r.amount), 0);
   // A category budgeted directly, with no subcategory also budgeted this
@@ -292,6 +385,7 @@ function BudgetGroup({ groupId, groupCategory, rows, actuals, groupActual, catBy
     return (
       <BudgetRow
         name={groupCategory?.name ?? 'Unknown'}
+        owner={ownerName(rows[0].category_id)}
         budget={Number(rows[0].amount)}
         actual={groupActual}
         pace={pace}
@@ -300,10 +394,13 @@ function BudgetGroup({ groupId, groupCategory, rows, actuals, groupActual, catBy
     );
   }
 
+  // The group row names an owner only when every line under it is theirs.
+  const owners = new Set(rows.map((r) => ownerName(r.category_id)));
   return (
     <div className="bud-group">
       <BudgetRow
         name={groupCategory?.name ?? 'Unknown'}
+        owner={owners.size === 1 ? [...owners][0] : null}
         budget={groupBudget}
         actual={groupActual}
         pace={pace}
@@ -319,6 +416,7 @@ function BudgetGroup({ groupId, groupCategory, rows, actuals, groupActual, catBy
               <BudgetRow
                 key={r.id}
                 name={catById.get(r.category_id)?.name ?? 'Unknown'}
+                owner={ownerName(r.category_id)}
                 budget={Number(r.amount)}
                 actual={subActual}
                 pace={pace}
@@ -333,13 +431,14 @@ function BudgetGroup({ groupId, groupCategory, rows, actuals, groupActual, catBy
   );
 }
 
-function BudgetRow({ name, budget, actual, pace, onClick, expandable, expanded, sub }) {
+function BudgetRow({ name, owner, budget, actual, pace, onClick, expandable, expanded, sub }) {
   const overNow = actual > budget;
   return (
     <button type="button" className={`bud-tr ${sub ? 'bud-tr-sub' : ''}`} onClick={onClick}>
       <div className="bud-tr-name">
         {expandable && <span className="bud-chevron">{expanded ? '▾' : '▸'}</span>}
         {name}
+        {owner && <span className="bud-owner">{owner}</span>}
       </div>
       <div className="bud-col-num fig">{formatMoney(actual)}</div>
       <div className="bud-col-num"><span className="bud-limit-chip">{formatMoney(budget)}</span></div>

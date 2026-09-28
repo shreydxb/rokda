@@ -969,4 +969,26 @@ begin
   raise notice 'balance check-in ok: once a month, on by default';
 end $$;
 
+-- Category owner: a member of the same household, or null for shared.
+do $$
+declare
+  cat uuid;
+begin
+  insert into categories (household_id, name, kind, owner_member_id)
+  values ('11111111-1111-1111-1111-111111111111', 'Own car', 'expense', '22222222-2222-2222-2222-222222222222')
+  returning id into cat;
+  begin
+    insert into households (id, name) values ('11111111-1111-1111-1111-11111111aaaa', 'Other');
+    insert into household_members (id, household_id, display_name)
+    values ('22222222-2222-2222-2222-22222222aaaa', '11111111-1111-1111-1111-11111111aaaa', 'Stranger');
+    update categories set owner_member_id = '22222222-2222-2222-2222-22222222aaaa' where id = cat;
+    raise exception 'category owner FAILED: a member of another household owned a category';
+  exception when foreign_key_violation then null;
+  end;
+  if (select owner_member_id from categories where id = cat) is distinct from '22222222-2222-2222-2222-222222222222' then
+    raise exception 'category owner FAILED: the owner was not kept';
+  end if;
+  raise notice 'category owner ok: same-household members only';
+end $$;
+
 rollback;
