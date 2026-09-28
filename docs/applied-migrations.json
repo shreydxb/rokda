@@ -373,5 +373,12 @@
   "fingerprint": "aca551e568a228b7946474cfe8ace7c2",
   "framingFingerprint": "2610f47f3681a398d383ab02f44ae5c1",
   "fingerprintVersion": 2
+ },
+ {
+  "version": "20260928081647",
+  "name": "balance_checkin",
+  "fingerprint": "a41e4e45261b189a0f7cfa5dbd03749f",
+  "framingFingerprint": "2e33869f8690984cbbf225051eac56f6",
+  "fingerprintVersion": 2
  }
 ]
