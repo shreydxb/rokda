@@ -943,4 +943,30 @@ begin
   raise notice 'policies ok: rupee reminders follow the rate, schedules end, dated lump sums, stopping categories';
 end $$;
 
+-- Balance check-in: one per household per month, and a switch that is on
+-- unless turned off.
+do $$
+declare
+  enabled boolean;
+begin
+  insert into brief_sends (household_id, kind, period_key) values ('11111111-1111-1111-1111-111111111111', 'balance_checkin', '2026-09');
+  begin
+    insert into brief_sends (household_id, kind, period_key) values ('11111111-1111-1111-1111-111111111111', 'balance_checkin', '2026-09');
+    raise exception 'balance check-in FAILED: the same month was recorded twice';
+  exception when unique_violation then null;
+  end;
+  begin
+    insert into brief_sends (household_id, kind, period_key) values ('11111111-1111-1111-1111-111111111111', 'daily', '2026-09-01');
+    raise exception 'balance check-in FAILED: an unknown kind was accepted';
+  exception when check_violation then null;
+  end;
+  insert into telegram_notification_prefs (household_id) values ('11111111-1111-1111-1111-111111111111')
+  on conflict (household_id) do nothing;
+  select balance_checkin_enabled into enabled from telegram_notification_prefs where household_id = '11111111-1111-1111-1111-111111111111';
+  if enabled is not true then
+    raise exception 'balance check-in FAILED: the check-in is not on by default';
+  end if;
+  raise notice 'balance check-in ok: once a month, on by default';
+end $$;
+
 rollback;

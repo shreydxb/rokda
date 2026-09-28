@@ -8,6 +8,7 @@ const DEFAULTS = {
   cash_cover_enabled: true,
   brief_enabled: true,
   unusual_spend_enabled: true,
+  balance_checkin_enabled: true,
 };
 
 const SIGNALS = [
@@ -16,6 +17,7 @@ const SIGNALS = [
   { key: 'cash_cover_enabled', label: 'Cash cover', note: "Weekly warning if liquid balances can't cover what's due in the next 7 days" },
   { key: 'brief_enabled', label: 'Weekly & month-end brief', note: 'The /brief digest, sent automatically every Monday and after each month closes' },
   { key: 'unusual_spend_enabled', label: 'Unusual spend', note: "Nudge once when a category runs well past its usual trailing average -- a deliberately high bar to avoid false alarms" },
+  { key: 'balance_checkin_enabled', label: 'Month-end balance check-in', note: 'On the 1st, asks for every account and card balance; reply in one message to set them all' },
 ];
 
 const STATS_WINDOW_DAYS = 30;
@@ -131,7 +133,7 @@ export default function Telegram({ household, loading }) {
     setPrefsLoading(true);
     supabase
       .from('telegram_notification_prefs')
-      .select('recurring_enabled, credit_card_enabled, cash_cover_enabled, brief_enabled, unusual_spend_enabled')
+      .select('recurring_enabled, credit_card_enabled, cash_cover_enabled, brief_enabled, unusual_spend_enabled, balance_checkin_enabled')
       .eq('household_id', household.id)
       .maybeSingle()
       .then(({ data, error: fetchError }) => {
