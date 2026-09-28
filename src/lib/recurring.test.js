@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { billStatus, hasEnded, nativeAmountLabel, occurrenceAt, occurrencesInWindow, rollForward, upcomingItems } from './recurring';
+import { billStatus, hasEnded, matchWindowDays, nativeAmountLabel, occurrenceAt, occurrencesInWindow, rollForward, upcomingItems } from './recurring';
 import { buildAttentionItems } from './attention';
 import { billingCycle, daysUntilDue, nextDueDate } from './creditCard';
 
@@ -197,5 +197,31 @@ describe('nativeAmountLabel', () => {
     expect(nativeAmountLabel({ currency: 'INR', native_amount: -150000, amount: -5749.72 })).toBe('₹1,50,000');
     expect(nativeAmountLabel({ currency: 'USD', native_amount: -100, amount: -367.25 })).toBe('$100');
     expect(nativeAmountLabel({ currency: 'AED', native_amount: null, amount: -500 })).toBeNull();
+  });
+});
+
+describe('salary on a moving date', () => {
+  const salary = { id: 's', name: 'Salary', amount: 24000, cadence: 'monthly', next_due_date: '2026-09-30', active: true };
+  const paid = (day) => [{ amount: 24000, occurred_at: day }];
+
+  it('gives income a wider window than a bill', () => {
+    expect(matchWindowDays(salary)).toBe(10);
+    expect(matchWindowDays({ amount: -500 })).toBe(5);
+  });
+
+  it('counts a salary paid a week early as received', () => {
+    expect(billStatus(salary, paid('2026-09-22'), new Date(2026, 8, 24))).toMatchObject({ label: 'Posted' });
+  });
+
+  it('is expected, not late, until its window has passed', () => {
+    expect(billStatus(salary, [], new Date(2026, 9, 6))).toMatchObject({ label: 'Expected', needsAction: false });
+    expect(billStatus(salary, paid('2026-10-08'), new Date(2026, 9, 9))).toMatchObject({ label: 'Posted' });
+    expect(billStatus(salary, [], new Date(2026, 9, 11))).toMatchObject({ label: 'Late', needsAction: true });
+  });
+
+  it('is only missing on Overview once the window has passed', () => {
+    const missing = (now) => buildAttentionItems({ transactions: [], recurring: [salary], accounts: [], holdings: [], categories: [], scopeMemberId: null, now }).filter((i) => i.kind === 'missing_recurring');
+    expect(missing(new Date(2026, 9, 6))).toEqual([]);
+    expect(missing(new Date(2026, 9, 12))).toHaveLength(1);
   });
 });

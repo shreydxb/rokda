@@ -408,3 +408,22 @@ covered by other savings. Both were called a monthly need.
   summary, each goal and the table's "Or a month" column all show it.
 - **For one person it stays the plain remainder over the months left.** Net
   worth is not split by person, so there is no priority plan to take it from.
+
+## Salary arrives on a moving date
+
+Payday moves with bank holidays and payroll cut-offs, sometimes into the next
+month.
+
+- **Income gets a wider window.** An expected-income reminder counts as
+  received within 10 days either side of its date (`matchWindowDays`).
+  Bills keep 5 days. Until the window has passed, income shows as
+  "Expected", not "Late". Overview only calls it missing, and the bot only
+  nudges, after that.
+- **A salary counts in the month it is for.** Say an income transaction
+  matches an expected-income reminder: same account and category where the
+  reminder names them, amount within 20%, and inside the window of one of
+  its dates. It is then counted in the month of that date
+  (`payMonthTransactions`), not the day it landed. A salary paid on 1 Oct
+  for 30 Sep counts in September. Otherwise one month would show no salary
+  and the next two, which swings every average built on a few closed
+  months.

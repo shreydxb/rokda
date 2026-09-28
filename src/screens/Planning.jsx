@@ -52,6 +52,7 @@ export default function Planning() {
           me={me}
           accounts={overview.accounts}
           transactions={overview.transactions}
+          recurring={overview.recurring}
           holdings={overview.holdings}
           budgets={overview.budgets}
           categories={overview.categories}
@@ -66,6 +67,7 @@ export default function Planning() {
           members={members}
           accounts={overview.accounts}
           transactions={overview.transactions}
+          recurring={overview.recurring}
           holdings={overview.holdings}
           budgets={overview.budgets}
           categories={overview.categories}
@@ -94,6 +96,7 @@ export default function Planning() {
           members={members}
           accounts={overview.accounts}
           transactions={overview.transactions}
+          recurring={overview.recurring}
           holdings={overview.holdings}
           budgets={overview.budgets}
           categories={overview.categories}
@@ -108,6 +111,7 @@ export default function Planning() {
           members={members}
           accounts={overview.accounts}
           transactions={overview.transactions}
+          recurring={overview.recurring}
           holdings={overview.holdings}
           budgets={overview.budgets}
           categories={overview.categories}
