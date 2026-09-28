@@ -448,3 +448,30 @@ prompt they go stale, and net worth and every plan start from them.
   named rather than guessed.
 - The reply is written from the figures, not paraphrased by the model: it is
   a write, and a write is confirmed exactly.
+
+## Whose cost a category is, and the household share
+
+Two earners on very different salaries, with some costs that are plainly one
+person's (his car loan, her family remittance) and the rest the household's.
+
+- **A category belongs to someone or to the household**
+  (`categories.owner_member_id`, null for shared). It is set in Settings →
+  Categories. A subcategory with no owner of its own follows its group, so
+  marking a group as his covers every line under it. The budget shows the
+  owner beside each such line.
+- **Shared costs are split in proportion to income**, read from the income
+  reminders (salaries), so each person gives the same fraction of what they
+  earn and keeps the same fraction for themselves. With no income on record
+  the split is even. There is no manual override yet. The split follows the
+  salaries as they change.
+- **The Household share section** on the month's budget shows each person's
+  plan (their own lines plus their split of the shared ones, savings
+  separately). Below that it shows what each has paid against their part of
+  what was spent and the one transfer that evens it up. Paid is spending from
+  the person's own accounts and cards. Spending from a joint account counts by
+  the split, and uncategorised spending counts as shared. It is always
+  household-wide, whatever the Both/Me/Partner scope, because a split is
+  between the two people.
+- The existing Me/Partner scope still halves shared rows. Scope answers "what
+  is mine to look at" while the share answers "who pays what", so the two
+  are kept apart.

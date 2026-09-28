@@ -2,10 +2,11 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import '../money/TransactionEditor.css';
 
-export default function CategoryEditor({ category, householdId, onClose, onSaved }) {
+export default function CategoryEditor({ category, householdId, members = [], onClose, onSaved }) {
   const [name, setName] = useState(category?.name ?? '');
   const [kind, setKind] = useState(category?.kind ?? 'expense');
   const [isSavings, setIsSavings] = useState(!!category?.is_savings);
+  const [owner, setOwner] = useState(category?.owner_member_id ?? '');
   const [dirty, setDirty] = useState(false);
   const [confirmingClose, setConfirmingClose] = useState(false);
   const [error, setError] = useState('');
@@ -41,7 +42,8 @@ export default function CategoryEditor({ category, householdId, onClose, onSaved
 
     // Only an expense category can be savings (the database refuses the
     // rest); switching to income clears it rather than failing the save.
-    const payload = { name: name.trim(), kind, is_savings: kind === 'expense' && isSavings };
+    // An owner only means something for costs; income stays shared.
+    const payload = { name: name.trim(), kind, is_savings: kind === 'expense' && isSavings, owner_member_id: kind === 'expense' && owner ? owner : null };
     const query = category
       ? supabase.from('categories').update(payload).eq('id', category.id)
       : supabase.from('categories').insert({ ...payload, household_id: householdId });
@@ -136,6 +138,32 @@ export default function CategoryEditor({ category, householdId, onClose, onSaved
               </div>
               <span className="te-togglestate">{isSavings ? 'Savings' : 'Spending'}</span>
             </button>
+          )}
+
+          {kind === 'expense' && members.length > 1 && (
+            <div>
+              <span className="te-fieldlabel">Whose cost</span>
+              <div className="te-chips">
+                {[{ id: '', display_name: 'Shared' }, ...members].map((m) => (
+                  <button
+                    key={m.id || 'shared'}
+                    type="button"
+                    className="om-seg"
+                    data-active={owner === m.id}
+                    onClick={() => {
+                      setOwner(m.id);
+                      setDirty(true);
+                    }}
+                  >
+                    {m.display_name}
+                  </button>
+                ))}
+              </div>
+              <div className="te-togglenote" style={{ marginTop: 6 }}>
+                Shared costs are split between you by income; one person’s own costs are theirs alone. A subcategory left shared follows
+                its group when the group is someone’s.
+              </div>
+            </div>
           )}
 
           {category && (

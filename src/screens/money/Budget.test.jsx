@@ -5,6 +5,68 @@ import Budget from './Budget';
 
 vi.mock('../../lib/supabaseClient', () => ({ supabase: {} }));
 
+describe('Budget: household share', () => {
+  const TWO = [
+    { id: 'm1', display_name: 'Shreyash' },
+    { id: 'm2', display_name: 'Tarika' },
+  ];
+  const CATS = [
+    { id: 'housing', name: 'Housing', kind: 'expense', parent_id: null },
+    { id: 'rent', name: 'Rent', kind: 'expense', parent_id: 'housing' },
+    { id: 'family', name: 'Family Support', kind: 'expense', parent_id: null },
+    { id: 'raipur', name: 'Raipur Remittance', kind: 'expense', parent_id: 'family', owner_member_id: 'm2' },
+  ];
+  const renderShare = (members) =>
+    renderScreen(
+      <Budget
+        household={{ id: 'h' }}
+        me={{ id: 'm1' }}
+        members={members}
+        loading={false}
+        data={{
+          categories: CATS,
+          budgets: [
+            { id: 'b1', category_id: 'rent', year: 2026, month: 9, amount: 6000 },
+            { id: 'b2', category_id: 'raipur', year: 2026, month: 9, amount: 400 },
+          ],
+          transactions: [{ id: 't1', amount: -6000, kind: 'expense', occurred_at: '2026-09-01', is_shared: true, category_id: 'rent', account_id: 'a1' }],
+          accounts: [{ id: 'a1', owner_member_id: 'm1', is_shared: false }],
+          recurring: [
+            { id: 'r1', amount: 30000, cadence: 'monthly', next_due_date: '2026-09-30', owner_member_id: 'm1', is_shared: false },
+            { id: 'r2', amount: 10000, cadence: 'monthly', next_due_date: '2026-09-25', owner_member_id: 'm2', is_shared: false },
+          ],
+          reload: vi.fn().mockResolvedValue(undefined),
+        }}
+      />,
+    );
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 8, 3));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('splits shared lines by income and says who owes whom', () => {
+    renderShare(TWO);
+    const section = screen.getByLabelText('Household share');
+    expect(section.textContent).toMatch(/Shreyash 75% · Tarika 25%/);
+    // Her part of the rent he paid: 25% of 6,000.
+    expect(section.querySelector('.bud-share-settle').textContent).toMatch(/Tarika owes Shreyash\s*\S*1,500 so far/);
+  });
+
+  it('labels one person’s own lines in the budget', () => {
+    renderShare(TWO);
+    expect([...document.querySelectorAll('.bud-owner')].map((n) => n.textContent)).toContain('Tarika');
+  });
+
+  it('is not shown for a household of one', () => {
+    renderShare(TWO.slice(0, 1));
+    expect(screen.queryByLabelText('Household share')).toBeNull();
+  });
+});
+
 const MEMBERS = [{ id: 'm1', display_name: 'Shreyash' }];
 const CATEGORIES = [
   { id: 'util', name: 'Utilities', kind: 'expense', parent_id: null },

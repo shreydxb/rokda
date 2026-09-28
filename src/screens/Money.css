@@ -746,3 +746,49 @@
 .bud-bar-spent.bud-bar-save {
   background: var(--pos);
 }
+
+/* Household share: who carries what this month. */
+.bud-owner {
+  margin-left: 8px;
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--ink3);
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  padding: 1px 7px;
+  white-space: nowrap;
+}
+.bud-share-table {
+  margin: 12px 0 4px;
+  overflow-x: auto;
+}
+.bud-share-row {
+  display: grid;
+  grid-template-columns: minmax(90px, 1.2fr) repeat(4, minmax(72px, 1fr));
+  gap: 8px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--rule);
+  font-size: 13px;
+  min-width: 420px;
+}
+.bud-share-headrow {
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink3);
+}
+.bud-share-foot {
+  color: var(--ink3);
+  border-bottom: none;
+}
+.bud-share-settle {
+  margin-top: 14px;
+  font-size: 18px;
+}
+.bud-share-paid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin-top: 6px;
+  font-size: 12.5px;
+}
