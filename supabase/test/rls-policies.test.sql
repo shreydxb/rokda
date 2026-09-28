@@ -44,6 +44,10 @@ insert into household_members (id, household_id, display_name, role, user_id) va
 insert into independence_income (id, household_id, name, kind, amount) values
   ('f2000000-0000-0000-0000-000000000001', 'd2000000-0000-0000-0000-000000000002', 'Their rent', 'yearly', 36000);
 
+-- Household notes: one in the other household, to be reached for.
+insert into household_notes (id, household_id, title, body) values
+  ('f3000000-0000-0000-0000-000000000001', 'd2000000-0000-0000-0000-000000000002', 'Their plan', 'Private');
+
 -- Life plan ages: the other household's owner has theirs set.
 insert into member_life (member_id, household_id, birth_year, life_expectancy) values
   ('e2000000-0000-0000-0000-00000000000a', 'd2000000-0000-0000-0000-000000000002', 1980, 85);
@@ -118,6 +122,34 @@ begin
   get diagnostics n = row_count;
   if n <> 1 then raise exception 'member_life FAILED: a member could not update their household''s placeholder'; end if;
   raise notice 'member_life ok: own household only, placeholders included';
+end $$;
+
+-- Household notes: the plan in words is as private as the figures.
+do $$
+declare n int;
+begin
+  insert into household_notes (household_id, title, body) values ('d1000000-0000-0000-0000-000000000001', 'Our plan', 'Rent is shared');
+  select count(*) into n from household_notes;
+  if n <> 1 then raise exception 'household_notes FAILED: a member sees % notes, expected only their own 1', n; end if;
+  begin
+    insert into household_notes (household_id, title) values ('d2000000-0000-0000-0000-000000000002', 'Planted');
+    raise exception 'household_notes FAILED: a member wrote into another household';
+  exception
+    when insufficient_privilege then null;
+  end;
+  begin
+    update household_notes set household_id = 'd2000000-0000-0000-0000-000000000002' where title = 'Our plan';
+    raise exception 'household_notes FAILED: a member moved a note into another household';
+  exception
+    when insufficient_privilege then null;
+  end;
+  update household_notes set body = 'x' where id = 'f3000000-0000-0000-0000-000000000001';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'household_notes FAILED: a member edited another household''s note'; end if;
+  delete from household_notes where title = 'Our plan';
+  get diagnostics n = row_count;
+  if n <> 1 then raise exception 'household_notes FAILED: a member could not delete their own note'; end if;
+  raise notice 'household_notes ok: own household only, in every direction';
 end $$;
 
 -- QA §8: a member cannot promote themselves.

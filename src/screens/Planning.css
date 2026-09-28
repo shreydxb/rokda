@@ -253,3 +253,82 @@
 .lp-goal[data-muted='true'] .mn-row-amt {
   color: var(--ink3);
 }
+
+/* Notes: the plan in words. */
+.nt-card {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--rule);
+  max-width: 760px;
+}
+.nt-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+.nt-title {
+  font-size: 17px;
+  font-weight: 600;
+  margin: 0;
+}
+.nt-edit {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  padding: 0;
+}
+.nt-body {
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--ink2);
+}
+.nt-body h3 {
+  font-size: 14.5px;
+  margin: 16px 0 4px;
+  color: var(--ink);
+}
+.nt-body h4 {
+  font-size: 13px;
+  margin: 14px 0 2px;
+  color: var(--ink);
+}
+.nt-body p {
+  margin: 8px 0;
+}
+.nt-body ul {
+  margin: 6px 0;
+  padding-left: 20px;
+}
+.nt-body strong {
+  color: var(--ink);
+}
+.nt-meta {
+  margin-top: 10px;
+}
+.nt-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 13.5px;
+  line-height: 1.6;
+  padding: 10px;
+  border: 1px solid var(--rule2);
+  background: transparent;
+  color: var(--ink);
+  resize: vertical;
+}
+.nt-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.nt-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}

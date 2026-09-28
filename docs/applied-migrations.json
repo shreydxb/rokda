@@ -387,5 +387,12 @@
   "fingerprint": "d43df0052e3f384edecc51cf5e835bdf",
   "framingFingerprint": "2ab5ebfb594c669a063b1a4daefd1767",
   "fingerprintVersion": 2
+ },
+ {
+  "version": "20260928201459",
+  "name": "household_notes",
+  "fingerprint": "c212e3a5aeecfd824b0da94ae8bda614",
+  "framingFingerprint": "5bd95ea58d8aca8db5aef0de80df39de",
+  "fingerprintVersion": 2
  }
 ]

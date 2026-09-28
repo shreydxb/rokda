@@ -1,6 +1,9 @@
 .mn-tabs {
   display: flex;
-  gap: 26px;
+  /* Planning has seven tabs: on a phone they wrap to a second row rather
+     than push the page sideways. */
+  flex-wrap: wrap;
+  gap: 4px 26px;
   margin-top: 14px;
   border-bottom: 1px solid var(--rule);
 }
