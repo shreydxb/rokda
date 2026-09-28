@@ -306,7 +306,7 @@ Deno.env.set("TELEGRAM_BOT_TOKEN", TOKEN);
 Deno.env.set("OPENROUTER_API_KEY", "openrouter-test");
 
 reset();
-const { merchantHistoryMatches, pickAccountByHint } = await import("./index.ts");
+const { accountsForCheckin, buildBalanceCheckinMessage, merchantHistoryMatches, pickAccountByHint, pickCheckinAccount } = await import("./index.ts");
 assert(handler!, "index.ts did not register a handler with Deno.serve");
 
 // ---------------------------------------------------------------------------
@@ -569,6 +569,74 @@ Deno.test("a brand does not inherit the category of its own sub-service", () => 
   assertEquals(merchantHistoryMatches("Filli", "Filli Cafe LLC"), false);
   assertEquals(merchantHistoryMatches("Burger King", "Burger King Al Barsha"), false);
   assertEquals(merchantHistoryMatches("Mall of the Emirates", "BRED Mall of the Emirates"), true);
+});
+
+// ---------------------------------------------------------------------------
+// The monthly balance check-in
+// ---------------------------------------------------------------------------
+
+const TARIKA = "33333333-3333-4333-8333-333333333333";
+const ROSTER = [
+  { id: MEMBER, display_name: "Shreyash", telegram_user_id: TELEGRAM_USER },
+  { id: TARIKA, display_name: "Tarika", telegram_user_id: null },
+];
+const acct = (id: string, name: string, over: Record<string, unknown> = {}) => ({
+  id, household_id: HOUSEHOLD, name, type: "checking", currency: "AED", balance: 0, balance_as_of: null, owner_member_id: MEMBER, is_shared: false, archived_at: null, ...over,
+});
+const MY_FAB = acct("a0000000-0000-4000-8000-000000000001", "FAB");
+const HER_FAB = acct("a0000000-0000-4000-8000-000000000002", "FAB", { owner_member_id: TARIKA });
+const WIO = acct("a0000000-0000-4000-8000-000000000003", "Wio •6981", { type: "credit_card" });
+const EPF = acct("a0000000-0000-4000-8000-000000000004", "EPF", { type: "investment", currency: "INR" });
+const FD = acct("a0000000-0000-4000-8000-000000000005", "Term deposit", { type: "fd" });
+const MY_CURRENT = acct("a0000000-0000-4000-8000-000000000006", "Shreyash Current");
+
+Deno.test("the check-in covers shared accounts, the member's own, and those of a member with no Telegram, never an FD", () => {
+  const theirs = accountsForCheckin([MY_FAB, HER_FAB, WIO, EPF, FD], ROSTER, MEMBER).map((a) => a.id);
+  assertEquals(theirs, [MY_FAB.id, HER_FAB.id, WIO.id, EPF.id]);
+});
+
+Deno.test("the check-in message lists each account with whose it is, what is on record, and how to reply", () => {
+  const text = buildBalanceCheckinMessage([MY_FAB, { ...HER_FAB, balance: 5200, balance_as_of: "2026-09-01T08:00:00Z" }, { ...WIO, balance: 1200 }, { ...EPF, balance: 300000 }], ROSTER, "September 2026");
+  assert(text.startsWith("Month-end check-in for September 2026."), text);
+  assert(text.includes("• FAB (Shreyash): AED 0.00, never confirmed"), text);
+  assert(text.includes("• FAB (Tarika): AED 5,200.00, confirmed 2026-09-01"), text);
+  assert(text.includes("• Wio •6981 (Shreyash): AED 1,200.00 owed"), text);
+  assert(text.includes("• EPF (Shreyash): INR 3,00,000.00"), text);
+});
+
+Deno.test("a balance names its account the way a person says it", () => {
+  const accounts = [MY_FAB, HER_FAB, WIO, EPF, MY_CURRENT];
+  // Two FABs: the sender's own, unless someone else is named.
+  assertEquals(pickCheckinAccount(accounts, ROSTER, MEMBER, "FAB")?.id, MY_FAB.id);
+  assertEquals(pickCheckinAccount(accounts, ROSTER, MEMBER, "Tarika FAB")?.id, HER_FAB.id);
+  assertEquals(pickCheckinAccount(accounts, ROSTER, MEMBER, "Tarika's FAB")?.id, HER_FAB.id);
+  assertEquals(pickCheckinAccount(accounts, ROSTER, MEMBER, "Shreyash current")?.id, MY_CURRENT.id);
+  assertEquals(pickCheckinAccount(accounts, ROSTER, MEMBER, "wio card")?.id, WIO.id);
+  assertEquals(pickCheckinAccount(accounts, ROSTER, MEMBER, "Tarika wio"), null);
+  assertEquals(pickCheckinAccount(accounts, ROSTER, MEMBER, "ADCB"), null);
+});
+
+freshTest("a reply with balances sets them, a card as the amount owed, and says what changed", async () => {
+  backend.tables.household_members[0].display_name = "Shreyash";
+  backend.tables.household_members.push({ id: TARIKA, household_id: HOUSEHOLD, display_name: "Tarika", telegram_user_id: null, role: "member" });
+  backend.tables.accounts.push({ ...MY_FAB }, { ...HER_FAB }, { ...WIO }, { ...EPF });
+  backend.route = {
+    tool: "update_account_balances",
+    args: { balances: [{ account: "FAB", balance: 12340 }, { account: "Tarika FAB", balance: 5200 }, { account: "Wio", balance: -1200 }, { account: "EPF", balance: 305000 }, { account: "ADCB", balance: 10 }] },
+  };
+  await handler(textUpdate(7201, "FAB 12,340 · Tarika FAB 5,200 · Wio 1,200 owed · EPF 3,05,000 · ADCB 10"));
+  const byId = new Map(backend.tables.accounts.map((a) => [a.id, a]));
+  assertEquals(Number(byId.get(MY_FAB.id)!.balance), 12340);
+  assertEquals(Number(byId.get(HER_FAB.id)!.balance), 5200);
+  assertEquals(Number(byId.get(WIO.id)!.balance), 1200);
+  assertEquals(Number(byId.get(EPF.id)!.balance), 305000);
+  assert(byId.get(MY_FAB.id)!.balance_as_of, "the balance was not marked confirmed");
+  const text = String(backend.telegramSent.at(-1)?.body.text ?? "");
+  assert(text.includes("✓ FAB: AED 0.00 → AED 12,340.00"), text);
+  assert(text.includes("✓ Wio •6981: AED 0.00 owed → AED 1,200.00 owed"), text);
+  assert(text.includes(`"ADCB"`), text);
+  // A balance is not an expense.
+  assertEquals(capturedIntake().length, 0);
 });
 
 // Restore globals for anything that runs after this module.

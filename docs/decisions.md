@@ -427,3 +427,24 @@ month.
   for 30 Sep counts in September. Otherwise one month would show no salary
   and the next two, which swings every average built on a few closed
   months.
+
+## A month-end balance check-in over Telegram
+
+Balances are entered by hand and never derived from transactions. Without a
+prompt they go stale, and net worth and every plan start from them.
+
+- **On the 1st** (Dubai), the daily job sends each linked member the
+  accounts they look after: shared ones, their own, and those of a member
+  with no Telegram link, so no account is left unasked. Each line shows what
+  is on record and when it was last confirmed. It asks for the closing
+  figures, once per household per month (`brief_sends`, kind
+  `balance_checkin`). It can be switched off in Settings → Telegram.
+- **Any message stating balances sets them**, on any day
+  (`update_account_balances`). A name resolves the way a card does in an
+  expense. When two members have an account with the same name, "Tarika FAB"
+  picks hers and a bare "FAB" picks the sender's own. A card or loan is
+  stored as the amount owed. The reply lists every change with its old
+  figure, so a misread shows at once, and anything it could not match is
+  named rather than guessed.
+- The reply is written from the figures, not paraphrased by the model: it is
+  a write, and a write is confirmed exactly.

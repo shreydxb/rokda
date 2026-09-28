@@ -465,6 +465,7 @@ const QUESTION_TOOLS = new Set([
   "get_budget_status",
   "get_holdings",
   "log_goal_contribution",
+  "update_account_balances",
 ]);
 
 // A card account's name follows the "Name •1234" convention (see
@@ -1033,6 +1034,32 @@ const TOOLS_BASE = [
           occurred_at: { type: "string", description: "YYYY-MM-DD if a date is stated; omit to use today." },
         },
         required: ["goal_name", "amount"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "update_account_balances",
+      description:
+        "The message states the CURRENT balance of one or more accounts or cards -- a reply to the monthly balance check-in, or any 'FAB balance is 12,340', 'Wio card owes 1,200', 'EPF 3,05,000'. Sets those balances. Never use this for a purchase or payment (that is log_expense), only for what an account holds or a card owes right now.",
+      parameters: {
+        type: "object",
+        properties: {
+          balances: {
+            type: "array",
+            description: "One entry per account or card named in the message.",
+            items: {
+              type: "object",
+              properties: {
+                account: { type: "string", description: "The account or card as the user named it." },
+                balance: { type: "number", description: "The amount as stated, in the account's own currency. For a card or loan, the amount owed, as a positive number." },
+              },
+              required: ["account", "balance"],
+            },
+          },
+        },
+        required: ["balances"],
       },
     },
   },
@@ -1967,8 +1994,9 @@ type TelegramPrefRow = {
   cash_cover_enabled: boolean;
   brief_enabled: boolean;
   unusual_spend_enabled: boolean;
+  balance_checkin_enabled: boolean;
 };
-type TelegramPrefKey = "recurring_enabled" | "credit_card_enabled" | "cash_cover_enabled" | "brief_enabled" | "unusual_spend_enabled";
+type TelegramPrefKey = "recurring_enabled" | "credit_card_enabled" | "cash_cover_enabled" | "brief_enabled" | "unusual_spend_enabled" | "balance_checkin_enabled";
 
 // Fetched once per check run (the table has one row per household, so this
 // is cheap) rather than once per item/household inside a loop.
@@ -2078,6 +2106,163 @@ async function runMonthlyBriefCheck(): Promise<{ sent: number }> {
     }
   }
   return { sent };
+}
+
+// ---------------------------------------------------------------------------
+// Monthly balance check-in
+// ---------------------------------------------------------------------------
+//
+// Balances are entered by hand and never derived from transactions, so they
+// go stale unless someone is asked. On the 1st the bot sends each linked
+// member the accounts they look after, with what is on record, and asks for
+// the closing figures; any reply stating balances goes to
+// update_account_balances, which works on any day, not only after a
+// check-in.
+
+type BalanceAccount = {
+  id: string;
+  name: string;
+  type: string;
+  currency: string | null;
+  balance: number | null;
+  balance_as_of: string | null;
+  owner_member_id: string | null;
+  is_shared: boolean;
+};
+type BalanceMember = { id: string; display_name: string; telegram_user_id: number | null };
+
+const OWED_TYPES = new Set(["credit_card", "loan"]);
+
+// The accounts a member reports on: shared ones, their own, and those of a
+// member with no Telegram link (who would otherwise never be asked). An FD's
+// balance is computed, never entered, so it is left out.
+export function accountsForCheckin<T extends BalanceAccount>(accounts: T[], members: BalanceMember[], memberId: string): T[] {
+  const unlinked = new Set(members.filter((m) => m.telegram_user_id == null).map((m) => m.id));
+  return accounts.filter(
+    (a) => a.type !== "fd" && (a.is_shared || a.owner_member_id == null || a.owner_member_id === memberId || unlinked.has(a.owner_member_id)),
+  );
+}
+
+function balanceFigure(a: BalanceAccount): string {
+  const currency = String(a.currency ?? "AED").toUpperCase();
+  const amount = Math.abs(Number(a.balance ?? 0)).toLocaleString(currency === "INR" ? "en-IN" : "en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return `${currency} ${amount}${OWED_TYPES.has(a.type) ? " owed" : ""}`;
+}
+
+export function buildBalanceCheckinMessage(accounts: BalanceAccount[], members: BalanceMember[], monthLabel: string): string {
+  const owner = new Map(members.map((m) => [m.id, m.display_name]));
+  const lines = accounts.map((a) => {
+    const whose = a.is_shared || !a.owner_member_id ? "" : ` (${owner.get(a.owner_member_id) ?? "?"})`;
+    const confirmed = a.balance_as_of ? `confirmed ${String(a.balance_as_of).slice(0, 10)}` : "never confirmed";
+    return `• ${a.name}${whose}: ${balanceFigure(a)}, ${confirmed}`;
+  });
+  return (
+    `Month-end check-in for ${monthLabel}. What did each of these close at?\n\n${lines.join("\n")}\n\n` +
+    `Reply in one message, e.g. "FAB 12,340 · Tarika FAB 5,200 · Wio 1,200 owed · EPF 3,05,000" -- cards and loans as the amount owed, ` +
+    `other currencies in their own, and whose it is when two share a name. Anything you leave out stays as it is.`
+  );
+}
+
+async function runBalanceCheckin(): Promise<{ sent: number }> {
+  const today = householdToday();
+  if (parseDay(today).getDate() !== 1) return { sent: 0 };
+  const [yearStr, monthStr] = today.split("-");
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+  const prevYear = month === 1 ? year - 1 : year;
+  const prevMonth = month === 1 ? 12 : month - 1;
+  const periodKey = `${prevYear}-${String(prevMonth).padStart(2, "0")}`;
+  const monthLabel = new Date(Date.UTC(prevYear, prevMonth - 1, 1)).toLocaleString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" });
+
+  let sent = 0;
+  const prefs = await telegramPrefsMap();
+  for (const householdId of await householdsWithLinkedTelegram()) {
+    if (!prefEnabled(prefs, householdId, "balance_checkin_enabled")) continue;
+    try {
+      const { data: alreadySent } = await supabase
+        .from("brief_sends")
+        .select("household_id")
+        .eq("household_id", householdId)
+        .eq("kind", "balance_checkin")
+        .eq("period_key", periodKey)
+        .maybeSingle();
+      if (alreadySent) continue;
+
+      const [{ data: accounts }, { data: members }] = await Promise.all([
+        supabase.from("accounts").select("id, name, type, currency, balance, balance_as_of, owner_member_id, is_shared").eq("household_id", householdId).is("archived_at", null).order("created_at"),
+        supabase.from("household_members").select("id, display_name, telegram_user_id").eq("household_id", householdId),
+      ]);
+      const roster = (members ?? []) as BalanceMember[];
+      let any = false;
+      for (const m of roster.filter((r) => r.telegram_user_id != null)) {
+        const mine = accountsForCheckin((accounts ?? []) as BalanceAccount[], roster, m.id);
+        if (!mine.length) continue;
+        await reply(m.telegram_user_id!, buildBalanceCheckinMessage(mine, roster, monthLabel));
+        any = true;
+      }
+      if (!any) continue;
+      await supabase.from("brief_sends").insert({ household_id: householdId, kind: "balance_checkin", period_key: periodKey });
+      sent++;
+    } catch {
+      // One household's check-in failing must never block the rest.
+    }
+  }
+  return { sent };
+}
+
+// Which account a stated balance is for. Two members can each have an
+// account of the same name ("FAB"): a hint that names its owner ("Tarika
+// FAB", "Tarika's FAB") looks only at that member's accounts; one that names
+// no one prefers the sender's own when the name alone matches several.
+export function pickCheckinAccount<T extends BalanceAccount>(accounts: T[], members: BalanceMember[], memberId: string, hint: string): T | null {
+  const lower = hint.toLowerCase();
+  const named = members.find((m) => m.display_name && new RegExp(`\\b${m.display_name.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}('s)?\\b`).test(lower));
+  if (named) {
+    const theirs = accounts.filter((a) => a.owner_member_id === named.id);
+    const rest = lower.replace(new RegExp(`\\b${named.display_name.toLowerCase()}('s)?\\b`), " ").trim();
+    return pickAccountByHint(theirs, rest || hint) ?? pickAccountByHint(theirs, hint);
+  }
+  return pickAccountByHint(accounts, hint) ?? pickAccountByHint(accounts.filter((a) => a.owner_member_id === memberId), hint);
+}
+
+// Sets the balances a member stated. Each name is resolved among the
+// accounts that member reports on, exactly as a card is named in an expense
+// (pickAccountByHint), and only when it names exactly one. A card or loan is
+// stored as the amount owed. The reply gives every change with its old
+// figure, so a misread is visible at once and a second message fixes it.
+async function toolUpdateAccountBalances(householdId: string, memberId: string, args: { balances?: Array<{ account?: unknown; balance?: unknown }> }): Promise<string> {
+  const items = Array.isArray(args?.balances) ? args.balances : [];
+  if (!items.length) return "I couldn't find a balance in that. Try e.g. \"FAB 12,340 · Wio 1,200 owed\".";
+  const [{ data: accounts }, { data: members }] = await Promise.all([
+    supabase.from("accounts").select("id, name, type, currency, balance, balance_as_of, owner_member_id, is_shared").eq("household_id", householdId).is("archived_at", null),
+    supabase.from("household_members").select("id, display_name, telegram_user_id").eq("household_id", householdId),
+  ]);
+  const roster = (members ?? []) as BalanceMember[];
+  const mine = accountsForCheckin((accounts ?? []) as BalanceAccount[], roster, memberId);
+  const done: string[] = [];
+  const missed: string[] = [];
+  const now = new Date().toISOString();
+  for (const item of items) {
+    const name = typeof item.account === "string" ? item.account.trim() : "";
+    const value = Number(item.balance);
+    if (!name || !Number.isFinite(value)) continue;
+    const account = pickCheckinAccount(mine, roster, memberId, name);
+    if (!account) {
+      missed.push(name);
+      continue;
+    }
+    const stored = OWED_TYPES.has(account.type) ? Math.abs(value) : value;
+    const { error } = await supabase.from("accounts").update({ balance: stored, balance_as_of: now, updated_at: now }).eq("id", account.id);
+    if (error) {
+      missed.push(name);
+      continue;
+    }
+    done.push(`✓ ${account.name}: ${balanceFigure(account)} → ${balanceFigure({ ...account, balance: stored })}`);
+  }
+  const parts = [];
+  if (done.length) parts.push(`Updated, confirmed today:\n${done.join("\n")}`);
+  if (missed.length) parts.push(`Not updated -- no single account matches: ${missed.map((m) => `"${m}"`).join(", ")}. Name it as it appears in the app.`);
+  return parts.join("\n\n") || "Nothing to update.";
 }
 
 // Runs daily (unlike the weekly/monthly briefs above) since a shortfall is
@@ -2247,7 +2432,7 @@ async function handleRequest(req: Request): Promise<Response> {
   // than adding new jobs for each. The weekly/monthly checks no-op on every
   // day but their own, so running them daily costs nothing.
   if (req.method === "GET" && url.searchParams.get("run_recurring_check") === "1") {
-    const [recurring, creditCards, budgets, weeklyBrief, monthlyBrief, cashCover, unusualSpend] = await Promise.all([
+    const [recurring, creditCards, budgets, weeklyBrief, monthlyBrief, cashCover, unusualSpend, balanceCheckin] = await Promise.all([
       runRecurringCheck(),
       runCreditCardCheck(),
       runBudgetAlertCheck(),
@@ -2255,6 +2440,7 @@ async function handleRequest(req: Request): Promise<Response> {
       runMonthlyBriefCheck(),
       runCashCoverCheck(),
       runUnusualSpendCheck(),
+      runBalanceCheckin(),
     ]);
     // Housekeeping, not a check: nothing reports on it and nothing depends on
     // it having run today.
@@ -2268,6 +2454,7 @@ async function handleRequest(req: Request): Promise<Response> {
         monthly_brief: monthlyBrief,
         cash_cover: cashCover,
         unusual_spend: unusualSpend,
+        balance_checkin: balanceCheckin,
       }),
       { headers: { "Content-Type": "application/json" } }
     );
@@ -2611,6 +2798,12 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
         const args = JSON.parse(toolCall.function.arguments || "{}");
         const { data: members } = await supabase.from("household_members").select("id, display_name").eq("household_id", member.household_id);
         const scopeMemberId = resolveScopeMemberId(args.scope ?? "me", member, members ?? []);
+
+        if (toolCall.function.name === "update_account_balances") {
+          // A write, confirmed in exact figures rather than paraphrased.
+          await reply(chatId, await toolUpdateAccountBalances(member.household_id, member.id, args));
+          return new Response("ok");
+        }
 
         let result: unknown;
         switch (toolCall.function.name) {
