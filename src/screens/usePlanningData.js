@@ -9,6 +9,7 @@ const SOURCES = [
   { key: 'debts', empty: [], run: (id) => supabase.from('debts').select('*').eq('household_id', id).order('created_at') },
   { key: 'independenceIncome', empty: [], run: (id) => supabase.from('independence_income').select('*').eq('household_id', id).order('created_at') },
   { key: 'memberLife', empty: [], run: (id) => supabase.from('member_life').select('*').eq('household_id', id) },
+  { key: 'notes', empty: [], run: (id) => supabase.from('household_notes').select('*').eq('household_id', id).order('position').order('created_at') },
   { key: 'assumptions', empty: null, run: (id) => supabase.from('planning_assumptions').select('*').eq('household_id', id).maybeSingle() },
 ];
 
@@ -20,6 +21,7 @@ const EMPTY_STATE = {
   debts: [],
   independenceIncome: [],
   memberLife: [],
+  notes: [],
   assumptions: null,
   errors: {},
   loadedAt: null,

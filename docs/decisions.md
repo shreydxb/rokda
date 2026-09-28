@@ -441,8 +441,8 @@ prompt they go stale, and net worth and every plan start from them.
   `balance_checkin`). It can be switched off in Settings → Telegram.
 - **Any message stating balances sets them**, on any day
   (`update_account_balances`). A name resolves the way a card does in an
-  expense. When two members have an account with the same name, "Tarika FAB"
-  picks hers and a bare "FAB" picks the sender's own. A card or loan is
+  expense. When two members have an account with the same name, "<partner>
+  Bank" picks the partner's and a bare "Bank" picks the sender's own. A card or loan is
   stored as the amount owed. The reply lists every change with its old
   figure, so a misread shows at once, and anything it could not match is
   named rather than guessed.
@@ -475,3 +475,13 @@ person's (his car loan, her family remittance) and the rest the household's.
 - The existing Me/Partner scope still halves shared rows. Scope answers "what
   is mine to look at" while the share answers "who pays what", so the two
   are kept apart.
+
+## The household plan is written down in the app, not the repository
+
+The figures (goals, budgets, owners) live in their tables, but the reasoning
+behind them (why this split, why this goal first, what is still open) had no
+home except a chat. It goes in **Planning → Notes** (`household_notes`):
+titled notes in plain text with light markdown, readable and editable by the
+household only. It is not stored in the repository because the repository is
+public. Notes are rendered as elements, never as HTML, so a note can hold
+anything without it being run as markup.

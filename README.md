@@ -64,7 +64,7 @@ Status flow: Todo/Backlog → In Progress → In Review (`Rokda: Ready for QA`) 
 verified (`Rokda: QA passed`) → Done (`Rokda: Released`). Claude never sets
 `Rokda: QA passed` itself, and a green CI run is not QA approval.
 
-See `docs/environments.md` for the database and preview environments a handoff
+See `docs/features.md` for a map of everything the app does, `docs/environments.md` for the database and preview environments a handoff
 must name, and `docs/decisions.md` for the product decisions the maths relies on
 (manual balance snapshots, dated valuations, closed accounts, planned versus
 posted).

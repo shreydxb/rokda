@@ -121,6 +121,25 @@ const SUBVIEWS = [
   { name: 'life-plan', path: '/planning', tabs: ['Life plan'], expectText: 'The pot, year by year' },
   { name: 'life-plan-setup', path: '/planning', tabs: ['Life plan'], expectText: 'Set up your life plan', tables: { member_life: [] } },
   { name: 'starter-categories', path: '/settings', tabs: ['Categories & rules', 'Starter set'], expectText: 'Starter categories' },
+  {
+    name: 'notes',
+    path: '/planning',
+    tabs: ['Notes'],
+    expectText: 'Shared costs by income',
+    tables: {
+      household_notes: [
+        {
+          id: 'a3a3a3a3-0000-4000-8000-000000000001',
+          household_id: 'hh',
+          title: 'Who pays what',
+          body: '# Split\nShared costs by income.\n\n- **Rent**, utilities and groceries are shared\n- Each person keeps their own car, phone and family remittances, and a very long line that has to wrap on a phone without pushing the page sideways',
+          position: 1,
+          updated_by: null,
+          updated_at: '2026-09-28T10:00:00Z',
+        },
+      ],
+    },
+  },
 ];
 
 function closedMonthsOfHistory() {

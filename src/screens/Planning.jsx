@@ -8,6 +8,7 @@ import DebtPayoff from './planning/DebtPayoff';
 import Forecast from './planning/Forecast';
 import Drawdown from './planning/Drawdown';
 import LifePlan from './planning/LifePlan';
+import Notes from './planning/Notes';
 import LoadFailure from './LoadFailure';
 import './Planning.css';
 
@@ -18,6 +19,7 @@ const TABS = [
   { id: 'debt', label: 'Debt payoff' },
   { id: 'forecast', label: 'Forecast' },
   { id: 'drawdown', label: 'Drawdown' },
+  { id: 'notes', label: 'Notes' },
 ];
 
 export default function Planning() {
@@ -120,6 +122,7 @@ export default function Planning() {
           onOpenTab={setTab}
         />
       )}
+      {tab === 'notes' && <Notes household={household} me={me} members={members} data={planning} loading={loading} />}
     </div>
   );
 }
