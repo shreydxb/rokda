@@ -4,7 +4,7 @@ import { formatPct } from '../../lib/money';
 import { incompleteNote, netWorthSummary, startingNetWorth } from '../overviewMath';
 import { isArchived } from '../../lib/accounts';
 import { unconfirmedAccounts } from '../../lib/balance';
-import { budgetPlan, closedMonths, crossingYear, fiTarget, forecastInputs, goalAt, incomesFromStop, independenceTarget, projectYears, realReturn, requiredAnnualSaving, scenarioSets, spendThatStops } from '../../lib/forecast';
+import { budgetPlan, closedMonths, crossingYear, fiTarget, forecastInputs, goalAt, incomesFromStop, independenceTarget, payMonthTransactions, projectYears, realReturn, requiredAnnualSaving, scenarioSets, spendThatStops } from '../../lib/forecast';
 import { agesLabel, lifePlanStop } from '../../lib/lifePlan';
 import BudgetBasis from './BudgetBasis';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
@@ -37,7 +37,8 @@ function deltaLabel(years) {
 // object, which never had a holdings field: reading `data.holdings` crashed
 // with no accounts and silently dropped holdings from net worth with
 // accounts (QA-03).
-export default function Forecast({ household, members = [], accounts = [], transactions = [], holdings = [], budgets = [], categories = [], data, loading, onOpenTab }) {
+export default function Forecast({ household, members = [], accounts = [], transactions = [],
+  recurring = [], holdings = [], budgets = [], categories = [], data, loading, onOpenTab }) {
   const navigate = useNavigate();
   const householdId = household?.id;
   const { assumptions } = data;
@@ -85,10 +86,10 @@ export default function Forecast({ household, members = [], accounts = [], trans
     return { accounts: s.unvalued, holdings: s.unpricedHoldings };
   }, [accounts, holdings]);
   const basisIncomplete = incompleteNote(basisGaps, { capitalised: false, sentence: false });
-  const monthCount = closedMonths(transactions, now).size;
+  const monthCount = closedMonths(payMonthTransactions(transactions, recurring), now).size;
   // Until three months close, the budget stands in (forecastInputs).
   const plan = useMemo(() => budgetPlan(budgets, categories, now), [budgets, categories, now]);
-  const inputs = useMemo(() => forecastInputs(transactions, startNetWorth, now, plan), [transactions, startNetWorth, now, plan]);
+  const inputs = useMemo(() => forecastInputs(transactions, startNetWorth, now, plan, recurring), [transactions, startNetWorth, now, plan, recurring]);
   const fromBudget = inputs.source === 'budget';
   const basisWord = fromBudget ? 'budgeted' : 'actual';
 

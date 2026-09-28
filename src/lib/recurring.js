@@ -54,6 +54,13 @@ export function occurrencesInWindow(dateStr, cadence, days, now = new Date(), in
   return occurrences;
 }
 
+// How many days either side of its date a payment still counts as this
+// occurrence. A bill is paid on or near its date; a salary moves with bank
+// holidays and payroll cut-offs, so expected income gets a wider window.
+export function matchWindowDays(row) {
+  return Number(row.amount) > 0 ? 10 : 5;
+}
+
 export function upcomingItems(rows, days, now = new Date()) {
   return rows
     .filter((r) => r.active !== false)
@@ -102,16 +109,20 @@ export function billStatus(row, transactions, now = new Date()) {
   if (row.ends_on && due > parseDay(row.ends_on)) return { label: 'Ended', tone: 'mute', needsAction: false, posted: false, due: null };
 
   const amount = Math.abs(Number(row.amount));
+  const windowDays = matchWindowDays(row);
   const windowStart = new Date(due);
-  windowStart.setDate(windowStart.getDate() - 5);
+  windowStart.setDate(windowStart.getDate() - windowDays);
   const windowEnd = new Date(due);
-  windowEnd.setDate(windowEnd.getDate() + 5);
+  windowEnd.setDate(windowEnd.getDate() + windowDays);
   const posted = transactions.some((t) => {
     const d = parseDay(t.occurred_at);
     if (d < windowStart || d > windowEnd) return false;
     return Math.abs(Math.abs(Number(t.amount)) - amount) <= amount * 0.2;
   });
   if (posted) return { label: 'Posted', tone: 'pos', needsAction: false, posted: true, due };
+  // Income can still arrive a few days after its date without anything being
+  // wrong: it is only late once its window has passed.
+  if (isPastCycle && Number(row.amount) > 0 && today <= windowEnd) return { label: 'Expected', tone: 'mute', needsAction: false, posted: false, due };
   if (isPastCycle) return { label: 'Late', tone: 'neg', needsAction: true, posted: false, due };
 
   const daysUntil = Math.round((due - today) / 86400000);

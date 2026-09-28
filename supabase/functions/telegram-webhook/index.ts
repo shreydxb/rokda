@@ -49,7 +49,7 @@ import { incompleteNote, netWorthSummary } from "../_shared/applib/overviewMath.
 import { accountValueAed, unvaluedAccounts } from "../_shared/applib/accounts.js";
 import { monthActualsByCategory } from "../_shared/applib/budget.js";
 import { nextDueDate, daysUntilDue } from "../_shared/applib/creditCard.js";
-import { lastDueOccurrence, upcomingItems } from "../_shared/applib/recurring.js";
+import { lastDueOccurrence, matchWindowDays, upcomingItems } from "../_shared/applib/recurring.js";
 import { isPosted, parseDay, atDayOfMonth, startOfDay, householdToday, householdYearMonth } from "../_shared/applib/day.js";
 import { isSpendRow, spendDelta } from "../_shared/applib/transactionKind.js";
 import { visibleHoldings, scopedHoldingValue, holdingGain, allocationByClass, portfolioValueChange } from "../_shared/applib/holdings.js";
@@ -1643,12 +1643,18 @@ async function phraseAnswer(
 // missed bill is never re-nagged on the next day's check.
 async function runRecurringCheck(): Promise<{ checked: number; nudged: number }> {
   const today = new Date();
-  const graceStart = new Date(today);
-  graceStart.setDate(graceStart.getDate() - 10); // don't look back further than 10 days overdue
-  const graceEnd = new Date(today);
-  graceEnd.setDate(graceEnd.getDate() - 3); // give a few days of normal processing time before nudging
-  const graceStartStr = graceStart.toISOString().slice(0, 10);
-  const graceEndStr = graceEnd.toISOString().slice(0, 10);
+  // A bill is nudged 3 to 10 days after its date. Income moves with bank
+  // holidays, so it is only nudged once its whole window (matchWindowDays)
+  // has passed, and looked for a week after that.
+  const daysAgo = (n: number) => {
+    const d = new Date(today);
+    d.setDate(d.getDate() - n);
+    return d.toISOString().slice(0, 10);
+  };
+  const nudgeWindow = (r: { amount: number }) => {
+    const wait = Number(r.amount) > 0 ? matchWindowDays(r) : 3;
+    return { from: daysAgo(wait + 7), to: daysAgo(wait) };
+  };
 
   const [{ data: activeRows }, prefs] = await Promise.all([
     supabase
@@ -1689,7 +1695,7 @@ async function runRecurringCheck(): Promise<{ checked: number; nudged: number }>
       return due ? { ...r, dueDate: due.toISOString().slice(0, 10) } : null;
     })
     // Nothing is due after a schedule's last date (the final EMI or premium).
-    .filter((r): r is NonNullable<typeof r> => r !== null && r.dueDate >= graceStartStr && r.dueDate <= graceEndStr && (!r.ends_on || r.dueDate <= r.ends_on));
+    .filter((r): r is NonNullable<typeof r> => r !== null && r.dueDate >= nudgeWindow(r).from && r.dueDate <= nudgeWindow(r).to && (!r.ends_on || r.dueDate <= r.ends_on));
 
   let nudged = 0;
   for (const r of dueRows) {
@@ -1723,10 +1729,11 @@ async function runRecurringCheck(): Promise<{ checked: number; nudged: number }>
       // paid from a different account than configured now nudges, which is
       // the right way round: an extra "forgot to log it, or paid another
       // way?" costs a message, a missed one costs a payment.
+      const windowDays = matchWindowDays(r);
       const windowStart = new Date(r.dueDate);
-      windowStart.setDate(windowStart.getDate() - 5);
+      windowStart.setDate(windowStart.getDate() - windowDays);
       const windowEnd = new Date(r.dueDate);
-      windowEnd.setDate(windowEnd.getDate() + 5);
+      windowEnd.setDate(windowEnd.getDate() + windowDays);
       let nearbyQuery = supabase
         .from("transactions")
         .select("id, amount, account_id, category_id")

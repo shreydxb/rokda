@@ -36,7 +36,8 @@ const lastsText = (years) => (years === null ? `${MAX_YEARS}+ years` : `${years}
 // the money lasts; this screen answers how much room there is.
 //
 // The controls are what-ifs held on this screen only; nothing here is saved.
-export default function Drawdown({ household, members = [], accounts = [], transactions = [], holdings = [], budgets = [], categories = [], data, loading, onOpenTab }) {
+export default function Drawdown({ household, members = [], accounts = [], transactions = [],
+  recurring = [], holdings = [], budgets = [], categories = [], data, loading, onOpenTab }) {
   const { assumptions } = data;
   const money = useMoneyDisplay(household);
   const now = useMemo(() => new Date(), []);
@@ -57,7 +58,7 @@ export default function Drawdown({ household, members = [], accounts = [], trans
   const startNetWorth = useMemo(() => startingNetWorth(accounts, holdings), [accounts, holdings]);
   // Until three months close, the budget stands in (forecastInputs).
   const plan = useMemo(() => budgetPlan(budgets, categories, now), [budgets, categories, now]);
-  const inputs = useMemo(() => forecastInputs(transactions, startNetWorth, now, plan), [transactions, startNetWorth, now, plan]);
+  const inputs = useMemo(() => forecastInputs(transactions, startNetWorth, now, plan, recurring), [transactions, startNetWorth, now, plan, recurring]);
   // Where the Life plan leaves the household when work stops, on this
   // screen's scenario. Null until someone's age is set.
   const handover = useMemo(() => {

@@ -53,6 +53,13 @@ export function lastDueOccurrence(dateStr, cadence, now = new Date(), intervalCo
   return occurrenceAt(dateStr, cadence, n - 1, intervalCount);
 }
 
+// How many days either side of its date a payment still counts as this
+// occurrence. A bill is paid on or near its date; a salary moves with bank
+// holidays and payroll cut-offs, so expected income gets a wider window.
+export function matchWindowDays(row) {
+  return Number(row.amount) > 0 ? 10 : 5;
+}
+
 export function upcomingItems(rows, days, now = new Date()) {
   return rows
     .filter((r) => r.active !== false)

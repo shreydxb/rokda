@@ -2,6 +2,7 @@ import { scopedValue } from './scope';
 import { monthKey, parseDay } from './day';
 import { applyToIncomeSpend } from './transactionKind';
 import { convertToAed } from './currency';
+import { matchWindowDays, occurrenceAt } from './recurring';
 
 // The current, still-open month is excluded — its spend is partial and would
 // understate a real month. Forecast is always household-wide ("Both"): an
@@ -11,7 +12,8 @@ export function closedMonths(transactions, now = new Date()) {
   const byMonth = new Map();
   const currentMonth = monthKey(now);
   for (const t of transactions) {
-    const key = monthKey(parseDay(t.occurred_at));
+    // A salary is counted in the month it is for (payMonthTransactions).
+    const key = monthKey(parseDay(t.pay_month_date ?? t.occurred_at));
     // A month is closed only if it is behind the current one. Excluding just
     // the current month let future-dated records become forecast history
     // (QA-06).
@@ -25,6 +27,54 @@ export function closedMonths(transactions, now = new Date()) {
   // Chronological, so "the last 12 closed months" means the newest twelve
   // rather than whichever twelve happened to be inserted last.
   return new Map([...byMonth.entries()].sort((a, b) => a[0].localeCompare(b[0])));
+}
+
+// Salary is paid on a date that moves: a bank holiday brings it forward, a
+// payroll cut-off pushes it back, sometimes into the next month. Counted by
+// the day it landed, one month would show no salary and the next two, and
+// with only a few closed months that swings every average built on them.
+//
+// So an income transaction that matches an expected-income reminder (same
+// account and category where the reminder names them, an amount within 20%,
+// within the reminder's window of an occurrence) is counted in the month of
+// that occurrence: `pay_month_date` carries it, and closedMonths reads it
+// before the date it landed. Everything else is returned unchanged.
+const PERIOD_DAYS = { weekly: 7, monthly: 30.44, quarterly: 91.31, yearly: 365.25 };
+
+function nearestOccurrence(row, date) {
+  const anchor = parseDay(row.next_due_date);
+  const every = Math.max(1, Number(row.interval_count) || 1);
+  const period = (PERIOD_DAYS[row.cadence] ?? 30.44) * every;
+  const guess = Math.round((date - anchor) / 86400000 / period);
+  let best = null;
+  for (let n = guess - 1; n <= guess + 1; n++) {
+    const occurrence = occurrenceAt(row.next_due_date, row.cadence, n, row.interval_count);
+    if (!best || Math.abs(occurrence - date) < Math.abs(best - date)) best = occurrence;
+  }
+  return best;
+}
+
+export function payMonthTransactions(transactions = [], recurring = []) {
+  const expected = recurring.filter((r) => Number(r.amount) > 0 && r.active !== false && r.next_due_date && r.cadence);
+  if (!expected.length) return transactions;
+  return transactions.map((t) => {
+    if (t.kind !== 'income' || !(Number(t.amount) > 0)) return t;
+    const landed = parseDay(t.occurred_at);
+    for (const r of expected) {
+      if (r.account_id && t.account_id !== r.account_id) continue;
+      if (r.category_id && t.category_id !== r.category_id) continue;
+      const amount = Number(r.amount);
+      if (Math.abs(Number(t.amount) - amount) > amount * 0.2) continue;
+      const due = nearestOccurrence(r, landed);
+      if (Math.abs(due - landed) > matchWindowDays(r) * 86400000) continue;
+      if (monthKey(due) === monthKey(landed)) return t;
+      const y = due.getFullYear();
+      const m = String(due.getMonth() + 1).padStart(2, '0');
+      const d = String(due.getDate()).padStart(2, '0');
+      return { ...t, pay_month_date: `${y}-${m}-${d}` };
+    }
+    return t;
+  });
 }
 
 // What the household's budget says it will spend and save in a month, for a
@@ -116,8 +166,8 @@ export function spendThatStops(args) {
 // can say so, and the budget steps aside by itself once the third month
 // closes. From a budget there is no recorded income; saving is the savings
 // target, and income is taken as spend plus that saving.
-export function forecastInputs(transactions, startNetWorth, now = new Date(), plan = null) {
-  const months = [...closedMonths(transactions, now).values()].slice(-12);
+export function forecastInputs(transactions, startNetWorth, now = new Date(), plan = null, recurring = []) {
+  const months = [...closedMonths(payMonthTransactions(transactions, recurring), now).values()].slice(-12);
   const monthCount = months.length;
   const hasNetWorth = startNetWorth !== null;
   if (monthCount < 3 && hasNetWorth && plan) {

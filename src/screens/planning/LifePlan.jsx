@@ -25,6 +25,7 @@ export default function LifePlan({
   members = [],
   accounts = [],
   transactions = [],
+  recurring = [],
   holdings = [],
   budgets = [],
   categories = [],
@@ -47,7 +48,7 @@ export default function LifePlan({
 
   const startNetWorth = useMemo(() => startingNetWorth(accounts, holdings), [accounts, holdings]);
   const plan = useMemo(() => budgetPlan(budgets, categories, now), [budgets, categories, now]);
-  const inputs = useMemo(() => forecastInputs(transactions, startNetWorth, now, plan), [transactions, startNetWorth, now, plan]);
+  const inputs = useMemo(() => forecastInputs(transactions, startNetWorth, now, plan, recurring), [transactions, startNetWorth, now, plan, recurring]);
   const stopping = useMemo(() => spendThatStops({ inputs, transactions, budgets, categories, now }), [inputs, transactions, budgets, categories, now]);
 
   // The people planned for: members with a birth year and an age to plan to.

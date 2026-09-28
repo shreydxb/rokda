@@ -1,5 +1,5 @@
 import { scopedValue } from './scope';
-import { rollForward, CADENCES } from './recurring';
+import { matchWindowDays, rollForward, CADENCES } from './recurring';
 import { trailingAverageByCategory } from './insights';
 import { monthActualsByCategory } from './budget';
 import { scopedHoldingValue, visibleHoldings } from './holdings';
@@ -28,7 +28,6 @@ function stepBack(date, cadence) {
 const RECURRING_GRACE_DAYS = 3; // how many days late before we call it missing
 const RECURRING_LOOKBACK_DAYS = 35; // stop flagging an occurrence this old
 const MATCH_AMOUNT_TOLERANCE = 0.15; // 15%
-const MATCH_WINDOW_DAYS = 5;
 
 // A recurring item whose most recently expected occurrence has passed with
 // no transaction that looks like it, on the account it's tied to.
@@ -44,11 +43,13 @@ function missingRecurringItems(recurring, transactions, scopeMemberId, now) {
     // Nothing is expected after a schedule's last date.
     if (r.ends_on && prevDue > parseDay(r.ends_on)) continue;
     const daysLate = Math.round((today - prevDue) / 86400000);
-    if (daysLate < RECURRING_GRACE_DAYS || daysLate > RECURRING_LOOKBACK_DAYS) continue;
+    // Income is only missing once its whole window has passed.
+    const windowDays = matchWindowDays(r);
+    if (daysLate < Math.max(RECURRING_GRACE_DAYS, windowDays > 5 ? windowDays : 0) || daysLate > RECURRING_LOOKBACK_DAYS) continue;
 
     const expectedAmount = Math.abs(Number(r.amount));
-    const windowStart = new Date(prevDue.getTime() - MATCH_WINDOW_DAYS * 86400000);
-    const windowEnd = new Date(prevDue.getTime() + MATCH_WINDOW_DAYS * 86400000);
+    const windowStart = new Date(prevDue.getTime() - windowDays * 86400000);
+    const windowEnd = new Date(prevDue.getTime() + windowDays * 86400000);
     const matched = transactions.some((t) => {
       if (r.account_id && t.account_id !== r.account_id) return false;
       const d = parseDay(t.occurred_at);
@@ -63,7 +64,7 @@ function missingRecurringItems(recurring, transactions, scopeMemberId, now) {
       kind: 'missing_recurring',
       severity: 'warn',
       title: `${r.name} hasn't posted`,
-      detail: `Expected ~${prevDue.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} · no matching transaction in the ${MATCH_WINDOW_DAYS * 2 + 1}-day window around it`,
+      detail: `Expected ~${prevDue.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} · no matching transaction in the ${windowDays * 2 + 1}-day window around it`,
     });
   }
   return items;
