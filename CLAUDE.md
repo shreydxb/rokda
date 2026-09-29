@@ -67,7 +67,9 @@ applied migrations and deployed Edge Functions match the commit.
 
 ## Git
 
-- Work on the branch the session names. After a merge, reset it to
-  `origin/main` and force-push with lease before the next piece of work.
+- Work on the branch the session names. After a merge, wait until CI has
+  started on `main` for the merge commit, then reset the branch to
+  `origin/main` and force-push with lease. Pushing the same commit to the
+  branch first can leave `main` with no CI run, so no Pages deploy.
 - The user reviews and asks for merges; do not merge without being asked.
 - Commit messages: a short subject, then what changed and why.

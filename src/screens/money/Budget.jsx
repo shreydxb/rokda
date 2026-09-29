@@ -247,7 +247,8 @@ function MonthView({ cursor, setCursor, budgets, savingsBudgets, transactions, c
 
 // Who carries what this month. Each person's budget is their own lines plus
 // their split of the shared ones; below it, what each has paid so far against
-// their part of what was spent, and the one transfer that evens it up.
+// their part of what was spent, and the one transfer that evens it up. The
+// wording stays neutral: it is a balancing figure, not a debt.
 // Household-wide whatever the scope: a split is between the two of you.
 function HouseholdShare({ members, categories, budgets, transactions, accounts, recurring, year, month, pace, now }) {
   const share = householdShare({ members, categories, budgets, transactions, accounts, recurring, year, month, now });
@@ -298,12 +299,11 @@ function HouseholdShare({ members, categories, budgets, transactions, accounts, 
           <div className="bud-share-settle">
             {share.settle ? (
               <>
-                {share.settle.from.display_name} owes {share.settle.to.display_name}{' '}
-                <span className="fig">{formatMoney(share.settle.amount)}</span>
-                {pace.isPast ? ' for the month' : ' so far'}
+                To even up{pace.isPast ? ' for the month' : ' so far'}: <span className="fig">{formatMoney(share.settle.amount)}</span> from{' '}
+                {share.settle.from.display_name} to {share.settle.to.display_name}
               </>
             ) : (
-              <>Even {pace.isPast ? 'for the month' : 'so far'}</>
+              <>All even {pace.isPast ? 'for the month' : 'so far'}</>
             )}
           </div>
           <div className="bud-share-paid">

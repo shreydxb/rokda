@@ -485,3 +485,18 @@ titled notes in plain text with light markdown, readable and editable by the
 household only. It is not stored in the repository because the repository is
 public. Notes are rendered as elements, never as HTML, so a note can hold
 anything without it being run as markup.
+
+## A pasted SMS with no date is not dated today
+
+Some bank SMS carry no date. Pasted into the bot days later, each one used to
+be dated the day it was pasted, and a "yes" recorded it that way.
+
+- The parser returns a date only when one is written in the message or on
+  the receipt ("yesterday" and "on Friday" count). It says where the text
+  came from: a bank SMS, a receipt, or something typed.
+- **Typed with no date** ("12 coffee") is still today. That is almost always
+  when it was spent, and it keeps the one-word confirm.
+- **A bank SMS or receipt with no date** is dated the day it was forwarded,
+  when Telegram says, or else today. It is marked `date_guessed`, and is
+  never offered for a "yes" or bulk approval. The reply says it had no date.
+  The Inbox flags the date and opens the editor when Approve is pressed.

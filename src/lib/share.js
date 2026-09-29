@@ -111,7 +111,7 @@ export function householdShare({ members = [], categories = [], budgets = [], tr
     net: paid.get(m.id) - responsible.get(m.id),
   }));
 
-  // Two people: whoever paid less than their part owes the other the gap.
+  // Two people: whoever paid less than their part makes up the gap to the other.
   // Under a dirham either way is even.
   let settle = null;
   if (people.length === 2) {

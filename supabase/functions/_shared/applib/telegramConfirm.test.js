@@ -245,3 +245,10 @@ describe('a correction is targeted the same way a confirmation is', () => {
     expect(resolveCorrectionTarget({ lookup: PROMPT_FOUND, row: unready }).kind).toBe('one');
   });
 });
+
+describe('a guessed date is never confirmed with a "yes"', () => {
+  it('holds back an entry whose date the message did not give', () => {
+    expect(isReadyForFastConfirm(pending())).toBe(true);
+    expect(isReadyForFastConfirm(pending({ date_guessed: true }))).toBe(false);
+  });
+});

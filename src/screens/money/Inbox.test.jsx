@@ -141,3 +141,38 @@ describe('QA-11: Inbox approval goes through one atomic call', () => {
     expect(calls[0].args.p_kind).toBe('income');
   });
 });
+
+// SHR-310: a bank SMS with no date is dated the day it was sent to the bot.
+// The Inbox must say so, and must not approve it as read.
+describe('SHR-310: a guessed date is checked before approval', () => {
+  beforeEach(() => {
+    calls.length = 0;
+  });
+
+  const GUESSED = { ...ITEM, parsed_account_id: 'acc-1', parsed_category_id: 'cat-1', date_guessed: true, confidence: 1 };
+  const renderGuessed = () =>
+    renderScreen(
+      <Inbox
+        members={MEMBERS}
+        accounts={ACCOUNTS}
+        categories={[{ id: 'cat-1', name: 'Groceries', kind: 'expense' }]}
+        loading={false}
+        data={{ intake: [GUESSED], categoryRules: [], reload: vi.fn().mockResolvedValue(undefined) }}
+      />,
+    );
+
+  it('flags the date as not in the message', () => {
+    renderGuessed();
+    expect(screen.getByText('Not in the message; check it')).toBeTruthy();
+    expect(screen.getByText('Check the flagged rows')).toBeTruthy();
+  });
+
+  it('opens the editor instead of approving the guessed date', async () => {
+    renderGuessed();
+    await act(async () => {
+      screen.getByRole('button', { name: 'Approve' }).click();
+    });
+    expect(calls.filter((c) => c.kind === 'rpc')).toHaveLength(0);
+    expect(screen.getByRole('alert').textContent).toMatch(/had no date/);
+  });
+});

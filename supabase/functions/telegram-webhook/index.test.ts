@@ -306,7 +306,7 @@ Deno.env.set("TELEGRAM_BOT_TOKEN", TOKEN);
 Deno.env.set("OPENROUTER_API_KEY", "openrouter-test");
 
 reset();
-const { accountsForCheckin, buildBalanceCheckinMessage, merchantHistoryMatches, pickAccountByHint, pickCheckinAccount } = await import("./index.ts");
+const { accountsForCheckin, buildBalanceCheckinMessage, datedItems, forwardedDay, merchantHistoryMatches, pickAccountByHint, pickCheckinAccount, undatedNote } = await import("./index.ts");
 assert(handler!, "index.ts did not register a handler with Deno.serve");
 
 // ---------------------------------------------------------------------------
@@ -555,6 +555,63 @@ freshTest("a correction with nothing pending is captured as a new entry", async 
   backend.route = { tool: "update_last_expense", args: {} };
   await handler(textUpdate(7103, "actually 45"));
   assertEquals(capturedIntake().length, 1);
+});
+
+Deno.test("a bank SMS or receipt with no date is dated when it was sent, and marked a guess", () => {
+  const base = { merchant: "Cafe", amount: 20, currency: null, categoryName: null, cardLast4: null, accountHint: null, confidence: 1, kind: "expense" as const };
+  const [stated, typed, sms, receipt] = datedItems(
+    [
+      { ...base, occurred_at: "2026-09-20", dateStated: true, source: "bank_sms" },
+      { ...base, occurred_at: null, dateStated: false, source: "typed" },
+      { ...base, occurred_at: null, dateStated: false, source: "bank_sms" },
+      { ...base, occurred_at: "2026-09-29", dateStated: false, source: "receipt" },
+    ],
+    "2026-09-29",
+    "2026-09-27",
+  );
+  // A written date stands.
+  assertEquals([stated.occurred_at, stated.dateGuessed], ["2026-09-20", false]);
+  // "12 coffee" typed now is today, as it always was.
+  assertEquals([typed.occurred_at, typed.dateGuessed], ["2026-09-29", false]);
+  // Pasted later: the day it was forwarded, and flagged.
+  assertEquals([sms.occurred_at, sms.dateGuessed], ["2026-09-27", true]);
+  // A date the model filled in itself is not trusted either.
+  assertEquals([receipt.occurred_at, receipt.dateGuessed], ["2026-09-27", true]);
+  // Not forwarded: today, still flagged.
+  assertEquals(datedItems([{ ...base, occurred_at: null, dateStated: false, source: "bank_sms" }], "2026-09-29")[0].occurred_at, "2026-09-29");
+});
+
+Deno.test("a forwarded message's day is read in Dubai time, from either field Telegram uses", () => {
+  // 21:30 UTC on 27 Sep is already 28 Sep in Dubai.
+  const late = Date.UTC(2026, 8, 27, 21, 30) / 1000;
+  assertEquals(forwardedDay({ forward_origin: { type: "user", date: late } }), "2026-09-28");
+  assertEquals(forwardedDay({ forward_date: late }), "2026-09-28");
+  assertEquals(forwardedDay({ text: "hi" }), null);
+  assertEquals(forwardedDay(undefined), null);
+});
+
+Deno.test("the capture reply says which entries had no date", () => {
+  assertEquals(undatedNote([], 3), "");
+  assert(undatedNote(["2026-09-29"], 1).includes("It had no date, so it's put on 2026-09-29"));
+  assert(undatedNote(["2026-09-29", "2026-09-29"], 2).startsWith(" None had a date"));
+  assert(undatedNote(["2026-09-29"], 3).startsWith(" 1 had no date, so those are put on 2026-09-29"));
+});
+
+freshTest("a pasted SMS with no date waits in the Inbox instead of being offered a yes", async () => {
+  backend.tables.accounts.push(MARRIOTT, NOON);
+  backend.tables.categories.push({ id: "cat-dining", household_id: HOUSEHOLD, name: "Dining Out", archived: false, is_savings: false });
+  backend.parse = [{ merchant: "Noon", amount: 42, currency: "AED", occurred_at: "2026-09-24", date_stated: false, source: "bank_sms", category: "Dining Out", card_last4: null, account_hint: "ENBD Noon", confidence: 1, kind: "expense" }];
+  await handler(textUpdate(7104, "AED 42.00 spent at NOON on your card"));
+  const [row] = capturedIntake();
+  assertEquals(row.date_guessed, true);
+  // The model's own date is not trusted when it says none was written: the
+  // entry is dated the day it was sent (not forwarded here, so today).
+  assert(row.parsed_date !== "2026-09-24" && /^\d{4}-\d{2}-\d{2}$/.test(String(row.parsed_date)), `dated ${row.parsed_date}`);
+  const replies = backend.telegramSent.map((m) => String(m.body.text ?? ""));
+  assert(!replies.some((t) => t.includes('reply "yes"')), `a guessed date was offered for a yes: ${replies.join(" | ")}`);
+  assert(replies.some((t) => t.includes("It had no date")), `the reply did not say the date was missing: ${replies.join(" | ")}`);
+  // The parser is told not to invent a date.
+  assert(backend.parsePrompts[0].includes("never fill in today's date yourself"), "the parser was not told to leave a missing date empty");
 });
 
 Deno.test("a brand does not inherit the category of its own sub-service", () => {

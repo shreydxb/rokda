@@ -24,7 +24,7 @@ here, because this repository is public.
   against what the month actually saved, never counted as spending.
   One person's own lines carry their name. **Household share** shows each
   person's plan (own lines plus their income-proportional split of the shared
-  ones), what each paid against their part, and who owes whom.
+  ones), what each paid against their part, and the one transfer that evens it up.
 - **Recurring**: bills and expected income on a cadence, with an optional
   last date and amounts in AED, USD or INR. Status per occurrence (Paid,
   Posted, Expected, Late, Ended). Income is matched within 10 days of its
@@ -72,7 +72,7 @@ here, because this repository is public.
 ## Telegram bot (`supabase/functions/telegram-webhook`)
 
 - Logs expenses, income and refunds from plain text or pasted bank SMS,
-  several at once. It picks the account by card name or last digits and the
+  several at once. An SMS or receipt with no date is dated the day it was sent and flagged in the Inbox for the real date. It picks the account by card name or last digits and the
   category from rules and merchant history. Anything uncertain goes to the
   Inbox.
 - Answers questions: spending by category, net worth, account balances,
