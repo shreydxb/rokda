@@ -24,7 +24,7 @@ here, because this repository is public.
   against what the month actually saved, never counted as spending.
   One person's own lines carry their name. **Household share** shows each
   person's plan (own lines plus their income-proportional split of the shared
-  ones), what each paid against their part, and who owes whom.
+  ones), what each paid against their part, and the one transfer that evens it up.
 - **Recurring**: bills and expected income on a cadence, with an optional
   last date and amounts in AED, USD or INR. Status per occurrence (Paid,
   Posted, Expected, Late, Ended). Income is matched within 10 days of its

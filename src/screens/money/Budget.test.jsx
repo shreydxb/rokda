@@ -48,12 +48,13 @@ describe('Budget: household share', () => {
     vi.useRealTimers();
   });
 
-  it('splits shared lines by income and says who owes whom', () => {
+  it('splits shared lines by income and gives the one transfer that evens it up', () => {
     renderShare(TWO);
     const section = screen.getByLabelText('Household share');
     expect(section.textContent).toMatch(/Shreyash 75% · Tarika 25%/);
     // Her part of the rent he paid: 25% of 6,000.
-    expect(section.querySelector('.bud-share-settle').textContent).toMatch(/Tarika owes Shreyash\s*\S*1,500 so far/);
+    expect(section.querySelector('.bud-share-settle').textContent).toMatch(/To even up so far:\s*\S*1,500 from Tarika to Shreyash/);
+    expect(section.textContent).not.toMatch(/owes/);
   });
 
   it('labels one person’s own lines in the budget', () => {
