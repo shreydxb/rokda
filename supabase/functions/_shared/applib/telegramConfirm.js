@@ -38,6 +38,8 @@ export function isReadyForFastConfirm(row) {
     row.parsed_amount != null &&
     Number(row.parsed_amount) > 0 &&
     !!row.parsed_date &&
+    // A date the message never gave is a guess: a "yes" would record it as fact.
+    !row.date_guessed &&
     !!row.parsed_category_id &&
     !!row.parsed_account_id &&
     (row.parsed_currency == null || row.parsed_currency === 'AED') &&

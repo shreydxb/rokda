@@ -45,6 +45,7 @@ function isConfident(item) {
     item.parsed_amount !== null &&
     Number(item.parsed_amount) > 0 &&
     !!item.parsed_date &&
+    !item.date_guessed &&
     !!item.parsed_category_id &&
     !!item.parsed_account_id &&
     (item.parsed_currency == null || item.parsed_currency === 'AED') &&
@@ -255,18 +256,26 @@ function IntakeReview({ item, sender, accounts, members, categories, categoryRul
   const accountById = new Map(accounts.map((a) => [a.id, a]));
   const suggestedAccount = item.parsed_account_id ? accountById.get(item.parsed_account_id) : null;
   const suggestedCategory = item.parsed_category_id ? catById.get(item.parsed_category_id) : null;
-  const lowConfidence = item.confidence !== null && Number(item.confidence) < READ_CLEANLY_THRESHOLD;
+  const lowConfidence = (item.confidence !== null && Number(item.confidence) < READ_CLEANLY_THRESHOLD) || !!item.date_guessed;
 
   const fields = [
     { label: 'Merchant', value: item.parsed_merchant ?? 'Not read', hint: item.parsed_merchant ? '' : 'Nothing readable', ok: !!item.parsed_merchant },
     { label: 'Amount', value: item.parsed_amount !== null ? `AED ${formatMoney(item.parsed_amount)}` : 'Not read', hint: '', ok: item.parsed_amount !== null },
-    { label: 'Date', value: item.parsed_date ?? 'Not read', hint: '', ok: !!item.parsed_date },
+    // A bank SMS or receipt with no date on it is dated the day it was sent
+    // to the bot, which is rarely the day it was paid.
+    { label: 'Date', value: item.parsed_date ?? 'Not read', hint: item.date_guessed ? 'Not in the message; check it' : '', ok: !!item.parsed_date && !item.date_guessed },
     { label: 'Category', value: suggestedCategory?.name ?? 'Uncategorised', hint: item.parsed_category_id ? '' : 'No rule matched', ok: !!item.parsed_category_id },
     { label: 'Account', value: suggestedAccount?.name ?? 'Not matched', hint: item.parsed_account_id ? '' : 'Ambiguous or unmatched', ok: !!item.parsed_account_id },
     { label: 'Currency', value: item.parsed_currency ?? 'AED', hint: item.parsed_currency && item.parsed_currency !== 'AED' ? 'Not AED -- needs a manual AED amount' : '', ok: !item.parsed_currency || item.parsed_currency === 'AED' },
   ];
 
   async function approveDirect() {
+    // Approving as read would record the guessed date as fact.
+    if (item.date_guessed) {
+      setMode('edit');
+      setError('The message had no date, so set the day it was actually paid, then approve.');
+      return;
+    }
     const form = {
       accountId: item.parsed_account_id,
       amount: item.parsed_amount,

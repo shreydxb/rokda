@@ -72,7 +72,7 @@ here, because this repository is public.
 ## Telegram bot (`supabase/functions/telegram-webhook`)
 
 - Logs expenses, income and refunds from plain text or pasted bank SMS,
-  several at once. It picks the account by card name or last digits and the
+  several at once. An SMS or receipt with no date is dated the day it was sent and flagged in the Inbox for the real date. It picks the account by card name or last digits and the
   category from rules and merchant history. Anything uncertain goes to the
   Inbox.
 - Answers questions: spending by category, net worth, account balances,

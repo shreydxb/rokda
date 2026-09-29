@@ -991,4 +991,25 @@ begin
   raise notice 'category owner ok: same-household members only';
 end $$;
 
+-- Intake dates: a date the message did not give is marked as a guess, and an
+-- entry is taken as dated unless the bot says otherwise.
+do $$
+declare
+  guessed boolean;
+begin
+  insert into intake (household_id, source, raw_text, parsed_date)
+  values ('11111111-1111-1111-1111-111111111111', 'telegram', 'AED 20 at Cafe', '2026-09-29')
+  returning date_guessed into guessed;
+  if guessed is distinct from false then
+    raise exception 'intake date FAILED: a new entry was taken as undated (got %)', guessed;
+  end if;
+  insert into intake (household_id, source, raw_text, parsed_date, date_guessed)
+  values ('11111111-1111-1111-1111-111111111111', 'telegram', 'AED 30 at Shop', '2026-09-29', true)
+  returning date_guessed into guessed;
+  if guessed is not true then
+    raise exception 'intake date FAILED: the guess was not kept';
+  end if;
+  raise notice 'intake date ok: dated unless marked a guess';
+end $$;
+
 rollback;

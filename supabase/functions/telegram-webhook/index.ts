@@ -305,6 +305,10 @@ type ParsedItem = {
   accountHint: string | null;
   confidence: number;
   kind: IntakeKind;
+  // Whether the date came from the message itself. A bank SMS or receipt
+  // with no date on it, pasted later, is not from today; see datedItems.
+  dateStated: boolean;
+  source: "bank_sms" | "receipt" | "typed";
 };
 
 function parseItemFields(parsed: Record<string, unknown>): ParsedItem {
@@ -332,7 +336,45 @@ function parseItemFields(parsed: Record<string, unknown>): ParsedItem {
     accountHint,
     confidence,
     kind,
+    // A missing flag means the model followed the old contract, in which a
+    // date it returned was one it read; only an explicit false says otherwise.
+    dateStated: parsed.date_stated !== false && occurredAt !== null,
+    source: parsed.source === "bank_sms" || parsed.source === "receipt" ? parsed.source : "typed",
   };
+}
+
+// Dates the items a message produced. A date written in the message is kept.
+// Typed with no date ("12 coffee") means today, as it always has. But a bank
+// SMS or receipt with no date on it was usually pasted some time after the
+// payment: it is dated the day it was forwarded, when Telegram says, or else
+// today, and flagged so the Inbox asks for the real date instead of it being
+// confirmed with a guess.
+export function datedItems(items: ParsedItem[], today: string, forwardedOn: string | null = null): Array<ParsedItem & { dateGuessed: boolean }> {
+  return items.map((item) => {
+    if (item.dateStated && item.occurred_at) return { ...item, dateGuessed: false };
+    if (item.source === "typed") return { ...item, occurred_at: item.occurred_at ?? today, dateGuessed: false };
+    return { ...item, occurred_at: forwardedOn ?? today, dateGuessed: true };
+  });
+}
+
+// The day a forwarded message was first sent, in the household's time zone,
+// or null when it was not forwarded. Telegram gives it as forward_origin.date
+// (current) or forward_date (older clients), in Unix seconds.
+export function forwardedDay(message: Record<string, unknown> | undefined): string | null {
+  const origin = message?.forward_origin as Record<string, unknown> | undefined;
+  const seconds = typeof origin?.date === "number" ? origin.date : typeof message?.forward_date === "number" ? message.forward_date : null;
+  return seconds ? householdToday(new Date(seconds * 1000)) : null;
+}
+
+// The line added to a capture reply when some of what was sent had no date:
+// which date it was given, and that it waits in the Inbox for the real one.
+export function undatedNote(guessedDates: string[], total: number): string {
+  if (guessedDates.length === 0) return "";
+  const days = [...new Set(guessedDates)];
+  const when = days.length === 1 ? `put on ${days[0]}` : "dated the day they were sent";
+  if (total === 1) return ` It had no date, so it's ${when} for now — set the real date in the Inbox.`;
+  const which = guessedDates.length === total ? "None had a date, so they're" : `${guessedDates.length} had no date, so those are`;
+  return ` ${which} ${when} for now — set the real dates in the Inbox.`;
 }
 
 // Calls OpenRouter (Gemini 2.5 Flash Lite: cheap, vision-capable, reliable
@@ -371,7 +413,9 @@ async function parseIntakeWithAI(params: {
     `The message may be free-form text, or a bank/card SMS notification copy-pasted verbatim (e.g. "AED 38.80 spent on your card ending 1234 at FILLI CAFE LLC DXB on 05-09-26 14:32") -- extract from either the same way; a bank SMS almost always describes exactly one. ` +
     `Today's date is ${today}. ` +
     `Respond with ONLY a JSON object, no markdown, matching exactly: ` +
-    `{"items": [{"merchant": string|null, "amount": number|null, "currency": string|null, "occurred_at": "YYYY-MM-DD"|null, "category": string|null, "card_last4": string|null, "account_hint": string|null, "confidence": number, "kind": "expense"|"income"|"refund"}, ...]} ` +
+    `{"items": [{"merchant": string|null, "amount": number|null, "currency": string|null, "occurred_at": "YYYY-MM-DD"|null, "date_stated": boolean, "source": "bank_sms"|"receipt"|"typed", "category": string|null, "card_last4": string|null, "account_hint": string|null, "confidence": number, "kind": "expense"|"income"|"refund"}, ...]} ` +
+    `"occurred_at" is the date written in the message or on the receipt, with relative words ("yesterday", "on Friday") resolved against today's date; "date_stated" is true only then. When no date is written anywhere, "occurred_at" is null and "date_stated" is false -- never fill in today's date yourself. ` +
+    `"source" is "bank_sms" for a bank or card notification pasted in, "receipt" for a receipt photo, and "typed" for anything a person wrote themselves. ` +
     `One item per distinct amount. Shared details (date, account, merchant if it applies to all) should be repeated on every item rather than left null just because it was only stated once in the message. ` +
     `"kind" is "expense" if money left the account (a purchase, a bill paid, an EMI) -- this is the default for almost everything. "income" if money arrived that ISN'T tied to a specific earlier expense (a salary credit, a gift received, interest, cashback treated as a reward rather than a refund). "refund" if money came back specifically because an earlier purchase was returned, cancelled or reimbursed (e.g. "got a refund from Noon for the return", "airline refunded my ticket"). When genuinely unsure between income and refund, prefer "income" -- a refund wrongly filed as income is a smaller mistake than one that tries and fails to link to a specific past purchase. ` +
     `"currency" is the real currency of the amount if stated or clearly implied (e.g. "AED", "USD", "INR") -- null if genuinely unstated. Never assume AED just because the household is AED-based -- only state it if the message actually says or implies it. ` +
@@ -684,7 +728,7 @@ type PendingIntakeRow = {
 };
 
 const RECENT_INTAKE_COLUMNS =
-  "id, status, raw_text, created_at, parsed_merchant, parsed_amount, parsed_date, parsed_category_id, parsed_account_id, parsed_currency, parsed_kind, confidence, confirm_chat_id, confirm_message_id";
+  "id, status, raw_text, created_at, parsed_merchant, parsed_amount, parsed_date, parsed_category_id, parsed_account_id, parsed_currency, parsed_kind, confidence, date_guessed, confirm_chat_id, confirm_message_id";
 
 // The intake whose fast-confirm prompt is THIS message, found by the prompt
 // itself rather than by searching the recent list.
@@ -2741,15 +2785,15 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
         // A correction targets the one existing pending row, so only the
         // first extracted item is used even if the model finds more --
         // multi-item corrections aren't supported, same as before.
-        const parsed =
-          (await parseIntakeWithAI({
-            rawText: combinedText,
-            imageBase64: null,
-            imageMime: null,
-            categoryNames: (categories ?? []).map((c) => c.name),
-            householdId: member.household_id,
-            memberId: member.id,
-          }))?.[0] ?? null;
+        const reparsed = await parseIntakeWithAI({
+          rawText: combinedText,
+          imageBase64: null,
+          imageMime: null,
+          categoryNames: (categories ?? []).map((c) => c.name),
+          householdId: member.household_id,
+          memberId: member.id,
+        });
+        const parsed = reparsed?.length ? datedItems([reparsed[0]], householdToday(), forwardedDay(message))[0] : null;
         const matchedCategory = parsed
           ? (await matchCategoryFromMerchantHistory(member.household_id, parsed.merchant)) ??
             (parsed.categoryName ? (categories ?? []).find((c) => c.name.toLowerCase() === parsed.categoryName!.toLowerCase()) ?? null : null)
@@ -2766,6 +2810,7 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
           parsed_account_id: matchedAccount?.id ?? null,
           parsed_kind: parsed?.kind ?? null,
           confidence: parsed?.confidence ?? 0,
+          date_guessed: parsed?.dateGuessed ?? false,
         };
         await supabase
           .from("intake")
@@ -2933,6 +2978,7 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
   // succeeded -- its failure must never surface as this message's failure.
   let fastConfirmSummary: string | null = null;
   const multiItemSummaries: string[] = [];
+  const guessedDates: string[] = [];
   try {
     const { data: categories } = await supabase
       .from("categories")
@@ -2942,7 +2988,7 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
       // Nothing is filed under a savings category as spending.
       .eq("is_savings", false);
 
-    const items = await parseIntakeWithAI({
+    const parsedItems = await parseIntakeWithAI({
       rawText,
       imageBase64: photoBase64,
       imageMime: photoMime,
@@ -2950,6 +2996,7 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
       householdId: member.household_id,
       memberId: member.id,
     });
+    const items = parsedItems ? datedItems(parsedItems, householdToday(), forwardedDay(message)) : null;
 
     // A message can describe more than one expense ("bought two plants for
     // 260 and 50") -- the first item updates the row already inserted
@@ -2975,7 +3022,9 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
           parsed_account_id: matchedAccount?.id ?? null,
           parsed_kind: item.kind,
           confidence: item.confidence,
+          date_guessed: item.dateGuessed,
         };
+        if (item.dateGuessed) guessedDates.push(item.occurred_at!);
 
         if (i === 0) {
           await supabase.from("intake").update(updatedRow).eq("id", inserted.id);
@@ -3031,9 +3080,9 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
   } else {
     await reply(
       chatId,
-      multiItemSummaries.length > 1
+      (multiItemSummaries.length > 1
         ? `Got it — ${multiItemSummaries.length} expenses captured (${multiItemSummaries.join(", ")}). Check the Inbox to review each.`
-        : "Got it — check the Inbox to review."
+        : "Got it — check the Inbox to review.") + undatedNote(guessedDates, multiItemSummaries.length > 1 ? multiItemSummaries.length : 1)
     );
   }
   return new Response("ok");
