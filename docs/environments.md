@@ -27,7 +27,10 @@ fallback and the rule that skips builds are in `netlify.toml`, which
 overrides the dashboard. A production deploy costs 15 of the free plan's
 monthly credits; `scripts/netlify-ignore.sh` skips the build when nothing
 the site is built from changed since the last commit Netlify built, and a
-commit message containing `[skip netlify]` skips it outright. A rebuild of
+commit message containing `[skip netlify]` skips it outright. Deploy previews
+and branch deploys never build (they would run unreviewed code against the
+household's database); lift that in `netlify.toml` only once they have an
+isolated database of their own. A rebuild of
 the commit Netlify last built always runs (Deploys → Trigger deploy). After
 a change that is not in the repository, such as an environment variable, a
 trigger on a later commit may be skipped as unchanged; a commit touching

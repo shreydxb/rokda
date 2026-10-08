@@ -63,3 +63,14 @@
   from = "/*"
   to = "/index.html"
   status = 200
+
+# Deploy previews and branch deploys build with whatever Supabase variables
+# the dashboard gives them, which are the household's own: a preview of an
+# open pull request would run unreviewed code against live data
+# (docs/environments.md). Until an isolated database exists for them, they
+# never build, whatever the dashboard says. Production is unaffected.
+[context.deploy-preview]
+  ignore = "exit 0"
+
+[context.branch-deploy]
+  ignore = "exit 0"
