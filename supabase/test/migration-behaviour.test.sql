@@ -1120,6 +1120,92 @@ begin
 
   update households set inr_per_aed = 25 where id = hh;
   raise notice 'household day ok: Dubai''s date for deposits and undated transactions; rupee accounts follow their own household''s rate, are unknown without one, and are not edited by it';
+-- The membership helpers live in private, out of the API schema, and every
+-- policy is still bound to them there. The move relies on PostgreSQL storing
+-- the function a policy calls by OID, so this checks the result rather than
+-- trusting the mechanism: no policy may call the public names (now
+-- invoker-rights wrappers), anon must reach neither, and the two roles
+-- policies run as must keep EXECUTE.
+do $$
+declare
+  n int;
+  receipts text;
+begin
+  select count(*) into n
+  from pg_proc p join pg_namespace s on s.oid = p.pronamespace
+  where s.nspname = 'private'
+    and p.proname in ('is_household_member', 'is_household_owner')
+    and p.prosecdef
+    and p.proconfig @> array['search_path=""'];
+  if n <> 2 then
+    raise exception 'helpers FAILED: % of 2 membership helpers are SECURITY DEFINER in private with an empty search_path', n;
+  end if;
+
+  if exists (
+    select 1 from pg_proc p join pg_namespace s on s.oid = p.pronamespace
+    where s.nspname = 'public' and p.proname in ('is_household_member', 'is_household_owner') and p.prosecdef
+  ) then
+    raise exception 'helpers FAILED: a SECURITY DEFINER membership helper is still in the API schema';
+  end if;
+
+  -- pg_policies prints a function's schema only when its bare name would not
+  -- resolve to it, and the bare names now resolve to the public wrappers. So
+  -- a policy bound to private reads "private.is_household_...(", and one
+  -- bound to a wrapper reads the bare name.
+  select count(*) into n from pg_policies
+  where concat_ws(' ', qual, with_check) ~ '(^|[^.[:alnum:]_])is_household_(member|owner)\(';
+  if n <> 0 then
+    raise exception 'helpers FAILED: % policies call the public wrappers rather than private.*', n;
+  end if;
+
+  select count(*) into n from pg_policies
+  where concat_ws(' ', qual, with_check) ~ 'private\.is_household_(member|owner)\(';
+  if n < 50 then
+    raise exception 'helpers FAILED: only % policies call the private helpers; the move lost some', n;
+  end if;
+
+  select qual into receipts from pg_policies
+  where schemaname = 'storage' and policyname = 'household members can read their receipt photos';
+  if receipts is null or receipts not like '%private.is_household_member(%' then
+    raise exception 'helpers FAILED: the receipt bucket policy does not call private.is_household_member() (%)', receipts;
+  end if;
+
+  if has_schema_privilege('anon', 'private', 'usage')
+     or has_function_privilege('anon', 'private.is_household_member(uuid)', 'execute')
+     or has_function_privilege('anon', 'private.is_household_owner(uuid)', 'execute')
+     or has_function_privilege('anon', 'public.is_household_member(uuid)', 'execute')
+     or has_function_privilege('anon', 'public.is_household_owner(uuid)', 'execute') then
+    raise exception 'helpers FAILED: anon can reach a membership helper';
+  end if;
+
+  if not (has_schema_privilege('authenticated', 'private', 'usage')
+      and has_function_privilege('authenticated', 'private.is_household_member(uuid)', 'execute')
+      and has_function_privilege('authenticated', 'private.is_household_owner(uuid)', 'execute')
+      and has_function_privilege('service_role', 'private.is_household_member(uuid)', 'execute')
+      and has_function_privilege('service_role', 'private.is_household_owner(uuid)', 'execute')) then
+    raise exception 'helpers FAILED: authenticated or service_role lost EXECUTE on a helper every policy calls';
+  end if;
+
+  raise notice 'helpers ok: membership helpers are private definer functions, every policy calls them there, anon reaches neither';
+end $$;
+
+-- One household per Rokda: create_household() keeps the shape the helpers
+-- have (definer rights, nothing on its path) and stays out of anon's reach.
+do $$
+begin
+  if not exists (
+    select 1 from pg_proc
+    where oid = 'public.create_household(text, text)'::regprocedure
+      and prosecdef
+      and proconfig @> array['search_path=""']
+  ) then
+    raise exception 'one-household FAILED: create_household() is not SECURITY DEFINER with an empty search_path';
+  end if;
+  if has_function_privilege('anon', 'public.create_household(text, text)', 'execute')
+     or not has_function_privilege('authenticated', 'public.create_household(text, text)', 'execute') then
+    raise exception 'one-household FAILED: create_household() grants changed';
+  end if;
+  raise notice 'one-household ok: create_household() is a definer function with an empty path, for signed-in callers only';
 end $$;
 
 rollback;

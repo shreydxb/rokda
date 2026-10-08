@@ -547,3 +547,82 @@ last edited, to holdings valued at today's.
 - Converting when read, rather than storing the AED figure, would have meant
   every screen and the bot fetching the rate. All of them already read
   `balance_aed`.
+
+## One household per Rokda, and no sign-ups
+
+Rokda is one household's ledger. Its logins are made by hand in the Supabase
+dashboard (Authentication → Users → Add user), and new sign-ups are switched
+off there (Authentication → Sign In / Providers → "Allow new users to sign
+up"). The publishable key ships in every build, so with sign-ups on, anyone
+could have made a login with it.
+
+A login alone could not read the household's records, but it could call
+`create_household()`, the way the first owner founds an empty database, and
+get a household of its own to write into. That function now founds the
+household only when there is none: once any household exists it refuses
+everyone, and it still refuses someone who already belongs to one. Two first
+sign-ins racing on an empty database are serialised, so only one founds it.
+
+People join the existing household the way they already did: an owner adds
+them in Settings → Household (as a placeholder until they have a login), and
+their login is linked to that member row.
+
+`supabase/config.toml` records `enable_signup = false` and the redirect URLs,
+but the hosted project is not known to read its `[auth]` section. The
+dashboard is what is live; `docs/environments.md` lists what to check there.
+
+## A reset link asks for a new password before anything else
+
+"Forgot password?" emails a link that signs the person in. It used to do only
+that: the link opened the app with the old password still unknown and no way
+to set another. It also pointed at `/login` on the host's root, which is
+outside the app on GitHub Pages, where Rokda lives under `/rokda/`.
+
+Now the link lands on the app's own root, base path included, and the app
+shows **Set a new password** and nothing else until a new password is saved
+(`supabase.auth.updateUser`) or the person signs out.
+
+- Recovery starts on supabase-js's `PASSWORD_RECOVERY` event, or as soon as
+  the page sees `type=recovery` in the link, so the ledger does not flash
+  first.
+- It survives a reload of that screen (sessionStorage), and ends only when
+  the password is saved or the person signs out. `SIGNED_IN` does not end it:
+  supabase-js emits that on every reload and whenever the tab regains focus.
+- It is a prompt, not a lock. The link's session is a real session either
+  way; the screen exists so the person leaves with a password they know.
+- A link that has expired or was already used signs nobody in. Supabase sends
+  the person back with the reason in the address, and Sign in opens on
+  **Reset password** saying so, ready to send a new link. The wording is the
+  app's own: the description in the address is never shown, because anyone
+  can write a link that carries one. The message is gone once anyone signs
+  in.
+- The redirect has to be on the project's allow-list (Authentication → URL
+  Configuration → Redirect URLs), or Supabase silently sends the link to the
+  Site URL instead. Both hosts are on it: the Netlify site, which is the main
+  address, and the GitHub Pages fallback.
+
+## Membership checks live outside the API schema
+
+Every row-level policy asks one of two questions: is the caller a member of
+this household (`is_household_member`), or an owner of it
+(`is_household_owner`). Both are SECURITY DEFINER, because they read
+`household_members`, which is itself behind RLS. They used to sit in
+`public`, the schema the REST API serves, so any signed-in user could call
+them as RPCs. That leaked nothing, since they only answer about the caller,
+but a definer function in the API schema is one careless edit from leaking
+something, and the security advisor flagged it on every run.
+
+They now live in `private`, which the API does not serve, with an empty
+`search_path` and fully qualified names. The move left every policy as it
+was: a policy stores the function it calls by identity, not by name, so the
+policies followed the functions without being rewritten.
+
+Two function bodies call them by name (`generate_telegram_link_code()` and
+the roster role guard), so `public` keeps thin wrappers with the old names.
+They run with the caller's rights and only pass the question on.
+
+New policies call `private.is_household_member(...)` and
+`private.is_household_owner(...)` directly; the behaviour tests refuse a
+policy that calls a wrapper. `create_household()` and
+`generate_telegram_link_code()` stay in `public` on purpose. They are the
+RPCs, and the advisor's note on them is expected.

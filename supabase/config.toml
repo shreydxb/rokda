@@ -28,3 +28,32 @@ verify_jwt = true
 
 [functions.fd-accrual]
 verify_jwt = true
+
+# Sign-ups are closed. Rokda is one household's ledger, and its logins are made
+# by hand (dashboard: Authentication -> Users -> Add user). The publishable key
+# ships in every build, so with sign-ups open anyone could make a login with
+# it, and a login could call create_household().
+#
+# The hosted project is not known to read this section: the Supabase GitHub
+# integration deploys migrations, Edge Functions and storage buckets from this
+# repository, and its documentation says it ignores the auth settings. What is
+# live is set in the dashboard (docs/environments.md, "Auth settings that live
+# in the dashboard"); this records the intended values and applies them to a
+# local `supabase start`.
+#
+# Do not `supabase config push` this to production without reading the diff it
+# prints: it sends the whole [auth] section, including defaults for every key
+# not written here.
+#
+# enable_signup here is the project-wide switch that the dashboard's "Allow new
+# users to sign up" maps to. [auth.email] has an enable_signup of its own; it
+# is not needed and is deliberately left unset.
+[auth]
+enable_signup = false
+# The household's main address. A password-reset link may send someone back
+# to the app's root on either host; a redirect missing from this list is not
+# an error -- Supabase quietly sends the link to site_url instead. The list
+# stays on one line because scripts/compare-functions.mjs reads this file line
+# by line.
+site_url = "https://rokda-app.netlify.app"
+additional_redirect_urls = ["https://rokda-app.netlify.app/**", "https://shreydxb.github.io/rokda/**"]

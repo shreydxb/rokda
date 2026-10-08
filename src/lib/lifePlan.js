@@ -317,7 +317,7 @@ export function lifePlanStop({ members, memberLife, inputs, ...rest }) {
   };
 }
 
-// "Shreyash 60 · Tarika 60": the ages of everyone still planned for.
+// "Partner A 60 · Partner B 60": the ages of everyone still planned for.
 export function agesLabel(ages) {
   return ages
     .filter((a) => a.planned)
