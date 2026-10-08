@@ -44,15 +44,18 @@ Deno.test("only a service-role token counts as the scheduler", () => {
   assert(!isServiceRoleRequest(withAuthorization("Bearer sb_secret_notajwt")));
 });
 
-Deno.test("a secret matches only itself, and an unset secret matches nothing", async () => {
+Deno.test("a secret matches only itself, and an unset secret matches nothing", () => {
   const secret = "0123456789abcdef0123456789abcdef";
-  assert(await secretsMatch(secret, secret));
-  assert(!(await secretsMatch(secret.slice(0, -1) + "0", secret)));
-  assert(!(await secretsMatch(secret + "0", secret)));
-  assert(!(await secretsMatch(secret.slice(0, -1), secret)));
-  assert(!(await secretsMatch("", secret)));
-  assert(!(await secretsMatch(null, secret)));
-  assert(!(await secretsMatch(secret, "")));
-  assert(!(await secretsMatch(secret, null)));
-  assert(!(await secretsMatch("", "")));
+  assert(secretsMatch(secret, secret));
+  assert(!(secretsMatch(secret.slice(0, -1) + "0", secret)));
+  assert(!(secretsMatch(secret + "0", secret)));
+  assert(!(secretsMatch(secret.slice(0, -1), secret)));
+  assert(!(secretsMatch("", secret)));
+  assert(!(secretsMatch(null, secret)));
+  assert(!(secretsMatch(secret, "")));
+  assert(!(secretsMatch(secret, null)));
+  assert(!(secretsMatch("", "")));
+  // A prefix repeated to the right length is not the secret either.
+  assert(!(secretsMatch(secret.slice(0, 16), secret)));
+  assert(!(secretsMatch(secret.slice(0, 8).repeat(4), secret)));
 });

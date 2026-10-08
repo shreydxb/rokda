@@ -712,8 +712,11 @@ price feed's daily quota and sets every household's rupee rate.
 - **The webhook's shared secret is compared in constant time.** `!==`
   returns at the first differing character, so an endpoint anyone can reach
   would leak the secret a character at a time to someone patient enough to
-  time it. Both values are hashed first, so the comparison is always 32
-  bytes whatever is presented.
+  time it. The comparison walks the whole expected secret whatever is
+  presented. It stays synchronous: a first version hashed both values with
+  `crypto.subtle`, whose answer arrives from another thread at an
+  unpredictable moment, and the handler test of two concurrent deliveries
+  of one update began failing about one run in twenty.
 
 ## The bot asks before it changes a balance or a goal
 

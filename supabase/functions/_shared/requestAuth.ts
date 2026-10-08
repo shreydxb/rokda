@@ -39,19 +39,19 @@ export function isServiceRoleRequest(req: Request): boolean {
 // Compares a presented secret with the expected one in time that does not
 // depend on where they first differ, or on the presented secret's length.
 // `!==` stops at the first differing character, which lets anyone who can
-// time the endpoint learn the secret a character at a time. Hashing both
-// first gives two values of the same length, so the comparison always
-// covers 32 bytes. An unset expected secret matches nothing.
-export async function secretsMatch(provided: string | null, expected: string | null): Promise<boolean> {
+// time the endpoint learn the secret a character at a time. This always
+// walks the whole expected secret, and only it, so the time depends on the
+// secret's length alone, which is fixed. Synchronous on purpose: an awaited
+// digest finishes on another thread at an unpredictable moment, which made
+// concurrent deliveries of one update race differently from run to run. An
+// unset expected secret matches nothing.
+const encoder = new TextEncoder();
+
+export function secretsMatch(provided: string | null, expected: string | null): boolean {
   if (!provided || !expected) return false;
-  const encoder = new TextEncoder();
-  const [a, b] = await Promise.all([
-    crypto.subtle.digest("SHA-256", encoder.encode(provided)),
-    crypto.subtle.digest("SHA-256", encoder.encode(expected)),
-  ]);
-  const left = new Uint8Array(a);
-  const right = new Uint8Array(b);
-  let difference = 0;
-  for (let i = 0; i < left.length; i++) difference |= left[i] ^ right[i];
+  const given = encoder.encode(provided);
+  const wanted = encoder.encode(expected);
+  let difference = given.length ^ wanted.length;
+  for (let i = 0; i < wanted.length; i++) difference |= given[i % given.length] ^ wanted[i];
   return difference === 0;
 }

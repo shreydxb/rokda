@@ -2672,7 +2672,7 @@ async function handleRequest(req: Request): Promise<Response> {
   // differing character, which lets anyone who can time this public endpoint
   // recover the secret a character at a time.
   const expectedSecret = await getTelegramWebhookSecret();
-  if (!expectedSecret || !(await secretsMatch(req.headers.get("X-Telegram-Bot-Api-Secret-Token"), expectedSecret))) {
+  if (!expectedSecret || !secretsMatch(req.headers.get("X-Telegram-Bot-Api-Secret-Token"), expectedSecret)) {
     return new Response("unauthorized", { status: 401 });
   }
 
