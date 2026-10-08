@@ -6,6 +6,14 @@ and what runs on its own. The reasons behind each piece are in
 plan (goals, split, open items) is kept in the app under Planning → Notes, not
 here, because this repository is public.
 
+## Signing in
+
+- Email and password, with "Keep me signed in". Sign-ups are closed: logins
+  are added in the Supabase dashboard.
+- **Forgot password?** emails a link that opens **Set a new password**; the
+  app opens once the new one is saved. A link that has expired or was already
+  used opens **Reset password** instead, saying so.
+
 ## Overview (`/`)
 
 - Net worth and cash position, with the Both / Me / Partner scope in the

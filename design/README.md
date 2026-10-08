@@ -8,9 +8,9 @@ language, not its numbers. Real screens use real household data.
 
 ## What changed vs v2
 
-- **Card names/data now match our real cards** — "NBD Platinum" → "ENBD Noon",
-  plus FAB Z, FAB Islamic, and Wio added. "Aparna" renamed to "Tarika"
-  throughout.
+- **Card names and the partner's example name** changed to the household's
+  own. The names themselves are not repeated here, because this repository
+  is public.
 - **Multi-currency display toggle** (AED / USD / INR) in the sidebar. Converts
   *display only* — all figures are still stored in AED; a `cx()` pass rewrites
   authored AED amounts in prose to the selected display currency using a fixed

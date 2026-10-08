@@ -3,8 +3,8 @@ import { agesIn, agesLabel, datedIncomesOnTimeline, earliestStop, extraSavingNee
 import { projectYears, realReturn } from './forecast';
 
 const people = [
-  { name: 'Shreyash', birthYear: 1994, lifeExpectancy: 80 },
-  { name: 'Tarika', birthYear: 1994, lifeExpectancy: 85 },
+  { name: 'Partner A', birthYear: 1994, lifeExpectancy: 80 },
+  { name: 'Partner B', birthYear: 1994, lifeExpectancy: 85 },
 ];
 
 // A household like the adviser's, in today's money.
@@ -32,10 +32,10 @@ describe('lifePlan: who is planned for, and until when', () => {
 
   it('gives each person their age in a year', () => {
     expect(agesIn(people, 2054)).toEqual([
-      { name: 'Shreyash', age: 60, planned: true },
-      { name: 'Tarika', age: 60, planned: true },
+      { name: 'Partner A', age: 60, planned: true },
+      { name: 'Partner B', age: 60, planned: true },
     ]);
-    expect(agesIn(people, 2075)[0]).toEqual({ name: 'Shreyash', age: 81, planned: false });
+    expect(agesIn(people, 2075)[0]).toEqual({ name: 'Partner A', age: 81, planned: false });
   });
 });
 
@@ -74,7 +74,7 @@ describe('lifePlan: the timeline', () => {
 
   it('spends the survivor share once only one person is planned for', () => {
     const plan = lifePlan({ ...base, survivorPct: 50 });
-    // Shreyash is planned for to the end of 2074; from 2075 the plan is for one.
+    // Partner A is planned for to the end of 2074; from 2075 the plan is for one.
     expect(plan.rows.find((r) => r.year === 2074).spend).toBe(61_000);
     const y2075 = plan.rows.find((r) => r.year === 2075);
     expect(y2075.forOne).toBe(true);
@@ -89,14 +89,14 @@ describe('lifePlan: the timeline', () => {
 
   it('reproduces the adviser\'s retirement corpus to the rupee', () => {
     // Rs 15 lakh a year today, 7% inflation, 8.5% after retirement, retiring
-    // in 2044 and funding Tarika to 2079, spending halved from 2074: the
+    // in 2044 and funding Partner B to 2079, spending halved from 2074: the
     // adviser's sheet asks for Rs 13,48,76,610 in 2044 rupees. The sheet halves
-    // from the year Shreyash turns 80, so he is planned for to 79 here.
+    // from the year Partner A turns 80, so they are planned for to 79 here.
     const adviser = {
       ...base,
       people: [
-        { name: 'Shreyash', birthYear: 1994, lifeExpectancy: 79 },
-        { name: 'Tarika', birthYear: 1994, lifeExpectancy: 85 },
+        { name: 'Partner A', birthYear: 1994, lifeExpectancy: 79 },
+        { name: 'Partner B', birthYear: 1994, lifeExpectancy: 85 },
       ],
       retireYear: 2044,
       retireSpend: 1_500_000,
@@ -185,8 +185,8 @@ describe('goalsOnTimeline: today\'s costs', () => {
 
 describe('lifePlanStop: the one answer to when work can stop', () => {
   const members = [
-    { id: 'm1', display_name: 'Shreyash' },
-    { id: 'm2', display_name: 'Tarika' },
+    { id: 'm1', display_name: 'Partner A' },
+    { id: 'm2', display_name: 'Partner B' },
   ];
   const memberLife = [
     { member_id: 'm1', birth_year: 1994, life_expectancy: 80 },
@@ -200,7 +200,7 @@ describe('lifePlanStop: the one answer to when work can stop', () => {
     const basis = lifePlanBasis({ ...args, people: planPeople(members, memberLife) });
     expect(stop.earliest).toBe(earliestStop(basis.args));
     expect(stop.endYear).toBe(2079);
-    expect(agesLabel(stop.ages)).toBe(`Shreyash ${stop.earliest - 1994} · Tarika ${stop.earliest - 1994}`);
+    expect(agesLabel(stop.ages)).toBe(`Partner A ${stop.earliest - 1994} · Partner B ${stop.earliest - 1994}`);
     expect(lifePlan({ ...basis.args, retireYear: stop.earliest }).lasts).toBe(true);
   });
 
@@ -212,24 +212,24 @@ describe('lifePlanStop: the one answer to when work can stop', () => {
 
 describe('sums paid in a set year (policy maturities)', () => {
   const household = { inr_per_aed: 25 };
-  const lic = { id: 'a', name: 'LIC A maturity', kind: 'lump_sum', amount: 4_350_000, currency: 'INR', in_year: 2044 };
+  const policy = { id: 'a', name: 'Policy A maturity', kind: 'lump_sum', amount: 5_000_000, currency: 'INR', in_year: 2044 };
 
   it('converts at today\'s rate and brings the amount back to today\'s money', () => {
-    expect(datedIncomesOnTimeline([lic], 2026, 2.5, household)).toEqual([{ id: 'a', name: 'LIC A maturity', year: 2044, amount: 174_000 / 1.025 ** 18 }]);
+    expect(datedIncomesOnTimeline([policy], 2026, 2.5, household)).toEqual([{ id: 'a', name: 'Policy A maturity', year: 2044, amount: 200_000 / 1.025 ** 18 }]);
   });
 
   it('leaves out a year already past, and a rupee sum with no rate', () => {
-    expect(datedIncomesOnTimeline([{ ...lic, in_year: 2025 }], 2026, 2.5, household)).toEqual([]);
-    expect(datedIncomesOnTimeline([lic], 2026, 2.5, { inr_per_aed: null })).toEqual([]);
+    expect(datedIncomesOnTimeline([{ ...policy, in_year: 2025 }], 2026, 2.5, household)).toEqual([]);
+    expect(datedIncomesOnTimeline([policy], 2026, 2.5, { inr_per_aed: null })).toEqual([]);
   });
 
   it('adds the sum to the pot in its year, while still working', () => {
-    const inflows = [{ id: 'a', name: 'LIC A maturity', year: 2044, amount: 100_000 }];
+    const inflows = [{ id: 'a', name: 'Policy A maturity', year: 2044, amount: 100_000 }];
     const plan = lifePlan({ ...base, inflows });
     const without = lifePlan(base);
     const y = plan.rows.find((r) => r.year === 2044);
     expect(y.working).toBe(true);
-    expect(y.inflows.map((i) => i.name)).toEqual(['LIC A maturity']);
+    expect(y.inflows.map((i) => i.name)).toEqual(['Policy A maturity']);
     expect(y.income).toBe(100_000);
     expect(y.end - without.rows.find((r) => r.year === 2044).end).toBeCloseTo(100_000 * (1 + base.preRate), 4);
   });
@@ -240,11 +240,11 @@ describe('sums paid in a set year (policy maturities)', () => {
       assumptions: null,
       inputs: { ready: true, monthlySaving: 5000, annualSpend: 60_000, source: 'actual' },
       startNetWorth: 100_000,
-      incomes: [lic, { id: 'g', name: 'Gratuity', kind: 'lump_sum', amount: 32_740, starts_after_years: 0 }],
+      incomes: [policy, { id: 'g', name: 'Gratuity', kind: 'lump_sum', amount: 30_000, starts_after_years: 0 }],
       household,
       startYear: 2026,
     });
     expect(basis.args.incomes.map((i) => i.name)).toEqual(['Gratuity']);
-    expect(basis.args.inflows.map((i) => i.name)).toEqual(['LIC A maturity']);
+    expect(basis.args.inflows.map((i) => i.name)).toEqual(['Policy A maturity']);
   });
 });

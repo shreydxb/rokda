@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { supabase, setKeepSignedIn } from '../lib/supabaseClient';
+import { useAuth } from '../lib/AuthContext';
+import { resetRedirectUrl } from '../lib/passwordReset';
 import './Login.css';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -9,8 +11,12 @@ export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
   const from = location.state?.from?.pathname ?? '/';
+  // Set when a reset link that had expired or was already used brought the
+  // person here. They came to reset their password, so that is where they
+  // start, with the reason above the form.
+  const { linkError } = useAuth();
 
-  const [mode, setMode] = useState('sign-in'); // 'sign-in' | 'forgot'
+  const [mode, setMode] = useState(linkError ? 'forgot' : 'sign-in'); // 'sign-in' | 'forgot'
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -40,7 +46,9 @@ export default function Login() {
     try {
       if (mode === 'forgot') {
         const { error } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: `${window.location.origin}/login`,
+          // The app's root, base path included (Pages serves it from /rokda/).
+          // AuthContext sees the recovery there and asks for a new password.
+          redirectTo: resetRedirectUrl(window.location.origin, import.meta.env.BASE_URL),
         });
         if (error) throw error;
         setResetSent(true);
@@ -76,6 +84,12 @@ export default function Login() {
             </p>
           ) : (
             <>
+              {mode === 'forgot' && linkError && (
+                <p className="om-loginerr" role="alert">
+                  {linkError}
+                </p>
+              )}
+
               <label className="om-field">
                 <span>Email</span>
                 <input

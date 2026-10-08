@@ -372,3 +372,23 @@ What IS available on the free plan, on the same settings page
 
 Revisit if the household ever grows past people who can be told to use a
 password manager, or if the project moves to Pro for another reason.
+
+## Auth settings that live in the dashboard
+
+`supabase/config.toml` records these, but the Supabase GitHub integration is
+not known to apply its `[auth]` section to production, so the dashboard is
+what is live. Check them there after any change to sign-in:
+
+| Setting | Where | Value |
+| --- | --- | --- |
+| Allow new users to sign up | Authentication → Sign In / Providers | Off |
+| Site URL | Authentication → URL Configuration | `https://rokda-app.netlify.app`, the main address |
+| Redirect URLs | Authentication → URL Configuration | `https://rokda-app.netlify.app/**`, `https://shreydxb.github.io/rokda/**` |
+| Reset Password email | Authentication → Emails → Templates | the default link, `{{ .ConfirmationURL }}` |
+| Exposed schemas | Project Settings → Data API | `public`, `graphql_public` (never `private`) |
+
+A reset redirect that is not on the Redirect URLs list is not an error:
+Supabase sends the link to the Site URL instead, and it quietly lands
+somewhere else. A template that builds its link from `{{ .SiteURL }}` ignores
+the redirect altogether. Logins are added under Authentication → Users → Add
+user (or Invite user), which works with sign-ups off.

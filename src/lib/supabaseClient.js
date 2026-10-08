@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { isRecoveryRedirect, resetLinkError } from './passwordReset';
 
 const url = import.meta.env.VITE_SUPABASE_URL;
 const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -27,6 +28,14 @@ const dynamicStorage = {
   setItem: (k, v) => activeStorage().setItem(k, v),
   removeItem: (k) => activeStorage().removeItem(k),
 };
+
+// Read before createClient: supabase-js consumes a reset link's fragment and
+// clears it from the address bar. AuthContext opens "Set a new password" from
+// the first straight away, rather than showing the app until the client gets
+// round to announcing PASSWORD_RECOVERY. The second is why a link that failed
+// (expired, or already used) brought the person here, which Sign in says.
+export const openedFromRecoveryLink = isRecoveryRedirect(window.location.hash);
+export const arrivedWithLinkError = resetLinkError(window.location.hash, window.location.search);
 
 export const supabase = createClient(url, key, {
   auth: {

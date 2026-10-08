@@ -124,6 +124,26 @@ else
   fail=1
 fi
 
+echo "verify-concurrency: two first sign-ins founding the household at once"
+# create_household() founds the household only on an empty database. Two
+# callers racing there would each see no household and found one apiece,
+# without the advisory lock that serialises them.
+seed
+psql -d "$DB" -v ON_ERROR_STOP=1 -q <<'SQL'
+set client_min_messages = warning;
+truncate household_members, households, accounts, categories, transactions, intake cascade;
+SQL
+overlap "set local request.jwt.claim.sub = '0a000000-0000-4000-8000-00000000000a'; select create_household('Race household', 'First');" &
+overlap "set local request.jwt.claim.sub = '0b000000-0000-4000-8000-00000000000b'; select create_household('Race household', 'Second');" &
+wait
+founded=$(psql -At -d "$DB" -c "select count(*) from households")
+if [ "$founded" = "1" ]; then
+  echo "  ok   two concurrent foundings leave exactly one household (households=$founded)"
+else
+  echo "  FAIL two concurrent foundings left $founded households, expected 1" >&2
+  fail=1
+fi
+
 if [ "$fail" -ne 0 ]; then
   echo "verify-concurrency: FAILED" >&2
   exit 1

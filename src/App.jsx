@@ -2,8 +2,10 @@ import { lazy } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import Login from './screens/Login';
 import Overview from './screens/Overview';
+import SetPassword from './screens/SetPassword';
 import AppShell from './shell/AppShell';
 import ProtectedRoute from './shell/ProtectedRoute';
+import { useAuth } from './lib/AuthContext';
 
 // Everything used to ship in one chunk, so opening Overview downloaded Money,
 // Wealth, Planning and Settings too -- the three biggest trees in the app for
@@ -23,6 +25,14 @@ const Planning = lazy(() => import('./screens/Planning'));
 const Settings = lazy(() => import('./screens/Settings'));
 
 export default function App() {
+  const { session, recovering } = useAuth();
+
+  // A reset link signs the person in. They came for a new password, so that
+  // is the screen they get, whatever the path, until it is saved or they sign
+  // out (docs/decisions.md). Without a session there is nothing to set a
+  // password on, and sign-in takes over as usual.
+  if (recovering && session) return <SetPassword />;
+
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
