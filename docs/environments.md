@@ -7,7 +7,8 @@ verified against. This file records what those names refer to.
 
 | Role | Where | Notes |
 | --- | --- | --- |
-| Production | https://rokda-app.netlify.app | Netlify, deploys from the default branch |
+| Production | https://rokda-app.netlify.app | Netlify, deploys from the default branch when the site changed (`netlify.toml`) |
+| Fallback | https://shreydxb.github.io/rokda/ | GitHub Pages, publishes every green `main`; no response headers |
 | Preview | Not provisioned/verified yet | PR #1 targets dev; confirm base-branch deploy eligibility and preview configuration |
 
 The correction build identifies itself in the sidebar footer (`build <short sha>`,
@@ -18,6 +19,21 @@ Before enabling preview or dev branch builds, configure their Supabase variables
 to use an isolated synthetic-data database. Configure both `deploy-preview` and
 any enabled `branch-deploy`/dev context; neither should inherit household data
 settings. An absent GitHub check alone does not establish why a preview is missing.
+
+### Netlify build settings live in `netlify.toml`
+
+The build command, publish directory, response headers, the deep-link
+fallback and the rule that skips builds are in `netlify.toml`, which
+overrides the dashboard. A production deploy costs 15 of the free plan's
+monthly credits; `scripts/netlify-ignore.sh` skips the build when nothing
+the site is built from changed since the last commit Netlify built, and a
+commit message containing `[skip netlify]` skips it outright. A rebuild of
+the commit Netlify last built always runs (Deploys → Trigger deploy). After
+a change that is not in the repository, such as an environment variable, a
+trigger on a later commit may be skipped as unchanged; a commit touching
+`netlify.toml` always builds. Check what is live with the
+Netlify API (`get-deploy-for-site`) or the build id in the app's sidebar,
+not by assuming the latest merge was built.
 
 ### Build environment variables
 

@@ -649,3 +649,38 @@ were approved as read.
   as it already did.
 - This guards against an accident, not against a member: any member can
   edit an intake row, the flag included.
+
+## The Netlify site: headers, deep links, and builds only when the site changes
+
+Until `netlify.toml`, the main address served no security headers and had no
+fallback for client-side routes, so opening a link such as `/money` directly
+got Netlify's 404. Each published production deploy also costs 15 of the free
+plan's monthly credits, and in September they ran out: the site stayed on a
+10 September build for three weeks while `main` moved on, and only GitHub
+Pages showed the current app.
+
+- **The Content-Security-Policy is a `<meta>` tag in the build**
+  (`scripts/csp.mjs`, added by `vite.config.js`), not a Netlify header. GitHub
+  Pages cannot send headers, so this is the only way both addresses get it,
+  and the browser suite serves the same build, so a policy that blocks
+  something the app needs fails the suite. Scripts come only from the app
+  itself. The app may connect only to the Supabase project it was built
+  against, not to `*.supabase.co`: after an injected script, a wildcard would
+  let the page send data to any project, including one made for the purpose.
+  `npm run verify:build` fails a build without the tag.
+- **What a meta tag cannot carry is a header** in `netlify.toml`:
+  `frame-ancestors 'none'` and `X-Frame-Options` (never framed), `nosniff`,
+  a referrer policy, a permissions policy and HSTS. GitHub Pages goes without
+  these; it is the fallback, not the main address.
+- **Every unknown path serves `index.html`** with status 200, as Pages' 404
+  copy already did.
+- **Netlify builds only when the site changed** (`scripts/netlify-ignore.sh`):
+  the files the site is built from, compared with the last commit Netlify
+  built. A merge that changes only migrations, Edge Functions, docs or tests
+  builds nothing. Any doubt builds. `[skip netlify]` in a commit message still
+  skips a build that would otherwise run, for batching site changes into one
+  release.
+- **The build checks itself**: `npm run build && npm run verify:build`. A
+  build without the Supabase variables used to publish a blank app. Now it
+  fails, publishes nothing, costs nothing, and the site keeps the last good
+  version.

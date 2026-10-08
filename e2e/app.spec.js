@@ -221,3 +221,27 @@ test('theme toggle switches and the page stays readable', async ({ page }) => {
     expect(text, 'body text colour unset after theme switch').toBeTruthy();
   }
 });
+
+// The Content-Security-Policy (scripts/csp.mjs) ships in the build this suite
+// serves, so every test above already fails if the policy blocks something the
+// app needs: the browser reports each blocked load as a console error. This
+// one proves the policy is enforced at all, rather than present and inert.
+test('the Content-Security-Policy is in force: an injected script does not run', async ({ page }) => {
+  await stubSupabase(page);
+  const violations = [];
+  page.on('console', (m) => { if (m.type() === 'error' && /Content Security Policy/i.test(m.text())) violations.push(m.text()); });
+  await gotoReady(page, '/');
+
+  const ran = await page.evaluate(() => {
+    const script = document.createElement('script');
+    script.textContent = 'window.__injected = true';
+    document.head.appendChild(script);
+    return window.__injected === true;
+  });
+  expect(ran, 'an inline script injected into the page ran').toBe(false);
+  expect(violations.length, 'the blocked script was not reported as a policy violation').toBeGreaterThan(0);
+
+  // The app's own requests are not blocked: it reached the stubbed Supabase
+  // origin the build was made against, and rendered.
+  await expect(page.locator('.om-main')).toBeVisible();
+});

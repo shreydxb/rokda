@@ -1,6 +1,7 @@
 import { execSync } from 'node:child_process'
 import react from '@vitejs/plugin-react'
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
+import { contentSecurityPolicy } from './scripts/csp.mjs'
 
 // The deployed build has to be able to name its own commit — a QA handoff that
 // says "preview URL X" is worthless if the preview can't prove what it is.
@@ -15,9 +16,28 @@ function commitSha() {
   }
 }
 
+// Every production build carries its Content-Security-Policy as the first
+// thing in <head>, so it is in force before the page loads anything (see
+// scripts/csp.mjs for why it is a meta tag). Build only: the dev server runs
+// inline scripts for hot reload, which the policy exists to forbid.
+function contentSecurityPolicyMeta() {
+  let content = ''
+  return {
+    name: 'rokda-content-security-policy',
+    apply: 'build',
+    configResolved(config) {
+      const env = loadEnv(config.mode, config.envDir || process.cwd(), 'VITE_')
+      content = contentSecurityPolicy(env.VITE_SUPABASE_URL)
+    },
+    transformIndexHtml() {
+      return [{ tag: 'meta', attrs: { 'http-equiv': 'Content-Security-Policy', content }, injectTo: 'head-prepend' }]
+    },
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), contentSecurityPolicyMeta()],
   // Netlify serves this app from its domain root, so base stays '/' there.
   // GitHub Pages (the credit-free fallback when Netlify runs out of build
   // minutes) serves a project site from /<repo>/ instead -- the Pages
