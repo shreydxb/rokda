@@ -403,7 +403,12 @@ cannot, because none of those four is a row in `public`.
    - `telegram_webhook_secret` — must match what Telegram sends. Re-run
      `setWebhook` with a new `secret_token` and store the same value in the
      vault; the two are one secret in two places. See `docs/environments.md`.
-   - `service_role_key` — the new project's own key, not the old one.
+   - `service_role_key` — the new project's own key, not the old one, and
+     the JWT form (`eyJ…`, Project Settings → API Keys → Legacy API keys →
+     `service_role`), not an `sb_secret_…` key. `price-refresh` and
+     `fd-accrual` read the `role` claim inside it to tell the scheduled job
+     from everyone else, and an `sb_secret_…` key has no claims to read: the
+     jobs would be refused every night with a 403.
 5. **Re-provision the Edge Function environment secrets.** A separate place
    from the vault, and missed entirely until QA #1. Set on the new project
    (Dashboard → Edge Functions → Secrets, or `supabase secrets set`):

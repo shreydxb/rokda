@@ -56,6 +56,7 @@ import { visibleHoldings, scopedHoldingValue, holdingGain, allocationByClass, po
 import { isAwaitingFirstValuation } from "../_shared/applib/valuation.js";
 import { cashCoverStatus, formatCashCoverLine } from "../_shared/applib/cashCover.js";
 import { notableMoves } from "../_shared/applib/insights.js";
+import { secretsMatch } from "../_shared/requestAuth.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -2443,8 +2444,11 @@ async function handleRequest(req: Request): Promise<Response> {
   // X-Telegram-Bot-Api-Secret-Token once registered via setWebhook's
   // secret_token (see the ?setup=1 handler below); the cron job sends the
   // same value as a header (see the recurring_check_cron migration).
+  // Compared in constant time (secretsMatch): `!==` returns at the first
+  // differing character, which lets anyone who can time this public endpoint
+  // recover the secret a character at a time.
   const expectedSecret = await getTelegramWebhookSecret();
-  if (!expectedSecret || req.headers.get("X-Telegram-Bot-Api-Secret-Token") !== expectedSecret) {
+  if (!expectedSecret || !(await secretsMatch(req.headers.get("X-Telegram-Bot-Api-Secret-Token"), expectedSecret))) {
     return new Response("unauthorized", { status: 401 });
   }
 

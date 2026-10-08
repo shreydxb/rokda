@@ -505,6 +505,31 @@ freshTest("a failure outside update processing is caught by the last line of def
   assertEquals(event.update_id, null);
 });
 
+freshTest("a request without the exact secret is refused before anything else happens", async () => {
+  // The secret is compared in constant time now; this pins that the compare
+  // still refuses everything that is not the secret, including a value that
+  // differs only in its last character and one that is the secret plus more.
+  const near = SECRET.slice(0, -1) + (SECRET.endsWith("t") ? "u" : "t");
+  for (const presented of [null, "", near, SECRET + "x", SECRET.toUpperCase()]) {
+    backend.requests.length = 0;
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (presented !== null) headers["X-Telegram-Bot-Api-Secret-Token"] = presented;
+    const res = await handler(new Request("http://edge.test/telegram-webhook", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ update_id: 1, message: { message_id: 1, date: 1, text: "coffee 10", chat: { id: TELEGRAM_USER, type: "private" }, from: { id: TELEGRAM_USER, is_bot: false, first_name: "T" } } }),
+    }));
+    assertEquals(res.status, 401, `presented ${JSON.stringify(presented)}`);
+    // Only the secret lookup itself: no claim, no capture, no reply.
+    assertEquals(backend.requests.map((r) => r.path), ["/rest/v1/rpc/get_telegram_webhook_secret"]);
+  }
+  assertEquals(capturedIntake().length, 0);
+  assertEquals(backend.telegramSent.length, 0);
+
+  const ok = await handler(textUpdate(2, "hello"));
+  assertEquals(ok.status, 200);
+});
+
 // ---------------------------------------------------------------------------
 // Naming a card, and a router that names a tool the bot does not have
 // ---------------------------------------------------------------------------

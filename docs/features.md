@@ -101,6 +101,11 @@ here, because this repository is public.
 | `weekday-price-refresh` | 23:00 Sun–Thu | Prices, and the rupee rate that re-values holdings, rupee accounts and rupee reminders (`price-refresh`) |
 | `daily-fd-accrual` | 23:00 daily | Re-values fixed deposits for the Dubai day (`fd-accrual`) |
 
+`fd-accrual` runs only for the job's service-role token. `price-refresh` runs
+for the job, or for a signed-in household member pressing Refresh on the
+Investments screen. The bot's webhook needs its shared secret, compared in
+constant time.
+
 ## Where things live
 
 - App: React + Vite in `src/`; screens in `src/screens`, maths in `src/lib`

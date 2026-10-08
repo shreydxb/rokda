@@ -684,3 +684,32 @@ Pages showed the current app.
   build without the Supabase variables used to publish a blank app. Now it
   fails, publishes nothing, costs nothing, and the site keeps the last good
   version.
+
+## Who may run an Edge Function
+
+`price-refresh` and `fd-accrual` are deployed with `verify_jwt = true`, which
+proves only that a token was issued by this project. The publishable key's
+anonymous role and any login pass that too, and both functions then work as
+the service role: one rewrites every fixed deposit, the other spends the
+price feed's daily quota and sets every household's rupee rate.
+
+- **`fd-accrual` runs only for the service role**, which is what the daily
+  job sends (the vault's `service_role_key`). Nothing in the app calls it.
+- **`price-refresh` runs for the service role or a signed-in household
+  member**, since Investments has a Refresh button. A user token is checked
+  with the Auth server, not only decoded, and then looked up in
+  `household_members`. It now answers the browser's CORS preflight without
+  doing anything, and its replies carry CORS headers. Before, every request
+  was treated as a refresh, and no reply carried the headers a browser needs
+  before it lets the page read the answer.
+- **The role is read from the token's claims** (`_shared/requestAuth.ts`),
+  trusting the platform's signature check. That is safe only while
+  `verify_jwt` stays on, which `config.toml` pins and `verify:functions`
+  checks against production. It also means the vault's `service_role_key`
+  must stay the JWT form: an `sb_secret_…` key has no role to read
+  (`docs/backup-restore.md`).
+- **The webhook's shared secret is compared in constant time.** `!==`
+  returns at the first differing character, so an endpoint anyone can reach
+  would leak the secret a character at a time to someone patient enough to
+  time it. Both values are hashed first, so the comparison is always 32
+  bytes whatever is presented.
