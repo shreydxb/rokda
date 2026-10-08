@@ -121,3 +121,15 @@ export function householdYearMonth(now = new Date(), timeZone = HOUSEHOLD_TIME_Z
   const [year, month] = householdToday(now, timeZone).split('-');
   return { year: Number(year), month: Number(month) };
 }
+
+// The household's day as a Date at this runtime's local midnight: the `now`
+// that day-granular helpers (isPosted here, upcomingItems and billStatus in
+// recurring.js, nextDueDate and daysUntilDue in creditCard.js) read through
+// startOfDay. In a browser in Dubai it is simply today. In an Edge Function,
+// handing them `new Date()` made them read the UTC day, so from 00:00 to 04:00
+// Dubai a card due today was due tomorrow and spending logged after midnight
+// counted as planned. It is a day, not a moment: an Edge Function (UTC) may
+// still pass it to householdYearMonth, but a runtime east of Dubai may not.
+export function householdDay(now = new Date(), timeZone = HOUSEHOLD_TIME_ZONE) {
+  return parseDay(householdToday(now, timeZone));
+}

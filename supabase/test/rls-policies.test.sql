@@ -269,6 +269,23 @@ begin
   raise notice 'QA-P1 ok: INSERT cannot mint an owner, join a household, or add a member';
 end $$;
 
+-- A member who sets the rupee rate re-values every rupee account in the
+-- household, the owner's included. The re-valuation runs as them: it needs
+-- members to be able to update every account in their household, and to
+-- execute household_today(), which the account trigger calls.
+do $$
+declare aed numeric;
+begin
+  insert into accounts (id, household_id, name, type, currency, balance, is_shared, owner_member_id)
+  values ('f1000000-0000-0000-0000-0000000000c1', 'd1000000-0000-0000-0000-000000000001', 'Owner rupee account', 'savings', 'INR', 50000, false, 'e1000000-0000-0000-0000-00000000000a');
+  update households set inr_per_aed = 20 where id = 'd1000000-0000-0000-0000-000000000001';
+  select balance_aed into aed from accounts where id = 'f1000000-0000-0000-0000-0000000000c1';
+  if aed is distinct from 2500 then
+    raise exception 'rupee rate FAILED: a member''s new rate left the owner''s rupee account at %', aed;
+  end if;
+  raise notice 'rupee rate ok: a member''s new rate re-values every rupee account in the household';
+end $$;
+
 -- ------------------------------------------------------------------- owner
 set request.jwt.claim.sub = '0a000000-0000-0000-0000-00000000000a';
 

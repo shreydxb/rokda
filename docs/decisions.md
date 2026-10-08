@@ -500,3 +500,50 @@ be dated the day it was pasted, and a "yes" recorded it that way.
   when Telegram says, or else today. It is marked `date_guessed`, and is
   never offered for a "yes" or bulk approval. The reply says it had no date.
   The Inbox flags the date and opens the editor when Approve is pressed.
+
+## Today is Dubai's day, wherever the code runs
+
+Six forms offered today's date as `new Date().toISOString().slice(0, 10)`,
+which is the UTC date: until 04:00 in Dubai it is still yesterday. An
+expense, a bill marked paid, an Inbox item with no date, a new reminder, a
+new deposit term or a goal contribution entered after midnight was dated a
+day early. Fixed deposits accrued to the database's `current_date`, also UTC,
+so the nightly run at 03:00 Dubai valued each one as of the day before and
+matured it a day late. The bot's answers about bills and spending read the
+UTC day too.
+
+- **A day taken from a moment names its zone.** Forms and as-of fields use
+  `householdToday()`. The bot hands `householdDay()` to the date helpers it
+  shares with the app. The database uses `household_today()`, which is
+  `now()` read in Asia/Dubai, for deposit interest and for a transaction
+  saved with no date. A stored date such as `occurred_at` is already a
+  calendar day and needs no zone.
+- **Screens still read the browser's clock** for "this month" and "due soon".
+  In Dubai that is the household's day. A member looking from another zone
+  sees their own day there, but the dates the forms offer are Dubai's.
+- **Price history is dated the Dubai day it was fetched.** The weekday run at
+  03:00 Dubai used to be dated the day before. The month-end check-in shows
+  the Dubai date a balance was confirmed.
+
+## Rupee balances follow the rate
+
+An account held in rupees keeps its AED value in `balance_aed`, and that was
+worked out only when the account was saved. The rupee rate refreshes every
+weekday, and holdings and rupee reminders already followed it. Net worth
+therefore added rupee accounts, valued at whatever rate applied when each was
+last edited, to holdings valued at today's.
+
+- **When a household's rupee rate changes, every rupee account in it is
+  re-valued** at the new rate, whether the feed changed it or a person did.
+  The trigger re-runs the same calculation that values an account when it is
+  saved, so there is one formula. Dollar accounts need nothing, since the peg
+  does not move.
+- **No rate means no AED value.** If the rate is cleared, rupee accounts show
+  as not converted and every total says so. A missing rate is never treated
+  as 1:1.
+- **Re-valuing is not editing.** It leaves `updated_at` alone.
+- **Closed months are not rewritten.** A net-worth snapshot keeps the totals
+  it was closed with.
+- Converting when read, rather than storing the AED figure, would have meant
+  every screen and the bot fetching the rate. All of them already read
+  `balance_aed`.

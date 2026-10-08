@@ -50,7 +50,7 @@ import { accountValueAed, unvaluedAccounts } from "../_shared/applib/accounts.js
 import { monthActualsByCategory } from "../_shared/applib/budget.js";
 import { nextDueDate, daysUntilDue } from "../_shared/applib/creditCard.js";
 import { lastDueOccurrence, matchWindowDays, upcomingItems } from "../_shared/applib/recurring.js";
-import { isPosted, parseDay, atDayOfMonth, startOfDay, householdToday, householdYearMonth } from "../_shared/applib/day.js";
+import { isPosted, parseDay, atDayOfMonth, startOfDay, householdDay, householdToday, householdYearMonth } from "../_shared/applib/day.js";
 import { isSpendRow, spendDelta } from "../_shared/applib/transactionKind.js";
 import { visibleHoldings, scopedHoldingValue, holdingGain, allocationByClass, portfolioValueChange } from "../_shared/applib/holdings.js";
 import { isAwaitingFirstValuation } from "../_shared/applib/valuation.js";
@@ -1159,7 +1159,7 @@ async function toolGetCategorySpend(householdId: string, scopeMemberId: string |
     .eq("household_id", householdId)
     .eq("category_id", cat.id);
 
-  const spend = categorySpendForPeriod(transactions ?? [], cat.id, String(args.period ?? "this_month"), scopeMemberId, new Date());
+  const spend = categorySpendForPeriod(transactions ?? [], cat.id, String(args.period ?? "this_month"), scopeMemberId, householdDay());
   return { category: cat.name, period: args.period, spend_aed: round2(spend) };
 }
 
@@ -1207,7 +1207,10 @@ async function toolGetUpcomingBills(householdId: string, scopeMemberId: string |
     supabase.from("recurring").select("*").eq("household_id", householdId),
     supabase.from("accounts").select("*").eq("household_id", householdId).is("archived_at", null),
   ]);
-  const now = new Date();
+  // The Dubai day. new Date() here is UTC, which is still the previous day
+  // until 04:00 Dubai, so a card due today read as due tomorrow and
+  // yesterday's bill as still upcoming.
+  const now = householdDay();
   const visibleRecurring = (recurring ?? []).filter(
     (r: { is_shared: boolean; owner_member_id: string | null }) => scopeMemberId === null || r.is_shared || r.owner_member_id === scopeMemberId
   );
@@ -1278,7 +1281,7 @@ async function toolGetBudgetStatus(householdId: string, scopeMemberId: string | 
   const cat = resolveCategoryByName(categories ?? [], String(args.category ?? ""));
   if (!cat) return { error: "category_not_found", available: (categories ?? []).map((c) => c.name) };
 
-  const now = new Date();
+  const now = householdDay();
   const { year, month } = householdYearMonth(now);
   const [{ data: budgetRow }, { data: transactions }] = await Promise.all([
     supabase.from("budgets").select("amount").eq("household_id", householdId).eq("category_id", cat.id).eq("year", year).eq("month", month).maybeSingle(),
@@ -1458,7 +1461,7 @@ async function toolGetMonthSpendTotalFor(householdId: string, year: number, mont
     .from("transactions")
     .select("amount, kind, occurred_at, is_shared, owner_member_id")
     .eq("household_id", householdId);
-  const now = new Date();
+  const now = householdDay();
   let total = 0;
   for (const t of (transactions ?? []) as Array<{ amount: number; kind: string; occurred_at: string; is_shared: boolean; owner_member_id: string | null }>) {
     const d = parseDay(t.occurred_at);
@@ -1480,7 +1483,7 @@ async function toolGetMonthSpendTotal(householdId: string, scopeMemberId: string
 // Every category with a budget set this month that's at or over 90% used --
 // the same threshold the frontend budget bars treat as "watch this".
 async function toolGetBudgetAlerts(householdId: string, scopeMemberId: string | null): Promise<Array<{ category: string; pct: number }>> {
-  const now = new Date();
+  const now = householdDay();
   const { year, month } = householdYearMonth(now);
   const [{ data: budgetRows }, { data: categories }, { data: transactions }] = await Promise.all([
     supabase.from("budgets").select("category_id, amount").eq("household_id", householdId).eq("year", year).eq("month", month),
@@ -1713,7 +1716,7 @@ async function phraseAnswer(
 // nudge was already sent for a (recurring row, due date) pair so the same
 // missed bill is never re-nagged on the next day's check.
 async function runRecurringCheck(): Promise<{ checked: number; nudged: number }> {
-  const today = new Date();
+  const today = householdDay();
   // A bill is nudged 3 to 10 days after its date. Income moves with bank
   // holidays, so it is only nudged once its whole window (matchWindowDays)
   // has passed, and looked for a week after that.
@@ -1853,7 +1856,7 @@ async function runRecurringCheck(): Promise<{ checked: number; nudged: number }>
 // past the due date. credit_card_nudges dedupes per (account, due date,
 // kind) so the same due date is never re-nagged on the next day's check.
 async function runCreditCardCheck(): Promise<{ checked: number; nudged: number }> {
-  const today = new Date();
+  const today = householdDay();
   const [{ data: cards }, prefs] = await Promise.all([
     supabase
       .from("accounts")
@@ -1955,7 +1958,7 @@ const BUDGET_THRESHOLDS = [100, 90, 80];
 // -- a threshold already alerted isn't repeated, but a later, higher
 // threshold crossed the same month still gets its own alert.
 async function runBudgetAlertCheck(): Promise<{ checked: number; nudged: number }> {
-  const now = new Date();
+  const now = householdDay();
   const { year, month } = householdYearMonth(now);
 
   const { data: budgetRows } = await supabase
@@ -2197,7 +2200,11 @@ export function buildBalanceCheckinMessage(accounts: BalanceAccount[], members: 
   const owner = new Map(members.map((m) => [m.id, m.display_name]));
   const lines = accounts.map((a) => {
     const whose = a.is_shared || !a.owner_member_id ? "" : ` (${owner.get(a.owner_member_id) ?? "?"})`;
-    const confirmed = a.balance_as_of ? `confirmed ${String(a.balance_as_of).slice(0, 10)}` : "never confirmed";
+    // balance_as_of is a moment (timestamptz), so its day is read in Dubai:
+    // a balance the bot set at 01:30 Dubai is stored as 21:30 UTC the day
+    // before. A day picked in the account editor is stored as that day's UTC
+    // midnight, 04:00 in Dubai, and keeps its date.
+    const confirmed = a.balance_as_of ? `confirmed ${householdToday(new Date(a.balance_as_of))}` : "never confirmed";
     return `• ${a.name}${whose}: ${balanceFigure(a)}, ${confirmed}`;
   });
   return (
@@ -2371,7 +2378,7 @@ const UNUSUAL_SPEND_MIN_ABSOLUTE = 300;
 // (household, category, month) -- flagged once, not re-nagged every day
 // even if the category keeps climbing further past the bar.
 async function runUnusualSpendCheck(): Promise<{ checked: number; nudged: number }> {
-  const now = new Date();
+  const now = householdDay();
   const { year, month } = householdYearMonth(now);
   const households = await householdsWithLinkedTelegram();
   const prefs = await telegramPrefsMap();

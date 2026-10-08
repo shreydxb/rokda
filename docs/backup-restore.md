@@ -259,7 +259,7 @@ gutted restore. This is the single most likely way a recovery goes wrong.
 
 The flag also preserves recorded values that the schema would otherwise
 recompute. `compute_account_derived_fields` derives an FD's `balance` from
-elapsed time and sets `fd_status` from `current_date`, so restoring a
+elapsed time and sets `fd_status` from `household_today()`, so restoring a
 month-old dump with triggers live would overwrite the balance that was
 recorded with one calculated for today. Verified: with the flag, an FD
 recorded at `10123.45 / active` restores as `10123.45 / active`.

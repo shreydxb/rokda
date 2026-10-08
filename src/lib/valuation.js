@@ -8,6 +8,8 @@
 // second. A stale holding stays stale until someone actually confirms a new
 // valuation.
 
+import { householdToday } from './day';
+
 export const HOLDING_STALE_DAYS = 30;
 
 // Fields that carry a valuation. A change to any of them is a repricing and
@@ -105,6 +107,9 @@ export function historyPointFor(holdingId, asOfDate, valueAed) {
   return { holding_id: holdingId, as_of: asOfDate, value_aed: Number(valueAed) || 0 };
 }
 
+// An as-of field's default and latest allowed day. The household's day rather
+// than the browser's: they agree in Dubai, and a valuation entered from
+// anywhere else is still dated the way every other record is.
 export function todayISODate(now = new Date()) {
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  return householdToday(now);
 }

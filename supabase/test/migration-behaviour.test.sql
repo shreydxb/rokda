@@ -1012,4 +1012,114 @@ begin
   raise notice 'intake date ok: dated unless marked a guess';
 end $$;
 
+-- The household's day, and rupee balances that follow the rate.
+--
+-- household_today() is Dubai's date at any moment. Fixed deposits accrue to
+-- it and a transaction saved with no date takes it, whatever zone the session
+-- is in. Between them the two zones below disagree with Dubai's date at every
+-- hour (UTC-12 before 16:00 Dubai, UTC+14 from 14:00), so a return to
+-- current_date fails here whenever this runs. A rupee account follows its own
+-- household's rate, has no AED value without one, and is not edited by a new
+-- one; a dollar account stays on the peg.
+do $$
+declare
+  hh constant uuid := '11111111-1111-1111-1111-111111111111';
+  other_hh constant uuid := 'acacacac-0000-0000-0000-000000000001';
+  rupee constant uuid := 'acacacac-0000-0000-0000-000000000002';
+  dollar constant uuid := 'acacacac-0000-0000-0000-000000000003';
+  theirs constant uuid := 'acacacac-0000-0000-0000-000000000004';
+  growing constant uuid := 'acacacac-0000-0000-0000-000000000005';
+  maturing constant uuid := 'acacacac-0000-0000-0000-000000000006';
+  backdated constant timestamptz := '2026-01-01 00:00:00+00';
+  saved_tz text := current_setting('timezone');
+  session_zone text;
+  aed numeric;
+  touched timestamptz;
+  bal numeric;
+  fd_state text;
+  dated date;
+begin
+  if household_today('2026-09-15 21:30:00+00') <> date '2026-09-16' then
+    raise exception 'household day FAILED: 01:30 in Dubai on the 16th was dated %', household_today('2026-09-15 21:30:00+00');
+  end if;
+  if household_today('2026-09-15 19:30:00+00') <> date '2026-09-15' then
+    raise exception 'household day FAILED: 23:30 in Dubai on the 15th was dated %', household_today('2026-09-15 19:30:00+00');
+  end if;
+
+  insert into accounts (id, household_id, name, type, balance, principal, interest_rate_pct, compounding, opened_date, maturity_date, is_shared)
+  values
+    (growing, hh, 'Deposit', 'fd', 0, 10000, 3.65, 'simple', household_today() - 100, household_today() + 265, true),
+    (maturing, hh, 'Deposit ending today', 'fd', 0, 10000, 3.65, 'simple', household_today() - 365, household_today(), true);
+
+  foreach session_zone in array array['Etc/GMT+12', 'Pacific/Kiritimati'] loop
+    perform set_config('timezone', session_zone, true);
+    -- What fd-accrual does every night: a no-op write the trigger re-values.
+    update accounts set fd_status = 'active' where id in (growing, maturing);
+    select balance into bal from accounts where id = growing;
+    if bal <> 10100 then
+      raise exception 'household day FAILED: 100 days of 10,000 at 3.65%% came to % with the session in %', bal, session_zone;
+    end if;
+    select balance, fd_status into bal, fd_state from accounts where id = maturing;
+    if fd_state <> 'matured' or bal <> 10365 then
+      raise exception 'household day FAILED: a deposit maturing today was % at % with the session in %', fd_state, bal, session_zone;
+    end if;
+    insert into transactions (household_id, account_id, amount, is_shared)
+    values (hh, '33333333-3333-3333-3333-333333333333', -1, true)
+    returning occurred_at into dated;
+    if dated <> household_today() then
+      raise exception 'household day FAILED: a transaction with no date was dated % with the session in %', dated, session_zone;
+    end if;
+  end loop;
+  perform set_config('timezone', saved_tz, true);
+
+  insert into households (id, name, inr_per_aed) values (other_hh, 'Other household', 30);
+  insert into accounts (id, household_id, name, type, currency, balance, is_shared)
+  values (theirs, other_hh, 'Their rupee account', 'savings', 'INR', 30000, true);
+
+  update households set inr_per_aed = 20 where id = hh;
+  insert into accounts (id, household_id, name, type, currency, balance, is_shared)
+  values
+    (rupee, hh, 'Rupee savings', 'savings', 'INR', 100000, true),
+    (dollar, hh, 'Dollar account', 'checking', 'USD', 1000, true);
+  select balance_aed into aed from accounts where id = rupee;
+  if aed <> 5000 then
+    raise exception 'rupee rate FAILED: 100,000 rupees at 20 became % AED', aed;
+  end if;
+
+  -- now() is fixed for the whole transaction, so backdate the last edit (with
+  -- triggers off) to be able to see whether a later write moves it.
+  perform set_config('session_replication_role', 'replica', true);
+  update accounts set updated_at = backdated where id = rupee;
+  perform set_config('session_replication_role', 'origin', true);
+
+  update households set inr_per_aed = 25 where id = hh;
+  select balance_aed, updated_at into aed, touched from accounts where id = rupee;
+  if aed <> 4000 then
+    raise exception 'rupee rate FAILED: the AED value did not follow the new rate (got %)', aed;
+  end if;
+  if touched <> backdated then
+    raise exception 'rupee rate FAILED: a new rate counted as an edit (updated_at %)', touched;
+  end if;
+  if (select balance_aed from accounts where id = dollar) <> 3672.50 then
+    raise exception 'rupee rate FAILED: a dollar account moved off the peg';
+  end if;
+  if (select balance_aed from accounts where id = theirs) <> 1000 then
+    raise exception 'rupee rate FAILED: another household''s rupee account followed this household''s rate';
+  end if;
+
+  update households set inr_per_aed = null where id = hh;
+  select balance_aed into aed from accounts where id = rupee;
+  if aed is not null then
+    raise exception 'rupee rate FAILED: with no rate, a rupee balance was valued at % AED', aed;
+  end if;
+
+  update accounts set name = 'Rupee savings, renamed' where id = rupee;
+  if (select updated_at from accounts where id = rupee) = backdated then
+    raise exception 'rupee rate FAILED: renaming an account no longer counts as an edit';
+  end if;
+
+  update households set inr_per_aed = 25 where id = hh;
+  raise notice 'household day ok: Dubai''s date for deposits and undated transactions; rupee accounts follow their own household''s rate, are unknown without one, and are not edited by it';
+end $$;
+
 rollback;

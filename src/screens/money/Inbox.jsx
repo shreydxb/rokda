@@ -5,6 +5,7 @@ import { firstMatchingRule } from '../../lib/rules';
 import { accountOptionLabel, selectableAccounts } from '../../lib/accounts';
 import { INTAKE_KINDS, approvalArgs, validateApproval } from '../../lib/intake';
 import { findDuplicate } from '../../lib/duplicates';
+import { householdToday } from '../../lib/day';
 import './TransactionEditor.css';
 
 function senderName(item, members) {
@@ -420,7 +421,7 @@ function IntakeEditForm({ item, sender, accounts, members, categories, categoryR
   const foreignCurrency = item.parsed_currency && item.parsed_currency !== 'AED' ? item.parsed_currency : null;
   const [amount, setAmount] = useState(!foreignCurrency && item.parsed_amount !== null ? String(item.parsed_amount) : '');
   const [merchant, setMerchant] = useState(item.parsed_merchant ?? '');
-  const [date, setDate] = useState(item.parsed_date ?? new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(item.parsed_date ?? householdToday());
   // Intake can only be approved onto an open account (QA-01).
   const selectable = selectableAccounts(accounts);
   const suggestedAccountId = item.parsed_account_id && selectable.some((a) => a.id === item.parsed_account_id) ? item.parsed_account_id : null;

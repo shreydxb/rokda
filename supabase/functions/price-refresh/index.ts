@@ -9,6 +9,7 @@
 // button.
 import "jsr:@supabase/functions-js@2.117.2/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2.117.2";
+import { householdToday } from "../_shared/applib/day.js";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -247,7 +248,10 @@ async function refreshHoldings(inrPerAed: number | null) {
   let historyCaptured = 0;
   const now = new Date();
   const nowIso = now.toISOString();
-  const today = nowIso.slice(0, 10);
+  // A history point is dated the household's day. The weekday run is at
+  // 03:00 Dubai, when the UTC date is still the day before, and so is a
+  // Refresh pressed after midnight.
+  const today = householdToday(now);
 
   for (const h of holdings as Holding[]) {
     const result = results.get(h.id);

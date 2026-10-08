@@ -661,6 +661,15 @@ Deno.test("the check-in message lists each account with whose it is, what is on 
   assert(text.includes("• EPF (Shreyash): INR 3,00,000.00"), text);
 });
 
+Deno.test("a balance confirmed just after midnight in Dubai shows Dubai's date in the check-in", () => {
+  // 01:30 on 16 Sep in Dubai is 21:30 on 15 Sep in UTC, which is how the database returns it.
+  const late = buildBalanceCheckinMessage([acct("a0000000-0000-4000-8000-000000000007", "Bank", { is_shared: true, balance: 100, balance_as_of: "2026-09-15T21:30:00+00:00" })], ROSTER, "September 2026");
+  assert(late.includes("confirmed 2026-09-16"), late);
+  // A day picked in the account editor is stored as UTC midnight of that day, and keeps it.
+  const picked = buildBalanceCheckinMessage([acct("a0000000-0000-4000-8000-000000000008", "Bank", { is_shared: true, balance: 100, balance_as_of: "2026-09-01T00:00:00+00:00" })], ROSTER, "September 2026");
+  assert(picked.includes("confirmed 2026-09-01"), picked);
+});
+
 Deno.test("a balance names its account the way a person says it", () => {
   const accounts = [MY_FAB, HER_FAB, WIO, EPF, MY_CURRENT];
   // Two FABs: the sender's own, unless someone else is named.

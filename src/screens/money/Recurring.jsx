@@ -3,6 +3,7 @@ import { formatMoney, formatSigned } from '../../lib/money';
 import { billStatus, hasEnded, nativeAmountLabel, rollForward } from '../../lib/recurring';
 import RecurringEditor from './RecurringEditor';
 import TransactionEditor from './TransactionEditor';
+import { householdToday } from '../../lib/day';
 
 const UNIT_LABEL = { weekly: 'week', monthly: 'month', quarterly: 'quarter', yearly: 'year' };
 
@@ -103,7 +104,7 @@ export default function Recurring({ household, members, data, loading }) {
             type: Number(paying.amount) >= 0 ? 'income' : 'expense',
             amount: String(Math.abs(Number(paying.amount))),
             merchant: paying.name,
-            occurred_at: new Date().toISOString().slice(0, 10),
+            occurred_at: householdToday(),
             category_id: paying.category_id ?? '',
             owner: paying.is_shared ? 'shared' : (paying.owner_member_id ?? ''),
           }}

@@ -36,9 +36,10 @@ here, because this repository is public.
 
 - **Net Worth**: history from dated balance snapshots and valuations.
 - **Accounts**: bank, card, loan, cash, investment and fixed-deposit accounts.
-  Balances are entered by hand and confirmed, never derived. Cards carry a
-  limit, statement day and due day. A loan account can carry its debt terms.
-  Closed accounts stay in history.
+  Balances are entered by hand and confirmed, never derived. A balance in
+  rupees is valued at the household's current rate, and moves when the rate
+  does. Cards carry a limit, statement day and due day. A loan account can
+  carry its debt terms. Closed accounts stay in history.
 - **Investments**: holdings with prices pulled daily where a symbol is set,
   and FX rates for USD and INR.
 
@@ -87,8 +88,8 @@ here, because this repository is public.
 | Job | When (UTC) | What |
 |---|---|---|
 | `daily-recurring-nudge-check` | 05:00 daily | Runs the bot's nudges, briefs and the month-start check-in |
-| `weekday-price-refresh` | 23:00 Sun–Thu | Prices and FX for holdings (`price-refresh`) |
-| `daily-fd-accrual` | 23:00 daily | Re-values fixed deposits for today (`fd-accrual`) |
+| `weekday-price-refresh` | 23:00 Sun–Thu | Prices, and the rupee rate that re-values holdings, rupee accounts and rupee reminders (`price-refresh`) |
+| `daily-fd-accrual` | 23:00 daily | Re-values fixed deposits for the Dubai day (`fd-accrual`) |
 
 ## Where things live
 
