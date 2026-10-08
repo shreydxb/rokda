@@ -4,9 +4,9 @@
 
 // Where the reset email sends the person back to: the app's own root, base
 // path included. GitHub Pages serves Rokda from /<repo>/, where
-// `${origin}/login` is outside the app entirely, and this repository gives
-// Netlify no deep-link fallback, so the root is the one address that always
-// loads the app. AuthContext picks the recovery up from there.
+// `${origin}/login` is outside the app entirely, and the root is the one
+// address that loads the app on every host, whatever its deep-link fallback.
+// AuthContext picks the recovery up from there.
 export function resetRedirectUrl(origin, base) {
   return new URL(base, origin).href;
 }
