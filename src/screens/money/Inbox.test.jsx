@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen } from '@testing-library/dom';
+import { screen, fireEvent } from '@testing-library/dom';
 import { act } from 'react';
 import { renderScreen } from '../../test/renderScreen';
 
@@ -29,8 +29,8 @@ vi.mock('../../lib/supabaseClient', () => ({
 
 const { default: Inbox } = await import('./Inbox');
 
-const MEMBERS = [{ id: 'm1', display_name: 'Shreyash' }, { id: 'm2', display_name: 'Tarika' }];
-const ACCOUNTS = [{ id: 'acc-1', name: 'ENBD Noon', type: 'credit_card', archived_at: null, is_shared: true }];
+const MEMBERS = [{ id: 'm1', display_name: 'Partner A' }, { id: 'm2', display_name: 'Partner B' }];
+const ACCOUNTS = [{ id: 'acc-1', name: 'Bank card', type: 'credit_card', archived_at: null, is_shared: true }];
 const ITEM = {
   id: 'intake-1',
   household_id: 'hh',
@@ -103,7 +103,7 @@ describe('QA-11: Inbox approval goes through one atomic call', () => {
       screen.getByRole('button', { name: 'Income' }).click();
     });
     await act(async () => {
-      screen.getByRole('button', { name: 'Tarika' }).click();
+      screen.getByRole('button', { name: 'Partner B' }).click();
     });
     await act(async () => {
       screen.getByRole('button', { name: 'Approve' }).click();
@@ -174,5 +174,96 @@ describe('SHR-310: a guessed date is checked before approval', () => {
     });
     expect(calls.filter((c) => c.kind === 'rpc')).toHaveLength(0);
     expect(screen.getByRole('alert').textContent).toMatch(/had no date/);
+  });
+
+  it('marks each undated entry in the queue and counts them', () => {
+    renderGuessed();
+    const row = document.querySelector('.ib-queue-row');
+    expect(row.textContent).toMatch(/No date/);
+    expect(screen.getByText(/1 waiting · 0 read cleanly · 1 with no date/)).toBeTruthy();
+  });
+
+  it('approves with the date picked in the editor, marked as confirmed', async () => {
+    renderGuessed();
+    await act(async () => {
+      screen.getByRole('button', { name: 'Edit first' }).click();
+    });
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText('Date'), { target: { value: '2026-09-01' } });
+    });
+    await act(async () => {
+      screen.getByRole('button', { name: 'Approve' }).click();
+    });
+    const rpc = calls.filter((c) => c.kind === 'rpc');
+    expect(rpc).toHaveLength(1);
+    expect(rpc[0].args).toMatchObject({ p_intake_id: 'intake-1', p_occurred_at: '2026-09-01', p_date_confirmed: true });
+  });
+
+  it('keeps the date shown only once it is ticked as the day it was paid', async () => {
+    renderGuessed();
+    await act(async () => {
+      screen.getByRole('button', { name: 'Edit first' }).click();
+    });
+    await act(async () => {
+      screen.getByRole('button', { name: 'Approve' }).click();
+    });
+    expect(calls.filter((c) => c.kind === 'rpc')).toHaveLength(0);
+    expect(screen.getByRole('alert').textContent).toMatch(/had no date/);
+
+    await act(async () => {
+      screen.getByLabelText('Paid on this day').click();
+    });
+    await act(async () => {
+      screen.getByRole('button', { name: 'Approve' }).click();
+    });
+    const rpc = calls.filter((c) => c.kind === 'rpc');
+    expect(rpc).toHaveLength(1);
+    expect(rpc[0].args).toMatchObject({ p_occurred_at: '2026-09-05', p_date_confirmed: true });
+  });
+
+  // The database checks its own copy of the entry. A dated entry approved
+  // from the editor with its date untouched says nothing was confirmed, so a
+  // correction that made the date a guess since this screen loaded still
+  // stops the approval there.
+  it('does not claim a confirmation for a dated entry nobody re-dated', async () => {
+    renderScreen(
+      <Inbox
+        members={MEMBERS}
+        accounts={ACCOUNTS}
+        categories={[]}
+        loading={false}
+        data={{ intake: [ITEM], categoryRules: [], reload: vi.fn().mockResolvedValue(undefined) }}
+      />,
+    );
+    expect(screen.queryByText(/with no date/)).toBeNull();
+    await act(async () => {
+      screen.getByRole('button', { name: 'Edit first' }).click();
+    });
+    expect(screen.queryByLabelText('Paid on this day')).toBeNull();
+    await act(async () => {
+      screen.getByRole('button', { name: 'Approve' }).click();
+    });
+    const rpc = calls.filter((c) => c.kind === 'rpc');
+    expect(rpc).toHaveLength(1);
+    expect(rpc[0].args).toMatchObject({ p_occurred_at: '2026-09-05', p_date_confirmed: false });
+  });
+
+  it('leaves undated entries out of bulk approval', async () => {
+    const CONFIDENT = { ...ITEM, id: 'intake-2', parsed_account_id: 'acc-1', parsed_category_id: 'cat-1', confidence: 0.9 };
+    renderScreen(
+      <Inbox
+        members={MEMBERS}
+        accounts={ACCOUNTS}
+        categories={[{ id: 'cat-1', name: 'Groceries', kind: 'expense' }]}
+        loading={false}
+        data={{ intake: [GUESSED, CONFIDENT], categoryRules: [], reload: vi.fn().mockResolvedValue(undefined) }}
+      />,
+    );
+    await act(async () => {
+      screen.getByRole('button', { name: 'Approve 1 confident' }).click();
+    });
+    const rpc = calls.filter((c) => c.kind === 'rpc');
+    expect(rpc).toHaveLength(1);
+    expect(rpc[0].args).toMatchObject({ p_intake_id: 'intake-2', p_date_confirmed: false });
   });
 });
