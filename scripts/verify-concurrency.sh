@@ -144,6 +144,32 @@ else
   fail=1
 fi
 
+echo "verify-concurrency: two confirmations of the same bot proposal"
+# A "yes" and a thumbs-up on the same message, or a "yes" Telegram redelivers,
+# can reach apply_bot_proposal() at the same instant. The row lock on the
+# proposal makes the second wait and then find it applied: one balance change,
+# one history row.
+seed
+psql -d "$DB" -v ON_ERROR_STOP=1 -q <<'SQL'
+set client_min_messages = warning;
+insert into accounts (id, household_id, name, type, balance) values
+  ('f1000000-0000-4000-8000-000000000002', 'd1000000-0000-4000-8000-000000000001', 'Bank', 'checking', 100);
+insert into bot_proposals (id, household_id, member_id, kind, payload, chat_id) values
+  ('b1000000-0000-4000-8000-000000000001', 'd1000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-00000000000a', 'account_balances',
+   '{"items": [{"account_id": "f1000000-0000-4000-8000-000000000002", "old_balance": 100, "new_balance": 250}]}', 1);
+SQL
+APPLY="select apply_bot_proposal('b1000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-00000000000a');"
+overlap "$APPLY" &
+overlap "$APPLY" &
+wait
+applied=$(psql -At -d "$DB" -c "select (select balance from accounts where id = 'f1000000-0000-4000-8000-000000000002') || ',' || (select count(*) from account_balance_events where account_id = 'f1000000-0000-4000-8000-000000000002' and source = 'bot')")
+if [ "$applied" = "250.00,1" ]; then
+  echo "  ok   two concurrent confirmations apply the change once (balance,bot events=$applied)"
+else
+  echo "  FAIL two concurrent confirmations gave balance,bot events=$applied, expected 250.00,1" >&2
+  fail=1
+fi
+
 if [ "$fail" -ne 0 ]; then
   echo "verify-concurrency: FAILED" >&2
   exit 1

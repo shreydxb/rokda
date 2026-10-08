@@ -1286,4 +1286,179 @@ begin
   raise notice 'one-household ok: create_household() is a definer function with an empty path, for signed-in callers only';
 end $$;
 
+-- Balance history: every change to an entered balance is kept, with the
+-- figure it replaced and where it came from. Fixed deposits, whose balance is
+-- recomputed daily, are not.
+insert into accounts (id, household_id, name, type, balance, is_shared)
+values ('abcd0000-0000-4000-8000-000000000001', '11111111-1111-1111-1111-111111111111', 'History bank', 'checking', 1000, true),
+       ('abcd0000-0000-4000-8000-000000000002', '11111111-1111-1111-1111-111111111111', 'History card', 'credit_card', 200, true);
+insert into accounts (id, household_id, name, type, balance, is_shared, principal, interest_rate_pct, compounding, opened_date, maturity_date)
+values ('abcd0000-0000-4000-8000-000000000003', '11111111-1111-1111-1111-111111111111', 'History deposit', 'fd', 0, true, 10000, 5, 'simple', date '2026-01-01', date '2027-01-01');
+do $$
+declare n int; e record;
+begin
+  select * into e from account_balance_events where account_id = 'abcd0000-0000-4000-8000-000000000001';
+  if e.old_balance is not null or e.new_balance <> 1000 or e.source <> 'system' or e.member_id is not null then
+    raise exception 'balance history FAILED: opening an account recorded %', row_to_json(e);
+  end if;
+
+  update accounts set balance = 1250.50, balance_as_of = '2026-10-01T08:00:00Z' where id = 'abcd0000-0000-4000-8000-000000000001';
+  -- Not a balance change: nothing recorded.
+  update accounts set name = 'History bank (renamed)' where id = 'abcd0000-0000-4000-8000-000000000001';
+  update accounts set balance = 1250.50 where id = 'abcd0000-0000-4000-8000-000000000001';
+  select count(*) into n from account_balance_events where account_id = 'abcd0000-0000-4000-8000-000000000001';
+  if n <> 2 then raise exception 'balance history FAILED: % events for one opening and one change, expected 2', n; end if;
+  select * into e from account_balance_events where account_id = 'abcd0000-0000-4000-8000-000000000001' order by id desc limit 1;
+  if e.old_balance <> 1000 or e.new_balance <> 1250.50 or e.old_balance_as_of is not null
+     or e.new_balance_as_of <> '2026-10-01T08:00:00Z'::timestamptz or e.source <> 'system' then
+    raise exception 'balance history FAILED: a change was recorded as %', row_to_json(e);
+  end if;
+
+  update accounts set fd_status = 'active' where id = 'abcd0000-0000-4000-8000-000000000003';
+  select count(*) into n from account_balance_events where account_id = 'abcd0000-0000-4000-8000-000000000003';
+  if n <> 0 then raise exception 'balance history FAILED: a fixed deposit''s computed balance was recorded % times', n; end if;
+
+  -- A signed-in member is the app, and is named.
+  perform set_config('request.jwt.claim.sub', '0c000000-0000-4000-8000-00000000000c', true);
+  insert into auth.users (id, email) values ('0c000000-0000-4000-8000-00000000000c', 'history@example.test');
+  update household_members set user_id = '0c000000-0000-4000-8000-00000000000c' where id = '22222222-2222-2222-2222-222222222222';
+  update accounts set balance = 1300 where id = 'abcd0000-0000-4000-8000-000000000001';
+  select * into e from account_balance_events where account_id = 'abcd0000-0000-4000-8000-000000000001' order by id desc limit 1;
+  if e.source <> 'app' or e.member_id is distinct from '22222222-2222-2222-2222-222222222222' then
+    raise exception 'balance history FAILED: a member''s change was recorded as %', row_to_json(e);
+  end if;
+  update household_members set user_id = null where id = '22222222-2222-2222-2222-222222222222';
+  perform set_config('request.jwt.claim.sub', '', true);
+
+  -- Deleting the account takes its history with it.
+  delete from accounts where id = 'abcd0000-0000-4000-8000-000000000003';
+  raise notice 'balance history ok: openings and changes recorded with their source, renames and deposits not';
+end $$;
+
+-- A proposal from the bot is applied once, only for its own member, only to
+-- balances still at the figure the member was shown, and within its expiry.
+insert into goals (id, household_id, name, target_amount)
+values ('99999999-9999-9999-9999-99999999000d', '99999999-9999-9999-9999-999999999999', 'Their goal', 1000);
+insert into bot_proposals (id, household_id, member_id, kind, payload, chat_id, source_ref)
+values
+  ('abcd0000-0000-4000-8000-0000000000a1', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', 'account_balances',
+   jsonb_build_object('items', jsonb_build_array(
+     jsonb_build_object('account_id', 'abcd0000-0000-4000-8000-000000000001', 'name', 'History bank', 'old_balance', 1300, 'new_balance', 1400),
+     -- Shown as 150, but it is 200 now: changed since, so left alone.
+     jsonb_build_object('account_id', 'abcd0000-0000-4000-8000-000000000002', 'name', 'History card', 'old_balance', 150, 'new_balance', 175),
+     -- Another household's account, planted in the payload.
+     jsonb_build_object('account_id', '99999999-9999-9999-9999-99999999000b', 'name', 'Other card', 'old_balance', 0, 'new_balance', 999)
+   )), 1001, '9100001'),
+  ('abcd0000-0000-4000-8000-0000000000a2', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', 'goal_contribution',
+   jsonb_build_object('goal_id', '55555555-5555-5555-5555-555555550001', 'goal_name', 'House', 'amount', 750, 'occurred_at', '2026-10-02'), 1001, '9100002'),
+  -- The same message the bot already recorded directly before proposals
+  -- existed (source_ref 9000002, above).
+  ('abcd0000-0000-4000-8000-0000000000a3', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', 'goal_contribution',
+   jsonb_build_object('goal_id', '55555555-5555-5555-5555-555555550001', 'goal_name', 'House', 'amount', 500), 1001, '9000002'),
+  -- A goal of another household.
+  ('abcd0000-0000-4000-8000-0000000000a4', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', 'goal_contribution',
+   jsonb_build_object('goal_id', '99999999-9999-9999-9999-99999999000d', 'amount', 10), 1001, null);
+insert into bot_proposals (id, household_id, member_id, kind, payload, chat_id, created_at, expires_at)
+values ('abcd0000-0000-4000-8000-0000000000a5', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', 'account_balances',
+        jsonb_build_object('items', jsonb_build_array(jsonb_build_object('account_id', 'abcd0000-0000-4000-8000-000000000001', 'old_balance', 1400, 'new_balance', 1))),
+        1001, now() - interval '2 days', now() - interval '1 day');
+do $$
+declare r jsonb; again jsonb; n int; e record; bal numeric;
+begin
+  r := apply_bot_proposal('abcd0000-0000-4000-8000-0000000000a1', '99999999-9999-9999-9999-99999999000a');
+  if r ->> 'outcome' <> 'not_yours' then raise exception 'bot proposal FAILED: another member applied a proposal (%)', r; end if;
+  if (select status from bot_proposals where id = 'abcd0000-0000-4000-8000-0000000000a1') <> 'proposed' then
+    raise exception 'bot proposal FAILED: a refused confirmation changed the proposal';
+  end if;
+
+  r := apply_bot_proposal('abcd0000-0000-4000-8000-0000000000a1', '22222222-2222-2222-2222-222222222222');
+  if r ->> 'outcome' <> 'applied' or jsonb_array_length(r -> 'applied') <> 1 or jsonb_array_length(r -> 'skipped') <> 2 then
+    raise exception 'bot proposal FAILED: applying gave %', r;
+  end if;
+  select balance into bal from accounts where id = 'abcd0000-0000-4000-8000-000000000001';
+  if bal <> 1400 then raise exception 'bot proposal FAILED: the balance is %, expected 1400', bal; end if;
+  select balance into bal from accounts where id = 'abcd0000-0000-4000-8000-000000000002';
+  if bal <> 200 then raise exception 'bot proposal FAILED: a balance changed since it was shown was overwritten (%)', bal; end if;
+  select balance into bal from accounts where id = '99999999-9999-9999-9999-99999999000b';
+  if bal <> 0 then raise exception 'bot proposal FAILED: another household''s account was changed (%)', bal; end if;
+  if not exists (select 1 from jsonb_array_elements(r -> 'skipped') x where x ->> 'reason' = 'changed' and (x ->> 'balance')::numeric = 200) then
+    raise exception 'bot proposal FAILED: the skipped item does not say what the balance is now (%)', r;
+  end if;
+  select * into e from account_balance_events where account_id = 'abcd0000-0000-4000-8000-000000000001' order by id desc limit 1;
+  if e.source <> 'bot' or e.member_id is distinct from '22222222-2222-2222-2222-222222222222' or e.old_balance <> 1300 or e.new_balance <> 1400 then
+    raise exception 'bot proposal FAILED: the change was recorded as %', row_to_json(e);
+  end if;
+
+  again := apply_bot_proposal('abcd0000-0000-4000-8000-0000000000a1', '22222222-2222-2222-2222-222222222222');
+  if again ->> 'outcome' <> 'applied' or again -> 'result' -> 'applied' <> r -> 'applied' then
+    raise exception 'bot proposal FAILED: a second yes did not repeat the first answer (%)', again;
+  end if;
+  select count(*) into n from account_balance_events where account_id = 'abcd0000-0000-4000-8000-000000000001' and source = 'bot';
+  if n <> 1 then raise exception 'bot proposal FAILED: a second yes changed the balance again (% bot events)', n; end if;
+
+  r := apply_bot_proposal('abcd0000-0000-4000-8000-0000000000a2', '22222222-2222-2222-2222-222222222222');
+  select count(*) into n from goal_contributions where source_ref = '9100002' and amount = 750 and occurred_at = date '2026-10-02';
+  if r ->> 'outcome' <> 'applied' or n <> 1 then raise exception 'bot proposal FAILED: a goal contribution gave % (% rows)', r, n; end if;
+  perform apply_bot_proposal('abcd0000-0000-4000-8000-0000000000a2', '22222222-2222-2222-2222-222222222222');
+  select count(*) into n from goal_contributions where source_ref = '9100002';
+  if n <> 1 then raise exception 'bot proposal FAILED: a second yes recorded the contribution again'; end if;
+
+  r := apply_bot_proposal('abcd0000-0000-4000-8000-0000000000a3', '22222222-2222-2222-2222-222222222222');
+  select count(*) into n from goal_contributions where goal_id = '55555555-5555-5555-5555-555555550001' and source_ref = '9000002';
+  if n <> 1 or (r -> 'applied' -> 0 ->> 'already_recorded')::boolean is not true then
+    raise exception 'bot proposal FAILED: a message the bot had already recorded was recorded again (% rows, %)', n, r;
+  end if;
+
+  r := apply_bot_proposal('abcd0000-0000-4000-8000-0000000000a4', '22222222-2222-2222-2222-222222222222');
+  if jsonb_array_length(r -> 'applied') <> 0 or jsonb_array_length(r -> 'skipped') <> 1 then
+    raise exception 'bot proposal FAILED: a contribution to another household''s goal gave %', r;
+  end if;
+
+  r := apply_bot_proposal('abcd0000-0000-4000-8000-0000000000a5', '22222222-2222-2222-2222-222222222222');
+  select balance into bal from accounts where id = 'abcd0000-0000-4000-8000-000000000001';
+  if r ->> 'outcome' <> 'expired' or bal <> 1400
+     or (select status from bot_proposals where id = 'abcd0000-0000-4000-8000-0000000000a5') <> 'expired' then
+    raise exception 'bot proposal FAILED: an expired proposal gave % and left the balance at %', r, bal;
+  end if;
+
+  r := apply_bot_proposal('abcd0000-0000-4000-8000-0000000000ff', '22222222-2222-2222-2222-222222222222');
+  if r ->> 'outcome' <> 'not_found' then raise exception 'bot proposal FAILED: an unknown proposal gave %', r; end if;
+
+  -- A decided proposal records when; an open one does not.
+  begin
+    insert into bot_proposals (household_id, member_id, kind, payload, chat_id, status)
+    values ('11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', 'goal_contribution', '{}', 1001, 'applied');
+    raise exception 'bot proposal FAILED: a proposal was decided without a time';
+  exception
+    when check_violation then null;
+  end;
+  -- One proposal per Telegram update.
+  begin
+    insert into bot_proposals (household_id, member_id, kind, payload, chat_id, source_ref)
+    values ('11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', 'goal_contribution', '{}', 1001, '9100002');
+    raise exception 'bot proposal FAILED: one update proposed twice';
+  exception
+    when unique_violation then null;
+  end;
+  raise notice 'bot proposal ok: applied once, by its member, to unchanged balances in its household, until it expires';
+end $$;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_proc
+    where oid = 'public.apply_bot_proposal(uuid, uuid)'::regprocedure
+      and prosecdef
+      and proconfig @> array['search_path=""']
+  ) then
+    raise exception 'bot proposal FAILED: apply_bot_proposal() is not SECURITY DEFINER with an empty search_path';
+  end if;
+  if has_function_privilege('anon', 'public.apply_bot_proposal(uuid, uuid)', 'execute')
+     or has_function_privilege('authenticated', 'public.apply_bot_proposal(uuid, uuid)', 'execute')
+     or not has_function_privilege('service_role', 'public.apply_bot_proposal(uuid, uuid)', 'execute') then
+    raise exception 'bot proposal FAILED: apply_bot_proposal() is callable by someone other than the bot';
+  end if;
+  raise notice 'bot proposal ok: only service_role can apply a proposal';
+end $$;
+
 rollback;

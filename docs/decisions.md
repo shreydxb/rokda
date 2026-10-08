@@ -439,15 +439,16 @@ prompt they go stale, and net worth and every plan start from them.
   is on record and when it was last confirmed. It asks for the closing
   figures, once per household per month (`brief_sends`, kind
   `balance_checkin`). It can be switched off in Settings → Telegram.
-- **Any message stating balances sets them**, on any day
-  (`update_account_balances`). A name resolves the way a card does in an
-  expense. When two members have an account with the same name, "<partner>
-  Bank" picks the partner's and a bare "Bank" picks the sender's own. A card or loan is
-  stored as the amount owed. The reply lists every change with its old
-  figure, so a misread shows at once, and anything it could not match is
-  named rather than guessed.
-- The reply is written from the figures, not paraphrased by the model: it is
-  a write, and a write is confirmed exactly.
+- **Any message stating balances proposes them**, on any day
+  (`update_account_balances`), and a "yes" saves them (see "The bot asks
+  before it changes a balance or a goal" below). A name resolves the way a
+  card does in an expense. When two members have an account with the same
+  name, "<partner> Bank" picks the partner's and a bare "Bank" picks the
+  sender's own. A card or loan is stored as the amount owed. The question
+  lists every change with its old figure, so a misread shows before it is
+  saved, and anything it could not match is named rather than guessed.
+- The question and the answer are written from the figures, not paraphrased
+  by the model: they are about a write, and a write is stated exactly.
 
 ## Whose cost a category is, and the household share
 
@@ -713,3 +714,35 @@ price feed's daily quota and sets every household's rupee rate.
   would leak the secret a character at a time to someone patient enough to
   time it. Both values are hashed first, so the comparison is always 32
   bytes whatever is presented.
+
+## The bot asks before it changes a balance or a goal
+
+The bot used to write an account balance or a goal contribution the moment
+the model read one from a message. One misread figure changed net worth, and
+the figure it replaced survived only in the chat. Expenses never had this
+problem: they wait in the Inbox, or for a "yes".
+
+- **A proposal, then a yes.** The bot saves what it read (`bot_proposals`)
+  and replies with the change: "Bank: AED 9,000.00 → AED 10,000.00", or
+  "Record AED 500.00 toward House, dated …". Nothing is written until the
+  sender answers that message: "yes" or 👍 saves it, "no" drops it. A bare
+  "yes" counts when it is the only thing waiting from the last 20 minutes;
+  with an expense or a second proposal also waiting, the bot asks which one
+  is meant instead of guessing. A proposal lapses after a day.
+- **Saved once, in one transaction** (`apply_bot_proposal()`, service role
+  only). A second "yes", a 👍 as well, or Telegram redelivering the message
+  changes nothing more and repeats what was saved. A redelivered message asks
+  about the same proposal rather than making another.
+- **Only over the figure the member saw.** Each balance is set only if it
+  still holds the figure shown in the question. If someone changed it in the
+  app in between, that line is left alone and the reply says what the app
+  shows now.
+- **Every balance change is kept** (`account_balance_events`), written by a
+  trigger on `accounts`, so the app, the debt editor and the bot all record
+  one: the old and new figures, the source (app, bot or system) and the
+  member. Members can read their household's history; nothing can write or
+  edit it through the API. Fixed deposits are left out, because their
+  balance is recomputed every day rather than entered.
+- Goal contributions confirmed this way keep the Telegram message as their
+  delivery key, so a message the bot recorded directly before this change is
+  not recorded a second time.

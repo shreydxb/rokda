@@ -46,7 +46,9 @@ here, because this repository is public.
 
 - **Net Worth**: history from dated balance snapshots and valuations.
 - **Accounts**: bank, card, loan, cash, investment and fixed-deposit accounts.
-  Balances are entered by hand and confirmed, never derived. A balance in
+  Balances are entered by hand and confirmed, never derived. Every change is
+  kept with the figure it replaced, where it came from (app, bot or system)
+  and who made it (`account_balance_events`). A balance in
   rupees is valued at the household's current rate, and moves when the rate
   does. Cards carry a limit, statement day and due day. A loan account can
   carry its debt terms. Closed accounts stay in history.
@@ -88,7 +90,9 @@ here, because this repository is public.
   Inbox.
 - Answers questions: spending by category, net worth, account balances,
   upcoming bills, budget status, holdings.
-- Records goal contributions and sets account balances from a message.
+- Reads goal contributions and account balances from a message and asks
+  first: it shows the change (old → new) and saves it only on a "yes" or a 👍
+  to that message; "no" drops it.
 - Nudges and briefs (daily job): bills due and overdue, card payments, budget
   alerts, cash cover, unusual spending, a weekly and a monthly brief, and a
   balance check-in on the 1st of each month.

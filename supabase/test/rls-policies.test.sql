@@ -123,6 +123,15 @@ insert into household_notes (id, household_id, title, body) values
 insert into member_life (member_id, household_id, birth_year, life_expectancy) values
   ('e2000000-0000-0000-0000-00000000000a', 'd2000000-0000-0000-0000-000000000002', 1980, 85);
 
+-- Balance history and bot proposals: an account and a proposal in each
+-- household. Opening each account records its first event.
+insert into accounts (id, household_id, name, type, balance, is_shared) values
+  ('f4000000-0000-0000-0000-000000000001', 'd1000000-0000-0000-0000-000000000001', 'Our bank', 'checking', 100, true),
+  ('f4000000-0000-0000-0000-000000000002', 'd2000000-0000-0000-0000-000000000002', 'Their bank', 'checking', 100, true);
+insert into bot_proposals (id, household_id, member_id, kind, payload, chat_id) values
+  ('f5000000-0000-0000-0000-000000000001', 'd1000000-0000-0000-0000-000000000001', 'e1000000-0000-0000-0000-00000000000a', 'account_balances', '{"items": []}', 1),
+  ('f5000000-0000-0000-0000-000000000002', 'd2000000-0000-0000-0000-000000000002', 'e2000000-0000-0000-0000-00000000000a', 'account_balances', '{"items": []}', 2);
+
 set role authenticated;
 set request.jwt.claim.role = 'authenticated';
 
@@ -221,6 +230,66 @@ begin
   get diagnostics n = row_count;
   if n <> 1 then raise exception 'household_notes FAILED: a member could not delete their own note'; end if;
   raise notice 'household_notes ok: own household only, in every direction';
+end $$;
+
+-- Balance history: a member reads their own household's, and a change they
+-- make in the app is recorded as theirs. Nobody writes or edits the history
+-- through the API; the trigger is its only writer.
+do $$
+declare n int; e record;
+begin
+  select count(*) into n from account_balance_events;
+  if n <> 1 then raise exception 'balance history FAILED: a member sees % events, expected their household''s 1', n; end if;
+
+  update accounts set balance = 150 where id = 'f4000000-0000-0000-0000-000000000001';
+  select * into e from account_balance_events where account_id = 'f4000000-0000-0000-0000-000000000001' order by id desc limit 1;
+  if e.source <> 'app' or e.member_id is distinct from 'e1000000-0000-0000-0000-00000000000b'
+     or e.old_balance <> 100 or e.new_balance <> 150 then
+    raise exception 'balance history FAILED: a member''s change was recorded as %', row_to_json(e);
+  end if;
+
+  begin
+    insert into account_balance_events (household_id, account_id, new_balance, source)
+    values ('d1000000-0000-0000-0000-000000000001', 'f4000000-0000-0000-0000-000000000001', 1, 'app');
+    raise exception 'balance history FAILED: a member wrote a history row';
+  exception
+    when insufficient_privilege then null;
+  end;
+  update account_balance_events set new_balance = 1;
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'balance history FAILED: a member edited % history rows', n; end if;
+  delete from account_balance_events;
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'balance history FAILED: a member deleted % history rows', n; end if;
+  raise notice 'balance history ok: own household only, read-only, and a member''s change is theirs';
+end $$;
+
+-- Bot proposals: a member sees their household's, and only the bot decides
+-- one. apply_bot_proposal() is not callable from the API at all.
+do $$
+declare n int;
+begin
+  select count(*) into n from bot_proposals;
+  if n <> 1 then raise exception 'bot proposals FAILED: a member sees % proposals, expected their household''s 1', n; end if;
+
+  begin
+    insert into bot_proposals (household_id, member_id, kind, payload, chat_id)
+    values ('d1000000-0000-0000-0000-000000000001', 'e1000000-0000-0000-0000-00000000000b', 'account_balances', '{"items": []}', 1);
+    raise exception 'bot proposals FAILED: a member created a proposal';
+  exception
+    when insufficient_privilege then null;
+  end;
+  update bot_proposals set status = 'applied', decided_at = now();
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'bot proposals FAILED: a member decided % proposals', n; end if;
+
+  begin
+    perform apply_bot_proposal('f5000000-0000-0000-0000-000000000001', 'e1000000-0000-0000-0000-00000000000a');
+    raise exception 'bot proposals FAILED: a member applied a proposal through the API';
+  exception
+    when insufficient_privilege then null;
+  end;
+  raise notice 'bot proposals ok: own household only, read-only, applied only by the bot';
 end $$;
 
 -- QA §8: a member cannot promote themselves.
