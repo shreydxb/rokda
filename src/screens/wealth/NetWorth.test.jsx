@@ -26,7 +26,7 @@ beforeEach(() => {
   mockUpsertHitsConflict = false;
 });
 
-const MEMBERS = [{ id: 'm1', display_name: 'Shreyash' }];
+const MEMBERS = [{ id: 'm1', display_name: 'Alex' }];
 
 // QA-08 at the call site the review named: NetWorth.jsx's hero passed a signed
 // figure to the magnitude formatter, so −100 rendered as 100.

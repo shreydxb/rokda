@@ -24,8 +24,8 @@ vi.mock('../../lib/supabaseClient', () => ({
 
 const ACCOUNT = { id: 'a1', type: 'savings', currency: 'AED', balance: 200000, balance_aed: 200000, is_shared: true, archived_at: null };
 const MEMBERS = [
-  { id: 'm1', display_name: 'Shreyash' },
-  { id: 'm2', display_name: 'Tarika' },
+  { id: 'm1', display_name: 'Alex' },
+  { id: 'm2', display_name: 'Sam' },
 ];
 const AGES = [
   { member_id: 'm1', birth_year: 1994, life_expectancy: 80 },
@@ -90,8 +90,8 @@ describe('LifePlan: the timeline', () => {
     renderPlan();
     // 200,000 plus 72,000 a year at 3.4% real, spending 48,000 a year from 60: it lasts.
     expect(hero()).toBe('Lasts to 2079');
-    expect(screen.getByText(/Stopping work in 2054 \(Shreyash 60 · Tarika 60\)/)).toBeTruthy();
-    expect(screen.getByText(/the year Tarika turns 85/)).toBeTruthy();
+    expect(screen.getByText(/Stopping work in 2054 \(Alex 60 · Sam 60\)/)).toBeTruthy();
+    expect(screen.getByText(/the year Sam turns 85/)).toBeTruthy();
     expect(screen.getByText(/not saved yet/)).toBeTruthy();
   });
 
@@ -100,7 +100,7 @@ describe('LifePlan: the timeline', () => {
     expect(hero()).toMatch(/^Runs out in \d{4}$/);
     const take = document.querySelector('.fc-solve-answer').textContent;
     // Stopping later comes first: it is the lever that fits a plan short in retirement.
-    expect(take).toMatch(/^To last to 2079: stop work in \d{4} \(Shreyash \d+ · Tarika \d+\) · or save AED [\d,]+ more a month until \d{4} · or spend at most AED [\d,]+ a year/);
+    expect(take).toMatch(/^To last to 2079: stop work in \d{4} \(Alex \d+ · Sam \d+\) · or save AED [\d,]+ more a month until \d{4} · or spend at most AED [\d,]+ a year/);
   });
 
   it('falls short in a goal\'s year when the pot cannot pay it', () => {

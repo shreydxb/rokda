@@ -32,7 +32,7 @@ vi.mock('../../lib/supabaseClient', () => ({
   },
 }));
 
-const MEMBERS = [{ id: 'm1', display_name: 'Shreyash' }];
+const MEMBERS = [{ id: 'm1', display_name: 'Alex' }];
 const LOAN = { id: 'loan', name: 'Car loan', type: 'loan', currency: 'AED', balance: 38000, balance_aed: 38000, is_shared: true, owner_member_id: null, archived_at: null };
 const SAVINGS = { id: 'sav', name: 'FAB', type: 'checking', currency: 'AED', balance: 5000, is_shared: true, archived_at: null };
 

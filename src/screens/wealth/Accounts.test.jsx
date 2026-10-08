@@ -29,7 +29,7 @@ vi.mock('../../lib/supabaseClient', () => ({
 
 const { default: Accounts } = await import('./Accounts');
 
-const MEMBERS = [{ id: 'm1', display_name: 'Shreyash' }];
+const MEMBERS = [{ id: 'm1', display_name: 'Alex' }];
 const CARD = {
   id: 'card-1',
   name: 'ENBD Noon',
@@ -150,7 +150,7 @@ describe('Credit card "of limit used" reflects real transactions, not just a man
 
 describe('Accounts: group by type / by owner toggle', () => {
   const SAVINGS = { id: 'sv1', name: 'Emirates NBD Savings', type: 'savings', balance: 5000, balance_as_of: '2026-09-01', is_shared: true, archived_at: null, owner_member_id: null };
-  const PERSONAL = { id: 'ch1', name: "Shreyash's checking", type: 'checking', balance: 3000, balance_as_of: '2026-09-01', is_shared: false, archived_at: null, owner_member_id: 'm1' };
+  const PERSONAL = { id: 'ch1', name: "Alex's checking", type: 'checking', balance: 3000, balance_as_of: '2026-09-01', is_shared: false, archived_at: null, owner_member_id: 'm1' };
 
   it('defaults to grouping by type', () => {
     renderAccounts({ accounts: [SAVINGS, PERSONAL], transactions: [] });
@@ -163,7 +163,7 @@ describe('Accounts: group by type / by owner toggle', () => {
     renderAccounts({ accounts: [SAVINGS, PERSONAL], transactions: [] });
     fireEvent.click(screen.getByRole('button', { name: 'By owner' }));
     expect(screen.getByText('Joint')).toBeTruthy();
-    expect(screen.getByText('Shreyash')).toBeTruthy();
+    expect(screen.getByText('Alex')).toBeTruthy();
   });
 });
 
