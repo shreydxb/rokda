@@ -1196,6 +1196,8 @@ begin
 
   update households set inr_per_aed = 25 where id = hh;
   raise notice 'household day ok: Dubai''s date for deposits and undated transactions; rupee accounts follow their own household''s rate, are unknown without one, and are not edited by it';
+end $$;
+
 -- The membership helpers live in private, out of the API schema, and every
 -- policy is still bound to them there. The move relies on PostgreSQL storing
 -- the function a policy calls by OID, so this checks the result rather than
