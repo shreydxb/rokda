@@ -626,3 +626,26 @@ New policies call `private.is_household_member(...)` and
 policy that calls a wrapper. `create_household()` and
 `generate_telegram_link_code()` stay in `public` on purpose. They are the
 RPCs, and the advisor's note on them is expected.
+
+## A guessed date is set or confirmed before it is approved
+
+An SMS or receipt with no date waits in the Inbox dated the day it was sent
+(see above). A backlog pasted in one sitting would all land on that day if it
+were approved as read.
+
+- **The queue marks each one** "No date", and the summary counts them.
+- **Approve opens the editor** for such an entry. The editor approves it once
+  a date has been picked, or "Paid on this day" ticked for the one shown.
+  "Approve N confident" leaves these entries out. There is no date picker in
+  the review pane itself; the editor is one more click per entry.
+- **The database refuses it too.** `approve_intake` takes `p_date_confirmed`
+  (default false) and refuses a `date_guessed` entry without it, checking its
+  own copy of the entry, so a screen showing an older copy, or a bot "yes",
+  cannot record a guess. Only the Inbox editor sends it, and only once a date
+  was picked or ticked there; bulk approval and the bot never do.
+- The entry keeps `date_guessed` and `parsed_date` as the bot wrote them, a
+  record of what it guessed. The transaction carries the day that was
+  confirmed. A correction sent to the bot that gives the date clears the flag,
+  as it already did.
+- This guards against an accident, not against a member: any member can
+  edit an intake row, the flag included.

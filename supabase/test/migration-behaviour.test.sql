@@ -639,6 +639,82 @@ begin
   raise notice 'QA-§7 ok: approve_intake refuses foreign ids, writes nothing, still approves its own';
 end $$;
 
+-- A guessed date (intake.date_guessed): approve_intake refuses it until a
+-- person has set or confirmed the day, writes nothing when it refuses, and
+-- records the day the caller gave once confirmed. An entry whose message gave
+-- its date needs no confirmation, so the bot's fast confirm is unchanged.
+do $$
+declare
+  before_count int;
+  result jsonb;
+  occurred date;
+begin
+  -- One approve_intake only: a leftover ten-argument overload would make
+  -- PostgREST calls ambiguous and would still approve a guess.
+  if (select count(*) from pg_proc where proname = 'approve_intake' and pronamespace = 'public'::regnamespace) <> 1 then
+    raise exception 'guessed date FAILED: approve_intake has more than one definition';
+  end if;
+  -- Granted by name, not left to default privileges: the Inbox calls it as
+  -- authenticated and the bot as service_role.
+  if (select count(distinct a.grantee)
+        from pg_proc p, aclexplode(p.proacl) a
+       where p.oid = 'approve_intake(uuid, uuid, numeric, date, text, uuid, text, text, boolean, uuid, boolean)'::regprocedure
+         and a.privilege_type = 'EXECUTE'
+         and a.grantee in ('authenticated'::regrole, 'service_role'::regrole)) <> 2 then
+    raise exception 'guessed date FAILED: approve_intake is not granted to authenticated and service_role';
+  end if;
+
+  insert into intake (id, household_id, source, raw_text, parsed_amount, parsed_date, date_guessed, status)
+  values ('55555555-5555-5555-5555-55555555d001', '11111111-1111-1111-1111-111111111111', 'telegram', 'AED 40 spent at Cafe', 40, '2026-09-29', true, 'pending');
+  select count(*) into before_count from transactions;
+
+  begin
+    perform approve_intake('55555555-5555-5555-5555-55555555d001', '33333333-3333-3333-3333-333333333333', 40, date '2026-09-29', 'expense');
+    raise exception 'guessed date FAILED: approved as read';
+  exception
+    when invalid_parameter_value then
+      if position('no date' in sqlerrm) = 0 then raise; end if;
+  end;
+  begin
+    perform approve_intake('55555555-5555-5555-5555-55555555d001', '33333333-3333-3333-3333-333333333333', 40, date '2026-09-29', 'expense',
+                           p_date_confirmed => false);
+    raise exception 'guessed date FAILED: approved with p_date_confirmed false';
+  exception
+    when invalid_parameter_value then null;
+  end;
+  if (select count(*) from transactions) <> before_count
+     or (select status from intake where id = '55555555-5555-5555-5555-55555555d001') <> 'pending' then
+    raise exception 'guessed date FAILED: a refused approval wrote something';
+  end if;
+
+  result := approve_intake('55555555-5555-5555-5555-55555555d001', '33333333-3333-3333-3333-333333333333', 40, date '2026-09-21', 'expense',
+                           p_date_confirmed => true);
+  select t.occurred_at into occurred from transactions t where t.id = (result ->> 'transaction_id')::uuid;
+  if occurred is distinct from date '2026-09-21' then
+    raise exception 'guessed date FAILED: the confirmed day was not recorded (got %)', occurred;
+  end if;
+  -- The entry keeps what the bot wrote, as the record of its guess.
+  if (select date_guessed and parsed_date = date '2026-09-29' from intake where id = '55555555-5555-5555-5555-55555555d001') is not true then
+    raise exception 'guessed date FAILED: the record of the guess was overwritten';
+  end if;
+
+  -- A retry of the approved entry still returns its transaction: the
+  -- approved check comes before the date check.
+  result := approve_intake('55555555-5555-5555-5555-55555555d001', '33333333-3333-3333-3333-333333333333', 40, date '2026-09-21', 'expense');
+  if not (result ->> 'already_approved')::boolean then
+    raise exception 'guessed date FAILED: a retry of the approved entry was not recognised';
+  end if;
+
+  insert into intake (id, household_id, source, raw_text, parsed_amount, parsed_date, status)
+  values ('55555555-5555-5555-5555-55555555d002', '11111111-1111-1111-1111-111111111111', 'telegram', 'AED 15 at Cafe on 20 Sep', 15, '2026-09-20', 'pending');
+  result := approve_intake('55555555-5555-5555-5555-55555555d002', '33333333-3333-3333-3333-333333333333', 15, date '2026-09-20', 'expense');
+  if (result ->> 'already_approved')::boolean then
+    raise exception 'guessed date FAILED: a dated entry was not approved';
+  end if;
+
+  raise notice 'guessed date ok: refused until confirmed, nothing written on refusal, the confirmed day recorded, dated entries unchanged';
+end $$;
+
 -- SHR-303: an update claim records whether processing finished, so a crash
 -- before capture is retried instead of being suppressed forever.
 do $$

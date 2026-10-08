@@ -78,6 +78,7 @@ function approveIntakeContract(store, args) {
   if (!row) throw new Error('not found');
   if (row.status === 'approved') return { transaction_id: row.transaction_id, already_approved: true };
   if (row.status === 'rejected') throw new Error('already rejected');
+  if (row.date_guessed && !args.p_date_confirmed) throw new Error('the message had no date');
   const id = `tx-${store.transactions.length + 1}`;
   store.transactions.push({ id, amount: signedAmount(args.p_amount, args.p_kind), account_id: args.p_account_id });
   store.intake.set(args.p_intake_id, { ...row, status: 'approved', transaction_id: id });
@@ -123,5 +124,31 @@ describe('QA-11: approval happens exactly once', () => {
     store.intake.set('intake-1', { id: 'intake-1', status: 'rejected', transaction_id: null });
     expect(() => approveIntakeContract(store, args)).toThrow(/rejected/);
     expect(store.transactions).toHaveLength(0);
+  });
+
+  it('refuses a guessed date nobody confirmed, and writes nothing', () => {
+    const store = freshStore();
+    store.intake.set('intake-1', { id: 'intake-1', status: 'pending', transaction_id: null, date_guessed: true });
+    expect(() => approveIntakeContract(store, args)).toThrow(/no date/);
+    expect(store.transactions).toHaveLength(0);
+    approveIntakeContract(store, approvalArgs(ITEM, { ...BASE_FORM, dateGuessed: true, dateConfirmed: true }));
+    expect(store.transactions).toHaveLength(1);
+  });
+});
+
+// A bank SMS or receipt with no date is dated the day it was sent to the bot
+// (SHR-310). Approving it as read would put a pasted backlog on that one day.
+describe('a guessed date is set or confirmed before approval', () => {
+  it('refuses a guessed date until someone confirms it', () => {
+    expect(validateApproval({ ...BASE_FORM, dateGuessed: true })).toMatch(/had no date/);
+    expect(validateApproval({ ...BASE_FORM, dateGuessed: true, dateConfirmed: false })).toMatch(/had no date/);
+    expect(validateApproval({ ...BASE_FORM, dateGuessed: true, dateConfirmed: true })).toBeNull();
+    expect(validateApproval({ ...BASE_FORM, dateGuessed: false })).toBeNull();
+  });
+
+  it('tells approve_intake the date was confirmed only when someone did', () => {
+    expect(approvalArgs(ITEM, BASE_FORM).p_date_confirmed).toBe(false);
+    expect(approvalArgs(ITEM, { ...BASE_FORM, dateGuessed: true }).p_date_confirmed).toBe(false);
+    expect(approvalArgs(ITEM, { ...BASE_FORM, dateGuessed: true, dateConfirmed: true }).p_date_confirmed).toBe(true);
   });
 });

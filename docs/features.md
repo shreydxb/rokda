@@ -38,7 +38,9 @@ here, because this repository is public.
   Posted, Expected, Late, Ended). Income is matched within 10 days of its
   date, bills within 5, and a salary counts in the month it was due.
 - **Insights**: what moved month on month, drilling into Activity.
-- **Inbox**: transactions the bot was not sure of, to confirm or fix.
+- **Inbox**: transactions the bot was not sure of, to confirm or fix. An entry
+  whose message had no date is marked "No date" and is approved only once its
+  date is set or confirmed, never in bulk.
 
 ## Wealth (`/wealth`)
 
