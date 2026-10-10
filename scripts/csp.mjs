@@ -9,11 +9,12 @@
 // of being discovered on the live site.
 //
 // The one place the app talks to is its own Supabase project, and that is
-// known only at build time (VITE_SUPABASE_URL), so connect-src is built from
-// it. Pinning the project rather than allowing https://*.supabase.co matters:
-// after a script injection, a wildcard would let the page send the household's
-// data to any Supabase project, including one an attacker made for the
-// purpose. The app makes no realtime subscriptions, so there is no wss origin.
+// known only at build time (VITE_SUPABASE_URL), so connect-src and img-src
+// are built from it. Pinning the project rather than allowing
+// https://*.supabase.co matters: after a script injection, a wildcard would
+// let the page send the household's data to any Supabase project, including
+// one an attacker made for the purpose. The app makes no realtime
+// subscriptions, so there is no wss origin.
 //
 // Directives a <meta> policy cannot carry (frame-ancestors, report-uri) are
 // set as headers in netlify.toml instead; Chrome logs an error for each one
@@ -46,8 +47,10 @@ export function contentSecurityPolicy(supabaseUrl) {
     // Inline styles cannot run code.
     ['style-src', "'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
     ['font-src', "'self'", 'https://fonts.gstatic.com'],
-    // data: for small images Vite inlines into the CSS.
-    ['img-src', "'self'", 'data:'],
+    // data: for small images Vite inlines into the CSS. The project origin
+    // for receipt photos in the Inbox: an <img> whose src is a signed
+    // Storage URL on the Supabase origin, which connect-src does not cover.
+    ['img-src', "'self'", 'data:', ...(origin ? [origin] : [])],
     ['connect-src', "'self'", ...(origin ? [origin] : [])],
     ['object-src', "'none'"],
     ['base-uri', "'self'"],

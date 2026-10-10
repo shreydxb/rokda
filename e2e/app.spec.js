@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { Buffer } from 'node:buffer';
 import { data, stubSupabase } from './fixtures.js';
 
 const ROUTES = [
@@ -223,9 +224,11 @@ test('theme toggle switches and the page stays readable', async ({ page }) => {
 });
 
 // The Content-Security-Policy (scripts/csp.mjs) ships in the build this suite
-// serves, so every test above already fails if the policy blocks something the
-// app needs: the browser reports each blocked load as a console error. This
-// one proves the policy is enforced at all, rather than present and inert.
+// serves, so every test above fails if the policy blocks something the app
+// needs on the screens it opens: the browser reports each blocked load as a
+// console error. That covers only what the fixtures make the app load, which
+// is why the receipt-photo test below exists. This one proves the policy is
+// enforced at all, rather than present and inert.
 test('the Content-Security-Policy is in force: an injected script does not run', async ({ page }) => {
   await stubSupabase(page);
   const violations = [];
@@ -244,4 +247,26 @@ test('the Content-Security-Policy is in force: an injected script does not run',
   // The app's own requests are not blocked: it reached the stubbed Supabase
   // origin the build was made against, and rendered.
   await expect(page.locator('.om-main')).toBeVisible();
+});
+
+// A receipt photo in the Inbox is an <img> from a signed Storage URL on the
+// Supabase origin, not the app's. The policy above once blocked it while every
+// test passed, because no fixture had a photo; this one does.
+test('the Inbox shows a receipt photo under the Content-Security-Policy', async ({ page }) => {
+  const errors = watchErrors(page);
+  const [entry] = data.intake;
+  await stubSupabase(page, { tables: { intake: [{ ...entry, photo_path: 'receipts/receipt.png' }] } });
+  // A 1x1 PNG, served for the signed URL the Inbox asks for.
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+  await page.route('**/storage/v1/object/sign/telegram-receipts/**', (route) =>
+    route.request().method() === 'POST'
+      ? route.fulfill({ json: { signedURL: '/object/sign/telegram-receipts/receipts/receipt.png?token=t' } })
+      : route.fulfill({ status: 200, contentType: 'image/png', body: png }));
+
+  await gotoReady(page, '/money');
+  await page.getByRole('button', { name: /^Inbox/ }).click();
+  const photo = page.getByRole('img', { name: 'Receipt' });
+  await expect(photo).toBeVisible();
+  await expect.poll(() => photo.evaluate((img) => img.complete && img.naturalWidth), { message: 'the receipt image never loaded' }).toBe(1);
+  expect(errors, 'console/page errors in the Inbox').toEqual([]);
 });

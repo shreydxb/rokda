@@ -29,9 +29,15 @@ describe('contentSecurityPolicy', () => {
     expect(d['connect-src'].join(' ')).not.toMatch(/\*/);
   });
 
+  it('shows images from the app and from its own Supabase project, where receipt photos are', () => {
+    const d = directives(contentSecurityPolicy('https://abcdefgh.supabase.co'));
+    expect(d['img-src']).toEqual(["'self'", 'data:', 'https://abcdefgh.supabase.co']);
+  });
+
   it('falls back to the app alone when the build has no Supabase URL', () => {
     const d = directives(contentSecurityPolicy(undefined));
     expect(d['connect-src']).toEqual(["'self'"]);
+    expect(d['img-src']).toEqual(["'self'", 'data:']);
   });
 
   it('allows no inline or cross-origin script', () => {

@@ -665,8 +665,9 @@ Pages showed the current app.
   Pages cannot send headers, so this is the only way both addresses get it,
   and the browser suite serves the same build, so a policy that blocks
   something the app needs fails the suite. Scripts come only from the app
-  itself. The app may connect only to the Supabase project it was built
-  against, not to `*.supabase.co`: after an injected script, a wildcard would
+  itself. The app may connect to, and show images from (receipt photos are
+  signed Storage URLs), only the Supabase project it was built against, not
+  `*.supabase.co`: after an injected script, a wildcard would
   let the page send data to any project, including one made for the purpose.
   `npm run verify:build` fails a build without the tag.
 - **What a meta tag cannot carry is a header** in `netlify.toml`:
