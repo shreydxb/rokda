@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ambiguousConfirmMessage,
   ambiguousProposalMessage,
+  dropUnavailableMessage,
   isCancellationText,
   isConfirmationText,
   isReadyForFastConfirm,
@@ -302,6 +303,11 @@ describe('proposals: which one a "yes" or a "no" is about', () => {
     expect(resolveProposalTarget({ lookup: PROMPT_UNKNOWN, recentlyDecided: decided })).toEqual({ kind: 'none' });
   });
 
+  it('a "no" whose lookup failed is never told to approve anything', () => {
+    expect(dropUnavailableMessage()).not.toMatch(/approve|Inbox|👍/i);
+    expect(dropUnavailableMessage()).toMatch(/nothing was dropped/);
+  });
+
   it('only a short, exact "no" counts as dropping one', () => {
     for (const text of ['no', 'No.', 'nope', 'cancel', "don't", 'dont', '❌', '👎', ' n ']) expect(isCancellationText(text), text).toBe(true);
     for (const text of ['no wait, it was 45', 'not now', 'yes', '', 'none of these', 'nothing']) expect(isCancellationText(text), text).toBe(false);
@@ -312,6 +318,8 @@ describe('proposals: which one a "yes" or a "no" is about', () => {
     expect(ambiguousProposalMessage(true)).toMatch(/👍/);
     // A 👍 saves: someone who said "no" must not be pointed at it.
     expect(ambiguousProposalMessage(false)).not.toMatch(/👍/);
-    expect(ambiguousProposalMessage(false)).toMatch(/Reply "no" directly/);
+    expect(ambiguousProposalMessage(false)).toMatch(/reply "no" directly to my question/);
+    // A "no" drops only a proposal; an expense is thrown away in the Inbox.
+    expect(ambiguousProposalMessage(false)).toMatch(/Inbox/);
   });
 });

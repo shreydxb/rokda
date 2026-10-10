@@ -34,6 +34,7 @@ import { LINK_ATTEMPT_WINDOW_MS, linkAttemptRefusal, linkTokenFromMessage, looks
 import {
   ambiguousConfirmMessage,
   ambiguousProposalMessage,
+  dropUnavailableMessage,
   isCancellationText,
   isConfirmable,
   isConfirmationText,
@@ -1108,10 +1109,17 @@ async function sendProposal(
     throw new Error("the proposal's question was not delivered");
   }
   // Without the question's id the proposal cannot be answered at all (a bare
-  // answer counts only asked-about proposals), so a failure here is thrown:
-  // the redelivery finds the proposal unasked, rewrites it and asks again.
-  const recorded = await supabase.from("bot_proposals").update({ prompt_message_id: messageId }).eq("id", row.id);
-  if (recorded.error) throw new Error(`recording the proposal's question failed (${recorded.error.code ?? "no code"})`);
+  // answer counts only asked-about proposals), so one retry, and then the
+  // question is withdrawn and the update thrown back: the redelivery finds
+  // the proposal unasked, rewrites it to what it reads then and asks again.
+  // Withdrawing matters because that reading may differ, and an answer the
+  // member typed against the first question would otherwise save the second.
+  let recorded = await supabase.from("bot_proposals").update({ prompt_message_id: messageId }).eq("id", row.id);
+  if (recorded.error) recorded = await supabase.from("bot_proposals").update({ prompt_message_id: messageId }).eq("id", row.id);
+  if (recorded.error) {
+    await tgCall("deleteMessage", { chat_id: chatId, message_id: messageId }).catch(() => {});
+    throw new Error(`recording the proposal's question failed (${recorded.error.code ?? "no code"})`);
+  }
 }
 
 // Removes a proposal whose question never reached the member, so no "yes"
@@ -2499,7 +2507,7 @@ export function buildBalanceCheckinMessage(accounts: BalanceAccount[], members: 
   });
   return (
     `Month-end check-in for ${monthLabel}. What did each of these close at?\n\n${lines.join("\n")}\n\n` +
-    `Reply in one message, e.g. "Bank 10,000 · ${exampleOwner} bank 5,000 · Card 1,000 owed · Pension 3,00,000" -- cards and loans as the amount owed, ` +
+    `Reply in one message, e.g. "Bank 10,000 · ${exampleOwner} bank 5,000 · Card 1,000 owed · Pension 3,00,000" -- cards and loans as the amount owed (a card in credit is set in the app), ` +
     `other currencies in their own, and whose it is when two share a name. Anything you leave out stays as it is. I'll show you the changes before saving them.`
   );
 }
@@ -3065,7 +3073,7 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
         return new Response("ok");
       }
       if (target.kind === "unavailable") {
-        await reply(chatId, lookupUnavailableMessage());
+        await reply(chatId, confirming ? lookupUnavailableMessage() : dropUnavailableMessage());
         return new Response("ok");
       }
       if (target.kind === "ambiguous") {

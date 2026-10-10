@@ -129,6 +129,24 @@ describe('AuthProvider: password recovery', () => {
     expect(screen.getByTestId('signed-in').textContent).toBe('false');
   });
 
+  it('belongs to the member who reset: a tab signed in as someone else is not moved by it', async () => {
+    // "Keep me signed in" off, two members in two tabs of one browser.
+    const PARTNER = { user: { id: 'u2', email: 'partner@example.test' } };
+    client.session = PARTNER;
+    await renderProvider();
+    await emit('PASSWORD_RECOVERY', SESSION);
+    expect(recovering()).toBe('false');
+    expect(sessionStorage.getItem(KEY)).toBeNull();
+
+    // And the partner's own reset is not ended by the owner saving theirs.
+    await emit('PASSWORD_RECOVERY', PARTNER);
+    expect(recovering()).toBe('true');
+    await emit('USER_UPDATED', SESSION);
+    expect(recovering()).toBe('true');
+    await emit('USER_UPDATED', PARTNER);
+    expect(recovering()).toBe('false');
+  });
+
   it('is dropped when there is no session to set a password on', async () => {
     sessionStorage.setItem(KEY, 'true');
     client.session = null;

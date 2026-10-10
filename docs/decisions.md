@@ -592,9 +592,11 @@ shows **Set a new password** and nothing else until a new password is saved
   supabase-js relays auth events to every open tab. A Sign in tab that asked
   for the link shows the screen too when it shares the session ("Keep me
   signed in" on), and saving the password in either tab (`USER_UPDATED`)
-  ends it in both. With "Keep me signed in" off each tab has a session of its
-  own, so the Sign in tab stays on Sign in: for these two events the app
-  reads the tab's own session, never the relayed one.
+  ends it in both and opens the app. For these two events the app reads the
+  tab's own session, never the relayed one, and acts only when the event is
+  about the user that tab is signed in as. With "Keep me signed in" off each
+  tab has a session of its own: a tab with none stays on Sign in, and a tab
+  signed in as another member is not moved by someone else's reset.
 - It is a prompt, not a lock. The link's session is a real session either
   way; the screen exists so the person leaves with a password they know.
 - A link that has expired or was already used signs nobody in. Supabase sends
@@ -748,8 +750,10 @@ problem: they wait in the Inbox, or for a "yes".
   "yes" counts when it is the only thing waiting from the last 20 minutes;
   with an expense or a second proposal also waiting, the bot asks which one
   is meant instead of guessing. A proposal lapses after a day. A figure the
-  model read as negative keeps its minus sign in the question (only a card
-  or loan is shown as "owed"), so a sign misread cannot look like no change.
+  model read as negative keeps its minus sign in the question, and a card
+  or loan stored as negative reads "in credit" rather than "owed", so a
+  sign misread cannot look like no change. The bot sets cards and loans
+  only as an amount owed; a card in credit is set in the app.
 - **Saved once, in one transaction** (`apply_bot_proposal()`, service role
   only). A second "yes" changes nothing more: as a reply to the question at
   any time, or bare within five minutes, it repeats what was saved, so a
@@ -757,12 +761,17 @@ problem: they wait in the Inbox, or for a "yes".
   question already answered changes nothing and says nothing. A bare "no"
   names what it dropped, and counts only when nothing else waits for an
   answer.
-- **The question and the saved change always match.** A proposal whose
-  question did not reach the member is deleted, and Telegram delivers the
-  message again; the retry proposes what it reads then, which may differ.
-  A redelivered message never makes a second proposal: one already asked
-  about is left alone, and one never asked about takes the new reading
-  before it is asked.
+- **The question and the saved change match.** A proposal whose question
+  did not reach the member is deleted, and Telegram delivers the message
+  again; the retry proposes what it reads then, which may differ. A
+  question whose message id could not be recorded is withdrawn before the
+  retry asks again, so an answer cannot land on a question that no longer
+  says what will be saved. A redelivered message never makes a second
+  proposal: one already asked about is left alone, and one never asked
+  about takes the new reading before it is asked. The one gap is the bot
+  stopping between sending a question and recording it; the retry then asks
+  again, and the reply to the first question is refused as one the bot no
+  longer tracks.
 - **Only over the figure the member saw.** Each balance is set only if it
   still holds the figure shown in the question. If someone changed it in the
   app in between, that line is left alone and the reply says what the app

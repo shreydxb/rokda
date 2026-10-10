@@ -1,9 +1,9 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import Login from './Login';
 
-const auth = vi.hoisted(() => ({ resetPasswordForEmail: vi.fn(async () => ({ error: null })), linkError: '' }));
+const auth = vi.hoisted(() => ({ resetPasswordForEmail: vi.fn(async () => ({ error: null })), linkError: '', session: null }));
 
 vi.mock('../lib/supabaseClient', () => ({
   supabase: { auth: { resetPasswordForEmail: auth.resetPasswordForEmail } },
@@ -11,7 +11,7 @@ vi.mock('../lib/supabaseClient', () => ({
 }));
 
 vi.mock('../lib/AuthContext', () => ({
-  useAuth: () => ({ linkError: auth.linkError }),
+  useAuth: () => ({ linkError: auth.linkError, session: auth.session, loading: false }),
 }));
 
 const EXPIRED = 'That reset link has expired or has already been used. Send yourself a new one below.';
@@ -27,6 +27,24 @@ function renderLogin() {
 beforeEach(() => {
   auth.resetPasswordForEmail.mockClear();
   auth.linkError = '';
+  auth.session = null;
+});
+
+describe('Login: someone already signed in', () => {
+  it('goes to the app instead of showing a sign-in form', () => {
+    // How a tab that showed Set a new password at /login gets back to the app.
+    auth.session = { user: { id: 'u1' } };
+    render(
+      <MemoryRouter initialEntries={['/login']}>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/" element={<div>The app</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(screen.getByText('The app')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Sign in' })).toBeNull();
+  });
 });
 
 describe('Login: forgot password', () => {

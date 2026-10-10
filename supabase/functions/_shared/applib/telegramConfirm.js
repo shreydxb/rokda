@@ -169,6 +169,13 @@ export function unknownPromptMessage() {
   return "I can't tell which entry that reply is about -- that message isn't a prompt I'm still tracking. Reply to the most recent prompt for the entry you mean, or use the Inbox.";
 }
 
+// Said to a "no" when the lookup of what it is about failed: nothing was
+// dropped, and nothing was saved either. Not the "yes" wording, which tells
+// the member to approve something in the Inbox.
+export function dropUnavailableMessage() {
+  return "I couldn't check which change that's for just now, so nothing was dropped or changed. Try again in a moment.";
+}
+
 // Said when the lookup itself failed. Deliberately records nothing: the one
 // thing worse than not confirming is confirming the wrong entry.
 export function lookupUnavailableMessage() {
@@ -262,10 +269,11 @@ export function resolveProposalTarget({ lookup = PROMPT_UNADDRESSED, row = null,
 
 // Said when a bare "yes" or "no" could be about more than one thing waiting.
 // The way out depends on the answer: a 👍 saves, so it is offered only to a
-// "yes"; someone who said "no" is asked to say it again as a reply.
+// "yes". A "no" drops only a proposal, so someone who said "no" is told how
+// to drop one, and that an expense is thrown away in the Inbox instead.
 export function ambiguousProposalMessage(confirming = true) {
   const head = 'More than one thing is waiting for an answer, so I don\'t know which one you mean. ';
   return confirming
     ? `${head}Reply directly to my message about it (swipe or long-press → Reply), or react to it with 👍.`
-    : `${head}Reply "no" directly to my message about the one you want to drop (swipe or long-press → Reply).`;
+    : `${head}To drop a balance or goal change, reply "no" directly to my question about it (swipe or long-press → Reply). An expense waiting for a "yes" stays unrecorded until you approve it; to throw it away, use the Inbox.`;
 }

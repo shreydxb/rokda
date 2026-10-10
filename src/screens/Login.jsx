@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { supabase, setKeepSignedIn } from '../lib/supabaseClient';
 import { useAuth } from '../lib/AuthContext';
 import { resetRedirectUrl } from '../lib/passwordReset';
@@ -14,7 +14,7 @@ export default function Login() {
   // Set when a reset link that had expired or was already used brought the
   // person here. They came to reset their password, so that is where they
   // start, with the reason above the form.
-  const { linkError } = useAuth();
+  const { linkError, session, loading } = useAuth();
 
   const [mode, setMode] = useState(linkError ? 'forgot' : 'sign-in'); // 'sign-in' | 'forgot'
   const [email, setEmail] = useState('');
@@ -25,6 +25,12 @@ export default function Login() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
   const [resetSent, setResetSent] = useState(false);
+
+  // Already signed in: Sign in has nothing to offer. This is also how a tab
+  // that showed Set a new password at /login (it asked for the reset link,
+  // and the link opened in another tab) reaches the app once the password is
+  // saved, rather than a sign-in form it does not need.
+  if (!loading && session) return <Navigate to={from} replace />;
 
   const emailError =
     touched.email && !EMAIL_RE.test(email) ? 'Enter a valid email address.' : '';

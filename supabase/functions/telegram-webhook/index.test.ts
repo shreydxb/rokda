@@ -37,6 +37,7 @@ type Backend = {
   tables: Record<string, Row[]>;
   log: Map<number, { status: string; claimed_at: number; attempts: number }>;
   telegramSent: Array<{ method: string; body: Row }>;
+  telegramDeleted: number[];
   requests: Array<{ method: string; path: string }>;
   faults: {
     // Make claim_telegram_update fail the way a live database can.
@@ -46,6 +47,10 @@ type Backend = {
     failFirstSends?: number;
     // Telegram answers ok:false (a 429, say): nothing is sent, nothing thrown.
     refuseFirstSends?: number;
+    // The write recording a proposal question's message id fails this many times.
+    failPromptRecord?: number;
+    // Reading bot_proposals fails.
+    failProposalReads?: boolean;
   };
   // What OpenRouter's router answers for a message: a tool name plus args.
   route?: { tool: string; args: Row };
@@ -80,6 +85,7 @@ function reset(): void {
     },
     log: new Map(),
     telegramSent: [],
+    telegramDeleted: [],
     requests: [],
     faults: {},
     parsePrompts: [],
@@ -168,6 +174,9 @@ async function postgrest(req: Request, url: URL): Promise<Response> {
   const wantsRows = (req.headers.get("Prefer") ?? "").includes("return=representation");
 
   if (req.method === "GET") {
+    if (table === "bot_proposals" && backend.faults.failProposalReads) {
+      return json({ code: "57014", message: "canceling statement due to statement timeout" }, 500);
+    }
     let found = rows.filter((r) => matches(r, url.searchParams));
     const limit = url.searchParams.get("limit");
     if (limit) found = found.slice(0, Number(limit));
@@ -202,6 +211,10 @@ async function postgrest(req: Request, url: URL): Promise<Response> {
       const entry = backend.log.get(id);
       if (entry && typeof patch.status === "string") entry.status = patch.status;
       return new Response(null, { status: 204 });
+    }
+    if (table === "bot_proposals" && "prompt_message_id" in patch && backend.faults.failPromptRecord) {
+      backend.faults.failPromptRecord -= 1;
+      return json({ code: "57014", message: "canceling statement due to statement timeout" }, 500);
     }
     const hit = rows.filter((r) => matches(r, url.searchParams));
     for (const r of hit) Object.assign(r, patch);
@@ -315,6 +328,7 @@ async function telegram(req: Request, url: URL): Promise<Response> {
     backend.telegramSent.push({ method, body });
     return json({ ok: true, result: { message_id: 1000 + sendCount } });
   }
+  if (method === "deleteMessage") backend.telegramDeleted.push(Number(body.message_id));
   return json({ ok: true, result: {} });
 }
 
@@ -1043,8 +1057,10 @@ freshTest("a bare no says what it dropped, and asks which one when an expense is
   });
   await handler(textUpdate(7342, "no"));
   assert(lastReply().includes("More than one thing is waiting"), lastReply());
-  // A 👍 would save the change; someone who said "no" is not pointed at it.
+  // A 👍 would save the change; someone who said "no" is not pointed at it,
+  // and is told an expense is thrown away in the Inbox, not with a "no".
   assert(!lastReply().includes("👍"), lastReply());
+  assert(lastReply().includes("use the Inbox"), lastReply());
   assertEquals(backend.tables.bot_proposals[0].status, "proposed");
 
   backend.tables.intake.length = 0;
@@ -1069,6 +1085,43 @@ freshTest("a second bare yes, or the first delivered twice, says what was saved 
   assert(lastReply().startsWith("Already saved"), lastReply());
   assertEquals(capturedIntake().length, 0, "a repeated yes was captured as an expense");
   assertEquals(backend.applyCalls, 1);
+});
+
+freshTest("a question whose id could not be recorded is withdrawn and asked again, and that one is answerable", async () => {
+  seedCheckinHousehold();
+  backend.route = { tool: "update_account_balances", args: { balances: [{ account: "Bank", balance: 10000 }] } };
+  // Both the write and its one retry fail.
+  backend.faults.failPromptRecord = 2;
+  assertEquals((await handler(textUpdate(7371, "Bank 10,000"))).status, 500);
+  assertEquals(backend.tables.bot_proposals[0].prompt_message_id, null);
+  // The member is not left with a question nothing can answer, whose reading the retry may change.
+  assertEquals(backend.telegramDeleted, [1001]);
+
+  assertEquals((await handler(textUpdate(7371, "Bank 10,000"))).status, 200);
+  const prompt = backend.tables.bot_proposals[0].prompt_message_id as number;
+  assertEquals(prompt, 1002);
+  await handler(replyUpdate(7372, "yes", prompt));
+  assertEquals(balancesOf().get(MY_BANK.id), 10000);
+});
+
+freshTest("a question whose id is recorded on the retry stays, and nothing is withdrawn", async () => {
+  seedCheckinHousehold();
+  backend.route = { tool: "update_account_balances", args: { balances: [{ account: "Bank", balance: 10000 }] } };
+  backend.faults.failPromptRecord = 1;
+  assertEquals((await handler(textUpdate(7381, "Bank 10,000"))).status, 200);
+  assertEquals(backend.tables.bot_proposals[0].prompt_message_id, 1001);
+  assertEquals(backend.telegramDeleted, []);
+});
+
+freshTest("a no whose lookup fails says nothing was dropped, and never to approve anything", async () => {
+  seedCheckinHousehold();
+  backend.route = { tool: "update_account_balances", args: { balances: [{ account: "Bank", balance: 10000 }] } };
+  await handler(textUpdate(7391, "Bank 10,000"));
+  backend.faults.failProposalReads = true;
+  await handler(textUpdate(7392, "no"));
+  assert(lastReply().includes("nothing was dropped or changed"), lastReply());
+  assert(!/approve|Inbox/i.test(lastReply()), lastReply());
+  assertEquals(backend.tables.bot_proposals[0].status, "proposed");
 });
 
 // Restore globals for anything that runs after this module.
