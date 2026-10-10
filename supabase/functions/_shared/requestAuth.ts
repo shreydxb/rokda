@@ -15,13 +15,14 @@ export function bearerToken(req: Request): string | null {
 
 // The claims of a JWT, read without checking its signature: callers rely on
 // the platform's verify_jwt for that. Null for anything that is not a JWT
-// with a JSON object as its payload.
+// with a JSON object as its payload. The payload is base64url, which atob
+// reads once "-" and "_" are mapped back to "+" and "/"; the padding a JWT
+// strips needs no restoring, because atob decodes unpadded input.
 export function jwtClaims(token: string): Record<string, unknown> | null {
   const parts = token.split(".");
   if (parts.length !== 3 || parts[1] === "") return null;
   try {
-    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-    const claims = JSON.parse(atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, "=")));
+    const claims = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
     return claims !== null && typeof claims === "object" && !Array.isArray(claims) ? claims : null;
   } catch {
     return null;

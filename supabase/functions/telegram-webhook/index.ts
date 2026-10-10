@@ -995,9 +995,9 @@ async function proposalForPrompt(
   return { kind: PROMPT_FOUND, row: data as ProposalRow };
 }
 
-// The member's proposals still waiting from the last few minutes: what a bare
-// "yes" or "no" could be about. Older ones stay answerable by replying to
-// them, until they lapse.
+// The member's proposals still waiting from the last few minutes, asked
+// about: what a bare "yes" or "no" could be about. Older ones stay
+// answerable by replying to them, until they lapse.
 async function openProposals(householdId: string, memberId: string): Promise<{ rows: ProposalRow[]; failed: boolean }> {
   const now = Date.now();
   const { data, error } = await supabase
@@ -1006,6 +1006,11 @@ async function openProposals(householdId: string, memberId: string): Promise<{ r
     .eq("household_id", householdId)
     .eq("member_id", memberId)
     .eq("status", "proposed")
+    // Only proposals whose question is recorded as sent. One without could be
+    // a change the member never saw: left behind by a run that died between
+    // saving and asking, when the redelivery then read the message as
+    // something else and never came back to it.
+    .not("prompt_message_id", "is", null)
     .gt("created_at", new Date(now - PENDING_WINDOW_MS).toISOString())
     .gt("expires_at", new Date(now).toISOString())
     .order("created_at", { ascending: false })
@@ -1102,7 +1107,11 @@ async function sendProposal(
     await discardUnaskedProposal(row.id);
     throw new Error("the proposal's question was not delivered");
   }
-  await supabase.from("bot_proposals").update({ prompt_message_id: messageId }).eq("id", row.id);
+  // Without the question's id the proposal cannot be answered at all (a bare
+  // answer counts only asked-about proposals), so a failure here is thrown:
+  // the redelivery finds the proposal unasked, rewrites it and asks again.
+  const recorded = await supabase.from("bot_proposals").update({ prompt_message_id: messageId }).eq("id", row.id);
+  if (recorded.error) throw new Error(`recording the proposal's question failed (${recorded.error.code ?? "no code"})`);
 }
 
 // Removes a proposal whose question never reached the member, so no "yes"
@@ -2462,15 +2471,16 @@ export function accountsForCheckin<T extends BalanceAccount>(accounts: T[], memb
   );
 }
 
-// A card or loan is shown as what is owed. Anything else keeps its sign, so a
-// balance the model read as negative cannot pass for the same figure in the
+// A card or loan is shown as what is owed, or as "in credit" when its stored
+// balance is negative. Anything else keeps its sign. Either way a figure the
+// model read with the wrong sign cannot pass for the same figure in the
 // question that asks to save it.
 export function balanceFigure(a: BalanceAccount): string {
   const currency = String(a.currency ?? "AED").toUpperCase();
   const value = Number(a.balance ?? 0);
   const amount = Math.abs(value).toLocaleString(currency === "INR" ? "en-IN" : "en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const owed = OWED_TYPES.has(a.type);
-  return `${currency} ${!owed && value < 0 ? "-" : ""}${amount}${owed ? " owed" : ""}`;
+  if (OWED_TYPES.has(a.type)) return `${currency} ${amount}${value < 0 ? " in credit" : " owed"}`;
+  return `${currency} ${value < 0 ? "-" : ""}${amount}`;
 }
 
 export function buildBalanceCheckinMessage(accounts: BalanceAccount[], members: BalanceMember[], monthLabel: string): string {
@@ -3059,7 +3069,7 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
         return new Response("ok");
       }
       if (target.kind === "ambiguous") {
-        await reply(chatId, ambiguousProposalMessage());
+        await reply(chatId, ambiguousProposalMessage(confirming));
         return new Response("ok");
       }
     }

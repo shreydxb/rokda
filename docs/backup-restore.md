@@ -403,18 +403,23 @@ cannot, because none of those four is a row in `public`.
    - `telegram_webhook_secret` — must match what Telegram sends. Re-run
      `setWebhook` with a new `secret_token` and store the same value in the
      vault; the two are one secret in two places. See `docs/environments.md`.
-   - `service_role_key` — the new project's own key, not the old one, in
-     the JWT form (`eyJ…`, Project Settings → API Keys → Legacy API keys →
-     `service_role`). `price-refresh` and `fd-accrual` are deployed with
-     `verify_jwt = true` and read the `role` claim inside the token to tell
-     the scheduled job from everyone else, and an `sb_secret_…` key is not a
-     JWT: the platform rejects it with a 401 before either function runs.
-     **A project created or restored after 1 November 2025 has no legacy
-     keys** (Supabase's API-key timetable), so in that project the two
-     nightly jobs cannot authenticate until they use a scheduler secret
-     instead of a JWT — see "Who may run an Edge Function" in
-     `docs/decisions.md`. Check `weekday-price-refresh` and
-     `daily-fd-accrual` in `net._http_response` after the first night.
+   - `service_role_key` — **any project created for a restore now has no
+     legacy `service_role` JWT** (Supabase stopped issuing legacy keys to
+     projects created or restored from 1 November 2025), and an
+     `sb_secret_…` key is not a JWT: `price-refresh` and `fd-accrual` are
+     deployed with `verify_jwt = true`, so the platform rejects it with a
+     401 before either function runs. Until the scheduler-secret change in
+     `docs/decisions.md` ("Who may run an Edge Function") is deployed, leave
+     `service_role_key` unset and expect `weekday-price-refresh` and
+     `daily-fd-accrual` to fail every night: fixed-deposit balances and
+     holding prices will not move, and "Watch a scheduled run" below can
+     pass only for `daily-recurring-nudge-check`. Only a project that still
+     has legacy keys takes this value, from Project Settings → API Keys →
+     Legacy API keys → `service_role`. To see whether the two jobs got
+     through, open Dashboard → Edge Functions → `fd-accrual` (nightly) and
+     `price-refresh` (Sunday to Thursday) → Invocations after 23:00 UTC; a
+     401 there is this failure. (`net._http_response` names no job and
+     keeps its rows for about six hours.)
 5. **Re-provision the Edge Function environment secrets.** A separate place
    from the vault, and missed entirely until QA #1. Set on the new project
    (Dashboard → Edge Functions → Secrets, or `supabase secrets set`):

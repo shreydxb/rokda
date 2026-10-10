@@ -1001,12 +1001,34 @@ freshTest("a redelivery finds the proposal it made: asked already, it is left al
   assertEquals(backend.tables.goal_contributions.length, 0);
 });
 
-freshTest("a balance read as negative shows its sign in the question", async () => {
+freshTest("a balance read as negative shows its sign in the question, and a card in credit says so", async () => {
   seedCheckinHousehold();
   backend.tables.accounts.find((a) => a.id === MY_BANK.id)!.balance = 10000;
   backend.route = { tool: "update_account_balances", args: { balances: [{ account: "Bank", balance: -10000 }] } };
   await handler(textUpdate(7331, "Bank 10,000"));
   assert(lastReply().includes("• Bank: AED 10,000.00 → AED -10,000.00"), lastReply());
+
+  // A card stored at -50 is in credit; "Card 50 owed" is a real change, and must look like one.
+  backend.tables.accounts.find((a) => a.id === CARD.id)!.balance = -50;
+  backend.route = { tool: "update_account_balances", args: { balances: [{ account: "Card", balance: 50 }] } };
+  await handler(textUpdate(7332, "Card 50 owed"));
+  assert(lastReply().includes("• Card •0004: AED 50.00 in credit → AED 50.00 owed"), lastReply());
+});
+
+freshTest("a proposal never asked about is not applied by a bare yes", async () => {
+  // Left behind by a run that died between saving and asking, when the
+  // redelivery read the message as something else and never came back to it.
+  seedCheckinHousehold();
+  backend.tables.bot_proposals.push({
+    id: "b0000000-0000-4000-8000-000000000003", household_id: HOUSEHOLD, member_id: MEMBER, kind: "account_balances",
+    payload: { items: [{ account_id: MY_BANK.id, name: "Bank", type: "checking", currency: "AED", old_balance: 0, new_balance: 100000 }] },
+    chat_id: TELEGRAM_USER, source_ref: "7361", status: "proposed", prompt_message_id: null,
+    created_at: new Date().toISOString(), expires_at: new Date(Date.now() + 86400000).toISOString(), decided_at: null, result: null,
+  });
+  backend.route = { tool: "log_expense", args: {} };
+  await handler(textUpdate(7362, "ok"));
+  assertEquals(backend.applyCalls, 0, "a bare ok applied a change the member was never asked about");
+  assertEquals(balancesOf().get(MY_BANK.id), 0);
 });
 
 freshTest("a bare no says what it dropped, and asks which one when an expense is also waiting", async () => {
@@ -1021,6 +1043,8 @@ freshTest("a bare no says what it dropped, and asks which one when an expense is
   });
   await handler(textUpdate(7342, "no"));
   assert(lastReply().includes("More than one thing is waiting"), lastReply());
+  // A 👍 would save the change; someone who said "no" is not pointed at it.
+  assert(!lastReply().includes("👍"), lastReply());
   assertEquals(backend.tables.bot_proposals[0].status, "proposed");
 
   backend.tables.intake.length = 0;

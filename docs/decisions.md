@@ -589,9 +589,12 @@ shows **Set a new password** and nothing else until a new password is saved
 - It survives a reload of that screen (sessionStorage), and ends only when
   the password is saved or the person signs out. `SIGNED_IN` does not end it:
   supabase-js emits that on every reload and whenever the tab regains focus.
-  supabase-js relays auth events to every open tab, so a Sign in tab that
-  asked for the link shows the screen too; saving the password in either tab
-  (`USER_UPDATED`) ends it in both.
+  supabase-js relays auth events to every open tab. A Sign in tab that asked
+  for the link shows the screen too when it shares the session ("Keep me
+  signed in" on), and saving the password in either tab (`USER_UPDATED`)
+  ends it in both. With "Keep me signed in" off each tab has a session of its
+  own, so the Sign in tab stays on Sign in: for these two events the app
+  reads the tab's own session, never the relayed one.
 - It is a prompt, not a lock. The link's session is a real session either
   way; the screen exists so the person leaves with a password they know.
 - A link that has expired or was already used signs nobody in. Supabase sends

@@ -261,6 +261,11 @@ export function resolveProposalTarget({ lookup = PROMPT_UNADDRESSED, row = null,
 }
 
 // Said when a bare "yes" or "no" could be about more than one thing waiting.
-export function ambiguousProposalMessage() {
-  return 'More than one thing is waiting for an answer, so I don\'t know which one you mean. Reply directly to my message about it (swipe or long-press → Reply), or react to it with 👍.';
+// The way out depends on the answer: a 👍 saves, so it is offered only to a
+// "yes"; someone who said "no" is asked to say it again as a reply.
+export function ambiguousProposalMessage(confirming = true) {
+  const head = 'More than one thing is waiting for an answer, so I don\'t know which one you mean. ';
+  return confirming
+    ? `${head}Reply directly to my message about it (swipe or long-press → Reply), or react to it with 👍.`
+    : `${head}Reply "no" directly to my message about the one you want to drop (swipe or long-press → Reply).`;
 }

@@ -307,7 +307,11 @@ describe('proposals: which one a "yes" or a "no" is about', () => {
     for (const text of ['no wait, it was 45', 'not now', 'yes', '', 'none of these', 'nothing']) expect(isCancellationText(text), text).toBe(false);
   });
 
-  it('asks which one rather than guessing', () => {
+  it('asks which one rather than guessing, and offers a 👍 only to a yes', () => {
     expect(ambiguousProposalMessage()).toMatch(/Reply directly to my message/);
+    expect(ambiguousProposalMessage(true)).toMatch(/👍/);
+    // A 👍 saves: someone who said "no" must not be pointed at it.
+    expect(ambiguousProposalMessage(false)).not.toMatch(/👍/);
+    expect(ambiguousProposalMessage(false)).toMatch(/Reply "no" directly/);
   });
 });

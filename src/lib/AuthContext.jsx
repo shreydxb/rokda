@@ -51,19 +51,39 @@ export function AuthProvider({ children }) {
     });
 
     const { data: subscription } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      // supabase-js announces a reset link with PASSWORD_RECOVERY, once, and
+      // saving the new password emits USER_UPDATED. It relays both to every
+      // open tab, session included: a Sign in tab that asked for the link
+      // hears the first, and the second must return it to the app. For these
+      // two this tab's own session is read instead of the relayed one. With
+      // "Keep me signed in" off each tab keeps its session in its own
+      // sessionStorage, so a relayed session is one this tab's client does
+      // not hold: it could neither save a password nor read anything with it,
+      // and such a tab stays on Sign in. Deferred, because the callback runs
+      // inside supabase-js's auth lock, which getSession() would wait on.
+      if (event === 'PASSWORD_RECOVERY' || event === 'USER_UPDATED') {
+        setTimeout(() => {
+          supabase.auth.getSession().then(({ data }) => {
+            setSession(data.session);
+            if (data.session) setLinkError('');
+            if (event === 'USER_UPDATED') {
+              writeRecoveryFlag(false);
+              setRecovering(false);
+            } else if (data.session) {
+              writeRecoveryFlag(true);
+              setRecovering(true);
+            }
+          });
+        }, 0);
+        return;
+      }
+
       setSession(nextSession);
       if (nextSession) setLinkError('');
-      // supabase-js announces a reset link with PASSWORD_RECOVERY, once. It
-      // also emits SIGNED_IN on every reload and whenever the tab regains
-      // focus, so SIGNED_IN must not end recovery: only saving the password
-      // or signing out does. Both events reach every open tab, because
-      // supabase-js relays auth events between tabs: a Sign in tab that asked
-      // for the link switches to Set a new password too, and USER_UPDATED,
-      // which saving the password emits, is what returns it to the app.
-      if (event === 'PASSWORD_RECOVERY') {
-        writeRecoveryFlag(true);
-        setRecovering(true);
-      } else if (event === 'SIGNED_OUT' || event === 'USER_UPDATED') {
+      // supabase-js also emits SIGNED_IN on every reload and whenever the tab
+      // regains focus, so SIGNED_IN must not end recovery: only saving the
+      // password or signing out does.
+      if (event === 'SIGNED_OUT') {
         writeRecoveryFlag(false);
         setRecovering(false);
       }
