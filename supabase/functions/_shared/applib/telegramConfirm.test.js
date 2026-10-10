@@ -290,6 +290,18 @@ describe('proposals: which one a "yes" or a "no" is about', () => {
     expect(resolveProposalTarget({ open: [proposal({ status: 'applied' })] })).toEqual({ kind: 'none' });
   });
 
+  it('a bare answer with nothing open repeats what happened to the one just decided, unless an expense waits', () => {
+    const decided = proposal({ status: 'applied' });
+    expect(resolveProposalTarget({ open: [], recentlyDecided: decided })).toEqual({ kind: 'decided', row: decided });
+    expect(resolveProposalTarget({ open: [], recentlyDecided: decided, readyIntakes: [pending()] })).toEqual({ kind: 'none' });
+    expect(resolveProposalTarget({ open: [], recentlyDecided: decided, truncated: true })).toEqual({ kind: 'none' });
+    // An open proposal is answered before a decided one is repeated.
+    const row = proposal();
+    expect(resolveProposalTarget({ open: [row], recentlyDecided: decided })).toEqual({ kind: 'one', row });
+    // A reply names its own proposal, whatever was decided recently.
+    expect(resolveProposalTarget({ lookup: PROMPT_UNKNOWN, recentlyDecided: decided })).toEqual({ kind: 'none' });
+  });
+
   it('only a short, exact "no" counts as dropping one', () => {
     for (const text of ['no', 'No.', 'nope', 'cancel', "don't", 'dont', '❌', '👎', ' n ']) expect(isCancellationText(text), text).toBe(true);
     for (const text of ['no wait, it was 45', 'not now', 'yes', '', 'none of these', 'nothing']) expect(isCancellationText(text), text).toBe(false);

@@ -162,11 +162,15 @@ APPLY="select apply_bot_proposal('b1000000-0000-4000-8000-000000000001', 'e10000
 overlap "$APPLY" &
 overlap "$APPLY" &
 wait
-applied=$(psql -At -d "$DB" -c "select (select balance from accounts where id = 'f1000000-0000-4000-8000-000000000002') || ',' || (select count(*) from account_balance_events where account_id = 'f1000000-0000-4000-8000-000000000002' and source = 'bot')")
-if [ "$applied" = "250.00,1" ]; then
-  echo "  ok   two concurrent confirmations apply the change once (balance,bot events=$applied)"
+# The stored result is what every later "yes" repeats, so it is checked too:
+# without the proposal's row lock the balance still comes out right (the
+# second session finds it changed and skips it), but the second session then
+# overwrites the result with "skipped", and the member is told nothing saved.
+applied=$(psql -At -d "$DB" -c "select (select balance from accounts where id = 'f1000000-0000-4000-8000-000000000002') || ',' || (select count(*) from account_balance_events where account_id = 'f1000000-0000-4000-8000-000000000002' and source = 'bot') || ',' || (select jsonb_array_length(result -> 'applied') || '/' || jsonb_array_length(result -> 'skipped') from bot_proposals where id = 'b1000000-0000-4000-8000-000000000001')")
+if [ "$applied" = "250.00,1,1/0" ]; then
+  echo "  ok   two concurrent confirmations apply the change once and record it once (balance,bot events,applied/skipped=$applied)"
 else
-  echo "  FAIL two concurrent confirmations gave balance,bot events=$applied, expected 250.00,1" >&2
+  echo "  FAIL two concurrent confirmations gave balance,bot events,applied/skipped=$applied, expected 250.00,1,1/0" >&2
   fail=1
 fi
 

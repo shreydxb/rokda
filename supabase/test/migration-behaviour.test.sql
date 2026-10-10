@@ -1330,8 +1330,17 @@ begin
   update household_members set user_id = null where id = '22222222-2222-2222-2222-222222222222';
   perform set_config('request.jwt.claim.sub', '', true);
 
-  -- Deleting the account takes its history with it.
+  -- Deleting an account takes its history with it: an account opened and
+  -- changed once has two events, and none outlive it.
   delete from accounts where id = 'abcd0000-0000-4000-8000-000000000003';
+  insert into accounts (id, household_id, name, type, balance, is_shared)
+  values ('abcd0000-0000-4000-8000-000000000004', '11111111-1111-1111-1111-111111111111', 'Short-lived', 'checking', 10, true);
+  update accounts set balance = 20 where id = 'abcd0000-0000-4000-8000-000000000004';
+  select count(*) into n from account_balance_events where account_id = 'abcd0000-0000-4000-8000-000000000004';
+  if n <> 2 then raise exception 'balance history FAILED: % events before the delete, expected 2', n; end if;
+  delete from accounts where id = 'abcd0000-0000-4000-8000-000000000004';
+  select count(*) into n from account_balance_events where account_id = 'abcd0000-0000-4000-8000-000000000004';
+  if n <> 0 then raise exception 'balance history FAILED: % events outlived their account', n; end if;
   raise notice 'balance history ok: openings and changes recorded with their source, renames and deposits not';
 end $$;
 

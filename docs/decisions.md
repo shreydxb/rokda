@@ -589,6 +589,9 @@ shows **Set a new password** and nothing else until a new password is saved
 - It survives a reload of that screen (sessionStorage), and ends only when
   the password is saved or the person signs out. `SIGNED_IN` does not end it:
   supabase-js emits that on every reload and whenever the tab regains focus.
+  supabase-js relays auth events to every open tab, so a Sign in tab that
+  asked for the link shows the screen too; saving the password in either tab
+  (`USER_UPDATED`) ends it in both.
 - It is a prompt, not a lock. The link's session is a real session either
   way; the screen exists so the person leaves with a password they know.
 - A link that has expired or was already used signs nobody in. Supabase sends
@@ -707,9 +710,18 @@ price feed's daily quota and sets every household's rupee rate.
 - **The role is read from the token's claims** (`_shared/requestAuth.ts`),
   trusting the platform's signature check. That is safe only while
   `verify_jwt` stays on, which `config.toml` pins and `verify:functions`
-  checks against production. It also means the vault's `service_role_key`
-  must stay the JWT form: an `sb_secret_…` key has no role to read
-  (`docs/backup-restore.md`).
+  checks against production. It also means the scheduled jobs depend on the
+  vault's `service_role_key` being the legacy JWT, as they already did
+  through `verify_jwt` before this change.
+- **That dependency has a deadline.** Supabase's API-key timetable says
+  projects created or restored from 1 November 2025 have no legacy keys,
+  and lists deleting them altogether for late 2026. When that happens the
+  two nightly jobs stop authenticating, here or in a restored project
+  (`docs/backup-restore.md`). The fix is the webhook's pattern: deploy both
+  with `verify_jwt = false`, have the jobs send a secret from the vault, and
+  compare it with `secretsMatch`; `price-refresh` keeps checking a member's
+  token with the Auth server for the Refresh button. It is not in this
+  change, and should come before the legacy keys go.
 - **The webhook's shared secret is compared in constant time.** `!==`
   returns at the first differing character, so an endpoint anyone can reach
   would leak the secret a character at a time to someone patient enough to
@@ -732,11 +744,22 @@ problem: they wait in the Inbox, or for a "yes".
   sender answers that message: "yes" or 👍 saves it, "no" drops it. A bare
   "yes" counts when it is the only thing waiting from the last 20 minutes;
   with an expense or a second proposal also waiting, the bot asks which one
-  is meant instead of guessing. A proposal lapses after a day.
+  is meant instead of guessing. A proposal lapses after a day. A figure the
+  model read as negative keeps its minus sign in the question (only a card
+  or loan is shown as "owed"), so a sign misread cannot look like no change.
 - **Saved once, in one transaction** (`apply_bot_proposal()`, service role
-  only). A second "yes", a 👍 as well, or Telegram redelivering the message
-  changes nothing more and repeats what was saved. A redelivered message asks
-  about the same proposal rather than making another.
+  only). A second "yes" changes nothing more: as a reply to the question at
+  any time, or bare within five minutes, it repeats what was saved, so a
+  "yes" Telegram delivers twice is not taken for a new message. A 👍 on a
+  question already answered changes nothing and says nothing. A bare "no"
+  names what it dropped, and counts only when nothing else waits for an
+  answer.
+- **The question and the saved change always match.** A proposal whose
+  question did not reach the member is deleted, and Telegram delivers the
+  message again; the retry proposes what it reads then, which may differ.
+  A redelivered message never makes a second proposal: one already asked
+  about is left alone, and one never asked about takes the new reading
+  before it is asked.
 - **Only over the figure the member saw.** Each balance is set only if it
   still holds the figure shown in the question. If someone changed it in the
   app in between, that line is left alone and the reply says what the app

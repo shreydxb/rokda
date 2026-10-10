@@ -226,16 +226,20 @@ export function isCancellationText(text) {
 //                     direct query on (chat_id, prompt_message_id).
 //   `open`            the member's open proposals from the last few minutes,
 //                     for the unaddressed case only.
-//   `openFailed`      true when that query failed.
-//   `readyIntakes`    expenses a bare "yes" could also record (empty for a
-//                     "no", which records nothing).
+//   `openFailed`      true when that query, or the one for `recentlyDecided`,
+//                     failed.
+//   `recentlyDecided` the member's proposal decided in the last few minutes,
+//                     if any: a second bare answer, or a redelivered first
+//                     one, is about it once nothing else waits.
+//   `readyIntakes`    expenses waiting for their own "yes". With one waiting,
+//                     a bare "yes" or "no" could be about either.
 //   `truncated`       true when the expense candidates were capped.
 /**
  * @template {ProposalRow} T
- * @param {{ lookup?: string, row?: T | null, open?: T[], openFailed?: boolean, readyIntakes?: unknown[], truncated?: boolean }} [input]
+ * @param {{ lookup?: string, row?: T | null, open?: T[], openFailed?: boolean, recentlyDecided?: T | null, readyIntakes?: unknown[], truncated?: boolean }} [input]
  * @returns {ProposalTarget<T>}
  */
-export function resolveProposalTarget({ lookup = PROMPT_UNADDRESSED, row = null, open = [], openFailed = false, readyIntakes = [], truncated = false } = {}) {
+export function resolveProposalTarget({ lookup = PROMPT_UNADDRESSED, row = null, open = [], openFailed = false, recentlyDecided = null, readyIntakes = [], truncated = false } = {}) {
   if (lookup === PROMPT_FAILED) return { kind: 'unavailable' };
   if (lookup === PROMPT_FOUND && row) return row.status === 'proposed' ? { kind: 'one', row } : { kind: 'decided', row };
   if (lookup === PROMPT_UNKNOWN) return { kind: 'none' };
@@ -245,8 +249,14 @@ export function resolveProposalTarget({ lookup = PROMPT_UNADDRESSED, row = null,
   // a failed query when it may have been meant for a balance.
   if (openFailed) return { kind: 'unavailable' };
   const waiting = (open ?? []).filter((p) => p?.status === 'proposed');
-  if (waiting.length === 0) return { kind: 'none' };
-  if (waiting.length > 1 || (readyIntakes ?? []).length > 0 || truncated) return { kind: 'ambiguous' };
+  const othersWaiting = (readyIntakes ?? []).length > 0 || truncated;
+  if (waiting.length === 0) {
+    // Nothing open: the answer repeats one just given, or Telegram delivered
+    // it twice. Say what happened to the proposal rather than let the answer
+    // be read as a new message -- unless an expense is waiting for it.
+    return recentlyDecided && !othersWaiting ? { kind: 'decided', row: recentlyDecided } : { kind: 'none' };
+  }
+  if (waiting.length > 1 || othersWaiting) return { kind: 'ambiguous' };
   return { kind: 'one', row: waiting[0] };
 }
 

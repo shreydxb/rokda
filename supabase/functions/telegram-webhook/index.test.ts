@@ -44,6 +44,8 @@ type Backend = {
     // Make Telegram fail: on every call, or only the first N sendMessage calls.
     telegramDns?: boolean;
     failFirstSends?: number;
+    // Telegram answers ok:false (a 429, say): nothing is sent, nothing thrown.
+    refuseFirstSends?: number;
   };
   // What OpenRouter's router answers for a message: a tool name plus args.
   route?: { tool: string; args: Row };
@@ -270,7 +272,8 @@ function applyProposal(id: string, memberId: string): Row {
     }
   }
   const result = { kind: p.kind, applied, skipped };
-  Object.assign(p, { status: "applied", decided_at: new Date(backend.now).toISOString(), result });
+  // The real clock, like the table's defaults: the handler compares it with Date.now().
+  Object.assign(p, { status: "applied", decided_at: new Date().toISOString(), result });
   return { outcome: "applied", ...result };
 }
 
@@ -305,6 +308,9 @@ async function telegram(req: Request, url: URL): Promise<Response> {
     sendCount += 1;
     if (backend.faults.failFirstSends && sendCount <= backend.faults.failFirstSends) {
       throw denoStyleFetchError(url.toString());
+    }
+    if (backend.faults.refuseFirstSends && sendCount <= backend.faults.refuseFirstSends) {
+      return json({ ok: false, error_code: 429, description: "Too Many Requests: retry after 5" });
     }
     backend.telegramSent.push({ method, body });
     return json({ ok: true, result: { message_id: 1000 + sendCount } });
@@ -563,7 +569,8 @@ freshTest("a goal contribution is proposed once however often it is delivered, a
   backend.faults.failFirstSends = 1;
   const first = await handler(textUpdate(7008, "put 500 toward the house goal"));
   assertEquals(first.status, 500);
-  assertEquals(backend.tables.bot_proposals.length, 1);
+  // The question never arrived, so nothing is left for a later "yes" to apply.
+  assertEquals(backend.tables.bot_proposals.length, 0, "a proposal nobody was asked about was kept");
   assertEquals(backend.tables.goal_contributions.length, 0, "a contribution was recorded before anyone said yes");
   assertEquals(capturedIntake().length, 0, "a goal contribution was also captured as an expense");
 
@@ -933,6 +940,111 @@ freshTest("a bare yes with an expense also waiting asks which one, and records n
   await handler(replyUpdate(7233, "yes", backend.tables.bot_proposals[0].prompt_message_id as number));
   assertEquals(balancesOf().get(MY_BANK.id), 10000);
   assertEquals(backend.approveCalls, 0, "answering the balance recorded the expense");
+});
+
+freshTest("a redelivered message read differently asks about, and saves, what was read the second time", async () => {
+  backend.route = { tool: "log_goal_contribution", args: { goal_name: "House", amount: 500 } };
+  backend.faults.failFirstSends = 1;
+  assertEquals((await handler(textUpdate(7301, "Bank 10,000"))).status, 500);
+
+  seedCheckinHousehold();
+  backend.route = { tool: "update_account_balances", args: { balances: [{ account: "Bank", balance: 10000 }] } };
+  assertEquals((await handler(textUpdate(7301, "Bank 10,000"))).status, 200);
+  assertEquals(backend.tables.bot_proposals.length, 1);
+  assertEquals(backend.tables.bot_proposals[0].kind, "account_balances");
+  assert(lastReply().includes("• Bank: AED 0.00 → AED 10,000.00"), lastReply());
+
+  await handler(replyUpdate(7302, "yes", backend.tables.bot_proposals[0].prompt_message_id as number));
+  assertEquals(balancesOf().get(MY_BANK.id), 10000);
+  assertEquals(backend.tables.goal_contributions.length, 0, "a yes to a balance question recorded a goal contribution");
+});
+
+freshTest("a question Telegram refuses to deliver leaves nothing for a later yes", async () => {
+  seedCheckinHousehold();
+  backend.route = { tool: "update_account_balances", args: { balances: [{ account: "Bank", balance: 10000 }] } };
+  backend.faults.refuseFirstSends = 1;
+  // Thrown back so Telegram delivers the message again, rather than answered 200 with nothing said.
+  assertEquals((await handler(textUpdate(7311, "Bank 10,000"))).status, 500);
+  assertEquals(backend.tables.bot_proposals.length, 0);
+
+  backend.route = { tool: "log_expense", args: {} };
+  await handler(textUpdate(7312, "ok"));
+  assertEquals(backend.applyCalls, 0, "an ok applied a change the member was never shown");
+  assertEquals(balancesOf().get(MY_BANK.id), 0);
+});
+
+freshTest("a redelivery finds the proposal it made: asked already, it is left alone; never asked, it becomes this reading", async () => {
+  seedCheckinHousehold();
+  backend.route = { tool: "update_account_balances", args: { balances: [{ account: "Bank", balance: 10000 }] } };
+  // Asked already: the member has the question; a second one would be noise, or worse, about a different reading.
+  backend.tables.bot_proposals.push({
+    id: "b0000000-0000-4000-8000-000000000001", household_id: HOUSEHOLD, member_id: MEMBER, kind: "goal_contribution",
+    payload: { goal_id: GOAL, goal_name: "House", amount: 500 }, chat_id: TELEGRAM_USER, source_ref: "7321", status: "proposed",
+    prompt_message_id: 999, created_at: new Date().toISOString(), expires_at: new Date(Date.now() + 86400000).toISOString(), decided_at: null, result: null,
+  });
+  await handler(textUpdate(7321, "Bank 10,000"));
+  assertEquals(backend.telegramSent.length, 0, "a second question was sent for a proposal already asked about");
+  assertEquals(backend.tables.bot_proposals[0].kind, "goal_contribution");
+
+  // Never asked (a crash between saving and asking): rewritten to this reading, then asked.
+  backend.tables.bot_proposals.push({
+    id: "b0000000-0000-4000-8000-000000000002", household_id: HOUSEHOLD, member_id: MEMBER, kind: "goal_contribution",
+    payload: { goal_id: GOAL, goal_name: "House", amount: 500 }, chat_id: TELEGRAM_USER, source_ref: "7322", status: "proposed",
+    prompt_message_id: null, created_at: new Date().toISOString(), expires_at: new Date(Date.now() + 86400000).toISOString(), decided_at: null, result: null,
+  });
+  await handler(textUpdate(7322, "Bank 10,000"));
+  const rewritten = backend.tables.bot_proposals[1];
+  assertEquals(rewritten.kind, "account_balances");
+  assert(rewritten.prompt_message_id, "the rewritten proposal was not asked about");
+  await handler(replyUpdate(7323, "yes", rewritten.prompt_message_id as number));
+  assertEquals(balancesOf().get(MY_BANK.id), 10000);
+  assertEquals(backend.tables.goal_contributions.length, 0);
+});
+
+freshTest("a balance read as negative shows its sign in the question", async () => {
+  seedCheckinHousehold();
+  backend.tables.accounts.find((a) => a.id === MY_BANK.id)!.balance = 10000;
+  backend.route = { tool: "update_account_balances", args: { balances: [{ account: "Bank", balance: -10000 }] } };
+  await handler(textUpdate(7331, "Bank 10,000"));
+  assert(lastReply().includes("• Bank: AED 10,000.00 → AED -10,000.00"), lastReply());
+});
+
+freshTest("a bare no says what it dropped, and asks which one when an expense is also waiting", async () => {
+  seedCheckinHousehold();
+  backend.route = { tool: "update_account_balances", args: { balances: [{ account: "Bank", balance: 10000 }, { account: "Card", balance: 1000 }] } };
+  await handler(textUpdate(7341, "Bank 10,000 · Card 1,000 owed"));
+  backend.tables.intake.push({
+    id: "99990000-0000-4000-8000-000000000002", household_id: HOUSEHOLD, member_id: MEMBER, status: "pending", raw_text: "coffee 20",
+    created_at: new Date().toISOString(), parsed_merchant: "Cafe", parsed_amount: 20, parsed_date: "2026-09-24", parsed_category_id: "c1",
+    parsed_account_id: MY_BANK.id, parsed_currency: "AED", parsed_kind: "expense", confidence: 0.95, date_guessed: false,
+    confirm_chat_id: null, confirm_message_id: null,
+  });
+  await handler(textUpdate(7342, "no"));
+  assert(lastReply().includes("More than one thing is waiting"), lastReply());
+  assertEquals(backend.tables.bot_proposals[0].status, "proposed");
+
+  backend.tables.intake.length = 0;
+  await handler(textUpdate(7343, "no"));
+  assertEquals(backend.tables.bot_proposals[0].status, "cancelled");
+  assertEquals(lastReply(), "Dropped the balances for Bank and Card •0004. Nothing was changed.");
+});
+
+freshTest("a second bare yes, or the first delivered twice, says what was saved and is not captured", async () => {
+  seedCheckinHousehold();
+  backend.route = { tool: "update_account_balances", args: { balances: [{ account: "Bank", balance: 10000 }] } };
+  await handler(textUpdate(7351, "Bank 10,000"));
+  // The "Saved" reply fails, so Telegram delivers the same "yes" again.
+  backend.route = { tool: "log_expense", args: {} };
+  backend.faults.failFirstSends = sendCount + 1;
+  assertEquals((await handler(textUpdate(7352, "yes"))).status, 500);
+  assertEquals(balancesOf().get(MY_BANK.id), 10000);
+  assertEquals((await handler(textUpdate(7352, "yes"))).status, 200);
+  assert(lastReply().startsWith("Already saved"), lastReply());
+
+  await handler(textUpdate(7353, "yes"));
+  assert(lastReply().startsWith("Already saved"), lastReply());
+  assertEquals(capturedIntake().length, 0, "a repeated yes was captured as an expense");
+  assertEquals(backend.applyCalls, 1);
 });
 
 // Restore globals for anything that runs after this module.

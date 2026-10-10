@@ -56,11 +56,14 @@ export function AuthProvider({ children }) {
       // supabase-js announces a reset link with PASSWORD_RECOVERY, once. It
       // also emits SIGNED_IN on every reload and whenever the tab regains
       // focus, so SIGNED_IN must not end recovery: only saving the password
-      // or signing out does.
+      // or signing out does. Both events reach every open tab, because
+      // supabase-js relays auth events between tabs: a Sign in tab that asked
+      // for the link switches to Set a new password too, and USER_UPDATED,
+      // which saving the password emits, is what returns it to the app.
       if (event === 'PASSWORD_RECOVERY') {
         writeRecoveryFlag(true);
         setRecovering(true);
-      } else if (event === 'SIGNED_OUT') {
+      } else if (event === 'SIGNED_OUT' || event === 'USER_UPDATED') {
         writeRecoveryFlag(false);
         setRecovering(false);
       }

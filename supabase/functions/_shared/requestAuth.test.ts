@@ -28,8 +28,12 @@ Deno.test("a bearer token is read from the Authorization header and nothing else
 
 Deno.test("claims are read from a JWT's payload, and anything else reads as none", () => {
   assertEquals(jwtClaims(fakeJwt({ role: "service_role", sub: "x" })), { role: "service_role", sub: "x" });
-  // A payload whose base64url needs padding restored.
-  assertEquals(jwtClaims(fakeJwt({ role: "authenticated" }))?.role, "authenticated");
+  // A payload whose base64url carries "_" (base64 "/"), which atob rejects
+  // unless it is mapped back, and whose length is not a multiple of three,
+  // so its padding was stripped.
+  const token = fakeJwt({ role: "authenticated", sub: "??" });
+  assert(token.split(".")[1].includes("_") && token.split(".")[1].length % 4 !== 0, token);
+  assertEquals(jwtClaims(token), { role: "authenticated", sub: "??" });
   for (const bad of ["", "abc", "a.b", "a..c", "a.!!!.c", `a.${btoa("[1,2]")}.c`, `a.${btoa("null")}.c`, "sb_publishable_xxxxxxxx"]) {
     assertEquals(jwtClaims(bad), null, bad);
   }

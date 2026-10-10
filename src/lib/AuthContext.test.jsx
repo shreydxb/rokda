@@ -73,6 +73,15 @@ describe('AuthProvider: password recovery', () => {
     expect(sessionStorage.getItem(KEY)).toBe('true');
   });
 
+  it('ends in every tab once the password is saved in one of them', async () => {
+    // The tab that saved calls finishRecovery(); the others hear USER_UPDATED.
+    await renderProvider();
+    act(() => client.emit('PASSWORD_RECOVERY', SESSION));
+    act(() => client.emit('USER_UPDATED', SESSION));
+    expect(recovering()).toBe('false');
+    expect(sessionStorage.getItem(KEY)).toBeNull();
+  });
+
   it('ends once the new password is saved', async () => {
     await renderProvider();
     act(() => client.emit('PASSWORD_RECOVERY', SESSION));

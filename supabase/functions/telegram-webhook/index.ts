@@ -1014,11 +1014,40 @@ async function openProposals(householdId: string, memberId: string): Promise<{ r
   return { rows: (data ?? []) as ProposalRow[], failed: false };
 }
 
+// The member's proposal decided in the last few minutes, if any: what a
+// second bare "yes", or Telegram redelivering the first, is about once
+// nothing is waiting. Answering it with what was saved beats letting the
+// "yes" fall through to capture, where it would land in the Inbox as an
+// expense called "yes" and the member would never hear that the change was
+// saved. Kept short, so a later "yes" meant for something else is not taken
+// for it.
+const RECENT_DECISION_MS = 5 * 60 * 1000;
+
+async function recentlyDecidedProposal(householdId: string, memberId: string): Promise<{ row: ProposalRow | null; failed: boolean }> {
+  const { data, error } = await supabase
+    .from("bot_proposals")
+    .select(PROPOSAL_COLUMNS)
+    .eq("household_id", householdId)
+    .eq("member_id", memberId)
+    .in("status", ["applied", "cancelled"])
+    .gt("decided_at", new Date(Date.now() - RECENT_DECISION_MS).toISOString())
+    .order("decided_at", { ascending: false })
+    .limit(1);
+  if (error) return { row: null, failed: true };
+  return { row: ((data ?? [])[0] as ProposalRow | undefined) ?? null, failed: false };
+}
+
 // Saves a proposal and sends the message that asks about it. Keyed by the
-// Telegram update, so a redelivered message asks again about the same
-// proposal rather than making a second one. The message is sent first and
-// recorded second, as with sendFastConfirmPrompt: a failure to record costs
-// only the ability to answer by replying, and a bare "yes" still finds it.
+// Telegram update, so a redelivered message never makes a second one.
+//
+// What is saved must always be what the question shows, because a "yes" to
+// the question applies the saved row. So a proposal whose question did not
+// reach the member is deleted and the update thrown back for Telegram to
+// retry; the retry proposes whatever it reads then (the model may read the
+// message differently the second time). For the same reason, a redelivery
+// that finds a proposal already asked about leaves it alone, and one that
+// finds a proposal never asked about (a crash between saving and asking)
+// rewrites it to this reading before asking.
 async function sendProposal(
   chatId: number,
   householdId: string,
@@ -1032,23 +1061,55 @@ async function sendProposal(
   const inserted = await supabase
     .from("bot_proposals")
     .insert({ household_id: householdId, member_id: memberId, kind, payload, chat_id: chatId, source_ref: sourceRef })
-    .select("id, status")
+    .select("id, status, prompt_message_id")
     .single();
-  let row = inserted.data as { id: string; status: string } | null;
+  let row = inserted.data as { id: string; status: string; prompt_message_id: number | null } | null;
   if (inserted.error) {
     // Anything but a redelivery is a failure to save: thrown, so the update
     // is released and Telegram retries it, rather than asking about a change
     // that does not exist.
     if (inserted.error.code !== "23505" || !sourceRef) throw new Error(`bot_proposals insert failed (${inserted.error.code ?? "no code"})`);
-    const existing = await supabase.from("bot_proposals").select("id, status").eq("household_id", householdId).eq("source_ref", sourceRef).single();
+    const existing = await supabase
+      .from("bot_proposals")
+      .select("id, status, prompt_message_id")
+      .eq("household_id", householdId)
+      .eq("source_ref", sourceRef)
+      .single();
     if (existing.error || !existing.data) throw new Error("bot_proposals lookup after a redelivery failed");
-    row = existing.data as { id: string; status: string };
+    row = existing.data as { id: string; status: string; prompt_message_id: number | null };
+    // Answered already, or its question already reached the member.
+    if (row.status !== "proposed" || row.prompt_message_id != null) return;
+    const rewritten = await supabase
+      .from("bot_proposals")
+      .update({ kind, payload })
+      .eq("id", row.id)
+      .eq("status", "proposed")
+      .is("prompt_message_id", null)
+      .select("id");
+    if (rewritten.error) throw new Error(`bot_proposals rewrite after a redelivery failed (${rewritten.error.code ?? "no code"})`);
+    if (!rewritten.data?.length) return;
   }
-  // Already answered: the member has seen this question and dealt with it.
-  if (!row || row.status !== "proposed") return;
-  const messageId = await reply(chatId, prompt);
-  if (messageId == null) return;
+  if (!row) throw new Error("bot_proposals insert returned no row");
+
+  let messageId: number | null;
+  try {
+    messageId = await reply(chatId, prompt);
+  } catch (err) {
+    await discardUnaskedProposal(row.id);
+    throw err;
+  }
+  if (messageId == null) {
+    await discardUnaskedProposal(row.id);
+    throw new Error("the proposal's question was not delivered");
+  }
   await supabase.from("bot_proposals").update({ prompt_message_id: messageId }).eq("id", row.id);
+}
+
+// Removes a proposal whose question never reached the member, so no "yes"
+// can apply a change they were not shown. Only while nobody has answered it
+// and no question is recorded against it.
+async function discardUnaskedProposal(id: string): Promise<void> {
+  await supabase.from("bot_proposals").delete().eq("id", id).eq("status", "proposed").is("prompt_message_id", null);
 }
 
 const ANSWER_HINT = 'Reply "yes" to this message (or react 👍) to save it, or "no" to drop it.';
@@ -1100,11 +1161,24 @@ export function proposalOutcomeMessage(data: Record<string, unknown>): string {
   return parts.join("\n\n") || "Nothing to change.";
 }
 
+// What a proposal would change, in a few words, for the reply that drops it:
+// a bare "no" must say what it dropped.
+export function proposalSummary(row: { kind: string; payload: Record<string, unknown> }): string {
+  const payload = row.payload ?? {};
+  if (row.kind === "goal_contribution") {
+    return `AED ${Number(payload.amount ?? 0).toFixed(2)} toward ${String(payload.goal_name ?? "the goal")}`;
+  }
+  const names = ((payload.items as Array<{ name?: unknown }>) ?? []).map((i) => String(i.name ?? "an account"));
+  if (!names.length) return "the balance change";
+  const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+  return `the ${names.length === 1 ? "balance" : "balances"} for ${list}`;
+}
+
 // For an answer to a proposal already decided: what happened to it, with the
 // saved figures again when it was applied.
 function decidedProposalMessage(row: ProposalRow): string {
   if (row.status === "applied") return row.result ? proposalOutcomeMessage({ outcome: "applied", result: row.result }) : "That one is already saved.";
-  if (row.status === "cancelled") return "You dropped that one, so nothing was changed.";
+  if (row.status === "cancelled") return `You dropped ${proposalSummary(row)}, so nothing was changed.`;
   return "That one has lapsed, so nothing was changed. Send it again if it still holds.";
 }
 
@@ -1122,7 +1196,7 @@ async function decideProposal(chatId: number, memberId: string, proposal: Propos
       return;
     }
     if (data?.length) {
-      await reply(chatId, "Dropped. Nothing was changed.");
+      await reply(chatId, `Dropped ${proposalSummary(proposal)}. Nothing was changed.`);
       return;
     }
     // Decided in between, by a "yes" a moment earlier or by lapsing.
@@ -2388,10 +2462,15 @@ export function accountsForCheckin<T extends BalanceAccount>(accounts: T[], memb
   );
 }
 
-function balanceFigure(a: BalanceAccount): string {
+// A card or loan is shown as what is owed. Anything else keeps its sign, so a
+// balance the model read as negative cannot pass for the same figure in the
+// question that asks to save it.
+export function balanceFigure(a: BalanceAccount): string {
   const currency = String(a.currency ?? "AED").toUpperCase();
-  const amount = Math.abs(Number(a.balance ?? 0)).toLocaleString(currency === "INR" ? "en-IN" : "en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return `${currency} ${amount}${OWED_TYPES.has(a.type) ? " owed" : ""}`;
+  const value = Number(a.balance ?? 0);
+  const amount = Math.abs(value).toLocaleString(currency === "INR" ? "en-IN" : "en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const owed = OWED_TYPES.has(a.type);
+  return `${currency} ${!owed && value < 0 ? "-" : ""}${amount}${owed ? " owed" : ""}`;
 }
 
 export function buildBalanceCheckinMessage(accounts: BalanceAccount[], members: BalanceMember[], monthLabel: string): string {
@@ -2950,17 +3029,22 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
     // to the expense rules below, unchanged.
     const confirming = isConfirmationText(trimmedText);
     if (confirming || isCancellationText(trimmedText)) {
-      const [proposalLookup, open] = await Promise.all([
+      const unaddressed = repliedTo == null;
+      const [proposalLookup, open, recent] = await Promise.all([
         proposalForPrompt(member.household_id, member.id, chatId, repliedTo),
-        repliedTo == null ? openProposals(member.household_id, member.id) : Promise.resolve({ rows: [] as ProposalRow[], failed: false }),
+        unaddressed ? openProposals(member.household_id, member.id) : Promise.resolve({ rows: [] as ProposalRow[], failed: false }),
+        unaddressed ? recentlyDecidedProposal(member.household_id, member.id) : Promise.resolve({ row: null, failed: false }),
       ]);
+      // An expense waiting for its own "yes" makes a bare "no" as ambiguous
+      // as a bare "yes": either could be about it.
       const target = resolveProposalTarget({
         lookup: proposalLookup.kind,
         row: proposalLookup.row,
         open: open.rows,
-        openFailed: open.failed,
-        readyIntakes: confirming ? candidates.rows.filter(isConfirmable) : [],
-        truncated: confirming && candidates.truncated,
+        openFailed: open.failed || recent.failed,
+        recentlyDecided: recent.row,
+        readyIntakes: candidates.rows.filter(isConfirmable),
+        truncated: candidates.truncated,
       });
       if (target.kind === "one") {
         await decideProposal(chatId, member.id, target.row, confirming ? "apply" : "cancel");
