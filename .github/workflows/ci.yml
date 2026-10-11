@@ -99,6 +99,7 @@ jobs:
           supabase/functions/telegram-webhook/index.test.ts
           supabase/functions/_shared/requestAuth.test.ts
           supabase/functions/_shared/scheduledCallers.test.ts
+          supabase/functions/_shared/quoteTime.test.ts
 
   functions:
     name: deployed Edge Functions match this commit

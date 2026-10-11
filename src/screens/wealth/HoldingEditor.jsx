@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
-import { ASSET_CLASS_LABELS } from '../../lib/holdings';
+import { ASSET_CLASS_LABELS, costFromUnits } from '../../lib/holdings';
 import { daysSincePriced, historyPointFor, isPendingValuation, nextPricedAt, todayISODate, valueFieldFor, valuationChanged } from '../../lib/valuation';
 import '../money/TransactionEditor.css';
 
@@ -341,7 +341,13 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
               </div>
               <div className="te-fieldcell">
                 <span className="te-fieldlabel">Invested (AED)</span>
-                <input className="te-fieldvalue" type="number" step="0.01" value={form.invested_value_aed} onChange={(e) => set('invested_value_aed', e.target.value)} placeholder="—" />
+                {costFromUnits(form) ? (
+                  <span className="te-fieldvalue ov-muted" data-testid="invested-from-units">
+                    Units × avg price, at today&rsquo;s rate
+                  </span>
+                ) : (
+                  <input className="te-fieldvalue" type="number" step="0.01" value={form.invested_value_aed} onChange={(e) => set('invested_value_aed', e.target.value)} placeholder="—" />
+                )}
               </div>
               <div className="te-fieldcell">
                 <span className="te-fieldlabel">Day change (%)</span>

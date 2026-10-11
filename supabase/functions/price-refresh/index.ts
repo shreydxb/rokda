@@ -10,6 +10,7 @@
 import "jsr:@supabase/functions-js@2.117.2/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2.117.2";
 import { householdToday } from "../_shared/applib/day.js";
+import { navQuoteTime, quoteTime } from "../_shared/quoteTime.ts";
 import { bearerToken, presentedSchedulerSecret, schedulerSecretMatches } from "../_shared/requestAuth.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -92,7 +93,11 @@ type Holding = {
   price_fetch_fail_count: number;
 };
 
-type PriceResult = { price: number; dayChangePct: number | null } | { error: string };
+// quotedAt is when the provider says the price was quoted: an exchange's last
+// trade, or the date a fund's NAV is for. It is what priced_at records, so a
+// stale quote reads as stale however recently it was fetched. Null when the
+// provider gave no usable time.
+type PriceResult = { price: number; dayChangePct: number | null; quotedAt: string | null } | { error: string };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -121,7 +126,7 @@ async function fetchTwelveDataBatch(symbols: string[]): Promise<Record<string, P
       }
       const price = Number(row.close);
       const pct = row.percent_change != null ? Number(row.percent_change) : null;
-      out[s] = Number.isFinite(price) ? { price, dayChangePct: pct } : { error: "No price in response" };
+      out[s] = Number.isFinite(price) ? { price, dayChangePct: pct, quotedAt: quoteTime(row.last_quote_at ?? row.timestamp) } : { error: "No price in response" };
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -147,7 +152,7 @@ async function fetchTwelveData(symbols: string[]): Promise<Record<string, PriceR
 async function fetchCoinGecko(ids: string[]): Promise<Record<string, PriceResult>> {
   const out: Record<string, PriceResult> = {};
   try {
-    const url = `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(ids.join(","))}&vs_currencies=usd&include_24hr_change=true`;
+    const url = `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(ids.join(","))}&vs_currencies=usd&include_24hr_change=true&include_last_updated_at=true`;
     const res = await fetch(url);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const body = await res.json();
@@ -157,7 +162,11 @@ async function fetchCoinGecko(ids: string[]): Promise<Record<string, PriceResult
         out[id] = { error: "Coin not found" };
         continue;
       }
-      out[id] = { price: row.usd, dayChangePct: typeof row.usd_24h_change === "number" ? row.usd_24h_change : null };
+      out[id] = {
+        price: row.usd,
+        dayChangePct: typeof row.usd_24h_change === "number" ? row.usd_24h_change : null,
+        quotedAt: quoteTime(row.last_updated_at),
+      };
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -176,7 +185,7 @@ async function fetchMfapi(schemeCode: string): Promise<PriceResult> {
     const price = Number(rows[0].nav);
     const prev = rows.length > 1 ? Number(rows[1].nav) : null;
     const dayChangePct = prev && prev > 0 ? ((price - prev) / prev) * 100 : null;
-    return Number.isFinite(price) ? { price, dayChangePct } : { error: "No NAV in response" };
+    return Number.isFinite(price) ? { price, dayChangePct, quotedAt: navQuoteTime(rows[0].date) } : { error: "No NAV in response" };
   } catch (err) {
     return { error: err instanceof Error ? err.message : String(err) };
   }
@@ -200,7 +209,7 @@ async function fetchYahoo(symbol: string): Promise<PriceResult> {
     const meta = body?.chart?.result?.[0]?.meta;
     const price = Number(meta?.regularMarketPrice);
     const pct = meta?.regularMarketChangePercent != null ? Number(meta.regularMarketChangePercent) : null;
-    return Number.isFinite(price) ? { price, dayChangePct: pct } : { error: "No price in response" };
+    return Number.isFinite(price) ? { price, dayChangePct: pct, quotedAt: quoteTime(meta?.regularMarketTime) } : { error: "No price in response" };
   } catch (err) {
     return { error: err instanceof Error ? err.message : String(err) };
   }
@@ -279,11 +288,14 @@ async function refreshHoldings(inrPerAed: number | null) {
       .update({
         current_price: result.price,
         day_change_pct: result.dayChangePct,
-        // priced_at, not last_refreshed: a live feed price is a genuine
-        // reprice, and priced_at is what staleness (isStale/daysSincePriced)
-        // is measured against. The holdings_sync_priced_at trigger mirrors
-        // this onto last_refreshed for any remaining legacy reader.
-        priced_at: nowIso,
+        // priced_at is how old the price is, and staleness (isStale,
+        // daysSincePriced) is measured against it: the provider's quote time,
+        // not this run's. A quote with no usable time leaves priced_at where
+        // it was, so the holding goes on ageing rather than looking fresh.
+        // The holdings_sync_priced_at trigger mirrors priced_at onto
+        // last_refreshed for any remaining legacy reader.
+        ...(result.quotedAt ? { priced_at: result.quotedAt } : {}),
+        price_fetched_at: nowIso,
         price_fetch_error: null,
         price_fetch_fail_count: 0,
         ...(valueAed !== null ? { value_aed: Math.round(valueAed * 100) / 100 } : {}),

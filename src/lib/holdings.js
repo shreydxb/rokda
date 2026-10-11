@@ -43,6 +43,20 @@ export function scopedHoldingValue(holding, scopeMemberId) {
   return scopedValue(holding.value_aed, holding, scopeMemberId);
 }
 
+// The currencies the database can turn into AED: as is, at the peg, or at
+// the household's rupee rate (holdings_derive_cost).
+const COST_CURRENCIES = new Set(['AED', 'USD', 'INR']);
+
+// Whether a holding's AED cost is worked out from its units and average price
+// rather than typed in. With both, in a currency Rokda converts, the database
+// sets it on every save and whenever the rupee rate moves, so a cost entered
+// alongside them would be overwritten (docs/decisions.md, "A holding's cost is
+// its units at their average price").
+export function costFromUnits({ quantity, avg_price, currency } = {}) {
+  const filled = (v) => v != null && String(v).trim() !== '' && Number.isFinite(Number(v));
+  return filled(quantity) && filled(avg_price) && COST_CURRENCIES.has(String(currency ?? '').toUpperCase());
+}
+
 export function scopedInvestedValue(holding, scopeMemberId) {
   if (holding.invested_value_aed == null) return null;
   return scopedValue(holding.invested_value_aed, holding, scopeMemberId);

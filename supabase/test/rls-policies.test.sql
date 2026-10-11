@@ -138,6 +138,23 @@ set request.jwt.claim.role = 'authenticated';
 -- ---------------------------------------------------------------- non-owner
 set request.jwt.claim.sub = '0b000000-0000-0000-0000-00000000000b';
 
+-- A holding's cost is worked out as the member who saves it, from their own
+-- household's rupee rate, and follows that rate when the member changes it.
+do $$
+declare inv numeric;
+begin
+  update households set inr_per_aed = 25 where id = 'd1000000-0000-0000-0000-000000000001';
+  insert into holdings (id, household_id, name, asset_class, currency, quantity, avg_price, value_aed)
+  values ('f6000000-0000-0000-0000-000000000001', 'd1000000-0000-0000-0000-000000000001', 'Rupee share', 'india_equity', 'INR', 10, 1000, 0);
+  select invested_value_aed into inv from holdings where id = 'f6000000-0000-0000-0000-000000000001';
+  if inv is distinct from 400.00 then raise exception 'holding cost FAILED: as a member the rupee cost is %, expected 400.00', inv; end if;
+  update households set inr_per_aed = 20 where id = 'd1000000-0000-0000-0000-000000000001';
+  select invested_value_aed into inv from holdings where id = 'f6000000-0000-0000-0000-000000000001';
+  if inv is distinct from 500.00 then raise exception 'holding cost FAILED: as a member the cost did not follow the rate (got %)', inv; end if;
+  delete from holdings where id = 'f6000000-0000-0000-0000-000000000001';
+  raise notice 'holding cost ok: worked out and re-valued as a signed-in member';
+end $$;
+
 -- Independence income is household data like any other planning row: a
 -- member reads and writes their own household's, and cannot see, add to or
 -- move a row into another household.

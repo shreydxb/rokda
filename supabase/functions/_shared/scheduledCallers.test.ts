@@ -36,6 +36,12 @@ let vaultSecret: string | null | "error" = SCHEDULER_SECRET;
 
 let requests: string[] = [];
 
+// The holdings price-refresh reads, what Yahoo answers for them, and every
+// update the run writes back. Empty unless a test sets them.
+let feedHoldings: Record<string, unknown>[] = [];
+let yahooMeta: Record<string, unknown> = {};
+let holdingPatches: Record<string, unknown>[] = [];
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 }
@@ -58,6 +64,14 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const wantsObject = (req.headers.get("Accept") ?? "").includes("vnd.pgrst.object");
     if (wantsObject) return rows.length === 1 ? json(rows[0]) : json({ code: "PGRST116", message: "no rows" }, 406);
     return json(rows);
+  }
+  if (url.origin === SUPABASE_URL && url.pathname === "/rest/v1/holdings") {
+    if (req.method === "GET") return json(feedHoldings);
+    holdingPatches.push(await req.json());
+    return new Response(null, { status: 204 });
+  }
+  if (url.hostname === "query1.finance.yahoo.com") {
+    return json({ chart: { result: [{ meta: { regularMarketPrice: 100, regularMarketChangePercent: 1.5, ...yahooMeta } }] } });
   }
   if (url.origin === SUPABASE_URL && url.pathname.startsWith("/rest/v1/")) {
     if (req.method === "GET") return json([]);
@@ -106,6 +120,9 @@ function test(name: string, fn: () => Promise<void>): void {
     sanitizeResources: false,
     fn: async () => {
       vaultSecret = SCHEDULER_SECRET;
+      feedHoldings = [];
+      yahooMeta = {};
+      holdingPatches = [];
       await fn();
     },
   });
@@ -222,4 +239,31 @@ test("price-refresh does nothing for a GET", async () => {
   assertEquals(res.status, 405);
   assertEquals(requests, []);
   await res.body?.cancel();
+});
+
+const RELIANCE = { id: "h1", currency: "INR", quantity: "10", price_symbol: "RELIANCE.NS", price_provider: "yahoo", price_fetch_fail_count: 0 };
+
+test("price-refresh dates a price by the exchange's quote, and records when it fetched it", async () => {
+  feedHoldings = [RELIANCE];
+  const quoted = Date.parse("2026-10-09T10:00:00Z");
+  yahooMeta = { regularMarketTime: quoted / 1000 };
+  const before = Date.now();
+  const res = await call(priceRefresh, "POST", null, SCHEDULER_SECRET);
+  assertEquals(res.status, 200);
+  await res.body?.cancel();
+  const [patch] = holdingPatches.filter((p) => "current_price" in p);
+  assertEquals(patch.current_price, 100);
+  assertEquals(patch.priced_at, "2026-10-09T10:00:00.000Z");
+  assert(Date.parse(String(patch.price_fetched_at)) >= before, "price_fetched_at is not this run's time");
+});
+
+test("price-refresh leaves priced_at alone when the provider gives no quote time", async () => {
+  feedHoldings = [RELIANCE];
+  const res = await call(priceRefresh, "POST", null, SCHEDULER_SECRET);
+  assertEquals(res.status, 200);
+  await res.body?.cancel();
+  const [patch] = holdingPatches.filter((p) => "current_price" in p);
+  assertEquals(patch.current_price, 100);
+  assert(!("priced_at" in patch), "a price with no quote time was dated now");
+  assert(typeof patch.price_fetched_at === "string");
 });

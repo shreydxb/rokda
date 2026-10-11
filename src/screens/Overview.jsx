@@ -310,7 +310,7 @@ export default function Overview() {
                     Spend <b className="fig">{formatMoney(selected.spend)}</b>
                   </span>
                   <span>
-                    Rate <b className={`fig ${selected.income > 0 ? (selected.rate < 0 ? 'ov-neg' : 'ov-pos') : ''}`}>{selected.income > 0 ? formatPct(selected.rate) : '—'}</b>
+                    Rate <b className={`fig ${selected.rate === null ? '' : selected.rate < 0 ? 'ov-neg' : 'ov-pos'}`}>{selected.rate !== null ? formatPct(selected.rate) : '—'}</b>
                   </span>
                 </div>
               )}

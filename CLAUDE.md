@@ -30,7 +30,7 @@ Bot changes, from `supabase/functions` (delete `deno.lock` afterwards):
 
 ```sh
 deno check --node-modules-dir=none telegram-webhook/index.ts
-deno test --node-modules-dir=none --allow-env --allow-read --allow-net=api.telegram.org,openrouter.ai,supabase.test telegram-webhook/index.test.ts _shared/requestAuth.test.ts _shared/scheduledCallers.test.ts
+deno test --node-modules-dir=none --allow-env --allow-read --allow-net=api.telegram.org,openrouter.ai,supabase.test telegram-webhook/index.test.ts _shared/requestAuth.test.ts _shared/scheduledCallers.test.ts _shared/quoteTime.test.ts
 ```
 
 Database changes need a local Postgres (`pg_ctlcluster 16 main start`,

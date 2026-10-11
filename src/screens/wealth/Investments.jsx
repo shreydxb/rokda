@@ -65,9 +65,13 @@ export default function Investments({ household, members, me, data, loading }) {
     const d = new Date(h.priced_at);
     return !oldest || d < oldest ? d : oldest;
   }, null);
+  // When the feed last ran, which is not how old its prices are: those carry
+  // the exchange's quote time in priced_at (docs/decisions.md, "A price is as
+  // old as its quote"). Older rows have only last_refreshed.
   const lastRefreshed = holdings.reduce((latest, h) => {
-    if (!h.last_refreshed) return latest;
-    const d = new Date(h.last_refreshed);
+    const at = h.price_fetched_at ?? h.last_refreshed;
+    if (!at) return latest;
+    const d = new Date(at);
     return !latest || d > latest ? d : latest;
   }, null);
   const autoPriced = holdings.filter((h) => h.price_provider);

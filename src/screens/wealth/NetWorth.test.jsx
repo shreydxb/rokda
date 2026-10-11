@@ -199,6 +199,42 @@ describe('QA-05: closing a month', () => {
     expect(upserts).toHaveLength(0);
   });
 
+  // A total with a gap in it is not offered for confirmation: the rupee account
+  // below has no AED value, so today's assets leave it out, and confirming
+  // them would store a partial balance sheet as the month's close.
+  it('does not pre-fill a close whose totals have a gap', async () => {
+    const { act } = await import('react');
+    renderScreen(
+      <NetWorth
+        household={{ id: 'hh' }}
+        me={MEMBERS[0]}
+        members={MEMBERS}
+        loading={false}
+        data={{
+          accounts: [
+            { id: 's1', name: 'Savings', type: 'savings', balance: 1000, is_shared: true, archived_at: null },
+            { id: 'r1', name: 'Rupee account', type: 'savings', currency: 'INR', balance: 50000, balance_aed: null, is_shared: true, archived_at: null },
+          ],
+          netWorthSnapshots: [],
+          holdings: [],
+          reload: vi.fn(),
+        }}
+      />,
+    );
+    await act(async () => {
+      screen.getByRole('button', { name: /^Close / }).click();
+    });
+    expect(screen.getByTestId('close-gaps').textContent).toMatch(/Rupee account/);
+    const inputs = document.querySelectorAll('.te-fieldgrid input[type="number"]');
+    expect([...inputs].map((i) => i.value)).toEqual(['', '']);
+    const confirmButton = screen.getByRole('button', { name: /Confirm & close/ });
+    expect(confirmButton.disabled).toBe(true);
+    await act(async () => {
+      confirmButton.click();
+    });
+    expect(upserts).toHaveLength(0);
+  });
+
   // 762a6c4 recheck (SHR-246): report a concurrently-closed month clearly
   // instead of silently reloading as if the reviewer's own numbers were saved.
   it('reports a concurrently-closed month instead of silently succeeding', async () => {

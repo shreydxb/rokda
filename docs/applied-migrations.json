@@ -443,5 +443,12 @@
   "fingerprint": "9d037303365fd4a9bf6d85a92b85173c",
   "framingFingerprint": "a0ae5b6e419979ba19860b36be936f4f",
   "fingerprintVersion": 2
+ },
+ {
+  "version": "20261011211427",
+  "name": "holding_cost_and_quote_time",
+  "fingerprint": "a8e3166ba4aaf7c85e12f33e2d69b423",
+  "framingFingerprint": "a4950225b98f5574cd1c0bd78f26db2d",
+  "fingerprintVersion": 2
  }
 ]

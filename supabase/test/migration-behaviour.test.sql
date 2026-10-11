@@ -1008,6 +1008,68 @@ begin
   raise notice 'debt accounts ok: one loan or card account per debt, in its own household';
 end $$;
 
+-- A holding's cost is its units at their average price, in its own currency,
+-- converted the way its value is: AED as is, USD at the peg, INR at the
+-- household's current rate. No rate, no AED cost. Without units, the cost is
+-- what a person entered. A rate change moves rupee holdings' cost and value,
+-- and is not a reprice.
+do $$
+declare
+  h1 constant uuid := 'c0570000-0000-0000-0000-000000000001';
+  h2 constant uuid := 'c0570000-0000-0000-0000-000000000002';
+  h3 constant uuid := 'c0570000-0000-0000-0000-000000000003';
+  h4 constant uuid := 'c0570000-0000-0000-0000-000000000004';
+  hh constant uuid := '11111111-1111-1111-1111-111111111111';
+  inv numeric;
+  val numeric;
+  priced timestamptz;
+begin
+  update households set inr_per_aed = 25 where id = hh;
+  insert into holdings (id, household_id, name, asset_class, currency, quantity, avg_price, current_price, value_aed, invested_value_aed, priced_at) values
+    (h1, hh, 'Rupee share', 'india_equity', 'INR', 10, 1000, 1100, 440, 999, '2026-10-01T10:00:00Z'),
+    (h2, hh, 'Dollar share', 'us_equity', 'USD', 2, 100, 110, 807.95, 1, null),
+    (h3, hh, 'Dirham fund', 'uae_equity', 'AED', 3, 50, null, 150, 1, null),
+    (h4, hh, 'Manual fund', 'india_mf', 'INR', null, null, null, 500, 450, null);
+
+  -- A typed-in cost is replaced where units and an average price exist.
+  select invested_value_aed into inv from holdings where id = h1;
+  if inv <> 400.00 then raise exception 'holding cost FAILED: rupee cost is %, expected 400.00 (10 x 1000 / 25)', inv; end if;
+  select invested_value_aed into inv from holdings where id = h2;
+  if inv <> 734.50 then raise exception 'holding cost FAILED: dollar cost is %, expected 734.50 (2 x 100 x 3.6725)', inv; end if;
+  select invested_value_aed into inv from holdings where id = h3;
+  if inv <> 150.00 then raise exception 'holding cost FAILED: dirham cost is %, expected 150.00', inv; end if;
+  select invested_value_aed into inv from holdings where id = h4;
+  if inv <> 450 then raise exception 'holding cost FAILED: a cost entered without units was overwritten (got %)', inv; end if;
+
+  -- Buying more moves the cost with the units.
+  update holdings set quantity = 12, avg_price = 1050 where id = h1;
+  select invested_value_aed into inv from holdings where id = h1;
+  if inv <> 504.00 then raise exception 'holding cost FAILED: after a purchase the cost is %, expected 504.00', inv; end if;
+
+  -- The rate moves: cost and value follow it; priced_at does not.
+  update households set inr_per_aed = 28 where id = hh;
+  select invested_value_aed, value_aed, priced_at into inv, val, priced from holdings where id = h1;
+  if inv <> 450.00 then raise exception 'holding cost FAILED: cost did not follow the rate (got %, expected 450.00)', inv; end if;
+  if val <> 471.43 then raise exception 'holding cost FAILED: value did not follow the rate (got %, expected 471.43 = 12 x 1100 / 28)', val; end if;
+  if priced is distinct from '2026-10-01T10:00:00Z'::timestamptz then
+    raise exception 'holding cost FAILED: a rate change moved priced_at to %', priced;
+  end if;
+  select invested_value_aed into inv from holdings where id = h4;
+  if inv <> 450 then raise exception 'holding cost FAILED: a rate change rewrote an entered cost (got %)', inv; end if;
+  select invested_value_aed into inv from holdings where id = h2;
+  if inv <> 734.50 then raise exception 'holding cost FAILED: a rupee rate change touched a dollar holding (got %)', inv; end if;
+
+  -- No rate: the rupee cost is unknown, never 1:1, and the value is kept.
+  update households set inr_per_aed = null where id = hh;
+  select invested_value_aed, value_aed into inv, val from holdings where id = h1;
+  if inv is not null then raise exception 'holding cost FAILED: with no rate the rupee cost is % instead of unknown', inv; end if;
+  if val <> 471.43 then raise exception 'holding cost FAILED: clearing the rate changed the value to %', val; end if;
+
+  update households set inr_per_aed = 26 where id = hh;
+  delete from holdings where id in (h1, h2, h3, h4);
+  raise notice 'holding cost ok: units x average price, at the peg or the current rate, unknown without one';
+end $$;
+
 -- Policies and plans: a reminder in rupees keeps its rupee figure and an AED
 -- amount that follows the household's rate; one in rupees is refused until a
 -- rate exists; an end date cannot come before the schedule starts. A dated

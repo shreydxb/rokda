@@ -137,7 +137,9 @@ export function buildChartColumns(transactions, kind, scopeMemberId, now = new D
     }
     const { income, spend } = totals;
     const saved = income - spend;
-    const rate = income > 0 ? saved / income : 0;
+    // Unknown, not 0%, when nothing was earned: the same rule as
+    // periodSummary, so no chart column can show a rate the KPI refuses.
+    const rate = income > 0 ? saved / income : null;
     return { ...bucket, income, spend, saved, rate, hasData: rows.length > 0 };
   });
 }
