@@ -231,7 +231,7 @@ a{color:#c98b52;text-decoration:none}a:hover{color:#dda87a}
       <div style="display:flex;margin-top:10px;border:1px solid var(--rule);border-radius:3px;overflow:hidden">
         <div class="om-scope" data-active="{{ isBoth }}" onClick="{{ setBoth }}" style="flex:1;text-align:center;padding:7px 0;font-size:12px;color:var(--ink2);cursor:pointer;border-right:1px solid var(--rule)">Both</div>
         <div class="om-scope" data-active="{{ isMe }}" onClick="{{ setMe }}" style="flex:1;text-align:center;padding:7px 0;font-size:12px;color:var(--ink2);cursor:pointer;border-right:1px solid var(--rule)">Me</div>
-        <div class="om-scope" data-active="{{ isPartner }}" onClick="{{ setPartner }}" style="flex:1;text-align:center;padding:7px 0;font-size:12px;color:var(--ink2);cursor:pointer">Tarika</div>
+        <div class="om-scope" data-active="{{ isPartner }}" onClick="{{ setPartner }}" style="flex:1;text-align:center;padding:7px 0;font-size:12px;color:var(--ink2);cursor:pointer">Sam</div>
       </div>
       <div style="font-size:11.5px;color:var(--ink3);margin-top:8px;line-height:1.5">{{ scopeHint }}</div>
     </div>
@@ -1754,11 +1754,11 @@ a{color:#c98b52;text-decoration:none}a:hover{color:#dda87a}
       <div>
         <div style="font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink3);margin-bottom:14px">Members</div>
         <div class="om-row" style="display:flex;justify-content:space-between;align-items:center;padding:14px 0;border-top:1px solid var(--rule)">
-          <div><div style="font-size:13.5px">Shrey</div><div style="font-size:11.5px;color:var(--ink3);margin-top:2px">Household member · Telegram linked · @shrey_om</div></div>
+          <div><div style="font-size:13.5px">Alex</div><div style="font-size:11.5px;color:var(--ink3);margin-top:2px">Household member · Telegram linked · @alex_om</div></div>
           <div style="font-size:12px;color:var(--ink3)">Signed in</div>
         </div>
         <div class="om-row" style="display:flex;justify-content:space-between;align-items:center;padding:14px 0;border-top:1px solid var(--rule)">
-          <div><div style="font-size:13.5px">Tarika</div><div style="font-size:11.5px;color:var(--ink3);margin-top:2px">Household member · Telegram linked · @aparna_om</div></div>
+          <div><div style="font-size:13.5px">Sam</div><div style="font-size:11.5px;color:var(--ink3);margin-top:2px">Household member · Telegram linked · @sam_om</div></div>
           <div class="om-btn" onClick="{{ editMember }}" style="border:1px solid var(--rule);border-radius:2px;padding:5px 10px;font-size:11.5px;color:var(--ink2)">Edit identity</div>
         </div>
         <div class="om-row" style="display:flex;justify-content:space-between;align-items:center;padding:14px 0;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule)">
@@ -3378,7 +3378,7 @@ const CATEGORY_ROWS = [
 // Intake queue. conf: 0-1 per field; low values are what the review is for.
 const INTAKE = [
   {
-    id: 'i1', kind: 'photo', icon: '▣', from: 'Shrey', ago: '4 min ago',
+    id: 'i1', kind: 'photo', icon: '▣', from: 'Alex', ago: '4 min ago',
     merchant: 'Spinneys', amount: 386, category: 'Food & dining', owner: 'Shared',
     account: 'ENBD Noon', date: '28 Aug 2026',
     conf: { merchant: 0.98, amount: 0.99, category: 0.94, account: 0.88, date: 0.97 },
@@ -3387,7 +3387,7 @@ const INTAKE = [
     note: 'Line items parsed; nothing needed correcting.',
   },
   {
-    id: 'i2', kind: 'voice', icon: '◉', from: 'Tarika', ago: '2 hours ago',
+    id: 'i2', kind: 'voice', icon: '◉', from: 'Sam', ago: '2 hours ago',
     merchant: 'Al Barsha clinic', amount: 340, category: 'Health', owner: 'Partner',
     account: 'ENBD Current', date: '28 Aug 2026',
     conf: { merchant: 0.71, amount: 0.96, category: 0.9, account: 0.44, date: 0.93 },
@@ -3395,7 +3395,7 @@ const INTAKE = [
     note: 'Account is a guess from the words "debit card".',
   },
   {
-    id: 'i3', kind: 'photo', icon: '▣', from: 'Shrey', ago: 'Yesterday',
+    id: 'i3', kind: 'photo', icon: '▣', from: 'Alex', ago: 'Yesterday',
     merchant: 'ENOC', amount: 210, category: 'Transport', owner: 'Primary',
     account: 'ENBD Noon', date: '27 Aug 2026',
     conf: { merchant: 0.97, amount: 0.99, category: 0.96, account: 0.92, date: 0.99 },
@@ -3404,7 +3404,7 @@ const INTAKE = [
     note: 'Matches your usual fuel pattern.',
   },
   {
-    id: 'i4', kind: 'text', icon: '⌁', from: 'Tarika', ago: '2 days ago',
+    id: 'i4', kind: 'text', icon: '⌁', from: 'Sam', ago: '2 days ago',
     merchant: 'Amazon.ae', amount: 268, category: 'Other', owner: 'Partner',
     account: 'ENBD Noon', date: '26 Aug 2026',
     conf: { merchant: 0.95, amount: 0.98, category: 0.32, account: 0.9, date: 0.96 },
@@ -3412,7 +3412,7 @@ const INTAKE = [
     note: 'No category signal. Amazon has landed in four different categories this year.',
   },
   {
-    id: 'i5', kind: 'photo', icon: '▣', from: 'Shrey', ago: '3 days ago',
+    id: 'i5', kind: 'photo', icon: '▣', from: 'Alex', ago: '3 days ago',
     merchant: 'Carrefour', amount: 412, category: 'Food & dining', owner: 'Shared',
     account: 'ENBD Current', date: '25 Aug 2026',
     conf: { merchant: 0.62, amount: 0.55, category: 0.88, account: 0.8, date: 0.9 },
@@ -3421,7 +3421,7 @@ const INTAKE = [
     note: 'Photo was blurred at the total. Amount read from the subtotal, so check it.',
   },
   {
-    id: 'i6', kind: 'voice', icon: '◉', from: 'Shrey', ago: '9 days ago',
+    id: 'i6', kind: 'voice', icon: '◉', from: 'Alex', ago: '9 days ago',
     merchant: 'Unknown', amount: 1240, category: 'Other', owner: 'Primary',
     account: 'ENBD Current', date: '19 Aug 2026',
     conf: { merchant: 0.18, amount: 0.84, category: 0.2, account: 0.5, date: 0.6 },
@@ -3477,7 +3477,7 @@ const DEBTS = [
 ];
 
 // Scope = whose money is on screen. Shared items count toward both people, so
-// "Me" plus "Tarika" adds up to "Both" on every balance-sheet figure.
+// "Me" plus "Sam" adds up to "Both" on every balance-sheet figure.
 const SCOPES = {
   both: {
     label: 'Both', owners: ['Primary', 'Partner', 'Shared'],
@@ -3498,7 +3498,7 @@ const SCOPES = {
     incomeHint: { MTD: 'Salary posted 15 Aug', QTD: 'Salary and rental share', YTD: 'Bonus in March' },
   },
   partner: {
-    label: 'Tarika', owners: ['Partner', 'Shared'],
+    label: 'Sam', owners: ['Partner', 'Shared'],
     netWorth: 1270300, investments: 200250, dayChange: 630, runway: '13.1', runwayPct: 84,
     incF: 0.385, outF: 0.408, rates: { MTD: 38, QTD: 34, YTD: 33 },
     note: 'Half the shared assets included',
@@ -3738,7 +3738,7 @@ class Component extends DCLogic {
     const screen = SCREENS[st.screen];
     const sub = st.sub;
 
-    // Period strip, scoped. Rounded to the nearest ten so "Me" plus "Tarika"
+    // Period strip, scoped. Rounded to the nearest ten so "Me" plus "Sam"
     // still reads as the household total rather than an audit discrepancy.
     const r10 = (v) => Math.round(v / 10) * 10;
     const income = r10(period.incomeN * sc.incF);
@@ -3905,7 +3905,7 @@ class Component extends DCLogic {
       accounts: ACCOUNTS.filter(([, , owner]) => owned(owner)).map(([name, type, owner, native, aed, updated]) => ({
         name, type, native, updated,
         onEdit: () => this.open('account', { name, type, updated, aed: aed < 0 ? `−${N(-aed)}` : N(aed), rawOwner: owner }),
-        owner: owner === 'Primary' ? 'Me' : owner === 'Partner' ? 'Tarika' : 'Shared',
+        owner: owner === 'Primary' ? 'Me' : owner === 'Partner' ? 'Sam' : 'Shared',
         aed: aed < 0 ? `−${N(-aed)}` : N(aed),
         style: aed < 0 ? NEG : '',
       })),
@@ -4044,7 +4044,7 @@ class Component extends DCLogic {
               name, note, units, price, avgPrice: avg, currency: ccy,
               value: N(value), invested: N(inv2),
               onEdit: () => this.open('holding', { name, units, price, value: N(value), rawCategory: cls, rawOwner: owner, currency: ccy, a: false }),
-              owner: owner === 'Primary' ? 'Shrey' : owner === 'Partner' ? 'Tarika' : 'Shared',
+              owner: owner === 'Primary' ? 'Alex' : owner === 'Partner' ? 'Sam' : 'Shared',
               pl: `${pl >= 0 ? '+' : '−'}${N(Math.abs(pl))}`,
               plPct: `${pl >= 0 ? '+' : '−'}${Math.abs((pl / inv2) * 100).toFixed(1)}%`,
               plPctStyle: `text-align:right;font-family:var(--fig);font-size:16px;${pl >= 0 ? POS : NEG}`,
@@ -4407,10 +4407,10 @@ class Component extends DCLogic {
                 onNext: () => { this.setState({ ed: null }); this.notify('Reviewed · 6 remaining', 'Moving to the next flagged record in date order.', false); },
                 meta: [
                   { label: 'Raw description', value: (row.merchant || '').toUpperCase() + ' DUBAI AE', style: 'grid-column:1 / -1', valueStyle: "font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink2)" },
-                  { label: 'Household scope', value: row.rawOwner === 'Shared' ? 'Joint · counts for both' : row.rawOwner === 'Primary' ? 'Me' : 'Tarika', style: '', valueStyle: '' },
+                  { label: 'Household scope', value: row.rawOwner === 'Shared' ? 'Joint · counts for both' : row.rawOwner === 'Primary' ? 'Me' : 'Sam', style: '', valueStyle: '' },
                   { label: 'Account', value: row.account === '—' ? 'None recorded' : row.account, style: '', valueStyle: row.account === '—' ? 'color:var(--neg)' : '' },
                   { label: 'Evidence', value: src[0].startsWith('Telegram') ? 'Receipt photo · 1 attachment' : 'None attached', style: '', valueStyle: '' },
-                  { label: 'Created by', value: row.rawOwner === 'Partner' ? 'Tarika · Telegram' : 'Shrey · Telegram', style: '', valueStyle: '' },
+                  { label: 'Created by', value: row.rawOwner === 'Partner' ? 'Sam · Telegram' : 'Alex · Telegram', style: '', valueStyle: '' },
                 ],
                 hasParts: !!partsFor,
                 partsLabel: partsFor ? partsFor[0] : '',
@@ -4419,10 +4419,10 @@ class Component extends DCLogic {
                 history: src[0].startsWith('Telegram') ? [
                   { when: row.date + ' 14:02', what: 'Category set to ' + (row.rawCategory === '—' ? 'none' : row.rawCategory), who: 'Rule 02 · automatic' },
                   { when: row.date + ' 13:58', what: 'Amount read as ' + row.amount + ' from a receipt photo', who: 'Telegram intake · confidence 0.62' },
-                  { when: row.date + ' 13:58', what: 'Record created from a Telegram message', who: 'Shrey' },
+                  { when: row.date + ' 13:58', what: 'Record created from a Telegram message', who: 'Alex' },
                 ] : [
-                  { when: row.date + ' 09:14', what: 'Category set to ' + (row.rawCategory === '—' ? 'none' : row.rawCategory), who: 'Shrey · previous value: none' },
-                  { when: row.date + ' 09:12', what: 'Record created by hand', who: 'Shrey' },
+                  { when: row.date + ' 09:14', what: 'Category set to ' + (row.rawCategory === '—' ? 'none' : row.rawCategory), who: 'Alex · previous value: none' },
+                  { when: row.date + ' 09:12', what: 'Record created by hand', who: 'Alex' },
                 ],
               };
             })()),
@@ -4504,7 +4504,7 @@ class Component extends DCLogic {
             chips: ['Global equity', 'US equity', 'UAE equity', 'India equity', 'India mutual funds', 'Bonds & sukuk', 'Crypto', 'Cash'].map(chip),
             hasOwners: true, ownersLabel: 'Held by',
             toggles: [toggle('Auto-refresh price', 'Daily at 18:00 GST', !st.edA, 'edA', 'On', 'Off', POS)],
-            footer: 'Asset class drives the allocation cards; owner drives the Both / Me / Tarika split.',
+            footer: 'Asset class drives the allocation cards; owner drives the Both / Me / Sam split.',
           },
           goal: {
             kicker: isNew ? 'New goal' : 'Edit goal',
@@ -4563,9 +4563,9 @@ class Component extends DCLogic {
           },
           member: {
             kicker: isNew ? 'Invite' : 'Member',
-            title: isNew ? 'Invite someone' : 'Tarika',
+            title: isNew ? 'Invite someone' : 'Sam',
             fields: [
-              field('Name', isNew ? 'Their name' : 'Tarika', true),
+              field('Name', isNew ? 'Their name' : 'Sam', true),
               field('Email', isNew ? 'name@email.com' : 'hidden'),
               field('Role', isNew ? 'Read-only' : 'Partner'),
               field('Telegram', isNew ? 'Not linked' : 'Linked'),
@@ -4584,7 +4584,7 @@ class Component extends DCLogic {
             hasAmount: false, hasChips: false, hasOwners: false,
             chips: [], toggles: [], fields: [],
             currencies,
-            owners: owners([['Me', 'Primary'], ['Tarika', 'Partner'], ['Shared', 'Shared']]),
+            owners: owners([['Me', 'Primary'], ['Sam', 'Partner'], ['Shared', 'Shared']]),
             saveLabel: isNew ? `Add ${e.kind === 'transaction' ? 'transaction' : e.kind}` : 'Save changes',
             deleteLabel: isNew ? '' : 'Delete',
             deleteStyle: `margin-left:auto;font-size:12.5px;${isNew ? 'display:none' : 'color:var(--neg)'}`,
@@ -4701,14 +4701,14 @@ class Component extends DCLogic {
       addGoal: () => this.open('goal'),
       addCategory: () => this.open('category'),
       addMember: () => this.open('member'),
-      editMember: () => this.open('member', { name: 'Tarika' }),
+      editMember: () => this.open('member', { name: 'Sam' }),
       editForecast: () => this.open('forecast', { name: 'Forecast' }),
 
       // ── Login ─────────────────────────────────────────────────────
       signedIn: st.signedIn,
       locked: !st.signedIn,
       lock: () => this.setState({ signedIn: false, pw: '', pwReveal: false, authErr: null, authBusy: false }),
-      whoLabel: /^aparna/i.test(st.email || '') ? 'Tarika' : 'Shrey',
+      whoLabel: /^sam/i.test(st.email || '') ? 'Sam' : 'Alex',
       ...(() => {
         // Supabase email + password. No passcode, no biometric path.
         const email = st.email ?? '';
@@ -4839,7 +4839,7 @@ class Component extends DCLogic {
               ['Category', sel.category, sel.conf.category, sel.conf.category < 0.5 ? 'No rule matched' : ''],
               ['Account', sel.account, sel.conf.account, sel.conf.account < 0.6 ? 'Guessed' : ''],
               ['Date', sel.date, sel.conf.date, ''],
-              ['Whose', sel.owner === 'Primary' ? 'Me' : sel.owner === 'Partner' ? 'Tarika' : 'Shared', 0.95, ''],
+              ['Whose', sel.owner === 'Primary' ? 'Me' : sel.owner === 'Partner' ? 'Sam' : 'Shared', 0.95, ''],
             ].map(([label, value, c, hint]) => ({
               label, value, hint,
               valueStyle: `font-size:14px;${c < 0.5 ? WARN : ''}`,
@@ -4965,7 +4965,7 @@ class Component extends DCLogic {
       /* mobile chassis */
       mTitle: cs[0], mKicker: cs[1], mHasTabs: st.screen !== 'overview',
       scopeLabel: scopeName,
-      mScopes: [['both', 'Both of us'], ['me', 'Me'], ['partner', 'Tarika']].map(([k, label]) => ({
+      mScopes: [['both', 'Both of us'], ['me', 'Me'], ['partner', 'Sam']].map(([k, label]) => ({
         label, active: st.scope === k, onClick: () => this.setState({ scope: k }),
       })),
       mNav: [['overview', 'Overview'], ['money', 'Money'], ['wealth', 'Wealth'], ['planning', 'Planning']].map(([k, label]) => ({
@@ -5065,7 +5065,7 @@ class Component extends DCLogic {
     const blank = fs === 'loading' || fs === 'error';
     const owned = (o) => sc.owners.includes(o);
     const SEV = { urgent: ['Urgent', 'neg'], action: ['Action', 'warn'], info: ['For info', 'mute'] };
-    const ownerLabel = (o) => (o === 'Primary' ? 'Me' : o === 'Partner' ? 'Tarika' : 'Joint');
+    const ownerLabel = (o) => (o === 'Primary' ? 'Me' : o === 'Partner' ? 'Sam' : 'Joint');
 
     /* screens off during loading / error */
     if (blank) { V.isOverview = false; V.isStub = false; V.isMoneyActivity = false; V.isMoneyBudget = false; V.isMoneyRecurring = false; V.isMoneyInsights = false; V.isMoneyInbox = false; V.isWealthNet = false; V.isWealthAccounts = false; V.isWealthInvestments = false; V.showGoals = false; V.showDebt = false; V.showForecast = false; V.isSettingsHousehold = false; V.isSettingsCategories = false; V.isBudgetMonthView = false; V.isBudgetYearView = false; V.isPlanningMobile = false; V.isSettingsMobile = false; }
@@ -5415,7 +5415,7 @@ class Component extends DCLogic {
 
     /* ── integrations ── */
     const INTEG = [
-      ['Telegram intake', 'Receipts and voice notes from both members', 'Receiving', 'pos', 'Today 13:58 · receipt from @aparna_om', 'Today 13:58', '', 'Send a test message'],
+      ['Telegram intake', 'Receipts and voice notes from both members', 'Receiving', 'pos', 'Today 13:58 · receipt from @sam_om', 'Today 13:58', '', 'Send a test message'],
       ['Price refresh', 'Equities, funds and crypto quotes', fs === 'partial' ? 'Failing' : 'Fresh', fs === 'partial' ? 'neg' : 'pos', 'Today 14:32 · 12 of 12 instruments', fs === 'partial' ? 'Today 14:41' : 'Today 14:32', fs === 'partial' ? 'Provider returned 503 three times. Values from 14:32 are being shown with their timestamp rather than refreshed.' : '', 'Refresh now'],
       ['FX rates', 'AED per USD, INR', 'Fresh', 'pos', 'Today 06:00 · USD, INR', 'Tomorrow 06:00', 'Pulled daily at 06:00 GST. Converted figures follow the display currency; records stay in the currency they were charged in. Rate and labelled as of that date.', 'Retry now'],
       ['Net-worth snapshots', 'Monthly point-in-time record', 'Scheduled', 'mute', '1 Aug 00:05', '1 Aug 00:05', 'No snapshot was written for June, so the history has a gap rather than an interpolated point.', 'Take a snapshot now'],
@@ -5450,11 +5450,11 @@ class Component extends DCLogic {
 
     /* ── rules ── */
     V.ruleRows = [
-      ['01', 'Salary · primary', 'description contains “SALARY” and amount > 20,000', 'Active', 'pos', 'Created by Shrey · 12 Mar 2021', '17 matches this year'],
-      ['02', 'Carrefour → Food & dining', 'description starts with “CARREFOUR”', 'Active', 'pos', 'Created by Shrey · 4 Jan 2024', '9 matches this month'],
+      ['01', 'Salary · primary', 'description contains “SALARY” and amount > 20,000', 'Active', 'pos', 'Created by Alex · 12 Mar 2021', '17 matches this year'],
+      ['02', 'Carrefour → Food & dining', 'description starts with “CARREFOUR”', 'Active', 'pos', 'Created by Alex · 4 Jan 2024', '9 matches this month'],
       ['03', 'Talabat → Food & dining', 'description contains “TALABAT”', 'Active', 'pos', 'Suggested from intake · accepted 2 Feb 2026', '14 matches this month'],
-      ['04', 'DEWA → Utilities', 'description contains “DEWA”', 'Active', 'pos', 'Created by Tarika · 18 May 2025', '1 match this month'],
-      ['05', 'Amazon → Shopping', 'description contains “AMAZON”', 'Archived', 'mute', 'Archived by Shrey · 2 Aug 2026', 'stopped matching · 23 past records keep their category'],
+      ['04', 'DEWA → Utilities', 'description contains “DEWA”', 'Active', 'pos', 'Created by Sam · 18 May 2025', '1 match this month'],
+      ['05', 'Amazon → Shopping', 'description contains “AMAZON”', 'Archived', 'mute', 'Archived by Alex · 2 Aug 2026', 'stopped matching · 23 past records keep their category'],
     ].map(([order, name, example, status, tone, source, hits]) => ({
       order, name, example, status, source, hits, chip: chip(tone),
       onEdit: () => this.open('category', { name, note: example }),
@@ -5464,7 +5464,7 @@ class Component extends DCLogic {
     // One card, one owner, one banner. Owner lives on the card itself and the
     // accounts table is derived from the same list, so the two cannot drift.
     const cardsOn = !(empty || blank);
-    const WHO = { Primary: 'Shrey', Partner: 'Tarika', Shared: 'Shared' };
+    const WHO = { Primary: 'Alex', Partner: 'Sam', Shared: 'Shared' };
     const shownCards = cardsLive.filter((c) => sc.owners.includes(c.owner));
     V.cards = cardsOn ? shownCards.map((c) => {
       const owed = c.posted + c.pending;
@@ -5559,10 +5559,10 @@ class Component extends DCLogic {
     /* ── Forecast scenarios + assumption basis ── */
     const fset = st.fcSet || 'baseline';
     const SETS = {
-      baseline: ['Baseline', 'Edited 12 Aug by Shrey', ['6.0% nominal', '4.0% a year', '3.0% a year', '2.5%', '18,400 a month', '18 years', '2 events']],
+      baseline: ['Baseline', 'Edited 12 Aug by Alex', ['6.0% nominal', '4.0% a year', '3.0% a year', '2.5%', '18,400 a month', '18 years', '2 events']],
       conservative: ['Conservative', 'Derived from Baseline · not edited', ['4.0% nominal', '2.0% a year', '1.5% a year', '3.5%', '18,400 a month', '18 years', '2 events']],
       optimistic: ['Optimistic', 'Derived from Baseline · not edited', ['8.0% nominal', '6.0% a year', '5.0% a year', '2.0%', '22,000 a month', '18 years', '2 events']],
-      custom: ['Custom', 'Edited 26 Aug by Tarika · unsaved draft', ['6.5% nominal', '4.0% a year', '4.0% a year', '2.5%', '24,000 a month', '15 years', '4 events']],
+      custom: ['Custom', 'Edited 26 Aug by Sam · unsaved draft', ['6.5% nominal', '4.0% a year', '4.0% a year', '2.5%', '24,000 a month', '15 years', '4 events']],
     };
     const cur = SETS[fset];
     V.fcSets = Object.entries(SETS).map(([k, v]) => ({ label: v[0], active: fset === k, onClick: () => this.setState({ fcSet: k }) }));

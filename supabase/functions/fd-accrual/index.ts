@@ -7,12 +7,21 @@
 // that can ever disagree with itself about what an FD is worth.
 import "jsr:@supabase/functions-js@2.117.2/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2.117.2";
+import { isServiceRoleRequest } from "../_shared/requestAuth.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
-Deno.serve(async () => {
+Deno.serve(async (req) => {
+  // Only the daily job (daily-fd-accrual, a service-role token from the
+  // vault) runs this. verify_jwt alone also let any signed-in user, or the
+  // publishable key's anonymous role, make it rewrite every FD as the service
+  // role. Nothing in the app calls it.
+  if (!isServiceRoleRequest(req)) {
+    return new Response(JSON.stringify({ error: "forbidden" }), { status: 403, headers: { "Content-Type": "application/json" } });
+  }
+
   const { data: fds, error } = await supabase.from("accounts").select("id").eq("type", "fd").eq("fd_status", "active");
   if (error) {
     return new Response(JSON.stringify({ error: error.message }), { status: 500, headers: { "Content-Type": "application/json" } });

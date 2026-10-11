@@ -8,6 +8,7 @@ import {
   valuationChanged,
   valueFieldFor,
   isPendingValuation,
+  todayISODate,
 } from './valuation';
 import { buildAttentionItems } from './attention';
 
@@ -151,5 +152,12 @@ describe('reopening a holding that has never been valued', () => {
     const pendingNow = isPendingValuation({ holding: pending, valueField: '', autoValued: true });
     const nextPriced = pendingNow ? null : nextPricedAt(pending, { ...pending, quantity: 12 }, { confirmedAsOf: '2026-09-20' });
     expect(nextPriced).toBeNull();
+  });
+});
+
+describe('todayISODate', () => {
+  it("is the household's day, not the browser's or UTC's", () => {
+    // 01:30 on the 16th in Dubai; 21:30 on the 15th in UTC.
+    expect(todayISODate(new Date('2026-09-15T21:30:00Z'))).toBe('2026-09-16');
   });
 });

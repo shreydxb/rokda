@@ -359,7 +359,7 @@ describe('Forecast: the budget stands in until three months close', () => {
 
 describe('Forecast: the Life plan answers when work can stop', () => {
   const now = new Date();
-  const members = [{ id: 'm1', display_name: 'Shreyash' }];
+  const members = [{ id: 'm1', display_name: 'Alex' }];
   const memberLife = [{ member_id: 'm1', birth_year: 1994, life_expectancy: 80 }];
   // Spending 1,000 a month on 5,000 of income.
   const withIncome = () => [
@@ -381,7 +381,7 @@ describe('Forecast: the Life plan answers when work can stop', () => {
       data: { assumptions: null, memberLife, goals: [], independenceIncome: [] },
       onOpenTab,
     });
-    expect(document.querySelector('.fc-lifeplan').textContent).toMatch(/^Your life plan: you could stop working in \d{4} \(Shreyash \d+\), with the money lasting to 2074\. The target here is stricter: money that lasts forever at 4\.0% a year/);
+    expect(document.querySelector('.fc-lifeplan').textContent).toMatch(/^Your life plan: you could stop working in \d{4} \(Alex \d+\), with the money lasting to 2074\. The target here is stricter: money that lasts forever at 4\.0% a year/);
     expect(kpiLabel()).toBe('Lasts forever by');
     fireEvent.click(screen.getByText('Open Life plan'));
     expect(onOpenTab).toHaveBeenCalledWith('life');

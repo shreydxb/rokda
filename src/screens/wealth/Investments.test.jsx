@@ -19,7 +19,7 @@ vi.mock('../../lib/supabaseClient', () => ({
 
 const { default: Investments } = await import('./Investments');
 
-const MEMBERS = [{ id: 'm1', display_name: 'Shreyash' }];
+const MEMBERS = [{ id: 'm1', display_name: 'Alex' }];
 const STALE_HOLDING = {
   id: 'h1',
   name: 'VWRA',
@@ -112,9 +112,9 @@ describe('Investments: holdings table shows owner once, not duplicated under the
       />,
     );
     const nameCell = screen.getByText('AAPL').parentElement;
-    expect(nameCell.textContent).not.toMatch(/Shreyash/);
+    expect(nameCell.textContent).not.toMatch(/Alex/);
     // The Owner column is the only place the name should appear.
-    expect(screen.getAllByText('Shreyash')).toHaveLength(1);
+    expect(screen.getAllByText('Alex')).toHaveLength(1);
   });
 });
 

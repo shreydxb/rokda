@@ -5,6 +5,7 @@ import { firstMatchingRule } from '../../lib/rules';
 import { accountOptionLabel, selectableAccounts } from '../../lib/accounts';
 import { INTAKE_KINDS, approvalArgs, validateApproval } from '../../lib/intake';
 import { findDuplicate } from '../../lib/duplicates';
+import { householdToday } from '../../lib/day';
 import './TransactionEditor.css';
 
 function senderName(item, members) {
@@ -76,12 +77,16 @@ export default function Inbox({ members = [], accounts, categories, data, loadin
   );
   const selected = pending.find((i) => i.id === selectedId) ?? pending[0] ?? null;
   const confident = pending.filter(isConfident);
+  // Dated the day they were sent to the bot; each waits for its real date.
+  const undated = pending.filter((i) => i.date_guessed);
   const oldest = pending[pending.length - 1];
 
   async function approveConfident() {
     setBulkSaving(true);
     setError('');
     for (const item of confident) {
+      // No dateConfirmed: nobody looked at these. isConfident leaves out a
+      // guessed date, and approve_intake would refuse one anyway.
       const form = {
         accountId: item.parsed_account_id,
         amount: item.parsed_amount,
@@ -111,7 +116,7 @@ export default function Inbox({ members = [], accounts, categories, data, loadin
       <div className="ib-summary">
         <div className="ov-muted">
           {pending.length > 0
-            ? `${pending.length} waiting · ${confident.length} read cleanly${oldest ? ` · oldest ${ago(oldest.created_at)}` : ''}`
+            ? `${pending.length} waiting · ${confident.length} read cleanly${undated.length ? ` · ${undated.length} with no date` : ''}${oldest ? ` · oldest ${ago(oldest.created_at)}` : ''}`
             : 'All filed'}
         </div>
         {pending.length > 0 && (
@@ -152,6 +157,11 @@ export default function Inbox({ members = [], accounts, categories, data, loadin
                         <span className="ov-muted">
                           {senderName(i, members) ?? i.source} · {ago(i.created_at)}
                         </span>
+                        {i.date_guessed && (
+                          <span className="ov-chip-warn" style={{ marginLeft: 'auto' }} title="Not in the message: dated the day it was sent">
+                            No date
+                          </span>
+                        )}
                       </div>
                     </div>
                   </button>
@@ -270,16 +280,13 @@ function IntakeReview({ item, sender, accounts, members, categories, categoryRul
   ];
 
   async function approveDirect() {
-    // Approving as read would record the guessed date as fact.
-    if (item.date_guessed) {
-      setMode('edit');
-      setError('The message had no date, so set the day it was actually paid, then approve.');
-      return;
-    }
     const form = {
       accountId: item.parsed_account_id,
       amount: item.parsed_amount,
       date: item.parsed_date,
+      // Approving as read would record a guessed date as fact, so it fails
+      // validation and opens the editor, where the date is set or confirmed.
+      dateGuessed: !!item.date_guessed,
       // Trusts the parser's own classification (SHR-282), same reasoning as
       // approveConfident above.
       kind: item.parsed_kind ?? 'expense',
@@ -420,7 +427,7 @@ function IntakeEditForm({ item, sender, accounts, members, categories, categoryR
   const foreignCurrency = item.parsed_currency && item.parsed_currency !== 'AED' ? item.parsed_currency : null;
   const [amount, setAmount] = useState(!foreignCurrency && item.parsed_amount !== null ? String(item.parsed_amount) : '');
   const [merchant, setMerchant] = useState(item.parsed_merchant ?? '');
-  const [date, setDate] = useState(item.parsed_date ?? new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(item.parsed_date ?? householdToday());
   // Intake can only be approved onto an open account (QA-01).
   const selectable = selectableAccounts(accounts);
   const suggestedAccountId = item.parsed_account_id && selectable.some((a) => a.id === item.parsed_account_id) ? item.parsed_account_id : null;
@@ -440,6 +447,12 @@ function IntakeEditForm({ item, sender, accounts, members, categories, categoryR
   const currency = 'AED';
   const [owner, setOwner] = useState('shared');
   const [duplicateDismissed, setDuplicateDismissed] = useState(false);
+  // A date the message did not give is the day it was sent to the bot. It
+  // counts as the day it was paid once someone picks a date or ticks that the
+  // one shown is right. This starts false even for a dated entry: the
+  // database checks its own copy, and a copy this screen holds could be older
+  // than a correction that has since made the date a guess.
+  const [dateConfirmed, setDateConfirmed] = useState(false);
 
   const duplicateTransaction = duplicateDismissed
     ? null
@@ -449,6 +462,8 @@ function IntakeEditForm({ item, sender, accounts, members, categories, categoryR
     accountId,
     amount,
     date,
+    dateGuessed: !!item.date_guessed,
+    dateConfirmed,
     kind,
     categoryId,
     currency,
@@ -533,7 +548,31 @@ function IntakeEditForm({ item, sender, accounts, members, categories, categoryR
           </div>
           <div className="te-fieldcell">
             <span className="te-fieldlabel">Date</span>
-            <input className="te-fieldvalue" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            <input
+              className="te-fieldvalue"
+              type="date"
+              aria-label="Date"
+              value={date}
+              onChange={(e) => {
+                setDate(e.target.value);
+                setDateConfirmed(true);
+              }}
+            />
+            {/* No role="alert" on the warning: the form's own error is the
+                one alert, and the date cell says where to look. */}
+            {item.date_guessed && (
+              <>
+                {!dateConfirmed && (
+                  <div className="ov-warn" style={{ fontSize: 11, marginTop: 4 }}>
+                    Not in the message: the day it was sent.
+                  </div>
+                )}
+                <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 11.5 }}>
+                  <input type="checkbox" checked={dateConfirmed} onChange={(e) => setDateConfirmed(e.target.checked)} />
+                  <span>Paid on this day</span>
+                </label>
+              </>
+            )}
           </div>
           <div className="te-fieldcell">
             <span className="te-fieldlabel">Account</span>

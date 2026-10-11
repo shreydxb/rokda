@@ -7,7 +7,8 @@ verified against. This file records what those names refer to.
 
 | Role | Where | Notes |
 | --- | --- | --- |
-| Production | https://rokda-app.netlify.app | Netlify, deploys from the default branch |
+| Production | https://rokda-app.netlify.app | Netlify, deploys from the default branch when the site changed (`netlify.toml`) |
+| Fallback | https://shreydxb.github.io/rokda/ | GitHub Pages, publishes every green `main`; no response headers |
 | Preview | Not provisioned/verified yet | PR #1 targets dev; confirm base-branch deploy eligibility and preview configuration |
 
 The correction build identifies itself in the sidebar footer (`build <short sha>`,
@@ -18,6 +19,24 @@ Before enabling preview or dev branch builds, configure their Supabase variables
 to use an isolated synthetic-data database. Configure both `deploy-preview` and
 any enabled `branch-deploy`/dev context; neither should inherit household data
 settings. An absent GitHub check alone does not establish why a preview is missing.
+
+### Netlify build settings live in `netlify.toml`
+
+The build command, publish directory, response headers, the deep-link
+fallback and the rule that skips builds are in `netlify.toml`, which
+overrides the dashboard. A production deploy costs 15 of the free plan's
+monthly credits; `scripts/netlify-ignore.sh` skips the build when nothing
+the site is built from changed since the last commit Netlify built, and a
+commit message containing `[skip netlify]` skips it outright. Deploy previews
+and branch deploys never build (they would run unreviewed code against the
+household's database); lift that in `netlify.toml` only once they have an
+isolated database of their own. A rebuild of
+the commit Netlify last built always runs (Deploys → Trigger deploy). After
+a change that is not in the repository, such as an environment variable, a
+trigger on a later commit may be skipped as unchanged; a commit touching
+`netlify.toml` always builds. Check what is live with the
+Netlify API (`get-deploy-for-site`) or the build id in the app's sidebar,
+not by assuming the latest merge was built.
 
 ### Build environment variables
 
@@ -372,3 +391,23 @@ What IS available on the free plan, on the same settings page
 
 Revisit if the household ever grows past people who can be told to use a
 password manager, or if the project moves to Pro for another reason.
+
+## Auth settings that live in the dashboard
+
+`supabase/config.toml` records these, but the Supabase GitHub integration is
+not known to apply its `[auth]` section to production, so the dashboard is
+what is live. Check them there after any change to sign-in:
+
+| Setting | Where | Value |
+| --- | --- | --- |
+| Allow new users to sign up | Authentication → Sign In / Providers | Off |
+| Site URL | Authentication → URL Configuration | `https://rokda-app.netlify.app`, the main address |
+| Redirect URLs | Authentication → URL Configuration | `https://rokda-app.netlify.app/**`, `https://shreydxb.github.io/rokda/**` |
+| Reset Password email | Authentication → Emails → Templates | the default link, `{{ .ConfirmationURL }}` |
+| Exposed schemas | Project Settings → Data API | `public`, `graphql_public` (never `private`) |
+
+A reset redirect that is not on the Redirect URLs list is not an error:
+Supabase sends the link to the Site URL instead, and it quietly lands
+somewhere else. A template that builds its link from `{{ .SiteURL }}` ignores
+the redirect altogether. Logins are added under Authentication → Users → Add
+user (or Invite user), which works with sign-ups off.

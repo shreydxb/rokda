@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   ambiguousConfirmMessage,
+  ambiguousProposalMessage,
+  dropUnavailableMessage,
+  isCancellationText,
   isConfirmationText,
   isReadyForFastConfirm,
   resolveConfirmTarget,
   resolveCorrectionTarget,
+  resolveProposalTarget,
   PROMPT_UNADDRESSED,
   PROMPT_FOUND,
   PROMPT_UNKNOWN,
@@ -250,5 +254,72 @@ describe('a guessed date is never confirmed with a "yes"', () => {
   it('holds back an entry whose date the message did not give', () => {
     expect(isReadyForFastConfirm(pending())).toBe(true);
     expect(isReadyForFastConfirm(pending({ date_guessed: true }))).toBe(false);
+  });
+});
+
+describe('proposals: which one a "yes" or a "no" is about', () => {
+  const proposal = (overrides = {}) => ({ id: 'p1', status: 'proposed', ...overrides });
+
+  it('a reply to a proposal decides that proposal, however many others wait', () => {
+    const row = proposal();
+    expect(resolveProposalTarget({ lookup: PROMPT_FOUND, row, open: [proposal({ id: 'p2' })], readyIntakes: [pending()] })).toEqual({ kind: 'one', row });
+  });
+
+  it('a reply to a proposal already decided changes nothing and says so', () => {
+    for (const status of ['applied', 'cancelled', 'expired']) {
+      const row = proposal({ status });
+      expect(resolveProposalTarget({ lookup: PROMPT_FOUND, row })).toEqual({ kind: 'decided', row });
+    }
+  });
+
+  it('a reply to some other message is left to the expense rules', () => {
+    expect(resolveProposalTarget({ lookup: PROMPT_UNKNOWN, open: [proposal()] })).toEqual({ kind: 'none' });
+  });
+
+  it('a failed lookup decides nothing', () => {
+    expect(resolveProposalTarget({ lookup: PROMPT_FAILED, open: [proposal()] })).toEqual({ kind: 'unavailable' });
+    expect(resolveProposalTarget({ lookup: PROMPT_UNADDRESSED, openFailed: true })).toEqual({ kind: 'unavailable' });
+  });
+
+  it('a bare answer decides the one proposal waiting, and only when nothing else waits', () => {
+    const row = proposal();
+    expect(resolveProposalTarget({ open: [row] })).toEqual({ kind: 'one', row });
+    expect(resolveProposalTarget({ open: [row, proposal({ id: 'p2' })] })).toEqual({ kind: 'ambiguous' });
+    expect(resolveProposalTarget({ open: [row], readyIntakes: [pending()] })).toEqual({ kind: 'ambiguous' });
+    expect(resolveProposalTarget({ open: [row], truncated: true })).toEqual({ kind: 'ambiguous' });
+    expect(resolveProposalTarget({ open: [] })).toEqual({ kind: 'none' });
+    expect(resolveProposalTarget({ open: [proposal({ status: 'applied' })] })).toEqual({ kind: 'none' });
+  });
+
+  it('a bare answer with nothing open repeats what happened to the one just decided, unless an expense waits', () => {
+    const decided = proposal({ status: 'applied' });
+    expect(resolveProposalTarget({ open: [], recentlyDecided: decided })).toEqual({ kind: 'decided', row: decided });
+    expect(resolveProposalTarget({ open: [], recentlyDecided: decided, readyIntakes: [pending()] })).toEqual({ kind: 'none' });
+    expect(resolveProposalTarget({ open: [], recentlyDecided: decided, truncated: true })).toEqual({ kind: 'none' });
+    // An open proposal is answered before a decided one is repeated.
+    const row = proposal();
+    expect(resolveProposalTarget({ open: [row], recentlyDecided: decided })).toEqual({ kind: 'one', row });
+    // A reply names its own proposal, whatever was decided recently.
+    expect(resolveProposalTarget({ lookup: PROMPT_UNKNOWN, recentlyDecided: decided })).toEqual({ kind: 'none' });
+  });
+
+  it('a "no" whose lookup failed is never told to approve anything', () => {
+    expect(dropUnavailableMessage()).not.toMatch(/approve|Inbox|👍/i);
+    expect(dropUnavailableMessage()).toMatch(/nothing was dropped/);
+  });
+
+  it('only a short, exact "no" counts as dropping one', () => {
+    for (const text of ['no', 'No.', 'nope', 'cancel', "don't", 'dont', '❌', '👎', ' n ']) expect(isCancellationText(text), text).toBe(true);
+    for (const text of ['no wait, it was 45', 'not now', 'yes', '', 'none of these', 'nothing']) expect(isCancellationText(text), text).toBe(false);
+  });
+
+  it('asks which one rather than guessing, and offers a 👍 only to a yes', () => {
+    expect(ambiguousProposalMessage()).toMatch(/Reply directly to my message/);
+    expect(ambiguousProposalMessage(true)).toMatch(/👍/);
+    // A 👍 saves: someone who said "no" must not be pointed at it.
+    expect(ambiguousProposalMessage(false)).not.toMatch(/👍/);
+    expect(ambiguousProposalMessage(false)).toMatch(/reply "no" directly to my question/);
+    // A "no" drops only a proposal; an expense is thrown away in the Inbox.
+    expect(ambiguousProposalMessage(false)).toMatch(/Inbox/);
   });
 });

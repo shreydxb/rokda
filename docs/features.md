@@ -6,6 +6,14 @@ and what runs on its own. The reasons behind each piece are in
 plan (goals, split, open items) is kept in the app under Planning → Notes, not
 here, because this repository is public.
 
+## Signing in
+
+- Email and password, with "Keep me signed in". Sign-ups are closed: logins
+  are added in the Supabase dashboard.
+- **Forgot password?** emails a link that opens **Set a new password**; the
+  app opens once the new one is saved. A link that has expired or was already
+  used opens **Reset password** instead, saying so.
+
 ## Overview (`/`)
 
 - Net worth and cash position, with the Both / Me / Partner scope in the
@@ -30,15 +38,20 @@ here, because this repository is public.
   Posted, Expected, Late, Ended). Income is matched within 10 days of its
   date, bills within 5, and a salary counts in the month it was due.
 - **Insights**: what moved month on month, drilling into Activity.
-- **Inbox**: transactions the bot was not sure of, to confirm or fix.
+- **Inbox**: transactions the bot was not sure of, to confirm or fix. An entry
+  whose message had no date is marked "No date" and is approved only once its
+  date is set or confirmed, never in bulk.
 
 ## Wealth (`/wealth`)
 
 - **Net Worth**: history from dated balance snapshots and valuations.
 - **Accounts**: bank, card, loan, cash, investment and fixed-deposit accounts.
-  Balances are entered by hand and confirmed, never derived. Cards carry a
-  limit, statement day and due day. A loan account can carry its debt terms.
-  Closed accounts stay in history.
+  Balances are entered by hand and confirmed, never derived. Every change is
+  kept with the figure it replaced, where it came from (app, bot or system)
+  and who made it (`account_balance_events`). A balance in
+  rupees is valued at the household's current rate, and moves when the rate
+  does. Cards carry a limit, statement day and due day. A loan account can
+  carry its debt terms. Closed accounts stay in history.
 - **Investments**: holdings with prices pulled daily where a symbol is set,
   and FX rates for USD and INR.
 
@@ -77,7 +90,9 @@ here, because this repository is public.
   Inbox.
 - Answers questions: spending by category, net worth, account balances,
   upcoming bills, budget status, holdings.
-- Records goal contributions and sets account balances from a message.
+- Reads goal contributions and account balances from a message and asks
+  first: it shows the change (old → new) and saves it only on a "yes" or a 👍
+  to that message; "no" drops it.
 - Nudges and briefs (daily job): bills due and overdue, card payments, budget
   alerts, cash cover, unusual spending, a weekly and a monthly brief, and a
   balance check-in on the 1st of each month.
@@ -87,8 +102,13 @@ here, because this repository is public.
 | Job | When (UTC) | What |
 |---|---|---|
 | `daily-recurring-nudge-check` | 05:00 daily | Runs the bot's nudges, briefs and the month-start check-in |
-| `weekday-price-refresh` | 23:00 Sun–Thu | Prices and FX for holdings (`price-refresh`) |
-| `daily-fd-accrual` | 23:00 daily | Re-values fixed deposits for today (`fd-accrual`) |
+| `weekday-price-refresh` | 23:00 Sun–Thu | Prices, and the rupee rate that re-values holdings, rupee accounts and rupee reminders (`price-refresh`) |
+| `daily-fd-accrual` | 23:00 daily | Re-values fixed deposits for the Dubai day (`fd-accrual`) |
+
+`fd-accrual` runs only for the job's service-role token. `price-refresh` runs
+for the job, or for a signed-in household member pressing Refresh on the
+Investments screen. The bot's webhook needs its shared secret, compared in
+constant time.
 
 ## Where things live
 

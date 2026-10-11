@@ -19,6 +19,10 @@ export function validateApproval(form) {
   if (!form.accountId) return 'Choose the account this belongs to.';
   if (!form.amount || Number(form.amount) === 0) return 'Enter an amount.';
   if (!form.date) return 'Enter a date.';
+  // A bank SMS or receipt with no date is dated the day it was sent to the
+  // bot. That becomes the day it was paid only once someone has picked a date
+  // or said the one shown is right; approve_intake refuses it otherwise.
+  if (form.dateGuessed && !form.dateConfirmed) return 'The message had no date, so set the day it was paid, or tick “Paid on this day” if the date shown is right.';
   if (!INTAKE_KINDS.some((k) => k.id === form.kind)) return 'Choose whether this is an expense, income or a refund.';
   if (!form.isShared && !form.ownerMemberId) return 'Choose whose it is, or mark it shared.';
   // No native-currency conversion exists yet, so every aggregate calculation
@@ -45,5 +49,10 @@ export function approvalArgs(item, form) {
     p_merchant: form.merchant?.trim() || null,
     p_is_shared: Boolean(form.isShared),
     p_owner_member_id: form.isShared ? null : (form.ownerMemberId ?? null),
+    // True only when a person picked the date, or ticked that the one shown
+    // is right, in the editor. Approving as read, singly or in bulk, never
+    // says so, and the database checks its own copy of the entry, so a screen
+    // showing an older copy cannot approve a guess past it.
+    p_date_confirmed: form.dateConfirmed === true,
   };
 }

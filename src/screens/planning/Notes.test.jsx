@@ -33,7 +33,7 @@ beforeEach(() => {
   calls.deletes.length = 0;
 });
 
-const MEMBERS = [{ id: 'm1', display_name: 'Shreyash' }];
+const MEMBERS = [{ id: 'm1', display_name: 'Alex' }];
 const NOTE = { id: 'n1', title: 'Who pays what', body: '# Split\nShared costs by income.\n\n- **Rent** is shared\n- <b>not markup</b>', position: 1, updated_by: 'm1', updated_at: '2026-09-28T10:00:00Z' };
 
 function renderNotes(notes = [NOTE]) {
@@ -50,7 +50,7 @@ describe('Notes', () => {
     expect(card.querySelector('strong').textContent).toBe('Rent');
     expect(card.querySelector('b')).toBeNull();
     expect(card.textContent).toContain('<b>not markup</b>');
-    expect(card.textContent).toMatch(/by Shreyash/);
+    expect(card.textContent).toMatch(/by Alex/);
   });
 
   it('adds a note with who wrote it', async () => {

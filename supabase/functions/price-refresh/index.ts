@@ -9,6 +9,8 @@
 // button.
 import "jsr:@supabase/functions-js@2.117.2/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2.117.2";
+import { householdToday } from "../_shared/applib/day.js";
+import { bearerToken, isServiceRoleRequest } from "../_shared/requestAuth.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -247,7 +249,10 @@ async function refreshHoldings(inrPerAed: number | null) {
   let historyCaptured = 0;
   const now = new Date();
   const nowIso = now.toISOString();
-  const today = nowIso.slice(0, 10);
+  // A history point is dated the household's day. The weekday run is at
+  // 03:00 Dubai, when the UTC date is still the day before, and so is a
+  // Refresh pressed after midnight.
+  const today = householdToday(now);
 
   for (const h of holdings as Holding[]) {
     const result = results.get(h.id);
@@ -295,12 +300,51 @@ async function refreshHoldings(inrPerAed: number | null) {
   return { updated, failed, historyCaptured };
 }
 
-Deno.serve(async () => {
+// The Wealth screen calls this from the browser (supabase.functions.invoke),
+// which sends a CORS preflight first. The preflight is answered here without
+// doing any work. The handler used to treat every request alike, so a
+// preflight that reached it ran a whole refresh, and no answer carried CORS
+// headers, which a browser needs before it hands the result to the page.
+// CORS is not the security boundary -- the token check below is.
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), { status, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
+}
+
+// Two callers may refresh: the weekday job (a service-role token from the
+// vault) and a signed-in member of a household pressing Refresh. verify_jwt
+// alone also admitted the publishable key's anonymous role and any login,
+// each able to spend the price feed's daily quota and rewrite every
+// household's FX rate. A user token is checked with the Auth server, not
+// only decoded, before its membership is looked up.
+async function callerMayRefresh(req: Request): Promise<boolean> {
+  if (isServiceRoleRequest(req)) return true;
+  const token = bearerToken(req);
+  if (!token) return false;
+  const { data: auth, error } = await supabase.auth.getUser(token);
+  if (error || !auth?.user) return false;
+  const { data: member, error: memberError } = await supabase
+    .from("household_members")
+    .select("id")
+    .eq("user_id", auth.user.id)
+    .limit(1)
+    .maybeSingle();
+  return !memberError && member !== null;
+}
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS_HEADERS });
+  if (req.method !== "POST") return jsonResponse({ error: "method not allowed" }, 405);
+  if (!(await callerMayRefresh(req))) return jsonResponse({ error: "forbidden" }, 403);
+
   // Sequential, not parallel: holdings priced in INR need this run's own
   // fx rate (or the last good one) to convert to AED correctly.
   const fx = await refreshFx();
   const holdings = await refreshHoldings(fx.rate);
-  return new Response(JSON.stringify({ fx, holdings }), {
-    headers: { "Content-Type": "application/json" },
-  });
+  return jsonResponse({ fx, holdings });
 });

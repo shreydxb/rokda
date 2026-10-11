@@ -28,8 +28,8 @@ vi.mock('../../lib/supabaseClient', () => ({
 }));
 
 const MEMBERS = [
-  { id: 'm1', display_name: 'Shreyash' },
-  { id: 'm2', display_name: 'Tarika' },
+  { id: 'm1', display_name: 'Alex' },
+  { id: 'm2', display_name: 'Sam' },
 ];
 
 function renderEditor(props = {}) {
@@ -51,26 +51,26 @@ describe('LifePlanEditor', () => {
     renderEditor();
     fireEvent.click(screen.getByText('Save plan'));
     expect(screen.getByRole('alert').textContent).toMatch(/at least one person/);
-    type("Shreyash's birth year", '1994');
+    type("Alex's birth year", '1994');
     fireEvent.click(screen.getByText('Save plan'));
-    expect(screen.getByRole('alert').textContent).toBe('Plan Shreyash to an age between 40 and 120.');
+    expect(screen.getByRole('alert').textContent).toBe('Plan Alex to an age between 40 and 120.');
     expect(calls.upserts).toEqual([]);
   });
 
   it('suggests stopping at 60 and shows the ages then', () => {
     renderEditor();
-    type("Shreyash's birth year", '1994');
+    type("Alex's birth year", '1994');
     expect(screen.getByLabelText('Stop working in').getAttribute('placeholder')).toBe('2054');
     type('Stop working in', '2044');
-    expect(screen.getByText('Shreyash 50')).toBeTruthy();
+    expect(screen.getByText('Alex 50')).toBeTruthy();
   });
 
   it('saves the ages and the plan together', async () => {
     const { onSaved } = renderEditor();
-    type("Shreyash's birth year", '1994');
-    type('Age to plan Shreyash to', '80');
-    type("Tarika's birth year", '1994');
-    type('Age to plan Tarika to', '85');
+    type("Alex's birth year", '1994');
+    type('Age to plan Alex to', '80');
+    type("Sam's birth year", '1994');
+    type('Age to plan Sam to', '85');
     type('Stop working in', '2054');
     type('Spending a year after work stops', '61000');
     type('Spending once one person remains', '50');
@@ -94,8 +94,8 @@ describe('LifePlanEditor', () => {
       { member_id: 'm2', birth_year: 1994, life_expectancy: 85 },
     ];
     const { onSaved } = renderEditor({ memberLife, assumptions: { retirement_year: 2054 } });
-    type("Tarika's birth year", '');
-    type('Age to plan Tarika to', '');
+    type("Sam's birth year", '');
+    type('Age to plan Sam to', '');
     fireEvent.click(screen.getByText('Save plan'));
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     expect(calls.deletes).toEqual([{ table: 'member_life', column: 'member_id', values: ['m2'] }]);
@@ -103,8 +103,8 @@ describe('LifePlanEditor', () => {
 
   it('refuses a plan that would already have ended', () => {
     renderEditor();
-    type("Shreyash's birth year", '1930');
-    type('Age to plan Shreyash to', '80');
+    type("Alex's birth year", '1930');
+    type('Age to plan Alex to', '80');
     fireEvent.click(screen.getByText('Save plan'));
     expect(screen.getByRole('alert').textContent).toMatch(/already have ended/);
   });

@@ -26,8 +26,8 @@ vi.mock('./lib/supabaseClient', () => ({ supabase: {} }));
 vi.mock('./lib/useHousehold', () => ({
   useHousehold: () => ({
     household: { id: 'hh', name: 'Test' },
-    members: [{ id: 'm1', display_name: 'Shreyash' }],
-    me: { id: 'm1', display_name: 'Shreyash' },
+    members: [{ id: 'm1', display_name: 'Partner A' }],
+    me: { id: 'm1', display_name: 'Partner A' },
     loading: false,
     error: null,
     reload: () => {},
@@ -56,7 +56,7 @@ const PRICED = new Date(NOW.getTime() - 86400000).toISOString();
 const ACCOUNTS = [
   { id: 'a1', name: 'Wallet', type: 'cash', currency: 'AED', balance: 100, balance_aed: 100, balance_as_of: TODAY, is_shared: true, owner_member_id: null, archived_at: null },
   // Owed, in rupees, with no AED conversion recorded.
-  { id: 'c1', name: 'HDFC card', type: 'credit_card', currency: 'INR', balance: 50_000, balance_aed: null, balance_as_of: TODAY, due_day: NOW.getDate(), is_shared: true, owner_member_id: null, archived_at: null },
+  { id: 'c1', name: 'Bank card', type: 'credit_card', currency: 'INR', balance: 50_000, balance_aed: null, balance_as_of: TODAY, due_day: NOW.getDate(), is_shared: true, owner_member_id: null, archived_at: null },
 ];
 const HOLDINGS = [
   { id: 'h1', name: 'VWRA', asset_class: 'intl_equity', quantity: 100, value_aed: 20_000, priced_at: PRICED, is_shared: true, owner_member_id: null },
@@ -65,7 +65,7 @@ const HOLDINGS = [
 ];
 
 const NOTE = 'excludes 1 account in another currency that has no AED conversion yet, and 1 holding that has never been valued';
-const MEMBERS = [{ id: 'm1', display_name: 'Shreyash' }];
+const MEMBERS = [{ id: 'm1', display_name: 'Partner A' }];
 
 function closedMonthTransactions() {
   return [1, 2, 3].map((back, i) => {
@@ -115,7 +115,7 @@ describe('SHR-292: the shared net-worth basis', () => {
 });
 
 describe('SHR-292: cash cover with an unconverted card due', () => {
-  const bills = { recurring: [], credit_cards: [{ name: 'HDFC card', amount_owed_aed: null, due_date: TODAY }] };
+  const bills = { recurring: [], credit_cards: [{ name: 'Bank card', amount_owed_aed: null, due_date: TODAY }] };
 
   it('never reports the unknown bill as covered, in the app or the bot', () => {
     const app = formatCashCoverLine(cashCoverStatus(ACCOUNTS, bills, { days: 7, today: NOW }));
@@ -148,7 +148,7 @@ describe('SHR-292: every screen that prints the total says what it leaves out', 
         data={{ accounts: ACCOUNTS, netWorthSnapshots: [], holdings: HOLDINGS }}
       />,
     );
-    expect(container.textContent).toContain(`Incomplete — ${NOTE}. (HDFC card, New fund)`);
+    expect(container.textContent).toContain(`Incomplete — ${NOTE}. (Bank card, New fund)`);
   });
 
   it('Planning › Forecast', async () => {

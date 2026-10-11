@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { categoryOwner, householdShare, monthlyIncomeByMember, shareSplit } from './share';
 
 const NOW = new Date(2026, 9, 20, 12); // 20 October 2026
-const HIM = { id: 'him', display_name: 'Shreyash' };
-const HER = { id: 'her', display_name: 'Tarika' };
+const HIM = { id: 'him', display_name: 'Alex' };
+const HER = { id: 'her', display_name: 'Sam' };
 const MEMBERS = [HIM, HER];
 
 const CATEGORIES = [
@@ -14,7 +14,7 @@ const CATEGORIES = [
   { id: 'family', name: 'Family Support' },
   { id: 'raipur', name: 'Raipur Remittance', parent_id: 'family', owner_member_id: 'her' },
   { id: 'savings', name: 'Savings', is_savings: true },
-  { id: 'her-goals', name: "Tarika's Goals", parent_id: 'savings', is_savings: true, owner_member_id: 'her' },
+  { id: 'her-goals', name: "Sam's Goals", parent_id: 'savings', is_savings: true, owner_member_id: 'her' },
 ];
 const RECURRING = [
   { id: 's1', amount: 24000, cadence: 'monthly', next_due_date: '2026-10-30', owner_member_id: 'him', is_shared: false },

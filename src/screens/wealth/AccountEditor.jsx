@@ -3,6 +3,7 @@ import { supabase } from '../../lib/supabaseClient';
 import { closurePlan, isArchived } from '../../lib/accounts';
 import { isBalanceConfirmed } from '../../lib/balance';
 import { todayISODate } from '../../lib/valuation';
+import { householdToday } from '../../lib/day';
 import '../money/TransactionEditor.css';
 
 const TYPES = ['checking', 'savings', 'credit_card', 'investment', 'loan', 'cash', 'other', 'fd'];
@@ -85,7 +86,7 @@ export default function AccountEditor({ account, defaultType, householdId, membe
     setForm((f) => ({
       ...f,
       principal: String(account?.balance ?? f.principal),
-      opened_date: new Date().toISOString().slice(0, 10),
+      opened_date: householdToday(),
       maturity_date: '',
     }));
     setDirty(true);

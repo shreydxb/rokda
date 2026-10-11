@@ -4,6 +4,7 @@ import { accountOptionLabel, selectableAccounts } from '../../lib/accounts';
 import { CADENCES } from '../../lib/recurring';
 import { convertToAed, rateNote } from '../../lib/currency';
 import { formatMoney } from '../../lib/money';
+import { householdToday } from '../../lib/day';
 import './TransactionEditor.css';
 
 function initialForm(item, accounts) {
@@ -34,7 +35,7 @@ function initialForm(item, accounts) {
     name: '',
     cadence: 'monthly',
     interval_count: '1',
-    next_due_date: new Date().toISOString().slice(0, 10),
+    next_due_date: householdToday(),
     account_id: accounts[0]?.id ?? '',
     category_id: '',
     owner: 'shared',

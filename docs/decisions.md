@@ -439,15 +439,16 @@ prompt they go stale, and net worth and every plan start from them.
   is on record and when it was last confirmed. It asks for the closing
   figures, once per household per month (`brief_sends`, kind
   `balance_checkin`). It can be switched off in Settings → Telegram.
-- **Any message stating balances sets them**, on any day
-  (`update_account_balances`). A name resolves the way a card does in an
-  expense. When two members have an account with the same name, "<partner>
-  Bank" picks the partner's and a bare "Bank" picks the sender's own. A card or loan is
-  stored as the amount owed. The reply lists every change with its old
-  figure, so a misread shows at once, and anything it could not match is
-  named rather than guessed.
-- The reply is written from the figures, not paraphrased by the model: it is
-  a write, and a write is confirmed exactly.
+- **Any message stating balances proposes them**, on any day
+  (`update_account_balances`), and a "yes" saves them (see "The bot asks
+  before it changes a balance or a goal" below). A name resolves the way a
+  card does in an expense. When two members have an account with the same
+  name, "<partner> Bank" picks the partner's and a bare "Bank" picks the
+  sender's own. A card or loan is stored as the amount owed. The question
+  lists every change with its old figure, so a misread shows before it is
+  saved, and anything it could not match is named rather than guessed.
+- The question and the answer are written from the figures, not paraphrased
+  by the model: they are about a write, and a write is stated exactly.
 
 ## Whose cost a category is, and the household share
 
@@ -500,3 +501,287 @@ be dated the day it was pasted, and a "yes" recorded it that way.
   when Telegram says, or else today. It is marked `date_guessed`, and is
   never offered for a "yes" or bulk approval. The reply says it had no date.
   The Inbox flags the date and opens the editor when Approve is pressed.
+
+## Today is Dubai's day, wherever the code runs
+
+Six forms offered today's date as `new Date().toISOString().slice(0, 10)`,
+which is the UTC date: until 04:00 in Dubai it is still yesterday. An
+expense, a bill marked paid, an Inbox item with no date, a new reminder, a
+new deposit term or a goal contribution entered after midnight was dated a
+day early. Fixed deposits accrued to the database's `current_date`, also UTC,
+so the nightly run at 03:00 Dubai valued each one as of the day before and
+matured it a day late. The bot's answers about bills and spending read the
+UTC day too.
+
+- **A day taken from a moment names its zone.** Forms and as-of fields use
+  `householdToday()`. The bot hands `householdDay()` to the date helpers it
+  shares with the app. The database uses `household_today()`, which is
+  `now()` read in Asia/Dubai, for deposit interest and for a transaction
+  saved with no date. A stored date such as `occurred_at` is already a
+  calendar day and needs no zone.
+- **Screens still read the browser's clock** for "this month" and "due soon".
+  In Dubai that is the household's day. A member looking from another zone
+  sees their own day there, but the dates the forms offer are Dubai's.
+- **Price history is dated the Dubai day it was fetched.** The weekday run at
+  03:00 Dubai used to be dated the day before. The month-end check-in shows
+  the Dubai date a balance was confirmed.
+
+## Rupee balances follow the rate
+
+An account held in rupees keeps its AED value in `balance_aed`, and that was
+worked out only when the account was saved. The rupee rate refreshes every
+weekday, and holdings and rupee reminders already followed it. Net worth
+therefore added rupee accounts, valued at whatever rate applied when each was
+last edited, to holdings valued at today's.
+
+- **When a household's rupee rate changes, every rupee account in it is
+  re-valued** at the new rate, whether the feed changed it or a person did.
+  The trigger re-runs the same calculation that values an account when it is
+  saved, so there is one formula. Dollar accounts need nothing, since the peg
+  does not move.
+- **No rate means no AED value.** If the rate is cleared, rupee accounts show
+  as not converted and every total says so. A missing rate is never treated
+  as 1:1.
+- **Re-valuing is not editing.** It leaves `updated_at` alone.
+- **Closed months are not rewritten.** A net-worth snapshot keeps the totals
+  it was closed with.
+- Converting when read, rather than storing the AED figure, would have meant
+  every screen and the bot fetching the rate. All of them already read
+  `balance_aed`.
+
+## One household per Rokda, and no sign-ups
+
+Rokda is one household's ledger. Its logins are made by hand in the Supabase
+dashboard (Authentication → Users → Add user), and new sign-ups are switched
+off there (Authentication → Sign In / Providers → "Allow new users to sign
+up"). The publishable key ships in every build, so with sign-ups on, anyone
+could have made a login with it.
+
+A login alone could not read the household's records, but it could call
+`create_household()`, the way the first owner founds an empty database, and
+get a household of its own to write into. That function now founds the
+household only when there is none: once any household exists it refuses
+everyone, and it still refuses someone who already belongs to one. Two first
+sign-ins racing on an empty database are serialised, so only one founds it.
+
+People join the existing household the way they already did: an owner adds
+them in Settings → Household (as a placeholder until they have a login), and
+their login is linked to that member row.
+
+`supabase/config.toml` records `enable_signup = false` and the redirect URLs,
+but the hosted project is not known to read its `[auth]` section. The
+dashboard is what is live; `docs/environments.md` lists what to check there.
+
+## A reset link asks for a new password before anything else
+
+"Forgot password?" emails a link that signs the person in. It used to do only
+that: the link opened the app with the old password still unknown and no way
+to set another. It also pointed at `/login` on the host's root, which is
+outside the app on GitHub Pages, where Rokda lives under `/rokda/`.
+
+Now the link lands on the app's own root, base path included, and the app
+shows **Set a new password** and nothing else until a new password is saved
+(`supabase.auth.updateUser`) or the person signs out.
+
+- Recovery starts on supabase-js's `PASSWORD_RECOVERY` event, or as soon as
+  the page sees `type=recovery` in the link, so the ledger does not flash
+  first.
+- It survives a reload of that screen (sessionStorage), and ends only when
+  the password is saved or the person signs out. `SIGNED_IN` does not end it:
+  supabase-js emits that on every reload and whenever the tab regains focus.
+  supabase-js relays auth events to every open tab. A Sign in tab that asked
+  for the link shows the screen too when it shares the session ("Keep me
+  signed in" on), and saving the password in either tab (`USER_UPDATED`)
+  ends it in both and opens the app. For these two events the app reads the
+  tab's own session, never the relayed one, and acts only when the event is
+  about the user that tab is signed in as. With "Keep me signed in" off each
+  tab has a session of its own: a tab with none stays on Sign in, and a tab
+  signed in as another member is not moved by someone else's reset.
+- It is a prompt, not a lock. The link's session is a real session either
+  way; the screen exists so the person leaves with a password they know.
+- A link that has expired or was already used signs nobody in. Supabase sends
+  the person back with the reason in the address, and Sign in opens on
+  **Reset password** saying so, ready to send a new link. The wording is the
+  app's own: the description in the address is never shown, because anyone
+  can write a link that carries one. The message is gone once anyone signs
+  in.
+- The redirect has to be on the project's allow-list (Authentication → URL
+  Configuration → Redirect URLs), or Supabase silently sends the link to the
+  Site URL instead. Both hosts are on it: the Netlify site, which is the main
+  address, and the GitHub Pages fallback.
+
+## Membership checks live outside the API schema
+
+Every row-level policy asks one of two questions: is the caller a member of
+this household (`is_household_member`), or an owner of it
+(`is_household_owner`). Both are SECURITY DEFINER, because they read
+`household_members`, which is itself behind RLS. They used to sit in
+`public`, the schema the REST API serves, so any signed-in user could call
+them as RPCs. That leaked nothing, since they only answer about the caller,
+but a definer function in the API schema is one careless edit from leaking
+something, and the security advisor flagged it on every run.
+
+They now live in `private`, which the API does not serve, with an empty
+`search_path` and fully qualified names. The move left every policy as it
+was: a policy stores the function it calls by identity, not by name, so the
+policies followed the functions without being rewritten.
+
+Two function bodies call them by name (`generate_telegram_link_code()` and
+the roster role guard), so `public` keeps thin wrappers with the old names.
+They run with the caller's rights and only pass the question on.
+
+New policies call `private.is_household_member(...)` and
+`private.is_household_owner(...)` directly; the behaviour tests refuse a
+policy that calls a wrapper. `create_household()` and
+`generate_telegram_link_code()` stay in `public` on purpose. They are the
+RPCs, and the advisor's note on them is expected.
+
+## A guessed date is set or confirmed before it is approved
+
+An SMS or receipt with no date waits in the Inbox dated the day it was sent
+(see above). A backlog pasted in one sitting would all land on that day if it
+were approved as read.
+
+- **The queue marks each one** "No date", and the summary counts them.
+- **Approve opens the editor** for such an entry. The editor approves it once
+  a date has been picked, or "Paid on this day" ticked for the one shown.
+  "Approve N confident" leaves these entries out. There is no date picker in
+  the review pane itself; the editor is one more click per entry.
+- **The database refuses it too.** `approve_intake` takes `p_date_confirmed`
+  (default false) and refuses a `date_guessed` entry without it, checking its
+  own copy of the entry, so a screen showing an older copy, or a bot "yes",
+  cannot record a guess. Only the Inbox editor sends it, and only once a date
+  was picked or ticked there; bulk approval and the bot never do.
+- The entry keeps `date_guessed` and `parsed_date` as the bot wrote them, a
+  record of what it guessed. The transaction carries the day that was
+  confirmed. A correction sent to the bot that gives the date clears the flag,
+  as it already did.
+- This guards against an accident, not against a member: any member can
+  edit an intake row, the flag included.
+
+## The Netlify site: headers, deep links, and builds only when the site changes
+
+Until `netlify.toml`, the main address served no security headers and had no
+fallback for client-side routes, so opening a link such as `/money` directly
+got Netlify's 404. Each published production deploy also costs 15 of the free
+plan's monthly credits, and in September they ran out: the site stayed on a
+10 September build for three weeks while `main` moved on, and only GitHub
+Pages showed the current app.
+
+- **The Content-Security-Policy is a `<meta>` tag in the build**
+  (`scripts/csp.mjs`, added by `vite.config.js`), not a Netlify header. GitHub
+  Pages cannot send headers, so this is the only way both addresses get it,
+  and the browser suite serves the same build, so a policy that blocks
+  something the app needs fails the suite. Scripts come only from the app
+  itself. The app may connect to, and show images from (receipt photos are
+  signed Storage URLs), only the Supabase project it was built against, not
+  `*.supabase.co`: after an injected script, a wildcard would
+  let the page send data to any project, including one made for the purpose.
+  `npm run verify:build` fails a build without the tag.
+- **What a meta tag cannot carry is a header** in `netlify.toml`:
+  `frame-ancestors 'none'` and `X-Frame-Options` (never framed), `nosniff`,
+  a referrer policy, a permissions policy and HSTS. GitHub Pages goes without
+  these; it is the fallback, not the main address.
+- **Every unknown path serves `index.html`** with status 200, as Pages' 404
+  copy already did.
+- **Netlify builds only when the site changed** (`scripts/netlify-ignore.sh`):
+  the files the site is built from, compared with the last commit Netlify
+  built. A merge that changes only migrations, Edge Functions, docs or tests
+  builds nothing. Any doubt builds. `[skip netlify]` in a commit message still
+  skips a build that would otherwise run, for batching site changes into one
+  release.
+- **The build checks itself**: `npm run build && npm run verify:build`. A
+  build without the Supabase variables used to publish a blank app. Now it
+  fails, publishes nothing, costs nothing, and the site keeps the last good
+  version.
+
+## Who may run an Edge Function
+
+`price-refresh` and `fd-accrual` are deployed with `verify_jwt = true`, which
+proves only that a token was issued by this project. The publishable key's
+anonymous role and any login pass that too, and both functions then work as
+the service role: one rewrites every fixed deposit, the other spends the
+price feed's daily quota and sets every household's rupee rate.
+
+- **`fd-accrual` runs only for the service role**, which is what the daily
+  job sends (the vault's `service_role_key`). Nothing in the app calls it.
+- **`price-refresh` runs for the service role or a signed-in household
+  member**, since Investments has a Refresh button. A user token is checked
+  with the Auth server, not only decoded, and then looked up in
+  `household_members`. It now answers the browser's CORS preflight without
+  doing anything, and its replies carry CORS headers. Before, every request
+  was treated as a refresh, and no reply carried the headers a browser needs
+  before it lets the page read the answer.
+- **The role is read from the token's claims** (`_shared/requestAuth.ts`),
+  trusting the platform's signature check. That is safe only while
+  `verify_jwt` stays on, which `config.toml` pins and `verify:functions`
+  checks against production. It also means the scheduled jobs depend on the
+  vault's `service_role_key` being the legacy JWT, as they already did
+  through `verify_jwt` before this change.
+- **That dependency has a deadline.** Supabase's API-key timetable says
+  projects created or restored from 1 November 2025 have no legacy keys,
+  and lists deleting them altogether for late 2026. When that happens the
+  two nightly jobs stop authenticating, here or in a restored project
+  (`docs/backup-restore.md`). The fix is the webhook's pattern: deploy both
+  with `verify_jwt = false`, have the jobs send a secret from the vault, and
+  compare it with `secretsMatch`; `price-refresh` keeps checking a member's
+  token with the Auth server for the Refresh button. It is not in this
+  change, and should come before the legacy keys go.
+- **The webhook's shared secret is compared in constant time.** `!==`
+  returns at the first differing character, so an endpoint anyone can reach
+  would leak the secret a character at a time to someone patient enough to
+  time it. The comparison walks the whole expected secret whatever is
+  presented. It stays synchronous: a first version hashed both values with
+  `crypto.subtle`, whose answer arrives from another thread at an
+  unpredictable moment, and the handler test of two concurrent deliveries
+  of one update began failing about one run in twenty.
+
+## The bot asks before it changes a balance or a goal
+
+The bot used to write an account balance or a goal contribution the moment
+the model read one from a message. One misread figure changed net worth, and
+the figure it replaced survived only in the chat. Expenses never had this
+problem: they wait in the Inbox, or for a "yes".
+
+- **A proposal, then a yes.** The bot saves what it read (`bot_proposals`)
+  and replies with the change: "Bank: AED 9,000.00 → AED 10,000.00", or
+  "Record AED 500.00 toward House, dated …". Nothing is written until the
+  sender answers that message: "yes" or 👍 saves it, "no" drops it. A bare
+  "yes" counts when it is the only thing waiting from the last 20 minutes;
+  with an expense or a second proposal also waiting, the bot asks which one
+  is meant instead of guessing. A proposal lapses after a day. A figure the
+  model read as negative keeps its minus sign in the question, and a card
+  or loan stored as negative reads "in credit" rather than "owed", so a
+  sign misread cannot look like no change. The bot sets cards and loans
+  only as an amount owed; a card in credit is set in the app.
+- **Saved once, in one transaction** (`apply_bot_proposal()`, service role
+  only). A second "yes" changes nothing more: as a reply to the question at
+  any time, or bare within five minutes, it repeats what was saved, so a
+  "yes" Telegram delivers twice is not taken for a new message. A 👍 on a
+  question already answered changes nothing and says nothing. A bare "no"
+  names what it dropped, and counts only when nothing else waits for an
+  answer.
+- **The question and the saved change match.** A proposal whose question
+  did not reach the member is deleted, and Telegram delivers the message
+  again; the retry proposes what it reads then, which may differ. A
+  question whose message id could not be recorded is withdrawn before the
+  retry asks again, so an answer cannot land on a question that no longer
+  says what will be saved. A redelivered message never makes a second
+  proposal: one already asked about is left alone, and one never asked
+  about takes the new reading before it is asked. The one gap is the bot
+  stopping between sending a question and recording it; the retry then asks
+  again, and the reply to the first question is refused as one the bot no
+  longer tracks.
+- **Only over the figure the member saw.** Each balance is set only if it
+  still holds the figure shown in the question. If someone changed it in the
+  app in between, that line is left alone and the reply says what the app
+  shows now.
+- **Every balance change is kept** (`account_balance_events`), written by a
+  trigger on `accounts`, so the app, the debt editor and the bot all record
+  one: the old and new figures, the source (app, bot or system) and the
+  member. Members can read their household's history; nothing can write or
+  edit it through the API. Fixed deposits are left out, because their
+  balance is recomputed every day rather than entered.
+- Goal contributions confirmed this way keep the Telegram message as their
+  delivery key, so a message the bot recorded directly before this change is
+  not recorded a second time.

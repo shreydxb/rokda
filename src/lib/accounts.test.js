@@ -87,7 +87,7 @@ describe('closure warnings', () => {
 describe('account selector labels', () => {
   const fabA = { id: 'a', name: 'FAB', type: 'credit_card', is_shared: false, owner_member_id: 'm1' };
   const fabB = { id: 'b', name: 'FAB', type: 'savings', is_shared: true };
-  const members = [{ id: 'm1', display_name: 'Shreyash' }];
+  const members = [{ id: 'm1', display_name: 'Alex' }];
 
   it('leaves an unambiguous name alone', () => {
     expect(accountOptionLabel(SAVINGS, { members, accounts: [SAVINGS, fabA] })).toBe('ADCB Savings');
@@ -95,7 +95,7 @@ describe('account selector labels', () => {
 
   it('qualifies duplicate names with owner and type', () => {
     const accounts = [fabA, fabB];
-    expect(accountOptionLabel(fabA, { members, accounts })).toBe('FAB · Shreyash · credit card');
+    expect(accountOptionLabel(fabA, { members, accounts })).toBe('FAB · Alex · credit card');
     expect(accountOptionLabel(fabB, { members, accounts })).toBe('FAB · Joint · savings');
   });
 

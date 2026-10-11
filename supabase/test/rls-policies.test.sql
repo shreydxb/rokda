@@ -18,6 +18,77 @@
 
 begin;
 
+-- One household per Rokda. On an empty database the first signed-in user
+-- founds it with create_household() and becomes its owner; after that nobody
+-- founds another -- not the founder, and not a signed-in stranger. This has to
+-- run before the fixtures below, because they are households too.
+insert into auth.users (id, email) values
+  ('0f000000-0000-0000-0000-00000000000f', 'founder@example.test'),
+  ('0e000000-0000-0000-0000-00000000000e', 'latecomer@example.test');
+
+set role authenticated;
+set request.jwt.claim.role = 'authenticated';
+set request.jwt.claim.sub = '0f000000-0000-0000-0000-00000000000f';
+
+do $$
+declare founded uuid; n int;
+begin
+  founded := create_household('First household', 'Founder');
+  if not is_household_owner(founded) then
+    raise exception 'one-household FAILED: the founder does not own the household they founded';
+  end if;
+  select count(*) into n from household_members where household_id = founded;
+  if n <> 1 then raise exception 'one-household FAILED: a new household started with % members, expected 1', n; end if;
+
+  -- useHousehold() resolves one membership per user; a second would make
+  -- which household you see arbitrary.
+  begin
+    perform create_household('Second household', 'Founder again');
+    raise exception 'one-household FAILED: the founder created a second household';
+  exception
+    when unique_violation then null;
+  end;
+  raise notice 'one-household ok: the first sign-in founds the household, once';
+end $$;
+
+set request.jwt.claim.sub = '0e000000-0000-0000-0000-00000000000e';
+do $$
+begin
+  begin
+    perform create_household('Latecomer household', 'Latecomer');
+    raise exception 'one-household FAILED: a second household was founded beside the first';
+  exception
+    when insufficient_privilege then null;
+  end;
+
+  -- Refused before its input is even looked at: blank names get the same
+  -- answer, not a hint about which field was missing.
+  begin
+    perform create_household('', '');
+    raise exception 'one-household FAILED: a refused caller''s blank input was validated before they were refused';
+  exception
+    when insufficient_privilege then null;
+  end;
+  raise notice 'one-household ok: once a household exists, a stranger cannot found another';
+end $$;
+
+-- Checked as the superuser, who sees every row: a refusal leaves nothing.
+reset role;
+reset request.jwt.claim.sub;
+reset request.jwt.claim.role;
+do $$
+declare n int;
+begin
+  select count(*) into n from households;
+  if n <> 1 then raise exception 'one-household FAILED: % households exist, expected the founder''s 1', n; end if;
+  if exists (select 1 from household_members where user_id = '0e000000-0000-0000-0000-00000000000e') then
+    raise exception 'one-household FAILED: a refused founding left a roster row behind';
+  end if;
+end $$;
+
+-- The fixtures below build their own households.
+delete from households;
+
 -- Two logins and one placeholder member with no login at all, which is what a
 -- household looks like in practice: one person administers it, the other is
 -- tracked in the ledger before they ever sign in.
@@ -51,6 +122,15 @@ insert into household_notes (id, household_id, title, body) values
 -- Life plan ages: the other household's owner has theirs set.
 insert into member_life (member_id, household_id, birth_year, life_expectancy) values
   ('e2000000-0000-0000-0000-00000000000a', 'd2000000-0000-0000-0000-000000000002', 1980, 85);
+
+-- Balance history and bot proposals: an account and a proposal in each
+-- household. Opening each account records its first event.
+insert into accounts (id, household_id, name, type, balance, is_shared) values
+  ('f4000000-0000-0000-0000-000000000001', 'd1000000-0000-0000-0000-000000000001', 'Our bank', 'checking', 100, true),
+  ('f4000000-0000-0000-0000-000000000002', 'd2000000-0000-0000-0000-000000000002', 'Their bank', 'checking', 100, true);
+insert into bot_proposals (id, household_id, member_id, kind, payload, chat_id) values
+  ('f5000000-0000-0000-0000-000000000001', 'd1000000-0000-0000-0000-000000000001', 'e1000000-0000-0000-0000-00000000000a', 'account_balances', '{"items": []}', 1),
+  ('f5000000-0000-0000-0000-000000000002', 'd2000000-0000-0000-0000-000000000002', 'e2000000-0000-0000-0000-00000000000a', 'account_balances', '{"items": []}', 2);
 
 set role authenticated;
 set request.jwt.claim.role = 'authenticated';
@@ -150,6 +230,66 @@ begin
   get diagnostics n = row_count;
   if n <> 1 then raise exception 'household_notes FAILED: a member could not delete their own note'; end if;
   raise notice 'household_notes ok: own household only, in every direction';
+end $$;
+
+-- Balance history: a member reads their own household's, and a change they
+-- make in the app is recorded as theirs. Nobody writes or edits the history
+-- through the API; the trigger is its only writer.
+do $$
+declare n int; e record;
+begin
+  select count(*) into n from account_balance_events;
+  if n <> 1 then raise exception 'balance history FAILED: a member sees % events, expected their household''s 1', n; end if;
+
+  update accounts set balance = 150 where id = 'f4000000-0000-0000-0000-000000000001';
+  select * into e from account_balance_events where account_id = 'f4000000-0000-0000-0000-000000000001' order by id desc limit 1;
+  if e.source <> 'app' or e.member_id is distinct from 'e1000000-0000-0000-0000-00000000000b'
+     or e.old_balance <> 100 or e.new_balance <> 150 then
+    raise exception 'balance history FAILED: a member''s change was recorded as %', row_to_json(e);
+  end if;
+
+  begin
+    insert into account_balance_events (household_id, account_id, new_balance, source)
+    values ('d1000000-0000-0000-0000-000000000001', 'f4000000-0000-0000-0000-000000000001', 1, 'app');
+    raise exception 'balance history FAILED: a member wrote a history row';
+  exception
+    when insufficient_privilege then null;
+  end;
+  update account_balance_events set new_balance = 1;
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'balance history FAILED: a member edited % history rows', n; end if;
+  delete from account_balance_events;
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'balance history FAILED: a member deleted % history rows', n; end if;
+  raise notice 'balance history ok: own household only, read-only, and a member''s change is theirs';
+end $$;
+
+-- Bot proposals: a member sees their household's, and only the bot decides
+-- one. apply_bot_proposal() is not callable from the API at all.
+do $$
+declare n int;
+begin
+  select count(*) into n from bot_proposals;
+  if n <> 1 then raise exception 'bot proposals FAILED: a member sees % proposals, expected their household''s 1', n; end if;
+
+  begin
+    insert into bot_proposals (household_id, member_id, kind, payload, chat_id)
+    values ('d1000000-0000-0000-0000-000000000001', 'e1000000-0000-0000-0000-00000000000b', 'account_balances', '{"items": []}', 1);
+    raise exception 'bot proposals FAILED: a member created a proposal';
+  exception
+    when insufficient_privilege then null;
+  end;
+  update bot_proposals set status = 'applied', decided_at = now();
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'bot proposals FAILED: a member decided % proposals', n; end if;
+
+  begin
+    perform apply_bot_proposal('f5000000-0000-0000-0000-000000000001', 'e1000000-0000-0000-0000-00000000000a');
+    raise exception 'bot proposals FAILED: a member applied a proposal through the API';
+  exception
+    when insufficient_privilege then null;
+  end;
+  raise notice 'bot proposals ok: own household only, read-only, applied only by the bot';
 end $$;
 
 -- QA §8: a member cannot promote themselves.
@@ -267,6 +407,23 @@ begin
     raise exception 'QA-P1 FAILED: an intruder row survived';
   end if;
   raise notice 'QA-P1 ok: INSERT cannot mint an owner, join a household, or add a member';
+end $$;
+
+-- A member who sets the rupee rate re-values every rupee account in the
+-- household, the owner's included. The re-valuation runs as them: it needs
+-- members to be able to update every account in their household, and to
+-- execute household_today(), which the account trigger calls.
+do $$
+declare aed numeric;
+begin
+  insert into accounts (id, household_id, name, type, currency, balance, is_shared, owner_member_id)
+  values ('f1000000-0000-0000-0000-0000000000c1', 'd1000000-0000-0000-0000-000000000001', 'Owner rupee account', 'savings', 'INR', 50000, false, 'e1000000-0000-0000-0000-00000000000a');
+  update households set inr_per_aed = 20 where id = 'd1000000-0000-0000-0000-000000000001';
+  select balance_aed into aed from accounts where id = 'f1000000-0000-0000-0000-0000000000c1';
+  if aed is distinct from 2500 then
+    raise exception 'rupee rate FAILED: a member''s new rate left the owner''s rupee account at %', aed;
+  end if;
+  raise notice 'rupee rate ok: a member''s new rate re-values every rupee account in the household';
 end $$;
 
 -- ------------------------------------------------------------------- owner
@@ -425,9 +582,11 @@ begin
   end;
 end $$;
 
--- QA pass 3 P1: bootstrap. Closing the self-join clause removes the only route
--- by which a household could ever be created, so create_household() replaces it
--- -- and it has to be the only route, for somebody in no household at all.
+-- QA pass 3 P1: bootstrap. Closing the self-join clause removed the only route
+-- by which a household could be created, and create_household() replaced it
+-- -- for the first sign-in on an empty database only (one household per
+-- Rokda; that path is proven at the top of this file). Here, with households
+-- already in place, a signed-in stranger has no way in at all.
 reset role;
 insert into auth.users (id, email) values
   ('0c000000-0000-0000-0000-00000000000c', 'newcomer@example.test');
@@ -436,7 +595,6 @@ set role authenticated;
 set request.jwt.claim.sub = '0c000000-0000-0000-0000-00000000000c';
 
 do $$
-declare new_household uuid; n int;
 begin
   -- A stranger still cannot let themselves into an existing household. This is
   -- the property the old bootstrap clause traded away to get bootstrap.
@@ -458,27 +616,19 @@ begin
     when insufficient_privilege then null;
   end;
 
-  -- The supported path works, and makes them an owner of their OWN household.
-  new_household := create_household('Newcomer household', 'Newcomer');
-  if not is_household_owner(new_household) then
-    raise exception 'QA-P1 FAILED: create_household() did not make the caller an owner';
-  end if;
-  if is_household_member('d1000000-0000-0000-0000-000000000001') then
-    raise exception 'QA-P1 FAILED: create_household() leaked membership of an existing household';
-  end if;
-  select count(*) into n from household_members where household_id = new_household;
-  if n <> 1 then raise exception 'QA-P1 FAILED: a new household started with % members, expected 1', n; end if;
-
-  -- ...once. useHousehold() resolves one membership per user; a second would
-  -- make which household you see arbitrary.
+  -- Nor found a household of their own beside this one.
   begin
-    perform create_household('Second household', 'Newcomer again');
-    raise exception 'QA-P1 FAILED: a user created a second household';
+    perform create_household('Newcomer household', 'Newcomer');
+    raise exception 'QA-P1 FAILED: a stranger founded a second household';
   exception
-    when unique_violation then null;
+    when insufficient_privilege then null;
   end;
 
-  raise notice 'QA-P1 ok: create_household() is the only bootstrap, and a one-off';
+  if is_household_member('d1000000-0000-0000-0000-000000000001') then
+    raise exception 'QA-P1 FAILED: a refused stranger became a member of an existing household';
+  end if;
+
+  raise notice 'QA-P1 ok: a stranger can neither join a household nor found another';
 end $$;
 
 -- QA §10: the internal helpers are no longer reachable as RPCs. The point of
@@ -501,11 +651,84 @@ begin
     when insufficient_privilege then null;
   end;
 
-  -- The membership helper must stay callable: the RLS policies that use it are
-  -- evaluated as the caller, so revoking this from authenticated would take
-  -- every policy down with it.
+  -- The membership helper must stay callable by a signed-in user: the RLS
+  -- policies that use it (private.is_household_member) are evaluated as the
+  -- caller, and a function body reaches it by name through the public
+  -- wrapper. Revoking either from authenticated would take them down.
   perform is_household_member('d1000000-0000-0000-0000-000000000001');
+  perform private.is_household_member('d1000000-0000-0000-0000-000000000001');
   raise notice 'QA-§10 ok: trigger helpers are not RPCs; the membership helper still is';
+end $$;
+
+-- The membership helpers now live in private (private_membership_helpers).
+-- Every test above already ran through them, because a policy follows its
+-- function by OID; this states it outright, as a signed-in member: the
+-- policies still show exactly one household, the definer functions answer for
+-- the caller, the public wrappers agree with them, and the role guard -- which
+-- calls is_household_owner() by name -- still refuses self-promotion.
+-- e1...000b handed ownership back to e1...000a in the QA #3 block above, so
+-- 000b is a plain member here.
+set request.jwt.claim.sub = '0b000000-0000-0000-0000-00000000000b';
+do $$
+declare n int;
+begin
+  select count(*) into n from households;
+  if n <> 1 then raise exception 'helpers FAILED: a member sees % households, expected their own 1', n; end if;
+
+  select count(*) into n from household_members where household_id = 'd2000000-0000-0000-0000-000000000002';
+  if n <> 0 then raise exception 'helpers FAILED: a member sees % rows of another household''s roster', n; end if;
+
+  if not private.is_household_member('d1000000-0000-0000-0000-000000000001')
+     or private.is_household_member('d2000000-0000-0000-0000-000000000002')
+     or private.is_household_owner('d1000000-0000-0000-0000-000000000001') then
+    raise exception 'helpers FAILED: the private helpers answer wrongly for a plain member';
+  end if;
+
+  if is_household_member('d1000000-0000-0000-0000-000000000001')
+       is distinct from private.is_household_member('d1000000-0000-0000-0000-000000000001')
+     or is_household_owner('d1000000-0000-0000-0000-000000000001')
+       is distinct from private.is_household_owner('d1000000-0000-0000-0000-000000000001') then
+    raise exception 'helpers FAILED: the public wrappers disagree with the functions they wrap';
+  end if;
+
+  begin
+    update household_members set role = 'owner' where id = 'e1000000-0000-0000-0000-00000000000b';
+    raise exception 'helpers FAILED: the role guard let a member promote themselves';
+  exception
+    when insufficient_privilege then null;
+  end;
+  raise notice 'helpers ok: policies, the private helpers, their wrappers and the role guard agree';
+end $$;
+
+-- The owner's side of the same: the wrapper and the function behind it both
+-- say yes, and generate_telegram_link_code() -- the other function that calls
+-- a helper by name -- still issues a code for their own household's member and
+-- refuses one for another household's. Settings calls it as an RPC; on the
+-- hosted project authenticated holds EXECUTE on it through Supabase's default
+-- privileges, which a bare PostgreSQL does not have, so the grant is made here
+-- the way the platform makes it (and rolled back with the rest).
+reset role;
+grant execute on function generate_telegram_link_code(uuid) to authenticated;
+set role authenticated;
+set request.jwt.claim.sub = '0a000000-0000-0000-0000-00000000000a';
+do $$
+declare code text;
+begin
+  if not (is_household_owner('d1000000-0000-0000-0000-000000000001')
+          and private.is_household_owner('d1000000-0000-0000-0000-000000000001')) then
+    raise exception 'helpers FAILED: the owner is not an owner through the helpers';
+  end if;
+  code := generate_telegram_link_code('e1000000-0000-0000-0000-00000000000a');
+  if code is null or length(code) <> 32 then
+    raise exception 'helpers FAILED: generate_telegram_link_code() did not issue a code (%)', code;
+  end if;
+  begin
+    perform generate_telegram_link_code('e2000000-0000-0000-0000-00000000000a');
+    raise exception 'helpers FAILED: a link code was issued for another household''s member';
+  exception
+    when insufficient_privilege then null;
+  end;
+  raise notice 'helpers ok: the owner check and the link code still resolve the helpers by name';
 end $$;
 
 reset role;
@@ -518,7 +741,15 @@ begin
   exception
     when insufficient_privilege then null;
   end;
-  raise notice 'QA-§10 ok: anon cannot execute the membership helper';
+  -- Nor the definer function behind it, which anon cannot even name: it has
+  -- no USAGE on private.
+  begin
+    perform private.is_household_member('d1000000-0000-0000-0000-000000000001');
+    raise exception 'helpers FAILED: anon could execute private.is_household_member()';
+  exception
+    when insufficient_privilege then null;
+  end;
+  raise notice 'QA-§10 ok: anon cannot execute the membership helper, in public or in private';
 end $$;
 reset role;
 

@@ -7,8 +7,8 @@ vi.mock('../../lib/supabaseClient', () => ({ supabase: {} }));
 
 describe('Budget: household share', () => {
   const TWO = [
-    { id: 'm1', display_name: 'Shreyash' },
-    { id: 'm2', display_name: 'Tarika' },
+    { id: 'm1', display_name: 'Alex' },
+    { id: 'm2', display_name: 'Sam' },
   ];
   const CATS = [
     { id: 'housing', name: 'Housing', kind: 'expense', parent_id: null },
@@ -51,15 +51,15 @@ describe('Budget: household share', () => {
   it('splits shared lines by income and gives the one transfer that evens it up', () => {
     renderShare(TWO);
     const section = screen.getByLabelText('Household share');
-    expect(section.textContent).toMatch(/Shreyash 75% · Tarika 25%/);
+    expect(section.textContent).toMatch(/Alex 75% · Sam 25%/);
     // Her part of the rent he paid: 25% of 6,000.
-    expect(section.querySelector('.bud-share-settle').textContent).toMatch(/To even up so far:\s*\S*1,500 from Tarika to Shreyash/);
+    expect(section.querySelector('.bud-share-settle').textContent).toMatch(/To even up so far:\s*\S*1,500 from Sam to Alex/);
     expect(section.textContent).not.toMatch(/owes/);
   });
 
   it('labels one person’s own lines in the budget', () => {
     renderShare(TWO);
-    expect([...document.querySelectorAll('.bud-owner')].map((n) => n.textContent)).toContain('Tarika');
+    expect([...document.querySelectorAll('.bud-owner')].map((n) => n.textContent)).toContain('Sam');
   });
 
   it('is not shown for a household of one', () => {
@@ -68,7 +68,7 @@ describe('Budget: household share', () => {
   });
 });
 
-const MEMBERS = [{ id: 'm1', display_name: 'Shreyash' }];
+const MEMBERS = [{ id: 'm1', display_name: 'Alex' }];
 const CATEGORIES = [
   { id: 'util', name: 'Utilities', kind: 'expense', parent_id: null },
   { id: 'dewa', name: 'DEWA', kind: 'expense', parent_id: 'util' },

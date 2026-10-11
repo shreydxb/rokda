@@ -86,12 +86,19 @@ jobs:
       # contribution, and a DNS failure that must not put the bot token in the
       # logs. The claim's atomicity itself is proven against real Postgres in
       # the migrations job.
+      #
+      # The second and third files cover who may call each function: the
+      # constant-time secret compare, and fd-accrual and price-refresh
+      # refusing every caller but the scheduler (and, for price-refresh, a
+      # signed-in household member).
       - name: Handler tests
         run: >
           deno test --node-modules-dir=none
           --allow-env --allow-read
           --allow-net=api.telegram.org,openrouter.ai,supabase.test
           supabase/functions/telegram-webhook/index.test.ts
+          supabase/functions/_shared/requestAuth.test.ts
+          supabase/functions/_shared/scheduledCallers.test.ts
 
   functions:
     name: deployed Edge Functions match this commit

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { HOUSEHOLD_TIME_ZONE, householdToday, householdYearMonth } from './day';
+import { HOUSEHOLD_TIME_ZONE, householdDay, householdToday, householdYearMonth, isPosted } from './day';
 
 // QA: "financial timezone handling — not revalidated end-to-end".
 //
@@ -60,5 +60,16 @@ describe('household calendar day', () => {
   it('always produces a storable YYYY-MM-DD', () => {
     expect(householdToday(new Date('2026-03-05T08:00:00Z'))).toBe('2026-03-05');
     expect(householdToday(new Date('2026-11-09T00:00:00Z'))).toBe('2026-11-09');
+  });
+});
+
+describe('householdDay', () => {
+  it("is the Dubai day at this runtime's midnight, so day-granular helpers read the right day", () => {
+    const day = householdDay(AFTER_MIDNIGHT_DUBAI);
+    expect([day.getFullYear(), day.getMonth() + 1, day.getDate(), day.getHours(), day.getMinutes()]).toEqual([2026, 9, 16, 0, 0]);
+    // Spending logged at 01:30 Dubai and dated today is posted, not planned;
+    // tomorrow's is still planned.
+    expect(isPosted({ occurred_at: '2026-09-16' }, day)).toBe(true);
+    expect(isPosted({ occurred_at: '2026-09-17' }, day)).toBe(false);
   });
 });

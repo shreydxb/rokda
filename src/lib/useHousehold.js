@@ -5,11 +5,18 @@ import { useAuth } from './AuthContext';
 const EMPTY_STATE = { loading: false, household: null, members: [], me: null, error: null, notAMember: false };
 
 export function useHousehold() {
+  // Keyed on the user's id, not the user object. supabase-js hands over a new
+  // session object, with a new user inside it, every time it refreshes the
+  // token and whenever the tab regains focus (SIGNED_IN). Keyed on the object,
+  // each of those reloaded the household, so every screen flashed its loading
+  // state for the same person -- and the browser suite, reading the page in
+  // that moment, intermittently found Overview blank.
   const { user } = useAuth();
+  const userId = user?.id ?? null;
   const [state, setState] = useState({ ...EMPTY_STATE, loading: true });
 
   const reload = useCallback(async () => {
-    if (!user) {
+    if (!userId) {
       setState(EMPTY_STATE);
       return;
     }
@@ -18,7 +25,7 @@ export function useHousehold() {
     const { data: myRows, error } = await supabase
       .from('household_members')
       .select('id, household_id, display_name, role, user_id, households(id, name, inr_per_aed, inr_rate_set_at, inr_rate_source)')
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .limit(1);
 
     // A failed lookup and "you are not in a household" are different facts and
@@ -54,7 +61,7 @@ export function useHousehold() {
       error: rosterError ?? null,
       notAMember: false,
     });
-  }, [user]);
+  }, [userId]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- kicks off an async fetch; loading flag is the point

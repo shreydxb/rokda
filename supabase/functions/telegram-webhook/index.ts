@@ -33,10 +33,15 @@ import { isPrivateChat } from "../_shared/applib/telegramChat.js";
 import { LINK_ATTEMPT_WINDOW_MS, linkAttemptRefusal, linkTokenFromMessage, looksLikeLinkToken } from "../_shared/applib/telegramLink.js";
 import {
   ambiguousConfirmMessage,
+  ambiguousProposalMessage,
+  dropUnavailableMessage,
+  isCancellationText,
+  isConfirmable,
   isConfirmationText,
   isReadyForFastConfirm,
   resolveConfirmTarget,
   resolveCorrectionTarget,
+  resolveProposalTarget,
   unknownPromptMessage,
   lookupUnavailableMessage,
   PROMPT_UNADDRESSED,
@@ -50,12 +55,13 @@ import { accountValueAed, unvaluedAccounts } from "../_shared/applib/accounts.js
 import { monthActualsByCategory } from "../_shared/applib/budget.js";
 import { nextDueDate, daysUntilDue } from "../_shared/applib/creditCard.js";
 import { lastDueOccurrence, matchWindowDays, upcomingItems } from "../_shared/applib/recurring.js";
-import { isPosted, parseDay, atDayOfMonth, startOfDay, householdToday, householdYearMonth } from "../_shared/applib/day.js";
+import { isPosted, parseDay, atDayOfMonth, startOfDay, householdDay, householdToday, householdYearMonth } from "../_shared/applib/day.js";
 import { isSpendRow, spendDelta } from "../_shared/applib/transactionKind.js";
 import { visibleHoldings, scopedHoldingValue, holdingGain, allocationByClass, portfolioValueChange } from "../_shared/applib/holdings.js";
 import { isAwaitingFirstValuation } from "../_shared/applib/valuation.js";
 import { cashCoverStatus, formatCashCoverLine } from "../_shared/applib/cashCover.js";
 import { notableMoves } from "../_shared/applib/insights.js";
+import { secretsMatch } from "../_shared/requestAuth.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -909,6 +915,19 @@ async function handleReaction(reaction: Record<string, unknown>): Promise<Respon
     .maybeSingle();
   if (!member) return new Response("ok");
 
+  // A 👍 on the bot's message proposing a balance or a goal contribution
+  // applies it. One on a proposal already decided says nothing: a reaction is
+  // not a question.
+  const proposal = await proposalForPrompt(member.household_id, member.id, chatId, messageId ?? null);
+  if (proposal.kind === PROMPT_FAILED) {
+    await reply(chatId, lookupUnavailableMessage());
+    return new Response("ok");
+  }
+  if (proposal.kind === PROMPT_FOUND && proposal.row) {
+    if (proposal.row.status === "proposed") await decideProposal(chatId, member.id, proposal.row, "apply");
+    return new Response("ok");
+  }
+
   // Unlike a typed "yes", a reaction always names the message it is on, so
   // this route can always be exact. A 👍 on a message that isn't one of our
   // fast-confirm prompts confirms nothing at all now -- it used to approve
@@ -927,6 +946,290 @@ async function handleReaction(reaction: Record<string, unknown>): Promise<Respon
   // 'unknown' and 'none' stay silent here: a reaction on an ordinary message
   // is not a question, and answering every stray 👍 would be noise.
   return new Response("ok");
+}
+
+// ---------------------------------------------------------------------------
+// Proposals: balances and goal contributions wait for a "yes"
+// ---------------------------------------------------------------------------
+//
+// A balance or a goal contribution read from a message used to be written the
+// moment the model read it, so one misread figure changed net worth, and the
+// figure it replaced survived only in the chat. Now the bot saves what it
+// read as a proposal (bot_proposals), shows the change, and writes nothing
+// until the sender answers that message: "yes" or 👍 applies it through
+// apply_bot_proposal(), "no" drops it. Expenses are unchanged; they already
+// wait in the Inbox or for a "yes".
+
+type ProposalRow = {
+  id: string;
+  kind: string;
+  status: string;
+  payload: Record<string, unknown>;
+  prompt_message_id: number | null;
+  created_at: string;
+  expires_at: string;
+  result: Record<string, unknown> | null;
+};
+
+const PROPOSAL_COLUMNS = "id, kind, status, payload, prompt_message_id, created_at, expires_at, result";
+
+// The proposal whose message this replies to or reacts to, found by that
+// message rather than by recency, for the same reasons as intakeForPrompt.
+// Scoped to the member: only the sender can answer their own proposal.
+async function proposalForPrompt(
+  householdId: string,
+  memberId: string,
+  chatId: number,
+  messageId: number | null,
+): Promise<{ kind: string; row: ProposalRow | null }> {
+  if (messageId == null) return { kind: PROMPT_UNADDRESSED, row: null };
+  const { data, error } = await supabase
+    .from("bot_proposals")
+    .select(PROPOSAL_COLUMNS)
+    .eq("household_id", householdId)
+    .eq("member_id", memberId)
+    .eq("chat_id", chatId)
+    .eq("prompt_message_id", messageId)
+    .maybeSingle();
+  if (error) return { kind: PROMPT_FAILED, row: null };
+  if (!data) return { kind: PROMPT_UNKNOWN, row: null };
+  return { kind: PROMPT_FOUND, row: data as ProposalRow };
+}
+
+// The member's proposals still waiting from the last few minutes, asked
+// about: what a bare "yes" or "no" could be about. Older ones stay
+// answerable by replying to them, until they lapse.
+async function openProposals(householdId: string, memberId: string): Promise<{ rows: ProposalRow[]; failed: boolean }> {
+  const now = Date.now();
+  const { data, error } = await supabase
+    .from("bot_proposals")
+    .select(PROPOSAL_COLUMNS)
+    .eq("household_id", householdId)
+    .eq("member_id", memberId)
+    .eq("status", "proposed")
+    // Only proposals whose question is recorded as sent. One without could be
+    // a change the member never saw: left behind by a run that died between
+    // saving and asking, when the redelivery then read the message as
+    // something else and never came back to it.
+    .not("prompt_message_id", "is", null)
+    .gt("created_at", new Date(now - PENDING_WINDOW_MS).toISOString())
+    .gt("expires_at", new Date(now).toISOString())
+    .order("created_at", { ascending: false })
+    .limit(5);
+  if (error) return { rows: [], failed: true };
+  return { rows: (data ?? []) as ProposalRow[], failed: false };
+}
+
+// The member's proposal decided in the last few minutes, if any: what a
+// second bare "yes", or Telegram redelivering the first, is about once
+// nothing is waiting. Answering it with what was saved beats letting the
+// "yes" fall through to capture, where it would land in the Inbox as an
+// expense called "yes" and the member would never hear that the change was
+// saved. Kept short, so a later "yes" meant for something else is not taken
+// for it.
+const RECENT_DECISION_MS = 5 * 60 * 1000;
+
+async function recentlyDecidedProposal(householdId: string, memberId: string): Promise<{ row: ProposalRow | null; failed: boolean }> {
+  const { data, error } = await supabase
+    .from("bot_proposals")
+    .select(PROPOSAL_COLUMNS)
+    .eq("household_id", householdId)
+    .eq("member_id", memberId)
+    .in("status", ["applied", "cancelled"])
+    .gt("decided_at", new Date(Date.now() - RECENT_DECISION_MS).toISOString())
+    .order("decided_at", { ascending: false })
+    .limit(1);
+  if (error) return { row: null, failed: true };
+  return { row: ((data ?? [])[0] as ProposalRow | undefined) ?? null, failed: false };
+}
+
+// Saves a proposal and sends the message that asks about it. Keyed by the
+// Telegram update, so a redelivered message never makes a second one.
+//
+// What is saved must always be what the question shows, because a "yes" to
+// the question applies the saved row. So a proposal whose question did not
+// reach the member is deleted and the update thrown back for Telegram to
+// retry; the retry proposes whatever it reads then (the model may read the
+// message differently the second time). For the same reason, a redelivery
+// that finds a proposal already asked about leaves it alone, and one that
+// finds a proposal never asked about (a crash between saving and asking)
+// rewrites it to this reading before asking.
+async function sendProposal(
+  chatId: number,
+  householdId: string,
+  memberId: string,
+  kind: "account_balances" | "goal_contribution",
+  payload: Record<string, unknown>,
+  prompt: string,
+  updateId: unknown,
+): Promise<void> {
+  const sourceRef = typeof updateId === "number" ? String(updateId) : null;
+  const inserted = await supabase
+    .from("bot_proposals")
+    .insert({ household_id: householdId, member_id: memberId, kind, payload, chat_id: chatId, source_ref: sourceRef })
+    .select("id, status, prompt_message_id")
+    .single();
+  let row = inserted.data as { id: string; status: string; prompt_message_id: number | null } | null;
+  if (inserted.error) {
+    // Anything but a redelivery is a failure to save: thrown, so the update
+    // is released and Telegram retries it, rather than asking about a change
+    // that does not exist.
+    if (inserted.error.code !== "23505" || !sourceRef) throw new Error(`bot_proposals insert failed (${inserted.error.code ?? "no code"})`);
+    const existing = await supabase
+      .from("bot_proposals")
+      .select("id, status, prompt_message_id")
+      .eq("household_id", householdId)
+      .eq("source_ref", sourceRef)
+      .single();
+    if (existing.error || !existing.data) throw new Error("bot_proposals lookup after a redelivery failed");
+    row = existing.data as { id: string; status: string; prompt_message_id: number | null };
+    // Answered already, or its question already reached the member.
+    if (row.status !== "proposed" || row.prompt_message_id != null) return;
+    const rewritten = await supabase
+      .from("bot_proposals")
+      .update({ kind, payload })
+      .eq("id", row.id)
+      .eq("status", "proposed")
+      .is("prompt_message_id", null)
+      .select("id");
+    if (rewritten.error) throw new Error(`bot_proposals rewrite after a redelivery failed (${rewritten.error.code ?? "no code"})`);
+    if (!rewritten.data?.length) return;
+  }
+  if (!row) throw new Error("bot_proposals insert returned no row");
+
+  let messageId: number | null;
+  try {
+    messageId = await reply(chatId, prompt);
+  } catch (err) {
+    await discardUnaskedProposal(row.id);
+    throw err;
+  }
+  if (messageId == null) {
+    await discardUnaskedProposal(row.id);
+    throw new Error("the proposal's question was not delivered");
+  }
+  // Without the question's id the proposal cannot be answered at all (a bare
+  // answer counts only asked-about proposals), so one retry, and then the
+  // question is withdrawn and the update thrown back: the redelivery finds
+  // the proposal unasked, rewrites it to what it reads then and asks again.
+  // Withdrawing matters because that reading may differ, and an answer the
+  // member typed against the first question would otherwise save the second.
+  let recorded = await supabase.from("bot_proposals").update({ prompt_message_id: messageId }).eq("id", row.id);
+  if (recorded.error) recorded = await supabase.from("bot_proposals").update({ prompt_message_id: messageId }).eq("id", row.id);
+  if (recorded.error) {
+    await tgCall("deleteMessage", { chat_id: chatId, message_id: messageId }).catch(() => {});
+    throw new Error(`recording the proposal's question failed (${recorded.error.code ?? "no code"})`);
+  }
+}
+
+// Removes a proposal whose question never reached the member, so no "yes"
+// can apply a change they were not shown. Only while nobody has answered it
+// and no question is recorded against it.
+async function discardUnaskedProposal(id: string): Promise<void> {
+  await supabase.from("bot_proposals").delete().eq("id", id).eq("status", "proposed").is("prompt_message_id", null);
+}
+
+const ANSWER_HINT = 'Reply "yes" to this message (or react 👍) to save it, or "no" to drop it.';
+
+type ProposalItem = { name?: string; type?: string; currency?: string | null; old_balance?: number | string | null; new_balance?: number | string | null; balance?: number | string | null; reason?: string; amount?: number | string; occurred_at?: string; already_recorded?: boolean };
+type ProposalResult = { kind?: string; applied?: ProposalItem[]; skipped?: ProposalItem[] };
+
+function itemFigure(item: ProposalItem, balance: number | string | null | undefined): string {
+  return balanceFigure({ id: "", name: item.name ?? "", type: item.type ?? "", currency: item.currency ?? "AED", balance: balance == null ? null : Number(balance), balance_as_of: null, owner_member_id: null, is_shared: true });
+}
+
+// What applying a proposal did, in exact figures. Not phrased by the model:
+// this is the record of a write.
+export function proposalOutcomeMessage(data: Record<string, unknown>): string {
+  const outcome = String(data.outcome ?? "");
+  if (outcome === "cancelled") return "You dropped that one, so nothing was changed.";
+  if (outcome === "expired") return "That was more than a day ago, so I've let it lapse and changed nothing. Send it again if it still holds.";
+  if (outcome !== "applied") return "I can't find that change any more, so nothing was changed. Send it again if it still holds.";
+
+  // A second "yes" gets the first answer again, marked as such.
+  const repeat = data.result != null;
+  const result = (repeat ? data.result : data) as ProposalResult;
+  const applied = result.applied ?? [];
+  const skipped = result.skipped ?? [];
+  const parts: string[] = [];
+
+  if (result.kind === "goal_contribution") {
+    const g = applied[0];
+    if (!g) return "That goal is no longer there, so nothing was recorded.";
+    const line = `AED ${Number(g.amount).toFixed(2)} toward ${g.name}, dated ${g.occurred_at}.`;
+    return repeat || g.already_recorded ? `Already recorded: ${line}` : `Recorded: ${line}`;
+  }
+
+  if (applied.length) {
+    const lines = applied.map((a) =>
+      Number(a.old_balance) === Number(a.new_balance)
+        ? `✓ ${a.name}: ${itemFigure(a, a.new_balance)}, unchanged`
+        : `✓ ${a.name}: ${itemFigure(a, a.old_balance)} → ${itemFigure(a, a.new_balance)}`
+    );
+    parts.push(`${repeat ? "Already saved" : "Saved"}, confirmed today:\n${lines.join("\n")}`);
+  }
+  for (const item of skipped) {
+    if (item.reason === "changed") {
+      parts.push(`Not changed: ${item.name} reads ${itemFigure(item, item.balance)} in the app now, not the figure I showed you. Send it again if yours is still right.`);
+    } else {
+      parts.push(`Not changed: ${item.name ?? "an account"} is no longer open in the app.`);
+    }
+  }
+  return parts.join("\n\n") || "Nothing to change.";
+}
+
+// What a proposal would change, in a few words, for the reply that drops it:
+// a bare "no" must say what it dropped.
+export function proposalSummary(row: { kind: string; payload: Record<string, unknown> }): string {
+  const payload = row.payload ?? {};
+  if (row.kind === "goal_contribution") {
+    return `AED ${Number(payload.amount ?? 0).toFixed(2)} toward ${String(payload.goal_name ?? "the goal")}`;
+  }
+  const names = ((payload.items as Array<{ name?: unknown }>) ?? []).map((i) => String(i.name ?? "an account"));
+  if (!names.length) return "the balance change";
+  const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+  return `the ${names.length === 1 ? "balance" : "balances"} for ${list}`;
+}
+
+// For an answer to a proposal already decided: what happened to it, with the
+// saved figures again when it was applied.
+function decidedProposalMessage(row: ProposalRow): string {
+  if (row.status === "applied") return row.result ? proposalOutcomeMessage({ outcome: "applied", result: row.result }) : "That one is already saved.";
+  if (row.status === "cancelled") return `You dropped ${proposalSummary(row)}, so nothing was changed.`;
+  return "That one has lapsed, so nothing was changed. Send it again if it still holds.";
+}
+
+async function decideProposal(chatId: number, memberId: string, proposal: ProposalRow, decision: "apply" | "cancel"): Promise<void> {
+  if (decision === "cancel") {
+    const { data, error } = await supabase
+      .from("bot_proposals")
+      .update({ status: "cancelled", decided_at: new Date().toISOString() })
+      .eq("id", proposal.id)
+      .eq("member_id", memberId)
+      .eq("status", "proposed")
+      .select(PROPOSAL_COLUMNS);
+    if (error) {
+      await reply(chatId, "I couldn't drop that just now. Nothing has been changed; try again in a moment.");
+      return;
+    }
+    if (data?.length) {
+      await reply(chatId, `Dropped ${proposalSummary(proposal)}. Nothing was changed.`);
+      return;
+    }
+    // Decided in between, by a "yes" a moment earlier or by lapsing.
+    const { data: fresh } = await supabase.from("bot_proposals").select(PROPOSAL_COLUMNS).eq("id", proposal.id).maybeSingle();
+    await reply(chatId, decidedProposalMessage((fresh as ProposalRow | null) ?? proposal));
+    return;
+  }
+
+  const { data, error } = await supabase.rpc("apply_bot_proposal", { p_proposal_id: proposal.id, p_member_id: memberId });
+  if (error || !data || typeof data !== "object") {
+    // Applying is one transaction and repeatable, so asking for the same
+    // answer again is safe whether or not this attempt got through.
+    await reply(chatId, 'I couldn\'t confirm that just now. Reply "yes" to my message again in a moment; it will only be saved once.');
+    return;
+  }
+  await reply(chatId, proposalOutcomeMessage(data as Record<string, unknown>));
 }
 
 // ---------------------------------------------------------------------------
@@ -1086,7 +1389,7 @@ const TOOLS_BASE = [
     function: {
       name: "update_account_balances",
       description:
-        "The message states the CURRENT balance of one or more accounts or cards -- a reply to the monthly balance check-in, or any 'FAB balance is 12,340', 'Wio card owes 1,200', 'EPF 3,05,000'. Sets those balances. Never use this for a purchase or payment (that is log_expense), only for what an account holds or a card owes right now.",
+        "The message states the CURRENT balance of one or more accounts or cards -- a reply to the monthly balance check-in, or any 'bank balance is 10,000', 'the card owes 1,000', 'EPF 3,00,000'. Proposes those balances for the member to confirm. Never use this for a purchase or payment (that is log_expense), only for what an account holds or a card owes right now.",
       parameters: {
         type: "object",
         properties: {
@@ -1159,7 +1462,7 @@ async function toolGetCategorySpend(householdId: string, scopeMemberId: string |
     .eq("household_id", householdId)
     .eq("category_id", cat.id);
 
-  const spend = categorySpendForPeriod(transactions ?? [], cat.id, String(args.period ?? "this_month"), scopeMemberId, new Date());
+  const spend = categorySpendForPeriod(transactions ?? [], cat.id, String(args.period ?? "this_month"), scopeMemberId, householdDay());
   return { category: cat.name, period: args.period, spend_aed: round2(spend) };
 }
 
@@ -1207,7 +1510,10 @@ async function toolGetUpcomingBills(householdId: string, scopeMemberId: string |
     supabase.from("recurring").select("*").eq("household_id", householdId),
     supabase.from("accounts").select("*").eq("household_id", householdId).is("archived_at", null),
   ]);
-  const now = new Date();
+  // The Dubai day. new Date() here is UTC, which is still the previous day
+  // until 04:00 Dubai, so a card due today read as due tomorrow and
+  // yesterday's bill as still upcoming.
+  const now = householdDay();
   const visibleRecurring = (recurring ?? []).filter(
     (r: { is_shared: boolean; owner_member_id: string | null }) => scopeMemberId === null || r.is_shared || r.owner_member_id === scopeMemberId
   );
@@ -1278,7 +1584,7 @@ async function toolGetBudgetStatus(householdId: string, scopeMemberId: string | 
   const cat = resolveCategoryByName(categories ?? [], String(args.category ?? ""));
   if (!cat) return { error: "category_not_found", available: (categories ?? []).map((c) => c.name) };
 
-  const now = new Date();
+  const now = householdDay();
   const { year, month } = householdYearMonth(now);
   const [{ data: budgetRow }, { data: transactions }] = await Promise.all([
     supabase.from("budgets").select("amount").eq("household_id", householdId).eq("category_id", cat.id).eq("year", year).eq("month", month).maybeSingle(),
@@ -1404,13 +1710,12 @@ async function toolGetHoldings(householdId: string, scopeMemberId: string | null
   return result;
 }
 
-// Writes straight to goal_contributions, the same table and same trust level
-// the web Goal editor's own "Log a contribution" button already uses --
-// there is no review queue for this table today (unlike an expense/income,
-// it never touches an account balance or the ledger, so a mistake here is
-// cheap to fix: delete the row and re-log). Same "must resolve to exactly
-// one" bar as account/category/holding matching elsewhere in this file.
-async function toolLogGoalContribution(householdId: string, args: Record<string, unknown>, updateId: unknown) {
+// What a goal contribution in a message would record: the goal it names
+// (which must resolve to exactly one, the same bar as account, category and
+// holding matching elsewhere in this file), the amount and the day. It writes
+// nothing: the contribution is proposed, and recorded only on a "yes" (see
+// "Proposals" above). An error is phrased for the member, as before.
+async function goalContributionDraft(householdId: string, args: Record<string, unknown>) {
   const { data: goals } = await supabase.from("goals").select("id, name").eq("household_id", householdId);
   const norm = String(args.goal_name ?? "").trim().toLowerCase();
   const matches = (goals ?? []).filter((g: { name: string }) => g.name.toLowerCase().includes(norm));
@@ -1420,21 +1725,8 @@ async function toolLogGoalContribution(householdId: string, args: Record<string,
   const amount = Number(args.amount);
   if (!amount || amount <= 0) return { error: "invalid_amount" };
   const occurredAt = typeof args.occurred_at === "string" && /^\d{4}-\d{2}-\d{2}$/.test(args.occurred_at) ? args.occurred_at : householdToday();
-
   const goal = matches[0] as { id: string; name: string };
-  // Keyed by the Telegram update, like intake's source_ref, so a redelivered
-  // "put 500 toward the house goal" cannot record a second contribution
-  // (SHR-303). The unique index answers 23505 for the redelivery, which is
-  // the same outcome as the first write, so it reports success.
-  const sourceRef = typeof updateId === "number" ? String(updateId) : null;
-  const { error } = await supabase.from("goal_contributions").insert({
-    goal_id: goal.id,
-    amount,
-    occurred_at: occurredAt,
-    ...(sourceRef ? { source: "telegram", source_ref: sourceRef } : {}),
-  });
-  if (error && error.code !== "23505") return { error: "write_failed" };
-  return { goal: goal.name, amount_aed: round2(amount), occurred_at: occurredAt };
+  return { goal, amount: round2(amount), occurredAt };
 }
 
 // ---------------------------------------------------------------------------
@@ -1458,7 +1750,7 @@ async function toolGetMonthSpendTotalFor(householdId: string, year: number, mont
     .from("transactions")
     .select("amount, kind, occurred_at, is_shared, owner_member_id")
     .eq("household_id", householdId);
-  const now = new Date();
+  const now = householdDay();
   let total = 0;
   for (const t of (transactions ?? []) as Array<{ amount: number; kind: string; occurred_at: string; is_shared: boolean; owner_member_id: string | null }>) {
     const d = parseDay(t.occurred_at);
@@ -1480,7 +1772,7 @@ async function toolGetMonthSpendTotal(householdId: string, scopeMemberId: string
 // Every category with a budget set this month that's at or over 90% used --
 // the same threshold the frontend budget bars treat as "watch this".
 async function toolGetBudgetAlerts(householdId: string, scopeMemberId: string | null): Promise<Array<{ category: string; pct: number }>> {
-  const now = new Date();
+  const now = householdDay();
   const { year, month } = householdYearMonth(now);
   const [{ data: budgetRows }, { data: categories }, { data: transactions }] = await Promise.all([
     supabase.from("budgets").select("category_id, amount").eq("household_id", householdId).eq("year", year).eq("month", month),
@@ -1713,7 +2005,7 @@ async function phraseAnswer(
 // nudge was already sent for a (recurring row, due date) pair so the same
 // missed bill is never re-nagged on the next day's check.
 async function runRecurringCheck(): Promise<{ checked: number; nudged: number }> {
-  const today = new Date();
+  const today = householdDay();
   // A bill is nudged 3 to 10 days after its date. Income moves with bank
   // holidays, so it is only nudged once its whole window (matchWindowDays)
   // has passed, and looked for a week after that.
@@ -1853,7 +2145,7 @@ async function runRecurringCheck(): Promise<{ checked: number; nudged: number }>
 // past the due date. credit_card_nudges dedupes per (account, due date,
 // kind) so the same due date is never re-nagged on the next day's check.
 async function runCreditCardCheck(): Promise<{ checked: number; nudged: number }> {
-  const today = new Date();
+  const today = householdDay();
   const [{ data: cards }, prefs] = await Promise.all([
     supabase
       .from("accounts")
@@ -1955,7 +2247,7 @@ const BUDGET_THRESHOLDS = [100, 90, 80];
 // -- a threshold already alerted isn't repeated, but a later, higher
 // threshold crossed the same month still gets its own alert.
 async function runBudgetAlertCheck(): Promise<{ checked: number; nudged: number }> {
-  const now = new Date();
+  const now = householdDay();
   const { year, month } = householdYearMonth(now);
 
   const { data: budgetRows } = await supabase
@@ -2187,23 +2479,36 @@ export function accountsForCheckin<T extends BalanceAccount>(accounts: T[], memb
   );
 }
 
-function balanceFigure(a: BalanceAccount): string {
+// A card or loan is shown as what is owed, or as "in credit" when its stored
+// balance is negative. Anything else keeps its sign. Either way a figure the
+// model read with the wrong sign cannot pass for the same figure in the
+// question that asks to save it.
+export function balanceFigure(a: BalanceAccount): string {
   const currency = String(a.currency ?? "AED").toUpperCase();
-  const amount = Math.abs(Number(a.balance ?? 0)).toLocaleString(currency === "INR" ? "en-IN" : "en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return `${currency} ${amount}${OWED_TYPES.has(a.type) ? " owed" : ""}`;
+  const value = Number(a.balance ?? 0);
+  const amount = Math.abs(value).toLocaleString(currency === "INR" ? "en-IN" : "en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (OWED_TYPES.has(a.type)) return `${currency} ${amount}${value < 0 ? " in credit" : " owed"}`;
+  return `${currency} ${value < 0 ? "-" : ""}${amount}`;
 }
 
 export function buildBalanceCheckinMessage(accounts: BalanceAccount[], members: BalanceMember[], monthLabel: string): string {
   const owner = new Map(members.map((m) => [m.id, m.display_name]));
+  // The example names a real member of the household, so it shows how to say
+  // whose an account is; one with no Telegram is the likeliest to need it.
+  const exampleOwner = members.find((m) => m.telegram_user_id == null)?.display_name ?? members[0]?.display_name ?? "Partner";
   const lines = accounts.map((a) => {
     const whose = a.is_shared || !a.owner_member_id ? "" : ` (${owner.get(a.owner_member_id) ?? "?"})`;
-    const confirmed = a.balance_as_of ? `confirmed ${String(a.balance_as_of).slice(0, 10)}` : "never confirmed";
+    // balance_as_of is a moment (timestamptz), so its day is read in Dubai:
+    // a balance the bot set at 01:30 Dubai is stored as 21:30 UTC the day
+    // before. A day picked in the account editor is stored as that day's UTC
+    // midnight, 04:00 in Dubai, and keeps its date.
+    const confirmed = a.balance_as_of ? `confirmed ${householdToday(new Date(a.balance_as_of))}` : "never confirmed";
     return `• ${a.name}${whose}: ${balanceFigure(a)}, ${confirmed}`;
   });
   return (
     `Month-end check-in for ${monthLabel}. What did each of these close at?\n\n${lines.join("\n")}\n\n` +
-    `Reply in one message, e.g. "FAB 12,340 · Tarika FAB 5,200 · Wio 1,200 owed · EPF 3,05,000" -- cards and loans as the amount owed, ` +
-    `other currencies in their own, and whose it is when two share a name. Anything you leave out stays as it is.`
+    `Reply in one message, e.g. "Bank 10,000 · ${exampleOwner} bank 5,000 · Card 1,000 owed · Pension 3,00,000" -- cards and loans as the amount owed (a card in credit is set in the app), ` +
+    `other currencies in their own, and whose it is when two share a name. Anything you leave out stays as it is. I'll show you the changes before saving them.`
   );
 }
 
@@ -2255,8 +2560,8 @@ async function runBalanceCheckin(): Promise<{ sent: number }> {
 }
 
 // Which account a stated balance is for. Two members can each have an
-// account of the same name ("FAB"): a hint that names its owner ("Tarika
-// FAB", "Tarika's FAB") looks only at that member's accounts; one that names
+// account of the same name ("Bank"): a hint that names its owner ("Sam
+// bank", "Sam's bank") looks only at that member's accounts; one that names
 // no one prefers the sender's own when the name alone matches several.
 export function pickCheckinAccount<T extends BalanceAccount>(accounts: T[], members: BalanceMember[], memberId: string, hint: string): T | null {
   const lower = hint.toLowerCase();
@@ -2269,23 +2574,33 @@ export function pickCheckinAccount<T extends BalanceAccount>(accounts: T[], memb
   return pickAccountByHint(accounts, hint) ?? pickAccountByHint(accounts.filter((a) => a.owner_member_id === memberId), hint);
 }
 
-// Sets the balances a member stated. Each name is resolved among the
-// accounts that member reports on, exactly as a card is named in an expense
+// Proposes the balances a member stated; nothing is written until they say
+// yes (see "Proposals" above). Each name is resolved among the accounts that
+// member reports on, exactly as a card is named in an expense
 // (pickAccountByHint), and only when it names exactly one. A card or loan is
-// stored as the amount owed. The reply gives every change with its old
-// figure, so a misread is visible at once and a second message fixes it.
-async function toolUpdateAccountBalances(householdId: string, memberId: string, args: { balances?: Array<{ account?: unknown; balance?: unknown }> }): Promise<string> {
+// stored as the amount owed. The question shows every change with its old
+// figure, so a misread is caught before it is saved.
+async function proposeAccountBalances(
+  chatId: number,
+  householdId: string,
+  memberId: string,
+  args: { balances?: Array<{ account?: unknown; balance?: unknown }> },
+  updateId: unknown,
+): Promise<void> {
   const items = Array.isArray(args?.balances) ? args.balances : [];
-  if (!items.length) return "I couldn't find a balance in that. Try e.g. \"FAB 12,340 · Wio 1,200 owed\".";
+  if (!items.length) {
+    await reply(chatId, "I couldn't find a balance in that. Try e.g. \"Bank 10,000 · Card 1,000 owed\".");
+    return;
+  }
   const [{ data: accounts }, { data: members }] = await Promise.all([
     supabase.from("accounts").select("id, name, type, currency, balance, balance_as_of, owner_member_id, is_shared").eq("household_id", householdId).is("archived_at", null),
     supabase.from("household_members").select("id, display_name, telegram_user_id").eq("household_id", householdId),
   ]);
   const roster = (members ?? []) as BalanceMember[];
   const mine = accountsForCheckin((accounts ?? []) as BalanceAccount[], roster, memberId);
-  const done: string[] = [];
+  // One change per account: a name given twice keeps its last figure.
+  const changes = new Map<string, { account: BalanceAccount; stored: number }>();
   const missed: string[] = [];
-  const now = new Date().toISOString();
   for (const item of items) {
     const name = typeof item.account === "string" ? item.account.trim() : "";
     const value = Number(item.balance);
@@ -2295,18 +2610,32 @@ async function toolUpdateAccountBalances(householdId: string, memberId: string, 
       missed.push(name);
       continue;
     }
-    const stored = OWED_TYPES.has(account.type) ? Math.abs(value) : value;
-    const { error } = await supabase.from("accounts").update({ balance: stored, balance_as_of: now, updated_at: now }).eq("id", account.id);
-    if (error) {
-      missed.push(name);
-      continue;
-    }
-    done.push(`✓ ${account.name}: ${balanceFigure(account)} → ${balanceFigure({ ...account, balance: stored })}`);
+    changes.set(account.id, { account, stored: OWED_TYPES.has(account.type) ? Math.abs(value) : value });
   }
-  const parts = [];
-  if (done.length) parts.push(`Updated, confirmed today:\n${done.join("\n")}`);
-  if (missed.length) parts.push(`Not updated -- no single account matches: ${missed.map((m) => `"${m}"`).join(", ")}. Name it as it appears in the app.`);
-  return parts.join("\n\n") || "Nothing to update.";
+
+  const missedNote = missed.length
+    ? `Not matched -- no single account matches ${missed.map((m) => `"${m}"`).join(", ")}. Name it as it appears in the app.`
+    : "";
+  if (!changes.size) {
+    await reply(chatId, missedNote || "Nothing to update.");
+    return;
+  }
+
+  const lines: string[] = [];
+  const payloadItems: Array<Record<string, unknown>> = [];
+  for (const { account, stored } of changes.values()) {
+    const old = account.balance == null ? null : Number(account.balance);
+    lines.push(
+      old === stored
+        ? `• ${account.name}: ${balanceFigure(account)}, unchanged (confirms it today)`
+        : `• ${account.name}: ${balanceFigure(account)} → ${balanceFigure({ ...account, balance: stored })}`
+    );
+    payloadItems.push({ account_id: account.id, name: account.name, type: account.type, currency: account.currency, old_balance: old, new_balance: stored });
+  }
+  const prompt = [`Set ${changes.size === 1 ? "this balance" : "these balances"}? Nothing changes until you say yes.\n${lines.join("\n")}`, missedNote, ANSWER_HINT]
+    .filter(Boolean)
+    .join("\n\n");
+  await sendProposal(chatId, householdId, memberId, "account_balances", { items: payloadItems }, prompt, updateId);
 }
 
 // Runs daily (unlike the weekly/monthly briefs above) since a shortfall is
@@ -2371,7 +2700,7 @@ const UNUSUAL_SPEND_MIN_ABSOLUTE = 300;
 // (household, category, month) -- flagged once, not re-nagged every day
 // even if the category keeps climbing further past the bar.
 async function runUnusualSpendCheck(): Promise<{ checked: number; nudged: number }> {
-  const now = new Date();
+  const now = householdDay();
   const { year, month } = householdYearMonth(now);
   const households = await householdsWithLinkedTelegram();
   const prefs = await telegramPrefsMap();
@@ -2436,8 +2765,11 @@ async function handleRequest(req: Request): Promise<Response> {
   // X-Telegram-Bot-Api-Secret-Token once registered via setWebhook's
   // secret_token (see the ?setup=1 handler below); the cron job sends the
   // same value as a header (see the recurring_check_cron migration).
+  // Compared in constant time (secretsMatch): `!==` returns at the first
+  // differing character, which lets anyone who can time this public endpoint
+  // recover the secret a character at a time.
   const expectedSecret = await getTelegramWebhookSecret();
-  if (!expectedSecret || req.headers.get("X-Telegram-Bot-Api-Secret-Token") !== expectedSecret) {
+  if (!expectedSecret || !secretsMatch(req.headers.get("X-Telegram-Bot-Api-Secret-Token"), expectedSecret)) {
     return new Response("unauthorized", { status: 401 });
   }
 
@@ -2707,7 +3039,50 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
     // unaddressed "yes" with several entries waiting is answered with a
     // question rather than a guess (QA #2).
     const trimmedText = rawText.trim();
-    if (isConfirmationText(trimmedText)) {
+
+    // A "yes" or "no" may answer a proposed balance or goal contribution
+    // rather than an expense. That is settled first: a reply to a proposal
+    // decides it, and a bare answer decides the one proposal waiting only
+    // when no expense is waiting for a "yes" too. Anything else falls through
+    // to the expense rules below, unchanged.
+    const confirming = isConfirmationText(trimmedText);
+    if (confirming || isCancellationText(trimmedText)) {
+      const unaddressed = repliedTo == null;
+      const [proposalLookup, open, recent] = await Promise.all([
+        proposalForPrompt(member.household_id, member.id, chatId, repliedTo),
+        unaddressed ? openProposals(member.household_id, member.id) : Promise.resolve({ rows: [] as ProposalRow[], failed: false }),
+        unaddressed ? recentlyDecidedProposal(member.household_id, member.id) : Promise.resolve({ row: null, failed: false }),
+      ]);
+      // An expense waiting for its own "yes" makes a bare "no" as ambiguous
+      // as a bare "yes": either could be about it.
+      const target = resolveProposalTarget({
+        lookup: proposalLookup.kind,
+        row: proposalLookup.row,
+        open: open.rows,
+        openFailed: open.failed || recent.failed,
+        recentlyDecided: recent.row,
+        readyIntakes: candidates.rows.filter(isConfirmable),
+        truncated: candidates.truncated,
+      });
+      if (target.kind === "one") {
+        await decideProposal(chatId, member.id, target.row, confirming ? "apply" : "cancel");
+        return new Response("ok");
+      }
+      if (target.kind === "decided") {
+        await reply(chatId, decidedProposalMessage(target.row));
+        return new Response("ok");
+      }
+      if (target.kind === "unavailable") {
+        await reply(chatId, confirming ? lookupUnavailableMessage() : dropUnavailableMessage());
+        return new Response("ok");
+      }
+      if (target.kind === "ambiguous") {
+        await reply(chatId, ambiguousProposalMessage(confirming));
+        return new Response("ok");
+      }
+    }
+
+    if (confirming) {
       const target = resolveConfirmTarget({
         lookup: promptLookup.kind,
         row: promptLookup.row,
@@ -2845,9 +3220,25 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
         const scopeMemberId = resolveScopeMemberId(args.scope ?? "me", member, members ?? []);
 
         if (toolCall.function.name === "update_account_balances") {
-          // A write, confirmed in exact figures rather than paraphrased.
-          await reply(chatId, await toolUpdateAccountBalances(member.household_id, member.id, args));
+          // Proposed in exact figures rather than paraphrased; written only on a "yes".
+          await proposeAccountBalances(chatId, member.household_id, member.id, args, updateId);
           return new Response("ok");
+        }
+
+        if (toolCall.function.name === "log_goal_contribution") {
+          const draft = await goalContributionDraft(member.household_id, args);
+          if (!("error" in draft)) {
+            await sendProposal(
+              chatId,
+              member.household_id,
+              member.id,
+              "goal_contribution",
+              { goal_id: draft.goal.id, goal_name: draft.goal.name, amount: draft.amount, occurred_at: draft.occurredAt },
+              `Record AED ${draft.amount.toFixed(2)} toward ${draft.goal.name}, dated ${draft.occurredAt}? Nothing is recorded until you say yes.\n\n${ANSWER_HINT}`,
+              updateId,
+            );
+            return new Response("ok");
+          }
         }
 
         let result: unknown;
@@ -2871,7 +3262,9 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
             result = await toolGetHoldings(member.household_id, scopeMemberId, args);
             break;
           case "log_goal_contribution":
-            result = await toolLogGoalContribution(member.household_id, args, updateId);
+            // Only a draft that failed reaches here (above): the goal or the
+            // amount could not be read, which the reply explains.
+            result = await goalContributionDraft(member.household_id, args);
             break;
         }
 

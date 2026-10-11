@@ -5,7 +5,7 @@ import Activity from './Activity';
 
 vi.mock('../../lib/supabaseClient', () => ({ supabase: {} }));
 
-const MEMBERS = [{ id: 'm1', display_name: 'Shreyash' }];
+const MEMBERS = [{ id: 'm1', display_name: 'Alex' }];
 const ACCOUNTS = [{ id: 'a1', name: 'ENBD', type: 'credit_card', archived_at: null, is_shared: true }];
 const CATEGORIES = [{ id: 'c1', name: 'Groceries', kind: 'expense', parent_id: null }];
 

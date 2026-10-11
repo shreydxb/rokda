@@ -176,8 +176,8 @@ describe('Drawdown: the budget stands in until three months close', () => {
 
 describe('Drawdown: the Life plan under stress', () => {
   const members = [
-    { id: 'm1', display_name: 'Shreyash' },
-    { id: 'm2', display_name: 'Tarika' },
+    { id: 'm1', display_name: 'Alex' },
+    { id: 'm2', display_name: 'Sam' },
   ];
   const memberLife = [
     { member_id: 'm1', birth_year: 1994, life_expectancy: 80 },
@@ -199,7 +199,7 @@ describe('Drawdown: the Life plan under stress', () => {
     expect(handover.years).toBe(2079 - 2054 + 1);
     expect(handover.pot).toBeCloseTo(lifePlan(basis.args).potAtStop, 6);
     const note = document.querySelector('.dd-from-plan').textContent;
-    expect(note).toMatch(/^From your Life plan: work stops in 2054 \(Shreyash 60 · Tarika 60\) with AED [\d,]+, and has to last 26 years, to 2079\./);
+    expect(note).toMatch(/^From your Life plan: work stops in 2054 \(Alex 60 · Sam 60\) with AED [\d,]+, and has to last 26 years, to 2079\./);
     expect(screen.getByText('26 yrs')).toBeTruthy();
     expect(screen.getByText(/^Life plan, 2054 ·/).getAttribute('data-active')).toBe('true');
   });

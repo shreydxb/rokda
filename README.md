@@ -53,7 +53,7 @@ it was actually built from.
 ## QA and release
 
 Claude implements, ChatGPT verifies. The process lives in the Linear project "Rokda"
-(team Shreyash):
+(team Alex):
 
 - **QA and release contract** — the handoff and verdict templates.
 - **QA review — 2026-09-05 — 9bd6a59** — the findings this correction pass addresses.
@@ -71,4 +71,4 @@ posted).
 
 ## Planning
 
-Tracked in Linear, project "Rokda" (team Shreyash).
+Tracked in Linear, project "Rokda".

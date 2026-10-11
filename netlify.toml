@@ -1,0 +1,76 @@
+# Netlify serves the household's main address, https://rokda-app.netlify.app.
+# Until this file, everything about that site lived in the Netlify dashboard:
+# the build command, no response headers, and no fallback for deep links, so
+# opening https://rokda-app.netlify.app/money directly was a Netlify 404.
+#
+# Values here override the dashboard's. The Supabase variables the build needs
+# (VITE_SUPABASE_URL, VITE_SUPABASE_PUBLISHABLE_KEY) stay in the dashboard
+# (Site configuration -> Environment variables); docs/environments.md.
+
+[build]
+  # verify:build fails the build when the bundle has no application in it
+  # (missing Supabase variables) or lost its Content-Security-Policy. A failed
+  # build publishes nothing and costs no credits, so the site keeps the last
+  # good version instead of going blank.
+  command = "npm run build && npm run verify:build"
+  publish = "dist"
+  # Each published production deploy costs 15 of the free plan's monthly
+  # credits, and when they run out Netlify stops publishing until the next
+  # month (September 2026: the site sat on a 10 September build for three
+  # weeks). This skips the build when nothing the site is built from has
+  # changed since the last build: migrations, Edge Functions, docs and tests
+  # cost nothing. See scripts/netlify-ignore.sh.
+  ignore = "bash scripts/netlify-ignore.sh"
+
+# Security headers. The Content-Security-Policy itself is a <meta> tag in
+# index.html (scripts/csp.mjs), so that GitHub Pages, which cannot send
+# headers, gets it too. Headers carry what a meta tag cannot.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    # The app is never embedded in another site. frame-ancestors is the modern
+    # form and X-Frame-Options the one older browsers read; a meta policy
+    # cannot set either.
+    Content-Security-Policy = "frame-ancestors 'none'"
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    # Other sites learn only that a visitor came from this origin, never which
+    # screen or record they were on.
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+    # HTTPS only, for a year, once a browser has seen the site. Netlify
+    # already redirects http to https; this stops the first request leaking.
+    Strict-Transport-Security = "max-age=31536000"
+
+# Built assets have content hashes in their names, so they never change.
+# index.html must always be revalidated, or a browser that cached it would
+# keep loading the previous release's assets.
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+# The app routes on the client (react-router), so any path that is not a file
+# gets index.html, which boots the app and reads the path itself. Status 200
+# serves it without changing the URL; files that exist (assets, favicon) are
+# served first, because Netlify does not shadow existing files with a 200 rule.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Deploy previews and branch deploys build with whatever Supabase variables
+# the dashboard gives them, which are the household's own: a preview of an
+# open pull request would run unreviewed code against live data
+# (docs/environments.md). Until an isolated database exists for them, they
+# never build, whatever the dashboard says. Production is unaffected.
+[context.deploy-preview]
+  ignore = "exit 0"
+
+[context.branch-deploy]
+  ignore = "exit 0"

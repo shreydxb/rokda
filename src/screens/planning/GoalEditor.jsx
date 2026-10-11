@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { formatMoney } from '../../lib/money';
 import { DEFAULT_INFLATION_PCT, goalCostAtDate } from '../../lib/goals';
+import { householdToday } from '../../lib/day';
 import '../money/TransactionEditor.css';
 
 function initialForm(goal) {
@@ -26,7 +27,7 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
   const [dirty, setDirty] = useState(false);
   const [confirmingClose, setConfirmingClose] = useState(false);
   const [contribAmount, setContribAmount] = useState('');
-  const [contribDate, setContribDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [contribDate, setContribDate] = useState(() => householdToday());
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);

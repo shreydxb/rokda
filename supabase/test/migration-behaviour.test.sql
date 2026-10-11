@@ -639,6 +639,82 @@ begin
   raise notice 'QA-§7 ok: approve_intake refuses foreign ids, writes nothing, still approves its own';
 end $$;
 
+-- A guessed date (intake.date_guessed): approve_intake refuses it until a
+-- person has set or confirmed the day, writes nothing when it refuses, and
+-- records the day the caller gave once confirmed. An entry whose message gave
+-- its date needs no confirmation, so the bot's fast confirm is unchanged.
+do $$
+declare
+  before_count int;
+  result jsonb;
+  occurred date;
+begin
+  -- One approve_intake only: a leftover ten-argument overload would make
+  -- PostgREST calls ambiguous and would still approve a guess.
+  if (select count(*) from pg_proc where proname = 'approve_intake' and pronamespace = 'public'::regnamespace) <> 1 then
+    raise exception 'guessed date FAILED: approve_intake has more than one definition';
+  end if;
+  -- Granted by name, not left to default privileges: the Inbox calls it as
+  -- authenticated and the bot as service_role.
+  if (select count(distinct a.grantee)
+        from pg_proc p, aclexplode(p.proacl) a
+       where p.oid = 'approve_intake(uuid, uuid, numeric, date, text, uuid, text, text, boolean, uuid, boolean)'::regprocedure
+         and a.privilege_type = 'EXECUTE'
+         and a.grantee in ('authenticated'::regrole, 'service_role'::regrole)) <> 2 then
+    raise exception 'guessed date FAILED: approve_intake is not granted to authenticated and service_role';
+  end if;
+
+  insert into intake (id, household_id, source, raw_text, parsed_amount, parsed_date, date_guessed, status)
+  values ('55555555-5555-5555-5555-55555555d001', '11111111-1111-1111-1111-111111111111', 'telegram', 'AED 40 spent at Cafe', 40, '2026-09-29', true, 'pending');
+  select count(*) into before_count from transactions;
+
+  begin
+    perform approve_intake('55555555-5555-5555-5555-55555555d001', '33333333-3333-3333-3333-333333333333', 40, date '2026-09-29', 'expense');
+    raise exception 'guessed date FAILED: approved as read';
+  exception
+    when invalid_parameter_value then
+      if position('no date' in sqlerrm) = 0 then raise; end if;
+  end;
+  begin
+    perform approve_intake('55555555-5555-5555-5555-55555555d001', '33333333-3333-3333-3333-333333333333', 40, date '2026-09-29', 'expense',
+                           p_date_confirmed => false);
+    raise exception 'guessed date FAILED: approved with p_date_confirmed false';
+  exception
+    when invalid_parameter_value then null;
+  end;
+  if (select count(*) from transactions) <> before_count
+     or (select status from intake where id = '55555555-5555-5555-5555-55555555d001') <> 'pending' then
+    raise exception 'guessed date FAILED: a refused approval wrote something';
+  end if;
+
+  result := approve_intake('55555555-5555-5555-5555-55555555d001', '33333333-3333-3333-3333-333333333333', 40, date '2026-09-21', 'expense',
+                           p_date_confirmed => true);
+  select t.occurred_at into occurred from transactions t where t.id = (result ->> 'transaction_id')::uuid;
+  if occurred is distinct from date '2026-09-21' then
+    raise exception 'guessed date FAILED: the confirmed day was not recorded (got %)', occurred;
+  end if;
+  -- The entry keeps what the bot wrote, as the record of its guess.
+  if (select date_guessed and parsed_date = date '2026-09-29' from intake where id = '55555555-5555-5555-5555-55555555d001') is not true then
+    raise exception 'guessed date FAILED: the record of the guess was overwritten';
+  end if;
+
+  -- A retry of the approved entry still returns its transaction: the
+  -- approved check comes before the date check.
+  result := approve_intake('55555555-5555-5555-5555-55555555d001', '33333333-3333-3333-3333-333333333333', 40, date '2026-09-21', 'expense');
+  if not (result ->> 'already_approved')::boolean then
+    raise exception 'guessed date FAILED: a retry of the approved entry was not recognised';
+  end if;
+
+  insert into intake (id, household_id, source, raw_text, parsed_amount, parsed_date, status)
+  values ('55555555-5555-5555-5555-55555555d002', '11111111-1111-1111-1111-111111111111', 'telegram', 'AED 15 at Cafe on 20 Sep', 15, '2026-09-20', 'pending');
+  result := approve_intake('55555555-5555-5555-5555-55555555d002', '33333333-3333-3333-3333-333333333333', 15, date '2026-09-20', 'expense');
+  if (result ->> 'already_approved')::boolean then
+    raise exception 'guessed date FAILED: a dated entry was not approved';
+  end if;
+
+  raise notice 'guessed date ok: refused until confirmed, nothing written on refusal, the confirmed day recorded, dated entries unchanged';
+end $$;
+
 -- SHR-303: an update claim records whether processing finished, so a crash
 -- before capture is retried instead of being suppressed forever.
 do $$
@@ -1010,6 +1086,388 @@ begin
     raise exception 'intake date FAILED: the guess was not kept';
   end if;
   raise notice 'intake date ok: dated unless marked a guess';
+end $$;
+
+-- The household's day, and rupee balances that follow the rate.
+--
+-- household_today() is Dubai's date at any moment. Fixed deposits accrue to
+-- it and a transaction saved with no date takes it, whatever zone the session
+-- is in. Between them the two zones below disagree with Dubai's date at every
+-- hour (UTC-12 before 16:00 Dubai, UTC+14 from 14:00), so a return to
+-- current_date fails here whenever this runs. A rupee account follows its own
+-- household's rate, has no AED value without one, and is not edited by a new
+-- one; a dollar account stays on the peg.
+do $$
+declare
+  hh constant uuid := '11111111-1111-1111-1111-111111111111';
+  other_hh constant uuid := 'acacacac-0000-0000-0000-000000000001';
+  rupee constant uuid := 'acacacac-0000-0000-0000-000000000002';
+  dollar constant uuid := 'acacacac-0000-0000-0000-000000000003';
+  theirs constant uuid := 'acacacac-0000-0000-0000-000000000004';
+  growing constant uuid := 'acacacac-0000-0000-0000-000000000005';
+  maturing constant uuid := 'acacacac-0000-0000-0000-000000000006';
+  backdated constant timestamptz := '2026-01-01 00:00:00+00';
+  saved_tz text := current_setting('timezone');
+  session_zone text;
+  aed numeric;
+  touched timestamptz;
+  bal numeric;
+  fd_state text;
+  dated date;
+begin
+  if household_today('2026-09-15 21:30:00+00') <> date '2026-09-16' then
+    raise exception 'household day FAILED: 01:30 in Dubai on the 16th was dated %', household_today('2026-09-15 21:30:00+00');
+  end if;
+  if household_today('2026-09-15 19:30:00+00') <> date '2026-09-15' then
+    raise exception 'household day FAILED: 23:30 in Dubai on the 15th was dated %', household_today('2026-09-15 19:30:00+00');
+  end if;
+
+  insert into accounts (id, household_id, name, type, balance, principal, interest_rate_pct, compounding, opened_date, maturity_date, is_shared)
+  values
+    (growing, hh, 'Deposit', 'fd', 0, 10000, 3.65, 'simple', household_today() - 100, household_today() + 265, true),
+    (maturing, hh, 'Deposit ending today', 'fd', 0, 10000, 3.65, 'simple', household_today() - 365, household_today(), true);
+
+  foreach session_zone in array array['Etc/GMT+12', 'Pacific/Kiritimati'] loop
+    perform set_config('timezone', session_zone, true);
+    -- What fd-accrual does every night: a no-op write the trigger re-values.
+    update accounts set fd_status = 'active' where id in (growing, maturing);
+    select balance into bal from accounts where id = growing;
+    if bal <> 10100 then
+      raise exception 'household day FAILED: 100 days of 10,000 at 3.65%% came to % with the session in %', bal, session_zone;
+    end if;
+    select balance, fd_status into bal, fd_state from accounts where id = maturing;
+    if fd_state <> 'matured' or bal <> 10365 then
+      raise exception 'household day FAILED: a deposit maturing today was % at % with the session in %', fd_state, bal, session_zone;
+    end if;
+    insert into transactions (household_id, account_id, amount, is_shared)
+    values (hh, '33333333-3333-3333-3333-333333333333', -1, true)
+    returning occurred_at into dated;
+    if dated <> household_today() then
+      raise exception 'household day FAILED: a transaction with no date was dated % with the session in %', dated, session_zone;
+    end if;
+  end loop;
+  perform set_config('timezone', saved_tz, true);
+
+  insert into households (id, name, inr_per_aed) values (other_hh, 'Other household', 30);
+  insert into accounts (id, household_id, name, type, currency, balance, is_shared)
+  values (theirs, other_hh, 'Their rupee account', 'savings', 'INR', 30000, true);
+
+  update households set inr_per_aed = 20 where id = hh;
+  insert into accounts (id, household_id, name, type, currency, balance, is_shared)
+  values
+    (rupee, hh, 'Rupee savings', 'savings', 'INR', 100000, true),
+    (dollar, hh, 'Dollar account', 'checking', 'USD', 1000, true);
+  select balance_aed into aed from accounts where id = rupee;
+  if aed <> 5000 then
+    raise exception 'rupee rate FAILED: 100,000 rupees at 20 became % AED', aed;
+  end if;
+
+  -- now() is fixed for the whole transaction, so backdate the last edit (with
+  -- triggers off) to be able to see whether a later write moves it.
+  perform set_config('session_replication_role', 'replica', true);
+  update accounts set updated_at = backdated where id = rupee;
+  perform set_config('session_replication_role', 'origin', true);
+
+  update households set inr_per_aed = 25 where id = hh;
+  select balance_aed, updated_at into aed, touched from accounts where id = rupee;
+  if aed <> 4000 then
+    raise exception 'rupee rate FAILED: the AED value did not follow the new rate (got %)', aed;
+  end if;
+  if touched <> backdated then
+    raise exception 'rupee rate FAILED: a new rate counted as an edit (updated_at %)', touched;
+  end if;
+  if (select balance_aed from accounts where id = dollar) <> 3672.50 then
+    raise exception 'rupee rate FAILED: a dollar account moved off the peg';
+  end if;
+  if (select balance_aed from accounts where id = theirs) <> 1000 then
+    raise exception 'rupee rate FAILED: another household''s rupee account followed this household''s rate';
+  end if;
+
+  update households set inr_per_aed = null where id = hh;
+  select balance_aed into aed from accounts where id = rupee;
+  if aed is not null then
+    raise exception 'rupee rate FAILED: with no rate, a rupee balance was valued at % AED', aed;
+  end if;
+
+  update accounts set name = 'Rupee savings, renamed' where id = rupee;
+  if (select updated_at from accounts where id = rupee) = backdated then
+    raise exception 'rupee rate FAILED: renaming an account no longer counts as an edit';
+  end if;
+
+  update households set inr_per_aed = 25 where id = hh;
+  raise notice 'household day ok: Dubai''s date for deposits and undated transactions; rupee accounts follow their own household''s rate, are unknown without one, and are not edited by it';
+end $$;
+
+-- The membership helpers live in private, out of the API schema, and every
+-- policy is still bound to them there. The move relies on PostgreSQL storing
+-- the function a policy calls by OID, so this checks the result rather than
+-- trusting the mechanism: no policy may call the public names (now
+-- invoker-rights wrappers), anon must reach neither, and the two roles
+-- policies run as must keep EXECUTE.
+do $$
+declare
+  n int;
+  receipts text;
+begin
+  select count(*) into n
+  from pg_proc p join pg_namespace s on s.oid = p.pronamespace
+  where s.nspname = 'private'
+    and p.proname in ('is_household_member', 'is_household_owner')
+    and p.prosecdef
+    and p.proconfig @> array['search_path=""'];
+  if n <> 2 then
+    raise exception 'helpers FAILED: % of 2 membership helpers are SECURITY DEFINER in private with an empty search_path', n;
+  end if;
+
+  if exists (
+    select 1 from pg_proc p join pg_namespace s on s.oid = p.pronamespace
+    where s.nspname = 'public' and p.proname in ('is_household_member', 'is_household_owner') and p.prosecdef
+  ) then
+    raise exception 'helpers FAILED: a SECURITY DEFINER membership helper is still in the API schema';
+  end if;
+
+  -- pg_policies prints a function's schema only when its bare name would not
+  -- resolve to it, and the bare names now resolve to the public wrappers. So
+  -- a policy bound to private reads "private.is_household_...(", and one
+  -- bound to a wrapper reads the bare name.
+  select count(*) into n from pg_policies
+  where concat_ws(' ', qual, with_check) ~ '(^|[^.[:alnum:]_])is_household_(member|owner)\(';
+  if n <> 0 then
+    raise exception 'helpers FAILED: % policies call the public wrappers rather than private.*', n;
+  end if;
+
+  select count(*) into n from pg_policies
+  where concat_ws(' ', qual, with_check) ~ 'private\.is_household_(member|owner)\(';
+  if n < 50 then
+    raise exception 'helpers FAILED: only % policies call the private helpers; the move lost some', n;
+  end if;
+
+  select qual into receipts from pg_policies
+  where schemaname = 'storage' and policyname = 'household members can read their receipt photos';
+  if receipts is null or receipts not like '%private.is_household_member(%' then
+    raise exception 'helpers FAILED: the receipt bucket policy does not call private.is_household_member() (%)', receipts;
+  end if;
+
+  if has_schema_privilege('anon', 'private', 'usage')
+     or has_function_privilege('anon', 'private.is_household_member(uuid)', 'execute')
+     or has_function_privilege('anon', 'private.is_household_owner(uuid)', 'execute')
+     or has_function_privilege('anon', 'public.is_household_member(uuid)', 'execute')
+     or has_function_privilege('anon', 'public.is_household_owner(uuid)', 'execute') then
+    raise exception 'helpers FAILED: anon can reach a membership helper';
+  end if;
+
+  if not (has_schema_privilege('authenticated', 'private', 'usage')
+      and has_function_privilege('authenticated', 'private.is_household_member(uuid)', 'execute')
+      and has_function_privilege('authenticated', 'private.is_household_owner(uuid)', 'execute')
+      and has_function_privilege('service_role', 'private.is_household_member(uuid)', 'execute')
+      and has_function_privilege('service_role', 'private.is_household_owner(uuid)', 'execute')) then
+    raise exception 'helpers FAILED: authenticated or service_role lost EXECUTE on a helper every policy calls';
+  end if;
+
+  raise notice 'helpers ok: membership helpers are private definer functions, every policy calls them there, anon reaches neither';
+end $$;
+
+-- One household per Rokda: create_household() keeps the shape the helpers
+-- have (definer rights, nothing on its path) and stays out of anon's reach.
+do $$
+begin
+  if not exists (
+    select 1 from pg_proc
+    where oid = 'public.create_household(text, text)'::regprocedure
+      and prosecdef
+      and proconfig @> array['search_path=""']
+  ) then
+    raise exception 'one-household FAILED: create_household() is not SECURITY DEFINER with an empty search_path';
+  end if;
+  if has_function_privilege('anon', 'public.create_household(text, text)', 'execute')
+     or not has_function_privilege('authenticated', 'public.create_household(text, text)', 'execute') then
+    raise exception 'one-household FAILED: create_household() grants changed';
+  end if;
+  raise notice 'one-household ok: create_household() is a definer function with an empty path, for signed-in callers only';
+end $$;
+
+-- Balance history: every change to an entered balance is kept, with the
+-- figure it replaced and where it came from. Fixed deposits, whose balance is
+-- recomputed daily, are not.
+insert into accounts (id, household_id, name, type, balance, is_shared)
+values ('abcd0000-0000-4000-8000-000000000001', '11111111-1111-1111-1111-111111111111', 'History bank', 'checking', 1000, true),
+       ('abcd0000-0000-4000-8000-000000000002', '11111111-1111-1111-1111-111111111111', 'History card', 'credit_card', 200, true);
+insert into accounts (id, household_id, name, type, balance, is_shared, principal, interest_rate_pct, compounding, opened_date, maturity_date)
+values ('abcd0000-0000-4000-8000-000000000003', '11111111-1111-1111-1111-111111111111', 'History deposit', 'fd', 0, true, 10000, 5, 'simple', date '2026-01-01', date '2027-01-01');
+do $$
+declare n int; e record;
+begin
+  select * into e from account_balance_events where account_id = 'abcd0000-0000-4000-8000-000000000001';
+  if e.old_balance is not null or e.new_balance <> 1000 or e.source <> 'system' or e.member_id is not null then
+    raise exception 'balance history FAILED: opening an account recorded %', row_to_json(e);
+  end if;
+
+  update accounts set balance = 1250.50, balance_as_of = '2026-10-01T08:00:00Z' where id = 'abcd0000-0000-4000-8000-000000000001';
+  -- Not a balance change: nothing recorded.
+  update accounts set name = 'History bank (renamed)' where id = 'abcd0000-0000-4000-8000-000000000001';
+  update accounts set balance = 1250.50 where id = 'abcd0000-0000-4000-8000-000000000001';
+  select count(*) into n from account_balance_events where account_id = 'abcd0000-0000-4000-8000-000000000001';
+  if n <> 2 then raise exception 'balance history FAILED: % events for one opening and one change, expected 2', n; end if;
+  select * into e from account_balance_events where account_id = 'abcd0000-0000-4000-8000-000000000001' order by id desc limit 1;
+  if e.old_balance <> 1000 or e.new_balance <> 1250.50 or e.old_balance_as_of is not null
+     or e.new_balance_as_of <> '2026-10-01T08:00:00Z'::timestamptz or e.source <> 'system' then
+    raise exception 'balance history FAILED: a change was recorded as %', row_to_json(e);
+  end if;
+
+  update accounts set fd_status = 'active' where id = 'abcd0000-0000-4000-8000-000000000003';
+  select count(*) into n from account_balance_events where account_id = 'abcd0000-0000-4000-8000-000000000003';
+  if n <> 0 then raise exception 'balance history FAILED: a fixed deposit''s computed balance was recorded % times', n; end if;
+
+  -- A signed-in member is the app, and is named.
+  perform set_config('request.jwt.claim.sub', '0c000000-0000-4000-8000-00000000000c', true);
+  insert into auth.users (id, email) values ('0c000000-0000-4000-8000-00000000000c', 'history@example.test');
+  update household_members set user_id = '0c000000-0000-4000-8000-00000000000c' where id = '22222222-2222-2222-2222-222222222222';
+  update accounts set balance = 1300 where id = 'abcd0000-0000-4000-8000-000000000001';
+  select * into e from account_balance_events where account_id = 'abcd0000-0000-4000-8000-000000000001' order by id desc limit 1;
+  if e.source <> 'app' or e.member_id is distinct from '22222222-2222-2222-2222-222222222222' then
+    raise exception 'balance history FAILED: a member''s change was recorded as %', row_to_json(e);
+  end if;
+  update household_members set user_id = null where id = '22222222-2222-2222-2222-222222222222';
+  perform set_config('request.jwt.claim.sub', '', true);
+
+  -- Deleting an account takes its history with it: an account opened and
+  -- changed once has two events, and none outlive it.
+  delete from accounts where id = 'abcd0000-0000-4000-8000-000000000003';
+  insert into accounts (id, household_id, name, type, balance, is_shared)
+  values ('abcd0000-0000-4000-8000-000000000004', '11111111-1111-1111-1111-111111111111', 'Short-lived', 'checking', 10, true);
+  update accounts set balance = 20 where id = 'abcd0000-0000-4000-8000-000000000004';
+  select count(*) into n from account_balance_events where account_id = 'abcd0000-0000-4000-8000-000000000004';
+  if n <> 2 then raise exception 'balance history FAILED: % events before the delete, expected 2', n; end if;
+  delete from accounts where id = 'abcd0000-0000-4000-8000-000000000004';
+  select count(*) into n from account_balance_events where account_id = 'abcd0000-0000-4000-8000-000000000004';
+  if n <> 0 then raise exception 'balance history FAILED: % events outlived their account', n; end if;
+  raise notice 'balance history ok: openings and changes recorded with their source, renames and deposits not';
+end $$;
+
+-- A proposal from the bot is applied once, only for its own member, only to
+-- balances still at the figure the member was shown, and within its expiry.
+insert into goals (id, household_id, name, target_amount)
+values ('99999999-9999-9999-9999-99999999000d', '99999999-9999-9999-9999-999999999999', 'Their goal', 1000);
+insert into bot_proposals (id, household_id, member_id, kind, payload, chat_id, source_ref)
+values
+  ('abcd0000-0000-4000-8000-0000000000a1', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', 'account_balances',
+   jsonb_build_object('items', jsonb_build_array(
+     jsonb_build_object('account_id', 'abcd0000-0000-4000-8000-000000000001', 'name', 'History bank', 'old_balance', 1300, 'new_balance', 1400),
+     -- Shown as 150, but it is 200 now: changed since, so left alone.
+     jsonb_build_object('account_id', 'abcd0000-0000-4000-8000-000000000002', 'name', 'History card', 'old_balance', 150, 'new_balance', 175),
+     -- Another household's account, planted in the payload.
+     jsonb_build_object('account_id', '99999999-9999-9999-9999-99999999000b', 'name', 'Other card', 'old_balance', 0, 'new_balance', 999)
+   )), 1001, '9100001'),
+  ('abcd0000-0000-4000-8000-0000000000a2', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', 'goal_contribution',
+   jsonb_build_object('goal_id', '55555555-5555-5555-5555-555555550001', 'goal_name', 'House', 'amount', 750, 'occurred_at', '2026-10-02'), 1001, '9100002'),
+  -- The same message the bot already recorded directly before proposals
+  -- existed (source_ref 9000002, above).
+  ('abcd0000-0000-4000-8000-0000000000a3', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', 'goal_contribution',
+   jsonb_build_object('goal_id', '55555555-5555-5555-5555-555555550001', 'goal_name', 'House', 'amount', 500), 1001, '9000002'),
+  -- A goal of another household.
+  ('abcd0000-0000-4000-8000-0000000000a4', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', 'goal_contribution',
+   jsonb_build_object('goal_id', '99999999-9999-9999-9999-99999999000d', 'amount', 10), 1001, null);
+insert into bot_proposals (id, household_id, member_id, kind, payload, chat_id, created_at, expires_at)
+values ('abcd0000-0000-4000-8000-0000000000a5', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', 'account_balances',
+        jsonb_build_object('items', jsonb_build_array(jsonb_build_object('account_id', 'abcd0000-0000-4000-8000-000000000001', 'old_balance', 1400, 'new_balance', 1))),
+        1001, now() - interval '2 days', now() - interval '1 day');
+do $$
+declare r jsonb; again jsonb; n int; e record; bal numeric;
+begin
+  r := apply_bot_proposal('abcd0000-0000-4000-8000-0000000000a1', '99999999-9999-9999-9999-99999999000a');
+  if r ->> 'outcome' <> 'not_yours' then raise exception 'bot proposal FAILED: another member applied a proposal (%)', r; end if;
+  if (select status from bot_proposals where id = 'abcd0000-0000-4000-8000-0000000000a1') <> 'proposed' then
+    raise exception 'bot proposal FAILED: a refused confirmation changed the proposal';
+  end if;
+
+  r := apply_bot_proposal('abcd0000-0000-4000-8000-0000000000a1', '22222222-2222-2222-2222-222222222222');
+  if r ->> 'outcome' <> 'applied' or jsonb_array_length(r -> 'applied') <> 1 or jsonb_array_length(r -> 'skipped') <> 2 then
+    raise exception 'bot proposal FAILED: applying gave %', r;
+  end if;
+  select balance into bal from accounts where id = 'abcd0000-0000-4000-8000-000000000001';
+  if bal <> 1400 then raise exception 'bot proposal FAILED: the balance is %, expected 1400', bal; end if;
+  select balance into bal from accounts where id = 'abcd0000-0000-4000-8000-000000000002';
+  if bal <> 200 then raise exception 'bot proposal FAILED: a balance changed since it was shown was overwritten (%)', bal; end if;
+  select balance into bal from accounts where id = '99999999-9999-9999-9999-99999999000b';
+  if bal <> 0 then raise exception 'bot proposal FAILED: another household''s account was changed (%)', bal; end if;
+  if not exists (select 1 from jsonb_array_elements(r -> 'skipped') x where x ->> 'reason' = 'changed' and (x ->> 'balance')::numeric = 200) then
+    raise exception 'bot proposal FAILED: the skipped item does not say what the balance is now (%)', r;
+  end if;
+  select * into e from account_balance_events where account_id = 'abcd0000-0000-4000-8000-000000000001' order by id desc limit 1;
+  if e.source <> 'bot' or e.member_id is distinct from '22222222-2222-2222-2222-222222222222' or e.old_balance <> 1300 or e.new_balance <> 1400 then
+    raise exception 'bot proposal FAILED: the change was recorded as %', row_to_json(e);
+  end if;
+
+  again := apply_bot_proposal('abcd0000-0000-4000-8000-0000000000a1', '22222222-2222-2222-2222-222222222222');
+  if again ->> 'outcome' <> 'applied' or again -> 'result' -> 'applied' <> r -> 'applied' then
+    raise exception 'bot proposal FAILED: a second yes did not repeat the first answer (%)', again;
+  end if;
+  select count(*) into n from account_balance_events where account_id = 'abcd0000-0000-4000-8000-000000000001' and source = 'bot';
+  if n <> 1 then raise exception 'bot proposal FAILED: a second yes changed the balance again (% bot events)', n; end if;
+
+  r := apply_bot_proposal('abcd0000-0000-4000-8000-0000000000a2', '22222222-2222-2222-2222-222222222222');
+  select count(*) into n from goal_contributions where source_ref = '9100002' and amount = 750 and occurred_at = date '2026-10-02';
+  if r ->> 'outcome' <> 'applied' or n <> 1 then raise exception 'bot proposal FAILED: a goal contribution gave % (% rows)', r, n; end if;
+  perform apply_bot_proposal('abcd0000-0000-4000-8000-0000000000a2', '22222222-2222-2222-2222-222222222222');
+  select count(*) into n from goal_contributions where source_ref = '9100002';
+  if n <> 1 then raise exception 'bot proposal FAILED: a second yes recorded the contribution again'; end if;
+
+  r := apply_bot_proposal('abcd0000-0000-4000-8000-0000000000a3', '22222222-2222-2222-2222-222222222222');
+  select count(*) into n from goal_contributions where goal_id = '55555555-5555-5555-5555-555555550001' and source_ref = '9000002';
+  if n <> 1 or (r -> 'applied' -> 0 ->> 'already_recorded')::boolean is not true then
+    raise exception 'bot proposal FAILED: a message the bot had already recorded was recorded again (% rows, %)', n, r;
+  end if;
+
+  r := apply_bot_proposal('abcd0000-0000-4000-8000-0000000000a4', '22222222-2222-2222-2222-222222222222');
+  if jsonb_array_length(r -> 'applied') <> 0 or jsonb_array_length(r -> 'skipped') <> 1 then
+    raise exception 'bot proposal FAILED: a contribution to another household''s goal gave %', r;
+  end if;
+
+  r := apply_bot_proposal('abcd0000-0000-4000-8000-0000000000a5', '22222222-2222-2222-2222-222222222222');
+  select balance into bal from accounts where id = 'abcd0000-0000-4000-8000-000000000001';
+  if r ->> 'outcome' <> 'expired' or bal <> 1400
+     or (select status from bot_proposals where id = 'abcd0000-0000-4000-8000-0000000000a5') <> 'expired' then
+    raise exception 'bot proposal FAILED: an expired proposal gave % and left the balance at %', r, bal;
+  end if;
+
+  r := apply_bot_proposal('abcd0000-0000-4000-8000-0000000000ff', '22222222-2222-2222-2222-222222222222');
+  if r ->> 'outcome' <> 'not_found' then raise exception 'bot proposal FAILED: an unknown proposal gave %', r; end if;
+
+  -- A decided proposal records when; an open one does not.
+  begin
+    insert into bot_proposals (household_id, member_id, kind, payload, chat_id, status)
+    values ('11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', 'goal_contribution', '{}', 1001, 'applied');
+    raise exception 'bot proposal FAILED: a proposal was decided without a time';
+  exception
+    when check_violation then null;
+  end;
+  -- One proposal per Telegram update.
+  begin
+    insert into bot_proposals (household_id, member_id, kind, payload, chat_id, source_ref)
+    values ('11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', 'goal_contribution', '{}', 1001, '9100002');
+    raise exception 'bot proposal FAILED: one update proposed twice';
+  exception
+    when unique_violation then null;
+  end;
+  raise notice 'bot proposal ok: applied once, by its member, to unchanged balances in its household, until it expires';
+end $$;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_proc
+    where oid = 'public.apply_bot_proposal(uuid, uuid)'::regprocedure
+      and prosecdef
+      and proconfig @> array['search_path=""']
+  ) then
+    raise exception 'bot proposal FAILED: apply_bot_proposal() is not SECURITY DEFINER with an empty search_path';
+  end if;
+  if has_function_privilege('anon', 'public.apply_bot_proposal(uuid, uuid)', 'execute')
+     or has_function_privilege('authenticated', 'public.apply_bot_proposal(uuid, uuid)', 'execute')
+     or not has_function_privilege('service_role', 'public.apply_bot_proposal(uuid, uuid)', 'execute') then
+    raise exception 'bot proposal FAILED: apply_bot_proposal() is callable by someone other than the bot';
+  end if;
+  raise notice 'bot proposal ok: only service_role can apply a proposal';
 end $$;
 
 rollback;

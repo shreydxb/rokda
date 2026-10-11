@@ -169,6 +169,13 @@ export function unknownPromptMessage() {
   return "I can't tell which entry that reply is about -- that message isn't a prompt I'm still tracking. Reply to the most recent prompt for the entry you mean, or use the Inbox.";
 }
 
+// Said to a "no" when the lookup of what it is about failed: nothing was
+// dropped, and nothing was saved either. Not the "yes" wording, which tells
+// the member to approve something in the Inbox.
+export function dropUnavailableMessage() {
+  return "I couldn't check which change that's for just now, so nothing was dropped or changed. Try again in a moment.";
+}
+
 // Said when the lookup itself failed. Deliberately records nothing: the one
 // thing worse than not confirming is confirming the wrong entry.
 export function lookupUnavailableMessage() {
@@ -183,4 +190,90 @@ export function ambiguousConfirmMessage(rows) {
     .map((r) => `- AED ${Number(r.parsed_amount).toFixed(2)} at ${r.parsed_merchant} on ${r.parsed_date}`)
     .join('\n');
   return `You have ${rows.length} entries waiting, so I don't know which one that "yes" is for:\n${list}\nReply directly to the one you mean (swipe/long-press → Reply), or approve them in the Inbox.`;
+}
+
+// ---------------------------------------------------------------------------
+// Proposals: balances and goal contributions the bot read from a message and
+// waits to have confirmed (bot_proposals). The bot never writes those from a
+// message alone: it shows the change, and only a "yes" or a 👍 on that
+// message applies it, and only a "no" drops it.
+// ---------------------------------------------------------------------------
+
+// As strict as CONFIRM_REGEX, for the same reason: a real message that starts
+// with "no" ("no wait, it was 45") is not dropping anything.
+export const CANCEL_REGEX = /^(no|n|nope|cancel|stop|drop it|don'?t)[.!]?$/i;
+
+export const CANCEL_EMOJIS = new Set(['❌', '\u{1F44E}']);
+
+export function isCancellationText(text) {
+  const trimmed = String(text ?? '').trim();
+  return CANCEL_REGEX.test(trimmed) || CANCEL_EMOJIS.has(trimmed);
+}
+
+/**
+ * @typedef {{ status?: unknown }} ProposalRow
+ */
+/**
+ * @template {ProposalRow} T
+ * @typedef {{ kind: 'one', row: T } | { kind: 'decided', row: T } | { kind: 'none' } | { kind: 'unavailable' } | { kind: 'ambiguous' }} ProposalTarget
+ */
+
+// Which proposal a "yes" or a "no" is about, if any. Same discipline as
+// resolveConfirmTarget, one difference: a reply aimed at a message that is not
+// a proposal ('unknown') is not refused here, because it may be aimed at an
+// expense's prompt, which the expense rules then decide. Returns:
+//   { kind: 'one', row }      -- decide exactly this proposal
+//   { kind: 'decided', row }  -- the message named one already applied,
+//                                dropped or lapsed; say so, change nothing
+//   { kind: 'none' }          -- not about a proposal; the expense rules decide
+//   { kind: 'unavailable' }   -- could not check; must not act
+//   { kind: 'ambiguous' }     -- several things wait for this answer; ask
+//
+//   `lookup`, `row`   the proposal whose prompt the message replied to, by a
+//                     direct query on (chat_id, prompt_message_id).
+//   `open`            the member's open proposals from the last few minutes,
+//                     for the unaddressed case only.
+//   `openFailed`      true when that query, or the one for `recentlyDecided`,
+//                     failed.
+//   `recentlyDecided` the member's proposal decided in the last few minutes,
+//                     if any: a second bare answer, or a redelivered first
+//                     one, is about it once nothing else waits.
+//   `readyIntakes`    expenses waiting for their own "yes". With one waiting,
+//                     a bare "yes" or "no" could be about either.
+//   `truncated`       true when the expense candidates were capped.
+/**
+ * @template {ProposalRow} T
+ * @param {{ lookup?: string, row?: T | null, open?: T[], openFailed?: boolean, recentlyDecided?: T | null, readyIntakes?: unknown[], truncated?: boolean }} [input]
+ * @returns {ProposalTarget<T>}
+ */
+export function resolveProposalTarget({ lookup = PROMPT_UNADDRESSED, row = null, open = [], openFailed = false, recentlyDecided = null, readyIntakes = [], truncated = false } = {}) {
+  if (lookup === PROMPT_FAILED) return { kind: 'unavailable' };
+  if (lookup === PROMPT_FOUND && row) return row.status === 'proposed' ? { kind: 'one', row } : { kind: 'decided', row };
+  if (lookup === PROMPT_UNKNOWN) return { kind: 'none' };
+
+  // Unaddressed. Not knowing whether a proposal waits is not the same as
+  // knowing none does: a "yes" must not record an expense on the strength of
+  // a failed query when it may have been meant for a balance.
+  if (openFailed) return { kind: 'unavailable' };
+  const waiting = (open ?? []).filter((p) => p?.status === 'proposed');
+  const othersWaiting = (readyIntakes ?? []).length > 0 || truncated;
+  if (waiting.length === 0) {
+    // Nothing open: the answer repeats one just given, or Telegram delivered
+    // it twice. Say what happened to the proposal rather than let the answer
+    // be read as a new message -- unless an expense is waiting for it.
+    return recentlyDecided && !othersWaiting ? { kind: 'decided', row: recentlyDecided } : { kind: 'none' };
+  }
+  if (waiting.length > 1 || othersWaiting) return { kind: 'ambiguous' };
+  return { kind: 'one', row: waiting[0] };
+}
+
+// Said when a bare "yes" or "no" could be about more than one thing waiting.
+// The way out depends on the answer: a 👍 saves, so it is offered only to a
+// "yes". A "no" drops only a proposal, so someone who said "no" is told how
+// to drop one, and that an expense is thrown away in the Inbox instead.
+export function ambiguousProposalMessage(confirming = true) {
+  const head = 'More than one thing is waiting for an answer, so I don\'t know which one you mean. ';
+  return confirming
+    ? `${head}Reply directly to my message about it (swipe or long-press → Reply), or react to it with 👍.`
+    : `${head}To drop a balance or goal change, reply "no" directly to my question about it (swipe or long-press → Reply). An expense waiting for a "yes" stays unrecorded until you approve it; to throw it away, use the Inbox.`;
 }

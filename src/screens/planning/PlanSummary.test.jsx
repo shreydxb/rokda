@@ -7,8 +7,8 @@ vi.mock('../../lib/supabaseClient', () => ({ supabase: {} }));
 
 const ACCOUNT = { id: 'a1', type: 'savings', currency: 'AED', balance: 200000, balance_aed: 200000, is_shared: true, archived_at: null };
 const MEMBERS = [
-  { id: 'm1', display_name: 'Shreyash' },
-  { id: 'm2', display_name: 'Tarika' },
+  { id: 'm1', display_name: 'Alex' },
+  { id: 'm2', display_name: 'Sam' },
 ];
 const AGES = [
   { member_id: 'm1', birth_year: 1994, life_expectancy: 80 },
@@ -50,7 +50,7 @@ describe('PlanSummary: when work can stop', () => {
     const { onOpenTab } = renderSummary();
     expect(screen.queryByText('Independence')).toBeNull();
     expect(screen.getByText('Stop working')).toBeTruthy();
-    expect(screen.getByText(/^Shreyash \d+ · Tarika \d+ · the money lasts to 2079$/)).toBeTruthy();
+    expect(screen.getByText(/^Alex \d+ · Sam \d+ · the money lasts to 2079$/)).toBeTruthy();
     fireEvent.click(screen.getByText('Life plan →'));
     expect(onOpenTab).toHaveBeenCalledWith('life');
   });

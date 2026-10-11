@@ -44,5 +44,18 @@ if (missing.length > 0) {
   fail('the build emitted no application code. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY (see .env.example) and rebuild.');
 }
 
+// The Content-Security-Policy meta tag (scripts/csp.mjs) is the only one the
+// GitHub Pages host gets, so a build that lost it would quietly ship with no
+// script restrictions. It must come before anything the page loads, and it
+// must name the Supabase project the app was built against.
+const html = readFileSync(join(outDir, 'index.html'), 'utf8');
+const csp = html.match(/<meta http-equiv="Content-Security-Policy" content="([^"]*)"/);
+if (!csp) fail('index.html has no Content-Security-Policy meta tag (vite.config.js adds it at build time).');
+if (html.indexOf(csp[0]) > html.search(/<script|<link/)) fail('the Content-Security-Policy meta tag comes after something the page loads, so it does not cover it.');
+const policy = csp[1].replaceAll('&#39;', "'");
+if (!/(^|; )script-src 'self'(;|$)/.test(policy)) fail(`the Content-Security-Policy allows more than the app's own scripts: ${policy}`);
+const connect = policy.match(/(?:^|; )connect-src ([^;]*)/);
+if (!connect || !/https?:\/\/\S+/.test(connect[1])) fail(`the Content-Security-Policy names no Supabase origin in connect-src, so the app could not reach its data: ${policy}`);
+
 const bytes = entries.reduce((sum, f) => sum + statSync(join(assets, f)).size, 0);
 console.log(`verify-build: ok — ${entries.length} chunk(s), ${(bytes / 1024).toFixed(1)} kB, application code present`);

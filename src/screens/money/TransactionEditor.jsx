@@ -5,6 +5,7 @@ import { formatMoney, formatSigned } from '../../lib/money';
 import { signedAmount } from '../../lib/intake';
 import { findDuplicate } from '../../lib/duplicates';
 import { CURRENCIES, currencyAvailable, convertToAed, rateNote } from '../../lib/currency';
+import { householdToday } from '../../lib/day';
 import './TransactionEditor.css';
 
 const FIELD_LABELS = { category: 'Category', amount: 'Amount', account: 'Account', merchant: 'Merchant', scope: 'Scope' };
@@ -35,7 +36,7 @@ function initialForm(tx, accounts) {
     type: 'expense',
     amount: '',
     merchant: '',
-    occurred_at: new Date().toISOString().slice(0, 10),
+    occurred_at: householdToday(),
     account_id: accounts[0]?.id ?? '',
     category_id: '',
     owner: 'shared',
