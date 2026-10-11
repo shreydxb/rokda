@@ -110,10 +110,16 @@ jobs:
       # Supabase GitHub integration while this job runs. Without a wait the
       # first comparison could read the previous build, turn main red, and keep
       # GitHub Pages a release behind -- it happened for #38 and #40 (SHR-304).
-      # The script waits only when the sole failure is a stale deployment AND
-      # this commit changed supabase/functions; drift, verify_jwt, an orphan or
-      # a function not being served still fail at once. Zero everywhere else.
+      # The script waits only when the sole failure is a stale deployment, or a
+      # verify_jwt this commit changes, AND this commit changed
+      # supabase/functions or config.toml; verify_jwt drift, an orphan or a
+      # function not being served still fail at once. Zero everywhere else.
       AWAIT_DEPLOY_SECONDS: ${{ github.ref == 'refs/heads/main' && '300' || '0' }}
+      # Where production is deployed from: on main the commit before this one,
+      # elsewhere main itself (fetched below). Its config.toml is how the check
+      # tells a verify_jwt this commit changes, still awaiting its deploy, from
+      # drift that nothing is about to fix.
+      PARITY_BASE_REF: ${{ github.ref == 'refs/heads/main' && 'HEAD~1' || 'refs/remotes/origin/main' }}
     steps:
       # Depth 2 so the script can see what this commit changed (HEAD~1).
       - uses: actions/checkout@v4
@@ -124,6 +130,10 @@ jobs:
         with:
           node-version: 22
           cache: npm
+
+      - name: Fetch main, which production is deployed from
+        if: github.ref != 'refs/heads/main'
+        run: git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main
 
       # Deployed state is only readable with an access token, and a pull
       # request from a fork never gets one. Rather than let "not checked"
@@ -136,9 +146,10 @@ jobs:
       # merges, so blocking on that difference makes every such PR permanently
       # red and the check useless as a merge gate. It is still reported, and
       # everything a branch cannot excuse -- an orphan deployment, a function
-      # the platform is not serving, verify_jwt disagreeing with config.toml --
-      # still blocks here. On main the source difference blocks again, which is
-      # where the 8 Sep drift this job exists for actually showed up.
+      # the platform is not serving, verify_jwt disagreeing with config.toml
+      # in a way this branch did not propose -- still blocks here. On main the
+      # source difference blocks again, which is where the 8 Sep drift this
+      # job exists for actually showed up.
       - name: Compare deployed Edge Functions with this commit
         run: |
           if [ "$GITHUB_REF" = "refs/heads/main" ]; then BRANCH_FLAG=""; else BRANCH_FLAG="--branch"; fi

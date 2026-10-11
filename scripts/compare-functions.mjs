@@ -212,6 +212,13 @@ export function repoFunctionSlugs(functionsRoot = FUNCTIONS_DIR) {
 //                    running this commit" is not a fault -- it is the whole
 //                    point of a branch. See isBlocking() for why the other
 //                    states still block here.
+//   `baseDeclared`   config.toml as the base declares it: the main this
+//                    branch would merge into, or on main the commit before
+//                    this one. Production is deployed from there. When this
+//                    commit changes a function's verify_jwt and production
+//                    still has the base's value, the difference is this
+//                    commit's change awaiting its deploy ('pending'), not
+//                    drift. Without it every difference is drift.
 export function compare({
   repo,
   deployedManifests,
@@ -220,6 +227,7 @@ export function compare({
   deployedState = {},
   requireDeployed = false,
   branch = false,
+  baseDeclared = null,
 }) {
   const repoBySlug = new Map(repo.map((m) => [m.slug, m]));
   const deployedBySlug = new Map(deployedManifests.map((m) => [m.slug, m]));
@@ -232,7 +240,13 @@ export function compare({
     const got = deployedState[slug]?.verifyJwt;
     if (want === undefined) return { configState: 'undeclared', expectedVerifyJwt: null, deployedVerifyJwt: got ?? null };
     if (got === undefined) return { configState: 'unknown', expectedVerifyJwt: want, deployedVerifyJwt: null };
-    return { configState: want === got ? 'ok' : 'drift', expectedVerifyJwt: want, deployedVerifyJwt: got };
+    if (want === got) return { configState: 'ok', expectedVerifyJwt: want, deployedVerifyJwt: got };
+    // Production is configured exactly as the base says, and this commit is
+    // what changes it. Only a deploy of this commit can close that gap.
+    if (baseDeclared?.[slug]?.verifyJwt === got) {
+      return { configState: 'pending', configChangeAdvisory: branch, expectedVerifyJwt: want, deployedVerifyJwt: got };
+    }
+    return { configState: 'drift', expectedVerifyJwt: want, deployedVerifyJwt: got };
   };
 
   for (const slug of [...repoBySlug.keys()].sort()) {
@@ -348,6 +362,12 @@ export function isBlocking(row) {
   if (row.configState === 'drift') return true;
   if (row.platformStatus != null && row.platformStatus !== 'ACTIVE') return true;
 
+  // verify_jwt as the base declares it, while this commit changes it. On a
+  // branch that is the proposed change, exactly as a source difference is. On
+  // main it blocks until the deploy lands, and onlyAwaitingDeploy lets the
+  // check wait for that deploy as it does for source.
+  if (row.configState === 'pending' && !row.configChangeAdvisory) return true;
+
   if (row.state === 'orphan-deployment' || row.state === 'unreadable') return true;
   if (row.state === 'not-deployed') return !!row.required;
 
@@ -362,9 +382,10 @@ export function isBlocking(row) {
   return false;
 }
 
-// Whether this comparison fails ONLY because deployed source differs from this
-// commit -- every blocking row a stale deployment that the platform is serving
-// with the configuration this repository declares, and nothing else wrong.
+// Whether this comparison fails ONLY because production has not yet received
+// this commit -- every blocking row a stale deployment, or a verify_jwt this
+// commit changes ('pending'), that the platform is serving, and nothing else
+// wrong.
 //
 // That is the one failure that can be a deploy still in flight rather than
 // drift (SHR-304). On main the Supabase GitHub integration deploys a pushed
@@ -381,7 +402,7 @@ export function onlyAwaitingDeploy(rows) {
     blocking.length > 0 &&
     blocking.every(
       (r) =>
-        r.state === 'stale-deployment' &&
+        (r.state === 'stale-deployment' || (r.state === 'in-sync' && r.configState === 'pending')) &&
         r.configState !== 'drift' &&
         (r.platformStatus == null || r.platformStatus === 'ACTIVE'),
     )
@@ -407,9 +428,11 @@ if (isMainModule) {
   const args = process.argv.slice(2);
   const requireDeployed = args.includes('--require-deployed');
   const branch = args.includes('--branch');
-  const [deployedDir, listPath] = args.filter((a) => !a.startsWith('--'));
-  if (!deployedDir || !listPath) {
-    console.error('usage: node scripts/compare-functions.mjs <deployed-functions-dir> <deployed-list.json> [--require-deployed] [--branch]');
+  const baseConfigAt = args.indexOf('--base-config');
+  const baseConfigPath = baseConfigAt >= 0 ? args[baseConfigAt + 1] : null;
+  const [deployedDir, listPath] = args.filter((a, i) => !a.startsWith('--') && (baseConfigAt < 0 || i !== baseConfigAt + 1));
+  if (!deployedDir || !listPath || (baseConfigAt >= 0 && !baseConfigPath)) {
+    console.error('usage: node scripts/compare-functions.mjs <deployed-functions-dir> <deployed-list.json> [--require-deployed] [--branch] [--base-config <config.toml>]');
     console.error('  both are produced by scripts/verify-function-parity.sh — run that instead.');
     process.exit(2);
   }
@@ -424,13 +447,17 @@ if (isMainModule) {
     .sort();
 
   const declared = declaredFunctionConfig();
+  // A base path that does not exist reads as declaring nothing, which leaves
+  // every verify_jwt difference as drift: the safe way to be wrong.
+  const baseDeclared = baseConfigPath ? declaredFunctionConfig(baseConfigPath) : null;
   const deployedState = deployedStateFromList(deployedList);
   const repo = repoFunctionSlugs().map((slug) => manifest(FUNCTIONS_DIR, slug));
   const deployedManifests = deployedSlugs.map((slug) => manifest(deployedDir, slug)).filter(Boolean);
 
-  const rows = compare({ repo, deployedManifests, deployedSlugs, declared, deployedState, requireDeployed, branch });
+  const rows = compare({ repo, deployedManifests, deployedSlugs, declared, deployedState, requireDeployed, branch, baseDeclared });
   const tally = { 'in-sync': 0, 'stale-deployment': 0, 'not-deployed': 0, 'orphan-deployment': 0, unreadable: 0 };
   let configDrift = 0;
+  let configPending = 0;
   let notActive = 0;
 
   for (const row of rows) {
@@ -438,14 +465,17 @@ if (isMainModule) {
     const jwt =
       row.configState === 'drift'
         ? ` verify_jwt=${row.deployedVerifyJwt} EXPECTED ${row.expectedVerifyJwt}`
-        : row.configState === 'ok'
-          ? ` verify_jwt=${row.deployedVerifyJwt}`
-          : '';
+        : row.configState === 'pending'
+          ? ` verify_jwt=${row.deployedVerifyJwt} -> ${row.expectedVerifyJwt} when this commit deploys`
+          : row.configState === 'ok'
+            ? ` verify_jwt=${row.deployedVerifyJwt}`
+            : '';
     const status = row.platformStatus && row.platformStatus !== 'ACTIVE' ? ` status=${row.platformStatus}` : '';
     console.log(
       `${LABELS[row.state]}${row.slug.padEnd(24)} repo=${(row.repoDigest ?? '—').slice(0, 12)} deployed=${(row.deployedDigest ?? '—').slice(0, 12)} ${row.state}${jwt}${status}`,
     );
     if (row.configState === 'drift') configDrift++;
+    if (row.configState === 'pending') configPending++;
     if (row.platformStatus != null && row.platformStatus !== 'ACTIVE') notActive++;
     for (const file of row.differingFiles ?? []) {
       console.log(`           ${file.file}`);
@@ -468,6 +498,7 @@ if (isMainModule) {
   console.log(`  ${tally['not-deployed']} in this repository, not deployed${requiredMissing > 0 ? ` (${requiredMissing} of them REQUIRED)` : ''}`);
   console.log(`  ${tally.unreadable} deployed but unreadable`);
   console.log(`  ${configDrift} with verify_jwt DIFFERENT from supabase/config.toml`);
+  console.log(`  ${configPending} with verify_jwt this commit changes, not yet deployed`);
   console.log(`  ${notActive} deployed but not ACTIVE`);
 
   if (tally['stale-deployment'] > 0) {
@@ -482,6 +513,13 @@ if (isMainModule) {
   }
   if (configDrift > 0) {
     console.log(`Redeploying applies supabase/config.toml's verify_jwt; deploying with --no-verify-jwt by hand is what drifts it.`);
+  }
+  if (configPending > 0) {
+    console.log(
+      branch
+        ? `verify_jwt changes above take effect when this branch merges and deploys.`
+        : `verify_jwt above is still the previous commit's. If the deploy of this commit does not change it, set it in the dashboard (Edge Functions -> the function -> Details) or deploy from a checkout: supabase functions deploy <slug> --project-ref <ref>`,
+    );
   }
   if (requiredMissing > 0) {
     console.log(`A function declared in supabase/config.toml is not live. Deploy it, or remove its declaration.`);

@@ -239,6 +239,72 @@ describe('deployment configuration, which no source hash can see', () => {
   });
 });
 
+// A commit that changes verify_jwt in config.toml differs from production
+// until it deploys, exactly as one that changes source does. Told apart from
+// drift by the base: production still configured as the commit before (on
+// main) or main (on a branch) declares.
+describe('a verify_jwt change this commit makes, awaiting its deploy', () => {
+  const DECLARED = { 'fd-accrual': { verifyJwt: false } };
+  const BASE = { 'fd-accrual': { verifyJwt: true } };
+
+  function rowFor({ deployed, base = BASE, branch = false, sourceChanged = true }) {
+    return compare({
+      repo: [{ slug: 'fd-accrual', digest: 'new', files: {} }],
+      deployedManifests: [{ slug: 'fd-accrual', digest: sourceChanged ? 'old' : 'new', files: {} }],
+      deployedSlugs: ['fd-accrual'],
+      declared: DECLARED,
+      deployedState: { 'fd-accrual': { verifyJwt: deployed, status: 'ACTIVE' } },
+      branch,
+      baseDeclared: base,
+    })[0];
+  }
+
+  it('is pending, not drift, when production still has the base value', () => {
+    const row = rowFor({ deployed: true });
+    expect(row.configState).toBe('pending');
+    expect(row.expectedVerifyJwt).toBe(false);
+    expect(row.deployedVerifyJwt).toBe(true);
+  });
+
+  it('does not block a branch, as a source difference does not', () => {
+    const row = rowFor({ deployed: true, branch: true });
+    expect(isBlocking(row)).toBe(false);
+    expect(onlyAwaitingDeploy([row])).toBe(false);
+  });
+
+  it('blocks on main until the deploy lands, and is worth waiting for there', () => {
+    const row = rowFor({ deployed: true });
+    expect(isBlocking(row)).toBe(true);
+    expect(onlyAwaitingDeploy([row])).toBe(true);
+    // Also when the source is unchanged and only config.toml moved.
+    const configOnly = rowFor({ deployed: true, sourceChanged: false });
+    expect(configOnly.state).toBe('in-sync');
+    expect(isBlocking(configOnly)).toBe(true);
+    expect(onlyAwaitingDeploy([configOnly])).toBe(true);
+  });
+
+  it('is ok once the deploy has applied it', () => {
+    const row = rowFor({ deployed: false, sourceChanged: false });
+    expect(row.configState).toBe('ok');
+    expect(isBlocking(row)).toBe(false);
+  });
+
+  it('is still drift when production matches neither this commit nor the base', () => {
+    // The base already said false, so a production true is nobody's change.
+    for (const branch of [false, true]) {
+      const row = rowFor({ deployed: true, base: { 'fd-accrual': { verifyJwt: false } }, branch });
+      expect(row.configState).toBe('drift');
+      expect(isBlocking(row)).toBe(true);
+      expect(onlyAwaitingDeploy([row])).toBe(false);
+    }
+  });
+
+  it('is drift when no base was given, or the base does not declare the function', () => {
+    expect(rowFor({ deployed: true, base: null }).configState).toBe('drift');
+    expect(rowFor({ deployed: true, base: {} }).configState).toBe('drift');
+  });
+});
+
 describe('release mode: a declared function must actually be live', () => {
   const DECLARED = { 'telegram-webhook': { verifyJwt: false } };
 
@@ -289,8 +355,9 @@ describe('reading verify_jwt out of supabase/config.toml', () => {
     // second list in the checker would just be another thing to go stale.
     const declared = declaredFunctionConfig();
     expect(declared['telegram-webhook'].verifyJwt).toBe(false);
-    expect(declared['price-refresh'].verifyJwt).toBe(true);
-    expect(declared['fd-accrual'].verifyJwt).toBe(true);
+    // The nightly jobs send a scheduler secret, not a JWT (docs/decisions.md).
+    expect(declared['price-refresh'].verifyJwt).toBe(false);
+    expect(declared['fd-accrual'].verifyJwt).toBe(false);
   });
 
   it('ignores comments, other sections, and settings it does not understand', () => {

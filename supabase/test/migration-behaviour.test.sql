@@ -452,9 +452,10 @@ end $$;
 -- the endpoint intended, carrying the authentication that endpoint requires.
 --
 -- Worth having because every one of those can be broken silently. The webhook
--- rejects any request without its shared secret, and the price function is
--- behind JWT verification: drop either header while editing these migrations
--- and cron keeps dispatching happily while the far end 401s every night.
+-- rejects any request without its shared secret, and price-refresh and
+-- fd-accrual reject any without the scheduler secret: drop either header while
+-- editing these migrations and cron keeps dispatching happily while the far
+-- end refuses every night.
 do $$
 declare cmd text; sched text;
 begin
@@ -466,11 +467,14 @@ begin
   if position('/functions/v1/price-refresh' in cmd) = 0 then
     raise exception 'QA-#7 FAILED: weekday-price-refresh does not call the price-refresh function';
   end if;
-  -- price-refresh is deployed with verify_jwt = true (supabase/config.toml),
-  -- so the job must present a bearer token, and it must come from the vault
-  -- rather than being pasted into the migration.
-  if position('Authorization' in cmd) = 0 or position('vault.decrypted_secrets' in cmd) = 0 then
-    raise exception 'QA-#7 FAILED: weekday-price-refresh does not authenticate from the vault';
+  -- price-refresh accepts the job only with the vault's scheduler secret,
+  -- read when the job runs rather than pasted into the migration. The legacy
+  -- service-role JWT is gone: Supabase is deleting legacy keys.
+  if position('X-Rokda-Scheduler-Secret' in cmd) = 0 or position('get_scheduler_secret()' in cmd) = 0 then
+    raise exception 'scheduler secret FAILED: weekday-price-refresh does not send the scheduler secret from the vault';
+  end if;
+  if position('service_role_key' in cmd) > 0 or position('Authorization' in cmd) > 0 then
+    raise exception 'scheduler secret FAILED: weekday-price-refresh still sends the legacy service-role key';
   end if;
 
   -- QA #1: this one existed only in production. It was scheduled by hand and
@@ -485,8 +489,11 @@ begin
   if position('/functions/v1/fd-accrual' in cmd) = 0 then
     raise exception 'QA-#1 FAILED: daily-fd-accrual does not call the fd-accrual function';
   end if;
-  if position('Authorization' in cmd) = 0 or position('vault.decrypted_secrets' in cmd) = 0 then
-    raise exception 'QA-#1 FAILED: daily-fd-accrual does not authenticate from the vault';
+  if position('X-Rokda-Scheduler-Secret' in cmd) = 0 or position('get_scheduler_secret()' in cmd) = 0 then
+    raise exception 'scheduler secret FAILED: daily-fd-accrual does not send the scheduler secret from the vault';
+  end if;
+  if position('service_role_key' in cmd) > 0 or position('Authorization' in cmd) > 0 then
+    raise exception 'scheduler secret FAILED: daily-fd-accrual still sends the legacy service-role key';
   end if;
 
   select command, schedule into cmd, sched from cron.job where jobname = 'daily-recurring-nudge-check';
@@ -504,6 +511,44 @@ begin
   end if;
 
   raise notice 'QA-#7/#1 ok: all three scheduled jobs are created by migrations, well formed and authenticated';
+end $$;
+
+-- The scheduler secret: one reader, for the jobs and the two functions, and
+-- nobody signed in. A login that could read it could run either job.
+do $$
+declare v text;
+begin
+  if not exists (
+    select 1 from pg_proc
+    where oid = 'public.get_scheduler_secret()'::regprocedure
+      and prosecdef
+      and proconfig @> array['search_path=""']
+  ) then
+    raise exception 'scheduler secret FAILED: get_scheduler_secret() is not SECURITY DEFINER with an empty search_path';
+  end if;
+  if has_function_privilege('anon', 'public.get_scheduler_secret()', 'execute')
+     or has_function_privilege('authenticated', 'public.get_scheduler_secret()', 'execute')
+     or not has_function_privilege('service_role', 'public.get_scheduler_secret()', 'execute') then
+    raise exception 'scheduler secret FAILED: get_scheduler_secret() is callable by someone other than the service role';
+  end if;
+
+  -- Unset reads as null, which the functions refuse and the jobs send as an
+  -- empty header.
+  if get_scheduler_secret() is not null then
+    raise exception 'scheduler secret FAILED: an unset secret read as %', get_scheduler_secret();
+  end if;
+
+  -- It reads this secret and no other: not the service-role key beside it.
+  insert into vault.decrypted_secrets (name, decrypted_secret) values
+    ('service_role_key', 'legacy-jwt'),
+    ('scheduler_secret', repeat('ab', 32));
+  v := get_scheduler_secret();
+  if v is distinct from repeat('ab', 32) then
+    raise exception 'scheduler secret FAILED: read % instead of the vault''s scheduler_secret', v;
+  end if;
+  delete from vault.decrypted_secrets where name in ('service_role_key', 'scheduler_secret');
+
+  raise notice 'scheduler secret ok: only the service role reads it, and it reads the vault''s scheduler_secret';
 end $$;
 
 -- QA #8: the link token must come from somewhere unguessable.

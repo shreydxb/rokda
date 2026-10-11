@@ -116,7 +116,9 @@ Several things live outside the `public` schema and are missed by the obvious
   exported, not fingerprinted. Whether GoTrue can complete a password sign-in
   without it is not something this document can settle by reasoning; §5 now
   rehearses an actual login instead.
-- **`vault.secrets`** (2: `telegram_webhook_secret`, `service_role_key`).
+- **`vault.secrets`** (`telegram_webhook_secret`, `scheduler_secret`, and
+  `service_role_key` until the owner deletes it after the scheduler-secret
+  change).
   Encrypted with a key that does not travel with a dump. These are
   **re-provisioned, not restored** — see §5.
 - **Edge Function environment secrets** (`TELEGRAM_BOT_TOKEN`,
@@ -403,23 +405,29 @@ cannot, because none of those four is a row in `public`.
    - `telegram_webhook_secret` — must match what Telegram sends. Re-run
      `setWebhook` with a new `secret_token` and store the same value in the
      vault; the two are one secret in two places. See `docs/environments.md`.
-   - `service_role_key` — **any project created for a restore now has no
-     legacy `service_role` JWT** (Supabase stopped issuing legacy keys to
-     projects created or restored from 1 November 2025), and an
-     `sb_secret_…` key is not a JWT: `price-refresh` and `fd-accrual` are
-     deployed with `verify_jwt = true`, so the platform rejects it with a
-     401 before either function runs. Until the scheduler-secret change in
-     `docs/decisions.md` ("Who may run an Edge Function") is deployed, leave
-     `service_role_key` unset and expect `weekday-price-refresh` and
-     `daily-fd-accrual` to fail every night: fixed-deposit balances and
-     holding prices will not move, and "Watch a scheduled run" below can
-     pass only for `daily-recurring-nudge-check`. Only a project that still
-     has legacy keys takes this value, from Project Settings → API Keys →
-     Legacy API keys → `service_role`. To see whether the two jobs got
-     through, open Dashboard → Edge Functions → `fd-accrual` (nightly) and
-     `price-refresh` (Sunday to Thursday) → Invocations after 23:00 UTC; a
-     401 there is this failure. (`net._http_response` names no job and
-     keeps its rows for about six hours.)
+   - `scheduler_secret` — what `weekday-price-refresh` and
+     `daily-fd-accrual` send, and what `price-refresh` and `fd-accrual`
+     check. Make a new one in the new project's SQL Editor; the value is
+     generated inside the database and nobody needs to see it:
+
+     ```sql
+     select vault.create_secret(
+       replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', ''),
+       'scheduler_secret',
+       'Sent by the nightly jobs to price-refresh and fd-accrual.'
+     );
+     ```
+
+     Without it, or with one shorter than 32 characters, both functions refuse
+     every scheduled call: fixed deposits and holding prices stop moving. Do
+     not re-create `service_role_key`; nothing reads it any more, and a
+     restored project has no legacy keys to put in it. To see whether the two
+     jobs got through, open Dashboard → Edge Functions → `fd-accrual`
+     (nightly) and `price-refresh` (Sunday to Thursday) → Invocations after
+     23:00 UTC. A 403 there is a missing or wrong secret; a 401 means the
+     function was deployed with `verify_jwt` on (step 6).
+     (`net._http_response` names no job and keeps its rows for about six
+     hours.)
 5. **Re-provision the Edge Function environment secrets.** A separate place
    from the vault, and missed entirely until QA #1. Set on the new project
    (Dashboard → Edge Functions → Secrets, or `supabase secrets set`):
@@ -433,9 +441,9 @@ cannot, because none of those four is a row in `public`.
    do not set those by hand.
 6. **Redeploy the Edge Functions** from git, then prove it:
    `npm run verify:functions`. Do not assume a deploy landed. Deploying from a
-   checkout applies `supabase/config.toml`, which is what keeps
-   `telegram-webhook` on `verify_jwt = false`; deploying it any other way gives
-   Telegram a gateway 401 on every call.
+   checkout applies `supabase/config.toml`, which is what keeps all three
+   functions on `verify_jwt = false`; deploying any other way gives Telegram,
+   and both nightly jobs, a gateway 401 on every call.
 7. **Retarget the scheduled jobs.** The migrations create all three, with the
    URL of whichever project built them — so after a restore they call the OLD
    project using the NEW project's credentials, nightly, and cron reports a
@@ -453,7 +461,8 @@ cannot, because none of those four is a row in `public`.
    ```
 
    That fails on a job that is missing, inactive, aimed at another project, or
-   no longer carrying the authentication its endpoint requires.
+   no longer carrying the authentication its endpoint requires, and when the
+   vault has no usable `scheduler_secret`.
 8. **Reconcile the migration history.** Applying the migrations with `psql`
    populates the schema and leaves `supabase_migrations.schema_migrations`
    empty, so the CLI believes nothing has been applied and

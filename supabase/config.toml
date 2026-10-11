@@ -20,14 +20,18 @@ project_id = "erggbzbbutsvhleqcddq"
 [functions.telegram-webhook]
 verify_jwt = false
 
-# Invoked by pg_cron with a service-role bearer token, so JWT verification stays
-# on for both. These match what is deployed today; they are written down so a
-# redeploy cannot silently change them either.
+# Invoked by pg_cron with the vault's scheduler secret in
+# X-Rokda-Scheduler-Secret, which is not a JWT, so the gateway must not require
+# one. Each function checks the secret itself, in constant time, and refuses
+# every scheduled call when it is unset; price-refresh also admits a signed-in
+# household member, whose token it checks with the Auth server
+# (supabase/functions/_shared/requestAuth.ts, docs/decisions.md). Turning
+# verify_jwt back on makes the gateway 401 both nightly jobs.
 [functions.price-refresh]
-verify_jwt = true
+verify_jwt = false
 
 [functions.fd-accrual]
-verify_jwt = true
+verify_jwt = false
 
 # Sign-ups are closed. Rokda is one household's ledger, and its logins are made
 # by hand (dashboard: Authentication -> Users -> Add user). The publishable key

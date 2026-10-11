@@ -1,11 +1,12 @@
 // Who is calling an Edge Function, decided before it does any work.
 //
-// price-refresh and fd-accrual are deployed with verify_jwt = true
-// (supabase/config.toml, checked against production by verify:functions), so
-// the platform has already checked a bearer token's signature before the
-// function runs. That proves only that the token was issued by this project:
-// the publishable key's anonymous role and any signed-in user pass it too. So
-// each function also asks which role the token carries.
+// price-refresh and fd-accrual are deployed with verify_jwt = false
+// (supabase/config.toml, checked against production by verify:functions):
+// the nightly jobs send a scheduler secret rather than a JWT, so the platform
+// checks nothing and every caller reaches the function. Each function decides
+// for itself. The scheduler is recognised by a secret from the vault, compared
+// in constant time; price-refresh also admits a signed-in household member,
+// whose token it checks with the Auth server rather than decoding it.
 
 // The bearer token on a request, or null when there is none.
 export function bearerToken(req: Request): string | null {
@@ -13,28 +14,41 @@ export function bearerToken(req: Request): string | null {
   return match ? match[1] : null;
 }
 
-// The claims of a JWT, read without checking its signature: callers rely on
-// the platform's verify_jwt for that. Null for anything that is not a JWT
-// with a JSON object as its payload. The payload is base64url, which atob
-// reads once "-" and "_" are mapped back to "+" and "/"; the padding a JWT
-// strips needs no restoring, because atob decodes unpadded input.
-export function jwtClaims(token: string): Record<string, unknown> | null {
-  const parts = token.split(".");
-  if (parts.length !== 3 || parts[1] === "") return null;
-  try {
-    const claims = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
-    return claims !== null && typeof claims === "object" && !Array.isArray(claims) ? claims : null;
-  } catch {
-    return null;
-  }
+// The header the nightly jobs put the vault's scheduler_secret in (see the
+// scheduler_secret migration). Not a CORS-allowed header: no browser sends it.
+export const SCHEDULER_SECRET_HEADER = "X-Rokda-Scheduler-Secret";
+
+// The owner's steps make a 64-character secret. Anything shorter than this is
+// a mistake (a placeholder, a truncated paste, an empty value), and is treated
+// as no secret at all, so no scheduled call is accepted until it is fixed.
+export const MIN_SCHEDULER_SECRET_LENGTH = 32;
+
+// The scheduler secret a request presents, or null when it sends none. An
+// empty header counts as presented: it is a scheduled call that is wrong, not
+// a member's request.
+export function presentedSchedulerSecret(req: Request): string | null {
+  return req.headers.get(SCHEDULER_SECRET_HEADER);
 }
 
-// True only for the service role: the scheduled jobs send the service-role
-// key from the vault (see the schedule_all_jobs migration). Never true for a
-// request with no token, the anonymous role or a signed-in user.
-export function isServiceRoleRequest(req: Request): boolean {
-  const token = bearerToken(req);
-  return token !== null && jwtClaims(token)?.role === "service_role";
+// Whether a presented scheduler secret is the vault's. `loadExpected` reads
+// it (the get_scheduler_secret RPC), and is called only when something was
+// presented, so a request without the header costs no database round trip.
+// Fails closed: a lookup that errors or throws, a secret that is unset, and
+// one shorter than MIN_SCHEDULER_SECRET_LENGTH each refuse every call.
+export async function schedulerSecretMatches(
+  presented: string | null,
+  loadExpected: () => PromiseLike<{ data: unknown; error: unknown }>,
+): Promise<boolean> {
+  if (presented === null) return false;
+  let expected: string | null = null;
+  try {
+    const { data, error } = await loadExpected();
+    if (!error && typeof data === "string") expected = data;
+  } catch {
+    expected = null;
+  }
+  if (expected === null || expected.length < MIN_SCHEDULER_SECRET_LENGTH) return false;
+  return secretsMatch(presented, expected);
 }
 
 // Compares a presented secret with the expected one in time that does not

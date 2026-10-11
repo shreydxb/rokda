@@ -436,5 +436,12 @@
   "fingerprint": "d8a33ccbbe4d12e32d32f68359335f71",
   "framingFingerprint": "111bc01c5e6a4e504e24d76166d876af",
   "fingerprintVersion": 2
+ },
+ {
+  "version": "20261011195208",
+  "name": "scheduler_secret",
+  "fingerprint": "9d037303365fd4a9bf6d85a92b85173c",
+  "framingFingerprint": "a0ae5b6e419979ba19860b36be936f4f",
+  "fingerprintVersion": 2
  }
 ]

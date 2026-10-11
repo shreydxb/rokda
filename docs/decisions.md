@@ -697,44 +697,79 @@ Pages showed the current app.
 
 ## Who may run an Edge Function
 
-`price-refresh` and `fd-accrual` are deployed with `verify_jwt = true`, which
+`price-refresh` and `fd-accrual` were deployed with `verify_jwt = true`, which
 proves only that a token was issued by this project. The publishable key's
-anonymous role and any login pass that too, and both functions then work as
-the service role: one rewrites every fixed deposit, the other spends the
+anonymous role and any login passed that too, and both functions then worked
+as the service role: one rewrites every fixed deposit, the other spends the
 price feed's daily quota and sets every household's rupee rate.
 
-- **`fd-accrual` runs only for the service role**, which is what the daily
-  job sends (the vault's `service_role_key`). Nothing in the app calls it.
-- **`price-refresh` runs for the service role or a signed-in household
+- **`fd-accrual` runs only for the daily job.** Nothing in the app calls it.
+- **`price-refresh` runs for the weekday job or a signed-in household
   member**, since Investments has a Refresh button. A user token is checked
   with the Auth server, not only decoded, and then looked up in
-  `household_members`. It now answers the browser's CORS preflight without
+  `household_members`. It answers the browser's CORS preflight without
   doing anything, and its replies carry CORS headers. Before, every request
   was treated as a refresh, and no reply carried the headers a browser needs
   before it lets the page read the answer.
-- **The role is read from the token's claims** (`_shared/requestAuth.ts`),
-  trusting the platform's signature check. That is safe only while
-  `verify_jwt` stays on, which `config.toml` pins and `verify:functions`
-  checks against production. It also means the scheduled jobs depend on the
-  vault's `service_role_key` being the legacy JWT, as they already did
-  through `verify_jwt` before this change.
-- **That dependency has a deadline.** Supabase's API-key timetable says
-  projects created or restored from 1 November 2025 have no legacy keys,
-  and lists deleting them altogether for late 2026. When that happens the
-  two nightly jobs stop authenticating, here or in a restored project
-  (`docs/backup-restore.md`). The fix is the webhook's pattern: deploy both
-  with `verify_jwt = false`, have the jobs send a secret from the vault, and
-  compare it with `secretsMatch`; `price-refresh` keeps checking a member's
-  token with the Auth server for the Refresh button. It is not in this
-  change, and should come before the legacy keys go.
-- **The webhook's shared secret is compared in constant time.** `!==`
-  returns at the first differing character, so an endpoint anyone can reach
-  would leak the secret a character at a time to someone patient enough to
-  time it. The comparison walks the whole expected secret whatever is
-  presented. It stays synchronous: a first version hashed both values with
+- **How the jobs are recognised** changed with the next section: they used to
+  send the vault's `service_role_key`, a legacy JWT, and the functions read
+  its role from the claims, trusting `verify_jwt` for the signature.
+- **Every shared secret is compared in constant time.** `!==` returns at the
+  first differing character, so an endpoint anyone can reach would leak the
+  secret a character at a time to someone patient enough to time it. The
+  comparison walks the whole expected secret whatever is presented. It
+  stays synchronous: a first version hashed both values with
   `crypto.subtle`, whose answer arrives from another thread at an
   unpredictable moment, and the handler test of two concurrent deliveries
   of one update began failing about one run in twenty.
+
+## The nightly jobs carry their own secret
+
+The weekday price refresh and the daily fixed-deposit accrual authenticated
+with the vault's `service_role_key`, a legacy JWT. Supabase stopped issuing
+legacy keys to projects created or restored from 1 November 2025, and lists
+deleting them altogether for late 2026. After that, both jobs would fail every
+night, here and in any restored project, and nothing would say so except
+balances and prices that stop moving.
+
+- **A secret of their own.** The vault holds `scheduler_secret`, 64 random
+  hexadecimal characters. Both jobs send it as `X-Rokda-Scheduler-Secret`,
+  read from the vault when the job runs (`get_scheduler_secret()`), so
+  rotating it needs no reschedule. Both functions read the same value
+  through the same function, with the service-role client they already use,
+  and compare it with `secretsMatch`. This is the webhook's pattern.
+- **One place, so one value.** The secret is not also an Edge Function
+  environment variable. Two copies of one secret can disagree, and the jobs
+  then fail every night while each copy looks right.
+- **Fails closed.** An unset secret, one shorter than 32 characters, or a
+  lookup that fails refuses every scheduled call. An empty header, which is
+  what a job sends while the secret is unset, matches nothing. A request
+  without the header costs no database lookup.
+- **`verify_jwt = false` for both.** The jobs send no JWT, so the gateway
+  must not ask for one. Nothing trusts an unverified token instead: the
+  functions no longer read claims at all, and `price-refresh` sends a
+  member's token to the Auth server, which checks its signature. A request
+  that carries the scheduler header is judged on that alone, so a wrong
+  secret is refused even beside a valid login.
+- **Nobody signed in can read it.** `get_scheduler_secret()` is executable by
+  the service role and the database owner only, with an empty `search_path`.
+- **The owner makes the value**, in the SQL Editor, from
+  `gen_random_uuid()` inside the database, so it never appears in this
+  repository, a chat or a terminal. The steps are in
+  `docs/backup-restore.md` §5 (a restored project) and the pull request
+  that introduced this (production).
+- **Deploy checks know the difference between a change and drift.**
+  `verify:functions` treats `verify_jwt` disagreeing with `config.toml` as
+  drift, which always blocks. A commit that changes `verify_jwt` differs
+  from production until it deploys, as a source change does, so the check
+  now reads `config.toml` at the base too (main for a branch, the previous
+  commit on main). When production still has the base's value, the
+  difference is that commit's change: advisory on a branch, waited for on
+  main.
+- **Still open.** The functions' own database client uses
+  `SUPABASE_SERVICE_ROLE_KEY`, which the platform injects. Whether that keeps
+  working when legacy keys are deleted is the platform's to settle, and is
+  not changed here.
 
 ## The bot asks before it changes a balance or a goal
 

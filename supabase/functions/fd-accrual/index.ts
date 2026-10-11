@@ -7,18 +7,18 @@
 // that can ever disagree with itself about what an FD is worth.
 import "jsr:@supabase/functions-js@2.117.2/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2.117.2";
-import { isServiceRoleRequest } from "../_shared/requestAuth.ts";
+import { presentedSchedulerSecret, schedulerSecretMatches } from "../_shared/requestAuth.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
 Deno.serve(async (req) => {
-  // Only the daily job (daily-fd-accrual, a service-role token from the
-  // vault) runs this. verify_jwt alone also let any signed-in user, or the
-  // publishable key's anonymous role, make it rewrite every FD as the service
-  // role. Nothing in the app calls it.
-  if (!isServiceRoleRequest(req)) {
+  // Only the daily job (daily-fd-accrual) runs this, and it is recognised by
+  // the scheduler secret it sends from the vault. verify_jwt is off, so
+  // without this check anyone who can reach the URL could make it rewrite
+  // every FD as the service role. Nothing in the app calls it.
+  if (!(await schedulerSecretMatches(presentedSchedulerSecret(req), () => supabase.rpc("get_scheduler_secret")))) {
     return new Response(JSON.stringify({ error: "forbidden" }), { status: 403, headers: { "Content-Type": "application/json" } });
   }
 

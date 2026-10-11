@@ -56,18 +56,29 @@ begin
       problems := problems + 1;
     end if;
 
-    -- Both endpoints reject an unauthenticated call. Losing the header is a
+    -- Every endpoint rejects an unauthenticated call. Losing the header is a
     -- silent nightly failure, not an error anyone sees.
     if name = 'daily-recurring-nudge-check' then
       if position('X-Telegram-Bot-Api-Secret-Token' in cmd) = 0 then
         raise warning 'NO AUTH: % sends no shared secret; the webhook will reject every call', name;
         problems := problems + 1;
       end if;
-    elsif position('vault.decrypted_secrets' in cmd) = 0 then
-      raise warning 'NO AUTH: % reads no service-role key from the vault; the gateway will reject every call', name;
+    elsif position('X-Rokda-Scheduler-Secret' in cmd) = 0 or position('get_scheduler_secret()' in cmd) = 0 then
+      raise warning 'NO AUTH: % sends no scheduler secret from the vault; the function will reject every call', name;
+      problems := problems + 1;
+    elsif position('service_role_key' in cmd) > 0 then
+      raise warning 'LEGACY KEY: % still sends the service-role key, which Supabase is deleting', name;
       problems := problems + 1;
     end if;
   end loop;
+
+  -- The secret the two jobs send. Unset, or shorter than the functions accept
+  -- (MIN_SCHEDULER_SECRET_LENGTH), and both are refused every night. Only the
+  -- length is read; the value never leaves the vault.
+  if coalesce(length(get_scheduler_secret()), 0) < 32 then
+    raise warning 'NO SECRET: the vault has no scheduler_secret of at least 32 characters; price-refresh and fd-accrual will refuse every scheduled call';
+    problems := problems + 1;
+  end if;
 
   -- A job nobody expected, pointed anywhere, is worth seeing too.
   for name in select j.jobname from cron.job j where not (j.jobname = any(expected)) loop
@@ -77,8 +88,8 @@ begin
 
   if problems > 0 then
     raise exception 'verify-cron-targets: % problem(s) above', problems
-      using hint = 'Retarget with: select schedule_all_jobs(''<https://project-ref.supabase.co>'');';
+      using hint = 'Retarget with: select schedule_all_jobs(''<https://project-ref.supabase.co>''); create the scheduler secret as docs/backup-restore.md §5 says.';
   end if;
 
-  raise notice 'verify-cron-targets: ok — all three jobs are active, authenticated, and aimed at %', v_base;
+  raise notice 'verify-cron-targets: ok — all three jobs are active, authenticated, and aimed at %, and the scheduler secret is set', v_base;
 end $$;
