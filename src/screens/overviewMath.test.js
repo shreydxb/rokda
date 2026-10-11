@@ -184,6 +184,15 @@ describe('QA-06: planned versus posted', () => {
     expect(quality.totalTx).toBe(2);
   });
 
+  it('gives a column with no income an unknown savings rate, never 0%', () => {
+    const columns = buildChartColumns([{ occurred_at: '2026-09-01', amount: -100 }], 'mtd', null, now);
+    const current = columns[columns.length - 1];
+    expect(current.spend).toBe(100);
+    expect(current.rate).toBeNull();
+    const withIncome = buildChartColumns([{ occurred_at: '2026-09-01', amount: 400 }, { occurred_at: '2026-09-02', amount: -100 }], 'mtd', null, now);
+    expect(withIncome[withIncome.length - 1].rate).toBeCloseTo(0.75);
+  });
+
   it('keeps a planned record out of the running month column', () => {
     const columns = buildChartColumns([{ occurred_at: '2026-09-30', amount: -100 }], 'mtd', null, now);
     const current = columns[columns.length - 1];

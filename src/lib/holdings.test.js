@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { holdingGain, portfolioDayChange, portfolioInvestedAndGain, portfolioValueChange } from './holdings';
+import { costFromUnits, holdingGain, portfolioDayChange, portfolioInvestedAndGain, portfolioValueChange } from './holdings';
 
 describe('portfolioDayChange', () => {
   it('weights each holding change by its value, not a flat average', () => {
@@ -192,3 +192,23 @@ describe('a holding awaiting its first valuation is not a loss', () => {
     expect(gain.pending).toBe(0);
   });
 });
+
+describe('costFromUnits', () => {
+  it('is true with units and an average price in a currency the database converts', () => {
+    for (const currency of ['AED', 'USD', 'INR', 'inr']) {
+      expect(costFromUnits({ quantity: 10, avg_price: 100, currency })).toBe(true);
+    }
+    expect(costFromUnits({ quantity: '10', avg_price: '100.5', currency: 'USD' })).toBe(true);
+  });
+
+  it('is false without both numbers, or in a currency it cannot convert', () => {
+    expect(costFromUnits({ quantity: 10, avg_price: null, currency: 'USD' })).toBe(false);
+    expect(costFromUnits({ quantity: '', avg_price: 100, currency: 'USD' })).toBe(false);
+    expect(costFromUnits({ quantity: '  ', avg_price: '100', currency: 'USD' })).toBe(false);
+    expect(costFromUnits({ quantity: 'x', avg_price: '100', currency: 'USD' })).toBe(false);
+    expect(costFromUnits({ quantity: 10, avg_price: 100, currency: 'GBP' })).toBe(false);
+    expect(costFromUnits({ quantity: 10, avg_price: 100 })).toBe(false);
+    expect(costFromUnits()).toBe(false);
+  });
+});
+

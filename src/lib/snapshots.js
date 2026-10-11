@@ -34,12 +34,20 @@ export function pendingClose(snapshots = [], now = new Date()) {
 
 // The row a close writes. Upserting on (household_id, snapshot_date) — the
 // table's existing unique key — makes closing the same month twice idempotent.
+// A figure that is not a number is refused rather than stored as zero: a
+// closed month is compared against for years, and a missing total is not a
+// total of nothing.
 export function closeRowFor(householdId, snapshotDate, { assets, liabilities }) {
+  const figure = (value, label) => {
+    const n = typeof value === 'string' && value.trim() === '' ? NaN : Number(value);
+    if (value == null || !Number.isFinite(n)) throw new Error(`A month cannot close without ${label}.`);
+    return n;
+  };
   return {
     household_id: householdId,
     snapshot_date: snapshotDate,
-    assets: Number(assets) || 0,
-    liabilities: Number(liabilities) || 0,
+    assets: figure(assets, 'its assets'),
+    liabilities: figure(liabilities, 'its liabilities'),
   };
 }
 

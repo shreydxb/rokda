@@ -151,3 +151,35 @@ describe('QA #6: a new auto-priced holding is pending, not worth zero', () => {
     cleanup();
   });
 });
+
+// A holding's cost is units × average price, worked out by the database at the
+// peg or the current rupee rate. The editor must not offer a cost box the save
+// would silently overwrite, and must still offer one for a holding without
+// units.
+describe('cost from units', () => {
+  const unitInputs = () => document.querySelectorAll('input[type="number"][step="any"]');
+
+  it('replaces the cost box once units and an average price are entered', () => {
+    renderScreen(<HoldingEditor holding={null} householdId="hh" members={[]} onClose={() => {}} onSaved={async () => {}} />);
+    expect(screen.queryByTestId('invested-from-units')).toBeNull();
+    expect(document.querySelector('input.te-fieldvalue[step="0.01"]')).not.toBeNull();
+
+    fireEvent.change(unitInputs()[0], { target: { value: '10' } });
+    expect(screen.queryByTestId('invested-from-units')).toBeNull();
+    fireEvent.change(unitInputs()[1], { target: { value: '100' } });
+    expect(screen.getByTestId('invested-from-units').textContent).toMatch(/Units × avg price/);
+    expect(document.querySelector('input.te-fieldvalue[step="0.01"]')).toBeNull();
+    cleanup();
+  });
+
+  it('keeps the cost box for a currency the database cannot convert', () => {
+    renderScreen(<HoldingEditor holding={null} householdId="hh" members={[]} onClose={() => {}} onSaved={async () => {}} />);
+    fireEvent.change(document.querySelector('input[maxlength="3"]'), { target: { value: 'GBP' } });
+    fireEvent.change(unitInputs()[0], { target: { value: '10' } });
+    fireEvent.change(unitInputs()[1], { target: { value: '100' } });
+    expect(screen.queryByTestId('invested-from-units')).toBeNull();
+    expect(document.querySelector('input.te-fieldvalue[step="0.01"]')).not.toBeNull();
+    cleanup();
+  });
+});
+

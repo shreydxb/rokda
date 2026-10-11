@@ -46,6 +46,15 @@ describe('QA-05: closing a month', () => {
     expect(snapshotMonthKeys([once, twice]).size).toBe(1);
   });
 
+  it('refuses a missing figure rather than storing it as zero', () => {
+    for (const bad of [NaN, null, undefined, '', '  ', 'abc', Infinity]) {
+      expect(() => closeRowFor('hh', '2026-08-01', { assets: bad, liabilities: 0 })).toThrow(/assets/);
+      expect(() => closeRowFor('hh', '2026-08-01', { assets: 0, liabilities: bad })).toThrow(/liabilities/);
+    }
+    // A real zero is a figure.
+    expect(closeRowFor('hh', '2026-08-01', { assets: 0, liabilities: '0' })).toMatchObject({ assets: 0, liabilities: 0 });
+  });
+
   it('reports history as not configured rather than as coming soon', () => {
     expect(historyState([])).toBe('none');
     expect(historyState([{ snapshot_date: '2026-08-01' }])).toBe('started');

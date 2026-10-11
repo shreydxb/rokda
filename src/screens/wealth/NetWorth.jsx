@@ -116,8 +116,19 @@ export default function NetWorth({ household, me, members, data, loading }) {
   // review of what would be written — today's live totals, offered as a
   // starting point, not a fact yet. Nothing is written until "Confirm &
   // close" is pressed on those (possibly edited) numbers.
+  //
+  // A total with gaps (an account not converted, a holding never valued) is
+  // not offered at all: confirming it as it stands would put a partial
+  // balance sheet into the history for good. The fields start empty, and the
+  // month stays open, saying why, until the gaps are fixed or someone types
+  // what the month actually closed at (docs/decisions.md, "A month closes on
+  // complete totals").
   function reviewClose() {
     if (!pending) return;
+    if (incompleteNote(gaps)) {
+      setCloseDraft({ assets: '', liabilities: '' });
+      return;
+    }
     const household_wide = netWorthSummary(accounts, null, holdings);
     setCloseDraft({ assets: String(household_wide.assets), liabilities: String(household_wide.liabilities) });
   }
@@ -318,8 +329,9 @@ export default function NetWorth({ household, me, members, data, loading }) {
           <div className="ov-card" style={{ marginBottom: 16, padding: 14 }}>
             <div className="ov-muted" style={{ marginBottom: 10 }}>
               Confirm what {pending.month.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })} actually closed at.
-              These start from today's live totals — edit them if they don't reflect that month's actual position. Stored
-              values are always AED, regardless of the display currency above.
+              {incompleteNote(gaps)
+                ? 'Stored values are always AED, regardless of the display currency above.'
+                : "These start from today's live totals — edit them if they don't reflect that month's actual position. Stored values are always AED, regardless of the display currency above."}
             </div>
             {/* A month-end close is written down and compared against for
                 years. Starting it from a total that silently omits an
@@ -327,9 +339,9 @@ export default function NetWorth({ household, me, members, data, loading }) {
                 (QA #4), so the gap is named here rather than only on the
                 hero above. */}
             {incompleteNote(gaps) && (
-              <div className="ov-warn" style={{ marginBottom: 10, fontSize: 12 }}>
-                These totals {incompleteNote(gaps, { capitalised: false })} Convert or value {gapNames} first, or adjust the
-                figures by hand.
+              <div className="ov-warn" style={{ marginBottom: 10, fontSize: 12 }} data-testid="close-gaps">
+                Today&rsquo;s totals {incompleteNote(gaps, { capitalised: false })} so they are not filled in. Convert or value{' '}
+                {gapNames} first, or enter what the month actually closed at.
               </div>
             )}
             <div className="te-fieldgrid">

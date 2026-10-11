@@ -820,3 +820,93 @@ problem: they wait in the Inbox, or for a "yes".
 - Goal contributions confirmed this way keep the Telegram message as their
   delivery key, so a message the bot recorded directly before this change is
   not recorded a second time.
+
+## What came over from the older finance app
+
+Rokda replaced an older household finance app whose design notes set out rules
+for money data. Before that app is retired, each rule was checked against
+Rokda. Most were already here: a missing rate is unknown, never 1:1; the
+household's day is Dubai's; amounts are stored in AED when they are saved,
+and saving one without a rate is refused (the app's editor, and
+`approve_intake` for the bot); membership is the only authorization; delivered
+messages have one effect; the bot asks before it changes a balance or a goal.
+
+Four rules were missing and are adopted in the sections below: a holding's
+cost comes from its units, a price is as old as its quote, a month closes on
+complete totals, and a savings rate needs income.
+
+Not adopted, deliberately:
+
+- **Soft-deleted transactions.** Rokda records every edit in
+  `transaction_edits`, and an account with history cannot be deleted.
+- **Typed transfers and category splits.** Wanted, and already their own
+  backlog items (SHR-234, SHR-233), not something to copy wholesale.
+- **A daily, server-captured net-worth close with publication policies.**
+  Built for an automated daily series. Rokda closes a month, by a person; the
+  rule that matters, no partial totals in history, is kept below.
+- **An immutable audit log for every action, an economic-party model and
+  category system codes.** Sized for many people and many households. Rokda is
+  one household, and `transaction_edits` and `account_balance_events` keep the
+  history that matters to it.
+
+## A holding's cost is its units at their average price
+
+A holding's cost was a fixed AED figure, typed in or worked out at the rupee
+rate of the day it was entered, while its value follows today's rate. The gain
+on a rupee holding therefore mixed share performance with however far the rate
+had moved since.
+
+- **With units and an average price, the cost is worked out, not entered**
+  (`holdings_derive_cost`): units × average price in the holding's own
+  currency, converted the way its value is. AED as is, USD at the peg, INR at
+  the household's current rate. The editor shows "Units × avg price" instead
+  of a box the save would overwrite.
+- **Rupee holdings follow the rate** (`holdings_follow_inr_rate`), as rupee
+  accounts do: when the rate changes, their cost and their value from the last
+  price move with it. That is not a reprice, so `priced_at` and the value
+  history stay as they are.
+- **No rate, no cost.** If the rupee rate is cleared, a rupee holding's cost is
+  unknown and its gain is not shown. The value keeps its last figure.
+- **Without units, or in a currency Rokda does not convert**, the cost is what
+  a person entered, as before.
+- The gain shown is now in today's dirhams: what the holdings are worth less
+  what they cost, both at today's rate. Currency movement is not counted as
+  gain or loss.
+
+## A price is as old as its quote
+
+`priced_at` is how old a holding's value is, and staleness is measured against
+it. The price feed used to set it to the moment it ran, so a price the exchange
+quoted days earlier (a suspended share, a fund whose NAV had not been
+published) looked fresh.
+
+- **The feed writes the provider's quote time into `priced_at`**: the last
+  trade time from Yahoo and Twelve Data, CoinGecko's update time, and for a
+  fund the NAV's date at the Indian market close.
+- **A quote with no usable time leaves `priced_at` where it was.** The price is
+  still stored, and the holding keeps ageing rather than looking new. A time
+  more than an hour in the future is treated as unusable.
+- **When the feed ran is kept separately** in `price_fetched_at`, which is what
+  Investments shows as when prices were last refreshed.
+
+## A month closes on complete totals
+
+A closed month is compared against for years. Closing one used to start from
+today's totals even when they left something out: an account with no AED value,
+or a holding never valued. Confirming those as they stood stored a partial
+balance sheet as history.
+
+- **A total with a gap is not offered.** The review names what is missing and
+  leaves the figures empty. The month stays open until the gaps are fixed, or
+  someone types what it actually closed at.
+- **A missing figure is refused, not stored as zero** (`closeRowFor`).
+- An account whose balance is unconfirmed is still counted, as zero, and says
+  so. That is a figure someone can confirm, not a missing conversion.
+
+## A savings rate needs income
+
+A savings rate is what was kept out of what came in. With nothing coming in, it
+is unknown, not 0% and not a large negative percentage. The period figures
+already said so; the cash-flow chart's monthly figure now agrees, so no column
+shows a rate the headline refuses. Amounts are already in AED when saved, so a
+missing exchange rate cannot reach the rate.
