@@ -45,6 +45,22 @@ trap 'rm -rf "$WORKDIR"' EXIT
 # stayed a release behind until someone re-ran the job by hand. Measured on
 # PR #40: stale at 16:07:08, in sync by 16:07:52, so a few minutes is ample.
 AWAIT_SECONDS="${AWAIT_DEPLOY_SECONDS:-0}"
+
+# The commit production is deployed from, as a git ref: main for a branch, the
+# previous commit on main. Its config.toml tells a verify_jwt this commit
+# changes, which production cannot have yet, from drift, which it should not
+# have at all (compare-functions.mjs, 'pending'). Unset, or unreadable, and
+# every verify_jwt difference is drift, as before.
+BASE_REF="${PARITY_BASE_REF:-}"
+BASE_ARGS=()
+if [ -n "$BASE_REF" ]; then
+  if git show "$BASE_REF:supabase/config.toml" > "$WORKDIR/base-config.toml" 2>/dev/null; then
+    BASE_ARGS=(--base-config "$WORKDIR/base-config.toml")
+    echo "verify-function-parity: comparing verify_jwt changes against $BASE_REF"
+  else
+    echo "verify-function-parity: could not read supabase/config.toml at $BASE_REF; every verify_jwt difference counts as drift" >&2
+  fi
+fi
 POLL_SECONDS="${AWAIT_DEPLOY_POLL_SECONDS:-20}"
 
 # Waiting is only honest when this commit is the thing being deployed. If the
@@ -124,7 +140,7 @@ check_once() {
   # something this commit declares (QA #7). scripts/verify-release.sh passes
   # it; ordinary CI does not.
   echo "verify-function-parity: comparing against $(git rev-parse --short HEAD)"
-  node scripts/compare-functions.mjs "$WORKDIR/supabase/functions" "$LIST_JSON" "$@"
+  node scripts/compare-functions.mjs "$WORKDIR/supabase/functions" "$LIST_JSON" "${BASE_ARGS[@]}" "$@"
 }
 
 deadline=$((SECONDS + AWAIT_SECONDS))

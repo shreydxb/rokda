@@ -10,7 +10,7 @@
 import "jsr:@supabase/functions-js@2.117.2/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2.117.2";
 import { householdToday } from "../_shared/applib/day.js";
-import { bearerToken, isServiceRoleRequest } from "../_shared/requestAuth.ts";
+import { bearerToken, presentedSchedulerSecret, schedulerSecretMatches } from "../_shared/requestAuth.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -316,14 +316,18 @@ function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } });
 }
 
-// Two callers may refresh: the weekday job (a service-role token from the
-// vault) and a signed-in member of a household pressing Refresh. verify_jwt
-// alone also admitted the publishable key's anonymous role and any login,
+// Two callers may refresh: the weekday job, which sends the vault's scheduler
+// secret, and a signed-in member of a household pressing Refresh. verify_jwt
+// is off (the job sends no JWT), so anyone who can reach the URL gets here:
+// the publishable key's anonymous role, any login, or no credentials at all,
 // each able to spend the price feed's daily quota and rewrite every
-// household's FX rate. A user token is checked with the Auth server, not
-// only decoded, before its membership is looked up.
+// household's FX rate. A request that presents a scheduler secret is judged
+// on that alone, so a wrong secret is refused even beside a valid login. A
+// user token is checked with the Auth server, which verifies its signature,
+// before its membership is looked up.
 async function callerMayRefresh(req: Request): Promise<boolean> {
-  if (isServiceRoleRequest(req)) return true;
+  const presented = presentedSchedulerSecret(req);
+  if (presented !== null) return await schedulerSecretMatches(presented, () => supabase.rpc("get_scheduler_secret"));
   const token = bearerToken(req);
   if (!token) return false;
   const { data: auth, error } = await supabase.auth.getUser(token);

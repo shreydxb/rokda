@@ -114,6 +114,11 @@ deploy and run fine without them, and every outbound call fails.
 `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are injected by the platform and
 must not be set by hand.
 
+The secret the nightly jobs send to `price-refresh` and `fd-accrual` is not
+one of these. It lives in the vault (`scheduler_secret`), where both the jobs
+and the functions read it, so there is one copy to keep right
+(`docs/decisions.md`, "The nightly jobs carry their own secret").
+
 Nothing in CI can check these: reading them back is not something the
 Management API offers, and a check that could read them would be a check that
 could leak them. They are verified by use — see the rehearsal checklist in
@@ -283,6 +288,13 @@ it that matter:
    `compare-functions.mjs` is guarding a value nothing sets. Worth settling,
    since deploying `telegram-webhook` with JWT verification on 401s every
    Telegram call at the gateway and presents as a Telegram outage.
+
+   The scheduler-secret change settles it: it turns `verify_jwt` off for
+   `price-refresh` and `fd-accrual`, and `verify:functions` on `main` reports
+   whether the deploy applied that. If it did not, set it in the dashboard
+   (Edge Functions → the function → Details → Enforce JWT verification off),
+   only once the new code is live, and record here that the integration
+   ignores `config.toml`.
 
 A manual `deploy-functions.yml` workflow existed briefly and was removed: it
 was built on the belief that nothing deployed automatically, and it could not

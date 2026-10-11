@@ -3,15 +3,7 @@
 // scheduledCallers.test.ts.
 
 import { assert, assertEquals } from "jsr:@std/assert@1";
-import { bearerToken, isServiceRoleRequest, jwtClaims, secretsMatch } from "./requestAuth.ts";
-
-// An unsigned token with the given claims. The functions never check a
-// signature themselves -- the platform's verify_jwt does -- so the tests do
-// not need a real one.
-function fakeJwt(claims: Record<string, unknown>): string {
-  const encode = (value: unknown) => btoa(JSON.stringify(value)).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
-  return `${encode({ alg: "HS256", typ: "JWT" })}.${encode(claims)}.signature`;
-}
+import { bearerToken, MIN_SCHEDULER_SECRET_LENGTH, presentedSchedulerSecret, SCHEDULER_SECRET_HEADER, schedulerSecretMatches, secretsMatch } from "./requestAuth.ts";
 
 function withAuthorization(value: string | null): Request {
   return new Request("http://edge.test/fn", { method: "POST", headers: value === null ? {} : { Authorization: value } });
@@ -26,27 +18,63 @@ Deno.test("a bearer token is read from the Authorization header and nothing else
   assertEquals(bearerToken(withAuthorization("Bearer a b")), null);
 });
 
-Deno.test("claims are read from a JWT's payload, and anything else reads as none", () => {
-  assertEquals(jwtClaims(fakeJwt({ role: "service_role", sub: "x" })), { role: "service_role", sub: "x" });
-  // A payload whose base64url carries both "-" and "_" (base64 "+" and "/"),
-  // which atob rejects unless they are mapped back, with its padding
-  // stripped the way a JWT's is.
-  const token = fakeJwt({ role: "authenticated", sub: "?>.??" });
-  const payload = token.split(".")[1];
-  assert(payload.includes("-") && payload.includes("_") && !payload.endsWith("="), token);
-  assertEquals(jwtClaims(token), { role: "authenticated", sub: "?>.??" });
-  for (const bad of ["", "abc", "a.b", "a..c", "a.!!!.c", `a.${btoa("[1,2]")}.c`, `a.${btoa("null")}.c`, "sb_publishable_xxxxxxxx"]) {
-    assertEquals(jwtClaims(bad), null, bad);
+function withSchedulerSecret(value: string | null): Request {
+  return new Request("http://edge.test/fn", { method: "POST", headers: value === null ? {} : { [SCHEDULER_SECRET_HEADER]: value } });
+}
+
+Deno.test("a scheduler secret is read from its own header, and an empty one still counts as presented", () => {
+  assertEquals(presentedSchedulerSecret(withSchedulerSecret("abc")), "abc");
+  assertEquals(presentedSchedulerSecret(withSchedulerSecret("")), "");
+  assertEquals(presentedSchedulerSecret(withSchedulerSecret(null)), null);
+  assertEquals(presentedSchedulerSecret(withAuthorization("Bearer abc")), null);
+});
+
+const SECRET = "0123456789abcdef".repeat(4);
+
+// A stand-in for the get_scheduler_secret RPC that records whether it ran.
+function vault(answer: { data: unknown; error: unknown } | Error) {
+  const lookups = { count: 0 };
+  const load = () => {
+    lookups.count += 1;
+    if (answer instanceof Error) return Promise.reject(answer);
+    return Promise.resolve(answer);
+  };
+  return { load, lookups };
+}
+
+Deno.test("the scheduler secret matches the vault's, and only it", async () => {
+  const { load } = vault({ data: SECRET, error: null });
+  assert(await schedulerSecretMatches(SECRET, load));
+  for (const wrong of ["", SECRET.slice(0, -1), SECRET + "0", SECRET.toUpperCase(), ` ${SECRET}`]) {
+    assert(!(await schedulerSecretMatches(wrong, load)), JSON.stringify(wrong));
   }
 });
 
-Deno.test("only a service-role token counts as the scheduler", () => {
-  assert(isServiceRoleRequest(withAuthorization(`Bearer ${fakeJwt({ role: "service_role" })}`)));
-  for (const role of ["anon", "authenticated", "SERVICE_ROLE", "service_role ", undefined]) {
-    assert(!isServiceRoleRequest(withAuthorization(`Bearer ${fakeJwt(role === undefined ? {} : { role })}`)), String(role));
+Deno.test("no presented secret is refused without asking the vault", async () => {
+  const { load, lookups } = vault({ data: SECRET, error: null });
+  assert(!(await schedulerSecretMatches(null, load)));
+  assertEquals(lookups.count, 0);
+});
+
+Deno.test("a missing, short or unreadable vault secret refuses every call", async () => {
+  const short = "x".repeat(MIN_SCHEDULER_SECRET_LENGTH - 1);
+  const cases: Array<[string, { data: unknown; error: unknown } | Error, string]> = [
+    ["unset", { data: null, error: null }, ""],
+    ["unset, presented as the text null", { data: null, error: null }, "null"],
+    ["shorter than the minimum, presented exactly", { data: short, error: null }, short],
+    ["empty, presented empty", { data: "", error: null }, ""],
+    ["lookup error", { data: SECRET, error: { message: "permission denied" } }, SECRET],
+    ["lookup throws", new Error("network down"), SECRET],
+    ["not text", { data: { secret: SECRET }, error: null }, SECRET],
+  ];
+  for (const [name, answer, presented] of cases) {
+    const { load, lookups } = vault(answer);
+    assert(!(await schedulerSecretMatches(presented, load)), name);
+    assertEquals(lookups.count, 1, name);
   }
-  assert(!isServiceRoleRequest(withAuthorization(null)));
-  assert(!isServiceRoleRequest(withAuthorization("Bearer sb_secret_notajwt")));
+  // Exactly the minimum length is accepted.
+  const minimum = "y".repeat(MIN_SCHEDULER_SECRET_LENGTH);
+  assert(await schedulerSecretMatches(minimum, vault({ data: minimum, error: null }).load));
 });
 
 Deno.test("a secret matches only itself, and an unset secret matches nothing", () => {

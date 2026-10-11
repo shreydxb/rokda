@@ -69,6 +69,7 @@ case "$1 $2" in
   "rev-parse --verify") exit 0 ;;
   "rev-parse --short") echo abc1234 ;;
   "diff --quiet") [ "\${FAKE_COMMIT_CHANGES_FUNCTIONS:-0}" = 1 ] && exit 1 || exit 0 ;;
+  "show base:supabase/config.toml") [ -n "\${FAKE_BASE_CONFIG:-}" ] && cat "$FAKE_BASE_CONFIG" || exit 128 ;;
   *) echo "fake git: unexpected $*" >&2; exit 2 ;;
 esac
 `,
@@ -84,18 +85,18 @@ afterEach(() => {
 // unless a test says otherwise.
 function listFunctions(overrides = {}) {
   const fns = [
-    { slug: 'fd-accrual', status: 'ACTIVE', verify_jwt: true },
-    { slug: 'price-refresh', status: 'ACTIVE', verify_jwt: true },
+    { slug: 'fd-accrual', status: 'ACTIVE', verify_jwt: false },
+    { slug: 'price-refresh', status: 'ACTIVE', verify_jwt: false },
     { slug: 'telegram-webhook', status: 'ACTIVE', verify_jwt: false, ...overrides },
   ];
   writeFileSync(join(dir, 'api', 'v1', 'projects', REF, 'functions'), JSON.stringify(fns));
 }
 
-function run({ staleDownloads = 0, awaitSeconds = 0, commitChangesFunctions = false } = {}) {
+function run({ staleDownloads = 0, awaitSeconds = 0, commitChangesFunctions = false, baseRef = '', baseConfig = '', args = [] } = {}) {
   return new Promise((done) => {
     execFile(
       'bash',
-      ['scripts/verify-function-parity.sh'],
+      ['scripts/verify-function-parity.sh', ...args],
       {
         cwd: REPO,
         env: {
@@ -109,6 +110,8 @@ function run({ staleDownloads = 0, awaitSeconds = 0, commitChangesFunctions = fa
           AWAIT_DEPLOY_SECONDS: String(awaitSeconds),
           AWAIT_DEPLOY_POLL_SECONDS: '0',
           FAKE_COMMIT_CHANGES_FUNCTIONS: commitChangesFunctions ? '1' : '0',
+          PARITY_BASE_REF: baseRef,
+          FAKE_BASE_CONFIG: baseConfig,
         },
       },
       (error, stdout, stderr) => {
@@ -179,5 +182,56 @@ describe('SHR-304: waiting for a deploy that is in flight', () => {
     const r = await run({ staleDownloads: 1, awaitSeconds: 60, commitChangesFunctions: true });
     expect(r.code).toBe(1);
     expect(r.downloads).toBe(1);
+  });
+});
+
+// A commit that turns verify_jwt off for the scheduled functions (the
+// scheduler-secret change) differs from production until it deploys. With the
+// base's config.toml the check can tell that from drift.
+describe('a verify_jwt change this commit makes', () => {
+  // Production still runs both scheduled functions with verify_jwt on, as the
+  // base declares; this commit's config.toml turns it off.
+  function beforeTheDeploy() {
+    listFunctions();
+    const fns = JSON.parse(readFileSync(join(dir, 'api', 'v1', 'projects', REF, 'functions'), 'utf8'));
+    for (const fn of fns) if (fn.slug !== 'telegram-webhook') fn.verify_jwt = true;
+    writeFileSync(join(dir, 'api', 'v1', 'projects', REF, 'functions'), JSON.stringify(fns));
+    const base = join(dir, 'base-config.toml');
+    writeFileSync(
+      base,
+      ['[functions.telegram-webhook]', 'verify_jwt = false', '[functions.price-refresh]', 'verify_jwt = true', '[functions.fd-accrual]', 'verify_jwt = true'].join('\n'),
+    );
+    return base;
+  }
+
+  it('does not block a branch that makes it', async () => {
+    const base = beforeTheDeploy();
+    const r = await run({ baseRef: 'base', baseConfig: base, args: ['--branch'] });
+    expect(r.out).toMatch(/when this branch merges and deploys/);
+    expect(r.code).toBe(0);
+  });
+
+  it('is waited for on main, like a source change, and fails if the deploy never applies it', async () => {
+    const base = beforeTheDeploy();
+    const r = await run({ baseRef: 'base', baseConfig: base, awaitSeconds: 2, commitChangesFunctions: true });
+    expect(r.out).toMatch(/deploy is probably in flight/);
+    expect(r.out).toMatch(/did not land/);
+    expect(r.code).toBe(1);
+    expect(r.downloads).toBeGreaterThan(1);
+  });
+
+  it('is drift without a base, and fails at once even on a branch', async () => {
+    beforeTheDeploy();
+    const r = await run({ args: ['--branch'], awaitSeconds: 60, commitChangesFunctions: true });
+    expect(r.out).toMatch(/verify_jwt=true EXPECTED false/);
+    expect(r.code).toBe(1);
+    expect(r.downloads).toBe(1);
+  });
+
+  it('is drift when the base cannot be read, and says so', async () => {
+    beforeTheDeploy();
+    const r = await run({ baseRef: 'base', args: ['--branch'] });
+    expect(r.out).toMatch(/could not read supabase\/config.toml at base/);
+    expect(r.code).toBe(1);
   });
 });

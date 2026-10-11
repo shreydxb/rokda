@@ -753,6 +753,32 @@ begin
 end $$;
 reset role;
 
+-- The scheduler secret runs either nightly job; nobody calling the API as a
+-- visitor or a signed-in member may read it.
+set role anon;
+do $$
+begin
+  begin
+    perform get_scheduler_secret();
+    raise exception 'scheduler secret FAILED: anon could read the scheduler secret';
+  exception
+    when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+set role authenticated;
+do $$
+begin
+  begin
+    perform get_scheduler_secret();
+    raise exception 'scheduler secret FAILED: a signed-in member could read the scheduler secret';
+  exception
+    when insufficient_privilege then null;
+  end;
+  raise notice 'scheduler secret ok: neither anon nor a signed-in member can read it';
+end $$;
+reset role;
+
 -- A household can still be deleted outright: the cascade takes the roster with
 -- it, and that is not "a household left without an owner".
 reset role;
