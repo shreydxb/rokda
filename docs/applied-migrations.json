@@ -401,5 +401,40 @@
   "fingerprint": "af119920429bdc53e91fb7e16f31fe1a",
   "framingFingerprint": "785b3c8a97102b1d59e3db60c0fd500a",
   "fingerprintVersion": 2
+ },
+ {
+  "version": "20261011072735",
+  "name": "household_day_and_rupee_accounts",
+  "fingerprint": "2a0316a0a4a41db028ccd8cfabc90d43",
+  "framingFingerprint": "63df9403b74c0ad1cfbaaa9134b0e8a8",
+  "fingerprintVersion": 2
+ },
+ {
+  "version": "20261011072805",
+  "name": "one_household_per_rokda",
+  "fingerprint": "f22efcee0c09147d24d7f9d43693dd00",
+  "framingFingerprint": "3bae526bc55598b97bd49e281f601f51",
+  "fingerprintVersion": 2
+ },
+ {
+  "version": "20261011072846",
+  "name": "private_membership_helpers",
+  "fingerprint": "e758ef54b42afa0dd4fda5a30523cadf",
+  "framingFingerprint": "00fd8765e66759ac2ef864272879d8da",
+  "fingerprintVersion": 2
+ },
+ {
+  "version": "20261011185929",
+  "name": "intake_confirm_guessed_date",
+  "fingerprint": "f7a58f982a65dfd5946b271a5c1b7586",
+  "framingFingerprint": "e33cf2e720f7e7ab17a5e5a28d0fc665",
+  "fingerprintVersion": 2
+ },
+ {
+  "version": "20261011190050",
+  "name": "bot_proposals_and_balance_history",
+  "fingerprint": "d8a33ccbbe4d12e32d32f68359335f71",
+  "framingFingerprint": "111bc01c5e6a4e504e24d76166d876af",
+  "fingerprintVersion": 2
  }
 ]
