@@ -12,6 +12,7 @@ function builder(table) {
     select: () => chain,
     eq: () => chain,
     order: () => chain,
+    range: () => Promise.resolve(result()),
     maybeSingle: () => Promise.resolve(result()),
     then: (resolve, reject) => Promise.resolve(result()).then(resolve, reject),
   };

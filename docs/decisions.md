@@ -951,3 +951,60 @@ look at the list pushed the rest of the page out of sight. It now shows the
 four most pressing, with a payment due ahead of a warning and a warning ahead
 of something stale, and "Show all N" opens the rest. The count beside the
 heading is still the whole number.
+
+## A statement is reconciled, and Rokda records it
+
+Card statements are where Rokda's record of spending is checked against the
+bank's: missing entries added, doubles removed, the balance corrected. That
+check happened when someone remembered it, and nothing recorded whether it had.
+
+- **One record per card per statement** (`statement_reconciliations`): the
+  period it covers, its due date, the statement's own figures when someone
+  records them, and a status. *Waiting* until someone checks it; then
+  *confirmed* (a member says it is done), *reconciled* (checked line by line
+  and the figures agree) or *mismatch* (checked, and they do not).
+- **The bot asks from the day after a statement closes**, every morning, until
+  it is no longer waiting or the next statement closes. Not on the closing day
+  itself: its last day's spending can still post. "done", "reconciled",
+  "checked" or a 👍 settle it; "not yet" asks again tomorrow. A reply or a
+  reaction to any of its questions counts. A bare "done" counts only when
+  exactly one statement is waiting and no other question is, and a bare
+  "yes" never does: that belongs to the expense and balance questions.
+- **The record is the state.** No bot proposal: nothing is applied on a
+  "done" except marking the statement, so the question's messages are kept on
+  the statement's own row. Members can mark one done from Wealth ->
+  Statements too. Nobody can delete one.
+- A statement covers the day after the previous close through the closing
+  day, as the banks print it ("29 Mar to 28 Apr"), and is due on the first due
+  day on or after it closes, so a card paid in full on its statement day is
+  due that same day.
+- On by default, switched off in Settings -> Telegram like every other nudge.
+
+## The bot categorises from the household's own history
+
+The bot already preferred how the household had categorised a merchant before
+over the model's guess, but it read only the latest 200 transactions, and
+statement names never matched what people type: "EPPCO SITE 1077" against
+"eppco", "NOON MINUTES LLC DUBAI ARE" against "noon minutes". The rules in
+Settings -> Categories & rules were used by the Inbox only.
+
+- **A rule wins**, because someone wrote it on purpose. Then the category
+  used most for the same merchant across all of history, the most recent on a
+  tie (`merchant_category_counts()`, grouped in the database and callable by
+  the bot only). Only then the model's guess.
+- **Names are compared without what statements add** (`applib/merchants.js`):
+  store numbers, the city and country, the legal form, a payment processor's
+  prefix. Whole words only, and still one-directional: a shortened name
+  inherits from a fuller one, but a brand never inherits from its own
+  sub-service ("Careem" is a ride, "Careem Food" is not).
+
+## A screen reads every row, a page at a time
+
+The Supabase API returns at most 1,000 rows per request and says nothing when
+it stops there. Screens read whole tables, so a household past 1,000
+transactions would have lost its oldest spending from Budget and Insights, and
+past 1,000 days of holding prices, its newest. Every source the screens load
+is now read a page at a time until a short page comes back
+(`src/lib/pagedRead.js`), each query ending in a unique column so the pages
+cannot overlap or skip a row. A failed page fails the read; it is never shown
+as a shorter list.

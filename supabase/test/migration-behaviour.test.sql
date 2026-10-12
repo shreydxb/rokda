@@ -1676,4 +1676,90 @@ begin
   raise notice 'autopay ok: a confirmed bill is recorded once, at the amount given, and never on top of one already logged';
 end $$;
 
+-- A card statement is recorded once, waits until it is closed with a time,
+-- and its period cannot end before it starts. The statement question is on by
+-- default. merchant_category_counts() groups a household's own expenses and
+-- only the bot can call it.
+do $$
+declare
+  hh constant uuid := '11111111-1111-1111-1111-111111111111';
+  m1 constant uuid := '22222222-2222-2222-2222-222222222222';
+  card constant uuid := 'a8000000-0000-4000-8000-0000000000c1';
+  fuel constant uuid := 'a8000000-0000-4000-8000-0000000000f1';
+  wash constant uuid := 'a8000000-0000-4000-8000-0000000000f2';
+  enabled boolean;
+  n int;
+  r record;
+begin
+  insert into accounts (id, household_id, name, type, balance, is_shared, statement_day, due_day)
+  values (card, hh, 'Bank card', 'credit_card', 0, true, 28, 22);
+
+  insert into statement_reconciliations (household_id, account_id, statement_date, period_start, due_date)
+  values (hh, card, '2026-09-28', '2026-08-29', '2026-10-22');
+  if (select status from statement_reconciliations where account_id = card) <> 'waiting' then
+    raise exception 'statements FAILED: a new statement is not waiting';
+  end if;
+  begin
+    insert into statement_reconciliations (household_id, account_id, statement_date, period_start) values (hh, card, '2026-09-28', '2026-08-29');
+    raise exception 'statements FAILED: the same statement was recorded twice';
+  exception when unique_violation then null;
+  end;
+  begin
+    insert into statement_reconciliations (household_id, account_id, statement_date, period_start) values (hh, card, '2026-08-28', '2026-09-01');
+    raise exception 'statements FAILED: a period that ends before it starts was accepted';
+  exception when check_violation then null;
+  end;
+  begin
+    update statement_reconciliations set status = 'confirmed' where account_id = card;
+    raise exception 'statements FAILED: a statement was closed without saying when';
+  exception when check_violation then null;
+  end;
+  begin
+    update statement_reconciliations set closed_at = now() where account_id = card;
+    raise exception 'statements FAILED: a waiting statement carried a closing time';
+  exception when check_violation then null;
+  end;
+  begin
+    update statement_reconciliations set status = 'settled', closed_at = now() where account_id = card;
+    raise exception 'statements FAILED: an unknown status was accepted';
+  exception when check_violation then null;
+  end;
+  update statement_reconciliations set status = 'confirmed', closed_at = now(), closed_by_member_id = m1, asked_message_ids = '{11,12}' where account_id = card;
+  if not exists (select 1 from statement_reconciliations where account_id = card and asked_message_ids @> '{12}') then
+    raise exception 'statements FAILED: a question''s message id is not found by containment';
+  end if;
+  begin
+    insert into statement_reconciliations (household_id, account_id, statement_date, period_start)
+    values ('33333333-3333-3333-3333-333333333333', card, '2026-07-28', '2026-06-29');
+    raise exception 'statements FAILED: a statement was filed under another household''s card';
+  exception when foreign_key_violation then null;
+  end;
+
+  insert into telegram_notification_prefs (household_id) values (hh) on conflict (household_id) do nothing;
+  select statement_enabled into enabled from telegram_notification_prefs where household_id = hh;
+  if enabled is not true then raise exception 'statements FAILED: the statement question is not on by default'; end if;
+
+  insert into categories (id, household_id, name, kind) values (fuel, hh, 'Fuel', 'expense'), (wash, hh, 'Car Wash', 'expense');
+  insert into transactions (household_id, account_id, category_id, amount, occurred_at, is_shared, merchant, kind) values
+    (hh, card, fuel, -100, '2026-01-01', true, 'EPPCO SITE 1077', 'expense'),
+    (hh, card, fuel, -100, '2026-02-01', true, 'EPPCO SITE 1077', 'expense'),
+    (hh, card, wash, -30, '2026-03-01', true, 'EPPCO SITE 1077', 'expense'),
+    (hh, card, fuel, 20, '2026-03-02', true, 'EPPCO SITE 1077', 'refund'),
+    (hh, card, null, -10, '2026-03-03', true, 'EPPCO SITE 1077', 'expense');
+  select count(*) into n from merchant_category_counts(hh) where merchant = 'EPPCO SITE 1077';
+  if n <> 2 then raise exception 'statements FAILED: % merchant/category pairs, expected 2', n; end if;
+  select * into r from merchant_category_counts(hh) where category_id = fuel;
+  if r.uses <> 2 or r.last_used <> '2026-02-01' then raise exception 'statements FAILED: fuel counted as % uses, last %', r.uses, r.last_used; end if;
+  if has_function_privilege('authenticated', 'merchant_category_counts(uuid)', 'execute')
+     or has_function_privilege('anon', 'merchant_category_counts(uuid)', 'execute') then
+    raise exception 'statements FAILED: merchant_category_counts() is callable by someone other than the bot';
+  end if;
+
+  delete from transactions where account_id = card;
+  delete from categories where id in (fuel, wash);
+  delete from statement_reconciliations where account_id = card;
+  delete from accounts where id = card;
+  raise notice 'statements ok: one record per statement, closed with a time, asked by default; merchant history counted for the bot only';
+end $$;
+
 rollback;

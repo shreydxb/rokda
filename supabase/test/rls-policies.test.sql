@@ -132,6 +132,11 @@ insert into bot_proposals (id, household_id, member_id, kind, payload, chat_id) 
   ('f5000000-0000-0000-0000-000000000001', 'd1000000-0000-0000-0000-000000000001', 'e1000000-0000-0000-0000-00000000000a', 'account_balances', '{"items": []}', 1),
   ('f5000000-0000-0000-0000-000000000002', 'd2000000-0000-0000-0000-000000000002', 'e2000000-0000-0000-0000-00000000000a', 'account_balances', '{"items": []}', 2);
 
+-- Card statements: one in each household, on that household's account.
+insert into statement_reconciliations (id, household_id, account_id, statement_date, period_start) values
+  ('f6000000-0000-0000-0000-000000000001', 'd1000000-0000-0000-0000-000000000001', 'f4000000-0000-0000-0000-000000000001', '2026-09-28', '2026-08-29'),
+  ('f6000000-0000-0000-0000-000000000002', 'd2000000-0000-0000-0000-000000000002', 'f4000000-0000-0000-0000-000000000002', '2026-09-28', '2026-08-29');
+
 set role authenticated;
 set request.jwt.claim.role = 'authenticated';
 
@@ -307,6 +312,45 @@ begin
     when insufficient_privilege then null;
   end;
   raise notice 'bot proposals ok: own household only, read-only, applied only by the bot';
+end $$;
+
+-- Card statements: a member sees and marks their own household's, never
+-- another's, and cannot delete one. Only the bot reads merchant history
+-- through merchant_category_counts().
+do $$
+declare n int;
+begin
+  select count(*) into n from statement_reconciliations;
+  if n <> 1 then raise exception 'statements FAILED: a member sees % statements, expected their household''s 1', n; end if;
+
+  update statement_reconciliations set status = 'confirmed', closed_at = now(), closed_by_member_id = 'e1000000-0000-0000-0000-00000000000b';
+  get diagnostics n = row_count;
+  if n <> 1 then raise exception 'statements FAILED: a member marked % of their statements done, expected 1', n; end if;
+  update statement_reconciliations set status = 'confirmed', closed_at = now() where id = 'f6000000-0000-0000-0000-000000000002';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'statements FAILED: a member marked another household''s statement done'; end if;
+
+  insert into statement_reconciliations (household_id, account_id, statement_date, period_start, status, closed_at)
+  values ('d1000000-0000-0000-0000-000000000001', 'f4000000-0000-0000-0000-000000000001', '2026-08-28', '2026-07-29', 'confirmed', now());
+  begin
+    insert into statement_reconciliations (household_id, account_id, statement_date, period_start)
+    values ('d2000000-0000-0000-0000-000000000002', 'f4000000-0000-0000-0000-000000000002', '2026-08-28', '2026-07-29');
+    raise exception 'statements FAILED: a member recorded a statement in another household';
+  exception
+    when insufficient_privilege then null;
+  end;
+
+  delete from statement_reconciliations;
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'statements FAILED: a member deleted % statements', n; end if;
+
+  begin
+    perform merchant_category_counts('d1000000-0000-0000-0000-000000000001');
+    raise exception 'statements FAILED: a member read merchant history through the bot''s function';
+  exception
+    when insufficient_privilege then null;
+  end;
+  raise notice 'statements ok: own household only, marked done by a member, never deleted; merchant history is the bot''s';
 end $$;
 
 -- QA §8: a member cannot promote themselves.

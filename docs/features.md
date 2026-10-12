@@ -54,6 +54,10 @@ here, because this repository is public.
   carry its debt terms. Closed accounts stay in history.
 - **Investments**: holdings with prices pulled daily where a symbol is set,
   and FX rates for USD and INR.
+- **Statements**: each card's recent statements, the period each covers, its
+  due date, what Rokda recorded for that period, and whether it has been
+  reconciled (`statement_reconciliations`). "Mark done" settles one; the bot
+  asks about each until it is.
 
 ## Planning (`/planning`)
 
@@ -85,17 +89,20 @@ here, because this repository is public.
 ## Telegram bot (`supabase/functions/telegram-webhook`)
 
 - Logs expenses, income and refunds from plain text or pasted bank SMS,
-  several at once. An SMS or receipt with no date is dated the day it was sent and flagged in the Inbox for the real date. It picks the account by card name or last digits and the
-  category from rules and merchant history. Anything uncertain goes to the
-  Inbox.
+  several at once. An SMS or receipt with no date is dated the day it was sent and flagged in the Inbox for the real date. It picks the account by card name or last digits. The
+  category comes from a household rule first, then the category the household
+  used most for the same merchant across all of its history
+  (`merchant_category_counts`), and only then the model's guess. Anything
+  uncertain goes to the Inbox.
 - Answers questions: spending by category, net worth, account balances,
   upcoming bills, budget status, holdings.
 - Reads goal contributions and account balances from a message and asks
   first: it shows the change (old → new) and saves it only on a "yes" or a 👍
   to that message; "no" drops it.
 - Nudges and briefs (daily job): bills due and overdue, card payments, budget
-  alerts, cash cover, unusual spending, a weekly and a monthly brief, and a
-  balance check-in on the 1st of each month.
+  alerts, cash cover, unusual spending, a weekly and a monthly brief, a
+  balance check-in on the 1st of each month, and each card statement from the
+  day after it closes until someone says it is reconciled ("done" or 👍).
 
 ## Scheduled jobs (pg_cron)
 

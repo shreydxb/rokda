@@ -84,6 +84,9 @@ function reset(): void {
       bot_proposals: [],
       recurring: [],
       transactions: [],
+      statement_reconciliations: [],
+      category_rules: [],
+      telegram_notification_prefs: [],
     },
     log: new Map(),
     telegramSent: [],
@@ -102,6 +105,7 @@ const UNIQUE: Record<string, string[]> = {
   intake: ["household_id", "source", "source_ref"],
   goal_contributions: ["goal_id", "source", "source_ref"],
   bot_proposals: ["household_id", "source_ref"],
+  statement_reconciliations: ["account_id", "statement_date"],
 };
 
 // Column defaults the real schema fills in. A proposal's times are on the
@@ -115,6 +119,7 @@ const DEFAULTS: Record<string, () => Row> = {
     decided_at: null,
     result: null,
   }),
+  statement_reconciliations: () => ({ status: "waiting", asked_message_ids: [], last_asked_on: null, closed_at: null, closed_by_member_id: null }),
 };
 
 function json(body: unknown, status = 200): Response {
@@ -131,6 +136,11 @@ function cellMatches(cell: unknown, op: string, value: string): boolean {
     case "lt":
       return cell != null && String(cell) < value;
     case "cs": {
+      // Array containment, as asked_message_ids @> {n}.
+      if (Array.isArray(cell) && /^\{[^"{}]*\}$/.test(value)) {
+        const want = value.slice(1, -1).split(",").filter(Boolean).map(Number);
+        return want.every((x) => (cell as unknown[]).includes(x));
+      }
       // JSON containment, as payload @> {"asked_message_ids": [n]}: every key
       // given is present, and every array element given is in the cell's array.
       const want = JSON.parse(value) as Row;
@@ -202,7 +212,7 @@ function matches(row: Row, params: URLSearchParams): boolean {
 
 function violatesUnique(table: string, row: Row): boolean {
   const key = UNIQUE[table];
-  if (!key || row.source_ref == null) return false;
+  if (!key || (key.includes("source_ref") && row.source_ref == null)) return false;
   return backend.tables[table].some((r) => key.every((k) => r[k] === row[k]));
 }
 
@@ -217,6 +227,10 @@ async function postgrest(req: Request, url: URL): Promise<Response> {
       return json({ code: "57014", message: "canceling statement due to statement timeout" }, 500);
     }
     let found = rows.filter((r) => matches(r, url.searchParams));
+    // The embedded accounts(name) a statement is read with.
+    if (table === "statement_reconciliations") {
+      found = found.map((r) => ({ ...r, accounts: { name: backend.tables.accounts.find((a) => a.id === r.account_id)?.name ?? null } }));
+    }
     const limit = url.searchParams.get("limit");
     if (limit) found = found.slice(0, Number(limit));
     if (wantsObject) {
@@ -348,6 +362,19 @@ async function rpc(req: Request, fn: string): Promise<Response> {
     return json(applyProposal(String(args.p_proposal_id), String(args.p_member_id)));
   }
   if (fn === "approve_intake") backend.approveCalls += 1;
+  // Mirrors merchant_category_counts in the statement_reconciliations migration.
+  if (fn === "merchant_category_counts") {
+    const tally = new Map<string, Row>();
+    for (const t of backend.tables.transactions) {
+      if (t.household_id !== args.p_household_id || t.merchant == null || t.category_id == null || (t.kind ?? "expense") !== "expense") continue;
+      const key = `${t.merchant}|${t.category_id}`;
+      const seen = tally.get(key) ?? { merchant: t.merchant, category_id: t.category_id, uses: 0, last_used: "" };
+      seen.uses = Number(seen.uses) + 1;
+      if (String(t.occurred_at) > String(seen.last_used)) seen.last_used = t.occurred_at;
+      tally.set(key, seen);
+    }
+    return json([...tally.values()]);
+  }
   if (fn === "claim_telegram_update") {
     if (backend.faults.claimError) return json(backend.faults.claimError, 500);
     return json(claim(Number(args.p_update_id)));
@@ -1319,3 +1346,148 @@ freshTest("\"paid\" is not an answer to a balance change", async () => {
   assertEquals(backend.tables.bot_proposals[0].status, "proposed");
 });
 
+
+// ---------------------------------------------------------------------------
+// Categories from the household's own rules and history
+// ---------------------------------------------------------------------------
+
+const FUEL = "c3000000-0000-4000-8000-0000000000f1";
+const WASH = "c3000000-0000-4000-8000-0000000000f2";
+const CAR = "c3000000-0000-4000-8000-0000000000f3";
+
+function seedFuelHistory(): void {
+  backend.tables.categories.push(
+    { id: FUEL, household_id: HOUSEHOLD, name: "Fuel", kind: "expense", archived: false, is_savings: false },
+    { id: WASH, household_id: HOUSEHOLD, name: "Car Wash", kind: "expense", archived: false, is_savings: false },
+    { id: CAR, household_id: HOUSEHOLD, name: "Car", kind: "expense", archived: false, is_savings: false },
+  );
+  // Fuel from a card statement long ago, then 300 newer transactions
+  // elsewhere: past the 200 the bot used to read.
+  for (let i = 0; i < 3; i++) {
+    backend.tables.transactions.push({ id: crypto.randomUUID(), household_id: HOUSEHOLD, merchant: "EPPCO SITE 1077", category_id: FUEL, kind: "expense", amount: -100, occurred_at: "2026-01-0" + (i + 1) });
+  }
+  for (let i = 0; i < 300; i++) {
+    backend.tables.transactions.push({ id: crypto.randomUUID(), household_id: HOUSEHOLD, merchant: "Cafe", category_id: WASH, kind: "expense", amount: -5, occurred_at: "2026-09-01" });
+  }
+  backend.parse = [{ merchant: "Eppco", amount: 120, currency: "AED", occurred_at: "2026-09-24", category: "Car Wash", card_last4: null, account_hint: null, confidence: 1, kind: "expense" }];
+}
+
+freshTest("a typed expense takes the category the household used for that merchant, however long ago", async () => {
+  seedFuelHistory();
+  await handler(textUpdate(9201, "eppco 120"));
+  assertEquals(capturedIntake().length, 1);
+  assertEquals(capturedIntake()[0].parsed_category_id, FUEL);
+});
+
+freshTest("a household rule outranks the merchant's history", async () => {
+  seedFuelHistory();
+  backend.tables.category_rules.push({ id: "r1", household_id: HOUSEHOLD, pattern: "eppco", match_type: "contains", category_id: CAR, archived: false, created_at: "2026-01-01" });
+  await handler(textUpdate(9202, "eppco 120"));
+  assertEquals(capturedIntake()[0].parsed_category_id, CAR);
+});
+
+freshTest("a merchant the household has not seen keeps the model's category", async () => {
+  seedFuelHistory();
+  backend.parse = [{ ...(backend.parse as Row[])[0], merchant: "Car spa", category: "Car Wash" }];
+  await handler(textUpdate(9203, "car spa 40"));
+  assertEquals(capturedIntake()[0].parsed_category_id, WASH);
+});
+
+// ---------------------------------------------------------------------------
+// Card statements: asked about from the day after they close, until done
+// ---------------------------------------------------------------------------
+
+const STATEMENT_CARD = "a8000000-0000-4000-8000-0000000000c1";
+
+// A card whose statement closed yesterday, and that statement's date.
+function seedStatementCard(over: Row = {}): string {
+  const today = dubaiToday();
+  const day = Number(today.slice(8));
+  const statementDay = day > 1 ? day - 1 : 28;
+  backend.tables.accounts.push({
+    id: STATEMENT_CARD, household_id: HOUSEHOLD, name: "Bank card", type: "credit_card", owner_member_id: MEMBER, is_shared: false,
+    balance: 0, balance_aed: 0, currency: "AED", statement_day: statementDay, due_day: null, archived_at: null, ...over,
+  });
+  if (day > 1) return `${today.slice(0, 8)}${String(statementDay).padStart(2, "0")}`;
+  const d = new Date(Number(today.slice(0, 4)), Number(today.slice(5, 7)) - 2, 28);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-28`;
+}
+
+function statementQuestions(): Array<{ method: string; body: Row }> {
+  return backend.telegramSent.filter((m) => /^(Your .* statement closed on|Reminder: the .* statement from)/.test(String(m.body.text)));
+}
+
+async function askedStatement(): Promise<Row> {
+  const statementDate = seedStatementCard();
+  const res = await handler(dailyCheck());
+  assertEquals(res.status, 200);
+  await res.body?.cancel();
+  const row = backend.tables.statement_reconciliations[0];
+  assert(row, "no statement was recorded");
+  assertEquals(row.statement_date, statementDate);
+  return row;
+}
+
+freshTest("a card statement is asked about the day after it closes, once a day", async () => {
+  const row = await askedStatement();
+  const questions = statementQuestions();
+  assertEquals(questions.length, 1);
+  assert(/^Your Bank card statement closed on /.test(String(questions[0].body.text)), String(questions[0].body.text));
+  assertEquals(row.status, "waiting");
+  assertEquals((row.asked_message_ids as number[]).length, 1);
+  assertEquals(row.last_asked_on, dubaiToday());
+
+  const again = await handler(dailyCheck());
+  await again.body?.cancel();
+  assertEquals(statementQuestions().length, 1);
+  assertEquals(backend.tables.statement_reconciliations.length, 1);
+});
+
+freshTest("the next morning asks again, and a 👍 on the first question marks it done", async () => {
+  const row = await askedStatement();
+  const first = (row.asked_message_ids as number[])[0];
+  row.last_asked_on = "2000-01-01";
+  const res = await handler(dailyCheck());
+  await res.body?.cancel();
+  assertEquals(statementQuestions().length, 2);
+  assert(String(statementQuestions()[1].body.text).startsWith("Reminder: the Bank card statement"), String(statementQuestions()[1].body.text));
+
+  await handler(reactionUpdate(9211, first, "👍"));
+  assertEquals(row.status, "confirmed");
+  assertEquals(row.closed_by_member_id, MEMBER);
+  assert(/marked as reconciled/.test(lastReply()), lastReply());
+
+  // Done means no more questions.
+  row.last_asked_on = "2000-01-01";
+  const later = await handler(dailyCheck());
+  await later.body?.cancel();
+  assertEquals(statementQuestions().length, 2);
+});
+
+freshTest("a bare \"done\" answers the only waiting statement, but a bare \"yes\" does not", async () => {
+  const row = await askedStatement();
+  await handler(textUpdate(9212, "yes"));
+  assertEquals(row.status, "waiting");
+  const captured = capturedIntake().length;
+  await handler(textUpdate(9213, "done ✅"));
+  assertEquals(row.status, "confirmed");
+  // An answer, not an expense.
+  assertEquals(capturedIntake().length, captured);
+});
+
+freshTest("\"not yet\" as a reply keeps the statement waiting", async () => {
+  const row = await askedStatement();
+  await handler(replyUpdate(9214, "not yet", (row.asked_message_ids as number[])[0]));
+  assertEquals(row.status, "waiting");
+  assert(/again tomorrow morning/.test(lastReply()), lastReply());
+});
+
+freshTest("statement questions switched off, or a closed card, ask nothing", async () => {
+  seedStatementCard({ archived_at: "2026-09-01T00:00:00Z" });
+  backend.tables.accounts.push({ ...backend.tables.accounts[0], id: "a8000000-0000-4000-8000-0000000000c2", archived_at: null });
+  backend.tables.telegram_notification_prefs.push({ household_id: HOUSEHOLD, statement_enabled: false });
+  const res = await handler(dailyCheck());
+  await res.body?.cancel();
+  assertEquals(statementQuestions().length, 0);
+  assertEquals(backend.tables.statement_reconciliations.length, 0);
+});

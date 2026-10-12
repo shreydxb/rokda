@@ -52,6 +52,9 @@ import {
 } from "../_shared/applib/telegramConfirm.js";
 import { autopayAnswer, autopayCycle, autopayNotYetMessage, autopayQuestion, autopayReactionDecision, shortDay } from "../_shared/applib/autopay.js";
 import { incompleteNote, netWorthSummary } from "../_shared/applib/overviewMath.js";
+import { merchantMatches, pickCategory } from "../_shared/applib/merchants.js";
+import { closedStatementDates, isoDay, statementDueDate, statementPeriodStart } from "../_shared/applib/statements.js";
+import { statementAnswer, statementDoneMessage, statementNotYetMessage, statementQuestion, statementReactionDecision } from "../_shared/applib/statementReminder.js";
 import { accountValueAed, unvaluedAccounts } from "../_shared/applib/accounts.js";
 import { monthActualsByCategory } from "../_shared/applib/budget.js";
 import { nextDueDate, daysUntilDue } from "../_shared/applib/creditCard.js";
@@ -620,58 +623,52 @@ async function openAccountNames(householdId: string): Promise<string[]> {
   }
 }
 
-// The household's own past categorisation of a merchant outweighs a fresh
-// guess: once "Moisturiser Alseer" has been approved under Shopping, a later
-// message the model only extracts as "Alseer" should still inherit it rather
-// than getting a fresh, possibly different guess. The model doesn't extract
-// merchant names consistently, so this matches when the NEW merchant is a
-// substring of a PAST one -- deliberately one-directional. The other
-// direction (a short past merchant matching a longer new one) is NOT
-// trusted: a household that once logged plain "Noon" under Shopping must
-// never have that silently applied to "Noon Minutes" later, which is a
-// genuinely different, groceries service the model already knows to
-// distinguish (see the prompt hint above) -- a short generic name matching a
-// longer, more specific one is exactly the false-positive this must avoid.
+// The household's own view of a merchant outweighs the model's fresh guess
+// (docs/decisions.md, "The bot categorises from the household's own history").
+// A rule someone wrote in Settings wins; then the category the household used
+// most for the same merchant across all of its history, read through
+// merchant_category_counts() so a statement's "EPPCO SITE 1077" and a typed
+// "eppco" are one merchant (applib/merchants.js). It used to read only the
+// latest 200 transactions, and never the rules.
 //
-// The same holds the other way round: a brand is not its own sub-service.
-// Plain "Noon" (the marketplace) inherited Groceries from "Noon Minutes"
-// because "noon" is a substring of "noon minutes". A past merchant that is
-// the new name plus more words after it ("Noon" + "Minutes", "Careem" +
-// "Food") is a different service, so it does not count.
+// Kept as an export for its tests: the match is one-directional, so a
+// shortened name inherits from a fuller one but a brand never inherits from
+// its own sub-service ("Noon" is not "Noon Minutes").
 export function merchantHistoryMatches(newMerchant: string, pastMerchant: string): boolean {
-  const norm = newMerchant.trim().toLowerCase();
-  const past = pastMerchant.trim().toLowerCase();
-  if (!norm || !past.includes(norm)) return false;
-  if (past === norm) return true;
-  const words = norm.split(/\s+/);
-  const pastWords = past.split(/\s+/);
-  const isLeadingWords = pastWords.length > words.length && words.every((w, i) => pastWords[i] === w);
-  return !isLeadingWords;
+  return merchantMatches(newMerchant, pastMerchant);
 }
 
-async function matchCategoryFromMerchantHistory(householdId: string, merchant: string | null): Promise<{ id: string; name: string } | null> {
-  const norm = merchant?.trim().toLowerCase();
-  if (!norm || norm.length < 3) return null;
-  const { data: rows } = await supabase
-    .from("transactions")
-    .select("merchant, category_id")
-    .eq("household_id", householdId)
-    .not("merchant", "is", null)
-    .not("category_id", "is", null)
-    .order("occurred_at", { ascending: false })
-    .limit(200);
-  if (!rows) return null;
+type CategoryKnowledge = {
+  rules: Array<{ pattern: string; match_type: string; category_id: string; archived?: boolean }>;
+  history: Array<{ merchant: string; category_id: string; uses: number; last_used: string | null }>;
+};
 
-  const counts = new Map<string, number>();
-  for (const r of rows as Array<{ merchant: string; category_id: string }>) {
-    if (!merchantHistoryMatches(norm, r.merchant)) continue;
-    counts.set(r.category_id, (counts.get(r.category_id) ?? 0) + 1);
+// Read once per message, however many items it holds. A failed read leaves
+// that half empty: the model's guess still stands, as it did before.
+async function loadCategoryKnowledge(householdId: string): Promise<CategoryKnowledge> {
+  const PAGE = 1000;
+  const history: CategoryKnowledge["history"] = [];
+  for (let from = 0; from < 20 * PAGE; from += PAGE) {
+    const { data, error } = await supabase.rpc("merchant_category_counts", { p_household_id: householdId }).range(from, from + PAGE - 1);
+    if (error || !Array.isArray(data)) break;
+    history.push(...(data as CategoryKnowledge["history"]));
+    if (data.length < PAGE) break;
   }
-  if (counts.size === 0) return null;
-  const [topId] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+  const { data: rules } = await supabase
+    .from("category_rules")
+    .select("pattern, match_type, category_id, archived")
+    .eq("household_id", householdId)
+    .eq("archived", false)
+    .order("created_at");
+  return { rules: (rules ?? []) as CategoryKnowledge["rules"], history };
+}
 
-  const { data: category } = await supabase.from("categories").select("id, name").eq("id", topId).maybeSingle();
-  return category ?? null;
+async function matchCategoryFromMerchantHistory(knowledge: CategoryKnowledge, merchant: string | null): Promise<{ id: string; name: string } | null> {
+  const pick = pickCategory(merchant, knowledge);
+  if (!pick) return null;
+  const { data: category } = await supabase.from("categories").select("id, name, archived").eq("id", pick.categoryId).maybeSingle();
+  if (!category || (category as { archived?: boolean }).archived) return null;
+  return { id: (category as { id: string }).id, name: (category as { name: string }).name };
 }
 
 // Same check as src/lib/duplicates.js findDuplicate (merchant + amount +
@@ -917,6 +914,14 @@ async function handleReaction(reaction: Record<string, unknown>): Promise<Respon
     .eq("telegram_user_id", fromId)
     .maybeSingle();
   if (!member) return new Response("ok");
+
+  // A reaction on a statement question answers it.
+  const statement = await statementForPrompt(member.household_id, messageId ?? null);
+  if (statement) {
+    const decision = emojis.map(statementReactionDecision).find((d) => d != null) ?? null;
+    if (decision && statement.status === "waiting") await decideStatement(chatId, member.id, statement, decision);
+    return new Response("ok");
+  }
 
   // A 👍 on the bot's message proposing a balance or a goal contribution
   // applies it. One on a proposal already decided says nothing: a reaction is
@@ -2356,6 +2361,172 @@ async function askAutopay(
   return true;
 }
 
+// ---------------------------------------------------------------------------
+// Card statements wait to be reconciled (docs/decisions.md, "A statement is
+// reconciled, and Rokda records it")
+// ---------------------------------------------------------------------------
+//
+// From the day after a card's statement closes, the morning check asks
+// whether it has been reconciled, and asks again each morning until a member
+// says it has (or a reconciliation is recorded some other way, or the next
+// statement closes). The statement's own row in statement_reconciliations
+// holds the state: no proposal, because nothing is applied on a "yes" except
+// marking the statement done.
+
+type StatementRow = {
+  id: string;
+  household_id: string;
+  account_id: string;
+  statement_date: string;
+  due_date: string | null;
+  status: string;
+  asked_message_ids: number[] | null;
+  last_asked_on: string | null;
+  accounts?: { name?: string } | null;
+};
+const STATEMENT_COLUMNS = "id, household_id, account_id, statement_date, due_date, status, asked_message_ids, last_asked_on, accounts(name)";
+
+async function runStatementCheck(): Promise<{ checked: number; asked: number }> {
+  const now = new Date();
+  const today = householdDay(now);
+  const todayStr = householdToday(now);
+  const [{ data: cards }, prefs] = await Promise.all([
+    supabase
+      .from("accounts")
+      .select("id, household_id, name, owner_member_id, is_shared, statement_day, due_day")
+      .eq("type", "credit_card")
+      .is("archived_at", null)
+      .not("statement_day", "is", null),
+    telegramPrefsMap(),
+  ]);
+
+  let checked = 0;
+  let asked = 0;
+  for (const card of (cards ?? []) as Array<{ id: string; household_id: string; name: string; owner_member_id: string | null; is_shared: boolean; statement_day: number; due_day: number | null }>) {
+    if (!prefEnabled(prefs, card.household_id, "statement_enabled")) continue;
+    const [close] = closedStatementDates(card.statement_day, today, 1);
+    if (!close) continue;
+    checked++;
+    try {
+      const statementDate = isoDay(close);
+      const due = card.due_day ? statementDueDate(close, card.due_day) : null;
+      // 23505 on the insert means another run created it first; either way
+      // the row is read back below.
+      await supabase.from("statement_reconciliations").insert({
+        household_id: card.household_id,
+        account_id: card.id,
+        statement_date: statementDate,
+        period_start: isoDay(statementPeriodStart(card.statement_day, close)),
+        due_date: due ? isoDay(due) : null,
+      });
+      const { data: found, error } = await supabase
+        .from("statement_reconciliations")
+        .select(STATEMENT_COLUMNS)
+        .eq("account_id", card.id)
+        .eq("statement_date", statementDate)
+        .maybeSingle();
+      const row = found as StatementRow | null;
+      if (error || !row || row.status !== "waiting" || row.last_asked_on === todayStr) continue;
+
+      const { data: members } = await supabase
+        .from("household_members")
+        .select("id, telegram_user_id")
+        .eq("household_id", card.household_id);
+      const recipients = ((members ?? []) as Array<{ id: string; telegram_user_id: number | null }>)
+        .filter((m) => m.telegram_user_id != null && (card.is_shared || !card.owner_member_id || m.id === card.owner_member_id));
+      const askedBefore = (row.asked_message_ids ?? []).length > 0;
+      const text = statementQuestion({ cardName: card.name, statementDate, dueDate: row.due_date }, { reminder: askedBefore });
+      const sent: number[] = [];
+      for (const m of recipients) {
+        try {
+          const messageId = await reply(Number(m.telegram_user_id), text);
+          if (messageId != null) sent.push(messageId);
+        } catch {
+          // One member unreachable must not stop the other.
+        }
+      }
+      if (sent.length === 0) continue;
+      await supabase
+        .from("statement_reconciliations")
+        .update({ asked_message_ids: [...(row.asked_message_ids ?? []), ...sent], last_asked_on: todayStr, updated_at: new Date().toISOString() })
+        .eq("id", row.id)
+        .eq("status", "waiting");
+      asked++;
+    } catch {
+      // One card failing must never block the rest.
+    }
+  }
+  return { checked, asked };
+}
+
+// The statement a message of the bot's asked about, if it was one.
+async function statementForPrompt(householdId: string, messageId: number | null): Promise<StatementRow | null> {
+  if (messageId == null) return null;
+  const { data } = await supabase
+    .from("statement_reconciliations")
+    .select(STATEMENT_COLUMNS)
+    .eq("household_id", householdId)
+    .contains("asked_message_ids", [messageId])
+    .maybeSingle();
+  return (data as StatementRow | null) ?? null;
+}
+
+// Statements the bot has asked about that are still waiting.
+async function waitingStatements(householdId: string): Promise<StatementRow[]> {
+  const { data } = await supabase
+    .from("statement_reconciliations")
+    .select(STATEMENT_COLUMNS)
+    .eq("household_id", householdId)
+    .eq("status", "waiting")
+    .not("last_asked_on", "is", null)
+    .limit(10);
+  return (data ?? []) as StatementRow[];
+}
+
+async function decideStatement(chatId: number, memberId: string, row: StatementRow, decision: "done" | "not_yet"): Promise<void> {
+  const cardName = row.accounts?.name ?? "card";
+  if (decision === "not_yet") {
+    await reply(chatId, statementNotYetMessage(cardName));
+    return;
+  }
+  if (row.status === "waiting") {
+    const now = new Date().toISOString();
+    await supabase
+      .from("statement_reconciliations")
+      .update({ status: "confirmed", closed_at: now, closed_by_member_id: memberId, updated_at: now })
+      .eq("id", row.id)
+      .eq("status", "waiting");
+  }
+  await reply(chatId, statementDoneMessage(cardName, row.statement_date));
+}
+
+// A typed answer to a statement question. A reply to one of its messages is
+// answered whatever it says that the reader understands. A bare message is
+// only taken as an answer when it says "done", "reconciled" and the like
+// (not a plain "yes", which the expense and proposal questions own), and
+// only when exactly one statement is waiting and nothing else is.
+const STATEMENT_WORD = /\b(done|reconciled|checked|completed|complete|finished|sent|uploaded)\b/i;
+
+async function handleStatementText(chatId: number, member: { id: string; household_id: string }, text: string, repliedTo: number | null): Promise<boolean> {
+  const decision = statementAnswer(text);
+  if (!decision) return false;
+  if (repliedTo != null) {
+    const row = await statementForPrompt(member.household_id, repliedTo);
+    if (!row) return false;
+    await decideStatement(chatId, member.id, row, decision);
+    return true;
+  }
+  if (!STATEMENT_WORD.test(text)) return false;
+  const [waiting, open] = await Promise.all([waitingStatements(member.household_id), openProposals(member.household_id, member.id)]);
+  if (waiting.length === 0) return false;
+  if (waiting.length > 1 || open.rows.length > 0 || open.failed) {
+    await reply(chatId, "I'm waiting on more than one answer. Reply to the statement message you mean.");
+    return true;
+  }
+  await decideStatement(chatId, member.id, waiting[0], decision);
+  return true;
+}
+
 // Runs alongside runRecurringCheck (see the ?run_recurring_check=1 handler
 // below) across every credit-card account with a due day set: a reminder
 // 1-2 days before (or on) the due date, and, if the balance still shows
@@ -2552,8 +2723,9 @@ type TelegramPrefRow = {
   brief_enabled: boolean;
   unusual_spend_enabled: boolean;
   balance_checkin_enabled: boolean;
+  statement_enabled: boolean;
 };
-type TelegramPrefKey = "recurring_enabled" | "credit_card_enabled" | "cash_cover_enabled" | "brief_enabled" | "unusual_spend_enabled" | "balance_checkin_enabled";
+type TelegramPrefKey = "recurring_enabled" | "credit_card_enabled" | "cash_cover_enabled" | "brief_enabled" | "unusual_spend_enabled" | "balance_checkin_enabled" | "statement_enabled";
 
 // Fetched once per check run (the table has one row per household, so this
 // is cheap) rather than once per item/household inside a loop.
@@ -3029,10 +3201,11 @@ async function handleRequest(req: Request): Promise<Response> {
   // than adding new jobs for each. The weekly/monthly checks no-op on every
   // day but their own, so running them daily costs nothing.
   if (req.method === "GET" && url.searchParams.get("run_recurring_check") === "1") {
-    const [recurring, autopay, creditCards, budgets, weeklyBrief, monthlyBrief, cashCover, unusualSpend, balanceCheckin] = await Promise.all([
+    const [recurring, autopay, creditCards, statements, budgets, weeklyBrief, monthlyBrief, cashCover, unusualSpend, balanceCheckin] = await Promise.all([
       runRecurringCheck(),
       runAutopayCheck(),
       runCreditCardCheck(),
+      runStatementCheck(),
       runBudgetAlertCheck(),
       runWeeklyBriefCheck(),
       runMonthlyBriefCheck(),
@@ -3048,6 +3221,7 @@ async function handleRequest(req: Request): Promise<Response> {
         recurring,
         autopay,
         credit_cards: creditCards,
+        statements,
         budgets,
         weekly_brief: weeklyBrief,
         monthly_brief: monthlyBrief,
@@ -3271,6 +3445,10 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
     // An autopay question also understands "paid", "deducted", "not yet" and
     // the like (autopayAnswer), but only an autopay question does: "paid"
     // aimed at a balance change or an expense is not an answer to it.
+    // A statement question is settled first when the message answers one
+    // (handleStatementText decides when that is).
+    if (await handleStatementText(chatId, member, trimmedText, repliedTo)) return new Response("ok");
+
     const strictYes = isConfirmationText(trimmedText);
     const strictNo = isCancellationText(trimmedText);
     const autopay = autopayAnswer(trimmedText);
@@ -3404,7 +3582,7 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
         });
         const parsed = reparsed?.length ? datedItems([reparsed[0]], householdToday(), forwardedDay(message))[0] : null;
         const matchedCategory = parsed
-          ? (await matchCategoryFromMerchantHistory(member.household_id, parsed.merchant)) ??
+          ? (await matchCategoryFromMerchantHistory(await loadCategoryKnowledge(member.household_id), parsed.merchant)) ??
             (parsed.categoryName ? (categories ?? []).find((c) => c.name.toLowerCase() === parsed.categoryName!.toLowerCase()) ?? null : null)
           : null;
         const matchedAccount = parsed
@@ -3632,11 +3810,12 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
     // a single amount was ever extracted. Each item's own DB work is
     // wrapped separately so one item's failure (a bad category/account
     // lookup) never costs the others.
+    const knowledge = items?.length ? await loadCategoryKnowledge(member.household_id) : { rules: [], history: [] };
     for (let i = 0; i < (items?.length ?? 0); i++) {
       const item = items![i];
       try {
         const matchedCategory =
-          (await matchCategoryFromMerchantHistory(member.household_id, item.merchant)) ??
+          (await matchCategoryFromMerchantHistory(knowledge, item.merchant)) ??
           (item.categoryName ? (categories ?? []).find((c) => c.name.toLowerCase() === item.categoryName!.toLowerCase()) ?? null : null);
         const matchedAccount =
           (await matchAccountByCardLast4(member.household_id, item.cardLast4)) ?? (await matchAccountByNameHint(member.household_id, item.accountHint));
