@@ -56,7 +56,7 @@ function aed(amount) {
 // that is not understood falls through to the bot's ordinary handling.
 /**
  * @param {{ name: string, amount: number, accountName?: string | null, due: string }} bill
- * @param {{ reminder?: boolean }} [options]
+ * @param {{ reminder?: boolean, today?: string | null }} [options]
  */
 export function autopayQuestion(bill, { reminder = false, today = null } = {}) {
   const from = bill.accountName ? ` from ${bill.accountName}` : '';
