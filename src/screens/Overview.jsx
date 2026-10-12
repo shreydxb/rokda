@@ -7,7 +7,7 @@ import { formatBalance, formatMoney, formatSigned, formatPct } from '../lib/mone
 import { PERIOD_LABELS } from '../lib/period';
 import { nativeAmountLabel, upcomingItems } from '../lib/recurring';
 import { buildNetWorthSeries, changeOverMonths } from '../lib/netWorth';
-import { buildAttentionItems } from '../lib/attention';
+import { ATTENTION_PREVIEW_COUNT as ATTENTION_FOLD, attentionPreview, buildAttentionItems } from '../lib/attention';
 import { useMoneyDisplay } from '../lib/CurrencyContext';
 import { supabase } from '../lib/supabaseClient';
 import { useOverviewData } from './useOverviewData';
@@ -112,6 +112,10 @@ export default function Overview() {
     () => buildAttentionItems({ transactions, recurring, accounts, holdings, categories, scopeMemberId, now }),
     [transactions, recurring, accounts, holdings, categories, scopeMemberId, now]
   );
+  // The most pressing few, with the rest a tap away: a long list pushed the
+  // rest of the page out of sight.
+  const [attentionExpanded, setAttentionExpanded] = useState(false);
+  const { shown: attentionShown, hidden: attentionHidden } = attentionPreview(attention, attentionExpanded);
   const recent = visibleRows(transactions, scopeMemberId).slice(0, 8);
 
   const lede = isEmpty
@@ -331,8 +335,8 @@ export default function Overview() {
                   <span>All clear — nothing needs a decision.</span>
                 </div>
               ) : (
-                <div className="ov-attn-list">
-                  {attention.map((item) =>
+                <div className="ov-attn-list" id="ov-attn-list">
+                  {attentionShown.map((item) =>
                     item.kind === 'review' ? (
                       <div key={item.id} className="ov-attn-row">
                         <div className="ov-attn-main">
@@ -375,6 +379,17 @@ export default function Overview() {
                         </button>
                       </div>
                     )
+                  )}
+                  {(attentionHidden > 0 || attentionExpanded) && attention.length > ATTENTION_FOLD && (
+                    <button
+                      type="button"
+                      className="ov-link ov-attn-more"
+                      aria-expanded={attentionExpanded}
+                      aria-controls="ov-attn-list"
+                      onClick={() => setAttentionExpanded((v) => !v)}
+                    >
+                      {attentionExpanded ? 'Show fewer' : `Show all ${attention.length}`}
+                    </button>
                   )}
                 </div>
               )}

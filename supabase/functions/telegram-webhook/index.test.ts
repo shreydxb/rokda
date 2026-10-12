@@ -82,6 +82,8 @@ function reset(): void {
       telegram_update_log: [],
       telegram_call_log: [],
       bot_proposals: [],
+      recurring: [],
+      transactions: [],
     },
     log: new Map(),
     telegramSent: [],
@@ -119,9 +121,46 @@ function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 }
 
+// One PostgREST condition, "op.value", on one cell.
+function cellMatches(cell: unknown, op: string, value: string): boolean {
+  switch (op) {
+    case "eq":
+      return String(cell) === value;
+    case "gt":
+      return cell != null && String(cell) > value;
+    case "lt":
+      return cell != null && String(cell) < value;
+    case "cs": {
+      // JSON containment, as payload @> {"asked_message_ids": [n]}: every key
+      // given is present, and every array element given is in the cell's array.
+      const want = JSON.parse(value) as Row;
+      const have = (cell ?? {}) as Row;
+      return Object.entries(want).every(([k, v]) =>
+        Array.isArray(v) ? Array.isArray(have[k]) && v.every((x) => (have[k] as unknown[]).includes(x)) : have[k] === v
+      );
+    }
+    default:
+      return true;
+  }
+}
+
 function matches(row: Row, params: URLSearchParams): boolean {
   for (const [col, raw] of params) {
     if (["select", "order", "limit", "offset", "on_conflict", "columns"].includes(col)) continue;
+    // or=(a.op.v,b.op.v): any one of them.
+    if (col === "or") {
+      const parts = raw.replace(/^\(|\)$/g, "").split(",");
+      const any = parts.some((part) => {
+        const [c, op, ...rest] = part.split(".");
+        return cellMatches(row[c], op, rest.join("."));
+      });
+      if (!any) return false;
+      continue;
+    }
+    if (raw.startsWith("cs.")) {
+      if (!cellMatches(row[col], "cs", raw.slice(3))) return false;
+      continue;
+    }
     const negate = raw.startsWith("not.");
     const expr = negate ? raw.slice(4) : raw;
     const dot = expr.indexOf(".");
@@ -272,6 +311,17 @@ function applyProposal(id: string, memberId: string): Row {
       applied.push({ name: a.name, type: a.type, currency: a.currency, old_balance: a.balance, new_balance: item.new_balance });
       a.balance = item.new_balance;
       a.balance_as_of = new Date(backend.now).toISOString();
+    }
+  } else if (p.kind === "autopay_payment") {
+    const bill = backend.tables.recurring.find((r) => r.id === payload.recurring_id && r.household_id === p.household_id);
+    if (!bill) {
+      skipped.push({ reason: "unavailable" });
+    } else {
+      const already = backend.tables.transactions.some((t) => t.account_id === bill.account_id && t.occurred_at === payload.due_date);
+      if (!already) {
+        backend.tables.transactions.push({ id: crypto.randomUUID(), household_id: p.household_id, account_id: bill.account_id, amount: -Number(payload.amount), occurred_at: payload.due_date, merchant: bill.name });
+      }
+      applied.push({ name: bill.name, amount: payload.amount, occurred_at: payload.due_date, next_due: payload.next_due, already_recorded: already });
     }
   } else {
     const goal = backend.tables.goals.find((g) => g.id === payload.goal_id && g.household_id === p.household_id);
@@ -1129,3 +1179,143 @@ addEventListener("unload", () => {
   globalThis.fetch = realFetch;
   console.error = realError;
 });
+
+// ---------------------------------------------------------------------------
+// Autopay bills: asked on the due date, every morning after, until answered
+// ---------------------------------------------------------------------------
+
+const EMI = "a7000000-0000-4000-8000-0000000000e1";
+const BANK = "a7000000-0000-4000-8000-0000000000b1";
+
+function dubaiToday(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+}
+
+function dailyCheck(): Request {
+  return new Request("http://edge.test/telegram-webhook?run_recurring_check=1", {
+    method: "GET",
+    headers: { "X-Telegram-Bot-Api-Secret-Token": SECRET },
+  });
+}
+
+// A bill on autopay from a bank account, due today.
+function seedAutopayBill(): void {
+  backend.tables.recurring.push({
+    id: EMI, household_id: HOUSEHOLD, name: "Car EMI", owner_member_id: null, is_shared: true, amount: -2000,
+    next_due_date: dubaiToday(), ends_on: null, cadence: "monthly", interval_count: 1, account_id: BANK, category_id: null,
+    active: true, autopay: true, accounts: { name: "Bank" },
+  });
+}
+
+function autopayQuestions(): Array<{ method: string; body: Row }> {
+  return backend.telegramSent.filter((m) => /deducted/.test(String(m.body.text)));
+}
+
+async function askedEmi(): Promise<Row> {
+  seedAutopayBill();
+  const res = await handler(dailyCheck());
+  assertEquals(res.status, 200);
+  await res.body?.cancel();
+  const proposal = backend.tables.bot_proposals.find((p) => p.kind === "autopay_payment");
+  assert(proposal, "no autopay question was saved");
+  return proposal;
+}
+
+freshTest("an autopay bill is asked about on its due date, once a day", async () => {
+  const proposal = await askedEmi();
+  const questions = autopayQuestions();
+  assertEquals(questions.length, 1);
+  assert(/Car EMI \(AED 2,000.00\) was due today/.test(String(questions[0].body.text)), String(questions[0].body.text));
+  assertEquals((proposal.payload as Row).asked_message_ids, [proposal.prompt_message_id]);
+  assertEquals((proposal.payload as Row).last_asked_on, dubaiToday());
+
+  // The same morning's check running again asks nothing more.
+  const again = await handler(dailyCheck());
+  await again.body?.cancel();
+  assertEquals(autopayQuestions().length, 1);
+  assertEquals(backend.tables.bot_proposals.filter((p) => p.kind === "autopay_payment").length, 1);
+});
+
+freshTest("the next morning's reminder can be answered, and so can the first question", async () => {
+  const proposal = await askedEmi();
+  const first = Number(proposal.prompt_message_id);
+  // Tomorrow morning: asked again, as a reminder, on the same question.
+  (proposal.payload as Row).last_asked_on = "2000-01-01";
+  const res = await handler(dailyCheck());
+  await res.body?.cancel();
+  const questions = autopayQuestions();
+  assertEquals(questions.length, 2);
+  assert(String(questions[1].body.text).startsWith("Reminder: has Car EMI"), String(questions[1].body.text));
+  assertEquals(((proposal.payload as Row).asked_message_ids as number[]).length, 2);
+
+  // A 👍 on yesterday's message still records it.
+  await handler(reactionUpdate(9101, first, "👍"));
+  assertEquals(backend.tables.transactions.length, 1);
+  assertEquals(backend.tables.transactions[0].amount, -2000);
+  assert(/^Recorded: Car EMI, AED 2000.00/.test(lastReply()), lastReply());
+  assertEquals(proposal.status, "applied");
+});
+
+freshTest("a bare \"paid\" hours after the question records the bill", async () => {
+  const proposal = await askedEmi();
+  // Asked this morning, answered this afternoon: past the few minutes a bare
+  // "yes" normally counts for.
+  proposal.created_at = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
+  await handler(textUpdate(9102, "it's paid ✅"));
+  assertEquals(backend.applyCalls, 1);
+  assertEquals(backend.tables.transactions.length, 1);
+  assert(/^Recorded: Car EMI/.test(lastReply()), lastReply());
+  assertEquals(capturedIntake().length, 0);
+});
+
+freshTest("\"not yet\" keeps the question open, and a \"paid\" later the same day still counts", async () => {
+  const proposal = await askedEmi();
+  await handler(replyUpdate(9103, "not yet", Number(proposal.prompt_message_id)));
+  assertEquals(backend.applyCalls, 0);
+  assertEquals(proposal.status, "proposed");
+  assertEquals((proposal.payload as Row).not_yet_on, dubaiToday());
+  assert(/I'll ask again tomorrow morning/.test(lastReply()), lastReply());
+
+  await handler(replyUpdate(9104, "deducted", Number(proposal.prompt_message_id)));
+  assertEquals(backend.tables.transactions.length, 1);
+});
+
+freshTest("a 👎 on the question means not yet", async () => {
+  const proposal = await askedEmi();
+  await handler(reactionUpdate(9105, Number(proposal.prompt_message_id), "👎"));
+  assertEquals(backend.applyCalls, 0);
+  assertEquals(proposal.status, "proposed");
+  assert(/I'll ask again tomorrow morning/.test(lastReply()), lastReply());
+});
+
+freshTest("an amount given with the answer is the amount recorded", async () => {
+  const proposal = await askedEmi();
+  await handler(replyUpdate(9106, "paid 2,050", Number(proposal.prompt_message_id)));
+  assertEquals((proposal.payload as Row).amount, 2050);
+  assertEquals((proposal.payload as Row).scheduled_amount, 2000);
+  assertEquals(backend.tables.transactions[0].amount, -2050);
+});
+
+freshTest("a bill already in Rokda is not asked about", async () => {
+  seedAutopayBill();
+  backend.tables.transactions.push({ id: "t1", household_id: HOUSEHOLD, account_id: BANK, amount: -2000, occurred_at: dubaiToday() });
+  const res = await handler(dailyCheck());
+  await res.body?.cancel();
+  assertEquals(autopayQuestions().length, 0);
+  assertEquals(backend.tables.bot_proposals.length, 0);
+});
+
+freshTest("\"paid\" is not an answer to a balance change", async () => {
+  backend.tables.accounts.push({ id: "acc1", household_id: HOUSEHOLD, name: "Bank", type: "checking", currency: "AED", balance: 100, archived_at: null });
+  backend.tables.bot_proposals.push({
+    id: "bp1", household_id: HOUSEHOLD, member_id: MEMBER, kind: "account_balances", chat_id: TELEGRAM_USER, source_ref: "x1",
+    payload: { items: [{ account_id: "acc1", name: "Bank", old_balance: 100, new_balance: 200 }] },
+    status: "proposed", prompt_message_id: 555, created_at: new Date().toISOString(), expires_at: new Date(Date.now() + 86400000).toISOString(),
+  });
+  await handler(replyUpdate(9107, "paid", 555));
+  assertEquals(backend.applyCalls, 0);
+  assertEquals(backend.tables.accounts[0].balance, 100);
+  // Neither applied nor dropped: still waiting for its own "yes" or "no".
+  assertEquals(backend.tables.bot_proposals[0].status, "proposed");
+});
+

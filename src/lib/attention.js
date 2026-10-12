@@ -59,13 +59,27 @@ function missingRecurringItems(recurring, transactions, scopeMemberId, now) {
     });
     if (matched) continue;
 
-    items.push({
-      id: `missing-recurring-${r.id}`,
-      kind: 'missing_recurring',
-      severity: 'warn',
-      title: `${r.name} hasn't posted`,
-      detail: `Expected ~${prevDue.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} · no matching transaction in the ${windowDays * 2 + 1}-day window around it`,
-    });
+    const expected = prevDue.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    // An autopay bill leaves the bank on its own; what is missing is the
+    // confirmation, which the bot asks for every morning (docs/decisions.md,
+    // "Autopay bills are confirmed, not entered").
+    items.push(
+      r.autopay && Number(r.amount) < 0
+        ? {
+            id: `missing-recurring-${r.id}`,
+            kind: 'missing_recurring',
+            severity: 'warn',
+            title: `${r.name}: debit not confirmed yet`,
+            detail: `Autopay due ~${expected} · answer the bot's question on Telegram, or log it here`,
+          }
+        : {
+            id: `missing-recurring-${r.id}`,
+            kind: 'missing_recurring',
+            severity: 'warn',
+            title: `${r.name} hasn't posted`,
+            detail: `Expected ~${expected} · no matching transaction in the ${windowDays * 2 + 1}-day window around it`,
+          },
+    );
   }
   return items;
 }
@@ -192,6 +206,27 @@ function unconfirmedBalanceItems(accounts, scopeMemberId, now) {
 // Every item here is computed fresh from real data each call — nothing is a
 // fixed template, so which items appear (and how many) changes month to
 // month with the household's actual conditions.
+// Most pressing first: a payment due before anything stale, and among equals
+// the order they were built in. Overview shows the first few of these and
+// keeps the rest one tap away, so a long list does not push the page down.
+const SEVERITY_RANK = { urgent: 0, warn: 1, info: 2 };
+export const ATTENTION_PREVIEW_COUNT = 4;
+
+export function sortAttention(items = []) {
+  return items
+    .map((item, index) => ({ item, index }))
+    .sort((a, b) => (SEVERITY_RANK[a.item.severity] ?? 3) - (SEVERITY_RANK[b.item.severity] ?? 3) || a.index - b.index)
+    .map(({ item }) => item);
+}
+
+// What Overview shows: everything when expanded, otherwise the first
+// ATTENTION_PREVIEW_COUNT, and how many are left out.
+export function attentionPreview(items = [], expanded = false, count = ATTENTION_PREVIEW_COUNT) {
+  const sorted = sortAttention(items);
+  const shown = expanded ? sorted : sorted.slice(0, count);
+  return { shown, hidden: sorted.length - shown.length };
+}
+
 export function buildAttentionItems({ transactions, recurring, accounts, holdings, categories, scopeMemberId, now = new Date() }) {
   const reviewItems = transactions
     .filter((t) => t.needs_review && (scopeMemberId === null || t.is_shared || t.owner_member_id === scopeMemberId))

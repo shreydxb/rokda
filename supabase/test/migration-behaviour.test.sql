@@ -1577,4 +1577,103 @@ begin
   raise notice 'bot proposal ok: only service_role can apply a proposal';
 end $$;
 
+-- An autopay bill confirmed over Telegram is recorded once: one expense on the
+-- bill's account and category, dated its due date, whoever confirms it, how
+-- many times, or whether it was also logged another way.
+do $$
+declare
+  hh constant uuid := '11111111-1111-1111-1111-111111111111';
+  m1 constant uuid := '22222222-2222-2222-2222-222222222222';
+  m2 constant uuid := 'a7000000-0000-4000-8000-000000000002';
+  bank constant uuid := 'a7000000-0000-4000-8000-0000000000b1';
+  cat constant uuid := 'a7000000-0000-4000-8000-0000000000c1';
+  emi constant uuid := 'a7000000-0000-4000-8000-0000000000e1';
+  r jsonb;
+  n int;
+  t transactions%rowtype;
+begin
+  insert into household_members (id, household_id, display_name) values (m2, hh, 'Partner');
+  insert into accounts (id, household_id, name, type, balance, is_shared) values (bank, hh, 'Bank', 'checking', 10000, true);
+  insert into categories (id, household_id, name, kind) values (cat, hh, 'Car EMI', 'expense');
+  insert into recurring (id, household_id, name, account_id, category_id, is_shared, amount, cadence, next_due_date, autopay)
+  values (emi, hh, 'Car EMI', bank, cat, true, -2000, 'monthly', '2026-10-03', true);
+
+  -- The new kind is accepted; anything else still is not.
+  begin
+    insert into bot_proposals (household_id, member_id, kind, payload, chat_id) values (hh, m1, 'something_else', '{}', 1);
+    raise exception 'autopay FAILED: an unknown proposal kind was accepted';
+  exception when check_violation then null;
+  end;
+
+  -- The same question, asked of both members.
+  insert into bot_proposals (id, household_id, member_id, kind, payload, chat_id, source_ref) values
+    ('a7000000-0000-4000-8000-0000000000f1', hh, m1, 'autopay_payment',
+     jsonb_build_object('recurring_id', emi, 'name', 'Car EMI', 'amount', 2000, 'due_date', '2026-10-03', 'next_due', '2026-11-03', 'asked_message_ids', '[11, 12]'::jsonb),
+     1001, 'autopay:emi:2026-10-03:m1'),
+    ('a7000000-0000-4000-8000-0000000000f2', hh, m2, 'autopay_payment',
+     jsonb_build_object('recurring_id', emi, 'name', 'Car EMI', 'amount', 2000, 'due_date', '2026-10-03', 'next_due', '2026-11-03'),
+     1002, 'autopay:emi:2026-10-03:m2');
+
+  r := apply_bot_proposal('a7000000-0000-4000-8000-0000000000f1', m1);
+  if r ->> 'outcome' <> 'applied' or (r -> 'applied' -> 0 ->> 'already_recorded')::boolean then
+    raise exception 'autopay FAILED: confirming gave %', r;
+  end if;
+  select * into t from transactions where id = (r -> 'applied' -> 0 ->> 'transaction_id')::uuid;
+  if t.amount <> -2000 or t.account_id <> bank or t.category_id <> cat or t.occurred_at <> '2026-10-03' or t.kind <> 'expense'
+     or t.merchant <> 'Car EMI' or t.needs_review or not t.is_shared then
+    raise exception 'autopay FAILED: recorded as %', row_to_json(t);
+  end if;
+
+  -- A second "yes" repeats the answer; the other member's question is closed.
+  r := apply_bot_proposal('a7000000-0000-4000-8000-0000000000f1', m1);
+  if r ->> 'outcome' <> 'applied' or r -> 'result' is null then raise exception 'autopay FAILED: a second yes gave %', r; end if;
+  if (select status from bot_proposals where id = 'a7000000-0000-4000-8000-0000000000f2') <> 'expired' then
+    raise exception 'autopay FAILED: the other member''s question stayed open';
+  end if;
+  r := apply_bot_proposal('a7000000-0000-4000-8000-0000000000f2', m2);
+  if r ->> 'outcome' <> 'expired' then raise exception 'autopay FAILED: answering the closed question gave %', r; end if;
+  select count(*) into n from transactions where account_id = bank and category_id = cat;
+  if n <> 1 then raise exception 'autopay FAILED: % transactions for one bill', n; end if;
+
+  -- Logged by hand for November (a pasted SMS): a "yes" records nothing more.
+  insert into transactions (household_id, account_id, category_id, amount, occurred_at, is_shared, merchant)
+  values (hh, bank, cat, -2010, '2026-11-04', true, 'BANK SMS');
+  insert into bot_proposals (id, household_id, member_id, kind, payload, chat_id, source_ref) values
+    ('a7000000-0000-4000-8000-0000000000f3', hh, m1, 'autopay_payment',
+     jsonb_build_object('recurring_id', emi, 'name', 'Car EMI', 'amount', 2000, 'due_date', '2026-11-03'), 1001, 'autopay:emi:2026-11-03:m1');
+  r := apply_bot_proposal('a7000000-0000-4000-8000-0000000000f3', m1);
+  if not (r -> 'applied' -> 0 ->> 'already_recorded')::boolean then raise exception 'autopay FAILED: a logged bill was recorded again (%)', r; end if;
+  select count(*) into n from transactions where account_id = bank and category_id = cat;
+  if n <> 2 then raise exception 'autopay FAILED: % transactions after a logged month, expected 2', n; end if;
+
+  -- An amount the member gave is the amount recorded.
+  insert into bot_proposals (id, household_id, member_id, kind, payload, chat_id, source_ref) values
+    ('a7000000-0000-4000-8000-0000000000f4', hh, m1, 'autopay_payment',
+     jsonb_build_object('recurring_id', emi, 'name', 'Car EMI', 'amount', 2050, 'due_date', '2026-12-03'), 1001, 'autopay:emi:2026-12-03:m1');
+  r := apply_bot_proposal('a7000000-0000-4000-8000-0000000000f4', m1);
+  if (select amount from transactions where occurred_at = '2026-12-03' and account_id = bank) <> -2050 then
+    raise exception 'autopay FAILED: the amount given was not the amount recorded (%)', r;
+  end if;
+
+  -- A bill with no account, or one from another household, records nothing.
+  update recurring set account_id = null where id = emi;
+  insert into bot_proposals (id, household_id, member_id, kind, payload, chat_id) values
+    ('a7000000-0000-4000-8000-0000000000f5', hh, m1, 'autopay_payment', jsonb_build_object('recurring_id', emi, 'amount', 2000, 'due_date', '2027-01-03'), 1001),
+    ('a7000000-0000-4000-8000-0000000000f6', hh, m1, 'autopay_payment', jsonb_build_object('recurring_id', gen_random_uuid(), 'amount', 2000, 'due_date', '2027-01-03'), 1001);
+  r := apply_bot_proposal('a7000000-0000-4000-8000-0000000000f5', m1);
+  if jsonb_array_length(r -> 'applied') <> 0 or r -> 'skipped' -> 0 ->> 'reason' <> 'unavailable' then raise exception 'autopay FAILED: a bill with no account gave %', r; end if;
+  r := apply_bot_proposal('a7000000-0000-4000-8000-0000000000f6', m1);
+  if jsonb_array_length(r -> 'applied') <> 0 then raise exception 'autopay FAILED: an unknown bill gave %', r; end if;
+  select count(*) into n from transactions where category_id = cat;
+  if n <> 3 then raise exception 'autopay FAILED: % transactions, expected 3', n; end if;
+
+  delete from bot_proposals where id::text like 'a7000000-%';
+  delete from transactions where category_id = cat;
+  delete from recurring where id = emi;
+  delete from categories where id = cat;
+  delete from accounts where id = bank;
+  delete from household_members where id = m2;
+  raise notice 'autopay ok: a confirmed bill is recorded once, at the amount given, and never on top of one already logged';
+end $$;
+
 rollback;

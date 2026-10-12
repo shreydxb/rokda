@@ -450,5 +450,12 @@
   "fingerprint": "a8e3166ba4aaf7c85e12f33e2d69b423",
   "framingFingerprint": "a4950225b98f5574cd1c0bd78f26db2d",
   "fingerprintVersion": 2
+ },
+ {
+  "version": "20261012160000",
+  "name": "autopay_confirmations",
+  "fingerprint": "31a6fb5837ea8374f10e672743792cd6",
+  "framingFingerprint": "4b3f5f5b38e26c2d16fe4cf54163817b",
+  "fingerprintVersion": 2
  }
 ]

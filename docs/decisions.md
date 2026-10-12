@@ -910,3 +910,44 @@ is unknown, not 0% and not a large negative percentage. The period figures
 already said so; the cash-flow chart's monthly figure now agrees, so no column
 shows a rate the headline refuses. Amounts are already in AED when saved, so a
 missing exchange rate cannot reach the rate.
+
+## Autopay bills are confirmed, not entered
+
+A bill on autopay, such as a loan instalment taken from a bank account every
+month, leaves the account on its own. Nobody types it in, so Rokda waited for an
+entry that never came, and the missed-bill nudge, three days late and once only,
+asked about a payment that had most likely gone through.
+
+- **The bot asks on the due date** (the daily check, 09:00 Dubai), and every
+  morning after, until someone answers or the next due date arrives: "Has it
+  been deducted from the account?". It applies to an outgoing bill marked
+  autopay that names the account it leaves from. Everyone the bill belongs to
+  is asked; the first answer settles it for both.
+- **Answers are read generously, and only as whole messages**
+  (`applib/autopay.js`): "yes", "paid", "deducted", "done", "it's paid",
+  "already paid", "EMI deducted", 👍, ✅ or 👌 record it; "not yet", "no",
+  "pending" or 👎 mean ask again tomorrow. Anything with another word in it
+  ("paid 40 for lunch") is not an answer, and goes on to be an ordinary
+  message. A "not" anywhere makes it "not yet", which is the safe direction:
+  a missed confirmation costs another question tomorrow, a wrong one records
+  a payment that did not happen.
+- **Any of the messages counts.** A reply to, or a reaction on, the first
+  question or any morning's reminder, or a bare answer at any time that day,
+  as long as nothing else is waiting for an answer. "paid 2,050" records the
+  amount given.
+- **Recorded once** (`apply_bot_proposal`): one expense on the bill's account
+  and category, dated its due date. A second "yes", another member's answer,
+  or the bill already logged another way (a pasted bank SMS, the app) records
+  nothing more. The bot stops asking as soon as it sees the payment in Rokda,
+  however it got there.
+- These bills are no longer nudged once, three days late; Needs attention says
+  the debit is waiting for its confirmation rather than that it has not
+  posted.
+
+## Needs attention shows the most pressing first
+
+Overview listed every open item, and with several holdings or accounts to
+look at the list pushed the rest of the page out of sight. It now shows the
+four most pressing, with a payment due ahead of a warning and a warning ahead
+of something stale, and "Show all N" opens the rest. The count beside the
+heading is still the whole number.
