@@ -58,11 +58,14 @@ function aed(amount) {
  * @param {{ name: string, amount: number, accountName?: string | null, due: string }} bill
  * @param {{ reminder?: boolean }} [options]
  */
-export function autopayQuestion(bill, { reminder = false } = {}) {
+export function autopayQuestion(bill, { reminder = false, today = null } = {}) {
   const from = bill.accountName ? ` from ${bill.accountName}` : '';
+  // The first question is usually sent on the due date, but not always: a
+  // bill switched to autopay mid-cycle is first asked about days later.
+  const when = !today || today === bill.due ? `was due today, ${shortDay(bill.due)}` : `was due on ${shortDay(bill.due)}`;
   const head = reminder
     ? `Reminder: has ${bill.name} (${aed(bill.amount)}, due ${shortDay(bill.due)}) been deducted${from} yet?`
-    : `${bill.name} (${aed(bill.amount)}) was due today, ${shortDay(bill.due)}. Has it been deducted${from}?`;
+    : `${bill.name} (${aed(bill.amount)}) ${when}. Has it been deducted${from}?`;
   return (
     `${head}\n` +
     'Reply "yes" or "paid", or react 👍, and I\'ll record it. ' +

@@ -2337,7 +2337,7 @@ async function askAutopay(
   const reminder = row.prompt_message_id != null;
   let messageId: number | null = null;
   try {
-    messageId = await reply(chatId, autopayQuestion({ name: bill.name, amount: Number(row.payload?.amount ?? bill.amount), accountName: bill.accountName, due: cycle.due }, { reminder }));
+    messageId = await reply(chatId, autopayQuestion({ name: bill.name, amount: Number(row.payload?.amount ?? bill.amount), accountName: bill.accountName, due: cycle.due }, { reminder, today: todayStr }));
   } catch {
     messageId = null;
   }

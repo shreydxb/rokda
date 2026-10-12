@@ -95,6 +95,11 @@ describe('autopayQuestion', () => {
     expect(q).toMatch(/"not yet"/);
   });
 
+  it('says the date, not "today", when first asked after the due date', () => {
+    expect(autopayQuestion(bill, { today: '2026-10-03' })).toContain('was due today, 3 Oct.');
+    expect(autopayQuestion(bill, { today: '2026-10-13' })).toContain('Car EMI (AED 2,000.00) was due on 3 Oct. Has it been deducted from Bank?');
+  });
+
   it('reminds on the days after', () => {
     expect(autopayQuestion(bill, { reminder: true })).toMatch(/^Reminder: has Car EMI \(AED 2,000.00, due 3 Oct\) been deducted from Bank yet\?/);
   });
