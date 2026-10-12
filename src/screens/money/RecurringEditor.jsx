@@ -286,7 +286,7 @@ export default function RecurringEditor({ item, household = null, householdId, a
           <button type="button" className="te-togglerow" onClick={() => set('autopay', !form.autopay)}>
             <div>
               <div className="te-togglelabel">Autopay</div>
-              <div className="te-togglenote">Skip the reminder, still show on the calendar</div>
+              <div className="te-togglenote">Goes out on its own: the bot asks on Telegram from the due date until you confirm it</div>
             </div>
             <span className="te-togglestate">{form.autopay ? 'On' : 'Off'}</span>
           </button>

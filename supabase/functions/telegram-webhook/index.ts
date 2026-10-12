@@ -50,6 +50,7 @@ import {
   PROMPT_FAILED,
   THUMBS_UP_EMOJIS,
 } from "../_shared/applib/telegramConfirm.js";
+import { autopayAnswer, autopayCycle, autopayNotYetMessage, autopayQuestion, autopayReactionDecision, shortDay } from "../_shared/applib/autopay.js";
 import { incompleteNote, netWorthSummary } from "../_shared/applib/overviewMath.js";
 import { accountValueAed, unvaluedAccounts } from "../_shared/applib/accounts.js";
 import { monthActualsByCategory } from "../_shared/applib/budget.js";
@@ -904,9 +905,11 @@ async function handleReaction(reaction: Record<string, unknown>): Promise<Respon
   // expense or draw a reply carrying an amount. Silently, since a reaction is
   // not addressed to anyone.
   if (!isPrivateChat(chat)) return new Response("ok");
-  if (!(newReaction ?? []).some((r) => r.type === "emoji" && THUMBS_UP_EMOJIS.has(r.emoji ?? ""))) {
-    return new Response("ok");
-  }
+  const emojis = (newReaction ?? []).filter((r) => r.type === "emoji").map((r) => r.emoji ?? "");
+  const thumbsUp = emojis.some((e) => THUMBS_UP_EMOJIS.has(e));
+  // An autopay question also takes 👌, and 👎 for "not yet".
+  const autopayDecision = emojis.map(autopayReactionDecision).find((d) => d != null) ?? null;
+  if (!thumbsUp && !autopayDecision) return new Response("ok");
 
   const { data: member } = await supabase
     .from("household_members")
@@ -924,9 +927,14 @@ async function handleReaction(reaction: Record<string, unknown>): Promise<Respon
     return new Response("ok");
   }
   if (proposal.kind === PROMPT_FOUND && proposal.row) {
-    if (proposal.row.status === "proposed") await decideProposal(chatId, member.id, proposal.row, "apply");
+    if (proposal.row.kind === "autopay_payment") {
+      if (proposal.row.status === "proposed" && autopayDecision) await decideAutopay(chatId, member.id, proposal.row, autopayDecision);
+      return new Response("ok");
+    }
+    if (proposal.row.status === "proposed" && thumbsUp) await decideProposal(chatId, member.id, proposal.row, "apply");
     return new Response("ok");
   }
+  if (!thumbsUp) return new Response("ok");
 
   // Unlike a typed "yes", a reaction always names the message it is on, so
   // this route can always be exact. A 👍 on a message that isn't one of our
@@ -992,8 +1000,22 @@ async function proposalForPrompt(
     .eq("prompt_message_id", messageId)
     .maybeSingle();
   if (error) return { kind: PROMPT_FAILED, row: null };
-  if (!data) return { kind: PROMPT_UNKNOWN, row: null };
-  return { kind: PROMPT_FOUND, row: data as ProposalRow };
+  if (data) return { kind: PROMPT_FOUND, row: data as ProposalRow };
+  // An autopay question is asked again each morning until it is answered,
+  // and an answer to any of those messages counts. The latest is
+  // prompt_message_id; the earlier ones are kept in the payload.
+  const { data: earlier, error: earlierError } = await supabase
+    .from("bot_proposals")
+    .select(PROPOSAL_COLUMNS)
+    .eq("household_id", householdId)
+    .eq("member_id", memberId)
+    .eq("chat_id", chatId)
+    .eq("kind", "autopay_payment")
+    .contains("payload", { asked_message_ids: [messageId] })
+    .limit(1);
+  if (earlierError) return { kind: PROMPT_FAILED, row: null };
+  if (earlier?.length) return { kind: PROMPT_FOUND, row: earlier[0] as ProposalRow };
+  return { kind: PROMPT_UNKNOWN, row: null };
 }
 
 // The member's proposals still waiting from the last few minutes, asked
@@ -1012,7 +1034,10 @@ async function openProposals(householdId: string, memberId: string): Promise<{ r
     // saving and asking, when the redelivery then read the message as
     // something else and never came back to it.
     .not("prompt_message_id", "is", null)
-    .gt("created_at", new Date(now - PENDING_WINDOW_MS).toISOString())
+    // An autopay question waits all day for an answer, often hours after it
+    // was asked, so a bare "paid" counts for it whenever it comes. Everything
+    // else counts only for a few minutes.
+    .or(`created_at.gt.${new Date(now - PENDING_WINDOW_MS).toISOString()},kind.eq.autopay_payment`)
     .gt("expires_at", new Date(now).toISOString())
     .order("created_at", { ascending: false })
     .limit(5);
@@ -1153,6 +1178,15 @@ export function proposalOutcomeMessage(data: Record<string, unknown>): string {
   const skipped = result.skipped ?? [];
   const parts: string[] = [];
 
+  if (result.kind === "autopay_payment") {
+    const b = applied[0] as (ProposalItem & { next_due?: string | null }) | undefined;
+    if (!b) return "That bill is no longer set up in Rokda, so nothing was recorded.";
+    const line = `${b.name}, AED ${Number(b.amount).toFixed(2)}, dated ${shortDay(String(b.occurred_at))}.`;
+    if (repeat) return `Already recorded: ${line}`;
+    if (b.already_recorded) return `Already recorded: ${line} It was in Rokda already, so I didn't add it again.`;
+    return `Recorded: ${line}${b.next_due ? ` I'll ask again on ${shortDay(String(b.next_due))}.` : ""}`;
+  }
+
   if (result.kind === "goal_contribution") {
     const g = applied[0];
     if (!g) return "That goal is no longer there, so nothing was recorded.";
@@ -1182,6 +1216,9 @@ export function proposalOutcomeMessage(data: Record<string, unknown>): string {
 // a bare "no" must say what it dropped.
 export function proposalSummary(row: { kind: string; payload: Record<string, unknown> }): string {
   const payload = row.payload ?? {};
+  if (row.kind === "autopay_payment") {
+    return `${String(payload.name ?? "the bill")} (AED ${Number(payload.amount ?? 0).toFixed(2)})`;
+  }
   if (row.kind === "goal_contribution") {
     return `AED ${Number(payload.amount ?? 0).toFixed(2)} toward ${String(payload.goal_name ?? "the goal")}`;
   }
@@ -1194,6 +1231,7 @@ export function proposalSummary(row: { kind: string; payload: Record<string, unk
 // For an answer to a proposal already decided: what happened to it, with the
 // saved figures again when it was applied.
 function decidedProposalMessage(row: ProposalRow): string {
+  if (row.kind === "autopay_payment" && row.status !== "applied") return autopayClosedMessage(row);
   if (row.status === "applied") return row.result ? proposalOutcomeMessage({ outcome: "applied", result: row.result }) : "That one is already saved.";
   if (row.status === "cancelled") return `You dropped ${proposalSummary(row)}, so nothing was changed.`;
   return "That one has lapsed, so nothing was changed. Send it again if it still holds.";
@@ -1223,6 +1261,10 @@ async function decideProposal(chatId: number, memberId: string, proposal: Propos
   }
 
   const { data, error } = await supabase.rpc("apply_bot_proposal", { p_proposal_id: proposal.id, p_member_id: memberId });
+  if (!error && proposal.kind === "autopay_payment" && (data as Record<string, unknown> | null)?.outcome === "expired") {
+    await reply(chatId, autopayClosedMessage(proposal));
+    return;
+  }
   if (error || !data || typeof data !== "object") {
     // Applying is one transaction and repeatable, so asking for the same
     // answer again is safe whether or not this attempt got through.
@@ -1230,6 +1272,51 @@ async function decideProposal(chatId: number, memberId: string, proposal: Propos
     return;
   }
   await reply(chatId, proposalOutcomeMessage(data as Record<string, unknown>));
+}
+
+// An autopay question that can no longer be answered: someone else confirmed
+// it, or its cycle passed.
+function autopayClosedMessage(row: { payload: Record<string, unknown> }): string {
+  const name = String(row.payload?.name ?? "That bill");
+  const due = row.payload?.due_date ? ` for ${shortDay(String(row.payload.due_date))}` : "";
+  return `Nothing to do: ${name}${due} is already recorded, or its month has passed. I'll ask again on its next due date.`;
+}
+
+// An answer to an autopay question. "paid" records the bill, at the amount
+// the member gave if they gave one. "not yet" leaves the question open: the
+// bot asks again tomorrow morning, and a "paid" later today still counts.
+async function decideAutopay(
+  chatId: number,
+  memberId: string,
+  proposal: ProposalRow,
+  decision: "paid" | "not_yet",
+  amount: number | null = null,
+): Promise<void> {
+  if (proposal.status !== "proposed") {
+    await reply(chatId, decidedProposalMessage(proposal));
+    return;
+  }
+  if (decision === "not_yet") {
+    await supabase
+      .from("bot_proposals")
+      .update({ payload: { ...proposal.payload, not_yet_on: householdToday() } })
+      .eq("id", proposal.id)
+      .eq("status", "proposed");
+    await reply(chatId, autopayNotYetMessage(String(proposal.payload?.name ?? "That bill")));
+    return;
+  }
+  let row = proposal;
+  if (amount != null && amount > 0 && amount !== Number(proposal.payload?.amount)) {
+    // The member said what went out. What is saved is what they said.
+    const payload = { ...proposal.payload, amount, scheduled_amount: proposal.payload?.amount };
+    const { error } = await supabase.from("bot_proposals").update({ payload }).eq("id", proposal.id).eq("status", "proposed");
+    if (error) {
+      await reply(chatId, `I couldn't record that amount just now. Nothing has been saved; reply "paid ${amount}" again in a moment.`);
+      return;
+    }
+    row = { ...proposal, payload };
+  }
+  await decideProposal(chatId, memberId, row, "apply");
 }
 
 // ---------------------------------------------------------------------------
@@ -2022,7 +2109,7 @@ async function runRecurringCheck(): Promise<{ checked: number; nudged: number }>
   const [{ data: activeRows }, prefs] = await Promise.all([
     supabase
       .from("recurring")
-      .select("id, household_id, name, owner_member_id, is_shared, amount, next_due_date, ends_on, cadence, interval_count, account_id, category_id")
+      .select("id, household_id, name, owner_member_id, is_shared, amount, next_due_date, ends_on, cadence, interval_count, account_id, category_id, autopay")
       .eq("active", true),
     telegramPrefsMap(),
   ]);
@@ -2051,8 +2138,12 @@ async function runRecurringCheck(): Promise<{ checked: number; nudged: number }>
       interval_count: number;
       account_id: string | null;
       category_id: string | null;
+      autopay: boolean;
     }>
   )
+    // An outgoing bill on autopay is asked about on its due date and every
+    // morning after instead (runAutopayCheck), not nudged once here.
+    .filter((r) => !(r.autopay && Number(r.amount) < 0 && r.account_id))
     .map((r) => {
       const due = lastDueOccurrence(r.next_due_date, r.cadence, today, r.interval_count);
       return due ? { ...r, dueDate: due.toISOString().slice(0, 10) } : null;
@@ -2133,6 +2224,136 @@ async function runRecurringCheck(): Promise<{ checked: number; nudged: number }>
     }
   }
   return { checked: dueRows.length, nudged };
+}
+
+// Autopay bills (docs/decisions.md, "Autopay bills are confirmed, not
+// entered"). Runs with the daily check at 09:00 Dubai. An outgoing bill on
+// autopay, from an account, is asked about on its due date and each morning
+// after until someone answers "paid" or it shows up in Rokda some other way,
+// up to its next due date. One question per member per cycle (source_ref),
+// re-sent each morning; every message that asked it can be answered.
+async function runAutopayCheck(): Promise<{ checked: number; asked: number }> {
+  const now = new Date();
+  const today = householdDay(now);
+  const todayStr = householdToday(now);
+  const [{ data: rows }, prefs] = await Promise.all([
+    supabase
+      .from("recurring")
+      .select("id, household_id, name, owner_member_id, is_shared, amount, next_due_date, ends_on, cadence, interval_count, account_id, category_id, accounts(name)")
+      .eq("active", true)
+      .eq("autopay", true)
+      .lt("amount", 0)
+      .not("account_id", "is", null),
+    telegramPrefsMap(),
+  ]);
+
+  let checked = 0;
+  let asked = 0;
+  for (const r of (rows ?? []) as Array<Record<string, unknown>>) {
+    const householdId = String(r.household_id);
+    if (!prefEnabled(prefs, householdId, "recurring_enabled")) continue;
+    const cycle = autopayCycle(r as { next_due_date: string; cadence: string; interval_count: number | null; ends_on: string | null }, today);
+    if (!cycle) continue;
+    checked++;
+    try {
+      const amount = Math.abs(Number(r.amount));
+      // Already in Rokda: confirmed, or logged another way (a pasted bank
+      // SMS, the app). The same match apply_bot_proposal() uses.
+      const day = (offset: number) => {
+        const d = parseDay(cycle.due);
+        d.setDate(d.getDate() + offset);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      };
+      let nearbyQuery = supabase
+        .from("transactions")
+        .select("amount")
+        .eq("household_id", householdId)
+        .eq("account_id", String(r.account_id))
+        .gte("occurred_at", day(-5))
+        .lte("occurred_at", day(5));
+      if (r.category_id) nearbyQuery = nearbyQuery.eq("category_id", String(r.category_id));
+      const { data: nearby, error: nearbyError } = await nearbyQuery;
+      if (nearbyError) continue;
+      if ((nearby ?? []).some((t: { amount: number }) => Math.abs(Math.abs(Number(t.amount)) - amount) <= amount * 0.2)) continue;
+
+      const { data: members } = await supabase
+        .from("household_members")
+        .select("id, telegram_user_id")
+        .eq("household_id", householdId);
+      const recipients = ((members ?? []) as Array<{ id: string; telegram_user_id: number | null }>)
+        .filter((m) => m.telegram_user_id != null && (r.is_shared || m.id === r.owner_member_id));
+      const accountName = (r.accounts as { name?: string } | null)?.name ?? null;
+      for (const m of recipients) {
+        if (await askAutopay({ id: String(r.id), householdId, name: String(r.name), amount, accountName }, m, cycle, todayStr)) asked++;
+      }
+    } catch {
+      // One bill failing must never block the rest.
+    }
+  }
+  return { checked, asked };
+}
+
+// Asks one member about one bill's cycle, once a day. True when a message
+// went out.
+async function askAutopay(
+  bill: { id: string; householdId: string; name: string; amount: number; accountName: string | null },
+  member: { id: string; telegram_user_id: number | null },
+  cycle: { due: string; next: string },
+  todayStr: string,
+): Promise<boolean> {
+  const chatId = Number(member.telegram_user_id);
+  const sourceRef = `autopay:${bill.id}:${cycle.due}:${member.id}`;
+  const { data: existing, error } = await supabase
+    .from("bot_proposals")
+    .select("id, status, payload, prompt_message_id")
+    .eq("household_id", bill.householdId)
+    .eq("source_ref", sourceRef)
+    .maybeSingle();
+  if (error) return false;
+
+  type AutopayRow = { id: string; status: string; payload: Record<string, unknown>; prompt_message_id: number | null };
+  let row = existing as AutopayRow | null;
+  if (row && (row.status !== "proposed" || row.payload?.last_asked_on === todayStr)) return false;
+  if (!row) {
+    // Expires when the next cycle starts: until then an answer still counts.
+    const inserted = await supabase
+      .from("bot_proposals")
+      .insert({
+        household_id: bill.householdId,
+        member_id: member.id,
+        kind: "autopay_payment",
+        payload: { recurring_id: bill.id, name: bill.name, amount: bill.amount, account_name: bill.accountName, due_date: cycle.due, next_due: cycle.next, asked_message_ids: [] },
+        chat_id: chatId,
+        source_ref: sourceRef,
+        expires_at: `${cycle.next}T00:00:00+04:00`,
+      })
+      .select("id, status, payload, prompt_message_id")
+      .single();
+    // 23505: another run of this check got there first.
+    if (inserted.error || !inserted.data) return false;
+    row = inserted.data as AutopayRow;
+  }
+
+  const reminder = row.prompt_message_id != null;
+  let messageId: number | null = null;
+  try {
+    messageId = await reply(chatId, autopayQuestion({ name: bill.name, amount: Number(row.payload?.amount ?? bill.amount), accountName: bill.accountName, due: cycle.due }, { reminder }));
+  } catch {
+    messageId = null;
+  }
+  if (messageId == null) {
+    // Never asked: remove it, so tomorrow asks afresh. One already asked
+    // stays, and is asked again tomorrow.
+    if (!reminder) await discardUnaskedProposal(row.id);
+    return false;
+  }
+  const askedIds = [...((row.payload?.asked_message_ids as number[] | undefined) ?? []), messageId];
+  await supabase
+    .from("bot_proposals")
+    .update({ prompt_message_id: messageId, payload: { ...row.payload, asked_message_ids: askedIds, last_asked_on: todayStr } })
+    .eq("id", row.id)
+    .eq("status", "proposed");
+  return true;
 }
 
 // Runs alongside runRecurringCheck (see the ?run_recurring_check=1 handler
@@ -2808,8 +3029,9 @@ async function handleRequest(req: Request): Promise<Response> {
   // than adding new jobs for each. The weekly/monthly checks no-op on every
   // day but their own, so running them daily costs nothing.
   if (req.method === "GET" && url.searchParams.get("run_recurring_check") === "1") {
-    const [recurring, creditCards, budgets, weeklyBrief, monthlyBrief, cashCover, unusualSpend, balanceCheckin] = await Promise.all([
+    const [recurring, autopay, creditCards, budgets, weeklyBrief, monthlyBrief, cashCover, unusualSpend, balanceCheckin] = await Promise.all([
       runRecurringCheck(),
+      runAutopayCheck(),
       runCreditCardCheck(),
       runBudgetAlertCheck(),
       runWeeklyBriefCheck(),
@@ -2824,6 +3046,7 @@ async function handleRequest(req: Request): Promise<Response> {
     return new Response(
       JSON.stringify({
         recurring,
+        autopay,
         credit_cards: creditCards,
         budgets,
         weekly_brief: weeklyBrief,
@@ -3045,8 +3268,15 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
     // decides it, and a bare answer decides the one proposal waiting only
     // when no expense is waiting for a "yes" too. Anything else falls through
     // to the expense rules below, unchanged.
-    const confirming = isConfirmationText(trimmedText);
-    if (confirming || isCancellationText(trimmedText)) {
+    // An autopay question also understands "paid", "deducted", "not yet" and
+    // the like (autopayAnswer), but only an autopay question does: "paid"
+    // aimed at a balance change or an expense is not an answer to it.
+    const strictYes = isConfirmationText(trimmedText);
+    const strictNo = isCancellationText(trimmedText);
+    const autopay = autopayAnswer(trimmedText);
+    const confirming = strictYes || autopay.decision === "paid";
+    const cancelling = !confirming && (strictNo || autopay.decision === "not_yet");
+    if (confirming || cancelling) {
       const unaddressed = repliedTo == null;
       const [proposalLookup, open, recent] = await Promise.all([
         proposalForPrompt(member.household_id, member.id, chatId, repliedTo),
@@ -3064,11 +3294,15 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
         readyIntakes: candidates.rows.filter(isConfirmable),
         truncated: candidates.truncated,
       });
-      if (target.kind === "one") {
-        await decideProposal(chatId, member.id, target.row, confirming ? "apply" : "cancel");
+      if (target.kind === "one" && target.row.kind === "autopay_payment") {
+        await decideAutopay(chatId, member.id, target.row, confirming ? "paid" : "not_yet", confirming ? autopay.amount : null);
         return new Response("ok");
       }
-      if (target.kind === "decided") {
+      if (target.kind === "one" && (strictYes || strictNo)) {
+        await decideProposal(chatId, member.id, target.row, strictYes ? "apply" : "cancel");
+        return new Response("ok");
+      }
+      if (target.kind === "decided" && (strictYes || strictNo || target.row.kind === "autopay_payment")) {
         await reply(chatId, decidedProposalMessage(target.row));
         return new Response("ok");
       }
@@ -3082,7 +3316,7 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
       }
     }
 
-    if (confirming) {
+    if (strictYes) {
       const target = resolveConfirmTarget({
         lookup: promptLookup.kind,
         row: promptLookup.row,
