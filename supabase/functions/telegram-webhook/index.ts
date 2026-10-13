@@ -378,6 +378,32 @@ export function forwardedDay(message: Record<string, unknown> | undefined): stri
 
 // The line added to a capture reply when some of what was sent had no date:
 // which date it was given, and that it waits in the Inbox for the real one.
+// Why one expense went to the Inbox rather than being offered for a quick
+// "yes", in words the member can act on. "Got it — check the Inbox" read as
+// if it had been recorded, so a payment sent without a merchant name
+// silently waited there while the member assumed it was in.
+export function inboxReason(
+  row: { parsed_amount?: number | string | null; parsed_merchant?: string | null; parsed_account_id?: string | null; parsed_category_id?: string | null; parsed_currency?: string | null; confidence?: number | string | null },
+  duplicate: { occurred_at: string } | null = null,
+): string {
+  if (duplicate) {
+    return `Not recorded yet: it looks like one already in Rokda from ${duplicate.occurred_at}, so it's in the Inbox rather than recorded twice. Approve it there if it's a second charge.`;
+  }
+  const missing: string[] = [];
+  if (!(Number(row.parsed_amount) > 0)) missing.push("the amount");
+  if (!row.parsed_merchant) missing.push("who was paid");
+  if (!row.parsed_account_id) missing.push("which card or account");
+  if (!row.parsed_category_id) missing.push("the category");
+  if (row.parsed_currency && row.parsed_currency !== "AED") missing.push(`the AED amount (it says ${row.parsed_currency})`);
+  if (missing.length === 0) {
+    return Number(row.confidence ?? 0) < 0.85
+      ? "Not recorded yet: I wasn't sure I read it right, so it's in the Inbox. Check it there and approve it."
+      : "Not recorded yet: it's in the Inbox to check and approve.";
+  }
+  const list = missing.length === 1 ? missing[0] : `${missing.slice(0, -1).join(", ")} or ${missing[missing.length - 1]}`;
+  return `Not recorded yet: I couldn't tell ${list}, so it's in the Inbox. Approve it there, or send it again with that added.`;
+}
+
 export function undatedNote(guessedDates: string[], total: number): string {
   if (guessedDates.length === 0) return "";
   const days = [...new Set(guessedDates)];
@@ -429,6 +455,7 @@ async function parseIntakeWithAI(params: {
     `One item per distinct amount. Shared details (date, account, merchant if it applies to all) should be repeated on every item rather than left null just because it was only stated once in the message. ` +
     `"kind" is "expense" if money left the account (a purchase, a bill paid, an EMI) -- this is the default for almost everything. "income" if money arrived that ISN'T tied to a specific earlier expense (a salary credit, a gift received, interest, cashback treated as a reward rather than a refund). "refund" if money came back specifically because an earlier purchase was returned, cancelled or reimbursed (e.g. "got a refund from Noon for the return", "airline refunded my ticket"). When genuinely unsure between income and refund, prefer "income" -- a refund wrongly filed as income is a smaller mistake than one that tries and fails to link to a specific past purchase. ` +
     `"currency" is the real currency of the amount if stated or clearly implied (e.g. "AED", "USD", "INR") -- null if genuinely unstated. Never assume AED just because the household is AED-based -- only state it if the message actually says or implies it. ` +
+    `"merchant" is who was paid: the shop, service, company or biller the message names, even in passing and in lower case ("du" in "du wifi paid today", "DEWA" in "dewa bill 500", "Careem" in "careem 19"). When the message names no one, give a short description of what was paid for instead ("Flight ticket", "Haircut"). Use null only when there is nothing at all to go on. ` +
     `"card_last4" is the last 4 digits of a card mentioned (e.g. "card ending 1234", "card no. ...1234"), or null if none is mentioned. ` +
     `"account_hint" is the account/card NAME mentioned in the message, if any (e.g. "Wio", "FAB Z", "ENBD Noon", "FAB Islamic") -- a short free-text name, not digits, or null if no account/card is named. ` +
     (accountNames.length
@@ -3782,6 +3809,7 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
   // Parsing is a convenience layered on top of a capture that already
   // succeeded -- its failure must never surface as this message's failure.
   let fastConfirmSummary: string | null = null;
+  let singleInboxReason: string | null = null;
   const multiItemSummaries: string[] = [];
   const guessedDates: string[] = [];
   try {
@@ -3848,6 +3876,7 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
         }
 
         if (items!.length === 1) {
+          singleInboxReason = inboxReason(updatedRow);
           // Same bar as the fast-confirm "yes" path above: only invite it
           // when account, category, currency and date are all already
           // resolved, not just when the model's own confidence is high --
@@ -3857,6 +3886,7 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
           // own source of mistakes.
           if (isReadyForFastConfirm(updatedRow)) {
             const duplicate = await findDuplicateTransaction(member.household_id, updatedRow.parsed_account_id, item.merchant, item.amount, item.occurred_at);
+            singleInboxReason = inboxReason(updatedRow, duplicate);
             if (!duplicate) {
               const kindLabel = item.kind === "income" ? "income " : item.kind === "refund" ? "refund " : "";
               fastConfirmSummary = `AED ${Number(item.amount).toFixed(2)} ${kindLabel}at ${item.merchant} (${matchedAccount!.name}${matchedCategory ? `, ${matchedCategory.name}` : ""}) on ${item.occurred_at}`;
@@ -3888,7 +3918,7 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
       chatId,
       (multiItemSummaries.length > 1
         ? `Got it — ${multiItemSummaries.length} expenses captured (${multiItemSummaries.join(", ")}). Check the Inbox to review each.`
-        : "Got it — check the Inbox to review.") + undatedNote(guessedDates, multiItemSummaries.length > 1 ? multiItemSummaries.length : 1)
+        : singleInboxReason ?? "Got it — check the Inbox to review.") + undatedNote(guessedDates, multiItemSummaries.length > 1 ? multiItemSummaries.length : 1)
     );
   }
   return new Response("ok");

@@ -470,7 +470,7 @@ Deno.env.set("TELEGRAM_BOT_TOKEN", TOKEN);
 Deno.env.set("OPENROUTER_API_KEY", "openrouter-test");
 
 reset();
-const { accountsForCheckin, buildBalanceCheckinMessage, datedItems, forwardedDay, merchantHistoryMatches, pickAccountByHint, pickCheckinAccount, undatedNote } = await import("./index.ts");
+const { accountsForCheckin, buildBalanceCheckinMessage, datedItems, forwardedDay, inboxReason, merchantHistoryMatches, pickAccountByHint, pickCheckinAccount, undatedNote } = await import("./index.ts");
 assert(handler!, "index.ts did not register a handler with Deno.serve");
 
 // ---------------------------------------------------------------------------
@@ -1490,4 +1490,30 @@ freshTest("statement questions switched off, or a closed card, ask nothing", asy
   await res.body?.cancel();
   assertEquals(statementQuestions().length, 0);
   assertEquals(backend.tables.statement_reconciliations.length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// An expense the bot cannot record yet says so, and why
+// ---------------------------------------------------------------------------
+
+Deno.test("an expense sent to the Inbox says it is not recorded yet, and what was missing", () => {
+  const ready = { parsed_amount: 204.38, parsed_merchant: "du", parsed_account_id: "a", parsed_category_id: "c", parsed_currency: "AED", confidence: 1 };
+  assert(inboxReason({ ...ready, parsed_merchant: null }).startsWith("Not recorded yet: I couldn't tell who was paid, so it's in the Inbox."));
+  assertEquals(
+    inboxReason({ ...ready, parsed_merchant: null, parsed_account_id: null, parsed_category_id: null }),
+    "Not recorded yet: I couldn't tell who was paid, which card or account or the category, so it's in the Inbox. Approve it there, or send it again with that added.",
+  );
+  assert(inboxReason({ ...ready, parsed_currency: "USD" }).includes("the AED amount (it says USD)"));
+  assert(inboxReason({ ...ready, confidence: 0.6 }).includes("I wasn't sure I read it right"));
+  assert(inboxReason(ready, { occurred_at: "2026-09-28" }).includes("already in Rokda from 2026-09-28"));
+});
+
+freshTest("a payment typed without a merchant the parser recognised is reported as not recorded", async () => {
+  backend.tables.accounts.push({ id: "a9000000-0000-4000-8000-000000000001", household_id: HOUSEHOLD, name: "ENBD Marriott •8643", type: "credit_card", currency: "AED", archived_at: null });
+  backend.parse = [{ merchant: null, amount: 204.38, currency: "AED", occurred_at: "2026-10-13", date_stated: true, source: "typed", category: null, card_last4: null, account_hint: "ENBD Marriott", confidence: 0.9, kind: "expense" }];
+  await handler(textUpdate(9301, "Du wifi paid today using marriot card 204.38"));
+  assertEquals(capturedIntake().length, 1);
+  assert(/^Not recorded yet: I couldn't tell who was paid/.test(lastReply()), lastReply());
+  // The parser is told that a biller named in passing is the merchant.
+  assert(backend.parsePrompts[0].includes("is who was paid"), "the parser was not told what a merchant is");
 });
