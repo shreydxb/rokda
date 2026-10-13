@@ -1008,3 +1008,19 @@ is now read a page at a time until a short page comes back
 (`src/lib/pagedRead.js`), each query ending in a unique column so the pages
 cannot overlap or skip a row. A failed page fails the read; it is never shown
 as a shorter list.
+
+## The bot says when an expense is not recorded
+
+"du wifi paid today using marriot card 204.38" went to the Inbox: the parser
+named no merchant, and without one the bot does not offer its quick "yes".
+Its reply, "Got it — check the Inbox to review", read as if the payment had
+been recorded, so it was sent again.
+
+- **The parser is told what a merchant is**: whoever was paid, named even in
+  passing and in lower case ("du" in "du wifi paid"). When nobody is named it
+  gives a short description of what was paid for ("Flight ticket"), so a
+  typed payment is not held back for want of a name.
+- **A single expense that is not recorded says so** (`inboxReason`): "Not
+  recorded yet: I couldn't tell who was paid, so it's in the Inbox", naming
+  what was missing (the amount, who was paid, the card or account, the
+  category, an AED amount), or that it looks like one already recorded.
