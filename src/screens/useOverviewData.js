@@ -1,32 +1,42 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
+import { readAllPages } from '../lib/pagedRead';
 
 // One entry per query. Failures are reported per source rather than collapsed
 // into a single flag, so a screen can say exactly what is missing (QA-10).
+//
+// Every source is read a page at a time (readAllPages): the API stops at
+// 1,000 rows without saying so. Each query ends in a unique column, so the
+// pages cannot overlap or skip a row.
 const SOURCES = [
-  { key: 'accounts', run: (id) => supabase.from('accounts').select('*').eq('household_id', id).order('created_at') },
+  { key: 'accounts', query: (id) => supabase.from('accounts').select('*').eq('household_id', id).order('created_at').order('id') },
   {
     key: 'transactions',
-    run: (id) =>
+    query: (id) =>
       supabase
         .from('transactions')
         .select('*, categories(id, name, kind)')
         .eq('household_id', id)
-        .order('occurred_at', { ascending: false }),
+        .order('occurred_at', { ascending: false })
+        .order('id'),
   },
-  { key: 'categories', run: (id) => supabase.from('categories').select('*').eq('household_id', id).order('name') },
-  { key: 'recurring', run: (id) => supabase.from('recurring').select('*').eq('household_id', id).order('next_due_date') },
-  { key: 'budgets', run: (id) => supabase.from('budgets').select('*').eq('household_id', id) },
-  { key: 'intake', run: (id) => supabase.from('intake').select('*').eq('household_id', id).order('created_at', { ascending: false }) },
+  { key: 'categories', query: (id) => supabase.from('categories').select('*').eq('household_id', id).order('name').order('id') },
+  { key: 'recurring', query: (id) => supabase.from('recurring').select('*').eq('household_id', id).order('next_due_date').order('id') },
+  { key: 'budgets', query: (id) => supabase.from('budgets').select('*').eq('household_id', id).order('id') },
+  { key: 'intake', query: (id) => supabase.from('intake').select('*').eq('household_id', id).order('created_at', { ascending: false }).order('id') },
   {
     key: 'netWorthSnapshots',
-    run: (id) => supabase.from('net_worth_snapshots').select('*').eq('household_id', id).order('snapshot_date'),
+    query: (id) => supabase.from('net_worth_snapshots').select('*').eq('household_id', id).order('snapshot_date').order('id'),
   },
-  { key: 'holdings', run: (id) => supabase.from('holdings').select('*').eq('household_id', id).order('created_at') },
+  { key: 'holdings', query: (id) => supabase.from('holdings').select('*').eq('household_id', id).order('created_at').order('id') },
   // RLS scopes this to the caller's household via a join on holdings, so no explicit filter needed.
-  { key: 'holdingHistory', run: () => supabase.from('holding_value_history').select('*').order('as_of') },
-  { key: 'categoryRules', run: (id) => supabase.from('category_rules').select('*').eq('household_id', id).order('created_at') },
-];
+  { key: 'holdingHistory', query: () => supabase.from('holding_value_history').select('*').order('as_of').order('id') },
+  { key: 'categoryRules', query: (id) => supabase.from('category_rules').select('*').eq('household_id', id).order('created_at').order('id') },
+  {
+    key: 'statementReconciliations',
+    query: (id) => supabase.from('statement_reconciliations').select('*').eq('household_id', id).order('statement_date', { ascending: false }).order('id'),
+  },
+].map((source) => ({ ...source, run: (id) => readAllPages(() => source.query(id)) }));
 
 const EMPTY_STATE = {
   loading: false,
@@ -40,6 +50,7 @@ const EMPTY_STATE = {
   holdings: [],
   holdingHistory: [],
   categoryRules: [],
+  statementReconciliations: [],
   errors: {},
   loadedAt: null,
 };
