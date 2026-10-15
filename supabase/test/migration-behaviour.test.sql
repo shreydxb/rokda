@@ -1762,4 +1762,63 @@ begin
   raise notice 'statements ok: one record per statement, closed with a time, asked by default; merchant history counted for the bot only';
 end $$;
 
+-- updated_at moves on every direct edit, including one that does not send it
+-- (the transaction editor never did, SHR-307), and not when another trigger
+-- re-values a row: a rupee bill following the rate was not edited.
+do $$
+declare
+  hh constant uuid := '11111111-1111-1111-1111-111111111111';
+  acct constant uuid := 'a9000000-0000-4000-8000-0000000000a1';
+  tx constant uuid := 'a9000000-0000-4000-8000-0000000000b1';
+  bill constant uuid := 'a9000000-0000-4000-8000-0000000000c1';
+  backdated constant timestamptz := '2000-01-01T00:00:00Z';
+  missing text;
+  touched timestamptz;
+begin
+  select string_agg(c.table_name, ', ') into missing
+  from information_schema.columns c
+  where c.table_schema = 'public' and c.column_name = 'updated_at' and c.table_name <> 'accounts'
+    and not exists (
+      select 1 from information_schema.triggers t
+      where t.event_object_schema = 'public' and t.event_object_table = c.table_name
+        and t.action_statement = 'EXECUTE FUNCTION touch_updated_at()' and t.event_manipulation = 'UPDATE'
+    );
+  if missing is not null then
+    raise exception 'updated_at FAILED: no touch_updated_at trigger on %', missing;
+  end if;
+
+  insert into accounts (id, household_id, name, type, balance, is_shared) values (acct, hh, 'Touch account', 'checking', 0, true);
+  insert into transactions (id, household_id, account_id, amount, occurred_at, is_shared, kind) values (tx, hh, acct, -75, '2026-10-01', true, 'expense');
+  insert into recurring (id, household_id, name, amount, currency, native_amount, cadence, next_due_date, is_shared)
+  values (bill, hh, 'Rupee bill', -1, 'INR', -2500, 'monthly', '2026-11-01', true);
+
+  -- now() is fixed for the whole transaction, so backdate the last edit (with
+  -- triggers off) to be able to see whether a later write moves it.
+  perform set_config('session_replication_role', 'replica', true);
+  update transactions set updated_at = backdated where id = tx;
+  update recurring set updated_at = backdated where id = bill;
+  perform set_config('session_replication_role', 'origin', true);
+
+  update transactions set note = 'edited' where id = tx;
+  select updated_at into touched from transactions where id = tx;
+  if touched <> now() then raise exception 'updated_at FAILED: an edit left a transaction at %', touched; end if;
+
+  -- A writer that sends its own time is overruled: the database's clock decides.
+  update transactions set updated_at = backdated, note = 'again' where id = tx;
+  select updated_at into touched from transactions where id = tx;
+  if touched <> now() then raise exception 'updated_at FAILED: a sent updated_at of % was kept', touched; end if;
+
+  update households set inr_per_aed = 31 where id = hh;
+  select updated_at into touched from recurring where id = bill;
+  if touched <> backdated then raise exception 'updated_at FAILED: following the rupee rate moved a bill to %', touched; end if;
+  update recurring set name = 'Rupee bill renamed' where id = bill;
+  select updated_at into touched from recurring where id = bill;
+  if touched <> now() then raise exception 'updated_at FAILED: renaming a bill left it at %', touched; end if;
+
+  delete from recurring where id = bill;
+  delete from transactions where id = tx;
+  delete from accounts where id = acct;
+  raise notice 'updated_at ok: every direct edit moves it, a trigger-side re-valuation does not';
+end $$;
+
 rollback;
