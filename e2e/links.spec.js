@@ -35,11 +35,11 @@ test('an Insights figure opens its month and category in Activity, through Back 
 
   await expect(page).toHaveURL(/tab=activity&cat=[^&]+&from=\d{4}-\d{2}-01&to=\d{4}-\d{2}-\d{2}$/);
   const summary = page.locator('.mn-count');
-  await expect(summary).toContainText('1 posted record · Spent AED 300');
-  await expect(page.getByRole('button', { name: `${lastMonth()}: show all dates` })).toBeVisible();
+  await expect(summary).toContainText(`1 posted record · ${lastMonth()} · Net spend AED 300`);
+  await expect(page.getByRole('combobox', { name: 'Dates' })).toHaveValue('last-month');
 
   await page.reload({ waitUntil: 'domcontentloaded' });
-  await expect(summary).toContainText('1 posted record · Spent AED 300');
+  await expect(summary).toContainText('Net spend AED 300');
 
   await page.goBack();
   await expect(activeTab(page)).toHaveText('Insights');
