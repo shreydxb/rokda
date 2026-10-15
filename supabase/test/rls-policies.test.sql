@@ -137,6 +137,10 @@ insert into statement_reconciliations (id, household_id, account_id, statement_d
   ('f6000000-0000-0000-0000-000000000001', 'd1000000-0000-0000-0000-000000000001', 'f4000000-0000-0000-0000-000000000001', '2026-09-28', '2026-08-29'),
   ('f6000000-0000-0000-0000-000000000002', 'd2000000-0000-0000-0000-000000000002', 'f4000000-0000-0000-0000-000000000002', '2026-09-28', '2026-08-29');
 
+insert into backup_records (id, household_id, kind, result, done_on) values
+  ('f7000000-0000-0000-0000-000000000001', 'd1000000-0000-0000-0000-000000000001', 'export', 'passed', '2026-09-19'),
+  ('f7000000-0000-0000-0000-000000000002', 'd2000000-0000-0000-0000-000000000002', 'export', 'passed', '2026-09-19');
+
 set role authenticated;
 set request.jwt.claim.role = 'authenticated';
 
@@ -351,6 +355,37 @@ begin
     when insufficient_privilege then null;
   end;
   raise notice 'statements ok: own household only, marked done by a member, never deleted; merchant history is the bot''s';
+end $$;
+
+-- Backup records: a member reads and adds their own household's, as
+-- themselves whatever they send, and can neither change nor remove one.
+do $$
+declare n int; who uuid;
+begin
+  select count(*) into n from backup_records;
+  if n <> 1 then raise exception 'backups FAILED: a member sees % backup records, expected their household''s 1', n; end if;
+
+  insert into backup_records (id, household_id, kind, result, done_on, recorded_by)
+  values ('f7000000-0000-0000-0000-000000000003', 'd1000000-0000-0000-0000-000000000001', 'restore_drill', 'passed', '2026-10-01', 'e1000000-0000-0000-0000-00000000000a');
+  select recorded_by into who from backup_records where id = 'f7000000-0000-0000-0000-000000000003';
+  if who is distinct from 'e1000000-0000-0000-0000-00000000000b' then
+    raise exception 'backups FAILED: a record was attributed to % rather than the member who made it', who;
+  end if;
+
+  begin
+    insert into backup_records (household_id, kind, result, done_on) values ('d2000000-0000-0000-0000-000000000002', 'export', 'passed', '2026-10-01');
+    raise exception 'backups FAILED: a member recorded a backup for another household';
+  exception
+    when insufficient_privilege then null;
+  end;
+
+  update backup_records set result = 'failed';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'backups FAILED: a member changed % backup records', n; end if;
+  delete from backup_records;
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'backups FAILED: a member deleted % backup records', n; end if;
+  raise notice 'backups ok: own household only, recorded as the caller, never changed or removed';
 end $$;
 
 -- QA §8: a member cannot promote themselves.

@@ -155,6 +155,13 @@ export const data = {
   category_rules: [{ id: 'b2b2b2b2-0000-4000-8000-000000000001', household_id: HH, category_id: C_GROCERIES, pattern: 'spinneys', match_type: 'contains', archived: false, created_at: ts(monthsAgo(3)), updated_at: ts(monthsAgo(1)) }],
 
   transaction_edits: [],
+
+  // A recent export and an older drill, so Needs attention has no backup item
+  // and Settings -> Backups has a history to lay out.
+  backup_records: [
+    { id: 'a5a5a5a5-0000-4000-8000-000000000001', household_id: HH, kind: 'export', result: 'passed', done_on: dayThisMonth(1), note: 'Copied to the offline drive, with a long note that has to wrap on a phone without pushing the page sideways', recorded_by: ME, created_at: ts(dayThisMonth(1)) },
+    { id: 'a5a5a5a5-0000-4000-8000-000000000002', household_id: HH, kind: 'restore_drill', result: 'passed', done_on: monthsAgo(1), note: null, recorded_by: null, created_at: ts(monthsAgo(1)) },
+  ],
 };
 
 // transactions are fetched with `*, categories(id, name, kind)` embedded.
@@ -198,7 +205,7 @@ function sessionFor(aal, factors) {
  * never-used-it state, which is a real screen the app has to render and the
  * one most likely to have been written blind.
  */
-export async function stubSupabase(page, { empty = false, tables = {}, aal = 'aal2', factors = [VERIFIED_FACTOR], onRest = () => {} } = {}) {
+export async function stubSupabase(page, { empty = false, tables = {}, failReads = [], failWrites = [], aal = 'aal2', factors = [VERIFIED_FACTOR], onRest = () => {} } = {}) {
   // aal2 with an authenticator: a member who has passed the second step of
   // signing in. aal1 is a password-only session, which the app must not let
   // past its two-step screen (src/screens/TwoStep.jsx).
@@ -241,6 +248,15 @@ export async function stubSupabase(page, { empty = false, tables = {}, aal = 'aa
 
     if (rest.startsWith('rpc/')) return route.fulfill({ json: null });
 
+    // A failure the way PostgREST reports one: a status and a JSON error. The
+    // app must say what it could not load or save, never show an empty list
+    // or a saved state in its place.
+    const table = rest.split('?')[0];
+    const failing = request.method() === 'GET' ? failReads : failWrites;
+    if (failing.includes(table)) {
+      return route.fulfill({ status: 500, json: { code: '57014', message: 'canceling statement due to statement timeout', details: null, hint: null } });
+    }
+
     // Writes: acknowledge without persisting. These tests are about rendering,
     // and a stub that pretended to persist would invite tests that assert on a
     // lie. Nothing here is asserted after a write.
@@ -248,7 +264,6 @@ export async function stubSupabase(page, { empty = false, tables = {}, aal = 'aa
       return route.fulfill({ status: 200, json: wantsObject ? {} : [] });
     }
 
-    const table = rest.split('?')[0];
     const rows = (dataset[table] ?? []).map(EMBEDDED[table] ?? ((r) => r));
     if (wantsObject) return route.fulfill({ json: rows[0] ?? null });
     return route.fulfill({ json: rows, headers: { 'content-range': `0-${Math.max(rows.length - 1, 0)}/${rows.length}` } });

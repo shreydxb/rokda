@@ -1835,6 +1835,64 @@ begin
   raise notice 'updated_at ok: every direct edit moves it, a trigger-side re-valuation does not';
 end $$;
 
+-- Every foreign key in public has an index whose leading columns are the
+-- foreign key's own columns, in order, so removing a referenced row never
+-- scans the referencing table. A partial index does not count: it cannot
+-- serve every row the foreign key touches.
+do $$
+declare
+  missing text;
+begin
+  select string_agg(format('%s.%s', c.conrelid::regclass, c.conname), ', ' order by 1) into missing
+  from pg_constraint c
+  where c.contype = 'f'
+    and c.connamespace = 'public'::regnamespace
+    and not exists (
+      select 1 from pg_index i
+      where i.indrelid = c.conrelid
+        and i.indpred is null
+        and (i.indkey::int2[])[0:cardinality(c.conkey) - 1] = c.conkey
+    );
+  if missing is not null then
+    raise exception 'fk indexes FAILED: no covering index for %', missing;
+  end if;
+  raise notice 'fk indexes ok: every public foreign key has a covering index';
+end $$;
+
+-- A backup record names what was done and how it went, and nothing else.
+do $$
+declare
+  hh constant uuid := '11111111-1111-1111-1111-111111111111';
+begin
+  insert into backup_records (household_id, kind, result, done_on) values (hh, 'export', 'passed', '2026-10-01');
+  begin
+    insert into backup_records (household_id, kind, result, done_on) values (hh, 'snapshot', 'passed', '2026-10-01');
+    raise exception 'backups FAILED: an unknown kind was recorded';
+  exception when check_violation then null;
+  end;
+  begin
+    insert into backup_records (household_id, kind, result, done_on) values (hh, 'export', 'maybe', '2026-10-01');
+    raise exception 'backups FAILED: an unknown result was recorded';
+  exception when check_violation then null;
+  end;
+  begin
+    insert into backup_records (household_id, kind, result, done_on, note) values (hh, 'export', 'passed', '2026-10-01', repeat('x', 2001));
+    raise exception 'backups FAILED: an oversized note was recorded';
+  exception when check_violation then null;
+  end;
+  begin
+    insert into backup_records (household_id, kind, result) values (hh, 'export', 'passed');
+    raise exception 'backups FAILED: a record without a day was accepted';
+  exception when not_null_violation then null;
+  end;
+  if has_function_privilege('authenticated', 'set_backup_record_author()', 'execute') then
+    raise exception 'backups FAILED: the author trigger function is callable through the API';
+  end if;
+  delete from backup_records where household_id = hh;
+  raise notice 'backups ok: kind, result, day and note size are enforced';
+end $$;
+
+
 -- The second-step rule is part of both membership helpers, runs with the
 -- definer's rights (to read auth.mfa_factors), and is closed to anon.
 do $$
@@ -1851,5 +1909,6 @@ begin
   end if;
   raise notice 'two-step ok: both membership helpers check the second step';
 end $$;
+
 
 rollback;

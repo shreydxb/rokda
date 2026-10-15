@@ -478,5 +478,19 @@
   "fingerprint": "7558a19030118a92a98164014676e5ab",
   "framingFingerprint": "f2aa3130f7de66836a9d85b8784e1a3f",
   "fingerprintVersion": 2
+ },
+ {
+  "version": "20261015133920",
+  "name": "tenant_fk_indexes",
+  "fingerprint": "62e401e828bfbb53a83ee69cb6188a9b",
+  "framingFingerprint": "38f29bc89720df8a434c1eb1a5869745",
+  "fingerprintVersion": 2
+ },
+ {
+  "version": "20261015135123",
+  "name": "backup_records",
+  "fingerprint": "3a9d532e80fcedb6b6127ba4e252d9d6",
+  "framingFingerprint": "0dbeace211a814a734f1423a91f135e6",
+  "fingerprintVersion": 2
  }
 ]
