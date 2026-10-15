@@ -8,6 +8,7 @@ import { parseDay } from './day';
 import { daysUntilDue, nextDueDate } from './creditCard';
 import { balanceStatus } from './balance';
 import { accountValueAed } from './accounts';
+import { EXPORT_DUE_DAYS, backupStatus } from './backups';
 
 function startOfDay(d) {
   const nd = new Date(d);
@@ -203,6 +204,33 @@ function unconfirmedBalanceItems(accounts, scopeMemberId, now) {
   return items;
 }
 
+// The household's only copy of its finances, until someone exports it
+// (docs/decisions.md, "A backup is recorded, and an old one says so";
+// SHR-238). Exports are taken by hand, so nothing else would notice one
+// failing or stopping. A household with no open accounts has nothing to back
+// up yet.
+function backupItems(accounts, records, now) {
+  if (!accounts.some((a) => a.archived_at == null)) return [];
+  const status = backupStatus(records, now);
+  const day = (record) => new Date(`${record.done_on}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  const lastGood = status.lastPassedExport ? `The last one that passed was on ${day(status.lastPassedExport)}.` : 'No export has passed yet.';
+  if (status.lastExportFailed) {
+    return [{ id: 'backup-failed', kind: 'backup', severity: 'warn', title: 'The last backup export failed', detail: `Recorded for ${day(status.lastExport)}. ${lastGood}` }];
+  }
+  if (!status.exportDue) return [];
+  return [
+    {
+      id: 'backup-due',
+      kind: 'backup',
+      severity: 'warn',
+      title: status.lastPassedExport ? `The last backup is ${status.daysSinceExport} days old` : 'No backup has been recorded',
+      detail: status.lastPassedExport
+        ? `Taken on ${day(status.lastPassedExport)}; one is due every ${EXPORT_DUE_DAYS} days. Record the next under Settings → Backups.`
+        : 'Take an export (docs/backup-restore.md) and record it under Settings → Backups.',
+    },
+  ];
+}
+
 // Every item here is computed fresh from real data each call — nothing is a
 // fixed template, so which items appear (and how many) changes month to
 // month with the household's actual conditions.
@@ -227,7 +255,7 @@ export function attentionPreview(items = [], expanded = false, count = ATTENTION
   return { shown, hidden: sorted.length - shown.length };
 }
 
-export function buildAttentionItems({ transactions, recurring, accounts, holdings, categories, scopeMemberId, now = new Date() }) {
+export function buildAttentionItems({ transactions, recurring, accounts, holdings, categories, backupRecords = [], scopeMemberId, now = new Date() }) {
   const reviewItems = transactions
     .filter((t) => t.needs_review && (scopeMemberId === null || t.is_shared || t.owner_member_id === scopeMemberId))
     .map((t) => ({ id: `review-${t.id}`, kind: 'review', severity: 'warn', tx: t }));
@@ -239,5 +267,6 @@ export function buildAttentionItems({ transactions, recurring, accounts, holding
     ...missingRecurringItems(recurring, transactions, scopeMemberId, now),
     ...categoryAnomalyItems(transactions, categories, scopeMemberId, now),
     ...staleHoldingItems(holdings, scopeMemberId, now),
+    ...backupItems(accounts, backupRecords, now),
   ];
 }

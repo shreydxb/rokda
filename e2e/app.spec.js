@@ -124,6 +124,7 @@ const SUBVIEWS = [
   // A statement that does not match, opened for resolving: the reason box and
   // its buttons must fit a phone.
   { name: 'statements', path: '/wealth', tabs: ['Statements', 'Resolve…'], expectText: 'Mark resolved', history: false, tables: { statement_reconciliations: cardStatements } },
+  { name: 'backups', path: '/settings', tabs: ['Backups'], expectText: 'Restore drill' },
   { name: 'starter-categories', path: '/settings', tabs: ['Categories & rules', 'Starter set'], expectText: 'Starter categories' },
   {
     name: 'notes',

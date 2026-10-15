@@ -20,6 +20,7 @@ export const SOURCE_LABELS = {
   goalContributions: 'goal contributions',
   debts: 'debts',
   assumptions: 'planning assumptions',
+  backupRecords: 'backup records',
   household: 'your household',
 };
 

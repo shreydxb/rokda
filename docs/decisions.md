@@ -1143,3 +1143,23 @@ only ever run by hand. It now runs on every push and pull request (the
 `browser` job), and keeps its screenshots for a week. In CI a failing test is
 retried once and reported as flaky if the retry passes; locally there is no
 retry.
+
+## A backup is recorded, and an old one says so
+
+The household's data has one copy unless someone exports it
+(`docs/backup-restore.md`), and the record of when that last happened was a
+table in that document, where nobody would notice it going stale (SHR-238).
+
+- **Each export and restore drill is recorded in the app**
+  (`backup_records`): what was done, the day, whether it passed, and a note.
+  Settings → Backups shows the latest of each and the history. The member who
+  recorded it is set by the database, not taken from the client. A record is
+  never edited or deleted: a mistake is corrected by recording again.
+- **Needs attention says when one is late or failed.** An export is due every
+  35 days. With none recorded, or the last passing one older than that, it
+  says so; if the newest export failed, it says that, whatever passed before.
+  A household with no open accounts is not asked.
+- **This is what someone says they did, not a check the app ran.** The export
+  itself is still by hand. Automating it, to storage outside this Supabase
+  account, needs somewhere to put it and credentials for it, which is a
+  decision of its own (SHR-238, item 1).

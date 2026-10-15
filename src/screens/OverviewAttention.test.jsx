@@ -30,6 +30,8 @@ const ACCOUNTS = [
   { id: 'c1', name: 'Bank card', type: 'credit_card', currency: 'AED', balance: 500, balance_aed: 500, balance_as_of: TODAY, due_day: NOW.getDate(), is_shared: true, owner_member_id: null, archived_at: null },
 ];
 // Six holdings last valued three months ago: six informational items.
+// A recent export recorded, so the backup reminder is not among them either.
+const BACKUPS = [{ id: 'b1', household_id: 'hh', kind: 'export', result: 'passed', done_on: TODAY, created_at: NOW.toISOString() }];
 const HOLDINGS = Array.from({ length: 6 }, (_, i) => ({
   id: `h${i}`, name: `Fund ${i + 1}`, asset_class: 'intl_equity', quantity: 1, value_aed: 1000, priced_at: LONG_AGO, is_shared: true, owner_member_id: null,
 }));
@@ -44,6 +46,7 @@ vi.mock('./useOverviewData', async (importOriginal) => ({
     recurring: [],
     netWorthSnapshots: [],
     holdings: HOLDINGS,
+    backupRecords: BACKUPS,
     errors: {},
     loadedAt: new Date(),
     reload: () => {},

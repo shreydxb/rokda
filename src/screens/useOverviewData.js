@@ -36,6 +36,7 @@ const SOURCES = [
     key: 'statementReconciliations',
     query: (id) => supabase.from('statement_reconciliations').select('*').eq('household_id', id).order('statement_date', { ascending: false }).order('id'),
   },
+  { key: 'backupRecords', query: (id) => supabase.from('backup_records').select('*').eq('household_id', id).order('done_on', { ascending: false }).order('id') },
 ].map((source) => ({ ...source, run: (id) => readAllPages(() => source.query(id)) }));
 
 const EMPTY_STATE = {
@@ -51,6 +52,7 @@ const EMPTY_STATE = {
   holdingHistory: [],
   categoryRules: [],
   statementReconciliations: [],
+  backupRecords: [],
   errors: {},
   loadedAt: null,
 };
