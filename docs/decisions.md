@@ -1024,3 +1024,14 @@ been recorded, so it was sent again.
   recorded yet: I couldn't tell who was paid, so it's in the Inbox", naming
   what was missing (the amount, who was paid, the card or account, the
   category, an AED amount), or that it looks like one already recorded.
+
+## The browser checks run in CI
+
+The Playwright suite (`e2e/`) renders every route and tabbed view on a
+desktop and a phone viewport against a stubbed Supabase. It checks for
+console errors, raw values such as "NaN" in the page, and sideways scrolling,
+plus focus, theme, the Content-Security-Policy and the receipt viewer. It was
+only ever run by hand. It now runs on every push and pull request (the
+`browser` job), and keeps its screenshots for a week. In CI a failing test is
+retried once and reported as flaky if the retry passes; locally there is no
+retry.

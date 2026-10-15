@@ -46,6 +46,47 @@ jobs:
           echo "commit: ${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
           echo "ref: ${{ github.ref }}" >> "$GITHUB_STEP_SUMMARY"
 
+  # The browser checks: every route and tabbed view on a desktop and a phone
+  # viewport, for console errors, raw values leaking into the page and
+  # sideways scrolling, plus focus, theme, CSP and the receipt viewer. They
+  # existed and passed locally, but nothing ran them, so a layout fault could
+  # merge unseen (QA, 15 Oct). Supabase is stubbed at the network layer
+  # (e2e/fixtures.js), which only answers the e2e hostname the build is given.
+  browser:
+    name: browser checks (Playwright, desktop and phone)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install (locked)
+        run: npm ci
+
+      - name: Install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Build against the stubbed Supabase
+        run: npm run build
+        env:
+          VITE_SUPABASE_URL: https://e2e.supabase.test
+          VITE_SUPABASE_PUBLISHABLE_KEY: e2e-key
+
+      - name: Browser checks
+        run: npx playwright test
+
+      # Screenshots of every view, and the failing page's state when one fails.
+      - name: Keep the screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts
+          path: e2e/.artifacts
+          retention-days: 7
+
   # CI was green for five days while telegram-webhook ran an 8 Sep build and
   # main carried two behaviour changes, because nothing here ever looked at
   # what was deployed. This closes that: git SHA -> deployed Edge Function

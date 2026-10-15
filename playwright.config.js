@@ -18,6 +18,11 @@ export default defineConfig({
   expect: { timeout: 7_000 },
   fullyParallel: false,
   workers: 1,
+  // One retry in CI only. A test that needs it is still reported as "flaky" in
+  // the run, not as a pass: the first test of a cold run has once failed to
+  // find the Overview's content that later runs always find, and it has not
+  // reproduced since. Locally a failure fails.
+  retries: process.env.CI ? 1 : 0,
   reporter: [['list']],
   use: {
     baseURL: `http://localhost:${PORT}`,
