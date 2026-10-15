@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { closedStatementDates, isoDay, recordedSpend, statementDueDate, statementPeriodStart, statementRows, statementsToCheck } from './statements';
+import { closedStatementDates, isoDay, recordedSpend, statementDueDate, statementPeriodStart, statementRows, statementsToCheck, statementTransactions } from './statements';
 
 const day = (s) => new Date(`${s}T12:00:00`);
 const days = (dates) => dates.map(isoDay);
@@ -100,5 +100,19 @@ describe('statementRows', () => {
       now,
     });
     expect(rows).toEqual([]);
+  });
+});
+
+describe('statementTransactions', () => {
+  it('lists the card\'s posted transactions in the period, oldest first, and the total is to the cent', () => {
+    const txs = [
+      { id: 'b', account_id: 'c', amount: -0.1, kind: 'expense', occurred_at: '2026-09-20' },
+      { id: 'a', account_id: 'c', amount: -0.2, kind: 'expense', occurred_at: '2026-09-01' },
+      { id: 'x', account_id: 'other', amount: -5, kind: 'expense', occurred_at: '2026-09-05' },
+      { id: 'y', account_id: 'c', amount: -5, kind: 'expense', occurred_at: '2026-08-28' },
+    ];
+    const lines = statementTransactions(txs, 'c', '2026-08-29', '2026-09-28', day('2026-10-12'));
+    expect(lines.map((t) => t.id)).toEqual(['a', 'b']);
+    expect(recordedSpend(txs, 'c', '2026-08-29', '2026-09-28', day('2026-10-12'))).toBe(0.3);
   });
 });
