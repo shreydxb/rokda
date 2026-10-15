@@ -1859,4 +1859,38 @@ begin
   raise notice 'fk indexes ok: every public foreign key has a covering index';
 end $$;
 
+-- A backup record names what was done and how it went, and nothing else.
+do $$
+declare
+  hh constant uuid := '11111111-1111-1111-1111-111111111111';
+begin
+  insert into backup_records (household_id, kind, result, done_on) values (hh, 'export', 'passed', '2026-10-01');
+  begin
+    insert into backup_records (household_id, kind, result, done_on) values (hh, 'snapshot', 'passed', '2026-10-01');
+    raise exception 'backups FAILED: an unknown kind was recorded';
+  exception when check_violation then null;
+  end;
+  begin
+    insert into backup_records (household_id, kind, result, done_on) values (hh, 'export', 'maybe', '2026-10-01');
+    raise exception 'backups FAILED: an unknown result was recorded';
+  exception when check_violation then null;
+  end;
+  begin
+    insert into backup_records (household_id, kind, result, done_on, note) values (hh, 'export', 'passed', '2026-10-01', repeat('x', 2001));
+    raise exception 'backups FAILED: an oversized note was recorded';
+  exception when check_violation then null;
+  end;
+  begin
+    insert into backup_records (household_id, kind, result) values (hh, 'export', 'passed');
+    raise exception 'backups FAILED: a record without a day was accepted';
+  exception when not_null_violation then null;
+  end;
+  if has_function_privilege('authenticated', 'set_backup_record_author()', 'execute') then
+    raise exception 'backups FAILED: the author trigger function is callable through the API';
+  end if;
+  delete from backup_records where household_id = hh;
+  raise notice 'backups ok: kind, result, day and note size are enforced';
+end $$;
+
+
 rollback;

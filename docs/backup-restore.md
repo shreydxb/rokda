@@ -359,6 +359,10 @@ Then check the things a fingerprint cannot see:
    while a numeric column has been truncated; a wrong headline number is the
    one error a person spots immediately.
 
+**Record each export and drill in the app too**, under Settings → Backups:
+that is where an old or failed one shows up in Needs attention. The table
+below keeps the detail of each drill.
+
 **Record the date the drill last passed, here:**
 
 | Drill run | Scope | Result |

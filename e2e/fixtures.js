@@ -154,6 +154,13 @@ export const data = {
   category_rules: [{ id: 'b2b2b2b2-0000-4000-8000-000000000001', household_id: HH, category_id: C_GROCERIES, pattern: 'spinneys', match_type: 'contains', archived: false, created_at: ts(monthsAgo(3)), updated_at: ts(monthsAgo(1)) }],
 
   transaction_edits: [],
+
+  // A recent export and an older drill, so Needs attention has no backup item
+  // and Settings -> Backups has a history to lay out.
+  backup_records: [
+    { id: 'a5a5a5a5-0000-4000-8000-000000000001', household_id: HH, kind: 'export', result: 'passed', done_on: dayThisMonth(1), note: 'Copied to the offline drive, with a long note that has to wrap on a phone without pushing the page sideways', recorded_by: ME, created_at: ts(dayThisMonth(1)) },
+    { id: 'a5a5a5a5-0000-4000-8000-000000000002', household_id: HH, kind: 'restore_drill', result: 'passed', done_on: monthsAgo(1), note: null, recorded_by: null, created_at: ts(monthsAgo(1)) },
+  ],
 };
 
 // transactions are fetched with `*, categories(id, name, kind)` embedded.

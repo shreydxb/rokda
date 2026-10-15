@@ -70,3 +70,34 @@ describe('a month that has not been closed', () => {
     expect(buildAttentionItems({ ...base, accounts: [{ ...account, archived_at: '2026-01-01' }], snapshots: [] }).filter((i) => i.kind === 'month_close')).toEqual([]);
   });
 });
+
+describe('a backup that is late or failed', () => {
+  const base = { transactions: [], recurring: [], holdings: [], categories: [], scopeMemberId: null, now: new Date('2026-10-15T10:00:00') };
+  const account = { id: 'a1', name: 'Bank', archived_at: null, is_shared: true, balance: 100, balance_as_of: '2026-10-14T00:00:00Z' };
+  const backupItems = (backupRecords, accounts = [account]) => buildAttentionItems({ ...base, accounts, backupRecords }).filter((i) => i.kind === 'backup');
+  const rec = (result, done_on) => ({ kind: 'export', result, done_on, created_at: `${done_on}T12:00:00Z` });
+
+  it('asks for one when none is recorded', () => {
+    expect(backupItems([])).toEqual([expect.objectContaining({ id: 'backup-due', severity: 'warn', title: 'No backup has been recorded' })]);
+  });
+
+  it('says nothing while the last export is recent', () => {
+    expect(backupItems([rec('passed', '2026-10-01')])).toEqual([]);
+  });
+
+  it('says how old the last one is once it is late', () => {
+    const [item] = backupItems([rec('passed', '2026-08-01')]);
+    expect(item.title).toBe('The last backup is 75 days old');
+    expect(item.detail).toContain('1 Aug 2026');
+  });
+
+  it('says when the newest export failed, even with a recent pass before it', () => {
+    const [item] = backupItems([rec('passed', '2026-10-01'), rec('failed', '2026-10-10')]);
+    expect(item).toMatchObject({ id: 'backup-failed', title: 'The last backup export failed' });
+    expect(item.detail).toContain('The last one that passed was on 1 Oct 2026.');
+  });
+
+  it('says nothing to a household with no open accounts', () => {
+    expect(backupItems([], [])).toEqual([]);
+  });
+});

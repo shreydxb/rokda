@@ -25,6 +25,8 @@ export const SOURCE_LABELS = {
   memberLife: 'ages for the life plan',
   notes: 'household notes',
   statementReconciliations: 'card statements',
+
+  backupRecords: 'backup records',
   household: 'your household',
 };
 

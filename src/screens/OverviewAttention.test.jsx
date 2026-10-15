@@ -33,6 +33,9 @@ const ACCOUNTS = [
 // Last month already closed, so the month-close reminder is not among them.
 const LAST_MONTH = new Date(NOW.getFullYear(), NOW.getMonth() - 1, 1);
 const CLOSED = [{ id: 's1', household_id: 'hh', snapshot_date: `${LAST_MONTH.getFullYear()}-${String(LAST_MONTH.getMonth() + 1).padStart(2, '0')}-01`, assets: 600, liabilities: 500 }];
+
+// A recent export recorded, so the backup reminder is not among them either.
+const BACKUPS = [{ id: 'b1', household_id: 'hh', kind: 'export', result: 'passed', done_on: TODAY, created_at: NOW.toISOString() }];
 const HOLDINGS = Array.from({ length: 6 }, (_, i) => ({
   id: `h${i}`, name: `Fund ${i + 1}`, asset_class: 'intl_equity', quantity: 1, value_aed: 1000, priced_at: LONG_AGO, is_shared: true, owner_member_id: null,
 }));
@@ -47,6 +50,7 @@ vi.mock('./useOverviewData', async (importOriginal) => ({
     recurring: [],
     netWorthSnapshots: CLOSED,
     holdings: HOLDINGS,
+    backupRecords: BACKUPS,
     errors: {},
     loadedAt: new Date(),
     reload: () => {},

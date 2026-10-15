@@ -20,8 +20,9 @@ here, because this repository is public.
   sidebar (shared rows split evenly between the two individual scopes).
 - Needs attention: bills and expected income not yet matched, card payments
   due, spending well above a category's usual, items waiting in the Inbox,
-  accounts with no balance set, holdings whose price has gone stale, and the
-  month that just ended until someone closes it.
+  accounts with no balance set, holdings whose price has gone stale, the
+  month that just ended until someone closes it, and a backup export that is
+  late or failed.
 - Upcoming bills and income, with rupee amounts shown in rupees as well.
 
 ## Money (`/money`)
@@ -88,6 +89,9 @@ here, because this repository is public.
   (shared or one person's), savings categories, what stops when work stops,
   and merchant rules.
 - **Telegram**: linking, and which nudges and briefs each person gets.
+- **Backups**: when the data was last exported and last restored from an
+  export, and a form to record each one (`backup_records`). Needs attention
+  says when an export is more than 35 days old or the last one failed.
 
 ## Telegram bot (`supabase/functions/telegram-webhook`)
 
