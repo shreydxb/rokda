@@ -10,6 +10,11 @@ here, because this repository is public.
 
 - Email and password, with "Keep me signed in". Sign-ups are closed: logins
   are added in the Supabase dashboard.
+- Then a 6-digit code from an authenticator app. A member without one adds it
+  first, from a QR code. Nothing of the household loads before the code, and
+  the database refuses a password-only session for a member who has an
+  authenticator. A lost phone: the owner deletes the member's factor in the
+  Supabase dashboard (Authentication → Users), and the member adds a new one.
 - **Forgot password?** emails a link that opens **Set a new password**; the
   app opens once the new one is saved. A link that has expired or was already
   used opens **Reset password** instead, saying so.

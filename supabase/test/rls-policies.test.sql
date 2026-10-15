@@ -875,6 +875,53 @@ begin
 end $$;
 reset role;
 
+-- Two-step sign-in (SHR-312): a member who has an authenticator reads and
+-- writes nothing of the household from a password-only (aal1) session, and
+-- everything from one that has passed its code (aal2). A member with no
+-- authenticator yet is not refused, so nobody is locked out before adding one.
+reset role;
+insert into auth.mfa_factors (user_id, status) values ('0b000000-0000-0000-0000-00000000000b', 'verified');
+set role authenticated;
+set request.jwt.claim.role = 'authenticated';
+set request.jwt.claim.sub = '0b000000-0000-0000-0000-00000000000b';
+set request.jwt.claim.aal = 'aal1';
+do $$
+declare n int;
+begin
+  select count(*) into n from household_members;
+  if n <> 0 then raise exception 'two-step FAILED: a password-only session read % roster rows', n; end if;
+  select count(*) into n from accounts;
+  if n <> 0 then raise exception 'two-step FAILED: a password-only session read % accounts', n; end if;
+  select count(*) into n from household_notes;
+  if n <> 0 then raise exception 'two-step FAILED: a password-only session read % notes', n; end if;
+  begin
+    insert into household_notes (household_id, title) values ('d1000000-0000-0000-0000-000000000001', 'Written without a code');
+    raise exception 'two-step FAILED: a password-only session wrote a note';
+  exception
+    when insufficient_privilege then null;
+  end;
+  update accounts set name = 'Renamed without a code';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'two-step FAILED: a password-only session renamed % accounts', n; end if;
+
+  perform set_config('request.jwt.claim.aal', 'aal2', true);
+  select count(*) into n from accounts;
+  if n = 0 then raise exception 'two-step FAILED: a session that passed its code read no accounts'; end if;
+  insert into household_notes (household_id, title) values ('d1000000-0000-0000-0000-000000000001', 'Written with a code');
+  raise notice 'two-step ok: a member with an authenticator needs a code for every read and write';
+end $$;
+set request.jwt.claim.aal = 'aal1';
+set request.jwt.claim.sub = '0a000000-0000-0000-0000-00000000000a';
+do $$
+declare n int;
+begin
+  select count(*) into n from accounts;
+  if n = 0 then raise exception 'two-step FAILED: a member with no authenticator yet was locked out'; end if;
+  raise notice 'two-step ok: a member with no authenticator yet is not locked out';
+end $$;
+reset request.jwt.claim.aal;
+reset role;
+
 -- A household can still be deleted outright: the cascade takes the roster with
 -- it, and that is not "a household left without an owner".
 reset role;

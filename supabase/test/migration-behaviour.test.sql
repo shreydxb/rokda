@@ -1893,4 +1893,22 @@ begin
 end $$;
 
 
+-- The second-step rule is part of both membership helpers, runs with the
+-- definer's rights (to read auth.mfa_factors), and is closed to anon.
+do $$
+begin
+  if pg_get_functiondef('private.is_household_member(uuid)'::regprocedure) not like '%private.mfa_satisfied()%'
+     or pg_get_functiondef('private.is_household_owner(uuid)'::regprocedure) not like '%private.mfa_satisfied()%' then
+    raise exception 'two-step FAILED: a membership helper does not check the second step';
+  end if;
+  if not (select prosecdef from pg_proc where oid = 'private.mfa_satisfied()'::regprocedure) then
+    raise exception 'two-step FAILED: mfa_satisfied() cannot read auth.mfa_factors as its caller';
+  end if;
+  if has_function_privilege('anon', 'private.mfa_satisfied()', 'execute') then
+    raise exception 'two-step FAILED: anon can call mfa_satisfied()';
+  end if;
+  raise notice 'two-step ok: both membership helpers check the second step';
+end $$;
+
+
 rollback;

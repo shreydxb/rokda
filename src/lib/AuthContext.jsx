@@ -1,5 +1,6 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { arrivedWithLinkError, openedFromRecoveryLink, supabase } from './supabaseClient';
+import { twoStepState } from './twoStep';
 
 const AuthContext = createContext(undefined);
 
@@ -33,6 +34,36 @@ export function AuthProvider({ children }) {
   // rather than in Login, which mounts again after every sign-out: once
   // anyone is signed in, the old link no longer matters.
   const [linkError, setLinkError] = useState(arrivedWithLinkError);
+  // Where this session stands on its second step ('checking' until known; see
+  // lib/twoStep.js). Asked of the server with the session's own token, so an
+  // authenticator the owner has just removed is not still demanded from a
+  // copy of the user cached in this tab.
+  const [twoStep, setTwoStep] = useState('checking');
+  const checkSeq = useRef(0);
+  const accessToken = session?.access_token ?? null;
+
+  const checkTwoStep = useCallback(async () => {
+    const seq = ++checkSeq.current;
+    if (!accessToken) {
+      setTwoStep('checking');
+      return;
+    }
+    setTwoStep('checking');
+    let result;
+    try {
+      const { data, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel(accessToken);
+      result = twoStepState(data, error);
+    } catch (cause) {
+      result = twoStepState(null, cause);
+    }
+    // A newer session's check owns the answer.
+    if (seq === checkSeq.current) setTwoStep(result);
+  }, [accessToken]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- an async check of the new session; 'checking' until it answers is the point
+    checkTwoStep();
+  }, [checkTwoStep]);
 
   useEffect(() => {
     if (openedFromRecoveryLink) writeRecoveryFlag(true);
@@ -102,6 +133,8 @@ export function AuthProvider({ children }) {
     loading,
     recovering,
     linkError,
+    twoStep,
+    recheckTwoStep: checkTwoStep,
     finishRecovery: () => {
       writeRecoveryFlag(false);
       setRecovering(false);

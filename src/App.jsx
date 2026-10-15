@@ -3,6 +3,7 @@ import { Routes, Route } from 'react-router-dom';
 import Login from './screens/Login';
 import Overview from './screens/Overview';
 import SetPassword from './screens/SetPassword';
+import TwoStep from './screens/TwoStep';
 import AppShell from './shell/AppShell';
 import ProtectedRoute from './shell/ProtectedRoute';
 import { useAuth } from './lib/AuthContext';
@@ -25,7 +26,15 @@ const Planning = lazy(() => import('./screens/Planning'));
 const Settings = lazy(() => import('./screens/Settings'));
 
 export default function App() {
-  const { session, recovering } = useAuth();
+  const { session, recovering, twoStep } = useAuth();
+
+  // Signing in takes a password and a code (docs/decisions.md). Until this
+  // session has passed its second step nothing else renders, so no screen,
+  // and none of the data hooks behind them, runs a single read at aal1. It
+  // comes before a reset link's new password too: Supabase refuses a
+  // password change from a member with an authenticator until they have
+  // entered its code.
+  if (session && twoStep !== 'ok') return <TwoStep />;
 
   // A reset link signs the person in. They came for a new password, so that
   // is the screen they get, whatever the path, until it is saved or they sign

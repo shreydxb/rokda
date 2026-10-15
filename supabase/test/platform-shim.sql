@@ -80,6 +80,34 @@ as $$
   select coalesce(nullif(current_setting('request.jwt.claim.role', true), ''), current_user);
 $$;
 
+-- On Supabase this returns the request's JWT claims. Here it returns them
+-- when a test sets request.jwt.claims, and otherwise builds them from the
+-- single claims the tests set (request.jwt.claim.sub, .role and .aal), so
+-- a policy can see a session's assurance level.
+create or replace function auth.jwt()
+returns jsonb
+language sql
+stable
+as $$
+  select coalesce(
+    nullif(current_setting('request.jwt.claims', true), '')::jsonb,
+    jsonb_strip_nulls(jsonb_build_object(
+      'sub', nullif(current_setting('request.jwt.claim.sub', true), ''),
+      'role', nullif(current_setting('request.jwt.claim.role', true), ''),
+      'aal', nullif(current_setting('request.jwt.claim.aal', true), '')
+    ))
+  );
+$$;
+
+-- The authenticators Supabase Auth keeps per user, as far as the second-step
+-- rule reads them (status is an enum on Supabase; text here).
+create table if not exists auth.mfa_factors (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null,
+  factor_type text not null default 'totp',
+  status text not null default 'unverified'
+);
+
 -- Enough of Supabase Storage for one migration's bucket seed + RLS policy:
 -- the buckets/objects tables an insert and a `create policy` reference, and
 -- storage.foldername(), which splits an object path into its directory

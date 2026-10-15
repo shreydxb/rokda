@@ -1210,3 +1210,40 @@ table in that document, where nobody would notice it going stale (SHR-238).
   itself is still by hand. Automating it, to storage outside this Supabase
   account, needs somewhere to put it and credentials for it, which is a
   decision of its own (SHR-238, item 1).
+
+## Signing in takes a password and a code
+
+Rokda signed in with a password alone. The household's financial records now
+need a second factor, as the older finance app required (SHR-312).
+
+- **A code from an authenticator app**, through Supabase Auth's TOTP factors.
+  After the password, a member with an authenticator enters its 6-digit code.
+  A member without one is shown a QR code (and the key, for an app that
+  cannot scan) and confirms it with its first code. An attempt left
+  unconfirmed is removed before a new one is offered.
+- **Nothing of the household renders until the session has passed** (aal2).
+  The gate is the first thing `App` checks, so no screen, and none of the data
+  hooks behind them, makes a single read before it. The browser checks
+  assert that a password-only session makes no request to the data API at
+  all. It comes before a reset link's new password too: Supabase refuses to
+  change the password of a member with an authenticator until they have
+  entered its code.
+- **The database holds the same rule.** Every household policy calls
+  `private.is_household_member()` or `private.is_household_owner()`, and both
+  now also require `private.mfa_satisfied()`: the session is aal2, or the
+  caller has no authenticator yet. So a password alone reads nothing through
+  the API either, once a member has one. A member with none is not refused:
+  refusing first would lock everyone out before they could add one. The app
+  has every member add one before it shows anything, so that window closes at
+  each member's next sign-in.
+- **The check is asked of the server.** Whether a code is needed comes from
+  the session's own token and the user as the server has them now, not from a
+  copy cached in the tab, so an authenticator the owner has removed is not
+  still demanded. If the check fails, nothing is shown and the screen offers
+  "Try again".
+- **A lost phone:** the owner opens the Supabase dashboard, Authentication →
+  Users, opens the member, and deletes their MFA factor. (Or, in the SQL
+  editor: `delete from auth.mfa_factors where user_id = '<their user id>';`.)
+  The member signs in with their password and adds a new authenticator. Losing
+  the owner's own phone needs someone with dashboard access, so keep the key
+  shown at setup somewhere safe, or add the same key to a second device.

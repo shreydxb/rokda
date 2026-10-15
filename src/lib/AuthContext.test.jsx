@@ -4,7 +4,7 @@ import { AuthProvider, useAuth } from './AuthContext';
 
 // What supabaseClient.js read from the address bar at load, and the session
 // the client hands back. Getters, so each test can set its own arrival.
-const client = vi.hoisted(() => ({ emit: null, session: null, fromRecoveryLink: false, linkError: '' }));
+const client = vi.hoisted(() => ({ emit: null, session: null, fromRecoveryLink: false, linkError: '', aal: null, aalCalls: [] }));
 
 vi.mock('./supabaseClient', () => ({
   get openedFromRecoveryLink() {
@@ -21,6 +21,13 @@ vi.mock('./supabaseClient', () => ({
         return { data: { subscription: { unsubscribe: () => {} } } };
       },
       signOut: async () => ({ error: null }),
+      mfa: {
+        getAuthenticatorAssuranceLevel: async (token) => {
+          client.aalCalls.push(token);
+          if (client.aal instanceof Error) throw client.aal;
+          return client.aal ?? { data: null, error: { message: 'no answer set' } };
+        },
+      },
     },
   },
 }));
@@ -175,5 +182,60 @@ describe('AuthProvider: a reset link that failed', () => {
     client.linkError = EXPIRED;
     await renderProvider();
     expect(linkError()).toBe('');
+  });
+});
+
+describe('the second step of signing in', () => {
+  function TwoStepProbe() {
+    const { twoStep } = useAuth();
+    return <span data-testid="two-step">{twoStep}</span>;
+  }
+  const twoStep = () => screen.getByTestId('two-step').textContent;
+
+  beforeEach(() => {
+    client.aalCalls = [];
+    client.aal = null;
+  });
+
+  async function renderWith(session) {
+    client.session = session;
+    render(<AuthProvider><TwoStepProbe /></AuthProvider>);
+    await act(async () => {});
+    await act(async () => {});
+  }
+
+  it('asks the server, with the session\'s own token, and lets an aal2 session through', async () => {
+    client.aal = { data: { currentLevel: 'aal2', nextLevel: 'aal2' }, error: null };
+    await renderWith({ ...SESSION, access_token: 'token-a' });
+    expect(client.aalCalls).toEqual(['token-a']);
+    expect(twoStep()).toBe('ok');
+  });
+
+  it('asks for a code when the member has an authenticator', async () => {
+    client.aal = { data: { currentLevel: 'aal1', nextLevel: 'aal2' }, error: null };
+    await renderWith({ ...SESSION, access_token: 'token-b' });
+    expect(twoStep()).toBe('challenge');
+  });
+
+  it('checks again when the session changes, as it does once a code is verified', async () => {
+    client.aal = { data: { currentLevel: 'aal1', nextLevel: 'aal2' }, error: null };
+    await renderWith({ ...SESSION, access_token: 'token-c' });
+    client.aal = { data: { currentLevel: 'aal2', nextLevel: 'aal2' }, error: null };
+    await emit('MFA_CHALLENGE_VERIFIED', { ...SESSION, access_token: 'token-d' });
+    await act(async () => {});
+    expect(client.aalCalls).toEqual(['token-c', 'token-d']);
+    expect(twoStep()).toBe('ok');
+  });
+
+  it('lets nothing through when the check fails or throws', async () => {
+    client.aal = { data: null, error: { message: 'network' } };
+    await renderWith({ ...SESSION, access_token: 'token-e' });
+    expect(twoStep()).toBe('error');
+  });
+
+  it('treats a thrown check as failed too', async () => {
+    client.aal = new Error('bad token');
+    await renderWith({ ...SESSION, access_token: 'token-f' });
+    expect(twoStep()).toBe('error');
   });
 });
