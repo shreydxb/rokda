@@ -1143,3 +1143,17 @@ only ever run by hand. It now runs on every push and pull request (the
 `browser` job), and keeps its screenshots for a week. In CI a failing test is
 retried once and reported as flaky if the retry passes; locally there is no
 retry.
+
+## Every foreign key has a covering index
+
+The advisor flagged four foreign keys added since the last re-audit, each
+`(household_id, member or account)` with no index leading on those columns:
+`categories` owner, `household_notes` author, and a statement's account and
+closer. Each now has one. Removing a member or an account no longer scans the
+whole table to find what to null out or cascade.
+
+A behaviour test now fails on any public foreign key without a non-partial
+index whose leading columns are its own, so the next table cannot wait for
+the advisor to be noticed. The advisor's "unused index" findings are still
+left alone, for the reason given in the SHR-149 re-audit: the tables are too
+young and too small for usage statistics to mean anything.

@@ -1835,4 +1835,28 @@ begin
   raise notice 'updated_at ok: every direct edit moves it, a trigger-side re-valuation does not';
 end $$;
 
+-- Every foreign key in public has an index whose leading columns are the
+-- foreign key's own columns, in order, so removing a referenced row never
+-- scans the referencing table. A partial index does not count: it cannot
+-- serve every row the foreign key touches.
+do $$
+declare
+  missing text;
+begin
+  select string_agg(format('%s.%s', c.conrelid::regclass, c.conname), ', ' order by 1) into missing
+  from pg_constraint c
+  where c.contype = 'f'
+    and c.connamespace = 'public'::regnamespace
+    and not exists (
+      select 1 from pg_index i
+      where i.indrelid = c.conrelid
+        and i.indpred is null
+        and (i.indkey::int2[])[0:cardinality(c.conkey) - 1] = c.conkey
+    );
+  if missing is not null then
+    raise exception 'fk indexes FAILED: no covering index for %', missing;
+  end if;
+  raise notice 'fk indexes ok: every public foreign key has a covering index';
+end $$;
+
 rollback;
