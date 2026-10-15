@@ -8,7 +8,8 @@ import { CURRENCIES, currencyAvailable, convertToAed, rateNote } from '../../lib
 import { householdToday } from '../../lib/day';
 import './TransactionEditor.css';
 
-const FIELD_LABELS = { category: 'Category', amount: 'Amount', account: 'Account', merchant: 'Merchant', scope: 'Scope' };
+const FIELD_LABELS = { kind: 'Type', category: 'Category', amount: 'Amount', account: 'Account', merchant: 'Merchant', scope: 'Scope' };
+const KIND_LABELS = { expense: 'Expense', income: 'Income', refund: 'Refund' };
 
 function initialForm(tx, accounts) {
   if (tx) {
@@ -48,13 +49,23 @@ function initialForm(tx, accounts) {
 
 // Diffs the form against the record as it was loaded, one entry per
 // changed field the acceptance criteria calls out. Only meaningful for an
-// edit — there's nothing to diff against on a create.
-function buildEdits(tx, form, { accounts, categories, members }) {
+// edit — there's nothing to diff against on a create. `savedAmount` is the
+// signed amount the save writes, so the history compares like with like: a
+// refund is stored positive, and diffing it as a negative recorded "+75 →
+// −75" on a save that changed nothing (QA, 15 Oct).
+function buildEdits(tx, form, savedAmount, { accounts, categories, members }) {
   const accountName = (id) => accounts.find((a) => a.id === id)?.name ?? 'Unknown account';
   const categoryName = (id) => (id ? (categories.find((c) => c.id === id)?.name ?? 'Unknown category') : 'Uncategorised');
   const scopeLabel = (isShared, ownerId) => (isShared ? 'Shared' : (members.find((m) => m.id === ownerId)?.display_name ?? 'Unknown member'));
 
   const changes = [];
+
+  // A refund turned into income keeps its sign and amount, so only its type
+  // says it changed.
+  const oldKind = tx.kind ?? (Number(tx.amount) >= 0 ? 'income' : 'expense');
+  if (oldKind !== form.type) {
+    changes.push({ field: 'kind', old_value: KIND_LABELS[oldKind] ?? oldKind, new_value: KIND_LABELS[form.type] ?? form.type });
+  }
 
   const oldCategoryId = tx.category_id ?? null;
   const newCategoryId = form.category_id || null;
@@ -63,7 +74,7 @@ function buildEdits(tx, form, { accounts, categories, members }) {
   }
 
   const oldAmount = Number(tx.amount);
-  const newAmount = form.type === 'income' ? Math.abs(Number(form.amount)) : -Math.abs(Number(form.amount));
+  const newAmount = Number(savedAmount);
   if (Math.abs(oldAmount - newAmount) > 0.001) {
     changes.push({ field: 'amount', old_value: formatSigned(oldAmount), new_value: formatSigned(newAmount) });
   }
@@ -215,7 +226,7 @@ export default function TransactionEditor({ tx, household, householdId, accounts
     }
 
     if (tx) {
-      const changes = buildEdits(tx, form, { accounts, categories, members });
+      const changes = buildEdits(tx, form, payload.amount, { accounts, categories, members });
       if (changes.length > 0) {
         const { error: historyError } = await supabase.from('transaction_edits').insert(
           changes.map((c) => ({ transaction_id: tx.id, field: c.field, old_value: c.old_value, new_value: c.new_value }))

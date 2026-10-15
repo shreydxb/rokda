@@ -3,9 +3,11 @@ import { screen, within } from '@testing-library/dom';
 import { act } from 'react';
 import { renderScreen } from '../../test/renderScreen';
 
-// The screen's only write: marking a statement done. The client is mocked so
-// the test can see exactly what it sends.
+// The screen's writes: marking a statement done, resolving a mismatch and
+// reopening one. The client is mocked so the test can see exactly what it
+// sends; `updated` is the rows an update reports it changed.
 const calls = [];
+let updated = [{ id: 'r' }];
 vi.mock('../../lib/supabaseClient', () => ({
   supabase: {
     from(table) {
@@ -17,7 +19,7 @@ vi.mock('../../lib/supabaseClient', () => ({
         update: (payload) => ({
           eq: (col, value) => {
             calls.push({ op: 'update', table, col, value, payload });
-            return Promise.resolve({ error: null });
+            return { select: () => Promise.resolve({ data: updated, error: null }) };
           },
         }),
       };
@@ -33,7 +35,7 @@ const CARD = { id: 'card-1', name: 'Bank card', type: 'credit_card', statement_d
 function renderStatements({ reconciliations = [], transactions = [], accounts = [CARD] } = {}) {
   const reload = vi.fn().mockResolvedValue(undefined);
   renderScreen(
-    <Statements household={{ id: 'h1' }} me={ME} loading={false} data={{ accounts, transactions, statementReconciliations: reconciliations, reload }} />,
+    <Statements household={{ id: 'h1' }} me={ME} members={[ME]} loading={false} data={{ accounts, transactions, statementReconciliations: reconciliations, reload }} />,
   );
   return { reload };
 }
@@ -47,6 +49,7 @@ async function click(el) {
 describe('Wealth -> Statements', () => {
   beforeEach(() => {
     calls.length = 0;
+    updated = [{ id: 'r' }];
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-10-12T10:00:00'));
   });
@@ -69,7 +72,7 @@ describe('Wealth -> Statements', () => {
     // The August statement was reconciled, and Rokda agrees with it.
     const august = rows.find((r) => within(r).queryByText(/Closed 28 Aug/));
     expect(within(august).getByText('Reconciled')).toBeTruthy();
-    expect(within(august).getByText('matches the statement')).toBeTruthy();
+    expect(within(august).getByText("matches the statement's AED 100.00")).toBeTruthy();
     expect(within(august).queryByRole('button', { name: 'Mark done' })).toBeNull();
     expect(screen.getByText(/statements? still to check/)).toBeTruthy();
   });
@@ -97,6 +100,86 @@ describe('Wealth -> Statements', () => {
     await click(within(first).getByRole('button', { name: 'Mark done' }));
     expect(calls).toEqual([expect.objectContaining({ op: 'update', table: 'statement_reconciliations', col: 'id', value: 'r9' })]);
     expect(calls[0].payload.status).toBe('confirmed');
+  });
+
+  it("keeps the sign and the cents: a net refund is negative, and a cent's difference shows", () => {
+    renderStatements({
+      reconciliations: [{ id: 'r2', account_id: 'card-1', statement_date: '2026-08-28', period_start: '2026-07-29', status: 'mismatch', statement_spend: 100.02 }],
+      transactions: [
+        { id: 't1', account_id: 'card-1', amount: 50.49, kind: 'refund', occurred_at: '2026-09-10', is_shared: true },
+        { id: 't2', account_id: 'card-1', amount: -100.01, kind: 'expense', occurred_at: '2026-08-10', is_shared: true },
+      ],
+    });
+    const rows = screen.getAllByTestId('statement-row');
+    const september = rows.find((r) => within(r).queryByText(/Closed 28 Sept/));
+    expect(within(september).getByText('AED −50.49')).toBeTruthy();
+    const august = rows.find((r) => within(r).queryByText(/Closed 28 Aug/));
+    expect(within(august).getByText('AED 100.01')).toBeTruthy();
+    expect(within(august).getByText('statement AED 100.02; Rokda is AED 0.01 lower')).toBeTruthy();
+  });
+
+  it('shows the closing balance a statement recorded', () => {
+    renderStatements({
+      reconciliations: [{ id: 'r3', account_id: 'card-1', statement_date: '2026-09-28', period_start: '2026-08-29', status: 'waiting', statement_balance: 1234.5 }],
+    });
+    expect(screen.getByText('Closing balance on the statement: AED 1,234.50')).toBeTruthy();
+  });
+
+  it('lists the transactions in a statement\'s period', async () => {
+    renderStatements({
+      transactions: [
+        { id: 't1', account_id: 'card-1', amount: -40, kind: 'expense', occurred_at: '2026-09-10', is_shared: true, merchant: 'Shop' },
+        { id: 't2', account_id: 'card-1', amount: 15, kind: 'refund', occurred_at: '2026-09-12', is_shared: true, merchant: 'Shop' },
+      ],
+    });
+    const first = screen.getAllByTestId('statement-row')[0];
+    await click(within(first).getByRole('button', { name: 'Show 2 transactions' }));
+    const list = within(first).getByRole('list');
+    expect(within(list).getByText('10 Sept · Shop')).toBeTruthy();
+    expect(within(list).getByText('AED 40.00')).toBeTruthy();
+    expect(within(list).getByText('12 Sept · Shop (refund)')).toBeTruthy();
+    expect(within(list).getByText('AED −15.00')).toBeTruthy();
+  });
+
+  it('resolves a mismatch with who did it and why', async () => {
+    const { reload } = renderStatements({
+      reconciliations: [{ id: 'r4', account_id: 'card-1', statement_date: '2026-09-28', period_start: '2026-08-29', status: 'mismatch', statement_spend: 10, closed_at: '2026-10-01T00:00:00Z' }],
+    });
+    const first = screen.getAllByTestId('statement-row')[0];
+    expect(within(first).queryByRole('button', { name: 'Mark done' })).toBeNull();
+    await click(within(first).getByRole('button', { name: 'Resolve…' }));
+    const input = within(first).getByRole('textbox', { name: 'What was done about the difference' });
+    await act(async () => {
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+      set.call(input, 'Added a missing fuel charge');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await click(within(first).getByRole('button', { name: 'Mark resolved' }));
+    expect(calls).toEqual([expect.objectContaining({ op: 'update', col: 'id', value: 'r4' })]);
+    expect(calls[0].payload).toMatchObject({ status: 'confirmed', closed_by_member_id: 'm1', note: 'Added a missing fuel charge' });
+    expect(reload).toHaveBeenCalled();
+  });
+
+  it('reopens a statement marked done by mistake', async () => {
+    renderStatements({
+      reconciliations: [{ id: 'r5', account_id: 'card-1', statement_date: '2026-09-28', period_start: '2026-08-29', status: 'confirmed', closed_at: '2026-10-01T09:00:00Z', closed_by_member_id: 'm1' }],
+    });
+    // Settled, so listed after the statements still to check.
+    const first = screen.getAllByTestId('statement-row').find((r) => within(r).queryByText(/Closed 28 Sept/));
+    expect(within(first).getByText('Done by Alex on 1 Oct')).toBeTruthy();
+    await click(within(first).getByRole('button', { name: 'Reopen…' }));
+    await click(within(first).getByRole('button', { name: 'Reopen' }));
+    expect(calls[0].payload).toMatchObject({ status: 'waiting', closed_at: null, closed_by_member_id: null });
+  });
+
+  it('says so when a write changed nothing, rather than reloading as if it had', async () => {
+    updated = [];
+    const { reload } = renderStatements({
+      reconciliations: [{ id: 'r6', account_id: 'card-1', statement_date: '2026-09-28', period_start: '2026-08-29', status: 'waiting' }],
+    });
+    await click(within(screen.getAllByTestId('statement-row')[0]).getByRole('button', { name: 'Mark done' }));
+    expect(screen.getByRole('alert').textContent).toMatch(/Nothing was saved/);
+    expect(reload).not.toHaveBeenCalled();
   });
 
   it('says how to start when no card has a statement day', () => {

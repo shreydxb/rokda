@@ -121,6 +121,9 @@ const SUBVIEWS = [
   { name: 'drawdown-from-budget', path: '/planning', tabs: ['Drawdown'], expectText: 'From your budget, for now', history: false },
   { name: 'life-plan', path: '/planning', tabs: ['Life plan'], expectText: 'The pot, year by year' },
   { name: 'life-plan-setup', path: '/planning', tabs: ['Life plan'], expectText: 'Set up your life plan', tables: { member_life: [] } },
+  // A statement that does not match, opened for resolving: the reason box and
+  // its buttons must fit a phone.
+  { name: 'statements', path: '/wealth', tabs: ['Statements', 'Resolve…'], expectText: 'Mark resolved', history: false, tables: { statement_reconciliations: cardStatements } },
   { name: 'starter-categories', path: '/settings', tabs: ['Categories & rules', 'Starter set'], expectText: 'Starter categories' },
   {
     name: 'notes',
@@ -143,6 +146,27 @@ const SUBVIEWS = [
   },
 ];
 
+// The Platinum card's two latest statements (it closes on the 10th): the
+// latest checked and not matching, by a cent, the one before marked done.
+function cardStatements() {
+  const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const back = new Date(now.getFullYear(), now.getMonth(), 10) >= today ? 1 : 0;
+  const close = (n) => new Date(now.getFullYear(), now.getMonth() - back - n, 10);
+  const start = (n) => new Date(now.getFullYear(), now.getMonth() - back - n - 1, 11);
+  const card = data.accounts.find((a) => a.type === 'credit_card').id;
+  const row = (n, over) => ({
+    household_id: 'hh', account_id: card, statement_date: iso(close(n)), period_start: iso(start(n)), due_date: null,
+    statement_balance: null, statement_spend: null, rokda_spend: null, note: null, closed_by_member_id: null, closed_at: null,
+    asked_message_ids: [], last_asked_on: null, created_at: `${iso(close(n))}T09:00:00Z`, updated_at: `${iso(close(n))}T09:00:00Z`, ...over,
+  });
+  return [
+    row(0, { id: 'a4a4a4a4-0000-4000-8000-000000000001', status: 'mismatch', statement_spend: 100.02, statement_balance: 3200.75, closed_at: `${iso(today)}T08:00:00Z`, note: 'Checked against the PDF' }),
+    row(1, { id: 'a4a4a4a4-0000-4000-8000-000000000002', status: 'confirmed', closed_at: `${iso(close(1))}T12:00:00Z` }),
+  ];
+}
+
 function closedMonthsOfHistory() {
   const now = new Date();
   const day = (back, d) => {
@@ -161,7 +185,8 @@ function closedMonthsOfHistory() {
 for (const view of SUBVIEWS) {
   test(`${view.name}: renders, no errors, no horizontal overflow`, async ({ page }, testInfo) => {
     const errors = watchErrors(page);
-    await stubSupabase(page, { tables: { ...(view.history === false ? {} : { transactions: closedMonthsOfHistory() }), ...(view.tables ?? {}) } });
+    const tables = Object.fromEntries(Object.entries(view.tables ?? {}).map(([k, v]) => [k, typeof v === 'function' ? v() : v]));
+    await stubSupabase(page, { tables: { ...(view.history === false ? {} : { transactions: closedMonthsOfHistory() }), ...tables } });
     await gotoReady(page, view.path);
     for (const tab of view.tabs) await page.getByRole('button', { name: tab, exact: true }).first().click();
     await expect(page.locator('.om-main')).toContainText(view.expectText);
