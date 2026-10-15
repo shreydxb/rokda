@@ -54,7 +54,17 @@ import { autopayAnswer, autopayCycle, autopayNotYetMessage, autopayQuestion, aut
 import { incompleteNote, netWorthSummary } from "../_shared/applib/overviewMath.js";
 import { merchantMatches, pickCategory } from "../_shared/applib/merchants.js";
 import { closedStatementDates, isoDay, statementDueDate, statementPeriodStart } from "../_shared/applib/statements.js";
-import { statementAnswer, statementDoneMessage, statementNotYetMessage, statementQuestion, statementReactionDecision } from "../_shared/applib/statementReminder.js";
+import {
+  statementAlreadySettledMessage,
+  statementAnswer,
+  statementDoneMessage,
+  statementLookupFailedMessage,
+  statementNotSavedMessage,
+  statementNotYetMessage,
+  statementQuestion,
+  statementReactionDecision,
+  statementSentMessage,
+} from "../_shared/applib/statementReminder.js";
 import { accountValueAed, unvaluedAccounts } from "../_shared/applib/accounts.js";
 import { monthActualsByCategory } from "../_shared/applib/budget.js";
 import { nextDueDate, daysUntilDue } from "../_shared/applib/creditCard.js";
@@ -950,11 +960,15 @@ async function handleReaction(reaction: Record<string, unknown>): Promise<Respon
     .maybeSingle();
   if (!member) return new Response("ok");
 
-  // A reaction on a statement question answers it.
-  const statement = await statementForPrompt(member.household_id, messageId ?? null);
-  if (statement) {
+  // A reaction on a statement question, in the chat it was asked in, answers it.
+  const statement = await statementForPrompt(member.household_id, chatId, messageId ?? null);
+  if (statement.kind === "failed") {
+    await reply(chatId, statementLookupFailedMessage());
+    return new Response("ok");
+  }
+  if (statement.kind === "found") {
     const decision = emojis.map(statementReactionDecision).find((d) => d != null) ?? null;
-    if (decision && statement.status === "waiting") await decideStatement(chatId, member.id, statement, decision);
+    if (decision && statement.row.status === "waiting") await decideStatement(chatId, member.id, statement.row, decision);
     return new Response("ok");
   }
 
@@ -2508,7 +2522,13 @@ async function askAutopay(
 // statement closes). The statement's own row in statement_reconciliations
 // holds the state: no proposal, because nothing is applied on a "yes" except
 // marking the statement done.
+//
+// Each question is kept with the chat and member it was sent to
+// (asked_prompts). Telegram numbers messages per chat, so a message id alone
+// names a message in every member's chat at once: an answer counts only from
+// the chat the question was asked in.
 
+type StatementPrompt = { chat_id: number; message_id: number; member_id: string };
 type StatementRow = {
   id: string;
   household_id: string;
@@ -2516,11 +2536,11 @@ type StatementRow = {
   statement_date: string;
   due_date: string | null;
   status: string;
-  asked_message_ids: number[] | null;
+  asked_prompts: StatementPrompt[] | null;
   last_asked_on: string | null;
   accounts?: { name?: string } | null;
 };
-const STATEMENT_COLUMNS = "id, household_id, account_id, statement_date, due_date, status, asked_message_ids, last_asked_on, accounts(name)";
+const STATEMENT_COLUMNS = "id, household_id, account_id, statement_date, due_date, status, asked_prompts, last_asked_on, accounts(name)";
 
 async function runStatementCheck(): Promise<{ checked: number; asked: number }> {
   const now = new Date();
@@ -2570,13 +2590,14 @@ async function runStatementCheck(): Promise<{ checked: number; asked: number }> 
         .eq("household_id", card.household_id);
       const recipients = ((members ?? []) as Array<{ id: string; telegram_user_id: number | null }>)
         .filter((m) => m.telegram_user_id != null && (card.is_shared || !card.owner_member_id || m.id === card.owner_member_id));
-      const askedBefore = (row.asked_message_ids ?? []).length > 0;
+      const askedBefore = row.last_asked_on != null;
       const text = statementQuestion({ cardName: card.name, statementDate, dueDate: row.due_date }, { reminder: askedBefore });
-      const sent: number[] = [];
+      const sent: StatementPrompt[] = [];
       for (const m of recipients) {
         try {
-          const messageId = await reply(Number(m.telegram_user_id), text);
-          if (messageId != null) sent.push(messageId);
+          const chatId = Number(m.telegram_user_id);
+          const messageId = await reply(chatId, text);
+          if (messageId != null) sent.push({ chat_id: chatId, message_id: messageId, member_id: m.id });
         } catch {
           // One member unreachable must not stop the other.
         }
@@ -2584,7 +2605,7 @@ async function runStatementCheck(): Promise<{ checked: number; asked: number }> 
       if (sent.length === 0) continue;
       await supabase
         .from("statement_reconciliations")
-        .update({ asked_message_ids: [...(row.asked_message_ids ?? []), ...sent], last_asked_on: todayStr, updated_at: new Date().toISOString() })
+        .update({ asked_prompts: [...(row.asked_prompts ?? []), ...sent], last_asked_on: todayStr, updated_at: new Date().toISOString() })
         .eq("id", row.id)
         .eq("status", "waiting");
       asked++;
@@ -2595,71 +2616,115 @@ async function runStatementCheck(): Promise<{ checked: number; asked: number }> 
   return { checked, asked };
 }
 
-// The statement a message of the bot's asked about, if it was one.
-async function statementForPrompt(householdId: string, messageId: number | null): Promise<StatementRow | null> {
-  if (messageId == null) return null;
-  const { data } = await supabase
+// The statement a message of the bot's asked about, if it was one: the
+// question sent to this chat with this message id. "failed" when that could
+// not be read, which is never taken as "not a statement question".
+type StatementLookup = { kind: "found"; row: StatementRow } | { kind: "none" } | { kind: "failed" };
+
+async function statementForPrompt(householdId: string, chatId: number, messageId: number | null): Promise<StatementLookup> {
+  if (messageId == null) return { kind: "none" };
+  const { data, error } = await supabase
     .from("statement_reconciliations")
     .select(STATEMENT_COLUMNS)
     .eq("household_id", householdId)
-    .contains("asked_message_ids", [messageId])
-    .maybeSingle();
-  return (data as StatementRow | null) ?? null;
+    .contains("asked_prompts", JSON.stringify([{ chat_id: chatId, message_id: messageId }]))
+    .limit(2);
+  if (error) return { kind: "failed" };
+  const rows = (data ?? []) as StatementRow[];
+  // A chat's message is one question, so two rows means something is wrong
+  // with the records: nothing is settled on a guess.
+  if (rows.length > 1) return { kind: "failed" };
+  return rows.length === 1 ? { kind: "found", row: rows[0] } : { kind: "none" };
 }
 
-// Statements the bot has asked about that are still waiting.
-async function waitingStatements(householdId: string): Promise<StatementRow[]> {
-  const { data } = await supabase
+// Statements still waiting that the bot has asked this member about. A
+// statement only the other member was asked about (their own card) is not
+// this member's to answer with a bare "done".
+async function waitingStatements(householdId: string, memberId: string): Promise<{ rows: StatementRow[]; failed: boolean }> {
+  const { data, error } = await supabase
     .from("statement_reconciliations")
     .select(STATEMENT_COLUMNS)
     .eq("household_id", householdId)
     .eq("status", "waiting")
-    .not("last_asked_on", "is", null)
+    .contains("asked_prompts", JSON.stringify([{ member_id: memberId }]))
     .limit(10);
-  return (data ?? []) as StatementRow[];
+  if (error) return { rows: [], failed: true };
+  return { rows: (data ?? []) as StatementRow[], failed: false };
 }
 
-async function decideStatement(chatId: number, memberId: string, row: StatementRow, decision: "done" | "not_yet"): Promise<void> {
+async function decideStatement(chatId: number, memberId: string, row: StatementRow, decision: "done" | "not_yet" | "sent"): Promise<void> {
   const cardName = row.accounts?.name ?? "card";
   if (decision === "not_yet") {
     await reply(chatId, statementNotYetMessage(cardName));
     return;
   }
-  if (row.status === "waiting") {
-    const now = new Date().toISOString();
-    await supabase
-      .from("statement_reconciliations")
-      .update({ status: "confirmed", closed_at: now, closed_by_member_id: memberId, updated_at: now })
-      .eq("id", row.id)
-      .eq("status", "waiting");
+  // Handed over to be checked is not checked: the statement stays waiting,
+  // and the bot keeps asking until someone says it is done.
+  if (decision === "sent") {
+    await reply(chatId, statementSentMessage(cardName));
+    return;
   }
-  await reply(chatId, statementDoneMessage(cardName, row.statement_date));
+  const now = new Date().toISOString();
+  const { data: saved, error } = await supabase
+    .from("statement_reconciliations")
+    .update({ status: "confirmed", closed_at: now, closed_by_member_id: memberId, updated_at: now })
+    .eq("id", row.id)
+    .eq("status", "waiting")
+    .select("id");
+  // Thanked only for what was written. A refused write leaves it waiting,
+  // and the member is told so rather than told it is done.
+  if (error) {
+    await reply(chatId, statementNotSavedMessage(cardName));
+    return;
+  }
+  if ((saved ?? []).length > 0) {
+    await reply(chatId, statementDoneMessage(cardName, row.statement_date));
+    return;
+  }
+  // Nothing written: it was no longer waiting (the other member answered, or
+  // it was marked in the app). Say what it is now.
+  const { data: current, error: readError } = await supabase.from("statement_reconciliations").select("status").eq("id", row.id).maybeSingle();
+  const status = (current as { status?: string } | null)?.status;
+  if (readError || !status || status === "waiting") {
+    await reply(chatId, statementNotSavedMessage(cardName));
+    return;
+  }
+  await reply(chatId, statementAlreadySettledMessage(cardName, row.statement_date, status));
 }
 
 // A typed answer to a statement question. A reply to one of its messages is
 // answered whatever it says that the reader understands. A bare message is
 // only taken as an answer when it says "done", "reconciled" and the like
 // (not a plain "yes", which the expense and proposal questions own), and
-// only when exactly one statement is waiting and nothing else is.
-const STATEMENT_WORD = /\b(done|reconciled|checked|completed|complete|finished|sent|uploaded)\b/i;
+// only when exactly one statement this member was asked about is waiting and
+// nothing else is.
+const STATEMENT_WORD = /\b(done|reconciled|checked|completed|complete|finished|sent|uploaded|shared)\b/i;
 
 async function handleStatementText(chatId: number, member: { id: string; household_id: string }, text: string, repliedTo: number | null): Promise<boolean> {
   const decision = statementAnswer(text);
   if (!decision) return false;
   if (repliedTo != null) {
-    const row = await statementForPrompt(member.household_id, repliedTo);
-    if (!row) return false;
-    await decideStatement(chatId, member.id, row, decision);
+    const found = await statementForPrompt(member.household_id, chatId, repliedTo);
+    if (found.kind === "none") return false;
+    if (found.kind === "failed") {
+      await reply(chatId, statementLookupFailedMessage());
+      return true;
+    }
+    await decideStatement(chatId, member.id, found.row, decision);
     return true;
   }
   if (!STATEMENT_WORD.test(text)) return false;
-  const [waiting, open] = await Promise.all([waitingStatements(member.household_id), openProposals(member.household_id, member.id)]);
-  if (waiting.length === 0) return false;
-  if (waiting.length > 1 || open.rows.length > 0 || open.failed) {
+  const [waiting, open] = await Promise.all([waitingStatements(member.household_id, member.id), openProposals(member.household_id, member.id)]);
+  if (waiting.failed) {
+    await reply(chatId, statementLookupFailedMessage());
+    return true;
+  }
+  if (waiting.rows.length === 0) return false;
+  if (waiting.rows.length > 1 || open.rows.length > 0 || open.failed) {
     await reply(chatId, "I'm waiting on more than one answer. Reply to the statement message you mean.");
     return true;
   }
-  await decideStatement(chatId, member.id, waiting[0], decision);
+  await decideStatement(chatId, member.id, waiting.rows[0], decision);
   return true;
 }
 
