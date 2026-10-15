@@ -1132,3 +1132,14 @@ The editor's history also compares the signed amount it saves. A refund is
 stored positive, but the history diffed it as negative, so saving an
 untouched refund recorded "+75 → −75". A change of type (a refund turned into
 income) is recorded too, since its amount and sign can stay the same.
+
+## The browser checks run in CI
+
+The Playwright suite (`e2e/`) renders every route and tabbed view on a
+desktop and a phone viewport against a stubbed Supabase. It checks for
+console errors, raw values such as "NaN" in the page, and sideways scrolling,
+plus focus, theme, the Content-Security-Policy and the receipt viewer. It was
+only ever run by hand. It now runs on every push and pull request (the
+`browser` job), and keeps its screenshots for a week. In CI a failing test is
+retried once and reported as flaky if the retry passes; locally there is no
+retry.
