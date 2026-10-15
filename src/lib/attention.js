@@ -8,6 +8,7 @@ import { parseDay } from './day';
 import { daysUntilDue, nextDueDate } from './creditCard';
 import { balanceStatus } from './balance';
 import { accountValueAed } from './accounts';
+import { pendingClose } from './snapshots';
 
 function startOfDay(d) {
   const nd = new Date(d);
@@ -203,6 +204,27 @@ function unconfirmedBalanceItems(accounts, scopeMemberId, now) {
   return items;
 }
 
+// The month that just ended, until someone closes it (docs/decisions.md, "A
+// month that has not closed says so"). Months close by hand, on purpose, and
+// nothing reminded anyone: production had no closed month at all, so Net
+// Worth had no history, and waiting would never have given it one. A
+// household with no accounts has nothing to close yet.
+function monthCloseItems(accounts, snapshots, now) {
+  if (!accounts.some((a) => a.archived_at == null)) return [];
+  const pending = pendingClose(snapshots, now);
+  if (!pending) return [];
+  const name = pending.month.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+  return [
+    {
+      id: `month-close-${pending.key}`,
+      kind: 'month_close',
+      severity: 'warn',
+      title: `${name} hasn't been closed`,
+      detail: 'Close it under Wealth → Net Worth to keep its totals in history. Months close by hand; waiting does not close one.',
+    },
+  ];
+}
+
 // Every item here is computed fresh from real data each call — nothing is a
 // fixed template, so which items appear (and how many) changes month to
 // month with the household's actual conditions.
@@ -227,7 +249,7 @@ export function attentionPreview(items = [], expanded = false, count = ATTENTION
   return { shown, hidden: sorted.length - shown.length };
 }
 
-export function buildAttentionItems({ transactions, recurring, accounts, holdings, categories, scopeMemberId, now = new Date() }) {
+export function buildAttentionItems({ transactions, recurring, accounts, holdings, categories, snapshots = [], scopeMemberId, now = new Date() }) {
   const reviewItems = transactions
     .filter((t) => t.needs_review && (scopeMemberId === null || t.is_shared || t.owner_member_id === scopeMemberId))
     .map((t) => ({ id: `review-${t.id}`, kind: 'review', severity: 'warn', tx: t }));
@@ -239,5 +261,6 @@ export function buildAttentionItems({ transactions, recurring, accounts, holding
     ...missingRecurringItems(recurring, transactions, scopeMemberId, now),
     ...categoryAnomalyItems(transactions, categories, scopeMemberId, now),
     ...staleHoldingItems(holdings, scopeMemberId, now),
+    ...monthCloseItems(accounts, snapshots, now),
   ];
 }
