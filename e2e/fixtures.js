@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 // A synthetic household, served to the browser in place of Supabase.
 //
 // These tests must never point at the real project: the ledger is one
@@ -165,18 +166,31 @@ const EMBEDDED = {
 
 export const ids = { HH, ME, PARTNER, USER, A_CURRENT, A_CARD, A_FD, C_GROCERIES, C_DINING };
 
-const SESSION = {
-  access_token: 'e2e-access-token',
-  refresh_token: 'e2e-refresh-token',
-  token_type: 'bearer',
-  expires_in: 86_400,
-  expires_at: Math.floor(Date.now() / 1000) + 86_400,
-  user: {
-    id: USER, aud: 'authenticated', role: 'authenticated', email: 'alex@example.test',
-    app_metadata: { provider: 'email' }, user_metadata: {},
-    created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
-  },
-};
+// A token shaped like Supabase's, so supabase-js can read the session's
+// assurance level from it. Unsigned: the stub below is the only server.
+const b64url = (value) => Buffer.from(JSON.stringify(value)).toString('base64url');
+function tokenFor(aal) {
+  const payload = { sub: USER, role: 'authenticated', aal, exp: Math.floor(Date.now() / 1000) + 86_400 };
+  return `${b64url({ alg: 'HS256', typ: 'JWT' })}.${b64url(payload)}.c2ln`;
+}
+
+// The authenticator a signed-in member has, unless a test says otherwise.
+const VERIFIED_FACTOR = { id: 'f0f0f0f0-0000-4000-8000-000000000001', factor_type: 'totp', status: 'verified', friendly_name: null, created_at: ts(monthsAgo(1)), updated_at: ts(monthsAgo(1)) };
+
+function sessionFor(aal, factors) {
+  return {
+    access_token: tokenFor(aal),
+    refresh_token: 'e2e-refresh-token',
+    token_type: 'bearer',
+    expires_in: 86_400,
+    expires_at: Math.floor(Date.now() / 1000) + 86_400,
+    user: {
+      id: USER, aud: 'authenticated', role: 'authenticated', email: 'alex@example.test',
+      app_metadata: { provider: 'email' }, user_metadata: {}, factors,
+      created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    },
+  };
+}
 
 /**
  * Answer every Supabase call from the fixtures above, and pre-seed a session so
@@ -184,7 +198,11 @@ const SESSION = {
  * never-used-it state, which is a real screen the app has to render and the
  * one most likely to have been written blind.
  */
-export async function stubSupabase(page, { empty = false, tables = {} } = {}) {
+export async function stubSupabase(page, { empty = false, tables = {}, aal = 'aal2', factors = [VERIFIED_FACTOR], onRest = () => {} } = {}) {
+  // aal2 with an authenticator: a member who has passed the second step of
+  // signing in. aal1 is a password-only session, which the app must not let
+  // past its two-step screen (src/screens/TwoStep.jsx).
+  const SESSION = sessionFor(aal, factors);
   const dataset = empty
     ? Object.fromEntries(Object.keys(data).map((k) => [k, k === 'households' || k === 'household_members' ? data[k] : []]))
     : { ...data, ...tables };
@@ -206,12 +224,17 @@ export async function stubSupabase(page, { empty = false, tables = {} } = {}) {
   await page.route('**/auth/v1/**', async (route) => {
     const url = route.request().url();
     if (url.includes('/logout')) return route.fulfill({ status: 204, body: '' });
+    // Adding an authenticator: what Supabase answers, with a QR code to show.
+    if (url.endsWith('/factors') && route.request().method() === 'POST') {
+      return route.fulfill({ json: { id: 'f0f0f0f0-0000-4000-8000-000000000002', type: 'totp', totp: { qr_code: '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>', secret: 'JBSWY3DPEHPK3PXP', uri: 'otpauth://totp/Rokda' } } });
+    }
     if (url.includes('/user')) return route.fulfill({ json: SESSION.user });
     return route.fulfill({ json: SESSION });
   });
 
   await page.route('**/rest/v1/**', async (route) => {
     const request = route.request();
+    onRest(request);
     const url = new URL(request.url());
     const rest = url.pathname.split('/rest/v1/')[1] ?? '';
     const wantsObject = (request.headers()['accept'] ?? '').includes('vnd.pgrst.object+json');
