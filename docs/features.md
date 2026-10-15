@@ -95,7 +95,8 @@ here, because this repository is public.
   (`merchant_category_counts`), and only then the model's guess. Anything
   uncertain goes to the Inbox.
 - Answers questions: spending by category, net worth, account balances,
-  upcoming bills, budget status, holdings.
+  upcoming bills, budget status, holdings. Every figure is read in full; if a
+  read fails, it says it could not answer rather than giving a partial figure.
 - Reads goal contributions and account balances from a message and asks
   first: it shows the change (old → new) and saves it only on a "yes" or a 👍
   to that message; "no" drops it.

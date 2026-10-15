@@ -1024,3 +1024,28 @@ been recorded, so it was sent again.
   recorded yet: I couldn't tell who was paid, so it's in the Inbox", naming
   what was missing (the amount, who was paid, the card or account, the
   category, an AED amount), or that it looks like one already recorded.
+
+## The bot reads every row, and says when it cannot
+
+The screens were made to read past 1,000 rows (above); the bot was not. It
+read each source in one request, so with more than 1,000 transactions its
+monthly total, budget alerts and unusual-spend check summed whichever 1,000
+came back first, often none of this month's, and its portfolio change read
+part of the price history. A failed read came back as no rows, so a database
+hiccup was stated as "AED 0 spent" or a net worth with nothing in it.
+
+- **Only the window a figure needs, a page at a time.** A month's total reads
+  that month; a category's spend, the months its periods cover; the unusual
+  spend check, this month and the six before it. Each is filtered by the
+  database and read in pages in a stable order (`applib/pagedRead.js`, the same
+  helper as the screens). Accounts, holdings, categories and bills are paged
+  too, so nothing depends on them staying small.
+- **A figure read in part is not stated.** A failed read stops the answer:
+  the bot says it could not read the figures and asks to be asked again, and
+  does not hand the model anything to phrase. The brief and the monthly
+  review keep what they could read and say "couldn't be read just now" on
+  the line they could not. Budget alerts, unusual spending and the "did you
+  pay this?" nudge skip a household or category whose figures failed, and the
+  next morning's run tries again.
+- A duplicate check that cannot read leaves the entry in the Inbox rather
+  than offering a quick "yes".
