@@ -10,6 +10,7 @@ import BudgetBasis from './BudgetBasis';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import ForecastAssumptionsEditor from './ForecastAssumptionsEditor';
 import { ChartLegend, ColumnChart, RangeChart } from '../../charts/Charts';
+import { tabHref } from '../../lib/activityLink';
 
 const DEFAULTS = { nominal_return_pct: 6.0, inflation_pct: 2.5, safe_withdrawal_pct: 4.0 };
 const HORIZON_YEARS = 30;
@@ -160,7 +161,7 @@ export default function Forecast({ household, members = [], accounts = [], trans
           </div>
         </div>
         <div style={{ display: 'flex', gap: 10, marginTop: 24, flexWrap: 'wrap' }}>
-          <button type="button" className="om-btn" style={{ borderColor: 'var(--accent)', color: 'var(--ink)' }} onClick={() => navigate('/wealth')}>
+          <button type="button" className="om-btn" style={{ borderColor: 'var(--accent)', color: 'var(--ink)' }} onClick={() => navigate(tabHref('/wealth', 'accounts'))}>
             Add an account
           </button>
           <button type="button" className="om-btn" onClick={() => navigate('/money')}>

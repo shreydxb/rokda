@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
 import { formatBalance, formatSigned, formatMoney } from '../../lib/money';
 import { isPosted } from '../../lib/day';
 import { DATE_BASES, incomeAndSpend, matchesDateBasis, shareOf } from '../../lib/activity';
+import { categoryAndChildren, dateRangeLabel, inDateRange, readActivityFilters, withActivityFilter } from '../../lib/activityLink';
 import TransactionEditor from './TransactionEditor';
 import ActivityCalendar from './ActivityCalendar';
 
@@ -19,35 +21,47 @@ function confidenceFlag(t) {
   return null;
 }
 
-export default function Activity({ household, members, me, data, loading, categoryFilter, setCategoryFilter }) {
+export default function Activity({ household, members, me, data, loading }) {
   const { scope } = useScope();
   const scopeMemberId = resolveScopeMemberId(scope, me, members);
   const { transactions, accounts, categories, reload } = data;
   const accountById = useMemo(() => new Map(accounts.map((a) => [a.id, a])), [accounts]);
 
-  const [search, setSearch] = useState('');
-  const [needsReviewOnly, setNeedsReviewOnly] = useState(false);
+  // Every filter is read from and written to the address, so a link can open
+  // Activity already narrowed (a month and a category from Insights), and the
+  // list survives Back and reload. Changing a filter replaces the history
+  // entry rather than adding one per keystroke.
+  const [params, setParams] = useSearchParams();
   // Posted by default, like every other total in the app: a record dated next
   // week is a plan, and counting it here made this line disagree with Overview
   // and Budget for the same month.
-  const [dateBasis, setDateBasis] = useState('posted');
-  const [view, setView] = useState('list'); // 'list' | 'calendar'
+  const { categoryId: categoryFilter, search, needsReview: needsReviewOnly, dateBasis, from, to, view } = readActivityFilters(params);
+  const setFilter = (key, value) => setParams((prev) => withActivityFilter(prev, key, value), { replace: true });
+  const setCategoryFilter = (value) => setFilter('categoryId', value);
+  const setSearch = (value) => setFilter('search', value);
+  const setDateBasis = (value) => setFilter('dateBasis', value);
+  const setView = (value) => setFilter('view', value);
+  const clearDates = () => setParams((prev) => withActivityFilter(withActivityFilter(prev, 'from', null), 'to', null), { replace: true });
+  const rangeLabel = dateRangeLabel(from, to);
   const [editing, setEditing] = useState(null); // null closed, 'new', or a transaction row
 
   const now = useMemo(() => new Date(), []);
   const matching = useMemo(() => {
     const q = search.trim().toLowerCase();
+    // A group includes its subcategories, as Budget rolls them up.
+    const categoryIds = categoryFilter === 'all' ? null : categoryAndChildren(categoryFilter, categories);
     return transactions.filter((t) => {
       if (scopeMemberId !== null && !(t.is_shared || t.owner_member_id === scopeMemberId)) return false;
       if (needsReviewOnly && !t.needs_review) return false;
-      if (categoryFilter !== 'all' && t.category_id !== categoryFilter) return false;
+      if (categoryIds && !categoryIds.has(t.category_id)) return false;
+      if ((from || to) && !inDateRange(t, from, to)) return false;
       if (q) {
         const hay = `${t.merchant ?? ''} ${t.note ?? ''} ${t.amount}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [transactions, scopeMemberId, needsReviewOnly, categoryFilter, search]);
+  }, [transactions, categories, scopeMemberId, needsReviewOnly, categoryFilter, search, from, to]);
   const rows = useMemo(() => matching.filter((t) => matchesDateBasis(t, dateBasis, now)), [matching, dateBasis, now]);
   // Records the other filters match that Posted leaves out, so a record just
   // entered with next week's date doesn't simply vanish.
@@ -70,7 +84,12 @@ export default function Activity({ household, members, me, data, loading, catego
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        <select className="om-seg" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+        {rangeLabel && (
+          <button type="button" className="om-seg mn-chip" data-active="true" onClick={clearDates} aria-label={`${rangeLabel}: show all dates`}>
+            {rangeLabel} ✕
+          </button>
+        )}
+        <select className="om-seg" aria-label="Category" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
           <option value="all">All categories</option>
           {categories.map((c) => (
             <option key={c.id} value={c.id}>
@@ -82,7 +101,7 @@ export default function Activity({ household, members, me, data, loading, catego
           type="button"
           className="om-seg"
           data-active={needsReviewOnly}
-          onClick={() => setNeedsReviewOnly((v) => !v)}
+          onClick={() => setFilter('needsReview', !needsReviewOnly)}
         >
           Needs review
         </button>
@@ -125,7 +144,7 @@ export default function Activity({ household, members, me, data, loading, catego
       </div>
 
       {view === 'calendar' ? (
-        <ActivityCalendar rows={rows} members={members} scopeMemberId={scopeMemberId} shareLabel={shareLabel} onOpen={setEditing} />
+        <ActivityCalendar rows={rows} members={members} scopeMemberId={scopeMemberId} shareLabel={shareLabel} onOpen={setEditing} startMonth={from} />
       ) : rows.length === 0 ? (
         <div className="ov-empty">
           <div className="ov-empty-kicker">No records</div>

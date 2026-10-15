@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { screen, fireEvent } from '@testing-library/react';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { renderScreen } from '../../test/renderScreen';
 import Activity from './Activity';
 
@@ -28,22 +29,29 @@ const MEMBERS = [
 const ACCOUNTS = [{ id: 'a1', name: 'ENBD', type: 'credit_card', archived_at: null, is_shared: true }];
 const CATEGORIES = [{ id: 'c1', name: 'Groceries', kind: 'expense', parent_id: null }];
 
-function renderActivity(transactions) {
+// The address Activity is showing, to check what its filters wrote there.
+function LocationProbe() {
+  return <output data-testid="location">{useLocation().search}</output>;
+}
+const currentSearch = () => screen.getByTestId('location').textContent;
+
+function renderActivity(transactions, { url = '/money', categories = CATEGORIES } = {}) {
   return renderScreen(
-    <Activity
-      household={{ id: 'h' }}
-      members={MEMBERS}
-      me={{ id: 'm1' }}
-      loading={false}
-      categoryFilter="all"
-      setCategoryFilter={vi.fn()}
-      data={{
-        transactions,
-        accounts: ACCOUNTS,
-        categories: CATEGORIES,
-        reload: vi.fn().mockResolvedValue(undefined),
-      }}
-    />,
+    <MemoryRouter initialEntries={[url]}>
+      <LocationProbe />
+      <Activity
+        household={{ id: 'h' }}
+        members={MEMBERS}
+        me={{ id: 'm1' }}
+        loading={false}
+        data={{
+          transactions,
+          accounts: ACCOUNTS,
+          categories,
+          reload: vi.fn().mockResolvedValue(undefined),
+        }}
+      />
+    </MemoryRouter>,
   );
 }
 
@@ -155,5 +163,42 @@ describe('Activity confidence badge', () => {
     ]);
     expect(screen.getByText(/needs review/)).toBeTruthy();
     expect(screen.queryByText(/needs attention/)).toBeNull();
+  });
+});
+
+describe('Activity filters in the address', () => {
+  const CATS = [
+    { id: 'g', name: 'Transport', kind: 'expense', parent_id: null },
+    { id: 'fuel', name: 'Fuel', kind: 'expense', parent_id: 'g' },
+    { id: 'c1', name: 'Groceries', kind: 'expense', parent_id: null },
+  ];
+  const ROWS = [
+    { id: 'a', amount: -40, kind: 'expense', occurred_at: '2026-09-10', is_shared: true, category_id: 'fuel', merchant: 'Pump' },
+    { id: 'b', amount: -60, kind: 'expense', occurred_at: '2026-09-12', is_shared: true, category_id: 'g', merchant: 'Taxi' },
+    { id: 'c', amount: -70, kind: 'expense', occurred_at: '2026-10-02', is_shared: true, category_id: 'fuel', merchant: 'Pump October' },
+    { id: 'd', amount: -90, kind: 'expense', occurred_at: '2026-09-15', is_shared: true, category_id: 'c1', merchant: 'Grocer' },
+  ];
+
+  it('opens on the month and category a link names, a group including its subcategories', () => {
+    renderActivity(ROWS, { url: '/money?tab=activity&cat=g&from=2026-09-01&to=2026-09-30', categories: CATS });
+    expect(document.querySelector('.mn-count').textContent).toMatch(/2 posted records · Spent AED 100/);
+    expect(screen.getByText('Pump')).toBeTruthy();
+    expect(screen.getByText('Taxi')).toBeTruthy();
+    expect(screen.queryByText('Pump October')).toBeNull();
+    expect(screen.getByRole('combobox', { name: 'Category' }).value).toBe('g');
+  });
+
+  it('shows the date range as a chip that clears it', () => {
+    renderActivity(ROWS, { url: '/money?tab=activity&cat=g&from=2026-09-01&to=2026-09-30', categories: CATS });
+    fireEvent.click(screen.getByRole('button', { name: 'September 2026: show all dates' }));
+    expect(currentSearch()).toBe('?tab=activity&cat=g');
+    expect(screen.getByText('Pump October')).toBeTruthy();
+  });
+
+  it('writes a changed filter back to the address', () => {
+    renderActivity(ROWS, { url: '/money?tab=activity', categories: CATS });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Category' }), { target: { value: 'c1' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Needs review' }));
+    expect(currentSearch()).toBe('?tab=activity&cat=c1&review=1');
   });
 });

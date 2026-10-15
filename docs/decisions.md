@@ -1277,3 +1277,33 @@ consumer now uses the arithmetic Overview and Budget already used.
   and converting past spending properly needs each day's rate, which waits on
   rate history (SHR-321). Overview's conversion uses today's rate for past
   months, as net worth's history already does.
+
+## Links keep their context
+
+The product review (15 October) found summaries linking to a screen's first
+tab, or to all of a category's history for a monthly figure. Every tab, and
+Activity's filters, now live in the address.
+
+- **Tabs are in the URL** (`/money?tab=recurring`, `/wealth?tab=accounts`)
+  on Money, Wealth, Planning and Settings. A link opens the tab it means, and
+  Back returns to the tab you came from. Settings used to read its tab from
+  navigation state, which a reload lost.
+- **Activity's filters are in the URL**: category, date range, search, needs
+  review, which dates count, and list or calendar. Back, reload and a
+  bookmark land on the same list, and the list keeps its filters around an
+  edit. Typing a search replaces the history entry rather than adding one per
+  letter.
+- **Each summary opens its own records.** Insights' categories, cards and
+  merchants open the month on screen. A budget's editor has "See the records"
+  for its month and category. Overview's period and chart bars open their
+  dates. Needs attention opens what resolves each item: Recurring for a bill
+  that hasn't posted, the month's category records for one running high,
+  Accounts for a card or an unset balance, Investments for a stale price,
+  Backups for a backup.
+- **The person and currency are not in the link.** They are the sidebar's
+  and already apply on every screen, so a link made under Me opens under Me.
+- **A category includes its subcategories** in Activity, as Budget rolls them
+  up, so a group's budget opens all of the records it counts.
+- **A date range has no picker yet.** A link sets it and a chip clears it.
+  Choosing dates by hand belongs with the Activity filter layout, which is
+  still to be decided.

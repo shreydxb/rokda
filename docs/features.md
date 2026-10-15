@@ -38,6 +38,10 @@ here, because this repository is public.
   every other total); scheduled rows are labelled. Under Me or the partner's
   name, totals are that person's share and shared rows show the share under
   the full amount. Calendar days add up the same way, and open the editor.
+  Its filters (category, a date range, search, needs review, which dates,
+  list or calendar) are in the address, so Back, reload and a bookmark keep
+  them. A date range set by a link shows as a chip that clears it, and a
+  category includes its subcategories.
 - **Budget**: month and year views. Spending is budgeted by subcategory and
   rolled up to its group. Savings categories are savings targets measured
   against what the month actually saved, never counted as spending.
@@ -48,7 +52,8 @@ here, because this repository is public.
   last date and amounts in AED, USD or INR. Status per occurrence (Paid,
   Posted, Expected, Late, Ended). Income is matched within 10 days of its
   date, bills within 5, and a salary counts in the month it was due.
-- **Insights**: what moved month on month, drilling into Activity. Top
+- **Insights**: what moved month on month. Every category figure, card and
+  merchant opens its records in Activity for the month on screen. Top
   merchants follows the selected month, net of refunds.
 - Money and the AED-entered plans (Plan, Goals, Debt payoff) stay in AED
   whatever the display currency, and say so when another one is picked.

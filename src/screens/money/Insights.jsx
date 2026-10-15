@@ -4,6 +4,7 @@ import { resolveScopeMemberId } from '../../lib/scope';
 import { formatMoney, formatPct } from '../../lib/money';
 import { monthActualsByCategory } from '../../lib/budget';
 import { trailingAverageByCategory, topMerchants, notableMoves } from '../../lib/insights';
+import { monthRange } from '../../lib/activityLink';
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const TRAILING_MONTHS = 6;
@@ -31,6 +32,12 @@ export default function Insights({ me, members, data, loading, onDrillIntoActivi
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [transactions, year, month, scopeMemberId, now]
   );
+
+  // Every figure here opens the records behind it, for the month on screen
+  // (lib/activityLink.js). It used to pass only the category, so a monthly
+  // figure opened all of that category's history.
+  const selectedMonth = monthRange(year, month);
+  const openRecords = (filters) => onDrillIntoActivity?.({ ...filters, ...selectedMonth });
 
   const catIds = [...new Set([...thisMonth.keys(), ...averages.keys()])].sort((a, b) => (thisMonth.get(b) ?? 0) - (thisMonth.get(a) ?? 0));
 
@@ -65,7 +72,7 @@ export default function Insights({ me, members, data, loading, onDrillIntoActivi
                 const delta = avg && avg > 0 ? (actual - avg) / avg : null;
                 const scale = Math.max(actual, avg ?? 0, 1);
                 return (
-                  <div key={cid} className="mn-row ins-cmp-row" style={{ cursor: 'default' }}>
+                  <button key={cid} type="button" className="mn-row ins-cmp-row" onClick={() => openRecords({ categoryId: cid })}>
                     <div className="mn-row-main">
                       <div>{catById.get(cid)?.name ?? 'Uncategorised'}</div>
                       <div className="ov-muted">
@@ -95,7 +102,7 @@ export default function Insights({ me, members, data, loading, onDrillIntoActivi
                       </div>
                     </div>
                     <div className="fig mn-row-amt">{formatMoney(actual)}</div>
-                  </div>
+                  </button>
                 );
               })}
             </div>
@@ -115,7 +122,7 @@ export default function Insights({ me, members, data, loading, onDrillIntoActivi
                   key={mv.categoryId}
                   type="button"
                   className="mn-row ins-card"
-                  onClick={() => onDrillIntoActivity?.(mv.categoryId)}
+                  onClick={() => openRecords({ categoryId: mv.categoryId })}
                 >
                   <div className="ins-card-head">
                     <div className="ins-card-headline">
@@ -161,7 +168,7 @@ export default function Insights({ me, members, data, loading, onDrillIntoActivi
           ) : (
             <div className="mn-list">
               {merchants.map((m) => (
-                <div key={m.name} className="mn-row" style={{ cursor: 'default' }}>
+                <button key={m.name} type="button" className="mn-row" disabled={m.name === 'Unknown'} onClick={() => openRecords({ search: m.name })}>
                   <div className="mn-row-main">
                     <div>{m.name}</div>
                     <div className="ov-muted">
@@ -169,7 +176,7 @@ export default function Insights({ me, members, data, loading, onDrillIntoActivi
                     </div>
                   </div>
                   <div className="fig mn-row-amt">{formatMoney(m.total)}</div>
-                </div>
+                </button>
               ))}
             </div>
           )}

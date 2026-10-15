@@ -6,8 +6,9 @@ import { resolveScopeMemberId } from '../lib/scope';
 import { formatPct } from '../lib/money';
 import { PERIOD_LABELS } from '../lib/period';
 import { nativeAmountLabel, upcomingItems } from '../lib/recurring';
+import { activityHref, bucketRange, isoDay, tabHref } from '../lib/activityLink';
 import { buildNetWorthSeries, changeOverMonths } from '../lib/netWorth';
-import { ATTENTION_PREVIEW_COUNT as ATTENTION_FOLD, attentionPreview, buildAttentionItems } from '../lib/attention';
+import { ATTENTION_PREVIEW_COUNT as ATTENTION_FOLD, attentionHref, attentionPreview, buildAttentionItems } from '../lib/attention';
 import { useMoneyDisplay } from '../lib/CurrencyContext';
 import { supabase } from '../lib/supabaseClient';
 import { useOverviewData } from './useOverviewData';
@@ -29,16 +30,6 @@ import LoadFailure from './LoadFailure';
 import './Overview.css';
 
 const PERIODS = ['mtd', 'qtd', 'ytd'];
-const ATTENTION_DESTINATIONS = {
-  missing_recurring: '/money',
-  card_due: '/wealth',
-  category_anomaly: '/money',
-  stale_holding: '/wealth',
-  balance_unset: '/wealth',
-  month_close: '/wealth',
-  // A destination with a tab opens that tab (Settings reads it from location state).
-  backup: { path: '/settings', state: { tab: 'backups' } },
-};
 
 export default function Overview() {
   const navigate = useNavigate();
@@ -262,7 +253,10 @@ export default function Overview() {
               <div className="ov-kicker">{PERIOD_LABELS[period]}</div>
               <div className="ov-muted">
                 {p.count} record{p.count === 1 ? '' : 's'} · {money.code}
-                {money.rateNote ? ` · ${money.rateNote}` : ''}
+                {money.rateNote ? ` · ${money.rateNote}` : ''} ·{' '}
+                <span className="ov-link" role="link" tabIndex={0} onClick={() => navigate(activityHref({ from: isoDay(p.start), to: isoDay(now) }))}>
+                  Records →
+                </span>
               </div>
             </div>
             <div className="ov-kpi-row">
@@ -323,6 +317,11 @@ export default function Overview() {
                   <span>
                     Rate <b className={`fig ${selected.rate === null ? '' : selected.rate < 0 ? 'ov-neg' : 'ov-pos'}`}>{selected.rate !== null ? formatPct(selected.rate) : '—'}</b>
                   </span>
+                  {/* The bar's own records: its dates, up to today for the
+                      bucket still running. */}
+                  <span className="ov-link" role="link" tabIndex={0} onClick={() => navigate(activityHref(bucketRange(selected, now)))}>
+                    Records →
+                  </span>
                 </div>
               )}
               <div className="ov-legend">
@@ -380,11 +379,7 @@ export default function Overview() {
                         <button
                           type="button"
                           className="om-btn ov-attn-btn"
-                          onClick={() => {
-                            const to = ATTENTION_DESTINATIONS[item.kind] ?? '/';
-                            if (typeof to === 'string') navigate(to);
-                            else navigate(to.path, { state: to.state });
-                          }}
+                          onClick={() => navigate(attentionHref(item, now))}
                         >
                           Open
                         </button>
@@ -454,7 +449,7 @@ export default function Overview() {
                 {recurring.length === 0
                   ? 'No recurring bills or income set up yet.'
                   : 'Nothing due in the next 30 days.'}{' '}
-                <span className="ov-link" onClick={() => navigate('/money')}>
+                <span className="ov-link" onClick={() => navigate(tabHref('/money', 'recurring'))}>
                   Recurring →
                 </span>
               </div>
@@ -478,7 +473,7 @@ export default function Overview() {
                     Committed {money.fmt(committedTotal)}
                     {withoutAutopay > 0 ? ` · ${withoutAutopay} without autopay` : ''}
                   </span>
-                  <span className="ov-link" onClick={() => navigate('/money')}>
+                  <span className="ov-link" onClick={() => navigate(tabHref('/money', 'recurring'))}>
                     Recurring →
                   </span>
                 </div>
@@ -559,7 +554,7 @@ export default function Overview() {
             <div>
               <div className="ov-section-head">
                 <div className="ov-kicker">Accounts</div>
-                <div className="ov-link" onClick={() => navigate('/wealth')}>
+                <div className="ov-link" onClick={() => navigate(tabHref('/wealth', 'accounts'))}>
                   Wealth →
                 </div>
               </div>

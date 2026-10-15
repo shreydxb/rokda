@@ -9,7 +9,7 @@ import { categoryOwner, householdShare } from '../../lib/share';
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-export default function Budget({ household, me, members, data, loading }) {
+export default function Budget({ household, me, members, data, loading, onOpenRecords }) {
   const { scope } = useScope();
   const scopeMemberId = resolveScopeMemberId(scope, me, members);
   const { transactions, categories, budgets, accounts = [], recurring = [], reload } = data;
@@ -79,6 +79,7 @@ export default function Budget({ household, me, members, data, loading }) {
           categories={categories}
           year={view === 'year' ? yearCursor : cursor.getFullYear()}
           month={cursor.getMonth() + 1}
+          onOpenRecords={onOpenRecords}
           onClose={() => setEditing(null)}
           onSaved={async () => {
             setEditing(null);
@@ -389,7 +390,7 @@ function BudgetGroup({ groupId, groupCategory, rows, actuals, groupActual, catBy
         budget={Number(rows[0].amount)}
         actual={groupActual}
         pace={pace}
-        onClick={() => onEdit({ ...rows[0], spentSoFar: groupActual })}
+        onClick={() => onEdit({ ...rows[0], spentSoFar: groupActual, recordsCategoryId: groupCategory?.id ?? rows[0].category_id })}
       />
     );
   }
@@ -420,7 +421,7 @@ function BudgetGroup({ groupId, groupCategory, rows, actuals, groupActual, catBy
                 budget={Number(r.amount)}
                 actual={subActual}
                 pace={pace}
-                onClick={() => onEdit({ ...r, spentSoFar: subActual })}
+                onClick={() => onEdit({ ...r, spentSoFar: subActual, recordsCategoryId: onlyBudgetedSubcategory ? (groupCategory?.id ?? r.category_id) : r.category_id })}
                 sub
               />
             );

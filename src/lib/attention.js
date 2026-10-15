@@ -10,6 +10,7 @@ import { balanceStatus } from './balance';
 import { accountValueAed } from './accounts';
 import { pendingClose } from './snapshots';
 import { EXPORT_DUE_DAYS, backupStatus } from './backups';
+import { activityHref, monthRange, tabHref } from './activityLink';
 
 function startOfDay(d) {
   const nd = new Date(d);
@@ -152,6 +153,7 @@ function categoryAnomalyItems(transactions, categories, scopeMemberId, now) {
     items.push({
       id: `category-anomaly-${catId}`,
       kind: 'category_anomaly',
+      categoryId: catId,
       severity: 'info',
       title: `${name} is running high this month`,
       detail: `AED ${Math.round(actual).toLocaleString('en-AE')} so far vs a trailing ${ANOMALY_MONTHS_BACK}-month average of AED ${Math.round(avg).toLocaleString('en-AE')}`,
@@ -292,4 +294,27 @@ export function buildAttentionItems({ transactions, recurring, accounts, holding
     ...monthCloseItems(accounts, snapshots, now),
     ...backupItems(accounts, backupRecords, now),
   ];
+}
+
+// Where each item's Open goes: the tab, and for a category running high, the
+// month's records in that category, so the item opens the thing that resolves
+// it rather than a screen's first tab (product review, 15 October).
+export function attentionHref(item, now = new Date()) {
+  switch (item.kind) {
+    case 'missing_recurring':
+      return tabHref('/money', 'recurring');
+    case 'category_anomaly':
+      return activityHref({ categoryId: item.categoryId, ...monthRange(now.getFullYear(), now.getMonth() + 1) });
+    case 'card_due':
+    case 'balance_unset':
+      return tabHref('/wealth', 'accounts');
+    case 'stale_holding':
+      return tabHref('/wealth', 'investments');
+    case 'month_close':
+      return '/wealth';
+    case 'backup':
+      return tabHref('/settings', 'backups');
+    default:
+      return '/';
+  }
 }

@@ -280,3 +280,16 @@
   border-top: 1px solid var(--rule);
 }
 
+
+/* "See the records →" under a budget's spent-so-far figure. */
+.te-records-link {
+  display: block;
+  margin-top: 6px;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}

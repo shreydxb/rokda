@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ATTENTION_PREVIEW_COUNT, attentionPreview, buildAttentionItems, sortAttention } from './attention';
+import { ATTENTION_PREVIEW_COUNT, attentionHref, attentionPreview, buildAttentionItems, sortAttention } from './attention';
 
 const item = (id, severity) => ({ id, severity });
 
@@ -99,5 +99,18 @@ describe('a backup that is late or failed', () => {
 
   it('says nothing to a household with no open accounts', () => {
     expect(backupItems([], [])).toEqual([]);
+  });
+});
+
+describe('attentionHref', () => {
+  const TODAY = new Date(2026, 9, 15, 12);
+  it('opens the tab or records that resolve each item', () => {
+    expect(attentionHref({ kind: 'missing_recurring' }, TODAY)).toBe('/money?tab=recurring');
+    expect(attentionHref({ kind: 'category_anomaly', categoryId: 'c1' }, TODAY)).toBe('/money?tab=activity&cat=c1&from=2026-10-01&to=2026-10-31');
+    expect(attentionHref({ kind: 'card_due' }, TODAY)).toBe('/wealth?tab=accounts');
+    expect(attentionHref({ kind: 'balance_unset' }, TODAY)).toBe('/wealth?tab=accounts');
+    expect(attentionHref({ kind: 'stale_holding' }, TODAY)).toBe('/wealth?tab=investments');
+    expect(attentionHref({ kind: 'month_close' }, TODAY)).toBe('/wealth');
+    expect(attentionHref({ kind: 'backup' }, TODAY)).toBe('/settings?tab=backups');
   });
 });

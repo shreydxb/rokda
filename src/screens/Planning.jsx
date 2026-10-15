@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useTab } from '../lib/useTab';
 import { useHousehold } from '../lib/useHousehold';
 import { useOverviewData } from './useOverviewData';
 import { usePlanningData } from './usePlanningData';
@@ -24,7 +24,8 @@ const TABS = [
 ];
 
 export default function Planning() {
-  const [tab, setTab] = useState('plan');
+  // In the address, so Back returns to the tab you were on.
+  const [tab, setTab] = useTab(TABS);
   const { household, members, me, loading: householdLoading, error: householdError, reload: reloadHousehold } = useHousehold();
   const overview = useOverviewData(household?.id);
   const planning = usePlanningData(household?.id);
