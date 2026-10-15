@@ -6,6 +6,7 @@ import Accounts from './wealth/Accounts';
 import Investments from './wealth/Investments';
 import Statements from './wealth/Statements';
 import LoadFailure from './LoadFailure';
+import Freshness from './Freshness';
 import './Wealth.css';
 
 const TABS = [
@@ -23,7 +24,14 @@ export default function Wealth() {
 
   return (
     <div className="mn">
-      <div className="ov-kicker">Wealth</div>
+      <Freshness
+        title="Wealth"
+        loadedAt={data.loadedAt}
+        refreshing={data.refreshing}
+        onRefresh={async () => {
+          await Promise.all([reloadHousehold(), data.reload()]);
+        }}
+      />
       <LoadFailure
         errors={{ ...data.errors, ...(householdError ? { household: householdError } : {}) }}
         loadedAt={data.loadedAt}

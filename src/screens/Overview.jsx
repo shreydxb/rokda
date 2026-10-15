@@ -26,6 +26,7 @@ import { anyFailed } from '../lib/loadState';
 import { balanceStatus, unconfirmedAccounts } from '../lib/balance';
 import { accountValueAed } from '../lib/accounts';
 import LoadFailure from './LoadFailure';
+import Freshness from './Freshness';
 import './Overview.css';
 
 const PERIODS = ['mtd', 'qtd', 'ytd'];
@@ -58,6 +59,7 @@ export default function Overview() {
     backupRecords,
     errors,
     loadedAt,
+    refreshing,
     reload,
   } = useOverviewData(household?.id);
 
@@ -168,6 +170,13 @@ export default function Overview() {
         errors={{ ...errors, ...(householdError ? { household: householdError } : {}) }}
         loadedAt={loadedAt}
         onRetry={async () => {
+          await Promise.all([reloadHousehold(), reload()]);
+        }}
+      />
+      <Freshness
+        loadedAt={loadedAt}
+        refreshing={refreshing}
+        onRefresh={async () => {
           await Promise.all([reloadHousehold(), reload()]);
         }}
       />

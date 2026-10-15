@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { readAllPages } from '../lib/pagedRead';
+import { useSources } from '../lib/useSources';
 
 // One entry per query, failures reported per source (QA-10). Every list is
 // read a page at a time, as the other screens' are (docs/decisions.md, "A
@@ -39,40 +39,5 @@ const EMPTY_STATE = {
 };
 
 export function usePlanningData(householdId) {
-  const [state, setState] = useState({ ...EMPTY_STATE, loading: true });
-
-  const reload = useCallback(async () => {
-    if (!householdId) {
-      setState(EMPTY_STATE);
-      return;
-    }
-    setState((s) => ({ ...s, loading: true }));
-
-    const results = await Promise.all(SOURCES.map((source) => source.run(householdId)));
-
-    setState((previous) => {
-      const next = { loading: false, errors: {}, loadedAt: previous.loadedAt };
-      let anySucceeded = false;
-      SOURCES.forEach((source, i) => {
-        const { data, error } = results[i];
-        if (error) {
-          // A failed debts fetch must not look like "no debts" (QA-10).
-          next[source.key] = previous[source.key];
-          next.errors[source.key] = error;
-        } else {
-          next[source.key] = data ?? source.empty;
-          anySucceeded = true;
-        }
-      });
-      if (anySucceeded) next.loadedAt = new Date();
-      return next;
-    });
-  }, [householdId]);
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- kicks off an async fetch; loading flag is the point
-    reload();
-  }, [reload]);
-
-  return { ...state, reload };
+  return useSources(householdId, SOURCES, EMPTY_STATE);
 }

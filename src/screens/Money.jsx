@@ -8,6 +8,7 @@ import Budget from './money/Budget';
 import Insights from './money/Insights';
 import Inbox from './money/Inbox';
 import LoadFailure from './LoadFailure';
+import Freshness from './Freshness';
 import AedNote from './AedNote';
 import './Money.css';
 
@@ -37,7 +38,14 @@ export default function Money() {
 
   return (
     <div className="mn">
-      <div className="ov-kicker">Money</div>
+      <Freshness
+        title="Money"
+        loadedAt={data.loadedAt}
+        refreshing={data.refreshing}
+        onRefresh={async () => {
+          await Promise.all([reloadHousehold(), data.reload()]);
+        }}
+      />
       <AedNote household={household} />
       <LoadFailure
         errors={{ ...data.errors, ...(householdError ? { household: householdError } : {}) }}

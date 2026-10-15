@@ -7,6 +7,7 @@ import CategoriesRules from './settings/CategoriesRules';
 import Telegram from './settings/Telegram';
 import Backups from './settings/Backups';
 import LoadFailure from './LoadFailure';
+import Freshness from './Freshness';
 import './Settings.css';
 
 const TABS = [
@@ -26,7 +27,14 @@ export default function Settings() {
 
   return (
     <div className="mn">
-      <div className="ov-kicker">Settings</div>
+      <Freshness
+        title="Settings"
+        loadedAt={data.loadedAt}
+        refreshing={data.refreshing}
+        onRefresh={async () => {
+          await Promise.all([reloadHousehold(), data.reload()]);
+        }}
+      />
       <LoadFailure
         errors={{ ...data.errors, ...(householdError ? { household: householdError } : {}) }}
         loadedAt={data.loadedAt}
