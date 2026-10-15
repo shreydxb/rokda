@@ -966,7 +966,9 @@ check happened when someone remembered it, and nothing recorded whether it had.
 - **The bot asks from the day after a statement closes**, every morning, until
   it is no longer waiting or the next statement closes. Not on the closing day
   itself: its last day's spending can still post. "done", "reconciled",
-  "checked" or a 👍 settle it; "not yet" asks again tomorrow. A reply or a
+  "checked" or a 👍 settle it; "not yet", or "sent" without "checked", asks
+  again tomorrow (see "A statement answer belongs to the chat it was asked
+  in"). A reply or a
   reaction to any of its questions counts. A bare "done" counts only when
   exactly one statement is waiting and no other question is, and a bare
   "yes" never does: that belongs to the expense and balance questions.
@@ -1024,6 +1026,88 @@ been recorded, so it was sent again.
   recorded yet: I couldn't tell who was paid, so it's in the Inbox", naming
   what was missing (the amount, who was paid, the card or account, the
   category, an AED amount), or that it looks like one already recorded.
+
+## The bot reads every row, and says when it cannot
+
+The screens were made to read past 1,000 rows (above); the bot was not. It
+read each source in one request, so with more than 1,000 transactions its
+monthly total, budget alerts and unusual-spend check summed whichever 1,000
+came back first, often none of this month's, and its portfolio change read
+part of the price history. A failed read came back as no rows, so a database
+hiccup was stated as "AED 0 spent" or a net worth with nothing in it.
+
+- **Only the window a figure needs, a page at a time.** A month's total reads
+  that month; a category's spend, the months its periods cover; the unusual
+  spend check, this month and the six before it. Each is filtered by the
+  database and read in pages in a stable order (`applib/pagedRead.js`, the same
+  helper as the screens). Accounts, holdings, categories and bills are paged
+  too, so nothing depends on them staying small.
+- **A figure read in part is not stated.** A failed read stops the answer:
+  the bot says it could not read the figures and asks to be asked again, and
+  does not hand the model anything to phrase. The brief and the monthly
+  review keep what they could read and say "couldn't be read just now" on
+  the line they could not. Budget alerts, unusual spending and the "did you
+  pay this?" nudge skip a household or category whose figures failed, and the
+  next morning's run tries again.
+- A duplicate check that cannot read leaves the entry in the Inbox rather
+  than offering a quick "yes".
+
+## A statement answer belongs to the chat it was asked in
+
+The bot kept only the message ids of its statement questions, and took a reply
+or a reaction to any message with one of those ids as an answer. Telegram
+numbers messages per chat, so each member's chat has its own message 42: a
+"yes" to an expense question in one chat could settle a statement asked about
+in the other. A refused write was still answered "marked as reconciled", and
+"sent to Claude" ended the reminders before anything had been checked.
+
+- **Each question is kept with its chat and member** (`asked_prompts`). A
+  reply or a reaction is an answer only in the chat the question was sent to.
+  A bare "done" counts only for statements this member was asked about.
+  `asked_message_ids` is no longer used; it is left in place rather than
+  dropped. Questions asked before the change are not matched to a chat, so a
+  reply to one of those is not taken as an answer; the next morning's
+  question is.
+- **Sent is not checked.** "Sent", "uploaded" or "shared" keeps the statement
+  waiting: the bot thanks the member and asks again the next morning until
+  someone says it is done. "Sent and checked" is done; "sent, not checked" is
+  not yet.
+- **Thanked only for what was saved.** The bot replies that a statement is
+  done only once the write has gone through. If it was refused, the bot says
+  so and the statement stays waiting. If someone settled it first, the bot
+  says what it is now: done, reconciled, or checked and not matching. A
+  member's "done" is recorded as *confirmed*, and the reply says "marked as
+  done", not "reconciled": reconciled means the figures were compared.
+- If the bot cannot read which statement a message answers, it says so and
+  changes nothing, rather than treating the message as something else.
+
+## A statement is compared to the cent
+
+Wealth -> Statements showed Rokda's figure and the statement's with the
+whole-number magnitude formatter used for budget bars. A net refund of 50.49
+read "50", and totals of 100.01 and 100.02 both read "100" beside a "doesn't
+match". A statement marked as not matching had no action at all, and one
+marked done by mistake could not be opened again.
+
+- **Signed, to the cent, in AED.** Figures keep their sign (a net refund is
+  −50.49) and two decimals, labelled AED, which is how Rokda stores them,
+  whatever the display currency. The difference is said in words: "Rokda is
+  AED 0.01 lower". Showing a statement in its own currency waits on
+  amounts in their own currency (SHR-321).
+- **The comparison is spending in the period.** Rokda does not keep a card's
+  balance on each day, only the one someone last entered, so it cannot say
+  what the card owed at the close. A closing balance recorded from the
+  statement is shown as the statement's, not compared.
+- **A statement's transactions are listed on its row,** with each line signed
+  as the statement prints it (a purchase positive, a refund negative), so a
+  difference can be found without leaving the screen.
+- **A mismatch is resolved, and anything done can be reopened.** "Resolve…"
+  and "Reopen…" ask for an optional reason, kept as the statement's note.
+  Resolving records who did it and when, as "Mark done" does; reopening sets
+  it waiting again, and the bot asks about it the next morning if it is still
+  the card's latest statement. Only the latest reason is kept, not a history.
+- A write that changed nothing (the statement changed elsewhere) says so
+  rather than reloading as if it had worked.
 
 ## updated_at is kept by the database
 

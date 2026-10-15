@@ -51,6 +51,10 @@ type Backend = {
     failPromptRecord?: number;
     // Reading bot_proposals fails.
     failProposalReads?: boolean;
+    // Reading any of these tables fails.
+    failReads?: string[];
+    // Writing to any of these tables fails.
+    failWrites?: string[];
   };
   // What OpenRouter's router answers for a message: a tool name plus args.
   route?: { tool: string; args: Row };
@@ -119,7 +123,7 @@ const DEFAULTS: Record<string, () => Row> = {
     decided_at: null,
     result: null,
   }),
-  statement_reconciliations: () => ({ status: "waiting", asked_message_ids: [], last_asked_on: null, closed_at: null, closed_by_member_id: null }),
+  statement_reconciliations: () => ({ status: "waiting", asked_message_ids: [], asked_prompts: [], last_asked_on: null, closed_at: null, closed_by_member_id: null }),
 };
 
 function json(body: unknown, status = 200): Response {
@@ -141,9 +145,17 @@ function cellMatches(cell: unknown, op: string, value: string): boolean {
         const want = value.slice(1, -1).split(",").filter(Boolean).map(Number);
         return want.every((x) => (cell as unknown[]).includes(x));
       }
+      // JSON array containment, as asked_prompts @> [{"chat_id": c, ...}]:
+      // every object given matches some element on every key it gives.
+      const wanted = JSON.parse(value) as unknown;
+      if (Array.isArray(wanted)) {
+        return Array.isArray(cell) && wanted.every((w) =>
+          (cell as Row[]).some((c) => Object.entries(w as Row).every(([k, v]) => c?.[k] === v))
+        );
+      }
       // JSON containment, as payload @> {"asked_message_ids": [n]}: every key
       // given is present, and every array element given is in the cell's array.
-      const want = JSON.parse(value) as Row;
+      const want = wanted as Row;
       const have = (cell ?? {}) as Row;
       return Object.entries(want).every(([k, v]) =>
         Array.isArray(v) ? Array.isArray(have[k]) && v.every((x) => (have[k] as unknown[]).includes(x)) : have[k] === v
@@ -194,6 +206,9 @@ function matches(row: Row, params: URLSearchParams): boolean {
       case "gte":
         ok = cell != null && String(cell) >= value;
         break;
+      case "lte":
+        ok = cell != null && String(cell) <= value;
+        break;
       case "lt":
         ok = cell != null && String(cell) < value;
         break;
@@ -222,17 +237,36 @@ async function postgrest(req: Request, url: URL): Promise<Response> {
   const wantsObject = (req.headers.get("Accept") ?? "").includes("vnd.pgrst.object");
   const wantsRows = (req.headers.get("Prefer") ?? "").includes("return=representation");
 
+  // A count with no rows (select with head: true), as the brief counts the Inbox.
+  if (req.method === "HEAD") {
+    if (backend.faults.failReads?.includes(table)) return new Response(null, { status: 500 });
+    const n = rows.filter((r) => matches(r, url.searchParams)).length;
+    return new Response(null, { status: 200, headers: { "Content-Range": n ? `0-${n - 1}/${n}` : "*/0" } });
+  }
+
   if (req.method === "GET") {
     if (table === "bot_proposals" && backend.faults.failProposalReads) {
       return json({ code: "57014", message: "canceling statement due to statement timeout" }, 500);
     }
+    if (backend.faults.failReads?.includes(table)) {
+      return json({ code: "57014", message: "canceling statement due to statement timeout" }, 500);
+    }
     let found = rows.filter((r) => matches(r, url.searchParams));
+    // order=col.asc, as the paged reads end every query with a unique column.
+    const order = url.searchParams.get("order");
+    if (order) {
+      const [col, dir] = order.split(".");
+      found = [...found].sort((a, b) => (String(a[col]) < String(b[col]) ? -1 : String(a[col]) > String(b[col]) ? 1 : 0) * (dir === "desc" ? -1 : 1));
+    }
     // The embedded accounts(name) a statement is read with.
     if (table === "statement_reconciliations") {
       found = found.map((r) => ({ ...r, accounts: { name: backend.tables.accounts.find((a) => a.id === r.account_id)?.name ?? null } }));
     }
+    // PostgREST's default cap: at most 1,000 rows, whatever was asked for,
+    // with nothing in the response to say it stopped.
+    const offset = Number(url.searchParams.get("offset") ?? 0);
     const limit = url.searchParams.get("limit");
-    if (limit) found = found.slice(0, Number(limit));
+    found = found.slice(offset, offset + Math.min(limit ? Number(limit) : Infinity, 1000));
     if (wantsObject) {
       return found.length === 1 ? json(found[0]) : json({ code: "PGRST116", message: "not one row" }, 406);
     }
@@ -268,6 +302,9 @@ async function postgrest(req: Request, url: URL): Promise<Response> {
     if (table === "bot_proposals" && "prompt_message_id" in patch && backend.faults.failPromptRecord) {
       backend.faults.failPromptRecord -= 1;
       return json({ code: "57014", message: "canceling statement due to statement timeout" }, 500);
+    }
+    if (backend.faults.failWrites?.includes(table)) {
+      return json({ code: "42501", message: "new row violates row-level security policy" }, 403);
     }
     const hit = rows.filter((r) => matches(r, url.searchParams));
     for (const r of hit) Object.assign(r, patch);
@@ -470,7 +507,7 @@ Deno.env.set("TELEGRAM_BOT_TOKEN", TOKEN);
 Deno.env.set("OPENROUTER_API_KEY", "openrouter-test");
 
 reset();
-const { accountsForCheckin, buildBalanceCheckinMessage, datedItems, forwardedDay, inboxReason, merchantHistoryMatches, pickAccountByHint, pickCheckinAccount, undatedNote } = await import("./index.ts");
+const { accountsForCheckin, buildBalanceCheckinMessage, datedItems, figuresUnavailableMessage, forwardedDay, inboxReason, merchantHistoryMatches, pickAccountByHint, pickCheckinAccount, undatedNote } = await import("./index.ts");
 assert(handler!, "index.ts did not register a handler with Deno.serve");
 
 // ---------------------------------------------------------------------------
@@ -1434,7 +1471,7 @@ freshTest("a card statement is asked about the day after it closes, once a day",
   assertEquals(questions.length, 1);
   assert(/^Your Bank card statement closed on /.test(String(questions[0].body.text)), String(questions[0].body.text));
   assertEquals(row.status, "waiting");
-  assertEquals((row.asked_message_ids as number[]).length, 1);
+  assertEquals(row.asked_prompts, [{ chat_id: TELEGRAM_USER, message_id: (row.asked_prompts as Row[])[0].message_id, member_id: MEMBER }]);
   assertEquals(row.last_asked_on, dubaiToday());
 
   const again = await handler(dailyCheck());
@@ -1445,7 +1482,7 @@ freshTest("a card statement is asked about the day after it closes, once a day",
 
 freshTest("the next morning asks again, and a 👍 on the first question marks it done", async () => {
   const row = await askedStatement();
-  const first = (row.asked_message_ids as number[])[0];
+  const first = Number((row.asked_prompts as Row[])[0].message_id);
   row.last_asked_on = "2000-01-01";
   const res = await handler(dailyCheck());
   await res.body?.cancel();
@@ -1455,7 +1492,7 @@ freshTest("the next morning asks again, and a 👍 on the first question marks i
   await handler(reactionUpdate(9211, first, "👍"));
   assertEquals(row.status, "confirmed");
   assertEquals(row.closed_by_member_id, MEMBER);
-  assert(/marked as reconciled/.test(lastReply()), lastReply());
+  assert(/is marked as done\.$/.test(lastReply()), lastReply());
 
   // Done means no more questions.
   row.last_asked_on = "2000-01-01";
@@ -1477,7 +1514,7 @@ freshTest("a bare \"done\" answers the only waiting statement, but a bare \"yes\
 
 freshTest("\"not yet\" as a reply keeps the statement waiting", async () => {
   const row = await askedStatement();
-  await handler(replyUpdate(9214, "not yet", (row.asked_message_ids as number[])[0]));
+  await handler(replyUpdate(9214, "not yet", Number((row.asked_prompts as Row[])[0].message_id)));
   assertEquals(row.status, "waiting");
   assert(/again tomorrow morning/.test(lastReply()), lastReply());
 });
@@ -1490,6 +1527,100 @@ freshTest("statement questions switched off, or a closed card, ask nothing", asy
   await res.body?.cancel();
   assertEquals(statementQuestions().length, 0);
   assertEquals(backend.tables.statement_reconciliations.length, 0);
+});
+
+// The household's other member, with their own chat with the bot.
+const PARTNER_MEMBER = "22222222-2222-4222-8222-2222222222b2";
+const PARTNER_TELEGRAM = 535353;
+
+function addPartner(): void {
+  backend.tables.household_members.push({ id: PARTNER_MEMBER, household_id: HOUSEHOLD, display_name: "Partner", telegram_user_id: PARTNER_TELEGRAM, role: "member" });
+}
+
+// A message or reaction from the partner, in the partner's own chat.
+function partnerUpdate(updateId: number, body: Row): Request {
+  const from = { id: PARTNER_TELEGRAM, is_bot: false, first_name: "P" };
+  const chat = { id: PARTNER_TELEGRAM, type: "private" };
+  const update = "new_reaction" in body
+    ? { update_id: updateId, message_reaction: { chat, user: from, date: 1, old_reaction: [], ...body } }
+    : { update_id: updateId, message: { message_id: 3, date: 1, chat, from, ...body } };
+  return new Request("http://edge.test/telegram-webhook", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Telegram-Bot-Api-Secret-Token": SECRET },
+    body: JSON.stringify(update),
+  });
+}
+
+function firstPrompt(row: Row): number {
+  return Number((row.asked_prompts as Row[])[0].message_id);
+}
+
+freshTest("a reply in another chat to a message with the same id does not settle a statement", async () => {
+  addPartner();
+  // The card is the first member's own, so only they are asked.
+  const row = await askedStatement();
+  // The partner's chat has its own message with that id, an expense
+  // question say, and the partner answers it.
+  await handler(partnerUpdate(9220, { text: "yes", reply_to_message: { message_id: firstPrompt(row) } }));
+  await handler(partnerUpdate(9221, { text: "done", reply_to_message: { message_id: firstPrompt(row) } }));
+  assertEquals(row.status, "waiting");
+  assert(!backend.telegramSent.some((m) => /marked as done/.test(String(m.body.text))), "a statement was reported done");
+});
+
+freshTest("a reaction in another chat on a message with the same id does not settle a statement", async () => {
+  addPartner();
+  const row = await askedStatement();
+  await handler(partnerUpdate(9222, { message_id: firstPrompt(row), new_reaction: [{ type: "emoji", emoji: "👍" }] }));
+  assertEquals(row.status, "waiting");
+});
+
+freshTest("a bare \"done\" from a member who was not asked about a statement does not settle it", async () => {
+  addPartner();
+  const row = await askedStatement();
+  await handler(partnerUpdate(9223, { text: "done" }));
+  assertEquals(row.status, "waiting");
+});
+
+freshTest("a shared card's statement is asked in both chats, and either chat's answer settles it", async () => {
+  addPartner();
+  seedStatementCard({ is_shared: true, owner_member_id: null });
+  const res = await handler(dailyCheck());
+  await res.body?.cancel();
+  const row = backend.tables.statement_reconciliations[0];
+  const prompts = row.asked_prompts as Row[];
+  assertEquals(prompts.map((p) => p.chat_id).sort(), [TELEGRAM_USER, PARTNER_TELEGRAM].sort());
+  const partners = prompts.find((p) => p.chat_id === PARTNER_TELEGRAM)!;
+  await handler(partnerUpdate(9224, { text: "done", reply_to_message: { message_id: partners.message_id } }));
+  assertEquals(row.status, "confirmed");
+  assertEquals(row.closed_by_member_id, PARTNER_MEMBER);
+});
+
+freshTest("a refused write is not reported as done", async () => {
+  const row = await askedStatement();
+  backend.faults.failWrites = ["statement_reconciliations"];
+  await handler(replyUpdate(9225, "done", firstPrompt(row)));
+  assertEquals(row.status, "waiting");
+  assert(/couldn't save that/.test(lastReply()), lastReply());
+});
+
+freshTest("an answer to a statement settled in between says what it is now", async () => {
+  const row = await askedStatement();
+  // Checked in the meantime, and found not to match.
+  Object.assign(row, { status: "mismatch", closed_at: new Date().toISOString() });
+  await handler(replyUpdate(9226, "done", firstPrompt(row)));
+  assertEquals(row.status, "mismatch");
+  assert(/doesn't match Rokda/.test(lastReply()), lastReply());
+});
+
+freshTest("\"sent to Claude\" keeps the statement waiting, and the bot keeps asking", async () => {
+  const row = await askedStatement();
+  await handler(replyUpdate(9227, "sent to Claude", firstPrompt(row)));
+  assertEquals(row.status, "waiting");
+  assert(/until it has been checked/.test(lastReply()), lastReply());
+  row.last_asked_on = "2000-01-01";
+  const later = await handler(dailyCheck());
+  await later.body?.cancel();
+  assertEquals(statementQuestions().length, 2);
 });
 
 // ---------------------------------------------------------------------------
@@ -1517,3 +1648,79 @@ freshTest("a payment typed without a merchant the parser recognised is reported 
   // The parser is told that a biller named in passing is the merchant.
   assert(backend.parsePrompts[0].includes("is who was paid"), "the parser was not told what a merchant is");
 });
+
+// ---------------------------------------------------------------------------
+// A figure the bot states is read in full, or not stated
+// ---------------------------------------------------------------------------
+
+const GROCERIES = "a9100000-0000-4000-8000-0000000000c1";
+
+// `count` expenses of AED `amount` each on `day`, after any already there.
+function seedExpenses(count: number, day: string, amount: number, prefix: string): void {
+  for (let i = 0; i < count; i++) {
+    backend.tables.transactions.push({
+      id: `${prefix}-${String(i).padStart(5, "0")}`, household_id: HOUSEHOLD, account_id: "a9100000-0000-4000-8000-0000000000a1",
+      category_id: GROCERIES, amount: -amount, kind: "expense", occurred_at: day, is_shared: true, owner_member_id: null, merchant: "Shop",
+    });
+  }
+}
+
+function thisMonthFirst(): string {
+  return `${dubaiToday().slice(0, 8)}01`;
+}
+
+freshTest("this month's spending is found after a thousand older transactions", async () => {
+  // Stored first, so a single unordered read returned only these and the
+  // brief said AED 0.
+  seedExpenses(1000, "2025-01-15", 10, "t-old");
+  seedExpenses(85, thisMonthFirst(), 10, "t-new");
+  await handler(textUpdate(9301, "brief"));
+  assert(lastReply().includes("Spent this month: AED 850\n"), lastReply());
+});
+
+freshTest("a month with more than a thousand transactions is totalled in full", async () => {
+  seedExpenses(1085, thisMonthFirst(), 10, "t-month");
+  await handler(textUpdate(9302, "brief"));
+  assert(lastReply().includes("Spent this month: AED 10,850\n"), lastReply());
+  // Two pages each for the month's total and its budget alerts.
+  assertEquals(backend.requests.filter((r) => r.method === "GET" && r.path === "/rest/v1/transactions").length, 4);
+});
+
+freshTest("a brief whose spending could not be read says so rather than AED 0", async () => {
+  seedExpenses(3, thisMonthFirst(), 10, "t-fail");
+  backend.faults.failReads = ["transactions"];
+  await handler(textUpdate(9303, "brief"));
+  const brief = lastReply();
+  assert(brief.includes("Spent this month: couldn't be read just now."), brief);
+  assert(!/Spent this month: AED/.test(brief), brief);
+  // What could be read is still there.
+  assert(brief.startsWith("Net worth: AED "), brief);
+});
+
+freshTest("a brief whose accounts could not be read states no net worth and no cash cover", async () => {
+  backend.faults.failReads = ["accounts"];
+  await handler(textUpdate(9304, "brief"));
+  const brief = lastReply();
+  assert(brief.includes("Net worth: couldn't be read just now."), brief);
+  assert(brief.includes("Cash cover: couldn't be read just now."), brief);
+  assert(brief.includes("Bills due: couldn't be read just now."), brief);
+  assert(brief.includes("Inbox is clear."), brief);
+});
+
+for (const [tool, args, table] of [
+  ["get_category_spend", { category: "Groceries", period: "this_month" }, "transactions"],
+  ["get_budget_status", { category: "Groceries" }, "budgets"],
+  ["get_net_worth", {}, "holdings"],
+  ["get_account_balance", { account_name: "bank" }, "accounts"],
+  ["get_holdings", { range: "1m" }, "holding_value_history"],
+] as Array<[string, Row, string]>) {
+  freshTest(`${tool} with ${table} unreadable answers that it cannot, and records nothing`, async () => {
+    backend.tables.categories.push({ id: GROCERIES, household_id: HOUSEHOLD, name: "Groceries", kind: "expense", archived: false, is_savings: false });
+    backend.tables.holdings = [{ id: "a9100000-0000-4000-8000-0000000000d1", household_id: HOUSEHOLD, name: "Fund", asset_class: "equity", value_aed: 100, is_shared: true, owner_member_id: null }];
+    backend.route = { tool, args };
+    backend.faults.failReads = [table];
+    await handler(textUpdate(9310, "how are we doing?"));
+    assertEquals(lastReply(), figuresUnavailableMessage());
+    assertEquals(capturedIntake().length, 0);
+  });
+}

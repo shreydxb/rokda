@@ -464,5 +464,12 @@
   "fingerprint": "bb0ef58162bc2d25d20b2f0a3b525cff",
   "framingFingerprint": "aae4737d9b96fc9d9ea5b4277a8ba6f6",
   "fingerprintVersion": 2
+ },
+ {
+  "version": "20261015090458",
+  "name": "statement_prompt_chats",
+  "fingerprint": "ce96ffd9c801283e58aeb6ad1ade2527",
+  "framingFingerprint": "d19fb956f45cf88a791e51de3ee3f84f",
+  "fingerprintVersion": 2
  }
 ]

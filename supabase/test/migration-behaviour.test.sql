@@ -1728,6 +1728,20 @@ begin
   if not exists (select 1 from statement_reconciliations where account_id = card and asked_message_ids @> '{12}') then
     raise exception 'statements FAILED: a question''s message id is not found by containment';
   end if;
+  -- A question is found by its chat and message together, never by the
+  -- message id alone: each chat numbers its own messages.
+  update statement_reconciliations set asked_prompts = '[{"chat_id": 501, "message_id": 42, "member_id": "x"}]' where account_id = card;
+  if not exists (select 1 from statement_reconciliations where account_id = card and asked_prompts @> '[{"chat_id": 501, "message_id": 42}]') then
+    raise exception 'statements FAILED: a question is not found by its chat and message';
+  end if;
+  if exists (select 1 from statement_reconciliations where account_id = card and asked_prompts @> '[{"chat_id": 502, "message_id": 42}]') then
+    raise exception 'statements FAILED: the same message id in another chat was taken for the question';
+  end if;
+  begin
+    update statement_reconciliations set asked_prompts = '{"chat_id": 501}' where account_id = card;
+    raise exception 'statements FAILED: asked_prompts accepted something other than a list';
+  exception when check_violation then null;
+  end;
   begin
     insert into statement_reconciliations (household_id, account_id, statement_date, period_start)
     values ('33333333-3333-3333-3333-333333333333', card, '2026-07-28', '2026-06-29');
