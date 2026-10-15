@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useHousehold } from '../lib/useHousehold';
 import { useScope } from '../lib/ScopeContext';
 import { resolveScopeMemberId } from '../lib/scope';
-import { formatBalance, formatMoney, formatSigned, formatPct } from '../lib/money';
+import { formatPct } from '../lib/money';
 import { PERIOD_LABELS } from '../lib/period';
 import { nativeAmountLabel, upcomingItems } from '../lib/recurring';
 import { buildNetWorthSeries, changeOverMonths } from '../lib/netWorth';
@@ -260,20 +260,23 @@ export default function Overview() {
           <section className="ov-period-section">
             <div className="ov-section-head">
               <div className="ov-kicker">{PERIOD_LABELS[period]}</div>
-              <div className="ov-muted">{p.count} record{p.count === 1 ? '' : 's'}</div>
+              <div className="ov-muted">
+                {p.count} record{p.count === 1 ? '' : 's'} · {money.code}
+                {money.rateNote ? ` · ${money.rateNote}` : ''}
+              </div>
             </div>
             <div className="ov-kpi-row">
               <div>
                 <div className="ov-kpi-label">Income</div>
-                <div className="ov-kpi-fig fig">{formatMoney(p.income)}</div>
+                <div className="ov-kpi-fig fig">{money.fmt(p.income)}</div>
               </div>
               <div>
                 <div className="ov-kpi-label">Spend</div>
-                <div className="ov-kpi-fig fig">{formatMoney(p.spend)}</div>
+                <div className="ov-kpi-fig fig">{money.fmt(p.spend)}</div>
               </div>
               <div>
                 <div className="ov-kpi-label">Saved</div>
-                <div className="ov-kpi-fig fig">{formatSigned(p.saved)}</div>
+                <div className="ov-kpi-fig fig">{money.fmtSigned(p.saved)}</div>
               </div>
               <div>
                 <div className="ov-kpi-label">Savings rate</div>
@@ -298,7 +301,7 @@ export default function Overview() {
                     className="ov-col"
                     data-active={selected?.key === c.key}
                     onClick={() => setSelectedKey(c.key)}
-                    aria-label={`${c.label}: income ${formatMoney(c.income)}, spend ${formatMoney(c.spend)}`}
+                    aria-label={`${c.label}: income ${money.fmt(c.income)}, spend ${money.fmt(c.spend)}`}
                   >
                     <div className="ov-col-bars">
                       <span className="ov-bar-inc" style={{ height: `${(c.income / maxColValue) * 100}%` }} />
@@ -312,10 +315,10 @@ export default function Overview() {
                 <div className="ov-chart-readout">
                   <span className="fig">{selected.label}</span>
                   <span>
-                    Income <b className="fig">{formatMoney(selected.income)}</b>
+                    Income <b className="fig">{money.fmt(selected.income)}</b>
                   </span>
                   <span>
-                    Spend <b className="fig">{formatMoney(selected.spend)}</b>
+                    Spend <b className="fig">{money.fmt(selected.spend)}</b>
                   </span>
                   <span>
                     Rate <b className={`fig ${selected.rate === null ? '' : selected.rate < 0 ? 'ov-neg' : 'ov-pos'}`}>{selected.rate !== null ? formatPct(selected.rate) : '—'}</b>
@@ -347,7 +350,7 @@ export default function Overview() {
                           <span>{item.tx.merchant ?? 'Transaction'}</span>
                           <span className="ov-muted">
                             {new Date(item.tx.occurred_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} ·{' '}
-                            {formatBalance(item.tx.amount)}
+                            {money.fmtBalance(item.tx.amount)}
                           </span>
                         </div>
                         <select
@@ -462,7 +465,7 @@ export default function Overview() {
                     <div key={r.occurrenceKey} className="ov-next30-cell">
                       <div className="ov-muted">{r.dueDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</div>
                       <div className="ov-next30-name">{r.name}</div>
-                      <div className={`fig ov-next30-amt ${Number(r.amount) > 0 ? 'ov-pos' : ''}`}>{formatSigned(r.amount)}</div>
+                      <div className={`fig ov-next30-amt ${Number(r.amount) > 0 ? 'ov-pos' : ''}`}>{money.fmtSigned(r.amount)}</div>
                       {nativeAmountLabel(r) && <div className="ov-muted">{nativeAmountLabel(r)}</div>}
                       <div className={Number(r.amount) < 0 && !r.autopay ? 'ov-warn' : 'ov-muted'}>
                         {Number(r.amount) > 0 ? 'expected' : r.autopay ? 'autopay' : 'no autopay'}
@@ -472,7 +475,7 @@ export default function Overview() {
                 </div>
                 <div className="ov-next30-foot">
                   <span>
-                    Committed {formatMoney(committedTotal)}
+                    Committed {money.fmt(committedTotal)}
                     {withoutAutopay > 0 ? ` · ${withoutAutopay} without autopay` : ''}
                   </span>
                   <span className="ov-link" onClick={() => navigate('/money')}>
@@ -495,7 +498,7 @@ export default function Overview() {
                 </div>
               ) : (
                 <>
-                  <div className="ov-comp-fig fig">{formatMoney(composition.total)}</div>
+                  <div className="ov-comp-fig fig">{money.fmt(composition.total)}</div>
                   <div className="ov-comp-bar">
                     {composition.rows.map((r, i) => (
                       <span
@@ -511,7 +514,7 @@ export default function Overview() {
                         <span className="ov-comp-dot" style={{ opacity: 1 - i * 0.16 }} />
                         <div className="ov-comp-name">{r.name}</div>
                         <div className="ov-comp-value">
-                          <div className="fig">{formatMoney(r.value)}</div>
+                          <div className="fig">{money.fmt(r.value)}</div>
                           <div className="ov-muted">{formatPct(r.share)}</div>
                         </div>
                       </div>
@@ -545,7 +548,7 @@ export default function Overview() {
                         </div>
                       </div>
                       <div className={`fig ov-list-amt ${Number(t.amount) > 0 ? 'ov-pos' : ''}`}>
-                        {formatSigned(t.amount)}
+                        {money.fmtSigned(t.amount)}
                       </div>
                     </div>
                   ))

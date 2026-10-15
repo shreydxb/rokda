@@ -82,20 +82,29 @@ export function notableMoves(
   });
 }
 
-export function topMerchants(transactions, scopeMemberId, { limit = 8 } = {}) {
+// The month's merchants by what was spent with them, on the same basis as the
+// category figures beside them: the selected month, posted records only, the
+// selected person's share, and net of refunds (a refund from a shop comes off
+// that shop's total). It used to rank all of history, so changing the month
+// on Insights left this list unchanged. A merchant whose refunds cancel its
+// purchases drops off; `count` is its purchases, not its refunds.
+export function topMerchants(transactions, scopeMemberId, { year, month, now = new Date(), limit = 8 } = {}) {
   const byMerchant = new Map();
   for (const t of transactions) {
+    const d = parseDay(t.occurred_at);
+    if (d.getFullYear() !== year || d.getMonth() + 1 !== month || !isPosted(t, now)) continue;
     if (!(scopeMemberId === null || t.is_shared || t.owner_member_id === scopeMemberId)) continue;
     const v = scopedValue(t.amount, t, scopeMemberId);
-    if (v >= 0) continue;
+    if (!isSpendRow(t, v)) continue;
     const name = t.merchant?.trim() || 'Unknown';
     const row = byMerchant.get(name) ?? { total: 0, count: 0 };
-    row.total += -v;
-    row.count += 1;
+    row.total += spendDelta(t, v);
+    if (t.kind !== 'refund') row.count += 1;
     byMerchant.set(name, row);
   }
   return [...byMerchant.entries()]
     .map(([name, row]) => ({ name, ...row }))
+    .filter((row) => row.total > 0)
     .sort((a, b) => b.total - a.total)
     .slice(0, limit);
 }

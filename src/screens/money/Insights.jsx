@@ -25,7 +25,7 @@ export default function Insights({ me, members, data, loading, onDrillIntoActivi
     () => trailingAverageByCategory(transactions, year, month, TRAILING_MONTHS, scopeMemberId),
     [transactions, year, month, scopeMemberId]
   );
-  const merchants = useMemo(() => topMerchants(transactions, scopeMemberId), [transactions, scopeMemberId]);
+  const merchants = useMemo(() => topMerchants(transactions, scopeMemberId, { year, month, now }), [transactions, scopeMemberId, year, month, now]);
   const moves = useMemo(
     () => notableMoves(transactions, year, month, scopeMemberId, catById, now),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -150,11 +150,14 @@ export default function Insights({ me, members, data, loading, onDrillIntoActivi
         </div>
 
         <div>
-          <div className="ov-kicker" style={{ marginBottom: 10 }}>
-            Top merchants
+          <div className="ov-kicker">
+            Top merchants · {MONTH_LABELS[month - 1]} {year}
+          </div>
+          <div className="ov-muted" style={{ marginTop: 6, marginBottom: 10 }}>
+            Net of refunds, posted records, AED.
           </div>
           {merchants.length === 0 ? (
-            <div className="ov-muted">Nothing yet.</div>
+            <div className="ov-muted">No spending recorded this month.</div>
           ) : (
             <div className="mn-list">
               {merchants.map((m) => (
