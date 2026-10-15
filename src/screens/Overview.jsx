@@ -21,6 +21,11 @@ import {
   spendComposition,
   runwaySummary,
   dataQuality,
+  previousPeriodSummary,
+  periodChange,
+  PREVIOUS_PERIOD_LABELS,
+  CHART_TITLES,
+  isRunningBucket,
 } from './overviewMath';
 import { parseDay } from '../lib/day';
 import { anyFailed } from '../lib/loadState';
@@ -79,6 +84,8 @@ export default function Overview() {
   const nwChange1mo = changeOverMonths(nwSeries, 1);
   const nwChange12mo = changeOverMonths(nwSeries, 12);
   const p = useMemo(() => periodSummary(transactions, period, scopeMemberId, now), [transactions, period, scopeMemberId, now]);
+  const prev = useMemo(() => previousPeriodSummary(transactions, period, scopeMemberId, now), [transactions, period, scopeMemberId, now]);
+  const prevLabel = PREVIOUS_PERIOD_LABELS[period];
   const columns = useMemo(
     () => buildChartColumns(transactions, period, scopeMemberId, now),
     [transactions, period, scopeMemberId, now]
@@ -104,6 +111,15 @@ export default function Overview() {
   const committedTotal = committed.reduce((sum, r) => sum + -Number(r.amount), 0);
   const withoutAutopay = committed.filter((r) => !r.autopay).length;
   const quality = useMemo(() => dataQuality(accounts, transactions, now), [accounts, transactions, now]);
+  // The four checks below, counted for the one-line summary. The same
+  // conditions colour each check's dot when the detail is open.
+  const qualityOk = {
+    transactions: quality.daysSinceLastTx !== null && quality.daysSinceLastTx <= 3,
+    categorisation: quality.categorisedPct !== null && quality.categorisedPct >= 0.9,
+    review: quality.openReview === 0,
+    accounts: accounts.length > 0,
+  };
+  const qualityIssues = Object.values(qualityOk).filter((ok) => !ok).length;
 
   const attention = useMemo(
     () => buildAttentionItems({ transactions, recurring, accounts, holdings, categories, snapshots: netWorthSnapshots, backupRecords, scopeMemberId, now }),
@@ -120,7 +136,7 @@ export default function Overview() {
     : attention.length > 0
       ? `${attention.length} thing${attention.length === 1 ? '' : 's'} need${attention.length === 1 ? 's' : ''} a decision`
       : p.rate !== null
-        ? `On pace to save ${formatPct(p.rate)} this ${period === 'mtd' ? 'month' : period === 'qtd' ? 'quarter' : 'year'}`
+        ? `Saved ${formatPct(p.rate)} of income so far this ${period === 'mtd' ? 'month' : period === 'qtd' ? 'quarter' : 'year'}`
         : netWorthIsProvisional
           ? 'Set up is incomplete'
           : 'All caught up';
@@ -191,71 +207,6 @@ export default function Overview() {
         <EmptyState navigate={navigate} />
       ) : (
         <>
-          <section className="ov-hero-section">
-            <div className="ov-kicker">Net worth{scope !== 'both' ? ` · ${scopeLabel(scope, me, members)}` : ''}</div>
-            <div className="ov-hero fig">
-              {netWorthTrustworthy ? (
-                <>
-                  <span className="ov-hero-currency">{money.code}</span> {money.fmtBalance(nw.netWorth)}
-                </>
-              ) : (
-                <span className="ov-hero-unavailable">Not available</span>
-              )}
-            </div>
-            {netWorthTrustworthy && netWorthIsProvisional && (
-              <div className="ov-muted" style={{ marginTop: 6, fontSize: 12 }}>
-                Provisional — {unconfirmed.length} account{unconfirmed.length === 1 ? '' : 's'} without a confirmed balance{' '}
-                {unconfirmed.length === 1 ? 'is' : 'are'} counted as zero.
-              </div>
-            )}
-            {/* Separate from "provisional", and separate on purpose: an
-                account with no AED conversion is not counted as zero, it is
-                not counted at all. netWorthSummary has always returned that
-                count; nothing used to read it, so an unconverted loan simply
-                vanished from a total that still looked complete (QA #4). */}
-            {netWorthTrustworthy && incompleteNote({ accounts: nw.unvalued, holdings: nw.unpricedHoldings }) && (
-              <div className="ov-warn" style={{ marginTop: 6, fontSize: 12 }}>
-                Incomplete — {incompleteNote({ accounts: nw.unvalued, holdings: nw.unpricedHoldings }, { capitalised: false })}
-              </div>
-            )}
-            {scope === 'both' && (nwChange1mo || nwChange12mo) && (
-              <div className="ov-nwchange">
-                {nwChange1mo && (
-                  <span className={nwChange1mo.absolute >= 0 ? 'ov-pos' : 'ov-neg'}>
-                    {nwChange1mo.absolute >= 0 ? '▲' : '▼'} {money.fmtSigned(nwChange1mo.absolute)}
-                  </span>
-                )}
-                {nwChange1mo && <span className="ov-muted"> this month</span>}
-                {nwChange1mo && nwChange12mo && <span className="ov-muted"> · </span>}
-                {nwChange12mo && (
-                  <span className="ov-muted">
-                    12-mo{' '}
-                    <span className={nwChange12mo.absolute >= 0 ? 'ov-pos' : 'ov-neg'}>
-                      {nwChange12mo.pct !== null ? formatPct(nwChange12mo.pct) : money.fmtSigned(nwChange12mo.absolute)}
-                    </span>
-                  </span>
-                )}
-              </div>
-            )}
-            <div className="ov-strip">
-              <span>
-                Assets <b>{money.fmtBalance(nw.assets)}</b>
-              </span>
-              <span>
-                Liabilities <b>{money.fmtBalance(nw.liabilities)}</b>
-              </span>
-              {runway.available ? (
-                <span>
-                  Runway <b>{runway.months.toFixed(1)} months</b>
-                </span>
-              ) : (
-                <span className="ov-muted">Runway needs {2 - runway.monthsOfHistory} more closed month(s) of spending</span>
-              )}
-              <span className="ov-link" onClick={() => navigate('/wealth')}>
-                History →
-              </span>
-            </div>
-          </section>
 
           <section className="ov-period-section">
             <div className="ov-section-head">
@@ -268,33 +219,33 @@ export default function Overview() {
                 </span>
               </div>
             </div>
+            {/* Each figure with the same stretch of the period before, so a
+                month to date is never set against a whole month. */}
             <div className="ov-kpi-row">
-              <div>
-                <div className="ov-kpi-label">Income</div>
-                <div className="ov-kpi-fig fig">{money.fmt(p.income)}</div>
-              </div>
-              <div>
-                <div className="ov-kpi-label">Spend</div>
-                <div className="ov-kpi-fig fig">{money.fmt(p.spend)}</div>
-              </div>
-              <div>
-                <div className="ov-kpi-label">Saved</div>
-                <div className="ov-kpi-fig fig">{money.fmtSigned(p.saved)}</div>
-              </div>
-              <div>
-                <div className="ov-kpi-label">Savings rate</div>
-                {/* Coloured by its sign: a month that spent more than it earned
-                    has a negative rate, and painting that green said the
-                    opposite of the figure. */}
-                <div className={`ov-kpi-fig fig ${p.rate === null ? '' : p.rate < 0 ? 'ov-neg' : 'ov-pos'}`}>{p.rate !== null ? formatPct(p.rate) : '—'}</div>
-              </div>
+              <Kpi label="Income" figure={money.fmt(p.income)} change={periodChange(p.income, prev.income)} goodWhenUp prevLabel={prevLabel} fmt={money.fmt} />
+              <Kpi label="Net spend" figure={money.fmt(p.spend)} change={periodChange(p.spend, prev.spend)} goodWhenUp={false} prevLabel={prevLabel} fmt={money.fmt} />
+              <Kpi label="Income less spending" figure={money.fmtSigned(p.saved)} change={periodChange(p.saved, prev.saved)} goodWhenUp prevLabel={prevLabel} fmt={money.fmt} />
+              {/* Coloured by its sign: a month that spent more than it earned
+                  has a negative rate, and painting that green said the
+                  opposite of the figure. */}
+              <Kpi
+                label="Savings rate"
+                figure={p.rate !== null ? formatPct(p.rate) : '—'}
+                tone={p.rate === null ? '' : p.rate < 0 ? 'ov-neg' : 'ov-pos'}
+                change={periodChange(p.rate, prev.rate, { asPoints: true })}
+                goodWhenUp
+                prevLabel={prevLabel}
+              />
             </div>
           </section>
 
           <section className="ov-split">
             <div>
               <div className="ov-section-head">
-                <div className="ov-kicker">Cash flow</div>
+                <div className="ov-kicker">{CHART_TITLES[period]}</div>
+                {/* The scale: the tallest bar's figure, so a bar's height
+                    means an amount. */}
+                <div className="ov-muted">top of chart {money.fmt(maxColValue)} {money.code}</div>
               </div>
               <div className="ov-chart">
                 {columns.map((c) => (
@@ -304,24 +255,40 @@ export default function Overview() {
                     className="ov-col"
                     data-active={selected?.key === c.key}
                     onClick={() => setSelectedKey(c.key)}
-                    aria-label={`${c.label}: income ${money.fmt(c.income)}, spend ${money.fmt(c.spend)}`}
+                    data-running={isRunningBucket(c, now)}
+                    title={c.hasData ? `${c.label}${isRunningBucket(c, now) ? ' so far' : ''}: income ${money.fmt(c.income)}, net spend ${money.fmt(c.spend)}` : `${c.label}: no records`}
+                    aria-label={c.hasData ? `${c.label}${isRunningBucket(c, now) ? ' so far' : ''}: income ${money.fmt(c.income)}, net spend ${money.fmt(c.spend)}` : `${c.label}: no records`}
                   >
+                    {/* A period with nothing recorded says so, rather than
+                        drawing two empty bars that read as a verified zero. */}
                     <div className="ov-col-bars">
-                      <span className="ov-bar-inc" style={{ height: `${(c.income / maxColValue) * 100}%` }} />
-                      <span className="ov-bar-out" style={{ height: `${(c.spend / maxColValue) * 100}%` }} />
+                      {c.hasData ? (
+                        <>
+                          <span className="ov-bar-inc" style={{ height: `${(c.income / maxColValue) * 100}%` }} />
+                          <span className="ov-bar-out" style={{ height: `${(Math.max(0, c.spend) / maxColValue) * 100}%` }} />
+                        </>
+                      ) : (
+                        <span className="ov-col-none">no records</span>
+                      )}
                     </div>
-                    <div className="ov-col-label">{c.label}</div>
+                    <div className="ov-col-label">
+                      {c.label}
+                      {isRunningBucket(c, now) ? ' · so far' : ''}
+                    </div>
                   </button>
                 ))}
               </div>
               {selected && (
                 <div className="ov-chart-readout">
-                  <span className="fig">{selected.label}</span>
+                  <span className="fig">
+                    {selected.label}
+                    {isRunningBucket(selected, now) ? ' so far' : ''}
+                  </span>
                   <span>
                     Income <b className="fig">{money.fmt(selected.income)}</b>
                   </span>
                   <span>
-                    Spend <b className="fig">{money.fmt(selected.spend)}</b>
+                    Net spend <b className="fig">{money.fmt(selected.spend)}</b>
                   </span>
                   <span>
                     Rate <b className={`fig ${selected.rate === null ? '' : selected.rate < 0 ? 'ov-neg' : 'ov-pos'}`}>{selected.rate !== null ? formatPct(selected.rate) : '—'}</b>
@@ -335,7 +302,7 @@ export default function Overview() {
               )}
               <div className="ov-legend">
                 <span><i className="ov-dot-inc" />Income</span>
-                <span><i className="ov-dot-out" />Spend</span>
+                <span><i className="ov-dot-out" />Net spend</span>
               </div>
             </div>
 
@@ -411,45 +378,6 @@ export default function Overview() {
             </div>
           </section>
 
-          <section className="ov-quality-section">
-            <div className="ov-section-head">
-              <div className="ov-kicker">Data quality</div>
-              <div className="ov-muted">What every figure on this page rests on</div>
-            </div>
-            <div className="ov-quality-grid">
-              <QualityItem
-                name="Transactions"
-                ok={quality.daysSinceLastTx !== null && quality.daysSinceLastTx <= 3}
-                label={quality.daysSinceLastTx === null ? 'None yet' : quality.daysSinceLastTx === 0 ? 'Today' : `${quality.daysSinceLastTx}d ago`}
-                note={
-                  (quality.lastTxDate
-                    ? `Most recent posted record ${quality.lastTxDate.toLocaleDateString('en-GB')}.`
-                    : 'Nothing posted yet.') +
-                  (quality.plannedTx > 0
-                    ? ` ${quality.plannedTx} future-dated record(s) are planned, not counted in spend.`
-                    : '')
-                }
-              />
-              <QualityItem
-                name="Categorisation"
-                ok={quality.categorisedPct !== null && quality.categorisedPct >= 0.9}
-                label={quality.categorisedPct !== null ? formatPct(quality.categorisedPct) : '—'}
-                note={`${quality.totalTx} record(s) total, ${quality.openReview} flagged for review.`}
-              />
-              <QualityItem
-                name="Review queue"
-                ok={quality.openReview === 0}
-                label={quality.openReview === 0 ? 'Clear' : `${quality.openReview} open`}
-                note="Flagged on add or import; resolved above."
-              />
-              <QualityItem
-                name="Accounts"
-                ok={accounts.length > 0}
-                label={accounts.length ? `${accounts.length} tracked` : 'None yet'}
-                note={quality.lastAccountUpdate ? `Balances entered manually, last touched ${quality.lastAccountUpdate.toLocaleDateString('en-GB')}.` : 'Add an account in Wealth.'}
-              />
-            </div>
-          </section>
 
           <section className="ov-next30">
             <div className="ov-kicker">Next 30 days</div>
@@ -488,6 +416,122 @@ export default function Overview() {
                 </div>
               </>
             )}
+          </section>
+
+          <section className="ov-hero-section ov-hero-compact">
+            {/* Net worth sits below the month's money and what needs doing:
+                for day-to-day use those come first (product review, 15
+                October). It still says which balances it rests on. */}
+            <div className="ov-kicker">Net worth{scope !== 'both' ? ` · ${scopeLabel(scope, me, members)}` : ''}</div>
+            <div className="ov-hero fig">
+              {netWorthTrustworthy ? (
+                <>
+                  <span className="ov-hero-currency">{money.code}</span> {money.fmtBalance(nw.netWorth)}
+                </>
+              ) : (
+                <span className="ov-hero-unavailable">Not available</span>
+              )}
+            </div>
+            {netWorthTrustworthy && netWorthIsProvisional && (
+              <div className="ov-muted" style={{ marginTop: 6, fontSize: 12 }}>
+                Provisional — {unconfirmed.length} account{unconfirmed.length === 1 ? '' : 's'} without a confirmed balance{' '}
+                {unconfirmed.length === 1 ? 'is' : 'are'} counted as zero.
+              </div>
+            )}
+            {/* Separate from "provisional", and separate on purpose: an
+                account with no AED conversion is not counted as zero, it is
+                not counted at all. netWorthSummary has always returned that
+                count; nothing used to read it, so an unconverted loan simply
+                vanished from a total that still looked complete (QA #4). */}
+            {netWorthTrustworthy && incompleteNote({ accounts: nw.unvalued, holdings: nw.unpricedHoldings }) && (
+              <div className="ov-warn" style={{ marginTop: 6, fontSize: 12 }}>
+                Incomplete — {incompleteNote({ accounts: nw.unvalued, holdings: nw.unpricedHoldings }, { capitalised: false })}
+              </div>
+            )}
+            {scope === 'both' && (nwChange1mo || nwChange12mo) && (
+              <div className="ov-nwchange">
+                {nwChange1mo && (
+                  <span className={nwChange1mo.absolute >= 0 ? 'ov-pos' : 'ov-neg'}>
+                    {nwChange1mo.absolute >= 0 ? '▲' : '▼'} {money.fmtSigned(nwChange1mo.absolute)}
+                  </span>
+                )}
+                {nwChange1mo && <span className="ov-muted"> this month</span>}
+                {nwChange1mo && nwChange12mo && <span className="ov-muted"> · </span>}
+                {nwChange12mo && (
+                  <span className="ov-muted">
+                    12-mo{' '}
+                    <span className={nwChange12mo.absolute >= 0 ? 'ov-pos' : 'ov-neg'}>
+                      {nwChange12mo.pct !== null ? formatPct(nwChange12mo.pct) : money.fmtSigned(nwChange12mo.absolute)}
+                    </span>
+                  </span>
+                )}
+              </div>
+            )}
+            <div className="ov-strip">
+              <span>
+                Assets <b>{money.fmtBalance(nw.assets)}</b>
+              </span>
+              <span>
+                Liabilities <b>{money.fmtBalance(nw.liabilities)}</b>
+              </span>
+              {runway.available ? (
+                <span>
+                  Runway <b>{runway.months.toFixed(1)} months</b>
+                </span>
+              ) : (
+                <span className="ov-muted">Runway needs {2 - runway.monthsOfHistory} more closed month(s) of spending</span>
+              )}
+              <span className="ov-link" onClick={() => navigate('/wealth')}>
+                History →
+              </span>
+            </div>
+          </section>
+
+          <section className="ov-quality-section">
+            {/* One line, with the detail a tap away: it took a screen's
+                height for what is usually "all fine". */}
+            <details className="ov-quality-details">
+              <summary>
+                <span className="ov-kicker">Data quality</span>{' '}
+                <span className={qualityIssues > 0 ? 'ov-warn' : 'ov-muted'}>
+                  {qualityIssues === 0 ? 'All four checks fine' : `${qualityIssues} of 4 checks need a look`}
+                </span>{' '}
+                <span className="ov-muted">· what every figure on this page rests on</span>
+              </summary>
+            <div className="ov-quality-grid">
+              <QualityItem
+                name="Transactions"
+                ok={qualityOk.transactions}
+                label={quality.daysSinceLastTx === null ? 'None yet' : quality.daysSinceLastTx === 0 ? 'Today' : `${quality.daysSinceLastTx}d ago`}
+                note={
+                  (quality.lastTxDate
+                    ? `Most recent posted record ${quality.lastTxDate.toLocaleDateString('en-GB')}.`
+                    : 'Nothing posted yet.') +
+                  (quality.plannedTx > 0
+                    ? ` ${quality.plannedTx} future-dated record(s) are planned, not counted in spend.`
+                    : '')
+                }
+              />
+              <QualityItem
+                name="Categorisation"
+                ok={qualityOk.categorisation}
+                label={quality.categorisedPct !== null ? formatPct(quality.categorisedPct) : '—'}
+                note={`${quality.totalTx} record(s) total, ${quality.openReview} flagged for review.`}
+              />
+              <QualityItem
+                name="Review queue"
+                ok={qualityOk.review}
+                label={quality.openReview === 0 ? 'Clear' : `${quality.openReview} open`}
+                note="Flagged on add or import; resolved above."
+              />
+              <QualityItem
+                name="Accounts"
+                ok={qualityOk.accounts}
+                label={accounts.length ? `${accounts.length} tracked` : 'None yet'}
+                note={quality.lastAccountUpdate ? `Balances entered manually, last touched ${quality.lastAccountUpdate.toLocaleDateString('en-GB')}.` : 'Add an account in Wealth.'}
+              />
+            </div>
+            </details>
           </section>
 
           <section className="ov-triple">
@@ -642,6 +686,35 @@ function EmptyState({ navigate }) {
         </button>
       </div>
       <div className="ov-empty-foot">Three records is enough for Activity and Accounts. A savings rate needs one closed month. Runway needs six.</div>
+    </div>
+  );
+}
+
+// One headline figure, and how it moved against the same stretch of the
+// period before. Up is good for income, bad for spending; the arrow says the
+// direction and the colour says whether that is good.
+function Kpi({ label, figure, tone = '', change, goodWhenUp, prevLabel, fmt }) {
+  let note = null;
+  if (change) {
+    const up = change.value > 0;
+    const flat = Math.abs(change.value) < 0.5;
+    const text = change.kind === 'points' ? `${Math.abs(change.value).toFixed(0)} pts` : fmt(Math.abs(change.value));
+    note = flat ? (
+      <span className="ov-muted">same as {prevLabel}</span>
+    ) : (
+      <>
+        <span className={up === goodWhenUp ? 'ov-pos' : 'ov-warn'}>
+          {up ? '▲' : '▼'} {text}
+        </span>
+        <span className="ov-muted"> vs {prevLabel}</span>
+      </>
+    );
+  }
+  return (
+    <div>
+      <div className="ov-kpi-label">{label}</div>
+      <div className={`ov-kpi-fig fig ${tone}`}>{figure}</div>
+      {note && <div className="ov-kpi-change">{note}</div>}
     </div>
   );
 }

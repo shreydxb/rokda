@@ -215,3 +215,42 @@ export function dataQuality(accounts, transactions, now = new Date()) {
 
   return { lastTxDate, daysSinceLastTx, lastAccountUpdate, categorisedPct, openReview, totalTx: transactions.length, plannedTx: planned };
 }
+
+// The same stretch of the period before, for "vs the same days last month":
+// month to date on the 15th compares with the 1st to the 15th of last month,
+// not with the whole of last month, which would always look bigger. A day
+// that doesn't exist last month (the 31st) is clamped to its last day.
+const PERIOD_MONTHS = { mtd: 1, qtd: 3, ytd: 12 };
+export function previousPeriodSummary(transactions, kind, scopeMemberId, now = new Date()) {
+  const back = PERIOD_MONTHS[kind] ?? 1;
+  const target = new Date(now.getFullYear(), now.getMonth() - back, 1);
+  const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  const then = new Date(target.getFullYear(), target.getMonth(), Math.min(now.getDate(), lastDay), 12);
+  return periodSummary(transactions, kind, scopeMemberId, then);
+}
+
+export const PREVIOUS_PERIOD_LABELS = { mtd: 'the same days last month', qtd: 'the same point last quarter', ytd: 'the same point last year' };
+
+// How a figure moved against the period before: the difference for money,
+// in points for a rate. A percentage change misleads here: against the first
+// days of a month with almost nothing in it, an ordinary week reads +2,000%.
+// Null when there is nothing earlier to compare with, which is not the same
+// as no change.
+export function periodChange(current, previous, { asPoints = false } = {}) {
+  if (previous === null || previous === undefined || current === null || current === undefined) return null;
+  return asPoints ? { kind: 'points', value: (current - previous) * 100 } : { kind: 'abs', value: current - previous };
+}
+
+// What the cash-flow chart's buckets are, said in its title, since the period
+// toggle changes them (months under MTD, quarters under QTD, years under YTD)
+// while the figures above stay period to date.
+export const CHART_TITLES = {
+  mtd: 'Monthly income and net spend · last 6 months',
+  qtd: 'Quarterly income and net spend · last 4 quarters',
+  ytd: 'Yearly income and net spend · last 5 years',
+};
+
+// Whether a bucket is the one still running, so it can say "so far".
+export function isRunningBucket(bucket, now = new Date()) {
+  return bucket.start <= now && now < bucket.end;
+}
