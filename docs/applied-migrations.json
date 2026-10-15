@@ -478,5 +478,12 @@
   "fingerprint": "7558a19030118a92a98164014676e5ab",
   "framingFingerprint": "f2aa3130f7de66836a9d85b8784e1a3f",
   "fingerprintVersion": 2
+ },
+ {
+  "version": "20261015133920",
+  "name": "tenant_fk_indexes",
+  "fingerprint": "62e401e828bfbb53a83ee69cb6188a9b",
+  "framingFingerprint": "38f29bc89720df8a434c1eb1a5869745",
+  "fingerprintVersion": 2
  }
 ]
