@@ -1143,3 +1143,17 @@ only ever run by hand. It now runs on every push and pull request (the
 `browser` job), and keeps its screenshots for a week. In CI a failing test is
 retried once and reported as flaky if the retry passes; locally there is no
 retry.
+
+## A month that has not closed says so
+
+Months close by hand, on purpose ("A month closes on complete totals"), and
+nothing reminded anyone to do it. Production had no closed month at all, so
+Net Worth had no history and never would have from waiting.
+
+Needs attention now lists the month that just ended until it is closed
+("September 2026 hasn't been closed"), and opens Wealth, where Net Worth
+closes it. It is a warning, after anything due: a payment matters more than
+history. Only the newest completed month is asked about. An older month left
+open stays open, because asking for a backlog of closes on balances that have
+since changed would only invite figures nobody can vouch for. A household with
+no open accounts has nothing to close and is not asked.
