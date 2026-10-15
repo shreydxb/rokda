@@ -38,6 +38,9 @@ const SOURCES = [
   },
 ].map((source) => ({ ...source, run: (id) => readAllPages(() => source.query(id)) }));
 
+// The sources this hook loads, so a test can check each has a name to fail with.
+export const OVERVIEW_SOURCE_KEYS = SOURCES.map((source) => source.key);
+
 const EMPTY_STATE = {
   loading: false,
   accounts: [],

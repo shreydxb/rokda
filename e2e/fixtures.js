@@ -184,7 +184,7 @@ const SESSION = {
  * never-used-it state, which is a real screen the app has to render and the
  * one most likely to have been written blind.
  */
-export async function stubSupabase(page, { empty = false, tables = {} } = {}) {
+export async function stubSupabase(page, { empty = false, tables = {}, failReads = [], failWrites = [] } = {}) {
   const dataset = empty
     ? Object.fromEntries(Object.keys(data).map((k) => [k, k === 'households' || k === 'household_members' ? data[k] : []]))
     : { ...data, ...tables };
@@ -218,6 +218,15 @@ export async function stubSupabase(page, { empty = false, tables = {} } = {}) {
 
     if (rest.startsWith('rpc/')) return route.fulfill({ json: null });
 
+    // A failure the way PostgREST reports one: a status and a JSON error. The
+    // app must say what it could not load or save, never show an empty list
+    // or a saved state in its place.
+    const table = rest.split('?')[0];
+    const failing = request.method() === 'GET' ? failReads : failWrites;
+    if (failing.includes(table)) {
+      return route.fulfill({ status: 500, json: { code: '57014', message: 'canceling statement due to statement timeout', details: null, hint: null } });
+    }
+
     // Writes: acknowledge without persisting. These tests are about rendering,
     // and a stub that pretended to persist would invite tests that assert on a
     // lie. Nothing here is asserted after a write.
@@ -225,7 +234,6 @@ export async function stubSupabase(page, { empty = false, tables = {} } = {}) {
       return route.fulfill({ status: 200, json: wantsObject ? {} : [] });
     }
 
-    const table = rest.split('?')[0];
     const rows = (dataset[table] ?? []).map(EMBEDDED[table] ?? ((r) => r));
     if (wantsObject) return route.fulfill({ json: rows[0] ?? null });
     return route.fulfill({ json: rows, headers: { 'content-range': `0-${Math.max(rows.length - 1, 0)}/${rows.length}` } });

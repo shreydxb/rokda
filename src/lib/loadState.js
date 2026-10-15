@@ -20,6 +20,11 @@ export const SOURCE_LABELS = {
   goalContributions: 'goal contributions',
   debts: 'debts',
   assumptions: 'planning assumptions',
+  goalAllocations: 'goal funding',
+  independenceIncome: 'later income',
+  memberLife: 'ages for the life plan',
+  notes: 'household notes',
+  statementReconciliations: 'card statements',
   household: 'your household',
 };
 

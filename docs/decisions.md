@@ -1171,3 +1171,22 @@ history. Only the newest completed month is asked about. An older month left
 open stays open, because asking for a backlog of closes on balances that have
 since changed would only invite figures nobody can vouch for. A household with
 no open accounts has nothing to close and is not asked.
+
+## The browser checks fail a read and a save
+
+The browser checks only ever saw data that loaded and writes that succeeded,
+so nothing showed what a person sees when either fails. The stub can now fail
+any table's reads or writes the way PostgREST does, and the checks cover a
+failed read on Overview, Wealth and Planning, and a failed save on Statements
+and in the transaction editor: each must name what failed, offer "Try again"
+or keep the editor open, and never show the empty or saved state in its
+place.
+
+Running them found two gaps, both fixed:
+
+- Five sources had no name to fail with, so a failed statements read said
+  "Couldn't load statementReconciliations." Every source a screen loads now
+  has one, and a unit test fails on a new source without a label.
+- Planning's sources were still read in one request each. "A screen reads
+  every row, a page at a time" said every source was paged; Planning's now
+  are, so goal contributions past 1,000 cannot drop off unseen.
