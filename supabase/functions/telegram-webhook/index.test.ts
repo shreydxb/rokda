@@ -51,6 +51,8 @@ type Backend = {
     failPromptRecord?: number;
     // Reading bot_proposals fails.
     failProposalReads?: boolean;
+    // Reading any of these tables fails.
+    failReads?: string[];
     // Writing to any of these tables fails.
     failWrites?: string[];
   };
@@ -204,6 +206,9 @@ function matches(row: Row, params: URLSearchParams): boolean {
       case "gte":
         ok = cell != null && String(cell) >= value;
         break;
+      case "lte":
+        ok = cell != null && String(cell) <= value;
+        break;
       case "lt":
         ok = cell != null && String(cell) < value;
         break;
@@ -232,17 +237,36 @@ async function postgrest(req: Request, url: URL): Promise<Response> {
   const wantsObject = (req.headers.get("Accept") ?? "").includes("vnd.pgrst.object");
   const wantsRows = (req.headers.get("Prefer") ?? "").includes("return=representation");
 
+  // A count with no rows (select with head: true), as the brief counts the Inbox.
+  if (req.method === "HEAD") {
+    if (backend.faults.failReads?.includes(table)) return new Response(null, { status: 500 });
+    const n = rows.filter((r) => matches(r, url.searchParams)).length;
+    return new Response(null, { status: 200, headers: { "Content-Range": n ? `0-${n - 1}/${n}` : "*/0" } });
+  }
+
   if (req.method === "GET") {
     if (table === "bot_proposals" && backend.faults.failProposalReads) {
       return json({ code: "57014", message: "canceling statement due to statement timeout" }, 500);
     }
+    if (backend.faults.failReads?.includes(table)) {
+      return json({ code: "57014", message: "canceling statement due to statement timeout" }, 500);
+    }
     let found = rows.filter((r) => matches(r, url.searchParams));
+    // order=col.asc, as the paged reads end every query with a unique column.
+    const order = url.searchParams.get("order");
+    if (order) {
+      const [col, dir] = order.split(".");
+      found = [...found].sort((a, b) => (String(a[col]) < String(b[col]) ? -1 : String(a[col]) > String(b[col]) ? 1 : 0) * (dir === "desc" ? -1 : 1));
+    }
     // The embedded accounts(name) a statement is read with.
     if (table === "statement_reconciliations") {
       found = found.map((r) => ({ ...r, accounts: { name: backend.tables.accounts.find((a) => a.id === r.account_id)?.name ?? null } }));
     }
+    // PostgREST's default cap: at most 1,000 rows, whatever was asked for,
+    // with nothing in the response to say it stopped.
+    const offset = Number(url.searchParams.get("offset") ?? 0);
     const limit = url.searchParams.get("limit");
-    if (limit) found = found.slice(0, Number(limit));
+    found = found.slice(offset, offset + Math.min(limit ? Number(limit) : Infinity, 1000));
     if (wantsObject) {
       return found.length === 1 ? json(found[0]) : json({ code: "PGRST116", message: "not one row" }, 406);
     }
@@ -483,7 +507,7 @@ Deno.env.set("TELEGRAM_BOT_TOKEN", TOKEN);
 Deno.env.set("OPENROUTER_API_KEY", "openrouter-test");
 
 reset();
-const { accountsForCheckin, buildBalanceCheckinMessage, datedItems, forwardedDay, inboxReason, merchantHistoryMatches, pickAccountByHint, pickCheckinAccount, undatedNote } = await import("./index.ts");
+const { accountsForCheckin, buildBalanceCheckinMessage, datedItems, figuresUnavailableMessage, forwardedDay, inboxReason, merchantHistoryMatches, pickAccountByHint, pickCheckinAccount, undatedNote } = await import("./index.ts");
 assert(handler!, "index.ts did not register a handler with Deno.serve");
 
 // ---------------------------------------------------------------------------
@@ -1624,3 +1648,79 @@ freshTest("a payment typed without a merchant the parser recognised is reported 
   // The parser is told that a biller named in passing is the merchant.
   assert(backend.parsePrompts[0].includes("is who was paid"), "the parser was not told what a merchant is");
 });
+
+// ---------------------------------------------------------------------------
+// A figure the bot states is read in full, or not stated
+// ---------------------------------------------------------------------------
+
+const GROCERIES = "a9100000-0000-4000-8000-0000000000c1";
+
+// `count` expenses of AED `amount` each on `day`, after any already there.
+function seedExpenses(count: number, day: string, amount: number, prefix: string): void {
+  for (let i = 0; i < count; i++) {
+    backend.tables.transactions.push({
+      id: `${prefix}-${String(i).padStart(5, "0")}`, household_id: HOUSEHOLD, account_id: "a9100000-0000-4000-8000-0000000000a1",
+      category_id: GROCERIES, amount: -amount, kind: "expense", occurred_at: day, is_shared: true, owner_member_id: null, merchant: "Shop",
+    });
+  }
+}
+
+function thisMonthFirst(): string {
+  return `${dubaiToday().slice(0, 8)}01`;
+}
+
+freshTest("this month's spending is found after a thousand older transactions", async () => {
+  // Stored first, so a single unordered read returned only these and the
+  // brief said AED 0.
+  seedExpenses(1000, "2025-01-15", 10, "t-old");
+  seedExpenses(85, thisMonthFirst(), 10, "t-new");
+  await handler(textUpdate(9301, "brief"));
+  assert(lastReply().includes("Spent this month: AED 850\n"), lastReply());
+});
+
+freshTest("a month with more than a thousand transactions is totalled in full", async () => {
+  seedExpenses(1085, thisMonthFirst(), 10, "t-month");
+  await handler(textUpdate(9302, "brief"));
+  assert(lastReply().includes("Spent this month: AED 10,850\n"), lastReply());
+  // Two pages each for the month's total and its budget alerts.
+  assertEquals(backend.requests.filter((r) => r.method === "GET" && r.path === "/rest/v1/transactions").length, 4);
+});
+
+freshTest("a brief whose spending could not be read says so rather than AED 0", async () => {
+  seedExpenses(3, thisMonthFirst(), 10, "t-fail");
+  backend.faults.failReads = ["transactions"];
+  await handler(textUpdate(9303, "brief"));
+  const brief = lastReply();
+  assert(brief.includes("Spent this month: couldn't be read just now."), brief);
+  assert(!/Spent this month: AED/.test(brief), brief);
+  // What could be read is still there.
+  assert(brief.startsWith("Net worth: AED "), brief);
+});
+
+freshTest("a brief whose accounts could not be read states no net worth and no cash cover", async () => {
+  backend.faults.failReads = ["accounts"];
+  await handler(textUpdate(9304, "brief"));
+  const brief = lastReply();
+  assert(brief.includes("Net worth: couldn't be read just now."), brief);
+  assert(brief.includes("Cash cover: couldn't be read just now."), brief);
+  assert(brief.includes("Bills due: couldn't be read just now."), brief);
+  assert(brief.includes("Inbox is clear."), brief);
+});
+
+for (const [tool, args, table] of [
+  ["get_category_spend", { category: "Groceries", period: "this_month" }, "transactions"],
+  ["get_budget_status", { category: "Groceries" }, "budgets"],
+  ["get_net_worth", {}, "holdings"],
+  ["get_account_balance", { account_name: "bank" }, "accounts"],
+  ["get_holdings", { range: "1m" }, "holding_value_history"],
+] as Array<[string, Row, string]>) {
+  freshTest(`${tool} with ${table} unreadable answers that it cannot, and records nothing`, async () => {
+    backend.tables.categories.push({ id: GROCERIES, household_id: HOUSEHOLD, name: "Groceries", kind: "expense", archived: false, is_savings: false });
+    backend.tables.holdings = [{ id: "a9100000-0000-4000-8000-0000000000d1", household_id: HOUSEHOLD, name: "Fund", asset_class: "equity", value_aed: 100, is_shared: true, owner_member_id: null }];
+    backend.route = { tool, args };
+    backend.faults.failReads = [table];
+    await handler(textUpdate(9310, "how are we doing?"));
+    assertEquals(lastReply(), figuresUnavailableMessage());
+    assertEquals(capturedIntake().length, 0);
+  });
+}
