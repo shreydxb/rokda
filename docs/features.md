@@ -55,9 +55,11 @@ here, because this repository is public.
 - **Investments**: holdings with prices pulled daily where a symbol is set,
   and FX rates for USD and INR.
 - **Statements**: each card's recent statements, the period each covers, its
-  due date, what Rokda recorded for that period, and whether it has been
-  reconciled (`statement_reconciliations`). "Mark done" settles one; the bot
-  asks about each until it is.
+  due date, what Rokda recorded for that period (to the cent, signed, with
+  its transactions listed) against the statement's own figures when recorded,
+  and whether it has been reconciled (`statement_reconciliations`). "Mark
+  done" settles one, "Resolve…" settles one that did not match, and
+  "Reopen…" undoes either; the bot asks about each until it is settled.
 
 ## Planning (`/planning`)
 

@@ -55,9 +55,9 @@ export function statementDueDate(statementDate, dueDay) {
   return sameMonth >= close ? sameMonth : atDayOfMonth(close.getFullYear(), close.getMonth() + 1, dueDay);
 }
 
-// What Rokda recorded as spent on a card over a statement's period, refunds
-// netted, the same arithmetic as every other spend total.
-export function recordedSpend(transactions, accountId, periodStart, statementDate, now = new Date()) {
+// The transactions Rokda recorded on a card over a statement's period, oldest
+// first: what someone reviewing a statement goes through line by line.
+export function statementTransactions(transactions, accountId, periodStart, statementDate, now = new Date()) {
   const from = parseDay(periodStart);
   const to = parseDay(statementDate);
   return transactions
@@ -66,7 +66,15 @@ export function recordedSpend(transactions, accountId, periodStart, statementDat
       const d = parseDay(t.occurred_at);
       return d >= from && d <= to;
     })
-    .reduce((sum, t) => sum + spendDelta(t, Number(t.amount)), 0);
+    .sort((a, b) => (a.occurred_at < b.occurred_at ? -1 : a.occurred_at > b.occurred_at ? 1 : 0));
+}
+
+// What Rokda recorded as spent on a card over a statement's period, refunds
+// netted, the same arithmetic as every other spend total. Negative when
+// refunds outweigh spending. Rounded to the cent, as a statement is.
+export function recordedSpend(transactions, accountId, periodStart, statementDate, now = new Date()) {
+  const total = statementTransactions(transactions, accountId, periodStart, statementDate, now).reduce((sum, t) => sum + spendDelta(t, Number(t.amount)), 0);
+  return Math.round(total * 100) / 100;
 }
 
 const NEEDS_CHECK = new Set(['waiting', 'unchecked', 'mismatch']);
@@ -84,7 +92,8 @@ export function statementRows({ accounts = [], reconciliations = [], transaction
       const statementDate = isoDay(close);
       const record = byKey.get(`${account.id}:${statementDate}`) ?? null;
       const periodStart = record?.period_start ?? isoDay(statementPeriodStart(account.statement_day, close));
-      const spend = recordedSpend(transactions, account.id, periodStart, statementDate, now);
+      const lines = statementTransactions(transactions, account.id, periodStart, statementDate, now);
+      const spend = recordedSpend(lines, account.id, periodStart, statementDate, now);
       const statementSpend = record?.statement_spend == null ? null : Number(record.statement_spend);
       rows.push({
         account,
@@ -94,7 +103,9 @@ export function statementRows({ accounts = [], reconciliations = [], transaction
         status: record?.status ?? 'unchecked',
         record,
         recordedSpend: spend,
+        transactions: lines,
         statementSpend,
+        statementBalance: record?.statement_balance == null ? null : Number(record.statement_balance),
         difference: statementSpend == null ? null : Math.round((spend - statementSpend) * 100) / 100,
       });
     }

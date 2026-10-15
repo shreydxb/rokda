@@ -1080,3 +1080,31 @@ in the other. A refused write was still answered "marked as reconciled", and
   done", not "reconciled": reconciled means the figures were compared.
 - If the bot cannot read which statement a message answers, it says so and
   changes nothing, rather than treating the message as something else.
+
+## A statement is compared to the cent
+
+Wealth -> Statements showed Rokda's figure and the statement's with the
+whole-number magnitude formatter used for budget bars. A net refund of 50.49
+read "50", and totals of 100.01 and 100.02 both read "100" beside a "doesn't
+match". A statement marked as not matching had no action at all, and one
+marked done by mistake could not be opened again.
+
+- **Signed, to the cent, in AED.** Figures keep their sign (a net refund is
+  −50.49) and two decimals, labelled AED, which is how Rokda stores them,
+  whatever the display currency. The difference is said in words: "Rokda is
+  AED 0.01 lower". Showing a statement in its own currency waits on
+  amounts in their own currency (SHR-321).
+- **The comparison is spending in the period.** Rokda does not keep a card's
+  balance on each day, only the one someone last entered, so it cannot say
+  what the card owed at the close. A closing balance recorded from the
+  statement is shown as the statement's, not compared.
+- **A statement's transactions are listed on its row,** with each line signed
+  as the statement prints it (a purchase positive, a refund negative), so a
+  difference can be found without leaving the screen.
+- **A mismatch is resolved, and anything done can be reopened.** "Resolve…"
+  and "Reopen…" ask for an optional reason, kept as the statement's note.
+  Resolving records who did it and when, as "Mark done" does; reopening sets
+  it waiting again, and the bot asks about it the next morning if it is still
+  the card's latest statement. Only the latest reason is kept, not a history.
+- A write that changed nothing (the statement changed elsewhere) says so
+  rather than reloading as if it had worked.
