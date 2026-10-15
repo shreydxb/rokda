@@ -47,6 +47,30 @@ describe('an autopay bill not yet confirmed', () => {
   });
 });
 
+describe('a month that has not been closed', () => {
+  const base = { transactions: [], recurring: [], holdings: [], categories: [], scopeMemberId: null, now: new Date('2026-10-15T10:00:00') };
+  const account = { id: 'a1', name: 'Bank', archived_at: null, is_shared: true, balance: 100, balance_as_of: '2026-10-14T00:00:00Z' };
+  const closeItems = (over) => buildAttentionItems({ ...base, accounts: [account], ...over }).filter((i) => i.kind === 'month_close');
+
+  it('asks for the month that just ended until it is closed', () => {
+    const [item] = closeItems({ snapshots: [] });
+    expect(item).toMatchObject({ id: 'month-close-2026-09', severity: 'warn', title: "September 2026 hasn't been closed" });
+    expect(item.detail).toContain('Wealth → Net Worth');
+  });
+
+  it('says nothing once that month has a snapshot, whatever came before', () => {
+    expect(closeItems({ snapshots: [{ snapshot_date: '2026-09-01' }] })).toEqual([]);
+  });
+
+  it('asks again for the newest month even when older ones are closed', () => {
+    expect(closeItems({ snapshots: [{ snapshot_date: '2026-08-01' }] })).toHaveLength(1);
+  });
+
+  it('says nothing to a household with no open accounts', () => {
+    expect(buildAttentionItems({ ...base, accounts: [{ ...account, archived_at: '2026-01-01' }], snapshots: [] }).filter((i) => i.kind === 'month_close')).toEqual([]);
+  });
+});
+
 describe('a backup that is late or failed', () => {
   const base = { transactions: [], recurring: [], holdings: [], categories: [], scopeMemberId: null, now: new Date('2026-10-15T10:00:00') };
   const account = { id: 'a1', name: 'Bank', archived_at: null, is_shared: true, balance: 100, balance_as_of: '2026-10-14T00:00:00Z' };

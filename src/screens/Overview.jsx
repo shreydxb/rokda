@@ -35,6 +35,7 @@ const ATTENTION_DESTINATIONS = {
   category_anomaly: '/money',
   stale_holding: '/wealth',
   balance_unset: '/wealth',
+  month_close: '/wealth',
   // A destination with a tab opens that tab (Settings reads it from location state).
   backup: { path: '/settings', state: { tab: 'backups' } },
 };
@@ -112,8 +113,8 @@ export default function Overview() {
   const quality = useMemo(() => dataQuality(accounts, transactions, now), [accounts, transactions, now]);
 
   const attention = useMemo(
-    () => buildAttentionItems({ transactions, recurring, accounts, holdings, categories, backupRecords, scopeMemberId, now }),
-    [transactions, recurring, accounts, holdings, categories, backupRecords, scopeMemberId, now]
+    () => buildAttentionItems({ transactions, recurring, accounts, holdings, categories, snapshots: netWorthSnapshots, backupRecords, scopeMemberId, now }),
+    [transactions, recurring, accounts, holdings, categories, netWorthSnapshots, backupRecords, scopeMemberId, now]
   );
   // The most pressing few, with the rest a tap away: a long list pushed the
   // rest of the page out of sight.

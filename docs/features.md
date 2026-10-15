@@ -20,8 +20,9 @@ here, because this repository is public.
   sidebar (shared rows split evenly between the two individual scopes).
 - Needs attention: bills and expected income not yet matched, card payments
   due, spending well above a category's usual, items waiting in the Inbox,
-  accounts with no balance set, holdings whose price has gone stale, and a
-  backup export that is late or failed.
+  accounts with no balance set, holdings whose price has gone stale, the
+  month that just ended until someone closes it, and a backup export that is
+  late or failed.
 - Upcoming bills and income, with rupee amounts shown in rupees as well.
 
 ## Money (`/money`)
