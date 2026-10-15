@@ -54,7 +54,17 @@ import { autopayAnswer, autopayCycle, autopayNotYetMessage, autopayQuestion, aut
 import { incompleteNote, netWorthSummary } from "../_shared/applib/overviewMath.js";
 import { merchantMatches, pickCategory } from "../_shared/applib/merchants.js";
 import { closedStatementDates, isoDay, statementDueDate, statementPeriodStart } from "../_shared/applib/statements.js";
-import { statementAnswer, statementDoneMessage, statementNotYetMessage, statementQuestion, statementReactionDecision } from "../_shared/applib/statementReminder.js";
+import {
+  statementAlreadySettledMessage,
+  statementAnswer,
+  statementDoneMessage,
+  statementLookupFailedMessage,
+  statementNotSavedMessage,
+  statementNotYetMessage,
+  statementQuestion,
+  statementReactionDecision,
+  statementSentMessage,
+} from "../_shared/applib/statementReminder.js";
 import { accountValueAed, unvaluedAccounts } from "../_shared/applib/accounts.js";
 import { monthActualsByCategory } from "../_shared/applib/budget.js";
 import { nextDueDate, daysUntilDue } from "../_shared/applib/creditCard.js";
@@ -65,6 +75,7 @@ import { visibleHoldings, scopedHoldingValue, holdingGain, allocationByClass, po
 import { isAwaitingFirstValuation } from "../_shared/applib/valuation.js";
 import { cashCoverStatus, formatCashCoverLine } from "../_shared/applib/cashCover.js";
 import { notableMoves } from "../_shared/applib/insights.js";
+import { readAllPages } from "../_shared/applib/pagedRead.js";
 import { secretsMatch } from "../_shared/requestAuth.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -703,7 +714,8 @@ async function matchCategoryFromMerchantHistory(knowledge: CategoryKnowledge, me
 // already flags this, but the "yes"/reaction fast-confirm path skips the
 // Inbox entirely -- without this, a resent message with everything already
 // resolved could get confirmed straight into a second real transaction with
-// no warning at all.
+// no warning at all. A check that cannot read throws ReadFailed, and every
+// caller then leaves the entry in the Inbox.
 async function findDuplicateTransaction(
   householdId: string,
   accountId: string | null,
@@ -717,11 +729,17 @@ async function findDuplicateTransaction(
   const occurred = new Date(occurredAt).getTime();
   const DAY_MS = 24 * 60 * 60 * 1000;
 
-  const { data: rows } = await supabase
+  // Only the days that could match, so an account's whole history never has
+  // to fit in one response.
+  const day = (offset: number) => new Date(occurred + offset * DAY_MS).toISOString().slice(0, 10);
+  const { data: rows, error } = await supabase
     .from("transactions")
     .select("id, amount, merchant, occurred_at")
     .eq("household_id", householdId)
-    .eq("account_id", accountId);
+    .eq("account_id", accountId)
+    .gte("occurred_at", day(-4))
+    .lte("occurred_at", day(4));
+  if (error) throw new ReadFailed("transactions");
 
   const match = (rows ?? []).find((t: { amount: number; merchant: string | null; occurred_at: string }) => {
     if ((t.merchant ?? "").trim().toLowerCase() !== normMerchant) return false;
@@ -942,11 +960,15 @@ async function handleReaction(reaction: Record<string, unknown>): Promise<Respon
     .maybeSingle();
   if (!member) return new Response("ok");
 
-  // A reaction on a statement question answers it.
-  const statement = await statementForPrompt(member.household_id, messageId ?? null);
-  if (statement) {
+  // A reaction on a statement question, in the chat it was asked in, answers it.
+  const statement = await statementForPrompt(member.household_id, chatId, messageId ?? null);
+  if (statement.kind === "failed") {
+    await reply(chatId, statementLookupFailedMessage());
+    return new Response("ok");
+  }
+  if (statement.kind === "found") {
     const decision = emojis.map(statementReactionDecision).find((d) => d != null) ?? null;
-    if (decision && statement.status === "waiting") await decideStatement(chatId, member.id, statement, decision);
+    if (decision && statement.row.status === "waiting") await decideStatement(chatId, member.id, statement.row, decision);
     return new Response("ok");
   }
 
@@ -1531,6 +1553,80 @@ const TOOLS_BASE = [
   },
 ];
 
+// ---------------------------------------------------------------------------
+// Reading what a figure is made of (docs/decisions.md, "The bot reads every
+// row, and says when it cannot")
+// ---------------------------------------------------------------------------
+//
+// A total the bot states could be wrong two ways without anyone seeing it.
+// The API returns at most 1,000 rows and says nothing when it stops there, so
+// a household past 1,000 transactions was summed from whichever 1,000 came
+// back first, often none of this month's. And a failed read came back as no
+// rows, so the bot summed nothing and said "AED 0". Every source a stated
+// figure comes from is read through these instead: a page at a time in a
+// stable order, and a failed read thrown as ReadFailed, so the figure is not
+// stated at all rather than stated from part of the data.
+export class ReadFailed extends Error {
+  constructor(source: string) {
+    super(`could not read ${source}`);
+    this.name = "ReadFailed";
+  }
+}
+
+type PagedQuery = { range: (from: number, to: number) => PromiseLike<{ data: unknown[] | null; error: unknown }> };
+
+// Every row the query matches. It must end in .order("id") or another unique
+// column, or pages can overlap or skip a row.
+async function allRowsOf<T = Record<string, unknown>>(source: string, makeQuery: () => PagedQuery): Promise<T[]> {
+  const { data, error } = await readAllPages(makeQuery as never);
+  if (error) throw new ReadFailed(source);
+  return (data ?? []) as T[];
+}
+
+// At most one row (a .maybeSingle() query); null when there is none, never
+// when the read failed.
+async function rowOf<T = Record<string, unknown>>(source: string, query: PromiseLike<{ data: unknown; error: unknown }>): Promise<T | null> {
+  const { data, error } = await query;
+  if (error) throw new ReadFailed(source);
+  return (data ?? null) as T | null;
+}
+
+// The first day of a month as stored, "2026-10-01". The month may run past
+// 12 or below 1 and rolls into the next or previous year.
+function monthStartIso(year: number, month: number): string {
+  return new Date(Date.UTC(year, month - 1, 1)).toISOString().slice(0, 10);
+}
+
+type SpendRow = { id: string; amount: number; kind: string; occurred_at: string; category_id: string | null; is_shared: boolean; owner_member_id: string | null; merchant: string | null };
+const SPEND_COLUMNS = "id, amount, kind, occurred_at, category_id, is_shared, owner_member_id, merchant";
+
+// A household's transactions dated from `from` up to but not including
+// `until`, optionally in one category. The window is applied by the database,
+// so a total for one month reads that month, not the whole history.
+function transactionsBetween(householdId: string, from: string, until: string, categoryId?: string): Promise<SpendRow[]> {
+  return allRowsOf<SpendRow>("transactions", () => {
+    let query = supabase.from("transactions").select(SPEND_COLUMNS).eq("household_id", householdId).gte("occurred_at", from).lt("occurred_at", until);
+    if (categoryId) query = query.eq("category_id", categoryId);
+    return query.order("id");
+  });
+}
+
+// Every row of one of the household's own tables (accounts, holdings,
+// categories, bills). Each holds a handful of rows, but it is read the same
+// way, so nothing depends on it staying small.
+function householdRows<T = Record<string, unknown>>(table: string, householdId: string, columns = "*", openOnly = false): Promise<T[]> {
+  return allRowsOf<T>(table, () => {
+    let query = supabase.from(table).select(columns).eq("household_id", householdId);
+    if (openOnly) query = query.is("archived_at", null);
+    return query.order("id");
+  });
+}
+
+// What the bot says instead of a figure it could not read in full.
+export function figuresUnavailableMessage(): string {
+  return "I couldn't read all of your figures just now, so I won't guess at an answer. Please ask again in a minute.";
+}
+
 function resolveCategoryByName(categories: Array<{ id: string; name: string }>, name: string) {
   const norm = name.trim().toLowerCase();
   return categories.find((c) => c.name.toLowerCase() === norm) ?? null;
@@ -1563,34 +1659,37 @@ function categorySpendForPeriod(
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+// Expense categories a question can name. Savings categories are targets,
+// not spending (is_savings).
+async function spendingCategories(householdId: string): Promise<Array<{ id: string; name: string }>> {
+  const categories = await householdRows<{ id: string; name: string; kind: string; archived: boolean; is_savings: boolean }>(
+    "categories",
+    householdId,
+    "id, name, kind, archived, is_savings",
+  );
+  return categories.filter((c) => c.kind === "expense" && !c.archived && !c.is_savings);
+}
+
 async function toolGetCategorySpend(householdId: string, scopeMemberId: string | null, args: Record<string, unknown>) {
-  const { data: categories } = await supabase
-    .from("categories")
-    .select("id, name")
-    .eq("household_id", householdId)
-    .eq("kind", "expense")
-    .eq("archived", false)
-    // Savings categories are targets, not spending (is_savings).
-    .eq("is_savings", false);
-  const cat = resolveCategoryByName(categories ?? [], String(args.category ?? ""));
-  if (!cat) return { error: "category_not_found", available: (categories ?? []).map((c) => c.name) };
+  const categories = await spendingCategories(householdId);
+  const cat = resolveCategoryByName(categories, String(args.category ?? ""));
+  if (!cat) return { error: "category_not_found", available: categories.map((c) => c.name) };
 
-  const { data: transactions } = await supabase
-    .from("transactions")
-    .select("amount, kind, occurred_at, category_id, is_shared, owner_member_id")
-    .eq("household_id", householdId)
-    .eq("category_id", cat.id);
+  // Every period asked about (this month, last month, this year) falls
+  // between the start of last month or of this year, whichever is earlier,
+  // and the end of this month.
+  const now = householdDay();
+  const { year, month } = householdYearMonth(now);
+  const from = month === 1 ? monthStartIso(year, 0) : monthStartIso(year, 1);
+  const transactions = await transactionsBetween(householdId, from, monthStartIso(year, month + 1), cat.id);
 
-  const spend = categorySpendForPeriod(transactions ?? [], cat.id, String(args.period ?? "this_month"), scopeMemberId, householdDay());
+  const spend = categorySpendForPeriod(transactions, cat.id, String(args.period ?? "this_month"), scopeMemberId, now);
   return { category: cat.name, period: args.period, spend_aed: round2(spend) };
 }
 
 async function toolGetNetWorth(householdId: string, scopeMemberId: string | null) {
-  const [{ data: accounts }, { data: holdings }] = await Promise.all([
-    supabase.from("accounts").select("*").eq("household_id", householdId),
-    supabase.from("holdings").select("*").eq("household_id", householdId),
-  ]);
-  const summary = netWorthSummary((accounts ?? []) as never, scopeMemberId, (holdings ?? []) as never);
+  const [accounts, holdings] = await Promise.all([householdRows("accounts", householdId), householdRows("holdings", householdId)]);
+  const summary = netWorthSummary(accounts as never, scopeMemberId, holdings as never);
   // The count of accounts the total could not include travels with the
   // total. phraseAnswer is told to use only what a tool returns, so if this
   // is dropped here the bot cannot say the figure is incomplete -- and a net
@@ -1608,10 +1707,10 @@ async function toolGetNetWorth(householdId: string, scopeMemberId: string | null
 }
 
 async function toolGetAccountBalance(householdId: string, args: Record<string, unknown>) {
-  const { data: accounts } = await supabase.from("accounts").select("*").eq("household_id", householdId).is("archived_at", null);
+  const accounts = await householdRows<{ name: string }>("accounts", householdId, "*", true);
   const norm = String(args.account_name ?? "").trim().toLowerCase();
-  const matches = (accounts ?? []).filter((a: { name: string }) => a.name.toLowerCase().includes(norm));
-  if (matches.length === 0) return { error: "account_not_found", available: (accounts ?? []).map((a: { name: string }) => a.name) };
+  const matches = accounts.filter((a) => a.name.toLowerCase().includes(norm));
+  if (matches.length === 0) return { error: "account_not_found", available: accounts.map((a) => a.name) };
   if (matches.length > 1) return { error: "ambiguous_account", matches: matches.map((a: { name: string }) => a.name) };
   const a = matches[0] as { name: string; balance: number; balance_aed: number | null; currency: string };
   const aed = accountValueAed(a);
@@ -1625,15 +1724,12 @@ async function toolGetAccountBalance(householdId: string, args: Record<string, u
 }
 
 async function toolGetUpcomingBills(householdId: string, scopeMemberId: string | null) {
-  const [{ data: recurring }, { data: accounts }] = await Promise.all([
-    supabase.from("recurring").select("*").eq("household_id", householdId),
-    supabase.from("accounts").select("*").eq("household_id", householdId).is("archived_at", null),
-  ]);
+  const [recurring, accounts] = await Promise.all([householdRows("recurring", householdId), householdRows("accounts", householdId, "*", true)]);
   // The Dubai day. new Date() here is UTC, which is still the previous day
   // until 04:00 Dubai, so a card due today read as due tomorrow and
   // yesterday's bill as still upcoming.
   const now = householdDay();
-  const visibleRecurring = (recurring ?? []).filter(
+  const visibleRecurring = (recurring as Array<{ is_shared: boolean; owner_member_id: string | null }>).filter(
     (r: { is_shared: boolean; owner_member_id: string | null }) => scopeMemberId === null || r.is_shared || r.owner_member_id === scopeMemberId
   );
   // `amount` is always AED: for a bill in rupees or dollars the database
@@ -1653,7 +1749,7 @@ async function toolGetUpcomingBills(householdId: string, scopeMemberId: string |
   );
 
   const cardBills: Array<{ name: string; amount_owed_aed: number; due_date: string }> = [];
-  for (const a of (accounts ?? []) as Array<{ type: string; is_shared: boolean; owner_member_id: string | null; name: string; balance: number; balance_aed: number | null; currency: string; due_day: number | null }>) {
+  for (const a of accounts as Array<{ type: string; is_shared: boolean; owner_member_id: string | null; name: string; balance: number; balance_aed: number | null; currency: string; due_day: number | null }>) {
     if (a.type !== "credit_card") continue;
     if (!(scopeMemberId === null || a.is_shared || a.owner_member_id === scopeMemberId)) continue;
     // A card with no AED conversion has no AED amount owed. It is still a
@@ -1671,7 +1767,7 @@ async function toolGetUpcomingBills(householdId: string, scopeMemberId: string |
     } as never);
   }
 
-  const unconverted = unvaluedAccounts((accounts ?? []) as never).length;
+  const unconverted = unvaluedAccounts(accounts as never).length;
   return {
     recurring: bills,
     credit_cards: cardBills,
@@ -1684,32 +1780,25 @@ async function toolGetUpcomingBills(householdId: string, scopeMemberId: string |
 // bill list rather than re-querying recurring/credit-card rows a second
 // time; cashCoverStatus narrows it down to the tighter `days` window itself.
 async function toolGetCashCover(householdId: string, days = 7) {
-  const [{ data: accounts }, bills] = await Promise.all([
-    supabase.from("accounts").select("*").eq("household_id", householdId).is("archived_at", null),
-    toolGetUpcomingBills(householdId, null),
-  ]);
-  return cashCoverStatus((accounts ?? []) as never, bills as never, { days, today: parseDay(householdToday()) });
+  const [accounts, bills] = await Promise.all([householdRows("accounts", householdId, "*", true), toolGetUpcomingBills(householdId, null)]);
+  return cashCoverStatus(accounts as never, bills as never, { days, today: parseDay(householdToday()) });
 }
 
 async function toolGetBudgetStatus(householdId: string, scopeMemberId: string | null, args: Record<string, unknown>) {
-  const { data: categories } = await supabase
-    .from("categories")
-    .select("id, name")
-    .eq("household_id", householdId)
-    .eq("kind", "expense")
-    .eq("archived", false)
-    // Savings categories are targets, not spending (is_savings).
-    .eq("is_savings", false);
-  const cat = resolveCategoryByName(categories ?? [], String(args.category ?? ""));
-  if (!cat) return { error: "category_not_found", available: (categories ?? []).map((c) => c.name) };
+  const categories = await spendingCategories(householdId);
+  const cat = resolveCategoryByName(categories, String(args.category ?? ""));
+  if (!cat) return { error: "category_not_found", available: categories.map((c) => c.name) };
 
   const now = householdDay();
   const { year, month } = householdYearMonth(now);
-  const [{ data: budgetRow }, { data: transactions }] = await Promise.all([
-    supabase.from("budgets").select("amount").eq("household_id", householdId).eq("category_id", cat.id).eq("year", year).eq("month", month).maybeSingle(),
-    supabase.from("transactions").select("amount, kind, occurred_at, category_id, is_shared, owner_member_id").eq("household_id", householdId).eq("category_id", cat.id),
+  const [budgetRow, transactions] = await Promise.all([
+    rowOf<{ amount: number }>(
+      "budgets",
+      supabase.from("budgets").select("amount").eq("household_id", householdId).eq("category_id", cat.id).eq("year", year).eq("month", month).maybeSingle(),
+    ),
+    transactionsBetween(householdId, monthStartIso(year, month), monthStartIso(year, month + 1), cat.id),
   ]);
-  const actual = monthActualsByCategory((transactions ?? []) as never, year, month, scopeMemberId, now).get(cat.id) ?? 0;
+  const actual = monthActualsByCategory(transactions as never, year, month, scopeMemberId, now).get(cat.id) ?? 0;
   const budgeted = budgetRow ? Number(budgetRow.amount) : null;
   return {
     category: cat.name,
@@ -1727,8 +1816,8 @@ async function toolGetBudgetStatus(householdId: string, scopeMemberId: string | 
 // and an invested-value-based gain (only over holdings that actually have a
 // real invested figure -- see holdingGain, never a guessed cost basis).
 async function toolGetHoldings(householdId: string, scopeMemberId: string | null, args: Record<string, unknown>) {
-  const { data: holdings } = await supabase.from("holdings").select("*").eq("household_id", householdId);
-  const visible = visibleHoldings((holdings ?? []) as never, scopeMemberId) as Array<{
+  const holdings = await householdRows("holdings", householdId);
+  const visible = visibleHoldings(holdings as never, scopeMemberId) as Array<{
     id: string;
     name: string;
     asset_class: string;
@@ -1804,10 +1893,14 @@ async function toolGetHoldings(householdId: string, scopeMemberId: string | null
   const range = typeof args.range === "string" ? args.range : null;
   if (range) {
     const ids = visible.map((h) => h.id);
-    const { data: history } = ids.length
-      ? await supabase.from("holding_value_history").select("holding_id, as_of, value_aed").in("holding_id", ids)
-      : { data: [] as Array<{ holding_id: string; as_of: string; value_aed: number }> };
-    const change = portfolioValueChange(visible as never, (history ?? []) as never, range, scopeMemberId);
+    // A day's value per holding: past 1,000 rows this soon after a year or
+    // two of daily prices, so it is read in pages like everything else here.
+    const history = ids.length
+      ? await allRowsOf("holding_value_history", () =>
+        supabase.from("holding_value_history").select("id, holding_id, as_of, value_aed").in("holding_id", ids).order("id")
+      )
+      : [];
+    const change = portfolioValueChange(visible as never, history as never, range, scopeMemberId);
     result.range = range;
     // Deliberately not called "performance" any more. It moves when money is
     // added or withdrawn exactly as it moves on a price change, and
@@ -1865,13 +1958,10 @@ const BRIEF_TRIGGERS = new Set(["brief", "/brief", "digest", "/digest", "summary
 // "now") so the month-end review can total the month that just ended, not
 // whatever month it happens to be when the check runs.
 async function toolGetMonthSpendTotalFor(householdId: string, year: number, month: number, scopeMemberId: string | null): Promise<number> {
-  const { data: transactions } = await supabase
-    .from("transactions")
-    .select("amount, kind, occurred_at, is_shared, owner_member_id")
-    .eq("household_id", householdId);
+  const transactions = await transactionsBetween(householdId, monthStartIso(year, month), monthStartIso(year, month + 1));
   const now = householdDay();
   let total = 0;
-  for (const t of (transactions ?? []) as Array<{ amount: number; kind: string; occurred_at: string; is_shared: boolean; owner_member_id: string | null }>) {
+  for (const t of transactions) {
     const d = parseDay(t.occurred_at);
     if (d.getFullYear() !== year || d.getMonth() + 1 !== month) continue;
     if (!(scopeMemberId === null || t.is_shared || t.owner_member_id === scopeMemberId)) continue;
@@ -1893,17 +1983,19 @@ async function toolGetMonthSpendTotal(householdId: string, scopeMemberId: string
 async function toolGetBudgetAlerts(householdId: string, scopeMemberId: string | null): Promise<Array<{ category: string; pct: number }>> {
   const now = householdDay();
   const { year, month } = householdYearMonth(now);
-  const [{ data: budgetRows }, { data: categories }, { data: transactions }] = await Promise.all([
-    supabase.from("budgets").select("category_id, amount").eq("household_id", householdId).eq("year", year).eq("month", month),
-    supabase.from("categories").select("id, name").eq("household_id", householdId),
-    supabase.from("transactions").select("amount, kind, occurred_at, category_id, is_shared, owner_member_id").eq("household_id", householdId),
+  const [budgetRows, categories, transactions] = await Promise.all([
+    allRowsOf<{ category_id: string; amount: number }>("budgets", () =>
+      supabase.from("budgets").select("id, category_id, amount").eq("household_id", householdId).eq("year", year).eq("month", month).order("id")
+    ),
+    householdRows<{ id: string; name: string }>("categories", householdId, "id, name"),
+    transactionsBetween(householdId, monthStartIso(year, month), monthStartIso(year, month + 1)),
   ]);
-  const actualsMap = monthActualsByCategory((transactions ?? []) as never, year, month, scopeMemberId, now);
+  const actualsMap = monthActualsByCategory(transactions as never, year, month, scopeMemberId, now);
   const alerts: Array<{ category: string; pct: number }> = [];
-  for (const b of (budgetRows ?? []) as Array<{ category_id: string; amount: number }>) {
+  for (const b of budgetRows) {
     const budgeted = Number(b.amount);
     if (budgeted <= 0) continue;
-    const cat = (categories ?? []).find((c: { id: string; name: string }) => c.id === b.category_id);
+    const cat = categories.find((c) => c.id === b.category_id);
     if (!cat) continue;
     const actual = actualsMap.get(b.category_id) ?? 0;
     const pct = round2((actual / budgeted) * 100);
@@ -1912,14 +2004,33 @@ async function toolGetBudgetAlerts(householdId: string, scopeMemberId: string | 
   return alerts.sort((a, b) => b.pct - a.pct);
 }
 
+// A part of a brief whose figures could not all be read: its line says so,
+// and the rest of the brief is sent as usual. Anything other than a failed
+// read still fails the brief, as before.
+const NOT_READ = Symbol("not read");
+async function orNotRead<T>(work: Promise<T>): Promise<T | typeof NOT_READ> {
+  try {
+    return await work;
+  } catch (err) {
+    if (err instanceof ReadFailed) return NOT_READ;
+    throw err;
+  }
+}
+
 async function buildBriefMessage(householdId: string): Promise<string> {
-  const [netWorth, monthSpend, bills, budgetAlerts, cashCover, pendingResult] = await Promise.all([
-    toolGetNetWorth(householdId, null),
-    toolGetMonthSpendTotal(householdId, null),
-    toolGetUpcomingBills(householdId, null),
-    toolGetBudgetAlerts(householdId, null),
-    toolGetCashCover(householdId),
-    supabase.from("intake").select("id", { count: "exact", head: true }).eq("household_id", householdId).eq("status", "pending"),
+  const [netWorth, monthSpend, bills, budgetAlerts, cashCover, pendingCount] = await Promise.all([
+    orNotRead(toolGetNetWorth(householdId, null)),
+    orNotRead(toolGetMonthSpendTotal(householdId, null)),
+    orNotRead(toolGetUpcomingBills(householdId, null)),
+    orNotRead(toolGetBudgetAlerts(householdId, null)),
+    orNotRead(toolGetCashCover(householdId)),
+    orNotRead(
+      (async () => {
+        const { count, error } = await supabase.from("intake").select("id", { count: "exact", head: true }).eq("household_id", householdId).eq("status", "pending");
+        if (error) throw new ReadFailed("intake");
+        return count ?? 0;
+      })(),
+    ),
   ]);
 
   const lines: string[] = [];
@@ -1927,28 +2038,36 @@ async function buildBriefMessage(householdId: string): Promise<string> {
   // a separate footnote at the bottom of a digest is a footnote nobody reads
   // (QA #4).
   lines.push(
-    `Net worth: AED ${netWorth.net_worth_aed.toLocaleString()}${netWorth.incomplete ? ` (${netWorth.incomplete})` : ""}`
+    netWorth === NOT_READ
+      ? "Net worth: couldn't be read just now."
+      : `Net worth: AED ${netWorth.net_worth_aed.toLocaleString()}${netWorth.incomplete ? ` (${netWorth.incomplete})` : ""}`
   );
-  lines.push(`Spent this month: AED ${monthSpend.toLocaleString()}`);
+  lines.push(monthSpend === NOT_READ ? "Spent this month: couldn't be read just now." : `Spent this month: AED ${monthSpend.toLocaleString()}`);
 
-  const billLines = [
-    ...bills.recurring.map((r: { name: string; amount_aed: number; due_date: string }) => `${r.name} AED ${r.amount_aed} (${r.due_date})`),
-    ...bills.credit_cards.map((c: { name: string; amount_owed_aed: number | null; amount_owed?: number; currency?: string; due_date: string }) =>
-      c.amount_owed_aed === null
-        ? `${c.name} ${c.currency} ${c.amount_owed} not converted (${c.due_date})`
-        : `${c.name} AED ${c.amount_owed_aed} (${c.due_date})`
-    ),
-  ];
-  lines.push(billLines.length ? `Due in 14 days: ${billLines.join(", ")}` : "Nothing due in the next 14 days.");
+  if (bills === NOT_READ) {
+    lines.push("Bills due: couldn't be read just now.");
+  } else {
+    const billLines = [
+      ...bills.recurring.map((r: { name: string; amount_aed: number; due_date: string }) => `${r.name} AED ${r.amount_aed} (${r.due_date})`),
+      ...bills.credit_cards.map((c: { name: string; amount_owed_aed: number | null; amount_owed?: number; currency?: string; due_date: string }) =>
+        c.amount_owed_aed === null
+          ? `${c.name} ${c.currency} ${c.amount_owed} not converted (${c.due_date})`
+          : `${c.name} AED ${c.amount_owed_aed} (${c.due_date})`
+      ),
+    ];
+    lines.push(billLines.length ? `Due in 14 days: ${billLines.join(", ")}` : "Nothing due in the next 14 days.");
+  }
 
-  if (budgetAlerts.length) {
+  if (budgetAlerts === NOT_READ) {
+    lines.push("Budget watch: couldn't be read just now.");
+  } else if (budgetAlerts.length) {
     lines.push(`Budget watch: ${budgetAlerts.map((a) => `${a.category} ${a.pct}%`).join(", ")}`);
   }
 
-  lines.push(formatCashCoverLine(cashCover));
+  lines.push(cashCover === NOT_READ ? "Cash cover: couldn't be read just now." : formatCashCoverLine(cashCover));
 
-  const pendingCount = pendingResult.count ?? 0;
-  lines.push(pendingCount ? `Inbox: ${pendingCount} item${pendingCount === 1 ? "" : "s"} to review.` : "Inbox is clear.");
+  if (pendingCount === NOT_READ) lines.push("Inbox: couldn't be read just now.");
+  else lines.push(pendingCount ? `Inbox: ${pendingCount} item${pendingCount === 1 ? "" : "s"} to review.` : "Inbox is clear.");
 
   return lines.join("\n");
 }
@@ -1958,16 +2077,18 @@ async function buildBriefMessage(householdId: string): Promise<string> {
 // runs, householdYearMonth(now) already names the new month.
 async function buildMonthlyReviewMessage(householdId: string, year: number, month: number): Promise<string> {
   const [netWorth, monthSpend, cashCover] = await Promise.all([
-    toolGetNetWorth(householdId, null),
-    toolGetMonthSpendTotalFor(householdId, year, month, null),
-    toolGetCashCover(householdId),
+    orNotRead(toolGetNetWorth(householdId, null)),
+    orNotRead(toolGetMonthSpendTotalFor(householdId, year, month, null)),
+    orNotRead(toolGetCashCover(householdId)),
   ]);
   const monthLabel = new Date(year, month - 1, 1).toLocaleString("en-US", { month: "long", year: "numeric" });
   const lines: string[] = [
     `${monthLabel} in review:`,
-    `Spent: AED ${monthSpend.toLocaleString()}`,
-    `Net worth now: AED ${netWorth.net_worth_aed.toLocaleString()}${netWorth.incomplete ? ` (${netWorth.incomplete})` : ""}`,
-    formatCashCoverLine(cashCover),
+    monthSpend === NOT_READ ? "Spent: couldn't be read just now." : `Spent: AED ${monthSpend.toLocaleString()}`,
+    netWorth === NOT_READ
+      ? "Net worth now: couldn't be read just now."
+      : `Net worth now: AED ${netWorth.net_worth_aed.toLocaleString()}${netWorth.incomplete ? ` (${netWorth.incomplete})` : ""}`,
+    cashCover === NOT_READ ? "Cash cover: couldn't be read just now." : formatCashCoverLine(cashCover),
   ];
   return lines.join("\n");
 }
@@ -2228,7 +2349,9 @@ async function runRecurringCheck(): Promise<{ checked: number; nudged: number }>
         .lte("occurred_at", windowEnd.toISOString().slice(0, 10));
       if (r.account_id) nearbyQuery = nearbyQuery.eq("account_id", r.account_id);
       if (r.category_id) nearbyQuery = nearbyQuery.eq("category_id", r.category_id);
-      const { data: nearby } = await nearbyQuery;
+      const { data: nearby, error: nearbyError } = await nearbyQuery;
+      // Unread is not unmatched: no "did you pay this?" on a failed read.
+      if (nearbyError) continue;
       const amount = Math.abs(Number(r.amount));
       const matched = (nearby ?? []).some((t: { amount: number }) => Math.abs(Math.abs(Number(t.amount)) - amount) <= amount * 0.2);
       if (matched) continue;
@@ -2399,7 +2522,13 @@ async function askAutopay(
 // statement closes). The statement's own row in statement_reconciliations
 // holds the state: no proposal, because nothing is applied on a "yes" except
 // marking the statement done.
+//
+// Each question is kept with the chat and member it was sent to
+// (asked_prompts). Telegram numbers messages per chat, so a message id alone
+// names a message in every member's chat at once: an answer counts only from
+// the chat the question was asked in.
 
+type StatementPrompt = { chat_id: number; message_id: number; member_id: string };
 type StatementRow = {
   id: string;
   household_id: string;
@@ -2407,11 +2536,11 @@ type StatementRow = {
   statement_date: string;
   due_date: string | null;
   status: string;
-  asked_message_ids: number[] | null;
+  asked_prompts: StatementPrompt[] | null;
   last_asked_on: string | null;
   accounts?: { name?: string } | null;
 };
-const STATEMENT_COLUMNS = "id, household_id, account_id, statement_date, due_date, status, asked_message_ids, last_asked_on, accounts(name)";
+const STATEMENT_COLUMNS = "id, household_id, account_id, statement_date, due_date, status, asked_prompts, last_asked_on, accounts(name)";
 
 async function runStatementCheck(): Promise<{ checked: number; asked: number }> {
   const now = new Date();
@@ -2461,13 +2590,14 @@ async function runStatementCheck(): Promise<{ checked: number; asked: number }> 
         .eq("household_id", card.household_id);
       const recipients = ((members ?? []) as Array<{ id: string; telegram_user_id: number | null }>)
         .filter((m) => m.telegram_user_id != null && (card.is_shared || !card.owner_member_id || m.id === card.owner_member_id));
-      const askedBefore = (row.asked_message_ids ?? []).length > 0;
+      const askedBefore = row.last_asked_on != null;
       const text = statementQuestion({ cardName: card.name, statementDate, dueDate: row.due_date }, { reminder: askedBefore });
-      const sent: number[] = [];
+      const sent: StatementPrompt[] = [];
       for (const m of recipients) {
         try {
-          const messageId = await reply(Number(m.telegram_user_id), text);
-          if (messageId != null) sent.push(messageId);
+          const chatId = Number(m.telegram_user_id);
+          const messageId = await reply(chatId, text);
+          if (messageId != null) sent.push({ chat_id: chatId, message_id: messageId, member_id: m.id });
         } catch {
           // One member unreachable must not stop the other.
         }
@@ -2475,7 +2605,7 @@ async function runStatementCheck(): Promise<{ checked: number; asked: number }> 
       if (sent.length === 0) continue;
       await supabase
         .from("statement_reconciliations")
-        .update({ asked_message_ids: [...(row.asked_message_ids ?? []), ...sent], last_asked_on: todayStr, updated_at: new Date().toISOString() })
+        .update({ asked_prompts: [...(row.asked_prompts ?? []), ...sent], last_asked_on: todayStr, updated_at: new Date().toISOString() })
         .eq("id", row.id)
         .eq("status", "waiting");
       asked++;
@@ -2486,71 +2616,115 @@ async function runStatementCheck(): Promise<{ checked: number; asked: number }> 
   return { checked, asked };
 }
 
-// The statement a message of the bot's asked about, if it was one.
-async function statementForPrompt(householdId: string, messageId: number | null): Promise<StatementRow | null> {
-  if (messageId == null) return null;
-  const { data } = await supabase
+// The statement a message of the bot's asked about, if it was one: the
+// question sent to this chat with this message id. "failed" when that could
+// not be read, which is never taken as "not a statement question".
+type StatementLookup = { kind: "found"; row: StatementRow } | { kind: "none" } | { kind: "failed" };
+
+async function statementForPrompt(householdId: string, chatId: number, messageId: number | null): Promise<StatementLookup> {
+  if (messageId == null) return { kind: "none" };
+  const { data, error } = await supabase
     .from("statement_reconciliations")
     .select(STATEMENT_COLUMNS)
     .eq("household_id", householdId)
-    .contains("asked_message_ids", [messageId])
-    .maybeSingle();
-  return (data as StatementRow | null) ?? null;
+    .contains("asked_prompts", JSON.stringify([{ chat_id: chatId, message_id: messageId }]))
+    .limit(2);
+  if (error) return { kind: "failed" };
+  const rows = (data ?? []) as StatementRow[];
+  // A chat's message is one question, so two rows means something is wrong
+  // with the records: nothing is settled on a guess.
+  if (rows.length > 1) return { kind: "failed" };
+  return rows.length === 1 ? { kind: "found", row: rows[0] } : { kind: "none" };
 }
 
-// Statements the bot has asked about that are still waiting.
-async function waitingStatements(householdId: string): Promise<StatementRow[]> {
-  const { data } = await supabase
+// Statements still waiting that the bot has asked this member about. A
+// statement only the other member was asked about (their own card) is not
+// this member's to answer with a bare "done".
+async function waitingStatements(householdId: string, memberId: string): Promise<{ rows: StatementRow[]; failed: boolean }> {
+  const { data, error } = await supabase
     .from("statement_reconciliations")
     .select(STATEMENT_COLUMNS)
     .eq("household_id", householdId)
     .eq("status", "waiting")
-    .not("last_asked_on", "is", null)
+    .contains("asked_prompts", JSON.stringify([{ member_id: memberId }]))
     .limit(10);
-  return (data ?? []) as StatementRow[];
+  if (error) return { rows: [], failed: true };
+  return { rows: (data ?? []) as StatementRow[], failed: false };
 }
 
-async function decideStatement(chatId: number, memberId: string, row: StatementRow, decision: "done" | "not_yet"): Promise<void> {
+async function decideStatement(chatId: number, memberId: string, row: StatementRow, decision: "done" | "not_yet" | "sent"): Promise<void> {
   const cardName = row.accounts?.name ?? "card";
   if (decision === "not_yet") {
     await reply(chatId, statementNotYetMessage(cardName));
     return;
   }
-  if (row.status === "waiting") {
-    const now = new Date().toISOString();
-    await supabase
-      .from("statement_reconciliations")
-      .update({ status: "confirmed", closed_at: now, closed_by_member_id: memberId, updated_at: now })
-      .eq("id", row.id)
-      .eq("status", "waiting");
+  // Handed over to be checked is not checked: the statement stays waiting,
+  // and the bot keeps asking until someone says it is done.
+  if (decision === "sent") {
+    await reply(chatId, statementSentMessage(cardName));
+    return;
   }
-  await reply(chatId, statementDoneMessage(cardName, row.statement_date));
+  const now = new Date().toISOString();
+  const { data: saved, error } = await supabase
+    .from("statement_reconciliations")
+    .update({ status: "confirmed", closed_at: now, closed_by_member_id: memberId, updated_at: now })
+    .eq("id", row.id)
+    .eq("status", "waiting")
+    .select("id");
+  // Thanked only for what was written. A refused write leaves it waiting,
+  // and the member is told so rather than told it is done.
+  if (error) {
+    await reply(chatId, statementNotSavedMessage(cardName));
+    return;
+  }
+  if ((saved ?? []).length > 0) {
+    await reply(chatId, statementDoneMessage(cardName, row.statement_date));
+    return;
+  }
+  // Nothing written: it was no longer waiting (the other member answered, or
+  // it was marked in the app). Say what it is now.
+  const { data: current, error: readError } = await supabase.from("statement_reconciliations").select("status").eq("id", row.id).maybeSingle();
+  const status = (current as { status?: string } | null)?.status;
+  if (readError || !status || status === "waiting") {
+    await reply(chatId, statementNotSavedMessage(cardName));
+    return;
+  }
+  await reply(chatId, statementAlreadySettledMessage(cardName, row.statement_date, status));
 }
 
 // A typed answer to a statement question. A reply to one of its messages is
 // answered whatever it says that the reader understands. A bare message is
 // only taken as an answer when it says "done", "reconciled" and the like
 // (not a plain "yes", which the expense and proposal questions own), and
-// only when exactly one statement is waiting and nothing else is.
-const STATEMENT_WORD = /\b(done|reconciled|checked|completed|complete|finished|sent|uploaded)\b/i;
+// only when exactly one statement this member was asked about is waiting and
+// nothing else is.
+const STATEMENT_WORD = /\b(done|reconciled|checked|completed|complete|finished|sent|uploaded|shared)\b/i;
 
 async function handleStatementText(chatId: number, member: { id: string; household_id: string }, text: string, repliedTo: number | null): Promise<boolean> {
   const decision = statementAnswer(text);
   if (!decision) return false;
   if (repliedTo != null) {
-    const row = await statementForPrompt(member.household_id, repliedTo);
-    if (!row) return false;
-    await decideStatement(chatId, member.id, row, decision);
+    const found = await statementForPrompt(member.household_id, chatId, repliedTo);
+    if (found.kind === "none") return false;
+    if (found.kind === "failed") {
+      await reply(chatId, statementLookupFailedMessage());
+      return true;
+    }
+    await decideStatement(chatId, member.id, found.row, decision);
     return true;
   }
   if (!STATEMENT_WORD.test(text)) return false;
-  const [waiting, open] = await Promise.all([waitingStatements(member.household_id), openProposals(member.household_id, member.id)]);
-  if (waiting.length === 0) return false;
-  if (waiting.length > 1 || open.rows.length > 0 || open.failed) {
+  const [waiting, open] = await Promise.all([waitingStatements(member.household_id, member.id), openProposals(member.household_id, member.id)]);
+  if (waiting.failed) {
+    await reply(chatId, statementLookupFailedMessage());
+    return true;
+  }
+  if (waiting.rows.length === 0) return false;
+  if (waiting.rows.length > 1 || open.rows.length > 0 || open.failed) {
     await reply(chatId, "I'm waiting on more than one answer. Reply to the statement message you mean.");
     return true;
   }
-  await decideStatement(chatId, member.id, waiting[0], decision);
+  await decideStatement(chatId, member.id, waiting.rows[0], decision);
   return true;
 }
 
@@ -2669,13 +2843,15 @@ async function runBudgetAlertCheck(): Promise<{ checked: number; nudged: number 
   const now = householdDay();
   const { year, month } = householdYearMonth(now);
 
-  const { data: budgetRows } = await supabase
+  const { data: budgetRows, error: budgetError } = await supabase
     .from("budgets")
     .select("household_id, category_id, amount")
     .eq("year", year)
     .eq("month", month)
     .eq("alerts_enabled", true)
     .gt("amount", 0);
+  // Not read is not "no budgets": nothing is checked, and tomorrow's run tries again.
+  if (budgetError) return { checked: 0, nudged: 0 };
 
   let nudged = 0;
   for (const b of (budgetRows ?? []) as Array<{ household_id: string; category_id: string; amount: number }>) {
@@ -2683,12 +2859,10 @@ async function runBudgetAlertCheck(): Promise<{ checked: number; nudged: number 
       const { data: category } = await supabase.from("categories").select("name").eq("id", b.category_id).maybeSingle();
       if (!category) continue;
 
-      const { data: transactions } = await supabase
-        .from("transactions")
-        .select("amount, kind, occurred_at, category_id, is_shared, owner_member_id")
-        .eq("household_id", b.household_id)
-        .eq("category_id", b.category_id);
-      const actual = monthActualsByCategory((transactions ?? []) as never, year, month, null, now).get(b.category_id) ?? 0;
+      // A failed read throws, and this category is not alerted on today
+      // rather than alerted on part of its spending.
+      const transactions = await transactionsBetween(b.household_id, monthStartIso(year, month), monthStartIso(year, month + 1), b.category_id);
+      const actual = monthActualsByCategory(transactions as never, year, month, null, now).get(b.category_id) ?? 0;
       const budgeted = Number(b.amount);
       const pct = (actual / budgeted) * 100;
 
@@ -3113,6 +3287,8 @@ async function runCashCoverCheck(): Promise<{ checked: number; nudged: number }>
 // otherwise-ordinary purchase.
 const UNUSUAL_SPEND_MIN_PCT = 2;
 const UNUSUAL_SPEND_MIN_ABSOLUTE = 300;
+// The months before this one its usual is averaged over (notableMoves' default).
+const UNUSUAL_SPEND_MONTHS_BACK = 6;
 
 // Runs daily alongside the other checks. Reuses the same trailing-average
 // math the web Insights screen shows informationally (notableMoves), just
@@ -3129,13 +3305,17 @@ async function runUnusualSpendCheck(): Promise<{ checked: number; nudged: number
   for (const householdId of households) {
     if (!prefEnabled(prefs, householdId, "unusual_spend_enabled")) continue;
     try {
-      const [{ data: transactions }, { data: categories }] = await Promise.all([
-        supabase.from("transactions").select("amount, kind, occurred_at, category_id, is_shared, owner_member_id").eq("household_id", householdId),
-        supabase.from("categories").select("id, name").eq("household_id", householdId),
+      // This month and the six before it, which is what notableMoves averages
+      // over. A failed read throws, and the household is skipped today rather
+      // than compared against part of its history.
+      const [transactions, categories] = await Promise.all([
+        transactionsBetween(householdId, monthStartIso(year, month - UNUSUAL_SPEND_MONTHS_BACK), monthStartIso(year, month + 1)),
+        householdRows<{ id: string; name: string }>("categories", householdId, "id, name"),
       ]);
-      const catById = new Map((categories ?? []).map((c: { id: string; name: string }) => [c.id, c]));
+      const catById = new Map(categories.map((c) => [c.id, c]));
 
-      const moves = notableMoves((transactions ?? []) as never, year, month, null, catById, now, {
+      const moves = notableMoves(transactions as never, year, month, null, catById, now, {
+        monthsBack: UNUSUAL_SPEND_MONTHS_BACK,
         minPct: UNUSUAL_SPEND_MIN_PCT,
         minAbsolute: UNUSUAL_SPEND_MIN_ABSOLUTE,
       });
@@ -3633,7 +3813,9 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
           .eq("status", "pending");
 
         const correctionDuplicate = isReadyForFastConfirm(updatedRow)
-          ? await findDuplicateTransaction(member.household_id, updatedRow.parsed_account_id, updatedRow.parsed_merchant, updatedRow.parsed_amount, updatedRow.parsed_date)
+          // A check that could not run is not a clean check: the entry waits
+          // in the Inbox rather than being offered a quick "yes".
+          ? await findDuplicateTransaction(member.household_id, updatedRow.parsed_account_id, updatedRow.parsed_merchant, updatedRow.parsed_amount, updatedRow.parsed_date).catch(() => "unchecked" as const)
           : null;
         if (isReadyForFastConfirm(updatedRow) && !correctionDuplicate) {
           await sendFastConfirmPrompt(
@@ -3681,30 +3863,41 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
         }
 
         let result: unknown;
-        switch (toolCall.function.name) {
-          case "get_category_spend":
-            result = await toolGetCategorySpend(member.household_id, scopeMemberId, args);
-            break;
-          case "get_net_worth":
-            result = await toolGetNetWorth(member.household_id, scopeMemberId);
-            break;
-          case "get_account_balance":
-            result = await toolGetAccountBalance(member.household_id, args);
-            break;
-          case "get_upcoming_bills":
-            result = await toolGetUpcomingBills(member.household_id, scopeMemberId);
-            break;
-          case "get_budget_status":
-            result = await toolGetBudgetStatus(member.household_id, scopeMemberId, args);
-            break;
-          case "get_holdings":
-            result = await toolGetHoldings(member.household_id, scopeMemberId, args);
-            break;
-          case "log_goal_contribution":
-            // Only a draft that failed reaches here (above): the goal or the
-            // amount could not be read, which the reply explains.
-            result = await goalContributionDraft(member.household_id, args);
-            break;
+        try {
+          switch (toolCall.function.name) {
+            case "get_category_spend":
+              result = await toolGetCategorySpend(member.household_id, scopeMemberId, args);
+              break;
+            case "get_net_worth":
+              result = await toolGetNetWorth(member.household_id, scopeMemberId);
+              break;
+            case "get_account_balance":
+              result = await toolGetAccountBalance(member.household_id, args);
+              break;
+            case "get_upcoming_bills":
+              result = await toolGetUpcomingBills(member.household_id, scopeMemberId);
+              break;
+            case "get_budget_status":
+              result = await toolGetBudgetStatus(member.household_id, scopeMemberId, args);
+              break;
+            case "get_holdings":
+              result = await toolGetHoldings(member.household_id, scopeMemberId, args);
+              break;
+            case "log_goal_contribution":
+              // Only a draft that failed reaches here (above): the goal or the
+              // amount could not be read, which the reply explains.
+              result = await goalContributionDraft(member.household_id, args);
+              break;
+          }
+        } catch (err) {
+          // A figure built from part of the data is not answered at all, and
+          // not handed to the model to phrase: told nothing, it could still
+          // say "nothing spent". Said here, so the question is not captured
+          // into the Inbox by the catch further down either.
+          if (!(err instanceof ReadFailed)) throw err;
+          committedElsewhere = true;
+          await reply(chatId, figuresUnavailableMessage());
+          return new Response("ok");
         }
 
         const answer = await phraseAnswer(rawText, result, member.household_id, member.id);
