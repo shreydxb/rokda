@@ -966,7 +966,9 @@ check happened when someone remembered it, and nothing recorded whether it had.
 - **The bot asks from the day after a statement closes**, every morning, until
   it is no longer waiting or the next statement closes. Not on the closing day
   itself: its last day's spending can still post. "done", "reconciled",
-  "checked" or a 👍 settle it; "not yet" asks again tomorrow. A reply or a
+  "checked" or a 👍 settle it; "not yet", or "sent" without "checked", asks
+  again tomorrow (see "A statement answer belongs to the chat it was asked
+  in"). A reply or a
   reaction to any of its questions counts. A bare "done" counts only when
   exactly one statement is waiting and no other question is, and a bare
   "yes" never does: that belongs to the expense and balance questions.
@@ -1024,3 +1026,32 @@ been recorded, so it was sent again.
   recorded yet: I couldn't tell who was paid, so it's in the Inbox", naming
   what was missing (the amount, who was paid, the card or account, the
   category, an AED amount), or that it looks like one already recorded.
+
+## A statement answer belongs to the chat it was asked in
+
+The bot kept only the message ids of its statement questions, and took a reply
+or a reaction to any message with one of those ids as an answer. Telegram
+numbers messages per chat, so each member's chat has its own message 42: a
+"yes" to an expense question in one chat could settle a statement asked about
+in the other. A refused write was still answered "marked as reconciled", and
+"sent to Claude" ended the reminders before anything had been checked.
+
+- **Each question is kept with its chat and member** (`asked_prompts`). A
+  reply or a reaction is an answer only in the chat the question was sent to.
+  A bare "done" counts only for statements this member was asked about.
+  `asked_message_ids` is no longer used; it is left in place rather than
+  dropped. Questions asked before the change are not matched to a chat, so a
+  reply to one of those is not taken as an answer; the next morning's
+  question is.
+- **Sent is not checked.** "Sent", "uploaded" or "shared" keeps the statement
+  waiting: the bot thanks the member and asks again the next morning until
+  someone says it is done. "Sent and checked" is done; "sent, not checked" is
+  not yet.
+- **Thanked only for what was saved.** The bot replies that a statement is
+  done only once the write has gone through. If it was refused, the bot says
+  so and the statement stays waiting. If someone settled it first, the bot
+  says what it is now: done, reconciled, or checked and not matching. A
+  member's "done" is recorded as *confirmed*, and the reply says "marked as
+  done", not "reconciled": reconciled means the figures were compared.
+- If the bot cannot read which statement a message answers, it says so and
+  changes nothing, rather than treating the message as something else.
