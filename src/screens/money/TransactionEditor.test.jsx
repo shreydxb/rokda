@@ -235,3 +235,46 @@ describe('Currency selector: entering a non-AED amount converts to AED on save',
     cleanup();
   });
 });
+
+// QA, 15 Oct: the save treated a refund as positive but the edit history
+// diffed it as negative, so saving an untouched refund recorded "+75 → −75".
+describe('edit history records what the save changed, refunds included', () => {
+  const refund = { id: 't2', amount: 75, kind: 'refund', merchant: 'Shop', occurred_at: '2026-10-01', account_id: 'acc-1', category_id: null, is_shared: true };
+  const history = () => calls.inserts.flat().filter((row) => row.transaction_id === 't2');
+
+  function editRefund() {
+    renderScreen(
+      <TransactionEditor tx={refund} householdId="hh" accounts={ACCOUNTS} categories={[]} members={[]} allTransactions={[]} onClose={() => {}} onSaved={async () => {}} onOpenOther={null} />,
+    );
+  }
+
+  it('saving an unchanged refund records no change', async () => {
+    editRefund();
+    await act(async () => {
+      fireEvent.submit(document.querySelector('form'));
+    });
+    expect(calls.updates[0]).toMatchObject({ amount: 75, kind: 'refund' });
+    expect(history()).toEqual([]);
+    cleanup();
+  });
+
+  it('a refund changed from 75 to 80 records +75 → +80', async () => {
+    editRefund();
+    fireEvent.change(document.querySelector('.te-hero-input'), { target: { value: '80' } });
+    await act(async () => {
+      fireEvent.submit(document.querySelector('form'));
+    });
+    expect(history()).toEqual([expect.objectContaining({ field: 'amount', old_value: '+75', new_value: '+80' })]);
+    cleanup();
+  });
+
+  it('a refund turned into income records the change of type', async () => {
+    editRefund();
+    fireEvent.click(screen.getByRole('button', { name: 'Income' }));
+    await act(async () => {
+      fireEvent.submit(document.querySelector('form'));
+    });
+    expect(history()).toEqual([expect.objectContaining({ field: 'kind', old_value: 'Refund', new_value: 'Income' })]);
+    cleanup();
+  });
+});

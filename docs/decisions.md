@@ -1108,3 +1108,27 @@ marked done by mistake could not be opened again.
   the card's latest statement. Only the latest reason is kept, not a history.
 - A write that changed nothing (the statement changed elsewhere) says so
   rather than reloading as if it had worked.
+
+## updated_at is kept by the database
+
+Fifteen tables have an `updated_at` column, and only `accounts` kept it
+(`compute_account_derived_fields`). Elsewhere it moved only when a screen
+remembered to send it. The transaction editor never did, so an edited
+transaction kept its creation time, and the bot and intake approval never
+set it either (SHR-307).
+
+- **Every direct edit sets it** (`touch_updated_at()`, a trigger on each of
+  those tables): whatever the client sends, the database's clock decides.
+- **A re-valuation is not an edit.** A row changed from inside another
+  trigger, such as a rupee bill or holding following the rate, keeps the
+  time it had. That is the rule `accounts` already followed.
+- Holdings now move it on a price refresh too. Nothing reads it for
+  freshness: `priced_at` and `price_fetched_at` say how old a price is.
+- A transaction's edit and its history rows (`transaction_edits`) are still
+  two writes. The editor says so if the second fails. Making them one write
+  is a server function, left for when history needs to be trusted as complete.
+
+The editor's history also compares the signed amount it saves. A refund is
+stored positive, but the history diffed it as negative, so saving an
+untouched refund recorded "+75 → −75". A change of type (a refund turned into
+income) is recorded too, since its amount and sign can stay the same.
