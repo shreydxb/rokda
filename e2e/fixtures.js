@@ -19,7 +19,7 @@ const USER = '33333333-3333-4333-8333-333333333333';
 const pad = (n) => String(n).padStart(2, '0');
 const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const now = new Date();
-const dayThisMonth = (day) => iso(new Date(now.getFullYear(), now.getMonth(), day));
+export const dayThisMonth = (day) => iso(new Date(now.getFullYear(), now.getMonth(), day));
 const monthsAgo = (n) => iso(new Date(now.getFullYear(), now.getMonth() - n, 15));
 const ts = (d) => `${d}T09:00:00+00:00`;
 
@@ -36,7 +36,7 @@ const cat = (id, name, kind) => ({
   id, household_id: HH, name, kind, parent_id: null, created_at: ts(monthsAgo(6)), archived: false,
 });
 
-const txn = (id, account_id, category_id, amount, occurred_at, extra = {}) => ({
+export const txn = (id, account_id, category_id, amount, occurred_at, extra = {}) => ({
   id, household_id: HH, account_id, owner_member_id: ME, category_id, amount,
   currency: 'AED', merchant: 'Merchant', note: null, occurred_at, is_shared: true,
   needs_review: false, created_at: ts(occurred_at), updated_at: ts(occurred_at),

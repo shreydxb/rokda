@@ -10,6 +10,7 @@ import Drawdown from './planning/Drawdown';
 import LifePlan from './planning/LifePlan';
 import Notes from './planning/Notes';
 import LoadFailure from './LoadFailure';
+import AedNote from './AedNote';
 import './Planning.css';
 
 const TABS = [
@@ -47,6 +48,7 @@ export default function Planning() {
         ))}
       </div>
 
+      {(tab === 'plan' || tab === 'goals' || tab === 'debt') && <AedNote household={household} />}
       {tab === 'plan' && (
         <PlanSummary
           household={household}

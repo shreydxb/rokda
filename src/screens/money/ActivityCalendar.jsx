@@ -1,35 +1,21 @@
 import { useMemo, useState } from 'react';
 import { formatMoney, formatSigned } from '../../lib/money';
-import { parseDay } from '../../lib/day';
+import { dayKeyOf, dayTotals, shareOf } from '../../lib/activity';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const MONTH_LABELS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
-function dayKey(d) {
-  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-}
-
-export default function ActivityCalendar({ rows, members }) {
+// Each day shows what the list's summary line would say for that day alone:
+// the selected person's share, net of refunds (dayTotals). A day whose
+// refunds outweigh its purchases shows the money back, not income.
+export default function ActivityCalendar({ rows, members, scopeMemberId = null, shareLabel = null, onOpen }) {
   const [cursor, setCursor] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
   });
   const [selectedKey, setSelectedKey] = useState(null);
 
-  const byDay = useMemo(() => {
-    const map = new Map();
-    for (const t of rows) {
-      const d = parseDay(t.occurred_at);
-      const key = dayKey(d);
-      if (!map.has(key)) map.set(key, { spend: 0, income: 0, items: [] });
-      const bucket = map.get(key);
-      const v = Number(t.amount);
-      if (v < 0) bucket.spend += -v;
-      else bucket.income += v;
-      bucket.items.push(t);
-    }
-    return map;
-  }, [rows]);
+  const byDay = useMemo(() => dayTotals(rows, scopeMemberId), [rows, scopeMemberId]);
 
   const cells = useMemo(() => {
     const year = cursor.getFullYear();
@@ -71,9 +57,9 @@ export default function ActivityCalendar({ rows, members }) {
       <div className="cal-grid">
         {cells.map((d, i) => {
           if (!d) return <div key={`empty-${i}`} className="cal-cell cal-cell-empty" />;
-          const key = dayKey(d);
+          const key = dayKeyOf(d);
           const bucket = byDay.get(key);
-          const isToday = dayKey(today) === key;
+          const isToday = dayKeyOf(today) === key;
           return (
             <button
               key={key}
@@ -86,7 +72,8 @@ export default function ActivityCalendar({ rows, members }) {
               <div className="cal-daynum">{d.getDate()}</div>
               {bucket && (
                 <div className="cal-amounts">
-                  {bucket.spend > 0 && <div className="cal-spend">−{formatMoney(bucket.spend)}</div>}
+                  {bucket.spend > 0.005 && <div className="cal-spend">−{formatMoney(bucket.spend)}</div>}
+                  {bucket.spend < -0.005 && <div className="cal-income">+{formatMoney(bucket.spend)} back</div>}
                   {bucket.income > 0 && <div className="cal-income">+{formatMoney(bucket.income)}</div>}
                 </div>
               )}
@@ -100,21 +87,31 @@ export default function ActivityCalendar({ rows, members }) {
           <div className="ov-kicker">
             {(() => {
               const [y, m, d] = selectedKey.split('-').map(Number);
-              return new Date(y, m, d).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+              return new Date(y, m - 1, d).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
             })()}
           </div>
           <div className="mn-list">
-            {selected.items.map((t) => (
-              <div key={t.id} className="mn-row">
-                <div className="mn-row-main">
-                  <div>{t.merchant || 'Transaction'}</div>
-                  <div className="ov-muted">
-                    {t.categories?.name ?? 'Uncategorised'} · {t.is_shared ? 'Shared' : members.find((m) => m.id === t.owner_member_id)?.display_name ?? 'Unassigned'}
+            {selected.items.map((t) => {
+              const share = shareOf(t, scopeMemberId);
+              return (
+                <button key={t.id} type="button" className="mn-row" onClick={() => onOpen?.(t)}>
+                  <div className="mn-row-main">
+                    <div>{t.merchant || 'Transaction'}</div>
+                    <div className="ov-muted">
+                      {t.categories?.name ?? 'Uncategorised'} · {t.is_shared ? 'Shared' : members.find((m) => m.id === t.owner_member_id)?.display_name ?? 'Unassigned'}
+                    </div>
                   </div>
-                </div>
-                <div className={`fig mn-row-amt ${Number(t.amount) > 0 ? 'ov-pos' : ''}`}>{formatSigned(t.amount)}</div>
-              </div>
-            ))}
+                  <div className={`fig mn-row-amt ${Number(t.amount) > 0 ? 'ov-pos' : ''}`}>
+                    {formatSigned(t.amount)}
+                    {shareLabel && share !== Number(t.amount) && (
+                      <span className="om-tx-share">
+                        {shareLabel.toLowerCase()} {formatSigned(share)}
+                      </span>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </div>
       )}

@@ -8,6 +8,7 @@ import Budget from './money/Budget';
 import Insights from './money/Insights';
 import Inbox from './money/Inbox';
 import LoadFailure from './LoadFailure';
+import AedNote from './AedNote';
 import './Money.css';
 
 const TABS = [
@@ -37,6 +38,7 @@ export default function Money() {
   return (
     <div className="mn">
       <div className="ov-kicker">Money</div>
+      <AedNote household={household} />
       <LoadFailure
         errors={{ ...data.errors, ...(householdError ? { household: householdError } : {}) }}
         loadedAt={data.loadedAt}

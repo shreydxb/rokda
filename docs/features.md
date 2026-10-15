@@ -34,6 +34,10 @@ here, because this repository is public.
 
 - **Activity**: every transaction, with a list and a calendar view, filters,
   and an editor for expense / income / refund. Refunds net against spending.
+  Posted / Scheduled / All picks which dates count (Posted by default, like
+  every other total); scheduled rows are labelled. Under Me or the partner's
+  name, totals are that person's share and shared rows show the share under
+  the full amount. Calendar days add up the same way, and open the editor.
 - **Budget**: month and year views. Spending is budgeted by subcategory and
   rolled up to its group. Savings categories are savings targets measured
   against what the month actually saved, never counted as spending.
@@ -44,7 +48,10 @@ here, because this repository is public.
   last date and amounts in AED, USD or INR. Status per occurrence (Paid,
   Posted, Expected, Late, Ended). Income is matched within 10 days of its
   date, bills within 5, and a salary counts in the month it was due.
-- **Insights**: what moved month on month, drilling into Activity.
+- **Insights**: what moved month on month, drilling into Activity. Top
+  merchants follows the selected month, net of refunds.
+- Money and the AED-entered plans (Plan, Goals, Debt payoff) stay in AED
+  whatever the display currency, and say so when another one is picked.
 - **Inbox**: transactions the bot was not sure of, to confirm or fix. An entry
   whose message had no date is marked "No date" and is approved only once its
   date is set or confirmed, never in bulk.

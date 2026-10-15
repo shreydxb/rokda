@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { notableMoves } from './insights';
+import { notableMoves, topMerchants } from './insights';
 
 const NOW = new Date(2026, 8, 30, 12); // 30 September 2026
 const catById = new Map([
@@ -66,5 +66,36 @@ describe('notableMoves', () => {
     const moves = notableMoves(transactions, 2026, 9, null, catById, NOW, { limit: 1 });
     expect(moves).toHaveLength(1);
     expect(moves[0].categoryId).toBe('groceries');
+  });
+});
+
+describe('topMerchants', () => {
+  const rows = [
+    { id: 'a', merchant: 'Grocer', amount: -100, kind: 'expense', occurred_at: '2026-09-05', is_shared: true },
+    { id: 'b', merchant: 'Grocer', amount: 20, kind: 'refund', occurred_at: '2026-09-06', is_shared: true },
+    { id: 'c', merchant: 'Cafe', amount: -60, kind: 'expense', occurred_at: '2026-09-07', is_shared: true },
+    { id: 'd', merchant: 'Grocer', amount: -500, kind: 'expense', occurred_at: '2026-08-20', is_shared: true },
+    { id: 'e', merchant: 'Planned', amount: -900, kind: 'expense', occurred_at: '2026-10-02', is_shared: true },
+  ];
+
+  it('ranks the selected month only, net of refunds', () => {
+    expect(topMerchants(rows, null, { year: 2026, month: 9, now: NOW })).toEqual([
+      { name: 'Grocer', total: 80, count: 1 },
+      { name: 'Cafe', total: 60, count: 1 },
+    ]);
+    expect(topMerchants(rows, null, { year: 2026, month: 8, now: NOW })).toEqual([{ name: 'Grocer', total: 500, count: 1 }]);
+  });
+
+  it('leaves out records dated after today', () => {
+    expect(topMerchants(rows, null, { year: 2026, month: 10, now: NOW })).toEqual([]);
+  });
+
+  it("counts one person's half of a shared record", () => {
+    expect(topMerchants(rows, 'm1', { year: 2026, month: 9, now: NOW })[0]).toEqual({ name: 'Grocer', total: 40, count: 1 });
+  });
+
+  it('drops a merchant whose refunds cancel its purchases', () => {
+    const refunded = [rows[2], { id: 'f', merchant: 'Cafe', amount: 60, kind: 'refund', occurred_at: '2026-09-08', is_shared: true }];
+    expect(topMerchants(refunded, null, { year: 2026, month: 9, now: NOW })).toEqual([]);
   });
 });

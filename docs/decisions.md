@@ -1247,3 +1247,33 @@ need a second factor, as the older finance app required (SHR-312).
   The member signs in with their password and adds a new authenticator. Losing
   the owner's own phone needs someone with dashboard access, so keep the key
   shown at setup somewhere safe, or add the same key to a second device.
+
+## The same money reads the same on every screen
+
+A product review (15 October) found views of the same records disagreeing. Each
+consumer now uses the arithmetic Overview and Budget already used.
+
+- **Activity's calendar** adds up a day the way the list's summary line adds
+  up the whole list (`src/lib/activity.js`): the selected person's share, and
+  refunds netted against spend. A shared expense of 100 and a shared refund of
+  20 used to read, under Me, as 100 spent and 20 earned on the calendar and 40
+  out, nothing in, above it. Both now say 40 spent. A day whose refunds
+  outweigh its purchases shows the money back, not income.
+- **Posted / Scheduled / All on Activity**, Posted by default. Its totals
+  counted records dated next week, which no other screen does; the line says
+  how many scheduled records it left out and switches to All on a tap.
+- **A person's share is shown, not only used.** Under Me or the partner's
+  name, totals counted half of each shared record while rows showed the whole
+  amount. Rows keep the whole amount and show the share under it; the summary
+  says shared records count half.
+- **Top merchants follows the month Insights shows**, counts posted records
+  only, and is net of refunds: the same basis as the category figures beside
+  it. It ranked all of history, so changing the month changed nothing.
+- **Overview converts every figure** to the display currency, as Forecast
+  already did, at the rate it shows. Picking USD converted the net worth and
+  left income, spend and the chart in AED, so a dirham figure read as dollars.
+- **Money, Plan, Goals and Debt payoff stay in AED** and say so when another
+  display currency is picked. They show what was recorded or entered in AED,
+  and converting past spending properly needs each day's rate, which waits on
+  rate history (SHR-321). Overview's conversion uses today's rate for past
+  months, as net worth's history already does.

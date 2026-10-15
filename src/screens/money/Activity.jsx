@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
 import { useScope } from '../../lib/ScopeContext';
-import { resolveScopeMemberId, scopedValue } from '../../lib/scope';
-import { formatSigned, formatMoney } from '../../lib/money';
-import { applyToIncomeSpend } from '../../lib/transactionKind';
+import { resolveScopeMemberId } from '../../lib/scope';
+import { formatBalance, formatSigned, formatMoney } from '../../lib/money';
+import { isPosted } from '../../lib/day';
+import { DATE_BASES, incomeAndSpend, matchesDateBasis, shareOf } from '../../lib/activity';
 import TransactionEditor from './TransactionEditor';
 import ActivityCalendar from './ActivityCalendar';
 
@@ -26,10 +27,15 @@ export default function Activity({ household, members, me, data, loading, catego
 
   const [search, setSearch] = useState('');
   const [needsReviewOnly, setNeedsReviewOnly] = useState(false);
+  // Posted by default, like every other total in the app: a record dated next
+  // week is a plan, and counting it here made this line disagree with Overview
+  // and Budget for the same month.
+  const [dateBasis, setDateBasis] = useState('posted');
   const [view, setView] = useState('list'); // 'list' | 'calendar'
   const [editing, setEditing] = useState(null); // null closed, 'new', or a transaction row
 
-  const rows = useMemo(() => {
+  const now = useMemo(() => new Date(), []);
+  const matching = useMemo(() => {
     const q = search.trim().toLowerCase();
     return transactions.filter((t) => {
       if (scopeMemberId !== null && !(t.is_shared || t.owner_member_id === scopeMemberId)) return false;
@@ -42,12 +48,16 @@ export default function Activity({ household, members, me, data, loading, catego
       return true;
     });
   }, [transactions, scopeMemberId, needsReviewOnly, categoryFilter, search]);
+  const rows = useMemo(() => matching.filter((t) => matchesDateBasis(t, dateBasis, now)), [matching, dateBasis, now]);
+  // Records the other filters match that Posted leaves out, so a record just
+  // entered with next week's date doesn't simply vanish.
+  const scheduledHidden = dateBasis === 'posted' ? matching.length - rows.length : 0;
 
-  const totals = useMemo(() => {
-    const t = { income: 0, spend: 0 };
-    for (const row of rows) applyToIncomeSpend(row, scopedValue(row.amount, row, scopeMemberId), t);
-    return t;
-  }, [rows, scopeMemberId]);
+  const totals = useMemo(() => incomeAndSpend(rows, scopeMemberId), [rows, scopeMemberId]);
+  // Under Me or the partner's name, figures are that person's share: their own
+  // records in full and half of each shared one. Rows still show the whole
+  // amount, so the share is shown beside it wherever the two differ.
+  const shareLabel = scopeMemberId === null ? null : scopeMemberId === me?.id ? 'Your share' : `${members.find((m) => m.id === scopeMemberId)?.display_name ?? 'Partner'}'s share`;
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
 
@@ -76,6 +86,13 @@ export default function Activity({ household, members, me, data, loading, catego
         >
           Needs review
         </button>
+        <div className="mn-datebasis" role="group" aria-label="Which dates">
+          {DATE_BASES.map((b) => (
+            <button key={b.id} type="button" className="om-seg" data-active={dateBasis === b.id} onClick={() => setDateBasis(b.id)}>
+              {b.label}
+            </button>
+          ))}
+        </div>
         <div className="mn-viewtoggle">
           <button type="button" className="om-seg" data-active={view === 'list'} onClick={() => setView('list')}>
             List
@@ -89,17 +106,26 @@ export default function Activity({ household, members, me, data, loading, catego
         </button>
       </div>
       <div className="mn-count">
-        {rows.length} record{rows.length === 1 ? '' : 's'}
+        {rows.length} {dateBasis === 'all' ? '' : `${dateBasis} `}record{rows.length === 1 ? '' : 's'}
         {rows.length > 0 && (
           <>
             {' · '}
-            {formatMoney(totals.spend)} out · {formatMoney(totals.income)} in
+            Spent AED {formatBalance(totals.spend)} net of refunds · Income AED {formatMoney(totals.income)}
+            {shareLabel && ` · ${shareLabel}: shared records count half`}
+          </>
+        )}
+        {scheduledHidden > 0 && (
+          <>
+            {' · '}
+            <button type="button" className="mn-count-link" onClick={() => setDateBasis('all')}>
+              {scheduledHidden} scheduled not counted
+            </button>
           </>
         )}
       </div>
 
       {view === 'calendar' ? (
-        <ActivityCalendar rows={rows} members={members} />
+        <ActivityCalendar rows={rows} members={members} scopeMemberId={scopeMemberId} shareLabel={shareLabel} onOpen={setEditing} />
       ) : rows.length === 0 ? (
         <div className="ov-empty">
           <div className="ov-empty-kicker">No records</div>
@@ -130,6 +156,8 @@ export default function Activity({ household, members, me, data, loading, catego
             const owner = ownerLabel(t, members);
             const account = accountById.get(t.account_id)?.name ?? '—';
             const flag = confidenceFlag(t);
+            const share = shareOf(t, scopeMemberId);
+            const scheduled = !isPosted(t, now);
             return (
               <button key={t.id} type="button" className="om-tx om-tx-row" onClick={() => setEditing(t)}>
                 <div className="om-tx-date">
@@ -139,6 +167,7 @@ export default function Activity({ household, members, me, data, loading, catego
                   {t.merchant || 'Transaction'}
                   {t.needs_review && <span className="om-tx-flag ov-warn"> · needs review</span>}
                   {!t.needs_review && flag && <span className={`om-tx-flag ${flag.tone === 'neg' ? 'ov-neg' : 'ov-warn'}`}> · {flag.label}</span>}
+                  {scheduled && <span className="om-tx-flag ov-muted"> · scheduled</span>}
                   <div className="om-tx-meta">
                     {categoryName} · {account} · {owner}
                   </div>
@@ -146,7 +175,14 @@ export default function Activity({ household, members, me, data, loading, catego
                 <div className={`om-hide-sm om-tx-cat ${categoryName === 'Uncategorised' ? 'ov-warn' : ''}`}>{categoryName}</div>
                 <div className="om-hide-sm om-tx-owner">{owner}</div>
                 <div className="om-hide-sm om-tx-account">{account}</div>
-                <div className={`fig om-tx-amt ${Number(t.amount) > 0 ? 'ov-pos' : ''}`}>{formatSigned(t.amount)}</div>
+                <div className={`fig om-tx-amt ${Number(t.amount) > 0 ? 'ov-pos' : ''}`}>
+                  {formatSigned(t.amount)}
+                  {shareLabel && share !== Number(t.amount) && (
+                    <span className="om-tx-share">
+                      {shareLabel.toLowerCase()} {formatSigned(share)}
+                    </span>
+                  )}
+                </div>
                 <div className="om-tx-chev">›</div>
               </button>
             );
