@@ -63,15 +63,14 @@ describe('Activity summary line', () => {
     ]);
     const text = document.querySelector('.mn-count').textContent;
     expect(text).toMatch(/2 posted records/);
-    expect(text).toMatch(/Spent AED 100 net of refunds/);
-    expect(text).toMatch(/Income AED 500/);
+    expect(text).toMatch(/Net spend AED 100 · Income AED 500/);
   });
 
   it('omits the breakdown when there is nothing to show', () => {
     renderActivity([]);
     const text = document.querySelector('.mn-count').textContent;
     expect(text).toMatch(/0 posted records/);
-    expect(text).not.toMatch(/Spent/);
+    expect(text).not.toMatch(/Net spend/);
   });
 
   // The reviewer's case: a shared expense of 100 and a shared refund of 20.
@@ -84,7 +83,7 @@ describe('Activity summary line', () => {
     scopeState.scope = 'me';
     renderActivity(SHARED_PAIR);
     const text = document.querySelector('.mn-count').textContent;
-    expect(text).toMatch(/Spent AED 40 net of refunds/);
+    expect(text).toMatch(/Net spend AED 40 \(purchases 50 less refunds 10\)/);
     expect(text).toMatch(/Income AED 0/);
     expect(text).toMatch(/Your share: shared records count half/);
   });
@@ -117,7 +116,7 @@ describe('Activity posted and scheduled records', () => {
     renderActivity(ROWS);
     const text = document.querySelector('.mn-count').textContent;
     expect(text).toMatch(/1 posted record/);
-    expect(text).toMatch(/Spent AED 100 /);
+    expect(text).toMatch(/Net spend AED 100 /);
     expect(text).toMatch(/1 scheduled not counted/);
     expect(screen.queryByText('Next week')).toBeNull();
   });
@@ -125,10 +124,10 @@ describe('Activity posted and scheduled records', () => {
   it('shows scheduled records, labelled, under Scheduled and All', () => {
     renderActivity(ROWS);
     fireEvent.click(screen.getByRole('button', { name: '1 scheduled not counted' }));
-    expect(document.querySelector('.mn-count').textContent).toMatch(/2 records · Spent AED 400/);
+    expect(document.querySelector('.mn-count').textContent).toMatch(/2 records · Net spend AED 400/);
     expect(screen.getByText('Next week').parentElement.textContent).toMatch(/scheduled/);
     fireEvent.click(screen.getByRole('button', { name: 'Scheduled' }));
-    expect(document.querySelector('.mn-count').textContent).toMatch(/1 scheduled record · Spent AED 300/);
+    expect(document.querySelector('.mn-count').textContent).toMatch(/1 scheduled record · Net spend AED 300/);
     expect(screen.queryByText('Today')).toBeNull();
   });
 });
@@ -181,16 +180,18 @@ describe('Activity filters in the address', () => {
 
   it('opens on the month and category a link names, a group including its subcategories', () => {
     renderActivity(ROWS, { url: '/money?tab=activity&cat=g&from=2026-09-01&to=2026-09-30', categories: CATS });
-    expect(document.querySelector('.mn-count').textContent).toMatch(/2 posted records · Spent AED 100/);
+    expect(document.querySelector('.mn-count').textContent).toMatch(/2 posted records · September 2026 · Net spend AED 100/);
     expect(screen.getByText('Pump')).toBeTruthy();
     expect(screen.getByText('Taxi')).toBeTruthy();
     expect(screen.queryByText('Pump October')).toBeNull();
     expect(screen.getByRole('combobox', { name: 'Category' }).value).toBe('g');
   });
 
-  it('shows the date range as a chip that clears it', () => {
+  it('shows the date range in the date select, which clears it', () => {
     renderActivity(ROWS, { url: '/money?tab=activity&cat=g&from=2026-09-01&to=2026-09-30', categories: CATS });
-    fireEvent.click(screen.getByRole('button', { name: 'September 2026: show all dates' }));
+    const dates = screen.getByRole('combobox', { name: 'Dates' });
+    expect(dates.value).toBe('last-month');
+    fireEvent.change(dates, { target: { value: 'all' } });
     expect(currentSearch()).toBe('?tab=activity&cat=g');
     expect(screen.getByText('Pump October')).toBeTruthy();
   });
@@ -200,5 +201,53 @@ describe('Activity filters in the address', () => {
     fireEvent.change(screen.getByRole('combobox', { name: 'Category' }), { target: { value: 'c1' } });
     fireEvent.click(screen.getByRole('button', { name: 'Needs review' }));
     expect(currentSearch()).toBe('?tab=activity&cat=c1&review=1');
+  });
+});
+
+describe('Activity date select and other filters', () => {
+  const ROWS = [
+    { id: 'a', amount: -40, kind: 'expense', occurred_at: '2026-08-10', is_shared: true, account_id: 'a1', merchant: 'August shop' },
+    { id: 'b', amount: -60, kind: 'expense', occurred_at: '2026-10-12', is_shared: true, account_id: 'a2', merchant: 'Card shop' },
+    { id: 'c', amount: 25, kind: 'refund', occurred_at: '2026-10-13', is_shared: true, account_id: 'a2', merchant: 'Card refund' },
+  ];
+  const TWO_ACCOUNTS = [...ACCOUNTS, { id: 'a2', name: 'Debit card', type: 'checking', archived_at: null, is_shared: true }];
+
+  function renderWith(url) {
+    return renderScreen(
+      <MemoryRouter initialEntries={[url]}>
+        <LocationProbe />
+        <Activity household={{ id: 'h' }} members={MEMBERS} me={{ id: 'm1' }} loading={false} data={{ transactions: ROWS, accounts: TWO_ACCOUNTS, categories: CATEGORIES, reload: vi.fn() }} />
+      </MemoryRouter>,
+    );
+  }
+
+  it('names a linked range that is not a preset, and offers custom dates', () => {
+    renderWith('/money?tab=activity&from=2026-08-01&to=2026-08-31');
+    const dates = screen.getByRole('combobox', { name: 'Dates' });
+    expect(dates.options[dates.selectedIndex].textContent).toBe('August 2026');
+    expect(screen.getByText('August shop')).toBeTruthy();
+    fireEvent.change(dates, { target: { value: 'custom' } });
+    fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-10-01' } });
+    fireEvent.change(screen.getByLabelText('To'), { target: { value: '2026-10-31' } });
+    expect(currentSearch()).toBe('?tab=activity&from=2026-10-01&to=2026-10-31');
+    expect(screen.queryByText('August shop')).toBeNull();
+  });
+
+  it('narrows by account and type, and clears every filter at once', () => {
+    renderWith('/money?tab=activity');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Account' }), { target: { value: 'a2' } });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Type' }), { target: { value: 'refund' } });
+    expect(screen.getByText('Card refund')).toBeTruthy();
+    expect(screen.queryByText('Card shop')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Filters (2)' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
+    expect(currentSearch()).toBe('?tab=activity');
+    expect(screen.getByText('August shop')).toBeTruthy();
+  });
+
+  it('sorts by size when asked', () => {
+    renderWith('/money?tab=activity&sort=largest');
+    const merchants = [...document.querySelectorAll('.om-tx-row .om-tx-merchant')].map((m) => m.firstChild.textContent);
+    expect(merchants).toEqual(['Card shop', 'August shop', 'Card refund']);
   });
 });

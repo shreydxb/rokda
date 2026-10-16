@@ -51,10 +51,12 @@ here, because this repository is public.
   every other total); scheduled rows are labelled. Under Me or the partner's
   name, totals are that person's share and shared rows show the share under
   the full amount. Calendar days add up the same way, and open the editor.
-  Its filters (category, a date range, search, needs review, which dates,
-  list or calendar) are in the address, so Back, reload and a bookmark keep
-  them. A date range set by a link shows as a chip that clears it, and a
-  category includes its subcategories.
+  Filters: search, dates (presets or custom), category (a group includes its
+  subcategories), account, type, which dates count, needs review, and sort.
+  On a phone the second row folds behind "Filters (n)". They are all in the
+  address, so Back, reload and a bookmark keep them. The summary shows net
+  spend as purchases less refunds, and income. The list shows 200 rows at a
+  time; the totals cover everything matching.
 - **Budget**: month and year views. Spending is budgeted by subcategory and
   rolled up to its group. Savings categories are savings targets measured
   against what the month actually saved, never counted as spending.

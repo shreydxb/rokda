@@ -1333,6 +1333,36 @@ open page until a reload by hand (product review, 15 October).
 - A failed read still keeps what was last shown and says which source failed
   (QA-10), so a refresh that fails never blanks a page.
 
+## Activity's filters
+
+Activity lacked the controls needed to explain a particular total (product
+review, 15 October). The layout decisions, made on the household's behalf:
+
+- **One date select, with presets**: All dates, This month, Last month, Last
+  90 days, This year, and Custom dates, which shows two date fields. A range
+  set by a link that isn't a preset shows by name ("August 2026") in the same
+  select. This replaces the chip from "Links keep their context". All dates
+  stays the default, so nothing disappears from the list unasked.
+- **Two rows.** Search, dates, list or calendar, and Add sit on the first.
+  Category, account, type (expenses, income, refunds), Posted / Scheduled /
+  All, Needs review and sort sit on the second. On a phone the second row
+  folds behind "Filters (n)", which counts the filters set. It starts open
+  when a link arrives with one of them set. "Clear filters" resets all of them
+  but keeps the view and the sort.
+- **The summary splits net spend**: "Net spend AED 40 (purchases 50 less
+  refunds 10) · Income AED 0", and names the date range when there is one.
+  Gross purchases and net spend are both real figures; the line shows how one
+  becomes the other rather than choosing.
+- **200 rows at a time**, with "Show 200 more". The totals always cover every
+  matching record, not just the rows on screen. A new set of filters starts
+  again from the first 200.
+- **Dates carry the year** once they aren't this year's. Rows read the stored
+  day as a local calendar day, as everything else does (QA-06), instead of
+  parsing it as UTC.
+- **Not done here:** an amount range and a merchant filter separate from
+  search. Search already matches merchant, note and amount; neither seemed
+  worth another control yet.
+
 ## The dashboard leads with the month and what needs doing
 
 Net worth led Overview and data quality took a screen's height, while the
