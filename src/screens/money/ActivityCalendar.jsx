@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { formatMoney, formatSigned } from '../../lib/money';
 import { dayKeyOf, dayTotals, shareOf } from '../../lib/activity';
+import { parseDay } from '../../lib/day';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const MONTH_LABELS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -8,10 +9,12 @@ const MONTH_LABELS = ['January', 'February', 'March', 'April', 'May', 'June', 'J
 // Each day shows what the list's summary line would say for that day alone:
 // the selected person's share, net of refunds (dayTotals). A day whose
 // refunds outweigh its purchases shows the money back, not income.
-export default function ActivityCalendar({ rows, members, scopeMemberId = null, shareLabel = null, onOpen }) {
+export default function ActivityCalendar({ rows, members, scopeMemberId = null, shareLabel = null, onOpen, startMonth = null }) {
+  // Opens on the month Activity is narrowed to, if it is, so a link to
+  // September's records shows September rather than today's month.
   const [cursor, setCursor] = useState(() => {
-    const now = new Date();
-    return new Date(now.getFullYear(), now.getMonth(), 1);
+    const start = startMonth ? parseDay(startMonth) : new Date();
+    return new Date(start.getFullYear(), start.getMonth(), 1);
   });
   const [selectedKey, setSelectedKey] = useState(null);
 

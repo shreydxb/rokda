@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useTab } from '../lib/useTab';
 import { useHousehold } from '../lib/useHousehold';
 import { useOverviewData } from './useOverviewData';
 import NetWorth from './wealth/NetWorth';
@@ -17,7 +17,8 @@ const TABS = [
 ];
 
 export default function Wealth() {
-  const [tab, setTab] = useState('networth');
+  // In the address, so a link can open Accounts or Investments directly.
+  const [tab, setTab] = useTab(TABS);
   const { household, members, me, loading: householdLoading, error: householdError, reload: reloadHousehold } = useHousehold();
   const data = useOverviewData(household?.id);
   const loading = householdLoading || data.loading;

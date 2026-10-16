@@ -5,7 +5,7 @@ import './TransactionEditor.css';
 
 const MONTH_LABELS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
-export default function BudgetEditor({ item, householdId, categories, year, month, onClose, onSaved }) {
+export default function BudgetEditor({ item, householdId, categories, year, month, onClose, onSaved, onOpenRecords }) {
   const [categoryId, setCategoryId] = useState(item?.category_id ?? categories.find((c) => c.kind === 'expense')?.id ?? '');
   const [amount, setAmount] = useState(item ? String(item.amount) : '');
   const [applyTo, setApplyTo] = useState('month'); // 'month' | 'year'
@@ -143,6 +143,14 @@ export default function BudgetEditor({ item, householdId, categories, year, mont
                 <span className="te-fieldlabel">Spent so far</span>
                 <div className="te-fieldvalue" style={{ borderBottom: 'none', paddingTop: 4 }}>
                   {item.spentSoFar != null ? formatMoney(item.spentSoFar) : '—'}
+                  {/* The records behind the figure, for this budget's month
+                      and category (a group includes its subcategories).
+                      Editing the budget stays here. */}
+                  {onOpenRecords && (
+                    <button type="button" className="te-records-link" onClick={() => onOpenRecords({ categoryId: item.recordsCategoryId ?? item.category_id, year, month })}>
+                      See the records →
+                    </button>
+                  )}
                 </div>
               </div>
             </div>

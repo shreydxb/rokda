@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import { useTab } from '../lib/useTab';
+import { activityHref, monthRange } from '../lib/activityLink';
 import { useHousehold } from '../lib/useHousehold';
 import { useOverviewData } from './useOverviewData';
 import Activity from './money/Activity';
@@ -21,16 +22,11 @@ const TABS = [
 ];
 
 export default function Money() {
-  const location = useLocation();
-  // Arriving from Overview or another screen can already know which tab/
-  // category the reader wants (e.g. an attention item) -- read once on
-  // mount rather than resetting every time location.state changes for an
-  // unrelated reason.
-  const [tab, setTab] = useState(() => location.state?.tab ?? 'activity');
-  // Insights' "What moved" cards drill into Activity filtered to the
-  // category that moved -- lifted here (not local to Activity) so a card
-  // click can both switch tabs and set the filter in one place.
-  const [categoryFilter, setCategoryFilter] = useState(() => location.state?.categoryId ?? 'all');
+  const navigate = useNavigate();
+  // The tab and Activity's filters are in the address (lib/useTab.js,
+  // lib/activityLink.js), so a link from Overview or Insights opens the tab
+  // and the records it means, and Back returns to where it came from.
+  const [tab, setTab] = useTab(TABS);
   const { household, members, me, loading: householdLoading, error: householdError, reload: reloadHousehold } = useHousehold();
   const data = useOverviewData(household?.id);
   const loading = householdLoading || data.loading;
@@ -70,22 +66,26 @@ export default function Money() {
           me={me}
           data={data}
           loading={loading}
-          categoryFilter={categoryFilter}
-          setCategoryFilter={setCategoryFilter}
         />
       )}
       {tab === 'recurring' && <Recurring household={household} members={members} data={data} loading={loading} />}
-      {tab === 'budget' && <Budget household={household} members={members} me={me} data={data} loading={loading} />}
+      {tab === 'budget' && (
+        <Budget
+          household={household}
+          members={members}
+          me={me}
+          data={data}
+          loading={loading}
+          onOpenRecords={({ categoryId, year, month }) => navigate(activityHref({ categoryId, ...monthRange(year, month) }))}
+        />
+      )}
       {tab === 'insights' && (
         <Insights
           me={me}
           members={members}
           data={data}
           loading={loading}
-          onDrillIntoActivity={(categoryId) => {
-            setCategoryFilter(categoryId);
-            setTab('activity');
-          }}
+          onDrillIntoActivity={(filters) => navigate(activityHref(filters))}
         />
       )}
       {tab === 'inbox' && (
