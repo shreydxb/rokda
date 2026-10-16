@@ -1632,7 +1632,7 @@ had Telegram linked but no login (SHR-314).
   checked only that the caller was in the household, so a member could make a
   code for the owner, send it from their own phone, and be treated by the bot
   as the owner. Now the code is for the caller's own row, or the caller is an
-  owner (`20261016180000_link_code_self_or_owner`). An owner still links a
+  owner (`20261016114323_link_code_self_or_owner`). An owner still links a
   member who has no login, which is how such a member is linked at all.
 - **The screen says what the database will refuse.** Settings → Household's
   member editor offered rename, role, remove and "Generate code" to everyone,
