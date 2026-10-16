@@ -381,6 +381,20 @@ function applyProposal(id: string, memberId: string): Row {
       }
       applied.push({ name: bill.name, amount: payload.amount, occurred_at: payload.due_date, next_due: payload.next_due, already_recorded: already });
     }
+  } else if (p.kind === "transfer") {
+    const from = backend.tables.accounts.find((a) => a.id === payload.from_account_id && a.household_id === p.household_id && a.archived_at == null);
+    const to = backend.tables.accounts.find((a) => a.id === payload.to_account_id && a.household_id === p.household_id && a.archived_at == null);
+    if (!from || !to) {
+      skipped.push({ reason: "unavailable" });
+    } else {
+      const already = backend.tables.transactions.some((t) => t.kind === "transfer" && t.account_id === from.id && Number(t.amount) === -Number(payload.amount));
+      if (!already) {
+        for (const [account, sign] of [[from, -1], [to, 1]] as const) {
+          backend.tables.transactions.push({ id: crypto.randomUUID(), household_id: p.household_id, account_id: account.id, amount: sign * Number(payload.amount), kind: "transfer", occurred_at: payload.occurred_at });
+        }
+      }
+      applied.push({ from_name: from.name, to_name: to.name, amount: payload.amount, occurred_at: payload.occurred_at, joined_out: false, joined_in: false, already_recorded: already });
+    }
   } else {
     const goal = backend.tables.goals.find((g) => g.id === payload.goal_id && g.household_id === p.household_id);
     if (!goal) {
@@ -515,7 +529,7 @@ Deno.env.set("TELEGRAM_BOT_TOKEN", TOKEN);
 Deno.env.set("OPENROUTER_API_KEY", "openrouter-test");
 
 reset();
-const { accountsForCheckin, buildBalanceCheckinMessage, datedItems, figuresUnavailableMessage, forwardedDay, inboxReason, merchantHistoryMatches, pickAccountByHint, pickCheckinAccount, undatedNote } = await import("./index.ts");
+const { accountsForCheckin, buildBalanceCheckinMessage, datedItems, figuresUnavailableMessage, forwardedDay, inboxReason, merchantHistoryMatches, pickAccountByHint, pickCheckinAccount, proposalOutcomeMessage, transferDraftFrom, undatedNote } = await import("./index.ts");
 assert(handler!, "index.ts did not register a handler with Deno.serve");
 
 // ---------------------------------------------------------------------------
@@ -728,6 +742,62 @@ freshTest("a goal contribution is proposed once however often it is delivered, a
   assertEquals(backend.tables.goal_contributions.length, 1, "a second yes recorded it again");
   assert(lastReply().startsWith("Already recorded"), lastReply());
   assertEquals(capturedIntake().length, 0, "a yes was captured as an expense");
+});
+
+freshTest("a transfer between the household's own accounts is proposed, and recorded as one only on a yes", async () => {
+  backend.tables.accounts.push(
+    { id: "acc-current", household_id: HOUSEHOLD, name: "Current account", archived_at: null },
+    { id: "acc-card", household_id: HOUSEHOLD, name: "Bank card •0001", archived_at: null },
+  );
+  backend.route = { tool: "log_transfer", args: { from_account: "current account", to_account: "bank card", amount: 3000, occurred_at: "2026-09-20" } };
+  await handler(textUpdate(7101, "paid the card 3000 from the current account"));
+  assertEquals(backend.tables.bot_proposals.length, 1);
+  assertEquals(backend.tables.bot_proposals[0].kind, "transfer");
+  assertEquals(backend.tables.transactions.length, 0, "a transfer was recorded before anyone said yes");
+  assertEquals(capturedIntake().length, 0, "a transfer was also captured as an expense");
+  assert(lastReply().startsWith("Record a transfer of AED 3000.00 from Current account to Bank card •0001, dated 2026-09-20?"), lastReply());
+
+  const prompt = backend.tables.bot_proposals[0].prompt_message_id as number;
+  await handler(replyUpdate(7102, "yes", prompt));
+  assertEquals(backend.tables.transactions.map((t) => [t.account_id, t.amount, t.kind]), [["acc-current", -3000, "transfer"], ["acc-card", 3000, "transfer"]]);
+  assert(lastReply().startsWith("Recorded the transfer: AED 3000.00 from Current account to Bank card •0001"), lastReply());
+
+  await handler(replyUpdate(7103, "yes", prompt));
+  assertEquals(backend.tables.transactions.length, 2, "a second yes recorded it again");
+  assert(lastReply().startsWith("Already recorded"), lastReply());
+});
+
+freshTest("a transfer naming an account that matches nothing proposes nothing and captures nothing", async () => {
+  backend.tables.accounts.push({ id: "acc-current", household_id: HOUSEHOLD, name: "Current account", archived_at: null });
+  backend.route = { tool: "log_transfer", args: { from_account: "current account", to_account: "somewhere else", amount: 100 } };
+  await handler(textUpdate(7104, "moved 100 to somewhere else"));
+  assertEquals(backend.tables.bot_proposals.length, 0);
+  assertEquals(backend.tables.transactions.length, 0);
+  assertEquals(capturedIntake().length, 0, "a transfer that could not be matched was captured as an expense");
+});
+
+Deno.test("a transfer is drafted only when each side names exactly one open account", () => {
+  const accounts = [
+    { id: "a", name: "Current account" },
+    { id: "b", name: "Bank card •0001" },
+    { id: "c", name: "Savings" },
+  ];
+  const ok = transferDraftFrom(accounts, { from_account: "current", to_account: "card", amount: -250.5 }, "2026-10-16");
+  assertEquals(ok, { from: accounts[0], to: accounts[1], amount: 250.5, occurredAt: "2026-10-16", note: null });
+  assertEquals((transferDraftFrom(accounts, { to_account: "card", amount: 5 }, "2026-10-16") as { error: string }).error, "from_account_missing");
+  assertEquals((transferDraftFrom(accounts, { from_account: "nowhere", to_account: "card", amount: 5 }, "2026-10-16") as { error: string }).error, "from_account_not_found");
+  assertEquals((transferDraftFrom(accounts, { from_account: "savings", to_account: "savings", amount: 5 }, "2026-10-16") as { error: string }).error, "same_account");
+  assertEquals((transferDraftFrom(accounts, { from_account: "savings", to_account: "card", amount: 0 }, "2026-10-16") as { error: string }).error, "invalid_amount");
+});
+
+Deno.test("a recorded transfer says which sides were already in Rokda", () => {
+  const message = proposalOutcomeMessage({
+    outcome: "applied",
+    kind: "transfer",
+    applied: [{ from_name: "Current account", to_name: "Bank card", amount: 450, occurred_at: "2026-10-13", joined_out: true, joined_in: false, already_recorded: false }],
+    skipped: [],
+  });
+  assert(message.includes("the payment out of Current account was already in Rokda"), message);
 });
 
 freshTest("a DNS failure reaching Telegram never puts the bot token in the logs", async () => {

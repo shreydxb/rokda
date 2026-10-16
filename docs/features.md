@@ -155,6 +155,13 @@ here, because this repository is public.
 
 ## Telegram bot (`supabase/functions/telegram-webhook`)
 
+- Records transfers between the household's own accounts ("paid the card
+  3000 from the current account"): it names both accounts and the amount and
+  records the transfer on a "yes" or 👍. A side already recorded (the payment
+  pasted from the bank's SMS as an expense) becomes part of the transfer
+  rather than a second copy, and a transfer already recorded is not recorded
+  again.
+
 - Logs expenses, income and refunds from plain text or pasted bank SMS,
   several at once. An SMS or receipt with no date is dated the day it was sent and flagged in the Inbox for the real date. It picks the account by card name or last digits. The
   category comes from a household rule first, then the category the household
