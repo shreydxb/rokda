@@ -197,6 +197,7 @@ export default function Household({ household, members, me, loading, reload }) {
           householdId={household?.id}
           isSelf={editing !== 'new' && editing.id === me?.id}
           isLastOwner={editing !== 'new' && editing.role === 'owner' && owners.length <= 1}
+          canManage={iAmOwner}
           onClose={() => setEditing(null)}
           onSaved={async () => {
             setEditing(null);

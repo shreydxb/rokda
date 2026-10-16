@@ -2,7 +2,14 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import '../money/TransactionEditor.css';
 
-export default function MemberEditor({ member, householdId, isSelf, isLastOwner, onClose, onSaved }) {
+// What a member may change here follows the database's owner/member boundary
+// (owner_role_authorization): an owner manages the roster; a member who is not
+// an owner renames themselves and links their own Telegram, and sees everyone
+// else read-only. Offering the rest only for the database to refuse it showed
+// a raw policy error instead of saying who can do it (SHR-314).
+export default function MemberEditor({ member, householdId, isSelf, isLastOwner, canManage = true, onClose, onSaved }) {
+  // A member who is not an owner can still edit their own row: the name.
+  const canEdit = canManage || isSelf;
   const [displayName, setDisplayName] = useState(member?.display_name ?? '');
   const [role, setRole] = useState(member?.role ?? 'member');
   const [dirty, setDirty] = useState(false);
@@ -116,6 +123,7 @@ export default function MemberEditor({ member, householdId, isSelf, isLastOwner,
             <input
               className="te-fieldvalue"
               type="text"
+              readOnly={!canEdit}
               value={displayName}
               onChange={(e) => {
                 setDisplayName(e.target.value);
@@ -135,7 +143,7 @@ export default function MemberEditor({ member, householdId, isSelf, isLastOwner,
                   type="button"
                   className="om-seg"
                   data-active={role === r}
-                  disabled={isLastOwner || (r === 'owner' && !canBeOwner)}
+                  disabled={!canManage || isLastOwner || (r === 'owner' && !canBeOwner)}
                   onClick={() => {
                     setRole(r);
                     setDirty(true);
@@ -146,12 +154,17 @@ export default function MemberEditor({ member, householdId, isSelf, isLastOwner,
               ))}
             </div>
           </div>
-          {isLastOwner && (
+          {!canManage && (
+            <div className="ov-muted" style={{ fontSize: 11.5, marginTop: -10 }}>
+              {isSelf ? 'Only an owner can change roles.' : 'Only an owner can change or remove another member.'}
+            </div>
+          )}
+          {canManage && isLastOwner && (
             <div className="ov-muted" style={{ fontSize: 11.5, marginTop: -10 }}>
               This is the only owner — add another owner before changing this one to a member.
             </div>
           )}
-          {!isLastOwner && !canBeOwner && (
+          {canManage && !isLastOwner && !canBeOwner && (
             <div className="ov-muted" style={{ fontSize: 11.5, marginTop: -10 }}>
               Owner is unavailable until they have a login — an owner administers the household, which means signing in.
             </div>
@@ -170,6 +183,8 @@ export default function MemberEditor({ member, householdId, isSelf, isLastOwner,
               <div style={{ marginTop: 8 }}>
                 {member.telegram_user_id ? (
                   <div className="ov-muted" style={{ fontSize: 12.5 }}>Linked.</div>
+                ) : !canManage && !isSelf ? (
+                  <div className="ov-muted" style={{ fontSize: 12.5 }}>Not linked. Only an owner can link another member.</div>
                 ) : linkCode ? (
                   // The code used to be six digits, which a stranger could
                   // guess inside its fifteen-minute life. It is now a 122-bit
@@ -219,7 +234,7 @@ export default function MemberEditor({ member, householdId, isSelf, isLastOwner,
 
           <div className="te-sticky-actions">
             <div className="te-actions" style={{ borderTop: 'none', paddingTop: 0, marginTop: 0 }}>
-              {member && !isSelf && !isLastOwner && (
+              {canManage && member && !isSelf && !isLastOwner && (
                 <button type="button" className="om-btn te-delete" onClick={handleDelete} disabled={saving}>
                   {confirmingDelete ? 'Confirm remove?' : 'Remove'}
                 </button>
@@ -240,11 +255,13 @@ export default function MemberEditor({ member, householdId, isSelf, isLastOwner,
                 ) : (
                   <>
                     <button type="button" className="om-btn" onClick={requestClose}>
-                      Cancel
+                      {canEdit ? 'Cancel' : 'Close'}
                     </button>
-                    <button type="submit" className="om-btn ov-btn-primary" disabled={saving}>
-                      {saving ? 'Saving…' : member ? 'Save changes' : 'Add member'}
-                    </button>
+                    {canEdit && (
+                      <button type="submit" className="om-btn ov-btn-primary" disabled={saving}>
+                        {saving ? 'Saving…' : member ? 'Save changes' : 'Add member'}
+                      </button>
+                    )}
                   </>
                 )}
               </div>
