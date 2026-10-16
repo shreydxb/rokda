@@ -506,5 +506,12 @@
   "fingerprint": "92ba6022cfb2c1467774ce17b98aa91b",
   "framingFingerprint": "a4f737a4d5133767e21198c0d7cdfd90",
   "fingerprintVersion": 2
+ },
+ {
+  "version": "20261016120000",
+  "name": "transaction_splits",
+  "fingerprint": "bdf2471f3426a79b3cf51cb4b04675bd",
+  "framingFingerprint": "fe666295c27a76cbf9d24628ab7351c0",
+  "fingerprintVersion": 2
  }
 ]
