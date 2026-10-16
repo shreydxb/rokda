@@ -10,7 +10,7 @@ import { parseDay } from './day';
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const BASES = new Set(['posted', 'scheduled', 'all']);
-const KINDS = new Set(['expense', 'income', 'refund']);
+const KINDS = new Set(['expense', 'income', 'refund', 'transfer']);
 const SORTS = new Set(['newest', 'oldest', 'largest']);
 const pad = (n) => String(n).padStart(2, '0');
 

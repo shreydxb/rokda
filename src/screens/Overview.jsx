@@ -588,7 +588,7 @@ export default function Overview() {
                   recent.map((t) => (
                     <div key={t.id} className="ov-list-row">
                       <div className="ov-list-main">
-                        <div>{t.merchant ?? 'Transaction'}</div>
+                        <div>{t.kind === 'transfer' ? 'Transfer between accounts' : (t.merchant ?? 'Transaction')}</div>
                         <div className="ov-muted">
                           {new Date(t.occurred_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
                           {t.categories?.name ? ` · ${t.categories.name}` : ''}

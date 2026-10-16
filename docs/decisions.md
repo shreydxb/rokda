@@ -1392,3 +1392,42 @@ layout decisions, made on the household's behalf:
 - **Not done:** a cumulative-spend-against-budget view, and a separate net
   cash flow plot. Budget already shows the month against its plan; both can
   follow if the simpler chart proves too little.
+
+## Transfers are neither income nor spending
+
+Moving money between the household's own accounts (paying the card from the
+current account, putting money into savings) was recorded as an expense on
+one side and income on the other, so it inflated both, and the savings rate
+with them (product review, 15 October; SHR-234).
+
+- **A transfer is its own kind**: two transactions, money out of one account
+  (negative) and the same money into another (positive), joined by a row in
+  `transaction_links`. `transactionKind.js` (and the bot's copy) counts
+  neither side as income or spending, so every total that goes through it
+  (Overview, Budget, Insights, Activity, the calendar, Forecast, the bot)
+  leaves transfers out. Activity says how many it left out.
+- **The database keeps the pair whole.** A transfer row always has exactly one
+  other side, on a different account, the other way, for the same amount to
+  the cent, in the same household. The checks run at commit, so any write path
+  (the app, the bot, the SQL editor) that would leave half a transfer, or two
+  sides that disagree, is refused. The app writes through functions that
+  change both sides at once: `record_transfer`, `update_transfer`,
+  `unlink_transfer`, `delete_transfer` and `link_transfer`.
+- **Same amount, or it isn't a transfer.** A fee or an exchange difference is
+  real money gone, so it is recorded as its own expense rather than hidden as
+  a gap between the two sides.
+- **Existing records can be joined.** Opening an expense or income whose other
+  side is already in the ledger (the same amount the other way on another
+  account, within four days) offers "Make these one transfer". Each side keeps
+  its date, account, merchant and note; only its type changes, and the change
+  is in its edit history. Unlinking reverses it: an expense on the first
+  account and income on the second.
+- **Editing a transfer edits both sides**: the amount, the day and the note
+  are the transfer's. Its accounts stay put; to move one side, unlink it.
+  Deleting a transfer deletes both sides.
+- **A transfer has no category.** It is neither income nor spending, and it is
+  left out of the categorisation figure in data quality.
+- **Not yet:** a refund linked to the purchase it reverses, remembering a
+  confirmed duplicate (both use `transaction_links`, SHR-234), turning a
+  single record into a transfer whose other side was never recorded, and
+  transfers from the bot.

@@ -37,6 +37,9 @@ const SOURCES = [
     query: (id) => supabase.from('statement_reconciliations').select('*').eq('household_id', id).order('statement_date', { ascending: false }).order('id'),
   },
   { key: 'backupRecords', query: (id) => supabase.from('backup_records').select('*').eq('household_id', id).order('done_on', { ascending: false }).order('id') },
+  // Which transactions are two sides of one transfer (docs/decisions.md,
+  // "Transfers are neither income nor spending").
+  { key: 'transactionLinks', query: (id) => supabase.from('transaction_links').select('*').eq('household_id', id).order('created_at').order('id') },
 ].map((source) => ({ ...source, run: (id) => readAllPages(() => source.query(id)) }));
 
 // The sources this hook loads, so a test can check each has a name to fail with.
@@ -56,6 +59,7 @@ const EMPTY_STATE = {
   categoryRules: [],
   statementReconciliations: [],
   backupRecords: [],
+  transactionLinks: [],
   errors: {},
   loadedAt: null,
 };

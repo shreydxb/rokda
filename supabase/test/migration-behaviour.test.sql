@@ -1910,5 +1910,123 @@ begin
   raise notice 'two-step ok: both membership helpers check the second step';
 end $$;
 
+-- Transfers: two sides, one link, the same amount out of one account and into
+-- another. The rules are checked at commit; `set constraints all immediate`
+-- runs them now, so each case can be tested inside this transaction.
+do $$
+declare
+  hh constant uuid := '11111111-1111-1111-1111-111111111111';
+  card constant uuid := '33333333-3333-3333-3333-333333333333';
+  savings constant uuid := '33333333-3333-3333-3333-33333333aaaa';
+  made jsonb;
+  link uuid;
+  out_id uuid;
+  in_id uuid;
+  n int;
+begin
+  insert into accounts (id, household_id, name, type, balance, is_shared) values (savings, hh, 'Test savings', 'savings', 0, true);
+
+  made := record_transfer(hh, savings, card, 250, date '2026-10-01', 'Card payment');
+  link := (made ->> 'link_id')::uuid;
+  out_id := (made ->> 'from_transaction_id')::uuid;
+  in_id := (made ->> 'to_transaction_id')::uuid;
+  set constraints all immediate;
+  set constraints all deferred;
+  select count(*) into n from transactions where id in (out_id, in_id) and kind = 'transfer';
+  if n <> 2 or (select amount from transactions where id = out_id) <> -250 or (select amount from transactions where id = in_id) <> 250 then
+    raise exception 'transfers FAILED: record_transfer did not write -250 out and +250 in';
+  end if;
+
+  -- One side changed on its own breaks the pair.
+  begin
+    update transactions set amount = -240 where id = out_id;
+    set constraints all immediate;
+    raise exception 'transfers FAILED: the sides were allowed to differ';
+  exception when check_violation then null;
+  end;
+  set constraints all deferred;
+  begin
+    update transactions set kind = 'expense' where id = out_id;
+    set constraints all immediate;
+    raise exception 'transfers FAILED: one side stopped being a transfer while linked';
+  exception when check_violation then null;
+  end;
+  set constraints all deferred;
+  begin
+    delete from transactions where id = in_id;
+    set constraints all immediate;
+    raise exception 'transfers FAILED: one side was deleted and the other kept';
+  exception when check_violation then null;
+  end;
+  set constraints all deferred;
+
+  -- Both sides together.
+  perform update_transfer(link, 300, date '2026-10-02', 'Card payment, corrected');
+  set constraints all immediate;
+  set constraints all deferred;
+  if (select amount from transactions where id = in_id) <> 300 or (select occurred_at from transactions where id = out_id) <> date '2026-10-02' then
+    raise exception 'transfers FAILED: update_transfer did not change both sides';
+  end if;
+
+  -- Unlinked: an expense out and income in, each with the change in its history.
+  perform unlink_transfer(link);
+  set constraints all immediate;
+  set constraints all deferred;
+  if (select kind from transactions where id = out_id) <> 'expense' or (select kind from transactions where id = in_id) <> 'income'
+     or exists (select 1 from transaction_links where id = link) then
+    raise exception 'transfers FAILED: unlink_transfer did not leave an expense and an income';
+  end if;
+  select count(*) into n from transaction_edits where transaction_id in (out_id, in_id) and field = 'kind' and old_value = 'Transfer';
+  if n <> 2 then raise exception 'transfers FAILED: unlinking was not recorded in the edit history'; end if;
+
+  -- And linked again.
+  link := (link_transfer(out_id, in_id) ->> 'link_id')::uuid;
+  set constraints all immediate;
+  set constraints all deferred;
+
+  -- A pair that doesn't balance, or sits on one account, can't be linked.
+  insert into transactions (id, household_id, account_id, amount, occurred_at, is_shared)
+  values ('44444444-4444-4444-4444-4444444444a1', hh, card, -80, '2026-10-03', true),
+         ('44444444-4444-4444-4444-4444444444a2', hh, savings, 75, '2026-10-03', true),
+         ('44444444-4444-4444-4444-4444444444a3', hh, card, 80, '2026-10-03', true);
+  begin
+    perform link_transfer('44444444-4444-4444-4444-4444444444a1', '44444444-4444-4444-4444-4444444444a2');
+    set constraints all immediate;
+    raise exception 'transfers FAILED: 80 out and 75 in were linked';
+  exception when check_violation then null;
+  end;
+  set constraints all deferred;
+  begin
+    perform link_transfer('44444444-4444-4444-4444-4444444444a1', '44444444-4444-4444-4444-4444444444a3');
+    set constraints all immediate;
+    raise exception 'transfers FAILED: two records on one account were linked';
+  exception when check_violation then null;
+  end;
+  set constraints all deferred;
+  begin
+    perform record_transfer(hh, card, card, 10, date '2026-10-03');
+    raise exception 'transfers FAILED: a transfer from an account to itself was recorded';
+  exception when invalid_parameter_value then null;
+  end;
+
+  -- Deleting the transfer takes both sides and the link.
+  perform delete_transfer(link);
+  set constraints all immediate;
+  set constraints all deferred;
+  if exists (select 1 from transactions where id in (out_id, in_id)) or exists (select 1 from transaction_links where id = link) then
+    raise exception 'transfers FAILED: delete_transfer left something behind';
+  end if;
+
+  if has_function_privilege('authenticated', 'check_transfer(uuid)', 'execute')
+     or has_function_privilege('authenticated', 'set_transaction_link_author()', 'execute')
+     or has_function_privilege('anon', 'record_transfer(uuid, uuid, uuid, numeric, date, text, boolean, uuid)', 'execute') then
+    raise exception 'transfers FAILED: an internal function is callable through the API';
+  end if;
+
+  delete from transactions where id in ('44444444-4444-4444-4444-4444444444a1', '44444444-4444-4444-4444-4444444444a2', '44444444-4444-4444-4444-4444444444a3');
+  delete from accounts where id = savings;
+  raise notice 'transfers ok: both sides, one link, equal amounts on two accounts, kept together through edit, unlink and delete';
+end $$;
+
 
 rollback;

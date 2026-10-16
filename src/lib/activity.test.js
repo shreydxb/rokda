@@ -65,9 +65,16 @@ describe('shareOf', () => {
 
 describe('activitySummary', () => {
   it('splits net spend into purchases less refunds, matching incomeAndSpend', () => {
-    const rows = [SHARED_EXPENSE, SHARED_REFUND, { id: 'i', amount: 500, kind: 'income', occurred_at: '2026-10-01', is_shared: true }];
+    const rows = [
+      SHARED_EXPENSE,
+      SHARED_REFUND,
+      { id: 'i', amount: 500, kind: 'income', occurred_at: '2026-10-01', is_shared: true },
+      // A card payment: out of one account, into the card. Neither total.
+      { id: 'to', amount: -300, kind: 'transfer', occurred_at: '2026-10-02', is_shared: true },
+      { id: 'ti', amount: 300, kind: 'transfer', occurred_at: '2026-10-02', is_shared: true },
+    ];
     const summary = activitySummary(rows, ME);
-    expect(summary).toEqual({ income: 250, purchases: 50, refunds: 10, spend: 40 });
+    expect(summary).toEqual({ income: 250, purchases: 50, refunds: 10, spend: 40, transfers: 2 });
     expect(summary.spend).toBe(incomeAndSpend(rows, ME).spend);
   });
 });

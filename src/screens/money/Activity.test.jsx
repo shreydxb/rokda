@@ -251,3 +251,29 @@ describe('Activity date select and other filters', () => {
     expect(merchants).toEqual(['Card shop', 'August shop', 'Card refund']);
   });
 });
+
+describe('Activity and transfers', () => {
+  it('labels each side by where the money went and leaves both out of the totals', () => {
+    const accounts = [...ACCOUNTS, { id: 'a2', name: 'Savings', type: 'savings', archived_at: null, is_shared: true }];
+    const rows = [
+      { id: 'e', amount: -100, kind: 'expense', occurred_at: '2026-10-05', is_shared: true, account_id: 'a1', merchant: 'Grocer' },
+      { id: 'o', amount: -500, kind: 'transfer', occurred_at: '2026-10-06', is_shared: true, account_id: 'a1' },
+      { id: 'i', amount: 500, kind: 'transfer', occurred_at: '2026-10-06', is_shared: true, account_id: 'a2' },
+    ];
+    renderScreen(
+      <MemoryRouter initialEntries={['/money']}>
+        <Activity
+          household={{ id: 'h' }}
+          members={MEMBERS}
+          me={{ id: 'm1' }}
+          loading={false}
+          data={{ transactions: rows, accounts, categories: CATEGORIES, transactionLinks: [{ id: 'l', kind: 'transfer', from_transaction_id: 'o', to_transaction_id: 'i' }], reload: vi.fn() }}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText('To Savings')).toBeTruthy();
+    expect(screen.getByText('From ENBD')).toBeTruthy();
+    const text = document.querySelector('.mn-count').textContent;
+    expect(text).toMatch(/Net spend AED 100 · Income AED 0 · 2 transfers between accounts, in neither/);
+  });
+});

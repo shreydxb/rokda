@@ -141,6 +141,15 @@ insert into backup_records (id, household_id, kind, result, done_on) values
   ('f7000000-0000-0000-0000-000000000001', 'd1000000-0000-0000-0000-000000000001', 'export', 'passed', '2026-09-19'),
   ('f7000000-0000-0000-0000-000000000002', 'd2000000-0000-0000-0000-000000000002', 'export', 'passed', '2026-09-19');
 
+-- A second account each, and a transfer in the other household.
+insert into accounts (id, household_id, name, type, balance, is_shared) values
+  ('f4000000-0000-0000-0000-000000000003', 'd1000000-0000-0000-0000-000000000001', 'Our savings', 'savings', 0, true),
+  ('f4000000-0000-0000-0000-000000000004', 'd2000000-0000-0000-0000-000000000002', 'Their savings', 'savings', 0, true);
+do $$ begin perform record_transfer('d2000000-0000-0000-0000-000000000002', 'f4000000-0000-0000-0000-000000000002', 'f4000000-0000-0000-0000-000000000004', 50, '2026-10-01'); end $$;
+-- Opening a balance records it; these two aren't part of the balance-history
+-- case below, which counts its own.
+delete from account_balance_events where account_id in ('f4000000-0000-0000-0000-000000000003', 'f4000000-0000-0000-0000-000000000004');
+
 set role authenticated;
 set request.jwt.claim.role = 'authenticated';
 
@@ -386,6 +395,58 @@ begin
   get diagnostics n = row_count;
   if n <> 0 then raise exception 'backups FAILED: a member deleted % backup records', n; end if;
   raise notice 'backups ok: own household only, recorded as the caller, never changed or removed';
+end $$;
+
+-- Transfers: a member records, edits, unlinks and deletes their own
+-- household's, and can neither see nor touch another household's.
+do $$
+declare
+  n int;
+  made jsonb;
+  theirs uuid;
+  their_tx uuid;
+  who uuid;
+begin
+  select count(*) into n from transaction_links;
+  if n <> 0 then raise exception 'transfers FAILED: a member sees % of another household''s transfer links', n; end if;
+  select id, from_transaction_id into theirs, their_tx from transaction_links limit 1;
+
+  made := record_transfer('d1000000-0000-0000-0000-000000000001', 'f4000000-0000-0000-0000-000000000001', 'f4000000-0000-0000-0000-000000000003', 120, '2026-10-02');
+  select count(*) into n from transaction_links;
+  if n <> 1 then raise exception 'transfers FAILED: a member''s own transfer is not visible to them'; end if;
+  select created_by into who from transaction_links where id = (made ->> 'link_id')::uuid;
+  if who is distinct from 'e1000000-0000-0000-0000-00000000000b' then
+    raise exception 'transfers FAILED: the link was attributed to % rather than the member who made it', who;
+  end if;
+  perform update_transfer((made ->> 'link_id')::uuid, 130, '2026-10-02');
+  perform unlink_transfer((made ->> 'link_id')::uuid);
+  perform link_transfer((made ->> 'from_transaction_id')::uuid, (made ->> 'to_transaction_id')::uuid);
+
+  begin
+    perform record_transfer('d2000000-0000-0000-0000-000000000002', 'f4000000-0000-0000-0000-000000000002', 'f4000000-0000-0000-0000-000000000004', 10, '2026-10-02');
+    raise exception 'transfers FAILED: a member recorded a transfer in another household';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform record_transfer('d1000000-0000-0000-0000-000000000001', 'f4000000-0000-0000-0000-000000000001', 'f4000000-0000-0000-0000-000000000002', 10, '2026-10-02');
+    raise exception 'transfers FAILED: a member moved money to another household''s account';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    insert into transaction_links (household_id, kind, from_transaction_id, to_transaction_id)
+    values ('d2000000-0000-0000-0000-000000000002', 'transfer', (made ->> 'from_transaction_id')::uuid, (made ->> 'to_transaction_id')::uuid);
+    raise exception 'transfers FAILED: a member wrote a link into another household';
+  exception when insufficient_privilege or foreign_key_violation then null;
+  end;
+
+  select id into theirs from transaction_links where household_id = 'd2000000-0000-0000-0000-000000000002';
+  if theirs is not null then raise exception 'transfers FAILED: another household''s link was readable'; end if;
+
+  select id into theirs from transaction_links where from_transaction_id = (made ->> 'from_transaction_id')::uuid;
+  perform delete_transfer(theirs);
+  select count(*) into n from transactions where id in ((made ->> 'from_transaction_id')::uuid, (made ->> 'to_transaction_id')::uuid);
+  if n <> 0 then raise exception 'transfers FAILED: deleting a transfer left % of its sides', n; end if;
+  raise notice 'transfers ok: own household only; record, edit, unlink, link and delete as a member';
 end $$;
 
 -- QA §8: a member cannot promote themselves.

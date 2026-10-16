@@ -57,6 +57,12 @@ here, because this repository is public.
   address, so Back, reload and a bookmark keep them. The summary shows net
   spend as purchases less refunds, and income. The list shows 200 rows at a
   time; the totals cover everything matching.
+- **Transfers** between your own accounts (paying the card, saving): two
+  sides, one out and one in, for the same amount, counted as neither income
+  nor spending. Add one with Transfer on a new entry; an existing record whose
+  other side is already in the ledger offers "Make these one transfer".
+  Editing or deleting a transfer changes both sides; Unlink makes them an
+  expense and an income again.
 - **Budget**: month and year views. Spending is budgeted by subcategory and
   rolled up to its group. Savings categories are savings targets measured
   against what the month actually saved, never counted as spending.
