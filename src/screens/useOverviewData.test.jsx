@@ -96,3 +96,55 @@ describe('QA-10: a failed load is not an empty one', () => {
     expect(failedSources(result.current.errors)).toEqual([]);
   });
 });
+
+// Product review, 15 October: an open page never saw a change made elsewhere.
+describe('keeping an open page fresh', () => {
+  beforeEach(() => {
+    responses.clear();
+  });
+
+  it('reads again in the background after the first load, keeping the figures on screen', async () => {
+    responses.set('accounts', { data: [{ id: 'a1' }], error: null });
+    const { result } = renderHook(() => useOverviewData('household-1'));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    responses.set('accounts', { data: [{ id: 'a1' }, { id: 'a2' }], error: null });
+    let pending;
+    act(() => {
+      pending = result.current.reload();
+    });
+    // No skeleton: the old figures stay while the new ones load.
+    expect(result.current.loading).toBe(false);
+    expect(result.current.refreshing).toBe(true);
+    expect(result.current.accounts).toHaveLength(1);
+    await act(() => pending);
+    expect(result.current.refreshing).toBe(false);
+    expect(result.current.accounts).toHaveLength(2);
+  });
+
+  it('reads again when the tab comes back into view after more than a minute', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date(2026, 9, 15, 12, 0));
+      responses.set('accounts', { data: [{ id: 'a1' }], error: null });
+      const { result } = renderHook(() => useOverviewData('household-1'));
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      responses.set('accounts', { data: [{ id: 'a1' }, { id: 'a2' }], error: null });
+      // Within the minute: nothing new is read.
+      vi.setSystemTime(new Date(2026, 9, 15, 12, 0, 30));
+      act(() => {
+        window.dispatchEvent(new Event('focus'));
+      });
+      expect(result.current.refreshing).toBe(false);
+
+      vi.setSystemTime(new Date(2026, 9, 15, 12, 2));
+      act(() => {
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+      await waitFor(() => expect(result.current.accounts).toHaveLength(2));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

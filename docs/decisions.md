@@ -1307,3 +1307,28 @@ Activity's filters, now live in the address.
 - **A date range has no picker yet.** A link sets it and a chip clears it.
   Choosing dates by hand belongs with the Activity filter layout, which is
   still to be decided.
+
+## Open pages stay fresh
+
+Pages read the household's records when opened and after their own saves, so
+an expense the bot logged, or the other member's edit, stayed invisible on an
+open page until a reload by hand (product review, 15 October).
+
+- **Read again on return.** When the tab comes back into view, or the browser
+  comes back online, a page reads again if what it shows is more than a
+  minute old (`src/lib/useSources.js`).
+- **Read again every five minutes while in view**, so an open page is never
+  more than about five minutes behind. A hidden tab doesn't poll. Supabase
+  realtime subscriptions would be quicker, but would need replication set up
+  per table and an open socket per tab; five minutes is enough for a ledger
+  two people keep.
+- **"Loaded 14:32 · Refresh"** at the top of every page says when the page
+  last read, and reads again on request. It is the page's read time only: a
+  balance keeps its "as of" date and a price its "priced" date, and reading
+  again changes neither.
+- **Only the first load shows the skeleton.** Every later read, including the
+  one after a save, keeps the figures on screen and swaps them when the new
+  ones arrive, so an open editor and what has been typed into it are left
+  alone. If two reads overlap, only the newer one lands.
+- A failed read still keeps what was last shown and says which source failed
+  (QA-10), so a refresh that fails never blanks a page.

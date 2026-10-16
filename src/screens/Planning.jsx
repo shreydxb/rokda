@@ -10,6 +10,7 @@ import Drawdown from './planning/Drawdown';
 import LifePlan from './planning/LifePlan';
 import Notes from './planning/Notes';
 import LoadFailure from './LoadFailure';
+import Freshness from './Freshness';
 import AedNote from './AedNote';
 import './Planning.css';
 
@@ -33,7 +34,15 @@ export default function Planning() {
 
   return (
     <div className="mn">
-      <div className="ov-kicker">Planning</div>
+      {/* Two loads; the older of the two is how fresh the page is. */}
+      <Freshness
+        title="Planning"
+        loadedAt={overview.loadedAt && planning.loadedAt ? (overview.loadedAt < planning.loadedAt ? overview.loadedAt : planning.loadedAt) : null}
+        refreshing={overview.refreshing || planning.refreshing}
+        onRefresh={async () => {
+          await Promise.all([reloadHousehold(), overview.reload(), planning.reload()]);
+        }}
+      />
       <LoadFailure
         errors={{ ...overview.errors, ...planning.errors, ...(householdError ? { household: householdError } : {}) }}
         loadedAt={planning.loadedAt ?? overview.loadedAt}
