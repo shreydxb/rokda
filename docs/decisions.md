@@ -1362,3 +1362,33 @@ review, 15 October). The layout decisions, made on the household's behalf:
 - **Not done here:** an amount range and a merchant filter separate from
   search. Search already matches merchant, note and amount; neither seemed
   worth another control yet.
+
+## The dashboard leads with the month and what needs doing
+
+Net worth led Overview and data quality took a screen's height, while the
+month's money and the action list came lower (product review, 15 October). The
+layout decisions, made on the household's behalf:
+
+- **Order**: the period's figures; the cash-flow chart beside Needs
+  attention; the next 30 days; net worth; data quality; categories, recent
+  activity and accounts. Net worth is smaller and still says which balances
+  it rests on.
+- **Each figure against the same days of the period before**: month to date
+  on the 15th against the 1st to the 15th of last month, never against a
+  whole month. Money moves are shown as a difference in the display currency
+  ("▲ 6,855"), not a percentage, because against a month's first quiet days
+  an ordinary week reads as +2,000%. The savings rate moves in points.
+- **Names say what is counted**: "Net spend" (after refunds) for "Spend", and
+  "Income less spending" for "Saved". The headline "On pace to save 60%" read
+  as a forecast; it now says "Saved 60% of income so far this month".
+- **The chart says what it shows.** Its title names the grouping, since the
+  period toggle switches it between months, quarters and years while the
+  figures above stay period to date. It shows the figure at the top of its
+  scale, marks the running period "so far" and draws it lighter, and a
+  period with no records says "no records" instead of drawing nothing, which
+  read as a verified zero.
+- **Data quality is one line** ("2 of 4 checks need a look") that opens to
+  the four checks.
+- **Not done:** a cumulative-spend-against-budget view, and a separate net
+  cash flow plot. Budget already shows the month against its plan; both can
+  follow if the simpler chart proves too little.

@@ -59,7 +59,7 @@ function kpis(container) {
 describe('Overview display currency', () => {
   it('shows income, spend and saved in AED by default', async () => {
     const { container } = await renderOverview();
-    expect(kpis(container)).toMatchObject({ Income: '18,363', Spend: '3,673', Saved: '+14,690' });
+    expect(kpis(container)).toMatchObject({ Income: '18,363', 'Net spend': '3,673', 'Income less spending': '+14,690' });
     expect(container.querySelector('.ov-period-section').textContent).toMatch(/AED/);
   });
 
@@ -67,10 +67,32 @@ describe('Overview display currency', () => {
     localStorage.setItem('rokda:currency', 'USD');
     const { container } = await renderOverview();
     expect(container.querySelector('.ov-hero-currency').textContent).toBe('USD');
-    expect(kpis(container)).toMatchObject({ Income: '5,000', Spend: '1,000', Saved: '+4,000' });
+    expect(kpis(container)).toMatchObject({ Income: '5,000', 'Net spend': '1,000', 'Income less spending': '+4,000' });
     const period = container.querySelector('.ov-period-section').textContent;
     expect(period).toMatch(/USD/);
     expect(period).toMatch(/3\.6725/);
     expect(container.querySelector('.ov-chart-readout').textContent).toMatch(/Income 5,000/);
+    // The change against last month is in the display currency too.
+    expect(container.querySelector('.ov-kpi-change').textContent).toMatch(/▲ 5,000 vs the same days last month/);
+  });
+});
+
+describe('Overview layout', () => {
+  it('puts the month and what needs doing before net worth, and folds data quality into one line', async () => {
+    const { container } = await renderOverview();
+    const order = [...container.querySelectorAll('section')].map((s) => s.className.split(' ')[0]);
+    expect(order.indexOf('ov-period-section')).toBeLessThan(order.indexOf('ov-hero-section'));
+    expect(order.indexOf('ov-split')).toBeLessThan(order.indexOf('ov-hero-section'));
+    const quality = container.querySelector('.ov-quality-details');
+    expect(quality.open).toBe(false);
+    expect(quality.querySelector('summary').textContent).toMatch(/Data quality/);
+  });
+
+  it('titles the chart by its grouping and marks the running month', async () => {
+    const { container } = await renderOverview();
+    expect(container.textContent).toContain('Monthly income and net spend · last 6 months');
+    expect(container.querySelector('.ov-col[data-running="true"] .ov-col-label').textContent).toMatch(/so far/);
+    // Months before the first record say so rather than drawing a zero.
+    expect(container.querySelectorAll('.ov-col-none').length).toBeGreaterThan(0);
   });
 });

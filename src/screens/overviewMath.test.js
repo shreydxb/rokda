@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { dataQuality, buildChartColumns, liquidAssets, netWorthSummary, periodSummary, runwaySummary, startingNetWorth } from './overviewMath';
+import { dataQuality, buildChartColumns, isRunningBucket, liquidAssets, netWorthSummary, periodChange, periodSummary, previousPeriodSummary, runwaySummary, startingNetWorth } from './overviewMath';
 import { unvaluedAccounts, unvaluedNote } from '../lib/accounts';
 import { unconfirmedAccounts } from '../lib/balance';
 import { closedMonths, forecastInputs } from '../lib/forecast';
@@ -309,5 +309,38 @@ describe('QA #4: the note every screen shares says the same thing', () => {
   it('agrees with itself in number', () => {
     expect(unvaluedNote(1)).toContain('1 account in another currency that has');
     expect(unvaluedNote(3)).toContain('3 accounts in another currency that have');
+  });
+});
+
+describe('previousPeriodSummary', () => {
+  const tx = (amount, occurred_at, kind = amount < 0 ? 'expense' : 'income') => ({ id: occurred_at + amount, amount, kind, occurred_at, is_shared: true });
+  const rows = [tx(-100, '2026-09-10'), tx(-500, '2026-09-25'), tx(-40, '2026-10-05'), tx(1000, '2026-09-01')];
+
+  it('compares month to date with the same days of last month', () => {
+    const prev = previousPeriodSummary(rows, 'mtd', null, new Date(2026, 9, 15, 12));
+    expect(prev.spend).toBe(100);
+    expect(prev.income).toBe(1000);
+  });
+
+  it('clamps a day last month does not have', () => {
+    const prev = previousPeriodSummary([tx(-7, '2026-02-28')], 'mtd', null, new Date(2026, 2, 31, 12));
+    expect(prev.spend).toBe(7);
+  });
+});
+
+describe('periodChange', () => {
+  it('gives the difference for money, points for a rate, or nothing to compare with', () => {
+    expect(periodChange(120, 100)).toEqual({ kind: 'abs', value: 20 });
+    expect(periodChange(7000, 3)).toEqual({ kind: 'abs', value: 6997 });
+    expect(periodChange(0.3, 0.25, { asPoints: true }).value).toBeCloseTo(5);
+    expect(periodChange(0.3, null, { asPoints: true })).toBeNull();
+  });
+});
+
+describe('isRunningBucket', () => {
+  it('is true only for the bucket that contains today', () => {
+    const now = new Date(2026, 9, 15);
+    expect(isRunningBucket({ start: new Date(2026, 9, 1), end: new Date(2026, 10, 1) }, now)).toBe(true);
+    expect(isRunningBucket({ start: new Date(2026, 8, 1), end: new Date(2026, 9, 1) }, now)).toBe(false);
   });
 });
