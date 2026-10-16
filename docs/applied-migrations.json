@@ -520,5 +520,12 @@
   "fingerprint": "59a221dd4e03643ea65a149a16452d19",
   "framingFingerprint": "a905bed5faf22b6f76fac023d40beace",
   "fingerprintVersion": 2
+ },
+ {
+  "version": "20261016160000",
+  "name": "bot_transfers",
+  "fingerprint": "ae467fdd3174a7f9ce1e866e2f15d155",
+  "framingFingerprint": "2fb807d72570429d420554622ee55082",
+  "fingerprintVersion": 2
  }
 ]
