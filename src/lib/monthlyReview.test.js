@@ -75,6 +75,14 @@ describe('monthlyReview', () => {
     expect(review.total).toBe(5);
   });
 
+  it('notes refunds not yet linked to their purchase, without holding the month up', () => {
+    const transactions = [tx('p'), tx('linked', { amount: 20, kind: 'refund', occurred_at: '2026-09-12' }), tx('loose', { amount: 10, kind: 'refund', occurred_at: '2026-09-13' })];
+    const transactionLinks = [{ id: 'l', kind: 'refund', from_transaction_id: 'p', to_transaction_id: 'linked' }];
+    const review = monthlyReview(SEPT, { ...settled, transactions, transactionLinks }, NOW);
+    expect(byId(review).refunds).toMatchObject({ status: 'note', count: 1, required: false, href: '/money?tab=activity&kind=refund&from=2026-09-01&to=2026-09-30' });
+    expect(review.total).toBe(5);
+  });
+
   it("notes an earlier month that was never closed, since it can't be closed now", () => {
     const review = monthlyReview({ year: 2026, month: 7 }, { ...settled, transactions: [] }, NOW);
     expect(byId(review).close).toMatchObject({ status: 'note', required: false, href: null });

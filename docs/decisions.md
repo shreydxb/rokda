@@ -1510,3 +1510,47 @@ doing.
 - **Not here:** a recurring bill that didn't arrive in the month (Overview
   already flags it while it is current), and a saved "reviewed" mark separate
   from the close.
+
+## A refund is linked to its purchase
+
+A refund was an island: positive, kind `refund`, netting against spend in
+whatever category someone gave it. Nothing said which purchase it returned,
+so a refund filed under the wrong category (or none) made one category read
+too low, and the purchase looked unreturned (SHR-234).
+
+- **A link, from the purchase to the refund**, in `transaction_links` (kind
+  `refund`). A refund returns one purchase; a purchase can have several
+  refunds (a partial return, then the rest).
+- **Linking files the refund where the money was spent.** `link_refund` gives
+  the refund the purchase's category. For a split purchase it gets a line in
+  each of the purchase's categories, in proportion, cut to the cent, with the
+  largest line taking what is left so the lines add up exactly. Both changes go
+  in the refund's history. Unlinking leaves the category as it is, and it can
+  be changed like any other.
+- **Totals don't change shape.** A refund already nets against spending in its
+  own category (`transactionKind.js`), so no total needed a new rule; the link
+  only makes sure that category is the right one.
+- **A refund counts in the month it arrives**, as the card statement and the
+  bank show it. A September purchase refunded in October lowers October's
+  spend in that category, not September's, so a closed month never changes
+  after the fact.
+- **The database keeps it honest**, checked at commit: a refund link joins an
+  expense to a refund; the refund is dated on or after the purchase; while
+  linked, neither changes type; and a purchase's refunds come to no more than
+  it cost, plus 5% for a refund converted at a different exchange rate than
+  the purchase was. A refund for a purchase that was never recorded, or that
+  can't be told apart, stays unlinked, which is allowed.
+- **Suggested, never guessed.** A refund's editor offers up to three earlier
+  purchases (within four months) from the same shop or on the same account,
+  with enough not yet refunded, the same shop first. A refund that matches
+  neither isn't suggested anything, and nothing is linked without someone
+  choosing it. A card refund usually lands on the same card, often on a later
+  statement; one paid to a replacement card or as store credit won't match by
+  account, so the shop's name still finds it.
+- **Shown both ways.** Activity labels a linked refund "refund for Shop,
+  20 Sept" and its purchase "refunded" or "part refunded"; the purchase's
+  editor lists its refunds. The monthly review notes refunds not yet linked,
+  without holding the month up.
+- **Not here:** remembering a confirmed duplicate pair, and transfers recorded
+  from the bot (the rest of SHR-234). The bot records refunds as before; they
+  are linked in the app.

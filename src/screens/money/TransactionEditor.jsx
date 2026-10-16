@@ -8,9 +8,10 @@ import { CURRENCIES, currencyAvailable, convertToAed, rateNote } from '../../lib
 import { householdToday, parseDay } from '../../lib/day';
 import { orderPair, transferCandidates } from '../../lib/transfers';
 import { splitProblem, unallocated } from '../../lib/splits';
+import { refundCandidates, refundLinkOf, refundsOf } from '../../lib/refunds';
 import './TransactionEditor.css';
 
-const FIELD_LABELS = { kind: 'Type', category: 'Category', amount: 'Amount', account: 'Account', merchant: 'Merchant', scope: 'Scope' };
+const FIELD_LABELS = { kind: 'Type', category: 'Category', amount: 'Amount', account: 'Account', merchant: 'Merchant', scope: 'Scope', refund_for: 'Refund for' };
 const KIND_LABELS = { expense: 'Expense', income: 'Income', refund: 'Refund' };
 
 function initialForm(tx, accounts) {
@@ -104,7 +105,7 @@ function buildEdits(tx, form, savedAmount, { accounts, categories, members, spli
   return changes;
 }
 
-export default function TransactionEditor({ tx, household, householdId, accounts, categories, members, allTransactions, initial, onClose, onSaved, onOpenOther, onSwitchToTransfer }) {
+export default function TransactionEditor({ tx, household, householdId, accounts, categories, members, allTransactions = [], links = [], initial, onClose, onSaved, onOpenOther, onSwitchToTransfer }) {
   // Closed accounts aren't offered for new entries, but an existing record that
   // already points at one keeps it so saving doesn't move it (QA-01).
   const selectable = selectableAccounts(accounts, tx?.account_id ?? null);
@@ -133,6 +134,11 @@ export default function TransactionEditor({ tx, household, householdId, accounts
     setSplit(lines);
     setDirty(true);
   }
+  // The purchase a refund returns (lib/refunds.js): chosen here, linked on
+  // save by link_refund(), which also gives the refund the purchase's
+  // category.
+  const [refundFor, setRefundFor] = useState(null);
+  const [confirmingUnlink, setConfirmingUnlink] = useState(false);
   const [history, setHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(!!tx);
 
@@ -203,6 +209,23 @@ export default function TransactionEditor({ tx, household, householdId, accounts
     [form.merchant, form.amount, form.occurred_at, form.account_id, allTransactions, duplicateDismissed, tx]
   );
 
+  const refundLink = tx ? refundLinkOf(tx.id, links) : null;
+  const linkedPurchase = refundLink ? (allTransactions.find((t) => t.id === refundLink.from_transaction_id) ?? null) : null;
+  const purchaseRefunds = tx && form.type === 'expense' ? refundsOf(tx.id, links, allTransactions) : [];
+  const refundSuggestions = useMemo(
+    () =>
+      form.type === 'refund' && !refundLink
+        ? refundCandidates(
+            { id: tx?.id, account_id: form.account_id, merchant: form.merchant, amount: amountAed ?? 0, occurred_at: form.occurred_at },
+            allTransactions,
+            links,
+          ).slice(0, 3)
+        : [],
+    [form.type, form.account_id, form.merchant, form.occurred_at, amountAed, refundLink, tx?.id, allTransactions, links],
+  );
+  const accountName = (id) => accounts.find((a) => a.id === id)?.name ?? 'Another account';
+  const shortDay = (day) => parseDay(day).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+
   async function handleSave(e) {
     e.preventDefault();
     // A transfer is edited as a pair, in TransferEditor. This one's other side
@@ -219,6 +242,17 @@ export default function TransactionEditor({ tx, household, householdId, accounts
     }
     setSaving(true);
     setError('');
+
+    // A linked refund stops being one only once it is unlinked from its
+    // purchase; the database refuses the change otherwise.
+    if (refundLink && form.type !== 'refund') {
+      const { error: unlinkError } = await supabase.rpc('unlink_refund', { p_link_id: refundLink.id });
+      if (unlinkError) {
+        setSaving(false);
+        setError(unlinkError.message);
+        return;
+      }
+    }
 
     const lines = split ? split.map((l) => ({ category_id: l.category_id, amount: Number(l.amount) })) : null;
     // Was split and no longer is: one category again first, so the update
@@ -255,9 +289,10 @@ export default function TransactionEditor({ tx, household, householdId, accounts
       if (tx) delete payload.amount;
     }
 
+    const linking = form.type === 'refund' && !refundLink && refundFor;
     const query = tx
       ? supabase.from('transactions').update(payload).eq('id', tx.id)
-      : split
+      : split || linking
         ? supabase.from('transactions').insert(payload).select('id').single()
         : supabase.from('transactions').insert(payload);
 
@@ -277,6 +312,15 @@ export default function TransactionEditor({ tx, household, householdId, accounts
       if (splitError) {
         setSaving(false);
         setError(tx ? splitError.message : `Saved, but not split: ${splitError.message}. Open it again to split it.`);
+        return;
+      }
+    }
+
+    if (linking) {
+      const { error: linkError } = await supabase.rpc('link_refund', { p_purchase_id: refundFor, p_refund_id: tx ? tx.id : inserted.id });
+      if (linkError) {
+        setSaving(false);
+        setError(tx ? linkError.message : `Saved, but not linked to the purchase: ${linkError.message}. Open it again to link it.`);
         return;
       }
     }
@@ -315,6 +359,22 @@ export default function TransactionEditor({ tx, household, householdId, accounts
     setSaving(false);
     if (linkError) {
       setError(linkError.message);
+      return;
+    }
+    await onSaved();
+  }
+
+  async function unlinkRefund() {
+    if (!confirmingUnlink) {
+      setConfirmingUnlink(true);
+      return;
+    }
+    setSaving(true);
+    setError('');
+    const { error: unlinkError } = await supabase.rpc('unlink_refund', { p_link_id: refundLink.id });
+    setSaving(false);
+    if (unlinkError) {
+      setError(unlinkError.message);
       return;
     }
     await onSaved();
@@ -471,6 +531,75 @@ export default function TransactionEditor({ tx, household, householdId, accounts
               </select>
             </div>
           </div>
+
+          {form.type === 'refund' && (
+            <div className="te-refund" role="group" aria-label="Refund for">
+              <span className="te-fieldlabel">Refund for</span>
+              {refundLink ? (
+                <div className="mn-row te-refund-row">
+                  <div className="mn-row-main">
+                    <div>{linkedPurchase ? linkedPurchase.merchant || 'Purchase' : 'A purchase that isn’t loaded'}</div>
+                    {linkedPurchase && (
+                      <div className="ov-muted">
+                        {shortDay(linkedPurchase.occurred_at)} · {accountName(linkedPurchase.account_id)} · {formatSigned(linkedPurchase.amount)}
+                      </div>
+                    )}
+                  </div>
+                  <button type="button" className="om-btn" disabled={saving} onClick={unlinkRefund}>
+                    {confirmingUnlink ? 'Unlink it?' : 'Unlink'}
+                  </button>
+                </div>
+              ) : refundSuggestions.length > 0 ? (
+                <>
+                  <div className="ov-muted te-refund-note">Choose the purchase this returns. Saving links them, and the refund takes the purchase’s category.</div>
+                  <div className="mn-list">
+                    {refundSuggestions.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        className="mn-row te-refund-row"
+                        aria-pressed={refundFor === p.id}
+                        data-active={refundFor === p.id}
+                        onClick={() => {
+                          setRefundFor(refundFor === p.id ? null : p.id);
+                          setDirty(true);
+                        }}
+                      >
+                        <div className="mn-row-main">
+                          <div>{p.merchant || 'Purchase'}</div>
+                          <div className="ov-muted">
+                            {shortDay(p.occurred_at)} · {accountName(p.account_id)}
+                          </div>
+                        </div>
+                        <div className="fig">{formatSigned(p.amount)}</div>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="ov-muted te-refund-note">No earlier purchase from this shop or on this account in the last four months to link it to.</div>
+              )}
+            </div>
+          )}
+
+          {purchaseRefunds.length > 0 && (
+            <div className="te-refund" role="group" aria-label="Refunded">
+              <span className="te-fieldlabel">Refunded</span>
+              <div className="mn-list">
+                {purchaseRefunds.map((r) => (
+                  <div key={r.id} className="mn-row te-refund-row" style={{ cursor: 'default' }}>
+                    <div className="mn-row-main">
+                      <div>{r.merchant || 'Refund'}</div>
+                      <div className="ov-muted">
+                        {shortDay(r.occurred_at)} · {accountName(r.account_id)}
+                      </div>
+                    </div>
+                    <div className="fig ov-pos">{formatSigned(r.amount)}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {split ? (
             <div className="te-split" role="group" aria-label="Split across categories">

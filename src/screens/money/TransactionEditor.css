@@ -336,3 +336,26 @@
   color: var(--accent);
   cursor: pointer;
 }
+
+/* Refund for: the purchase a refund returns, or a purchase's refunds. */
+.te-refund {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.te-refund-note {
+  font-size: 12px;
+}
+.te-refund-row {
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: none;
+  align-items: center;
+}
+.te-refund-row[data-active='true'] {
+  box-shadow: inset 2px 0 0 var(--accent);
+  background: var(--raise);
+  padding-left: 10px;
+}

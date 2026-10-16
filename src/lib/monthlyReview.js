@@ -5,6 +5,7 @@ import { snapshotMonthKeys, lastClosedMonth } from './snapshots';
 import { orderPair, transferCandidates } from './transfers';
 import { budgetGroupSpend } from './budget';
 import { isUncategorised } from './activity';
+import { refundLinkOf } from './refunds';
 
 // The monthly review (docs/decisions.md, "A month is reviewed, then closed").
 //
@@ -139,7 +140,7 @@ const dayLabel = (day) => parseDay(day).toLocaleDateString('en-GB', { day: 'nume
 // href }: status 'done', 'todo', or 'note' for something worth a look that
 // doesn't hold the month up. `done` of `total` counts only the checks that
 // can hold it up (`required`), so the count doesn't move when a note appears.
-export function monthlyReview({ year, month }, { transactions = [], accounts = [], statementReconciliations = [], netWorthSnapshots = [] }, now = new Date()) {
+export function monthlyReview({ year, month }, { transactions = [], accounts = [], statementReconciliations = [], netWorthSnapshots = [], transactionLinks = [] }, now = new Date()) {
   const { from, to } = monthRange(year, month);
   const label = new Date(year, month - 1, 1).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
   const rows = transactions.filter((t) => inMonth(t, from, to) && isPosted(t, now));
@@ -183,6 +184,22 @@ export function monthlyReview({ year, month }, { transactions = [], accounts = [
       ? `${plural(pairs.length, 'pair')} of records look like money moved between your own accounts. Joined, they stop counting as spending and income. Leave any that aren't.`
       : 'No unjoined transfers found.',
     href: null,
+  });
+
+  // A refund not yet linked to its purchase still nets in its own category,
+  // so it doesn't hold the month up; linking it files it where the money was
+  // spent (lib/refunds.js).
+  const unlinkedRefunds = rows.filter((t) => t.kind === 'refund' && !refundLinkOf(t.id, transactionLinks));
+  checks.push({
+    id: 'refunds',
+    required: false,
+    title: 'Refunds',
+    status: unlinkedRefunds.length ? 'note' : 'done',
+    count: unlinkedRefunds.length,
+    detail: unlinkedRefunds.length
+      ? `${plural(unlinkedRefunds.length, 'refund')} not linked to the purchase ${unlinkedRefunds.length === 1 ? 'it returns' : 'they return'}. Open one and choose its purchase, and it takes that purchase's category.`
+      : 'Every refund is linked to its purchase.',
+    href: activityHref({ kind: 'refund', from, to }),
   });
 
   const statements = monthStatements({ year, month }, accounts, statementReconciliations);
