@@ -4,14 +4,15 @@ import { accountOptionLabel, selectableAccounts } from '../../lib/accounts';
 import { formatMoney, formatSigned } from '../../lib/money';
 import { signedAmount } from '../../lib/intake';
 import { confirmedPairRow, findDuplicate } from '../../lib/duplicates';
-import { CURRENCIES, currencyAvailable, convertToAed, rateNote } from '../../lib/currency';
+import { CURRENCIES, currencyAvailable } from '../../lib/currency';
+import { estimateAed } from '../../lib/fxHistory';
 import { householdToday, parseDay } from '../../lib/day';
 import { orderPair, transferCandidates } from '../../lib/transfers';
 import { splitProblem, unallocated } from '../../lib/splits';
 import { refundCandidates, refundLinkOf, refundsOf } from '../../lib/refunds';
 import './TransactionEditor.css';
 
-const FIELD_LABELS = { kind: 'Type', category: 'Category', amount: 'Amount', account: 'Account', merchant: 'Merchant', scope: 'Scope', refund_for: 'Refund for' };
+const FIELD_LABELS = { kind: 'Type', category: 'Category', amount: 'Amount', native_amount: 'Amount paid', account: 'Account', merchant: 'Merchant', scope: 'Scope', refund_for: 'Refund for' };
 const KIND_LABELS = { expense: 'Expense', income: 'Income', refund: 'Refund' };
 
 function initialForm(tx, accounts) {
@@ -29,11 +30,12 @@ function initialForm(tx, accounts) {
       owner: tx.is_shared ? 'shared' : (tx.owner_member_id ?? ''),
       note: tx.note ?? '',
       needs_review: !!tx.needs_review,
-      // The amount field always holds the AED figure a record was saved
-      // with, so editing an existing record re-shows it in AED even if it
-      // was originally entered in another currency -- only a brand-new
-      // entry gets to pick a currency and have it converted on save.
-      entry_currency: 'AED',
+      // A payment in another currency opens in that currency, with the AED
+      // debited beside it, or blank while the AED is still an estimate
+      // (docs/decisions.md, "A payment in rupees keeps both amounts").
+      ...(foreignOf(tx)
+        ? { entry_currency: tx.currency, amount: String(Math.abs(Number(tx.native_amount))), aed_debited: tx.aed_estimated ? '' : String(Math.abs(Number(tx.amount))) }
+        : { entry_currency: 'AED', aed_debited: '' }),
     };
   }
   return {
@@ -47,8 +49,23 @@ function initialForm(tx, accounts) {
     note: '',
     needs_review: false,
     entry_currency: 'AED',
+    aed_debited: '',
   };
 }
+
+// Which rate an estimate used, in words: "1 AED = 23.5 INR, the rate on
+// 2 Sept 2026", the dollar peg, or today's rate when history has nothing for
+// the date.
+function estimateNote(estimate, currency) {
+  if (estimate.source === 'peg') return 'the dollar peg (1 USD = 3.6725 AED)';
+  const rate = `1 AED = ${estimate.rate.toLocaleString('en-IN', { maximumFractionDigits: 4 })} ${currency}`;
+  if (estimate.source === 'current') return `today's rate, ${rate}, as none is on record for that date`;
+  return `${rate}, the rate on ${parseDay(estimate.rateDay).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+}
+
+// Whether a saved record was made in another currency.
+const foreignOf = (tx) => !!tx && tx.native_amount != null && !!tx.currency && tx.currency !== 'AED';
+const signedNative = (n, type) => (n == null ? null : type === 'expense' ? -Math.abs(n) : Math.abs(n));
 
 // Diffs the form against the record as it was loaded, one entry per
 // changed field the acceptance criteria calls out. Only meaningful for an
@@ -56,7 +73,7 @@ function initialForm(tx, accounts) {
 // signed amount the save writes, so the history compares like with like: a
 // refund is stored positive, and diffing it as a negative recorded "+75 →
 // −75" on a save that changed nothing (QA, 15 Oct).
-function buildEdits(tx, form, savedAmount, { accounts, categories, members, splitChanging = false }) {
+function buildEdits(tx, form, savedAmount, { accounts, categories, members, splitChanging = false, savedNative = { currency: 'AED', amount: null } }) {
   const accountName = (id) => accounts.find((a) => a.id === id)?.name ?? 'Unknown account';
   const categoryName = (id) => (id ? (categories.find((c) => c.id === id)?.name ?? 'Unknown category') : 'Uncategorised');
   const scopeLabel = (isShared, ownerId) => (isShared ? 'Shared' : (members.find((m) => m.id === ownerId)?.display_name ?? 'Unknown member'));
@@ -84,6 +101,12 @@ function buildEdits(tx, form, savedAmount, { accounts, categories, members, spli
     changes.push({ field: 'amount', old_value: formatSigned(oldAmount), new_value: formatSigned(newAmount) });
   }
 
+  // The amount in the currency it was paid in, when that is not AED.
+  const paid = (currency, amount) => (amount == null ? 'AED only' : `${currency} ${formatSigned(amount, { decimals: 2 })}`);
+  const oldPaid = paid(tx.currency, foreignOf(tx) ? Number(tx.native_amount) : null);
+  const newPaid = paid(savedNative.currency, savedNative.amount);
+  if (oldPaid !== newPaid) changes.push({ field: 'native_amount', old_value: oldPaid, new_value: newPaid });
+
   if (tx.account_id !== form.account_id) {
     changes.push({ field: 'account', old_value: accountName(tx.account_id), new_value: accountName(form.account_id) });
   }
@@ -105,7 +128,7 @@ function buildEdits(tx, form, savedAmount, { accounts, categories, members, spli
   return changes;
 }
 
-export default function TransactionEditor({ tx, household, householdId, accounts, categories, members, allTransactions = [], links = [], initial, onClose, onSaved, onOpenOther, onSwitchToTransfer }) {
+export default function TransactionEditor({ tx, household, householdId, accounts, categories, members, allTransactions = [], links = [], fxHistory = [], initial, onClose, onSaved, onOpenOther, onSwitchToTransfer }) {
   // Closed accounts aren't offered for new entries, but an existing record that
   // already points at one keeps it so saving doesn't move it (QA-01).
   const selectable = selectableAccounts(accounts, tx?.account_id ?? null);
@@ -190,13 +213,23 @@ export default function TransactionEditor({ tx, household, householdId, accounts
     onClose();
   }
 
-  const amountAed = convertToAed(Number(form.amount) || 0, form.entry_currency, household);
+  // In another currency, `amount` is what was paid in it, and the AED that
+  // counts is the AED debited when it is known, otherwise an estimate at the
+  // payment date's rate (lib/fxHistory.js), marked as one.
+  const foreign = form.entry_currency !== 'AED';
+  const typed = Number(form.amount) || 0;
+  const debited = foreign && form.aed_debited.trim() !== '' ? Number(form.aed_debited) : null;
+  const estimate = foreign ? estimateAed(typed, form.entry_currency, form.occurred_at, fxHistory, household?.inr_per_aed) : null;
+  const aedEstimated = foreign && debited == null;
+  const amountAed = !foreign ? typed : debited != null ? debited : (estimate?.aed ?? null);
   const amountError =
     form.amount.trim() === '' || Number(form.amount) <= 0
       ? 'Enter an amount greater than zero.'
-      : amountAed === null
-        ? `No exchange rate for ${form.entry_currency} yet — set one in Settings first.`
-        : '';
+      : debited != null && !(debited > 0)
+        ? 'Enter the AED debited as an amount greater than zero, or leave it blank to estimate it.'
+        : amountAed === null
+          ? `No exchange rate for ${form.entry_currency} on that date. Enter the AED debited.`
+          : '';
   const accountError = !form.account_id ? 'Choose an account.' : '';
   // A refund reverses an earlier expense, so it draws from the same category
   // list as an expense rather than having none at all.
@@ -279,6 +312,8 @@ export default function TransactionEditor({ tx, household, householdId, accounts
       amount: signedAmount(amountAed, form.type),
       kind: form.type,
       currency: form.entry_currency,
+      native_amount: foreign ? signedNative(typed, form.type) : null,
+      aed_estimated: aedEstimated,
       merchant: form.merchant.trim() || null,
       note: form.note.trim() || null,
       occurred_at: form.occurred_at,
@@ -341,7 +376,13 @@ export default function TransactionEditor({ tx, household, householdId, accounts
     }
 
     if (tx) {
-      const changes = buildEdits(tx, form, signedAmount(amountAed, form.type), { accounts, categories, members, splitChanging: !!split || !!tx.is_split });
+      const changes = buildEdits(tx, form, signedAmount(amountAed, form.type), {
+        accounts,
+        categories,
+        members,
+        splitChanging: !!split || !!tx.is_split,
+        savedNative: { currency: form.entry_currency, amount: foreign ? signedNative(typed, form.type) : null },
+      });
       if (changes.length > 0) {
         const { error: historyError } = await supabase.from('transaction_edits').insert(
           changes.map((c) => ({ transaction_id: tx.id, field: c.field, old_value: c.old_value, new_value: c.new_value }))
@@ -495,9 +536,29 @@ export default function TransactionEditor({ tx, household, householdId, accounts
                 placeholder="0"
               />
             </div>
-            {form.entry_currency !== 'AED' && amountAed !== null && (
-              <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 6 }}>
-                ≈ {formatMoney(amountAed)} AED · {rateNote(form.entry_currency, household)}
+            {foreign && (
+              <div className="te-aed-debited">
+                <label className="te-fieldcell">
+                  <span className="te-fieldlabel">AED debited</span>
+                  <input
+                    className="te-fieldvalue"
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    step="0.01"
+                    aria-label="AED debited"
+                    value={form.aed_debited}
+                    onChange={(e) => set('aed_debited', e.target.value)}
+                    placeholder={estimate ? formatMoney(Math.abs(estimate.aed), { decimals: 2 }) : 'From the statement'}
+                  />
+                </label>
+                <div className="ov-muted" style={{ fontSize: 11.5 }}>
+                  {debited != null
+                    ? 'The AED that left the account, as the statement shows it. This is what every total counts.'
+                    : estimate
+                      ? `Estimated at ${estimateNote(estimate, form.entry_currency)} until you enter the AED debited.`
+                      : `No ${form.entry_currency} rate for that date. Enter the AED debited.`}
+                </div>
               </div>
             )}
           </div>

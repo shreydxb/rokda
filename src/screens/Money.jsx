@@ -91,7 +91,7 @@ export default function Money() {
         />
       )}
       {tab === 'inbox' && (
-        <Inbox members={members} accounts={data.accounts} categories={data.categories} data={data} loading={loading} />
+        <Inbox household={household} members={members} accounts={data.accounts} categories={data.categories} data={data} loading={loading} />
       )}
       {tab === 'review' && <Review household={household} data={data} loading={loading} />}
     </div>

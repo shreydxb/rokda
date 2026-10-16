@@ -1610,3 +1610,43 @@ an expense, so it counted as spending until someone changed it in the app
 - **The proposal kinds grew by one**, which meant replacing
   `bot_proposals_kind_check` (`20261016160000_bot_transfers`); nothing else is
   dropped.
+
+## A payment in rupees keeps both amounts
+
+Money sent home is agreed in rupees and debited in dirhams. A transaction held
+only the AED, so the rupee figure went into the note, and every conversion
+used the latest rate because `fx_rates` keeps only the latest (SHR-321).
+
+- **AED is still the amount that counts.** `transactions.amount` stays the AED
+  every total reads. `transactions.currency` now means the currency the
+  payment was made in, as `recurring.currency` already did, and
+  `native_amount` is the amount in it, signed the same way. An AED payment has
+  none. The database holds the two together: a foreign payment always has its
+  own amount, and an AED one never has another.
+- **The AED debited, or an estimate that says so.** The statement shows the
+  AED that actually left the account, with any card or transfer markup; this
+  app can't know that markup. When it isn't known yet, the AED is estimated
+  from the rupee amount at the payment date's rate and marked
+  `aed_estimated`. Activity shows "INR … · AED estimated" under the amount and
+  can filter to such records, and the monthly review asks for the AED debited
+  in any month that had a foreign payment. Entering it replaces the estimate.
+  A missing rate is never one-for-one: with no rate, the AED debited is
+  required.
+- **A rate per day.** `fx_rate_history` keeps one rate per day per pair. The
+  daily price refresh writes the day's rupee rate, and once fills the days
+  before the history began from the ECB's reference rates (rupees per dollar,
+  through the dirham's dollar peg). A day without a rate (a weekend, a failed
+  refresh) uses the latest one before it. Before history reaches a date,
+  today's rate is used and the estimate says it is today's.
+- **Dollars convert at the peg** (3.6725), but are still estimates until the
+  AED debited is entered, as a card adds its own markup.
+- **The Inbox keeps both.** A rupee amount the bot read used to be blanked,
+  and the reviewer typed an AED figure with the rupees lost. It now opens with
+  the rupee amount and an "AED debited" field; `approve_intake` takes the
+  native amount and the estimate flag. The bot says the entry is in rupees and
+  that it can be approved with the AED debited or as an estimate.
+- **Bills set in rupees are paid in rupees.** Recurring's "Mark paid" opens the
+  editor in the bill's own currency.
+- **Not here:** a rupee transfer the bot reads ("sent 40k INR home") as a
+  transfer between the household's own accounts; it is recorded as an expense
+  to the payee, as before, now with both amounts.

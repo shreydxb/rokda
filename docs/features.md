@@ -57,6 +57,12 @@ here, because this repository is public.
   address, so Back, reload and a bookmark keep them. The summary shows net
   spend as purchases less refunds, and income. The list shows 200 rows at a
   time; the totals cover everything matching.
+- **Payments in other currencies** (money sent home in rupees, a purchase in
+  dollars): the record keeps the amount paid in that currency beside the AED
+  that counts. The AED debited is entered when known; until then it is
+  estimated at the payment date's rate (from the daily rate history) and
+  marked "AED estimated", which Activity can filter to and the monthly review
+  asks about. The Inbox takes a rupee entry from the bot the same way.
 - **Splits**: one record across several categories ("Split across
   categories" in the editor), each line an amount in AED, adding up to the
   record. Every category total counts each line under its own category;

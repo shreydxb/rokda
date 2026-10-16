@@ -1712,7 +1712,8 @@ Deno.test("an expense sent to the Inbox says it is not recorded yet, and what wa
     inboxReason({ ...ready, parsed_merchant: null, parsed_account_id: null, parsed_category_id: null }),
     "Not recorded yet: I couldn't tell who was paid, which card or account or the category, so it's in the Inbox. Approve it there, or send it again with that added.",
   );
-  assert(inboxReason({ ...ready, parsed_currency: "USD" }).includes("the AED amount (it says USD)"));
+  assert(inboxReason({ ...ready, parsed_currency: "USD" }).includes("It's in USD: approve it with the AED debited"));
+  assert(!inboxReason({ ...ready, parsed_currency: "USD" }).includes("couldn't tell"), "a known currency was listed as something missing");
   assert(inboxReason({ ...ready, confidence: 0.6 }).includes("I wasn't sure I read it right"));
   assert(inboxReason(ready, { occurred_at: "2026-09-28" }).includes("already in Rokda from 2026-09-28"));
 });

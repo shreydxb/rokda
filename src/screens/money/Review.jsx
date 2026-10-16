@@ -163,7 +163,7 @@ export default function Review({ household, data, loading }) {
 
               {check.href && check.status !== 'done' && (
                 <Link className="ov-link rv-open" to={check.href}>
-                  {check.id === 'close' ? 'Close the month' : check.id === 'balances' ? 'Confirm balances' : check.id === 'statements' ? 'Check statements' : 'Open the records'}
+                  {check.id === 'close' ? 'Close the month' : check.id === 'balances' ? 'Confirm balances' : check.id === 'statements' ? 'Check statements' : check.id === 'estimates' ? 'Enter the AED debited' : 'Open the records'}
                 </Link>
               )}
             </div>

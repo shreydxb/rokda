@@ -31,16 +31,23 @@ describe('QA-11: the reviewer states what the item is', () => {
   });
 
   it('carries currency, ownership and merchant through explicitly', () => {
-    const args = approvalArgs(ITEM, { ...BASE_FORM, currency: 'INR', isShared: false, ownerMemberId: 'm2' });
+    const args = approvalArgs(ITEM, { ...BASE_FORM, currency: 'INR', nativeAmount: '-2800', aedEstimated: true, isShared: false, ownerMemberId: 'm2' });
     expect(args).toMatchObject({
       p_intake_id: 'intake-1',
       p_account_id: 'acc-1',
       p_currency: 'INR',
+      p_native_amount: 2800,
+      p_aed_estimated: true,
       p_is_shared: false,
       p_owner_member_id: 'm2',
       p_merchant: 'Carrefour',
       p_occurred_at: '2026-09-05',
     });
+  });
+
+  it('sends no other amount for an AED entry', () => {
+    expect(approvalArgs(ITEM, BASE_FORM)).not.toHaveProperty('p_native_amount');
+    expect(approvalArgs(ITEM, BASE_FORM)).not.toHaveProperty('p_aed_estimated');
   });
 
   it('drops the owner when the item is shared', () => {
@@ -55,12 +62,11 @@ describe('QA-11: the reviewer states what the item is', () => {
     expect(validateApproval({ ...BASE_FORM, isShared: false, ownerMemberId: null })).toMatch(/whose/i);
   });
 
-  // SHR-252: the amount header stays AED while Currency was freely editable,
-  // so "USD" could be entered against a number every dashboard total reads
-  // as AED. Native-currency conversion isn't implemented, so this is refused
-  // rather than silently mixing units.
-  it('refuses a non-AED currency until native-currency conversion exists', () => {
-    expect(validateApproval({ ...BASE_FORM, currency: 'USD' })).toMatch(/AED/);
+  // SHR-252, SHR-321: every total reads amount as AED, so an entry in another
+  // currency is approved only with its own-currency figure beside the AED.
+  it('needs the own-currency amount for an entry in another currency', () => {
+    expect(validateApproval({ ...BASE_FORM, currency: 'USD' })).toMatch(/USD/);
+    expect(validateApproval({ ...BASE_FORM, currency: 'USD', nativeAmount: '40' })).toBeNull();
     expect(validateApproval({ ...BASE_FORM, currency: 'aed' })).toBeNull();
   });
 });

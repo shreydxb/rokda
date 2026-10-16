@@ -100,9 +100,14 @@ export default function Recurring({ household, members, data, loading }) {
           categories={categories}
           members={members}
           allTransactions={transactions}
+          fxHistory={data.fxRateHistory}
           initial={{
             type: Number(paying.amount) >= 0 ? 'income' : 'expense',
-            amount: String(Math.abs(Number(paying.amount))),
+            // A bill set in rupees is paid in rupees: the editor estimates
+            // the AED until the AED debited is entered.
+            ...(paying.currency && paying.currency !== 'AED' && paying.native_amount != null
+              ? { entry_currency: paying.currency, amount: String(Math.abs(Number(paying.native_amount))) }
+              : { amount: String(Math.abs(Number(paying.amount))) }),
             merchant: paying.name,
             occurred_at: householdToday(),
             category_id: paying.category_id ?? '',

@@ -25,11 +25,11 @@ export function validateApproval(form) {
   if (form.dateGuessed && !form.dateConfirmed) return 'The message had no date, so set the day it was paid, or tick “Paid on this day” if the date shown is right.';
   if (!INTAKE_KINDS.some((k) => k.id === form.kind)) return 'Choose whether this is an expense, income or a refund.';
   if (!form.isShared && !form.ownerMemberId) return 'Choose whose it is, or mark it shared.';
-  // No native-currency conversion exists yet, so every aggregate calculation
-  // treats amount as AED. Approving a non-AED currency here would silently
-  // store an unconverted number that dashboards then misread as AED (SHR-252).
-  if ((form.currency || 'AED').toUpperCase() !== 'AED') {
-    return 'Only AED is supported for approval right now — native-currency conversion isn’t implemented yet.';
+  // Every total reads amount as AED, so an entry in another currency needs
+  // its own-currency figure as well as the AED, never one passed off as the
+  // other (SHR-252, SHR-321). `amount` is then the AED: debited, or estimated.
+  if ((form.currency || 'AED').toUpperCase() !== 'AED' && !(Math.abs(Number(form.nativeAmount)) > 0)) {
+    return `Enter the amount in ${form.currency.toUpperCase()} as well as the AED.`;
   }
   return null;
 }
@@ -54,5 +54,10 @@ export function approvalArgs(item, form) {
     // says so, and the database checks its own copy of the entry, so a screen
     // showing an older copy cannot approve a guess past it.
     p_date_confirmed: form.dateConfirmed === true,
+    // Only for a payment in another currency: the amount in it, and whether
+    // the AED above is an estimate. An AED entry sends neither.
+    ...((form.currency || 'AED').toUpperCase() !== 'AED'
+      ? { p_native_amount: Math.abs(Number(form.nativeAmount) || 0), p_aed_estimated: form.aedEstimated === true }
+      : {}),
   };
 }

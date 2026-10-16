@@ -68,7 +68,7 @@ export default function Activity({ household, members, me, data, loading }) {
   // week is a plan, and counting it here made this line disagree with Overview
   // and Budget for the same month.
   const filters = readActivityFilters(params);
-  const { categoryId: categoryFilter, search, needsReview: needsReviewOnly, dateBasis, from, to, view, accountId, kind, sort } = filters;
+  const { categoryId: categoryFilter, search, needsReview: needsReviewOnly, estimated: estimatedOnly, dateBasis, from, to, view, accountId, kind, sort } = filters;
   const setFilter = (key, value) => setParams((prev) => withActivityFilter(prev, key, value), { replace: true });
   const setDates = (range) => setParams((prev) => withActivityFilter(withActivityFilter(prev, 'from', range.from), 'to', range.to), { replace: true });
   const filterCount = activeFilterCount(filters);
@@ -79,7 +79,7 @@ export default function Activity({ household, members, me, data, loading }) {
   // starts open when a link arrives with one of them set, so the category it
   // narrowed to is in sight.
   const [moreOpen, setMoreOpen] = useState(
-    () => categoryFilter !== 'all' || accountId !== 'all' || kind !== 'all' || needsReviewOnly || dateBasis !== 'posted',
+    () => categoryFilter !== 'all' || accountId !== 'all' || kind !== 'all' || needsReviewOnly || estimatedOnly || dateBasis !== 'posted',
   );
   const [shown, setShown] = useState({ key: '', count: PAGE });
 
@@ -130,6 +130,7 @@ export default function Activity({ household, members, me, data, loading }) {
     return transactions.filter((t) => {
       if (scopeMemberId !== null && !(t.is_shared || t.owner_member_id === scopeMemberId)) return false;
       if (needsReviewOnly && !t.needs_review) return false;
+      if (estimatedOnly && !t.aed_estimated) return false;
       if (categoryIds && !inCategory(t, categoryIds)) return false;
       if (uncategorisedOnly && !isUncategorised(t)) return false;
       if (accountId !== 'all' && t.account_id !== accountId) return false;
@@ -141,7 +142,9 @@ export default function Activity({ household, members, me, data, loading }) {
       }
       return true;
     });
-  }, [transactions, categoryIds, uncategorisedOnly, scopeMemberId, needsReviewOnly, accountId, kind, search, from, to]);
+  }, [transactions, categoryIds, uncategorisedOnly, scopeMemberId, needsReviewOnly, estimatedOnly, accountId, kind, search, from, to]);
+  // Offered once there is something to narrow to, or a link set it.
+  const anyEstimated = estimatedOnly || transactions.some((t) => t.aed_estimated);
   const rows = useMemo(() => sortRows(matching.filter((t) => matchesDateBasis(t, dateBasis, now)), sort), [matching, dateBasis, now, sort]);
   // Records the other filters match that Posted leaves out, so a record just
   // entered with next week's date doesn't simply vanish.
@@ -235,6 +238,11 @@ export default function Activity({ household, members, me, data, loading }) {
         <button type="button" className="om-seg" data-active={needsReviewOnly} onClick={() => setFilter('needsReview', !needsReviewOnly)}>
           Needs review
         </button>
+        {anyEstimated && (
+          <button type="button" className="om-seg" data-active={estimatedOnly} onClick={() => setFilter('estimated', !estimatedOnly)}>
+            AED estimated
+          </button>
+        )}
         <select className="om-seg" aria-label="Sort" value={sort} onChange={(e) => setFilter('sort', e.target.value)}>
           {SORT_OPTIONS.map((o) => (
             <option key={o.id} value={o.id}>
@@ -344,6 +352,14 @@ export default function Activity({ household, members, me, data, loading }) {
                 <div className="om-hide-sm om-tx-account">{account}</div>
                 <div className={`fig om-tx-amt ${transfer ? 'ov-muted' : Number(t.amount) > 0 ? 'ov-pos' : ''}`}>
                   {formatSigned(t.amount)}
+                  {/* What was paid, when it was another currency, and whether
+                      the AED is still an estimate. */}
+                  {t.native_amount != null && t.currency && t.currency !== 'AED' && (
+                    <span className={`om-tx-share${t.aed_estimated ? ' ov-warn' : ''}`}>
+                      {t.currency} {formatSigned(t.native_amount)}
+                      {t.aed_estimated ? ' · AED estimated' : ''}
+                    </span>
+                  )}
                   {inFiltered !== null && (
                     <span className="om-tx-share">
                       {catName.get(categoryFilter) ?? 'this category'} {formatSigned(inFiltered)}
@@ -403,6 +419,7 @@ export default function Activity({ household, members, me, data, loading }) {
             members={members}
             allTransactions={transactions}
             links={links}
+            fxHistory={data.fxRateHistory}
             onOpenOther={(other) => setEditing(other)}
             onSwitchToTransfer={() => setEditing('new-transfer')}
             onClose={close}

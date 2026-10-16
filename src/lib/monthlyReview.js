@@ -203,6 +203,25 @@ export function monthlyReview({ year, month }, { transactions = [], accounts = [
     href: null,
   });
 
+  // A payment in another currency whose AED is still an estimate: the
+  // statement shows what was actually debited (SHR-321). Only asked about in
+  // a month that had such payments.
+  const foreignRows = rows.filter((t) => t.native_amount != null && t.currency && t.currency !== 'AED');
+  if (foreignRows.length) {
+    const estimated = foreignRows.filter((t) => t.aed_estimated);
+    checks.push({
+      id: 'estimates',
+      required: true,
+      title: 'Payments in other currencies',
+      status: estimated.length ? 'todo' : 'done',
+      count: estimated.length,
+      detail: estimated.length
+        ? `${plural(estimated.length, 'payment')} with the AED still estimated from a rate. Enter the AED debited from the statement.`
+        : 'Every payment in another currency has the AED actually debited.',
+      href: activityHref({ estimated: true, from, to }),
+    });
+  }
+
   // A refund not yet linked to its purchase still nets in its own category,
   // so it doesn't hold the month up; linking it files it where the money was
   // spent (lib/refunds.js).
