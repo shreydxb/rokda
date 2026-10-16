@@ -1,5 +1,4 @@
-import { useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useTab } from '../lib/useTab';
 import { useHousehold } from '../lib/useHousehold';
 import { useOverviewData } from './useOverviewData';
 import Household from './settings/Household';
@@ -17,9 +16,8 @@ const TABS = [
 ];
 
 export default function Settings() {
-  // Arriving from Needs attention can name the tab to open, read once on mount.
-  const location = useLocation();
-  const [tab, setTab] = useState(() => (TABS.some((t) => t.id === location.state?.tab) ? location.state.tab : 'household'));
+  // The tab is in the address, so Needs attention can open Backups directly.
+  const [tab, setTab] = useTab(TABS);
   const { household, members, me, loading: householdLoading, error: householdError, reload: reloadHousehold } = useHousehold();
   const data = useOverviewData(household?.id);
   const loading = householdLoading || data.loading;
