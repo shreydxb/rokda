@@ -1610,3 +1610,34 @@ an expense, so it counted as spending until someone changed it in the app
 - **The proposal kinds grew by one**, which meant replacing
   `bot_proposals_kind_check` (`20261016160000_bot_transfers`); nothing else is
   dropped.
+
+## A second member signs in as a member
+
+One member signed in; the other was a placeholder row that owned records and
+had Telegram linked but no login (SHR-314).
+
+- **The owner makes the login by hand.** Sign-ups stay closed. The owner adds
+  the user in the Supabase dashboard and attaches it to the member row that
+  already exists, so everything recorded against that row stays theirs. The
+  member then sets their own password through the reset link and enrols an
+  authenticator, as two-step sign-in requires. The steps are in
+  `docs/second-member.md`, with no names or addresses in the repository.
+- **They join as a member, not an owner.** The database already made the
+  roster owner-only (`owner_role_authorization`): a member can't add, change or
+  remove anyone else, or change any role, their own included. Everything else
+  is shared, as it is between two people keeping one ledger: every money
+  record, account, budget, plan and setting, including the household's name
+  and rupee rate.
+- **A member links only their own Telegram.** `generate_telegram_link_code`
+  checked only that the caller was in the household, so a member could make a
+  code for the owner, send it from their own phone, and be treated by the bot
+  as the owner. Now the code is for the caller's own row, or the caller is an
+  owner (`20261016180000_link_code_self_or_owner`). An owner still links a
+  member who has no login, which is how such a member is linked at all.
+- **The screen says what the database will refuse.** Settings → Household's
+  member editor offered rename, role, remove and "Generate code" to everyone,
+  so a member was shown a raw policy error. A member now sees others read-only
+  ("Only an owner can change or remove another member"), and edits their own
+  name with the role chips disabled.
+- **Not here:** an invite email sent from the app. Sign-ups are closed, and a
+  two-person household adds a login once; the dashboard steps are enough.
