@@ -167,7 +167,8 @@ export const data = {
 // transactions are fetched with `*, categories(id, name, kind)` embedded.
 const categoryById = Object.fromEntries(data.categories.map((c) => [c.id, { id: c.id, name: c.name, kind: c.kind }]));
 const EMBEDDED = {
-  transactions: (row) => ({ ...row, categories: row.category_id ? categoryById[row.category_id] ?? null : null }),
+  // A split record carries its lines inline here, as transaction_splits(...) embeds them.
+  transactions: (row) => ({ ...row, categories: row.category_id ? categoryById[row.category_id] ?? null : null, transaction_splits: row.transaction_splits ?? [] }),
   household_members: (row) => ({ ...row, households: data.households[0] }),
 };
 

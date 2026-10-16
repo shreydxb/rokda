@@ -99,8 +99,8 @@ export default function Overview() {
       const d = parseDay(t.occurred_at);
       return d >= start && d < new Date(end.getTime() + 86400000);
     });
-    return spendComposition(periodTx, scopeMemberId);
-  }, [transactions, p, scopeMemberId]);
+    return spendComposition(periodTx, scopeMemberId, { categories });
+  }, [transactions, p, scopeMemberId, categories]);
 
   const runway = useMemo(() => runwaySummary(transactions, accounts, scopeMemberId, now), [transactions, accounts, scopeMemberId, now]);
   const next30 = useMemo(() => {
@@ -328,20 +328,23 @@ export default function Overview() {
                             {money.fmtBalance(item.tx.amount)}
                           </span>
                         </div>
-                        <select
-                          className="ov-attn-select"
-                          defaultValue=""
-                          onChange={(e) => e.target.value && categorise(item.tx, e.target.value)}
-                        >
-                          <option value="" disabled>
-                            Categorise…
-                          </option>
-                          {categories.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.name}
+                        {/* A split record's categories are its lines; it is categorised in its editor. */}
+                        {!item.tx.is_split && (
+                          <select
+                            className="ov-attn-select"
+                            defaultValue=""
+                            onChange={(e) => e.target.value && categorise(item.tx, e.target.value)}
+                          >
+                            <option value="" disabled>
+                              Categorise…
                             </option>
-                          ))}
-                        </select>
+                            {categories.map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.name}
+                              </option>
+                            ))}
+                          </select>
+                        )}
                         <button type="button" className="om-btn ov-attn-btn" onClick={() => markReviewed(item.tx)}>
                           Mark reviewed
                         </button>

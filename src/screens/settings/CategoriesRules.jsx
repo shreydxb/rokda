@@ -32,6 +32,10 @@ export default function CategoriesRules({ household, members = [], data, loading
       .update({ category_id: rule.category_id })
       .eq('household_id', household.id)
       .is('category_id', null)
+      // A split record's categories are its lines, and a transfer has none:
+      // neither is "uncategorised".
+      .eq('is_split', false)
+      .neq('kind', 'transfer')
       .ilike('merchant', ilikePattern(rule))
       .select('id');
     setApplying(null);

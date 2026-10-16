@@ -5,6 +5,7 @@ import { chartBuckets, periodBounds } from '../lib/period';
 import { scopedHoldingValue, visibleHoldings } from '../lib/holdings';
 import { isAwaitingFirstValuation } from '../lib/valuation';
 import { applyToIncomeSpend, isSpendRow, isTransfer } from '../lib/transactionKind';
+import { categoryParts } from '../lib/splits';
 
 const LIABILITY_TYPES = new Set(['credit_card', 'loan']);
 const LIQUID_TYPES = new Set(['checking', 'savings', 'cash']);
@@ -144,14 +145,19 @@ export function buildChartColumns(transactions, kind, scopeMemberId, now = new D
   });
 }
 
-export function spendComposition(periodTx, scopeMemberId, { topN = 5 } = {}) {
+export function spendComposition(periodTx, scopeMemberId, { topN = 5, categories = [] } = {}) {
+  const nameOf = new Map(categories.map((c) => [c.id, c.name]));
   const byCategory = new Map();
   for (const t of periodTx) {
-    const v = scopedValue(t.amount, t, scopeMemberId);
     // Money moved to another of the household's accounts wasn't spent.
-    if (v >= 0 || isTransfer(t)) continue;
-    const name = t.categories?.name ?? 'Uncategorised';
-    byCategory.set(name, (byCategory.get(name) ?? 0) + -v);
+    if (isTransfer(t)) continue;
+    // A split receipt adds each line to its own category.
+    for (const part of categoryParts(t)) {
+      const v = scopedValue(part.amount, t, scopeMemberId);
+      if (v >= 0) continue;
+      const name = (part.categoryId && (nameOf.get(part.categoryId) ?? (part.categoryId === t.category_id ? t.categories?.name : null))) || 'Uncategorised';
+      byCategory.set(name, (byCategory.get(name) ?? 0) + -v);
+    }
   }
   const sorted = [...byCategory.entries()].sort((a, b) => b[1] - a[1]);
   const total = sorted.reduce((sum, [, v]) => sum + v, 0);
@@ -211,7 +217,7 @@ export function dataQuality(accounts, transactions, now = new Date()) {
 
   // A transfer has no category to give: it is neither income nor spending.
   const categorisable = transactions.filter((t) => !isTransfer(t));
-  const categorised = categorisable.filter((t) => t.category_id).length;
+  const categorised = categorisable.filter((t) => t.category_id || t.is_split).length;
   const categorisedPct = categorisable.length ? categorised / categorisable.length : null;
 
   const openReview = transactions.filter((t) => t.needs_review).length;

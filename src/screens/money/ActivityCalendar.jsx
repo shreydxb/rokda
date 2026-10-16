@@ -9,7 +9,7 @@ const MONTH_LABELS = ['January', 'February', 'March', 'April', 'May', 'June', 'J
 // Each day shows what the list's summary line would say for that day alone:
 // the selected person's share, net of refunds (dayTotals). A day whose
 // refunds outweigh its purchases shows the money back, not income.
-export default function ActivityCalendar({ rows, members, scopeMemberId = null, shareLabel = null, onOpen, startMonth = null }) {
+export default function ActivityCalendar({ rows, members, scopeMemberId = null, shareLabel = null, onOpen, startMonth = null, amountOf }) {
   // Opens on the month Activity is narrowed to, if it is, so a link to
   // September's records shows September rather than today's month.
   const [cursor, setCursor] = useState(() => {
@@ -18,7 +18,7 @@ export default function ActivityCalendar({ rows, members, scopeMemberId = null, 
   });
   const [selectedKey, setSelectedKey] = useState(null);
 
-  const byDay = useMemo(() => dayTotals(rows, scopeMemberId), [rows, scopeMemberId]);
+  const byDay = useMemo(() => dayTotals(rows, scopeMemberId, amountOf), [rows, scopeMemberId, amountOf]);
 
   const cells = useMemo(() => {
     const year = cursor.getFullYear();

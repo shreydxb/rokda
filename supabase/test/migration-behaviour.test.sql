@@ -2029,4 +2029,98 @@ begin
 end $$;
 
 
+-- Splits: one transaction, several categories, lines that add up to it. The
+-- rules run at commit; `set constraints all immediate` runs them now.
+do $$
+declare
+  hh constant uuid := '11111111-1111-1111-1111-111111111111';
+  card constant uuid := '33333333-3333-3333-3333-333333333333';
+  tx constant uuid := '44444444-4444-4444-4444-4444444444b1';
+  groceries constant uuid := '66666666-6666-6666-6666-6666666666b1';
+  household constant uuid := '66666666-6666-6666-6666-6666666666b2';
+  n int;
+  total numeric;
+  made jsonb;
+begin
+  insert into categories (id, household_id, name, kind) values (groceries, hh, 'Split groceries', 'expense'), (household, hh, 'Split household', 'expense');
+  insert into transactions (id, household_id, account_id, amount, kind, category_id, occurred_at, is_shared)
+  values (tx, hh, card, -500, 'expense', groceries, '2026-10-05', true);
+
+  perform split_transaction(tx, jsonb_build_array(jsonb_build_object('category_id', groceries, 'amount', 400), jsonb_build_object('category_id', household, 'amount', 100)));
+  set constraints all immediate;
+  set constraints all deferred;
+  select count(*), sum(amount) into n, total from transaction_splits where transaction_id = tx;
+  if n <> 2 or total <> -500 or (select category_id from transactions where id = tx) is not null or not (select is_split from transactions where id = tx) then
+    raise exception 'splits FAILED: split_transaction did not leave two lines of -400 and -100 on an uncategorised split';
+  end if;
+
+  -- The lines must add up.
+  begin
+    update transaction_splits set amount = -390 where transaction_id = tx and category_id = groceries;
+    set constraints all immediate;
+    raise exception 'splits FAILED: lines that no longer add up were kept';
+  exception when check_violation then null;
+  end;
+  set constraints all deferred;
+  begin
+    update transactions set amount = -520 where id = tx;
+    set constraints all immediate;
+    raise exception 'splits FAILED: the total changed without its lines';
+  exception when check_violation then null;
+  end;
+  set constraints all deferred;
+  begin
+    update transactions set category_id = groceries where id = tx;
+    set constraints all immediate;
+    raise exception 'splits FAILED: a split transaction took a category of its own';
+  exception when check_violation then null;
+  end;
+  set constraints all deferred;
+  begin
+    perform split_transaction(tx, jsonb_build_array(jsonb_build_object('category_id', groceries, 'amount', 500)));
+    raise exception 'splits FAILED: a one-line split was accepted';
+  exception when invalid_parameter_value then null;
+  end;
+
+  -- The total and its lines change together.
+  perform split_transaction(tx, jsonb_build_array(jsonb_build_object('category_id', groceries, 'amount', 420), jsonb_build_object('category_id', household, 'amount', 100)), 520);
+  set constraints all immediate;
+  set constraints all deferred;
+  if (select amount from transactions where id = tx) <> -520 then raise exception 'splits FAILED: the new total was not saved'; end if;
+
+  -- And back to one category, with the change in the history.
+  perform unsplit_transaction(tx, household);
+  set constraints all immediate;
+  set constraints all deferred;
+  if exists (select 1 from transaction_splits where transaction_id = tx) or (select is_split from transactions where id = tx)
+     or (select category_id from transactions where id = tx) <> household then
+    raise exception 'splits FAILED: unsplit_transaction did not leave one category';
+  end if;
+  select count(*) into n from transaction_edits where transaction_id = tx and field = 'category' and (new_value like 'Split:%' or old_value like 'Split:%');
+  if n < 2 then raise exception 'splits FAILED: splitting and unsplitting were not in the edit history (% rows)', n; end if;
+
+  -- A transfer has no category, so it is never split.
+  insert into accounts (id, household_id, name, type, balance, is_shared) values ('33333333-3333-3333-3333-33333333bbbb', hh, 'Split test savings', 'savings', 0, true);
+  made := record_transfer(hh, '33333333-3333-3333-3333-33333333bbbb', card, 50, date '2026-10-06');
+  begin
+    perform split_transaction((made ->> 'from_transaction_id')::uuid, jsonb_build_array(jsonb_build_object('category_id', groceries, 'amount', 30), jsonb_build_object('category_id', household, 'amount', 20)));
+    raise exception 'splits FAILED: a transfer was split';
+  exception when invalid_parameter_value then null;
+  end;
+  perform delete_transfer((made ->> 'link_id')::uuid);
+  set constraints all immediate;
+  set constraints all deferred;
+  delete from accounts where id = '33333333-3333-3333-3333-33333333bbbb';
+
+  if has_function_privilege('authenticated', 'check_split(uuid)', 'execute')
+     or has_function_privilege('anon', 'split_transaction(uuid, jsonb, numeric)', 'execute') then
+    raise exception 'splits FAILED: an internal function is callable through the API';
+  end if;
+
+  delete from transactions where id = tx;
+  delete from categories where id in (groceries, household);
+  raise notice 'splits ok: lines add up, same direction, no category of its own, never a transfer, kept together through edit and unsplit';
+end $$;
+
+
 rollback;

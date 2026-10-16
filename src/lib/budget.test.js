@@ -152,3 +152,23 @@ describe('budgetGroupSpend: totals built from the same rolled figures as the gro
     expect(one.groups.get('util') * 2).toBe(both.groups.get('util'));
   });
 });
+
+describe('a split receipt in the budget', () => {
+  const receipt = {
+    id: 'r', amount: -500, kind: 'expense', occurred_at: '2026-09-10', is_shared: true, category_id: null, is_split: true,
+    transaction_splits: [{ category_id: 'groceries', amount: -400 }, { category_id: 'household', amount: -100 }],
+  };
+
+  it('counts each line under its own category, and the whole once in the total', () => {
+    const actuals = monthActualsByCategory([receipt], 2026, 9, null, NOW);
+    expect(actuals.get('groceries')).toBe(400);
+    expect(actuals.get('household')).toBe(100);
+    expect(monthSpendBreakdown([receipt], ['groceries'], 2026, 9, null, NOW)).toEqual({ budgeted: 400, unbudgeted: 100, uncategorised: 0, total: 500 });
+  });
+
+  it('gives one person their half of each line of a shared receipt', () => {
+    const actuals = monthActualsByCategory([receipt], 2026, 9, 'm1', NOW);
+    expect(actuals.get('groceries')).toBe(200);
+    expect(actuals.get('household')).toBe(50);
+  });
+});

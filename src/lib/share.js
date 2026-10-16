@@ -1,6 +1,7 @@
 import { isPosted, parseDay } from './day';
 import { hasEnded } from './recurring';
 import { isSpendRow, spendDelta } from './transactionKind';
+import { categoryParts } from './splits';
 
 // Who pays for what in a household of two earners. Each category's costs are
 // either one person's own (his car loan, her family remittance) or shared by
@@ -88,14 +89,18 @@ export function householdShare({ members = [], categories = [], budgets = [], tr
     if (d.getFullYear() !== year || d.getMonth() + 1 !== month || !isPosted(t, now)) continue;
     const v = Number(t.amount) || 0;
     if (!isSpendRow(t, v)) continue;
-    const amount = spendDelta(t, v);
-    const owner = t.category_id ? ownerOf(t.category_id) : null;
     const account = accountById.get(t.account_id);
     const payer = account && !account.is_shared && memberIds.has(account.owner_member_id) ? account.owner_member_id : null;
-    spent += amount;
-    if (owner === null) sharedSpent += amount;
-    spread(responsible, owner, amount);
-    spread(paid, payer, amount);
+    // Whose responsibility follows each part's category: a split receipt can
+    // be partly shared and partly one person's own.
+    for (const part of categoryParts(t)) {
+      const amount = spendDelta(t, part.amount);
+      const owner = part.categoryId ? ownerOf(part.categoryId) : null;
+      spent += amount;
+      if (owner === null) sharedSpent += amount;
+      spread(responsible, owner, amount);
+      spread(paid, payer, amount);
+    }
   }
 
   const people = members.map((m) => ({

@@ -3,6 +3,7 @@
 import { scopedValue } from './scope.js';
 import { isPosted, parseDay } from './day.js';
 import { isSpendRow, spendDelta } from './transactionKind.js';
+import { categoryParts } from './splits.js';
 
 // Rows that count as this month's actuals: in the month, visible to the scope,
 // and already posted — a record dated later this month is planned, not spent
@@ -23,8 +24,11 @@ function monthSpendRows(transactions, year, month, scopeMemberId, now) {
 export function monthActualsByCategory(transactions, year, month, scopeMemberId, now = new Date()) {
   const map = new Map();
   for (const t of monthSpendRows(transactions, year, month, scopeMemberId, now)) {
-    if (!t.category_id) continue;
-    map.set(t.category_id, (map.get(t.category_id) ?? 0) + spendDelta(t, scopedValue(t.amount, t, scopeMemberId)));
+    // A split record counts each line under its own category.
+    for (const part of categoryParts(t)) {
+      if (!part.categoryId) continue;
+      map.set(part.categoryId, (map.get(part.categoryId) ?? 0) + spendDelta(t, scopedValue(part.amount, t, scopeMemberId)));
+    }
   }
   return map;
 }

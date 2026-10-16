@@ -20,6 +20,7 @@ import {
 import TransactionEditor from './TransactionEditor';
 import TransferEditor from './TransferEditor';
 import { transferCounterpart, transferDirectionLabel, transferLinkOf } from '../../lib/transfers';
+import { amountInCategory, categoryParts, inCategory } from '../../lib/splits';
 import ActivityCalendar from './ActivityCalendar';
 
 // A transaction reads as low-confidence once it's below the same bar the
@@ -98,14 +99,19 @@ export default function Activity({ household, members, me, data, loading }) {
     if (id !== 'linked') setDates(presets.find((p) => p.id === id));
   };
 
+  // A group includes its subcategories, as Budget rolls them up.
+  const categoryIds = useMemo(() => (categoryFilter === 'all' ? null : categoryAndChildren(categoryFilter, categories)), [categoryFilter, categories]);
+  // Narrowed to a category, a split record counts only its line in it
+  // (lib/splits.js); the row still shows, and opens with, the whole record.
+  const amountOf = useMemo(() => (categoryIds ? (t) => amountInCategory(t, categoryIds) : undefined), [categoryIds]);
+  const catName = useMemo(() => new Map(categories.map((c) => [c.id, c.name])), [categories]);
+
   const matching = useMemo(() => {
     const q = search.trim().toLowerCase();
-    // A group includes its subcategories, as Budget rolls them up.
-    const categoryIds = categoryFilter === 'all' ? null : categoryAndChildren(categoryFilter, categories);
     return transactions.filter((t) => {
       if (scopeMemberId !== null && !(t.is_shared || t.owner_member_id === scopeMemberId)) return false;
       if (needsReviewOnly && !t.needs_review) return false;
-      if (categoryIds && !categoryIds.has(t.category_id)) return false;
+      if (categoryIds && !inCategory(t, categoryIds)) return false;
       if (accountId !== 'all' && t.account_id !== accountId) return false;
       if (kind !== 'all' && (t.kind ?? (Number(t.amount) < 0 ? 'expense' : 'income')) !== kind) return false;
       if ((from || to) && !inDateRange(t, from, to)) return false;
@@ -115,7 +121,7 @@ export default function Activity({ household, members, me, data, loading }) {
       }
       return true;
     });
-  }, [transactions, categories, scopeMemberId, needsReviewOnly, categoryFilter, accountId, kind, search, from, to]);
+  }, [transactions, categoryIds, scopeMemberId, needsReviewOnly, accountId, kind, search, from, to]);
   const rows = useMemo(() => sortRows(matching.filter((t) => matchesDateBasis(t, dateBasis, now)), sort), [matching, dateBasis, now, sort]);
   // Records the other filters match that Posted leaves out, so a record just
   // entered with next week's date doesn't simply vanish.
@@ -124,7 +130,7 @@ export default function Activity({ household, members, me, data, loading }) {
   const pageKey = params.toString();
   const visibleCount = shown.key === pageKey ? shown.count : PAGE;
 
-  const totals = useMemo(() => activitySummary(rows, scopeMemberId), [rows, scopeMemberId]);
+  const totals = useMemo(() => activitySummary(rows, scopeMemberId, amountOf), [rows, scopeMemberId, amountOf]);
   // Under Me or the partner's name, figures are that person's share: their own
   // records in full and half of each shared one. Rows still show the whole
   // amount, so the share is shown beside it wherever the two differ.
@@ -252,7 +258,7 @@ export default function Activity({ household, members, me, data, loading }) {
       </div>
 
       {view === 'calendar' ? (
-        <ActivityCalendar rows={rows} members={members} scopeMemberId={scopeMemberId} shareLabel={shareLabel} onOpen={setEditing} startMonth={from} />
+        <ActivityCalendar rows={rows} members={members} scopeMemberId={scopeMemberId} shareLabel={shareLabel} onOpen={setEditing} startMonth={from} amountOf={amountOf} />
       ) : rows.length === 0 ? (
         <div className="ov-empty">
           <div className="ov-empty-kicker">No records</div>
@@ -282,7 +288,14 @@ export default function Activity({ household, members, me, data, loading }) {
             const transfer = t.kind === 'transfer';
             // A transfer has no category or merchant to give; its row says
             // which way the money went instead.
-            const categoryName = transfer ? 'Transfer' : (t.categories?.name ?? 'Uncategorised');
+            const parts = t.is_split ? categoryParts(t) : null;
+            const categoryName = transfer
+              ? 'Transfer'
+              : parts
+                ? parts.map((p) => catName.get(p.categoryId) ?? 'Unknown').join(' + ')
+                : (t.categories?.name ?? 'Uncategorised');
+            // The line of a split record in the category Activity is narrowed to.
+            const inFiltered = parts && amountOf ? amountOf(t) : null;
             const label = transfer ? transferDirectionLabel(t, transferCounterpart(t, links, transactions), accountById) : null;
             const owner = ownerLabel(t, members);
             const account = accountById.get(t.account_id)?.name ?? '—';
@@ -306,6 +319,11 @@ export default function Activity({ household, members, me, data, loading }) {
                 <div className="om-hide-sm om-tx-account">{account}</div>
                 <div className={`fig om-tx-amt ${transfer ? 'ov-muted' : Number(t.amount) > 0 ? 'ov-pos' : ''}`}>
                   {formatSigned(t.amount)}
+                  {inFiltered !== null && (
+                    <span className="om-tx-share">
+                      {catName.get(categoryFilter) ?? 'this category'} {formatSigned(inFiltered)}
+                    </span>
+                  )}
                   {shareLabel && share !== Number(t.amount) && (
                     <span className="om-tx-share">
                       {shareLabel.toLowerCase()} {formatSigned(share)}
