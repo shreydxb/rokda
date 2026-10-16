@@ -4,7 +4,7 @@ import { clampToToday, daysBetweenDays, endOfDayExclusive, isPosted, monthKey, p
 import { chartBuckets, periodBounds } from '../lib/period';
 import { scopedHoldingValue, visibleHoldings } from '../lib/holdings';
 import { isAwaitingFirstValuation } from '../lib/valuation';
-import { applyToIncomeSpend, isSpendRow } from '../lib/transactionKind';
+import { applyToIncomeSpend, isSpendRow, isTransfer } from '../lib/transactionKind';
 
 const LIABILITY_TYPES = new Set(['credit_card', 'loan']);
 const LIQUID_TYPES = new Set(['checking', 'savings', 'cash']);
@@ -148,7 +148,8 @@ export function spendComposition(periodTx, scopeMemberId, { topN = 5 } = {}) {
   const byCategory = new Map();
   for (const t of periodTx) {
     const v = scopedValue(t.amount, t, scopeMemberId);
-    if (v >= 0) continue;
+    // Money moved to another of the household's accounts wasn't spent.
+    if (v >= 0 || isTransfer(t)) continue;
     const name = t.categories?.name ?? 'Uncategorised';
     byCategory.set(name, (byCategory.get(name) ?? 0) + -v);
   }
@@ -208,8 +209,10 @@ export function dataQuality(accounts, transactions, now = new Date()) {
     ? new Date(Math.max(...accounts.map((a) => new Date(a.updated_at ?? a.created_at).getTime())))
     : null;
 
-  const categorised = transactions.filter((t) => t.category_id).length;
-  const categorisedPct = transactions.length ? categorised / transactions.length : null;
+  // A transfer has no category to give: it is neither income nor spending.
+  const categorisable = transactions.filter((t) => !isTransfer(t));
+  const categorised = categorisable.filter((t) => t.category_id).length;
+  const categorisedPct = categorisable.length ? categorised / categorisable.length : null;
 
   const openReview = transactions.filter((t) => t.needs_review).length;
 

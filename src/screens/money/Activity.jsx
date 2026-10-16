@@ -18,6 +18,8 @@ import {
   withoutFilters,
 } from '../../lib/activityLink';
 import TransactionEditor from './TransactionEditor';
+import TransferEditor from './TransferEditor';
+import { transferCounterpart, transferDirectionLabel, transferLinkOf } from '../../lib/transfers';
 import ActivityCalendar from './ActivityCalendar';
 
 // A transaction reads as low-confidence once it's below the same bar the
@@ -34,6 +36,7 @@ const KIND_OPTIONS = [
   { id: 'expense', label: 'Expenses' },
   { id: 'income', label: 'Income' },
   { id: 'refund', label: 'Refunds' },
+  { id: 'transfer', label: 'Transfers' },
 ];
 const SORT_OPTIONS = [
   { id: 'newest', label: 'Newest first' },
@@ -51,6 +54,7 @@ export default function Activity({ household, members, me, data, loading }) {
   const { scope } = useScope();
   const scopeMemberId = resolveScopeMemberId(scope, me, members);
   const { transactions, accounts, categories, reload } = data;
+  const links = data.transactionLinks ?? [];
   const accountById = useMemo(() => new Map(accounts.map((a) => [a.id, a])), [accounts]);
 
   // Every filter is read from and written to the address, so a link can open
@@ -66,7 +70,9 @@ export default function Activity({ household, members, me, data, loading }) {
   const setFilter = (key, value) => setParams((prev) => withActivityFilter(prev, key, value), { replace: true });
   const setDates = (range) => setParams((prev) => withActivityFilter(withActivityFilter(prev, 'from', range.from), 'to', range.to), { replace: true });
   const filterCount = activeFilterCount(filters);
-  const [editing, setEditing] = useState(null); // null closed, 'new', or a transaction row
+  // null closed; 'new' or { newType } for a new record; 'new-transfer'; or a
+  // transaction row, which opens the transfer editor if it is one side of one.
+  const [editing, setEditing] = useState(null);
   // On a phone the second row of filters folds away behind "Filters (n)". It
   // starts open when a link arrives with one of them set, so the category it
   // narrowed to is in sight.
@@ -231,6 +237,7 @@ export default function Activity({ household, members, me, data, loading }) {
             Net spend AED {formatBalance(totals.spend)}
             {totals.refunds !== 0 && ` (purchases ${formatMoney(totals.purchases)} less refunds ${formatMoney(totals.refunds)})`}
             {' · '}Income AED {formatMoney(totals.income)}
+            {totals.transfers > 0 && ` · ${totals.transfers} transfer${totals.transfers === 1 ? '' : 's'} between accounts, in neither`}
             {shareLabel && ` · ${shareLabel}: shared records count half`}
           </>
         )}
@@ -272,7 +279,11 @@ export default function Activity({ household, members, me, data, loading }) {
             <div />
           </div>
           {rows.slice(0, visibleCount).map((t) => {
-            const categoryName = t.categories?.name ?? 'Uncategorised';
+            const transfer = t.kind === 'transfer';
+            // A transfer has no category or merchant to give; its row says
+            // which way the money went instead.
+            const categoryName = transfer ? 'Transfer' : (t.categories?.name ?? 'Uncategorised');
+            const label = transfer ? transferDirectionLabel(t, transferCounterpart(t, links, transactions), accountById) : null;
             const owner = ownerLabel(t, members);
             const account = accountById.get(t.account_id)?.name ?? '—';
             const flag = confidenceFlag(t);
@@ -282,7 +293,7 @@ export default function Activity({ household, members, me, data, loading }) {
               <button key={t.id} type="button" className="om-tx om-tx-row" onClick={() => setEditing(t)}>
                 <div className="om-tx-date">{rowDateLabel(t.occurred_at, now)}</div>
                 <div className="om-tx-merchant">
-                  {t.merchant || 'Transaction'}
+                  {transfer ? label : t.merchant || 'Transaction'}
                   {t.needs_review && <span className="om-tx-flag ov-warn"> · needs review</span>}
                   {!t.needs_review && flag && <span className={`om-tx-flag ${flag.tone === 'neg' ? 'ov-neg' : 'ov-warn'}`}> · {flag.label}</span>}
                   {scheduled && <span className="om-tx-flag ov-muted"> · scheduled</span>}
@@ -290,10 +301,10 @@ export default function Activity({ household, members, me, data, loading }) {
                     {categoryName} · {account} · {owner}
                   </div>
                 </div>
-                <div className={`om-hide-sm om-tx-cat ${categoryName === 'Uncategorised' ? 'ov-warn' : ''}`}>{categoryName}</div>
+                <div className={`om-hide-sm om-tx-cat ${categoryName === 'Uncategorised' ? 'ov-warn' : transfer ? 'ov-muted' : ''}`}>{categoryName}</div>
                 <div className="om-hide-sm om-tx-owner">{owner}</div>
                 <div className="om-hide-sm om-tx-account">{account}</div>
-                <div className={`fig om-tx-amt ${Number(t.amount) > 0 ? 'ov-pos' : ''}`}>
+                <div className={`fig om-tx-amt ${transfer ? 'ov-muted' : Number(t.amount) > 0 ? 'ov-pos' : ''}`}>
                   {formatSigned(t.amount)}
                   {shareLabel && share !== Number(t.amount) && (
                     <span className="om-tx-share">
@@ -313,23 +324,48 @@ export default function Activity({ household, members, me, data, loading }) {
         </div>
       )}
 
-      {editing && (
-        <TransactionEditor
-          tx={editing === 'new' ? null : editing}
-          household={household}
-          householdId={household?.id}
-          accounts={accounts}
-          categories={categories}
-          members={members}
-          allTransactions={transactions}
-          onOpenOther={(other) => setEditing(other)}
-          onClose={() => setEditing(null)}
-          onSaved={async () => {
-            setEditing(null);
-            await reload();
-          }}
-        />
-      )}
+      {editing && (() => {
+        const close = () => setEditing(null);
+        const saved = async () => {
+          setEditing(null);
+          await reload();
+        };
+        const link = editing !== 'new' && editing !== 'new-transfer' && !editing.newType ? transferLinkOf(editing.id, links) : null;
+        if (editing === 'new-transfer' || link) {
+          const transfer = link
+            ? { link, out: transactions.find((t) => t.id === link.from_transaction_id), in: transactions.find((t) => t.id === link.to_transaction_id) }
+            : null;
+          return (
+            <TransferEditor
+              transfer={transfer?.out && transfer?.in ? transfer : null}
+              householdId={household?.id}
+              accounts={accounts}
+              members={members}
+              onClose={close}
+              onSaved={saved}
+              onSwitchType={(type) => setEditing({ newType: type })}
+            />
+          );
+        }
+        const isNew = editing === 'new' || !!editing.newType;
+        return (
+          <TransactionEditor
+            key={isNew ? `new-${editing.newType ?? 'expense'}` : editing.id}
+            tx={isNew ? null : editing}
+            initial={editing.newType ? { type: editing.newType } : undefined}
+            household={household}
+            householdId={household?.id}
+            accounts={accounts}
+            categories={categories}
+            members={members}
+            allTransactions={transactions}
+            onOpenOther={(other) => setEditing(other)}
+            onSwitchToTransfer={() => setEditing('new-transfer')}
+            onClose={close}
+            onSaved={saved}
+          />
+        );
+      })()}
     </div>
   );
 }

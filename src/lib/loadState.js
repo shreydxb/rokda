@@ -27,6 +27,7 @@ export const SOURCE_LABELS = {
   statementReconciliations: 'card statements',
 
   backupRecords: 'backup records',
+  transactionLinks: 'transfer links',
   household: 'your household',
 };
 

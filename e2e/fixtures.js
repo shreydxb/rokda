@@ -171,7 +171,7 @@ const EMBEDDED = {
   household_members: (row) => ({ ...row, households: data.households[0] }),
 };
 
-export const ids = { HH, ME, PARTNER, USER, A_CURRENT, A_CARD, A_FD, C_GROCERIES, C_DINING };
+export const ids = { HH, ME, PARTNER, USER, A_CURRENT, A_SAVINGS, A_CARD, A_FD, C_GROCERIES, C_DINING };
 
 // A token shaped like Supabase's, so supabase-js can read the session's
 // assurance level from it. Unsigned: the stub below is the only server.

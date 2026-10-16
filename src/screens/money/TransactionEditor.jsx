@@ -5,7 +5,8 @@ import { formatMoney, formatSigned } from '../../lib/money';
 import { signedAmount } from '../../lib/intake';
 import { findDuplicate } from '../../lib/duplicates';
 import { CURRENCIES, currencyAvailable, convertToAed, rateNote } from '../../lib/currency';
-import { householdToday } from '../../lib/day';
+import { householdToday, parseDay } from '../../lib/day';
+import { orderPair, transferCandidates } from '../../lib/transfers';
 import './TransactionEditor.css';
 
 const FIELD_LABELS = { kind: 'Type', category: 'Category', amount: 'Amount', account: 'Account', merchant: 'Merchant', scope: 'Scope' };
@@ -100,7 +101,7 @@ function buildEdits(tx, form, savedAmount, { accounts, categories, members }) {
   return changes;
 }
 
-export default function TransactionEditor({ tx, household, householdId, accounts, categories, members, allTransactions, initial, onClose, onSaved, onOpenOther }) {
+export default function TransactionEditor({ tx, household, householdId, accounts, categories, members, allTransactions, initial, onClose, onSaved, onOpenOther, onSwitchToTransfer }) {
   // Closed accounts aren't offered for new entries, but an existing record that
   // already points at one keeps it so saving doesn't move it (QA-01).
   const selectable = selectableAccounts(accounts, tx?.account_id ?? null);
@@ -192,6 +193,13 @@ export default function TransactionEditor({ tx, household, householdId, accounts
 
   async function handleSave(e) {
     e.preventDefault();
+    // A transfer is edited as a pair, in TransferEditor. This one's other side
+    // or link didn't load, so it can't be edited here without breaking the
+    // pair (the database would refuse it anyway).
+    if (form.type === 'transfer') {
+      setError("This is one side of a transfer whose other side couldn't be loaded. Refresh the page and open it again.");
+      return;
+    }
     if (amountError || accountError) {
       setError(amountError || accountError);
       return;
@@ -247,6 +255,23 @@ export default function TransactionEditor({ tx, household, householdId, accounts
     await onSaved();
   }
 
+  // A record whose other side is already in the ledger (the card payment out
+  // of the current account, and the same payment arriving on the card) can be
+  // made one transfer, so neither counts as income or spending.
+  const pairs = useMemo(() => (tx ? transferCandidates(tx, allTransactions ?? []) : []), [tx, allTransactions]);
+  async function makeTransfer(other) {
+    const { out, in: into } = orderPair(tx, other);
+    setSaving(true);
+    setError('');
+    const { error: linkError } = await supabase.rpc('link_transfer', { p_out_transaction_id: out.id, p_in_transaction_id: into.id });
+    setSaving(false);
+    if (linkError) {
+      setError(linkError.message);
+      return;
+    }
+    await onSaved();
+  }
+
   async function handleDelete() {
     if (!confirmingDelete) {
       setConfirmingDelete(true);
@@ -289,7 +314,37 @@ export default function TransactionEditor({ tx, household, householdId, accounts
             <button type="button" className="om-seg" data-active={form.type === 'refund'} onClick={() => set('type', 'refund')}>
               Refund
             </button>
+            {!tx && onSwitchToTransfer && (
+              <button type="button" className="om-seg" onClick={onSwitchToTransfer}>
+                Transfer
+              </button>
+            )}
           </div>
+
+          {pairs.length > 0 && (
+            <div className="te-duplicate" role="status">
+              <div className="te-duplicate-title">This looks like one side of a transfer</div>
+              <div className="te-duplicate-body">
+                The same amount went the other way on another account within a few days. If this was money moved between your own accounts, make the two one
+                transfer: it then counts as neither income nor spending.
+              </div>
+              <div className="mn-list" style={{ marginTop: 8 }}>
+                {pairs.slice(0, 3).map((p) => (
+                  <div key={p.id} className="mn-row" style={{ cursor: 'default', alignItems: 'center' }}>
+                    <div className="mn-row-main">
+                      <div>{accounts.find((a) => a.id === p.account_id)?.name ?? 'Another account'}</div>
+                      <div className="ov-muted">
+                        {p.merchant || 'No merchant'} · {parseDay(p.occurred_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} · {formatSigned(p.amount)}
+                      </div>
+                    </div>
+                    <button type="button" className="om-btn" disabled={saving} onClick={() => makeTransfer(p)}>
+                      Make these one transfer
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div>
             <div className="te-hero-label">Amount</div>
