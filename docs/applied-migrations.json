@@ -527,5 +527,12 @@
   "fingerprint": "ae467fdd3174a7f9ce1e866e2f15d155",
   "framingFingerprint": "2fb807d72570429d420554622ee55082",
   "fingerprintVersion": 2
+ },
+ {
+  "version": "20261016200000",
+  "name": "native_amounts_and_fx_history",
+  "fingerprint": "25267ff9aec1954e192e01790f388d72",
+  "framingFingerprint": "e9ca779f7630797d95a4ef6aa0bf56bc",
+  "fingerprintVersion": 2
  }
 ]
