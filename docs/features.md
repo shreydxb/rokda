@@ -6,6 +6,13 @@ and what runs on its own. The reasons behind each piece are in
 plan (goals, split, open items) is kept in the app under Planning → Notes, not
 here, because this repository is public.
 
+## Every page
+
+- "Loaded 14:32 · Refresh" at the top says when the page last read the
+  household's records. Pages read again when the tab comes back into view
+  (if more than a minute old), every five minutes while in view, and on
+  Refresh, without closing an open editor.
+
 ## Signing in
 
 - Email and password, with "Keep me signed in". Sign-ups are closed: logins

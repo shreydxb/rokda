@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { readAllPages } from '../lib/pagedRead';
+import { useSources } from '../lib/useSources';
 
 // One entry per query. Failures are reported per source rather than collapsed
 // into a single flag, so a screen can say exactly what is missing (QA-10).
@@ -61,43 +61,7 @@ const EMPTY_STATE = {
 };
 
 export function useOverviewData(householdId) {
-  const [state, setState] = useState({ ...EMPTY_STATE, loading: true });
-
-  const reload = useCallback(async () => {
-    if (!householdId) {
-      setState(EMPTY_STATE);
-      return;
-    }
-    setState((s) => ({ ...s, loading: true }));
-
-    const results = await Promise.all(SOURCES.map((source) => source.run(householdId)));
-
-    setState((previous) => {
-      const next = { loading: false, errors: {}, loadedAt: previous.loadedAt };
-      let anySucceeded = false;
-      SOURCES.forEach((source, i) => {
-        const { data, error } = results[i];
-        if (error) {
-          // Keep whatever was last known rather than replacing it with an
-          // empty array, which reads as "you have none of these".
-          next[source.key] = previous[source.key];
-          next.errors[source.key] = error;
-        } else {
-          next[source.key] = data ?? [];
-          anySucceeded = true;
-        }
-      });
-      if (anySucceeded) next.loadedAt = new Date();
-      return next;
-    });
-  }, [householdId]);
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- kicks off an async fetch; loading flag is the point
-    reload();
-  }, [reload]);
-
-  return { ...state, reload };
+  return useSources(householdId, SOURCES, EMPTY_STATE);
 }
 
 const LIABILITY_TYPES = new Set(['credit_card', 'loan']);
