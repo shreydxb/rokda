@@ -143,8 +143,11 @@ here, because this repository is public.
 
 ## Settings (`/settings`)
 
-- **Household**: members, roles, invitations, and a placeholder member for a
-  partner who has not signed in.
+- **Household**: members, roles, and a placeholder member for a
+  partner who has not signed in. An owner manages the roster; a member who
+  is not an owner renames themselves, links their own Telegram, and sees the
+  others read-only. A second member's login is made by the owner
+  (`docs/second-member.md`).
 - **Categories & rules**: categories and subcategories, whose cost each is
   (shared or one person's), savings categories, what stops when work stops,
   and merchant rules.

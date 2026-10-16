@@ -968,7 +968,32 @@ begin
   exception
     when insufficient_privilege then null;
   end;
+  -- An owner links another member too: a partner with no login of their own
+  -- is linked to Telegram this way.
+  code := generate_telegram_link_code('e1000000-0000-0000-0000-00000000000b');
+  if code is null then
+    raise exception 'link code FAILED: an owner could not issue a code for another member';
+  end if;
   raise notice 'helpers ok: the owner check and the link code still resolve the helpers by name';
+end $$;
+
+-- A member who is not an owner links their own Telegram only (SHR-314):
+-- a code for the owner would let them talk to the bot as the owner.
+set request.jwt.claim.sub = '0b000000-0000-0000-0000-00000000000b';
+do $$
+declare code text;
+begin
+  code := generate_telegram_link_code('e1000000-0000-0000-0000-00000000000b');
+  if code is null or length(code) <> 32 then
+    raise exception 'link code FAILED: a member could not issue a code for themselves (%)', code;
+  end if;
+  begin
+    perform generate_telegram_link_code('e1000000-0000-0000-0000-00000000000a');
+    raise exception 'link code FAILED: a member issued a link code for the owner';
+  exception
+    when insufficient_privilege then null;
+  end;
+  raise notice 'link code ok: a member links only themselves; an owner links anyone in the household';
 end $$;
 
 reset role;

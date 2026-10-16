@@ -508,6 +508,13 @@
   "fingerprintVersion": 2
  },
  {
+  "version": "20261016114323",
+  "name": "link_code_self_or_owner",
+  "fingerprint": "eb9874a1ee2bed15a9820b58a763fb3c",
+  "framingFingerprint": "b751e12e504455598871415c7b2fd63f",
+  "fingerprintVersion": 2
+ },
+ {
   "version": "20261016120000",
   "name": "transaction_splits",
   "fingerprint": "bdf2471f3426a79b3cf51cb4b04675bd",
