@@ -2242,4 +2242,76 @@ begin
   raise notice 'refund links ok: an expense to a refund, one purchase each, never more back than paid, the category followed and shared out';
 end $$;
 
+
+-- Transfers from the bot: recorded on a yes as both sides and a link, once,
+-- joining a side already in the ledger rather than copying it.
+do $$
+declare
+  hh constant uuid := '11111111-1111-1111-1111-111111111111';
+  member constant uuid := '22222222-2222-2222-2222-222222222222';
+  bank constant uuid := '33333333-3333-3333-3333-3333333333d1';
+  card constant uuid := '33333333-3333-3333-3333-3333333333d2';
+  paid constant uuid := '44444444-4444-4444-4444-4444444444d1';
+  r jsonb;
+  n int;
+begin
+  insert into accounts (id, household_id, name, type, balance, is_shared) values
+    (bank, hh, 'Bot transfer bank', 'checking', 0, true),
+    (card, hh, 'Bot transfer card', 'credit_card', 0, true);
+  insert into bot_proposals (id, household_id, member_id, kind, payload, chat_id, source_ref) values
+    ('abcd0000-0000-4000-8000-0000000000d1', hh, member, 'transfer',
+     jsonb_build_object('from_account_id', bank, 'to_account_id', card, 'amount', 300, 'occurred_at', '2026-10-10'), 1001, '9200001'),
+    ('abcd0000-0000-4000-8000-0000000000d2', hh, member, 'transfer',
+     jsonb_build_object('from_account_id', bank, 'to_account_id', card, 'amount', 300, 'occurred_at', '2026-10-11'), 1001, '9200002'),
+    ('abcd0000-0000-4000-8000-0000000000d3', hh, member, 'transfer',
+     jsonb_build_object('from_account_id', bank, 'to_account_id', card, 'amount', 450, 'occurred_at', '2026-10-13'), 1001, '9200003'),
+    ('abcd0000-0000-4000-8000-0000000000d4', hh, member, 'transfer',
+     jsonb_build_object('from_account_id', bank, 'to_account_id', '99999999-9999-9999-9999-99999999000b', 'amount', 10, 'occurred_at', '2026-10-13'), 1001, '9200004');
+
+  -- Both sides and the link, checked at commit like any transfer.
+  r := apply_bot_proposal('abcd0000-0000-4000-8000-0000000000d1', member);
+  set constraints all immediate;
+  set constraints all deferred;
+  select count(*) into n from transactions where account_id in (bank, card) and kind = 'transfer' and abs(amount) = 300;
+  if r ->> 'outcome' <> 'applied' or n <> 2 or not exists (
+       select 1 from transaction_links l join transactions o on o.id = l.from_transaction_id
+       where l.kind = 'transfer' and o.account_id = bank and o.amount = -300) then
+    raise exception 'bot transfers FAILED: a confirmed transfer was not recorded as two sides and a link (%)', r;
+  end if;
+
+  -- The same transfer again, a day later, is recognised rather than doubled.
+  r := apply_bot_proposal('abcd0000-0000-4000-8000-0000000000d2', member);
+  select count(*) into n from transactions where account_id in (bank, card) and abs(amount) = 300;
+  if n <> 2 or not (r -> 'applied' -> 0 ->> 'already_recorded')::boolean then
+    raise exception 'bot transfers FAILED: a transfer already recorded was recorded again (%)', r;
+  end if;
+
+  -- The payment already pasted as an expense becomes the money-out side.
+  insert into transactions (id, household_id, account_id, amount, kind, merchant, occurred_at, is_shared)
+  values (paid, hh, bank, -450, 'expense', 'Card payment', '2026-10-12', true);
+  r := apply_bot_proposal('abcd0000-0000-4000-8000-0000000000d3', member);
+  set constraints all immediate;
+  set constraints all deferred;
+  select count(*) into n from transactions where account_id = bank and abs(amount) = 450;
+  if (select kind from transactions where id = paid) <> 'transfer' or n <> 1
+     or not (r -> 'applied' -> 0 ->> 'joined_out')::boolean
+     or not exists (select 1 from transaction_links where kind = 'transfer' and from_transaction_id = paid)
+     or not exists (select 1 from transaction_edits where transaction_id = paid and field = 'kind' and new_value = 'Transfer') then
+    raise exception 'bot transfers FAILED: the expense already recorded was not joined as the money-out side (%)', r;
+  end if;
+
+  -- Another household's account, planted in the payload, records nothing.
+  r := apply_bot_proposal('abcd0000-0000-4000-8000-0000000000d4', member);
+  if jsonb_array_length(r -> 'skipped') <> 1 or exists (select 1 from transactions where account_id = bank and amount = -10) then
+    raise exception 'bot transfers FAILED: a transfer to another household''s account was recorded (%)', r;
+  end if;
+
+  delete from transactions where account_id in (bank, card);
+  delete from bot_proposals where id::text like 'abcd0000-0000-4000-8000-0000000000d%';
+  set constraints all immediate;
+  set constraints all deferred;
+  delete from accounts where id in (bank, card);
+  raise notice 'bot transfers ok: both sides and a link on a yes, never twice, a side already recorded joined, own household only';
+end $$;
+
 rollback;

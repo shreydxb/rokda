@@ -557,6 +557,7 @@ const QUESTION_TOOLS = new Set([
   "get_budget_status",
   "get_holdings",
   "log_goal_contribution",
+  "log_transfer",
   "update_account_balances",
 ]);
 
@@ -1137,7 +1138,7 @@ async function sendProposal(
   chatId: number,
   householdId: string,
   memberId: string,
-  kind: "account_balances" | "goal_contribution",
+  kind: "account_balances" | "goal_contribution" | "transfer",
   payload: Record<string, unknown>,
   prompt: string,
   updateId: unknown,
@@ -1241,6 +1242,15 @@ export function proposalOutcomeMessage(data: Record<string, unknown>): string {
     return `Recorded: ${line}${b.next_due ? ` I'll ask again on ${shortDay(String(b.next_due))}.` : ""}`;
   }
 
+  if (result.kind === "transfer") {
+    const t = applied[0] as (ProposalItem & { from_name?: string; to_name?: string; joined_out?: boolean; joined_in?: boolean }) | undefined;
+    if (!t) return "One of those accounts is no longer open in Rokda, so nothing was recorded.";
+    const line = `AED ${Number(t.amount).toFixed(2)} from ${t.from_name} to ${t.to_name}, dated ${shortDay(String(t.occurred_at))}.`;
+    if (repeat || t.already_recorded) return `Already recorded: ${line}`;
+    const joined = [t.joined_out ? `the payment out of ${t.from_name}` : null, t.joined_in ? `the money into ${t.to_name}` : null].filter(Boolean);
+    return `Recorded the transfer: ${line}${joined.length ? ` ${joined.join(" and ")} ${joined.length === 1 ? "was" : "were"} already in Rokda, so ${joined.length === 1 ? "it is" : "they are"} now part of it rather than spending or income.` : ""}`;
+  }
+
   if (result.kind === "goal_contribution") {
     const g = applied[0];
     if (!g) return "That goal is no longer there, so nothing was recorded.";
@@ -1275,6 +1285,9 @@ export function proposalSummary(row: { kind: string; payload: Record<string, unk
   }
   if (row.kind === "goal_contribution") {
     return `AED ${Number(payload.amount ?? 0).toFixed(2)} toward ${String(payload.goal_name ?? "the goal")}`;
+  }
+  if (row.kind === "transfer") {
+    return `the transfer of AED ${Number(payload.amount ?? 0).toFixed(2)} from ${String(payload.from_name ?? "one account")} to ${String(payload.to_name ?? "another")}`;
   }
   const names = ((payload.items as Array<{ name?: unknown }>) ?? []).map((i) => String(i.name ?? "an account"));
   if (!names.length) return "the balance change";
@@ -1522,6 +1535,25 @@ const TOOLS_BASE = [
           occurred_at: { type: "string", description: "YYYY-MM-DD if a date is stated; omit to use today." },
         },
         required: ["goal_name", "amount"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "log_transfer",
+      description:
+        "The message reports money moved between two of the household's OWN accounts: paying the credit card from the bank account, moving money into savings, topping up one account from another (e.g. 'paid the card 3000 from current account', 'moved 5000 to savings from FAB'). A transfer is neither spending nor income, so never call log_expense for it. Not for paying someone else, a bill or a shop: that is log_expense.",
+      parameters: {
+        type: "object",
+        properties: {
+          from_account: { type: "string", description: "The account the money left, as the user named it. Omit if not stated." },
+          to_account: { type: "string", description: "The account the money went into (a card being paid off counts), as the user named it. Omit if not stated." },
+          amount: { type: "number", description: "The AED amount moved." },
+          occurred_at: { type: "string", description: "YYYY-MM-DD if a date is stated; omit to use today." },
+          note: { type: "string", description: "Anything else the message says about it, briefly. Omit if nothing." },
+        },
+        required: ["amount"],
       },
     },
   },
@@ -1956,6 +1988,38 @@ async function goalContributionDraft(householdId: string, args: Record<string, u
   return { goal, amount: round2(amount), occurredAt };
 }
 
+// A transfer between two of the household's own accounts (docs/decisions.md,
+// "The bot records transfers"). Both accounts are matched the way a card
+// named in an expense is (pickAccountByHint), and only when each names
+// exactly one open account: a transfer is never recorded against a guess.
+// The amount is AED, as every record's is.
+export function transferDraftFrom(accounts: Array<{ id: string; name: string }>, args: Record<string, unknown>, today: string) {
+  const available = accounts.map((a) => a.name);
+  const fromHint = String(args.from_account ?? "").trim();
+  const toHint = String(args.to_account ?? "").trim();
+  const from = fromHint ? pickAccountByHint(accounts, fromHint) : null;
+  const to = toHint ? pickAccountByHint(accounts, toHint) : null;
+  if (!from) return { error: fromHint ? "from_account_not_found" : "from_account_missing", said: fromHint || null, available };
+  if (!to) return { error: toHint ? "to_account_not_found" : "to_account_missing", said: toHint || null, available };
+  if (from.id === to.id) return { error: "same_account", account: from.name };
+  // The model sometimes signs the money leaving; the size is what is moved.
+  const amount = Math.abs(Number(args.amount));
+  if (!amount) return { error: "invalid_amount" };
+  const occurredAt = typeof args.occurred_at === "string" && /^\d{4}-\d{2}-\d{2}$/.test(args.occurred_at) ? args.occurred_at : today;
+  const note = typeof args.note === "string" && args.note.trim() ? args.note.trim().slice(0, 200) : null;
+  return { from, to, amount: round2(amount), occurredAt, note };
+}
+
+async function transferDraft(householdId: string, args: Record<string, unknown>) {
+  const { data: accounts } = await supabase.from("accounts").select("id, name").eq("household_id", householdId).is("archived_at", null);
+  return transferDraftFrom((accounts ?? []) as Array<{ id: string; name: string }>, args, householdToday());
+}
+
+// The question a transfer proposal asks, in exact figures.
+export function transferPrompt(draft: { from: { name: string }; to: { name: string }; amount: number; occurredAt: string }): string {
+  return `Record a transfer of AED ${draft.amount.toFixed(2)} from ${draft.from.name} to ${draft.to.name}, dated ${draft.occurredAt}? It counts as neither spending nor income. If either side is already in Rokda (the payment pasted from your bank's SMS, say), it becomes that side rather than a second copy. Nothing is recorded until you say yes.\n\n${ANSWER_HINT}`;
+}
+
 // ---------------------------------------------------------------------------
 // /brief digest -- deterministic, template-built from the same real tools
 // above rather than another LLM call: cheaper, and there's no room for a
@@ -2120,6 +2184,7 @@ async function classifyAndRoute(
     `You are a household finance assistant for Rokda, chatting with a household member via Telegram. ` +
     `If their message reports a real expense/income/refund that already happened (e.g. "spent 40 on lunch", "paid the rent", "got paid my salary", "got a refund from Noon"), ALWAYS call log_expense immediately -- even if the category, merchant, or exact amount isn't fully clear. log_expense covers all three: the extraction step itself decides which one from the wording, you don't need to. ` +
     `EXCEPTION: if the message specifically says money is going toward a named savings or debt-payoff GOAL (e.g. "put 500 toward emergency fund", "added 1000 to the house downpayment goal"), call log_goal_contribution instead -- never log_expense for that message, since a goal contribution never touches an account balance or the ledger. An ordinary purchase or bill with no named goal is still log_expense. ` +
+    `EXCEPTION: if the message says money moved between two of the household's own accounts (paying off the credit card from the bank account, moving money to savings), call log_transfer instead -- never log_expense, since a transfer is neither spending nor income. ` +
     `Never ask a clarifying question about an expense to log: category assignment happens later when a human reviews it, not in this chat, and an uncategorised expense is a completely normal, expected outcome -- do not treat that as ambiguity. ` +
     `Only treat a message as ambiguous, and only then reply in plain text with a short clarifying question instead of calling a tool, when it is a QUESTION whose target is genuinely unclear (e.g. asking about an account name that matches nothing, or a category that doesn't fit any real one) -- never for something being logged. ` +
     `If it asks a real question about their finances, call the matching tool to fetch the real number -- you must NEVER answer from your own knowledge or guess a figure; only a tool result is a real number. ` +
@@ -3877,6 +3942,30 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
           }
         }
 
+        if (toolCall.function.name === "log_transfer") {
+          const draft = await transferDraft(member.household_id, args);
+          if (!("error" in draft)) {
+            await sendProposal(
+              chatId,
+              member.household_id,
+              member.id,
+              "transfer",
+              {
+                from_account_id: draft.from.id,
+                from_name: draft.from.name,
+                to_account_id: draft.to.id,
+                to_name: draft.to.name,
+                amount: draft.amount,
+                occurred_at: draft.occurredAt,
+                note: draft.note,
+              },
+              transferPrompt(draft),
+              updateId,
+            );
+            return new Response("ok");
+          }
+        }
+
         let result: unknown;
         try {
           switch (toolCall.function.name) {
@@ -3902,6 +3991,11 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
               // Only a draft that failed reaches here (above): the goal or the
               // amount could not be read, which the reply explains.
               result = await goalContributionDraft(member.household_id, args);
+              break;
+            case "log_transfer":
+              // Likewise: an account that matched nothing (or two), the same
+              // account twice, or no amount, which the reply explains.
+              result = await transferDraft(member.household_id, args);
               break;
           }
         } catch (err) {

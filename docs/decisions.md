@@ -1582,3 +1582,31 @@ entered twice by two routes (the bot and by hand) stayed counted twice
 - **The bot is unchanged.** It checks a new message against what is already
   recorded, before there is a second record to pair with, and sends a likely
   duplicate to the Inbox.
+
+## The bot records transfers
+
+"Paid the card 3,000 from the current account" sent to the bot was captured as
+an expense, so it counted as spending until someone changed it in the app
+(SHR-234).
+
+- **Proposed, then recorded on a yes.** The bot has a `log_transfer` tool. It
+  matches both accounts the way it matches a card named in an expense, and
+  only when each names exactly one open account; otherwise it says which one
+  it couldn't find and records nothing. The proposal states the amount, both
+  accounts and the date, and is recorded by `apply_bot_proposal` on a "yes"
+  or 👍, like a goal contribution or a balance. Amounts are AED.
+- **Never twice.** A transfer already recorded between the two accounts, for
+  the amount, within four days, is not recorded again: confirming in the app
+  and on Telegram leaves one transfer.
+- **A side already recorded is joined, not copied.** The card payment is often
+  in the ledger already, pasted from the bank's SMS as an expense; the money
+  arriving on the card may be there as income. Such a record (on the right
+  account, the same amount, within four days, not split and linked to nothing)
+  becomes that side of the transfer, with the change in its history, and only
+  the missing side is added. This is also how a single record becomes a
+  transfer whose other side was never recorded.
+- **The rules are the transfer rules.** Both sides and the link are checked at
+  commit by the transfers migration's triggers, whichever path wrote them.
+- **The proposal kinds grew by one**, which meant replacing
+  `bot_proposals_kind_check` (`20261016160000_bot_transfers`); nothing else is
+  dropped.
