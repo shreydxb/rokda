@@ -52,7 +52,7 @@ here, because this repository is public.
   name, totals are that person's share and shared rows show the share under
   the full amount. Calendar days add up the same way, and open the editor.
   Filters: search, dates (presets or custom), category (a group includes its
-  subcategories), account, type, which dates count, needs review, and sort.
+  subcategories, and "Uncategorised" shows records with none), account, type, which dates count, needs review, and sort.
   On a phone the second row folds behind "Filters (n)". They are all in the
   address, so Back, reload and a bookmark keep them. The summary shows net
   spend as purchases less refunds, and income. The list shows 200 rows at a
@@ -85,6 +85,15 @@ here, because this repository is public.
 - **Inbox**: transactions the bot was not sure of, to confirm or fix. An entry
   whose message had no date is marked "No date" and is approved only once its
   date is set or confirmed, never in bulk.
+- **Review**: the month just ended (or an earlier one), as a checklist of
+  what to settle before its totals go into history: flagged records,
+  records with no category, pairs that look like an unjoined transfer (joined
+  in one tap; never holds the month up), the card statements that closed in
+  the month, balances confirmed since it ended, and closing it under Net
+  Worth. Each check is worked out from the records and ticks itself off; the
+  close marks the month reviewed. Under the checks, the month against its
+  budget and the groups that went over. Overview's "hasn't been closed" item
+  opens it.
 
 ## Wealth (`/wealth`)
 

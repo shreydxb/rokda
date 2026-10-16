@@ -8,6 +8,7 @@ import Recurring from './money/Recurring';
 import Budget from './money/Budget';
 import Insights from './money/Insights';
 import Inbox from './money/Inbox';
+import Review from './money/Review';
 import LoadFailure from './LoadFailure';
 import Freshness from './Freshness';
 import AedNote from './AedNote';
@@ -19,6 +20,7 @@ const TABS = [
   { id: 'recurring', label: 'Recurring' },
   { id: 'insights', label: 'Insights' },
   { id: 'inbox', label: 'Inbox' },
+  { id: 'review', label: 'Review' },
 ];
 
 export default function Money() {
@@ -91,6 +93,7 @@ export default function Money() {
       {tab === 'inbox' && (
         <Inbox members={members} accounts={data.accounts} categories={data.categories} data={data} loading={loading} />
       )}
+      {tab === 'review' && <Review data={data} loading={loading} />}
     </div>
   );
 }

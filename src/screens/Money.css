@@ -843,3 +843,81 @@
     display: none;
   }
 }
+
+/* Monthly review */
+.rv-month {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+.rv-progress {
+  margin-top: 14px;
+  font-weight: 600;
+}
+.rv-progress[data-complete='true'] {
+  color: var(--pos);
+}
+.rv-checks {
+  list-style: none;
+  padding: 0;
+  margin: 16px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.rv-check {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-md);
+  background: var(--raise);
+}
+.rv-mark {
+  flex: none;
+  width: 20px;
+  text-align: center;
+  font-weight: 700;
+}
+.rv-check[data-status='done'] .rv-mark {
+  color: var(--pos);
+}
+.rv-check[data-status='todo'] .rv-mark {
+  color: var(--warn);
+}
+.rv-body {
+  min-width: 0;
+  flex: 1;
+}
+.rv-title {
+  font-weight: 600;
+}
+.rv-detail {
+  font-size: 12.5px;
+  margin-top: 2px;
+}
+.rv-sublist {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.rv-pair {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.rv-open {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 12.5px;
+}
+.rv-budget {
+  margin-top: 24px;
+}

@@ -98,10 +98,15 @@ export function tabHref(path, tab) {
   return tab ? `${path}?tab=${encodeURIComponent(tab)}` : path;
 }
 
+// The category filter's value for records with no category (a transfer has
+// none to give, and a split record's are in its lines, so neither is one).
+export const UNCATEGORISED = 'none';
+
 // The address of Activity showing just these records.
-export function activityHref({ categoryId, search, from, to, dateBasis } = {}) {
+export function activityHref({ categoryId, search, from, to, dateBasis, needsReview } = {}) {
   let params = new URLSearchParams({ tab: 'activity' });
   params = withActivityFilter(params, 'categoryId', categoryId);
+  params = withActivityFilter(params, 'needsReview', needsReview);
   params = withActivityFilter(params, 'search', search);
   params = withActivityFilter(params, 'from', from);
   params = withActivityFilter(params, 'to', to);

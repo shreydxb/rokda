@@ -79,6 +79,13 @@ export function activitySummary(rows, scopeMemberId, amountOf = wholeAmount) {
   return summary;
 }
 
+// A record with no category to show for itself: Activity's "Uncategorised"
+// and the monthly review's count. A transfer has none to give, and a split
+// record's categories are its lines.
+export function isUncategorised(row) {
+  return row.kind !== 'transfer' && !row.is_split && !row.category_id;
+}
+
 // The list's order. Largest is by size of the amount, either direction.
 export function sortRows(rows, sort) {
   const byDate = (a, b) => (a.occurred_at < b.occurred_at ? -1 : a.occurred_at > b.occurred_at ? 1 : 0);

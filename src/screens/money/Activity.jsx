@@ -4,7 +4,7 @@ import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
 import { formatBalance, formatSigned, formatMoney } from '../../lib/money';
 import { isPosted } from '../../lib/day';
-import { DATE_BASES, activitySummary, matchesDateBasis, rowDateLabel, shareOf, sortRows } from '../../lib/activity';
+import { DATE_BASES, activitySummary, isUncategorised, matchesDateBasis, rowDateLabel, shareOf, sortRows } from '../../lib/activity';
 import {
   activeFilterCount,
   categoryAndChildren,
@@ -14,6 +14,7 @@ import {
   monthRange,
   presetFor,
   readActivityFilters,
+  UNCATEGORISED,
   withActivityFilter,
   withoutFilters,
 } from '../../lib/activityLink';
@@ -100,7 +101,11 @@ export default function Activity({ household, members, me, data, loading }) {
   };
 
   // A group includes its subcategories, as Budget rolls them up.
-  const categoryIds = useMemo(() => (categoryFilter === 'all' ? null : categoryAndChildren(categoryFilter, categories)), [categoryFilter, categories]);
+  const uncategorisedOnly = categoryFilter === UNCATEGORISED;
+  const categoryIds = useMemo(
+    () => (categoryFilter === 'all' || categoryFilter === UNCATEGORISED ? null : categoryAndChildren(categoryFilter, categories)),
+    [categoryFilter, categories],
+  );
   // Narrowed to a category, a split record counts only its line in it
   // (lib/splits.js); the row still shows, and opens with, the whole record.
   const amountOf = useMemo(() => (categoryIds ? (t) => amountInCategory(t, categoryIds) : undefined), [categoryIds]);
@@ -112,6 +117,7 @@ export default function Activity({ household, members, me, data, loading }) {
       if (scopeMemberId !== null && !(t.is_shared || t.owner_member_id === scopeMemberId)) return false;
       if (needsReviewOnly && !t.needs_review) return false;
       if (categoryIds && !inCategory(t, categoryIds)) return false;
+      if (uncategorisedOnly && !isUncategorised(t)) return false;
       if (accountId !== 'all' && t.account_id !== accountId) return false;
       if (kind !== 'all' && (t.kind ?? (Number(t.amount) < 0 ? 'expense' : 'income')) !== kind) return false;
       if ((from || to) && !inDateRange(t, from, to)) return false;
@@ -121,7 +127,7 @@ export default function Activity({ household, members, me, data, loading }) {
       }
       return true;
     });
-  }, [transactions, categoryIds, scopeMemberId, needsReviewOnly, accountId, kind, search, from, to]);
+  }, [transactions, categoryIds, uncategorisedOnly, scopeMemberId, needsReviewOnly, accountId, kind, search, from, to]);
   const rows = useMemo(() => sortRows(matching.filter((t) => matchesDateBasis(t, dateBasis, now)), sort), [matching, dateBasis, now, sort]);
   // Records the other filters match that Posted leaves out, so a record just
   // entered with next week's date doesn't simply vanish.
@@ -182,6 +188,7 @@ export default function Activity({ household, members, me, data, loading }) {
       <div className="mn-filters mn-more" data-open={moreOpen}>
         <select className="om-seg" aria-label="Category" value={categoryFilter} onChange={(e) => setFilter('categoryId', e.target.value)}>
           <option value="all">All categories</option>
+          <option value={UNCATEGORISED}>Uncategorised</option>
           {categories.map((c) => (
             <option key={c.id} value={c.id}>
               {c.parent_id ? `– ${c.name}` : c.name}

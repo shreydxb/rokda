@@ -1468,3 +1468,45 @@ in Budget, Insights, Overview's categories and the "running high" check
   so they can be checked against it to the cent.
 - **Not here:** a refund against a split purchase takes one category of its
   own; netting it line by line belongs with refund linking (SHR-234).
+
+## A month is reviewed, then closed
+
+Closing a month was one button under Wealth → Net Worth, and nothing asked
+whether the month's records were right before its totals went into history.
+Money → Review is the list of what to settle first, in the order it is worth
+doing.
+
+- **Worked out, not ticked.** Each check is computed from what is recorded:
+  flagged records in the month, records with no category (a transfer has none
+  to give, and a split record's are its lines), card statements that closed in
+  the month and aren't settled, open accounts whose balance nobody has
+  confirmed since the month ended, and whether the month is closed. Fixing
+  something anywhere ticks its check off, so nothing extra is stored and no
+  migration was needed. The close is the one recorded act, and it is what
+  marks the month reviewed.
+- **The order is the work's order.** Records first, then statements, then
+  balances, then the close, because the close records the balances and the
+  balances should be right first. Once a month is closed it no longer asks
+  about balances.
+- **Suggestions never hold a month up.** Pairs that look like one transfer
+  recorded as two (the same amount out of one account and into another within
+  a few days) are listed with "Make one transfer", but two records can match
+  by chance and there is nowhere to record "not a transfer", so they aren't
+  counted in "N of M done" and get no tick. The same goes for an earlier month
+  that was never closed: a close records today's totals as the month just
+  ended's, so it can't be closed now, and the review says so rather than
+  asking for it.
+- **The whole household.** A month closes for the household, so the review
+  counts both people's records whoever is selected in the sidebar.
+- **Statements, by the month they closed in.** A refund often lands on a later
+  statement than the purchase it returns (a card refund posts when the shop
+  processes it, sometimes weeks later), so the review says so beside an
+  unsettled statement rather than treating a difference as an error.
+- **Links go where the work is.** Flagged and uncategorised records open
+  Activity for the month with that filter ("Uncategorised" is a new category
+  filter, `cat=none`). Statements, balances and the close open their Wealth
+  tab. Overview's "hasn't been closed" item now opens the review rather than
+  Net Worth.
+- **Not here:** a recurring bill that didn't arrive in the month (Overview
+  already flags it while it is current), and a saved "reviewed" mark separate
+  from the close.
