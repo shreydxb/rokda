@@ -179,22 +179,76 @@ begin
   raise notice 'SHR-252 ok: a refund is signed positive and its kind is persisted';
 end $$;
 
--- SHR-252: approval refuses a non-AED currency rather than storing an
--- unconverted amount that every dashboard total would misread as AED.
+-- SHR-252, SHR-321: approval never stores an unconverted amount that every
+-- dashboard total would misread as AED. A payment in another currency is
+-- approved only with both figures: the AED that counts, and the amount in its
+-- own currency.
 insert into intake (id, household_id, source, parsed_amount, status)
 values ('55555555-5555-5555-5555-555555555559', '11111111-1111-1111-1111-111111111111', 'manual', 40, 'pending');
 do $$
+declare result jsonb;
 begin
   begin
     perform approve_intake(
       '55555555-5555-5555-5555-555555555559', '33333333-3333-3333-3333-333333333333',
       40, date '2026-09-05', 'expense', null, 'USD');
-    raise exception 'SHR-252 FAILED: a USD approval was accepted';
+    raise exception 'SHR-252 FAILED: a USD approval without its USD amount was accepted';
   exception
-    when raise_exception then
-      if position('AED' in sqlerrm) = 0 then raise; end if;
-      raise notice 'SHR-252 ok: a non-AED currency is refused';
+    when invalid_parameter_value then null;
   end;
+  begin
+    perform approve_intake(
+      '55555555-5555-5555-5555-555555555559', '33333333-3333-3333-3333-333333333333',
+      40, date '2026-09-05', 'expense', p_native_amount => 10);
+    raise exception 'SHR-321 FAILED: an AED approval carried another amount';
+  exception
+    when invalid_parameter_value then null;
+  end;
+  result := approve_intake(
+    '55555555-5555-5555-5555-555555555559', '33333333-3333-3333-3333-333333333333',
+    146.9, date '2026-09-05', 'expense', null, 'USD', p_native_amount => 40, p_aed_estimated => true);
+  if not exists (select 1 from transactions where id = (result ->> 'transaction_id')::uuid
+                 and amount = -146.9 and currency = 'USD' and native_amount = -40 and aed_estimated) then
+    raise exception 'SHR-321 FAILED: a USD approval did not keep the AED, the USD amount and the estimate flag';
+  end if;
+  raise notice 'SHR-252 ok: a payment in another currency is approved only with both its amounts';
+end $$;
+
+-- SHR-321: a payment's own-currency amount and the AED that counts agree.
+do $$
+declare
+  hh constant uuid := '11111111-1111-1111-1111-111111111111';
+  card constant uuid := '33333333-3333-3333-3333-333333333333';
+  tx constant uuid := '44444444-4444-4444-4444-4444444444e1';
+begin
+  insert into transactions (id, household_id, account_id, amount, currency, native_amount, aed_estimated, occurred_at, is_shared)
+  values (tx, hh, card, -1000, 'INR', -23000, true, '2026-09-10', true);
+  begin
+    update transactions set native_amount = null where id = tx;
+    raise exception 'SHR-321 FAILED: a rupee payment lost its rupee amount';
+  exception when check_violation then null;
+  end;
+  begin
+    update transactions set native_amount = 23000 where id = tx;
+    raise exception 'SHR-321 FAILED: the two amounts went in different directions';
+  exception when check_violation then null;
+  end;
+  begin
+    insert into transactions (household_id, account_id, amount, currency, native_amount, occurred_at, is_shared)
+    values (hh, card, -5, 'AED', -5, '2026-09-10', true);
+    raise exception 'SHR-321 FAILED: an AED payment carried another amount';
+  exception when check_violation then null;
+  end;
+  begin
+    insert into transactions (household_id, account_id, amount, aed_estimated, occurred_at, is_shared)
+    values (hh, card, -5, true, '2026-09-10', true);
+    raise exception 'SHR-321 FAILED: an AED payment was marked as estimated';
+  exception when check_violation then null;
+  end;
+  -- The AED actually debited replaces the estimate.
+  update transactions set amount = -1004.5, aed_estimated = false where id = tx;
+  delete from transactions where id = tx;
+  raise notice 'SHR-321 ok: the rupee amount and the AED agree, and only a foreign payment carries an estimate';
 end $$;
 
 -- SHR-254 (762a6c4 recheck): the sync is one-directional. A new-client write
@@ -703,7 +757,7 @@ begin
   -- authenticated and the bot as service_role.
   if (select count(distinct a.grantee)
         from pg_proc p, aclexplode(p.proacl) a
-       where p.oid = 'approve_intake(uuid, uuid, numeric, date, text, uuid, text, text, boolean, uuid, boolean)'::regprocedure
+       where p.oid = 'approve_intake(uuid, uuid, numeric, date, text, uuid, text, text, boolean, uuid, boolean, numeric, boolean)'::regprocedure
          and a.privilege_type = 'EXECUTE'
          and a.grantee in ('authenticated'::regrole, 'service_role'::regrole)) <> 2 then
     raise exception 'guessed date FAILED: approve_intake is not granted to authenticated and service_role';

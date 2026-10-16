@@ -6,6 +6,7 @@ import { accountOptionLabel, selectableAccounts } from '../../lib/accounts';
 import { INTAKE_KINDS, approvalArgs, validateApproval } from '../../lib/intake';
 import { confirmedPairRow, findDuplicate } from '../../lib/duplicates';
 import { householdToday } from '../../lib/day';
+import { estimateAed } from '../../lib/fxHistory';
 import './TransactionEditor.css';
 
 function senderName(item, members) {
@@ -61,7 +62,7 @@ function sourceIcon(item) {
 
 const READ_CLEANLY_THRESHOLD = 0.85;
 
-export default function Inbox({ members = [], accounts, categories, data, loading }) {
+export default function Inbox({ household = null, members = [], accounts, categories, data, loading }) {
   const { intake, categoryRules, transactions, reload } = data;
   const [selectedId, setSelectedId] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -183,6 +184,7 @@ export default function Inbox({ members = [], accounts, categories, data, loadin
               categories={categories}
               categoryRules={categoryRules}
               allTransactions={transactions ?? []}
+              rates={{ history: data.fxRateHistory ?? [], current: household?.inr_per_aed ?? null }}
               duplicatePending={findDuplicatePending(selected, pending)}
               saving={saving}
               setSaving={setSaving}
@@ -259,7 +261,7 @@ function FieldRow({ label, value, hint, ok, onClick }) {
 
 // household_id is taken from the intake row inside the RPC rather than passed
 // in, so an approval cannot be redirected to another household.
-function IntakeReview({ item, sender, accounts, members, categories, categoryRules, allTransactions, duplicatePending, saving, setSaving, error, setError, onDone }) {
+function IntakeReview({ item, sender, accounts, members, categories, categoryRules, allTransactions, rates, duplicatePending, saving, setSaving, error, setError, onDone }) {
   const [mode, setMode] = useState('review'); // 'review' | 'edit'
 
   const catById = new Map(categories.map((c) => [c.id, c]));
@@ -276,7 +278,7 @@ function IntakeReview({ item, sender, accounts, members, categories, categoryRul
     { label: 'Date', value: item.parsed_date ?? 'Not read', hint: item.date_guessed ? 'Not in the message; check it' : '', ok: !!item.parsed_date && !item.date_guessed },
     { label: 'Category', value: suggestedCategory?.name ?? 'Uncategorised', hint: item.parsed_category_id ? '' : 'No rule matched', ok: !!item.parsed_category_id },
     { label: 'Account', value: suggestedAccount?.name ?? 'Not matched', hint: item.parsed_account_id ? '' : 'Ambiguous or unmatched', ok: !!item.parsed_account_id },
-    { label: 'Currency', value: item.parsed_currency ?? 'AED', hint: item.parsed_currency && item.parsed_currency !== 'AED' ? 'Not AED -- needs a manual AED amount' : '', ok: !item.parsed_currency || item.parsed_currency === 'AED' },
+    { label: 'Currency', value: item.parsed_currency ?? 'AED', hint: item.parsed_currency && item.parsed_currency !== 'AED' ? 'Edit first to record it with the AED debited' : '', ok: !item.parsed_currency || item.parsed_currency === 'AED' },
   ];
 
   async function approveDirect() {
@@ -338,6 +340,7 @@ function IntakeReview({ item, sender, accounts, members, categories, categoryRul
         categories={categories}
         categoryRules={categoryRules}
         allTransactions={allTransactions}
+        rates={rates}
         duplicatePending={duplicatePending}
         saving={saving}
         setSaving={setSaving}
@@ -418,14 +421,16 @@ function IntakeReview({ item, sender, accounts, members, categories, categoryRul
   );
 }
 
-function IntakeEditForm({ item, sender, accounts, members, categories, categoryRules, allTransactions, duplicatePending, saving, setSaving, error, setError, onBack, onDone }) {
-  // A detected non-AED currency means the parsed amount is in that currency,
-  // not AED -- prefilling it as though it were an AED figure would be
-  // actively misleading, so it's left blank for the reviewer to enter the
-  // real AED-equivalent themselves (a card's actual FX markup isn't
-  // something this app can know, so it never guesses a conversion).
+function IntakeEditForm({ item, sender, accounts, members, categories, categoryRules, allTransactions, rates = { history: [], current: null }, duplicatePending, saving, setSaving, error, setError, onBack, onDone }) {
+  // A detected non-AED currency means the parsed amount is in that currency.
+  // It is kept as that, and the AED that counts is the AED debited, or until
+  // that is known an estimate at the payment date's rate, marked as one
+  // (docs/decisions.md, "A payment in rupees keeps both amounts"). A card's
+  // exchange markup isn't knowable here, so an estimate is never passed off
+  // as the debited figure.
   const foreignCurrency = item.parsed_currency && item.parsed_currency !== 'AED' ? item.parsed_currency : null;
-  const [amount, setAmount] = useState(!foreignCurrency && item.parsed_amount !== null ? String(item.parsed_amount) : '');
+  const [typedAmount, setAmount] = useState(item.parsed_amount !== null ? String(item.parsed_amount) : '');
+  const [aedDebited, setAedDebited] = useState('');
   const [merchant, setMerchant] = useState(item.parsed_merchant ?? '');
   const [date, setDate] = useState(item.parsed_date ?? householdToday());
   // Intake can only be approved onto an open account (QA-01).
@@ -439,12 +444,12 @@ function IntakeEditForm({ item, sender, accounts, members, categories, categoryR
   // (SHR-282) when it made one, so a salary credit opens already set to
   // Income rather than always starting at Expense.
   const [kind, setKind] = useState(item.parsed_kind ?? 'expense');
-  // Fixed, not user-editable: there is no native-currency conversion yet, and
-  // every dashboard total already treats amount as AED. Letting this field
-  // be typed into let "USD" get entered while the number stayed an
-  // unconverted AED figure — approved, but silently wrong everywhere it was
-  // later read (SHR-252).
-  const currency = 'AED';
+  // Read from the message, not typed: letting it be edited let "USD" sit
+  // against an AED figure (SHR-252). An AED entry has one amount; any other
+  // has both.
+  const currency = foreignCurrency ?? 'AED';
+  const estimate = foreignCurrency && aedDebited.trim() === '' ? estimateAed(Number(typedAmount) || 0, foreignCurrency, date, rates.history, rates.current) : null;
+  const amount = !foreignCurrency ? typedAmount : aedDebited.trim() !== '' ? aedDebited : estimate ? String(Math.abs(estimate.aed)) : '';
   const [owner, setOwner] = useState('shared');
   const [duplicateDismissed, setDuplicateDismissed] = useState(false);
   // The record "Both are real" was said about, remembered as a confirmed pair
@@ -470,6 +475,8 @@ function IntakeEditForm({ item, sender, accounts, members, categories, categoryR
     kind,
     categoryId,
     currency,
+    nativeAmount: foreignCurrency ? typedAmount : null,
+    aedEstimated: !!foreignCurrency && aedDebited.trim() === '',
     merchant,
     isShared: owner === 'shared',
     ownerMemberId: owner === 'shared' ? null : owner,
@@ -481,6 +488,10 @@ function IntakeEditForm({ item, sender, accounts, members, categories, categoryR
   // pending row exactly once and returns the existing result on retry (QA-11).
   async function approve(e) {
     e.preventDefault();
+    if (foreignCurrency && !amount) {
+      setError(`No ${foreignCurrency} rate for that date: enter the AED debited.`);
+      return;
+    }
     const invalid = validateApproval(form);
     if (invalid) {
       setError(invalid);
@@ -545,14 +556,32 @@ function IntakeEditForm({ item, sender, accounts, members, categories, categoryR
         <div>
           <div className="te-hero-label">Amount</div>
           <div className="te-hero-row">
-            <span className="te-hero-currency">AED</span>
-            <input type="number" min="0" step="0.01" className="te-hero-input" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" />
+            <span className="te-hero-currency">{currency}</span>
+            <input type="number" min="0" step="0.01" className="te-hero-input" aria-label="Amount" value={typedAmount} onChange={(e) => setAmount(e.target.value)} placeholder="0" />
           </div>
         </div>
         {foreignCurrency && (
-          <div className="ov-warn" role="alert" style={{ fontSize: 12.5 }}>
-            Detected as {item.parsed_amount} {foreignCurrency} — this app only tracks AED. Enter the real AED-equivalent amount
-            from your statement below; a card's exchange markup isn't something this can convert for you.
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <label className="te-fieldcell">
+              <span className="te-fieldlabel">AED debited</span>
+              <input
+                className="te-fieldvalue"
+                type="number"
+                min="0"
+                step="0.01"
+                aria-label="AED debited"
+                value={aedDebited}
+                onChange={(e) => setAedDebited(e.target.value)}
+                placeholder={estimate ? formatMoney(Math.abs(estimate.aed), { decimals: 2 }) : 'From the statement'}
+              />
+            </label>
+            <div className={estimate || aedDebited.trim() !== '' ? 'ov-muted' : 'ov-warn'} style={{ fontSize: 11.5 }}>
+              {aedDebited.trim() !== ''
+                ? `Recorded as ${foreignCurrency} ${typedAmount || 0}, with this AED as what every total counts.`
+                : estimate
+                  ? `Leave it blank to record an estimate of AED ${formatMoney(Math.abs(estimate.aed), { decimals: 2 })}, marked as one until the AED debited is entered.`
+                  : `No ${foreignCurrency} rate for that date: enter the AED debited.`}
+            </div>
           </div>
         )}
 
@@ -608,9 +637,6 @@ function IntakeEditForm({ item, sender, accounts, members, categories, categoryR
             <span className="te-fieldlabel">Currency</span>
             <input className="te-fieldvalue" type="text" value={currency} disabled />
           </div>
-        </div>
-        <div className="ov-muted" style={{ fontSize: 11.5, marginTop: -12 }}>
-          AED only for now — there’s no native-currency conversion, so approval can’t mix units.
         </div>
 
         <div>

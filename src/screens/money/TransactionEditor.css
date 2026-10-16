@@ -359,3 +359,11 @@
   background: var(--raise);
   padding-left: 10px;
 }
+
+/* The AED actually debited, for a payment in another currency. */
+.te-aed-debited {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+}

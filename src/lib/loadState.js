@@ -28,6 +28,7 @@ export const SOURCE_LABELS = {
 
   backupRecords: 'backup records',
   transactionLinks: 'transfer links',
+  fxRateHistory: 'exchange-rate history',
   household: 'your household',
 };
 

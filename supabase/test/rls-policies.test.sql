@@ -26,6 +26,9 @@ insert into auth.users (id, email) values
   ('0f000000-0000-0000-0000-00000000000f', 'founder@example.test'),
   ('0e000000-0000-0000-0000-00000000000e', 'latecomer@example.test');
 
+-- One day's exchange rate, the same for every household.
+insert into fx_rate_history (base, quote, day, rate, source) values ('AED', 'INR', '2026-10-01', 23.5, 'test');
+
 set role authenticated;
 set request.jwt.claim.role = 'authenticated';
 set request.jwt.claim.sub = '0f000000-0000-0000-0000-00000000000f';
@@ -530,6 +533,21 @@ begin
 
   delete from transactions where id in (purchase, refund);
   raise notice 'refund links ok: own household only; link and unlink as a member';
+end $$;
+
+-- Exchange-rate history (SHR-321): the same market rates for everyone
+-- signed in, written only by the price refresh.
+do $$
+declare n int;
+begin
+  select count(*) into n from fx_rate_history;
+  if n <> 1 then raise exception 'fx history FAILED: a member sees % rows, expected the 1 on record', n; end if;
+  begin
+    insert into fx_rate_history (base, quote, day, rate, source) values ('AED', 'INR', '2026-01-01', 1, 'test');
+    raise exception 'fx history FAILED: a member wrote an exchange rate';
+  exception when insufficient_privilege then null;
+  end;
+  raise notice 'fx history ok: readable by members (% rows), written by nobody but the service role', n;
 end $$;
 
 -- QA §8: a member cannot promote themselves.

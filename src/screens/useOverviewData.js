@@ -41,6 +41,13 @@ const SOURCES = [
   // Which transactions are two sides of one transfer (docs/decisions.md,
   // "Transfers are neither income nor spending").
   { key: 'transactionLinks', query: (id) => supabase.from('transaction_links').select('*').eq('household_id', id).order('created_at').order('id') },
+  // Rupees per dirham by day, so a payment in rupees is estimated at its own
+  // date's rate (docs/decisions.md, "A payment in rupees keeps both amounts").
+  // The same for every household. One pair, so the day is unique.
+  {
+    key: 'fxRateHistory',
+    query: () => supabase.from('fx_rate_history').select('base, quote, day, rate').eq('base', 'AED').eq('quote', 'INR').order('day'),
+  },
 ].map((source) => ({ ...source, run: (id) => readAllPages(() => source.query(id)) }));
 
 // The sources this hook loads, so a test can check each has a name to fail with.
@@ -61,6 +68,7 @@ const EMPTY_STATE = {
   statementReconciliations: [],
   backupRecords: [],
   transactionLinks: [],
+  fxRateHistory: [],
   errors: {},
   loadedAt: null,
 };

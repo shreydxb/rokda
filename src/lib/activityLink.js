@@ -34,6 +34,7 @@ export function readActivityFilters(params) {
     categoryId: params.get('cat') || 'all',
     search: params.get('q') ?? '',
     needsReview: params.get('review') === '1',
+    estimated: params.get('est') === '1',
     dateBasis: BASES.has(dates) ? dates : 'posted',
     from: from && DATE.test(from) ? from : null,
     to: to && DATE.test(to) ? to : null,
@@ -44,13 +45,13 @@ export function readActivityFilters(params) {
   };
 }
 
-const PARAM_OF = { categoryId: 'cat', search: 'q', needsReview: 'review', dateBasis: 'dates', from: 'from', to: 'to', view: 'view', accountId: 'acct', kind: 'kind', sort: 'sort' };
-const DEFAULTS = { categoryId: 'all', search: '', needsReview: false, dateBasis: 'posted', from: null, to: null, view: 'list', accountId: 'all', kind: 'all', sort: 'newest' };
+const PARAM_OF = { categoryId: 'cat', search: 'q', needsReview: 'review', estimated: 'est', dateBasis: 'dates', from: 'from', to: 'to', view: 'view', accountId: 'acct', kind: 'kind', sort: 'sort' };
+const DEFAULTS = { categoryId: 'all', search: '', needsReview: false, estimated: false, dateBasis: 'posted', from: null, to: null, view: 'list', accountId: 'all', kind: 'all', sort: 'newest' };
 
 // How many of the filters that narrow the list are set (not the view or the
 // sort, which only arrange it), for "Filters (2)" and "Clear filters".
 export function activeFilterCount(filters) {
-  const narrowing = ['categoryId', 'search', 'needsReview', 'dateBasis', 'accountId', 'kind'];
+  const narrowing = ['categoryId', 'search', 'needsReview', 'estimated', 'dateBasis', 'accountId', 'kind'];
   return narrowing.filter((key) => filters[key] !== DEFAULTS[key]).length + (filters.from || filters.to ? 1 : 0);
 }
 
@@ -58,7 +59,7 @@ export function activeFilterCount(filters) {
 // the sort.
 export function withoutFilters(params) {
   let next = new URLSearchParams(params);
-  for (const key of ['categoryId', 'search', 'needsReview', 'dateBasis', 'from', 'to', 'accountId', 'kind']) next = withActivityFilter(next, key, null);
+  for (const key of ['categoryId', 'search', 'needsReview', 'estimated', 'dateBasis', 'from', 'to', 'accountId', 'kind']) next = withActivityFilter(next, key, null);
   return next;
 }
 
@@ -103,8 +104,9 @@ export function tabHref(path, tab) {
 export const UNCATEGORISED = 'none';
 
 // The address of Activity showing just these records.
-export function activityHref({ categoryId, search, from, to, dateBasis, needsReview, kind } = {}) {
+export function activityHref({ categoryId, search, from, to, dateBasis, needsReview, estimated, kind } = {}) {
   let params = new URLSearchParams({ tab: 'activity' });
+  params = withActivityFilter(params, 'estimated', estimated);
   params = withActivityFilter(params, 'kind', kind);
   params = withActivityFilter(params, 'categoryId', categoryId);
   params = withActivityFilter(params, 'needsReview', needsReview);

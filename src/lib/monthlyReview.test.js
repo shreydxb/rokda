@@ -92,6 +92,17 @@ describe('monthlyReview', () => {
     expect(byId(monthlyReview(SEPT, { ...settled, transactions, transactionLinks }, NOW)).duplicates.status).toBe('done');
   });
 
+  it('asks for the AED debited on payments in other currencies, only in a month that had them', () => {
+    expect(byId(monthlyReview(SEPT, settled, NOW)).estimates).toBeUndefined();
+    const transactions = [
+      tx('home', { amount: -1000, currency: 'INR', native_amount: -23000, aed_estimated: true }),
+      tx('shop', { amount: -146.9, currency: 'USD', native_amount: -40, aed_estimated: false }),
+    ];
+    const review = monthlyReview(SEPT, { ...settled, transactions }, NOW);
+    expect(byId(review).estimates).toMatchObject({ status: 'todo', count: 1, required: true, href: '/money?tab=activity&est=1&from=2026-09-01&to=2026-09-30' });
+    expect(review.total).toBe(7);
+  });
+
   it("notes an earlier month that was never closed, since it can't be closed now", () => {
     const review = monthlyReview({ year: 2026, month: 7 }, { ...settled, transactions: [] }, NOW);
     expect(byId(review).close).toMatchObject({ status: 'note', required: false, href: null });

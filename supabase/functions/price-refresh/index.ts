@@ -10,6 +10,7 @@
 import "jsr:@supabase/functions-js@2.117.2/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2.117.2";
 import { householdToday } from "../_shared/applib/day.js";
+import { historyRowsFromEcb } from "../_shared/applib/fxHistory.js";
 import { navQuoteTime, quoteTime } from "../_shared/quoteTime.ts";
 import { bearerToken, presentedSchedulerSecret, schedulerSecretMatches } from "../_shared/requestAuth.ts";
 
@@ -50,6 +51,14 @@ async function refreshFx(): Promise<{ ok: boolean; rate: number | null; error?: 
       fail_count: 0,
     });
 
+    // The day's rate in the history too, so a payment dated today is
+    // estimated at today's rate long after the latest one has moved on
+    // (SHR-321). Best-effort: a failed write leaves the latest rate current.
+    await supabase.from("fx_rate_history").upsert(
+      { base: "AED", quote: "INR", day: householdToday(new Date(fetchedAt)), rate, source: "open.er-api", fetched_at: fetchedAt },
+      { onConflict: "base,quote,day" },
+    );
+
     // Every household shows the same market rate — this is what replaces
     // the one-time manual WebSearch conversion the currency toggle used.
     await supabase
@@ -71,6 +80,37 @@ async function refreshFx(): Promise<{ ok: boolean; rate: number | null; error?: 
     // Fall back to whatever rate is already on record so holdings priced in
     // INR can still be converted today, even though this run's pull failed.
     return { ok: false, rate: existing?.rate ?? null, error: message };
+  }
+}
+
+// The first day the rupee history reaches back to: far enough for the
+// payments recorded since the household started using Rokda.
+const FX_HISTORY_FROM = "2025-01-01";
+
+// Fills the rupee history for the days before the daily refresh began, once,
+// from the ECB's reference rates (Frankfurter, keyless), converted through the
+// dollar peg. A day the daily refresh already recorded is kept. Skipped once
+// any ECB day is on record; a failure is reported and changes nothing, and
+// the next run tries again.
+async function backfillFxHistory(): Promise<{ ok: boolean; added?: number; skipped?: boolean; error?: string }> {
+  const { count, error: countError } = await supabase
+    .from("fx_rate_history")
+    .select("day", { count: "exact", head: true })
+    .eq("base", "AED")
+    .eq("quote", "INR")
+    .eq("source", "ecb");
+  if (countError) return { ok: false, error: countError.message };
+  if ((count ?? 0) > 0) return { ok: true, skipped: true };
+  try {
+    const res = await fetch(`https://api.frankfurter.dev/v1/${FX_HISTORY_FROM}..?base=USD&symbols=INR`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const rows = historyRowsFromEcb(await res.json());
+    if (!rows.length) throw new Error("Response had no INR rates");
+    const { error } = await supabase.from("fx_rate_history").upsert(rows, { onConflict: "base,quote,day", ignoreDuplicates: true });
+    if (error) throw new Error(error.message);
+    return { ok: true, added: rows.length };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -361,6 +401,7 @@ Deno.serve(async (req) => {
   // Sequential, not parallel: holdings priced in INR need this run's own
   // fx rate (or the last good one) to convert to AED correctly.
   const fx = await refreshFx();
+  const fxHistory = await backfillFxHistory();
   const holdings = await refreshHoldings(fx.rate);
-  return jsonResponse({ fx, holdings });
+  return jsonResponse({ fx, fxHistory, holdings });
 });
