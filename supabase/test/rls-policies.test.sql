@@ -146,6 +146,9 @@ insert into accounts (id, household_id, name, type, balance, is_shared) values
   ('f4000000-0000-0000-0000-000000000003', 'd1000000-0000-0000-0000-000000000001', 'Our savings', 'savings', 0, true),
   ('f4000000-0000-0000-0000-000000000004', 'd2000000-0000-0000-0000-000000000002', 'Their savings', 'savings', 0, true);
 do $$ begin perform record_transfer('d2000000-0000-0000-0000-000000000002', 'f4000000-0000-0000-0000-000000000002', 'f4000000-0000-0000-0000-000000000004', 50, '2026-10-01'); end $$;
+-- A purchase in the other household, which no member here may refund.
+insert into transactions (id, household_id, account_id, amount, kind, occurred_at, is_shared) values
+  ('f8000000-0000-0000-0000-000000000002', 'd2000000-0000-0000-0000-000000000002', 'f4000000-0000-0000-0000-000000000002', -70, 'expense', '2026-10-01', true);
 -- Opening a balance records it; these two aren't part of the balance-history
 -- case below, which counts its own.
 delete from account_balance_events where account_id in ('f4000000-0000-0000-0000-000000000003', 'f4000000-0000-0000-0000-000000000004');
@@ -490,6 +493,43 @@ begin
   delete from transactions where id = ours;
   delete from categories where id in (cat_a, cat_b);
   raise notice 'splits ok: own household only; split and unsplit as a member';
+end $$;
+
+-- Refund links: a member links a refund to their own household's purchase,
+-- and can neither link to another household's nor see its links.
+do $$
+declare
+  n int;
+  purchase uuid;
+  refund uuid;
+  made jsonb;
+begin
+  insert into transactions (household_id, account_id, amount, kind, occurred_at, is_shared)
+  values ('d1000000-0000-0000-0000-000000000001', 'f4000000-0000-0000-0000-000000000001', -80, 'expense', '2026-10-03', true)
+  returning id into purchase;
+  insert into transactions (household_id, account_id, amount, kind, occurred_at, is_shared)
+  values ('d1000000-0000-0000-0000-000000000001', 'f4000000-0000-0000-0000-000000000001', 30, 'refund', '2026-10-05', true)
+  returning id into refund;
+
+  made := link_refund(purchase, refund);
+  select count(*) into n from transaction_links where kind = 'refund';
+  if n <> 1 then raise exception 'refund links FAILED: a member could not link their own refund'; end if;
+  perform unlink_refund((made ->> 'link_id')::uuid);
+
+  begin
+    perform link_refund('f8000000-0000-0000-0000-000000000002', refund);
+    raise exception 'refund links FAILED: a refund was linked to another household''s purchase';
+  exception when no_data_found then null;
+  end;
+  begin
+    insert into transaction_links (household_id, kind, from_transaction_id, to_transaction_id)
+    values ('d2000000-0000-0000-0000-000000000002', 'refund', 'f8000000-0000-0000-0000-000000000002', refund);
+    raise exception 'refund links FAILED: a member wrote a refund link into another household';
+  exception when insufficient_privilege or foreign_key_violation then null;
+  end;
+
+  delete from transactions where id in (purchase, refund);
+  raise notice 'refund links ok: own household only; link and unlink as a member';
 end $$;
 
 -- QA §8: a member cannot promote themselves.

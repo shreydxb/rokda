@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
 import { formatBalance, formatSigned, formatMoney } from '../../lib/money';
-import { isPosted } from '../../lib/day';
+import { isPosted, parseDay } from '../../lib/day';
 import { DATE_BASES, activitySummary, isUncategorised, matchesDateBasis, rowDateLabel, shareOf, sortRows } from '../../lib/activity';
 import {
   activeFilterCount,
@@ -56,7 +56,7 @@ export default function Activity({ household, members, me, data, loading }) {
   const { scope } = useScope();
   const scopeMemberId = resolveScopeMemberId(scope, me, members);
   const { transactions, accounts, categories, reload } = data;
-  const links = data.transactionLinks ?? [];
+  const links = useMemo(() => data.transactionLinks ?? [], [data.transactionLinks]);
   const accountById = useMemo(() => new Map(accounts.map((a) => [a.id, a])), [accounts]);
 
   // Every filter is read from and written to the address, so a link can open
@@ -110,6 +110,20 @@ export default function Activity({ household, members, me, data, loading }) {
   // (lib/splits.js); the row still shows, and opens with, the whole record.
   const amountOf = useMemo(() => (categoryIds ? (t) => amountInCategory(t, categoryIds) : undefined), [categoryIds]);
   const catName = useMemo(() => new Map(categories.map((c) => [c.id, c.name])), [categories]);
+  // Refund links both ways (lib/refunds.js): each refund's purchase, and how
+  // much of each purchase has come back, for the rows' "refund for" and
+  // "refunded" labels.
+  const refundLinks = useMemo(() => {
+    const byId = new Map(transactions.map((t) => [t.id, t]));
+    const purchaseOf = new Map();
+    const back = new Map();
+    for (const l of links) {
+      if (l.kind !== 'refund') continue;
+      purchaseOf.set(l.to_transaction_id, byId.get(l.from_transaction_id) ?? null);
+      back.set(l.from_transaction_id, (back.get(l.from_transaction_id) ?? 0) + Number(byId.get(l.to_transaction_id)?.amount ?? 0));
+    }
+    return { purchaseOf, back };
+  }, [links, transactions]);
 
   const matching = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -317,6 +331,10 @@ export default function Activity({ household, members, me, data, loading }) {
                   {t.needs_review && <span className="om-tx-flag ov-warn"> · needs review</span>}
                   {!t.needs_review && flag && <span className={`om-tx-flag ${flag.tone === 'neg' ? 'ov-neg' : 'ov-warn'}`}> · {flag.label}</span>}
                   {scheduled && <span className="om-tx-flag ov-muted"> · scheduled</span>}
+                  {t.kind === 'refund' && <span className="om-tx-flag ov-muted"> · {refundLabel(refundLinks.purchaseOf.get(t.id), refundLinks.purchaseOf.has(t.id))}</span>}
+                  {refundLinks.back.has(t.id) && (
+                    <span className="om-tx-flag ov-muted"> · {refundLinks.back.get(t.id) + 0.005 >= -Number(t.amount) ? 'refunded' : 'part refunded'}</span>
+                  )}
                   <div className="om-tx-meta">
                     {categoryName} · {account} · {owner}
                   </div>
@@ -384,6 +402,7 @@ export default function Activity({ household, members, me, data, loading }) {
             categories={categories}
             members={members}
             allTransactions={transactions}
+            links={links}
             onOpenOther={(other) => setEditing(other)}
             onSwitchToTransfer={() => setEditing('new-transfer')}
             onClose={close}
@@ -393,6 +412,13 @@ export default function Activity({ household, members, me, data, loading }) {
       })()}
     </div>
   );
+}
+
+// "refund for Shop, 20 Sept" once linked to its purchase, otherwise "refund".
+function refundLabel(purchase, linked) {
+  if (!linked) return 'refund';
+  if (!purchase) return 'refund for a purchase';
+  return `refund for ${purchase.merchant || 'a purchase'}, ${parseDay(purchase.occurred_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`;
 }
 
 function ownerLabel(t, members) {

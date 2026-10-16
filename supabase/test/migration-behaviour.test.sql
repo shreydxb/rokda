@@ -2123,4 +2123,123 @@ begin
 end $$;
 
 
+
+-- Refund links: a refund joined to the purchase it returns, taking its
+-- category; the rules run at commit.
+do $$
+declare
+  hh constant uuid := '11111111-1111-1111-1111-111111111111';
+  card constant uuid := '33333333-3333-3333-3333-333333333333';
+  purchase constant uuid := '44444444-4444-4444-4444-4444444444c1';
+  refund constant uuid := '44444444-4444-4444-4444-4444444444c2';
+  second constant uuid := '44444444-4444-4444-4444-4444444444c3';
+  receipt constant uuid := '44444444-4444-4444-4444-4444444444c4';
+  back constant uuid := '44444444-4444-4444-4444-4444444444c5';
+  groceries constant uuid := '66666666-6666-6666-6666-6666666666c1';
+  household constant uuid := '66666666-6666-6666-6666-6666666666c2';
+  link uuid;
+  n int;
+begin
+  insert into categories (id, household_id, name, kind) values (groceries, hh, 'Refund groceries', 'expense'), (household, hh, 'Refund household', 'expense');
+  insert into transactions (id, household_id, account_id, amount, kind, category_id, merchant, occurred_at, is_shared) values
+    (purchase, hh, card, -200, 'expense', groceries, 'Shop', '2026-09-20', true),
+    (refund, hh, card, 50, 'refund', null, 'Shop', '2026-10-02', true),
+    (second, hh, card, 165, 'refund', null, 'Shop', '2026-10-03', true);
+
+  -- Linked, the refund takes the purchase's category, with both in its history.
+  link := (link_refund(purchase, refund) ->> 'link_id')::uuid;
+  set constraints all immediate;
+  set constraints all deferred;
+  if (select category_id from transactions where id = refund) is distinct from groceries then
+    raise exception 'refund links FAILED: the refund did not take the purchase''s category';
+  end if;
+  select count(*) into n from transaction_edits where transaction_id = refund and field in ('refund_for', 'category');
+  if n <> 2 then raise exception 'refund links FAILED: linking was not in the refund''s history (% rows)', n; end if;
+
+  -- More back than was paid (beyond 5% for exchange rates) is refused.
+  begin
+    perform link_refund(purchase, second);
+    set constraints all immediate;
+    raise exception 'refund links FAILED: refunds of 215 were linked to a purchase of 200';
+  exception when check_violation then null;
+  end;
+  set constraints all deferred;
+  update transactions set amount = 155 where id = second;
+  perform link_refund(purchase, second);
+  set constraints all immediate;
+  set constraints all deferred;
+
+  -- One purchase per refund, a refund never before its purchase, and neither
+  -- changes kind while linked.
+  begin
+    insert into transactions (id, household_id, account_id, amount, kind, occurred_at, is_shared) values ('44444444-4444-4444-4444-4444444444c6', hh, card, -10, 'expense', '2026-09-01', true);
+    perform link_refund('44444444-4444-4444-4444-4444444444c6', refund);
+    raise exception 'refund links FAILED: one refund was linked to two purchases';
+  exception when unique_violation then null;
+  end;
+  begin
+    update transactions set occurred_at = '2026-09-19' where id = refund;
+    set constraints all immediate;
+    raise exception 'refund links FAILED: a refund was dated before its purchase';
+  exception when check_violation then null;
+  end;
+  set constraints all deferred;
+  begin
+    update transactions set kind = 'income' where id = refund;
+    set constraints all immediate;
+    raise exception 'refund links FAILED: a linked refund became income';
+  exception when check_violation then null;
+  end;
+  set constraints all deferred;
+  begin
+    update transactions set amount = -100 where id = purchase;
+    set constraints all immediate;
+    raise exception 'refund links FAILED: a purchase was cut below what was refunded on it';
+  exception when check_violation then null;
+  end;
+  set constraints all deferred;
+  begin
+    perform link_refund(refund, second);
+    raise exception 'refund links FAILED: a refund was linked to another refund';
+  exception when invalid_parameter_value then null;
+  end;
+
+  -- Unlinked, the refund keeps its category; deleting the purchase takes the link.
+  perform unlink_refund(link);
+  set constraints all immediate;
+  set constraints all deferred;
+  if exists (select 1 from transaction_links where id = link) or (select category_id from transactions where id = refund) is distinct from groceries then
+    raise exception 'refund links FAILED: unlinking did not leave the refund as it was';
+  end if;
+  delete from transactions where id = purchase;
+  set constraints all immediate;
+  set constraints all deferred;
+  if exists (select 1 from transaction_links where to_transaction_id = second) then
+    raise exception 'refund links FAILED: a deleted purchase left its link';
+  end if;
+
+  -- A refund of a split purchase is shared out in proportion, adding up to the cent.
+  insert into transactions (id, household_id, account_id, amount, kind, category_id, occurred_at, is_shared) values
+    (receipt, hh, card, -300, 'expense', null, '2026-09-20', true),
+    (back, hh, card, 100, 'refund', null, '2026-10-02', true);
+  perform split_transaction(receipt, jsonb_build_array(jsonb_build_object('category_id', groceries, 'amount', 200), jsonb_build_object('category_id', household, 'amount', 100)));
+  perform link_refund(receipt, back);
+  set constraints all immediate;
+  set constraints all deferred;
+  if not (select is_split from transactions where id = back)
+     or (select amount from transaction_splits where transaction_id = back and category_id = groceries) <> 66.67
+     or (select amount from transaction_splits where transaction_id = back and category_id = household) <> 33.33 then
+    raise exception 'refund links FAILED: a refund of a split purchase was not shared out 66.67 / 33.33';
+  end if;
+
+  if has_function_privilege('authenticated', 'check_refund(uuid)', 'execute')
+     or has_function_privilege('anon', 'link_refund(uuid, uuid)', 'execute') then
+    raise exception 'refund links FAILED: an internal function is callable through the API';
+  end if;
+
+  delete from transactions where id in (refund, second, receipt, back, '44444444-4444-4444-4444-4444444444c6');
+  delete from categories where id in (groceries, household);
+  raise notice 'refund links ok: an expense to a refund, one purchase each, never more back than paid, the category followed and shared out';
+end $$;
+
 rollback;

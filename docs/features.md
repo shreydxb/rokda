@@ -67,6 +67,13 @@ here, because this repository is public.
   other side is already in the ledger offers "Make these one transfer".
   Editing or deleting a transfer changes both sides; Unlink makes them an
   expense and an income again.
+- **Refunds** are linked to the purchase they return: a refund's editor
+  offers earlier purchases from the same shop or on the same account (within
+  four months, with enough not yet refunded), and saving links the chosen one.
+  Linked, the refund takes the purchase's category (its share of each line,
+  for a split purchase). Activity labels it "refund for Shop, 20 Sept" and
+  the purchase "refunded" or "part refunded"; a purchase's editor lists its
+  refunds. A refund still counts in the month it arrives.
 - **Budget**: month and year views. Spending is budgeted by subcategory and
   rolled up to its group. Savings categories are savings targets measured
   against what the month actually saved, never counted as spending.
@@ -90,7 +97,8 @@ here, because this repository is public.
   records with no category, pairs that look like an unjoined transfer (joined
   in one tap; never holds the month up), the card statements that closed in
   the month, balances confirmed since it ended, and closing it under Net
-  Worth. Each check is worked out from the records and ticks itself off; the
+  Worth, plus a note of refunds not yet linked to their purchase. Each check
+  is worked out from the records and ticks itself off; the
   close marks the month reviewed. Under the checks, the month against its
   budget and the groups that went over. Overview's "hasn't been closed" item
   opens it.

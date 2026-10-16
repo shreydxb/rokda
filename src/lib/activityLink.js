@@ -103,8 +103,9 @@ export function tabHref(path, tab) {
 export const UNCATEGORISED = 'none';
 
 // The address of Activity showing just these records.
-export function activityHref({ categoryId, search, from, to, dateBasis, needsReview } = {}) {
+export function activityHref({ categoryId, search, from, to, dateBasis, needsReview, kind } = {}) {
   let params = new URLSearchParams({ tab: 'activity' });
+  params = withActivityFilter(params, 'kind', kind);
   params = withActivityFilter(params, 'categoryId', categoryId);
   params = withActivityFilter(params, 'needsReview', needsReview);
   params = withActivityFilter(params, 'search', search);
