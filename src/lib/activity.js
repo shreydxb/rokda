@@ -58,3 +58,31 @@ export function dayTotals(rows, scopeMemberId) {
   }
   return byDay;
 }
+
+// The summary line's figures: income, and spending split into what was bought
+// and what came back, so "net spend" can be seen to be purchases less refunds.
+export function activitySummary(rows, scopeMemberId) {
+  const summary = { income: 0, purchases: 0, refunds: 0, spend: 0 };
+  for (const row of rows) {
+    const v = shareOf(row, scopeMemberId);
+    if (row.kind === 'refund') summary.refunds += v;
+    else if (v < 0) summary.purchases += -v;
+    else summary.income += v;
+  }
+  summary.spend = summary.purchases - summary.refunds;
+  return summary;
+}
+
+// The list's order. Largest is by size of the amount, either direction.
+export function sortRows(rows, sort) {
+  const byDate = (a, b) => (a.occurred_at < b.occurred_at ? -1 : a.occurred_at > b.occurred_at ? 1 : 0);
+  if (sort === 'oldest') return [...rows].sort(byDate);
+  if (sort === 'largest') return [...rows].sort((a, b) => Math.abs(Number(b.amount)) - Math.abs(Number(a.amount)));
+  return [...rows].sort((a, b) => byDate(b, a));
+}
+
+// A row's date: the year is added once it isn't this year's.
+export function rowDateLabel(occurredAt, now = new Date()) {
+  const d = parseDay(occurredAt);
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', ...(d.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }) });
+}

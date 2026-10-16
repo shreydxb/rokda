@@ -35,7 +35,7 @@ test('Activity and its calendar agree under Me, net of the refund', async ({ pag
   // Activity covers all dates until it has a date filter; the search narrows
   // it to the pair.
   await page.getByPlaceholder('Search merchant, note or amount').fill('Grocer');
-  await expect(summary).toContainText('2 posted records · Spent AED 40 net of refunds · Income AED 0');
+  await expect(summary).toContainText('2 posted records · Net spend AED 40 (purchases 50 less refunds 10) · Income AED 0');
 
   await page.getByRole('button', { name: 'Calendar' }).click();
   const first = page.locator('.cal-cell').filter({ has: page.locator('.cal-daynum', { hasText: /^1$/ }) });
