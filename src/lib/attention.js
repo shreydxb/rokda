@@ -223,7 +223,7 @@ function monthCloseItems(accounts, snapshots, now) {
       kind: 'month_close',
       severity: 'warn',
       title: `${name} hasn't been closed`,
-      detail: 'Close it under Wealth → Net Worth to keep its totals in history. Months close by hand; waiting does not close one.',
+      detail: 'Review it under Money → Review, then close it to keep its totals in history. Months close by hand; waiting does not close one.',
     },
   ];
 }
@@ -311,7 +311,7 @@ export function attentionHref(item, now = new Date()) {
     case 'stale_holding':
       return tabHref('/wealth', 'investments');
     case 'month_close':
-      return '/wealth';
+      return tabHref('/money', 'review');
     case 'backup':
       return tabHref('/settings', 'backups');
     default:

@@ -55,7 +55,7 @@ describe('a month that has not been closed', () => {
   it('asks for the month that just ended until it is closed', () => {
     const [item] = closeItems({ snapshots: [] });
     expect(item).toMatchObject({ id: 'month-close-2026-09', severity: 'warn', title: "September 2026 hasn't been closed" });
-    expect(item.detail).toContain('Wealth → Net Worth');
+    expect(item.detail).toContain('Money → Review');
   });
 
   it('says nothing once that month has a snapshot, whatever came before', () => {
@@ -110,7 +110,7 @@ describe('attentionHref', () => {
     expect(attentionHref({ kind: 'card_due' }, TODAY)).toBe('/wealth?tab=accounts');
     expect(attentionHref({ kind: 'balance_unset' }, TODAY)).toBe('/wealth?tab=accounts');
     expect(attentionHref({ kind: 'stale_holding' }, TODAY)).toBe('/wealth?tab=investments');
-    expect(attentionHref({ kind: 'month_close' }, TODAY)).toBe('/wealth');
+    expect(attentionHref({ kind: 'month_close' }, TODAY)).toBe('/money?tab=review');
     expect(attentionHref({ kind: 'backup' }, TODAY)).toBe('/settings?tab=backups');
   });
 });
