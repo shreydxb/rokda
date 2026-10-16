@@ -1554,3 +1554,31 @@ too low, and the purchase looked unreturned (SHR-234).
 - **Not here:** remembering a confirmed duplicate pair, and transfers recorded
   from the bot (the rest of SHR-234). The bot records refunds as before; they
   are linked in the app.
+
+## A pair confirmed as two real records stays confirmed
+
+Two records on the same account, at the same shop, for the same amount within
+a few days, were flagged only while the second was being entered (the record
+editor, the Inbox, the bot). "Both are real" dismissed the warning for that
+moment and was forgotten. Nothing looked at records already saved, so a charge
+entered twice by two routes (the bot and by hand) stayed counted twice
+(SHR-234).
+
+- **The monthly review asks about records already saved.** "Possible
+  duplicates" lists pairs in the month: same account, same merchant, same
+  direction, same amount to the cent, within three days, never a transfer.
+  Each pair offers "Both are real" or "Delete one" (the one recorded later,
+  after a second press). This check holds the month up, because unlike a
+  transfer suggestion it can always be settled.
+- **"Both are real" is remembered** as a `transaction_links` row of kind
+  `duplicate_confirmed`, the lower id first so the same pair always makes the
+  same row. A confirmed pair is never asked about again. The editor and the
+  Inbox save the same row when "Both are real" was pressed for the record being
+  entered: the Inbox only if the entry still matches that record when it is
+  approved.
+- **No migration.** `transaction_links` already allowed the kind, with
+  household-scoped policies and foreign keys, when transfers added it.
+  Deleting either record removes the row with it.
+- **The bot is unchanged.** It checks a new message against what is already
+  recorded, before there is a second record to pair with, and sends a likely
+  duplicate to the Inbox.

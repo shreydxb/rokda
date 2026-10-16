@@ -8,12 +8,25 @@ import { renderScreen } from '../../test/renderScreen';
 // screen shows them, links each to where it is resolved, and joins a
 // suggested transfer through the same database function the editor uses.
 const rpcs = [];
+const writes = [];
 vi.mock('../../lib/supabaseClient', () => ({
   supabase: {
     rpc: (name, args) => {
       rpcs.push({ name, args });
       return Promise.resolve({ error: null });
     },
+    from: (table) => ({
+      insert: (row) => {
+        writes.push({ table, insert: row });
+        return Promise.resolve({ error: null });
+      },
+      delete: () => ({
+        eq: (column, value) => {
+          writes.push({ table, delete: value });
+          return Promise.resolve({ error: null });
+        },
+      }),
+    }),
   },
 }));
 
@@ -47,13 +60,14 @@ function data(overrides = {}) {
 function renderReview(d) {
   return renderScreen(
     <MemoryRouter initialEntries={['/money?tab=review']}>
-      <Review data={d} loading={false} />
+      <Review household={{ id: 'hh' }} data={d} loading={false} />
     </MemoryRouter>,
   );
 }
 
 beforeEach(() => {
   rpcs.length = 0;
+  writes.length = 0;
 });
 
 describe('Review', () => {
@@ -64,7 +78,7 @@ describe('Review', () => {
         accounts: [account('current', 'Current account', { balance_as_of: null })],
       }),
     );
-    expect(screen.getByText('0 of 4 done')).toBeTruthy();
+    expect(screen.getByText('1 of 5 done')).toBeTruthy();
     const flagged = screen.getByTestId('review-review');
     expect(within(flagged).getByText('1 record still marked for review.')).toBeTruthy();
     expect(within(flagged).getByRole('link', { name: 'Open the records' }).getAttribute('href')).toMatch(/^\/money\?tab=activity&review=1&from=/);
@@ -90,6 +104,22 @@ describe('Review', () => {
     await act(async () => fireEvent.click(within(check).getByRole('button', { name: 'Make one transfer' })));
     expect(rpcs).toEqual([{ name: 'link_transfer', args: { p_out_transaction_id: 'out', p_in_transaction_id: 'in' } }]);
     expect(d.reload).toHaveBeenCalled();
+  });
+
+  it('remembers a pair as two real records, or deletes the later one after asking', async () => {
+    const pair = [tx('a', { merchant: 'Cafe', created_at: '2026-01-01T08:00:00Z' }), tx('b', { merchant: 'Cafe', created_at: '2026-01-02T08:00:00Z' })];
+    const d = data({ transactions: pair });
+    renderReview(d);
+    const check = screen.getByTestId('review-duplicates');
+    await act(async () => fireEvent.click(within(check).getByRole('button', { name: 'Both are real' })));
+    expect(writes).toEqual([{ table: 'transaction_links', insert: { household_id: 'hh', kind: 'duplicate_confirmed', from_transaction_id: 'a', to_transaction_id: 'b' } }]);
+    expect(d.reload).toHaveBeenCalled();
+
+    writes.length = 0;
+    fireEvent.click(within(check).getByRole('button', { name: 'Delete one' }));
+    expect(writes).toEqual([]);
+    await act(async () => fireEvent.click(within(check).getByRole('button', { name: /^Delete the .* one\?$/ })));
+    expect(writes).toEqual([{ table: 'transactions', delete: 'b' }]);
   });
 
   it('steps back a month, and not forward past the month just ended', () => {

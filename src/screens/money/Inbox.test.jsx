@@ -85,6 +85,30 @@ describe('QA-11: Inbox approval goes through one atomic call', () => {
     expect(calls.some((c) => c.kind === 'insert')).toBe(false);
   });
 
+  it('remembers "both are real" against the record it was said about, once approved', async () => {
+    const earlier = { id: 'old', account_id: 'acc-1', merchant: 'Carrefour', amount: -120, kind: 'expense', occurred_at: '2026-09-04' };
+    renderScreen(
+      <Inbox
+        members={MEMBERS}
+        accounts={ACCOUNTS}
+        categories={[]}
+        loading={false}
+        data={{ intake: [ITEM], transactions: [earlier], categoryRules: [], reload: vi.fn().mockResolvedValue(undefined) }}
+      />,
+    );
+    await act(async () => {
+      screen.getByRole('button', { name: 'Edit first' }).click();
+    });
+    await act(async () => {
+      screen.getByRole('button', { name: 'Both are real' }).click();
+    });
+    await act(async () => {
+      screen.getByRole('button', { name: 'Approve' }).click();
+    });
+    expect(calls.map((c) => c.kind)).toEqual(['rpc', 'insert']);
+    expect(calls[1]).toEqual({ kind: 'insert', table: 'transaction_links', payload: { household_id: 'hh', kind: 'duplicate_confirmed', from_transaction_id: 'old', to_transaction_id: 'tx-1' } });
+  });
+
   it('lets the reviewer say it is income rather than forcing an expense', async () => {
     renderScreen(
       <Inbox

@@ -94,7 +94,8 @@ here, because this repository is public.
   date is set or confirmed, never in bulk.
 - **Review**: the month just ended (or an earlier one), as a checklist of
   what to settle before its totals go into history: flagged records,
-  records with no category, pairs that look like an unjoined transfer (joined
+  records with no category, possible duplicates ("Both are real", remembered
+  so the pair is never asked about again, or "Delete one"), pairs that look like an unjoined transfer (joined
   in one tap; never holds the month up), the card statements that closed in
   the month, balances confirmed since it ended, and closing it under Net
   Worth, plus a note of refunds not yet linked to their purchase. Each check
