@@ -4,6 +4,7 @@ import { supabase } from '../../lib/supabaseClient';
 import { formatMoney } from '../../lib/money';
 import { parseDay } from '../../lib/day';
 import { activityHref } from '../../lib/activityLink';
+import { confirmedPairRow } from '../../lib/duplicates';
 import { adjacentReviewMonths, budgetSummary, monthlyReview, reviewMonth, reviewMonthParam } from '../../lib/monthlyReview';
 
 // The monthly review (lib/monthlyReview.js): what to settle before a month's
@@ -13,7 +14,7 @@ const MARK = { done: '✓', todo: '○', note: '·' };
 const STATEMENT_STATUS = { unchecked: 'Not checked', waiting: 'Waiting', mismatch: "Doesn't match", confirmed: 'Done', reconciled: 'Reconciled' };
 const shortDate = (day) => parseDay(day).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 
-export default function Review({ data, loading }) {
+export default function Review({ household, data, loading }) {
   const [params, setParams] = useSearchParams();
   const now = useMemo(() => new Date(), []);
   const monthParam = params.get('month');
@@ -30,6 +31,10 @@ export default function Review({ data, loading }) {
   const budget = useMemo(() => budgetSummary(selected, data, now), [selected, data, now]);
   const accountName = useMemo(() => new Map((data.accounts ?? []).map((a) => [a.id, a.name])), [data.accounts]);
   const [joining, setJoining] = useState(null);
+  // Which pair is being settled, and whether its delete is waiting for a
+  // second press.
+  const [settling, setSettling] = useState(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(null);
   const [error, setError] = useState('');
 
   // Joins a suggested pair into one transfer, as the record editor's "Make
@@ -41,6 +46,28 @@ export default function Review({ data, loading }) {
     setJoining(null);
     if (linkError) {
       setError(linkError.message);
+      return;
+    }
+    await data.reload();
+  }
+
+  // "Both are real" is remembered as a link, so the pair is never asked about
+  // again; deleting the one recorded twice ends it the other way.
+  async function settle(pair, how) {
+    if (how === 'delete' && confirmingDelete !== pair.second.id) {
+      setConfirmingDelete(pair.second.id);
+      return;
+    }
+    setSettling(pair.second.id);
+    setError('');
+    const { error: writeError } =
+      how === 'keep'
+        ? await supabase.from('transaction_links').insert(confirmedPairRow(household?.id, pair.first, pair.second))
+        : await supabase.from('transactions').delete().eq('id', pair.second.id);
+    setSettling(null);
+    setConfirmingDelete(null);
+    if (writeError) {
+      setError(writeError.message);
       return;
     }
     await data.reload();
@@ -93,6 +120,28 @@ export default function Review({ data, loading }) {
                     </li>
                   ))}
                   {check.status === 'todo' && <li className="ov-muted">{check.hint}</li>}
+                </ul>
+              )}
+
+              {check.id === 'duplicates' && check.pairs.length > 0 && (
+                <ul className="rv-sublist">
+                  {check.pairs.map((pair) => (
+                    <li key={pair.second.id} className="rv-pair">
+                      <span>
+                        {`${pair.first.merchant}, `}
+                        <span className="fig">{formatMoney(pair.first.amount, { decimals: 2 })}</span>
+                        {` on ${accountName.get(pair.first.account_id) ?? 'an account'}: ${shortDate(pair.first.occurred_at)} and ${shortDate(pair.second.occurred_at)}`}
+                      </span>
+                      <span className="rv-actions">
+                        <button type="button" className="om-btn rc-markpaid" disabled={settling !== null} onClick={() => settle(pair, 'keep')}>
+                          Both are real
+                        </button>
+                        <button type="button" className="om-btn rc-markpaid" disabled={settling !== null} onClick={() => settle(pair, 'delete')}>
+                          {confirmingDelete === pair.second.id ? `Delete the ${shortDate(pair.second.occurred_at)} one?` : 'Delete one'}
+                        </button>
+                      </span>
+                    </li>
+                  ))}
                 </ul>
               )}
 

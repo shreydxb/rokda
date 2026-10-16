@@ -93,7 +93,7 @@ export default function Money() {
       {tab === 'inbox' && (
         <Inbox members={members} accounts={data.accounts} categories={data.categories} data={data} loading={loading} />
       )}
-      {tab === 'review' && <Review data={data} loading={loading} />}
+      {tab === 'review' && <Review household={household} data={data} loading={loading} />}
     </div>
   );
 }

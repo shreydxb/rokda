@@ -4,7 +4,7 @@ import { formatMoney } from '../../lib/money';
 import { firstMatchingRule } from '../../lib/rules';
 import { accountOptionLabel, selectableAccounts } from '../../lib/accounts';
 import { INTAKE_KINDS, approvalArgs, validateApproval } from '../../lib/intake';
-import { findDuplicate } from '../../lib/duplicates';
+import { confirmedPairRow, findDuplicate } from '../../lib/duplicates';
 import { householdToday } from '../../lib/day';
 import './TransactionEditor.css';
 
@@ -447,6 +447,9 @@ function IntakeEditForm({ item, sender, accounts, members, categories, categoryR
   const currency = 'AED';
   const [owner, setOwner] = useState('shared');
   const [duplicateDismissed, setDuplicateDismissed] = useState(false);
+  // The record "Both are real" was said about, remembered as a confirmed pair
+  // once this entry is approved, so the monthly review doesn't ask again.
+  const [keptAlongside, setKeptAlongside] = useState(null);
   // A date the message did not give is the day it was sent to the bot. It
   // counts as the day it was paid once someone picks a date or ticks that the
   // one shown is right. This starts false even for a dated entry: the
@@ -485,12 +488,24 @@ function IntakeEditForm({ item, sender, accounts, members, categories, categoryR
     }
     setSaving(true);
     setError('');
-    const { error: rpcError } = await supabase.rpc('approve_intake', approvalArgs(item, form));
-    setSaving(false);
+    const { data: approved, error: rpcError } = await supabase.rpc('approve_intake', approvalArgs(item, form));
     if (rpcError) {
+      setSaving(false);
       setError(rpcError.message);
       return;
     }
+    // Only if the record "Both are real" was said about is still the one this
+    // entry matches: the fields may have changed since.
+    const stillMatches = keptAlongside && findDuplicate({ merchant, amount, account_id: accountId, occurred_at: date }, allTransactions, null)?.id === keptAlongside.id;
+    if (stillMatches && approved?.transaction_id) {
+      const { error: pairError } = await supabase.from('transaction_links').insert(confirmedPairRow(item.household_id, { id: approved.transaction_id }, keptAlongside));
+      if (pairError) {
+        setSaving(false);
+        setError(`Approved, but "both are real" wasn't remembered: ${pairError.message}. The monthly review will ask about the pair again.`);
+        return;
+      }
+    }
+    setSaving(false);
     await onDone();
   }
 
@@ -669,7 +684,14 @@ function IntakeEditForm({ item, sender, accounts, members, categories, categoryR
               posted, within a few days of this one. Approving is allowed if the household really spent twice.
             </div>
             <div style={{ display: 'flex', gap: 8, marginTop: 11 }}>
-              <button type="button" className="om-btn" onClick={() => setDuplicateDismissed(true)}>
+              <button
+                type="button"
+                className="om-btn"
+                onClick={() => {
+                  setKeptAlongside(duplicateTransaction);
+                  setDuplicateDismissed(true);
+                }}
+              >
                 Both are real
               </button>
             </div>

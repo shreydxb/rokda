@@ -15,7 +15,7 @@ test('the month just ended lists what is left, and each check opens where it is 
   await open(page, '/money?tab=review');
   // The fixtures closed last month and categorised its records; the card's
   // statement for it has not been checked.
-  await expect(page.locator('.rv-progress')).toHaveText('3 of 4 done');
+  await expect(page.locator('.rv-progress')).toHaveText('4 of 5 done');
   const statements = page.getByTestId('review-statements');
   await expect(statements).toContainText('Platinum card');
   await expect(statements).toContainText('Not checked');

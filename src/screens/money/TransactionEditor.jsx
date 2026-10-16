@@ -3,7 +3,7 @@ import { supabase } from '../../lib/supabaseClient';
 import { accountOptionLabel, selectableAccounts } from '../../lib/accounts';
 import { formatMoney, formatSigned } from '../../lib/money';
 import { signedAmount } from '../../lib/intake';
-import { findDuplicate } from '../../lib/duplicates';
+import { confirmedPairRow, findDuplicate } from '../../lib/duplicates';
 import { CURRENCIES, currencyAvailable, convertToAed, rateNote } from '../../lib/currency';
 import { householdToday, parseDay } from '../../lib/day';
 import { orderPair, transferCandidates } from '../../lib/transfers';
@@ -121,6 +121,9 @@ export default function TransactionEditor({ tx, household, householdId, accounts
   }));
   const [dirty, setDirty] = useState(false);
   const [duplicateDismissed, setDuplicateDismissed] = useState(false);
+  // The record "Both are real" was said about, remembered as a confirmed pair
+  // once this one is saved, so the monthly review doesn't ask again.
+  const [keptAlongside, setKeptAlongside] = useState(null);
   const [confirmingClose, setConfirmingClose] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState('');
@@ -173,7 +176,10 @@ export default function TransactionEditor({ tx, household, householdId, accounts
   function set(key, value) {
     setForm((f) => ({ ...f, [key]: value }));
     setDirty(true);
-    if (key === 'merchant' || key === 'amount' || key === 'occurred_at' || key === 'account_id') setDuplicateDismissed(false);
+    if (key === 'merchant' || key === 'amount' || key === 'occurred_at' || key === 'account_id') {
+      setDuplicateDismissed(false);
+      setKeptAlongside(null);
+    }
   }
 
   function requestClose() {
@@ -292,7 +298,7 @@ export default function TransactionEditor({ tx, household, householdId, accounts
     const linking = form.type === 'refund' && !refundLink && refundFor;
     const query = tx
       ? supabase.from('transactions').update(payload).eq('id', tx.id)
-      : split || linking
+      : split || linking || keptAlongside
         ? supabase.from('transactions').insert(payload).select('id').single()
         : supabase.from('transactions').insert(payload);
 
@@ -321,6 +327,15 @@ export default function TransactionEditor({ tx, household, householdId, accounts
       if (linkError) {
         setSaving(false);
         setError(tx ? linkError.message : `Saved, but not linked to the purchase: ${linkError.message}. Open it again to link it.`);
+        return;
+      }
+    }
+
+    if (!tx && keptAlongside) {
+      const { error: pairError } = await supabase.from('transaction_links').insert(confirmedPairRow(householdId, { id: inserted.id }, keptAlongside));
+      if (pairError) {
+        setSaving(false);
+        setError(`Saved, but "both are real" wasn't remembered: ${pairError.message}. The monthly review will ask about the pair again.`);
         return;
       }
     }
@@ -496,7 +511,14 @@ export default function TransactionEditor({ tx, household, householdId, accounts
                 of this one. Saving both is allowed if the household really spent twice.
               </div>
               <div style={{ display: 'flex', gap: 8, marginTop: 11, flexWrap: 'wrap' }}>
-                <button type="button" className="om-btn" onClick={() => setDuplicateDismissed(true)}>
+                <button
+                  type="button"
+                  className="om-btn"
+                  onClick={() => {
+                    setKeptAlongside(duplicate);
+                    setDuplicateDismissed(true);
+                  }}
+                >
                   Both are real
                 </button>
                 {onOpenOther && (

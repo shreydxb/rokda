@@ -6,6 +6,7 @@ import { orderPair, transferCandidates } from './transfers';
 import { budgetGroupSpend } from './budget';
 import { isUncategorised } from './activity';
 import { refundLinkOf } from './refunds';
+import { duplicatePairs } from './duplicates';
 
 // The monthly review (docs/decisions.md, "A month is reviewed, then closed").
 //
@@ -168,6 +169,22 @@ export function monthlyReview({ year, month }, { transactions = [], accounts = [
       ? `${plural(uncategorised.length, 'record')} with no category, so Budget and Insights leave ${uncategorised.length === 1 ? 'it' : 'them'} out of every category.`
       : 'Every record has a category.',
     href: activityHref({ categoryId: 'none', from, to }),
+  });
+
+  // A pair confirmed as two real records is remembered, and deleting one
+  // ends it too, so unlike a transfer suggestion this can always be settled.
+  const duplicates = duplicatePairs(rows, transactions, transactionLinks);
+  checks.push({
+    id: 'duplicates',
+    required: true,
+    title: 'Possible duplicates',
+    status: duplicates.length ? 'todo' : 'done',
+    count: duplicates.length,
+    pairs: duplicates,
+    detail: duplicates.length
+      ? `${plural(duplicates.length, 'pair')} of records on the same account, at the same shop, for the same amount within a few days. Keep both if both are real, or delete the one recorded twice.`
+      : 'No records that look recorded twice.',
+    href: null,
   });
 
   const pairs = possibleTransfers(rows, transactions);

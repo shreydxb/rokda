@@ -921,3 +921,8 @@
 .rv-budget {
   margin-top: 24px;
 }
+.rv-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}

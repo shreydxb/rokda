@@ -44,12 +44,12 @@ describe('monthlyReview', () => {
     const open = monthlyReview(SEPT, settled, NOW);
     expect(open.label).toBe('September 2026');
     expect(byId(open).close.status).toBe('todo');
-    expect(open).toMatchObject({ done: 4, total: 5, complete: false });
+    expect(open).toMatchObject({ done: 5, total: 6, complete: false });
 
     const closed = monthlyReview(SEPT, { ...settled, netWorthSnapshots: [{ snapshot_date: '2026-09-01' }] }, NOW);
     // Balances feed the close, so a closed month no longer asks for them.
     expect(byId(closed).balances).toBeUndefined();
-    expect(closed).toMatchObject({ done: 4, total: 4, complete: true, closed: true });
+    expect(closed).toMatchObject({ done: 5, total: 5, complete: true, closed: true });
   });
 
   it('lists flagged and uncategorised records in the month only, linking to them', () => {
@@ -72,7 +72,7 @@ describe('monthlyReview', () => {
     const check = byId(review).transfers;
     expect(check.status).toBe('note');
     expect(check.pairs.map((p) => [p.out.id, p.in.id])).toEqual([['out', 'in']]);
-    expect(review.total).toBe(5);
+    expect(review.total).toBe(6);
   });
 
   it('notes refunds not yet linked to their purchase, without holding the month up', () => {
@@ -80,7 +80,16 @@ describe('monthlyReview', () => {
     const transactionLinks = [{ id: 'l', kind: 'refund', from_transaction_id: 'p', to_transaction_id: 'linked' }];
     const review = monthlyReview(SEPT, { ...settled, transactions, transactionLinks }, NOW);
     expect(byId(review).refunds).toMatchObject({ status: 'note', count: 1, required: false, href: '/money?tab=activity&kind=refund&from=2026-09-01&to=2026-09-30' });
-    expect(review.total).toBe(5);
+    expect(review.total).toBe(6);
+  });
+
+  it('asks about records that look recorded twice until one goes or both are confirmed', () => {
+    const transactions = [tx('a', { merchant: 'Cafe', created_at: '2026-09-10T08:00:00Z' }), tx('b', { merchant: 'Cafe', occurred_at: '2026-09-11', created_at: '2026-09-11T08:00:00Z' })];
+    const check = byId(monthlyReview(SEPT, { ...settled, transactions }, NOW)).duplicates;
+    expect(check).toMatchObject({ status: 'todo', count: 1, required: true });
+    expect(check.pairs.map((p) => [p.first.id, p.second.id])).toEqual([['a', 'b']]);
+    const transactionLinks = [{ kind: 'duplicate_confirmed', from_transaction_id: 'a', to_transaction_id: 'b' }];
+    expect(byId(monthlyReview(SEPT, { ...settled, transactions, transactionLinks }, NOW)).duplicates.status).toBe('done');
   });
 
   it("notes an earlier month that was never closed, since it can't be closed now", () => {
