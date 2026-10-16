@@ -1,6 +1,7 @@
 import { scopedValue } from './scope';
 import { monthKey, parseDay } from './day';
 import { applyToIncomeSpend } from './transactionKind';
+import { categoryParts } from './splits';
 import { convertToAed } from './currency';
 import { matchWindowDays, occurrenceAt } from './recurring';
 
@@ -135,10 +136,13 @@ export function annualSpendByCategory({ inputs, transactions = [], budgets = [],
   }
   const months = new Set([...closedMonths(transactions, now).keys()].slice(-12));
   for (const t of transactions) {
-    if (!spendCats.has(t.category_id) || !months.has(monthKey(parseDay(t.occurred_at)))) continue;
-    const bucket = { income: 0, spend: 0 };
-    applyToIncomeSpend(t, scopedValue(t.amount, t, null), bucket);
-    add(t.category_id, (bucket.spend * 12) / months.size);
+    if (!months.has(monthKey(parseDay(t.occurred_at)))) continue;
+    for (const part of categoryParts(t)) {
+      if (!spendCats.has(part.categoryId)) continue;
+      const bucket = { income: 0, spend: 0 };
+      applyToIncomeSpend(t, scopedValue(part.amount, t, null), bucket);
+      add(part.categoryId, (bucket.spend * 12) / months.size);
+    }
   }
   return totals;
 }

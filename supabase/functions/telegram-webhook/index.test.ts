@@ -62,6 +62,8 @@ type Backend = {
   // the handler treats as a failed parse.
   parse?: Row[];
   parsePrompts: string[];
+  // What the phrasing call was given: the tool's result, among other things.
+  phrasePrompts: string[];
   applyCalls: number;
   approveCalls: number;
 };
@@ -98,6 +100,7 @@ function reset(): void {
     requests: [],
     faults: {},
     parsePrompts: [],
+    phrasePrompts: [],
     applyCalls: 0,
     approveCalls: 0,
   };
@@ -257,6 +260,10 @@ async function postgrest(req: Request, url: URL): Promise<Response> {
     if (order) {
       const [col, dir] = order.split(".");
       found = [...found].sort((a, b) => (String(a[col]) < String(b[col]) ? -1 : String(a[col]) > String(b[col]) ? 1 : 0) * (dir === "desc" ? -1 : 1));
+    }
+    // A split transaction's lines, embedded as transaction_splits(...).
+    if (table === "transactions" && (url.searchParams.get("select") ?? "").includes("transaction_splits")) {
+      found = found.map((r) => ({ ...r, transaction_splits: (backend.tables.transaction_splits ?? []).filter((l) => l.transaction_id === r.id) }));
     }
     // The embedded accounts(name) a statement is read with.
     if (table === "statement_reconciliations") {
@@ -470,6 +477,7 @@ async function openrouter(req: Request): Promise<Response> {
       return json({ choices: [{ message: { content: JSON.stringify({ items: backend.parse }) } }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } });
     }
   }
+  backend.phrasePrompts.push(text);
   return json({ choices: [{ message: { content: "Done." } }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } });
 }
 
@@ -1705,6 +1713,29 @@ freshTest("a brief whose accounts could not be read states no net worth and no c
   assert(brief.includes("Cash cover: couldn't be read just now."), brief);
   assert(brief.includes("Bills due: couldn't be read just now."), brief);
   assert(brief.includes("Inbox is clear."), brief);
+});
+
+freshTest("a split receipt counts only its line in the category asked about", async () => {
+  const HOUSEHOLD_GOODS = "a9100000-0000-4000-8000-0000000000c2";
+  backend.tables.categories.push(
+    { id: GROCERIES, household_id: HOUSEHOLD, name: "Groceries", kind: "expense", archived: false, is_savings: false },
+    { id: HOUSEHOLD_GOODS, household_id: HOUSEHOLD, name: "Household", kind: "expense", archived: false, is_savings: false },
+  );
+  // 500 at the supermarket: 400 groceries, 100 household goods.
+  backend.tables.transactions.push({
+    id: "split-1", household_id: HOUSEHOLD, account_id: "a9100000-0000-4000-8000-0000000000a1", category_id: null, is_split: true,
+    amount: -500, kind: "expense", occurred_at: thisMonthFirst(), is_shared: true, owner_member_id: null, merchant: "Supermarket",
+  });
+  backend.tables.transaction_splits = [
+    { id: "l1", household_id: HOUSEHOLD, transaction_id: "split-1", category_id: GROCERIES, amount: -400 },
+    { id: "l2", household_id: HOUSEHOLD, transaction_id: "split-1", category_id: HOUSEHOLD_GOODS, amount: -100 },
+  ];
+  backend.route = { tool: "get_category_spend", args: { category: "Household", period: "this_month" } };
+  await handler(textUpdate(9320, "how much on household this month?"));
+  // The member asking carries half of a shared receipt: half of the 100
+  // household line, not half of the 500 receipt.
+  const given = backend.phrasePrompts.join("\n");
+  assert(given.includes('\\"spend_aed\\":50}'), given);
 });
 
 for (const [tool, args, table] of [

@@ -1431,3 +1431,40 @@ with them (product review, 15 October; SHR-234).
   confirmed duplicate (both use `transaction_links`, SHR-234), turning a
   single record into a transfer whose other side was never recorded, and
   transfers from the bot.
+
+## A transaction can be split across categories
+
+A supermarket receipt of 400 groceries and 100 household goods had to be filed
+under one of them, so one category read 100 too high and the other 100 too low
+in Budget, Insights, Overview's categories and the "running high" check
+(SHR-233).
+
+- **One record, several lines.** A split keeps the one transaction (the money
+  that left the account, as the bank shows it) and adds lines in
+  `transaction_splits`: a category and an amount each, signed like the record.
+  The record itself then has no category.
+- **The database keeps the lines honest.** A split record has at least two
+  lines, one per category, each the same direction as the record, adding up to
+  its amount to the cent. A transfer is never split. A record that isn't split
+  has no lines. The checks run at commit. `split_transaction` sets the lines
+  and, when given, the new total in one call; `unsplit_transaction` goes back
+  to one category. Both write the change to the edit history.
+- **Every total by category goes through one helper**, `categoryParts` in
+  `lib/splits.js` (and the bot's copy). An ordinary record is one part; a
+  split record is one part per line. Budget, Insights and its evidence,
+  Overview's categories, Forecast's spending by category, the "running high"
+  check, the household share and the bot all count the lines. Totals that
+  aren't by category (income, net spend, the savings rate) are unchanged: the
+  lines add up to the record.
+- **Whose spending.** The Me / Partner view still follows the record's owner,
+  as before. In the household share, each line's category decides whose
+  responsibility it is, so one receipt can be partly shared and partly one
+  person's own.
+- **Activity** shows a split record once, at its full amount, with its
+  categories ("Groceries + Household"). Narrowed to one category, it shows the
+  line in that category under the amount, and the summary and calendar count
+  only that line.
+- **In AED.** Lines are entered in AED, the currency the record is stored in,
+  so they can be checked against it to the cent.
+- **Not here:** a refund against a split purchase takes one category of its
+  own; netting it line by line belongs with refund linking (SHR-234).

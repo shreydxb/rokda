@@ -57,6 +57,10 @@ here, because this repository is public.
   address, so Back, reload and a bookmark keep them. The summary shows net
   spend as purchases less refunds, and income. The list shows 200 rows at a
   time; the totals cover everything matching.
+- **Splits**: one record across several categories ("Split across
+  categories" in the editor), each line an amount in AED, adding up to the
+  record. Every category total counts each line under its own category;
+  Activity shows the record once with its categories.
 - **Transfers** between your own accounts (paying the card, saving): two
   sides, one out and one in, for the same amount, counted as neither income
   nor spending. Add one with Transfer on a new entry; an existing record whose

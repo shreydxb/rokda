@@ -5,6 +5,7 @@ import { scopedValue } from './scope.js';
 import { monthActualsByCategory } from './budget.js';
 import { isPosted, parseDay } from './day.js';
 import { isSpendRow, spendDelta } from './transactionKind.js';
+import { amountInCategory, inCategory } from './splits.js';
 
 // Average of a category's actual spend over the `monthsBack` calendar
 // months strictly before (year, month) that have at least one transaction
@@ -37,7 +38,7 @@ export function trailingAverageByCategory(transactions, year, month, monthsBack,
 
 function categoryRowsThisMonth(transactions, categoryId, year, month, scopeMemberId, now) {
   return transactions.filter((t) => {
-    if (t.category_id !== categoryId) return false;
+    if (!inCategory(t, categoryId)) return false;
     const d = parseDay(t.occurred_at);
     if (d.getFullYear() !== year || d.getMonth() + 1 !== month) return false;
     if (!(scopeMemberId === null || t.is_shared || t.owner_member_id === scopeMemberId)) return false;
@@ -78,7 +79,8 @@ export function notableMoves(
 
   return moves.slice(0, limit).map((m) => {
     const rows = categoryRowsThisMonth(transactions, m.categoryId, year, month, scopeMemberId, now)
-      .map((t) => ({ merchant: t.merchant?.trim() || 'Unknown', amount: spendDelta(t, scopedValue(t.amount, t, scopeMemberId)), occurred_at: t.occurred_at }))
+      // A split record's evidence is its line in this category, not its whole amount.
+      .map((t) => ({ merchant: t.merchant?.trim() || 'Unknown', amount: spendDelta(t, scopedValue(amountInCategory(t, m.categoryId), t, scopeMemberId)), occurred_at: t.occurred_at }))
       .sort((a, b) => b.amount - a.amount)
       .slice(0, evidenceCount);
     return { ...m, evidence: rows };

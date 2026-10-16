@@ -125,3 +125,24 @@ describe('householdShare', () => {
     expect(share.settle).toBeNull();
   });
 });
+
+describe('a split receipt in the household share', () => {
+  it('makes each line the responsibility of its category’s owner', () => {
+    const categories = [
+      { id: 'groceries', name: 'Groceries', owner_member_id: null },
+      { id: 'his-hobby', name: 'Hobby', owner_member_id: HIM.id },
+    ];
+    const receipt = {
+      id: 'r', amount: -500, kind: 'expense', occurred_at: '2026-10-05', account_id: null, is_shared: true, category_id: null, is_split: true,
+      transaction_splits: [{ category_id: 'groceries', amount: -400 }, { category_id: 'his-hobby', amount: -100 }],
+    };
+    const result = householdShare({ members: [HIM, HER], categories, transactions: [receipt], year: 2026, month: 10, now: NOW });
+    expect(result.spent).toBe(500);
+    expect(result.sharedSpent).toBe(400);
+    const his = result.people.find((p) => p.member.id === HIM.id);
+    const hers = result.people.find((p) => p.member.id === HER.id);
+    // Shared 400 split evenly with no income set; his hobby line all his.
+    expect(his.responsible).toBe(300);
+    expect(hers.responsible).toBe(200);
+  });
+});

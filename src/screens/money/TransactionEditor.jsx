@@ -7,6 +7,7 @@ import { findDuplicate } from '../../lib/duplicates';
 import { CURRENCIES, currencyAvailable, convertToAed, rateNote } from '../../lib/currency';
 import { householdToday, parseDay } from '../../lib/day';
 import { orderPair, transferCandidates } from '../../lib/transfers';
+import { splitProblem, unallocated } from '../../lib/splits';
 import './TransactionEditor.css';
 
 const FIELD_LABELS = { kind: 'Type', category: 'Category', amount: 'Amount', account: 'Account', merchant: 'Merchant', scope: 'Scope' };
@@ -54,7 +55,7 @@ function initialForm(tx, accounts) {
 // signed amount the save writes, so the history compares like with like: a
 // refund is stored positive, and diffing it as a negative recorded "+75 →
 // −75" on a save that changed nothing (QA, 15 Oct).
-function buildEdits(tx, form, savedAmount, { accounts, categories, members }) {
+function buildEdits(tx, form, savedAmount, { accounts, categories, members, splitChanging = false }) {
   const accountName = (id) => accounts.find((a) => a.id === id)?.name ?? 'Unknown account';
   const categoryName = (id) => (id ? (categories.find((c) => c.id === id)?.name ?? 'Unknown category') : 'Uncategorised');
   const scopeLabel = (isShared, ownerId) => (isShared ? 'Shared' : (members.find((m) => m.id === ownerId)?.display_name ?? 'Unknown member'));
@@ -68,9 +69,11 @@ function buildEdits(tx, form, savedAmount, { accounts, categories, members }) {
     changes.push({ field: 'kind', old_value: KIND_LABELS[oldKind] ?? oldKind, new_value: KIND_LABELS[form.type] ?? form.type });
   }
 
+  // Splitting or unsplitting records its own category change (in the
+  // database function that does it), so it isn't recorded twice here.
   const oldCategoryId = tx.category_id ?? null;
   const newCategoryId = form.category_id || null;
-  if (oldCategoryId !== newCategoryId) {
+  if (!splitChanging && oldCategoryId !== newCategoryId) {
     changes.push({ field: 'category', old_value: categoryName(oldCategoryId), new_value: categoryName(newCategoryId) });
   }
 
@@ -121,6 +124,15 @@ export default function TransactionEditor({ tx, household, householdId, accounts
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  // The categories one record is split across (lib/splits.js): null when it
+  // has one category, otherwise its lines as typed, amounts positive and AED.
+  const [split, setSplit] = useState(() =>
+    tx?.is_split ? (tx.transaction_splits ?? []).map((l) => ({ category_id: l.category_id, amount: String(Math.abs(Number(l.amount))) })) : null,
+  );
+  function setLines(lines) {
+    setSplit(lines);
+    setDirty(true);
+  }
   const [history, setHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(!!tx);
 
@@ -200,12 +212,25 @@ export default function TransactionEditor({ tx, household, householdId, accounts
       setError("This is one side of a transfer whose other side couldn't be loaded. Refresh the page and open it again.");
       return;
     }
-    if (amountError || accountError) {
-      setError(amountError || accountError);
+    const linesError = split ? splitProblem(split, amountAed) : '';
+    if (amountError || accountError || linesError) {
+      setError(amountError || accountError || linesError);
       return;
     }
     setSaving(true);
     setError('');
+
+    const lines = split ? split.map((l) => ({ category_id: l.category_id, amount: Number(l.amount) })) : null;
+    // Was split and no longer is: one category again first, so the update
+    // below can set it.
+    if (tx?.is_split && !split) {
+      const { error: unsplitError } = await supabase.rpc('unsplit_transaction', { p_transaction_id: tx.id, p_category_id: form.category_id || null });
+      if (unsplitError) {
+        setSaving(false);
+        setError(unsplitError.message);
+        return;
+      }
+    }
 
     const payload = {
       household_id: householdId,
@@ -222,19 +247,42 @@ export default function TransactionEditor({ tx, household, householdId, accounts
       needs_review: form.needs_review,
     };
 
+    // A split's amount and categories are set with its lines, in one call
+    // after this one, so the database never sees a total its lines don't
+    // add up to.
+    if (split) {
+      payload.category_id = null;
+      if (tx) delete payload.amount;
+    }
+
     const query = tx
       ? supabase.from('transactions').update(payload).eq('id', tx.id)
-      : supabase.from('transactions').insert(payload);
+      : split
+        ? supabase.from('transactions').insert(payload).select('id').single()
+        : supabase.from('transactions').insert(payload);
 
-    const { error: saveError } = await query;
+    const { data: inserted, error: saveError } = await query;
     if (saveError) {
       setSaving(false);
       setError(saveError.message);
       return;
     }
 
+    if (split) {
+      const { error: splitError } = await supabase.rpc('split_transaction', {
+        p_transaction_id: tx ? tx.id : inserted.id,
+        p_lines: lines,
+        p_amount: amountAed,
+      });
+      if (splitError) {
+        setSaving(false);
+        setError(tx ? splitError.message : `Saved, but not split: ${splitError.message}. Open it again to split it.`);
+        return;
+      }
+    }
+
     if (tx) {
-      const changes = buildEdits(tx, form, payload.amount, { accounts, categories, members });
+      const changes = buildEdits(tx, form, signedAmount(amountAed, form.type), { accounts, categories, members, splitChanging: !!split || !!tx.is_split });
       if (changes.length > 0) {
         const { error: historyError } = await supabase.from('transaction_edits').insert(
           changes.map((c) => ({ transaction_id: tx.id, field: c.field, old_value: c.old_value, new_value: c.new_value }))
@@ -424,40 +472,111 @@ export default function TransactionEditor({ tx, household, householdId, accounts
             </div>
           </div>
 
-          <div className="te-fieldgrid">
-            <div className="te-fieldcell">
-              <span className="te-fieldlabel">Category</span>
-              <select
-                className="te-fieldvalue"
-                value={selectedMainId}
-                onChange={(e) => set('category_id', e.target.value)}
-              >
-                <option value="">Uncategorised</option>
-                {mainCategories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
+          {split ? (
+            <div className="te-split" role="group" aria-label="Split across categories">
+              <span className="te-fieldlabel">Split across categories · AED</span>
+              {split.map((line, n) => (
+                <div key={n} className="te-split-line">
+                  <select
+                    className="te-fieldvalue"
+                    aria-label={`Category ${n + 1}`}
+                    value={line.category_id}
+                    onChange={(e) => setLines(split.map((l, k) => (k === n ? { ...l, category_id: e.target.value } : l)))}
+                  >
+                    <option value="">Choose…</option>
+                    {mainCategories.flatMap((c) => [c, ...kindCategories.filter((sub) => sub.parent_id === c.id)]).map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.parent_id ? `– ${c.name}` : c.name}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    className="te-fieldvalue te-split-amount"
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    step="0.01"
+                    aria-label={`Amount ${n + 1}`}
+                    value={line.amount}
+                    onChange={(e) => setLines(split.map((l, k) => (k === n ? { ...l, amount: e.target.value } : l)))}
+                  />
+                  <button type="button" className="te-split-remove" aria-label={`Remove line ${n + 1}`} disabled={split.length <= 2} onClick={() => setLines(split.filter((_, k) => k !== n))}>
+                    ×
+                  </button>
+                </div>
+              ))}
+              <div className="te-split-foot">
+                <button type="button" className="te-split-link" onClick={() => setLines([...split, { category_id: '', amount: '' }])}>
+                  + Add a line
+                </button>
+                {/* What is still to place, so the lines visibly add up to the total. */}
+                <span className={unallocated(split, amountAed ?? 0) === 0 ? 'ov-pos' : 'ov-warn'}>
+                  {unallocated(split, amountAed ?? 0) === 0
+                    ? 'Adds up'
+                    : unallocated(split, amountAed ?? 0) > 0
+                      ? `${formatMoney(unallocated(split, amountAed ?? 0), { decimals: 2 })} left to allocate`
+                      : `${formatMoney(unallocated(split, amountAed ?? 0), { decimals: 2 })} over the total`}
+                </span>
+              </div>
+              <button type="button" className="te-split-link" onClick={() => setLines(null)}>
+                One category instead
+              </button>
             </div>
-            {subcategories.length > 0 && (
+          ) : (
+            <>
+            <div className="te-fieldgrid">
               <div className="te-fieldcell">
-                <span className="te-fieldlabel">Subcategory</span>
+                <span className="te-fieldlabel">Category</span>
                 <select
                   className="te-fieldvalue"
-                  value={selectedCategory?.parent_id ? form.category_id : ''}
-                  onChange={(e) => set('category_id', e.target.value || selectedMainId)}
+                  value={selectedMainId}
+                  onChange={(e) => set('category_id', e.target.value)}
                 >
-                  <option value="">General</option>
-                  {subcategories.map((c) => (
+                  <option value="">Uncategorised</option>
+                  {mainCategories.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name}
                     </option>
                   ))}
                 </select>
               </div>
-            )}
-          </div>
+              {subcategories.length > 0 && (
+                <div className="te-fieldcell">
+                  <span className="te-fieldlabel">Subcategory</span>
+                  <select
+                    className="te-fieldvalue"
+                    value={selectedCategory?.parent_id ? form.category_id : ''}
+                    onChange={(e) => set('category_id', e.target.value || selectedMainId)}
+                  >
+                    <option value="">General</option>
+                    {subcategories.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
+              {form.type !== 'transfer' && (
+                <button
+                  type="button"
+                  className="te-split-link"
+                  onClick={() =>
+                    // Starts from the category already chosen, holding the
+                    // whole amount, and an empty second line to move some to.
+                    setLines([
+                      { category_id: form.category_id || '', amount: form.amount },
+                      { category_id: '', amount: '' },
+                    ])
+                  }
+                >
+                  Split across categories
+                </button>
+              )}
+            </>
+          )}
 
           <div>
             <span className="te-fieldlabel">Whose spend</span>

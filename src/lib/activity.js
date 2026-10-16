@@ -27,9 +27,13 @@ export function matchesDateBasis(row, basis, now = new Date()) {
 // What a record contributes to the selected person's figures: all of it for
 // the household or their own record, half of a shared one, nothing of the
 // other person's. Rows show this beside the full amount when they differ.
-export function shareOf(row, scopeMemberId) {
-  return scopedValue(row.amount, row, scopeMemberId);
+// `amount` defaults to the whole record's; Activity narrowed to a category
+// passes a split record's line in that category instead.
+export function shareOf(row, scopeMemberId, amount = row.amount) {
+  return scopedValue(amount, row, scopeMemberId);
 }
+
+const wholeAmount = (row) => row.amount;
 
 // Income and net spend over a set of records, as the selected person's share.
 export function incomeAndSpend(rows, scopeMemberId) {
@@ -47,13 +51,13 @@ export function dayKeyOf(date) {
 // worked out exactly as the summary line works out the whole list, so the
 // days of a month add up to the list's totals for that month. Net spend can
 // be negative on a day that only had a refund.
-export function dayTotals(rows, scopeMemberId) {
+export function dayTotals(rows, scopeMemberId, amountOf = wholeAmount) {
   const byDay = new Map();
   for (const row of rows) {
     const key = dayKeyOf(parseDay(row.occurred_at));
     if (!byDay.has(key)) byDay.set(key, { income: 0, spend: 0, items: [] });
     const day = byDay.get(key);
-    applyToIncomeSpend(row, shareOf(row, scopeMemberId), day);
+    applyToIncomeSpend(row, shareOf(row, scopeMemberId, amountOf(row)), day);
     day.items.push(row);
   }
   return byDay;
@@ -61,10 +65,10 @@ export function dayTotals(rows, scopeMemberId) {
 
 // The summary line's figures: income, and spending split into what was bought
 // and what came back, so "net spend" can be seen to be purchases less refunds.
-export function activitySummary(rows, scopeMemberId) {
+export function activitySummary(rows, scopeMemberId, amountOf = wholeAmount) {
   const summary = { income: 0, purchases: 0, refunds: 0, spend: 0, transfers: 0 };
   for (const row of rows) {
-    const v = shareOf(row, scopeMemberId);
+    const v = shareOf(row, scopeMemberId, amountOf(row));
     // Counted, so the line can say it left them out, but in neither total.
     if (row.kind === 'transfer') summary.transfers += 1;
     else if (row.kind === 'refund') summary.refunds += v;

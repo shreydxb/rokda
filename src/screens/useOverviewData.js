@@ -15,7 +15,8 @@ const SOURCES = [
     query: (id) =>
       supabase
         .from('transactions')
-        .select('*, categories(id, name, kind)')
+        // A split record's lines come with it (lib/splits.js).
+        .select('*, categories(id, name, kind), transaction_splits(id, category_id, amount)')
         .eq('household_id', id)
         .order('occurred_at', { ascending: false })
         .order('id'),

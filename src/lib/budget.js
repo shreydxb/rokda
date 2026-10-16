@@ -1,6 +1,7 @@
 import { scopedValue } from './scope';
 import { isPosted, parseDay } from './day';
 import { isIncomeRow, isSpendRow, spendDelta } from './transactionKind';
+import { categoryParts } from './splits';
 
 export function daysInMonth(year, month) {
   return new Date(year, month, 0).getDate();
@@ -56,8 +57,11 @@ function monthSpendRows(transactions, year, month, scopeMemberId, now) {
 export function monthActualsByCategory(transactions, year, month, scopeMemberId, now = new Date()) {
   const map = new Map();
   for (const t of monthSpendRows(transactions, year, month, scopeMemberId, now)) {
-    if (!t.category_id) continue;
-    map.set(t.category_id, (map.get(t.category_id) ?? 0) + spendDelta(t, scopedValue(t.amount, t, scopeMemberId)));
+    // A split record counts each line under its own category.
+    for (const part of categoryParts(t)) {
+      if (!part.categoryId) continue;
+      map.set(part.categoryId, (map.get(part.categoryId) ?? 0) + spendDelta(t, scopedValue(part.amount, t, scopeMemberId)));
+    }
   }
   return map;
 }
@@ -118,10 +122,12 @@ export function monthSpendBreakdown(transactions, budgetedCategoryIds, year, mon
   let unbudgeted = 0;
   let uncategorised = 0;
   for (const t of monthSpendRows(transactions, year, month, scopeMemberId, now)) {
-    const amount = spendDelta(t, scopedValue(t.amount, t, scopeMemberId));
-    if (!t.category_id) uncategorised += amount;
-    else if (budgetedIds.has(t.category_id)) budgeted += amount;
-    else unbudgeted += amount;
+    for (const part of categoryParts(t)) {
+      const amount = spendDelta(t, scopedValue(part.amount, t, scopeMemberId));
+      if (!part.categoryId) uncategorised += amount;
+      else if (budgetedIds.has(part.categoryId)) budgeted += amount;
+      else unbudgeted += amount;
+    }
   }
   return { budgeted, unbudgeted, uncategorised, total: budgeted + unbudgeted + uncategorised };
 }

@@ -449,6 +449,49 @@ begin
   raise notice 'transfers ok: own household only; record, edit, unlink, link and delete as a member';
 end $$;
 
+-- Splits: a member splits their own household's transactions, and can't see,
+-- write or use another household's lines or categories.
+do $$
+declare
+  n int;
+  ours uuid;
+  cat_a uuid;
+  cat_b uuid;
+  their_cat uuid;
+begin
+  select count(*) into n from transaction_splits;
+  if n <> 0 then raise exception 'splits FAILED: a member sees % of another household''s split lines', n; end if;
+
+  insert into categories (household_id, name, kind) values ('d1000000-0000-0000-0000-000000000001', 'Our split A', 'expense') returning id into cat_a;
+  insert into categories (household_id, name, kind) values ('d1000000-0000-0000-0000-000000000001', 'Our split B', 'expense') returning id into cat_b;
+  insert into transactions (household_id, account_id, amount, kind, occurred_at, is_shared)
+  values ('d1000000-0000-0000-0000-000000000001', 'f4000000-0000-0000-0000-000000000001', -90, 'expense', '2026-10-03', true)
+  returning id into ours;
+
+  perform split_transaction(ours, jsonb_build_array(jsonb_build_object('category_id', cat_a, 'amount', 60), jsonb_build_object('category_id', cat_b, 'amount', 30)));
+  select count(*) into n from transaction_splits where transaction_id = ours;
+  if n <> 2 then raise exception 'splits FAILED: a member could not split their own transaction'; end if;
+
+  select id into their_cat from categories where household_id = 'd2000000-0000-0000-0000-000000000002' limit 1;
+  if their_cat is not null then raise exception 'splits FAILED: another household''s category was readable'; end if;
+  begin
+    perform split_transaction(ours, jsonb_build_array(jsonb_build_object('category_id', cat_a, 'amount', 60), jsonb_build_object('category_id', 'c9000000-0000-0000-0000-000000000009', 'amount', 30)));
+    raise exception 'splits FAILED: a line was filed under a category outside the household';
+  exception when foreign_key_violation then null;
+  end;
+  begin
+    insert into transaction_splits (household_id, transaction_id, category_id, amount)
+    values ('d2000000-0000-0000-0000-000000000002', ours, cat_a, -1);
+    raise exception 'splits FAILED: a member wrote a line into another household';
+  exception when insufficient_privilege or foreign_key_violation then null;
+  end;
+
+  perform unsplit_transaction(ours, cat_a);
+  delete from transactions where id = ours;
+  delete from categories where id in (cat_a, cat_b);
+  raise notice 'splits ok: own household only; split and unsplit as a member';
+end $$;
+
 -- QA §8: a member cannot promote themselves.
 do $$
 begin

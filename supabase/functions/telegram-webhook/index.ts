@@ -1597,8 +1597,21 @@ function monthStartIso(year: number, month: number): string {
   return new Date(Date.UTC(year, month - 1, 1)).toISOString().slice(0, 10);
 }
 
-type SpendRow = { id: string; amount: number; kind: string; occurred_at: string; category_id: string | null; is_shared: boolean; owner_member_id: string | null; merchant: string | null };
-const SPEND_COLUMNS = "id, amount, kind, occurred_at, category_id, is_shared, owner_member_id, merchant";
+type SpendRow = {
+  id: string;
+  amount: number;
+  kind: string;
+  occurred_at: string;
+  category_id: string | null;
+  is_shared: boolean;
+  owner_member_id: string | null;
+  merchant: string | null;
+  is_split: boolean;
+  transaction_splits?: Array<{ category_id: string; amount: number }>;
+};
+// A split record's lines come with it, so every total by category counts each
+// line under its own category (applib/splits.js).
+const SPEND_COLUMNS = "id, amount, kind, occurred_at, category_id, is_shared, owner_member_id, merchant, is_split, transaction_splits(category_id, amount)";
 
 // A household's transactions dated from `from` up to but not including
 // `until`, optionally in one category. The window is applied by the database,
@@ -1606,7 +1619,9 @@ const SPEND_COLUMNS = "id, amount, kind, occurred_at, category_id, is_shared, ow
 function transactionsBetween(householdId: string, from: string, until: string, categoryId?: string): Promise<SpendRow[]> {
   return allRowsOf<SpendRow>("transactions", () => {
     let query = supabase.from("transactions").select(SPEND_COLUMNS).eq("household_id", householdId).gte("occurred_at", from).lt("occurred_at", until);
-    if (categoryId) query = query.eq("category_id", categoryId);
+    // In one category: filed under it, or split with a line in it (the
+    // category totals then count only that line).
+    if (categoryId) query = query.or(`category_id.eq.${categoryId},is_split.eq.true`);
     return query.order("id");
   });
 }
