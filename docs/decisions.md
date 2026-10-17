@@ -1542,6 +1542,15 @@ too low, and the purchase looked unreturned (SHR-234).
 - **Totals don't change shape.** A refund already nets against spending in its
   own category (`transactionKind.js`), so no total needed a new rule; the link
   only makes sure that category is the right one.
+- **The rules hold through every edit, not just the link** (QA re-review,
+  17 October). Editing a linked refund's amount is checked against the cap
+  as linking is; the purchase is locked for that check, so two refunds
+  edited at once are counted together. A linked refund's categories follow
+  its purchase's: recategorising or splitting the purchase, or changing the
+  refund's amount, sets the refund's allocation again, with the change in its
+  history. Filing a linked refund elsewhere on its own is refused; the editor
+  shows its category as following the purchase, and unlinking is the way to
+  move it.
 - **A refund counts in the month it arrives**, as the card statement and the
   bank show it. A September purchase refunded in October lowers October's
   spend in that category, not September's, so a closed month never changes
