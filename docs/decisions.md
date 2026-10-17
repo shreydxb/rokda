@@ -1562,7 +1562,11 @@ too low, and the purchase looked unreturned (SHR-234).
   wrong. One function now works out the allocation; the sync writes it and
   the commit check requires exactly it, so any other split, a single
   category for a split purchase, or a line edited by hand is refused
-  (`20261017160000_refund_allocation_exact`).
+  (`20261017160000_refund_allocation_exact`). The editor sends only a
+  linked refund's amount and leaves its lines to the database, which shares
+  them out again; it used to hold the old lines to the new amount, so a
+  linked split refund's amount couldn't be changed (QA regression check,
+  17 October).
 - **A refund counts in the month it arrives**, as the card statement and the
   bank show it. A September purchase refunded in October lowers October's
   spend in that category, not September's, so a closed month never changes

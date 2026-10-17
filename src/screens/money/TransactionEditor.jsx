@@ -278,7 +278,10 @@ export default function TransactionEditor({ tx, household, householdId, accounts
       setError("This is one side of a transfer whose other side couldn't be loaded. Refresh the page and open it again.");
       return;
     }
-    const linesError = split ? splitProblem(split, amountAed) : '';
+    // A linked refund's lines are the database's to share out again when its
+    // amount changes (refund_allocation_exact), so the lines it loaded with
+    // are not held to the new amount here.
+    const linesError = split && !followsPurchase ? splitProblem(split, amountAed) : '';
     if (amountError || accountError || linesError) {
       setError(amountError || accountError || linesError);
       return;
