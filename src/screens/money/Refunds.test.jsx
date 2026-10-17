@@ -100,6 +100,27 @@ describe('refund linking in the editor', () => {
     expect(updates[0]).toMatchObject({ amount: 50, kind: 'refund' });
   });
 
+  // QA regression check, 17 October: the editor held a linked split refund's
+  // old lines to its new amount ("still to allocate") with no way to change
+  // them, so its amount couldn't be edited at all.
+  it.each([
+    ['raises', '80'],
+    ['lowers', '20'],
+  ])('%s a linked split refund’s amount and leaves its lines to the purchase', async (_, amount) => {
+    const splitRefund = { ...refund, is_split: true, transaction_splits: [{ category_id: 'groceries', amount: 37.5 }, { category_id: 'dining', amount: 12.5 }] };
+    const onSaved = vi.fn();
+    editor({ tx: splitRefund, allTransactions: [purchase, splitRefund], links, onSaved, categories: [{ id: 'groceries', name: 'Groceries', kind: 'expense' }, { id: 'dining', name: 'Dining', kind: 'expense' }] });
+    fireEvent.change(document.querySelector('.te-hero-input'), { target: { value: amount } });
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Save changes' })));
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(updates).toHaveLength(1);
+    expect(updates[0]).toMatchObject({ amount: Number(amount), kind: 'refund' });
+    expect(updates[0]).not.toHaveProperty('category_id');
+    expect(rpcs.map((r) => r.name)).not.toContain('split_transaction');
+    expect(rpcs.map((r) => r.name)).not.toContain('unlink_refund');
+    expect(onSaved).toHaveBeenCalled();
+  });
+
   it('unlinks a refund first when it is changed to another type', async () => {
     editor({ tx: refund, allTransactions: [purchase, refund], links });
     fireEvent.click(screen.getByRole('button', { name: 'Income' }));
