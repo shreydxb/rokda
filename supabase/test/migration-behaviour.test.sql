@@ -2450,4 +2450,74 @@ begin
   raise notice 'refund integrity ok: the cap holds through edits, and a linked refund follows its purchase''s categories';
 end $$;
 
+-- A linked refund's lines match its purchase's to the cent (QA re-check, 17
+-- October): re-splitting the refund itself at the same total, or unsplitting
+-- it into one of the purchase's categories, is refused; re-splitting the
+-- purchase still moves the refund with it.
+do $$
+declare
+  hh constant uuid := '11111111-1111-1111-1111-111111111111';
+  card constant uuid := '33333333-3333-3333-3333-333333333333';
+  purchase constant uuid := '44444444-4444-4444-4444-4444444444f3';
+  refund constant uuid := '44444444-4444-4444-4444-4444444444f4';
+  first_cat constant uuid := '66666666-6666-6666-6666-6666666666f3';
+  second_cat constant uuid := '66666666-6666-6666-6666-6666666666f4';
+begin
+  insert into categories (id, household_id, name, kind) values (first_cat, hh, 'Allocation first', 'expense'), (second_cat, hh, 'Allocation second', 'expense');
+  insert into transactions (id, household_id, account_id, amount, kind, category_id, occurred_at, is_shared) values
+    (purchase, hh, card, -100, 'expense', first_cat, '2026-09-01', true),
+    (refund, hh, card, 20, 'refund', null, '2026-09-10', true);
+  perform split_transaction(purchase, jsonb_build_array(jsonb_build_object('category_id', first_cat, 'amount', 75), jsonb_build_object('category_id', second_cat, 'amount', 25)));
+  perform link_refund(purchase, refund);
+  set constraints all immediate;
+  set constraints all deferred;
+
+  -- The reviewer's case: 15 / 5 redistributed as 5 / 15.
+  begin
+    perform split_transaction(refund, jsonb_build_array(jsonb_build_object('category_id', first_cat, 'amount', 5), jsonb_build_object('category_id', second_cat, 'amount', 15)));
+    set constraints all immediate;
+    raise exception 'refund allocation FAILED: a linked refund was re-split 5 / 15 against a 75 / 25 purchase';
+  exception when check_violation then null;
+  end;
+  set constraints all deferred;
+
+  -- All of it into one of the purchase's categories.
+  begin
+    perform unsplit_transaction(refund, first_cat);
+    set constraints all immediate;
+    raise exception 'refund allocation FAILED: a linked refund of a split purchase was filed under one of its categories';
+  exception when check_violation then null;
+  end;
+  set constraints all deferred;
+
+  -- One line's amount changed by hand.
+  begin
+    update transaction_splits set amount = 16 where transaction_id = refund and category_id = first_cat;
+    update transaction_splits set amount = 4 where transaction_id = refund and category_id = second_cat;
+    set constraints all immediate;
+    raise exception 'refund allocation FAILED: a linked refund''s lines were changed by hand';
+  exception when check_violation then null;
+  end;
+  set constraints all deferred;
+
+  -- Re-splitting the purchase still takes the refund with it.
+  perform split_transaction(purchase, jsonb_build_array(jsonb_build_object('category_id', first_cat, 'amount', 50), jsonb_build_object('category_id', second_cat, 'amount', 50)));
+  set constraints all immediate;
+  set constraints all deferred;
+  if (select amount from transaction_splits where transaction_id = refund and category_id = first_cat) <> 10
+     or (select amount from transaction_splits where transaction_id = refund and category_id = second_cat) <> 10 then
+    raise exception 'refund allocation FAILED: the refund did not follow its purchase to 50 / 50';
+  end if;
+
+  -- Unlinked, it can be filed any way.
+  delete from transaction_links where kind = 'refund' and to_transaction_id = refund;
+  perform split_transaction(refund, jsonb_build_array(jsonb_build_object('category_id', first_cat, 'amount', 5), jsonb_build_object('category_id', second_cat, 'amount', 15)));
+  set constraints all immediate;
+  set constraints all deferred;
+
+  delete from transactions where id in (purchase, refund);
+  delete from categories where id in (first_cat, second_cat);
+  raise notice 'refund allocation ok: a linked refund''s lines match its purchase''s share to the cent, and follow it when it changes';
+end $$;
+
 rollback;
