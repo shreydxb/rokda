@@ -630,6 +630,7 @@ begin
   values (v_member, 'bbbbbbbb-0000-0000-0000-00000000000a', 'Linker', 'owner', 'bbbbbbbb-1111-0000-0000-00000000000a');
 
   perform set_config('request.jwt.claim.sub', 'bbbbbbbb-1111-0000-0000-00000000000a', true);
+  perform set_config('request.jwt.claim.aal', 'aal2', true);
 
   for i in 1..25 loop
     v_code := generate_telegram_link_code(v_member);

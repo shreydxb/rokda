@@ -1230,12 +1230,14 @@ need a second factor, as the older finance app required (SHR-312).
   entered its code.
 - **The database holds the same rule.** Every household policy calls
   `private.is_household_member()` or `private.is_household_owner()`, and both
-  now also require `private.mfa_satisfied()`: the session is aal2, or the
-  caller has no authenticator yet. So a password alone reads nothing through
-  the API either, once a member has one. A member with none is not refused:
-  refusing first would lock everyone out before they could add one. The app
-  has every member add one before it shows anything, so that window closes at
-  each member's next sign-in.
+  require `private.mfa_satisfied()`: the session is aal2. So a password alone
+  reads and writes nothing through the API either, including a member's own
+  roster row. A member with no authenticator yet was let through at first, so
+  nobody was locked out before adding one; the QA re-review (17 October)
+  showed that left a new login, or one whose factor had been reset, open to a
+  password alone. Nobody needed it: adding an authenticator goes through
+  Supabase Auth, which reads no household table, and the app has every member
+  add one before it shows anything (`20261017100000_code_always_and_owner_removal`).
 - **The check is asked of the server.** Whether a code is needed comes from
   the session's own token and the user as the server has them now, not from a
   copy cached in the tab, so an authenticator the owner has removed is not
@@ -1624,7 +1626,9 @@ had Telegram linked but no login (SHR-314).
   `docs/second-member.md`, with no names or addresses in the repository.
 - **They join as a member, not an owner.** The database already made the
   roster owner-only (`owner_role_authorization`): a member can't add, change or
-  remove anyone else, or change any role, their own included. Everything else
+  remove anyone else, or change any role, their own included. A member can't
+  remove themselves either: that took their name off everything recorded as
+  theirs, so it is an owner's act (QA re-review, 17 October). Everything else
   is shared, as it is between two people keeping one ledger: every money
   record, account, budget, plan and setting, including the household's name
   and rupee rate.
