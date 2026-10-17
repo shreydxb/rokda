@@ -81,7 +81,7 @@ describe('Review', () => {
     expect(screen.getByText('1 of 5 done')).toBeTruthy();
     const flagged = screen.getByTestId('review-review');
     expect(within(flagged).getByText('1 record still marked for review.')).toBeTruthy();
-    expect(within(flagged).getByRole('link', { name: 'Open the records' }).getAttribute('href')).toMatch(/^\/money\?tab=activity&review=1&from=/);
+    expect(within(flagged).getByRole('link', { name: 'Open the records' }).getAttribute('href')).toMatch(/^\/money\?tab=activity&who=both&review=1&from=/);
     expect(within(screen.getByTestId('review-categorise')).getByRole('link').getAttribute('href')).toMatch(/cat=none/);
     expect(within(screen.getByTestId('review-balances')).getByText(/Current account/)).toBeTruthy();
     expect(within(screen.getByTestId('review-close')).getByRole('link', { name: 'Close the month' }).getAttribute('href')).toBe('/wealth');

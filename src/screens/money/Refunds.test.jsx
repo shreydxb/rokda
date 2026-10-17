@@ -24,7 +24,9 @@ vi.mock('../../lib/supabaseClient', () => ({
       update: (row) => ({
         eq: () => {
           updates.push(row);
-          return Promise.resolve({ error: null });
+          const done = Promise.resolve({ error: null });
+          done.select = () => Promise.resolve({ data: [{ id: 'saved' }], error: null });
+          return done;
         },
       }),
     }),

@@ -79,37 +79,35 @@ export function recordedSpend(transactions, accountId, periodStart, statementDat
 
 const NEEDS_CHECK = new Set(['waiting', 'unchecked', 'mismatch']);
 
-// One row per open card per recent statement, for Wealth -> Statements. A
-// statement nobody has recorded anything about yet is "unchecked"; the bot
-// creates the "waiting" record once it starts asking. Statements still to be
-// checked come first, then the rest newest first.
-export function statementRows({ accounts = [], reconciliations = [], transactions = [], now = new Date(), perCard = 6 }) {
-  const byKey = new Map(reconciliations.map((r) => [`${r.account_id}:${r.statement_date}`, r]));
-  const rows = [];
-  for (const account of accounts) {
-    if (account.type !== 'credit_card' || account.archived_at || !account.statement_day) continue;
-    for (const close of closedStatementDates(account.statement_day, now, perCard)) {
-      const statementDate = isoDay(close);
-      const record = byKey.get(`${account.id}:${statementDate}`) ?? null;
-      const periodStart = record?.period_start ?? isoDay(statementPeriodStart(account.statement_day, close));
-      const lines = statementTransactions(transactions, account.id, periodStart, statementDate, now);
-      const spend = recordedSpend(lines, account.id, periodStart, statementDate, now);
-      const statementSpend = record?.statement_spend == null ? null : Number(record.statement_spend);
-      rows.push({
-        account,
-        statementDate,
-        periodStart,
-        dueDate: record?.due_date ?? (account.due_day ? isoDay(statementDueDate(close, account.due_day)) : null),
-        status: record?.status ?? 'unchecked',
-        record,
-        recordedSpend: spend,
-        transactions: lines,
-        statementSpend,
-        statementBalance: record?.statement_balance == null ? null : Number(record.statement_balance),
-        difference: statementSpend == null ? null : Math.round((spend - statementSpend) * 100) / 100,
-      });
-    }
-  }
+// The cards whose statements are listed: open credit cards with a statement day.
+const statementCards = (accounts) => accounts.filter((a) => a.type === 'credit_card' && !a.archived_at && a.statement_day);
+
+// One statement's row: its period, what was recorded about it, and what
+// Rokda recorded on the card over that period.
+function statementRow(account, close, byKey, transactions, now) {
+  const statementDate = isoDay(close);
+  const record = byKey.get(`${account.id}:${statementDate}`) ?? null;
+  const periodStart = record?.period_start ?? isoDay(statementPeriodStart(account.statement_day, close));
+  const lines = statementTransactions(transactions, account.id, periodStart, statementDate, now);
+  const spend = recordedSpend(lines, account.id, periodStart, statementDate, now);
+  const statementSpend = record?.statement_spend == null ? null : Number(record.statement_spend);
+  return {
+    account,
+    statementDate,
+    periodStart,
+    dueDate: record?.due_date ?? (account.due_day ? isoDay(statementDueDate(close, account.due_day)) : null),
+    status: record?.status ?? 'unchecked',
+    record,
+    recordedSpend: spend,
+    transactions: lines,
+    statementSpend,
+    statementBalance: record?.statement_balance == null ? null : Number(record.statement_balance),
+    difference: statementSpend == null ? null : Math.round((spend - statementSpend) * 100) / 100,
+  };
+}
+
+// Statements still to be checked first, then the rest newest first.
+function sortStatementRows(rows) {
   return rows.sort((a, b) => {
     const needA = NEEDS_CHECK.has(a.status) ? 0 : 1;
     const needB = NEEDS_CHECK.has(b.status) ? 0 : 1;
@@ -117,6 +115,35 @@ export function statementRows({ accounts = [], reconciliations = [], transaction
     if (a.statementDate !== b.statementDate) return a.statementDate < b.statementDate ? 1 : -1;
     return a.account.name.localeCompare(b.account.name);
   });
+}
+
+// One row per open card per recent statement, for Wealth -> Statements. A
+// statement nobody has recorded anything about yet is "unchecked"; the bot
+// creates the "waiting" record once it starts asking.
+export function statementRows({ accounts = [], reconciliations = [], transactions = [], now = new Date(), perCard = 6 }) {
+  const byKey = new Map(reconciliations.map((r) => [`${r.account_id}:${r.statement_date}`, r]));
+  const rows = [];
+  for (const account of statementCards(accounts)) {
+    for (const close of closedStatementDates(account.statement_day, now, perCard)) rows.push(statementRow(account, close, byKey, transactions, now));
+  }
+  return sortStatementRows(rows);
+}
+
+// The statements that closed in one month (1-12), however long ago, for the
+// monthly review's link to them: one per open card that had it by then, and
+// only once it has closed (QA re-review, 17 October: the link opened the six
+// most recent instead).
+export function statementRowsForMonth({ accounts = [], reconciliations = [], transactions = [], now = new Date(), year, month }) {
+  const byKey = new Map(reconciliations.map((r) => [`${r.account_id}:${r.statement_date}`, r]));
+  const today = startOfDay(now);
+  const rows = [];
+  for (const account of statementCards(accounts)) {
+    const close = atDayOfMonth(year, month - 1, account.statement_day);
+    if (close >= today) continue;
+    if (account.created_at && parseDay(account.created_at) > close) continue;
+    rows.push(statementRow(account, close, byKey, transactions, now));
+  }
+  return sortStatementRows(rows);
 }
 
 // How many statements are still to be checked, for the tab's badge and the

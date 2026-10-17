@@ -1,7 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { screen, within } from '@testing-library/dom';
 import { act } from 'react';
-import { renderScreen } from '../../test/renderScreen';
+import { MemoryRouter } from 'react-router-dom';
+import { renderScreen as renderBare } from '../../test/renderScreen';
+
+// The screen reads its month from the address, so it renders inside a router.
+const renderScreen = (ui) => renderBare(<MemoryRouter>{ui}</MemoryRouter>);
 
 // The screen's writes: marking a statement done, resolving a mismatch and
 // reopening one. The client is mocked so the test can see exactly what it

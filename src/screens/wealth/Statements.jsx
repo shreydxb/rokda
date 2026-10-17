@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import { statementRows, statementsToCheck } from '../../lib/statements';
+import { Link, useSearchParams } from 'react-router-dom';
+import { statementRows, statementRowsForMonth, statementsToCheck } from '../../lib/statements';
+import { monthFromParam } from '../../lib/useMonthParam';
 import { formatBalance } from '../../lib/money';
 import { spendDelta } from '../../lib/transactionKind';
 import { supabase } from '../../lib/supabaseClient';
@@ -45,9 +47,17 @@ export default function Statements({ household, me, members = [], data, loading 
   const [pending, setPending] = useState(null);
   const [note, setNote] = useState('');
 
+  // A link for one month (the monthly review's) lists the statements that
+  // closed in it, however long ago; otherwise the recent ones.
+  const [params] = useSearchParams();
+  const forMonth = monthFromParam(params.get('month'));
+
   if (loading) return <div className="ov-skel" aria-busy="true" />;
 
-  const rows = statementRows({ accounts, reconciliations: statementReconciliations, transactions });
+  const rows = forMonth
+    ? statementRowsForMonth({ accounts, reconciliations: statementReconciliations, transactions, year: forMonth.getFullYear(), month: forMonth.getMonth() + 1 })
+    : statementRows({ accounts, reconciliations: statementReconciliations, transactions });
+  const monthLabel = forMonth ? forMonth.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }) : null;
   const toCheck = statementsToCheck(rows);
   const memberName = (id) => members.find((m) => m.id === id)?.display_name ?? null;
 
@@ -89,6 +99,21 @@ export default function Statements({ household, me, members = [], data, loading 
     await reload();
   }
 
+  const recentLink = forMonth && (
+    <Link className="ov-link" to="/wealth?tab=statements" style={{ fontSize: 12 }}>
+      Show recent statements
+    </Link>
+  );
+
+  if (rows.length === 0 && forMonth) {
+    return (
+      <div className="ov-empty">
+        <div className="ov-empty-kicker">No statements closed in {monthLabel}</div>
+        <div className="ov-empty-body">{recentLink}</div>
+      </div>
+    );
+  }
+
   if (rows.length === 0) {
     return (
       <div className="ov-empty">
@@ -100,9 +125,17 @@ export default function Statements({ household, me, members = [], data, loading 
 
   return (
     <div>
+      {forMonth && (
+        <div style={{ marginTop: 18, display: 'flex', gap: 12, alignItems: 'baseline', flexWrap: 'wrap' }}>
+          <span className="ov-kicker">Statements that closed in {monthLabel}</span>
+          {recentLink}
+        </div>
+      )}
       <div className="ov-muted" style={{ marginTop: 18 }}>
         {toCheck === 0
-          ? 'Every recent statement has been checked.'
+          ? forMonth
+            ? 'Every statement that closed this month has been checked.'
+            : 'Every recent statement has been checked.'
           : `${toCheck} statement${toCheck === 1 ? '' : 's'} still to check against Rokda. The bot asks about each one on Telegram until it's done.`}
       </div>
       <div className="ov-muted" style={{ fontSize: 11, marginTop: 4 }}>

@@ -260,8 +260,15 @@ export async function stubSupabase(page, { empty = false, tables = {}, failReads
 
     // Writes: acknowledge without persisting. These tests are about rendering,
     // and a stub that pretended to persist would invite tests that assert on a
-    // lie. Nothing here is asserted after a write.
+    // lie. Nothing here is asserted after a write. An update that reads back
+    // what it changed gets the rows its id filter matches, as PostgREST would:
+    // the editor treats an update that changed nothing as not saved.
     if (request.method() !== 'GET') {
+      if (request.method() === 'PATCH' && !wantsObject) {
+        const id = new URL(request.url()).searchParams.get('id');
+        const matched = id?.startsWith('eq.') ? (dataset[table] ?? []).filter((r) => r.id === id.slice(3)).map((r) => ({ id: r.id })) : [];
+        return route.fulfill({ status: 200, json: matched });
+      }
       return route.fulfill({ status: 200, json: wantsObject ? {} : [] });
     }
 

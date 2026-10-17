@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useMonthParam } from '../../lib/useMonthParam';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
 import { formatBalance, formatCompact, formatMoney } from '../../lib/money';
@@ -22,7 +23,9 @@ export default function Budget({ household, me, members, data, loading, onOpenRe
 
   const [view, setView] = useState('month'); // 'month' | 'year'
   const now = useMemo(() => new Date(), []);
-  const [cursor, setCursor] = useState(() => new Date(now.getFullYear(), now.getMonth(), 1));
+  // The month view's month is in the address, like Insights', so Back from
+  // its records returns to it.
+  const [cursor, setCursor] = useMonthParam(now);
   const [yearCursor, setYearCursor] = useState(now.getFullYear());
   const [editing, setEditing] = useState(null); // null | 'new' | a budget row
 
