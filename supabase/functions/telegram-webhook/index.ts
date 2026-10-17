@@ -2425,20 +2425,17 @@ async function runRecurringCheck(): Promise<{ checked: number; nudged: number }>
       windowStart.setDate(windowStart.getDate() - windowDays);
       const windowEnd = new Date(r.dueDate);
       windowEnd.setDate(windowEnd.getDate() + windowDays);
-      let nearbyQuery = supabase
-        .from("transactions")
-        .select("id, amount, account_id, category_id")
-        .eq("household_id", r.household_id)
-        .gte("occurred_at", windowStart.toISOString().slice(0, 10))
-        .lte("occurred_at", windowEnd.toISOString().slice(0, 10));
-      if (r.account_id) nearbyQuery = nearbyQuery.eq("account_id", r.account_id);
-      if (r.category_id) nearbyQuery = nearbyQuery.eq("category_id", r.category_id);
-      const { data: nearby, error: nearbyError } = await nearbyQuery;
-      // Unread is not unmatched: no "did you pay this?" on a failed read.
-      if (nearbyError) continue;
       const amount = Math.abs(Number(r.amount));
-      const matched = (nearby ?? []).some((t: { amount: number }) => Math.abs(Math.abs(Number(t.amount)) - amount) <= amount * 0.2);
-      if (matched) continue;
+      const matched = await paymentRecorded({
+        householdId: r.household_id,
+        accountId: r.account_id ?? null,
+        categoryId: r.category_id ?? null,
+        from: windowStart.toISOString().slice(0, 10),
+        to: windowEnd.toISOString().slice(0, 10),
+        amount,
+      });
+      // Unread is not unmatched: no "did you pay this?" on a failed read.
+      if (matched !== false) continue;
 
       const { data: members } = await supabase
         .from("household_members")
@@ -2463,6 +2460,34 @@ async function runRecurringCheck(): Promise<{ checked: number; nudged: number }>
     }
   }
   return { checked: dueRows.length, nudged };
+}
+
+// Whether a record for about a bill's amount (within 20%, either way) is in
+// Rokda over a window: how both daily checks decide a bill was paid, the
+// same test apply_bot_proposal() uses. Asked of the database as "is there
+// one", so it is exact however many other records the window holds; reading
+// the window and matching it here searched only the first page of it (QA,
+// 17 October). Null when it could not be read: unread is not unpaid.
+async function paymentRecorded(q: { householdId: string; accountId: string | null; categoryId: string | null; from: string; to: string; amount: number }): Promise<boolean | null> {
+  const lo = q.amount * 0.8;
+  const hi = q.amount * 1.2;
+  for (const [min, max] of [[-hi, -lo], [lo, hi]]) {
+    let query = supabase
+      .from("transactions")
+      .select("id")
+      .eq("household_id", q.householdId)
+      .gte("occurred_at", q.from)
+      .lte("occurred_at", q.to)
+      .gte("amount", min)
+      .lte("amount", max)
+      .limit(1);
+    if (q.accountId) query = query.eq("account_id", q.accountId);
+    if (q.categoryId) query = query.eq("category_id", q.categoryId);
+    const { data, error } = await query;
+    if (error) return null;
+    if ((data ?? []).length > 0) return true;
+  }
+  return false;
 }
 
 // Autopay bills (docs/decisions.md, "Autopay bills are confirmed, not
@@ -2503,17 +2528,15 @@ async function runAutopayCheck(): Promise<{ checked: number; asked: number }> {
         d.setDate(d.getDate() + offset);
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
       };
-      let nearbyQuery = supabase
-        .from("transactions")
-        .select("amount")
-        .eq("household_id", householdId)
-        .eq("account_id", String(r.account_id))
-        .gte("occurred_at", day(-5))
-        .lte("occurred_at", day(5));
-      if (r.category_id) nearbyQuery = nearbyQuery.eq("category_id", String(r.category_id));
-      const { data: nearby, error: nearbyError } = await nearbyQuery;
-      if (nearbyError) continue;
-      if ((nearby ?? []).some((t: { amount: number }) => Math.abs(Math.abs(Number(t.amount)) - amount) <= amount * 0.2)) continue;
+      const recorded = await paymentRecorded({
+        householdId,
+        accountId: String(r.account_id),
+        categoryId: r.category_id ? String(r.category_id) : null,
+        from: day(-5),
+        to: day(5),
+        amount,
+      });
+      if (recorded !== false) continue;
 
       const { data: members } = await supabase
         .from("household_members")
@@ -2687,11 +2710,20 @@ async function runStatementCheck(): Promise<{ checked: number; asked: number }> 
         }
       }
       if (sent.length === 0) continue;
-      await supabase
-        .from("statement_reconciliations")
-        .update({ asked_prompts: [...(row.asked_prompts ?? []), ...sent], last_asked_on: todayStr, updated_at: new Date().toISOString() })
-        .eq("id", row.id)
-        .eq("status", "waiting");
+      // A question is only answerable once it is tied to its statement: a
+      // reply or a 👍 finds the statement by the question it answers. If that
+      // can't be saved (one retry), or the statement stopped waiting while
+      // the question went out, the question is withdrawn rather than left
+      // where "done" would settle nothing, and tomorrow's run asks again
+      // (QA, 17 October). Same rule as a bot proposal's question.
+      const binding = { asked_prompts: [...(row.asked_prompts ?? []), ...sent], last_asked_on: todayStr, updated_at: new Date().toISOString() };
+      const bind = () => supabase.from("statement_reconciliations").update(binding).eq("id", row.id).eq("status", "waiting").select("id");
+      let bound = await bind();
+      if (bound.error) bound = await bind();
+      if (bound.error || !bound.data?.length) {
+        for (const p of sent) await tgCall("deleteMessage", { chat_id: p.chat_id, message_id: p.message_id }).catch(() => {});
+        continue;
+      }
       asked++;
     } catch {
       // One card failing must never block the rest.
