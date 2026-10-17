@@ -1042,6 +1042,12 @@ hiccup was stated as "AED 0 spent" or a net worth with nothing in it.
   database and read in pages in a stable order (`applib/pagedRead.js`, the same
   helper as the screens). Accounts, holdings, categories and bills are paged
   too, so nothing depends on them staying small.
+- **"Was it paid?" is asked as "is there one".** The daily missed-bill and
+  autopay checks used to read a bill's window and look for the payment in
+  what came back, which was only the first page. They now ask the database
+  whether a record within 20% of the amount exists in the window, so the
+  answer doesn't depend on how many other records the window holds (QA,
+  17 October).
 - **A figure read in part is not stated.** A failed read stops the answer:
   the bot says it could not read the figures and asks to be asked again, and
   does not hand the model anything to phrase. The brief and the monthly
@@ -1068,6 +1074,12 @@ in the other. A refused write was still answered "marked as reconciled", and
   dropped. Questions asked before the change are not matched to a chat, so a
   reply to one of those is not taken as an answer; the next morning's
   question is.
+- **A question counts once it is tied to its statement.** The daily run saves
+  each question's chat and message on the statement after sending it. If that
+  save fails (after one retry), or the statement stopped waiting in the
+  meantime, the question is deleted from the chat rather than left where
+  "done" would settle nothing, and the next morning asks again (QA,
+  17 October).
 - **Sent is not checked.** "Sent", "uploaded" or "shared" keeps the statement
   waiting: the bot thanks the member and asks again the next morning until
   someone says it is done. "Sent and checked" is done; "sent, not checked" is
@@ -1230,12 +1242,14 @@ need a second factor, as the older finance app required (SHR-312).
   entered its code.
 - **The database holds the same rule.** Every household policy calls
   `private.is_household_member()` or `private.is_household_owner()`, and both
-  now also require `private.mfa_satisfied()`: the session is aal2, or the
-  caller has no authenticator yet. So a password alone reads nothing through
-  the API either, once a member has one. A member with none is not refused:
-  refusing first would lock everyone out before they could add one. The app
-  has every member add one before it shows anything, so that window closes at
-  each member's next sign-in.
+  require `private.mfa_satisfied()`: the session is aal2. So a password alone
+  reads and writes nothing through the API either, including a member's own
+  roster row. A member with no authenticator yet was let through at first, so
+  nobody was locked out before adding one; the QA re-review (17 October)
+  showed that left a new login, or one whose factor had been reset, open to a
+  password alone. Nobody needed it: adding an authenticator goes through
+  Supabase Auth, which reads no household table, and the app has every member
+  add one before it shows anything (`20261017100000_code_always_and_owner_removal`).
 - **The check is asked of the server.** Whether a code is needed comes from
   the session's own token and the user as the server has them now, not from a
   copy cached in the tab, so an authenticator the owner has removed is not
@@ -1532,6 +1546,15 @@ too low, and the purchase looked unreturned (SHR-234).
 - **Totals don't change shape.** A refund already nets against spending in its
   own category (`transactionKind.js`), so no total needed a new rule; the link
   only makes sure that category is the right one.
+- **The rules hold through every edit, not just the link** (QA re-review,
+  17 October). Editing a linked refund's amount is checked against the cap
+  as linking is; the purchase is locked for that check, so two refunds
+  edited at once are counted together. A linked refund's categories follow
+  its purchase's: recategorising or splitting the purchase, or changing the
+  refund's amount, sets the refund's allocation again, with the change in its
+  history. Filing a linked refund elsewhere on its own is refused; the editor
+  shows its category as following the purchase, and unlinking is the way to
+  move it.
 - **A refund counts in the month it arrives**, as the card statement and the
   bank show it. A September purchase refunded in October lowers October's
   spend in that category, not September's, so a closed month never changes
@@ -1626,7 +1649,9 @@ had Telegram linked but no login (SHR-314).
   `docs/second-member.md`, with no names or addresses in the repository.
 - **They join as a member, not an owner.** The database already made the
   roster owner-only (`owner_role_authorization`): a member can't add, change or
-  remove anyone else, or change any role, their own included. Everything else
+  remove anyone else, or change any role, their own included. A member can't
+  remove themselves either: that took their name off everything recorded as
+  theirs, so it is an owner's act (QA re-review, 17 October). Everything else
   is shared, as it is between two people keeping one ledger: every money
   record, account, budget, plan and setting, including the household's name
   and rupee rate.

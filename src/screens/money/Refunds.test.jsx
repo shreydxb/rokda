@@ -7,6 +7,7 @@ import { renderScreen } from '../../test/renderScreen';
 // is saved, and unlinked through unlink_refund(); these check the editor
 // offers the right purchases and calls each with the right records.
 const rpcs = [];
+const updates = [];
 vi.mock('../../lib/supabaseClient', () => ({
   supabase: {
     rpc: (name, args) => {
@@ -20,8 +21,9 @@ vi.mock('../../lib/supabaseClient', () => ({
         done.select = () => ({ single: () => Promise.resolve({ data: { id: 'new-refund' }, error: null }) });
         return done;
       },
-      update: () => ({
+      update: (row) => ({
         eq: () => {
+          updates.push(row);
           const done = Promise.resolve({ error: null });
           done.select = () => Promise.resolve({ data: [{ id: 'saved' }], error: null });
           return done;
@@ -53,6 +55,7 @@ function editor(props) {
 
 beforeEach(() => {
   rpcs.length = 0;
+  updates.length = 0;
 });
 
 describe('refund linking in the editor', () => {
@@ -86,6 +89,15 @@ describe('refund linking in the editor', () => {
     expect(rpcs).toEqual([]);
     await act(async () => fireEvent.click(within(group).getByRole('button', { name: 'Unlink it?' })));
     expect(rpcs).toEqual([{ name: 'unlink_refund', args: { p_link_id: 'link-1' } }]);
+  });
+
+  it('files a linked refund under its purchase, and never sends a category of its own', async () => {
+    editor({ tx: { ...refund, category_id: 'groceries' }, allTransactions: [purchase, refund], links, categories: [{ id: 'groceries', name: 'Groceries', kind: 'expense' }] });
+    expect(screen.getByText('Follows the purchase it refunds. Unlink it to file it elsewhere.')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Split across categories' })).toBeNull();
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Save changes' })));
+    expect(updates[0]).not.toHaveProperty('category_id');
+    expect(updates[0]).toMatchObject({ amount: 50, kind: 'refund' });
   });
 
   it('unlinks a refund first when it is changed to another type', async () => {

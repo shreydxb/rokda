@@ -49,6 +49,7 @@ type Backend = {
     refuseFirstSends?: number;
     // The write recording a proposal question's message id fails this many times.
     failPromptRecord?: number;
+    failStatementBinding?: number;
     // Reading bot_proposals fails.
     failProposalReads?: boolean;
     // Reading any of these tables fails.
@@ -206,11 +207,13 @@ function matches(row: Row, params: URLSearchParams): boolean {
       case "gt":
         ok = cell != null && String(cell) > value;
         break;
+      // Numbers compare as numbers (an amount range), anything else as text
+      // (an ISO date), as PostgREST does by column type.
       case "gte":
-        ok = cell != null && String(cell) >= value;
+        ok = cell != null && (typeof cell === "number" ? cell >= Number(value) : String(cell) >= value);
         break;
       case "lte":
-        ok = cell != null && String(cell) <= value;
+        ok = cell != null && (typeof cell === "number" ? cell <= Number(value) : String(cell) <= value);
         break;
       case "lt":
         ok = cell != null && String(cell) < value;
@@ -305,6 +308,10 @@ async function postgrest(req: Request, url: URL): Promise<Response> {
       const entry = backend.log.get(id);
       if (entry && typeof patch.status === "string") entry.status = patch.status;
       return new Response(null, { status: 204 });
+    }
+    if (table === "statement_reconciliations" && "asked_prompts" in patch && backend.faults.failStatementBinding) {
+      backend.faults.failStatementBinding -= 1;
+      return json({ code: "57014", message: "canceling statement due to statement timeout" }, 500);
     }
     if (table === "bot_proposals" && "prompt_message_id" in patch && backend.faults.failPromptRecord) {
       backend.faults.failPromptRecord -= 1;
@@ -1340,6 +1347,38 @@ function dailyCheck(): Request {
   });
 }
 
+// A day this many days before today in Dubai, as stored.
+function dubaiDaysAgo(n: number): string {
+  const [y, m, d] = dubaiToday().split("-").map(Number);
+  const day = new Date(Date.UTC(y, m - 1, d - n));
+  return day.toISOString().slice(0, 10);
+}
+
+freshTest("a bill paid after the first thousand records of its window still counts as paid", async () => {
+  backend.tables.recurring_nudges = [];
+  backend.tables.recurring.push({
+    id: "a9000000-0000-4000-8000-0000000000e1", household_id: HOUSEHOLD, name: "Rent", owner_member_id: null, is_shared: true, amount: -500,
+    next_due_date: dubaiDaysAgo(4), ends_on: null, cadence: "monthly", interval_count: 1, account_id: BANK, category_id: null, active: true, autopay: false,
+  });
+  // A thousand small records in the same window, on the same account.
+  for (let i = 0; i < 1000; i++) {
+    backend.tables.transactions.push({ id: `filler-${i}`, household_id: HOUSEHOLD, account_id: BANK, amount: -5, occurred_at: dubaiDaysAgo(4) });
+  }
+
+  // Unpaid: asked about, so the check itself is running.
+  const unpaid = await handler(dailyCheck());
+  await unpaid.body?.cancel();
+  assert(backend.telegramSent.some((m) => String(m.body.text).startsWith('I don\'t see a transaction for "Rent"')), "an unpaid bill was not asked about");
+
+  // Paid, as the 1,001st record of the window: not asked about.
+  backend.tables.recurring_nudges = [];
+  backend.telegramSent.length = 0;
+  backend.tables.transactions.push({ id: "rent-paid", household_id: HOUSEHOLD, account_id: BANK, amount: -500, occurred_at: dubaiDaysAgo(4) });
+  const paid = await handler(dailyCheck());
+  await paid.body?.cancel();
+  assert(!backend.telegramSent.some((m) => String(m.body.text).startsWith("I don't see a transaction")), "a paid bill was asked about");
+});
+
 // A bill on autopay from a bank account, due today.
 function seedAutopayBill(): void {
   backend.tables.recurring.push({
@@ -1595,6 +1634,27 @@ freshTest("\"not yet\" as a reply keeps the statement waiting", async () => {
   await handler(replyUpdate(9214, "not yet", Number((row.asked_prompts as Row[])[0].message_id)));
   assertEquals(row.status, "waiting");
   assert(/again tomorrow morning/.test(lastReply()), lastReply());
+});
+
+freshTest("a statement question that can't be tied to its statement is withdrawn, and asked again the next morning", async () => {
+  seedStatementCard();
+  backend.faults.failStatementBinding = 2;
+  const first = await handler(dailyCheck());
+  await first.body?.cancel();
+  const row = backend.tables.statement_reconciliations[0];
+  const sent = statementQuestions();
+  assertEquals(sent.length, 1);
+  // Withdrawn: a "done" to it would have settled nothing.
+  assertEquals(backend.telegramDeleted.length, 1);
+  assertEquals((row.asked_prompts as Row[] | undefined)?.length ?? 0, 0);
+  assertEquals(row.last_asked_on ?? null, null);
+
+  const again = await handler(dailyCheck());
+  await again.body?.cancel();
+  assertEquals(statementQuestions().length, 2);
+  assertEquals((row.asked_prompts as Row[]).length, 1);
+  await handler(replyUpdate(9220, "done", Number((row.asked_prompts as Row[])[0].message_id)));
+  assertEquals(row.status, "confirmed");
 });
 
 freshTest("statement questions switched off, or a closed card, ask nothing", async () => {

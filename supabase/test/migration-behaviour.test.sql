@@ -630,6 +630,7 @@ begin
   values (v_member, 'bbbbbbbb-0000-0000-0000-00000000000a', 'Linker', 'owner', 'bbbbbbbb-1111-0000-0000-00000000000a');
 
   perform set_config('request.jwt.claim.sub', 'bbbbbbbb-1111-0000-0000-00000000000a', true);
+  perform set_config('request.jwt.claim.aal', 'aal2', true);
 
   for i in 1..25 loop
     v_code := generate_telegram_link_code(v_member);
@@ -2366,6 +2367,87 @@ begin
   set constraints all deferred;
   delete from accounts where id in (bank, card);
   raise notice 'bot transfers ok: both sides and a link on a yes, never twice, a side already recorded joined, own household only';
+end $$;
+
+
+-- A linked refund keeps its purchase's rules through later edits (QA
+-- re-review, 17 October): the cap holds when the refund is edited, and its
+-- categories follow the purchase's.
+do $$
+declare
+  hh constant uuid := '11111111-1111-1111-1111-111111111111';
+  card constant uuid := '33333333-3333-3333-3333-333333333333';
+  purchase constant uuid := '44444444-4444-4444-4444-4444444444f1';
+  refund constant uuid := '44444444-4444-4444-4444-4444444444f2';
+  first_cat constant uuid := '66666666-6666-6666-6666-6666666666f1';
+  second_cat constant uuid := '66666666-6666-6666-6666-6666666666f2';
+begin
+  insert into categories (id, household_id, name, kind) values (first_cat, hh, 'Integrity first', 'expense'), (second_cat, hh, 'Integrity second', 'expense');
+  insert into transactions (id, household_id, account_id, amount, kind, category_id, occurred_at, is_shared) values
+    (purchase, hh, card, -100, 'expense', first_cat, '2026-09-01', true),
+    (refund, hh, card, 20, 'refund', null, '2026-09-10', true);
+  perform link_refund(purchase, refund);
+  set constraints all immediate;
+  set constraints all deferred;
+
+  -- Editing the refund past the cap is refused, as linking past it is.
+  begin
+    update transactions set amount = 200 where id = refund;
+    set constraints all immediate;
+    raise exception 'refund integrity FAILED: a linked refund was edited to 200 on a purchase of 100';
+  exception when check_violation then null;
+  end;
+  set constraints all deferred;
+
+  -- Filing the refund elsewhere on its own is refused.
+  begin
+    update transactions set category_id = second_cat where id = refund;
+    set constraints all immediate;
+    raise exception 'refund integrity FAILED: a linked refund was moved to another category';
+  exception when check_violation then null;
+  end;
+  set constraints all deferred;
+
+  -- Recategorising the purchase moves its refund with it, in the history.
+  update transactions set category_id = second_cat where id = purchase;
+  set constraints all immediate;
+  set constraints all deferred;
+  if (select category_id from transactions where id = refund) is distinct from second_cat then
+    raise exception 'refund integrity FAILED: the refund did not follow its purchase to the new category';
+  end if;
+  if not exists (select 1 from transaction_edits where transaction_id = refund and field = 'category' and new_value like '%follows the purchase%') then
+    raise exception 'refund integrity FAILED: following the purchase was not in the refund''s history';
+  end if;
+
+  -- Splitting the purchase shares the refund out; changing the refund's
+  -- amount shares it out again, adding up to the cent.
+  perform split_transaction(purchase, jsonb_build_array(jsonb_build_object('category_id', first_cat, 'amount', 75), jsonb_build_object('category_id', second_cat, 'amount', 25)));
+  set constraints all immediate;
+  set constraints all deferred;
+  if not (select is_split from transactions where id = refund)
+     or (select amount from transaction_splits where transaction_id = refund and category_id = first_cat) <> 15
+     or (select amount from transaction_splits where transaction_id = refund and category_id = second_cat) <> 5 then
+    raise exception 'refund integrity FAILED: the refund of a split purchase was not shared out 15 / 5';
+  end if;
+  update transactions set amount = 30 where id = refund;
+  set constraints all immediate;
+  set constraints all deferred;
+  if (select sum(amount) from transaction_splits where transaction_id = refund) <> 30
+     or (select amount from transaction_splits where transaction_id = refund and category_id = first_cat) <> 22.5 then
+    raise exception 'refund integrity FAILED: a changed refund amount was not shared out again';
+  end if;
+
+  -- Back to one category: the refund follows again.
+  perform unsplit_transaction(purchase, first_cat);
+  set constraints all immediate;
+  set constraints all deferred;
+  if (select is_split from transactions where id = refund) or (select category_id from transactions where id = refund) is distinct from first_cat then
+    raise exception 'refund integrity FAILED: the refund did not follow its purchase back to one category';
+  end if;
+
+  delete from transactions where id in (purchase, refund);
+  delete from categories where id in (first_cat, second_cat);
+  raise notice 'refund integrity ok: the cap holds through edits, and a linked refund follows its purchase''s categories';
 end $$;
 
 rollback;
