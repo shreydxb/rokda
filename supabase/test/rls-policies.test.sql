@@ -32,6 +32,9 @@ insert into fx_rate_history (base, quote, day, rate, source) values ('AED', 'INR
 set role authenticated;
 set request.jwt.claim.role = 'authenticated';
 set request.jwt.claim.sub = '0f000000-0000-0000-0000-00000000000f';
+-- Every session below has passed its second step unless a case says
+-- otherwise: a password alone reads nothing (two-step sign-in, below).
+set request.jwt.claim.aal = 'aal2';
 
 do $$
 declare founded uuid; n int;
@@ -1062,10 +1065,11 @@ begin
 end $$;
 reset role;
 
--- Two-step sign-in (SHR-312): a member who has an authenticator reads and
--- writes nothing of the household from a password-only (aal1) session, and
--- everything from one that has passed its code (aal2). A member with no
--- authenticator yet is not refused, so nobody is locked out before adding one.
+-- Two-step sign-in (SHR-312): a password-only (aal1) session reads and
+-- writes nothing of the household, whether or not the member has added an
+-- authenticator yet, and a session that has passed its code (aal2) reads and
+-- writes as before (QA re-review, 17 October: a member with no authenticator
+-- used to be let through at aal1).
 reset role;
 insert into auth.mfa_factors (user_id, status) values ('0b000000-0000-0000-0000-00000000000b', 'verified');
 set role authenticated;
@@ -1090,6 +1094,10 @@ begin
   update accounts set name = 'Renamed without a code';
   get diagnostics n = row_count;
   if n <> 0 then raise exception 'two-step FAILED: a password-only session renamed % accounts', n; end if;
+  -- Their own roster row too: "edit yourself" waits for the code as well.
+  update household_members set display_name = 'Renamed without a code' where user_id = '0b000000-0000-0000-0000-00000000000b';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'two-step FAILED: a password-only session renamed its own roster row'; end if;
 
   perform set_config('request.jwt.claim.aal', 'aal2', true);
   select count(*) into n from accounts;
@@ -1102,11 +1110,31 @@ set request.jwt.claim.sub = '0a000000-0000-0000-0000-00000000000a';
 do $$
 declare n int;
 begin
+  -- No authenticator added yet: still nothing on a password alone. Adding one
+  -- goes through Supabase Auth, which reads no household table.
   select count(*) into n from accounts;
-  if n = 0 then raise exception 'two-step FAILED: a member with no authenticator yet was locked out'; end if;
-  raise notice 'two-step ok: a member with no authenticator yet is not locked out';
+  if n <> 0 then raise exception 'two-step FAILED: a member with no authenticator yet read % accounts on a password alone', n; end if;
+  raise notice 'two-step ok: a member with no authenticator yet reads nothing on a password alone';
 end $$;
-reset request.jwt.claim.aal;
+set request.jwt.claim.aal = 'aal2';
+reset role;
+
+-- Only an owner removes a member (QA re-review, 17 October). Removing a
+-- member takes their name off everything recorded as theirs, so a member who
+-- is not an owner can't remove themselves, even with their code.
+set role authenticated;
+set request.jwt.claim.sub = '0b000000-0000-0000-0000-00000000000b';
+do $$
+declare n int;
+begin
+  delete from household_members where id = 'e1000000-0000-0000-0000-00000000000b';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'owner removal FAILED: a member who is not an owner removed themselves'; end if;
+  update household_members set display_name = 'Member' where id = 'e1000000-0000-0000-0000-00000000000b';
+  get diagnostics n = row_count;
+  if n <> 1 then raise exception 'owner removal FAILED: a member could not rename themselves with their code'; end if;
+  raise notice 'owner removal ok: a member renames themselves but only an owner removes anyone';
+end $$;
 reset role;
 
 -- A household can still be deleted outright: the cascade takes the roster with
