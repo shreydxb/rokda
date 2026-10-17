@@ -1555,6 +1555,14 @@ too low, and the purchase looked unreturned (SHR-234).
   history. Filing a linked refund elsewhere on its own is refused; the editor
   shows its category as following the purchase, and unlinking is the way to
   move it.
+- **To the cent, not only by category** (QA re-check, 17 October). Checking
+  only that a refund's lines were among the purchase's categories let a
+  refund of 20 on a 75/25 purchase be re-split 5/15 through the API: the
+  total and the categories were right, and each category's spending was
+  wrong. One function now works out the allocation; the sync writes it and
+  the commit check requires exactly it, so any other split, a single
+  category for a split purchase, or a line edited by hand is refused
+  (`20261017160000_refund_allocation_exact`).
 - **A refund counts in the month it arrives**, as the card statement and the
   bank show it. A September purchase refunded in October lowers October's
   spend in that category, not September's, so a closed month never changes

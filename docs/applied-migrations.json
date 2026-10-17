@@ -555,5 +555,12 @@
   "fingerprint": "1cdbf356103a9366b08dd96bb5659bf9",
   "framingFingerprint": "70a7694830b6bfddd5955f6f2720f4fb",
   "fingerprintVersion": 2
+ },
+ {
+  "version": "20261017160000",
+  "name": "refund_allocation_exact",
+  "fingerprint": "ffbccf8f4d470c30485334203efef71e",
+  "framingFingerprint": "987094ea07d0d98ea671b62130e84904",
+  "fingerprintVersion": 2
  }
 ]
