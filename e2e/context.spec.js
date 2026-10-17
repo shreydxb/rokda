@@ -16,13 +16,16 @@ const scope = (page, name) => page.getByRole('group', { name: 'Household scope' 
 
 test('Back from an Insights figure returns to the month it came from', async ({ page }) => {
   await open(page, '/money?tab=insights');
+  const label = page.locator('.cal-nav .fig');
+  const current = await label.innerText();
   await page.getByRole('button', { name: '← Prev' }).click();
-  await expect(page).toHaveURL(/month=\d{4}-\d{2}/);
-  const chosen = await page.locator('.cal-nav .fig').innerText();
+  // The address changes a render before the label does.
+  await expect(label).not.toHaveText(current);
+  const chosen = await label.innerText();
   await page.locator('.ins-cmp-row').filter({ hasText: 'Groceries' }).click();
   await expect(page).toHaveURL(/tab=activity/);
   await page.goBack();
-  await expect(page.locator('.cal-nav .fig')).toHaveText(chosen);
+  await expect(label).toHaveText(chosen);
 });
 
 test('reload keeps the person whose figures were shown', async ({ page }) => {
