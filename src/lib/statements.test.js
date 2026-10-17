@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { closedStatementDates, isoDay, recordedSpend, statementDueDate, statementPeriodStart, statementRows, statementsToCheck, statementTransactions } from './statements';
+import { closedStatementDates, isoDay, recordedSpend, statementDueDate, statementPeriodStart, statementRows, statementRowsForMonth, statementsToCheck, statementTransactions } from './statements';
 
 const day = (s) => new Date(`${s}T12:00:00`);
 const days = (dates) => dates.map(isoDay);
@@ -114,5 +114,26 @@ describe('statementTransactions', () => {
     const lines = statementTransactions(txs, 'c', '2026-08-29', '2026-09-28', day('2026-10-12'));
     expect(lines.map((t) => t.id)).toEqual(['a', 'b']);
     expect(recordedSpend(txs, 'c', '2026-08-29', '2026-09-28', day('2026-10-12'))).toBe(0.3);
+  });
+});
+
+describe('statementRowsForMonth', () => {
+  const card = (id, statement_day, created_at = '2024-01-01T00:00:00Z') => ({ id, name: id, type: 'credit_card', statement_day, created_at, archived_at: null });
+
+  it("lists each card's statement that closed in the month, however long ago", () => {
+    const rows = statementRowsForMonth({ accounts: [card('A', 10), card('B', 28)], now: day('2026-10-17'), year: 2025, month: 3 });
+    expect(rows.map((r) => `${r.account.id} ${r.statementDate}`)).toEqual(['B 2025-03-28', 'A 2025-03-10']);
+  });
+
+  it("leaves out a statement that hasn't closed yet and a card opened after it closed", () => {
+    const rows = statementRowsForMonth({ accounts: [card('A', 10), card('B', 28), card('C', 5, '2026-10-06T00:00:00Z')], now: day('2026-10-17'), year: 2026, month: 10 });
+    expect(rows.map((r) => r.account.id)).toEqual(['A']);
+  });
+
+  it('carries what was recorded about the statement', () => {
+    const reconciliations = [{ account_id: 'A', statement_date: '2025-03-10', status: 'matched', statement_spend: 100 }];
+    const [row] = statementRowsForMonth({ accounts: [card('A', 10)], reconciliations, now: day('2026-10-17'), year: 2025, month: 3 });
+    expect(row.status).toBe('matched');
+    expect(row.statementSpend).toBe(100);
   });
 });

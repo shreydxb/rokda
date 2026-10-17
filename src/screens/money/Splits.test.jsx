@@ -21,7 +21,10 @@ vi.mock('../../lib/supabaseClient', () => ({
       update: (payload) => ({
         eq: () => {
           calls.push({ update: table, payload });
-          return Promise.resolve({ error: null });
+          const done = Promise.resolve({ error: null });
+          // The editor reads back the row it changed.
+          done.select = () => Promise.resolve({ data: [{ id: 'saved' }], error: null });
+          return done;
         },
       }),
       select: () => ({ eq: () => ({ order: () => Promise.resolve({ data: [] }) }) }),

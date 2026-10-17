@@ -21,7 +21,8 @@ import { duplicatePairs } from './duplicates';
 //
 // The review covers the whole household, whichever person the sidebar shows:
 // a month closes for the household, and a flagged record of either person's is
-// still unfinished.
+// still unfinished. Its links open the records for Both (`who: 'both'`), so
+// they show what it counted.
 
 const pad = (n) => String(n).padStart(2, '0');
 
@@ -155,7 +156,7 @@ export function monthlyReview({ year, month }, { transactions = [], accounts = [
     status: flagged.length ? 'todo' : 'done',
     count: flagged.length,
     detail: flagged.length ? `${plural(flagged.length, 'record')} still marked for review.` : 'Nothing left marked for review.',
-    href: activityHref({ needsReview: true, from, to }),
+    href: activityHref({ needsReview: true, from, to, who: 'both' }),
   });
 
   const uncategorised = rows.filter(isUncategorised);
@@ -168,7 +169,7 @@ export function monthlyReview({ year, month }, { transactions = [], accounts = [
     detail: uncategorised.length
       ? `${plural(uncategorised.length, 'record')} with no category, so Budget and Insights leave ${uncategorised.length === 1 ? 'it' : 'them'} out of every category.`
       : 'Every record has a category.',
-    href: activityHref({ categoryId: 'none', from, to }),
+    href: activityHref({ categoryId: 'none', from, to, who: 'both' }),
   });
 
   // A pair confirmed as two real records is remembered, and deleting one
@@ -218,7 +219,7 @@ export function monthlyReview({ year, month }, { transactions = [], accounts = [
       detail: estimated.length
         ? `${plural(estimated.length, 'payment')} with the AED still estimated from a rate. Enter the AED debited from the statement.`
         : 'Every payment in another currency has the AED actually debited.',
-      href: activityHref({ estimated: true, from, to }),
+      href: activityHref({ estimated: true, from, to, who: 'both' }),
     });
   }
 
@@ -235,7 +236,7 @@ export function monthlyReview({ year, month }, { transactions = [], accounts = [
     detail: unlinkedRefunds.length
       ? `${plural(unlinkedRefunds.length, 'refund')} not linked to the purchase ${unlinkedRefunds.length === 1 ? 'it returns' : 'they return'}. Open one and choose its purchase, and it takes that purchase's category.`
       : 'Every refund is linked to its purchase.',
-    href: activityHref({ kind: 'refund', from, to }),
+    href: activityHref({ kind: 'refund', from, to, who: 'both' }),
   });
 
   const statements = monthStatements({ year, month }, accounts, statementReconciliations);
@@ -255,7 +256,8 @@ export function monthlyReview({ year, month }, { transactions = [], accounts = [
       // purchase returned late in the month can read as a difference here
       // and settle on the next one.
       hint: 'A refund can arrive on a later statement than the purchase it returns.',
-      href: tabHref('/wealth', 'statements'),
+      // The statements that closed in this month, however long ago.
+      href: tabHref('/wealth', 'statements', { month: reviewMonthParam(year, month) }),
     });
   }
 

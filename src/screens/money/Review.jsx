@@ -188,7 +188,7 @@ export default function Review({ household, data, loading }) {
               <ul className="rv-sublist">
                 {budget.over.map((g) => (
                   <li key={g.categoryId}>
-                    <Link className="ov-link" to={activityHref({ categoryId: g.categoryId, from: review.from, to: review.to })}>
+                    <Link className="ov-link" to={activityHref({ categoryId: g.categoryId, from: review.from, to: review.to, who: 'both' })}>
                       {g.name}
                     </Link>
                     {`: ${formatMoney(g.spent)} of ${formatMoney(g.budget)}, ${formatMoney(g.spent - g.budget)} over`}

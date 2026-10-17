@@ -94,9 +94,12 @@ export function withActivityFilter(params, key, value) {
   return next;
 }
 
-// The address of one tab of a screen (lib/useTab.js reads it).
-export function tabHref(path, tab) {
-  return tab ? `${path}?tab=${encodeURIComponent(tab)}` : path;
+// The address of one tab of a screen (lib/useTab.js reads it), with any
+// other parameters it takes.
+export function tabHref(path, tab, extra = {}) {
+  if (!tab) return path;
+  const params = new URLSearchParams({ tab, ...extra });
+  return `${path}?${params}`;
 }
 
 // The category filter's value for records with no category (a transfer has
@@ -104,8 +107,11 @@ export function tabHref(path, tab) {
 export const UNCATEGORISED = 'none';
 
 // The address of Activity showing just these records.
-export function activityHref({ categoryId, search, from, to, dateBasis, needsReview, estimated, kind } = {}) {
+// `who` chooses the person the records are counted for (lib/ScopeContext.jsx):
+// a household-wide view's links pass 'both'.
+export function activityHref({ categoryId, search, from, to, dateBasis, needsReview, estimated, kind, who } = {}) {
   let params = new URLSearchParams({ tab: 'activity' });
+  if (who) params.set('who', who);
   params = withActivityFilter(params, 'estimated', estimated);
   params = withActivityFilter(params, 'kind', kind);
   params = withActivityFilter(params, 'categoryId', categoryId);

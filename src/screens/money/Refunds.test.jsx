@@ -20,7 +20,13 @@ vi.mock('../../lib/supabaseClient', () => ({
         done.select = () => ({ single: () => Promise.resolve({ data: { id: 'new-refund' }, error: null }) });
         return done;
       },
-      update: () => ({ eq: () => Promise.resolve({ error: null }) }),
+      update: () => ({
+        eq: () => {
+          const done = Promise.resolve({ error: null });
+          done.select = () => Promise.resolve({ data: [{ id: 'saved' }], error: null });
+          return done;
+        },
+      }),
     }),
   },
 }));

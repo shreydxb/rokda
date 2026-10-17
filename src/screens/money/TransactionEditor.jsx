@@ -332,7 +332,7 @@ export default function TransactionEditor({ tx, household, householdId, accounts
 
     const linking = form.type === 'refund' && !refundLink && refundFor;
     const query = tx
-      ? supabase.from('transactions').update(payload).eq('id', tx.id)
+      ? supabase.from('transactions').update(payload).eq('id', tx.id).select('id')
       : split || linking || keptAlongside
         ? supabase.from('transactions').insert(payload).select('id').single()
         : supabase.from('transactions').insert(payload);
@@ -341,6 +341,14 @@ export default function TransactionEditor({ tx, household, householdId, accounts
     if (saveError) {
       setSaving(false);
       setError(saveError.message);
+      return;
+    }
+    // An update that changed no row was not a save: the record was deleted
+    // elsewhere, or the change wasn't allowed. Nothing after it (the split,
+    // the history) runs, and the editor stays open (QA re-review, 17 October).
+    if (tx && (inserted?.length ?? 0) !== 1) {
+      setSaving(false);
+      setError("This record wasn't saved: it may have been deleted or changed elsewhere. Close it, refresh, and open it again.");
       return;
     }
 

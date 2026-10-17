@@ -20,7 +20,7 @@ test('the month just ended lists what is left, and each check opens where it is 
   await expect(statements).toContainText('Platinum card');
   await expect(statements).toContainText('Not checked');
   await statements.getByRole('link', { name: 'Check statements' }).click();
-  await expect(page).toHaveURL(/\/wealth\?tab=statements$/);
+  await expect(page).toHaveURL(/\/wealth\?tab=statements&month=\d{4}-\d{2}$/);
 });
 
 test('Activity can show just the records with no category', async ({ page }) => {

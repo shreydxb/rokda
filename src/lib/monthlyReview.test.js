@@ -62,8 +62,8 @@ describe('monthlyReview', () => {
       tx('october', { category_id: null, needs_review: true, occurred_at: '2026-10-01' }),
     ];
     const checks = byId(monthlyReview(SEPT, { ...settled, transactions }, NOW));
-    expect(checks.review).toMatchObject({ status: 'todo', count: 1, href: '/money?tab=activity&review=1&from=2026-09-01&to=2026-09-30' });
-    expect(checks.categorise).toMatchObject({ status: 'todo', count: 1, href: '/money?tab=activity&cat=none&from=2026-09-01&to=2026-09-30' });
+    expect(checks.review).toMatchObject({ status: 'todo', count: 1, href: '/money?tab=activity&who=both&review=1&from=2026-09-01&to=2026-09-30' });
+    expect(checks.categorise).toMatchObject({ status: 'todo', count: 1, href: '/money?tab=activity&who=both&cat=none&from=2026-09-01&to=2026-09-30' });
   });
 
   it('suggests transfers without letting them hold the month up', () => {
@@ -79,7 +79,7 @@ describe('monthlyReview', () => {
     const transactions = [tx('p'), tx('linked', { amount: 20, kind: 'refund', occurred_at: '2026-09-12' }), tx('loose', { amount: 10, kind: 'refund', occurred_at: '2026-09-13' })];
     const transactionLinks = [{ id: 'l', kind: 'refund', from_transaction_id: 'p', to_transaction_id: 'linked' }];
     const review = monthlyReview(SEPT, { ...settled, transactions, transactionLinks }, NOW);
-    expect(byId(review).refunds).toMatchObject({ status: 'note', count: 1, required: false, href: '/money?tab=activity&kind=refund&from=2026-09-01&to=2026-09-30' });
+    expect(byId(review).refunds).toMatchObject({ status: 'note', count: 1, required: false, href: '/money?tab=activity&who=both&kind=refund&from=2026-09-01&to=2026-09-30' });
     expect(review.total).toBe(6);
   });
 
@@ -99,7 +99,7 @@ describe('monthlyReview', () => {
       tx('shop', { amount: -146.9, currency: 'USD', native_amount: -40, aed_estimated: false }),
     ];
     const review = monthlyReview(SEPT, { ...settled, transactions }, NOW);
-    expect(byId(review).estimates).toMatchObject({ status: 'todo', count: 1, required: true, href: '/money?tab=activity&est=1&from=2026-09-01&to=2026-09-30' });
+    expect(byId(review).estimates).toMatchObject({ status: 'todo', count: 1, required: true, href: '/money?tab=activity&who=both&est=1&from=2026-09-01&to=2026-09-30' });
     expect(review.total).toBe(7);
   });
 

@@ -2,7 +2,7 @@ import { Suspense } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../lib/AuthContext';
 import { useTheme } from '../lib/ThemeContext';
-import { useScope } from '../lib/ScopeContext';
+import { ScopeFromLink, useScope } from '../lib/ScopeContext';
 import { useHousehold } from '../lib/useHousehold';
 import { useMoneyDisplay } from '../lib/CurrencyContext';
 import { CURRENCIES, currencyAvailable } from '../lib/currency';
@@ -31,6 +31,7 @@ export default function AppShell() {
 
   return (
     <div className="om-shellwrap">
+      <ScopeFromLink />
       <div className="om-shell">
         <aside className="om-side">
           <div className="om-brand">Rokda</div>

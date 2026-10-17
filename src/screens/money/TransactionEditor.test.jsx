@@ -3,7 +3,7 @@ import { screen, fireEvent, cleanup } from '@testing-library/react';
 import { act } from 'react';
 import { renderScreen } from '../../test/renderScreen';
 
-const calls = { inserts: [], updates: [] };
+const calls = { inserts: [], updates: [], savedRows: [{ id: 'saved' }] };
 vi.mock('../../lib/supabaseClient', () => ({
   supabase: {
     from: () => ({
@@ -14,7 +14,10 @@ vi.mock('../../lib/supabaseClient', () => ({
       update: (payload) => ({
         eq: () => {
           calls.updates.push(payload);
-          return Promise.resolve({ error: null });
+          const done = Promise.resolve({ error: null });
+          // The editor reads back the row it changed.
+          done.select = () => Promise.resolve({ data: calls.savedRows, error: null });
+          return done;
         },
       }),
       // SHR-235: edit history is fetched on mount for an existing
@@ -36,6 +39,7 @@ const ACCOUNTS = [{ id: 'acc-1', name: 'ENBD Noon', type: 'credit_card', archive
 beforeEach(() => {
   calls.inserts.length = 0;
   calls.updates.length = 0;
+  calls.savedRows = [{ id: 'saved' }];
 });
 
 // SHR-252 (762a6c4 recheck): the manual editor never offered "Refund" and
@@ -155,6 +159,26 @@ describe('SHR-252: the manual transaction editor persists kind explicitly', () =
     });
     expect(calls.updates).toHaveLength(1);
     expect(calls.updates[0]).toMatchObject({ amount: 100, kind: 'income' });
+  });
+});
+
+// QA re-review, 17 October: an update that matched no row (deleted or
+// changed elsewhere) returned no error, so the editor closed as if saved.
+describe('a save that changed no row', () => {
+  it('stays open and says the record was not saved', async () => {
+    calls.savedRows = [];
+    const onClose = vi.fn();
+    const onSaved = vi.fn();
+    const tx = { id: 't1', amount: -50, kind: 'expense', merchant: 'Shop', occurred_at: '2026-08-06', account_id: 'acc-1', category_id: null, is_shared: true };
+    renderScreen(<TransactionEditor tx={tx} householdId="hh" accounts={ACCOUNTS} categories={[]} members={[]} allTransactions={[]} onClose={onClose} onSaved={onSaved} onOpenOther={null} />);
+    await act(async () => {
+      fireEvent.submit(document.querySelector('form'));
+    });
+    expect(calls.updates).toHaveLength(1);
+    expect(screen.getByRole('alert').textContent).toMatch(/This record wasn't saved/);
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    cleanup();
   });
 });
 

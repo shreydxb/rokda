@@ -1302,6 +1302,8 @@ Activity's filters, now live in the address.
   Backups for a backup.
 - **The person and currency are not in the link.** They are the sidebar's
   and already apply on every screen, so a link made under Me opens under Me.
+  The monthly review is the exception: it counts the whole household, so its
+  links say `who=both` (see "Context survives Back, reload and a save").
 - **A category includes its subcategories** in Activity, as Budget rolls them
   up, so a group's budget opens all of the records it counts.
 - **A date range has no picker yet.** A link sets it and a chip clears it.
@@ -1681,3 +1683,31 @@ used the latest rate because `fx_rates` keeps only the latest (SHR-321).
 - **Not here:** a rupee transfer the bot reads ("sent 40k INR home") as a
   transfer between the household's own accounts; it is recorded as an expense
   to the payee, as before, now with both amounts.
+
+## Context survives Back, reload and a save
+
+The QA re-review (17 October) found four places where a screen lost what it
+was showing, and one where a failed save looked like a success.
+
+- **The month is in the address** on Insights and Budget (`month=2026-09`),
+  as it already was on the review. Back from a drill-down into Activity
+  returns to the month it came from. Moving between months replaces the
+  history entry rather than adding one, so Back leaves the screen instead of
+  stepping through every month looked at, and the current month is left out
+  of the address.
+- **The person is remembered in this browser**, so a reload keeps the totals
+  on screen. It is not in every address: it is the sidebar's, and a link
+  shared or bookmarked opens under whoever is looking. A link can still
+  choose it with `who=`, which the app applies and then takes out of the
+  address, so the sidebar stays the one control for it.
+- **The review's links open what it counted.** The review counts both
+  people's records, so its links to Activity say `who=both`; one opened under
+  Me used to show none of a partner's flagged records it had counted. Its
+  statements link opens the statements that closed in the month reviewed
+  (`month=` on Wealth → Statements, with "Show recent statements" to go
+  back), not the six most recent, which for an old month did not include it.
+- **A save has to change the record.** An edit that matches no row, because
+  the record was deleted or changed elsewhere, returns no error from the
+  database. The editor now reads back the row it changed and, when there is
+  none, stays open and says the record wasn't saved rather than closing as
+  if it had been.

@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
 import { formatMoney, formatPct } from '../../lib/money';
 import { monthActualsByCategory } from '../../lib/budget';
 import { trailingAverageByCategory, topMerchants, notableMoves } from '../../lib/insights';
 import { monthRange } from '../../lib/activityLink';
+import { useMonthParam } from '../../lib/useMonthParam';
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const TRAILING_MONTHS = 6;
@@ -15,7 +16,9 @@ export default function Insights({ me, members, data, loading, onDrillIntoActivi
   const { transactions, categories } = data;
 
   const now = useMemo(() => new Date(), []);
-  const [cursor, setCursor] = useState(() => new Date(now.getFullYear(), now.getMonth(), 1));
+  // In the address, so Back from the records a figure opened returns to
+  // this month rather than the current one.
+  const [cursor, setCursor] = useMonthParam(now);
   const year = cursor.getFullYear();
   const month = cursor.getMonth() + 1;
 
