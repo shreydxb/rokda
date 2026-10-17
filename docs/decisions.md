@@ -1042,6 +1042,12 @@ hiccup was stated as "AED 0 spent" or a net worth with nothing in it.
   database and read in pages in a stable order (`applib/pagedRead.js`, the same
   helper as the screens). Accounts, holdings, categories and bills are paged
   too, so nothing depends on them staying small.
+- **"Was it paid?" is asked as "is there one".** The daily missed-bill and
+  autopay checks used to read a bill's window and look for the payment in
+  what came back, which was only the first page. They now ask the database
+  whether a record within 20% of the amount exists in the window, so the
+  answer doesn't depend on how many other records the window holds (QA,
+  17 October).
 - **A figure read in part is not stated.** A failed read stops the answer:
   the bot says it could not read the figures and asks to be asked again, and
   does not hand the model anything to phrase. The brief and the monthly
@@ -1068,6 +1074,12 @@ in the other. A refused write was still answered "marked as reconciled", and
   dropped. Questions asked before the change are not matched to a chat, so a
   reply to one of those is not taken as an answer; the next morning's
   question is.
+- **A question counts once it is tied to its statement.** The daily run saves
+  each question's chat and message on the statement after sending it. If that
+  save fails (after one retry), or the statement stopped waiting in the
+  meantime, the question is deleted from the chat rather than left where
+  "done" would settle nothing, and the next morning asks again (QA,
+  17 October).
 - **Sent is not checked.** "Sent", "uploaded" or "shared" keeps the statement
   waiting: the bot thanks the member and asks again the next morning until
   someone says it is done. "Sent and checked" is done; "sent, not checked" is
