@@ -250,6 +250,10 @@ export default function TransactionEditor({ tx, household, householdId, accounts
 
   const refundLink = tx ? refundLinkOf(tx.id, links) : null;
   const linkedPurchase = refundLink ? (allTransactions.find((t) => t.id === refundLink.from_transaction_id) ?? null) : null;
+  // A linked refund is filed where its purchase's money was spent, and the
+  // database keeps it there (refund_integrity): its categories follow the
+  // purchase's, so the editor neither offers nor sends them.
+  const followsPurchase = !!refundLink && form.type === 'refund';
   const purchaseRefunds = tx && form.type === 'expense' ? refundsOf(tx.id, links, allTransactions) : [];
   const refundSuggestions = useMemo(
     () =>
@@ -293,10 +297,11 @@ export default function TransactionEditor({ tx, household, householdId, accounts
       }
     }
 
-    const lines = split ? split.map((l) => ({ category_id: l.category_id, amount: Number(l.amount) })) : null;
+    const splitting = !!split && !followsPurchase;
+    const lines = splitting ? split.map((l) => ({ category_id: l.category_id, amount: Number(l.amount) })) : null;
     // Was split and no longer is: one category again first, so the update
     // below can set it.
-    if (tx?.is_split && !split) {
+    if (tx?.is_split && !split && !followsPurchase) {
       const { error: unsplitError } = await supabase.rpc('unsplit_transaction', { p_transaction_id: tx.id, p_category_id: form.category_id || null });
       if (unsplitError) {
         setSaving(false);
@@ -325,15 +330,16 @@ export default function TransactionEditor({ tx, household, householdId, accounts
     // A split's amount and categories are set with its lines, in one call
     // after this one, so the database never sees a total its lines don't
     // add up to.
-    if (split) {
+    if (splitting) {
       payload.category_id = null;
       if (tx) delete payload.amount;
     }
+    if (followsPurchase) delete payload.category_id;
 
     const linking = form.type === 'refund' && !refundLink && refundFor;
     const query = tx
       ? supabase.from('transactions').update(payload).eq('id', tx.id)
-      : split || linking || keptAlongside
+      : splitting || linking || keptAlongside
         ? supabase.from('transactions').insert(payload).select('id').single()
         : supabase.from('transactions').insert(payload);
 
@@ -344,7 +350,7 @@ export default function TransactionEditor({ tx, household, householdId, accounts
       return;
     }
 
-    if (split) {
+    if (splitting) {
       const { error: splitError } = await supabase.rpc('split_transaction', {
         p_transaction_id: tx ? tx.id : inserted.id,
         p_lines: lines,
@@ -380,7 +386,7 @@ export default function TransactionEditor({ tx, household, householdId, accounts
         accounts,
         categories,
         members,
-        splitChanging: !!split || !!tx.is_split,
+        splitChanging: !!split || !!tx.is_split || followsPurchase,
         savedNative: { currency: form.entry_currency, amount: foreign ? signedNative(typed, form.type) : null },
       });
       if (changes.length > 0) {
@@ -684,7 +690,19 @@ export default function TransactionEditor({ tx, household, householdId, accounts
             </div>
           )}
 
-          {split ? (
+          {followsPurchase ? (
+            <div className="te-fieldcell">
+              <span className="te-fieldlabel">Category</span>
+              <div className="te-fieldvalue">
+                {tx?.is_split
+                  ? (tx.transaction_splits ?? []).map((l) => categories.find((c) => c.id === l.category_id)?.name ?? 'Unknown').join(' + ')
+                  : (categories.find((c) => c.id === tx?.category_id)?.name ?? 'Uncategorised')}
+              </div>
+              <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 4 }}>
+                Follows the purchase it refunds. Unlink it to file it elsewhere.
+              </div>
+            </div>
+          ) : split ? (
             <div className="te-split" role="group" aria-label="Split across categories">
               <span className="te-fieldlabel">Split across categories · AED</span>
               {split.map((line, n) => (
