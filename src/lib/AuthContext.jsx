@@ -40,15 +40,26 @@ export function AuthProvider({ children }) {
   // copy of the user cached in this tab.
   const [twoStep, setTwoStep] = useState('checking');
   const checkSeq = useRef(0);
+  // The member whose session last passed its second step in this tab, until
+  // a check says otherwise or the session ends.
+  const passedFor = useRef(null);
   const accessToken = session?.access_token ?? null;
+  const userId = session?.user?.id ?? null;
 
   const checkTwoStep = useCallback(async () => {
     const seq = ++checkSeq.current;
     if (!accessToken) {
+      passedFor.current = null;
       setTwoStep('checking');
       return;
     }
-    setTwoStep('checking');
+    // A new token for a member who has already passed (Supabase refreshes it
+    // about hourly, in this tab or another) is checked with the app still on
+    // screen. Going back to 'checking' replaced every screen with the two-step
+    // one while the check ran, and lost whatever an open editor held. Anyone
+    // else, and anyone not yet through, waits for the answer as before.
+    const refreshed = userId !== null && passedFor.current === userId;
+    if (!refreshed) setTwoStep('checking');
     let result;
     try {
       const { data, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel(accessToken);
@@ -57,8 +68,15 @@ export function AuthProvider({ children }) {
       result = twoStepState(null, cause);
     }
     // A newer session's check owns the answer.
-    if (seq === checkSeq.current) setTwoStep(result);
-  }, [accessToken]);
+    if (seq !== checkSeq.current) return;
+    // A refreshed token whose check could not be made leaves the member where
+    // they were: the database still refuses every read without the code
+    // (private.mfa_satisfied). An answer that the session hasn't passed stops
+    // it, refreshed or not.
+    if (refreshed && result === 'error') return;
+    passedFor.current = result === 'ok' ? userId : null;
+    setTwoStep(result);
+  }, [accessToken, userId]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- an async check of the new session; 'checking' until it answers is the point

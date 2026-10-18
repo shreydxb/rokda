@@ -1748,3 +1748,23 @@ was showing, and one where a failed save looked like a success.
   database. The editor now reads back the row it changed and, when there is
   none, stays open and says the record wasn't saved rather than closing as
   if it had been.
+
+## A refreshed token keeps the page on screen
+
+Supabase refreshes a signed-in member's token about hourly, and a refresh in
+one tab reaches every tab of the same browser. Each new token was checked for
+its second step from scratch: the app went back to "checking", which shows the
+two-step screen in place of every page, so an open editor closed and whatever
+had been typed in it was lost.
+
+- **A member who has passed stays on screen** while their new token is
+  checked. Only a different member, a new sign-in after signing out, or a
+  session not yet through waits for the answer as before.
+- **An answer still counts.** If the server says the refreshed session has
+  not passed (a code is needed, or an authenticator must be added), the
+  two-step screen takes over as it always did.
+- **A check that could not be made** (the network, say) leaves a member who
+  had passed where they were, rather than showing the error screen over their
+  work. Nothing is weakened by it: the database refuses every read and write
+  without the code (`private.mfa_satisfied()`), whatever the tab believes.
+
