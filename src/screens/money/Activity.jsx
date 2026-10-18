@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
 import { formatBalance, formatSigned, formatMoney } from '../../lib/money';
@@ -75,6 +75,9 @@ export default function Activity({ household, members, me, data, loading }) {
   // null closed; 'new' or { newType } for a new record; 'new-transfer'; or a
   // transaction row, which opens the transfer editor if it is one side of one.
   const [editing, setEditing] = useState(null);
+  // What the last save added besides the record, such as a merchant rule,
+  // shown above the list until dismissed. The filters stay as they were.
+  const [notice, setNotice] = useState(null);
   // On a phone the second row of filters folds away behind "Filters (n)". It
   // starts open when a link arrives with one of them set, so the category it
   // narrowed to is in sight.
@@ -163,6 +166,22 @@ export default function Activity({ household, members, me, data, loading }) {
 
   return (
     <div>
+      {notice && (
+        <div className="mn-notice" role="status">
+          <span>
+            {notice.text}
+            {notice.ruleId && (
+              <>
+                {' '}
+                <Link to={`/settings?tab=categories&rule=${encodeURIComponent(notice.ruleId)}`}>See the rule in Settings</Link>
+              </>
+            )}
+          </span>
+          <button type="button" className="mn-notice-close" aria-label="Dismiss" onClick={() => setNotice(null)}>
+            ×
+          </button>
+        </div>
+      )}
       <div className="mn-filters">
         <input
           className="mn-search"
@@ -385,8 +404,9 @@ export default function Activity({ household, members, me, data, loading }) {
 
       {editing && (() => {
         const close = () => setEditing(null);
-        const saved = async () => {
+        const saved = async ({ notice: next = null } = {}) => {
           setEditing(null);
+          setNotice(next);
           await reload();
         };
         const link = editing !== 'new' && editing !== 'new-transfer' && !editing.newType ? transferLinkOf(editing.id, links) : null;
@@ -419,6 +439,7 @@ export default function Activity({ household, members, me, data, loading }) {
             members={members}
             allTransactions={transactions}
             links={links}
+            categoryRules={data.categoryRules ?? []}
             fxHistory={data.fxRateHistory}
             onOpenOther={(other) => setEditing(other)}
             onSwitchToTransfer={() => setEditing('new-transfer')}

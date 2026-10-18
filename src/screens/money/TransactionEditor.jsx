@@ -10,10 +10,14 @@ import { householdToday, parseDay } from '../../lib/day';
 import { orderPair, transferCandidates } from '../../lib/transfers';
 import { splitProblem, unallocated } from '../../lib/splits';
 import { refundCandidates, refundLinkOf, refundsOf } from '../../lib/refunds';
+import { rememberMerchantCheck, ruleLabel } from '../../lib/rules';
+import RememberMerchant from './RememberMerchant';
 import './TransactionEditor.css';
 
 const FIELD_LABELS = { kind: 'Type', category: 'Category', amount: 'Amount', native_amount: 'Amount paid', account: 'Account', merchant: 'Merchant', scope: 'Scope', refund_for: 'Refund for' };
 const KIND_LABELS = { expense: 'Expense', income: 'Income', refund: 'Refund' };
+// Closing a record whose merchant rule failed says so again in Activity.
+const SAVED_WITHOUT_RULE = { text: 'Transaction saved; merchant rule wasn’t saved. Add it in Settings → Categories & rules.' };
 
 function initialForm(tx, accounts) {
   if (tx) {
@@ -128,7 +132,7 @@ function buildEdits(tx, form, savedAmount, { accounts, categories, members, spli
   return changes;
 }
 
-export default function TransactionEditor({ tx, household, householdId, accounts, categories, members, allTransactions = [], links = [], fxHistory = [], initial, onClose, onSaved, onOpenOther, onSwitchToTransfer }) {
+export default function TransactionEditor({ tx, household, householdId, accounts, categories, members, allTransactions = [], links = [], categoryRules = [], fxHistory = [], initial, onClose, onSaved, onOpenOther, onSwitchToTransfer }) {
   // Closed accounts aren't offered for new entries, but an existing record that
   // already points at one keeps it so saving doesn't move it (QA-01).
   const selectable = selectableAccounts(accounts, tx?.account_id ?? null);
@@ -167,6 +171,18 @@ export default function TransactionEditor({ tx, household, householdId, accounts
   const [confirmingUnlink, setConfirmingUnlink] = useState(false);
   const [history, setHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(!!tx);
+  // "Remember this merchant": a household rule added once the correction is
+  // saved (docs/decisions.md, "A correction can remember its merchant"). Off
+  // until ticked. The pattern follows the merchant field until it is edited.
+  const [remember, setRemember] = useState(false);
+  const [rulePattern, setRulePattern] = useState(null);
+  const [ruleMatchType, setRuleMatchType] = useState('contains');
+  // The rules as read back just before adding one, which are newer than the
+  // page's copy; and, once the record is saved but its rule is not, why not.
+  // From then on only the rule is retried: the record and its history are
+  // never written twice.
+  const [freshRules, setFreshRules] = useState(null);
+  const [savedWithoutRule, setSavedWithoutRule] = useState(null);
 
   useEffect(() => {
     const onKey = (e) => {
@@ -175,7 +191,7 @@ export default function TransactionEditor({ tx, household, householdId, accounts
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dirty, confirmingClose]);
+  }, [dirty, confirmingClose, savedWithoutRule]);
 
   useEffect(() => {
     if (!tx) return;
@@ -206,6 +222,11 @@ export default function TransactionEditor({ tx, household, householdId, accounts
   }
 
   function requestClose() {
+    // Saved already, so there is nothing to discard; closing shows it.
+    if (savedWithoutRule) {
+      onSaved({ notice: SAVED_WITHOUT_RULE });
+      return;
+    }
     if (dirty && !confirmingClose) {
       setConfirmingClose(true);
       return;
@@ -266,11 +287,26 @@ export default function TransactionEditor({ tx, household, householdId, accounts
         : [],
     [form.type, form.account_id, form.merchant, form.occurred_at, amountAed, refundLink, tx?.id, allTransactions, links],
   );
+  // Remembering a merchant is offered when an ordinary expense already in the
+  // ledger is moved to another category. Splits, transfers and refunds keep
+  // their own rules for where their money is filed, so it isn't offered for
+  // them, nor for a record with no merchant to match.
+  const merchantName = form.merchant.trim();
+  const oldKind = tx ? (tx.kind ?? (Number(tx.amount) >= 0 ? 'income' : 'expense')) : null;
+  const canRemember = !!tx && oldKind === 'expense' && form.type === 'expense' && !tx.is_split && !split && merchantName !== '' && !!form.category_id && form.category_id !== (tx.category_id ?? '');
+  const remembering = canRemember && remember;
+  const ruleProposal = { pattern: rulePattern ?? merchantName, match_type: ruleMatchType, category_id: form.category_id };
+  const ruleCheck = remembering || savedWithoutRule ? rememberMerchantCheck(merchantName, ruleProposal, freshRules ?? categoryRules) : null;
+  const categoryNameOf = (id) => categories.find((c) => c.id === id)?.name ?? 'a category that no longer exists';
   const accountName = (id) => accounts.find((a) => a.id === id)?.name ?? 'Another account';
   const shortDay = (day) => parseDay(day).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 
   async function handleSave(e) {
     e.preventDefault();
+    if (savedWithoutRule) {
+      await addRule();
+      return;
+    }
     // A transfer is edited as a pair, in TransferEditor. This one's other side
     // or link didn't load, so it can't be edited here without breaking the
     // pair (the database would refuse it anyway).
@@ -282,8 +318,11 @@ export default function TransactionEditor({ tx, household, householdId, accounts
     // amount changes (refund_allocation_exact), so the lines it loaded with
     // are not held to the new amount here.
     const linesError = split && !followsPurchase ? splitProblem(split, amountAed) : '';
-    if (amountError || accountError || linesError) {
-      setError(amountError || accountError || linesError);
+    // A rule that wouldn't match this merchant is caught before anything is
+    // written, so the record is never saved on the way to a rule that can't be.
+    const ruleError = ruleCheck?.status === 'invalid' ? ruleCheck.reason : '';
+    if (amountError || accountError || linesError || ruleError) {
+      setError(amountError || accountError || linesError || ruleError);
       return;
     }
     setSaving(true);
@@ -410,14 +449,68 @@ export default function TransactionEditor({ tx, household, householdId, accounts
           // didn't happen, and let the user close manually rather than
           // silently losing the entry.
           setSaving(false);
+          if (remembering && ruleCheck.status === 'new') {
+            setSavedWithoutRule(`It wasn’t tried, because the edit history couldn’t be recorded: ${historyError.message}.`);
+            return;
+          }
           setError(`Transaction saved, but its edit history couldn't be recorded: ${historyError.message}`);
           return;
         }
       }
     }
 
+    // The rule comes only after the record is saved. A rule already covering
+    // this merchant means none is added (lib/rules.js).
+    if (remembering && ruleCheck.status === 'conflict') {
+      setSaving(false);
+      await onSaved({ notice: { text: `Saved without a merchant rule: ${ruleLabel(ruleCheck.rule)} still files it under ${categoryNameOf(ruleCheck.rule.category_id)}.`, ruleId: ruleCheck.rule.id } });
+      return;
+    }
+    if (remembering && ruleCheck.status === 'duplicate') {
+      setSaving(false);
+      await onSaved({ notice: { text: `Saved. ${ruleLabel(ruleCheck.rule)} already files “${merchantName}” under ${categoryNameOf(ruleCheck.rule.category_id)}.`, ruleId: ruleCheck.rule.id } });
+      return;
+    }
+    if (remembering) {
+      await addRule();
+      return;
+    }
+
     setSaving(false);
     await onSaved();
+  }
+
+  // Adds the merchant rule for a record that is already saved: on the first
+  // save, and on each retry, which writes nothing else. The household's rules
+  // are read again first, so a rule added meanwhile (by the other person, or
+  // by an attempt whose answer was lost) isn't added twice.
+  async function addRule() {
+    setSaving(true);
+    setError('');
+    const fail = (reason) => {
+      setSaving(false);
+      setSavedWithoutRule(reason);
+    };
+    const { data: rules, error: readError } = await supabase.from('category_rules').select('*').eq('household_id', householdId).order('created_at').order('id');
+    if (readError) return fail(`The household’s rules couldn’t be read: ${readError.message}.`);
+    setFreshRules(rules ?? []);
+    const check = rememberMerchantCheck(merchantName, ruleProposal, rules ?? []);
+    if (check.status === 'duplicate') {
+      setSaving(false);
+      await onSaved({ notice: { text: `Saved. ${ruleLabel(check.rule)} already files “${merchantName}” under ${categoryNameOf(check.rule.category_id)}.`, ruleId: check.rule.id } });
+      return;
+    }
+    if (check.status === 'conflict') return fail(`${ruleLabel(check.rule)} already files this merchant under ${categoryNameOf(check.rule.category_id)}.`);
+    if (check.status !== 'new') return fail(check.reason);
+    const { data: created, error: insertError } = await supabase
+      .from('category_rules')
+      .insert({ household_id: householdId, pattern: check.rule.pattern, match_type: check.rule.match_type, category_id: check.rule.category_id })
+      .select('id')
+      .single();
+    if (insertError) return fail(`The rule couldn’t be added: ${insertError.message}.`);
+    setSaving(false);
+    const verb = check.rule.match_type === 'starts_with' ? 'starts with' : 'contains';
+    await onSaved({ notice: { text: `Saved, and remembered: future entries whose merchant ${verb} “${check.rule.pattern}” go to ${categoryNameOf(check.rule.category_id)}.`, ruleId: created?.id ?? null } });
   }
 
   // A record whose other side is already in the ledger (the card payment out
@@ -475,7 +568,7 @@ export default function TransactionEditor({ tx, household, householdId, accounts
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
               <span className="ov-kicker">{tx ? 'Edit transaction' : 'New entry'}</span>
-              {dirty && <span className="te-dirty-chip">Unsaved</span>}
+              {dirty && !savedWithoutRule && <span className="te-dirty-chip">Unsaved</span>}
             </div>
             <div className="te-title">{tx ? tx.merchant || 'Transaction' : 'Add a transaction'}</div>
           </div>
@@ -484,6 +577,39 @@ export default function TransactionEditor({ tx, household, householdId, accounts
           </button>
         </div>
 
+        {savedWithoutRule ? (
+          <form className="te-form" onSubmit={handleSave}>
+            <div className="te-duplicate" role="alert">
+              <div className="te-duplicate-title">Transaction saved; merchant rule wasn’t saved.</div>
+              <div className="te-duplicate-body">
+                {savedWithoutRule} The correction to {categoryNameOf(form.category_id)} is kept. Try the rule again, or close and add it later in Settings → Categories & rules.
+              </div>
+            </div>
+            <RememberMerchant
+              merchant={merchantName}
+              categoryName={categoryNameOf(form.category_id)}
+              categories={categories}
+              pattern={ruleProposal.pattern}
+              matchType={ruleMatchType}
+              check={ruleCheck}
+              disabled={saving}
+              onPattern={setRulePattern}
+              onMatchType={setRuleMatchType}
+            />
+            <div className="te-sticky-actions">
+              <div className="te-actions" style={{ borderTop: 'none', paddingTop: 0, marginTop: 0 }}>
+                <div className="te-actions-right">
+                  <button type="button" className="om-btn" onClick={() => onSaved({ notice: SAVED_WITHOUT_RULE })} disabled={saving}>
+                    Close
+                  </button>
+                  <button type="submit" className="om-btn ov-btn-primary" disabled={saving || ruleCheck?.status !== 'new'}>
+                    {saving ? 'Saving…' : 'Try the rule again'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </form>
+        ) : (
         <form className="te-form" onSubmit={handleSave}>
           <div className="te-type">
             <button type="button" className="om-seg" data-active={form.type === 'expense'} onClick={() => set('type', 'expense')}>
@@ -816,6 +942,30 @@ export default function TransactionEditor({ tx, household, householdId, accounts
                   Split across categories
                 </button>
               )}
+
+              {canRemember && (
+                <>
+                  <label className="te-remember">
+                    <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+                    <span>
+                      <span className="te-togglelabel">Remember this merchant</span>
+                      <span className="te-togglenote">Add a household rule so future entries from “{merchantName}” go to {categoryNameOf(form.category_id)}</span>
+                    </span>
+                  </label>
+                  {remember && (
+                    <RememberMerchant
+                      merchant={merchantName}
+                      categoryName={categoryNameOf(form.category_id)}
+                      categories={categories}
+                      pattern={ruleProposal.pattern}
+                      matchType={ruleMatchType}
+                      check={ruleCheck}
+                      onPattern={setRulePattern}
+                      onMatchType={setRuleMatchType}
+                    />
+                  )}
+                </>
+              )}
             </>
           )}
 
@@ -907,7 +1057,7 @@ export default function TransactionEditor({ tx, household, householdId, accounts
                       Cancel
                     </button>
                     <button type="submit" className="om-btn ov-btn-primary" disabled={saving}>
-                      {saving ? 'Saving…' : tx ? 'Save changes' : 'Add transaction'}
+                      {saving ? 'Saving…' : !tx ? 'Add transaction' : remembering && ruleCheck?.status === 'new' ? 'Save and add rule' : 'Save changes'}
                     </button>
                   </>
                 )}
@@ -915,6 +1065,7 @@ export default function TransactionEditor({ tx, household, householdId, accounts
             </div>
           </div>
         </form>
+        )}
       </div>
     </div>
   );
