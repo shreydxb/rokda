@@ -1749,6 +1749,46 @@ was showing, and one where a failed save looked like a success.
   none, stays open and says the record wasn't saved rather than closing as
   if it had been.
 
+## A correction can remember its merchant
+
+Moving a record to the right category was the moment the household knew
+where a merchant belongs, but saying so took a second trip to Settings to
+write the rule by hand. The transaction editor now offers it, using the rules
+that already exist (`category_rules`), so the bot and the Inbox use it with
+no change of their own.
+
+- **Offered narrowly.** Only for an ordinary expense already in the ledger,
+  with a merchant, moved to another category. A split's categories are its
+  lines, a refund follows its purchase, and a transfer has no category, so a
+  merchant-wide rule says nothing true about them. It starts unticked: saving
+  without it is the same save as before.
+- **Shown before it is added.** The pattern starts as the whole merchant name
+  and can be shortened; Contains or Starts with, as in Settings; the category
+  is the one just chosen. The wording says what the rule matches, that letter
+  case doesn't matter and that it is the household's. A pattern that would not
+  match the merchant itself is refused before anything is written.
+- **The record first, the rule after.** A failed save, or one that changed no
+  row, adds no rule. A rule that fails after the record saved says
+  "Transaction saved; merchant rule wasn't saved." and the editor then offers
+  only "Try the rule again": the record and its edit history are not written a
+  second time. The rules are read again before each attempt, so one added in
+  the meantime, or by an attempt whose answer was lost, is not added twice.
+  Nothing in the database forbids two equal rules; this check is the only
+  guard, which is enough for two people.
+- **Existing rules keep their place.** The earliest active rule that matches
+  decides, in the app and the bot (`firstMatchingRule`), and a new rule goes
+  last. So a rule that already files the merchant under the chosen category
+  means nothing to add, and one that files it elsewhere would keep winning:
+  the editor names it, links to it in Settings (in a new tab, so the record
+  stays open as typed) and saves the correction without a rule. Changing
+  which rule wins is done on the rule. Archived rules are ignored, as they are
+  for matching, and stay archived.
+- **Only the record changes.** Past records from the same merchant keep their
+  categories; "Apply now" in Settings stays the one way to file them, and it
+  still touches only uncategorised ones. After saving, Activity keeps its
+  filters and person, and says what was remembered, with a link to the rule
+  (`/settings?tab=categories&rule=<id>`, which opens its editor).
+
 ## A refreshed token keeps the page on screen
 
 Supabase refreshes a signed-in member's token about hourly, and a refresh in

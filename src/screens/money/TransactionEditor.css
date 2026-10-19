@@ -367,3 +367,56 @@
   gap: 6px;
   margin-top: 12px;
 }
+
+/* Remember this merchant: a household rule offered with a category
+   correction, reviewed here before it is added. */
+.te-remember {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+}
+.te-remember input {
+  margin-top: 3px;
+  accent-color: var(--accent);
+}
+.te-remember .te-togglelabel,
+.te-remember .te-togglenote {
+  display: block;
+}
+.te-rule {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border: 1px solid var(--rule2);
+  border-left: 2px solid var(--accent);
+  border-radius: 3px;
+  padding: 12px 14px;
+}
+.te-rule-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px 32px;
+}
+.te-rule-category {
+  font-size: 14px;
+  margin-top: 12px;
+}
+.te-rule-note,
+.te-rule-status {
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--ink3);
+  margin: 0;
+}
+.te-rule-conflict {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--ink2);
+  border-top: 1px solid var(--rule);
+  padding-top: 10px;
+}
+.te-rule-status.ov-warn {
+  color: var(--warn);
+}
