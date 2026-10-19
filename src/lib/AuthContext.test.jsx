@@ -227,6 +227,71 @@ describe('the second step of signing in', () => {
     expect(twoStep()).toBe('ok');
   });
 
+  // A token is refreshed about hourly, in this tab or another, and each new
+  // one is checked again. Showing the two-step screen while that check runs
+  // took every screen away, and with it whatever an open editor held.
+  describe('when the same member’s token is refreshed', () => {
+    const OK = { data: { currentLevel: 'aal2', nextLevel: 'aal2' }, error: null };
+    function HistoryProbe({ seen }) {
+      const { twoStep } = useAuth();
+      seen.push(twoStep);
+      return <span data-testid="two-step">{twoStep}</span>;
+    }
+    async function passedThenRefreshed(answer) {
+      const seen = [];
+      client.aal = OK;
+      client.session = { ...SESSION, access_token: 'token-1' };
+      render(<AuthProvider><HistoryProbe seen={seen} /></AuthProvider>);
+      await act(async () => {});
+      await act(async () => {});
+      expect(twoStep()).toBe('ok');
+      seen.length = 0;
+      client.aal = answer;
+      await emit('TOKEN_REFRESHED', { ...SESSION, access_token: 'token-2' });
+      await act(async () => {});
+      return seen;
+    }
+
+    it('keeps the app on screen while the new token is checked', async () => {
+      const seen = await passedThenRefreshed(OK);
+      expect(client.aalCalls).toEqual(['token-1', 'token-2']);
+      expect(seen).not.toContain('checking');
+      expect(twoStep()).toBe('ok');
+    });
+
+    it('still stops a session the server says has not passed', async () => {
+      await passedThenRefreshed({ data: { currentLevel: 'aal1', nextLevel: 'aal2' }, error: null });
+      expect(twoStep()).toBe('challenge');
+    });
+
+    it('stays through a check that could not be made: the database still asks for the code on every read', async () => {
+      const seen = await passedThenRefreshed({ data: null, error: { message: 'network' } });
+      expect(seen).not.toContain('error');
+      expect(twoStep()).toBe('ok');
+    });
+
+    it('checks a different member from the start', async () => {
+      const seen = await passedThenRefreshed(OK);
+      expect(seen).not.toContain('checking');
+      seen.length = 0;
+      client.aal = { data: { currentLevel: 'aal1', nextLevel: 'aal2' }, error: null };
+      await emit('SIGNED_IN', { user: { id: 'u2' }, access_token: 'token-3' });
+      await act(async () => {});
+      expect(seen).toContain('checking');
+      expect(twoStep()).toBe('challenge');
+    });
+
+    it('checks from the start again after signing out and back in', async () => {
+      await passedThenRefreshed(OK);
+      await emit('SIGNED_OUT', null);
+      expect(twoStep()).toBe('checking');
+      client.aal = { data: { currentLevel: 'aal1', nextLevel: 'aal2' }, error: null };
+      await emit('SIGNED_IN', { ...SESSION, access_token: 'token-4' });
+      await act(async () => {});
+      expect(twoStep()).toBe('challenge');
+    });
+  });
+
   it('lets nothing through when the check fails or throws', async () => {
     client.aal = { data: null, error: { message: 'network' } };
     await renderWith({ ...SESSION, access_token: 'token-e' });
