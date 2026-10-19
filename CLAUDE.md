@@ -63,19 +63,19 @@ applied migrations and deployed Edge Functions match the commit.
 4. `npm run compare:migrations -- --strict` must pass. Push, wait for green
    CI, merge (squash).
 5. Edge Functions deploy from `main` through the Supabase GitHub integration;
-   the Pages deploy follows CI. Check both after a merge.
+   Cloudflare Pages builds `main` on every push. Check both after a merge.
 
 ## Git
 
 - Work on the branch the session names. After a merge, wait until CI has
   started on `main` for the merge commit, then reset the branch to
   `origin/main` and force-push with lease. Pushing the same commit to the
-  branch first can leave `main` with no CI run, so no Pages deploy.
+  branch first can leave `main` with no CI run.
 - The user reviews and asks for merges; do not merge without being asked.
 - Every squash merge to `main` carries `[skip netlify]` in its commit title.
   Netlify's free plan has 300 credits a month and each production deploy
   costs 15, so merges don't deploy there one by one: the user triggers one
   deploy for a batch (Netlify → Deploys → Trigger deploy, which builds the
-  latest `main`). GitHub Pages still publishes every green `main`. After a
-  merge, say that Netlify is behind until the next triggered deploy.
+  latest `main`). Cloudflare Pages still builds every merge. After a merge,
+  say that Netlify is behind until the next triggered deploy.
 - Commit messages: a short subject, then what changed and why.

@@ -39,12 +39,9 @@ function contentSecurityPolicyMeta() {
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), contentSecurityPolicyMeta()],
-  // Netlify and Cloudflare Pages serve this app from the domain root, so base
-  // stays '/' there.
-  // GitHub Pages (the credit-free fallback when Netlify runs out of build
-  // minutes) serves a project site from /<repo>/ instead -- the Pages
-  // workflow sets GH_PAGES=true so only that build picks up the prefix.
-  base: process.env.GH_PAGES ? '/rokda/' : '/',
+  // Every host serves this app from the domain root. GitHub Pages served it
+  // from /rokda/ until it was retired (docs/decisions.md, "One locked address").
+  base: '/',
   define: {
     __BUILD_SHA__: JSON.stringify(commitSha()),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString()),

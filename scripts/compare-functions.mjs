@@ -390,8 +390,8 @@ export function isBlocking(row) {
 // That is the one failure that can be a deploy still in flight rather than
 // drift (SHR-304). On main the Supabase GitHub integration deploys a pushed
 // function at about the same moment CI starts, so the first comparison can
-// read the previous build and turn main red -- which also stops GitHub Pages,
-// since that publishes only after CI succeeds. Anything else blocking is a
+// read the previous build and turn main red for nothing (it once kept the
+// since-retired GitHub Pages copy a release behind). Anything else blocking is a
 // statement about production that no amount of waiting changes: an orphan, an
 // unreadable deployment, verify_jwt drift, a function the platform is not
 // serving, a required function missing. Those must fail immediately, and so

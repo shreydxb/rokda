@@ -23,8 +23,8 @@
   ignore = "bash scripts/netlify-ignore.sh"
 
 # Security headers. The Content-Security-Policy itself is a <meta> tag in
-# index.html (scripts/csp.mjs), so that GitHub Pages, which cannot send
-# headers, gets it too. Headers carry what a meta tag cannot.
+# index.html (scripts/csp.mjs), so it travels with the page whatever host
+# serves it. Headers carry what a meta tag cannot.
 #
 # Cloudflare Pages sends these same headers: its build turns every
 # [[headers]] block here into a _headers file (scripts/cloudflare-headers.mjs),

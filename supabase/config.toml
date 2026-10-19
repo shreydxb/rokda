@@ -54,10 +54,12 @@ verify_jwt = false
 # is not needed and is deliberately left unset.
 [auth]
 enable_signup = false
-# The household's main address. A password-reset link may send someone back
-# to the app's root on either host; a redirect missing from this list is not
-# an error -- Supabase quietly sends the link to site_url instead. The list
-# stays on one line because scripts/compare-functions.mjs reads this file line
-# by line.
-site_url = "https://rokda-app.netlify.app"
-additional_redirect_urls = ["https://rokda-app.netlify.app/**", "https://shreydxb.github.io/rokda/**"]
+# A password-reset link sends someone back to the app's root on whichever
+# host they used; a redirect missing from this list is not an error --
+# Supabase quietly sends the link to site_url instead. The household's main
+# address is its own domain behind Cloudflare Access, which the live dashboard
+# names and this public file does not (docs/environments.md). The list stays
+# on one line because scripts/compare-functions.mjs reads this file line by
+# line.
+site_url = "https://rokda-home.pages.dev"
+additional_redirect_urls = ["https://rokda-home.pages.dev/**", "https://rokda-app.netlify.app/**"]
