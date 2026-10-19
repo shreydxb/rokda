@@ -1832,3 +1832,23 @@ code for listed addresses) in front of the app on a custom domain.
 - **No previews.** Branch builds are off, as on Netlify, until a database
   holding only synthetic data exists for them.
 
+## One locked address
+
+Cloudflare Pages became a third host so the site would keep publishing when
+Netlify's credits ran out. The household then gave it a domain of its own and
+put Cloudflare Access in front: an email code, for listed addresses only,
+before the app's code even loads. That is the address the household uses.
+
+- **GitHub Pages is retired.** It could send no security headers and could not
+  sit behind Access, so it was the weakest way in. Its workflow is deleted and
+  the site unpublished; `vite.config.js` no longer builds for a `/rokda/` base.
+- **Netlify stays for now,** deployed only by hand, until the household
+  decides. `netlify.toml` remains the one place the security headers are
+  written either way, since the Cloudflare build reads it.
+- **The domain is not in the repository.** It carries a household member's
+  name, and this repository is public. The docs say "the household's own
+  domain"; the Cloudflare and Supabase dashboards name it.
+- **Access adds a lock, it does not replace one.** It covers the app's code on
+  that one hostname. The data stays guarded where it always was: Supabase's
+  household rules and the authenticator code on every request.
+

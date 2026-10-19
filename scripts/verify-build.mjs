@@ -44,9 +44,9 @@ if (missing.length > 0) {
   fail('the build emitted no application code. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY (see .env.example) and rebuild.');
 }
 
-// The Content-Security-Policy meta tag (scripts/csp.mjs) is the only one the
-// GitHub Pages host gets, so a build that lost it would quietly ship with no
-// script restrictions. It must come before anything the page loads, and it
+// The Content-Security-Policy meta tag (scripts/csp.mjs) travels with the
+// page whatever host serves it, so a build that lost it would quietly ship
+// with no script restrictions anywhere headers are missing. It must come before anything the page loads, and it
 // must name the Supabase project the app was built against.
 const html = readFileSync(join(outDir, 'index.html'), 'utf8');
 const csp = html.match(/<meta http-equiv="Content-Security-Policy" content="([^"]*)"/);

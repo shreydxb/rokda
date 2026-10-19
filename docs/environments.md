@@ -7,14 +7,16 @@ verified against. This file records what those names refer to.
 
 | Role | Where | Notes |
 | --- | --- | --- |
-| Production | https://rokda-app.netlify.app | Netlify, deploys from the default branch when the site changed (`netlify.toml`) |
-| Fallback | https://shreydxb.github.io/rokda/ | GitHub Pages, publishes every green `main`; no response headers |
-| Cloudflare Pages | `https://<project>.pages.dev` once set up | Builds every push to `main`; the same headers as Netlify; see below |
+| Production | The household's own domain (a subdomain, named in the Cloudflare dashboard, not here) | Cloudflare Pages behind Cloudflare Access; builds every push to `main`; see "Cloudflare Pages" below |
+| Cloudflare default | https://rokda-home.pages.dev | The same Pages project without the Access lock until it is locked too |
+| Netlify | https://rokda-app.netlify.app | Deploys only when triggered by hand (merges carry `[skip netlify]`); kept until the household retires it |
+| Retired | https://shreydxb.github.io/rokda/ | GitHub Pages, retired in October 2026: its workflow is gone, and the site is unpublished in the repository's settings |
 | Preview | Not provisioned/verified yet | PR #1 targets dev; confirm base-branch deploy eligibility and preview configuration |
 
 The correction build identifies itself in the sidebar footer (`build <short sha>`,
-full commit and build time in the tooltip). Netlify supplies `COMMIT_REF`, which
-`vite.config.js` reads; no extra configuration is required for the SHA to appear.
+full commit and build time in the tooltip). Cloudflare Pages supplies
+`CF_PAGES_COMMIT_SHA` and Netlify `COMMIT_REF`, which `vite.config.js` reads;
+no extra configuration is required for the SHA to appear.
 
 Before enabling preview or dev branch builds, configure their Supabase variables
 to use an isolated synthetic-data database. Configure both `deploy-preview` and
@@ -41,10 +43,10 @@ not by assuming the latest merge was built.
 
 ### Cloudflare Pages
 
-Added alongside Netlify and GitHub Pages while the household decides which
-host to keep (`docs/decisions.md`, "Cloudflare Pages as a third host"). It
-serves the same build with the same security headers, and has a free tier of
-500 builds a month with no bandwidth charge for a static site.
+The main host since October 2026 (`docs/decisions.md`, "Cloudflare Pages as a
+third host" and "One locked address"). It serves the same build with the same
+security headers as Netlify, and has a free tier of 500 builds a month with no
+bandwidth charge for a static site. The project is `rokda-home`.
 
 The headers are not written twice: `npm run build:cloudflare` builds, checks
 the bundle (`verify:build`), then turns netlify.toml's `[[headers]]` blocks
@@ -72,13 +74,29 @@ Setting it up (Cloudflare dashboard; done once by the owner):
    be the latest `main`, and the response headers should include
    `x-frame-options: DENY` and `strict-transport-security`.
 
-Cloudflare builds on every push to `main`, not after CI as GitHub Pages does.
-`main` only takes pull requests whose required checks passed on a head that
-was up to date with it (`docs/main-ruleset.json`), so what it builds has
-already passed CI. `[skip netlify]` does not skip a Cloudflare build.
+Cloudflare builds on every push to `main`, not after CI. `main` only takes
+pull requests whose required checks passed on a head that was up to date with
+it (`docs/main-ruleset.json`), so what it builds has already passed CI.
+`[skip netlify]` does not skip a Cloudflare build.
 
-Cloudflare Access (an email code before the app loads, for listed addresses
-only) can be added on a custom domain later; it is not set up here.
+### The household's domain and Cloudflare Access
+
+The household reaches Rokda on a subdomain of its own domain, registered at
+Cloudflare. This file does not name it: the repository is public, and the
+domain carries a household member's name. The dashboard is the record.
+
+- **Custom domain:** Workers & Pages → `rokda-home` → Custom domains. Cloudflare
+  added the DNS record and issues the certificate.
+- **Access:** Zero Trust (Free plan) → Access controls → Applications → `Rokda`,
+  a self-hosted application on that subdomain. Its one policy, `Household`,
+  allows only the listed household email addresses, with a one-time PIN sent
+  by email and a one-week session. A second member's address is added in
+  Access controls → Policies → `Household`. The cookie is HTTP-only, bound and
+  SameSite Lax.
+- **What Access covers:** only that subdomain. It gates the app's code, not the
+  data: the browser still talks to Supabase directly, where the household
+  rules and the authenticator code apply as before. `rokda-home.pages.dev` and
+  Netlify are not behind Access until they are locked or retired.
 
 ### Build environment variables
 
@@ -361,9 +379,12 @@ at all. The first is solved in the workflows; the second is a repository
 setting, and settings that live only in a web UI are exactly the kind of thing
 that drifts silently. `docs/main-ruleset.json` is that setting written down.
 
-### Publishing waits for CI
+### Publishing waits for CI (GitHub Pages, retired)
 
-`.github/workflows/pages.yml` triggers on `workflow_run` of CI, not on `push`.
+GitHub Pages was retired in October 2026 and its workflow deleted; this records
+how it was gated, for any host that publishes from CI again.
+
+`.github/workflows/pages.yml` triggered on `workflow_run` of CI, not on `push`.
 Both used to fire on a push to `main` and ran in parallel, so they raced: on the
 merge of #7, Pages finished at 15:46:54 and CI at 15:47:03 -- the site published
 nine seconds before the tests meant to gate it. Harmless only because CI passed.
@@ -455,8 +476,8 @@ what is live. Check them there after any change to sign-in:
 | Setting | Where | Value |
 | --- | --- | --- |
 | Allow new users to sign up | Authentication → Sign In / Providers | Off |
-| Site URL | Authentication → URL Configuration | `https://rokda-app.netlify.app`, the main address |
-| Redirect URLs | Authentication → URL Configuration | `https://rokda-app.netlify.app/**`, `https://shreydxb.github.io/rokda/**` |
+| Site URL | Authentication → URL Configuration | `https://` + the household's subdomain, the main address |
+| Redirect URLs | Authentication → URL Configuration | the household's subdomain `/**`, `https://rokda-home.pages.dev/**`, `https://rokda-app.netlify.app/**` (until Netlify is retired) |
 | Reset Password email | Authentication → Emails → Templates | the default link, `{{ .ConfirmationURL }}` |
 | Exposed schemas | Project Settings → Data API | `public`, `graphql_public` (never `private`) |
 

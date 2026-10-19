@@ -150,8 +150,8 @@ jobs:
       SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
       # On main, a push that changes an Edge Function is being deployed by the
       # Supabase GitHub integration while this job runs. Without a wait the
-      # first comparison could read the previous build, turn main red, and keep
-      # GitHub Pages a release behind -- it happened for #38 and #40 (SHR-304).
+      # first comparison could read the previous build and turn main red for
+      # nothing -- it happened for #38 and #40 (SHR-304).
       # The script waits only when the sole failure is a stale deployment, or a
       # verify_jwt this commit changes, AND this commit changed
       # supabase/functions or config.toml; verify_jwt drift, an orphan or a

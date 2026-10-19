@@ -3,9 +3,10 @@
 // and so cannot be loaded by a test.
 
 // Where the reset email sends the person back to: the app's own root, base
-// path included. GitHub Pages serves Rokda from /<repo>/, where
-// `${origin}/login` is outside the app entirely, and the root is the one
-// address that loads the app on every host, whatever its deep-link fallback.
+// path included. A host that serves Rokda from a sub-path (GitHub Pages used
+// /<repo>/) puts `${origin}/login` outside the app entirely, and the root is
+// the one address that loads the app on every host, whatever its deep-link
+// fallback.
 // AuthContext picks the recovery up from there.
 export function resetRedirectUrl(origin, base) {
   return new URL(base, origin).href;

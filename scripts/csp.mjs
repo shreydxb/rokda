@@ -1,9 +1,9 @@
 // The Content-Security-Policy every production build carries.
 //
 // It ships as a <meta> tag in index.html (vite.config.js adds it at build
-// time) rather than only as a Netlify header, for two reasons. GitHub Pages,
-// the credit-free host, cannot set response headers at all, so a header-only
-// policy would protect one of the two addresses the household uses. And the
+// time) rather than only as a response header, for two reasons. It travels
+// with the page, so a host that sends no headers (GitHub Pages, while it
+// served Rokda) or loses them in a misconfiguration still enforces it. And the
 // browser suite (e2e/) serves a real build, so a policy that blocks something
 // the app needs shows up there as a console error and fails the run, instead
 // of being discovered on the live site.
