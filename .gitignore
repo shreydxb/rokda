@@ -32,3 +32,6 @@ supabase/.temp
 
 # Playwright run output (screenshots, traces, error contexts)
 e2e/.artifacts/
+
+# Cloudflare's local Pages server (wrangler pages dev) keeps its state here.
+.wrangler/

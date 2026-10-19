@@ -72,4 +72,10 @@ applied migrations and deployed Edge Functions match the commit.
   `origin/main` and force-push with lease. Pushing the same commit to the
   branch first can leave `main` with no CI run, so no Pages deploy.
 - The user reviews and asks for merges; do not merge without being asked.
+- Every squash merge to `main` carries `[skip netlify]` in its commit title.
+  Netlify's free plan has 300 credits a month and each production deploy
+  costs 15, so merges don't deploy there one by one: the user triggers one
+  deploy for a batch (Netlify → Deploys → Trigger deploy, which builds the
+  latest `main`). GitHub Pages still publishes every green `main`. After a
+  merge, say that Netlify is behind until the next triggered deploy.
 - Commit messages: a short subject, then what changed and why.

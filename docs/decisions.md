@@ -1808,3 +1808,27 @@ had been typed in it was lost.
   work. Nothing is weakened by it: the database refuses every read and write
   without the code (`private.mfa_satisfied()`), whatever the tab believes.
 
+## Cloudflare Pages as a third host
+
+Netlify's free plan allows about twenty production deploys a month and stops
+publishing when its credits run out, which left the site on a mid-October
+build. Cloudflare Pages has a free tier of 500 builds a month and no charge
+for a static site's bandwidth, and can later put Cloudflare Access (an email
+code for listed addresses) in front of the app on a custom domain.
+
+- **Added, not swapped.** Netlify and GitHub Pages stay until the household
+  decides which host to keep. Every copy can sign in to the live data, so
+  each host is another account to secure; the fewest hosts is the safest end
+  state, and GitHub Pages, which can send no security headers, the first to go.
+- **One list of headers.** netlify.toml stays the source; the Cloudflare
+  build translates it into `_headers`, and a test pins the result. The file is
+  generated only in that build: Netlify reads a `_headers` file too and would
+  send each header twice.
+- **The host never holds the household's data.** It serves the app's code;
+  the records come from Supabase to the signed-in browser. What a host can do
+  wrong is serve altered code, which is why the hosting account needs a passkey
+  and the page's Content-Security-Policy allows only the household's own
+  Supabase project.
+- **No previews.** Branch builds are off, as on Netlify, until a database
+  holding only synthetic data exists for them.
+
