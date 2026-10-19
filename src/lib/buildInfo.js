@@ -1,7 +1,7 @@
 // A deployed preview must be able to say which commit it is: QA verifies an
 // exact commit, and "the preview looks right" is not evidence unless the
 // preview names what it was built from. Values are injected at build time by
-// vite.config.js (Netlify COMMIT_REF / CI GITHUB_SHA / local git HEAD).
+// vite.config.js (Cloudflare CF_PAGES_COMMIT_SHA / CI GITHUB_SHA / local git HEAD).
 const SHA = typeof __BUILD_SHA__ === 'string' ? __BUILD_SHA__ : 'unknown';
 const BUILT_AT = typeof __BUILD_TIME__ === 'string' ? __BUILD_TIME__ : null;
 

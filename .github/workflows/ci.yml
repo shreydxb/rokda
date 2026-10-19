@@ -1,9 +1,18 @@
 name: CI
 
+# Pull requests and main only. A push to a branch with an open pull request
+# used to run everything twice, once for the push and once for the pull
+# request, and a private repository pays for its minutes. A newer push to a
+# pull request cancels the run it supersedes; a run on main always finishes,
+# because each merge's release check matters.
 on:
   push:
-    branches: [main, dev, 'claude/**']
+    branches: [main]
   pull_request:
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   verify:

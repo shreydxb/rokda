@@ -5,10 +5,10 @@ import { contentSecurityPolicy } from './scripts/csp.mjs'
 
 // The deployed build has to be able to name its own commit — a QA handoff that
 // says "preview URL X" is worthless if the preview can't prove what it is.
-// Netlify sets COMMIT_REF; Cloudflare Pages sets CF_PAGES_COMMIT_SHA; CI sets
-// GITHUB_SHA; locally we ask git.
+// Cloudflare Pages sets CF_PAGES_COMMIT_SHA; CI sets GITHUB_SHA; locally we
+// ask git.
 function commitSha() {
-  const fromEnv = process.env.VITE_COMMIT_SHA || process.env.COMMIT_REF || process.env.CF_PAGES_COMMIT_SHA || process.env.GITHUB_SHA
+  const fromEnv = process.env.VITE_COMMIT_SHA || process.env.CF_PAGES_COMMIT_SHA || process.env.GITHUB_SHA
   if (fromEnv) return fromEnv
   try {
     return execSync('git rev-parse HEAD', { encoding: 'utf8' }).trim()

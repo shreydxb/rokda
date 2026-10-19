@@ -62,4 +62,4 @@ enable_signup = false
 # on one line because scripts/compare-functions.mjs reads this file line by
 # line.
 site_url = "https://rokda-home.pages.dev"
-additional_redirect_urls = ["https://rokda-home.pages.dev/**", "https://rokda-app.netlify.app/**"]
+additional_redirect_urls = ["https://rokda-home.pages.dev/**"]

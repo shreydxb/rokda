@@ -9,49 +9,38 @@ verified against. This file records what those names refer to.
 | --- | --- | --- |
 | Production | The household's own domain (a subdomain, named in the Cloudflare dashboard, not here) | Cloudflare Pages behind Cloudflare Access; builds every push to `main`; see "Cloudflare Pages" below |
 | Cloudflare default | https://rokda-home.pages.dev | The same Pages project without the Access lock until it is locked too |
-| Netlify | https://rokda-app.netlify.app | Deploys only when triggered by hand (merges carry `[skip netlify]`); kept until the household retires it |
+| Retired | https://rokda-app.netlify.app | Netlify, retired in October 2026: the site is deleted, and `netlify.toml` with it |
 | Retired | https://shreydxb.github.io/rokda/ | GitHub Pages, retired in October 2026: its workflow is gone, and the site is unpublished in the repository's settings |
 | Preview | Not provisioned/verified yet | PR #1 targets dev; confirm base-branch deploy eligibility and preview configuration |
 
 The correction build identifies itself in the sidebar footer (`build <short sha>`,
 full commit and build time in the tooltip). Cloudflare Pages supplies
-`CF_PAGES_COMMIT_SHA` and Netlify `COMMIT_REF`, which `vite.config.js` reads;
-no extra configuration is required for the SHA to appear.
+`CF_PAGES_COMMIT_SHA`, which `vite.config.js` reads; no extra configuration is
+required for the SHA to appear.
 
 Before enabling preview or dev branch builds, configure their Supabase variables
-to use an isolated synthetic-data database. Configure both `deploy-preview` and
-any enabled `branch-deploy`/dev context; neither should inherit household data
-settings. An absent GitHub check alone does not establish why a preview is missing.
+to use an isolated synthetic-data database. Cloudflare's Preview environment
+has variables of its own; it must never inherit the household's. An absent GitHub check alone does not establish why a preview is missing.
 
-### Netlify build settings live in `netlify.toml`
+### Netlify (retired)
 
-The build command, publish directory, response headers, the deep-link
-fallback and the rule that skips builds are in `netlify.toml`, which
-overrides the dashboard. A production deploy costs 15 of the free plan's
-monthly credits; `scripts/netlify-ignore.sh` skips the build when nothing
-the site is built from changed since the last commit Netlify built, and a
-commit message containing `[skip netlify]` skips it outright. Deploy previews
-and branch deploys never build (they would run unreviewed code against the
-household's database); lift that in `netlify.toml` only once they have an
-isolated database of their own. A rebuild of
-the commit Netlify last built always runs (Deploys → Trigger deploy). After
-a change that is not in the repository, such as an environment variable, a
-trigger on a later commit may be skipped as unchanged; a commit touching
-`netlify.toml` always builds. Check what is live with the
-Netlify API (`get-deploy-for-site`) or the build id in the app's sidebar,
-not by assuming the latest merge was built.
+Netlify was the main host until October 2026. Its free plan's credits allowed
+about twenty production deploys a month, and when they ran out the site stopped
+publishing and sat on an old build. Its site is deleted, and `netlify.toml` and
+the script that skipped unneeded builds went with it (`docs/decisions.md`,
+"Cloudflare only").
 
 ### Cloudflare Pages
 
-The main host since October 2026 (`docs/decisions.md`, "Cloudflare Pages as a
-third host" and "One locked address"). It serves the same build with the same
-security headers as Netlify, and has a free tier of 500 builds a month with no
-bandwidth charge for a static site. The project is `rokda-home`.
+The only host since October 2026 (`docs/decisions.md`, "Cloudflare Pages as a
+third host", "One locked address" and "Cloudflare only"). Its free tier allows
+500 builds a month with no bandwidth charge for a static site. The project is
+`rokda-home`.
 
-The headers are not written twice: `npm run build:cloudflare` builds, checks
-the bundle (`verify:build`), then turns netlify.toml's `[[headers]]` blocks
-into `dist/_headers` (`scripts/cloudflare-headers.mjs`, tested against the
-real netlify.toml). Change a header in netlify.toml and both hosts follow.
+`npm run build:cloudflare` builds and checks the bundle (`verify:build`). The
+response headers are in `public/_headers`, which Vite copies into the build;
+`verify:build` fails a build without them, and `scripts/headers.test.mjs` pins
+every value.
 Deep links (`/money`, `/settings?tab=…`) need no rule: with no `404.html` in
 the build, Pages serves `index.html` for any path that is not a file. The
 browser suite passes in full against Cloudflare's local Pages server
@@ -65,11 +54,11 @@ Setting it up (Cloudflare dashboard; done once by the owner):
 3. Build command `npm run build:cloudflare`; output directory `dist`;
    framework preset None.
 4. Environment variables (Production): `VITE_SUPABASE_URL` and
-   `VITE_SUPABASE_PUBLISHABLE_KEY` (the same values Netlify has; they are the
-   public anon key and URL, not secrets), and `NODE_VERSION` = `22`, as CI uses.
+   `VITE_SUPABASE_PUBLISHABLE_KEY` (the public anon key and URL, not
+   secrets), and `NODE_VERSION` = `22`, as CI uses.
 5. Settings → Builds → Branch control: preview branches **None**. A preview of
    an unmerged branch would run unreviewed code against the household's live
-   database, the reason Netlify's previews are off.
+   database.
 6. After the first deploy, open the site: the sidebar's `build <sha>` should
    be the latest `main`, and the response headers should include
    `x-frame-options: DENY` and `strict-transport-security`.
@@ -77,7 +66,6 @@ Setting it up (Cloudflare dashboard; done once by the owner):
 Cloudflare builds on every push to `main`, not after CI. `main` only takes
 pull requests whose required checks passed on a head that was up to date with
 it (`docs/main-ruleset.json`), so what it builds has already passed CI.
-`[skip netlify]` does not skip a Cloudflare build.
 
 ### The household's domain and Cloudflare Access
 
@@ -95,8 +83,10 @@ domain carries a household member's name. The dashboard is the record.
   SameSite Lax.
 - **What Access covers:** only that subdomain. It gates the app's code, not the
   data: the browser still talks to Supabase directly, where the household
-  rules and the authenticator code apply as before. `rokda-home.pages.dev` and
-  Netlify are not behind Access until they are locked or retired.
+  rules and the authenticator code apply as before. `rokda-home.pages.dev` is
+  not behind Access until it is locked too (Cloudflare's Pages known-issues
+  procedure: an Access application for `rokda-home.pages.dev` and another for
+  `*.rokda-home.pages.dev`, both with the `Household` policy).
 
 ### Build environment variables
 
@@ -439,8 +429,10 @@ The three required contexts must match the CI job names exactly
 reported blocks every merge; a job renamed in `ci.yml` without being renamed
 here stops gating silently, which is the worse of the two failures.
 
-Netlify's checks are deliberately not required: they conclude `neutral`, which
-is not success, and requiring them would block merges.
+The host's checks are deliberately not required: Cloudflare builds only `main`,
+so it never reports on a pull request, and requiring it would block every
+merge. (Netlify's, while it was a host, concluded `neutral`, which is not
+success, so the same held.)
 
 ## Leaked password protection: not available, not forgotten
 
@@ -477,7 +469,7 @@ what is live. Check them there after any change to sign-in:
 | --- | --- | --- |
 | Allow new users to sign up | Authentication → Sign In / Providers | Off |
 | Site URL | Authentication → URL Configuration | `https://` + the household's subdomain, the main address |
-| Redirect URLs | Authentication → URL Configuration | the household's subdomain `/**`, `https://rokda-home.pages.dev/**`, `https://rokda-app.netlify.app/**` (until Netlify is retired) |
+| Redirect URLs | Authentication → URL Configuration | the household's subdomain `/**`, `https://rokda-home.pages.dev/**` |
 | Reset Password email | Authentication → Emails → Templates | the default link, `{{ .ConfirmationURL }}` |
 | Exposed schemas | Project Settings → Data API | `public`, `graphql_public` (never `private`) |
 

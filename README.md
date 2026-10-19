@@ -37,7 +37,7 @@ npm run verify:migrations  # build a throwaway database from the migrations (nee
 ```
 
 CI (`.github/workflows/ci.yml`) runs a locked install, lint, tests and build for
-every push to `main`/`dev`/`claude/**` and every pull request.
+every pull request and every push to `main`.
 
 `design/` holds the exported Claude Design runtime. It is generated output: it is
 excluded from lint and must never be hand-edited to satisfy a rule.
@@ -45,7 +45,7 @@ excluded from lint and must never be hand-edited to satisfy a rule.
 ## Build identity
 
 Every build knows its own commit. `vite.config.js` injects `__BUILD_SHA__` from
-`VITE_COMMIT_SHA`, Netlify's `COMMIT_REF`, CI's `GITHUB_SHA`, or local `git rev-parse HEAD`,
+`VITE_COMMIT_SHA`, Cloudflare's `CF_PAGES_COMMIT_SHA`, CI's `GITHUB_SHA`, or local `git rev-parse HEAD`,
 and the sidebar footer renders it (`build abc1234`, with the full commit and build
 time in its tooltip). A QA handoff names a preview URL; the preview names the commit
 it was actually built from.
