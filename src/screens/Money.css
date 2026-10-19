@@ -926,3 +926,28 @@
   flex-wrap: wrap;
   gap: 6px;
 }
+
+/* What a save added besides the record (a merchant rule), above the list. */
+.mn-notice {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  border: 1px solid var(--rule2);
+  border-left: 2px solid var(--accent);
+  border-radius: 3px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ink2);
+}
+.mn-notice-close {
+  background: none;
+  border: none;
+  color: var(--ink3);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+}

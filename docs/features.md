@@ -57,6 +57,17 @@ here, because this repository is public.
   address, so Back, reload and a bookmark keep them. The summary shows net
   spend as purchases less refunds, and income. The list shows 200 rows at a
   time; the totals cover everything matching.
+- **Remember this merchant**: moving an ordinary expense to another category
+  offers, unticked, a household rule for its merchant. Ticked, it shows the
+  rule before saving: the pattern (the whole merchant name to begin with),
+  Contains or Starts with, and the category; matching ignores letter case.
+  The record is saved first and the rule after it; a rule that fails says
+  "Transaction saved; merchant rule wasn't saved." and can be tried again on
+  its own. A rule already filing the merchant there adds nothing, and one
+  filing it elsewhere is named, with a link to it in Settings, and the
+  correction saves without a new rule. Not offered for splits, transfers,
+  refunds, income or new entries. Only the record being edited changes;
+  "Apply now" in Settings stays the way to file past records.
 - **Payments in other currencies** (money sent home in rupees, a purchase in
   dollars): the record keeps the amount paid in that currency beside the AED
   that counts. The AED debited is entered when known; until then it is
@@ -156,7 +167,7 @@ here, because this repository is public.
   (`docs/second-member.md`).
 - **Categories & rules**: categories and subcategories, whose cost each is
   (shared or one person's), savings categories, what stops when work stops,
-  and merchant rules.
+  and merchant rules. `?tab=categories&rule=<id>` opens one rule's editor.
 - **Telegram**: linking, and which nudges and briefs each person gets.
 - **Backups**: when the data was last exported and last restored from an
   export, and a form to record each one (`backup_records`). Needs attention

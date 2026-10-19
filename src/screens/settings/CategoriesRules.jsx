@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabaseClient';
 import { ilikePattern } from '../../lib/rules';
 import CategoryEditor from './CategoryEditor';
@@ -13,6 +14,25 @@ export default function CategoriesRules({ household, members = [], data, loading
   const [applying, setApplying] = useState(null);
   const [applyResult, setApplyResult] = useState(null);
   const [starter, setStarter] = useState(false);
+  // `rule=<id>` opens that rule's editor, so a link from a transaction's
+  // editor ("Open that rule in Settings") or Activity lands on it. Closing it
+  // takes the id out of the address, so it doesn't open again.
+  const [params, setParams] = useSearchParams();
+  const linkedRule = params.get('rule') ? (categoryRules.find((r) => r.id === params.get('rule')) ?? null) : null;
+  const shownRule = editingRule ?? linkedRule;
+  const closeRule = () => {
+    setEditingRule(null);
+    if (params.has('rule')) {
+      setParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete('rule');
+          return next;
+        },
+        { replace: true },
+      );
+    }
+  };
 
   const visibleCategories = useMemo(
     () => categories.filter((c) => showArchived || !c.archived),
@@ -148,14 +168,15 @@ export default function CategoriesRules({ household, members = [], data, loading
         />
       )}
 
-      {editingRule && (
+      {shownRule && (
         <RuleEditor
-          rule={editingRule === 'new' ? null : editingRule}
+          key={shownRule === 'new' ? 'new' : shownRule.id}
+          rule={shownRule === 'new' ? null : shownRule}
           householdId={household?.id}
           categories={categories.filter((c) => !c.archived && !c.is_savings)}
-          onClose={() => setEditingRule(null)}
+          onClose={closeRule}
           onSaved={async () => {
-            setEditingRule(null);
+            closeRule();
             await reload();
           }}
         />
