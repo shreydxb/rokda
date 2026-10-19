@@ -9,6 +9,7 @@ verified against. This file records what those names refer to.
 | --- | --- | --- |
 | Production | https://rokda-app.netlify.app | Netlify, deploys from the default branch when the site changed (`netlify.toml`) |
 | Fallback | https://shreydxb.github.io/rokda/ | GitHub Pages, publishes every green `main`; no response headers |
+| Cloudflare Pages | `https://<project>.pages.dev` once set up | Builds every push to `main`; the same headers as Netlify; see below |
 | Preview | Not provisioned/verified yet | PR #1 targets dev; confirm base-branch deploy eligibility and preview configuration |
 
 The correction build identifies itself in the sidebar footer (`build <short sha>`,
@@ -37,6 +38,47 @@ trigger on a later commit may be skipped as unchanged; a commit touching
 `netlify.toml` always builds. Check what is live with the
 Netlify API (`get-deploy-for-site`) or the build id in the app's sidebar,
 not by assuming the latest merge was built.
+
+### Cloudflare Pages
+
+Added alongside Netlify and GitHub Pages while the household decides which
+host to keep (`docs/decisions.md`, "Cloudflare Pages as a third host"). It
+serves the same build with the same security headers, and has a free tier of
+500 builds a month with no bandwidth charge for a static site.
+
+The headers are not written twice: `npm run build:cloudflare` builds, checks
+the bundle (`verify:build`), then turns netlify.toml's `[[headers]]` blocks
+into `dist/_headers` (`scripts/cloudflare-headers.mjs`, tested against the
+real netlify.toml). Change a header in netlify.toml and both hosts follow.
+Deep links (`/money`, `/settings?tab=…`) need no rule: with no `404.html` in
+the build, Pages serves `index.html` for any path that is not a file. The
+browser suite passes in full against Cloudflare's local Pages server
+(`wrangler pages dev dist --port 4173`, which `playwright.config.js` reuses).
+
+Setting it up (Cloudflare dashboard; done once by the owner):
+
+1. A Cloudflare account with a passkey or an authenticator app.
+2. Workers & Pages → Create → Pages → Connect to Git → `shreydxb/rokda`.
+   Production branch `main`.
+3. Build command `npm run build:cloudflare`; output directory `dist`;
+   framework preset None.
+4. Environment variables (Production): `VITE_SUPABASE_URL` and
+   `VITE_SUPABASE_PUBLISHABLE_KEY` (the same values Netlify has; they are the
+   public anon key and URL, not secrets), and `NODE_VERSION` = `22`, as CI uses.
+5. Settings → Builds → Branch control: preview branches **None**. A preview of
+   an unmerged branch would run unreviewed code against the household's live
+   database, the reason Netlify's previews are off.
+6. After the first deploy, open the site: the sidebar's `build <sha>` should
+   be the latest `main`, and the response headers should include
+   `x-frame-options: DENY` and `strict-transport-security`.
+
+Cloudflare builds on every push to `main`, not after CI as GitHub Pages does.
+`main` only takes pull requests whose required checks passed on a head that
+was up to date with it (`docs/main-ruleset.json`), so what it builds has
+already passed CI. `[skip netlify]` does not skip a Cloudflare build.
+
+Cloudflare Access (an email code before the app loads, for listed addresses
+only) can be added on a custom domain later; it is not set up here.
 
 ### Build environment variables
 
