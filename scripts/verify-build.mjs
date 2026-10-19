@@ -57,5 +57,16 @@ if (!/(^|; )script-src 'self'(;|$)/.test(policy)) fail(`the Content-Security-Pol
 const connect = policy.match(/(?:^|; )connect-src ([^;]*)/);
 if (!connect || !/https?:\/\/\S+/.test(connect[1])) fail(`the Content-Security-Policy names no Supabase origin in connect-src, so the app could not reach its data: ${policy}`);
 
+// The response headers (frame-ancestors, HSTS and the rest) come from
+// public/_headers, which Vite copies into the build. A build without it would
+// publish with none of them, and nothing else would fail.
+let headers = '';
+try {
+  headers = readFileSync(join(outDir, '_headers'), 'utf8');
+} catch {
+  fail(`no ${join(outDir, '_headers')}: the build would publish without its security headers (public/_headers).`);
+}
+if (!headers.includes("frame-ancestors 'none'")) fail(`${join(outDir, '_headers')} does not forbid framing; compare it with public/_headers.`);
+
 const bytes = entries.reduce((sum, f) => sum + statSync(join(assets, f)).size, 0);
 console.log(`verify-build: ok — ${entries.length} chunk(s), ${(bytes / 1024).toFixed(1)} kB, application code present`);

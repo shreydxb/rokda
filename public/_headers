@@ -1,0 +1,30 @@
+# Response headers for Cloudflare Pages, which serves every address the
+# household uses (docs/environments.md, "Cloudflare Pages"). Vite copies this
+# file into dist/ unchanged, and verify:build fails a build without it.
+#
+# The Content-Security-Policy itself is a <meta> tag in index.html
+# (scripts/csp.mjs), so it travels with the page. Headers carry what a meta
+# tag cannot. scripts/headers.test.mjs pins every value below.
+
+/*
+  # The app is never embedded in another site. frame-ancestors is the modern
+  # form and X-Frame-Options the one older browsers read; a meta policy cannot
+  # set either.
+  Content-Security-Policy: frame-ancestors 'none'
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  # Other sites learn only that a visitor came from this origin, never which
+  # screen or record they were on.
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
+  # HTTPS only, for a year, once a browser has seen the site.
+  Strict-Transport-Security: max-age=31536000
+
+# Built assets have content hashes in their names, so they never change.
+# index.html must always be revalidated, or a browser that cached it would
+# keep loading the previous release's assets.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/index.html
+  Cache-Control: public, max-age=0, must-revalidate

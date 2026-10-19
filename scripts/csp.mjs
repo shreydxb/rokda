@@ -17,8 +17,8 @@
 // subscriptions, so there is no wss origin.
 //
 // Directives a <meta> policy cannot carry (frame-ancestors, report-uri) are
-// set as headers in netlify.toml instead; Chrome logs an error for each one
-// it finds in a meta tag.
+// set as headers in public/_headers instead; Chrome logs an error for each
+// one it finds in a meta tag.
 
 // The origin of the Supabase URL a build is made against, or null when it is
 // missing or not an http(s) URL -- connect-src then allows only the app's own

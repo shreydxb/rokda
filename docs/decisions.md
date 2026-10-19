@@ -1852,3 +1852,27 @@ before the app's code even loads. That is the address the household uses.
   that one hostname. The data stays guarded where it always was: Supabase's
   household rules and the authenticator code on every request.
 
+
+## Cloudflare only
+
+Once Cloudflare Pages served the household's locked address, Netlify was a
+second way in: still on a mid-October build, reachable without the Access
+lock, and spending credits the household had to ration. The household retired
+it, leaving one host.
+
+- **One host, behind one lock.** Every copy of the app can sign in to the live
+  data, so each host was another account to secure and another address to
+  lock. Cloudflare serves the household's domain behind Access and builds
+  every merge, with no credits to run out.
+- **The headers live in `public/_headers`.** netlify.toml was their source only
+  so two hosts could not drift apart; with one host, Cloudflare's own file is
+  the plain choice. Vite copies it into the build, `verify:build` fails a build
+  without it, and a test pins every value. `npm run build:cloudflare` keeps
+  its name so the Cloudflare dashboard's build command still works.
+- **If Cloudflare ever fails,** the app is static files and any host can serve
+  `dist/` with that `_headers` file. The data stays in Supabase whatever
+  serves the code.
+- **CI runs on pull requests and on `main`.** Branch pushes used to run it a
+  second time for every pull request push, which costs nothing on a public
+  repository but counts against the free minutes of a private one. A newer
+  push to a pull request cancels the run it supersedes.
