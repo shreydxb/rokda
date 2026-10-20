@@ -30,13 +30,16 @@ function aed(amount) {
   return `AED ${formatBalance(amount, { decimals: 2 })}`;
 }
 
-// What Rokda's figure is against the statement's, in words, so the direction
-// of a difference is never left to a sign.
-function comparison(row) {
-  if (row.difference === 0) return `matches the statement's ${aed(row.statementSpend)}`;
-  const more = row.difference > 0;
-  return `statement ${aed(row.statementSpend)}; Rokda is ${aed(Math.abs(row.difference))} ${more ? 'higher' : 'lower'}`;
+// The statement's own figure against Rokda's, as a third figure: what the
+// difference is and which way it goes, in words, so its direction is never
+// left to a sign.
+function differenceText(row) {
+  if (row.difference === 0) return 'Matches';
+  return `${aed(Math.abs(row.difference))} ${row.difference > 0 ? 'higher' : 'lower'} in Rokda`;
 }
+
+const ordinal = (n) => `${n}${[11, 12, 13].includes(n % 100) ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] ?? 'th'}`;
+const NEEDS_CHECK = new Set(['unchecked', 'waiting', 'mismatch']);
 
 export default function Statements({ household, me, members = [], data, loading }) {
   const { accounts, transactions, statementReconciliations = [], reload } = data;
@@ -123,141 +126,206 @@ export default function Statements({ household, me, members = [], data, loading 
     );
   }
 
+  // One section per card, in the order the cards are listed under Accounts.
+  // Within it, what is still to check comes first; what is settled folds away
+  // below, so a card with nothing to do takes one line.
+  const cards = [];
+  for (const row of rows) {
+    let card = cards.find((c) => c.account.id === row.account.id);
+    if (!card) {
+      card = { account: row.account, open: [], settled: [] };
+      cards.push(card);
+    }
+    (NEEDS_CHECK.has(row.status) ? card.open : card.settled).push(row);
+  }
+  cards.sort((a, b) => accounts.indexOf(a.account) - accounts.indexOf(b.account));
+  for (const card of cards) {
+    card.open.sort((a, b) => (a.statementDate < b.statementDate ? 1 : -1));
+    card.settled.sort((a, b) => (a.statementDate < b.statementDate ? 1 : -1));
+  }
+
+  const item = (row) => (
+    <StatementItem
+      key={`${row.account.id}:${row.statementDate}`}
+      row={row}
+      memberName={memberName}
+      busy={busy}
+      open={open}
+      setOpen={setOpen}
+      pending={pending}
+      setPending={setPending}
+      note={note}
+      setNote={setNote}
+      setStatus={setStatus}
+    />
+  );
+
   return (
-    <div>
+    <div className="st">
       {forMonth && (
-        <div style={{ marginTop: 18, display: 'flex', gap: 12, alignItems: 'baseline', flexWrap: 'wrap' }}>
+        <div className="st-month">
           <span className="ov-kicker">Statements that closed in {monthLabel}</span>
           {recentLink}
         </div>
       )}
-      <div className="ov-muted" style={{ marginTop: 18 }}>
-        {toCheck === 0
-          ? forMonth
-            ? 'Every statement that closed this month has been checked.'
-            : 'Every recent statement has been checked.'
-          : `${toCheck} statement${toCheck === 1 ? '' : 's'} still to check against Rokda. The bot asks about each one on Telegram until it's done.`}
-      </div>
-      <div className="ov-muted" style={{ fontSize: 11, marginTop: 4 }}>
-        Rokda's figure is what was spent on the card over the statement's period, refunds netted, in AED.
+      <div className="st-summary">
+        <div className="st-summary-head" data-done={toCheck === 0}>
+          {toCheck === 0
+            ? forMonth
+              ? 'Every statement that closed this month has been checked.'
+              : 'Every recent statement has been checked.'
+            : `${toCheck} statement${toCheck === 1 ? '' : 's'} still to check against Rokda.`}
+        </div>
+        <div className="ov-muted">
+          {toCheck > 0 && "The bot asks about each one on Telegram until it's done. "}
+          Rokda&rsquo;s figure is what was spent on the card over the statement&rsquo;s period, refunds netted, in AED.
+        </div>
       </div>
       {error && (
         <div className="ov-error" role="alert" style={{ marginTop: 12 }}>
           {error}
         </div>
       )}
-      <div className="mn-list" style={{ marginTop: 12 }}>
-        {rows.map((row) => {
-          const key = `${row.account.id}:${row.statementDate}`;
-          const status = STATUS[row.status] ?? STATUS.unchecked;
-          const closed = row.status === 'confirmed' || row.status === 'reconciled';
-          const closedBy = closed ? memberName(row.record?.closed_by_member_id) : null;
-          const asking = pending?.key === key ? pending.next : null;
-          const showing = open === key;
-          return (
-            <div key={key} data-testid="statement-row">
-              <div className="mn-row-wrap">
-                <div className="mn-row">
-                  <div className="mn-row-main">
-                    <div>
-                      {row.account.name}
-                      <span className={`wl-card-chip${status.warn ? ' wl-card-chip-warn' : ''}`} style={{ marginLeft: 8 }}>
-                        {status.label}
-                      </span>
-                    </div>
-                    <div className="ov-muted">
-                      {`Closed ${shortDate(row.statementDate)} · ${shortDate(row.periodStart)} to ${shortDate(row.statementDate)}`}
-                      {row.dueDate && ` · due ${shortDate(row.dueDate)}`}
-                    </div>
-                    {/* Under the name rather than beside the figure, so it wraps on a phone. */}
-                    {row.statementSpend != null && <div className="ov-muted" style={{ fontSize: 11 }}>{comparison(row)}</div>}
-                    {row.statementBalance != null && (
-                      <div className="ov-muted" style={{ fontSize: 11 }}>{`Closing balance on the statement: ${aed(row.statementBalance)}`}</div>
-                    )}
-                    {closed && row.record?.closed_at && (
-                      <div className="ov-muted" style={{ fontSize: 11 }}>
-                        {`${status.label}${closedBy ? ` by ${closedBy}` : ''} on ${shortDate(row.record.closed_at.slice(0, 10))}`}
-                      </div>
-                    )}
-                    {row.record?.note && <div className="ov-muted" style={{ fontSize: 11 }}>{row.record.note}</div>}
-                  </div>
-                  <div className="mn-row-amt" style={{ textAlign: 'right' }}>
-                    <div className="fig">{aed(row.recordedSpend)}</div>
-                    <div className="ov-muted" style={{ fontSize: 11 }}>in Rokda</div>
-                  </div>
-                </div>
-                {!asking && (
-                  <div className="st-actions">
-                    {row.transactions.length > 0 && (
-                      <button type="button" className="om-btn rc-markpaid" aria-expanded={showing} onClick={() => setOpen(showing ? null : key)}>
-                        {showing ? 'Hide transactions' : `Show ${row.transactions.length} transaction${row.transactions.length === 1 ? '' : 's'}`}
-                      </button>
-                    )}
-                    {(row.status === 'unchecked' || row.status === 'waiting') && (
-                      <button type="button" className="om-btn rc-markpaid" disabled={busy === key} onClick={() => setStatus(row, 'confirmed')}>
-                        Mark done
-                      </button>
-                    )}
-                    {row.status === 'mismatch' && (
-                      <button type="button" className="om-btn rc-markpaid" onClick={() => setPending({ key, next: 'confirmed' })}>
-                        Resolve…
-                      </button>
-                    )}
-                    {closed && (
-                      <button type="button" className="om-btn rc-markpaid" onClick={() => setPending({ key, next: 'waiting' })}>
-                        Reopen…
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
 
-              {showing && (
-                <ul className="ov-muted" aria-label={`Transactions on ${row.account.name}, ${shortDate(row.periodStart)} to ${shortDate(row.statementDate)}`} style={{ listStyle: 'none', padding: 0, margin: '4px 0 8px', fontSize: 12 }}>
-                  {row.transactions.map((t) => (
-                    <li key={t.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                      <span>{`${shortDate(t.occurred_at)} · ${t.merchant?.trim() || 'No merchant'}${t.kind === 'refund' ? ' (refund)' : ''}`}</span>
-                      <span className="fig">{aed(spendDelta(t, Number(t.amount)))}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-
-              {asking && (
-                <form
-                  style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '4px 0 8px' }}
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    setStatus(row, asking, note);
-                  }}
-                >
-                  <input
-                    className="st-note"
-                    aria-label={asking === 'waiting' ? 'Why it is being reopened' : 'What was done about the difference'}
-                    placeholder={asking === 'waiting' ? 'Why reopen it? (optional)' : 'What was fixed? (optional)'}
-                    value={note}
-                    onChange={(e) => setNote(e.target.value)}
-                    style={{ flex: '1 1 200px' }}
-                  />
-                  <button type="submit" className="om-btn" disabled={busy === key}>
-                    {asking === 'waiting' ? 'Reopen' : 'Mark resolved'}
-                  </button>
-                  <button
-                    type="button"
-                    className="om-btn"
-                    onClick={() => {
-                      setPending(null);
-                      setNote('');
-                    }}
-                  >
-                    Cancel
-                  </button>
-                </form>
-              )}
-            </div>
-          );
-        })}
-      </div>
+      {cards.map((card) => (
+        <section key={card.account.id} className="st-card" aria-label={card.account.name}>
+          <header className="st-card-head">
+            <h3 className="st-card-name">{card.account.name}</h3>
+            <span className="ov-muted">
+              {`Closes on the ${ordinal(card.account.statement_day)}${card.account.due_day ? `, due on the ${ordinal(card.account.due_day)}` : ''}`}
+            </span>
+          </header>
+          {card.open.length > 0 ? (
+            <div className="st-items">{card.open.map(item)}</div>
+          ) : (
+            <div className="ov-muted st-allclear">Nothing to check.</div>
+          )}
+          {card.settled.length > 0 && (
+            <details className="st-settled" open={card.open.length === 0 && Boolean(forMonth)}>
+              <summary>{`Checked (${card.settled.length})`}</summary>
+              <div className="st-items">{card.settled.map(item)}</div>
+            </details>
+          )}
+        </section>
+      ))}
     </div>
+  );
+}
+
+// One statement: its period and status, the three figures that decide it, and
+// its actions, always in the same places so the eye and the thumb know where
+// to go.
+function StatementItem({ row, memberName, busy, open, setOpen, pending, setPending, note, setNote, setStatus }) {
+  const key = `${row.account.id}:${row.statementDate}`;
+  const status = STATUS[row.status] ?? STATUS.unchecked;
+  const closed = row.status === 'confirmed' || row.status === 'reconciled';
+  const closedBy = closed ? memberName(row.record?.closed_by_member_id) : null;
+  const asking = pending?.key === key ? pending.next : null;
+  const showing = open === key;
+  const count = row.transactions.length;
+
+  return (
+    <article className="st-item" data-testid="statement-row" data-status={row.status}>
+      <div className="st-item-head">
+        <span className="st-period">{`${shortDate(row.periodStart)} – ${shortDate(row.statementDate)}`}</span>
+        <span className={`wl-card-chip${status.warn ? ' wl-card-chip-warn' : ''}`}>{status.label}</span>
+      </div>
+      <div className="ov-muted st-meta">
+        {`Closed ${shortDate(row.statementDate)}`}
+        {row.dueDate && ` · due ${shortDate(row.dueDate)}`}
+      </div>
+
+      <dl className="st-figures">
+        <div>
+          <dt>In Rokda</dt>
+          <dd className="fig">{aed(row.recordedSpend)}</dd>
+        </div>
+        <div>
+          <dt>Statement</dt>
+          <dd className={row.statementSpend == null ? 'ov-muted' : 'fig'}>{row.statementSpend == null ? 'Not entered' : aed(row.statementSpend)}</dd>
+        </div>
+        {row.difference != null && (
+          <div>
+            <dt>Difference</dt>
+            <dd className="fig" data-tone={row.difference === 0 ? 'pos' : 'warn'}>
+              {differenceText(row)}
+            </dd>
+          </div>
+        )}
+      </dl>
+
+      {(row.statementBalance != null || (closed && row.record?.closed_at) || row.record?.note) && (
+        <div className="ov-muted st-notes">
+          {row.statementBalance != null && <div>{`Closing balance on the statement: ${aed(row.statementBalance)}`}</div>}
+          {closed && row.record?.closed_at && <div>{`${status.label}${closedBy ? ` by ${closedBy}` : ''} on ${shortDate(row.record.closed_at.slice(0, 10))}`}</div>}
+          {row.record?.note && <div>{row.record.note}</div>}
+        </div>
+      )}
+
+      {asking ? (
+        <form
+          className="st-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setStatus(row, asking, note);
+          }}
+        >
+          <input
+            className="st-note"
+            aria-label={asking === 'waiting' ? 'Why it is being reopened' : 'What was done about the difference'}
+            placeholder={asking === 'waiting' ? 'Why reopen it? (optional)' : 'What was fixed? (optional)'}
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+          />
+          <button type="submit" className="om-btn st-primary" disabled={busy === key}>
+            {asking === 'waiting' ? 'Reopen' : 'Mark resolved'}
+          </button>
+          <button
+            type="button"
+            className="om-btn"
+            onClick={() => {
+              setPending(null);
+              setNote('');
+            }}
+          >
+            Cancel
+          </button>
+        </form>
+      ) : (
+        <div className="st-actions">
+          {(row.status === 'unchecked' || row.status === 'waiting') && (
+            <button type="button" className="om-btn st-primary" disabled={busy === key} onClick={() => setStatus(row, 'confirmed')}>
+              Mark done
+            </button>
+          )}
+          {row.status === 'mismatch' && (
+            <button type="button" className="om-btn st-primary" onClick={() => setPending({ key, next: 'confirmed' })}>
+              Resolve…
+            </button>
+          )}
+          {count > 0 && (
+            <button type="button" className="om-btn" aria-expanded={showing} onClick={() => setOpen(showing ? null : key)}>
+              {showing ? 'Hide transactions' : `Show ${count} transaction${count === 1 ? '' : 's'}`}
+            </button>
+          )}
+          {closed && (
+            <button type="button" className="om-btn st-quiet" onClick={() => setPending({ key, next: 'waiting' })}>
+              Reopen…
+            </button>
+          )}
+        </div>
+      )}
+
+      {showing && (
+        <ul className="st-lines" aria-label={`Transactions on ${row.account.name}, ${shortDate(row.periodStart)} to ${shortDate(row.statementDate)}`}>
+          {row.transactions.map((t) => (
+            <li key={t.id}>
+              <span>{`${shortDate(t.occurred_at)} · ${t.merchant?.trim() || 'No merchant'}${t.kind === 'refund' ? ' (refund)' : ''}`}</span>
+              <span className="fig">{aed(spendDelta(t, Number(t.amount)))}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </article>
   );
 }

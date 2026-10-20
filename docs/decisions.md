@@ -471,6 +471,25 @@ reread each tab to know what it assumed (QA re-review, 17 Oct).
   Drawdown's starting pot, markets and return after independence. Spending
   moves into the bar on all three, because it is what each figure rests on.
 
+## Statements read card by card, figures first
+
+The statements page was one long list mixing every card's statements, each
+row a name and up to five lines of small grey text, with the buttons in a
+column on the right that moved from row to row and stacked when there were
+two. The comparison that decides a statement was a sentence, and a card's
+statements to check looked like its settled ones (SHR-338).
+
+- **One section per card,** saying when it closes and is due. What is still
+  to check comes first; what is settled folds under "Checked", so a card
+  with nothing to do takes a line.
+- **Three figures, side by side:** in Rokda, on the statement ("Not entered"
+  until it is), and the difference, in words and colour ("AED 0.01 lower in
+  Rokda", "Matches").
+- **Buttons in one place:** a row under the figures, the action that settles
+  the statement first, its transactions next, and "Reopen…" last and quiet.
+- **Nothing about the checking changed:** the same statuses, notes, bot
+  prompts and records.
+
 ## The monthly review ends in what to do next
 
 The review made a month's records right and closed it, then stopped. Nothing

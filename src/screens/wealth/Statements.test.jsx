@@ -71,12 +71,13 @@ describe('Wealth -> Statements', () => {
     });
     const rows = screen.getAllByTestId('statement-row');
     expect(within(rows[0]).getByText('Not checked')).toBeTruthy();
-    expect(within(rows[0]).getByText(/Closed 28 Sept · 29 Aug to 28 Sept · due 22 Oct/)).toBeTruthy();
+    expect(within(rows[0]).getByText('29 Aug – 28 Sept')).toBeTruthy();
+    expect(within(rows[0]).getByText('Closed 28 Sept · due 22 Oct')).toBeTruthy();
     expect(within(rows[0]).getByText(/40/)).toBeTruthy();
     // The August statement was reconciled, and Rokda agrees with it.
     const august = rows.find((r) => within(r).queryByText(/Closed 28 Aug/));
     expect(within(august).getByText('Reconciled')).toBeTruthy();
-    expect(within(august).getByText("matches the statement's AED 100.00")).toBeTruthy();
+    expect(within(august).getByText('Matches')).toBeTruthy();
     expect(within(august).queryByRole('button', { name: 'Mark done' })).toBeNull();
     expect(screen.getByText(/statements? still to check/)).toBeTruthy();
   });
@@ -119,7 +120,8 @@ describe('Wealth -> Statements', () => {
     expect(within(september).getByText('AED −50.49')).toBeTruthy();
     const august = rows.find((r) => within(r).queryByText(/Closed 28 Aug/));
     expect(within(august).getByText('AED 100.01')).toBeTruthy();
-    expect(within(august).getByText('statement AED 100.02; Rokda is AED 0.01 lower')).toBeTruthy();
+    expect(within(august).getByText('AED 100.02')).toBeTruthy();
+    expect(within(august).getByText('AED 0.01 lower in Rokda')).toBeTruthy();
   });
 
   it('shows the closing balance a statement recorded', () => {
@@ -189,5 +191,18 @@ describe('Wealth -> Statements', () => {
   it('says how to start when no card has a statement day', () => {
     renderStatements({ accounts: [{ ...CARD, statement_day: null }] });
     expect(screen.getByText('No statements yet')).toBeTruthy();
+  });
+
+  it('groups statements by card, what is to check first and what is settled folded below', () => {
+    renderStatements({
+      reconciliations: [{ id: 'r5', account_id: 'card-1', statement_date: '2026-08-28', period_start: '2026-07-29', status: 'confirmed', closed_at: '2026-09-01T10:00:00Z' }],
+    });
+    const card = screen.getByRole('region', { name: 'Bank card' });
+    expect(within(card).getByText('Closes on the 28th, due on the 22nd')).toBeTruthy();
+    const settled = card.querySelector('details.st-settled');
+    expect(within(settled).getByText('Checked (1)')).toBeTruthy();
+    expect(within(settled).getByText('Closed 28 Aug · due 22 Sept')).toBeTruthy();
+    // The September statement, still to check, is outside the fold.
+    expect(settled.contains(within(card).getByText('29 Aug – 28 Sept'))).toBe(false);
   });
 });

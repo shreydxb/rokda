@@ -378,8 +378,135 @@
   margin-bottom: 14px;
 }
 
-/* Statements: the reason given when a statement is resolved or reopened. */
+/* Statements (SHR-338): one section per card; in it, one block per statement
+   with its period and status on top, the three figures that decide it in a
+   row, and its buttons always in one row at the bottom. */
+.st {
+  max-width: 760px;
+}
+.st-month {
+  margin-top: 18px;
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+.st-summary {
+  margin-top: 18px;
+}
+.st-summary-head {
+  font-weight: 600;
+  color: var(--warn);
+}
+.st-summary-head[data-done='true'] {
+  color: var(--pos);
+}
+.st-summary .ov-muted {
+  margin-top: 4px;
+}
+.st-card {
+  margin-top: 26px;
+}
+.st-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--rule2);
+}
+.st-card-name {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.st-items {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+.st-allclear {
+  margin-top: 10px;
+}
+.st-item {
+  padding: 12px 14px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-md);
+  background: var(--raise);
+}
+.st-item[data-status='mismatch'] {
+  border-left: 2px solid var(--warn);
+}
+.st-item-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.st-period {
+  font-weight: 600;
+  font-size: 14px;
+}
+.st-meta {
+  margin-top: 2px;
+}
+.st-figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 190px));
+  gap: 10px 16px;
+  margin: 12px 0 0;
+}
+.st-figures dt {
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink3);
+}
+.st-figures dd {
+  margin: 3px 0 0;
+  font-size: 15px;
+}
+.st-figures dd.ov-muted {
+  font-size: 13px;
+}
+.st-figures dd[data-tone='pos'] {
+  color: var(--pos);
+}
+.st-figures dd[data-tone='warn'] {
+  color: var(--warn);
+}
+.st-notes {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.st-actions,
+.st-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.st-actions .om-btn,
+.st-form .om-btn {
+  font-size: 12.5px;
+  padding: 6px 12px;
+}
+.st-primary {
+  border-color: var(--accent);
+  color: var(--ink);
+}
+/* Reopening is the rare way back, so it sits last and quietest. */
+.st-quiet {
+  margin-left: auto;
+  border-color: transparent;
+  color: var(--ink3);
+}
 .st-note {
+  flex: 1 1 200px;
   border: 1px solid var(--rule);
   border-radius: var(--radius-sm);
   padding: 7px 12px;
@@ -388,10 +515,30 @@
   background: none;
   min-width: 0;
 }
-
-.st-actions {
+.st-lines {
+  list-style: none;
+  padding: 10px 0 0;
+  margin: 10px 0 0;
+  border-top: 1px solid var(--rule);
+  font-size: 12.5px;
   display: flex;
   flex-direction: column;
-  align-items: stretch;
-  gap: 6px;
+  gap: 5px;
+}
+.st-lines li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.st-settled {
+  margin-top: 10px;
+}
+.st-settled > summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  color: var(--ink3);
+  padding: 4px 0;
+}
+.st-settled > summary:hover {
+  color: var(--ink);
 }
