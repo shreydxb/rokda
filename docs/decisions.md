@@ -450,6 +450,23 @@ month.
   and the next two, which swings every average built on a few closed
   months.
 
+## Income says when pay is still to come
+
+Overview's Income is what has been recorded so far this period. Pay lands
+late in the month, so from the 1st to payday Income read 0, every month, with
+nothing to say a salary was on its way.
+
+- **Under Income, the pay still expected:** "Pay expected 25 and 30 Oct ·
+  18,000", or "More pay expected…" once some has arrived. It lists each date
+  of an expected-income reminder inside the whole month, quarter or year that
+  has no income recorded near it, by the same rule a reminder is marked
+  received (within its window, amount within 20%).
+- **The figure itself does not change.** Income stays what has been recorded;
+  adding pay that has not arrived would make "income less spending" and the
+  savings rate claim money the household does not have yet.
+- **A date past its window is left out:** it is late, not expected, and Needs
+  attention already says so.
+
 ## A month-end balance check-in over Telegram
 
 Balances are entered by hand and never derived from transactions. Without a
