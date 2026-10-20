@@ -12,6 +12,7 @@ import LifePlan from './planning/LifePlan';
 import Notes from './planning/Notes';
 import LoadFailure from './LoadFailure';
 import Freshness from './Freshness';
+import BackToReview from './BackToReview';
 import AedNote from './AedNote';
 import './Planning.css';
 
@@ -57,6 +58,7 @@ export default function Planning() {
           await Promise.all([reloadHousehold(), overview.reload(), planning.reload()]);
         }}
       />
+      <BackToReview />
       <div className="mn-tabs">
         {TABS.map((t) => (
           <button key={t.id} type="button" className="om-tab" data-active={tab === t.id} onClick={() => setTab(t.id)}>

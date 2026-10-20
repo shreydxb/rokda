@@ -45,6 +45,29 @@ export function reviewMonth(param, now = new Date()) {
   return { year: latest.getFullYear(), month: latest.getMonth() + 1 };
 }
 
+// The way back to the review from where one of its links sends you (SHR-301).
+// The link carries the month in `reviewing`, which Money, Wealth and Planning
+// read to offer "Back to the review"; the review's own `month` and Activity's
+// `review` filter mean something else.
+export const REVIEWING_PARAM = 'reviewing';
+
+export function withReviewReturn(href, { year, month }) {
+  if (!href) return href;
+  const url = new URL(href, 'https://rokda.invalid');
+  url.searchParams.set(REVIEWING_PARAM, reviewMonthParam(year, month));
+  return `${url.pathname}${url.search}`;
+}
+
+// The month a page was opened from the review for, or null. Only a month the
+// review can show counts, so a stale or hand-edited address offers nothing.
+export function reviewReturn(params, now = new Date()) {
+  const asked = params.get(REVIEWING_PARAM);
+  if (!asked) return null;
+  const month = reviewMonth(asked, now);
+  if (reviewMonthParam(month.year, month.month) !== asked) return null;
+  return { ...month, href: tabHref('/money', 'review', { month: asked }), label: new Date(month.year, month.month - 1, 1).toLocaleDateString('en-GB', { month: 'long' }) };
+}
+
 // The months either side, null where there is nothing to step to.
 export function adjacentReviewMonths({ year, month }, now = new Date()) {
   const prev = new Date(year, month - 2, 1);

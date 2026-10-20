@@ -471,6 +471,31 @@ reread each tab to know what it assumed (QA re-review, 17 Oct).
   Drawdown's starting pot, markets and return after independence. Spending
   moves into the bar on all three, because it is what each figure rests on.
 
+## The monthly review ends in what to do next
+
+The review made a month's records right and closed it, then stopped. Nothing
+said what the month meant for the plan, or what to do about it, so the review
+was something to admire rather than act on (SHR-301).
+
+- **One next step, first.** The first check still holding the month up, with
+  its link; once they are all done, the first action. A check settled on
+  another page leaves a "Back to the review" link there, carried in the
+  address (`reviewing=YYYY-MM`), so the next check is one tap away.
+- **What goes into history, before it goes.** Income, spending, saving and
+  its rate, and the net worth a close would record against the last month
+  closed. A close records today's balances, so the figure is today's, and it
+  says so; open checks are named as a reason the figures may still move. Once
+  closed, the figure is the one recorded.
+- **A few actions, most pressing first, worked out from the records:** bills
+  due in the next 30 days that pay expected and the current and savings
+  accounts won't cover, goals behind the pace their date needs, spending over
+  its budget, saving short of its target. Each goes once it no longer
+  applies, so nothing is stored. Stale balances aren't repeated here: they
+  are a check, and the next step names them.
+- **Not yet:** explaining the net-worth change by contributions, markets and
+  FX needs SHR-232's ledger first; accepting a new plan baseline and a
+  Telegram summary are left for later.
+
 ## One history for linked records
 
 A purchase, its refunds and the two sides of a transfer change together, but

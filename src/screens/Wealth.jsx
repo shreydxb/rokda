@@ -7,6 +7,7 @@ import Investments from './wealth/Investments';
 import Statements from './wealth/Statements';
 import LoadFailure from './LoadFailure';
 import Freshness from './Freshness';
+import BackToReview from './BackToReview';
 import './Wealth.css';
 
 const TABS = [
@@ -40,6 +41,7 @@ export default function Wealth() {
           await Promise.all([reloadHousehold(), data.reload()]);
         }}
       />
+      <BackToReview />
       <div className="mn-tabs">
         {TABS.map((t) => (
           <button key={t.id} type="button" className="om-tab" data-active={tab === t.id} onClick={() => setTab(t.id)}>
