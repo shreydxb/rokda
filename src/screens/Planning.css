@@ -355,3 +355,13 @@
 .fc-other[open] > summary::after {
   content: ' ▴';
 }
+
+/* Forecast: "If things change" rows that leave the year where it is. */
+.fc-nochange {
+  margin-top: 10px;
+}
+.fc-nochange > summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--ink2);
+}

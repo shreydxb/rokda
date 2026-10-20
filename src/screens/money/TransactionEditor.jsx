@@ -12,6 +12,7 @@ import { splitProblem, unallocated } from '../../lib/splits';
 import { refundCandidates, refundLinkOf, refundsOf } from '../../lib/refunds';
 import { rememberMerchantCheck, ruleLabel } from '../../lib/rules';
 import { relatedRecords } from '../../lib/editHistory';
+import { ENTRY_TYPES } from '../../lib/entryTypes';
 import RememberMerchant from './RememberMerchant';
 import EditHistory from './EditHistory';
 import './TransactionEditor.css';
@@ -615,6 +616,12 @@ export default function TransactionEditor({ tx, household, householdId, accounts
               </button>
             )}
           </div>
+          {ENTRY_TYPES[form.type] && (
+            <p className="ov-muted te-type-note">
+              {ENTRY_TYPES[form.type].meaning} {ENTRY_TYPES[form.type].result}
+              {!tx && onSwitchToTransfer && form.type !== 'transfer' && ' Moved money between your own accounts? Choose Transfer.'}
+            </p>
+          )}
 
           {pairs.length > 0 && (
             <div className="te-duplicate" role="status">

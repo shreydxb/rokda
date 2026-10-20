@@ -135,7 +135,8 @@ export default function Overview() {
   // rest of the page out of sight.
   const [attentionExpanded, setAttentionExpanded] = useState(false);
   const { shown: attentionShown, hidden: attentionHidden } = attentionPreview(attention, attentionExpanded);
-  const recent = visibleRows(transactions, scopeMemberId).slice(0, 8);
+  // A glance, not a ledger: Activity is where records are looked into (SHR-328).
+  const recent = visibleRows(transactions, scopeMemberId).slice(0, RECENT_COUNT);
 
   const lede = isEmpty
     ? 'Nothing recorded yet'
@@ -619,6 +620,11 @@ export default function Overview() {
                   ))
                 )}
               </div>
+              {recent.length > 0 && (
+                <div className="ov-link ov-list-more" role="link" tabIndex={0} onClick={() => navigate('/money')}>
+                  All records in Activity →
+                </div>
+              )}
             </div>
 
             <div>
@@ -751,6 +757,8 @@ function QualityItem({ name, ok, label, note }) {
     </div>
   );
 }
+
+const RECENT_COUNT = 5;
 
 function visibleRows(rows, scopeMemberId) {
   if (scopeMemberId === null) return rows;

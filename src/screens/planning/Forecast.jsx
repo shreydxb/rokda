@@ -368,6 +368,11 @@ export default function Forecast({ household, members = [], accounts = [], trans
     </div>
   );
 
+  // Alternatives that leave the year where it is fold into one line, so the
+  // ones that move it stand out (SHR-327).
+  const changing = scenarios.filter((x) => x.deltaYears !== 0);
+  const unchanged = scenarios.filter((x) => x.deltaYears === 0);
+
   return (
     <div>
       <BudgetBasis inputs={inputs} />
@@ -775,7 +780,7 @@ export default function Forecast({ household, members = [], accounts = [], trans
           <div className="ov-kicker" style={{ marginBottom: 14 }}>
             If things change
           </div>
-          {scenarios.map((s) => (
+          {changing.map((s) => (
             <div key={s.name} className="mn-row" style={{ cursor: 'default', display: 'block' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'baseline' }}>
                 <div style={{ fontSize: 13.5 }}>{s.name}</div>
@@ -789,6 +794,19 @@ export default function Forecast({ household, members = [], accounts = [], trans
               <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 4 }}>{s.note}</div>
             </div>
           ))}
+          {unchanged.length > 0 && (
+            <details className="fc-nochange">
+              <summary>
+                {unchanged.length} make{unchanged.length === 1 ? 's' : ''} no change
+              </summary>
+              {unchanged.map((s) => (
+                <div key={s.name} className="mn-row" style={{ cursor: 'default', display: 'block' }}>
+                  <div style={{ fontSize: 13.5 }}>{s.name}</div>
+                  <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 4 }}>{s.note}</div>
+                </div>
+              ))}
+            </details>
+          )}
           <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 10, lineHeight: 1.6 }}>
             Each line moves one assumption and holds the rest{stop ? ', and moves the year the lasts-forever target is reached' : ''}. {mode === 'real' ? 'Inflation is already stripped out, so these are years of real spending power.' : ''}
           </div>

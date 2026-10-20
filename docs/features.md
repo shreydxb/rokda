@@ -34,7 +34,8 @@ here, because this repository is public.
   (titled by its grouping, with its scale, the running period marked "so
   far", and periods with no records saying so) beside Needs attention; the
   next 30 days; net worth and cash position; data quality as one line that
-  opens; then categories, recent activity and accounts.
+  opens; then categories, the five newest records (with a link to the rest
+  in Activity) and accounts.
 - The Both / Me / Partner scope in the sidebar applies throughout (shared rows
   split evenly between the two individual scopes).
 - Needs attention: bills and expected income not yet matched, card payments
@@ -79,6 +80,11 @@ here, because this repository is public.
   categories" in the editor), each line an amount in AED, adding up to the
   record. Every category total counts each line under its own category;
   Activity shows the record once with its categories.
+- **Choosing the type** of an entry (Expense, Income, Refund, Transfer):
+  under the choice, what it is for with an everyday example, and what saving
+  it makes (one record, a refund linked to its purchase, or a transfer's two
+  sides). A new expense also says "Moved money between your own accounts?
+  Choose Transfer."
 - **Transfers** between your own accounts (paying the card, saving): two
   sides, one out and one in, for the same amount, counted as neither income
   nor spending. Add one with Transfer on a new entry; an existing record whose
@@ -163,7 +169,9 @@ here, because this repository is public.
 - **Forecast**: projection of net worth under scenario sets, with the saving
   needed by year. Once ages are set it leads with the Life plan's stop year
   and whether the plan's own stop year lasts; the lasts-forever and lean
-  targets sit under "Other ways to look at the plan".
+  targets sit under "Other ways to look at the plan". In "If things change",
+  alternatives that leave the year where it is fold into one line ("3 make
+  no change") that opens.
 - **Drawdown**: the Life plan's stress test from its stop year: how long the
   pot lasts, with a market fall early or late.
 - **Notes**: the household plan in words, private to the household.

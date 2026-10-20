@@ -426,3 +426,20 @@ describe('Forecast: the Life plan answers when work can stop', () => {
     expect(screen.getByText('To be independent by')).toBeTruthy();
   });
 });
+
+describe('Forecast: alternatives that make no change fold away', () => {
+  it('counts them on one line that opens, leaving the ones that move the year in view', () => {
+    // Already past the target, so every alternative crosses this year too.
+    renderForecast({ accounts: [{ ...ACCOUNT, balance: 10_000_000 }], holdings: [HOLDING], transactions: closedMonthTransactions(new Date()) });
+    const folded = document.querySelector('details.fc-nochange');
+    expect(folded.open).toBe(false);
+    expect(folded.querySelector('summary').textContent).toBe('3 make no change');
+    expect(folded.textContent).toMatch(/Markets return 4\.0% instead of 6\.0%/);
+  });
+
+  it('has nothing to fold when every alternative moves the year', () => {
+    renderForecast({ accounts: [ACCOUNT], holdings: [HOLDING], transactions: closedMonthTransactions(new Date()) });
+    expect(document.querySelector('details.fc-nochange')).toBeNull();
+  });
+});
+

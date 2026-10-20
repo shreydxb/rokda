@@ -420,3 +420,10 @@
 .te-rule-status.ov-warn {
   color: var(--warn);
 }
+
+/* What the chosen type means, with an example (lib/entryTypes.js). */
+.te-type-note {
+  font-size: 12.5px;
+  margin: -6px 0 0;
+  line-height: 1.6;
+}
