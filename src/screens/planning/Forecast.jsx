@@ -5,7 +5,7 @@ import { incompleteNote, netWorthSummary, startingNetWorth } from '../overviewMa
 import { isArchived } from '../../lib/accounts';
 import { unconfirmedAccounts } from '../../lib/balance';
 import { budgetPlan, closedMonths, crossingYear, fiTarget, forecastInputs, goalAt, incomesFromStop, independenceTarget, payMonthTransactions, projectYears, realReturn, requiredAnnualSaving, scenarioSets, spendThatStops } from '../../lib/forecast';
-import { agesLabel, lifePlanStop } from '../../lib/lifePlan';
+import { agesLabel, lifePlanStop, spendAfterText } from '../../lib/lifePlan';
 import BudgetBasis from './BudgetBasis';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import ForecastAssumptionsEditor from './ForecastAssumptionsEditor';
@@ -220,6 +220,8 @@ export default function Forecast({ household, members = [], accounts = [], trans
   const returnEffect = yearsDelta(planYearLive, returnEffectYear);
 
   const pct = target > 0 ? startNetWorth / target : 0;
+  // What the dates below the headline are, once the Life plan gives the answer.
+  const yearName = stop ? 'lasts-forever year' : 'independence year';
 
   // Yearly, not every third year: the crossing year is shown to the year, so
   // the chart has to be able to show that year too.
@@ -305,25 +307,79 @@ export default function Forecast({ household, members = [], accounts = [], trans
       : []),
   ];
 
+  // The target's own figure, sentence and progress: the headline until ages
+  // are set, then a stricter way to look at the plan, folded away under the
+  // Life plan's answer (SHR-324, SHR-329).
+  const targetFigure = (big) => (
+    <div>
+      <div className="ov-kicker">{stop ? 'Lasts forever' : 'Independence target'}</div>
+      <div className={big ? 'ov-hero fig' : 'fig'} style={big ? undefined : { fontSize: 28, marginTop: 6 }}>
+        <span className={big ? 'ov-hero-currency' : undefined}>{money.code}</span> {money.fmt(targetShown)}
+      </div>
+      <div style={{ fontSize: 13.5, color: 'var(--ink2)', marginTop: 10 }}>
+        {mode === 'real'
+          ? `${spendMultiple}× ${fromBudget ? 'your budgeted' : "today's"} spend of ${money.fmt(inputs.annualSpend)} a year, in today's money`
+          : `${spendMultiple}× spend, grown to ${startYear + HORIZON_YEARS} at ${selInflationPct.toFixed(1)}% inflation`}
+        {lastingIncome > 0 && `, less ${money.fmt(lastingIncome)} a year of lasting other income`}
+        {otherCount > 0 && ` · ${otherCount} other income source${otherCount === 1 ? '' : 's'} counted on Drawdown`}
+      </div>
+    </div>
+  );
+  const targetProgress = (
+    <div style={{ marginTop: 26 }}>
+      <div style={{ position: 'relative', height: 8, background: 'var(--rule)' }}>
+        <div style={{ width: `${Math.min(100, pct * 100).toFixed(1)}%`, height: '100%', background: 'var(--accent)' }} />
+        {leanTarget && (
+          <div style={{ position: 'absolute', left: `${Math.min(100, (leanTarget / target) * 100).toFixed(1)}%`, top: -5, bottom: -5, width: 1, background: 'var(--ink2)' }} />
+        )}
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10, fontSize: 12, color: 'var(--ink3)', flexWrap: 'wrap', gap: 12 }}>
+        <span>
+          <span style={{ color: 'var(--ink)' }}>{formatPct(pct)}</span> of the way there · {money.fmtBalance(startNetWorth)} today
+          {basisIncomplete && ` · incomplete, ${basisIncomplete}`}
+          {basisProvisional && ' · provisional, some balances are unconfirmed'}
+        </span>
+        {leanTarget && (
+          <span>
+            Lean number {money.fmt(leanTarget)} marked · essentials only, reached {leanYear ?? 'beyond this projection'}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+  // With ages set, the Life plan's stop year is the answer here, as on the
+  // Plan summary: what it assumes about spending, and whether the household's
+  // own stop year lasts. Shown in today's money whichever view is selected.
+  const stopFigure = stop && (
+    <div>
+      <div className="ov-kicker">Stop working</div>
+      <div className={`ov-hero fig ${stop.earliest === null ? 'ov-neg' : ''}`}>{stop.earliest ?? 'No year lasts'}</div>
+      <div style={{ fontSize: 13.5, color: 'var(--ink2)', marginTop: 10, maxWidth: '84ch', lineHeight: 1.6 }}>
+        {stop.earliest !== null
+          ? `The earliest year work can stop: ${agesLabel(stop.ages)}, ${spendAfterText(stop, (v) => `${money.code} ${money.fmt(v)}`)}, and the money lasts to ${stop.endYear}.`
+          : `A goal falls short while still working, so no year to stop work lasts to ${stop.endYear}.`}
+      </div>
+      <div className="ov-muted" style={{ fontSize: 12, marginTop: 6 }}>
+        From your life plan, in today's money
+        {fcSet !== 'baseline' && `, on the ${selected.label} scenario`}
+        {basisIncomplete && ` · incomplete, ${basisIncomplete}`}
+        {basisProvisional && ' · provisional, some balances are unconfirmed'}
+      </div>
+    </div>
+  );
+
   return (
     <div>
       <BudgetBasis inputs={inputs} />
       <section className="pl-hero" style={{ marginTop: 22 }}>
         <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 20, flexWrap: 'wrap' }}>
-          <div>
-            <div className="ov-kicker">Independence target</div>
-            <div className="ov-hero fig">
-              <span className="ov-hero-currency">{money.code}</span> {money.fmt(targetShown)}
-            </div>
-            <div style={{ fontSize: 13.5, color: 'var(--ink2)', marginTop: 10 }}>
-              {mode === 'real'
-                ? `${spendMultiple}× ${fromBudget ? 'your budgeted' : "today's"} spend of ${money.fmt(inputs.annualSpend)} a year, in today's money`
-                : `${spendMultiple}× spend, grown to ${startYear + HORIZON_YEARS} at ${selInflationPct.toFixed(1)}% inflation`}
-              {lastingIncome > 0 && `, less ${money.fmt(lastingIncome)} a year of lasting other income`}
-              {otherCount > 0 && ` · ${otherCount} other income source${otherCount === 1 ? '' : 's'} counted on Drawdown`}
-            </div>
-          </div>
+          {stop ? stopFigure : targetFigure(true)}
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            {stop && onOpenTab && (
+              <button type="button" className="om-btn" onClick={() => onOpenTab('life')}>
+                Open Life plan
+              </button>
+            )}
             {[
               ['real', "Today's money"],
               ['nominal', 'Nominal'],
@@ -337,7 +393,6 @@ export default function Forecast({ household, members = [], accounts = [], trans
             </button>
           </div>
         </div>
-
         <div
           style={{
             display: 'flex',
@@ -394,63 +449,55 @@ export default function Forecast({ household, members = [], accounts = [], trans
           </div>
         </div>
 
-        <div style={{ marginTop: 26 }}>
-          <div style={{ position: 'relative', height: 8, background: 'var(--rule)' }}>
-            <div style={{ width: `${Math.min(100, pct * 100).toFixed(1)}%`, height: '100%', background: 'var(--accent)' }} />
-            {leanTarget && (
-              <div style={{ position: 'absolute', left: `${Math.min(100, (leanTarget / target) * 100).toFixed(1)}%`, top: -5, bottom: -5, width: 1, background: 'var(--ink2)' }} />
-            )}
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10, fontSize: 12, color: 'var(--ink3)', flexWrap: 'wrap', gap: 12 }}>
-            <span>
-              <span style={{ color: 'var(--ink)' }}>{formatPct(pct)}</span> of the way there · {money.fmtBalance(startNetWorth)} today
-              {basisIncomplete && ` · incomplete, ${basisIncomplete}`}
-              {basisProvisional && ' · provisional, some balances are unconfirmed'}
-            </span>
-            {leanTarget && (
-              <span>
-                Lean number {money.fmt(leanTarget)} marked · essentials only, reached {leanYear ?? 'beyond this projection'}
-              </span>
-            )}
-          </div>
-        </div>
+        {stop ? (
+          <details className="fc-other">
+            <summary>Other ways to look at the plan</summary>
+            <div className="ov-muted" style={{ fontSize: 12, marginTop: 12, lineHeight: 1.7, maxWidth: '84ch' }}>
+              A stricter test than the life plan. The life plan may spend the pot down to nothing by {stop.endYear}; this target is a pot
+              that never shrinks, drawn at {selSwrPct.toFixed(1)}% a year for good, on today's spending rather than spending after work
+              stops. What it would take, the projection and the scenarios further down measure against it.
+            </div>
+            <div style={{ marginTop: 16 }}>{targetFigure(false)}</div>
+            {targetProgress}
+            <div style={{ fontSize: 13.5, marginTop: 14 }}>
+              Lasts forever by <b className="fig">{fireYear ?? '60+ yrs out'}</b>
+              <span className="ov-muted">{fireYear ? ` · ${fireYear - startYear} years from now` : ' · beyond what a 60-year projection shows'}</span>
+            </div>
+          </details>
+        ) : (
+          targetProgress
+        )}
       </section>
 
-      {stop && (
-        <div className="fc-lifeplan" style={{ marginTop: 22, border: '1px solid var(--rule2)', borderRadius: 3, padding: '14px 18px', display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
-          <div style={{ fontSize: 13.5, lineHeight: 1.6, maxWidth: '84ch' }}>
-            {stop.earliest !== null ? (
-              <>
-                Your life plan: you could stop working in <b className="fig">{stop.earliest}</b> ({agesLabel(stop.ages)}), with the money lasting to {stop.endYear}.
-              </>
-            ) : (
-              <>Your life plan: no stop-work year lasts, because a goal falls short while still working.</>
-            )}{' '}
-            <span className="ov-muted">The target here is stricter: money that lasts forever at {selSwrPct.toFixed(1)}% a year{fireYear ? `, reached in ${fireYear}` : ''}.</span>
-          </div>
-          {onOpenTab && (
-            <button type="button" className="om-btn" onClick={() => onOpenTab('life')}>
-              Open Life plan
-            </button>
-          )}
-        </div>
-      )}
-
       <div className="fc-kpis">
-        <div className="fc-kpi">
-          <div style={{ fontSize: 12, color: 'var(--ink2)' }}>{stop ? 'Lasts forever by' : 'Independent by'}</div>
-          <div className="fig" style={{ fontSize: 28, marginTop: 6 }}>
-            {fireYear ?? '60+ yrs out'}
+        {stop ? (
+          <div className="fc-kpi">
+            <div style={{ fontSize: 12, color: 'var(--ink2)' }}>Your plan stops work in</div>
+            <div className="fig" style={{ fontSize: 28, marginTop: 6 }}>
+              {stop.stopYear}
+            </div>
+            <div className={`ov-muted ${stop.lasts ? '' : 'ov-neg'}`} style={{ fontSize: 11.5, marginTop: 5 }}>
+              {stop.lasts ? `The money lasts to ${stop.endYear}` : `The money runs out in ${stop.shortYear}`}
+            </div>
           </div>
-          <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 5 }}>{fireYear ? `${fireYear - startYear} years from now` : 'Beyond what a 60-year projection shows'}</div>
-        </div>
+        ) : (
+          <div className="fc-kpi">
+            <div style={{ fontSize: 12, color: 'var(--ink2)' }}>Independent by</div>
+            <div className="fig" style={{ fontSize: 28, marginTop: 6 }}>
+              {fireYear ?? '60+ yrs out'}
+            </div>
+            <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 5 }}>{fireYear ? `${fireYear - startYear} years from now` : 'Beyond what a 60-year projection shows'}</div>
+          </div>
+        )}
         <div className="fc-kpi">
           <div style={{ fontSize: 12, color: 'var(--ink2)' }}>Against baseline</div>
           <div className="fig" style={{ fontSize: 28, marginTop: 6, color: aheadBy > 0 ? 'var(--pos)' : aheadBy < 0 ? 'var(--neg)' : 'var(--ink)' }}>
             {aheadBy !== null ? deltaLabel(aheadBy) : '—'}
           </div>
           <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 5 }}>
-            {hasBaseline ? `Baseline assumptions, applied to today's numbers, cross in ${planYear ?? '60+ yrs'}` : 'No baseline saved yet — set assumptions once to start comparing'}
+            {hasBaseline
+              ? `Baseline assumptions, applied to today's numbers, ${stop ? 'reach the lasts-forever target' : 'cross'} in ${planYear ?? '60+ yrs'}`
+              : 'No baseline saved yet — set assumptions once to start comparing'}
           </div>
         </div>
         <div className="fc-kpi">
@@ -472,7 +519,7 @@ export default function Forecast({ household, members = [], accounts = [], trans
       <section style={{ marginTop: 34 }}>
         <div className="ov-kicker">What it would take</div>
         <div className="fc-solve">
-          <span>To be independent by</span>
+          <span>{stop ? 'To reach the lasts-forever target by' : 'To be independent by'}</span>
           <span className="fc-solve-year">
             <button
               type="button"
@@ -562,7 +609,7 @@ export default function Forecast({ household, members = [], accounts = [], trans
           items={[
             ...PARTS.map((part) => ({ label: part.label, color: part.color })),
             {
-              label: `Target ${money.code} ${money.fmt(target)}${mode === 'real' ? '' : ' today, grown with inflation'} · crossed ${fireYear ?? 'beyond this projection'}${
+              label: `${stop ? 'Lasts-forever target' : 'Target'} ${money.code} ${money.fmt(target)}${mode === 'real' ? '' : ' today, grown with inflation'} · crossed ${fireYear ?? 'beyond this projection'}${
                 hasBaseline ? ` · baseline crosses ${planYear ?? 'beyond this projection'}` : ''
               }`,
               color: 'var(--ink2)',
@@ -649,7 +696,7 @@ export default function Forecast({ household, members = [], accounts = [], trans
           ]}
         />
         <div className="fc-crossings">
-          <span className="ov-muted">Independent by</span>
+          <span className="ov-muted">{stop ? 'Lasts forever by' : 'Independent by'}</span>
           {runs.map((r) => (
             <button key={r.key} type="button" className="om-seg" data-active={fcSet === r.key} onClick={() => setFcSet(r.key)}>
               {r.label} <b className="fig">{r.year ?? '60+ yrs'}</b>
@@ -690,7 +737,7 @@ export default function Forecast({ household, members = [], accounts = [], trans
                   {savingEffect === null
                     ? '—'
                     : savingEffect === 0
-                      ? 'No effect on the independence year'
+                      ? `No effect on the ${yearName}`
                       : `${savingEffect < 0 ? 'Pulls the date forward' : 'Pushes the date back'} ${Math.abs(savingEffect)} yr${Math.abs(savingEffect) === 1 ? '' : 's'}`}
                 </div>
               </div>
@@ -709,7 +756,7 @@ export default function Forecast({ household, members = [], accounts = [], trans
                   {returnEffect === null
                     ? '—'
                     : returnEffect === 0
-                      ? 'No effect on the independence year'
+                      ? `No effect on the ${yearName}`
                       : `${returnEffect < 0 ? 'Pulls the date forward' : 'Pushes the date back'} ${Math.abs(returnEffect)} yr${Math.abs(returnEffect) === 1 ? '' : 's'}`}
                 </div>
               </div>
@@ -743,7 +790,7 @@ export default function Forecast({ household, members = [], accounts = [], trans
             </div>
           ))}
           <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 10, lineHeight: 1.6 }}>
-            Each line moves one assumption and holds the rest. {mode === 'real' ? 'Inflation is already stripped out, so these are years of real spending power.' : ''}
+            Each line moves one assumption and holds the rest{stop ? ', and moves the year the lasts-forever target is reached' : ''}. {mode === 'real' ? 'Inflation is already stripped out, so these are years of real spending power.' : ''}
           </div>
         </div>
       </div>

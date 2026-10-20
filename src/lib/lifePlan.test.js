@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { agesIn, agesLabel, datedIncomesOnTimeline, earliestStop, extraSavingNeeded, goalsOnTimeline, lifePlan, lifePlanBasis, lifePlanStop, maxRetirementSpend, planEndYear, planPeople, potNeededAt } from './lifePlan';
+import { agesIn, agesLabel, datedIncomesOnTimeline, earliestStop, extraSavingNeeded, goalsOnTimeline, lifePlan, lifePlanBasis, lifePlanStop, maxRetirementSpend, planEndYear, planPeople, potNeededAt, spendAfterText } from './lifePlan';
 import { projectYears, realReturn } from './forecast';
 
 const people = [
@@ -202,6 +202,23 @@ describe('lifePlanStop: the one answer to when work can stop', () => {
     expect(stop.endYear).toBe(2079);
     expect(agesLabel(stop.ages)).toBe(`Partner A ${stop.earliest - 1994} · Partner B ${stop.earliest - 1994}`);
     expect(lifePlan({ ...basis.args, retireYear: stop.earliest }).lasts).toBe(true);
+  });
+
+  it('carries what the answer assumes: spending after work stops, and whether the saved stop year lasts', () => {
+    const stop = lifePlanStop(args);
+    expect(stop).toMatchObject({ spend: 48000, spendKey: 'today', spendLabel: "Today's", lasts: true, shortYear: null });
+    const short = lifePlanStop({ ...args, assumptions: { retirement_year: 2027, retirement_annual_spend: 500_000 } });
+    expect(short).toMatchObject({ spend: 500_000, spendKey: 'planned', lasts: false });
+    expect(short.shortYear).toBeGreaterThanOrEqual(2027);
+  });
+
+  it('says in words how spending after work stops was chosen', () => {
+    const fmt = (v) => `AED ${v}`;
+    expect(spendAfterText({ spend: 1, spendKey: 'planned', spendLabel: 'Planned' }, fmt)).toBe('spending AED 1 a year after work stops (your plan)');
+    expect(spendAfterText({ spend: 1, spendKey: 'less', spendLabel: 'Less what stops' }, fmt)).toBe("spending AED 1 a year after work stops (today's, less what stops)");
+    expect(spendAfterText({ spend: 1, spendKey: 'today', spendLabel: "Today's" }, fmt)).toBe('spending AED 1 a year after work stops (as today)');
+    expect(spendAfterText({ spend: 1, spendKey: 'today', spendLabel: 'Budgeted' }, fmt)).toBe('spending AED 1 a year after work stops (as budgeted)');
+    expect(spendAfterText({ spend: 1, spendKey: 'lean', spendLabel: 'Essentials' }, fmt)).toBe('spending AED 1 a year after work stops (essentials only)');
   });
 
   it('has no answer until someone\'s age is set, or with nothing to project from', () => {

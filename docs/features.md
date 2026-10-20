@@ -142,8 +142,9 @@ here, because this repository is public.
 
 ## Planning (`/planning`)
 
-- **Plan**: one page answering "are we on track", including the Stop working
-  card from the Life plan and linked debts.
+- **Plan**: one page answering "are we on track". Once ages are set it opens
+  with the Life plan's Stop working card (the year, the ages then, the
+  spending after work stops it assumes), then goals and linked debts.
 - **Life plan**: a year-by-year timeline from today to the last life
   expectancy: saving and growth while working, each goal paid in its year,
   dated lump sums (policy maturities) and later income, then spending once
@@ -153,7 +154,9 @@ here, because this repository is public.
   priority order. One monthly figure per goal and in total.
 - **Debt payoff**: avalanche / snowball / custom order, with extra payments.
 - **Forecast**: projection of net worth under scenario sets, with the saving
-  needed by year.
+  needed by year. Once ages are set it leads with the Life plan's stop year
+  and whether the plan's own stop year lasts; the lasts-forever and lean
+  targets sit under "Other ways to look at the plan".
 - **Drawdown**: the Life plan's stress test from its stop year: how long the
   pot lasts, with a market fall early or late.
 - **Notes**: the household plan in words, private to the household.

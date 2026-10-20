@@ -5,7 +5,7 @@ import { formatMoney, formatPct } from '../../lib/money';
 import { scopedGoalRows } from '../../lib/goals';
 import { debtsWithAccounts, orderDebts, simulatePayoffPlan } from '../../lib/debt';
 import { budgetPlan, closedMonths, crossingYear, forecastInputs, incomesFromStop, independenceTarget, payMonthTransactions, realReturn, spendThatStops } from '../../lib/forecast';
-import { agesLabel, lifePlanStop } from '../../lib/lifePlan';
+import { agesLabel, lifePlanStop, spendAfterText } from '../../lib/lifePlan';
 import { incompleteNote, netWorthSummary, startingNetWorth } from '../overviewMath';
 
 const DEFAULTS = { nominal_return_pct: 6.0, inflation_pct: 2.5, safe_withdrawal_pct: 4.0 };
@@ -148,6 +148,47 @@ export default function PlanSummary({ household = null, members, me, accounts, t
 
   const isEmpty = goals.length === 0 && debts.length === 0 && !forecast.ready;
 
+  // The answer to when work can stop: the Life plan's year once ages are set,
+  // and then the first card, with what it assumes about spending (SHR-324).
+  // Before that, the independence year, after goals and debt as it always was.
+  const answerCard = (
+    stop ? (
+      <SummaryCard
+        label="Stop working"
+        figure={stop.earliest !== null ? String(stop.earliest) : 'No year lasts'}
+        note={
+          stop.earliest !== null
+            ? `${agesLabel(stop.ages)} · the money lasts to ${stop.endYear} · ${spendAfterText(stop, (v) => `AED ${formatMoney(v)}`)}${stop.earliest > stop.stopYear ? ` · not by your plan's ${stop.stopYear}` : ''}${
+                basisIncomplete ? ` · incomplete, ${basisIncomplete}` : ''
+              }${forecast.source === 'budget' ? ' · from your budget' : ''}`
+            : 'A goal falls short while still working'
+        }
+        cta="Life plan"
+        onClick={() => onOpenTab('life')}
+      />
+    ) : (
+      <SummaryCard
+        label="Independence"
+        figure={forecast.ready ? String(fireYear ?? '60+ yrs out') : '—'}
+        progress={forecast.ready && fireTarget > 0 ? startNetWorth / fireTarget : null}
+        note={
+          forecast.ready
+            ? // The progress figure rests on a net worth that skips any
+              // account with no AED conversion, so it reads high when one
+              // of those is a debt (QA #4), and any holding never valued
+              // (SHR-292). Say so here rather than only on Forecast, since
+              // this card is what most people look at.
+              `${formatPct(startNetWorth / fireTarget)} of the way to ${formatMoney(fireTarget)}${
+                basisIncomplete ? ` · incomplete, ${basisIncomplete}` : ''
+              }${forecast.source === 'budget' ? ' · from your budget' : ''}`
+            : 'Not enough data to project'
+        }
+        cta="Forecast"
+        onClick={() => onOpenTab('forecast')}
+      />
+    )
+  );
+
   if (loading) return <div className="ov-skel" aria-busy="true" />;
 
   if (isEmpty) {
@@ -172,6 +213,7 @@ export default function PlanSummary({ household = null, members, me, accounts, t
   return (
     <div>
       <section className="ov-quality-grid" style={{ marginTop: 22, rowGap: 26 }}>
+        {stop && answerCard}
         <SummaryCard
           label="Goals"
           figure={goalRows.length > 0 ? formatMoney(goalsSaved) : '—'}
@@ -199,41 +241,7 @@ export default function PlanSummary({ household = null, members, me, accounts, t
           cta="Debt payoff"
           onClick={() => onOpenTab('debt')}
         />
-        {stop ? (
-          <SummaryCard
-            label="Stop working"
-            figure={stop.earliest !== null ? String(stop.earliest) : 'No year lasts'}
-            note={
-              stop.earliest !== null
-                ? `${agesLabel(stop.ages)} · the money lasts to ${stop.endYear}${stop.earliest > stop.stopYear ? ` · not by your plan's ${stop.stopYear}` : ''}${
-                    basisIncomplete ? ` · incomplete, ${basisIncomplete}` : ''
-                  }${forecast.source === 'budget' ? ' · from your budget' : ''}`
-                : 'A goal falls short while still working'
-            }
-            cta="Life plan"
-            onClick={() => onOpenTab('life')}
-          />
-        ) : (
-          <SummaryCard
-            label="Independence"
-            figure={forecast.ready ? String(fireYear ?? '60+ yrs out') : '—'}
-            progress={forecast.ready && fireTarget > 0 ? startNetWorth / fireTarget : null}
-            note={
-              forecast.ready
-                ? // The progress figure rests on a net worth that skips any
-                  // account with no AED conversion, so it reads high when one
-                  // of those is a debt (QA #4), and any holding never valued
-                  // (SHR-292). Say so here rather than only on Forecast, since
-                  // this card is what most people look at.
-                  `${formatPct(startNetWorth / fireTarget)} of the way to ${formatMoney(fireTarget)}${
-                    basisIncomplete ? ` · incomplete, ${basisIncomplete}` : ''
-                  }${forecast.source === 'budget' ? ' · from your budget' : ''}`
-                : 'Not enough data to project'
-            }
-            cta="Forecast"
-            onClick={() => onOpenTab('forecast')}
-          />
-        )}
+        {!stop && answerCard}
       </section>
 
       <section style={{ marginTop: 40 }}>

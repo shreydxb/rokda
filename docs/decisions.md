@@ -313,6 +313,28 @@ question.
   they cannot drift on returns, spending, goals or other income. Forecast runs
   it on the scenario it has selected; the Plan summary on the baseline.
 
+## Forecast leads with the stop year
+
+With ages set, Forecast still opened on the lasts-forever target, with the
+Life plan's year in a box below it and a third year, the lean number, beside
+the bar. Each was defensible; the reader had to work out which one answered
+"when can we stop working" (QA re-review, 17 Oct).
+
+- **The Life plan's year is the headline,** with the ages then, the spending
+  after work stops it assumes and how it was chosen (as today, less what
+  stops, your plan, essentials only), and the year the money lasts to. The
+  first figure under it says whether the plan's own stop year lasts, or the
+  year it runs out.
+- **The lasts-forever target folds away** under "Other ways to look at the
+  plan", with the lean number, the progress bar and the year it is reached,
+  and a line on why it is stricter. Nothing is removed. The sections below
+  (what it would take, the projection, scenarios) still measure against it,
+  and now say "lasts-forever target" rather than "independent by".
+- **The Plan summary puts Stop working first,** ahead of goals and debt, and
+  names the spending it assumes.
+- **Before ages are set, nothing changes:** the independence target is the
+  answer, as it was.
+
 ## A debt's balance lives in its loan account
 
 Debt payoff kept its own balances, and accounts kept theirs. A loan entered
