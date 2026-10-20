@@ -951,3 +951,101 @@
   line-height: 1;
   padding: 0;
 }
+
+/* Import: a statement from a CSV file (money/Import.jsx). */
+.im {
+  margin-top: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.im-lede {
+  font-size: 13px;
+  line-height: 1.6;
+  max-width: 80ch;
+  margin: 0;
+}
+.im-message {
+  font-size: 13px;
+  margin: 0;
+  padding: 10px 14px;
+  border-left: 2px solid var(--pos);
+  background: var(--raise);
+}
+.im-choose,
+.im-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+}
+.im-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--rule);
+}
+.im-table-wrap {
+  overflow-x: auto;
+  max-height: 520px;
+  overflow-y: auto;
+  border: 1px solid var(--rule);
+}
+.im-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 12px;
+}
+.im-table th,
+.im-table td {
+  text-align: left;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+  white-space: nowrap;
+}
+.im-table td:nth-child(3) {
+  white-space: normal;
+  min-width: 180px;
+}
+.im-table th {
+  position: sticky;
+  top: 0;
+  background: var(--canvas);
+  color: var(--ink3);
+  font-weight: 400;
+}
+.im-review tr[data-action='skip'] td {
+  color: var(--ink3);
+}
+.im-review tr[data-problem='true'] td {
+  background: color-mix(in srgb, var(--neg) 8%, transparent);
+}
+.im-row-note {
+  font-size: 11.5px;
+  margin-top: 3px;
+}
+.im-note,
+.im-summary {
+  font-size: 12.5px;
+  margin: 0;
+  line-height: 1.6;
+}
+.im-confirm {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 12.5px;
+}
+.im-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.im-batch {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}

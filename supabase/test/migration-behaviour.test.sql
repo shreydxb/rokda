@@ -2520,4 +2520,137 @@ begin
   raise notice 'refund allocation ok: a linked refund''s lines match its purchase''s share to the cent, and follow it when it changes';
 end $$;
 
+-- CSV statement imports (SHR-302): one reviewed batch, committed together,
+-- importable once, and undone without taking work done since.
+do $$
+declare
+  hh constant uuid := '11111111-1111-1111-1111-111111111111';
+  card constant uuid := '33333333-3333-3333-3333-333333333333';
+  bank constant uuid := '33333333-3333-3333-3333-3333333333c1';
+  earlier constant uuid := '44444444-4444-4444-4444-4444444444c1';
+  rows jsonb;
+  result jsonb;
+  again jsonb;
+  batch uuid;
+  n int;
+  kept uuid;
+  linked uuid;
+begin
+  insert into accounts (id, household_id, name, type, balance, is_shared) values (bank, hh, 'Import bank', 'checking', 0, true);
+  -- A card payment already recorded from the bank's side, which the card
+  -- statement's payment row is joined to rather than recorded again.
+  insert into transactions (id, household_id, account_id, amount, kind, merchant, occurred_at, is_shared)
+  values (earlier, hh, bank, -500, 'expense', 'Card payment', '2026-09-20', true);
+
+  rows := jsonb_build_array(
+    jsonb_build_object('occurred_at', '2026-09-02', 'amount', -120.5, 'kind', 'expense', 'merchant', 'Grocer', 'import_key', 'k1'),
+    jsonb_build_object('occurred_at', '2026-09-02', 'amount', -120.5, 'kind', 'expense', 'merchant', 'Grocer', 'import_key', 'k1#2'),
+    jsonb_build_object('occurred_at', '2026-09-05', 'amount', 40, 'kind', 'refund', 'merchant', 'Shop', 'import_key', 'k3'),
+    jsonb_build_object('occurred_at', '2026-09-21', 'amount', 500, 'kind', 'transfer', 'merchant', 'Payment received', 'import_key', 'k4', 'pair_transaction_id', earlier),
+    jsonb_build_object('occurred_at', '2026-09-25', 'amount', 200, 'kind', 'transfer', 'merchant', 'Top up', 'import_key', 'k5', 'other_account_id', bank),
+    jsonb_build_object('occurred_at', '2026-09-28', 'amount', -9.99, 'kind', 'expense', 'merchant', 'Streaming', 'import_key', 'k6', 'currency', 'USD', 'native_amount', -2.72, 'aed_estimated', true)
+  );
+  result := commit_import(hh, card, 'september.csv', rows, 8, '2026-09-01', '2026-09-30', -1000, -1490.99);
+  batch := (result ->> 'batch_id')::uuid;
+  if (result ->> 'imported')::int <> 6 then raise exception 'csv import FAILED: imported %, expected 6', result ->> 'imported'; end if;
+  if (select imported_count from import_batches where id = batch) <> 6 or (select skipped_count from import_batches where id = batch) <> 2 then
+    raise exception 'csv import FAILED: the batch did not count 6 imported and 2 not imported';
+  end if;
+  -- Two identical rows in one statement are two purchases, kept apart by their keys.
+  select count(*) into n from transactions where account_id = card and import_batch_id = batch and merchant = 'Grocer';
+  if n <> 2 then raise exception 'csv import FAILED: % identical statement rows were imported, expected 2', n; end if;
+  -- The payment was joined to the bank's record; the top-up got its other side.
+  if (select kind from transactions where id = earlier) <> 'transfer' then
+    raise exception 'csv import FAILED: the card payment was not joined to the bank''s record of it';
+  end if;
+  select count(*) into n from transactions where import_batch_id = batch and account_id = bank;
+  if n <> 1 then raise exception 'csv import FAILED: % other sides were added on the bank, expected 1 (the top-up)', n; end if;
+  if (select native_amount from transactions where import_key = 'k6') <> -2.72 then
+    raise exception 'csv import FAILED: the dollar amount was not kept beside the AED';
+  end if;
+  set constraints all immediate;
+  set constraints all deferred;
+
+  -- The same statement again adds nothing.
+  again := commit_import(hh, card, 'september.csv', rows, 8);
+  if (again ->> 'imported')::int <> 0 or (again ->> 'already')::int <> 6 then
+    raise exception 'csv import FAILED: importing the statement twice added % rows', again ->> 'imported';
+  end if;
+
+  -- All or nothing: a bad row leaves no batch and no rows.
+  select count(*) into n from import_batches;
+  begin
+    perform commit_import(hh, card, 'bad.csv', jsonb_build_array(
+      jsonb_build_object('occurred_at', '2026-10-01', 'amount', -10, 'kind', 'expense', 'import_key', 'b1'),
+      jsonb_build_object('occurred_at', '2026-10-02', 'amount', 10, 'kind', 'expense', 'import_key', 'b2')
+    ), 2);
+    raise exception 'csv import FAILED: an expense with money coming in was accepted';
+  exception when invalid_parameter_value then null;
+  end;
+  if (select count(*) from import_batches) <> n or exists (select 1 from transactions where import_key = 'b1') then
+    raise exception 'csv import FAILED: a refused batch left rows behind';
+  end if;
+
+  update accounts set archived_at = now() where id = bank;
+  begin
+    perform commit_import(hh, bank, 'closed.csv', rows, 8);
+    raise exception 'csv import FAILED: a closed account took an import';
+  exception when invalid_parameter_value then null;
+  end;
+  update accounts set archived_at = null where id = bank;
+
+  -- Undo, after someone has changed one row since. The import is moved an
+  -- hour back first, rows and batch alike: inside this one test transaction
+  -- every now() is the same instant, so "changed since" needs a gap.
+  update import_batches set created_at = created_at - interval '1 hour' where id = batch;
+  set constraints all immediate;
+  alter table transactions disable trigger transactions_touch_updated_at;
+  update transactions set updated_at = updated_at - interval '1 hour' where import_batch_id = batch or id = earlier;
+  set constraints all immediate;
+  alter table transactions enable trigger transactions_touch_updated_at;
+  set constraints all deferred;
+  select id into kept from transactions where import_key = 'k3';
+  update transactions set merchant = 'Shop (returned shoes)' where id = kept;
+  select id into linked from transactions where import_key = 'k4';
+  result := undo_import(batch);
+  if (result ->> 'kept')::int <> 2 then
+    raise exception 'csv undo FAILED: kept %, expected the changed refund and the payment joined to an earlier record', result ->> 'kept';
+  end if;
+  if not exists (select 1 from transactions where id = kept) or not exists (select 1 from transactions where id = linked) then
+    raise exception 'csv undo FAILED: it removed work done after the import';
+  end if;
+  if exists (select 1 from transactions where import_batch_id = batch and id not in (kept, linked)) then
+    raise exception 'csv undo FAILED: it left untouched imported rows';
+  end if;
+  if (result ->> 'removed')::int <> 5 then
+    raise exception 'csv undo FAILED: removed %, expected 5 (three rows, and the top-up''s two sides)', result ->> 'removed';
+  end if;
+  if (select status from import_batches where id = batch) <> 'undone' or (select kept_on_undo from import_batches where id = batch) <> 2 then
+    raise exception 'csv undo FAILED: the batch was not marked undone with what it kept';
+  end if;
+  set constraints all immediate;
+  set constraints all deferred;
+
+  begin
+    perform undo_import(batch);
+    raise exception 'csv undo FAILED: an import was undone twice';
+  exception when invalid_parameter_value then null;
+  end;
+
+  -- What the undo removed can be imported again.
+  again := commit_import(hh, card, 'september.csv', rows, 8);
+  if (again ->> 'imported')::int <> 4 then
+    raise exception 'csv import FAILED: after an undo, % rows came back, expected the 4 it removed', again ->> 'imported';
+  end if;
+  set constraints all immediate;
+  set constraints all deferred;
+
+  delete from transaction_links where from_transaction_id in (select id from transactions where account_id in (card, bank) and occurred_at >= '2026-09-01')
+                                  or to_transaction_id in (select id from transactions where account_id in (card, bank) and occurred_at >= '2026-09-01');
+  delete from transactions where account_id in (card, bank) and occurred_at >= '2026-09-01';
+  delete from import_batches where household_id = hh;
+  delete from accounts where id = bank;
+  raise notice 'csv import ok: committed together, imported once, undone without taking later work';
+end $$;
+
 rollback;

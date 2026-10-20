@@ -91,6 +91,20 @@ here, because this repository is public.
   other side is already in the ledger offers "Make these one transfer".
   Editing or deleting a transfer changes both sides; Unlink makes them an
   expense and an income again.
+- **Import** a statement from a CSV file: choose the account and the file,
+  check how its columns are read (date, description, one amount or money out
+  and money in, day-first or month-first dates, decimal point or comma, and
+  whether money out is written positive, as on most card statements), then
+  review every line before importing. Each line becomes an expense, income,
+  refund or transfer, or is left out, with a category from the household's
+  rules or from how the merchant was filed before. Left out by default: lines
+  that can't be read (each says why), lines already imported, and lines that
+  look already recorded. A transfer joins the other side already recorded on
+  another account, or adds it. The statement's opening and closing balances,
+  when entered, are compared with the file's lines and any difference is
+  shown, not written off. The kept lines are imported together or not at all;
+  importing the same file again adds nothing; Earlier imports lists each one
+  with an Undo that leaves records changed or joined to others since.
 - **Refunds** are linked to the purchase they return: a refund's editor
   offers earlier purchases from the same shop or on the same account (within
   four months, with enough not yet refunded), and saving links the chosen one.
