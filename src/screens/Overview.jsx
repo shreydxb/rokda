@@ -6,6 +6,7 @@ import { resolveScopeMemberId } from '../lib/scope';
 import { formatPct } from '../lib/money';
 import { PERIOD_LABELS } from '../lib/period';
 import { nativeAmountLabel, upcomingItems } from '../lib/recurring';
+import { expectedDatesLabel, expectedIncome } from '../lib/expectedIncome';
 import { activityHref, bucketRange, isoDay, tabHref } from '../lib/activityLink';
 import { buildNetWorthSeries, changeOverMonths } from '../lib/netWorth';
 import { ATTENTION_PREVIEW_COUNT as ATTENTION_FOLD, attentionHref, attentionPreview, buildAttentionItems } from '../lib/attention';
@@ -85,6 +86,11 @@ export default function Overview() {
   const nwChange12mo = changeOverMonths(nwSeries, 12);
   const p = useMemo(() => periodSummary(transactions, period, scopeMemberId, now), [transactions, period, scopeMemberId, now]);
   const prev = useMemo(() => previousPeriodSummary(transactions, period, scopeMemberId, now), [transactions, period, scopeMemberId, now]);
+  // Pay still to come this period, so Income reading 0 before payday says why.
+  const expected = useMemo(
+    () => expectedIncome(recurring, transactions, { kind: period, start: p.start, now, scopeMemberId }),
+    [recurring, transactions, period, p.start, now, scopeMemberId]
+  );
   const prevLabel = PREVIOUS_PERIOD_LABELS[period];
   const columns = useMemo(
     () => buildChartColumns(transactions, period, scopeMemberId, now),
@@ -222,7 +228,15 @@ export default function Overview() {
             {/* Each figure with the same stretch of the period before, so a
                 month to date is never set against a whole month. */}
             <div className="ov-kpi-row">
-              <Kpi label="Income" figure={money.fmt(p.income)} change={periodChange(p.income, prev.income)} goodWhenUp prevLabel={prevLabel} fmt={money.fmt} />
+              <Kpi
+                label="Income"
+                figure={money.fmt(p.income)}
+                change={periodChange(p.income, prev.income)}
+                goodWhenUp
+                prevLabel={prevLabel}
+                fmt={money.fmt}
+                hint={expected.items.length > 0 ? `${p.income > 0 ? 'More pay' : 'Pay'} expected ${expectedDatesLabel(expected.items)} · ${money.fmt(expected.total)}` : null}
+              />
               <Kpi label="Net spend" figure={money.fmt(p.spend)} change={periodChange(p.spend, prev.spend)} goodWhenUp={false} prevLabel={prevLabel} fmt={money.fmt} />
               <Kpi label="Income less spending" figure={money.fmtSigned(p.saved)} change={periodChange(p.saved, prev.saved)} goodWhenUp prevLabel={prevLabel} fmt={money.fmt} />
               {/* Coloured by its sign: a month that spent more than it earned
@@ -696,7 +710,7 @@ function EmptyState({ navigate }) {
 // One headline figure, and how it moved against the same stretch of the
 // period before. Up is good for income, bad for spending; the arrow says the
 // direction and the colour says whether that is good.
-function Kpi({ label, figure, tone = '', change, goodWhenUp, prevLabel, fmt }) {
+function Kpi({ label, figure, tone = '', change, goodWhenUp, prevLabel, fmt, hint = null }) {
   let note = null;
   if (change) {
     const up = change.value > 0;
@@ -718,6 +732,7 @@ function Kpi({ label, figure, tone = '', change, goodWhenUp, prevLabel, fmt }) {
       <div className="ov-kpi-label">{label}</div>
       <div className={`ov-kpi-fig fig ${tone}`}>{figure}</div>
       {note && <div className="ov-kpi-change">{note}</div>}
+      {hint && <div className="ov-kpi-change ov-muted ov-kpi-hint">{hint}</div>}
     </div>
   );
 }

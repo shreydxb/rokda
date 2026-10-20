@@ -29,7 +29,8 @@ here, because this repository is public.
 ## Overview (`/`)
 
 - In order: the period's income, net spend, income less spending and savings
-  rate, each against the same days of the period before; the cash-flow chart
+  rate, each against the same days of the period before (Income also says
+  which expected pay is still to come this period, and how much); the cash-flow chart
   (titled by its grouping, with its scale, the running period marked "so
   far", and periods with no records saying so) beside Needs attention; the
   next 30 days; net worth and cash position; data quality as one line that
