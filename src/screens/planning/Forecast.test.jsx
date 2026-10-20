@@ -178,10 +178,10 @@ describe('Forecast scenario picker', () => {
       holdings: [HOLDING],
       data: { assumptions: { nominal_return_pct: 6, inflation_pct: 2.5, safe_withdrawal_pct: 4 } },
     });
-    expect(screen.getByText('6.0% nominal')).toBeTruthy();
+    expect(screen.getByText(/^6\.0% return · 2\.5% inflation/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Conservative' }));
     expect(screen.getByRole('button', { name: 'Conservative' }).dataset.active).toBe('true');
-    expect(screen.getByText('4.0% nominal')).toBeTruthy();
+    expect(screen.getByText(/^4\.0% return · 3\.5% inflation/)).toBeTruthy();
   });
 
   it('Custom reads "not set" until it has its own saved assumptions', () => {
@@ -292,7 +292,7 @@ describe('Forecast: scenarios side by side', () => {
   it('picking a scenario there switches the whole screen to it', () => {
     renderForecast({ accounts: [ACCOUNT], transactions: saving(), holdings: [HOLDING] });
     fireEvent.click(crossing('Conservative'));
-    expect(screen.getByText('4.0% nominal')).toBeTruthy();
+    expect(screen.getByText(/^4\.0% return · 3\.5% inflation/)).toBeTruthy();
   });
 
   it('draws Custom once it has its own assumptions', () => {

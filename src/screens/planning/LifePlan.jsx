@@ -7,6 +7,8 @@ import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { ChartLegend, ColumnChart } from '../../charts/Charts';
 import BudgetBasis from './BudgetBasis';
 import LifePlanEditor from './LifePlanEditor';
+import ForecastAssumptionsEditor from './ForecastAssumptionsEditor';
+import AssumptionsBar from './AssumptionsBar';
 
 // Fixed order, so each phase keeps its colour whatever the numbers do.
 const PHASES = [
@@ -32,16 +34,27 @@ export default function LifePlan({
   data,
   loading,
   onOpenTab,
+  scenario,
+  onScenario,
+  moneyMode,
+  onMoneyMode,
 }) {
   const { assumptions } = data;
   const money = useMoneyDisplay(household);
   const now = useMemo(() => new Date(), []);
   const startYear = now.getFullYear();
   const [editing, setEditing] = useState(false);
-  const [fcSet, setFcSet] = useState('baseline');
+  // Shared with Forecast and Drawdown when Planning passes them
+  // (AssumptionsBar); on their own they are local.
+  const [localSet, setLocalSet] = useState('baseline');
+  const fcSet = scenario ?? localSet;
+  const setFcSet = onScenario ?? setLocalSet;
+  const [editingAssumptions, setEditingAssumptions] = useState(false);
   const [stopOverride, setStopOverride] = useState(null);
   const [spendKind, setSpendKind] = useState(null); // null follows the saved plan
-  const [mode, setMode] = useState('real');
+  const [localMode, setLocalMode] = useState('real');
+  const mode = moneyMode ?? localMode;
+  const setMode = onMoneyMode ?? setLocalMode;
   const [activeYear, setActiveYear] = useState(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
@@ -187,6 +200,48 @@ export default function LifePlan({
   return (
     <div>
       <BudgetBasis inputs={inputs} />
+      <AssumptionsBar
+        sets={sets}
+        scenario={fcSet}
+        onScenario={setFcSet}
+        mode={mode}
+        onMode={setMode}
+        growth={postNominal !== selected.nominalPct ? [`${postNominal.toFixed(1)}% return after work stops`] : []}
+        onEdit={() => setEditingAssumptions(true)}
+        spending={
+          <div className="dd-segs">
+            {spendOptions.map((o) => (
+              <button key={o.key} type="button" className="om-seg" data-active={spendChoice.key === o.key} onClick={() => setSpendKind(o.key)}>
+                {o.label} · {money.fmtCompact(o.value)} a year
+              </button>
+            ))}
+            <span className="ov-muted" style={{ fontSize: 11.5, alignSelf: 'center' }}>
+              after work stops
+            </span>
+          </div>
+        }
+      />
+      {spendChoice.key === 'less' && (
+        <div className="ov-muted lp-stops" style={{ fontSize: 11.5, lineHeight: 1.6, marginTop: 8 }}>
+          Leaves out {stopping.categories.map((c) => `${c.name} ${money.fmtCompact(c.annual)}`).join(', ')} a year, expected to have stopped by then.{' '}
+          <button type="button" className="om-link" style={{ background: 'none', border: 'none', padding: 0, color: 'var(--accent)', cursor: 'pointer', font: 'inherit' }} onClick={() => setEditing(true)}>
+            Change
+          </button>
+        </div>
+      )}
+      {editingAssumptions && (
+        <ForecastAssumptionsEditor
+          householdId={household?.id}
+          assumptions={assumptions}
+          currentMonthlySaving={inputs.monthlySaving}
+          scenario={fcSet}
+          onClose={() => setEditingAssumptions(false)}
+          onSaved={async () => {
+            setEditingAssumptions(false);
+            await data.reload();
+          }}
+        />
+      )}
       <section className="pl-hero" style={{ marginTop: 22 }}>
         <div className="ov-section-head">
           <div className="ov-kicker">Life plan</div>
@@ -221,45 +276,6 @@ export default function LifePlan({
                 {saving ? 'Saving…' : 'Make this the plan'}
               </button>
             )}
-          </div>
-          <div className="dd-control">
-            <span className="dd-label">Spending after</span>
-            <div className="dd-segs">
-              {spendOptions.map((o) => (
-                <button key={o.key} type="button" className="om-seg" data-active={spendChoice.key === o.key} onClick={() => setSpendKind(o.key)}>
-                  {o.label} · {money.fmtCompact(o.value)} a year
-                </button>
-              ))}
-            </div>
-          </div>
-          {spendChoice.key === 'less' && (
-            <div className="ov-muted lp-stops" style={{ fontSize: 11.5, lineHeight: 1.6 }}>
-              Leaves out {stopping.categories.map((c) => `${c.name} ${money.fmtCompact(c.annual)}`).join(', ')} a year, expected to have stopped by then.{' '}
-              <button type="button" className="om-link" style={{ background: 'none', border: 'none', padding: 0, color: 'var(--accent)', cursor: 'pointer', font: 'inherit' }} onClick={() => setEditing(true)}>
-                Change
-              </button>
-            </div>
-          )}
-          <div className="dd-control">
-            <span className="dd-label">Scenario</span>
-            <div className="dd-segs">
-              {Object.values(sets).map((s) => (
-                <button key={s.key} type="button" className="om-seg" data-active={fcSet === s.key} onClick={() => setFcSet(s.key)}>
-                  {s.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="dd-control">
-            <span className="dd-label">Show</span>
-            <div className="dd-segs">
-              <button type="button" className="om-seg" data-active={mode === 'real'} onClick={() => setMode('real')}>
-                Today&rsquo;s money
-              </button>
-              <button type="button" className="om-seg" data-active={mode === 'nominal'} onClick={() => setMode('nominal')}>
-                Future money
-              </button>
-            </div>
           </div>
         </div>
         {saveError && (

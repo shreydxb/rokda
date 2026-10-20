@@ -141,7 +141,8 @@ describe('LifePlan: spending that stops', () => {
       return { id: `rent${back}`, amount: -3000, kind: 'expense', category_id: 'rent', is_shared: true, occurred_at: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-05` };
     });
     renderPlan({ transactions: [...tx, ...rent], categories });
-    const active = document.querySelector('.dd-segs .om-seg[data-active="true"]').textContent;
+    // The spending choice, beside the scenario and the money shown.
+    const active = [...document.querySelectorAll('.om-seg[data-active="true"]')].map((b) => b.textContent).find((t) => t.endsWith('a year'));
     // 48,000 a year spent, 36,000 of it rent: 12,000 left once work stops.
     expect(active).toBe('Less what stops · 12K a year');
     expect(document.querySelector('.lp-stops').textContent).toMatch(/^Leaves out Rent 36K a year, expected to have stopped by then\./);

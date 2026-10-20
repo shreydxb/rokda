@@ -450,6 +450,27 @@ month.
   and the next two, which swings every average built on a few closed
   months.
 
+## One assumptions bar for the planning views
+
+Forecast, Life plan and Drawdown each placed the scenario, today's or
+future money, growth and spending differently, and called them different
+things ("Nominal" on one, "Future money" on another). The reader had to
+reread each tab to know what it assumed (QA re-review, 17 Oct).
+
+- **The same bar, first, on all three:** Scenario, Show, Growth, Spending,
+  then one line saying which assumptions are the household's saved ones and
+  which scenario is a look for now. Edit assumptions is on every one.
+- **Shared means shared.** Return, inflation and the withdrawal rate are the
+  household's saved assumptions; the bar on each view shows the same figures
+  and edits the same row.
+- **A scenario follows you between the tabs.** Picked on any of the three, it
+  holds on the others until changed, and is never saved. So does today's or
+  future money; Drawdown, which is today's money only, says so in the same
+  place.
+- **Each view's own controls stay with it:** the Life plan's stop year,
+  Drawdown's starting pot, markets and return after independence. Spending
+  moves into the bar on all three, because it is what each figure rests on.
+
 ## One history for linked records
 
 A purchase, its refunds and the two sides of a transfer change together, but
