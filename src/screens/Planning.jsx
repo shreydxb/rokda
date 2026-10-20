@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useTab } from '../lib/useTab';
 import { useHousehold } from '../lib/useHousehold';
 import { useOverviewData } from './useOverviewData';
@@ -31,6 +32,12 @@ export default function Planning() {
   const overview = useOverviewData(household?.id);
   const planning = usePlanningData(household?.id);
   const loading = householdLoading || overview.loading || planning.loading;
+  // The scenario and the money shown are chosen on Forecast, Life plan or
+  // Drawdown and hold on all three until changed (planning/AssumptionsBar.jsx).
+  // A look for now: never saved.
+  const [scenario, setScenario] = useState('baseline');
+  const [moneyMode, setMoneyMode] = useState('real');
+  const lens = { scenario, onScenario: setScenario, moneyMode, onMoneyMode: setMoneyMode };
 
   return (
     <div className="mn">
@@ -77,6 +84,7 @@ export default function Planning() {
       )}
       {tab === 'life' && (
         <LifePlan
+          {...lens}
           household={household}
           members={members}
           accounts={overview.accounts}
@@ -106,6 +114,7 @@ export default function Planning() {
       )}
       {tab === 'forecast' && (
         <Forecast
+          {...lens}
           household={household}
           members={members}
           accounts={overview.accounts}
@@ -121,6 +130,7 @@ export default function Planning() {
       )}
       {tab === 'drawdown' && (
         <Drawdown
+          {...lens}
           household={household}
           members={members}
           accounts={overview.accounts}

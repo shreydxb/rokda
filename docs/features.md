@@ -155,6 +155,14 @@ here, because this repository is public.
 
 ## Planning (`/planning`)
 
+- **The assumptions bar** at the top of Forecast, Life plan and Drawdown,
+  in the same order and words on each: the scenario (Baseline,
+  Conservative, Optimistic, Custom), today's or future money (Drawdown is
+  today's money only), growth (return, inflation, after inflation, and what
+  else the view depends on), and the spending the view is built on. Edit
+  assumptions changes the shared return, inflation and withdrawal rate from
+  any of them. The scenario and the money shown hold across the three tabs
+  until changed, and are never saved.
 - **Plan**: one page answering "are we on track". Once ages are set it opens
   with the Life plan's Stop working card (the year, the ages then, the
   spending after work stops it assumes), then goals and linked debts.

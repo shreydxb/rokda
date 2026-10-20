@@ -6,6 +6,8 @@ import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { LineChart } from '../../charts/Charts';
 import IncomeEditor from './IncomeEditor';
 import BudgetBasis from './BudgetBasis';
+import ForecastAssumptionsEditor from './ForecastAssumptionsEditor';
+import AssumptionsBar from './AssumptionsBar';
 
 const DEFAULTS = { nominal_return_pct: 6.0, inflation_pct: 2.5, safe_withdrawal_pct: 4.0 };
 const MAX_YEARS = 60;
@@ -35,13 +37,18 @@ const lastsText = (years) => (years === null ? `${MAX_YEARS}+ years` : `${years}
 // market fall or a lower return would do to it. The Life plan answers whether
 // the money lasts; this screen answers how much room there is.
 //
-// The controls are what-ifs held on this screen only; nothing here is saved.
+// The controls are what-ifs; nothing here is saved. The scenario is shared
+// with Forecast and Life plan when Planning passes it (AssumptionsBar); the
+// rest are held on this screen only.
 export default function Drawdown({ household, members = [], accounts = [], transactions = [],
-  recurring = [], holdings = [], budgets = [], categories = [], data, loading, onOpenTab }) {
+  recurring = [], holdings = [], budgets = [], categories = [], data, loading, onOpenTab, scenario, onScenario }) {
   const { assumptions } = data;
   const money = useMoneyDisplay(household);
   const now = useMemo(() => new Date(), []);
-  const [fcSet, setFcSet] = useState('baseline');
+  const [localSet, setLocalSet] = useState('baseline');
+  const fcSet = scenario ?? localSet;
+  const setFcSet = onScenario ?? setLocalSet;
+  const [editingAssumptions, setEditingAssumptions] = useState(false);
   const [potChoice, setPotKind] = useState(null); // 'plan' | 'target' | 'today'; null follows the plan when there is one
   const [spendChoice, setSpendKind] = useState(null); // 'plan' | 'actual' | 'lean'; null as above
   const [returnOffset, setReturnOffset] = useState(0); // pp added to the scenario's nominal return
@@ -139,6 +146,43 @@ export default function Drawdown({ household, members = [], accounts = [], trans
   return (
     <div>
       <BudgetBasis inputs={inputs} />
+      <AssumptionsBar
+        sets={sets}
+        scenario={fcSet}
+        onScenario={setFcSet}
+        growth={[`${selected.swrPct.toFixed(1)}% withdrawal rate`]}
+        onEdit={() => setEditingAssumptions(true)}
+        spending={
+          <div className="dd-segs">
+            {handover && (
+              <button type="button" className="om-seg" data-active={spendKind === 'plan'} onClick={() => setSpendKind('plan')}>
+                Life plan · {money.fmtCompact(handover.spend)} a year
+              </button>
+            )}
+            <button type="button" className="om-seg" data-active={spendKind === 'actual'} onClick={() => setSpendKind('actual')}>
+              {inputs.source === 'budget' ? 'Budgeted' : "Today's"} · {money.fmtCompact(inputs.annualSpend)} a year
+            </button>
+            {leanSpend ? (
+              <button type="button" className="om-seg" data-active={spendKind === 'lean'} onClick={() => setSpendKind('lean')}>
+                Essentials · {money.fmtCompact(leanSpend)} a year
+              </button>
+            ) : null}
+          </div>
+        }
+      />
+      {editingAssumptions && (
+        <ForecastAssumptionsEditor
+          householdId={household?.id}
+          assumptions={assumptions}
+          currentMonthlySaving={inputs.monthlySaving}
+          scenario={fcSet}
+          onClose={() => setEditingAssumptions(false)}
+          onSaved={async () => {
+            setEditingAssumptions(false);
+            await data.reload();
+          }}
+        />
+      )}
       <section className="pl-hero" style={{ marginTop: 22 }}>
         <div className="ov-kicker">How long it lasts</div>
         <div className="ov-hero fig">
@@ -183,34 +227,6 @@ export default function Drawdown({ household, members = [], accounts = [], trans
               <button type="button" className="om-seg" data-active={potKind === 'today'} onClick={() => setPotKind('today')}>
                 Stopping today · {money.fmtCompact(startNetWorth)}
               </button>
-            </div>
-          </div>
-          <div className="dd-control">
-            <span className="dd-label">Spending</span>
-            <div className="dd-segs">
-              {handover && (
-                <button type="button" className="om-seg" data-active={spendKind === 'plan'} onClick={() => setSpendKind('plan')}>
-                  Life plan · {money.fmtCompact(handover.spend)} a year
-                </button>
-              )}
-              <button type="button" className="om-seg" data-active={spendKind === 'actual'} onClick={() => setSpendKind('actual')}>
-                {inputs.source === 'budget' ? 'Budgeted' : "Today's"} · {money.fmtCompact(inputs.annualSpend)} a year
-              </button>
-              {leanSpend ? (
-                <button type="button" className="om-seg" data-active={spendKind === 'lean'} onClick={() => setSpendKind('lean')}>
-                  Essentials · {money.fmtCompact(leanSpend)} a year
-                </button>
-              ) : null}
-            </div>
-          </div>
-          <div className="dd-control">
-            <span className="dd-label">Scenario</span>
-            <div className="dd-segs">
-              {Object.values(sets).map((s) => (
-                <button key={s.key} type="button" className="om-seg" data-active={fcSet === s.key} onClick={() => setFcSet(s.key)}>
-                  {s.label}
-                </button>
-              ))}
             </div>
           </div>
           <div className="dd-control">

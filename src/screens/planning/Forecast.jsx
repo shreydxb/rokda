@@ -9,6 +9,7 @@ import { agesLabel, lifePlanStop, spendAfterText } from '../../lib/lifePlan';
 import BudgetBasis from './BudgetBasis';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import ForecastAssumptionsEditor from './ForecastAssumptionsEditor';
+import AssumptionsBar from './AssumptionsBar';
 import { ChartLegend, ColumnChart, RangeChart } from '../../charts/Charts';
 import { tabHref } from '../../lib/activityLink';
 
@@ -39,12 +40,18 @@ function deltaLabel(years) {
 // with no accounts and silently dropped holdings from net worth with
 // accounts (QA-03).
 export default function Forecast({ household, members = [], accounts = [], transactions = [],
-  recurring = [], holdings = [], budgets = [], categories = [], data, loading, onOpenTab }) {
+  recurring = [], holdings = [], budgets = [], categories = [], data, loading, onOpenTab, scenario, onScenario, moneyMode, onMoneyMode }) {
   const navigate = useNavigate();
   const householdId = household?.id;
   const { assumptions } = data;
-  const [mode, setMode] = useState('real');
-  const [fcSet, setFcSet] = useState('baseline');
+  // The scenario and the money shown are shared with Life plan and Drawdown
+  // when Planning passes them (AssumptionsBar); on their own they are local.
+  const [localMode, setLocalMode] = useState('real');
+  const [localSet, setLocalSet] = useState('baseline');
+  const mode = moneyMode ?? localMode;
+  const setMode = onMoneyMode ?? setLocalMode;
+  const fcSet = scenario ?? localSet;
+  const setFcSet = onScenario ?? setLocalSet;
   const [editing, setEditing] = useState(false);
   // Which projected year the chart and its readout are on; null follows the
   // default (the crossing year, or the end of the horizon).
@@ -376,6 +383,21 @@ export default function Forecast({ household, members = [], accounts = [], trans
   return (
     <div>
       <BudgetBasis inputs={inputs} />
+      <AssumptionsBar
+        sets={sets}
+        scenario={fcSet}
+        onScenario={setFcSet}
+        mode={mode}
+        onMode={setMode}
+        growth={[`${selSwrPct.toFixed(1)}% withdrawal rate`]}
+        onEdit={() => setEditing(true)}
+        spending={
+          <span className="pl-assumptions-value">
+            {stop ? `After work stops: ${money.code} ${money.fmt(stop.spend)} a year (your life plan) · ` : ''}
+            {fromBudget ? 'Budgeted' : "Today's"}: {money.code} {money.fmt(inputs.annualSpend)} a year
+          </span>
+        }
+      />
       <section className="pl-hero" style={{ marginTop: 22 }}>
         <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 20, flexWrap: 'wrap' }}>
           {stop ? stopFigure : targetFigure(true)}
@@ -385,53 +407,12 @@ export default function Forecast({ household, members = [], accounts = [], trans
                 Open Life plan
               </button>
             )}
-            {[
-              ['real', "Today's money"],
-              ['nominal', 'Nominal'],
-            ].map(([key, label]) => (
-              <button key={key} type="button" className="om-seg" data-active={mode === key} onClick={() => setMode(key)}>
-                {label}
-              </button>
-            ))}
-            <button type="button" className="om-btn" onClick={() => setEditing(true)}>
-              Edit assumptions
-            </button>
           </div>
         </div>
-        <div
-          style={{
-            display: 'flex',
-            gap: 8,
-            alignItems: 'center',
-            flexWrap: 'wrap',
-            marginTop: 26,
-            paddingBottom: 18,
-            borderBottom: '1px solid var(--rule)',
-          }}
-        >
-          <span style={{ fontSize: 11.5, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--ink3)', marginRight: 6 }}>Scenario</span>
-          {Object.values(sets).map((s) => (
-            <button key={s.key} type="button" className="om-seg" data-active={fcSet === s.key} onClick={() => setFcSet(s.key)}>
-              {s.label}
-            </button>
-          ))}
-          <span className="ov-muted" style={{ fontSize: 11.5, marginLeft: 'auto' }}>
-            {selected.meta}
-          </span>
-        </div>
-
         <div style={{ marginTop: 20, border: '1px solid var(--rule2)', borderRadius: 3, padding: '16px 18px' }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
-            <div style={{ fontSize: 13.5 }}>Based on these assumptions</div>
-            <button type="button" className="om-link" style={{ fontSize: 11.5, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', font: 'inherit' }} onClick={() => setEditing(true)}>
-              Edit →
-            </button>
-          </div>
+          <div style={{ fontSize: 13.5 }}>The projection is also built on</div>
           <div className="ov-quality-grid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', marginTop: 14 }}>
             {[
-              ['Investment return', `${selNominalPct.toFixed(1)}% nominal`],
-              ['Inflation', `${selInflationPct.toFixed(1)}%`],
-              ['Safe withdrawal rate', `${selSwrPct.toFixed(1)}%`],
               ['Monthly saving', `${money.fmtBalance(inputs.monthlySaving)} (${basisWord})`],
               ['Annual spend', `${money.fmt(inputs.annualSpend)} (${basisWord})`],
               ['Horizon shown', `${HORIZON_YEARS} years`],
