@@ -450,6 +450,25 @@ month.
   and the next two, which swings every average built on a few closed
   months.
 
+## One history for linked records
+
+A purchase, its refunds and the two sides of a transfer change together, but
+each record's history listed only its own rows. "Why did this refund's
+category move?" meant opening the purchase to find out (QA re-review, 17 Oct).
+
+- **The editor's history covers the linked records too:** a refund shows its
+  purchase's edits, a purchase its refunds', a transfer both sides. Each line
+  names its record when there is more than one.
+- **Grouped into saves.** Edits by the same person within a minute are one
+  save, which is how a purchase's category change and the refund that
+  followed it appear together. Saves are listed newest first.
+- **Nothing new in the database.** It reads `transaction_edits` for each
+  record. Two gaps are closed in the app: a transfer's change of amount or
+  date is now recorded on both sides (`update_transfer` records nothing),
+  and so is a record's change of date.
+- **"Automatic"** is an edit with no member behind it: the bot, or a member
+  since removed (their rows lose the name).
+
 ## Income says when pay is still to come
 
 Overview's Income is what has been recorded so far this period. Pay lands
