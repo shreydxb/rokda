@@ -3,6 +3,7 @@ import { supabase } from '../../lib/supabaseClient';
 import { accountOptionLabel, selectableAccounts } from '../../lib/accounts';
 import { householdToday } from '../../lib/day';
 import { transferEdits } from '../../lib/editHistory';
+import { ENTRY_TYPES } from '../../lib/entryTypes';
 import EditHistory from './EditHistory';
 import './TransactionEditor.css';
 
@@ -176,8 +177,8 @@ export default function TransferEditor({ transfer, householdId, accounts, member
             </div>
           )}
 
-          <p className="ov-muted" style={{ fontSize: 12.5, margin: 0 }}>
-            Money out of one account and into another, such as paying the card or saving. It counts as neither income nor spending.
+          <p className="ov-muted te-type-note">
+            {ENTRY_TYPES.transfer.meaning} {ENTRY_TYPES.transfer.result}
           </p>
 
           <div>

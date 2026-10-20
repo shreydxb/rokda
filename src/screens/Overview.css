@@ -649,3 +649,10 @@
 .ov-quality-details[open] .ov-quality-grid {
   margin-top: 14px;
 }
+
+/* Recent activity is a short glance; the rest is one click away. */
+.ov-list-more {
+  display: inline-block;
+  margin-top: 10px;
+  font-size: 12px;
+}

@@ -469,6 +469,22 @@ category move?" meant opening the purchase to find out (QA re-review, 17 Oct).
 - **"Automatic"** is an edit with no member behind it: the bot, or a member
   since removed (their rows lose the name).
 
+## Fewer rows that say nothing, and a clearer first choice
+
+Three small changes from the QA re-review of 17 October.
+
+- **Forecast's alternatives that change nothing fold away** into "3 make no
+  change", which opens. A list of "no change" rows hid the one that moved the
+  year.
+- **Overview shows five recent records,** not eight, and links to the rest in
+  Activity. Overview is a glance; Activity is where records are looked into.
+- **The type choice explains itself.** Under Expense, Income, Refund and
+  Transfer, one line says what each is for, with an everyday example, and
+  what saving it makes. A new expense adds "Moved money between your own
+  accounts? Choose Transfer.", the mistake that turned card payments into
+  spending. The wording lives in one place (`lib/entryTypes.js`), so the
+  transaction and transfer editors say the same.
+
 ## Income says when pay is still to come
 
 Overview's Income is what has been recorded so far this period. Pay lands
