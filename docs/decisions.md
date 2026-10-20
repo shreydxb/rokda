@@ -450,6 +450,43 @@ month.
   and the next two, which swings every average built on a few closed
   months.
 
+## A statement is imported in one reviewed batch
+
+Card statements were loaded by hand into the database, and the bot sent
+reconciliation to an outside assistant. The household needed to load bank
+and card statements themselves, without credentials or a paid aggregator,
+and without double counting (SHR-302).
+
+- **Read on the device, reviewed, then sent.** The CSV file is parsed in the
+  browser (`lib/csvImport.js`). The person checks how the columns are read
+  and every line before anything is written; only the kept lines are sent.
+  Dates that read correctly both day-first and month-first must be
+  confirmed, never guessed. A line that can't be read says why and is never
+  imported.
+- **One call, all or nothing.** `commit_import` writes the batch and its
+  records in one transaction (`import_batches`, and `import_batch_id` on
+  each record). A refused line refuses the batch.
+- **Importing again adds nothing.** Each line is keyed by its date, amount,
+  description and, for identical lines, which one it is
+  (`transactions.import_key`, unique per account). Two identical purchases
+  on one day stay two; the same file imported twice, or by both people at
+  once, adds each line once.
+- **Nothing counted twice by default.** A line already imported, or one that
+  matches a record already there (same account, same amount, within three
+  days), is left out unless the person keeps it. A payment between the
+  household's own accounts is a transfer: joined to its other side when that
+  is already recorded, or added with it.
+- **Differences are shown, not forced to zero.** With the statement's
+  opening and closing balances entered, the file's lines are compared with
+  the change between them (a card's balance read as what is owed), and what
+  the lines don't explain is shown.
+- **Undo takes back only the import.** `undo_import` deletes the batch's
+  records that nobody has changed since and that aren't joined to a record
+  outside it, keeps the rest with whatever they are joined to, and marks the
+  batch undone with how many it kept. Batches are never deleted.
+- **Not in this first part:** importing accounts and holdings, and price or
+  rate refreshes, which the issue also covers.
+
 ## One history for linked records
 
 A purchase, its refunds and the two sides of a transfer change together, but

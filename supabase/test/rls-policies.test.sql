@@ -1119,6 +1119,63 @@ end $$;
 set request.jwt.claim.aal = 'aal2';
 reset role;
 
+-- CSV statement imports (SHR-302): a member imports into, reads and undoes
+-- their own household's statements only, and is recorded as the importer
+-- whatever the request says.
+reset role;
+insert into import_batches (id, household_id, account_id, file_name, row_count)
+values ('f9000000-0000-0000-0000-000000000002', 'd2000000-0000-0000-0000-000000000002', 'f4000000-0000-0000-0000-000000000002', 'theirs.csv', 1);
+set role authenticated;
+set request.jwt.claim.sub = '0b000000-0000-0000-0000-00000000000b';
+do $$
+declare result jsonb; n int; who uuid;
+begin
+  result := commit_import('d1000000-0000-0000-0000-000000000001', 'f4000000-0000-0000-0000-000000000001', 'ours.csv',
+    jsonb_build_array(jsonb_build_object('occurred_at', '2026-10-03', 'amount', -25, 'kind', 'expense', 'merchant', 'Bakery', 'import_key', 'rls-1')), 1);
+  if (result ->> 'imported')::int <> 1 then raise exception 'csv import FAILED: a member could not import into their own account'; end if;
+  select created_by into who from import_batches where id = (result ->> 'batch_id')::uuid;
+  if who is distinct from 'e1000000-0000-0000-0000-00000000000b' then
+    raise exception 'csv import FAILED: the import was recorded as %, not the member who made it', who;
+  end if;
+
+  begin
+    perform commit_import('d2000000-0000-0000-0000-000000000002', 'f4000000-0000-0000-0000-000000000002', 'planted.csv',
+      jsonb_build_array(jsonb_build_object('occurred_at', '2026-10-03', 'amount', -1, 'kind', 'expense', 'import_key', 'rls-2')), 1);
+    raise exception 'csv import FAILED: a member imported into another household''s account';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform commit_import('d1000000-0000-0000-0000-000000000001', 'f4000000-0000-0000-0000-000000000002', 'planted.csv',
+      jsonb_build_array(jsonb_build_object('occurred_at', '2026-10-03', 'amount', -1, 'kind', 'expense', 'import_key', 'rls-3')), 1);
+    raise exception 'csv import FAILED: a member imported into another household''s account under their own household';
+  exception when insufficient_privilege then null;
+  end;
+
+  select count(*) into n from import_batches;
+  if n <> 1 then raise exception 'csv import FAILED: a member sees % imports, expected only their own 1', n; end if;
+  begin
+    perform undo_import('f9000000-0000-0000-0000-000000000002');
+    raise exception 'csv import FAILED: a member undid another household''s import';
+  exception when no_data_found then null;
+  end;
+
+  -- Whoever a direct insert names, the importer is the signed-in member.
+  insert into import_batches (household_id, account_id, file_name, row_count, created_by)
+  values ('d1000000-0000-0000-0000-000000000001', 'f4000000-0000-0000-0000-000000000001', 'direct.csv', 0, 'e1000000-0000-0000-0000-00000000000a')
+  returning created_by into who;
+  if who is distinct from 'e1000000-0000-0000-0000-00000000000b' then
+    raise exception 'csv import FAILED: a direct insert recorded the importer as %', who;
+  end if;
+
+  result := undo_import((result ->> 'batch_id')::uuid);
+  if (result ->> 'removed')::int <> 1 then raise exception 'csv import FAILED: a member could not undo their own import'; end if;
+  delete from import_batches where household_id = 'd1000000-0000-0000-0000-000000000001';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'csv import FAILED: a member deleted the record of an import'; end if;
+  raise notice 'csv import ok: a member imports, reads and undoes only their own household''s statements';
+end $$;
+reset role;
+
 -- Only an owner removes a member (QA re-review, 17 October). Removing a
 -- member takes their name off everything recorded as theirs, so a member who
 -- is not an owner can't remove themselves, even with their code.

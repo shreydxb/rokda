@@ -125,6 +125,8 @@ const SUBVIEWS = [
   // its buttons must fit a phone.
   { name: 'statements', path: '/wealth', tabs: ['Statements', 'Resolve…'], expectText: 'Mark resolved', history: false, tables: { statement_reconciliations: cardStatements } },
   { name: 'backups', path: '/settings', tabs: ['Backups'], expectText: 'Restore drill' },
+  // A statement import's first screen, with its list of earlier imports.
+  { name: 'import', path: '/money', tabs: ['Import'], expectText: 'Earlier imports' },
   { name: 'starter-categories', path: '/settings', tabs: ['Categories & rules', 'Starter set'], expectText: 'Starter categories' },
   {
     name: 'notes',
