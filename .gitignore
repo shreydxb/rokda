@@ -35,3 +35,6 @@ e2e/.artifacts/
 
 # Cloudflare's local Pages server (wrangler pages dev) keeps its state here.
 .wrangler/
+
+# Working files from the design-taste-frontend skill (screenshots, drafts)
+.taste-skill/
