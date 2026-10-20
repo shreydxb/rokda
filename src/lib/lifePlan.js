@@ -307,14 +307,34 @@ export function lifePlanStop({ members, memberLife, inputs, ...rest }) {
   if (people.length === 0 || !inputs?.ready) return null;
   const basis = lifePlanBasis({ people, inputs, ...rest });
   const earliest = earliestStop(basis.args);
+  const saved = lifePlan(basis.args);
   return {
     people,
     endYear: basis.endYear,
     earliest,
     ages: earliest !== null ? agesIn(people, earliest) : null,
-    lasts: lifePlan(basis.args).lasts,
+    // Whether the plan's own stop year lasts, and the year it runs short if not.
+    lasts: saved.lasts,
+    shortYear: saved.shortYear,
     stopYear: basis.stopYear,
+    // Spending once work stops, in today's money, and which choice it is, so a
+    // screen that gives the answer can say what the answer assumes.
+    spend: basis.spendChoice.value,
+    spendKey: basis.spendChoice.key,
+    spendLabel: basis.spendChoice.label,
   };
+}
+
+// "spending AED 90,000 a year after work stops (today's, less what stops)":
+// the spending a stop year rests on, for the screens that lead with one.
+// `fmt` formats an amount in today's money, currency code included.
+export function spendAfterText(stop, fmt) {
+  const how = {
+    planned: 'your plan',
+    less: "today's, less what stops",
+    lean: 'essentials only',
+  }[stop.spendKey] ?? (stop.spendLabel === 'Budgeted' ? 'as budgeted' : 'as today');
+  return `spending ${fmt(stop.spend)} a year after work stops (${how})`;
 }
 
 // "Partner A 60 · Partner B 60": the ages of everyone still planned for.

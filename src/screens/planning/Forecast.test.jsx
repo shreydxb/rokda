@@ -371,25 +371,58 @@ describe('Forecast: the Life plan answers when work can stop', () => {
   ];
   const kpiLabel = () => document.querySelector('.fc-kpi div').textContent;
 
-  it('shows the Life plan year and links to it, keeping its own target as money that lasts forever', () => {
+  const renderWithAges = (extra = {}) => {
     const onOpenTab = vi.fn();
     renderForecast({
       members,
       accounts: [ACCOUNT],
       holdings: [HOLDING],
       transactions: withIncome(),
-      data: { assumptions: null, memberLife, goals: [], independenceIncome: [] },
+      data: { assumptions: null, memberLife, goals: [], independenceIncome: [], ...extra },
       onOpenTab,
     });
-    expect(document.querySelector('.fc-lifeplan').textContent).toMatch(/^Your life plan: you could stop working in \d{4} \(Alex \d+\), with the money lasting to 2074\. The target here is stricter: money that lasts forever at 4\.0% a year/);
-    expect(kpiLabel()).toBe('Lasts forever by');
+    return { onOpenTab };
+  };
+  const hero = () => document.querySelector('.pl-hero');
+
+  it('leads with the Life plan year, what it assumes about spending, and how long the money lasts', () => {
+    const { onOpenTab } = renderWithAges();
+    expect(hero().querySelector('.ov-kicker').textContent).toBe('Stop working');
+    expect(hero().querySelector('.ov-hero').textContent).toMatch(/^\d{4}$/);
+    expect(hero().textContent).toMatch(/The earliest year work can stop: Alex \d+, spending AED 12,000 a year after work stops \(as today\), and the money lasts to 2074\./);
+    expect(hero().textContent).toMatch(/From your life plan, in today's money/);
     fireEvent.click(screen.getByText('Open Life plan'));
     expect(onOpenTab).toHaveBeenCalledWith('life');
   });
 
-  it('keeps the independence year as the answer while no ages are set', () => {
+  it('says whether the plan\'s own stop year lasts', () => {
+    renderWithAges();
+    expect(kpiLabel()).toBe('Your plan stops work in');
+    expect(document.querySelector('.fc-kpi').textContent).toMatch(/The money lasts to 2074$/);
+  });
+
+  it('says when the plan\'s own stop year runs out', () => {
+    renderWithAges({ assumptions: { retirement_year: now.getFullYear() + 1, retirement_annual_spend: 500_000 } });
+    expect(document.querySelector('.fc-kpi').textContent).toMatch(/The money runs out in \d{4}$/);
+  });
+
+  it('folds the lasts-forever target away as another way to look at the plan', () => {
+    renderWithAges();
+    const other = document.querySelector('details.fc-other');
+    expect(other.open).toBe(false);
+    expect(other.querySelector('summary').textContent).toBe('Other ways to look at the plan');
+    expect(other.textContent).toMatch(/A stricter test than the life plan/);
+    expect(other.textContent).toMatch(/25× today's spend of 12,000 a year/);
+    expect(other.textContent).toMatch(/Lasts forever by/);
+    expect(screen.getByText('To reach the lasts-forever target by')).toBeTruthy();
+  });
+
+  it('keeps the independence target as the answer while no ages are set', () => {
     renderForecast({ members, accounts: [ACCOUNT], holdings: [HOLDING], transactions: withIncome() });
-    expect(document.querySelector('.fc-lifeplan')).toBeNull();
+    expect(hero().querySelector('.ov-kicker').textContent).toBe('Independence target');
+    expect(document.querySelector('.fc-other')).toBeNull();
+    expect(screen.queryByText('Open Life plan')).toBeNull();
     expect(kpiLabel()).toBe('Independent by');
+    expect(screen.getByText('To be independent by')).toBeTruthy();
   });
 });

@@ -50,9 +50,14 @@ describe('PlanSummary: when work can stop', () => {
     const { onOpenTab } = renderSummary();
     expect(screen.queryByText('Independence')).toBeNull();
     expect(screen.getByText('Stop working')).toBeTruthy();
-    expect(screen.getByText(/^Alex \d+ · Sam \d+ · the money lasts to 2079$/)).toBeTruthy();
+    expect(screen.getByText(/^Alex \d+ · Sam \d+ · the money lasts to 2079 · spending AED 48,000 a year after work stops \(as today\)$/)).toBeTruthy();
     fireEvent.click(screen.getByText('Life plan →'));
     expect(onOpenTab).toHaveBeenCalledWith('life');
+  });
+
+  it('puts the answer first, ahead of goals and debt', () => {
+    renderSummary();
+    expect(document.querySelector('.ov-quality-grid .ov-kicker').textContent).toBe('Stop working');
   });
 
   it('says when the saved stop year does not last', () => {
@@ -63,6 +68,7 @@ describe('PlanSummary: when work can stop', () => {
   it('falls back to the independence year while no ages are set', () => {
     const { onOpenTab } = renderSummary({ memberLife: [] });
     expect(screen.getByText('Independence')).toBeTruthy();
+    expect(document.querySelector('.ov-quality-grid .ov-kicker').textContent).toBe('Goals');
     fireEvent.click(screen.getByText('Forecast →'));
     expect(onOpenTab).toHaveBeenCalledWith('forecast');
   });
