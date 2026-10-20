@@ -152,12 +152,14 @@ here, because this repository is public.
   carry its debt terms. Closed accounts stay in history.
 - **Investments**: holdings with prices pulled daily where a symbol is set,
   and FX rates for USD and INR.
-- **Statements**: each card's recent statements, the period each covers, its
-  due date, what Rokda recorded for that period (to the cent, signed, with
-  its transactions listed) against the statement's own figures when recorded,
-  and whether it has been reconciled (`statement_reconciliations`). "Mark
-  done" settles one, "Resolve…" settles one that did not match, and
-  "Reopen…" undoes either; the bot asks about each until it is settled.
+- **Statements**: one section per card (when it closes and is due), with the
+  statements still to check first and the settled ones folded under
+  "Checked". Each statement shows its period and status, then three figures
+  side by side: what Rokda recorded for the period (to the cent, signed),
+  the statement's own figure when recorded, and the difference, which way it
+  goes. Its buttons sit in one row underneath: "Mark done" (or "Resolve…" for
+  one that did not match), its transactions, and "Reopen…" for a settled one;
+  the bot asks about each until it is settled (`statement_reconciliations`).
 
 ## Planning (`/planning`)
 
