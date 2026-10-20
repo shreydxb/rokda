@@ -8,7 +8,7 @@ verified against. This file records what those names refer to.
 | Role | Where | Notes |
 | --- | --- | --- |
 | Production | The household's own domain (a subdomain, named in the Cloudflare dashboard, not here) | Cloudflare Pages behind Cloudflare Access; builds every push to `main`; see "Cloudflare Pages" below |
-| Cloudflare default | https://rokda-home.pages.dev | The same Pages project without the Access lock until it is locked too |
+| Cloudflare default | https://rokda-home.pages.dev | The same Pages project, behind the same Access lock |
 | Retired | https://rokda-app.netlify.app | Netlify, retired in October 2026: the site is deleted, and `netlify.toml` with it |
 | Retired | https://shreydxb.github.io/rokda/ | GitHub Pages, retired in October 2026: its workflow is gone, and the site is unpublished in the repository's settings |
 | Preview | Not provisioned/verified yet | PR #1 targets dev; confirm base-branch deploy eligibility and preview configuration |
@@ -81,12 +81,17 @@ domain carries a household member's name. The dashboard is the record.
   by email and a one-week session. A second member's address is added in
   Access controls → Policies → `Household`. The cookie is HTTP-only, bound and
   SameSite Lax.
-- **What Access covers:** only that subdomain. It gates the app's code, not the
-  data: the browser still talks to Supabase directly, where the household
-  rules and the authenticator code apply as before. `rokda-home.pages.dev` is
-  not behind Access until it is locked too (Cloudflare's Pages known-issues
-  procedure: an Access application for `rokda-home.pages.dev` and another for
-  `*.rokda-home.pages.dev`, both with the `Household` policy).
+- **What Access covers:** every address the project answers on, through
+  three applications. `Rokda` covers the household's subdomain, and
+  `rokda-home.pages.dev` covers that exact hostname; both use `Household`. The
+  per-build addresses (`*.rokda-home.pages.dev`) are covered by the application
+  Pages creates itself (Workers & Pages → `rokda-home` → Settings → Preview
+  access → Restrict previews), whose policy, `Allow Members - Cloudflare
+  Pages`, allows the Cloudflare account's own email; Pages manages it, so its
+  policy cannot be swapped for `Household`. A second member does not need it.
+- **What Access does not cover:** the data. It gates the app's code: the
+  browser still talks to Supabase directly, where the household rules and the
+  authenticator code apply as before.
 
 ### Build environment variables
 
