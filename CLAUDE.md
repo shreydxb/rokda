@@ -16,6 +16,10 @@ plan lives in the app (Planning → Notes).
   and `supabase/functions/_shared/applib/recurring.js`, and must stay
   identical (`scripts/applib-parity.test.mjs`).
 - Every product decision gets a short section in `docs/decisions.md`.
+- Layout work: use the `design-taste-frontend` skill's app-screen rules
+  (`references/app-screens.md`) as a checklist for placement, tables, forms,
+  states and the phone. `design/` stays the authority on look: keep Rokda's
+  palette and type, and don't take a style or palette from the skill.
 
 ## Checks before pushing
 
