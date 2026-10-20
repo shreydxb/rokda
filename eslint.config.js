@@ -7,8 +7,10 @@ import { defineConfig, globalIgnores } from 'eslint/config'
 export default defineConfig([
   // `design/` holds the exported Claude Design runtime. It is generated output,
   // not application source: it is linted by nobody and must never be hand-edited
-  // to satisfy a rule. Application lint covers src/ and the root config files.
-  globalIgnores(['dist', 'design/**', 'coverage/**']),
+  // to satisfy a rule. `.claude/skills/` is the same: skills copied unchanged
+  // from upstream, updated by replacing them. Application lint covers src/ and
+  // the root config files.
+  globalIgnores(['dist', 'design/**', 'coverage/**', '.claude/**']),
   {
     files: ['**/*.{js,jsx}'],
     extends: [
