@@ -92,6 +92,12 @@ here, because this repository is public.
   for a split purchase). Activity labels it "refund for Shop, 20 Sept" and
   the purchase "refunded" or "part refunded"; a purchase's editor lists its
   refunds. A refund still counts in the month it arrives.
+- **History** in a record's editor: every change, who made it and when, in
+  saves ("15 Oct · Partner A"). A purchase's history includes its refunds'
+  changes and a refund's its purchase's, each line naming its record, so a
+  refund whose category followed the purchase shows both in the same save. A
+  transfer's history shows both sides. Dates are recorded too. A change with
+  no member behind it (the bot) reads "Automatic".
 - **Budget**: month and year views. Spending is budgeted by subcategory and
   rolled up to its group. Savings categories are savings targets measured
   against what the month actually saved, never counted as spending.

@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { accountOptionLabel, selectableAccounts } from '../../lib/accounts';
 import { householdToday } from '../../lib/day';
+import { transferEdits } from '../../lib/editHistory';
+import EditHistory from './EditHistory';
 import './TransactionEditor.css';
 
 // Money moved between two of the household's own accounts (docs/decisions.md,
@@ -88,7 +90,28 @@ export default function TransferEditor({ transfer, householdId, accounts, member
       return;
     }
     if (existing) {
-      await run(supabase.rpc('update_transfer', { p_link_id: transfer.link.id, p_amount: amount, p_occurred_at: form.occurred_at, p_note: form.note }));
+      setSaving(true);
+      setError('');
+      const { error: updateError } = await supabase.rpc('update_transfer', { p_link_id: transfer.link.id, p_amount: amount, p_occurred_at: form.occurred_at, p_note: form.note });
+      if (updateError) {
+        setSaving(false);
+        setError(updateError.message);
+        return;
+      }
+      // update_transfer changes both sides and records nothing, so the
+      // history of each side is written here, as the transaction editor writes
+      // its own (SHR-323).
+      const changes = transferEdits(transfer, amount, form.occurred_at);
+      if (changes.length > 0) {
+        const { error: historyError } = await supabase.from('transaction_edits').insert(changes);
+        if (historyError) {
+          setSaving(false);
+          setError(`Transfer saved, but its edit history couldn't be recorded: ${historyError.message}`);
+          return;
+        }
+      }
+      setSaving(false);
+      await onSaved();
       return;
     }
     await run(
@@ -229,6 +252,16 @@ export default function TransferEditor({ transfer, householdId, accounts, member
             <span className="te-fieldlabel">Note</span>
             <textarea className="te-fieldvalue" rows={2} value={form.note} onChange={(e) => set('note', e.target.value)} />
           </label>
+
+          {existing && (
+            <EditHistory
+              records={[
+                { id: transfer.out.id, label: `Money out · ${accounts.find((a) => a.id === transfer.out.account_id)?.name ?? 'Unknown account'}` },
+                { id: transfer.in.id, label: `Money in · ${accounts.find((a) => a.id === transfer.in.account_id)?.name ?? 'Unknown account'}` },
+              ]}
+              members={members}
+            />
+          )}
 
           {error && (
             <p className="ov-warn" role="alert" style={{ fontSize: 12.5 }}>

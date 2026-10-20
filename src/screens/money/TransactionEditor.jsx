@@ -11,10 +11,11 @@ import { orderPair, transferCandidates } from '../../lib/transfers';
 import { splitProblem, unallocated } from '../../lib/splits';
 import { refundCandidates, refundLinkOf, refundsOf } from '../../lib/refunds';
 import { rememberMerchantCheck, ruleLabel } from '../../lib/rules';
+import { relatedRecords } from '../../lib/editHistory';
 import RememberMerchant from './RememberMerchant';
+import EditHistory from './EditHistory';
 import './TransactionEditor.css';
 
-const FIELD_LABELS = { kind: 'Type', category: 'Category', amount: 'Amount', native_amount: 'Amount paid', account: 'Account', merchant: 'Merchant', scope: 'Scope', refund_for: 'Refund for' };
 const KIND_LABELS = { expense: 'Expense', income: 'Income', refund: 'Refund' };
 // Closing a record whose merchant rule failed says so again in Activity.
 const SAVED_WITHOUT_RULE = { text: 'Transaction saved; merchant rule wasn’t saved. Add it in Settings → Categories & rules.' };
@@ -111,6 +112,11 @@ function buildEdits(tx, form, savedAmount, { accounts, categories, members, spli
   const newPaid = paid(savedNative.currency, savedNative.amount);
   if (oldPaid !== newPaid) changes.push({ field: 'native_amount', old_value: oldPaid, new_value: newPaid });
 
+  if (tx.occurred_at !== form.occurred_at) {
+    const day = (d) => parseDay(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    changes.push({ field: 'date', old_value: day(tx.occurred_at), new_value: day(form.occurred_at) });
+  }
+
   if (tx.account_id !== form.account_id) {
     changes.push({ field: 'account', old_value: accountName(tx.account_id), new_value: accountName(form.account_id) });
   }
@@ -169,8 +175,6 @@ export default function TransactionEditor({ tx, household, householdId, accounts
   // category.
   const [refundFor, setRefundFor] = useState(null);
   const [confirmingUnlink, setConfirmingUnlink] = useState(false);
-  const [history, setHistory] = useState([]);
-  const [historyLoading, setHistoryLoading] = useState(!!tx);
   // "Remember this merchant": a household rule added once the correction is
   // saved (docs/decisions.md, "A correction can remember its merchant"). Off
   // until ticked. The pattern follows the merchant field until it is edited.
@@ -192,25 +196,6 @@ export default function TransactionEditor({ tx, household, householdId, accounts
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dirty, confirmingClose, savedWithoutRule]);
-
-  useEffect(() => {
-    if (!tx) return;
-    let cancelled = false;
-    supabase
-      .from('transaction_edits')
-      .select('*')
-      .eq('transaction_id', tx.id)
-      .order('edited_at', { ascending: false })
-      .then(({ data }) => {
-        if (!cancelled) {
-          setHistory(data ?? []);
-          setHistoryLoading(false);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [tx]);
 
   function set(key, value) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -276,6 +261,9 @@ export default function TransactionEditor({ tx, household, householdId, accounts
   // purchase's, so the editor neither offers nor sends them.
   const followsPurchase = !!refundLink && form.type === 'refund';
   const purchaseRefunds = tx && form.type === 'expense' ? refundsOf(tx.id, links, allTransactions) : [];
+  // The history shows this record's edits with those of the records linked to
+  // it: a refund's purchase, a purchase's refunds (SHR-323).
+  const historyRecords = useMemo(() => relatedRecords(tx, links, allTransactions), [tx, links, allTransactions]);
   const refundSuggestions = useMemo(
     () =>
       form.type === 'refund' && !refundLink
@@ -996,34 +984,7 @@ export default function TransactionEditor({ tx, household, householdId, accounts
             <span className={`te-togglestate ${form.needs_review ? 'te-togglestate-warn' : ''}`}>{form.needs_review ? 'Flagged' : 'Clear'}</span>
           </button>
 
-          {tx && (
-            <div>
-              <span className="te-fieldlabel">History</span>
-              <div style={{ marginTop: 8 }}>
-                {historyLoading ? (
-                  <div className="ov-muted" style={{ fontSize: 12 }}>
-                    Loading…
-                  </div>
-                ) : history.length === 0 ? (
-                  <div className="ov-muted" style={{ fontSize: 12 }}>
-                    No edits yet.
-                  </div>
-                ) : (
-                  <div className="mn-list">
-                    {history.map((h) => (
-                      <div key={h.id} className="mn-row" style={{ cursor: 'default' }}>
-                        <div className="ov-muted" style={{ fontSize: 12 }}>
-                          {FIELD_LABELS[h.field] ?? h.field}: {h.old_value ?? '—'} → {h.new_value ?? '—'} ·{' '}
-                          {members.find((m) => m.id === h.edited_by)?.display_name ?? 'Unknown member'} ·{' '}
-                          {new Date(h.edited_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
+          {tx && <EditHistory records={historyRecords} members={members} />}
 
           {error && (
             <p className="ov-warn" role="alert" style={{ fontSize: 12.5 }}>

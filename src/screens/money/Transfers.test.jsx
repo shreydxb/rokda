@@ -7,14 +7,19 @@ import { renderScreen } from '../../test/renderScreen';
 // sides together; these check the screens call the right one with the right
 // sides, and refuse what the database would.
 const rpcs = [];
+const inserts = [];
 vi.mock('../../lib/supabaseClient', () => ({
   supabase: {
     rpc: (name, args) => {
       rpcs.push({ name, args });
       return Promise.resolve({ error: null });
     },
-    from: () => ({
+    from: (table) => ({
       select: () => ({ eq: () => ({ order: () => Promise.resolve({ data: [] }) }) }),
+      insert: (rows) => {
+        inserts.push({ table, rows });
+        return Promise.resolve({ error: null });
+      },
     }),
   },
 }));
@@ -29,6 +34,7 @@ const ACCOUNTS = [
 
 beforeEach(() => {
   rpcs.length = 0;
+  inserts.length = 0;
 });
 
 describe('TransferEditor', () => {
@@ -68,6 +74,16 @@ describe('TransferEditor', () => {
     fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '320' } });
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Save changes' })));
     expect(rpcs[0]).toEqual({ name: 'update_transfer', args: { p_link_id: 'link-1', p_amount: 320, p_occurred_at: '2026-10-10', p_note: '' } });
+    // The database function records nothing, so each side's history is written here.
+    expect(inserts).toEqual([
+      {
+        table: 'transaction_edits',
+        rows: [
+          { transaction_id: existing.out.id, field: 'amount', old_value: '−300', new_value: '−320' },
+          { transaction_id: existing.in.id, field: 'amount', old_value: '+300', new_value: '+320' },
+        ],
+      },
+    ]);
 
     fireEvent.click(screen.getByRole('button', { name: 'Unlink' }));
     expect(rpcs).toHaveLength(1);
