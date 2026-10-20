@@ -926,6 +926,35 @@
   flex-wrap: wrap;
   gap: 6px;
 }
+/* The one thing to do next, above the checks. */
+.rv-next {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--rule2);
+  border-left: 2px solid var(--accent);
+  border-radius: var(--radius-md);
+}
+.rv-next .rv-title {
+  margin-top: 4px;
+}
+.rv-history,
+.rv-todo {
+  margin-top: 24px;
+}
+.rv-figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin: 8px 0;
+}
+.rv-figures dt {
+  font-size: 12px;
+  color: var(--ink3);
+}
+.rv-figures dd {
+  margin: 2px 0 0;
+  font-weight: 600;
+}
 
 /* What a save added besides the record (a merchant rule), above the list. */
 .mn-notice {

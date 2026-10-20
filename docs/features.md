@@ -130,9 +130,15 @@ here, because this repository is public.
   the month, balances confirmed since it ended, and closing it under Net
   Worth, plus a note of refunds not yet linked to their purchase. Each check
   is worked out from the records and ticks itself off; the
-  close marks the month reviewed. Under the checks, the month against its
-  budget and the groups that went over. Overview's "hasn't been closed" item
-  opens it.
+  close marks the month reviewed. A "Next" card above the checks names the
+  first one still to do, with its link; each link out of the review offers
+  "Back to the review" on the page it opens. Under the checks, the month
+  against its budget and the groups that went over; what the close puts into
+  history (income, spending, saving and its rate, and net worth against the
+  last month closed); and a short ranked list of what to do next: bills in the
+  next 30 days the money to hand won't cover, goals behind their pace, spending
+  over budget, and saving short of its target. Overview's "hasn't been closed"
+  item opens it.
 
 ## Wealth (`/wealth`)
 

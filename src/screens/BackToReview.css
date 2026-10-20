@@ -1,0 +1,7 @@
+/* The way back to the monthly review, above a page's tabs. Its own file, as
+   it shows on Money, Wealth and Planning, which load their styles apart. */
+.rv-back {
+  display: inline-block;
+  margin-bottom: 12px;
+  font-size: 13px;
+}

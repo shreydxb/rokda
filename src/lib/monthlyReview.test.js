@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { adjacentReviewMonths, balancesToConfirm, budgetSummary, monthStatements, monthlyReview, possibleTransfers, reviewMonth } from './monthlyReview';
+import { adjacentReviewMonths, balancesToConfirm, budgetSummary, monthStatements, monthlyReview, possibleTransfers, reviewMonth, reviewReturn, withReviewReturn } from './monthlyReview';
 
 // 16 October 2026: September is the month just ended.
 const NOW = new Date(2026, 9, 16, 12);
@@ -29,6 +29,21 @@ describe('reviewMonth', () => {
     expect(adjacentReviewMonths(SEPT, NOW)).toEqual({ prev: { year: 2026, month: 8 }, next: null });
     expect(adjacentReviewMonths({ year: 2026, month: 1 }, NOW).prev).toEqual({ year: 2025, month: 12 });
     expect(adjacentReviewMonths({ year: 2026, month: 8 }, NOW).next).toEqual(SEPT);
+  });
+});
+
+describe('withReviewReturn and reviewReturn', () => {
+  it('carries the month out of the review and offers the way back', () => {
+    const href = withReviewReturn('/money?tab=activity&review=1&from=2026-09-01', { year: 2026, month: 9 });
+    expect(href).toBe('/money?tab=activity&review=1&from=2026-09-01&reviewing=2026-09');
+    expect(withReviewReturn('/wealth', { year: 2026, month: 9 })).toBe('/wealth?reviewing=2026-09');
+    expect(reviewReturn(new URL(href, 'https://x').searchParams, NOW)).toEqual({ year: 2026, month: 9, href: '/money?tab=review&month=2026-09', label: 'September' });
+  });
+
+  it('offers nothing for a month the review cannot show', () => {
+    expect(reviewReturn(new URLSearchParams(''), NOW)).toBeNull();
+    expect(reviewReturn(new URLSearchParams('reviewing=2026-10'), NOW)).toBeNull();
+    expect(reviewReturn(new URLSearchParams('reviewing=nonsense'), NOW)).toBeNull();
   });
 });
 

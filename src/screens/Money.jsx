@@ -3,6 +3,7 @@ import { useTab } from '../lib/useTab';
 import { activityHref, monthRange } from '../lib/activityLink';
 import { useHousehold } from '../lib/useHousehold';
 import { useOverviewData } from './useOverviewData';
+import { usePlanningData } from './usePlanningData';
 import Activity from './money/Activity';
 import Recurring from './money/Recurring';
 import Budget from './money/Budget';
@@ -11,6 +12,7 @@ import Inbox from './money/Inbox';
 import Review from './money/Review';
 import LoadFailure from './LoadFailure';
 import Freshness from './Freshness';
+import BackToReview from './BackToReview';
 import AedNote from './AedNote';
 import './Money.css';
 
@@ -31,7 +33,10 @@ export default function Money() {
   const [tab, setTab] = useTab(TABS);
   const { household, members, me, loading: householdLoading, error: householdError, reload: reloadHousehold } = useHousehold();
   const data = useOverviewData(household?.id);
-  const loading = householdLoading || data.loading;
+  // The review's goal actions need the plan; nothing else here does, so it is
+  // read only while the review is open.
+  const planning = usePlanningData(tab === 'review' ? household?.id : null);
+  const loading = householdLoading || data.loading || (tab === 'review' && planning.loading);
   const pendingIntake = data.intake?.filter((i) => i.status === 'pending').length ?? 0;
 
   return (
@@ -46,12 +51,13 @@ export default function Money() {
       />
       <AedNote household={household} />
       <LoadFailure
-        errors={{ ...data.errors, ...(householdError ? { household: householdError } : {}) }}
+        errors={{ ...data.errors, ...(tab === 'review' ? planning.errors : {}), ...(householdError ? { household: householdError } : {}) }}
         loadedAt={data.loadedAt}
         onRetry={async () => {
           await Promise.all([reloadHousehold(), data.reload()]);
         }}
       />
+      <BackToReview />
       <div className="mn-tabs">
         {TABS.map((t) => (
           <button key={t.id} type="button" className="om-tab" data-active={tab === t.id} onClick={() => setTab(t.id)}>
@@ -93,7 +99,7 @@ export default function Money() {
       {tab === 'inbox' && (
         <Inbox household={household} members={members} accounts={data.accounts} categories={data.categories} data={data} loading={loading} />
       )}
-      {tab === 'review' && <Review household={household} data={data} loading={loading} />}
+      {tab === 'review' && <Review household={household} data={data} planning={planning} loading={loading} />}
     </div>
   );
 }

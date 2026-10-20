@@ -84,7 +84,7 @@ describe('Review', () => {
     expect(within(flagged).getByRole('link', { name: 'Open the records' }).getAttribute('href')).toMatch(/^\/money\?tab=activity&who=both&review=1&from=/);
     expect(within(screen.getByTestId('review-categorise')).getByRole('link').getAttribute('href')).toMatch(/cat=none/);
     expect(within(screen.getByTestId('review-balances')).getByText(/Current account/)).toBeTruthy();
-    expect(within(screen.getByTestId('review-close')).getByRole('link', { name: 'Close the month' }).getAttribute('href')).toBe('/wealth');
+    expect(within(screen.getByTestId('review-close')).getByRole('link', { name: 'Close the month' }).getAttribute('href')).toBe(`/wealth?reviewing=${lastMonth(1).slice(0, 7)}`);
   });
 
   it('says so once the month is reviewed and closed', () => {
@@ -129,5 +129,43 @@ describe('Review', () => {
     const before = new Date(now.getFullYear(), now.getMonth() - 2, 1).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
     expect(screen.getByRole('heading', { name: before })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Next →' }).disabled).toBe(false);
+  });
+
+  it('leads with the first check still to do, linked with the way back', () => {
+    renderReview(data({ transactions: [tx('bare', { category_id: null })] }));
+    const next = screen.getByRole('region', { name: 'Next step' });
+    expect(within(next).getByText('Categories')).toBeTruthy();
+    const href = within(next).getByRole('link', { name: 'Open the records' }).getAttribute('href');
+    expect(href).toMatch(/cat=none/);
+    expect(href).toMatch(new RegExp(`reviewing=${lastMonth(1).slice(0, 7)}$`));
+  });
+
+  it('shows what the close puts into history, against the last month closed', () => {
+    const before = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+    renderReview(
+      data({
+        accounts: [account('current', 'Current account', { balance: 9000, balance_aed: 9000, currency: 'AED', is_shared: true })],
+        transactions: [tx('pay', { amount: 5000, kind: 'income', category_id: null }), tx('food', { amount: -1000 })],
+        netWorthSnapshots: [{ snapshot_date: `${before.getFullYear()}-${pad(before.getMonth() + 1)}-01`, assets: 8000, liabilities: 0 }],
+      }),
+    );
+    const history = screen.getByRole('region', { name: 'What goes into history' });
+    expect(within(history).getByText(/80% of income/)).toBeTruthy();
+    expect(within(history).getByText(/^Up .*1,000 on /)).toBeTruthy();
+  });
+
+  it('ends in what to do next, including a goal behind its pace', () => {
+    const due = new Date(now.getFullYear() + 1, now.getMonth(), 1);
+    const goals = [{ id: 'g', name: 'New car', target_amount: 120000, target_date: `${due.getFullYear()}-${pad(due.getMonth() + 1)}-01`, is_shared: true, created_at: '2026-01-01T00:00:00Z' }];
+    renderScreen(
+      <MemoryRouter initialEntries={['/money?tab=review']}>
+        <Review household={{ id: 'hh' }} data={data({ netWorthSnapshots: [{ snapshot_date: lastMonth(1) }] })} planning={{ goals, goalContributions: [], goalAllocations: [] }} loading={false} />
+      </MemoryRouter>,
+    );
+    const action = screen.getByTestId('action-goal-g');
+    expect(within(action).getByText('Fund New car')).toBeTruthy();
+    expect(within(action).getByRole('link', { name: 'Open Goals' }).getAttribute('href')).toMatch(/^\/planning\?tab=goals&reviewing=/);
+    // With every check done, the next step is the first action.
+    expect(within(screen.getByRole('region', { name: 'Next step' })).getByText('Fund New car')).toBeTruthy();
   });
 });
