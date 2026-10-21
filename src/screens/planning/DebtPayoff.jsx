@@ -79,12 +79,15 @@ export default function DebtPayoff({ household, members, me, accounts = [], data
     [debts]
   );
 
+  // What a debt-free date rests on. An extra payment of 0 is set but commits
+  // nothing, so it counts as missing, like one never entered.
+  const extraCommitted = extraPayment !== null && extraPayment > 0;
   const debtInputs = [
     {
       label: 'Committed extra payment',
       note: 'How much above the minimums goes to debt each month',
-      state: extraPayment !== null ? `${formatMoney(extraPayment)} / mo` : 'Not set',
-      tone: extraPayment !== null ? 'ov-chip-ok' : 'ov-chip-warn',
+      state: extraPayment !== null ? `${formatMoney(extraPayment)} a month` : 'Not set',
+      tone: extraCommitted ? 'ov-chip-ok' : 'ov-chip-warn',
     },
     {
       label: 'Card usage assumption',
@@ -95,18 +98,20 @@ export default function DebtPayoff({ household, members, me, accounts = [], data
     { label: 'Minimum payments', note: 'Entered by hand on each debt', state: debts.length ? 'Known' : 'No debts yet', tone: debts.length ? 'ov-chip-ok' : 'ov-chip-warn' },
     { label: 'Rates', note: 'Entered by hand on each debt', state: debts.length ? 'Known · manual' : 'No debts yet', tone: debts.length ? 'ov-chip-ok' : 'ov-chip-warn' },
   ];
+  const missing = [!extraCommitted && 'a committed extra payment', !cardAssumptionSet && 'a card-usage assumption'].filter(Boolean);
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
 
   return (
-    <div>
-      <div className="mn-filters">
-        {STRATEGIES.map((s) => (
-          <button key={s.id} type="button" className="om-seg" data-active={strategy === s.id} onClick={() => setStrategy(s.id)}>
-            {s.label}
-          </button>
-        ))}
-        <span className="ov-muted">{visibleDebts.length > 0 ? `${formatMoney(totalOwed)} outstanding` : ''}</span>
+    <div className="debt">
+      <div className="debt-toolbar">
+        <div className="ov-seg-row" role="group" aria-label="Payoff order">
+          {STRATEGIES.map((s) => (
+            <button key={s.id} type="button" className="om-seg" data-active={strategy === s.id} onClick={() => setStrategy(s.id)}>
+              {s.label}
+            </button>
+          ))}
+        </div>
         <button type="button" className="om-btn mn-add" onClick={() => setEditing('new')}>
           + Debt
         </button>
@@ -119,114 +124,112 @@ export default function DebtPayoff({ household, members, me, accounts = [], data
         </div>
       ) : (
         <>
-          <div className="ov-muted" style={{ marginTop: 14, fontSize: 12.5, lineHeight: 1.65, maxWidth: '78ch' }}>
-            {STRATEGY_NOTE[strategy]}
+          <div className="debt-summary">
+            <span className="debt-total fig">{`${formatMoney(totalOwed)} outstanding`}</span>
+            <span className="ov-muted">{` across ${visibleDebts.length} debt${visibleDebts.length === 1 ? '' : 's'}`}</span>
           </div>
+          <div className="ov-muted debt-note">{STRATEGY_NOTE[strategy]}</div>
           {unlinked.length > 0 && (
-            <div className="ov-warn debt-unlinked" style={{ marginTop: 12, fontSize: 12.5, lineHeight: 1.65, maxWidth: '78ch' }}>
+            <div className="ov-warn debt-note debt-unlinked">
               {unlinked.length === 1 ? `${unlinked[0].name} is` : `${unlinked.length} debts are`} not in net worth. Open {unlinked.length === 1 ? 'it' : 'each'} and link a loan
               account, or create one, so the amount owed counts.
             </div>
           )}
 
-          <section style={{ marginTop: 18 }}>
-            <div className="mn-list">
-              {ordered.map((d, i) => {
-                const paidPct = d.original_amount ? Math.max(0, 1 - Number(d.balance) / Number(d.original_amount)) : null;
-                return (
-                  <button
-                    key={d.id}
-                    type="button"
-                    className="mn-row"
-                    onClick={() => setEditing(data.debts.find((raw) => raw.id === d.id))}
-                    style={{ alignItems: 'center' }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 16, flex: 1, minWidth: 0 }}>
-                      <div className="fig" style={{ fontSize: 19, color: 'var(--accent)', flex: 'none', width: 20 }}>
-                        {i + 1}
+          {/* Each debt in payoff order: its rank, name and progress, then the
+              three figures that decide the order, each with its label. */}
+          <div className="debt-list">
+            {ordered.map((d, i) => {
+              const paidPct = d.original_amount ? Math.max(0, 1 - Number(d.balance) / Number(d.original_amount)) : null;
+              return (
+                <button key={d.id} type="button" className="debt-row" onClick={() => setEditing(data.debts.find((raw) => raw.id === d.id))}>
+                  <div className="debt-rank fig">{i + 1}</div>
+                  <div className="debt-main">
+                    <div className="debt-name">{d.name}</div>
+                    {d.note && <div className="ov-muted">{d.note}</div>}
+                    {!d.inNetWorth && (
+                      <div>
+                        <span className="ov-chip-warn">{d.account ? 'Account not valued: not in net worth' : 'No account: not in net worth'}</span>
                       </div>
-                      <div className="mn-row-main">
-                        <div>{d.name}</div>
-                        {d.note && <div className="ov-muted" style={{ marginTop: 3 }}>{d.note}</div>}
-                        {!d.inNetWorth && (
-                          <div style={{ marginTop: 6 }}>
-                            <span className="ov-chip-warn">{d.account ? 'Account not valued: not in net worth' : 'No account: not in net worth'}</span>
-                          </div>
-                        )}
-                        {paidPct !== null && (
-                          <div style={{ marginTop: 8, maxWidth: 220 }}>
-                            <div className="bud-bar" style={{ height: 3 }}>
-                              <span className="bud-bar-spent" style={{ width: `${paidPct * 100}%` }} />
-                            </div>
-                            <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 5 }}>{Math.round(paidPct * 100)}% paid down</div>
-                          </div>
-                        )}
+                    )}
+                    {paidPct !== null && (
+                      <div className="debt-progress">
+                        <div className="bud-bar">
+                          <span className="bud-bar-spent" style={{ width: `${paidPct * 100}%` }} />
+                        </div>
+                        <div className="ov-muted">{Math.round(paidPct * 100)}% paid down</div>
                       </div>
+                    )}
+                  </div>
+                  <dl className="debt-figures">
+                    <div>
+                      <dt>Owed</dt>
+                      <dd className="fig ov-neg">−{formatMoney(d.balance)}</dd>
                     </div>
-                    <div style={{ display: 'flex', gap: 24, flex: 'none', alignItems: 'baseline' }}>
-                      <div className="fig ov-neg" style={{ fontSize: 17, minWidth: 90, textAlign: 'right' }}>
-                        −{formatMoney(d.balance)}
-                      </div>
-                      <div className="ov-muted" style={{ minWidth: 70, textAlign: 'right' }}>{Number(d.apr_pct).toFixed(1)}%/yr</div>
-                      <div className="ov-muted" style={{ minWidth: 80, textAlign: 'right' }}>{formatMoney(d.minimum_payment)}</div>
+                    <div>
+                      <dt>Rate</dt>
+                      <dd className="fig">{Number(d.apr_pct).toFixed(1)}% a year</dd>
                     </div>
-                  </button>
-                );
-              })}
-            </div>
-          </section>
+                    <div>
+                      <dt>Minimum</dt>
+                      <dd className="fig">{formatMoney(d.minimum_payment)} a month</dd>
+                    </div>
+                  </dl>
+                </button>
+              );
+            })}
+          </div>
 
           {!historyAvailable ? (
-            <div className="ov-muted" style={{ marginTop: 32 }}>
+            <div className="ov-muted debt-plan">
               The payoff order and projection are tracked household-wide — a committed extra payment isn't a per-person number.
               Switch to "Both" to see them.
             </div>
           ) : (
-          <div className="ov-quality-section" style={{ marginTop: 32, display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', gap: 44 }}>
-            <div>
-              <div className="ov-kicker" style={{ marginBottom: 12 }}>
-                Required to project a payoff
-              </div>
-              {debtInputs.map((di) => (
-                <div key={di.label} className="mn-row" style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between' }} onClick={() => setEditingPlan(true)}>
-                  <div>
-                    <div style={{ fontSize: 13.5 }}>{di.label}</div>
-                    <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 3 }}>{di.note}</div>
-                  </div>
-                  <span className={di.tone}>{di.state}</span>
+            <div className="debt-plan">
+              <div>
+                <div className="ov-kicker">Required to project a payoff</div>
+                <div className="debt-inputs">
+                  {debtInputs.map((di) => (
+                    <div key={di.label} className="debt-input">
+                      <div>
+                        <div>{di.label}</div>
+                        <div className="ov-muted">{di.note}</div>
+                      </div>
+                      <span className={di.tone}>{di.state}</span>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-            <div>
-              <div className="ov-kicker" style={{ marginBottom: 12 }}>
-                Payoff projection
               </div>
-              <div style={{ border: '1px dashed var(--rule2)', borderRadius: 3, padding: '16px 18px' }}>
-                {canProject && plan ? (
-                  <>
-                    <div style={{ fontSize: 14 }}>Debt-free in {monthsToLabel(plan.months)}</div>
-                    <div className="ov-muted" style={{ marginTop: 9, lineHeight: 1.7 }}>
-                      At {formatMoney(extraPayment)} extra a month on top of the minimums, following {strategy} order. Total interest paid
-                      along the way: {formatMoney(plan.totalInterest)}.
-                    </div>
-                  </>
-                ) : canProject && !plan ? (
-                  <div style={{ fontSize: 14 }}>Doesn't clear within 50 years at this rate.</div>
-                ) : (
-                  <>
-                    <div style={{ fontSize: 14 }}>No payoff date yet</div>
-                    <div className="ov-muted" style={{ marginTop: 9, lineHeight: 1.7 }}>
-                      A debt-free date needs a committed extra payment and a card-usage assumption. Neither is set, so no date is shown.
-                      At minimums alone: {minimumOnlyByDebt.map((m) => `${m.name} ${m.months === null ? 'revolves indefinitely' : `clears in ${monthsToLabel(m.months)}`}`).join(' · ')}.
-                    </div>
-                  </>
-                )}
-                <button type="button" className="om-btn" style={{ marginTop: 14, borderColor: 'var(--accent)', color: 'var(--ink)' }} onClick={() => setEditingPlan(true)}>
-                  Set an extra payment
-                </button>
+              <div>
+                <div className="ov-kicker">Payoff projection</div>
+                <div className="debt-projection">
+                  {canProject && plan ? (
+                    <>
+                      <div className="debt-projection-head">Debt-free in {monthsToLabel(plan.months)}</div>
+                      <div className="ov-muted">
+                        At {formatMoney(extraPayment)} extra a month on top of the minimums, following {strategy} order. Total interest paid
+                        along the way: {formatMoney(plan.totalInterest)}.
+                      </div>
+                    </>
+                  ) : canProject && !plan ? (
+                    <div className="debt-projection-head">Doesn't clear within 50 years at this rate.</div>
+                  ) : (
+                    <>
+                      <div className="debt-projection-head">No payoff date yet</div>
+                      <div className="ov-muted">
+                        A debt-free date needs a committed extra payment and a card-usage assumption.{' '}
+                        {missing.length === 2 ? 'Neither is set' : `${missing[0][0].toUpperCase()}${missing[0].slice(1)} is not set`}, so no date is shown.
+                        At minimums alone: {minimumOnlyByDebt.map((m) => `${m.name} ${m.months === null ? 'revolves indefinitely' : `clears in ${monthsToLabel(m.months)}`}`).join(' · ')}.
+                      </div>
+                    </>
+                  )}
+                  <button type="button" className="om-btn debt-primary" onClick={() => setEditingPlan(true)}>
+                    {extraCommitted ? 'Change the plan' : 'Set an extra payment'}
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
           )}
         </>
       )}

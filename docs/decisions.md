@@ -538,6 +538,28 @@ sideways with value and profit off the screen.
   labelled and smaller. Nothing is dropped.
 - **The skill's app-screen rules were the checklist** (CLAUDE.md), and Rokda's
   own look stayed as it was.
+
+## Recurring and Debt payoff read like Statements
+
+The same audit found both pages placing things the way Statements did before
+it was redone. Recurring's amounts sat about 900px from their names, each
+status had a line to itself, and "Mark paid" appeared under one row only,
+stacked. Debt payoff ended each debt in three unlabelled numbers, and on a
+phone squeezed the name to one word a line.
+
+- **Recurring: what needs doing first.** Late bills, then those due soon,
+  then the rest by next date; ended schedules fold under "Ended". A late
+  bill says when it was due, not only when the next one is.
+- **One line of terms, one place for the action.** Name and amount, then the
+  status chip with the cadence, dates, owner and autopay, and "Mark paid" in
+  a column of its own, kept for every row once one row needs it so the
+  amounts line up. The page is capped so the amount sits near its name.
+- **Debt payoff: every figure labelled** (owed, rate, minimum); on a phone
+  they move under the name. The order sits on the left and "+ Debt" on the
+  right, the total owed on its own line.
+- **The projection says what it is missing.** "Neither is set" showed even
+  with one of the two set; it now names the missing one, and an extra
+  payment of 0 counts as not committed.
 ## One history for linked records
 
 A purchase, its refunds and the two sides of a transfer change together, but

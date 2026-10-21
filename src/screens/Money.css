@@ -495,19 +495,96 @@
   font-size: 11.5px;
 }
 
-/* recurring: status chip under the meta line, and a "Mark paid" action that
-   only appears once a row actually needs one (billStatus.needsAction) --
-   mirrors the .mn-row-wrap + trailing-action pattern Wealth's account rows
-   already use. */
-.rc-statusrow {
-  margin-top: 6px;
+/* Recurring. The page is capped so each amount sits near its name; a row is
+   its name and amount, then its status and terms on one grey line, and
+   "Mark paid" in a column of its own. What needs marking comes first. */
+.rc {
+  max-width: 820px;
+}
+.rc-toolbar {
+  margin-top: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+}
+.rc-group {
+  margin-top: 28px;
+}
+.rc-group-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--rule2);
+}
+.rc-list[data-actions='true'] .rc-row {
+  grid-template-columns: minmax(0, 1fr) 96px;
+}
+.rc-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--rule);
+}
+.rc-open {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 16px;
+  align-items: baseline;
+  padding: 12px 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13.5px;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+.rc-open:hover {
+  background: var(--raise);
+}
+.rc-amt {
+  font-size: 16px;
+  text-align: right;
+}
+.rc-native {
+  display: block;
+  font-size: 11.5px;
+}
+.rc-meta {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.rc-meta > [class^='ov-chip-'] {
+  margin-right: 4px;
+}
+.rc-action {
+  display: flex;
+  justify-content: flex-end;
 }
 .rc-markpaid {
-  flex: none;
-  align-self: center;
   font-size: 12px;
   padding: 6px 12px;
   border-color: var(--accent);
+  color: var(--ink);
+  white-space: nowrap;
+}
+.rc-ended {
+  margin-top: 8px;
+}
+.rc-ended > summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  color: var(--ink3);
+  padding: 4px 0;
+}
+.rc-ended > summary:hover {
   color: var(--ink);
 }
 
