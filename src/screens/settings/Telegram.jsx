@@ -135,7 +135,10 @@ export default function Telegram({ household, loading }) {
     setPrefsLoading(true);
     supabase
       .from('telegram_notification_prefs')
-      .select('recurring_enabled, credit_card_enabled, cash_cover_enabled, brief_enabled, unusual_spend_enabled, balance_checkin_enabled')
+      // Read every signal the screen shows. A hand-written list left out
+      // statement_enabled, so "Card statements" read Off while the bot,
+      // reading the column, treated it as on.
+      .select(SIGNALS.map((sig) => sig.key).join(', '))
       .eq('household_id', household.id)
       .maybeSingle()
       .then(({ data, error: fetchError }) => {
