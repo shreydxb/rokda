@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { stubSupabase, ids, data } from './fixtures.js';
+import { stubSupabase, ids, data, pickInShell } from './fixtures.js';
 
 // "Remember this merchant" while correcting a record's category: the record is
 // saved first, then the household rule, and only the rule is ever retried.
@@ -7,7 +7,9 @@ import { stubSupabase, ids, data } from './fixtures.js';
 // except the rules this file keeps, so Settings can show the one added.
 
 const NEW_RULE = 'b2b2b2b2-0000-4000-8000-0000000000aa';
-const scope = (page, name) => page.getByRole('group', { name: 'Household scope' }).getByRole('button', { name, exact: true });
+// A CSS locator, not a role: on a phone the switches are folded away, and a
+// hidden button has no role to find, but its state still counts.
+const scope = (page, name) => page.locator('[aria-label="Household scope"] .om-scope', { hasText: new RegExp(`^${name}$`) });
 
 async function open(page, path, { failRuleInserts = 0 } = {}) {
   const writes = [];
@@ -49,7 +51,7 @@ const categorySelect = (editor) => editor.locator('select').filter({ has: editor
 
 test('a corrected merchant is remembered after the record saves, and Activity keeps its place', async ({ page }) => {
   const { writes, added } = await open(page, '/money?tab=activity&q=Carrefour&sort=largest');
-  await scope(page, 'Me').click();
+  await pickInShell(page, 'Household scope', 'Me');
   await page.locator('.om-tx-row').first().click();
   const editor = page.getByRole('dialog', { name: 'Edit transaction' });
   const remember = editor.getByRole('checkbox', { name: /Remember this merchant/ });

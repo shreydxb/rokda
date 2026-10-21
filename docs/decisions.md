@@ -515,6 +515,29 @@ was something to admire rather than act on (SHR-301).
   FX needs SHR-232's ledger first; accepting a new plan baseline and a
   Telegram summary are left for later.
 
+
+## A phone opens on the page, not the controls
+
+A layout audit at 390px (21 Oct) found the phone header taking about a third
+of the first screen: the nav, then the household and currency switches,
+light mode, the login and the build. Overview's title counted the decisions
+waiting, but they sat under the figures and the chart, about 1,000px down.
+Budget's Pace column ran past the margin, and the holdings table scrolled
+sideways with value and profit off the screen.
+
+- **The controls fold behind one button** that says what is chosen ("Both ·
+  AED ▾"). It opens the household and currency switches, light mode,
+  sign-out and the build, and closes when a page is picked. The bar with the
+  nav stays pinned to the top, now with the page's ground behind it. On a
+  desktop nothing changes.
+- **Decisions before the chart.** On a phone, Needs attention comes straight
+  after the period's figures; on a desktop it stays beside the chart.
+- **Tables fit rather than scroll.** Budget's pace moves under its row, full
+  width; the household share's columns may shrink. Each holding becomes two
+  lines: name and value, then profit, today's move and every other column,
+  labelled and smaller. Nothing is dropped.
+- **The skill's app-screen rules were the checklist** (CLAUDE.md), and Rokda's
+  own look stayed as it was.
 ## One history for linked records
 
 A purchase, its refunds and the two sides of a transfer change together, but

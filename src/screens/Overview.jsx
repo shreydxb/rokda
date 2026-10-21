@@ -321,7 +321,7 @@ export default function Overview() {
               </div>
             </div>
 
-            <div>
+            <div className="ov-attn-col">
               <div className="ov-section-head">
                 <div className="ov-kicker">Needs attention</div>
                 <div className="ov-muted">{attention.length ? `${attention.length} open` : 'All clear'}</div>

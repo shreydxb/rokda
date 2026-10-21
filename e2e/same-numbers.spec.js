@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { stubSupabase, txn, dayThisMonth, ids } from './fixtures.js';
+import { stubSupabase, txn, dayThisMonth, ids, pickInShell } from './fixtures.js';
 
 // The same money reads the same way on every view (product review, 15
 // October). The reviewer's case: a shared expense of 100 and a shared refund
@@ -28,7 +28,7 @@ async function openMoney(page, tab) {
 
 test('Activity and its calendar agree under Me, net of the refund', async ({ page }) => {
   await openMoney(page);
-  await page.getByRole('group', { name: 'Household scope' }).getByRole('button', { name: 'Me' }).click();
+  await pickInShell(page, 'Household scope', 'Me');
 
   const summary = page.locator('.mn-count');
   await expect(summary).toContainText('1 scheduled not counted');
@@ -57,6 +57,6 @@ test('Top merchants follows the month Insights is showing', async ({ page }) => 
 
 test('Money says its amounts are AED when another display currency is picked', async ({ page }) => {
   await openMoney(page);
-  await page.getByRole('group', { name: 'Display currency' }).getByRole('button', { name: 'USD' }).click();
+  await pickInShell(page, 'Display currency', 'USD');
   await expect(page.getByRole('note')).toContainText('Amounts here are in AED, as recorded');
 });

@@ -12,6 +12,9 @@ here, because this repository is public.
   household's records. Pages read again when the tab comes back into view
   (if more than a minute old), every five minutes while in view, and on
   Refresh, without closing an open editor.
+- On a phone the top bar holds the nav and one button showing the household
+  scope and display currency ("Both · AED ▾"); it opens those switches, light
+  mode, sign-out and the build.
 
 ## Signing in
 
@@ -32,7 +35,8 @@ here, because this repository is public.
   rate, each against the same days of the period before (Income also says
   which expected pay is still to come this period, and how much); the cash-flow chart
   (titled by its grouping, with its scale, the running period marked "so
-  far", and periods with no records saying so) beside Needs attention; the
+  far", and periods with no records saying so) beside Needs attention (on a
+  phone, Needs attention comes first, above the chart); the
   next 30 days; net worth and cash position; data quality as one line that
   opens; then categories, the five newest records (with a link to the rest
   in Activity) and accounts.

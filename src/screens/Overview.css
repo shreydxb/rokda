@@ -588,6 +588,11 @@
     grid-template-columns: minmax(0, 1fr);
     gap: 30px;
   }
+  /* On a phone the decisions come before the chart: the title counts them,
+     and below the chart they were a long scroll away from it. */
+  .ov-attn-col {
+    order: -1;
+  }
 }
 
 /* A figure that cannot be trusted is named, not rendered as a number (QA-10). */

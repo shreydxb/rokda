@@ -203,7 +203,7 @@ export default function Investments({ household, members, me, data, loading }) {
               )}
             </div>
             <div style={{ flex: 1, minWidth: 320 }}>
-              <div className="ov-seg-row" style={{ justifyContent: 'flex-end' }}>
+              <div className="ov-seg-row wl-ranges">
                 {RANGES.map((r) => (
                   <button key={r} type="button" className="om-seg" data-active={range === r} onClick={() => setRange(r)}>
                     {r}
