@@ -10,7 +10,7 @@ import { duplicatePairs } from './duplicates';
 
 // The monthly review (docs/decisions.md, "A month is reviewed, then closed").
 //
-// Closing a month used to be one button under Wealth -> Net Worth, and nothing
+// Closing a month used to be one button under Wealth -> Net worth, and nothing
 // asked whether the month's records were right before its totals went into
 // history. The review is the list of what to settle first, in the order it is
 // worth doing: the records (flagged, uncategorised, transfers not yet joined),
@@ -317,7 +317,7 @@ export function monthlyReview({ year, month }, { transactions = [], accounts = [
     detail: closed
       ? `${label} is closed, and its totals are in history.`
       : closable
-        ? `Record ${label}'s net worth under Wealth → Net Worth${unconfirmed.length ? ', once the balances are confirmed' : ''}.`
+        ? `Record ${label}'s net worth under Wealth → Net worth${unconfirmed.length ? ', once the balances are confirmed' : ''}.`
         : `${label} was never closed, and it can't be now: a close records today's totals as the month just ended's.`,
     href: closable && !closed ? '/wealth' : null,
   });

@@ -3,6 +3,33 @@
 // stays available only for an account that was never used — a typo, an
 // account added twice — and the database refuses it otherwise.
 
+// What each stored account type is called on screen. The keys are every value
+// the accounts_type_check constraint allows, in the order they are offered and
+// grouped; a type this map doesn't know reads as Other.
+export const ACCOUNT_TYPE_LABELS = {
+  checking: 'Checking',
+  savings: 'Savings',
+  cash: 'Cash',
+  fd: 'Fixed deposit',
+  credit_card: 'Credit card',
+  loan: 'Loan',
+  investment: 'Investment',
+  other: 'Other',
+};
+
+export function accountTypeLabel(type) {
+  return ACCOUNT_TYPE_LABELS[type] ?? 'Other';
+}
+
+// How a fixed deposit's interest compounds, as offered in its editor.
+export const COMPOUNDING_LABELS = {
+  simple: 'Simple (paid at maturity)',
+  monthly: 'Monthly',
+  quarterly: 'Quarterly',
+  half_yearly: 'Half-yearly',
+  annually: 'Annually',
+};
+
 export function isArchived(account) {
   return account?.archived_at != null;
 }
@@ -69,7 +96,7 @@ export function accountOptionLabel(account, { members = [], accounts = [] } = {}
       ? 'Joint'
       : members.find((m) => m.id === account.owner_member_id)?.display_name;
     if (owner) parts.push(owner);
-    parts.push(String(account.type ?? '').replace('_', ' '));
+    parts.push(accountTypeLabel(account.type));
   }
   if (isArchived(account)) parts.push('closed');
   return parts.filter(Boolean).join(' · ');

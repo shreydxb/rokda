@@ -7,6 +7,7 @@ import Telegram from './settings/Telegram';
 import Backups from './settings/Backups';
 import LoadFailure from './LoadFailure';
 import Freshness from './Freshness';
+import TabRow from './TabRow';
 import './Settings.css';
 
 const TABS = [
@@ -40,13 +41,7 @@ export default function Settings() {
           await Promise.all([reloadHousehold(), data.reload()]);
         }}
       />
-      <div className="mn-tabs">
-        {TABS.map((t) => (
-          <button key={t.id} type="button" className="om-tab" data-active={tab === t.id} onClick={() => setTab(t.id)}>
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <TabRow tabs={TABS} active={tab} onChange={setTab} />
 
       {tab === 'household' && (
         <Household household={household} members={members} me={me} loading={loading} reload={reloadHousehold} />

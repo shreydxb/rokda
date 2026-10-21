@@ -14,6 +14,7 @@ import LoadFailure from './LoadFailure';
 import Freshness from './Freshness';
 import BackToReview from './BackToReview';
 import AedNote from './AedNote';
+import TabRow from './TabRow';
 import './Money.css';
 
 const TABS = [
@@ -58,14 +59,11 @@ export default function Money() {
         }}
       />
       <BackToReview />
-      <div className="mn-tabs">
-        {TABS.map((t) => (
-          <button key={t.id} type="button" className="om-tab" data-active={tab === t.id} onClick={() => setTab(t.id)}>
-            {t.label}
-            {t.id === 'inbox' && pendingIntake > 0 ? ` (${pendingIntake})` : ''}
-          </button>
-        ))}
-      </div>
+      <TabRow
+        tabs={TABS.map((t) => (t.id === 'inbox' && pendingIntake > 0 ? { ...t, label: `${t.label} (${pendingIntake})` } : t))}
+        active={tab}
+        onChange={setTab}
+      />
 
       {tab === 'activity' && (
         <Activity

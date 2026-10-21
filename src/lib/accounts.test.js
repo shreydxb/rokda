@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
+  ACCOUNT_TYPE_LABELS,
+  accountTypeLabel,
   accountOptionLabel,
   activeAccounts,
   archivedAccounts,
@@ -95,8 +97,16 @@ describe('account selector labels', () => {
 
   it('qualifies duplicate names with owner and type', () => {
     const accounts = [fabA, fabB];
-    expect(accountOptionLabel(fabA, { members, accounts })).toBe('FAB · Alex · credit card');
-    expect(accountOptionLabel(fabB, { members, accounts })).toBe('FAB · Joint · savings');
+    expect(accountOptionLabel(fabA, { members, accounts })).toBe('FAB · Alex · Credit card');
+    expect(accountOptionLabel(fabB, { members, accounts })).toBe('FAB · Joint · Savings');
+  });
+
+  it('names every account type the database allows, with no raw value left', () => {
+    const allowed = ['checking', 'savings', 'credit_card', 'investment', 'loan', 'cash', 'other', 'fd'];
+    expect(Object.keys(ACCOUNT_TYPE_LABELS).sort()).toEqual([...allowed].sort());
+    expect(allowed.map(accountTypeLabel).every((l) => /^[A-Z][a-z ]+$/.test(l))).toBe(true);
+    expect(accountTypeLabel('fd')).toBe('Fixed deposit');
+    expect(accountTypeLabel('something new')).toBe('Other');
   });
 
   it('marks a closed account in a list that still shows it', () => {

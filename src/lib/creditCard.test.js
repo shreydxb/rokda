@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { estimatedStatement } from './creditCard';
+import { estimatedStatement, ordinal } from './creditCard';
 
 // QA pass 3, P2. "Spent so far" had its own spend arithmetic instead of
 // routing through spendDelta()/isPosted() like Budget and Overview, so the
@@ -62,5 +62,11 @@ describe('QA pass 3 P2: estimatedStatement', () => {
 
   it('returns null without a statement day', () => {
     expect(estimatedStatement([tx('2026-09-11', -100)], 'card', null, NOW)).toBe(null);
+  });
+});
+
+describe('ordinal', () => {
+  it('says a due day the way people do, the teens included', () => {
+    expect([1, 2, 3, 4, 11, 12, 13, 21, 22, 23, 31].map(ordinal)).toEqual(['1st', '2nd', '3rd', '4th', '11th', '12th', '13th', '21st', '22nd', '23rd', '31st']);
   });
 });

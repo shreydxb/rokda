@@ -88,6 +88,83 @@ export default function Review({ household, data, planning = {}, loading }) {
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
 
+  const openChecks = review.checks.filter((c) => c.status !== 'done');
+  const finishedChecks = review.checks.filter((c) => c.status === 'done');
+  // The fold's label counts the ticked checks the way the line above does,
+  // and the suggestions that found nothing apart, so "Done (3)" never sits
+  // under "3 of 5 done" as a larger number.
+  const ticked = finishedChecks.filter((c) => c.required).length;
+  const foldLabel = [ticked > 0 && `Done (${ticked})`, finishedChecks.length > ticked && `Nothing to do (${finishedChecks.length - ticked})`].filter(Boolean).join(' · ');
+  const renderCheck = (check) => (
+    <li key={check.id} id={`review-${check.id}`} className="rv-check" data-status={check.required ? check.status : 'note'} data-testid={`review-${check.id}`}>
+      {/* A check that can't hold the month up isn't ticked, so the ticks
+          always match the count above. */}
+      <span className="rv-mark" role="img" aria-label={check.status === 'done' ? (check.required ? 'Done' : 'Nothing to do') : check.required ? 'To do' : 'Note'}>
+        {MARK[check.required ? check.status : 'note']}
+      </span>
+      <div className="rv-body">
+        <div className="rv-title">{check.title}</div>
+        <div className="ov-muted rv-detail">{check.detail}</div>
+
+        {check.id === 'statements' && (
+          <ul className="rv-sublist">
+            {check.statements.map((s) => (
+              <li key={s.account.id}>
+                {`${s.account.name}, closed ${shortDate(s.statementDate)}: `}
+                <span className={s.settled ? '' : 'ov-warn'}>{STATEMENT_STATUS[s.status] ?? s.status}</span>
+              </li>
+            ))}
+            {check.status === 'todo' && <li className="ov-muted">{check.hint}</li>}
+          </ul>
+        )}
+
+        {check.id === 'duplicates' && check.pairs.length > 0 && (
+          <ul className="rv-sublist">
+            {check.pairs.map((pair) => (
+              <li key={pair.second.id} className="rv-pair">
+                <span>
+                  {`${pair.first.merchant}, `}
+                  <span className="fig">{formatMoney(pair.first.amount, { decimals: 2 })}</span>
+                  {` on ${accountName.get(pair.first.account_id) ?? 'an account'}: ${shortDate(pair.first.occurred_at)} and ${shortDate(pair.second.occurred_at)}`}
+                </span>
+                <span className="rv-actions">
+                  <button type="button" className="om-btn rc-markpaid" disabled={settling !== null} onClick={() => settle(pair, 'keep')}>
+                    Both are real
+                  </button>
+                  <button type="button" className="om-btn rc-markpaid" disabled={settling !== null} onClick={() => settle(pair, 'delete')}>
+                    {confirmingDelete === pair.second.id ? `Delete the ${shortDate(pair.second.occurred_at)} one?` : 'Delete one'}
+                  </button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {check.id === 'transfers' && check.pairs.length > 0 && (
+          <ul className="rv-sublist">
+            {check.pairs.map((pair) => (
+              <li key={pair.out.id} className="rv-pair">
+                <span>
+                  <span className="fig">{formatMoney(pair.in.amount, { decimals: 2 })}</span>
+                  {` from ${accountName.get(pair.out.account_id) ?? 'an account'} (${shortDate(pair.out.occurred_at)}) to ${accountName.get(pair.in.account_id) ?? 'an account'} (${shortDate(pair.in.occurred_at)})`}
+                </span>
+                <button type="button" className="om-btn rc-markpaid" disabled={joining !== null} onClick={() => join(pair)}>
+                  {joining === pair.out.id ? 'Joining…' : 'Make one transfer'}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {check.href && check.status !== 'done' && (
+          <Link className="ov-link rv-open" to={out(check.href)}>
+            {CHECK_CTA[check.id] ?? 'Open the records'}
+          </Link>
+        )}
+      </div>
+    </li>
+  );
+
   return (
     <div className="rv">
       <div className="cal-nav" style={{ marginTop: 22 }}>
@@ -100,7 +177,7 @@ export default function Review({ household, data, planning = {}, loading }) {
         </button>
       </div>
 
-      <div className="rv-progress" data-complete={review.complete}>
+      <div className="rv-progress" role="status" data-complete={review.complete}>
         {review.complete ? (review.closed ? `${review.label} is reviewed and closed.` : 'Every check is done.') : `${review.done} of ${review.total} done`}
       </div>
       <div className="ov-muted" style={{ fontSize: 12, marginTop: 4 }}>
@@ -141,77 +218,16 @@ export default function Review({ household, data, planning = {}, loading }) {
         )}
       </section>
 
-      <ol className="rv-checks">
-        {review.checks.map((check) => (
-          <li key={check.id} id={`review-${check.id}`} className="rv-check" data-status={check.required ? check.status : 'note'} data-testid={`review-${check.id}`}>
-            {/* A check that can't hold the month up isn't ticked, so the ticks
-                always match the count above. */}
-            <span className="rv-mark" aria-label={!check.required ? 'Note' : check.status === 'done' ? 'Done' : 'To do'}>
-              {MARK[check.required ? check.status : 'note']}
-            </span>
-            <div className="rv-body">
-              <div className="rv-title">{check.title}</div>
-              <div className="ov-muted rv-detail">{check.detail}</div>
-
-              {check.id === 'statements' && (
-                <ul className="rv-sublist">
-                  {check.statements.map((s) => (
-                    <li key={s.account.id}>
-                      {`${s.account.name}, closed ${shortDate(s.statementDate)}: `}
-                      <span className={s.settled ? '' : 'ov-warn'}>{STATEMENT_STATUS[s.status] ?? s.status}</span>
-                    </li>
-                  ))}
-                  {check.status === 'todo' && <li className="ov-muted">{check.hint}</li>}
-                </ul>
-              )}
-
-              {check.id === 'duplicates' && check.pairs.length > 0 && (
-                <ul className="rv-sublist">
-                  {check.pairs.map((pair) => (
-                    <li key={pair.second.id} className="rv-pair">
-                      <span>
-                        {`${pair.first.merchant}, `}
-                        <span className="fig">{formatMoney(pair.first.amount, { decimals: 2 })}</span>
-                        {` on ${accountName.get(pair.first.account_id) ?? 'an account'}: ${shortDate(pair.first.occurred_at)} and ${shortDate(pair.second.occurred_at)}`}
-                      </span>
-                      <span className="rv-actions">
-                        <button type="button" className="om-btn rc-markpaid" disabled={settling !== null} onClick={() => settle(pair, 'keep')}>
-                          Both are real
-                        </button>
-                        <button type="button" className="om-btn rc-markpaid" disabled={settling !== null} onClick={() => settle(pair, 'delete')}>
-                          {confirmingDelete === pair.second.id ? `Delete the ${shortDate(pair.second.occurred_at)} one?` : 'Delete one'}
-                        </button>
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-
-              {check.id === 'transfers' && check.pairs.length > 0 && (
-                <ul className="rv-sublist">
-                  {check.pairs.map((pair) => (
-                    <li key={pair.out.id} className="rv-pair">
-                      <span>
-                        <span className="fig">{formatMoney(pair.in.amount, { decimals: 2 })}</span>
-                        {` from ${accountName.get(pair.out.account_id) ?? 'an account'} (${shortDate(pair.out.occurred_at)}) to ${accountName.get(pair.in.account_id) ?? 'an account'} (${shortDate(pair.in.occurred_at)})`}
-                      </span>
-                      <button type="button" className="om-btn rc-markpaid" disabled={joining !== null} onClick={() => join(pair)}>
-                        {joining === pair.out.id ? 'Joining…' : 'Make one transfer'}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-
-              {check.href && check.status !== 'done' && (
-                <Link className="ov-link rv-open" to={out(check.href)}>
-                  {CHECK_CTA[check.id] ?? 'Open the records'}
-                </Link>
-              )}
-            </div>
-          </li>
-        ))}
-      </ol>
+      {/* What still needs doing stays open; finished checks fold away, as
+          checked statements and ended bills do. A suggestion that found
+          nothing folds too, and keeps its dot. Each month starts folded. */}
+      {openChecks.length > 0 && <ol className="rv-checks">{openChecks.map(renderCheck)}</ol>}
+      {finishedChecks.length > 0 && (
+        <details key={review.label} className="rv-done">
+          <summary>{foldLabel}</summary>
+          <ol className="rv-checks">{finishedChecks.map(renderCheck)}</ol>
+        </details>
+      )}
 
       <section className="rv-budget" aria-label="Budget">
         <div className="ov-kicker">Budget</div>

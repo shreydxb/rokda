@@ -560,6 +560,40 @@ phone squeezed the name to one word a line.
 - **The projection says what it is missing.** "Neither is set" showed even
   with one of the two set; it now names the missing one, and an extra
   payment of 0 counts as not committed.
+
+## Labels and toolbars say one thing one way
+
+The rest of the layout audit: stored values reaching the screen, and every
+toolbar built its own way.
+
+- **Account types are words.** One map (`ACCOUNT_TYPE_LABELS` in
+  lib/accounts.js) names every type the database allows: "Credit card",
+  "Fixed deposit", never "credit_card" or "fd". Net worth, Accounts, the
+  account editor and the account pickers all use it, and Accounts groups by
+  type in its order, cash-like accounts first. Compounding and the Inbox's
+  source get the same treatment, and a card's due day is an ordinal ("1st",
+  not "1th").
+- **One rule for toolbars.** Filters and view switches on the left; actions
+  in a group at the right end, the one "+ Add …" last; every control in a
+  toolbar the same 30px height. A button that cannot be pressed looks it.
+  "Show closed" was a page tab in a row of buttons; closed accounts now fold
+  under "Closed (n)" like ended bills and checked statements.
+- **One way to re-read a page.** Investments had Reload beside Refresh
+  prices and the page's own Refresh; Reload did what Refresh does and is
+  gone. "Nothing to bulk-approve" was a disabled button standing in for a
+  sentence; the Inbox now offers bulk approval only when something read
+  cleanly.
+- **Finished things fold.** The monthly review folds finished checks away so
+  what is still open leads. Its label counts them the way the progress line
+  does, "Done (3)", with the suggestions that found nothing apart ("Nothing
+  to do (2)"); "Checked (5)" under "3 of 5 done" read as everything done.
+- **On a phone,** an Activity record is two lines (merchant and amount, then
+  date, category, account and owner) and tabs scroll sideways in their row,
+  the open one kept in view and the edge faded while more lie beyond it,
+  rather than wrapping.
+- **Left for a decision:** chips. `design/` draws status chips in capitals;
+  most of the app's are sentence case and a few are capitals. They need one
+  answer before they are changed.
 ## One history for linked records
 
 A purchase, its refunds and the two sides of a transfer change together, but

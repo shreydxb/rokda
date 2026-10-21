@@ -134,7 +134,7 @@ here, because this repository is public.
   so the pair is never asked about again, or "Delete one"), pairs that look like an unjoined transfer (joined
   in one tap; never holds the month up), the card statements that closed in
   the month, balances confirmed since it ended, and closing it under Net
-  Worth, plus a note of refunds not yet linked to their purchase. Each check
+  worth, plus a note of refunds not yet linked to their purchase. Each check
   is worked out from the records and ticks itself off; the
   close marks the month reviewed. A "Next" card above the checks names the
   first one still to do, with its link; each link out of the review offers
@@ -144,20 +144,25 @@ here, because this repository is public.
   last month closed); and a short ranked list of what to do next: bills in the
   next 30 days the money to hand won't cover, goals behind their pace, spending
   over budget, and saving short of its target. Overview's "hasn't been closed"
-  item opens it.
+  item opens it. Finished checks fold under "Done (n)", with the suggestions
+  that found nothing counted apart ("Nothing to do (n)"), so what is still
+  open leads.
 
 ## Wealth (`/wealth`)
 
-- **Net Worth**: history from dated balance snapshots and valuations.
+- **Net worth**: history from dated balance snapshots and valuations.
 - **Accounts**: bank, card, loan, cash, investment and fixed-deposit accounts.
   Balances are entered by hand and confirmed, never derived. Every change is
   kept with the figure it replaced, where it came from (app, bot or system)
   and who made it (`account_balance_events`). A balance in
   rupees is valued at the household's current rate, and moves when the rate
   does. Cards carry a limit, statement day and due day. A loan account can
-  carry its debt terms. Closed accounts stay in history.
+  carry its debt terms. Cards sit under their own heading with "+ Add card";
+  closed accounts fold under "Closed (n)" and stay in history. Account types
+  read as words ("Credit card", "Fixed deposit"), never as stored.
 - **Investments**: holdings with prices pulled daily where a symbol is set,
-  and FX rates for USD and INR.
+  and FX rates for USD and INR. "Refresh prices" fetches them; the page's own
+  Refresh re-reads what is stored.
 - **Statements**: one section per card (when it closes and is due), with the
   statements still to check first and the settled ones folded under
   "Checked". Each statement shows its period and status, then three figures
@@ -251,7 +256,7 @@ here, because this repository is public.
 
 `fd-accrual` runs only for the job, which sends the vault's scheduler secret.
 `price-refresh` runs for the job, or for a signed-in household member pressing
-Refresh on the Investments screen. The bot's webhook needs its own shared
+Refresh prices on the Investments screen. The bot's webhook needs its own shared
 secret. Every secret is compared in constant time.
 
 ## Where things live

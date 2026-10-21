@@ -1,11 +1,30 @@
 .mn-tabs {
   display: flex;
-  /* Planning has seven tabs: on a phone they wrap to a second row rather
-     than push the page sideways. */
-  flex-wrap: wrap;
-  gap: 4px 26px;
-  margin-top: 14px;
-  border-bottom: 1px solid var(--rule);
+  gap: 26px;
+  /* On a phone the row scrolls sideways inside itself rather than wrapping
+     to a second row (TabRow.jsx keeps the open tab in view). A scrolling row
+     clips what is drawn outside it, so it has 4px of room on each side for
+     the focus ring, taken back by the margins so the tabs stay where they
+     were. The rule under the tabs is painted, 4px up, so the open tab's
+     underline still sits on it. */
+  margin: 10px -4px 0;
+  padding: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  background: linear-gradient(var(--rule), var(--rule)) 4px calc(100% - 4px) / calc(100% - 8px) 1px no-repeat;
+}
+/* When more tabs are off to the right, the row fades at that edge so it is
+   plain that it scrolls. */
+.mn-tabs[data-more='true'] {
+  mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+}
+.mn-tabs::-webkit-scrollbar {
+  display: none;
+}
+.mn-tabs .om-tab {
+  flex: none;
+  white-space: nowrap;
+  margin-bottom: 0;
 }
 
 .mn-soon {
@@ -21,6 +40,34 @@
   gap: 8px;
   align-items: center;
   margin-top: 22px;
+}
+
+/* One rule for every toolbar (layout audit, 21 Oct): filters and view
+   switches on the left, then the actions in a group pushed to the right end,
+   with the one "+ Add …" last. Every control in a toolbar is the same 30px
+   height as the segmented controls beside it. */
+/* A heading with a toolbar in it wraps on a phone, its filter staying by the
+   heading and its actions going right. */
+.ov-section-head:has(.mn-toolbar-end) {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+.mn-toolbar-end {
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.mn-filters .om-btn,
+.ib-summary .om-btn,
+.rc-toolbar .om-btn,
+.debt-toolbar .om-btn,
+.ov-section-head .om-btn,
+.pl-assumptions .om-btn {
+  padding: 7px 13px;
+  font-size: 12.5px;
+  white-space: nowrap;
 }
 
 .mn-search {
@@ -182,9 +229,12 @@
   line-height: 1;
 }
 
+/* On a phone a record is two lines: merchant and amount, then the date,
+   category, account and owner in grey. The date and the chevron gave up a
+   third of the width and left the merchant a word a line. */
 @container (max-width: 720px) {
   .om-tx {
-    grid-template-columns: 66px minmax(0, 1fr) 108px 14px;
+    grid-template-columns: minmax(0, 1fr) auto;
   }
   .om-hide-sm {
     display: none;
@@ -578,13 +628,15 @@
 .rc-ended {
   margin-top: 8px;
 }
-.rc-ended > summary {
+.rc-ended > summary,
+.rv-done > summary {
   cursor: pointer;
   font-size: 12.5px;
   color: var(--ink3);
   padding: 4px 0;
 }
-.rc-ended > summary:hover {
+.rc-ended > summary:hover,
+.rv-done > summary:hover {
   color: var(--ink);
 }
 
@@ -970,6 +1022,13 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+/* Finished checks fold below the open ones (Review.jsx). */
+.rv-done {
+  margin-top: 10px;
+}
+.rv-done > .rv-checks {
+  margin-top: 6px;
 }
 .rv-check {
   display: flex;

@@ -69,7 +69,7 @@ input {
     border-color var(--ease),
     background var(--ease);
 }
-.om-seg:hover {
+.om-seg:hover:where(:not(:disabled)) {
   color: var(--ink);
 }
 .om-seg[data-active='true'] {
@@ -104,10 +104,19 @@ select.om-seg {
     color var(--ease),
     border-color var(--ease);
 }
-.om-btn:hover {
+/* :where keeps this rule's weight, so a button's own hover (Delete's red)
+   still wins over it. */
+.om-btn:hover:where(:not(:disabled)) {
   background: color-mix(in oklab, var(--accent) 18%, transparent);
   border-color: var(--accent);
   color: var(--ink);
+}
+/* A button that can't be pressed looks it: before this a disabled button
+   looked and hovered like a live one. */
+.om-btn:disabled,
+.om-seg:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .om-tab {

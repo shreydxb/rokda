@@ -324,13 +324,13 @@ export default function Activity({ household, members, me, data, loading }) {
       ) : (
         <div className="mn-list">
           <div className="om-tx om-tx-head">
-            <div>Date</div>
+            <div className="om-hide-sm">Date</div>
             <div>Merchant</div>
             <div className="om-hide-sm">Category</div>
             <div className="om-hide-sm">Owner</div>
             <div className="om-hide-sm">Account</div>
             <div className="om-tx-amt">Amount</div>
-            <div />
+            <div className="om-hide-sm" />
           </div>
           {rows.slice(0, visibleCount).map((t) => {
             const transfer = t.kind === 'transfer';
@@ -350,9 +350,10 @@ export default function Activity({ household, members, me, data, loading }) {
             const flag = confidenceFlag(t);
             const share = shareOf(t, scopeMemberId);
             const scheduled = !isPosted(t, now);
+            const date = rowDateLabel(t.occurred_at, now);
             return (
               <button key={t.id} type="button" className="om-tx om-tx-row" onClick={() => setEditing(t)}>
-                <div className="om-tx-date">{rowDateLabel(t.occurred_at, now)}</div>
+                <div className="om-hide-sm om-tx-date">{date}</div>
                 <div className="om-tx-merchant">
                   {transfer ? label : t.merchant || 'Transaction'}
                   {t.needs_review && <span className="om-tx-flag ov-warn"> · needs review</span>}
@@ -362,8 +363,10 @@ export default function Activity({ household, members, me, data, loading }) {
                   {refundLinks.back.has(t.id) && (
                     <span className="om-tx-flag ov-muted"> · {refundLinks.back.get(t.id) + 0.005 >= -Number(t.amount) ? 'refunded' : 'part refunded'}</span>
                   )}
+                  {/* On a phone the date leads this line, so the merchant gets
+                      the row's width instead of a column beside the date. */}
                   <div className="om-tx-meta">
-                    {categoryName} · {account} · {owner}
+                    {date} · {categoryName} · {account} · {owner}
                   </div>
                 </div>
                 <div className={`om-hide-sm om-tx-cat ${categoryName === 'Uncategorised' ? 'ov-warn' : transfer ? 'ov-muted' : ''}`}>{categoryName}</div>
@@ -390,7 +393,7 @@ export default function Activity({ household, members, me, data, loading }) {
                     </span>
                   )}
                 </div>
-                <div className="om-tx-chev">›</div>
+                <div className="om-hide-sm om-tx-chev">›</div>
               </button>
             );
           })}

@@ -76,3 +76,8 @@ export function estimatedStatement(transactions, accountId, statementDay, now = 
     .reduce((sum, t) => sum + spendDelta(t, Number(t.amount)), 0);
   return { amount, since: lastClose, closes: nextClose };
 }
+
+// A day of the month as people say it: 1st, 2nd, 3rd, 11th, 21st, 22nd.
+export function ordinal(n) {
+  return `${n}${[11, 12, 13].includes(n % 100) ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] ?? 'th'}`;
+}

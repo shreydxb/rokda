@@ -8,10 +8,11 @@ import Statements from './wealth/Statements';
 import LoadFailure from './LoadFailure';
 import Freshness from './Freshness';
 import BackToReview from './BackToReview';
+import TabRow from './TabRow';
 import './Wealth.css';
 
 const TABS = [
-  { id: 'networth', label: 'Net Worth' },
+  { id: 'networth', label: 'Net worth' },
   { id: 'accounts', label: 'Accounts' },
   { id: 'investments', label: 'Investments' },
   { id: 'statements', label: 'Statements' },
@@ -42,13 +43,7 @@ export default function Wealth() {
         }}
       />
       <BackToReview />
-      <div className="mn-tabs">
-        {TABS.map((t) => (
-          <button key={t.id} type="button" className="om-tab" data-active={tab === t.id} onClick={() => setTab(t.id)}>
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <TabRow tabs={TABS} active={tab} onChange={setTab} />
 
       {tab === 'networth' && <NetWorth household={household} me={me} members={members} data={data} loading={loading} />}
       {tab === 'accounts' && <Accounts household={household} members={members} me={me} data={data} loading={loading} />}
