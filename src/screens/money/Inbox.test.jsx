@@ -291,3 +291,25 @@ describe('SHR-310: a guessed date is checked before approval', () => {
     expect(rpc[0].args).toMatchObject({ p_intake_id: 'intake-2', p_date_confirmed: false });
   });
 });
+
+// "Nothing to bulk-approve" was a disabled button standing in for a sentence,
+// and an entry added by hand read "manual" in the queue and "via Telegram"
+// under the message (layout audit, 21 Oct).
+describe('Inbox: what it offers and where an entry came from', () => {
+  const render = (intake) =>
+    renderScreen(<Inbox members={MEMBERS} accounts={ACCOUNTS} categories={[]} loading={false} data={{ intake, categoryRules: [], reload: vi.fn() }} />);
+
+  it('offers bulk approval only when something read cleanly, and the count says why not', () => {
+    render([ITEM]);
+    expect(screen.queryByRole('button', { name: /Approve \d+ confident|bulk-approve/ })).toBeNull();
+    expect(screen.getByText(/1 waiting · 0 read cleanly/)).toBeTruthy();
+  });
+
+  it('names an entry added by hand as that, not as its stored source or as Telegram', () => {
+    render([{ ...ITEM, member_id: null }]);
+    expect(screen.getByText(/^Added by hand · /)).toBeTruthy();
+    expect(screen.queryByText(/via Telegram/)).toBeNull();
+    expect(screen.getByText(/added by hand$/)).toBeTruthy();
+    expect(screen.getByText('5 Sept 2026')).toBeTruthy();
+  });
+});

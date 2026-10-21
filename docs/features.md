@@ -256,7 +256,7 @@ here, because this repository is public.
 
 `fd-accrual` runs only for the job, which sends the vault's scheduler secret.
 `price-refresh` runs for the job, or for a signed-in household member pressing
-Refresh on the Investments screen. The bot's webhook needs its own shared
+Refresh prices on the Investments screen. The bot's webhook needs its own shared
 secret. Every secret is compared in constant time.
 
 ## Where things live
