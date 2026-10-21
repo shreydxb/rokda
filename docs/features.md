@@ -117,7 +117,9 @@ here, because this repository is public.
 - **Recurring**: bills and expected income on a cadence, with an optional
   last date and amounts in AED, USD or INR. Status per occurrence (Paid,
   Posted, Expected, Late, Ended). Income is matched within 10 days of its
-  date, bills within 5, and a salary counts in the month it was due.
+  date, bills within 5, and a salary counts in the month it was due. What
+  needs marking paid comes first (late, then due soon, a late one saying when
+  it was due), the rest by next date; ended schedules fold under "Ended".
 - **Insights**: what moved month on month. Every category figure, card and
   merchant opens its records in Activity for the month on screen. Top
   merchants follows the selected month, net of refunds.
@@ -186,6 +188,8 @@ here, because this repository is public.
 - **Goals**: targets in today's cost with their own inflation, funded in
   priority order. One monthly figure per goal and in total.
 - **Debt payoff**: avalanche / snowball / custom order, with extra payments.
+  Each debt shows what is owed, its rate and its minimum, labelled; the
+  projection says which of its inputs is still missing.
 - **Forecast**: projection of net worth under scenario sets, with the saving
   needed by year. Once ages are set it leads with the Life plan's stop year
   and whether the plan's own stop year lasts; the lasts-forever and lean

@@ -386,3 +386,154 @@
   margin: 0;
   max-width: 92ch;
 }
+
+/* Debt payoff. The order on the left and "+ Debt" on the right, then each
+   debt with its rank, name and progress and its three figures labelled,
+   so nothing on the row is a number the reader has to guess at. On a phone
+   the figures move under the name instead of squeezing it to one word a
+   line. */
+.debt {
+  max-width: 960px;
+}
+.debt-toolbar {
+  margin-top: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.debt-summary {
+  margin-top: 18px;
+  font-size: 15px;
+}
+.debt-total {
+  color: var(--ink);
+}
+.debt-note {
+  margin-top: 8px;
+  font-size: 12.5px;
+  line-height: 1.65;
+  max-width: 78ch;
+}
+.debt-list {
+  margin-top: 18px;
+  border-bottom: 1px solid var(--rule);
+}
+.debt-row {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px 16px;
+  width: 100%;
+  padding: 14px 0;
+  border: 0;
+  border-top: 1px solid var(--rule);
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.debt-row:hover {
+  background: var(--raise);
+}
+.debt-rank {
+  font-size: 19px;
+  line-height: 1.1;
+  color: var(--accent);
+}
+.debt-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13.5px;
+}
+.debt-progress {
+  max-width: 220px;
+  font-size: 11.5px;
+}
+.debt-progress .bud-bar {
+  height: 3px;
+  margin-bottom: 5px;
+}
+.debt-figures {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(88px, auto));
+  gap: 4px 20px;
+  margin: 0;
+  text-align: right;
+}
+.debt-figures dt {
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink3);
+}
+.debt-figures dd {
+  margin: 3px 0 0;
+  font-size: 14px;
+}
+.debt-figures dd.ov-neg {
+  font-size: 16px;
+}
+.debt-plan {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 44px;
+  margin-top: 32px;
+}
+.debt-inputs {
+  margin-top: 12px;
+}
+.debt-input {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+  border-top: 1px solid var(--rule);
+  font-size: 13.5px;
+}
+.debt-input .ov-muted {
+  font-size: 11.5px;
+  margin-top: 3px;
+}
+.debt-input > span {
+  flex: none;
+  white-space: nowrap;
+}
+.debt-projection {
+  margin-top: 12px;
+  padding: 16px 18px;
+  border: 1px dashed var(--rule2);
+  border-radius: 3px;
+}
+.debt-projection-head {
+  font-size: 14px;
+}
+.debt-projection .ov-muted {
+  margin-top: 9px;
+  line-height: 1.7;
+}
+.debt-primary {
+  margin-top: 14px;
+  border-color: var(--accent);
+  color: var(--ink);
+}
+@media (max-width: 720px) {
+  .debt-row {
+    grid-template-columns: 24px minmax(0, 1fr);
+  }
+  .debt-figures {
+    grid-column: 2;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 4px 12px;
+    text-align: left;
+  }
+  .debt-plan {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 28px;
+  }
+}

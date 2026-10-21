@@ -26,3 +26,19 @@ describe('DebtPayoff: debts and their accounts', () => {
     expect(document.querySelector('.debt-unlinked').textContent).toMatch(/^Personal loan is not in net worth\. Open it and link a loan/);
   });
 });
+
+// Each debt once ended in three bare numbers, the last of them the minimum
+// payment with nothing to say so (layout audit, 21 Oct).
+describe('DebtPayoff: figures and what a projection needs', () => {
+  it('labels what is owed, the rate and the minimum', () => {
+    renderPayoff([debt()]);
+    const figures = [...document.querySelectorAll('.debt-figures > div')].map((d) => d.textContent);
+    expect(figures).toEqual(['Owed−38,000', 'Rate3.5% a year', 'Minimum2,193 a month']);
+  });
+
+  it('names the one thing still missing for a payoff date', () => {
+    renderScreen(<DebtPayoff household={{ id: 'h' }} members={[]} me={null} accounts={[LOAN]} data={{ debts: [debt()], assumptions: { debt_extra_payment: 0, debt_assume_no_new_card_spend: true }, reload: vi.fn() }} loading={false} />);
+    expect(screen.getByText(/A committed extra payment is not set, so no date is shown/)).toBeTruthy();
+    expect(screen.getByText('0 a month').className).toBe('ov-chip-warn');
+  });
+});
