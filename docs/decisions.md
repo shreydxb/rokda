@@ -583,11 +583,14 @@ toolbar built its own way.
   gone. "Nothing to bulk-approve" was a disabled button standing in for a
   sentence; the Inbox now offers bulk approval only when something read
   cleanly.
-- **Finished things fold.** The monthly review folds finished checks under
-  "Checked (n)" so what is still open leads.
+- **Finished things fold.** The monthly review folds finished checks away so
+  what is still open leads. Its label counts them the way the progress line
+  does, "Done (3)", with the suggestions that found nothing apart ("Nothing
+  to do (2)"); "Checked (5)" under "3 of 5 done" read as everything done.
 - **On a phone,** an Activity record is two lines (merchant and amount, then
   date, category, account and owner) and tabs scroll sideways in their row,
-  the open one kept in view, rather than wrapping.
+  the open one kept in view and the edge faded while more lie beyond it,
+  rather than wrapping.
 - **Left for a decision:** chips. `design/` draws status chips in capitals;
   most of the app's are sentence case and a few are capitals. They need one
   answer before they are changed.

@@ -1,14 +1,22 @@
 .mn-tabs {
   display: flex;
   gap: 26px;
-  margin-top: 14px;
   /* On a phone the row scrolls sideways inside itself rather than wrapping
-     to a second row (TabRow.jsx keeps the open tab in view). The rule under
-     the tabs is painted rather than a border, so the open tab's underline
-     still sits on it inside a row that scrolls. */
+     to a second row (TabRow.jsx keeps the open tab in view). A scrolling row
+     clips what is drawn outside it, so it has 4px of room on each side for
+     the focus ring, taken back by the margins so the tabs stay where they
+     were. The rule under the tabs is painted, 4px up, so the open tab's
+     underline still sits on it. */
+  margin: 10px -4px 0;
+  padding: 4px;
   overflow-x: auto;
   scrollbar-width: none;
-  background: linear-gradient(var(--rule), var(--rule)) bottom / 100% 1px no-repeat;
+  background: linear-gradient(var(--rule), var(--rule)) 4px calc(100% - 4px) / calc(100% - 8px) 1px no-repeat;
+}
+/* When more tabs are off to the right, the row fades at that edge so it is
+   plain that it scrolls. */
+.mn-tabs[data-more='true'] {
+  mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
 }
 .mn-tabs::-webkit-scrollbar {
   display: none;
@@ -38,6 +46,12 @@
    switches on the left, then the actions in a group pushed to the right end,
    with the one "+ Add …" last. Every control in a toolbar is the same 30px
    height as the segmented controls beside it. */
+/* A heading with a toolbar in it wraps on a phone, its filter staying by the
+   heading and its actions going right. */
+.ov-section-head:has(.mn-toolbar-end) {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
 .mn-toolbar-end {
   margin-left: auto;
   display: flex;

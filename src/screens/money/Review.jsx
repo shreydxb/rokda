@@ -90,6 +90,11 @@ export default function Review({ household, data, planning = {}, loading }) {
 
   const openChecks = review.checks.filter((c) => c.status !== 'done');
   const finishedChecks = review.checks.filter((c) => c.status === 'done');
+  // The fold's label counts the ticked checks the way the line above does,
+  // and the suggestions that found nothing apart, so "Done (3)" never sits
+  // under "3 of 5 done" as a larger number.
+  const ticked = finishedChecks.filter((c) => c.required).length;
+  const foldLabel = [ticked > 0 && `Done (${ticked})`, finishedChecks.length > ticked && `Nothing to do (${finishedChecks.length - ticked})`].filter(Boolean).join(' · ');
   const renderCheck = (check) => (
     <li key={check.id} id={`review-${check.id}`} className="rv-check" data-status={check.required ? check.status : 'note'} data-testid={`review-${check.id}`}>
       {/* A check that can't hold the month up isn't ticked, so the ticks
@@ -213,14 +218,13 @@ export default function Review({ household, data, planning = {}, loading }) {
         )}
       </section>
 
-      {/* What still needs doing stays open; finished checks fold under
-          "Checked (n)", as checked statements and ended bills do. A suggestion
-          that found nothing is finished too, and keeps its dot. Each month
-          starts folded. */}
+      {/* What still needs doing stays open; finished checks fold away, as
+          checked statements and ended bills do. A suggestion that found
+          nothing folds too, and keeps its dot. Each month starts folded. */}
       {openChecks.length > 0 && <ol className="rv-checks">{openChecks.map(renderCheck)}</ol>}
       {finishedChecks.length > 0 && (
         <details key={review.label} className="rv-done">
-          <summary>{`Checked (${finishedChecks.length})`}</summary>
+          <summary>{foldLabel}</summary>
           <ol className="rv-checks">{finishedChecks.map(renderCheck)}</ol>
         </details>
       )}

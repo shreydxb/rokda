@@ -96,9 +96,11 @@ describe('Review', () => {
 
   // Every check was a full card whether done or not, so finished ones took
   // most of the page (layout audit, 21 Oct).
-  it('folds finished checks under "Checked", leaving open what still needs doing', () => {
+  it('folds finished checks away, counted the way the progress line counts them', () => {
     renderReview(data({ transactions: [tx('bare', { category_id: null })] }));
-    const fold = screen.getByText(/^Checked \(\d+\)$/).closest('details');
+    const done = Number(screen.getByRole('status').textContent.match(/^(\d+) of 5 done$/)[1]);
+    const summary = screen.getByText(new RegExp(`^Done \\(${done}\\)( · Nothing to do \\(\\d+\\))?$`));
+    const fold = summary.closest('details');
     expect(fold.open).toBe(false);
     expect(fold.contains(screen.getByTestId('review-review'))).toBe(true);
     expect(fold.contains(screen.getByTestId('review-categorise'))).toBe(false);

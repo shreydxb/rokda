@@ -144,7 +144,8 @@ here, because this repository is public.
   last month closed); and a short ranked list of what to do next: bills in the
   next 30 days the money to hand won't cover, goals behind their pace, spending
   over budget, and saving short of its target. Overview's "hasn't been closed"
-  item opens it. Finished checks fold under "Checked (n)", so what is still
+  item opens it. Finished checks fold under "Done (n)", with the suggestions
+  that found nothing counted apart ("Nothing to do (n)"), so what is still
   open leads.
 
 ## Wealth (`/wealth`)
