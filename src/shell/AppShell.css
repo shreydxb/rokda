@@ -70,9 +70,28 @@
 }
 
 .om-nav-settings {
-  margin-top: 8px;
+  /* The rule above Settings is drawn outside the link, so the highlight and
+     the label stay centred like the other links'. Padding on the link itself
+     pushed the label to the bottom of its highlight. */
+  position: relative;
+  margin-top: 19px;
+}
+.om-nav-settings::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -10px;
   border-top: 1px solid var(--rule);
-  padding-top: 10px;
+}
+
+/* The household, currency and account controls: part of the sidebar on a
+   desktop, folded behind .om-sidetoggle on a phone. */
+.om-sidecontrols {
+  display: contents;
+}
+.om-sidetoggle {
+  display: none;
 }
 
 .om-scopewrap {
@@ -199,6 +218,10 @@
     border-right: 0;
     border-bottom: 1px solid var(--rule);
     padding: 12px 16px 14px;
+    /* Still pinned to the top on a phone, so it needs the page's own ground:
+       without one the page scrolled visibly underneath it. */
+    background: var(--canvas);
+    z-index: 5;
   }
   .om-brand {
     padding: 0;
@@ -208,21 +231,62 @@
     flex-wrap: wrap;
     padding: 0;
   }
+  .om-nav-list {
+    order: 1;
+    width: 100%;
+  }
   .om-nav-settings {
     margin-top: 0;
-    border-top: 0;
-    padding-top: 0;
+  }
+  .om-nav-settings::before {
+    display: none;
+  }
+  .om-sidetoggle {
+    display: inline-flex;
+    align-items: center;
+    margin-left: auto;
+    min-height: 36px;
+    padding: 0 12px;
+    background: none;
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    color: var(--ink2);
+    cursor: pointer;
+  }
+  .om-sidetoggle span {
+    margin-left: 6px;
+  }
+  .om-sidetoggle:hover,
+  .om-sidetoggle[aria-expanded='true'] {
+    color: var(--ink);
+    border-color: var(--rule2);
+  }
+  .om-sidecontrols {
+    display: none;
+    order: 2;
+    width: 100%;
+    flex-direction: column;
+    gap: 14px;
+    padding: 8px 0 4px;
+  }
+  .om-sidecontrols[data-open='true'] {
+    display: flex;
   }
   .om-scopewrap {
     border-top: 0;
     padding-top: 0;
     margin: 0;
-    flex: 1;
-    min-width: 220px;
   }
   .om-sidefoot {
     padding: 0;
     flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 18px;
+  }
+  .om-buildid {
+    margin-top: 0;
   }
   .om-signout {
     border-top: 0;

@@ -652,6 +652,26 @@
   color: var(--warn);
 }
 
+/* On a phone the four columns left the category name and the pace bar a few
+   pixels each, and Pace ran past the margin. The pace moves under its row,
+   full width, and the two figures keep their columns. */
+@media (max-width: 720px) {
+  .bud-table-head,
+  .bud-tr {
+    grid-template-columns: minmax(0, 1fr) 76px 76px;
+    gap: 6px 12px;
+  }
+  .bud-table-head > :nth-child(4) {
+    display: none;
+  }
+  .bud-tr-pace {
+    grid-column: 1 / -1;
+  }
+  .bud-tr-sub .bud-tr-pace {
+    padding-left: 20px;
+  }
+}
+
 .bud-footer {
   margin-top: 4px;
   padding-top: 14px;
@@ -802,6 +822,15 @@
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--ink3);
+}
+/* Five narrow columns fit a phone once they may shrink; at their desktop
+   minimums the last one, Saving, was off the edge. */
+@media (max-width: 720px) {
+  .bud-share-row {
+    grid-template-columns: minmax(0, 1.1fr) repeat(4, minmax(0, 1fr));
+    gap: 6px;
+    min-width: 0;
+  }
 }
 .bud-share-foot {
   color: var(--ink3);

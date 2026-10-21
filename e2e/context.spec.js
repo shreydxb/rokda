@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { stubSupabase, txn, dayThisMonth, ids, data } from './fixtures.js';
+import { stubSupabase, txn, dayThisMonth, ids, data, pickInShell } from './fixtures.js';
 
 // Context survives the round trip (QA re-review, 17 October): the month and
 // person a page was showing come back after Back and reload, the monthly
@@ -12,7 +12,9 @@ async function open(page, path, options = {}) {
   await expect(page.locator('.om-main .ov-skel')).toHaveCount(0, { timeout: 15_000 });
 }
 
-const scope = (page, name) => page.getByRole('group', { name: 'Household scope' }).getByRole('button', { name, exact: true });
+// A CSS locator, not a role: on a phone the switches are folded away, and a
+// hidden button has no role to find, but its state still counts.
+const scope = (page, name) => page.locator('[aria-label="Household scope"] .om-scope', { hasText: new RegExp(`^${name}$`) });
 
 test('Back from an Insights figure returns to the month it came from', async ({ page }) => {
   await open(page, '/money?tab=insights');
@@ -34,7 +36,7 @@ test('reload keeps the person whose figures were shown', async ({ page }) => {
     txn('77777777-7777-4777-8777-000000000002', ids.A_CARD, ids.C_GROCERIES, 20, dayThisMonth(1), { kind: 'refund' }),
   ];
   await open(page, '/money?tab=activity', { tables: { transactions } });
-  await scope(page, 'Me').click();
+  await pickInShell(page, 'Household scope', 'Me');
   await expect(page.locator('.mn-count')).toContainText('Net spend AED 40');
   await page.reload();
   await expect(page.locator('.mn-count')).toContainText('Net spend AED 40');
@@ -47,7 +49,7 @@ test("the review's records link opens the partner's records it counted while vie
   const day = `${last.getFullYear()}-${String(last.getMonth() + 1).padStart(2, '0')}-05`;
   const transactions = [txn('77777777-7777-4777-8777-000000000001', ids.A_CARD, ids.C_GROCERIES, -100, day, { is_shared: false, owner_member_id: data.household_members[1].id, needs_review: true, merchant: 'Partner purchase' })];
   await open(page, '/money?tab=review', { tables: { transactions } });
-  await scope(page, 'Me').click();
+  await pickInShell(page, 'Household scope', 'Me');
   const check = page.getByTestId('review-review');
   await expect(check).toContainText('1 record');
   await check.getByRole('link', { name: 'Open the records' }).click();

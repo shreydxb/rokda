@@ -234,10 +234,38 @@ test('keyboard: tab reaches the nav and focus is visible', async ({ page }) => {
   expect(unmarked, `${unmarked} of ${seen.length} focused elements showed no visible focus indicator`).toBe(0);
 });
 
+// On a phone the household, currency and account controls once took a third
+// of the first screen, and Overview's decisions sat under the chart, about
+// 1,000px down. Now they fold behind one button and the decisions come first.
+test('phone: the header folds and the decisions start on the first screen', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile', 'phone layout only');
+  await stubSupabase(page);
+  await gotoReady(page, '/');
+
+  const header = await page.locator('.om-side').boundingBox();
+  expect(header.height, 'the phone header is taller than a bar and the nav').toBeLessThan(140);
+  const scope = page.getByRole('group', { name: 'Household scope' });
+  await expect(scope).toBeHidden();
+
+  const attention = await page.locator('.ov-attn-col').boundingBox();
+  expect(attention.y, 'Needs attention starts below the first screen').toBeLessThan(page.viewportSize().height);
+
+  const toggle = page.locator('.om-sidetoggle');
+  await expect(toggle).toHaveText(/Both · AED/);
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(scope).toBeVisible();
+  await scope.getByRole('button', { name: 'Me' }).click();
+  await expect(toggle).toHaveText(/Me · AED/);
+});
+
 test('theme toggle switches and the page stays readable', async ({ page }) => {
   await stubSupabase(page);
   await gotoReady(page, '/');
   const before = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  // On a phone the theme toggle is folded behind the household button.
+  const folded = page.locator('.om-sidetoggle');
+  if (await folded.isVisible()) await folded.click();
   const toggle = page.locator('button', { hasText: /dark|light|theme/i }).first();
   if (await toggle.count()) {
     await toggle.click();

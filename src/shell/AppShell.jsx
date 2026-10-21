@@ -1,4 +1,4 @@
-import { Suspense } from 'react';
+import { Suspense, useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../lib/AuthContext';
 import { useTheme } from '../lib/ThemeContext';
@@ -28,6 +28,11 @@ export default function AppShell() {
     { id: 'me', label: 'Me' },
     { id: 'partner', label: partnerLabel },
   ];
+  // On a phone the household, currency and account controls fold behind one
+  // button that says what is chosen, so the page starts near the top of the
+  // screen instead of under a third of it. On a desktop they are always open.
+  const [controlsOpen, setControlsOpen] = useState(false);
+  const scopeLabel = scopes.find((s) => s.id === scope)?.label ?? 'Both';
 
   return (
     <div className="om-shellwrap">
@@ -36,6 +41,17 @@ export default function AppShell() {
         <aside className="om-side">
           <div className="om-brand">Rokda</div>
 
+          <button
+            type="button"
+            className="om-sidetoggle"
+            aria-expanded={controlsOpen}
+            aria-controls="om-sidecontrols"
+            onClick={() => setControlsOpen((open) => !open)}
+          >
+            {scopeLabel} · {currency}
+            <span aria-hidden="true">{controlsOpen ? '▴' : '▾'}</span>
+          </button>
+
           <nav className="om-nav-list">
             {NAV.map((item) => (
               <NavLink
@@ -43,63 +59,66 @@ export default function AppShell() {
                 to={item.to}
                 end={item.end}
                 className="om-nav"
+                onClick={() => setControlsOpen(false)}
               >
                 {item.label}
               </NavLink>
             ))}
-            <NavLink to="/settings" className="om-nav om-nav-settings">
+            <NavLink to="/settings" className="om-nav om-nav-settings" onClick={() => setControlsOpen(false)}>
               Settings
             </NavLink>
           </nav>
 
-          <div className="om-scopewrap">
-            <div className="om-scopelabel">Household</div>
-            <div className="om-scope-list" role="group" aria-label="Household scope">
-              {scopes.map((s) => (
-                <button
-                  key={s.id}
-                  type="button"
-                  className="om-scope"
-                  data-active={scope === s.id}
-                  onClick={() => setScope(s.id)}
-                >
-                  {s.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="om-scopewrap">
-            <div className="om-scopelabel">Display currency</div>
-            <div className="om-scope-list" role="group" aria-label="Display currency">
-              {CURRENCIES.map((c) => {
-                const enabled = currencyAvailable(c, household);
-                return (
+          <div className="om-sidecontrols" id="om-sidecontrols" data-open={controlsOpen}>
+            <div className="om-scopewrap">
+              <div className="om-scopelabel">Household</div>
+              <div className="om-scope-list" role="group" aria-label="Household scope">
+                {scopes.map((s) => (
                   <button
-                    key={c}
+                    key={s.id}
                     type="button"
                     className="om-scope"
-                    data-active={currency === c}
-                    disabled={!enabled}
-                    title={enabled ? undefined : 'Set an INR rate in Settings → Household first'}
-                    onClick={() => setCurrency(c)}
+                    data-active={scope === s.id}
+                    onClick={() => setScope(s.id)}
                   >
-                    {c}
+                    {s.label}
                   </button>
-                );
-              })}
+                ))}
+              </div>
             </div>
-          </div>
 
-          <div className="om-sidefoot">
-            <button type="button" className="om-themetoggle" onClick={toggleTheme}>
-              {theme === 'dark' ? 'Light mode' : 'Dark mode'}
-            </button>
-            <button type="button" className="om-signout" onClick={signOut}>
-              <span>{user?.email}</span>
-              <span>Sign out</span>
-            </button>
-            <div className="om-buildid" title={buildTitle()}>{buildLabel()}</div>
+            <div className="om-scopewrap">
+              <div className="om-scopelabel">Display currency</div>
+              <div className="om-scope-list" role="group" aria-label="Display currency">
+                {CURRENCIES.map((c) => {
+                  const enabled = currencyAvailable(c, household);
+                  return (
+                    <button
+                      key={c}
+                      type="button"
+                      className="om-scope"
+                      data-active={currency === c}
+                      disabled={!enabled}
+                      title={enabled ? undefined : 'Set an INR rate in Settings → Household first'}
+                      onClick={() => setCurrency(c)}
+                    >
+                      {c}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="om-sidefoot">
+              <button type="button" className="om-themetoggle" onClick={toggleTheme}>
+                {theme === 'dark' ? 'Light mode' : 'Dark mode'}
+              </button>
+              <button type="button" className="om-signout" onClick={signOut}>
+                <span>{user?.email}</span>
+                <span>Sign out</span>
+              </button>
+              <div className="om-buildid" title={buildTitle()}>{buildLabel()}</div>
+            </div>
           </div>
         </aside>
 

@@ -277,3 +277,11 @@ export async function stubSupabase(page, { empty = false, tables = {}, failReads
     return route.fulfill({ json: rows, headers: { 'content-range': `0-${Math.max(rows.length - 1, 0)}/${rows.length}` } });
   });
 }
+
+// Picks a household scope or display currency in the shell. On a phone those
+// switches are folded behind the "Both · AED" button, so it is opened first.
+export async function pickInShell(page, group, name) {
+  const folded = page.locator('.om-sidetoggle');
+  if ((await folded.isVisible()) && (await folded.getAttribute('aria-expanded')) !== 'true') await folded.click();
+  await page.getByRole('group', { name: group }).getByRole('button', { name, exact: true }).click();
+}
