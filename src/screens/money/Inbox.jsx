@@ -3,9 +3,9 @@ import { supabase } from '../../lib/supabaseClient';
 import { formatMoney } from '../../lib/money';
 import { firstMatchingRule } from '../../lib/rules';
 import { accountOptionLabel, selectableAccounts } from '../../lib/accounts';
-import { INTAKE_KINDS, approvalArgs, validateApproval } from '../../lib/intake';
+import { INTAKE_KINDS, INTAKE_SOURCE_LABELS, approvalArgs, validateApproval } from '../../lib/intake';
 import { confirmedPairRow, findDuplicate } from '../../lib/duplicates';
-import { householdToday } from '../../lib/day';
+import { householdToday, parseDay } from '../../lib/day';
 import { estimateAed } from '../../lib/fxHistory';
 import './TransactionEditor.css';
 
@@ -120,9 +120,11 @@ export default function Inbox({ household = null, members = [], accounts, catego
             ? `${pending.length} waiting · ${confident.length} read cleanly${undated.length ? ` · ${undated.length} with no date` : ''}${oldest ? ` · oldest ${ago(oldest.created_at)}` : ''}`
             : 'All filed'}
         </div>
-        {pending.length > 0 && (
-          <button type="button" className="om-btn" disabled={confident.length === 0 || bulkSaving} onClick={approveConfident}>
-            {bulkSaving ? 'Approving…' : confident.length ? `Approve ${confident.length} confident` : 'Nothing to bulk-approve'}
+        {/* Offered only when something read cleanly; otherwise the count
+            beside it already says none can be approved in bulk. */}
+        {confident.length > 0 && (
+          <button type="button" className="om-btn mn-add" disabled={bulkSaving} onClick={approveConfident}>
+            {bulkSaving ? 'Approving…' : `Approve ${confident.length} confident`}
           </button>
         )}
       </div>
@@ -156,7 +158,7 @@ export default function Inbox({ household = null, members = [], accounts, catego
                       <div className="ib-queue-bottom">
                         <span className={`ib-dot ib-dot-${dotTone(i.confidence)}`} />
                         <span className="ov-muted">
-                          {senderName(i, members) ?? i.source} · {ago(i.created_at)}
+                          {senderName(i, members) ?? INTAKE_SOURCE_LABELS[i.source] ?? 'Unknown sender'} · {ago(i.created_at)}
                         </span>
                         {i.date_guessed && (
                           <span className="ov-chip-warn" style={{ marginLeft: 'auto' }} title="Not in the message: dated the day it was sent">
@@ -275,7 +277,7 @@ function IntakeReview({ item, sender, accounts, members, categories, categoryRul
     { label: 'Amount', value: item.parsed_amount !== null ? `AED ${formatMoney(item.parsed_amount)}` : 'Not read', hint: '', ok: item.parsed_amount !== null },
     // A bank SMS or receipt with no date on it is dated the day it was sent
     // to the bot, which is rarely the day it was paid.
-    { label: 'Date', value: item.parsed_date ?? 'Not read', hint: item.date_guessed ? 'Not in the message; check it' : '', ok: !!item.parsed_date && !item.date_guessed },
+    { label: 'Date', value: item.parsed_date ? parseDay(item.parsed_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Not read', hint: item.date_guessed ? 'Not in the message; check it' : '', ok: !!item.parsed_date && !item.date_guessed },
     { label: 'Category', value: suggestedCategory?.name ?? 'Uncategorised', hint: item.parsed_category_id ? '' : 'No rule matched', ok: !!item.parsed_category_id },
     { label: 'Account', value: suggestedAccount?.name ?? 'Not matched', hint: item.parsed_account_id ? '' : 'Ambiguous or unmatched', ok: !!item.parsed_account_id },
     { label: 'Currency', value: item.parsed_currency ?? 'AED', hint: item.parsed_currency && item.parsed_currency !== 'AED' ? 'Edit first to record it with the AED debited' : '', ok: !item.parsed_currency || item.parsed_currency === 'AED' },
@@ -368,7 +370,8 @@ function IntakeReview({ item, sender, accounts, members, categories, categoryRul
             {!item.photo_path && !item.raw_text && <div className="ov-muted">No content captured.</div>}
           </div>
           <div className="ov-muted" style={{ marginTop: 10, fontSize: 11.5 }}>
-            {sender ? `From ${sender}` : 'Unassigned'} · {ago(item.created_at)} · via Telegram
+            {sender ? `From ${sender}` : 'Unassigned'} · {ago(item.created_at)}
+            {item.source === 'telegram' ? ' · via Telegram' : item.source === 'manual' ? ' · added by hand' : ''}
           </div>
         </div>
 

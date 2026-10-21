@@ -10,6 +10,10 @@ export const INTAKE_KINDS = [
   { id: 'refund', label: 'Refund', hint: 'Money came back on an earlier expense' },
 ];
 
+// Where an Inbox item came from, as said on screen. A manual row has no
+// member, so the queue used to fall back to the raw value "manual".
+export const INTAKE_SOURCE_LABELS = { telegram: 'Telegram', manual: 'Added by hand' };
+
 export function signedAmount(amount, kind) {
   const magnitude = Math.abs(Number(amount) || 0);
   return kind === 'expense' ? -magnitude : magnitude;

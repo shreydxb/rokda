@@ -14,6 +14,7 @@ import LoadFailure from './LoadFailure';
 import Freshness from './Freshness';
 import BackToReview from './BackToReview';
 import AedNote from './AedNote';
+import TabRow from './TabRow';
 import './Planning.css';
 
 const TABS = [
@@ -59,13 +60,7 @@ export default function Planning() {
         }}
       />
       <BackToReview />
-      <div className="mn-tabs">
-        {TABS.map((t) => (
-          <button key={t.id} type="button" className="om-tab" data-active={tab === t.id} onClick={() => setTab(t.id)}>
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <TabRow tabs={TABS} active={tab} onChange={setTab} />
 
       {(tab === 'plan' || tab === 'goals' || tab === 'debt') && <AedNote household={household} />}
       {tab === 'plan' && (

@@ -70,12 +70,14 @@ export default function CategoriesRules({ household, members = [], data, loading
   return (
     <div>
       <section style={{ marginTop: 26 }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 14 }}>
+        {/* The filter sits by the heading it filters; the actions go right,
+            the "+ Category" last. */}
+        <div className="ov-section-head">
           <div className="ov-kicker">Categories</div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <button type="button" className="om-seg" data-active={showArchived} onClick={() => setShowArchived((s) => !s)}>
-              {showArchived ? 'Hide archived' : 'Show archived'}
-            </button>
+          <button type="button" className="om-seg" data-active={showArchived} onClick={() => setShowArchived((s) => !s)}>
+            {showArchived ? 'Hide archived' : 'Show archived'}
+          </button>
+          <div className="mn-toolbar-end">
             <button type="button" className="om-btn" onClick={() => setStarter(true)}>
               Starter set
             </button>
@@ -104,7 +106,7 @@ export default function CategoriesRules({ household, members = [], data, loading
       </section>
 
       <section style={{ marginTop: 44, paddingBottom: 40 }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 14 }}>
+        <div className="ov-section-head">
           <div className="ov-kicker">Rules</div>
           <button type="button" className="om-btn mn-add" onClick={() => setEditingRule('new')} disabled={categories.length === 0}>
             + Rule

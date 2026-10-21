@@ -94,6 +94,18 @@ describe('Review', () => {
     expect(screen.queryByRole('link', { name: 'Open the records' })).toBeNull();
   });
 
+  // Every check was a full card whether done or not, so finished ones took
+  // most of the page (layout audit, 21 Oct).
+  it('folds finished checks under "Checked", leaving open what still needs doing', () => {
+    renderReview(data({ transactions: [tx('bare', { category_id: null })] }));
+    const fold = screen.getByText(/^Checked \(\d+\)$/).closest('details');
+    expect(fold.open).toBe(false);
+    expect(fold.contains(screen.getByTestId('review-review'))).toBe(true);
+    expect(fold.contains(screen.getByTestId('review-categorise'))).toBe(false);
+    expect(within(screen.getByTestId('review-review')).getByRole('img', { name: 'Done' })).toBeTruthy();
+    expect(screen.getByRole('status').textContent).toMatch(/of 5 done$/);
+  });
+
   it('joins a suggested pair into one transfer', async () => {
     const d = data({
       transactions: [tx('out', { amount: -500, category_id: null }), tx('in', { account_id: 'card', amount: 500, kind: 'income', category_id: null, occurred_at: lastMonth(11) })],

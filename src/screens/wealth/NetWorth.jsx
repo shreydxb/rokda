@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { LineChart } from '../../charts/Charts';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId, scopedValue } from '../../lib/scope';
-import { accountValueAed, isArchived, unvaluedAccounts } from '../../lib/accounts';
+import { accountTypeLabel, accountValueAed, isArchived, unvaluedAccounts } from '../../lib/accounts';
 import { balanceStatus, unconfirmedAccounts } from '../../lib/balance';
 import { closeRowFor, historyState, pendingClose } from '../../lib/snapshots';
 import { supabase } from '../../lib/supabaseClient';
@@ -23,7 +23,7 @@ const COMPOSITION_PALETTE = ['var(--accent)', 'var(--pos)', 'var(--warn)', 'var(
 function buildComposition(assetRows, holdingRows, scopeMemberId) {
   const totals = new Map();
   for (const a of assetRows) {
-    const label = isLiquidAccount(a) ? 'Cash' : (a.type ?? 'Other');
+    const label = isLiquidAccount(a) ? 'Cash' : accountTypeLabel(a.type);
     // An unconverted foreign balance contributes nothing to the allocation
     // bar rather than contributing its native number as though it were
     // dirhams -- the bar is proportions of an AED total, and a rupee figure
@@ -482,7 +482,7 @@ function AccountList({ rows, scopeMemberId, members, money, negative }) {
             <div>{a.name}</div>
             <div className="ov-muted">
               {a.is_shared ? 'Joint' : (members.find((m) => m.id === a.owner_member_id)?.display_name ?? 'Unassigned')}
-              {isLiquidAccount(a) ? '' : ` · ${a.type}`}
+              {isLiquidAccount(a) ? '' : ` · ${accountTypeLabel(a.type)}`}
             </div>
           </div>
           <div className={`fig mn-row-amt ${negative ? 'ov-neg' : ''}`}>

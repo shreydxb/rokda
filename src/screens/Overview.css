@@ -153,6 +153,7 @@
 }
 .ov-section-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   justify-content: space-between;
   margin-bottom: 14px;
@@ -382,6 +383,8 @@
   padding: 2px 7px;
   border-radius: 2px;
   border: 1px solid var(--rule2);
+  /* A two-word chip ("Due soon") never breaks across lines. */
+  white-space: nowrap;
 }
 .ov-chip-ok {
   color: var(--pos);

@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
 import { formatPct } from '../../lib/money';
-import { utilisation, estimatedStatement, billingCycle, daysUntilDue } from '../../lib/creditCard';
-import { accountValueAed, activeAccounts, archivedAccounts, closurePlan, isArchived } from '../../lib/accounts';
+import { utilisation, estimatedStatement, billingCycle, daysUntilDue, ordinal } from '../../lib/creditCard';
+import { ACCOUNT_TYPE_LABELS, accountTypeLabel, accountValueAed, activeAccounts, archivedAccounts, closurePlan, isArchived } from '../../lib/accounts';
 import { balanceLabel, balanceStatus } from '../../lib/balance';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { supabase } from '../../lib/supabaseClient';
@@ -18,7 +18,6 @@ export default function Accounts({ household, members, me, data, loading }) {
   const [closing, setClosing] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [showClosed, setShowClosed] = useState(false);
   const [groupBy, setGroupBy] = useState('type'); // 'type' | 'owner'
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
@@ -70,22 +69,17 @@ export default function Accounts({ household, members, me, data, loading }) {
   return (
     <div>
       <div className="mn-filters">
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <button type="button" className="om-seg" data-active={groupBy === 'type'} onClick={() => setGroupBy('type')}>
-            By type
-          </button>
-          <button type="button" className="om-seg" data-active={groupBy === 'owner'} onClick={() => setGroupBy('owner')}>
-            By owner
-          </button>
-          {closed.length > 0 && (
-            <button type="button" className="om-tab" data-active={showClosed} onClick={() => setShowClosed((v) => !v)}>
-              {showClosed ? 'Hide' : 'Show'} closed ({closed.length})
-            </button>
-          )}
-        </div>
-        <button type="button" className="om-btn mn-add" onClick={() => setEditing('new')}>
-          + Add account
+        <button type="button" className="om-seg" data-active={groupBy === 'type'} onClick={() => setGroupBy('type')}>
+          By type
         </button>
+        <button type="button" className="om-seg" data-active={groupBy === 'owner'} onClick={() => setGroupBy('owner')}>
+          By owner
+        </button>
+        <div className="mn-toolbar-end">
+          <button type="button" className="om-btn mn-add" onClick={() => setEditing('new')}>
+            + Add account
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -101,8 +95,19 @@ export default function Accounts({ household, members, me, data, loading }) {
         </div>
       ) : (
         <>
+          {/* The cards under their own heading, with adding one beside it. A
+              dashed "+ Add a card" box the size of a real card used to sit in
+              the grid and read as a card that was missing. */}
           {cards.length > 0 && (
-            <div className="wl-cardgrid" style={{ marginTop: 22 }}>
+            <div className="ov-section-head wl-cards-head">
+              <div className="ov-kicker">Credit cards</div>
+              <button type="button" className="om-btn" onClick={() => setEditing('new-card')}>
+                + Add card
+              </button>
+            </div>
+          )}
+          {cards.length > 0 && (
+            <div className="wl-cardgrid">
               {cards.map((a) => (
                 <CreditCard
                   key={a.id}
@@ -117,9 +122,6 @@ export default function Accounts({ household, members, me, data, loading }) {
                   onCancelRemove={() => setClosing(null)}
                 />
               ))}
-              <button type="button" className="wl-cardadd" onClick={() => setEditing('new-card')}>
-                + Add a card
-              </button>
             </div>
           )}
 
@@ -137,16 +139,16 @@ export default function Accounts({ household, members, me, data, loading }) {
               </div>
             ))}
 
-          {showClosed && closed.length > 0 && (
-            <>
-              <div className="ov-kicker" style={{ marginTop: 30 }}>
-                Closed accounts
-              </div>
-              <div className="ov-muted" style={{ marginTop: 4 }}>
+          {/* Closed accounts fold away under the list, as ended bills and
+              checked statements do. */}
+          {closed.length > 0 && (
+            <details className="wl-closed">
+              <summary>{`Closed (${closed.length})`}</summary>
+              <div className="ov-muted wl-closed-note">
                 Their transactions stay in your history and reports. They aren’t offered for new entries and aren’t counted in
                 today’s net worth.
               </div>
-              <div className="mn-list" style={{ marginTop: 12 }}>
+              <div className="mn-list">
                 {closed.map((a) => (
                   <AccountRow
                     key={a.id}
@@ -162,7 +164,7 @@ export default function Accounts({ household, members, me, data, loading }) {
                   />
                 ))}
               </div>
-            </>
+            </details>
           )}
         </>
       )}
@@ -202,10 +204,11 @@ function AccountRow({ account, members, money, onEdit, action }) {
           </div>
           <div className="ov-muted">
             {owner}
-            {` · ${account.type.replace('_', ' ')}`}
+            {` · ${accountTypeLabel(account.type)}`}
+            {/* A matured deposit says when it matured, not "matures … · matured". */}
             {account.type === 'fd' && account.maturity_date &&
-              ` · matures ${new Date(account.maturity_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`}
-            {account.type === 'fd' && account.fd_status === 'matured' && ' · matured'}
+              ` · ${account.fd_status === 'matured' ? 'matured' : 'matures'} ${new Date(account.maturity_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`}
+            {account.type === 'fd' && account.fd_status === 'matured' && !account.maturity_date && ' · matured'}
           </div>
         </div>
         <div className="mn-row-amt" style={{ textAlign: 'right' }}>
@@ -236,14 +239,14 @@ function AccountRow({ account, members, money, onEdit, action }) {
 }
 
 // Groups a flat account list into labelled sections, in a stable, sensible
-// order -- "by type" reads account.type alphabetically grouped (matching how
-// the credit-card grid above is already effectively grouped); "by owner"
-// puts Joint first, then each member.
+// order -- "by type" in the order the type labels are listed (cash-like
+// accounts first, then deposits, then the rest); "by owner" puts Joint first,
+// then each member.
 function groupAccounts(rows, by, members) {
   const labelFor =
     by === 'owner'
       ? (a) => (a.is_shared ? 'Joint' : (members.find((m) => m.id === a.owner_member_id)?.display_name ?? 'Unassigned'))
-      : (a) => a.type.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+      : (a) => accountTypeLabel(a.type);
   const groups = new Map();
   for (const a of rows) {
     const label = labelFor(a);
@@ -254,7 +257,8 @@ function groupAccounts(rows, by, members) {
   if (by === 'owner') {
     ordered.sort(([a], [b]) => (a === 'Joint' ? -1 : b === 'Joint' ? 1 : a.localeCompare(b)));
   } else {
-    ordered.sort(([a], [b]) => a.localeCompare(b));
+    const rank = Object.values(ACCOUNT_TYPE_LABELS);
+    ordered.sort(([a], [b]) => rank.indexOf(a) - rank.indexOf(b));
   }
   return ordered;
 }
@@ -313,8 +317,8 @@ function CreditCard({ account, transactions, members, money, onEdit, plan, busy,
           </span>
         </div>
         <div className="ov-muted">
-          {account.is_shared ? 'Joint' : (members.find((m) => m.id === account.owner_member_id)?.display_name ?? 'Unassigned')} · credit
-          card
+          {account.is_shared ? 'Joint' : (members.find((m) => m.id === account.owner_member_id)?.display_name ?? 'Unassigned')} ·{' '}
+          {accountTypeLabel(account.type)}
         </div>
 
         <div className="wl-card-owed fig">
@@ -376,7 +380,7 @@ function CreditCard({ account, transactions, members, money, onEdit, plan, busy,
           </div>
           <div>
             <div className="ov-muted">Due</div>
-            <div className="fig">{account.due_day ? `${account.due_day}th` : '—'}</div>
+            <div className="fig">{account.due_day ? ordinal(account.due_day) : '—'}</div>
           </div>
         </div>
       </button>

@@ -36,7 +36,7 @@ export default function Budget({ household, me, members, data, loading, onOpenRe
   return (
     <div>
       <div className="mn-filters">
-        <div className="mn-viewtoggle" style={{ marginLeft: 0 }}>
+        <div className="mn-datebasis">
           <button type="button" className="om-seg" data-active={view === 'month'} onClick={() => setView('month')}>
             Month
           </button>
@@ -44,9 +44,11 @@ export default function Budget({ household, me, members, data, loading, onOpenRe
             Year
           </button>
         </div>
-        <button type="button" className="om-btn mn-add" onClick={() => setEditing('new')}>
-          + Set budget
-        </button>
+        <div className="mn-toolbar-end">
+          <button type="button" className="om-btn mn-add" onClick={() => setEditing('new')}>
+            + Set budget
+          </button>
+        </div>
       </div>
 
       {view === 'month' ? (

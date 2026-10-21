@@ -1,6 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
 import { screen } from '@testing-library/dom';
-import { act } from 'react';
 import { renderScreen } from '../../test/renderScreen';
 
 // Any write at all would be a defect here, so the mock records every call.
@@ -34,24 +33,22 @@ const STALE_HOLDING = {
 // fetched a price, but the staleness detector read that field — so pressing it
 // dismissed the warning without repricing anything.
 describe('QA-04: Investments reload does not certify prices', () => {
-  it('re-reads data without writing a valuation date', async () => {
-    const reload = vi.fn().mockResolvedValue(undefined);
+  // The tab's own Reload did what the page's Refresh does; it is gone, and
+  // the only button here fetches prices. Nothing on the tab writes a
+  // valuation date without fetching one.
+  it('has no re-read of its own besides the page Refresh, and writes nothing on its own', () => {
     renderScreen(
       <Investments
         household={{ id: 'h' }}
         members={MEMBERS}
         me={MEMBERS[0]}
         loading={false}
-        data={{ holdings: [STALE_HOLDING], holdingHistory: [], reload }}
+        data={{ holdings: [STALE_HOLDING], holdingHistory: [], reload: vi.fn() }}
       />,
     );
 
-    const button = screen.getByRole('button', { name: 'Reload' });
-    await act(async () => {
-      button.click();
-    });
-
-    expect(reload).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button', { name: 'Reload' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Refresh prices' })).toBeTruthy();
     expect(writes).toEqual([]);
   });
 

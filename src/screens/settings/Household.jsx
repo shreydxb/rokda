@@ -159,7 +159,7 @@ export default function Household({ household, members, me, loading, reload }) {
       </section>
 
       <section style={{ marginTop: 40 }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 14 }}>
+        <div className="ov-section-head">
           <div className="ov-kicker">Members</div>
           {iAmOwner && (
             <button type="button" className="om-btn mn-add" onClick={() => setEditing('new')}>

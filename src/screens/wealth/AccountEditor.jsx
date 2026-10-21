@@ -1,13 +1,11 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
-import { closurePlan, isArchived } from '../../lib/accounts';
+import { ACCOUNT_TYPE_LABELS, COMPOUNDING_LABELS, closurePlan, isArchived } from '../../lib/accounts';
 import { isBalanceConfirmed } from '../../lib/balance';
 import { todayISODate } from '../../lib/valuation';
 import { householdToday } from '../../lib/day';
 import '../money/TransactionEditor.css';
 
-const TYPES = ['checking', 'savings', 'credit_card', 'investment', 'loan', 'cash', 'other', 'fd'];
-const COMPOUNDING = ['simple', 'monthly', 'quarterly', 'half_yearly', 'annually'];
 
 function initialForm(account, defaultType) {
   if (account) {
@@ -227,7 +225,7 @@ export default function AccountEditor({ account, defaultType, householdId, membe
 
           {isFd && account?.fd_status === 'matured' && (
             <div className="ov-warn" role="alert" style={{ fontSize: 12.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-              <span>This FD has matured at {Number(account.balance).toLocaleString('en-AE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}. Roll it into a new term?</span>
+              <span>This fixed deposit has matured at {Number(account.balance).toLocaleString('en-AE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}. Roll it into a new term?</span>
               <button type="button" className="om-btn" onClick={startNewTerm}>
                 Start new term
               </button>
@@ -276,9 +274,9 @@ export default function AccountEditor({ account, defaultType, householdId, membe
             <div className="te-fieldcell">
               <span className="te-fieldlabel">Type</span>
               <select className="te-fieldvalue" value={form.type} onChange={(e) => set('type', e.target.value)}>
-                {TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {t.replace('_', ' ')}
+                {Object.entries(ACCOUNT_TYPE_LABELS).map(([id, label]) => (
+                  <option key={id} value={id}>
+                    {label}
                   </option>
                 ))}
               </select>
@@ -316,9 +314,9 @@ export default function AccountEditor({ account, defaultType, householdId, membe
                 <div className="te-fieldcell">
                   <span className="te-fieldlabel">Compounding</span>
                   <select className="te-fieldvalue" value={form.compounding} onChange={(e) => set('compounding', e.target.value)}>
-                    {COMPOUNDING.map((c) => (
-                      <option key={c} value={c}>
-                        {c === 'simple' ? 'Simple (paid at maturity)' : c.replace('_', '-')}
+                    {Object.entries(COMPOUNDING_LABELS).map(([id, label]) => (
+                      <option key={id} value={id}>
+                        {label}
                       </option>
                     ))}
                   </select>

@@ -109,10 +109,11 @@ describe('QA-01: removing a card must not erase its transactions', () => {
     // Not shown among open accounts…
     expect(screen.queryByRole('button', { name: 'Remove' })).toBeNull();
 
-    // …but reachable behind an explicit toggle.
-    await click(screen.getByRole('button', { name: /Show closed \(1\)/ }));
-    const section = screen.getByText('Closed accounts').parentElement;
-    expect(within(section).getByText(/stay in your history and reports/)).toBeTruthy();
+    // …but folded away under the list, with what closing means.
+    const fold = screen.getByText('Closed (1)').closest('details');
+    expect(fold.open).toBe(false);
+    await click(screen.getByText('Closed (1)'));
+    expect(within(fold).getByText(/stay in your history and reports/)).toBeTruthy();
 
     await click(screen.getByRole('button', { name: 'Reopen' }));
     expect(calls).toHaveLength(1);

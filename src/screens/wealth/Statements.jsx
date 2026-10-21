@@ -5,6 +5,7 @@ import { monthFromParam } from '../../lib/useMonthParam';
 import { formatBalance } from '../../lib/money';
 import { spendDelta } from '../../lib/transactionKind';
 import { supabase } from '../../lib/supabaseClient';
+import { ordinal } from '../../lib/creditCard';
 
 // Wealth -> Statements: every card's recent statements and whether each was
 // reconciled against Rokda (docs/decisions.md, "A statement is reconciled,
@@ -38,7 +39,6 @@ function differenceText(row) {
   return `${aed(Math.abs(row.difference))} ${row.difference > 0 ? 'higher' : 'lower'} in Rokda`;
 }
 
-const ordinal = (n) => `${n}${[11, 12, 13].includes(n % 100) ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] ?? 'th'}`;
 const NEEDS_CHECK = new Set(['unchecked', 'waiting', 'mismatch']);
 
 export default function Statements({ household, me, members = [], data, loading }) {

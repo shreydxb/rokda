@@ -79,19 +79,10 @@ export default function Investments({ household, members, me, data, loading }) {
   const neverPriced = holdings.filter((h) => !h.priced_at).length;
   const staleCount = holdings.filter((h) => isStale(h, now)).length;
 
-  // Reload re-reads what is stored. It does not reprice anything, and it must
-  // never advance a valuation date — pressing it used to dismiss the staleness
-  // warning without retrieving a single price.
-  async function handleReload() {
-    setRefreshing(true);
-    await reload();
-    setRefreshing(false);
-  }
-
-  // Refresh live prices actually calls the price-refresh feed (SHR-237) for
-  // whatever holdings have opted into a provider (price_provider set) --
-  // distinct from Reload, which never fetches anything and never advances a
-  // valuation date on its own.
+  // Refresh prices calls the price-refresh feed (SHR-237) for whatever
+  // holdings have opted into a provider (price_provider set). Re-reading what
+  // is stored, without fetching a price, is the page's own Refresh at the top;
+  // this tab once had a third button, Reload, that did exactly that.
   async function handleRefresh() {
     setRefreshing(true);
     setRefreshError('');
@@ -121,15 +112,12 @@ export default function Investments({ household, members, me, data, loading }) {
             </button>
           ))}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <span className="ov-muted" style={{ fontSize: 11.5, textAlign: 'right', lineHeight: 1.4 }}>
+        <div className="mn-toolbar-end">
+          <span className="ov-muted" style={{ fontSize: 11.5 }}>
             Prices {lastRefreshed ? lastRefreshed.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'never refreshed'}
           </span>
-          <button type="button" className="om-btn" onClick={handleReload} disabled={refreshing}>
-            {refreshing ? '…' : 'Reload'}
-          </button>
           <button type="button" className="om-btn" onClick={handleRefresh} disabled={refreshing}>
-            {refreshing ? 'Refreshing…' : 'Refresh prices'}
+            {refreshing ? 'Refreshing prices…' : 'Refresh prices'}
           </button>
           <button type="button" className="om-btn mn-add" onClick={() => setEditing('new')}>
             + Holding
@@ -299,7 +287,7 @@ export default function Investments({ household, members, me, data, loading }) {
               {autoPriced.length === 0
                 ? 'No holding has auto-pricing set up yet — edit one to opt it in.'
                 : `${autoPriced.length} holding${autoPriced.length === 1 ? '' : 's'} on a live feed`}
-              {' · Reload re-reads stored values and does not fetch prices; Refresh prices calls the live feed.'}
+              {' · Refresh at the top of the page re-reads stored values and does not fetch prices; Refresh prices calls the live feed.'}
             </div>
           </section>
 

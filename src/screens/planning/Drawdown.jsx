@@ -318,7 +318,7 @@ export default function Drawdown({ household, members = [], accounts = [], trans
       <section style={{ marginTop: 40 }}>
         <div className="ov-section-head">
           <div className="ov-kicker">Other income once working stops</div>
-          <button type="button" className="om-btn" onClick={() => setEditing('new')}>
+          <button type="button" className="om-btn mn-add" onClick={() => setEditing('new')}>
             + Income
           </button>
         </div>

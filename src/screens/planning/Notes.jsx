@@ -24,9 +24,11 @@ export default function Notes({ household, me, members = [], data, loading }) {
         <div className="ov-muted" style={{ fontSize: 12.5 }}>
           The reasons behind the plan, and what is still open. Only your household can see these.
         </div>
-        <button type="button" className="om-btn mn-add" onClick={() => setEditing('new')} disabled={editing !== null}>
-          + Add note
-        </button>
+        <div className="mn-toolbar-end">
+          <button type="button" className="om-btn mn-add" onClick={() => setEditing('new')} disabled={editing !== null}>
+            + Add note
+          </button>
+        </div>
       </div>
 
       {editing === 'new' && (

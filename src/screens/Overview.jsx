@@ -704,7 +704,7 @@ function EmptyState({ navigate }) {
         <button type="button" className="om-btn ov-btn-primary" onClick={() => navigate('/money')}>
           Add a transaction
         </button>
-        <button type="button" className="om-btn" onClick={() => navigate('/wealth')}>
+        <button type="button" className="om-btn" onClick={() => navigate(tabHref('/wealth', 'accounts'))}>
           Add an account
         </button>
       </div>
