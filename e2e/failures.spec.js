@@ -82,7 +82,7 @@ test('Planning withholds what rests on goals and debts that never loaded', async
   const main = page.locator('.om-main');
   // An unread list used to read as an empty one: "All clear", no goals, no
   // debts, and a stop year worked out without them.
-  await expect(main).toContainText('Not checked');
+  await expect(main).toContainText('Not all checked');
   await expect(main).not.toContainText('All clear');
   await expect(main).not.toContainText('No goals yet');
   await expect(main).not.toContainText('No debts on record');

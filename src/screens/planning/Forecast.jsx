@@ -13,7 +13,7 @@ import AssumptionsBar from './AssumptionsBar';
 import { ChartLegend, ColumnChart, RangeChart } from '../../charts/Charts';
 import { tabHref } from '../../lib/activityLink';
 import { neverLoaded } from '../../lib/loadState';
-import { PROJECTION_INPUTS } from './planningSources';
+import { projectionInputs } from './planningSources';
 import Withheld from './Withheld';
 
 const DEFAULTS = { nominal_return_pct: 6.0, inflation_pct: 2.5, safe_withdrawal_pct: 4.0 };
@@ -136,7 +136,7 @@ export default function Forecast({ household, members = [], accounts = [], trans
   );
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
-  const missing = neverLoaded(sources, PROJECTION_INPUTS);
+  const missing = neverLoaded(sources, projectionInputs(inputs));
   if (missing.length > 0) {
     return (
       <Withheld missing={missing} onRetry={onRetry}>

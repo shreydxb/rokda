@@ -101,4 +101,33 @@ describe('useHousehold: refreshing, and one lookup for the app', () => {
     expect(screen.getAllByTestId('state').map((el) => el.textContent)).toEqual(['Home', 'Home']);
     expect(auth.lookups - before).toBe(1);
   });
+
+  it('is looked up again when the tab comes back after more than a minute, not sooner', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date(2026, 9, 15, 12, 0, 0));
+      auth.user = { id: 'u1' };
+      auth.fail = false;
+      const before = auth.lookups;
+      const { result } = renderHook(() => useHousehold());
+      await act(async () => {});
+      expect(auth.lookups - before).toBe(1);
+
+      vi.setSystemTime(new Date(2026, 9, 15, 12, 0, 30));
+      await act(async () => {
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+      expect(auth.lookups - before).toBe(1);
+
+      vi.setSystemTime(new Date(2026, 9, 15, 12, 2, 0));
+      await act(async () => {
+        document.dispatchEvent(new Event('visibilitychange'));
+        window.dispatchEvent(new Event('focus'));
+      });
+      expect(auth.lookups - before).toBe(2);
+      expect(result.current.household?.name).toBe('Home');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

@@ -9,7 +9,7 @@ import BudgetBasis from './BudgetBasis';
 import ForecastAssumptionsEditor from './ForecastAssumptionsEditor';
 import AssumptionsBar from './AssumptionsBar';
 import { neverLoaded } from '../../lib/loadState';
-import { PROJECTION_INPUTS } from './planningSources';
+import { projectionInputs } from './planningSources';
 import Withheld from './Withheld';
 
 const DEFAULTS = { nominal_return_pct: 6.0, inflation_pct: 2.5, safe_withdrawal_pct: 4.0 };
@@ -90,7 +90,7 @@ export default function Drawdown({ household, members = [], accounts = [], trans
   }, [members, data.memberLife, data.goals, data.independenceIncome, inputs, assumptions, startNetWorth, household, transactions, budgets, categories, now, fcSet]);
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
-  const missing = neverLoaded(sources, PROJECTION_INPUTS);
+  const missing = neverLoaded(sources, projectionInputs(inputs));
   if (missing.length > 0) {
     return (
       <Withheld missing={missing} onRetry={onRetry}>

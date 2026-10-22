@@ -23,19 +23,27 @@ export function useSources(householdId, sources, emptyState) {
   const [state, setState] = useState({ ...emptyState, loading: true, refreshing: false, loaded: {} });
   // Only the newest read may land: a slow earlier one must not overwrite it.
   const latest = useRef(0);
-  const startedAtRef = useRef(null);
+  const loadedAtRef = useRef(null);
+  const inFlightRef = useRef(false);
+  // Whether a read has finished at all, even one where every source failed:
+  // after that, a read keeps the page on screen rather than showing the
+  // skeleton, which unmounted whatever editor was open.
+  const attemptedRef = useRef(false);
 
   const reload = useCallback(async () => {
     if (!householdId) {
+      attemptedRef.current = false;
       setState({ ...emptyState, refreshing: false, loaded: {} });
       return;
     }
     const ticket = ++latest.current;
-    startedAtRef.current = Date.now();
-    setState((s) => (s.loadedAt ? { ...s, refreshing: true } : { ...s, loading: true }));
+    inFlightRef.current = true;
+    setState((s) => (attemptedRef.current ? { ...s, refreshing: true } : { ...s, loading: true }));
 
     const results = await Promise.all(sources.map((source) => source.run(householdId)));
     if (ticket !== latest.current) return;
+    inFlightRef.current = false;
+    attemptedRef.current = true;
 
     setState((previous) => {
       // `loaded` names every source that has loaded at least once. One that
@@ -58,6 +66,7 @@ export function useSources(householdId, sources, emptyState) {
         }
       });
       if (anySucceeded) next.loadedAt = new Date();
+      loadedAtRef.current = next.loadedAt;
       return next;
     });
   }, [householdId, sources, emptyState]);
@@ -69,13 +78,15 @@ export function useSources(householdId, sources, emptyState) {
 
   useEffect(() => {
     const visible = () => typeof document === 'undefined' || document.visibilityState !== 'hidden';
-    // Measured from when the last read started, not from when it landed:
-    // coming back to a tab fires visibilitychange and then focus, and the
-    // second started a whole second read while the first was still on its
-    // way, which was then thrown away.
+    // Not while a read is on its way: coming back to a tab fires
+    // visibilitychange and then focus, and the second started a whole second
+    // read that was then thrown away. Staleness counts from the last read that
+    // landed, so one that failed at once, the network still down, is tried
+    // again when the browser comes back online.
     const refreshIfStale = () => {
-      const started = startedAtRef.current;
-      if (visible() && (!started || Date.now() - started > STALE_AFTER_MS)) reload();
+      if (!visible() || inFlightRef.current) return;
+      const at = loadedAtRef.current;
+      if (!at || Date.now() - at.getTime() > STALE_AFTER_MS) reload();
     };
     const tick = () => {
       if (visible()) reload();

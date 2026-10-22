@@ -36,7 +36,12 @@ export default function Planning() {
   const loading = householdLoading || inputs.loading || planning.loading;
   // What failed, and what has ever loaded, across both reads: each tab
   // withholds what rests on a source that never arrived (lib/loadState.js).
-  const sources = { errors: { ...inputs.errors, ...planning.errors }, loaded: { ...inputs.loaded, ...planning.loaded } };
+  // The household lookup is a source too: with it unread, every list below
+  // would be the empty placeholder.
+  const sources = {
+    errors: { ...inputs.errors, ...planning.errors, ...(householdError ? { household: householdError } : {}) },
+    loaded: { ...inputs.loaded, ...planning.loaded, household: Boolean(household) },
+  };
   const retry = async () => {
     await Promise.all([reloadHousehold(), inputs.reload(), planning.reload()]);
   };

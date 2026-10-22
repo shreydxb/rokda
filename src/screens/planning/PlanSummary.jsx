@@ -8,7 +8,7 @@ import { budgetPlan, closedMonths, crossingYear, forecastInputs, incomesFromStop
 import { agesLabel, lifePlanStop, spendAfterText } from '../../lib/lifePlan';
 import { incompleteNote, netWorthSummary, startingNetWorth } from '../overviewMath';
 import { couldntLoad, neverLoaded } from '../../lib/loadState';
-import { DEBT_INPUTS, GOALS_INPUTS, PROJECTION_INPUTS } from './planningSources';
+import { DEBT_INPUTS, DEBT_PLAN_INPUTS, GOALS_INPUTS, projectionInputs } from './planningSources';
 
 const DEFAULTS = { nominal_return_pct: 6.0, inflation_pct: 2.5, safe_withdrawal_pct: 4.0 };
 
@@ -124,20 +124,31 @@ export default function PlanSummary({ household = null, members, me, accounts, t
     [members, data.memberLife, assumptions, forecast, startNetWorth, goals, data.independenceIncome, household, stopping, now]
   );
 
+  // What rests on records that never arrived is withheld rather than worked
+  // out from an empty placeholder: with goals and debts unread, this page
+  // said "All clear" and moved the stop year (lib/loadState.js, neverLoaded).
+  const goalsMissing = neverLoaded(sources, GOALS_INPUTS);
+  const debtsMissing = neverLoaded(sources, DEBT_INPUTS);
+  const debtPlanMissing = neverLoaded(sources, DEBT_PLAN_INPUTS);
+  const answerMissing = neverLoaded(sources, projectionInputs(forecast));
+  // Each item below is offered only when what it rests on loaded; the rest
+  // are named once as not checked, never folded into "All clear".
+  const unchecked = [...new Set([...goalsMissing, ...debtsMissing, ...debtPlanMissing, ...answerMissing])];
+
   const actions = [
-    behindGoals.length > 0 && {
+    goalsMissing.length === 0 && behindGoals.length > 0 && {
       key: 'goals',
       text: `${behindGoals.length} goal${behindGoals.length === 1 ? '' : 's'} behind pace`,
       tab: 'goals',
       cta: 'Open Goals',
     },
-    debts.length > 0 && !canProjectDebt && {
+    debtsMissing.length === 0 && debtPlanMissing.length === 0 && debts.length > 0 && !canProjectDebt && {
       key: 'debt',
       text: 'No committed extra payment set, so debt has no payoff date',
       tab: 'debt',
       cta: 'Set a plan',
     },
-    !forecast.ready && {
+    answerMissing.length === 0 && !forecast.ready && {
       key: 'forecast',
       text:
         monthCount < 3
@@ -148,15 +159,7 @@ export default function PlanSummary({ household = null, members, me, accounts, t
     },
   ].filter(Boolean);
 
-  // What rests on records that never arrived is withheld rather than worked
-  // out from an empty placeholder: with goals and debts unread, this page
-  // said "All clear" and moved the stop year (lib/loadState.js, neverLoaded).
-  const goalsMissing = neverLoaded(sources, GOALS_INPUTS);
-  const debtsMissing = neverLoaded(sources, DEBT_INPUTS);
-  const answerMissing = neverLoaded(sources, PROJECTION_INPUTS);
-  const decisionsMissing = [...new Set([...goalsMissing, ...debtsMissing, ...answerMissing])];
-
-  const isEmpty = goals.length === 0 && debts.length === 0 && !forecast.ready && decisionsMissing.length === 0;
+  const isEmpty = goals.length === 0 && debts.length === 0 && !forecast.ready && unchecked.length === 0;
 
   // The answer to when work can stop: the Life plan's year once ages are set,
   // and then the first card, with what it assumes about spending (SHR-324).
@@ -250,6 +253,8 @@ export default function PlanSummary({ household = null, members, me, accounts, t
               ? couldntLoad(debtsMissing)
               : visibleDebts.length === 0
               ? 'No debts on record'
+              : debtPlanMissing.length > 0
+                ? `${couldntLoad(debtPlanMissing)} No payoff date is worked out.`
               : `${
                   canProjectDebt && debtPlan
                     ? `Debt-free in ${monthsToLabel(debtPlan.months)}`
@@ -267,22 +272,11 @@ export default function PlanSummary({ household = null, members, me, accounts, t
       <section style={{ marginTop: 40 }}>
         <div className="ov-section-head">
           <div className="ov-kicker">What needs a decision</div>
-          <div className="ov-muted">{decisionsMissing.length > 0 ? 'Not checked' : actions.length ? `${actions.length} open` : 'All clear'}</div>
-        </div>
-        {decisionsMissing.length > 0 ? (
-          <div className="ov-attn-list">
-            <div className="ov-attn-row">
-              <div className="ov-attn-main">
-                <span>{couldntLoad(decisionsMissing)} What needs a decision isn&rsquo;t worked out without them.</span>
-              </div>
-              {onRetry && (
-                <button type="button" className="om-btn ov-attn-btn" onClick={onRetry}>
-                  Try again
-                </button>
-              )}
-            </div>
+          <div className="ov-muted">
+            {unchecked.length > 0 ? (actions.length ? `${actions.length} open · not all checked` : 'Not all checked') : actions.length ? `${actions.length} open` : 'All clear'}
           </div>
-        ) : actions.length === 0 ? (
+        </div>
+        {actions.length === 0 && unchecked.length === 0 ? (
           <div className="ov-allclear">
             <span className="ov-dot-pos" />
             <span>All clear — nothing here needs a decision.</span>
@@ -299,6 +293,18 @@ export default function PlanSummary({ household = null, members, me, accounts, t
                 </button>
               </div>
             ))}
+            {unchecked.length > 0 && (
+              <div className="ov-attn-row">
+                <div className="ov-attn-main">
+                  <span>{couldntLoad(unchecked)} What rests on them isn&rsquo;t checked.</span>
+                </div>
+                {onRetry && (
+                  <button type="button" className="om-btn ov-attn-btn" onClick={onRetry}>
+                    Try again
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )}
       </section>

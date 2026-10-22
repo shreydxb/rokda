@@ -78,6 +78,12 @@ describe('LifePlan: ages that never loaded', () => {
     expect(screen.queryByText(/Set up your life plan/)).toBeNull();
     expect(document.querySelector('.ov-hero')).toBeNull();
   });
+
+  it('works the plan out without a budget once three months have closed', () => {
+    renderPlan({ sources: { errors: { budgets: { message: 'canceling statement due to statement timeout' } }, loaded: {} } });
+    expect(screen.queryByText(/Couldn’t load/)).toBeNull();
+    expect(document.querySelector('.ov-hero')).not.toBeNull();
+  });
 });
 
 describe('LifePlan: setting up', () => {

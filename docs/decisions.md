@@ -2138,7 +2138,8 @@ blanked every page and lost a note being written; and Planning read the
 household twice and eight tables it never used.
 
 - **A source that never loaded is withheld, not shown as empty.** useSources
-  names every source that has loaded at least once. One that failed before it
+  names every source that has loaded at least once, and the household lookup
+  counts as one. One that failed before it
   ever did still holds its empty placeholder, so a list built on it says
   "Couldn't load goals" with Try again, and a figure built on it is not worked
   out: Plan's cards, its stop year and "What needs a decision", which says
@@ -2153,9 +2154,15 @@ household twice and eight tables it never used.
   own reads could start.
 - **Planning reads its six tables, once.** It reads only the accounts,
   transactions, categories, recurring bills, budgets and holdings its tabs
-  use. A page counts as fresh from when its last read started, so coming back
-  to a tab, which fires two events, reads once.
-- **A note is not lost or overwritten.** Cancel and leaving the page ask before
-  dropping a changed note, and a save goes through only over the version it
-  was opened from, so one partner's edit no longer replaces the other's
-  without a word.
+  use. No read starts while one is on its way, so coming back to a tab, which
+  fires two events, reads once; the household is read again on the same
+  schedule as the records.
+- **What each part rests on.** Goals rest on the assumptions too (inflation
+  and return); Debt payoff's list does not, only its projection; the budget
+  counts only until three months have closed. Plan offers each decision whose
+  records loaded and names the rest once as not checked.
+- **A note is not lost or overwritten.** Cancel, and closing or reloading the
+  browser tab, ask before dropping a changed note. A save goes through only
+  over the version the edit was opened from, kept by the editor however often
+  the note is read again meanwhile, so one partner's edit no longer replaces
+  the other's without a word.

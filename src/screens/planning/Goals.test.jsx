@@ -98,4 +98,11 @@ describe('Goals: goals that never loaded', () => {
     expect(screen.getByText('Couldn’t load goals.')).toBeTruthy();
     expect(screen.queryByText(/Add a goal to start/)).toBeNull();
   });
+
+  it('waits for the assumptions too, rather than costing goals at the defaults', () => {
+    renderScreen(
+      <Goals household={{ id: 'h' }} members={MEMBERS} me={{ id: 'm1' }} accounts={ACCOUNTS} holdings={[]} data={DATA} sources={{ errors: { assumptions: { message: 'canceling statement due to statement timeout' } }, loaded: {} }} loading={false} />,
+    );
+    expect(screen.getByText('Couldn’t load planning assumptions.')).toBeTruthy();
+  });
 });

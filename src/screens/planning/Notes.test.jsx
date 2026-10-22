@@ -1,4 +1,6 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest';
+import { useState } from 'react';
+import { act } from '@testing-library/react';
 import { screen, fireEvent, waitFor } from '@testing-library/dom';
 import { renderScreen } from '../../test/renderScreen';
 import Notes from './Notes';
@@ -128,5 +130,39 @@ describe('Notes', () => {
     expect(screen.getByText('Couldn’t load household notes.')).toBeTruthy();
     fireEvent.click(screen.getByText('Try again'));
     expect(onRetry).toHaveBeenCalled();
+  });
+
+  it('saves only over the version it was opened from, though the note is read again while it is open', async () => {
+    // The page reads the notes again every few minutes; here that brings in
+    // the partner's save while this edit is still open.
+    let setNotes;
+    function Page() {
+      const [notes, set] = useState([NOTE]);
+      setNotes = set;
+      return <Notes household={{ id: 'h' }} me={{ id: 'm1' }} members={MEMBERS} data={{ notes, reload: vi.fn() }} loading={false} />;
+    }
+    renderScreen(<Page />);
+    fireEvent.click(screen.getByText('Edit'));
+    fireEvent.change(screen.getByPlaceholderText('e.g. Who pays what'), { target: { value: 'Mine' } });
+
+    const theirs = { ...NOTE, body: 'Their text', updated_at: '2026-09-29T08:00:00Z' };
+    calls.stored = theirs.updated_at;
+    act(() => setNotes([theirs]));
+    fireEvent.click(screen.getByText('Save'));
+
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent', expect.stringMatching(/^This note was changed after you opened it/));
+    expect(calls.updates[0].updatedAt).toBe(NOTE.updated_at);
+  });
+
+  it('opens a note again only once the read after its save has landed', async () => {
+    let finishReload;
+    const reload = vi.fn(() => new Promise((resolve) => (finishReload = resolve)));
+    renderScreen(<Notes household={{ id: 'h' }} me={{ id: 'm1' }} members={MEMBERS} data={{ notes: [NOTE], reload }} loading={false} />);
+    fireEvent.click(screen.getByText('Edit'));
+    fireEvent.click(screen.getByText('Save'));
+    await waitFor(() => expect(reload).toHaveBeenCalled());
+    expect(screen.getByText('Edit').disabled).toBe(true);
+    await act(async () => finishReload());
+    expect(screen.getByText('Edit').disabled).toBe(false);
   });
 });

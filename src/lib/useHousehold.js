@@ -1,6 +1,7 @@
-import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { supabase } from './supabaseClient';
 import { useAuth } from './AuthContext';
+import { REFRESH_EVERY_MS, STALE_AFTER_MS } from './useSources';
 
 // `forUser` is whose household this is, so a refresh keeps it on screen only
 // for the same person.
@@ -30,6 +31,12 @@ export function useHouseholdLoader(enabled = true) {
   const { user } = useAuth();
   const userId = user?.id ?? null;
   const [state, setState] = useState({ ...EMPTY_STATE, loading: true });
+  // Only the newest lookup may land, and it is looked up again on the same
+  // schedule as the records (useSources): read once for the whole app, it
+  // otherwise kept a new member or the day's rupee rate from sign-in onwards.
+  const latest = useRef(0);
+  const loadedAtRef = useRef(null);
+  const inFlightRef = useRef(false);
 
   // Only the first lookup shows the loading state. A later one (Refresh, Try
   // again) keeps the household on screen and swaps it when the answer lands:
@@ -40,6 +47,8 @@ export function useHouseholdLoader(enabled = true) {
       setState(EMPTY_STATE);
       return;
     }
+    const ticket = ++latest.current;
+    inFlightRef.current = true;
     const kept = (s) => s.household && s.forUser === userId;
     setState((s) => (kept(s) ? { ...s, refreshing: true } : { ...EMPTY_STATE, loading: true }));
 
@@ -48,6 +57,8 @@ export function useHouseholdLoader(enabled = true) {
       .select('id, household_id, display_name, role, user_id, households(id, name, inr_per_aed, inr_rate_set_at, inr_rate_source)')
       .eq('user_id', userId)
       .limit(1);
+    if (ticket !== latest.current) return;
+    inFlightRef.current = false;
 
     // A failed lookup and "you are not in a household" are different facts and
     // were previously both reported as an empty state (QA-10).
@@ -63,10 +74,14 @@ export function useHouseholdLoader(enabled = true) {
     }
 
     const me = myRows[0];
+    inFlightRef.current = true;
     const { data: roster, error: rosterError } = await supabase
       .from('household_members')
       .select('id, display_name, role, user_id, telegram_user_id')
       .eq('household_id', me.household_id);
+    if (ticket !== latest.current) return;
+    inFlightRef.current = false;
+    loadedAtRef.current = new Date();
 
     setState({
       loading: false,
@@ -92,6 +107,29 @@ export function useHouseholdLoader(enabled = true) {
     if (!enabled) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- kicks off an async fetch; loading flag is the point
     reload();
+  }, [reload, enabled]);
+
+  useEffect(() => {
+    if (!enabled) return undefined;
+    const visible = () => typeof document === 'undefined' || document.visibilityState !== 'hidden';
+    const refreshIfStale = () => {
+      if (!visible() || inFlightRef.current) return;
+      const at = loadedAtRef.current;
+      if (!at || Date.now() - at.getTime() > STALE_AFTER_MS) reload();
+    };
+    const tick = () => {
+      if (visible()) reload();
+    };
+    document.addEventListener('visibilitychange', refreshIfStale);
+    window.addEventListener('focus', refreshIfStale);
+    window.addEventListener('online', refreshIfStale);
+    const timer = window.setInterval(tick, REFRESH_EVERY_MS);
+    return () => {
+      document.removeEventListener('visibilitychange', refreshIfStale);
+      window.removeEventListener('focus', refreshIfStale);
+      window.removeEventListener('online', refreshIfStale);
+      window.clearInterval(timer);
+    };
   }, [reload, enabled]);
 
   return { ...state, reload };

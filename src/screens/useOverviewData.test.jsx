@@ -207,4 +207,30 @@ describe('reading only what is needed, once', () => {
     expect([...new Set(reads)].sort()).toEqual(['accounts', 'budgets', 'categories', 'holdings', 'recurring', 'transactions']);
     expect(PLANNING_INPUT_KEYS).toHaveLength(6);
   });
+
+  it('tries again when the browser comes back online seconds after a read failed at once', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date(2026, 9, 15, 12, 0, 0));
+      const offline = { data: null, error: { message: 'TypeError: Failed to fetch' } };
+      PLANNING_INPUT_KEYS.forEach((key) => responses.set(key, offline));
+      const { result } = renderHook(() => usePlanningInputs('household-1'));
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      expect(result.current.errors.accounts).toBeTruthy();
+
+      responses.clear();
+      const before = reads.filter((table) => table === 'accounts').length;
+      vi.setSystemTime(new Date(2026, 9, 15, 12, 0, 10));
+      act(() => {
+        window.dispatchEvent(new Event('online'));
+      });
+      // Every source failed the first time, yet this read keeps the page on
+      // screen rather than going back to the skeleton.
+      expect(result.current.loading).toBe(false);
+      await waitFor(() => expect(result.current.errors.accounts).toBeUndefined());
+      expect(reads.filter((table) => table === 'accounts').length).toBe(before + 1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
