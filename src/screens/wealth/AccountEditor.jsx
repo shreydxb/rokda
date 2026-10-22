@@ -311,7 +311,7 @@ export default function AccountEditor({ account, defaultType, householdId, membe
                   <span className="te-fieldlabel">Interest rate (annual %)</span>
                   <input className="te-fieldvalue" type="number" step="0.01" value={form.interest_rate_pct} onChange={(e) => set('interest_rate_pct', e.target.value)} placeholder="e.g. 4.5" />
                 </div>
-                <div className="te-fieldcell">
+                <div className="te-fieldcell te-span2">
                   <span className="te-fieldlabel">Compounding</span>
                   <select className="te-fieldvalue" value={form.compounding} onChange={(e) => set('compounding', e.target.value)}>
                     {Object.entries(COMPOUNDING_LABELS).map(([id, label]) => (

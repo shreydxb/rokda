@@ -35,6 +35,13 @@
 .ov-link:hover {
   color: var(--accent);
 }
+/* As a button it reads as the same quiet link, not a grey control. Its
+   padding is left alone: buttons that use the class set their own. */
+button.ov-link {
+  background: none;
+  border: none;
+  font-family: inherit;
+}
 
 /* head */
 .ov-error {

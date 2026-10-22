@@ -172,15 +172,19 @@
   color: var(--neg);
 }
 
+/* minmax(0, 1fr) and min-width: 0 let a cell, and the field in it, be
+   narrower than an input's built-in width. With plain 1fr the fields ran past
+   the drawer's edge on a phone. */
 .te-fieldgrid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
 }
 .te-fieldcell {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 0;
 }
 .te-fieldcell.te-span2 {
   grid-column: 1 / -1;
@@ -192,6 +196,7 @@
   color: var(--ink3);
 }
 .te-fieldvalue {
+  min-width: 0;
   border: none;
   border-bottom: 1px solid var(--rule2);
   border-radius: 0;
@@ -426,4 +431,88 @@
   font-size: 12.5px;
   margin: -6px 0 0;
   line-height: 1.6;
+}
+
+/* A drawer made of more than one form: the record's own form lays its fields
+   out as if it were not there, and a section such as a goal's contributions
+   has a form of its own, so Enter in its fields does its action. */
+.te-part {
+  display: contents;
+}
+.te-section {
+  border-top: 1px solid var(--rule2);
+  padding-top: 18px;
+  margin-top: 6px;
+}
+.te-section-head {
+  margin: 0 0 12px;
+  font-weight: inherit;
+}
+.te-section-head:focus {
+  outline: none;
+}
+.te-subactions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+/* A section's status line stays in the page, empty, so a screen reader
+   hears it when its words change. */
+.te-status {
+  font-size: 12.5px;
+  margin: 12px 0 0;
+}
+.te-status:empty {
+  margin: 0;
+}
+.te-fieldproblem {
+  font-size: 12px;
+  color: var(--neg);
+}
+.te-hero-row:has(.te-hero-input[aria-invalid='true']) {
+  border-bottom-color: var(--neg);
+}
+/* A record's row in a drawer: on a phone its controls drop under its name
+   rather than squeezing it. */
+.te-linkrow {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+.te-linkrow .mn-row-main {
+  flex: 1 1 9em;
+  overflow-wrap: anywhere;
+}
+.te-rownote {
+  font-size: 12px;
+  margin-top: 2px;
+}
+.te-rowcontrols {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px 10px;
+  margin-left: auto;
+}
+.te-fieldvalue.te-shareinput {
+  width: 4.5em;
+  padding: 8px 0;
+  text-align: right;
+}
+.ov-link.te-rowaction {
+  padding: 8px 2px;
+  color: var(--ink2);
+  font-size: 12.5px;
+}
+.ov-link.te-rowaction:hover {
+  color: var(--accent);
+}
+.ov-link.te-rowaction.te-rowaction-danger {
+  color: var(--neg);
+}
+@media (pointer: coarse) {
+  .ov-link.te-rowaction,
+  .te-fieldvalue.te-shareinput {
+    min-height: 44px;
+  }
 }

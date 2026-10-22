@@ -82,6 +82,17 @@ describe('scopedGoalRows: one derivation for Goals and the Plan summary', () => 
     expect(row.need.remaining).toBe(7000);
   });
 
+  it('counts nothing from a loan, a card or a closed account, which hold no money for the goal', () => {
+    const linkedAccounts = [
+      { id: 'l1', type: 'loan', currency: 'AED', balance: 40000, balance_aed: 40000 },
+      { id: 'c1', type: 'credit_card', currency: 'AED', balance: 1500, balance_aed: 1500 },
+      { id: 's1', type: 'savings', currency: 'AED', balance: 3000, balance_aed: 3000, archived_at: '2026-09-01T00:00:00Z' },
+      { id: 's2', type: 'savings', currency: 'AED', balance: 3000, balance_aed: 3000 },
+    ];
+    const links = linkedAccounts.map((a) => ({ goal_id: 'g1', account_id: a.id, holding_id: null, share_pct: 100 }));
+    expect(allocatedValue('g1', links, linkedAccounts, [])).toBe(3000);
+  });
+
   it('halves a shared goal for one person, so the two halves add up to Both', () => {
     const args = { goals: [GOAL], contributions: [{ goal_id: 'g1', amount: 1000, occurred_at: '2026-09-01' }], allocations, accounts, holdings, now: NOW };
     const both = scopedGoalRows(args)[0];

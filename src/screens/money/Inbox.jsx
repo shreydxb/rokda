@@ -544,7 +544,7 @@ function IntakeEditForm({ item, sender, accounts, members, categories, categoryR
     <div>
       <div className="ib-review-head" style={{ marginBottom: 8 }}>
         <div className="ov-kicker">Edit before approving</div>
-        <button type="button" className="ov-link" onClick={onBack}>
+        <button type="button" className="ov-link te-rowaction" onClick={onBack}>
           ← Back to summary
         </button>
       </div>

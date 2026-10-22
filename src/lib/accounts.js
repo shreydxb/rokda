@@ -34,6 +34,12 @@ export function isArchived(account) {
   return account?.archived_at != null;
 }
 
+// A loan or a card: its balance is what is owed, not money the household has.
+const LIABILITY_TYPES = new Set(['credit_card', 'loan']);
+export function isLiabilityAccount(account) {
+  return LIABILITY_TYPES.has(account?.type);
+}
+
 export function activeAccounts(accounts = []) {
   return accounts.filter((a) => !isArchived(a));
 }

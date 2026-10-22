@@ -162,6 +162,7 @@ export default function Goals({ household, members, me, accounts, holdings, data
             setEditing(null);
             await reload();
           }}
+          onChanged={reload}
         />
       )}
     </div>
