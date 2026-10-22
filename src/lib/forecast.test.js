@@ -48,6 +48,16 @@ describe('scenarioSets', () => {
     expect(sets.custom.swrPct).toBe(3.5);
     expect(sets.custom.meta).not.toMatch(/not set/i);
   });
+
+  it('a Custom figure saved blank follows Baseline, not 0', () => {
+    const sets = scenarioSets(
+      { nominal_return_pct: 6, inflation_pct: 2.5, safe_withdrawal_pct: 4, custom_nominal_return_pct: 9, custom_inflation_pct: null, custom_safe_withdrawal_pct: null, custom_updated_at: '2026-08-01T00:00:00Z' },
+      DEFAULTS,
+    );
+    expect(sets.custom.nominalPct).toBe(9);
+    expect(sets.custom.inflationPct).toBe(2.5);
+    expect(sets.custom.swrPct).toBe(4);
+  });
 });
 
 // SHR-252 (762a6c4 recheck): closedMonths had its own income/spend split that

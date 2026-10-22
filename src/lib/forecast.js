@@ -247,12 +247,14 @@ export function crossingYear({ startYear, startNetWorth, annualSaving, rate, mod
 // than stored, matching the offsets already used for the "if things change"
 // scenarios elsewhere on this screen (±2pp nominal). Custom is the one set a
 // household actually edits independently, so it falls back to the baseline
-// numbers until it's been saved once.
+// numbers until it's been saved once, and any figure saved blank keeps
+// following Baseline's after that.
 export function scenarioSets(assumptions, defaults) {
   const nominal = assumptions?.nominal_return_pct != null ? Number(assumptions.nominal_return_pct) : defaults.nominal_return_pct;
   const inflation = assumptions?.inflation_pct != null ? Number(assumptions.inflation_pct) : defaults.inflation_pct;
   const swr = assumptions?.safe_withdrawal_pct != null ? Number(assumptions.safe_withdrawal_pct) : defaults.safe_withdrawal_pct;
   const hasCustom = assumptions?.custom_updated_at != null;
+  const custom = (column, fallback) => (hasCustom && assumptions[column] != null ? Number(assumptions[column]) : fallback);
 
   return {
     baseline: { key: 'baseline', label: 'Baseline', meta: 'Your saved assumptions', nominalPct: nominal, inflationPct: inflation, swrPct: swr },
@@ -276,9 +278,9 @@ export function scenarioSets(assumptions, defaults) {
       key: 'custom',
       label: 'Custom',
       meta: hasCustom ? 'Your own assumptions' : 'Not set yet — edit to start from Baseline',
-      nominalPct: hasCustom ? Number(assumptions.custom_nominal_return_pct) : nominal,
-      inflationPct: hasCustom ? Number(assumptions.custom_inflation_pct) : inflation,
-      swrPct: hasCustom ? Number(assumptions.custom_safe_withdrawal_pct) : swr,
+      nominalPct: custom('custom_nominal_return_pct', nominal),
+      inflationPct: custom('custom_inflation_pct', inflation),
+      swrPct: custom('custom_safe_withdrawal_pct', swr),
     },
   };
 }

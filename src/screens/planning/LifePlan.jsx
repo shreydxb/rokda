@@ -38,6 +38,7 @@ export default function LifePlan({
   sources,
   onRetry,
   loading,
+  onReload,
   onOpenTab,
   scenario,
   onScenario,
@@ -95,7 +96,10 @@ export default function LifePlan({
         setEditing(false);
         setStopOverride(null);
         setSpendKind(null);
-        await data.reload();
+        // The editor also marks which categories stop when work does, and
+        // categories are the household's records rather than the plan's, so
+        // both are read again.
+        await Promise.all([data.reload(), onReload?.()]);
       }}
     />
   );

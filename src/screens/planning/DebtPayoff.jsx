@@ -83,7 +83,18 @@ export default function DebtPayoff({ household, members, me, accounts = [], data
   );
 
   // What a debt-free date rests on. An extra payment of 0 is set but commits
-  // nothing, so it counts as missing, like one never entered.
+  // nothing, so it counts as missing, like one never entered. A rate or
+  // minimum of 0 is real for some loans but is also what an older record left
+  // blank was saved as, so it is named for checking rather than called known.
+  const enteredOnEach = (label, column, known, zero) => {
+    const atZero = debts.filter((d) => Number(d[column]) === 0).length;
+    return {
+      label,
+      note: 'Entered by hand on each debt',
+      state: !debts.length ? 'No debts yet' : atZero ? `${atZero} of ${debts.length} ${zero} · check` : known,
+      tone: debts.length && !atZero ? 'ov-chip-ok' : 'ov-chip-warn',
+    };
+  };
   const extraCommitted = extraPayment !== null && extraPayment > 0;
   const debtInputs = [
     {
@@ -98,8 +109,8 @@ export default function DebtPayoff({ household, members, me, accounts = [], data
       state: cardAssumptionSet ? (assumptions.debt_assume_no_new_card_spend ? 'No new spend' : 'New spend continues') : 'Not set',
       tone: cardAssumptionSet ? 'ov-chip-ok' : 'ov-chip-warn',
     },
-    { label: 'Minimum payments', note: 'Entered by hand on each debt', state: debts.length ? 'Known' : 'No debts yet', tone: debts.length ? 'ov-chip-ok' : 'ov-chip-warn' },
-    { label: 'Rates', note: 'Entered by hand on each debt', state: debts.length ? 'Known · manual' : 'No debts yet', tone: debts.length ? 'ov-chip-ok' : 'ov-chip-warn' },
+    enteredOnEach('Minimum payments', 'minimum_payment', 'Known', 'at 0'),
+    enteredOnEach('Rates', 'apr_pct', 'Known · manual', 'at 0%'),
   ];
   const missing = [!extraCommitted && 'a committed extra payment', !cardAssumptionSet && 'a card-usage assumption'].filter(Boolean);
 

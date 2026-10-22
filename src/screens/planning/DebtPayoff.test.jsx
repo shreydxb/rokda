@@ -41,6 +41,21 @@ describe('DebtPayoff: figures and what a projection needs', () => {
     expect(screen.getByText(/A committed extra payment is not set, so no date is shown/)).toBeTruthy();
     expect(screen.getByText('0 a month').className).toBe('ov-chip-warn');
   });
+
+  // A blank rate or minimum used to be saved as 0 and the checklist still
+  // called both known (Planning audit, 0b-C).
+  it('calls rates and minimums known only when no debt has them at 0', () => {
+    renderPayoff([debt()]);
+    expect(screen.getByText('Known').className).toBe('ov-chip-ok');
+    expect(screen.getByText('Known · manual').className).toBe('ov-chip-ok');
+  });
+
+  it('names debts with a 0 rate or minimum for checking', () => {
+    renderPayoff([debt(), debt({ id: 'd2', name: 'Card', account_id: null, apr_pct: 0, minimum_payment: 0 })]);
+    expect(screen.getByText('1 of 2 at 0 · check').className).toBe('ov-chip-warn');
+    expect(screen.getByText('1 of 2 at 0% · check').className).toBe('ov-chip-warn');
+    expect(screen.queryByText('Known')).toBeNull();
+  });
 });
 
 describe('DebtPayoff: debts that never loaded', () => {

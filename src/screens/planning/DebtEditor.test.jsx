@@ -1,10 +1,13 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest';
+import { useState } from 'react';
 import { screen, fireEvent, waitFor } from '@testing-library/dom';
 import { renderScreen } from '../../test/renderScreen';
 import DebtEditor from './DebtEditor';
 
 // Every write the editor makes, in order.
-const calls = vi.hoisted(() => ({ writes: [], failDebt: false }));
+// `moved` makes a write conditional on the balance find nothing to update,
+// as when the account changed after the editor opened.
+const calls = vi.hoisted(() => ({ writes: [], failDebt: false, moved: false }));
 vi.mock('../../lib/supabaseClient', () => ({
   supabase: {
     from: (table) => ({
@@ -16,12 +19,25 @@ vi.mock('../../lib/supabaseClient', () => ({
           then: (resolve) => resolve(result),
         };
       },
-      update: (row) => ({
-        eq: async (column, value) => {
-          calls.writes.push({ table, op: 'update', row, id: value });
-          return { error: null };
-        },
-      }),
+      update: (row) => {
+        const filters = {};
+        const write = () => calls.writes.push({ table, op: 'update', row, id: filters.id, ...('balance' in filters ? { onlyOver: filters.balance } : {}) });
+        const chain = {
+          eq: (column, value) => {
+            filters[column] = value;
+            return chain;
+          },
+          select: async () => {
+            write();
+            return { data: calls.moved ? [] : [{ id: filters.id }], error: null };
+          },
+          then: (resolve) => {
+            write();
+            return resolve({ error: null });
+          },
+        };
+        return chain;
+      },
       delete: () => ({
         eq: async (column, value) => {
           calls.writes.push({ table, op: 'delete', id: value });
@@ -49,7 +65,13 @@ const options = () => [...screen.getByLabelText('Account').querySelectorAll('opt
 beforeEach(() => {
   calls.writes.length = 0;
   calls.failDebt = false;
+  calls.moved = false;
 });
+
+function fillTerms(apr = '3.5', minimum = '2193') {
+  type(field('APR (%/yr)'), apr);
+  type(field('Minimum payment (AED/mo)'), minimum);
+}
 
 describe('DebtEditor: where the balance lives', () => {
   it('offers to create a loan account, the open loan and card accounts, or none', () => {
@@ -61,6 +83,7 @@ describe('DebtEditor: where the balance lives', () => {
     const { onSaved } = renderEditor();
     type(screen.getByLabelText('Balance owed'), '40000');
     type(field('Name'), 'Car loan');
+    fillTerms();
     fireEvent.click(screen.getByText('Add debt'));
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     expect(calls.writes[0]).toMatchObject({ table: 'accounts', op: 'insert', row: { household_id: 'h', name: 'Car loan', type: 'loan', currency: 'AED', balance: 40000, is_shared: true } });
@@ -73,6 +96,7 @@ describe('DebtEditor: where the balance lives', () => {
     renderEditor();
     type(screen.getByLabelText('Balance owed'), '40000');
     type(field('Name'), 'Car loan');
+    fillTerms();
     fireEvent.click(screen.getByText('Add debt'));
     await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('debt refused'));
     expect(calls.writes.at(-1)).toEqual({ table: 'accounts', op: 'delete', id: 'new-account' });
@@ -86,7 +110,7 @@ describe('DebtEditor: where the balance lives', () => {
     type(screen.getByLabelText('Balance owed'), '36000');
     fireEvent.click(screen.getByText('Save changes'));
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
-    expect(calls.writes[0]).toMatchObject({ table: 'accounts', op: 'update', id: 'loan', row: { balance: 36000 } });
+    expect(calls.writes[0]).toMatchObject({ table: 'accounts', op: 'update', id: 'loan', row: { balance: 36000 }, onlyOver: 38000 });
     expect(calls.writes[1]).toMatchObject({ table: 'debts', op: 'update', id: 'd1', row: { balance: 36000, account_id: 'loan' } });
   });
 
@@ -104,5 +128,82 @@ describe('DebtEditor: where the balance lives', () => {
   it('does not offer an account another debt already plans for', () => {
     renderEditor({ debts: [{ id: 'other', account_id: 'loan' }] });
     expect(options()).toEqual(['Create a loan account', 'Not linked: not in net worth']);
+  });
+});
+
+// A blank rate or minimum was saved as 0, and Debt payoff then called both
+// known (Planning audit, 0b-C).
+describe('DebtEditor: the rate and the minimum', () => {
+  it('needs both, marks each field, and saves nothing until they are entered', () => {
+    renderEditor();
+    type(screen.getByLabelText('Balance owed'), '40000');
+    type(field('Name'), 'Car loan');
+    fireEvent.click(screen.getByText('Add debt'));
+    expect(screen.getByRole('alert').textContent).toBe('Fix the marked field to save.');
+    expect(field('APR (%/yr)').getAttribute('aria-invalid')).toBe('true');
+    expect(screen.getByText('Enter the rate, 0 if it has none.')).toBeTruthy();
+    expect(screen.getByText('Enter the minimum payment, 0 if there is none.')).toBeTruthy();
+    expect(document.activeElement).toBe(field('APR (%/yr)'));
+    expect(calls.writes).toEqual([]);
+  });
+
+  it('refuses a negative minimum and a rate above 100%', () => {
+    renderEditor();
+    type(screen.getByLabelText('Balance owed'), '40000');
+    type(field('Name'), 'Car loan');
+    fillTerms('120', '-5');
+    fireEvent.click(screen.getByText('Add debt'));
+    expect(screen.getByText('A rate between 0% and 100%.')).toBeTruthy();
+    expect(screen.getByText('A minimum of zero or more.')).toBeTruthy();
+    expect(calls.writes).toEqual([]);
+  });
+
+  it('saves a 0% loan with no minimum when 0 is what was entered', async () => {
+    const { onSaved } = renderEditor();
+    type(screen.getByLabelText('Balance owed'), '6000');
+    type(field('Name'), 'Family loan');
+    fillTerms('0', '0');
+    fireEvent.click(screen.getByText('Add debt'));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(calls.writes.at(-1)).toMatchObject({ table: 'debts', op: 'insert', row: { apr_pct: 0, minimum_payment: 0 } });
+  });
+});
+
+// The form's balance is fixed when the editor opens, while accounts reload
+// under it; a save once wrote the opening balance back over a newer one
+// (Planning audit, 0b-C).
+describe('DebtEditor: a balance changed while it is open', () => {
+  const debt = { id: 'd1', name: 'Car loan', note: '', balance: 40000, apr_pct: 3.5, minimum_payment: 2193, is_shared: true, account_id: 'loan' };
+
+  it('leaves the account alone when no new balance was typed', async () => {
+    const onSaved = vi.fn();
+    // Accounts reloading under the open editor, with the card paid down elsewhere.
+    function Reloading() {
+      const [accounts, setAccounts] = useState([LOAN, SAVINGS]);
+      return (
+        <>
+          <button type="button" onClick={() => setAccounts([{ ...LOAN, balance: 35000, balance_aed: 35000 }, SAVINGS])}>
+            Accounts reload
+          </button>
+          <DebtEditor householdId="h" members={MEMBERS} debt={debt} debts={[debt]} accounts={accounts} onClose={vi.fn()} onSaved={onSaved} />
+        </>
+      );
+    }
+    renderScreen(<Reloading />);
+    fireEvent.click(screen.getByText('Accounts reload'));
+    type(field('APR (%/yr)'), '3.9');
+    fireEvent.click(screen.getByText('Save changes'));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(calls.writes).toEqual([{ table: 'debts', op: 'update', id: 'd1', row: expect.objectContaining({ apr_pct: 3.9, balance: 35000 }) }]);
+  });
+
+  it('writes a typed balance only over the one it showed, and says so when that had changed', async () => {
+    calls.moved = true;
+    const { onSaved } = renderEditor({ debt, debts: [debt] });
+    type(screen.getByLabelText('Balance owed'), '36000');
+    fireEvent.click(screen.getByText('Save changes'));
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe("Car loan's balance was changed after you opened this, so neither it nor the debt was saved. Cancel and open the debt again to see the new balance."));
+    expect(calls.writes).toEqual([{ table: 'accounts', op: 'update', id: 'loan', row: expect.objectContaining({ balance: 36000 }), onlyOver: 38000 }]);
+    expect(onSaved).not.toHaveBeenCalled();
   });
 });
