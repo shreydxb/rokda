@@ -1,6 +1,6 @@
 import { formatMoney } from './money';
 import { parseDay } from './day';
-import { accountValueAed } from './accounts';
+import { accountValueAed, isArchived, isLiabilityAccount } from './accounts';
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -131,6 +131,14 @@ export function lastContributionLabel(date) {
   return `${MONTH_LABELS[date.getMonth()]} ${date.getFullYear()}`;
 }
 
+// Only an open account the household holds money in can back a goal. A loan
+// or card's balance is what is owed, so a linked one counted debt as saved,
+// and a closed account holds nothing. The goal editor offers only these, and
+// a link made before that rule counts as nothing.
+export function accountCanBackGoal(account) {
+  return !!account && !isArchived(account) && !isLiabilityAccount(account);
+}
+
 // The value of the accounts and holdings earmarked for a goal, at each one's
 // share. An account with no AED conversion counts as nothing rather than as
 // its native amount read as dirhams (QA #4): an INR 20,000 savings account was
@@ -140,8 +148,11 @@ export function allocatedValue(goalId, allocations = [], accounts = [], holdings
   return allocations
     .filter((a) => a.goal_id === goalId)
     .reduce((sum, a) => {
+      const account = a.account_id ? accounts.find((acc) => acc.id === a.account_id) : null;
       const value = a.account_id
-        ? (accountValueAed(accounts.find((acc) => acc.id === a.account_id)) ?? 0)
+        ? accountCanBackGoal(account)
+          ? (accountValueAed(account) ?? 0)
+          : 0
         : Number(holdings.find((h) => h.id === a.holding_id)?.value_aed ?? 0);
       return sum + (value * Number(a.share_pct)) / 100;
     }, 0);

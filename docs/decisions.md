@@ -2094,3 +2094,26 @@ it, leaving one host.
   second time for every pull request push, which costs nothing on a public
   repository but counts against the free minutes of a private one. A newer
   push to a pull request cancels the run it supersedes.
+
+
+## The goal editor keeps what you type
+
+A code review of Planning found the goal editor losing work. Enter after a
+contribution amount saved the goal instead, so the drawer closed and the
+amount was gone. Logging, linking and removing closed the drawer too, dropping
+unsaved edits to the goal, and Remove deleted at once, failure or not.
+
+- **One form per action.** The goal's own fields, a contribution and a link
+  are separate forms in the one drawer, so Enter does the action of the field
+  it is in. Logging, linking and removing keep the drawer open and the goal's
+  unsaved edits; only Save and Delete close it.
+- **Remove asks first,** and a failure is said in the section it happened in.
+  A linked share is changed on its own row, which the database always allowed;
+  linking the same account again used to fail with a raw duplicate-key error.
+- **Only money the household has can back a goal.** The link list offers open
+  accounts that are not loans or cards, and holdings. A loan's or a card's
+  balance is what is owed, so linking one counted debt as saved, and a closed
+  account holds nothing. A link made before this rule counts as nothing; the
+  database guard comes with the next goals migration.
+- **Fields are labelled, and marked wrong only once a save is tried.** Every
+  drawer's fields now shrink to fit a phone instead of running past its edge.

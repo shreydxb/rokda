@@ -77,10 +77,7 @@ export function useOverviewData(householdId) {
   return useSources(householdId, SOURCES, EMPTY_STATE);
 }
 
-const LIABILITY_TYPES = new Set(['credit_card', 'loan']);
-export function isLiabilityAccount(account) {
-  return LIABILITY_TYPES.has(account.type);
-}
+export { isLiabilityAccount } from '../lib/accounts';
 
 const LIQUID_TYPES = new Set(['checking', 'savings', 'cash']);
 export function isLiquidAccount(account) {
