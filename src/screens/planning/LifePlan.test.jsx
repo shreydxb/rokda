@@ -194,4 +194,19 @@ describe('LifePlan: changing the plan', () => {
     await waitFor(() => expect(reload).toHaveBeenCalled());
     expect(calls.updates).toEqual([{ table: 'goals', patch: { counts_in_life_plan: false }, column: 'id', value: 'g1' }]);
   });
+
+  // Which spending stops is kept on the categories, which the plan's own
+  // reload doesn't read, so a tick showed only after a later refresh
+  // (Planning audit, 0b-C).
+  it('reads the categories again after the editor marks one as stopping', async () => {
+    const onReload = vi.fn();
+    const categories = [{ id: 'rent', name: 'Rent', kind: 'expense' }];
+    const { reload } = renderPlan({ categories, onReload });
+    fireEvent.click(screen.getByText('Edit plan'));
+    fireEvent.click(screen.getByRole('checkbox', { name: /Rent/ }));
+    fireEvent.click(screen.getByText('Save plan'));
+    await waitFor(() => expect(onReload).toHaveBeenCalled());
+    expect(reload).toHaveBeenCalled();
+    expect(calls.updates).toEqual([{ table: 'categories', patch: { stops_after_work: true }, column: 'id', value: 'rent' }]);
+  });
 });

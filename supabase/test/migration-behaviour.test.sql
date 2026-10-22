@@ -2520,4 +2520,97 @@ begin
   raise notice 'refund allocation ok: a linked refund''s lines match its purchase''s share to the cent, and follow it when it changes';
 end $$;
 
+-- Planning value ranges: the assumptions and a debt's terms stay within what
+-- a plan can use, and 0 stays allowed where it is a real answer.
+do $$
+declare hh constant uuid := '11111111-1111-1111-1111-111111111111';
+begin
+  insert into planning_assumptions (household_id) values (hh) on conflict (household_id) do nothing;
+  update planning_assumptions
+     set nominal_return_pct = 0, inflation_pct = 0, safe_withdrawal_pct = 4, debt_extra_payment = 0,
+         custom_nominal_return_pct = null, custom_inflation_pct = null, custom_safe_withdrawal_pct = null, custom_updated_at = now()
+   where household_id = hh;
+
+  begin
+    update planning_assumptions set nominal_return_pct = -40 where household_id = hh;
+    raise exception 'planning ranges FAILED: a return of -40%% was accepted';
+  exception when check_violation then null;
+  end;
+  begin
+    update planning_assumptions set custom_nominal_return_pct = 60 where household_id = hh;
+    raise exception 'planning ranges FAILED: a Custom return of 60%% was accepted';
+  exception when check_violation then null;
+  end;
+  begin
+    update planning_assumptions set baseline_nominal_return_pct = 51 where household_id = hh;
+    raise exception 'planning ranges FAILED: a baseline return of 51%% was accepted';
+  exception when check_violation then null;
+  end;
+  begin
+    update planning_assumptions set inflation_pct = -100 where household_id = hh;
+    raise exception 'planning ranges FAILED: inflation of -100%% was accepted';
+  exception when check_violation then null;
+  end;
+  begin
+    update planning_assumptions set custom_inflation_pct = 31 where household_id = hh;
+    raise exception 'planning ranges FAILED: Custom inflation of 31%% was accepted';
+  exception when check_violation then null;
+  end;
+  begin
+    update planning_assumptions set baseline_inflation_pct = -11 where household_id = hh;
+    raise exception 'planning ranges FAILED: baseline inflation of -11%% was accepted';
+  exception when check_violation then null;
+  end;
+  begin
+    update planning_assumptions set safe_withdrawal_pct = 0 where household_id = hh;
+    raise exception 'planning ranges FAILED: a withdrawal rate of 0%% was accepted';
+  exception when check_violation then null;
+  end;
+  begin
+    update planning_assumptions set custom_safe_withdrawal_pct = 12 where household_id = hh;
+    raise exception 'planning ranges FAILED: a Custom withdrawal rate of 12%% was accepted';
+  exception when check_violation then null;
+  end;
+  begin
+    update planning_assumptions set lean_annual_spend = 0 where household_id = hh;
+    raise exception 'planning ranges FAILED: a lean spend of 0 was accepted';
+  exception when check_violation then null;
+  end;
+  begin
+    update planning_assumptions set debt_extra_payment = -1 where household_id = hh;
+    raise exception 'planning ranges FAILED: a negative extra payment was accepted';
+  exception when check_violation then null;
+  end;
+
+  -- 0% return and inflation, a 0 extra payment and a blank Custom figure stand.
+  if not exists (select 1 from planning_assumptions where household_id = hh and nominal_return_pct = 0 and inflation_pct = 0 and debt_extra_payment = 0 and custom_inflation_pct is null) then
+    raise exception 'planning ranges FAILED: a 0%% figure or a blank Custom figure was refused';
+  end if;
+
+  insert into debts (id, household_id, name, balance, apr_pct, minimum_payment)
+  values ('abababab-0000-0000-0000-0000000000d1', hh, 'Family loan', 6000, 0, 0);
+  begin
+    update debts set apr_pct = -1 where id = 'abababab-0000-0000-0000-0000000000d1';
+    raise exception 'planning ranges FAILED: a negative rate was accepted';
+  exception when check_violation then null;
+  end;
+  begin
+    update debts set apr_pct = 101 where id = 'abababab-0000-0000-0000-0000000000d1';
+    raise exception 'planning ranges FAILED: a rate above 100%% was accepted';
+  exception when check_violation then null;
+  end;
+  begin
+    update debts set minimum_payment = -50 where id = 'abababab-0000-0000-0000-0000000000d1';
+    raise exception 'planning ranges FAILED: a negative minimum was accepted';
+  exception when check_violation then null;
+  end;
+  begin
+    update debts set balance = -1 where id = 'abababab-0000-0000-0000-0000000000d1';
+    raise exception 'planning ranges FAILED: a negative balance was accepted';
+  exception when check_violation then null;
+  end;
+  delete from debts where id = 'abababab-0000-0000-0000-0000000000d1';
+  raise notice 'planning ranges ok: assumptions and debt terms stay in range, and 0 stands where it is real';
+end $$;
+
 rollback;

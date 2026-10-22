@@ -35,14 +35,23 @@ export default function DebtPlanEditor({ householdId, assumptions, onClose, onSa
     onClose();
   }
 
+  // Blank is "not set", which Debt payoff asks for; a negative payment is no
+  // commitment at all, and the database refuses it too.
+  const extraProblem = extraPayment.trim() !== '' && !(Number(extraPayment) >= 0) ? 'An extra payment of zero or more.' : '';
+
   async function handleSave(e) {
     e.preventDefault();
+    if (saving) return;
+    if (extraProblem) {
+      setError(extraProblem);
+      return;
+    }
     setSaving(true);
     setError('');
 
     const payload = {
       household_id: householdId,
-      debt_extra_payment: extraPayment === '' ? null : Number(extraPayment),
+      debt_extra_payment: extraPayment.trim() === '' ? null : Number(extraPayment),
       debt_assume_no_new_card_spend: cardUsage === '' ? null : cardUsage === 'no',
       updated_at: new Date().toISOString(),
     };
@@ -72,13 +81,14 @@ export default function DebtPlanEditor({ householdId, assumptions, onClose, onSa
           </button>
         </div>
 
-        <form className="te-form" onSubmit={handleSave}>
+        <form className="te-form" onSubmit={handleSave} noValidate>
           <div>
             <div className="te-hero-label">Committed extra payment (per month)</div>
             <div className="te-hero-row">
               <span className="te-hero-currency">AED</span>
               <input
                 type="number"
+                min="0"
                 step="0.01"
                 className="te-hero-input"
                 value={extraPayment}
@@ -87,6 +97,8 @@ export default function DebtPlanEditor({ householdId, assumptions, onClose, onSa
                   setDirty(true);
                 }}
                 placeholder="0"
+                aria-label="Committed extra payment, AED a month"
+                aria-invalid={!!error && !!extraProblem}
               />
             </div>
           </div>

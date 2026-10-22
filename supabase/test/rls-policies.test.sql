@@ -159,6 +159,24 @@ insert into transactions (id, household_id, account_id, amount, kind, occurred_a
 -- case below, which counts its own.
 delete from account_balance_events where account_id in ('f4000000-0000-0000-0000-000000000003', 'f4000000-0000-0000-0000-000000000004');
 
+-- Planning records in the other household, to be reached for: a goal with a
+-- contribution and a link to their account, a debt, their assumptions, and a
+-- budget on a category of theirs.
+insert into goals (id, household_id, name, target_amount) values
+  ('f9000000-0000-0000-0000-000000000001', 'd2000000-0000-0000-0000-000000000002', 'Their goal', 1000);
+insert into goal_contributions (id, goal_id, amount, occurred_at) values
+  ('f9000000-0000-0000-0000-000000000002', 'f9000000-0000-0000-0000-000000000001', 100, '2026-10-01');
+insert into goal_allocations (id, household_id, goal_id, account_id, share_pct) values
+  ('f9000000-0000-0000-0000-000000000003', 'd2000000-0000-0000-0000-000000000002', 'f9000000-0000-0000-0000-000000000001', 'f4000000-0000-0000-0000-000000000002', 50);
+insert into debts (id, household_id, name, balance, apr_pct, minimum_payment) values
+  ('f9000000-0000-0000-0000-000000000004', 'd2000000-0000-0000-0000-000000000002', 'Their loan', 1000, 5, 100);
+insert into planning_assumptions (household_id, debt_extra_payment) values ('d2000000-0000-0000-0000-000000000002', 300);
+insert into categories (id, household_id, name, kind) values
+  ('f9000000-0000-0000-0000-000000000005', 'd2000000-0000-0000-0000-000000000002', 'Their groceries', 'expense'),
+  ('f9000000-0000-0000-0000-000000000006', 'd1000000-0000-0000-0000-000000000001', 'Our groceries', 'expense');
+insert into budgets (id, household_id, category_id, year, month, amount) values
+  ('f9000000-0000-0000-0000-000000000007', 'd2000000-0000-0000-0000-000000000002', 'f9000000-0000-0000-0000-000000000005', 2026, 10, 1500);
+
 set role authenticated;
 set request.jwt.claim.role = 'authenticated';
 
@@ -246,6 +264,120 @@ begin
   get diagnostics n = row_count;
   if n <> 1 then raise exception 'member_life FAILED: a member could not update their household''s placeholder'; end if;
   raise notice 'member_life ok: own household only, placeholders included';
+end $$;
+
+-- Goals, their contributions and links, debts, the assumptions and budgets:
+-- the plan's figures, own household only. A contribution has no household of
+-- its own and reaches it through its goal, so it is reached for through
+-- another household's goal too (Planning audit, 0b-C).
+do $$
+declare n int; ours uuid;
+begin
+  insert into goals (household_id, name, target_amount) values ('d1000000-0000-0000-0000-000000000001', 'Our goal', 5000) returning id into ours;
+  select count(*) into n from goals;
+  if n <> 1 then raise exception 'goals FAILED: a member sees % goals, expected only their own 1', n; end if;
+  begin
+    insert into goals (household_id, name, target_amount) values ('d2000000-0000-0000-0000-000000000002', 'Planted', 1);
+    raise exception 'goals FAILED: a member wrote into another household';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    update goals set household_id = 'd2000000-0000-0000-0000-000000000002' where id = ours;
+    raise exception 'goals FAILED: a member moved a goal into another household';
+  exception when insufficient_privilege or foreign_key_violation then null;
+  end;
+  update goals set target_amount = 1 where id = 'f9000000-0000-0000-0000-000000000001';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'goals FAILED: a member edited another household''s goal'; end if;
+
+  insert into goal_contributions (goal_id, amount, occurred_at) values (ours, 250, '2026-10-02');
+  select count(*) into n from goal_contributions;
+  if n <> 1 then raise exception 'goal_contributions FAILED: a member sees % contributions, expected only their own 1', n; end if;
+  begin
+    insert into goal_contributions (goal_id, amount, occurred_at) values ('f9000000-0000-0000-0000-000000000001', 1, '2026-10-02');
+    raise exception 'goal_contributions FAILED: a member logged a contribution to another household''s goal';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    update goal_contributions set goal_id = 'f9000000-0000-0000-0000-000000000001' where goal_id = ours;
+    raise exception 'goal_contributions FAILED: a member moved a contribution onto another household''s goal';
+  exception when insufficient_privilege then null;
+  end;
+  delete from goal_contributions where id = 'f9000000-0000-0000-0000-000000000002';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'goal_contributions FAILED: a member deleted another household''s contribution'; end if;
+
+  insert into goal_allocations (household_id, goal_id, account_id, share_pct) values ('d1000000-0000-0000-0000-000000000001', ours, 'f4000000-0000-0000-0000-000000000001', 40);
+  select count(*) into n from goal_allocations;
+  if n <> 1 then raise exception 'goal_allocations FAILED: a member sees % links, expected only their own 1', n; end if;
+  begin
+    -- Our goal, their account: refused by the policy or by the guard.
+    insert into goal_allocations (household_id, goal_id, account_id, share_pct) values ('d1000000-0000-0000-0000-000000000001', ours, 'f4000000-0000-0000-0000-000000000002', 10);
+    raise exception 'goal_allocations FAILED: a member linked another household''s account to a goal';
+  exception when insufficient_privilege or check_violation or foreign_key_violation then null;
+  end;
+  begin
+    -- The guard runs before the policy, and cannot see their goal either.
+    insert into goal_allocations (household_id, goal_id, account_id, share_pct) values ('d2000000-0000-0000-0000-000000000002', 'f9000000-0000-0000-0000-000000000001', 'f4000000-0000-0000-0000-000000000002', 10);
+    raise exception 'goal_allocations FAILED: a member wrote a link into another household';
+  exception when insufficient_privilege or check_violation then null;
+  end;
+  update goal_allocations set share_pct = 100 where id = 'f9000000-0000-0000-0000-000000000003';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'goal_allocations FAILED: a member edited another household''s link'; end if;
+
+  insert into debts (household_id, name, balance, apr_pct, minimum_payment) values ('d1000000-0000-0000-0000-000000000001', 'Our card', 2000, 30, 100);
+  select count(*) into n from debts;
+  if n <> 1 then raise exception 'debts FAILED: a member sees % debts, expected only their own 1', n; end if;
+  begin
+    insert into debts (household_id, name, balance, apr_pct, minimum_payment) values ('d2000000-0000-0000-0000-000000000002', 'Planted', 1, 1, 1);
+    raise exception 'debts FAILED: a member wrote into another household';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    update debts set household_id = 'd2000000-0000-0000-0000-000000000002' where name = 'Our card';
+    raise exception 'debts FAILED: a member moved a debt into another household';
+  exception when insufficient_privilege then null;
+  end;
+  update debts set apr_pct = 1 where id = 'f9000000-0000-0000-0000-000000000004';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'debts FAILED: a member edited another household''s debt'; end if;
+  delete from debts where id = 'f9000000-0000-0000-0000-000000000004';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'debts FAILED: a member deleted another household''s debt'; end if;
+
+  insert into planning_assumptions (household_id, debt_extra_payment) values ('d1000000-0000-0000-0000-000000000001', 500);
+  select count(*) into n from planning_assumptions;
+  if n <> 1 then raise exception 'planning_assumptions FAILED: a member sees % rows, expected only their own 1', n; end if;
+  begin
+    -- The drawer's save is an upsert: on their household's row it must not
+    -- become an update of it.
+    insert into planning_assumptions (household_id, debt_extra_payment) values ('d2000000-0000-0000-0000-000000000002', 0)
+    on conflict (household_id) do update set debt_extra_payment = excluded.debt_extra_payment;
+    raise exception 'planning_assumptions FAILED: a member wrote another household''s assumptions';
+  exception when insufficient_privilege then null;
+  end;
+  update planning_assumptions set debt_extra_payment = 0 where household_id = 'd2000000-0000-0000-0000-000000000002';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'planning_assumptions FAILED: a member edited another household''s assumptions'; end if;
+
+  insert into budgets (household_id, category_id, year, month, amount) values ('d1000000-0000-0000-0000-000000000001', 'f9000000-0000-0000-0000-000000000006', 2026, 10, 2000);
+  select count(*) into n from budgets;
+  if n <> 1 then raise exception 'budgets FAILED: a member sees % budgets, expected only their own 1', n; end if;
+  begin
+    insert into budgets (household_id, category_id, year, month, amount) values ('d2000000-0000-0000-0000-000000000002', 'f9000000-0000-0000-0000-000000000005', 2026, 11, 1);
+    raise exception 'budgets FAILED: a member wrote into another household';
+  exception when insufficient_privilege then null;
+  end;
+  update budgets set amount = 1 where id = 'f9000000-0000-0000-0000-000000000007';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'budgets FAILED: a member edited another household''s budget'; end if;
+
+  delete from goals where id = ours;
+  delete from debts where name = 'Our card';
+  delete from planning_assumptions where household_id = 'd1000000-0000-0000-0000-000000000001';
+  delete from budgets where household_id = 'd1000000-0000-0000-0000-000000000001';
+  raise notice 'planning tables ok: goals, contributions, links, debts, assumptions and budgets are own household only';
 end $$;
 
 -- Household notes: the plan in words is as private as the figures.

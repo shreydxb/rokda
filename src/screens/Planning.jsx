@@ -103,6 +103,7 @@ export default function Planning() {
           sources={sources}
           onRetry={retry}
           loading={loading}
+          onReload={inputs.reload}
           onOpenTab={setTab}
         />
       )}

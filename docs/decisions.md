@@ -2166,3 +2166,35 @@ household twice and eight tables it never used.
   over the version the edit was opened from, kept by the editor however often
   the note is read again meanwhile, so one partner's edit no longer replaces
   the other's without a word.
+
+## Planning editors check what they save
+
+The Planning audit's code review found the editors saving what no plan can
+use. A cleared field in the assumptions drawer was stored as 0%, so a
+withdrawal rate left blank made the independence target 0 and read as
+independence already reached; any number was taken, and inflation of −100%
+made every projection infinite. A debt saved with its rate or minimum blank
+was stored as 0, and Debt payoff then called both "Known". Nothing in the
+database stopped any of it.
+
+- **A blank is the default, never 0.** On Baseline a cleared return,
+  inflation or withdrawal rate saves the default its placeholder names (6.0,
+  2.5, 4.0). On Custom it saves nothing, and that figure follows Baseline's,
+  then and after Baseline changes. A 0 that was typed stays 0.
+- **Out of range is refused, in the editor and the database.** A return
+  between −20% and 50% and inflation between −10% and 30%, the ranges the
+  after-work return and a goal's rise already had; a withdrawal rate between
+  1% and 10%; an essentials-only spend above zero; an extra payment of zero or
+  more. Each field says what is wrong with it, the way the goal editor does.
+- **A debt needs its rate and its minimum.** Neither is taken for 0 when
+  left blank. Both can be 0, since an interest-free instalment or a loan from
+  family is real, and Debt payoff names debts at 0 for checking rather than
+  calling their terms known. The database keeps rates between 0% and 100% and
+  balances and minimums at zero or more.
+- **A balance changed elsewhere is not saved over.** The debt editor writes
+  a linked account's balance only when a new one was typed, and only over the
+  balance it showed; if the account changed meanwhile, here or through the
+  bot, it says so and saves neither.
+- **What the Life plan editor marks shows at once.** Which spending stops
+  when work does is kept on the categories, so saving the plan reads them
+  again too, rather than waiting for the next refresh.
