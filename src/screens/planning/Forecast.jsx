@@ -200,7 +200,6 @@ export default function Forecast({ household, members = [], accounts = [], trans
   const planYear = hasBaseline
     ? crossingYear({ startYear, startNetWorth, annualSaving: baselineSaving, rate: baselineRate, mode, inflationPct: selInflationPct, goal: target })
     : null;
-  const aheadBy = yearsDelta(fireYear, planYear);
 
   // "Assumed vs actual" compares the saved baseline against today's actuals
   // under the household's own inflation assumption, whichever scenario is
@@ -225,8 +224,18 @@ export default function Forecast({ household, members = [], accounts = [], trans
     ? crossingYear({ startYear, startNetWorth, annualSaving: baselineSaving, rate: liveRate, mode, inflationPct, goal: target })
     : null;
   const returnEffect = yearsDelta(planYearLive, returnEffectYear);
+  // "Against baseline" is measured on the saved assumptions too, both sides.
+  // It used to set the viewed scenario's year against the baseline's, so
+  // merely looking at Conservative read as falling years behind.
+  const fireYearLive = hasBaseline
+    ? crossingYear({ startYear, startNetWorth, annualSaving, rate: liveRate, mode, inflationPct, goal: target })
+    : null;
+  const aheadBy = yearsDelta(fireYearLive, planYearLive);
 
-  const pct = target > 0 ? startNetWorth / target : 0;
+  // Net worth at or past the target is reached, a target of 0 included (lasting
+  // income can cover all the spending); the bar used to read 0% there.
+  const reached = startNetWorth >= target;
+  const pct = reached ? 1 : startNetWorth / target;
   // What the dates below the headline are, once the Life plan gives the answer.
   const yearName = stop ? 'lasts-forever year' : 'independence year';
 
@@ -342,7 +351,7 @@ export default function Forecast({ household, members = [], accounts = [], trans
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10, fontSize: 12, color: 'var(--ink3)', flexWrap: 'wrap', gap: 12 }}>
         <span>
-          <span style={{ color: 'var(--ink)' }}>{formatPct(pct)}</span> of the way there · {money.fmtBalance(startNetWorth)} today
+          {reached ? <span style={{ color: 'var(--ink)' }}>Reached</span> : <><span style={{ color: 'var(--ink)' }}>{formatPct(pct)}</span> of the way there</>} · {money.fmtBalance(startNetWorth)} today
           {basisIncomplete && ` · incomplete, ${basisIncomplete}`}
           {basisProvisional && ' · provisional, some balances are unconfirmed'}
         </span>
@@ -482,7 +491,7 @@ export default function Forecast({ household, members = [], accounts = [], trans
           </div>
           <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 5 }}>
             {hasBaseline
-              ? `Baseline assumptions, applied to today's numbers, ${stop ? 'reach the lasts-forever target' : 'cross'} in ${planYear ?? '60+ yrs'}`
+              ? `Baseline assumptions, applied to today's numbers, ${stop ? 'reach the lasts-forever target' : 'cross'} in ${planYearLive ?? '60+ yrs'}`
               : 'No baseline saved yet — set assumptions once to start comparing'}
           </div>
         </div>

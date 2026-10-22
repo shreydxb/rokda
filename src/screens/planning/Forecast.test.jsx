@@ -443,3 +443,40 @@ describe('Forecast: alternatives that make no change fold away', () => {
   });
 });
 
+
+// Two figures that read wrong (Planning audit, 21 Oct): the progress line said
+// "0% of the way there" beside a target already reached, and "Against
+// baseline" moved when only the scenario being looked at changed.
+describe('Forecast: progress and the baseline comparison read true', () => {
+  const now = new Date();
+
+  it('says Reached, not 0%, when lasting income already covers the spending', () => {
+    const incomes = [{ id: 'r1', name: 'Rent', kind: 'yearly', amount: 20000, starts_after_years: 0, lasts_years: null }];
+    renderForecast({ accounts: [ACCOUNT], transactions: closedMonthTransactions(now), holdings: [HOLDING], data: { assumptions: null, independenceIncome: incomes } });
+    expect(screen.getByText('Reached')).toBeTruthy();
+    expect(screen.queryByText(/of the way there/)).toBeNull();
+  });
+
+  it('keeps "Against baseline" where it is when only the scenario being viewed changes', () => {
+    const assumptions = {
+      nominal_return_pct: 6,
+      inflation_pct: 2.5,
+      safe_withdrawal_pct: 4,
+      baseline_set_at: '2026-01-01T00:00:00Z',
+      baseline_nominal_return_pct: 6,
+      baseline_inflation_pct: 2.5,
+      baseline_monthly_saving: 1000,
+    };
+    // 2,000 in and 1,000 out each closed month: saving 1,000 a month, as the
+    // baseline assumed, so the target is reached years out and the return matters.
+    const income = [1, 2, 3].map((back, i) => {
+      const d = new Date(now.getFullYear(), now.getMonth() - back, 1);
+      return { id: `i${i}`, amount: 2000, kind: 'income', occurred_at: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`, is_shared: true };
+    });
+    renderForecast({ accounts: [ACCOUNT], transactions: [...closedMonthTransactions(now), ...income], holdings: [HOLDING], data: { assumptions } });
+    const against = () => screen.getByText('Against baseline').nextElementSibling.textContent;
+    const before = against();
+    fireEvent.click(screen.getByRole('button', { name: 'Conservative' }));
+    expect(against()).toBe(before);
+  });
+});
