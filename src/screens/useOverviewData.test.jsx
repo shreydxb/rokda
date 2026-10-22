@@ -18,10 +18,19 @@ function builder(table) {
   };
   return chain;
 }
-vi.mock('../lib/supabaseClient', () => ({ supabase: { from: (table) => builder(table) } }));
+// Every table read, in order, to count reads.
+const reads = [];
+vi.mock('../lib/supabaseClient', () => ({
+  supabase: {
+    from: (table) => {
+      reads.push(table);
+      return builder(table);
+    },
+  },
+}));
 
-const { useOverviewData } = await import('./useOverviewData');
-const { anyFailed, failedSources, failureMessage } = await import('../lib/loadState');
+const { useOverviewData, usePlanningInputs, PLANNING_INPUT_KEYS } = await import('./useOverviewData');
+const { anyFailed, failedSources, failureMessage, neverLoaded } = await import('../lib/loadState');
 
 const HOLDING = { id: 'h1', name: 'VWRA', value_aed: 10_000, is_shared: true };
 
@@ -146,5 +155,56 @@ describe('keeping an open page fresh', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('reading only what is needed, once', () => {
+  beforeEach(() => {
+    responses.clear();
+    reads.length = 0;
+  });
+
+  it('reads once when the tab comes back, though visibilitychange and focus both fire', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date(2026, 9, 15, 12, 0));
+      const { result } = renderHook(() => useOverviewData('household-1'));
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      const accountReads = () => reads.filter((table) => table === 'accounts').length;
+      expect(accountReads()).toBe(1);
+
+      vi.setSystemTime(new Date(2026, 9, 15, 12, 2));
+      act(() => {
+        document.dispatchEvent(new Event('visibilitychange'));
+        window.dispatchEvent(new Event('focus'));
+      });
+      await waitFor(() => expect(result.current.refreshing).toBe(false));
+      expect(accountReads()).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('names the sources that have loaded, so one that never did is not shown as none', async () => {
+    responses.set('holdings', { data: null, error: { message: 'network error' } });
+    const { result } = renderHook(() => useOverviewData('household-1'));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(neverLoaded(result.current, ['accounts', 'holdings'])).toEqual(['holdings']);
+
+    // Once loaded, a later failure keeps the last records, which are still real.
+    responses.set('holdings', { data: [HOLDING], error: null });
+    await act(() => result.current.reload());
+    responses.set('holdings', { data: null, error: { message: 'network error' } });
+    await act(() => result.current.reload());
+    expect(result.current.errors.holdings).toBeTruthy();
+    expect(result.current.holdings).toHaveLength(1);
+    expect(neverLoaded(result.current, ['accounts', 'holdings'])).toEqual([]);
+  });
+
+  it('Planning reads only the six tables its tabs use', async () => {
+    const { result } = renderHook(() => usePlanningInputs('household-1'));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect([...new Set(reads)].sort()).toEqual(['accounts', 'budgets', 'categories', 'holdings', 'recurring', 'transactions']);
+    expect(PLANNING_INPUT_KEYS).toHaveLength(6);
   });
 });

@@ -12,6 +12,9 @@ import ForecastAssumptionsEditor from './ForecastAssumptionsEditor';
 import AssumptionsBar from './AssumptionsBar';
 import { ChartLegend, ColumnChart, RangeChart } from '../../charts/Charts';
 import { tabHref } from '../../lib/activityLink';
+import { neverLoaded } from '../../lib/loadState';
+import { PROJECTION_INPUTS } from './planningSources';
+import Withheld from './Withheld';
 
 const DEFAULTS = { nominal_return_pct: 6.0, inflation_pct: 2.5, safe_withdrawal_pct: 4.0 };
 const HORIZON_YEARS = 30;
@@ -40,7 +43,7 @@ function deltaLabel(years) {
 // with no accounts and silently dropped holdings from net worth with
 // accounts (QA-03).
 export default function Forecast({ household, members = [], accounts = [], transactions = [],
-  recurring = [], holdings = [], budgets = [], categories = [], data, loading, onOpenTab, scenario, onScenario, moneyMode, onMoneyMode }) {
+  recurring = [], holdings = [], budgets = [], categories = [], data, sources, onRetry, loading, onOpenTab, scenario, onScenario, moneyMode, onMoneyMode }) {
   const navigate = useNavigate();
   const householdId = household?.id;
   const { assumptions } = data;
@@ -133,6 +136,14 @@ export default function Forecast({ household, members = [], accounts = [], trans
   );
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
+  const missing = neverLoaded(sources, PROJECTION_INPUTS);
+  if (missing.length > 0) {
+    return (
+      <Withheld missing={missing} onRetry={onRetry}>
+        The forecast isn&rsquo;t worked out, rather than worked out without them.
+      </Withheld>
+    );
+  }
 
   if (!inputs.ready) {
     return (

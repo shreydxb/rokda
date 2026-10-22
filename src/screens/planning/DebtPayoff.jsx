@@ -5,6 +5,9 @@ import { formatMoney } from '../../lib/money';
 import { amortizeMinimumOnly, debtsWithAccounts, orderDebts, simulatePayoffPlan } from '../../lib/debt';
 import DebtEditor from './DebtEditor';
 import DebtPlanEditor from './DebtPlanEditor';
+import { neverLoaded } from '../../lib/loadState';
+import { DEBT_INPUTS } from './planningSources';
+import Withheld from './Withheld';
 
 const STRATEGIES = [
   { id: 'avalanche', label: 'Avalanche' },
@@ -27,7 +30,7 @@ function monthsToLabel(months) {
   return `${years} yr ${rem} mo`;
 }
 
-export default function DebtPayoff({ household, members, me, accounts = [], data, loading, onReload }) {
+export default function DebtPayoff({ household, members, me, accounts = [], data, sources, onRetry, loading, onReload }) {
   const { assumptions, reload } = data;
   // Each debt at its linked account's balance: the one figure net worth uses too.
   const debts = useMemo(() => debtsWithAccounts(data.debts, accounts), [data.debts, accounts]);
@@ -101,6 +104,14 @@ export default function DebtPayoff({ household, members, me, accounts = [], data
   const missing = [!extraCommitted && 'a committed extra payment', !cardAssumptionSet && 'a card-usage assumption'].filter(Boolean);
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
+  const notLoaded = neverLoaded(sources, DEBT_INPUTS);
+  if (notLoaded.length > 0) {
+    return (
+      <Withheld missing={notLoaded} onRetry={onRetry}>
+        Your debts aren&rsquo;t shown, rather than shown as none or at the wrong balance.
+      </Withheld>
+    );
+  }
 
   return (
     <div className="debt">

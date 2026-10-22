@@ -39,3 +39,18 @@ test('Refresh reads the page again', async ({ page }) => {
   await page.getByRole('button', { name: 'Refresh' }).click();
   await expect(page.getByText('Added by the partner')).toBeVisible();
 });
+
+test('Refresh keeps the page, and a note being written, on screen', async ({ page }) => {
+  const note = { id: 'a3a3a3a3-0000-4000-8000-0000000000f1', household_id: ids.HH, title: 'Who pays what', body: 'Shared costs by income.', position: 1, updated_by: ids.ME, created_at: '2026-09-28T10:00:00Z', updated_at: '2026-09-28T10:00:00Z' };
+  await stubSupabase(page, { tables: { household_notes: [note] } });
+  await page.goto('/planning?tab=notes', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('.om-main .ov-skel')).toHaveCount(0, { timeout: 15_000 });
+
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  const title = page.getByPlaceholder('e.g. Who pays what');
+  await title.fill('Who pays what, half-written');
+  await page.getByRole('button', { name: 'Refresh' }).click();
+  await expect(page.locator('.fresh')).toContainText(/Loaded \d{2}:\d{2}/);
+  // Refresh used to blank the whole page to its skeleton, and the draft went with it.
+  await expect(title).toHaveValue('Who pays what, half-written');
+});

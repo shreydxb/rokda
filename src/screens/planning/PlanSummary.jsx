@@ -7,6 +7,8 @@ import { debtsWithAccounts, orderDebts, simulatePayoffPlan } from '../../lib/deb
 import { budgetPlan, closedMonths, crossingYear, forecastInputs, incomesFromStop, independenceTarget, payMonthTransactions, realReturn, spendThatStops } from '../../lib/forecast';
 import { agesLabel, lifePlanStop, spendAfterText } from '../../lib/lifePlan';
 import { incompleteNote, netWorthSummary, startingNetWorth } from '../overviewMath';
+import { couldntLoad, neverLoaded } from '../../lib/loadState';
+import { DEBT_INPUTS, GOALS_INPUTS, PROJECTION_INPUTS } from './planningSources';
 
 const DEFAULTS = { nominal_return_pct: 6.0, inflation_pct: 2.5, safe_withdrawal_pct: 4.0 };
 
@@ -21,7 +23,7 @@ function monthsToLabel(months) {
 
 // Composes the same goal/debt/forecast outputs Goals, DebtPayoff and Forecast
 // already compute — no new financial math lives here, just a next-action read.
-export default function PlanSummary({ household = null, members, me, accounts, transactions, recurring = [], holdings, budgets = [], categories = [], data, loading, onOpenTab }) {
+export default function PlanSummary({ household = null, members, me, accounts, transactions, recurring = [], holdings, budgets = [], categories = [], data, sources, onRetry, loading, onOpenTab }) {
   const { goals, goalContributions, goalAllocations, assumptions } = data;
   // At their linked accounts' balances, as Debt payoff shows them.
   const debts = useMemo(() => debtsWithAccounts(data.debts, accounts ?? []), [data.debts, accounts]);
@@ -146,12 +148,22 @@ export default function PlanSummary({ household = null, members, me, accounts, t
     },
   ].filter(Boolean);
 
-  const isEmpty = goals.length === 0 && debts.length === 0 && !forecast.ready;
+  // What rests on records that never arrived is withheld rather than worked
+  // out from an empty placeholder: with goals and debts unread, this page
+  // said "All clear" and moved the stop year (lib/loadState.js, neverLoaded).
+  const goalsMissing = neverLoaded(sources, GOALS_INPUTS);
+  const debtsMissing = neverLoaded(sources, DEBT_INPUTS);
+  const answerMissing = neverLoaded(sources, PROJECTION_INPUTS);
+  const decisionsMissing = [...new Set([...goalsMissing, ...debtsMissing, ...answerMissing])];
+
+  const isEmpty = goals.length === 0 && debts.length === 0 && !forecast.ready && decisionsMissing.length === 0;
 
   // The answer to when work can stop: the Life plan's year once ages are set,
   // and then the first card, with what it assumes about spending (SHR-324).
   // Before that, the independence year, after goals and debt as it always was.
-  const answerCard = (
+  const answerCard = answerMissing.length > 0 ? (
+    <SummaryCard label="Stop working" figure="—" note={`${couldntLoad(answerMissing)} No year is worked out without them.`} cta="Life plan" onClick={() => onOpenTab('life')} />
+  ) : (
     stop ? (
       <SummaryCard
         label="Stop working"
@@ -213,22 +225,30 @@ export default function PlanSummary({ household = null, members, me, accounts, t
   return (
     <div>
       <section className="ov-quality-grid" style={{ marginTop: 22, rowGap: 26 }}>
-        {stop && answerCard}
+        {(stop || answerMissing.length > 0) && answerCard}
         <SummaryCard
           label="Goals"
-          figure={goalRows.length > 0 ? formatMoney(goalsSaved) : '—'}
-          progress={goalRows.length > 0 && goalsTarget > 0 ? goalsSaved / goalsTarget : null}
-          note={goalRows.length > 0 ? `of ${formatMoney(goalsTarget)} target · ${goalRows.length} goal${goalRows.length === 1 ? '' : 's'}` : 'No goals yet'}
+          figure={goalsMissing.length === 0 && goalRows.length > 0 ? formatMoney(goalsSaved) : '—'}
+          progress={goalsMissing.length === 0 && goalRows.length > 0 && goalsTarget > 0 ? goalsSaved / goalsTarget : null}
+          note={
+            goalsMissing.length > 0
+              ? couldntLoad(goalsMissing)
+              : goalRows.length > 0
+                ? `of ${formatMoney(goalsTarget)} target · ${goalRows.length} goal${goalRows.length === 1 ? '' : 's'}`
+                : 'No goals yet'
+          }
           cta="Goals"
           onClick={() => onOpenTab('goals')}
         />
         <SummaryCard
           label="Debt payoff"
-          figure={visibleDebts.length > 0 ? `−${formatMoney(totalOwed)}` : '—'}
-          progress={paidDown}
-          progressLabel={paidDown !== null ? `${formatPct(paidDown)} paid down` : null}
+          figure={debtsMissing.length === 0 && visibleDebts.length > 0 ? `−${formatMoney(totalOwed)}` : '—'}
+          progress={debtsMissing.length === 0 ? paidDown : null}
+          progressLabel={debtsMissing.length === 0 && paidDown !== null ? `${formatPct(paidDown)} paid down` : null}
           note={
-            visibleDebts.length === 0
+            debtsMissing.length > 0
+              ? couldntLoad(debtsMissing)
+              : visibleDebts.length === 0
               ? 'No debts on record'
               : `${
                   canProjectDebt && debtPlan
@@ -241,15 +261,28 @@ export default function PlanSummary({ household = null, members, me, accounts, t
           cta="Debt payoff"
           onClick={() => onOpenTab('debt')}
         />
-        {!stop && answerCard}
+        {!stop && answerMissing.length === 0 && answerCard}
       </section>
 
       <section style={{ marginTop: 40 }}>
         <div className="ov-section-head">
           <div className="ov-kicker">What needs a decision</div>
-          <div className="ov-muted">{actions.length ? `${actions.length} open` : 'All clear'}</div>
+          <div className="ov-muted">{decisionsMissing.length > 0 ? 'Not checked' : actions.length ? `${actions.length} open` : 'All clear'}</div>
         </div>
-        {actions.length === 0 ? (
+        {decisionsMissing.length > 0 ? (
+          <div className="ov-attn-list">
+            <div className="ov-attn-row">
+              <div className="ov-attn-main">
+                <span>{couldntLoad(decisionsMissing)} What needs a decision isn&rsquo;t worked out without them.</span>
+              </div>
+              {onRetry && (
+                <button type="button" className="om-btn ov-attn-btn" onClick={onRetry}>
+                  Try again
+                </button>
+              )}
+            </div>
+          </div>
+        ) : actions.length === 0 ? (
           <div className="ov-allclear">
             <span className="ov-dot-pos" />
             <span>All clear — nothing here needs a decision.</span>

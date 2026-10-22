@@ -71,6 +71,15 @@ beforeEach(() => {
 });
 afterEach(() => localStorage.clear());
 
+describe('LifePlan: ages that never loaded', () => {
+  it('says so, rather than asking who the plan is for as if none were set', () => {
+    renderPlan({ data: { memberLife: [] }, sources: { errors: { memberLife: { message: 'canceling statement due to statement timeout' } }, loaded: {} } });
+    expect(screen.getByText('Couldn’t load ages for the life plan.')).toBeTruthy();
+    expect(screen.queryByText(/Set up your life plan/)).toBeNull();
+    expect(document.querySelector('.ov-hero')).toBeNull();
+  });
+});
+
 describe('LifePlan: setting up', () => {
   it('asks who the plan is for before anything else', () => {
     renderPlan({ data: { memberLife: [] } });

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useTab } from '../lib/useTab';
 import { useHousehold } from '../lib/useHousehold';
-import { useOverviewData } from './useOverviewData';
+import { usePlanningInputs } from './useOverviewData';
 import { usePlanningData } from './usePlanningData';
 import PlanSummary from './planning/PlanSummary';
 import Goals from './planning/Goals';
@@ -30,10 +30,16 @@ const TABS = [
 export default function Planning() {
   // In the address, so Back returns to the tab you were on.
   const [tab, setTab] = useTab(TABS);
-  const { household, members, me, loading: householdLoading, error: householdError, reload: reloadHousehold } = useHousehold();
-  const overview = useOverviewData(household?.id);
+  const { household, members, me, loading: householdLoading, refreshing: householdRefreshing, error: householdError, reload: reloadHousehold } = useHousehold();
+  const inputs = usePlanningInputs(household?.id);
   const planning = usePlanningData(household?.id);
-  const loading = householdLoading || overview.loading || planning.loading;
+  const loading = householdLoading || inputs.loading || planning.loading;
+  // What failed, and what has ever loaded, across both reads: each tab
+  // withholds what rests on a source that never arrived (lib/loadState.js).
+  const sources = { errors: { ...inputs.errors, ...planning.errors }, loaded: { ...inputs.loaded, ...planning.loaded } };
+  const retry = async () => {
+    await Promise.all([reloadHousehold(), inputs.reload(), planning.reload()]);
+  };
   // The scenario and the money shown are chosen on Forecast, Life plan or
   // Drawdown and hold on all three until changed (planning/AssumptionsBar.jsx).
   // A look for now: never saved.
@@ -46,18 +52,14 @@ export default function Planning() {
       {/* Two loads; the older of the two is how fresh the page is. */}
       <Freshness
         title="Planning"
-        loadedAt={overview.loadedAt && planning.loadedAt ? (overview.loadedAt < planning.loadedAt ? overview.loadedAt : planning.loadedAt) : null}
-        refreshing={overview.refreshing || planning.refreshing}
-        onRefresh={async () => {
-          await Promise.all([reloadHousehold(), overview.reload(), planning.reload()]);
-        }}
+        loadedAt={inputs.loadedAt && planning.loadedAt ? (inputs.loadedAt < planning.loadedAt ? inputs.loadedAt : planning.loadedAt) : null}
+        refreshing={householdRefreshing || inputs.refreshing || planning.refreshing}
+        onRefresh={retry}
       />
       <LoadFailure
-        errors={{ ...overview.errors, ...planning.errors, ...(householdError ? { household: householdError } : {}) }}
-        loadedAt={planning.loadedAt ?? overview.loadedAt}
-        onRetry={async () => {
-          await Promise.all([reloadHousehold(), overview.reload(), planning.reload()]);
-        }}
+        errors={{ ...inputs.errors, ...planning.errors, ...(householdError ? { household: householdError } : {}) }}
+        loadedAt={planning.loadedAt ?? inputs.loadedAt}
+        onRetry={retry}
       />
       <BackToReview />
       <TabRow tabs={TABS} active={tab} onChange={setTab} />
@@ -68,13 +70,15 @@ export default function Planning() {
           household={household}
           members={members}
           me={me}
-          accounts={overview.accounts}
-          transactions={overview.transactions}
-          recurring={overview.recurring}
-          holdings={overview.holdings}
-          budgets={overview.budgets}
-          categories={overview.categories}
+          accounts={inputs.accounts}
+          transactions={inputs.transactions}
+          recurring={inputs.recurring}
+          holdings={inputs.holdings}
+          budgets={inputs.budgets}
+          categories={inputs.categories}
           data={planning}
+          sources={sources}
+          onRetry={retry}
           loading={loading}
           onOpenTab={setTab}
         />
@@ -84,13 +88,15 @@ export default function Planning() {
           {...lens}
           household={household}
           members={members}
-          accounts={overview.accounts}
-          transactions={overview.transactions}
-          recurring={overview.recurring}
-          holdings={overview.holdings}
-          budgets={overview.budgets}
-          categories={overview.categories}
+          accounts={inputs.accounts}
+          transactions={inputs.transactions}
+          recurring={inputs.recurring}
+          holdings={inputs.holdings}
+          budgets={inputs.budgets}
+          categories={inputs.categories}
           data={planning}
+          sources={sources}
+          onRetry={retry}
           loading={loading}
           onOpenTab={setTab}
         />
@@ -100,27 +106,31 @@ export default function Planning() {
           household={household}
           members={members}
           me={me}
-          accounts={overview.accounts}
-          holdings={overview.holdings}
+          accounts={inputs.accounts}
+          holdings={inputs.holdings}
           data={planning}
+          sources={sources}
+          onRetry={retry}
           loading={loading}
         />
       )}
       {tab === 'debt' && (
-        <DebtPayoff household={household} members={members} me={me} accounts={overview.accounts} data={planning} loading={loading} onReload={overview.reload} />
+        <DebtPayoff household={household} members={members} me={me} accounts={inputs.accounts} data={planning} sources={sources} onRetry={retry} loading={loading} onReload={inputs.reload} />
       )}
       {tab === 'forecast' && (
         <Forecast
           {...lens}
           household={household}
           members={members}
-          accounts={overview.accounts}
-          transactions={overview.transactions}
-          recurring={overview.recurring}
-          holdings={overview.holdings}
-          budgets={overview.budgets}
-          categories={overview.categories}
+          accounts={inputs.accounts}
+          transactions={inputs.transactions}
+          recurring={inputs.recurring}
+          holdings={inputs.holdings}
+          budgets={inputs.budgets}
+          categories={inputs.categories}
           data={planning}
+          sources={sources}
+          onRetry={retry}
           loading={loading}
           onOpenTab={setTab}
         />
@@ -130,18 +140,20 @@ export default function Planning() {
           {...lens}
           household={household}
           members={members}
-          accounts={overview.accounts}
-          transactions={overview.transactions}
-          recurring={overview.recurring}
-          holdings={overview.holdings}
-          budgets={overview.budgets}
-          categories={overview.categories}
+          accounts={inputs.accounts}
+          transactions={inputs.transactions}
+          recurring={inputs.recurring}
+          holdings={inputs.holdings}
+          budgets={inputs.budgets}
+          categories={inputs.categories}
           data={planning}
+          sources={sources}
+          onRetry={retry}
           loading={loading}
           onOpenTab={setTab}
         />
       )}
-      {tab === 'notes' && <Notes household={household} me={me} members={members} data={planning} loading={loading} />}
+      {tab === 'notes' && <Notes household={household} me={me} members={members} data={planning} sources={sources} onRetry={retry} loading={loading} />}
     </div>
   );
 }

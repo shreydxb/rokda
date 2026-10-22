@@ -5,10 +5,13 @@ import { formatMoney } from '../../lib/money';
 import { DEFAULT_INFLATION_PCT, fundInPriority, goalCostAtDate, goalInflationPct, lastContributionLabel, scopedGoalRows } from '../../lib/goals';
 import { startingNetWorth } from '../overviewMath';
 import GoalEditor from './GoalEditor';
+import { neverLoaded } from '../../lib/loadState';
+import { GOALS_INPUTS } from './planningSources';
+import Withheld from './Withheld';
 
 const STATUS_CHIP = { funded: 'ov-chip-ok', track: 'ov-chip-ok', ahead: 'ov-chip-ok', behind: 'ov-chip-warn' };
 
-export default function Goals({ household, members, me, accounts, holdings, data, loading }) {
+export default function Goals({ household, members, me, accounts, holdings, data, sources, onRetry, loading }) {
   const { goals, goalContributions, goalAllocations, assumptions, reload } = data;
   const inflationPct = assumptions?.inflation_pct != null ? Number(assumptions.inflation_pct) : DEFAULT_INFLATION_PCT;
   // The same expected return Forecast projects with.
@@ -61,6 +64,14 @@ export default function Goals({ household, members, me, accounts, holdings, data
   const needLabel = funding ? 'still need' : 'need';
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
+  const missing = neverLoaded(sources, GOALS_INPUTS);
+  if (missing.length > 0) {
+    return (
+      <Withheld missing={missing} onRetry={onRetry}>
+        Your goals aren&rsquo;t shown, rather than shown as none or with what is set aside for them left out.
+      </Withheld>
+    );
+  }
 
   return (
     <div>

@@ -9,6 +9,9 @@ import BudgetBasis from './BudgetBasis';
 import LifePlanEditor from './LifePlanEditor';
 import ForecastAssumptionsEditor from './ForecastAssumptionsEditor';
 import AssumptionsBar from './AssumptionsBar';
+import { neverLoaded } from '../../lib/loadState';
+import { PROJECTION_INPUTS } from './planningSources';
+import Withheld from './Withheld';
 
 // Fixed order, so each phase keeps its colour whatever the numbers do.
 const PHASES = [
@@ -32,6 +35,8 @@ export default function LifePlan({
   budgets = [],
   categories = [],
   data,
+  sources,
+  onRetry,
   loading,
   onOpenTab,
   scenario,
@@ -68,6 +73,14 @@ export default function LifePlan({
   const people = useMemo(() => planPeople(members, data.memberLife ?? []), [members, data.memberLife]);
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
+  const missing = neverLoaded(sources, PROJECTION_INPUTS);
+  if (missing.length > 0) {
+    return (
+      <Withheld missing={missing} onRetry={onRetry}>
+        The life plan isn&rsquo;t worked out, rather than worked out without them.
+      </Withheld>
+    );
+  }
 
   const editor = editing && (
     <LifePlanEditor

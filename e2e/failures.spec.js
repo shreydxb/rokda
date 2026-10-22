@@ -74,3 +74,21 @@ test('saving a transaction when the save fails keeps the editor open and says wh
   await expect(editor).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test('Planning withholds what rests on goals and debts that never loaded', async ({ page }) => {
+  const errors = watchErrors(page);
+  await stubSupabase(page, { failReads: ['goals', 'debts'] });
+  await open(page, '/planning');
+  const main = page.locator('.om-main');
+  // An unread list used to read as an empty one: "All clear", no goals, no
+  // debts, and a stop year worked out without them.
+  await expect(main).toContainText('Not checked');
+  await expect(main).not.toContainText('All clear');
+  await expect(main).not.toContainText('No goals yet');
+  await expect(main).not.toContainText('No debts on record');
+
+  await page.goto('/planning?tab=goals', { waitUntil: 'domcontentloaded' });
+  await expect(main).toContainText('Couldn’t load goals.');
+  await expect(main).not.toContainText('Add a goal to start');
+  expect(errors).toEqual([]);
+});

@@ -57,3 +57,17 @@ export function failureMessage(errors = {}) {
     names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
   return `Couldn’t load ${list}.`;
 }
+
+// The named sources that failed and have never loaded (useSources' `loaded`).
+// What a screen holds for them is the empty placeholder, not data, so a list
+// built on one must say it couldn't load rather than "none yet", and a figure
+// built on one is withheld. A source that loaded before and failed on a
+// refresh keeps its last records, which are still the household's own.
+export function neverLoaded({ errors = {}, loaded = {} } = {}, keys = []) {
+  return keys.filter((key) => Boolean(errors?.[key]) && !loaded?.[key]);
+}
+
+// "Couldn't load goals and debts." for a list of source keys.
+export function couldntLoad(keys = []) {
+  return failureMessage(Object.fromEntries(keys.map((key) => [key, true])));
+}

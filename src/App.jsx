@@ -5,6 +5,7 @@ import Overview from './screens/Overview';
 import SetPassword from './screens/SetPassword';
 import TwoStep from './screens/TwoStep';
 import AppShell from './shell/AppShell';
+import { HouseholdProvider } from './lib/HouseholdContext';
 import ProtectedRoute from './shell/ProtectedRoute';
 import { useAuth } from './lib/AuthContext';
 
@@ -49,7 +50,9 @@ export default function App() {
         path="/"
         element={
           <ProtectedRoute>
-            <AppShell />
+            <HouseholdProvider>
+              <AppShell />
+            </HouseholdProvider>
           </ProtectedRoute>
         }
       >

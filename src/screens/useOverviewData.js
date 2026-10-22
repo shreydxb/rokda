@@ -77,6 +77,17 @@ export function useOverviewData(householdId) {
   return useSources(householdId, SOURCES, EMPTY_STATE);
 }
 
+// The six of these that Planning's tabs read. Planning used to load all
+// fourteen, wait for every one before showing anything, and name a failed
+// backup or rule read in its own banner.
+export const PLANNING_INPUT_KEYS = ['accounts', 'transactions', 'categories', 'recurring', 'budgets', 'holdings'];
+const PLANNING_INPUT_SOURCES = SOURCES.filter((source) => PLANNING_INPUT_KEYS.includes(source.key));
+const PLANNING_INPUT_EMPTY = { loading: false, accounts: [], transactions: [], categories: [], recurring: [], budgets: [], holdings: [], errors: {}, loadedAt: null };
+
+export function usePlanningInputs(householdId) {
+  return useSources(householdId, PLANNING_INPUT_SOURCES, PLANNING_INPUT_EMPTY);
+}
+
 export { isLiabilityAccount } from '../lib/accounts';
 
 const LIQUID_TYPES = new Set(['checking', 'savings', 'cash']);
