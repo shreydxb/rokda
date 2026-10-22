@@ -363,12 +363,12 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
               most sukuk still have no real option here.
             </div>
             <div className="te-fieldgrid">
-              <div className="te-fieldcell">
+              <div className="te-fieldcell te-span2">
                 <span className="te-fieldlabel">Provider</span>
                 <select className="te-fieldvalue" value={form.price_provider} onChange={(e) => set('price_provider', e.target.value)}>
                   <option value="">None — manual</option>
-                  <option value="twelvedata">Twelve Data (US/global equities, commodities)</option>
-                  <option value="yahoo">Yahoo Finance (NSE India, DFM Dubai equities — unofficial)</option>
+                  <option value="twelvedata">Twelve Data (global equities, commodities)</option>
+                  <option value="yahoo">Yahoo Finance (NSE, DFM; unofficial)</option>
                   <option value="coingecko">CoinGecko (crypto)</option>
                   <option value="mfapi">mfapi.in (India mutual fund NAV)</option>
                 </select>

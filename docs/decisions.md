@@ -2106,14 +2106,24 @@ unsaved edits to the goal, and Remove deleted at once, failure or not.
 - **One form per action.** The goal's own fields, a contribution and a link
   are separate forms in the one drawer, so Enter does the action of the field
   it is in. Logging, linking and removing keep the drawer open and the goal's
-  unsaved edits; only Save and Delete close it.
+  unsaved edits; only Save and Delete close it. What was typed clears as soon
+  as its write lands, and the drawer takes no second press until the records
+  have reloaded, so nothing is sent twice.
+- **Typed but not logged is unsaved.** An amount not yet logged, or a share
+  not yet updated, shows the Unsaved chip; closing asks first, and Save says
+  to log, update or clear it, rather than dropping it.
 - **Remove asks first,** and a failure is said in the section it happened in.
   A linked share is changed on its own row, which the database always allowed;
   linking the same account again used to fail with a raw duplicate-key error.
 - **Only money the household has can back a goal.** The link list offers open
   accounts that are not loans or cards, and holdings. A loan's or a card's
   balance is what is owed, so linking one counted debt as saved, and a closed
-  account holds nothing. A link made before this rule counts as nothing; the
-  database guard comes with the next goals migration.
-- **Fields are labelled, and marked wrong only once a save is tried.** Every
-  drawer's fields now shrink to fit a phone instead of running past its edge.
+  account holds nothing. A link made before this rule counts as nothing, and
+  its row says so; the database guard comes with the next goals migration.
+- **Fields are labelled, and marked wrong only once a save is tried,** each
+  with its own message, and focus goes to the first. Remove turns into
+  "Confirm remove" on the same button, so focus stays on it, and Escape steps
+  back out of a confirmation before it closes the drawer.
+- **Every drawer's fields shrink to fit a phone** instead of running past its
+  edge. A select whose words need the room (a holding's provider, a deposit's
+  compounding) takes the whole row.

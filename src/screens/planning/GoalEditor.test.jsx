@@ -79,14 +79,22 @@ describe('GoalEditor: today\'s cost, its rate and a priority', () => {
 });
 
 describe('GoalEditor: fields say what they are, and are marked wrong only after a save is tried', () => {
-  it('opens with nothing marked invalid, then marks what stopped the save', () => {
+  it('opens with nothing marked invalid, then marks each field with its own message', () => {
     renderEditor();
     const name = screen.getByLabelText('Name');
     const target = screen.getByLabelText('Target, AED');
     expect([name.getAttribute('aria-invalid'), target.getAttribute('aria-invalid')]).toEqual(['false', 'false']);
     fireEvent.click(screen.getByText('Add goal'));
     expect([name.getAttribute('aria-invalid'), target.getAttribute('aria-invalid')]).toEqual(['true', 'true']);
-    expect(name.getAttribute('aria-describedby')).toBe(screen.getByRole('alert').id);
+    const describedBy = (el) => document.getElementById(el.getAttribute('aria-describedby')).textContent;
+    expect([describedBy(target), describedBy(name)]).toEqual(['Set a target above zero.', 'Name it.']);
+    expect(screen.getByRole('alert').textContent).toBe('Fix the marked field to save.');
+    // Focus goes to the first field that stopped the save.
+    expect(document.activeElement).toBe(target);
+    // A corrected field drops its mark straight away.
+    type(name, 'Trip');
+    expect(name.getAttribute('aria-invalid')).toBe('false');
+    expect(calls.writes).toEqual([]);
   });
 });
 
@@ -125,6 +133,54 @@ describe('GoalEditor: contributions and links are their own forms and keep the d
   });
 });
 
+describe('GoalEditor: nothing typed is lost or sent twice', () => {
+  it('clears the amount as soon as it is logged, and a second press during the reload sends nothing', async () => {
+    let finishReload;
+    const onChanged = vi.fn(() => new Promise((resolve) => (finishReload = resolve)));
+    renderEditor({ goal: GOAL, onChanged });
+    const amount = screen.getByLabelText('Amount (AED)');
+    type(amount, '500');
+    fireEvent.submit(amount.form);
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+    expect(amount.value).toBe('');
+    // Typed again and pressed while the records reload: held, not sent.
+    type(amount, '500');
+    fireEvent.submit(amount.form);
+    finishReload();
+    await waitFor(() => expect(screen.getByText('Log contribution').getAttribute('aria-disabled')).toBe('false'));
+    expect(calls.writes.filter((w) => w.table === 'goal_contributions')).toHaveLength(1);
+    expect(amount.value).toBe('500');
+  });
+
+  it('counts a typed share as unsaved: Save refuses until it is updated or undone, and Escape asks first', () => {
+    const onClose = vi.fn();
+    renderEditor({ goal: GOAL, accounts: [{ id: 'sav', name: 'Savings', type: 'savings', currency: 'AED', archived_at: null }], allocations: [{ id: 'a1', goal_id: 'g1', account_id: 'sav', holding_id: null, share_pct: 50 }], onClose });
+    type(screen.getByLabelText('Share of Savings, percent'), '60');
+    expect(screen.getByText('Unsaved')).toBeTruthy();
+    fireEvent.click(screen.getByText('Save changes'));
+    expect(screen.getByRole('alert').textContent).toBe('Update or undo the share on Savings first.');
+    expect(calls.writes).toEqual([]);
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByText('Discard changes?')).toBeTruthy();
+  });
+
+  it('Escape steps back out of a pending remove before it closes anything, and focus stays on the Remove button', () => {
+    const onClose = vi.fn();
+    renderEditor({ goal: GOAL, contributions: [{ id: 'c1', goal_id: 'g1', amount: 300, occurred_at: '2026-09-01' }], onClose });
+    const remove = screen.getByRole('button', { name: /^Remove the contribution of 300/ });
+    remove.focus();
+    fireEvent.click(remove);
+    // The same button now asks to confirm, so focus has not moved.
+    expect(document.activeElement).toBe(remove);
+    expect(remove.textContent).toBe('Confirm remove');
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onClose).not.toHaveBeenCalled();
+    expect(remove.textContent).toBe('Remove');
+    expect(calls.writes).toEqual([]);
+  });
+});
+
 describe('GoalEditor: what a goal can be linked to', () => {
   const ACCOUNTS = [
     { id: 'cur', name: 'Current', type: 'checking', currency: 'AED', archived_at: null },
@@ -149,6 +205,21 @@ describe('GoalEditor: what a goal can be linked to', () => {
     fireEvent.click(screen.getByText('Update'));
     await waitFor(() => expect(onChanged).toHaveBeenCalled());
     expect(calls.writes).toEqual([{ table: 'goal_allocations', op: 'update', payload: { share_pct: 60 }, id: 'a1' }]);
+  });
+
+  it('says a card linked before the rule counts as nothing, with no share to change', () => {
+    renderEditor({ goal: GOAL, accounts: ACCOUNTS, allocations: [...LINKED, { id: 'a2', goal_id: 'g1', account_id: 'card', holding_id: null, share_pct: 100 }] });
+    expect(screen.getByText('Counts as nothing: a card is owed, not saved.')).toBeTruthy();
+    expect(screen.queryByLabelText('Share of Bank card, percent')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Remove the link to Bank card' })).toBeTruthy();
+  });
+
+  it('links a fractional share, which the database accepts', async () => {
+    const { onChanged } = renderEditor({ goal: GOAL, accounts: ACCOUNTS, allocations: LINKED });
+    type(screen.getByLabelText('Share %'), '33.5');
+    fireEvent.click(screen.getByText('Link'));
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+    expect(calls.writes[0]).toMatchObject({ table: 'goal_allocations', op: 'insert', payload: { account_id: 'cur', share_pct: 33.5 } });
   });
 
   it('explains a link that would pass 100% in words', async () => {

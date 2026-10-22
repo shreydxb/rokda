@@ -1,7 +1,8 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { formatMoney } from '../../lib/money';
 import { DEFAULT_INFLATION_PCT, accountCanBackGoal, goalCostAtDate } from '../../lib/goals';
+import { isArchived } from '../../lib/accounts';
 import { householdToday, parseDay } from '../../lib/day';
 import '../money/TransactionEditor.css';
 
@@ -35,10 +36,19 @@ function linkErrorMessage(err) {
   return err?.message ?? 'That did not save.';
 }
 
+// The database takes any share above 0 and up to 100, fractions included.
 const shareProblem = (text) => {
   const pct = Number(text);
-  return Number.isFinite(pct) && pct > 0 && pct <= 100 ? '' : 'A share from 1 to 100%.';
+  return String(text ?? '').trim() !== '' && Number.isFinite(pct) && pct > 0 && pct <= 100 ? '' : 'A share above 0 and up to 100%.';
 };
+
+// Why a link made before loans, cards and closed accounts were refused now counts for nothing.
+function linkCountsAsNothing(account) {
+  if (!account) return 'the account is gone';
+  if (isArchived(account)) return 'the account is closed';
+  if (account.type === 'loan') return 'a loan is owed, not saved';
+  return 'a card is owed, not saved';
+}
 
 // The goal's own fields are one form. Logging a contribution and linking an
 // account are forms of their own beside it, so Enter in their fields does
@@ -55,12 +65,16 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
     funding: `${uid}-funding`,
     rate: `${uid}-rate`,
     owner: `${uid}-owner`,
-    error: `${uid}-error`,
     contribAmount: `${uid}-camount`,
     contribDate: `${uid}-cdate`,
     linkSource: `${uid}-lsource`,
     linkShare: `${uid}-lshare`,
   };
+  const fieldRefs = useRef({});
+  const removeRefs = useRef({});
+  const shareRefs = useRef({});
+  const headingRefs = useRef({});
+  const drawerRef = useRef(null);
   const [form, setForm] = useState(() => initialForm(goal));
   const [dirty, setDirty] = useState(false);
   // Fields are marked wrong only once a save has been tried, not on opening.
@@ -70,11 +84,15 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
   const [contribDate, setContribDate] = useState(() => householdToday());
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [confirmingRemove, setConfirmingRemove] = useState(null);
-  const [error, setError] = useState('');
+  // A save or delete that failed, or why a save was refused; shown by the buttons.
+  const [formError, setFormError] = useState('');
   // The outcome of the last contribution or link action, shown in its own section.
   const [notice, setNotice] = useState(null);
+  // Held from a write until the reload after it lands, so a second press can't
+  // send it again while the drawer still shows the old records.
   const [saving, setSaving] = useState(false);
   const linked = allocations ?? [];
+  const findAccount = (id) => (accounts ?? []).find((a) => a.id === id);
   const linkedAccountIds = new Set(linked.map((a) => a.account_id).filter(Boolean));
   const linkedHoldingIds = new Set(linked.map((a) => a.holding_id).filter(Boolean));
   // An account already linked keeps its row, where its share is changed.
@@ -86,14 +104,30 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
   const [allocSharePct, setAllocSharePct] = useState('100');
   const [shareEdits, setShareEdits] = useState({});
 
+  function allocationLabel(a) {
+    if (a.account_id) return findAccount(a.account_id)?.name ?? 'Unknown account';
+    return (holdings ?? []).find((h) => h.id === a.holding_id)?.name ?? 'Unknown holding';
+  }
+
+  // Typed but not yet logged or updated counts as unsaved too: Save would
+  // drop it, and so would closing.
+  const pendingShare = linked.find((a) => shareEdits[a.id] !== undefined && Number(shareEdits[a.id]) !== Number(a.share_pct));
+  const pendingWork =
+    contribAmount.trim() !== '' ? `Log or clear the contribution of ${contribAmount.trim()} first.` : pendingShare ? `Update or undo the share on ${allocationLabel(pendingShare)} first.` : '';
+  const unsaved = dirty || pendingWork !== '';
+
   useEffect(() => {
     const onKey = (e) => {
-      if (e.key === 'Escape') requestClose();
+      if (e.key !== 'Escape') return;
+      // Escape steps back out of a pending confirmation before it closes anything.
+      if (confirmingRemove) cancelRemove();
+      else if (confirmingDelete) setConfirmingDelete(false);
+      else requestClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dirty, confirmingClose]);
+  }, [unsaved, confirmingClose, confirmingRemove, confirmingDelete]);
 
   function set(key, value) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -101,7 +135,7 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
   }
 
   function requestClose() {
-    if (dirty && !confirmingClose) {
+    if (unsaved && !confirmingClose) {
       setConfirmingClose(true);
       return;
     }
@@ -114,7 +148,17 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
   const priorityText = String(form.priority).trim();
   const rateError = form.cost_today && rateText !== '' && !(Number.isFinite(Number(rateText)) && Number(rateText) >= -10 && Number(rateText) <= 30) ? 'A yearly rise between −10% and 30%.' : '';
   const priorityError = priorityText !== '' && !(/^\d+$/.test(priorityText) && Number(priorityText) >= 1 && Number(priorityText) <= 999) ? 'Priority is a whole number from 1.' : '';
-  const invalid = (problem) => (triedSave && problem ? { 'aria-invalid': true, 'aria-describedby': ids.error } : { 'aria-invalid': false });
+  // Each field carries its own message once a save has been tried, and the
+  // message follows the field as it is corrected.
+  const fieldProblems = { target: targetError, rate: rateError, name: nameError, priority: priorityError };
+  const invalid = (key) => (triedSave && fieldProblems[key] ? { 'aria-invalid': true, 'aria-describedby': `${uid}-${key}-problem` } : { 'aria-invalid': false });
+  const problemText = (key) =>
+    triedSave &&
+    fieldProblems[key] && (
+      <span className="te-fieldproblem" id={`${uid}-${key}-problem`}>
+        {fieldProblems[key]}
+      </span>
+    );
   // What a today's cost comes to on the date, shown while it is being typed.
   const costOnDate =
     form.cost_today && form.target_date && Number(form.target_amount) > 0 && !rateError
@@ -123,13 +167,21 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
 
   async function handleSave(e) {
     e.preventDefault();
-    if (nameError || targetError || rateError || priorityError) {
+    if (saving) return;
+    setNotice(null);
+    const firstProblem = ['target', 'rate', 'name', 'priority'].find((key) => fieldProblems[key]);
+    if (firstProblem) {
       setTriedSave(true);
-      setError(nameError || targetError || rateError || priorityError);
+      setFormError('Fix the marked field to save.');
+      fieldRefs.current[firstProblem]?.focus();
+      return;
+    }
+    if (pendingWork) {
+      setFormError(pendingWork);
       return;
     }
     setSaving(true);
-    setError('');
+    setFormError('');
 
     const payload = {
       household_id: householdId,
@@ -149,60 +201,83 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
     const { error: saveError } = await query;
     setSaving(false);
     if (saveError) {
-      setError(saveError.message);
+      setFormError(saveError.message);
       return;
     }
     await onSaved();
   }
 
-  // Runs one write for the Contributions or Linked section, reports its
-  // outcome there, and reloads the records without closing the drawer.
-  async function act(section, write, done) {
+  // Runs one write for the Contributions or Linked section and reports its
+  // outcome there. What was typed clears as soon as the write lands; the
+  // records then reload without closing the drawer. Focus stays put unless
+  // what held it went away, in which case it goes to the section's heading.
+  async function act(section, write, { written, done }) {
+    if (saving) return false;
     setSaving(true);
     setNotice(null);
-    const { error: writeError } = await write();
-    setSaving(false);
-    if (writeError) {
-      setNotice({ section, error: true, text: section === 'linked' ? linkErrorMessage(writeError) : writeError.message });
-      return false;
+    try {
+      const { error: writeError } = await write();
+      if (writeError) {
+        setNotice({ section, error: true, text: section === 'linked' ? linkErrorMessage(writeError) : writeError.message });
+        return false;
+      }
+      written?.();
+      setNotice({ section, error: false, text: done });
+      await onChanged();
+      return true;
+    } finally {
+      setSaving(false);
+      (window.requestAnimationFrame ?? ((fn) => setTimeout(fn, 0)))(() => {
+        if (drawerRef.current && !drawerRef.current.contains(document.activeElement)) headingRefs.current[section]?.focus();
+      });
     }
-    setNotice({ section, error: false, text: done });
-    await onChanged();
-    return true;
   }
 
   async function handleLogContribution(e) {
     e.preventDefault();
+    if (saving) return;
     const amount = Number(contribAmount);
     if (!(amount > 0) || !contribDate) {
       setNotice({ section: 'contributions', error: true, text: !contribDate ? 'Pick the day it was put aside.' : 'An amount above zero.' });
       return;
     }
-    const ok = await act('contributions', () => supabase.from('goal_contributions').insert({ goal_id: goal.id, amount, occurred_at: contribDate }), `Logged ${formatMoney(amount)} on ${dayLabel(contribDate)}.`);
-    if (ok) setContribAmount('');
+    await act('contributions', () => supabase.from('goal_contributions').insert({ goal_id: goal.id, amount, occurred_at: contribDate }), {
+      written: () => setContribAmount(''),
+      done: `Logged ${formatMoney(amount)} on ${dayLabel(contribDate)}.`,
+    });
+  }
+
+  function cancelRemove() {
+    const key = confirmingRemove && `${confirmingRemove.kind}:${confirmingRemove.id}`;
+    setConfirmingRemove(null);
+    if (key) removeRefs.current[key]?.focus();
   }
 
   async function handleRemove(kind, id) {
+    if (saving) return;
     if (confirmingRemove?.kind !== kind || confirmingRemove?.id !== id) {
       setConfirmingRemove({ kind, id });
       return;
     }
     const table = kind === 'contribution' ? 'goal_contributions' : 'goal_allocations';
-    const ok = await act(kind === 'contribution' ? 'contributions' : 'linked', () => supabase.from(table).delete().eq('id', id), kind === 'contribution' ? 'Contribution removed.' : 'Link removed.');
-    if (ok) setConfirmingRemove(null);
+    await act(kind === 'contribution' ? 'contributions' : 'linked', () => supabase.from(table).delete().eq('id', id), {
+      written: () => setConfirmingRemove(null),
+      done: kind === 'contribution' ? 'Contribution removed.' : 'Link removed.',
+    });
   }
 
   async function handleAddAllocation(e) {
     e.preventDefault();
+    if (saving) return;
     const problem = shareProblem(allocSharePct);
     if (!allocSource || problem) {
       setNotice({ section: 'linked', error: true, text: problem || 'Pick an account or holding.' });
       return;
     }
     const [kind, id] = allocSource.split(':');
-    const label = kind === 'account' ? (accounts ?? []).find((a) => a.id === id)?.name : (holdings ?? []).find((h) => h.id === id)?.name;
+    const label = kind === 'account' ? findAccount(id)?.name : (holdings ?? []).find((h) => h.id === id)?.name;
     const pct = Number(allocSharePct);
-    const ok = await act(
+    await act(
       'linked',
       () =>
         supabase.from('goal_allocations').insert({
@@ -212,13 +287,13 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
           holding_id: kind === 'holding' ? id : null,
           share_pct: pct,
         }),
-      `Linked ${label ?? 'it'} at ${pct}%.`,
+      { written: () => setAllocSharePct('100'), done: `Linked ${label ?? 'it'} at ${pct}%.` },
     );
-    if (ok) setAllocSharePct('100');
   }
 
   async function handleShareChange(e, allocation) {
     e.preventDefault();
+    if (saving) return;
     const text = shareEdits[allocation.id];
     // Enter on a share left as it was changes nothing.
     if (text === undefined || Number(text) === Number(allocation.share_pct)) return;
@@ -227,21 +302,21 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
       setNotice({ section: 'linked', error: true, text: problem });
       return;
     }
-    const ok = await act('linked', () => supabase.from('goal_allocations').update({ share_pct: Number(text) }).eq('id', allocation.id), `${allocationLabel(allocation)} now counts at ${Number(text)}%.`);
-    if (ok)
-      setShareEdits((edits) => {
-        const next = { ...edits };
-        delete next[allocation.id];
-        return next;
-      });
-  }
-
-  function allocationLabel(a) {
-    if (a.account_id) return (accounts ?? []).find((acc) => acc.id === a.account_id)?.name ?? 'Unknown account';
-    return (holdings ?? []).find((h) => h.id === a.holding_id)?.name ?? 'Unknown holding';
+    await act('linked', () => supabase.from('goal_allocations').update({ share_pct: Number(text) }).eq('id', allocation.id), {
+      written: () =>
+        setShareEdits((edits) => {
+          const next = { ...edits };
+          delete next[allocation.id];
+          return next;
+        }),
+      done: `${allocationLabel(allocation)} now counts at ${Number(text)}%.`,
+    });
+    shareRefs.current[allocation.id]?.focus();
   }
 
   async function handleDelete() {
+    if (saving) return;
+    setNotice(null);
     if (!confirmingDelete) {
       setConfirmingDelete(true);
       return;
@@ -250,43 +325,84 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
     const { error: delError } = await supabase.from('goals').delete().eq('id', goal.id);
     setSaving(false);
     if (delError) {
-      setError(delError.message);
+      setFormError(delError.message);
       return;
     }
     await onSaved();
   }
 
-  const sectionNotice = (section) =>
-    notice?.section === section && (
-      <p className={notice.error ? 'ov-warn' : 'ov-muted'} role={notice.error ? 'alert' : 'status'} style={{ fontSize: 12.5, marginTop: 12 }}>
-        {notice.text}
-      </p>
-    );
-
-  const removeControls = (kind, id, what) =>
-    confirmingRemove?.kind === kind && confirmingRemove?.id === id ? (
+  // A section's messages. The status line is always in the page, so a screen
+  // reader hears it change; a failure is an alert, which is read when it appears.
+  const sectionMessages = (section) => {
+    const mine = notice?.section === section ? notice : null;
+    return (
       <>
-        <button type="button" className="ov-link te-rowaction" onClick={() => handleRemove(kind, id)} disabled={saving}>
-          Confirm remove
-        </button>
-        <button type="button" className="ov-link te-rowaction" onClick={() => setConfirmingRemove(null)}>
-          Keep
-        </button>
+        <p className="ov-muted te-status" role="status">
+          {mine && !mine.error ? mine.text : ''}
+        </p>
+        {mine?.error && (
+          <p className="ov-warn te-status" role="alert">
+            {mine.text}
+          </p>
+        )}
       </>
-    ) : (
-      <button type="button" className="ov-link te-rowaction" onClick={() => handleRemove(kind, id)} disabled={saving} aria-label={`Remove ${what}`}>
-        Remove
-      </button>
     );
+  };
+
+  // One Remove button per row: asking to confirm changes its words rather
+  // than swapping it for another button, so focus stays on it.
+  const removeControls = (kind, id, what) => {
+    const key = `${kind}:${id}`;
+    const confirming = confirmingRemove?.kind === kind && confirmingRemove?.id === id;
+    return (
+      <>
+        <button
+          ref={(el) => {
+            removeRefs.current[key] = el;
+          }}
+          type="button"
+          className={`ov-link te-rowaction${confirming ? ' te-rowaction-danger' : ''}`}
+          onClick={() => handleRemove(kind, id)}
+          aria-disabled={saving}
+          aria-label={confirming ? `Confirm removing ${what}` : `Remove ${what}`}
+        >
+          {confirming ? 'Confirm remove' : 'Remove'}
+        </button>
+        {confirming && (
+          <button type="button" className="ov-link te-rowaction" onClick={cancelRemove}>
+            Keep
+          </button>
+        )}
+      </>
+    );
+  };
+
+  const sectionHeading = (section, text, style) => (
+    <h3
+      className="ov-kicker te-section-head"
+      id={`${uid}-${section}-head`}
+      tabIndex={-1}
+      ref={(el) => {
+        headingRefs.current[section] = el;
+      }}
+      style={style}
+    >
+      {text}
+    </h3>
+  );
+
+  const fieldRef = (key) => (el) => {
+    fieldRefs.current[key] = el;
+  };
 
   return (
     <div className="te-overlay" onMouseDown={(e) => e.target === e.currentTarget && requestClose()}>
-      <div className="te-drawer" role="dialog" aria-modal="true" aria-label={goal ? 'Edit goal' : 'Add goal'}>
+      <div className="te-drawer" role="dialog" aria-modal="true" aria-label={goal ? 'Edit goal' : 'Add goal'} ref={drawerRef}>
         <div className="te-head">
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
               <span className="ov-kicker">{goal ? 'Edit goal' : 'New goal'}</span>
-              {dirty && <span className="te-dirty-chip">Unsaved</span>}
+              {unsaved && <span className="te-dirty-chip">Unsaved</span>}
             </div>
             <div className="te-title">{goal ? goal.name : 'Add a goal'}</div>
           </div>
@@ -301,8 +417,19 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
               <div className="te-hero-label">Target</div>
               <div className="te-hero-row">
                 <span className="te-hero-currency">AED</span>
-                <input type="number" step="0.01" className="te-hero-input" value={form.target_amount} onChange={(e) => set('target_amount', e.target.value)} aria-label="Target, AED" placeholder="0" {...invalid(targetError)} />
+                <input
+                  ref={fieldRef('target')}
+                  type="number"
+                  step="0.01"
+                  className="te-hero-input"
+                  value={form.target_amount}
+                  onChange={(e) => set('target_amount', e.target.value)}
+                  aria-label="Target, AED"
+                  placeholder="0"
+                  {...invalid('target')}
+                />
               </div>
+              {problemText('target')}
               <div className="om-scope-list" role="group" aria-label="How the target is set" style={{ marginTop: 12 }}>
                 <button type="button" className="om-scope" data-active={!form.cost_today} aria-pressed={!form.cost_today} onClick={() => set('cost_today', false)}>
                   Amount on the date
@@ -318,6 +445,7 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
                   </label>
                   <input
                     id={ids.rate}
+                    ref={fieldRef('rate')}
                     className="te-fieldvalue"
                     type="number"
                     step="0.1"
@@ -325,8 +453,9 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
                     onChange={(e) => set('inflation_pct', e.target.value)}
                     placeholder={`blank: ${inflationPct}%, general inflation`}
                     aria-label="Rises by, percent a year"
-                    {...invalid(rateError)}
+                    {...invalid('rate')}
                   />
+                  {problemText('rate')}
                   <span className="ov-muted" style={{ fontSize: 11.5, marginTop: 6 }}>
                     {costOnDate !== null
                       ? `About ${formatMoney(costOnDate)} by ${form.target_date.slice(0, 4)}, the amount progress is measured against.`
@@ -341,7 +470,8 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
                 <label className="te-fieldlabel" htmlFor={ids.name}>
                   Name
                 </label>
-                <input id={ids.name} className="te-fieldvalue" type="text" value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="e.g. Japan trip" {...invalid(nameError)} />
+                <input id={ids.name} ref={fieldRef('name')} className="te-fieldvalue" type="text" value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="e.g. Japan trip" {...invalid('name')} />
+                {problemText('name')}
               </div>
               <div className="te-fieldcell">
                 <label className="te-fieldlabel" htmlFor={ids.date}>
@@ -359,7 +489,18 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
                 <label className="te-fieldlabel" htmlFor={ids.priority}>
                   Priority
                 </label>
-                <input id={ids.priority} className="te-fieldvalue" type="number" step="1" value={form.priority} onChange={(e) => set('priority', e.target.value)} placeholder="1 = first" {...invalid(priorityError)} />
+                <input
+                  id={ids.priority}
+                  ref={fieldRef('priority')}
+                  className="te-fieldvalue"
+                  type="number"
+                  step="1"
+                  value={form.priority}
+                  onChange={(e) => set('priority', e.target.value)}
+                  placeholder="1 = first"
+                  {...invalid('priority')}
+                />
+                {problemText('priority')}
               </div>
               <div className="te-fieldcell">
                 <label className="te-fieldlabel" htmlFor={ids.funding}>
@@ -391,26 +532,28 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
                 ))}
               </div>
             </div>
-
-            {error && (
-              <p className="ov-warn" role="alert" id={ids.error} style={{ fontSize: 12.5 }}>
-                {error}
-              </p>
-            )}
           </form>
 
           {goal && (
-            <section className="te-section" aria-labelledby={`${uid}-contrib-head`}>
-              <h3 className="ov-kicker te-section-head" id={`${uid}-contrib-head`}>
-                Contributions
-              </h3>
-              <form onSubmit={handleLogContribution}>
+            <section className="te-section" aria-labelledby={`${uid}-contributions-head`}>
+              {sectionHeading('contributions', 'Contributions')}
+              <form onSubmit={handleLogContribution} noValidate>
                 <div className="te-fieldgrid">
                   <div className="te-fieldcell">
                     <label className="te-fieldlabel" htmlFor={ids.contribAmount}>
                       Amount (AED)
                     </label>
-                    <input id={ids.contribAmount} className="te-fieldvalue" type="number" step="0.01" value={contribAmount} onChange={(e) => setContribAmount(e.target.value)} />
+                    <input
+                      id={ids.contribAmount}
+                      className="te-fieldvalue"
+                      type="number"
+                      step="0.01"
+                      value={contribAmount}
+                      onChange={(e) => {
+                        setContribAmount(e.target.value);
+                        setNotice(null);
+                      }}
+                    />
                   </div>
                   <div className="te-fieldcell">
                     <label className="te-fieldlabel" htmlFor={ids.contribDate}>
@@ -420,12 +563,12 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
                   </div>
                 </div>
                 <div className="te-subactions">
-                  <button type="submit" className="om-btn" disabled={saving || !contribAmount}>
+                  <button type="submit" className="om-btn" aria-disabled={saving}>
                     Log contribution
                   </button>
                 </div>
               </form>
-              {sectionNotice('contributions')}
+              {sectionMessages('contributions')}
 
               {contributions.length === 0 ? (
                 <div className="ov-muted" style={{ fontSize: 12.5, marginTop: 14 }}>
@@ -434,7 +577,7 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
               ) : (
                 <div className="mn-list">
                   {contributions.map((c) => (
-                    <div key={c.id} className="mn-row" style={{ cursor: 'default' }}>
+                    <div key={c.id} className="mn-row te-linkrow" style={{ cursor: 'default' }}>
                       <div className="mn-row-main">{dayLabel(c.occurred_at)}</div>
                       <div className="te-rowcontrols">
                         <span className="fig mn-row-amt">{formatMoney(c.amount)}</span>
@@ -449,16 +592,14 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
 
           {goal && (sourceOptions.length > 0 || linked.length > 0) && (
             <section className="te-section" aria-labelledby={`${uid}-linked-head`}>
-              <h3 className="ov-kicker te-section-head" id={`${uid}-linked-head`} style={{ marginBottom: 4 }}>
-                Linked accounts &amp; holdings
-              </h3>
+              {sectionHeading('linked', <>Linked accounts &amp; holdings</>, { marginBottom: 4 })}
               <div className="ov-muted" style={{ fontSize: 11.5, marginBottom: 12, lineHeight: 1.5 }}>
                 Earmark a share of a real account or holding toward this goal — its current value (interest or growth included)
                 counts toward progress automatically. One account/holding can be split across several goals as long as its shares
                 never add up past 100%. Loans and cards can&rsquo;t be linked: what they hold is owed.
               </div>
               {sourceOptions.length > 0 && (
-                <form onSubmit={handleAddAllocation}>
+                <form onSubmit={handleAddAllocation} noValidate>
                   <div className="te-fieldgrid">
                     <div className="te-fieldcell te-span2">
                       <label className="te-fieldlabel" htmlFor={ids.linkSource}>
@@ -489,17 +630,27 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
                       <label className="te-fieldlabel" htmlFor={ids.linkShare}>
                         Share %
                       </label>
-                      <input id={ids.linkShare} className="te-fieldvalue" type="number" min="1" max="100" step="1" value={allocSharePct} onChange={(e) => setAllocSharePct(e.target.value)} />
+                      <input
+                        id={ids.linkShare}
+                        className="te-fieldvalue"
+                        type="number"
+                        step="any"
+                        value={allocSharePct}
+                        onChange={(e) => {
+                          setAllocSharePct(e.target.value);
+                          setNotice(null);
+                        }}
+                      />
                     </div>
                   </div>
                   <div className="te-subactions">
-                    <button type="submit" className="om-btn" disabled={saving || !allocSource}>
+                    <button type="submit" className="om-btn" aria-disabled={saving}>
                       Link
                     </button>
                   </div>
                 </form>
               )}
-              {sectionNotice('linked')}
+              {sectionMessages('linked')}
 
               {linked.length === 0 ? (
                 <div className="ov-muted" style={{ fontSize: 12.5, marginTop: 14 }}>
@@ -509,27 +660,40 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
                 <div className="mn-list">
                   {linked.map((a) => {
                     const label = allocationLabel(a);
+                    const account = a.account_id ? findAccount(a.account_id) : null;
+                    const nothing = a.account_id && !accountCanBackGoal(account) ? linkCountsAsNothing(account) : null;
                     const stored = String(Number(a.share_pct));
                     const shown = shareEdits[a.id] ?? stored;
                     return (
-                      <form key={a.id} className="mn-row" style={{ cursor: 'default' }} onSubmit={(e) => handleShareChange(e, a)}>
-                        <div className="mn-row-main">{label}</div>
+                      <form key={a.id} className="mn-row te-linkrow" style={{ cursor: 'default' }} onSubmit={(e) => handleShareChange(e, a)} noValidate>
+                        <div className="mn-row-main">
+                          {label}
+                          {nothing && <div className="ov-muted te-rownote">Counts as nothing: {nothing}.</div>}
+                        </div>
                         <div className="te-rowcontrols">
-                          <input
-                            className="te-fieldvalue te-shareinput"
-                            type="number"
-                            min="1"
-                            max="100"
-                            step="1"
-                            value={shown}
-                            onChange={(e) => setShareEdits((edits) => ({ ...edits, [a.id]: e.target.value }))}
-                            aria-label={`Share of ${label}, percent`}
-                          />
-                          <span className="fig">%</span>
-                          {shown !== stored && (
-                            <button type="submit" className="om-btn" disabled={saving}>
-                              Update
-                            </button>
+                          {!nothing && (
+                            <>
+                              <input
+                                ref={(el) => {
+                                  shareRefs.current[a.id] = el;
+                                }}
+                                className="te-fieldvalue te-shareinput"
+                                type="number"
+                                step="any"
+                                value={shown}
+                                onChange={(e) => {
+                                  setShareEdits((edits) => ({ ...edits, [a.id]: e.target.value }));
+                                  setNotice(null);
+                                }}
+                                aria-label={`Share of ${label}, percent`}
+                              />
+                              <span className="fig">%</span>
+                              {shown !== stored && (
+                                <button type="submit" className="om-btn" aria-disabled={saving}>
+                                  Update
+                                </button>
+                              )}
+                            </>
                           )}
                           {removeControls('allocation', a.id, `the link to ${label}`)}
                         </div>
@@ -542,9 +706,14 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
           )}
 
           <div className="te-sticky-actions">
+            {formError && (
+              <p className="ov-warn" role="alert" style={{ fontSize: 12.5, margin: '0 0 10px' }}>
+                {formError}
+              </p>
+            )}
             <div className="te-actions" style={{ borderTop: 'none', paddingTop: 0, marginTop: 0 }}>
               {goal && (
-                <button type="button" className="om-btn te-delete" onClick={handleDelete} disabled={saving}>
+                <button type="button" className="om-btn te-delete" onClick={handleDelete} aria-disabled={saving}>
                   {confirmingDelete ? 'Confirm delete?' : 'Delete'}
                 </button>
               )}
@@ -566,7 +735,7 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
                     <button type="button" className="om-btn" onClick={requestClose}>
                       Cancel
                     </button>
-                    <button type="submit" form={ids.form} className="om-btn ov-btn-primary" disabled={saving}>
+                    <button type="submit" form={ids.form} className="om-btn ov-btn-primary" aria-disabled={saving}>
                       {saving ? 'Saving…' : goal ? 'Save changes' : 'Add goal'}
                     </button>
                   </>

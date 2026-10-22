@@ -448,22 +448,71 @@
   margin: 0 0 12px;
   font-weight: inherit;
 }
+.te-section-head:focus {
+  outline: none;
+}
 .te-subactions {
   display: flex;
   justify-content: flex-end;
   margin-top: 12px;
 }
+/* A section's status line stays in the page, empty, so a screen reader
+   hears it when its words change. */
+.te-status {
+  font-size: 12.5px;
+  margin: 12px 0 0;
+}
+.te-status:empty {
+  margin: 0;
+}
+.te-fieldproblem {
+  font-size: 12px;
+  color: var(--neg);
+}
+.te-hero-row:has(.te-hero-input[aria-invalid='true']) {
+  border-bottom-color: var(--neg);
+}
+/* A record's row in a drawer: on a phone its controls drop under its name
+   rather than squeezing it. */
+.te-linkrow {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+.te-linkrow .mn-row-main {
+  flex: 1 1 9em;
+  overflow-wrap: anywhere;
+}
+.te-rownote {
+  font-size: 12px;
+  margin-top: 2px;
+}
 .te-rowcontrols {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-  flex: none;
+  justify-content: flex-end;
+  gap: 4px 10px;
+  margin-left: auto;
 }
 .te-fieldvalue.te-shareinput {
   width: 4.5em;
-  padding: 4px 0;
+  padding: 8px 0;
   text-align: right;
 }
 .ov-link.te-rowaction {
   padding: 8px 2px;
+  color: var(--ink2);
+  font-size: 12.5px;
+}
+.ov-link.te-rowaction:hover {
+  color: var(--accent);
+}
+.ov-link.te-rowaction.te-rowaction-danger {
+  color: var(--neg);
+}
+@media (pointer: coarse) {
+  .ov-link.te-rowaction,
+  .te-fieldvalue.te-shareinput {
+    min-height: 44px;
+  }
 }
