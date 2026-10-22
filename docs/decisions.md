@@ -2127,3 +2127,42 @@ unsaved edits to the goal, and Remove deleted at once, failure or not.
 - **Every drawer's fields shrink to fit a phone** instead of running past its
   edge. A select whose words need the room (a holding's provider, a deposit's
   compounding) takes the whole row.
+
+
+## What never loaded is not shown as none
+
+A code review of Planning found it telling a household what it did not know.
+With goals and debts unread, Plan showed no goals, no debts, "All clear" and an
+earlier stop year under the banner that said they had not loaded; Refresh
+blanked every page and lost a note being written; and Planning read the
+household twice and eight tables it never used.
+
+- **A source that never loaded is withheld, not shown as empty.** useSources
+  names every source that has loaded at least once, and the household lookup
+  counts as one. One that failed before it
+  ever did still holds its empty placeholder, so a list built on it says
+  "Couldn't load goals" with Try again, and a figure built on it is not worked
+  out: Plan's cards, its stop year and "What needs a decision", which says
+  "Not checked" rather than "All clear". A source that loaded before and fails
+  on a refresh keeps its last records, which are still the household's own.
+- **Refresh keeps the page.** The household lookup shows its loading state
+  only the first time; a later one refreshes in place, and a failed one keeps
+  the household it had. Every page used to fall back to its skeleton on
+  Refresh, unmounting whatever was open.
+- **One household lookup for the app.** The shell loads it and every screen
+  reads that one, rather than each making the same two round trips before its
+  own reads could start.
+- **Planning reads its six tables, once.** It reads only the accounts,
+  transactions, categories, recurring bills, budgets and holdings its tabs
+  use. No read starts while one is on its way, so coming back to a tab, which
+  fires two events, reads once; the household is read again on the same
+  schedule as the records.
+- **What each part rests on.** Goals rest on the assumptions too (inflation
+  and return); Debt payoff's list does not, only its projection; the budget
+  counts only until three months have closed. Plan offers each decision whose
+  records loaded and names the rest once as not checked.
+- **A note is not lost or overwritten.** Cancel, and closing or reloading the
+  browser tab, ask before dropping a changed note. A save goes through only
+  over the version the edit was opened from, kept by the editor however often
+  the note is read again meanwhile, so one partner's edit no longer replaces
+  the other's without a word.

@@ -7,6 +7,8 @@ import { debtsWithAccounts, orderDebts, simulatePayoffPlan } from '../../lib/deb
 import { budgetPlan, closedMonths, crossingYear, forecastInputs, incomesFromStop, independenceTarget, payMonthTransactions, realReturn, spendThatStops } from '../../lib/forecast';
 import { agesLabel, lifePlanStop, spendAfterText } from '../../lib/lifePlan';
 import { incompleteNote, netWorthSummary, startingNetWorth } from '../overviewMath';
+import { couldntLoad, neverLoaded } from '../../lib/loadState';
+import { DEBT_INPUTS, DEBT_PLAN_INPUTS, GOALS_INPUTS, projectionInputs } from './planningSources';
 
 const DEFAULTS = { nominal_return_pct: 6.0, inflation_pct: 2.5, safe_withdrawal_pct: 4.0 };
 
@@ -21,7 +23,7 @@ function monthsToLabel(months) {
 
 // Composes the same goal/debt/forecast outputs Goals, DebtPayoff and Forecast
 // already compute — no new financial math lives here, just a next-action read.
-export default function PlanSummary({ household = null, members, me, accounts, transactions, recurring = [], holdings, budgets = [], categories = [], data, loading, onOpenTab }) {
+export default function PlanSummary({ household = null, members, me, accounts, transactions, recurring = [], holdings, budgets = [], categories = [], data, sources, onRetry, loading, onOpenTab }) {
   const { goals, goalContributions, goalAllocations, assumptions } = data;
   // At their linked accounts' balances, as Debt payoff shows them.
   const debts = useMemo(() => debtsWithAccounts(data.debts, accounts ?? []), [data.debts, accounts]);
@@ -122,20 +124,31 @@ export default function PlanSummary({ household = null, members, me, accounts, t
     [members, data.memberLife, assumptions, forecast, startNetWorth, goals, data.independenceIncome, household, stopping, now]
   );
 
+  // What rests on records that never arrived is withheld rather than worked
+  // out from an empty placeholder: with goals and debts unread, this page
+  // said "All clear" and moved the stop year (lib/loadState.js, neverLoaded).
+  const goalsMissing = neverLoaded(sources, GOALS_INPUTS);
+  const debtsMissing = neverLoaded(sources, DEBT_INPUTS);
+  const debtPlanMissing = neverLoaded(sources, DEBT_PLAN_INPUTS);
+  const answerMissing = neverLoaded(sources, projectionInputs(forecast));
+  // Each item below is offered only when what it rests on loaded; the rest
+  // are named once as not checked, never folded into "All clear".
+  const unchecked = [...new Set([...goalsMissing, ...debtsMissing, ...debtPlanMissing, ...answerMissing])];
+
   const actions = [
-    behindGoals.length > 0 && {
+    goalsMissing.length === 0 && behindGoals.length > 0 && {
       key: 'goals',
       text: `${behindGoals.length} goal${behindGoals.length === 1 ? '' : 's'} behind pace`,
       tab: 'goals',
       cta: 'Open Goals',
     },
-    debts.length > 0 && !canProjectDebt && {
+    debtsMissing.length === 0 && debtPlanMissing.length === 0 && debts.length > 0 && !canProjectDebt && {
       key: 'debt',
       text: 'No committed extra payment set, so debt has no payoff date',
       tab: 'debt',
       cta: 'Set a plan',
     },
-    !forecast.ready && {
+    answerMissing.length === 0 && !forecast.ready && {
       key: 'forecast',
       text:
         monthCount < 3
@@ -146,12 +159,14 @@ export default function PlanSummary({ household = null, members, me, accounts, t
     },
   ].filter(Boolean);
 
-  const isEmpty = goals.length === 0 && debts.length === 0 && !forecast.ready;
+  const isEmpty = goals.length === 0 && debts.length === 0 && !forecast.ready && unchecked.length === 0;
 
   // The answer to when work can stop: the Life plan's year once ages are set,
   // and then the first card, with what it assumes about spending (SHR-324).
   // Before that, the independence year, after goals and debt as it always was.
-  const answerCard = (
+  const answerCard = answerMissing.length > 0 ? (
+    <SummaryCard label="Stop working" figure="—" note={`${couldntLoad(answerMissing)} No year is worked out without them.`} cta="Life plan" onClick={() => onOpenTab('life')} />
+  ) : (
     stop ? (
       <SummaryCard
         label="Stop working"
@@ -213,23 +228,33 @@ export default function PlanSummary({ household = null, members, me, accounts, t
   return (
     <div>
       <section className="ov-quality-grid" style={{ marginTop: 22, rowGap: 26 }}>
-        {stop && answerCard}
+        {(stop || answerMissing.length > 0) && answerCard}
         <SummaryCard
           label="Goals"
-          figure={goalRows.length > 0 ? formatMoney(goalsSaved) : '—'}
-          progress={goalRows.length > 0 && goalsTarget > 0 ? goalsSaved / goalsTarget : null}
-          note={goalRows.length > 0 ? `of ${formatMoney(goalsTarget)} target · ${goalRows.length} goal${goalRows.length === 1 ? '' : 's'}` : 'No goals yet'}
+          figure={goalsMissing.length === 0 && goalRows.length > 0 ? formatMoney(goalsSaved) : '—'}
+          progress={goalsMissing.length === 0 && goalRows.length > 0 && goalsTarget > 0 ? goalsSaved / goalsTarget : null}
+          note={
+            goalsMissing.length > 0
+              ? couldntLoad(goalsMissing)
+              : goalRows.length > 0
+                ? `of ${formatMoney(goalsTarget)} target · ${goalRows.length} goal${goalRows.length === 1 ? '' : 's'}`
+                : 'No goals yet'
+          }
           cta="Goals"
           onClick={() => onOpenTab('goals')}
         />
         <SummaryCard
           label="Debt payoff"
-          figure={visibleDebts.length > 0 ? `−${formatMoney(totalOwed)}` : '—'}
-          progress={paidDown}
-          progressLabel={paidDown !== null ? `${formatPct(paidDown)} paid down` : null}
+          figure={debtsMissing.length === 0 && visibleDebts.length > 0 ? `−${formatMoney(totalOwed)}` : '—'}
+          progress={debtsMissing.length === 0 ? paidDown : null}
+          progressLabel={debtsMissing.length === 0 && paidDown !== null ? `${formatPct(paidDown)} paid down` : null}
           note={
-            visibleDebts.length === 0
+            debtsMissing.length > 0
+              ? couldntLoad(debtsMissing)
+              : visibleDebts.length === 0
               ? 'No debts on record'
+              : debtPlanMissing.length > 0
+                ? `${couldntLoad(debtPlanMissing)} No payoff date is worked out.`
               : `${
                   canProjectDebt && debtPlan
                     ? `Debt-free in ${monthsToLabel(debtPlan.months)}`
@@ -241,15 +266,17 @@ export default function PlanSummary({ household = null, members, me, accounts, t
           cta="Debt payoff"
           onClick={() => onOpenTab('debt')}
         />
-        {!stop && answerCard}
+        {!stop && answerMissing.length === 0 && answerCard}
       </section>
 
       <section style={{ marginTop: 40 }}>
         <div className="ov-section-head">
           <div className="ov-kicker">What needs a decision</div>
-          <div className="ov-muted">{actions.length ? `${actions.length} open` : 'All clear'}</div>
+          <div className="ov-muted">
+            {unchecked.length > 0 ? (actions.length ? `${actions.length} open · not all checked` : 'Not all checked') : actions.length ? `${actions.length} open` : 'All clear'}
+          </div>
         </div>
-        {actions.length === 0 ? (
+        {actions.length === 0 && unchecked.length === 0 ? (
           <div className="ov-allclear">
             <span className="ov-dot-pos" />
             <span>All clear — nothing here needs a decision.</span>
@@ -266,6 +293,18 @@ export default function PlanSummary({ household = null, members, me, accounts, t
                 </button>
               </div>
             ))}
+            {unchecked.length > 0 && (
+              <div className="ov-attn-row">
+                <div className="ov-attn-main">
+                  <span>{couldntLoad(unchecked)} What rests on them isn&rsquo;t checked.</span>
+                </div>
+                {onRetry && (
+                  <button type="button" className="om-btn ov-attn-btn" onClick={onRetry}>
+                    Try again
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )}
       </section>

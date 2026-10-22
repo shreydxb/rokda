@@ -5,6 +5,9 @@ import { formatMoney } from '../../lib/money';
 import { amortizeMinimumOnly, debtsWithAccounts, orderDebts, simulatePayoffPlan } from '../../lib/debt';
 import DebtEditor from './DebtEditor';
 import DebtPlanEditor from './DebtPlanEditor';
+import { couldntLoad, neverLoaded } from '../../lib/loadState';
+import { DEBT_INPUTS, DEBT_PLAN_INPUTS } from './planningSources';
+import Withheld from './Withheld';
 
 const STRATEGIES = [
   { id: 'avalanche', label: 'Avalanche' },
@@ -27,7 +30,7 @@ function monthsToLabel(months) {
   return `${years} yr ${rem} mo`;
 }
 
-export default function DebtPayoff({ household, members, me, accounts = [], data, loading, onReload }) {
+export default function DebtPayoff({ household, members, me, accounts = [], data, sources, onRetry, loading, onReload }) {
   const { assumptions, reload } = data;
   // Each debt at its linked account's balance: the one figure net worth uses too.
   const debts = useMemo(() => debtsWithAccounts(data.debts, accounts), [data.debts, accounts]);
@@ -101,6 +104,17 @@ export default function DebtPayoff({ household, members, me, accounts = [], data
   const missing = [!extraCommitted && 'a committed extra payment', !cardAssumptionSet && 'a card-usage assumption'].filter(Boolean);
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
+  const notLoaded = neverLoaded(sources, DEBT_INPUTS);
+  // The saved extra payment: without it the projection isn't worked out, and
+  // its editor would open blank and save over what is there.
+  const planNotLoaded = neverLoaded(sources, DEBT_PLAN_INPUTS);
+  if (notLoaded.length > 0) {
+    return (
+      <Withheld missing={notLoaded} onRetry={onRetry}>
+        Your debts aren&rsquo;t shown, rather than shown as none or at the wrong balance.
+      </Withheld>
+    );
+  }
 
   return (
     <div className="debt">
@@ -184,6 +198,24 @@ export default function DebtPayoff({ household, members, me, accounts = [], data
             <div className="ov-muted debt-plan">
               The payoff order and projection are tracked household-wide — a committed extra payment isn't a per-person number.
               Switch to "Both" to see them.
+            </div>
+          ) : planNotLoaded.length > 0 ? (
+            <div className="debt-plan">
+              <div>
+                <div className="ov-kicker">Payoff projection</div>
+                <div className="debt-projection">
+                  <div className="debt-projection-head">No payoff date</div>
+                  <div className="ov-muted">
+                    {couldntLoad(planNotLoaded)} The projection rests on the saved extra payment, so it isn&rsquo;t worked out. At minimums alone:{' '}
+                    {minimumOnlyByDebt.map((m) => `${m.name} ${m.months === null ? 'revolves indefinitely' : `clears in ${monthsToLabel(m.months)}`}`).join(' · ')}.
+                  </div>
+                  {onRetry && (
+                    <button type="button" className="om-btn debt-primary" onClick={onRetry}>
+                      Try again
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
           ) : (
             <div className="debt-plan">

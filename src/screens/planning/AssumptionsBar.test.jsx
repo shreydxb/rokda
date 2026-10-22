@@ -26,7 +26,7 @@ function history() {
   });
 }
 vi.mock('../useOverviewData', () => ({
-  useOverviewData: () => ({
+  usePlanningInputs: () => ({
     loading: false,
     accounts: [{ id: 'a1', type: 'savings', currency: 'AED', balance: 200000, balance_aed: 200000, is_shared: true, archived_at: null }],
     transactions: history(),

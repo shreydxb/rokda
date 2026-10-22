@@ -89,3 +89,20 @@ describe('Goals: today\'s costs and funding in priority order', () => {
     expect(rows[1]).toMatch(/^—Emergency fund · 2027/);
   });
 });
+
+describe('Goals: goals that never loaded', () => {
+  it('says so, rather than offering to add the first goal', () => {
+    renderScreen(
+      <Goals household={{ id: 'h' }} members={MEMBERS} me={{ id: 'm1' }} accounts={ACCOUNTS} holdings={[]} data={{ ...DATA, goals: [] }} sources={{ errors: { goals: { message: 'canceling statement due to statement timeout' } }, loaded: {} }} loading={false} />,
+    );
+    expect(screen.getByText('Couldn’t load goals.')).toBeTruthy();
+    expect(screen.queryByText(/Add a goal to start/)).toBeNull();
+  });
+
+  it('waits for the assumptions too, rather than costing goals at the defaults', () => {
+    renderScreen(
+      <Goals household={{ id: 'h' }} members={MEMBERS} me={{ id: 'm1' }} accounts={ACCOUNTS} holdings={[]} data={DATA} sources={{ errors: { assumptions: { message: 'canceling statement due to statement timeout' } }, loaded: {} }} loading={false} />,
+    );
+    expect(screen.getByText('Couldn’t load planning assumptions.')).toBeTruthy();
+  });
+});

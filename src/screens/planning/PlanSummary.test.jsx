@@ -28,10 +28,13 @@ function history() {
   });
 }
 
-function renderSummary(data = {}) {
+function renderSummary(data = {}, sources) {
   const onOpenTab = vi.fn();
+  const onRetry = vi.fn();
   renderScreen(
     <PlanSummary
+      sources={sources}
+      onRetry={onRetry}
       members={MEMBERS}
       me={MEMBERS[0]}
       accounts={[ACCOUNT]}
@@ -42,7 +45,7 @@ function renderSummary(data = {}) {
       onOpenTab={onOpenTab}
     />,
   );
-  return { onOpenTab };
+  return { onOpenTab, onRetry };
 }
 
 describe('PlanSummary: when work can stop', () => {
@@ -71,5 +74,43 @@ describe('PlanSummary: when work can stop', () => {
     expect(document.querySelector('.ov-quality-grid .ov-kicker').textContent).toBe('Goals');
     fireEvent.click(screen.getByText('Forecast →'));
     expect(onOpenTab).toHaveBeenCalledWith('forecast');
+  });
+});
+
+describe('PlanSummary: records that never loaded are not read as none', () => {
+  const failed = { message: 'canceling statement due to statement timeout' };
+
+  it('says goals and debts did not load, works out no stop year, and does not say All clear', () => {
+    const { onRetry } = renderSummary({}, { errors: { goals: failed, debts: failed }, loaded: { accounts: true, transactions: true } });
+    expect(screen.queryByText(/All clear/)).toBeNull();
+    expect(screen.queryByText('No goals yet')).toBeNull();
+    expect(screen.queryByText('No debts on record')).toBeNull();
+    expect(screen.getByText('Not all checked')).toBeTruthy();
+    expect(screen.getByText('Couldn’t load goals and debts. What rests on them isn’t checked.')).toBeTruthy();
+    expect(screen.getByText('Couldn’t load goals.')).toBeTruthy();
+    expect(screen.getByText('Couldn’t load debts.')).toBeTruthy();
+    expect(screen.getByText('Couldn’t load goals. No year is worked out without them.')).toBeTruthy();
+    fireEvent.click(screen.getByText('Try again'));
+    expect(onRetry).toHaveBeenCalled();
+  });
+
+  it('still shows what loaded before, when only a later read failed', () => {
+    renderSummary({}, { errors: { goals: failed }, loaded: { goals: true, debts: true, accounts: true, transactions: true } });
+    expect(screen.getByText('All clear — nothing here needs a decision.')).toBeTruthy();
+    expect(screen.queryByText(/Couldn’t load/)).toBeNull();
+  });
+
+  it('with the household unread, says so rather than that there is nothing to plan', () => {
+    renderSummary({}, { errors: { household: { message: 'canceling statement due to statement timeout' } }, loaded: { household: false } });
+    expect(screen.queryByText('Nothing to plan yet')).toBeNull();
+    expect(screen.getByText('Couldn’t load your household. What rests on them isn’t checked.')).toBeTruthy();
+  });
+
+  it('offers what it could check and names the rest once, when only the ages are unread', () => {
+    const debt = { id: 'd1', name: 'Car loan', note: '', balance: 40000, apr_pct: 3.5, minimum_payment: 2193, is_shared: true, account_id: null };
+    renderSummary({ debts: [debt], memberLife: [] }, { errors: { memberLife: { message: 'canceling statement due to statement timeout' } }, loaded: { household: true, debts: true, assumptions: true } });
+    expect(screen.getByText('1 open · not all checked')).toBeTruthy();
+    expect(screen.getByText('No committed extra payment set, so debt has no payoff date')).toBeTruthy();
+    expect(screen.getByText('Couldn’t load ages for the life plan. What rests on them isn’t checked.')).toBeTruthy();
   });
 });

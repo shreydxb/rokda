@@ -1,21 +1,40 @@
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { parseNote } from '../../lib/notes';
+import { neverLoaded } from '../../lib/loadState';
+import { NOTES_INPUTS } from './planningSources';
+import Withheld from './Withheld';
 
 // The plan in words: why the goals, budget and split are what they are, and
 // what is still to decide. The figures live on the other tabs; these notes
 // keep the reasoning next to them, behind the household's login.
-export default function Notes({ household, me, members = [], data, loading }) {
+export default function Notes({ household, me, members = [], data, sources, onRetry, loading }) {
   const notes = data?.notes ?? [];
   const [editing, setEditing] = useState(null); // null | 'new' | note id
+  // Until the read after a save lands, a note on screen is the version from
+  // before it: opened again then, it would show the old text.
+  const [reloading, setReloading] = useState(false);
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
+  const missing = neverLoaded(sources, NOTES_INPUTS);
+  if (missing.length > 0) {
+    return (
+      <Withheld missing={missing} onRetry={onRetry}>
+        Your notes aren&rsquo;t shown, rather than shown as none.
+      </Withheld>
+    );
+  }
 
   const nameOf = (id) => members.find((m) => m.id === id)?.display_name;
   const nextPosition = notes.reduce((max, n) => Math.max(max, n.position ?? 0), 0) + 1;
   const done = async () => {
     setEditing(null);
-    await data.reload();
+    setReloading(true);
+    try {
+      await data.reload();
+    } finally {
+      setReloading(false);
+    }
   };
 
   return (
@@ -25,7 +44,7 @@ export default function Notes({ household, me, members = [], data, loading }) {
           The reasons behind the plan, and what is still open. Only your household can see these.
         </div>
         <div className="mn-toolbar-end">
-          <button type="button" className="om-btn mn-add" onClick={() => setEditing('new')} disabled={editing !== null}>
+          <button type="button" className="om-btn mn-add" onClick={() => setEditing('new')} disabled={editing !== null || reloading}>
             + Add note
           </button>
         </div>
@@ -48,7 +67,7 @@ export default function Notes({ household, me, members = [], data, loading }) {
             <article key={note.id} className="nt-card" aria-label={note.title}>
               <div className="nt-head">
                 <h2 className="nt-title">{note.title}</h2>
-                <button type="button" className="om-link nt-edit" onClick={() => setEditing(note.id)} disabled={editing !== null}>
+                <button type="button" className="om-link nt-edit" onClick={() => setEditing(note.id)} disabled={editing !== null || reloading}>
                   Edit
                 </button>
               </div>
@@ -107,9 +126,35 @@ function NoteBody({ body }) {
 function NoteEditor({ note, householdId, me, position = 0, onCancel, onSaved }) {
   const [title, setTitle] = useState(note?.title ?? '');
   const [body, setBody] = useState(note?.body ?? '');
+  // The version this edit started from. The note itself is read again every
+  // few minutes while the editor is open, so the check below must not use the
+  // latest one: that would let this save replace a change made meanwhile.
+  const [openedAt] = useState(note?.updated_at ?? null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  // A note can run to pages. Changed and unsaved, Cancel asks first, as the
+  // drawers do, and so does leaving the page.
+  const dirty = title !== (note?.title ?? '') || body !== (note?.body ?? '');
+
+  useEffect(() => {
+    if (!dirty) return undefined;
+    const warn = (e) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
+
+  function cancel() {
+    if (dirty && !confirmingCancel) {
+      setConfirmingCancel(true);
+      return;
+    }
+    onCancel();
+  }
 
   async function save(e) {
     e.preventDefault();
@@ -120,12 +165,19 @@ function NoteEditor({ note, householdId, me, position = 0, onCancel, onSaved }) 
     setSaving(true);
     setError('');
     const payload = { title: title.trim(), body, updated_by: me?.id ?? null, updated_at: new Date().toISOString() };
-    const { error: saveError } = note
-      ? await supabase.from('household_notes').update(payload).eq('id', note.id)
+    // An edit saves only over the version it was opened from. Both partners
+    // can edit the same note, and the second save used to replace the first
+    // without a word.
+    const { data: saved, error: saveError } = note
+      ? await supabase.from('household_notes').update(payload).eq('id', note.id).eq('updated_at', openedAt).select('id')
       : await supabase.from('household_notes').insert({ ...payload, household_id: householdId, position });
     setSaving(false);
     if (saveError) {
       setError(saveError.message);
+      return;
+    }
+    if (note && (saved ?? []).length === 0) {
+      setError('This note was changed after you opened it, here or elsewhere, so yours was not saved over it. Copy what you wrote, then Cancel and open the note again.');
       return;
     }
     await onSaved();
@@ -178,12 +230,26 @@ function NoteEditor({ note, householdId, me, position = 0, onCancel, onSaved }) 
             </button>
           ))}
         <span style={{ flex: 1 }} />
-        <button type="button" className="om-btn" onClick={onCancel}>
-          Cancel
-        </button>
-        <button type="submit" className="om-btn ov-btn-primary" disabled={saving}>
-          {saving ? 'Saving…' : note ? 'Save' : 'Add note'}
-        </button>
+        {confirmingCancel ? (
+          <>
+            <span className="ov-muted">Discard changes?</span>
+            <button type="button" className="om-btn" onClick={onCancel}>
+              Discard
+            </button>
+            <button type="button" className="om-btn" onClick={() => setConfirmingCancel(false)}>
+              Keep editing
+            </button>
+          </>
+        ) : (
+          <>
+            <button type="button" className="om-btn" onClick={cancel}>
+              Cancel
+            </button>
+            <button type="submit" className="om-btn ov-btn-primary" disabled={saving}>
+              {saving ? 'Saving…' : note ? 'Save' : 'Add note'}
+            </button>
+          </>
+        )}
       </div>
     </form>
   );

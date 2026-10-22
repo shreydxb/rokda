@@ -8,6 +8,9 @@ import IncomeEditor from './IncomeEditor';
 import BudgetBasis from './BudgetBasis';
 import ForecastAssumptionsEditor from './ForecastAssumptionsEditor';
 import AssumptionsBar from './AssumptionsBar';
+import { neverLoaded } from '../../lib/loadState';
+import { projectionInputs } from './planningSources';
+import Withheld from './Withheld';
 
 const DEFAULTS = { nominal_return_pct: 6.0, inflation_pct: 2.5, safe_withdrawal_pct: 4.0 };
 const MAX_YEARS = 60;
@@ -41,7 +44,7 @@ const lastsText = (years) => (years === null ? `${MAX_YEARS}+ years` : `${years}
 // with Forecast and Life plan when Planning passes it (AssumptionsBar); the
 // rest are held on this screen only.
 export default function Drawdown({ household, members = [], accounts = [], transactions = [],
-  recurring = [], holdings = [], budgets = [], categories = [], data, loading, onOpenTab, scenario, onScenario }) {
+  recurring = [], holdings = [], budgets = [], categories = [], data, sources, onRetry, loading, onOpenTab, scenario, onScenario }) {
   const { assumptions } = data;
   const money = useMoneyDisplay(household);
   const now = useMemo(() => new Date(), []);
@@ -87,6 +90,14 @@ export default function Drawdown({ household, members = [], accounts = [], trans
   }, [members, data.memberLife, data.goals, data.independenceIncome, inputs, assumptions, startNetWorth, household, transactions, budgets, categories, now, fcSet]);
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
+  const missing = neverLoaded(sources, projectionInputs(inputs));
+  if (missing.length > 0) {
+    return (
+      <Withheld missing={missing} onRetry={onRetry}>
+        How long the money lasts isn&rsquo;t worked out, rather than worked out without them.
+      </Withheld>
+    );
+  }
 
   if (!inputs.ready) {
     return (

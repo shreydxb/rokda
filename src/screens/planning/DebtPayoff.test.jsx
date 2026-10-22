@@ -42,3 +42,22 @@ describe('DebtPayoff: figures and what a projection needs', () => {
     expect(screen.getByText('0 a month').className).toBe('ov-chip-warn');
   });
 });
+
+describe('DebtPayoff: debts that never loaded', () => {
+  it('says so, rather than showing no debts', () => {
+    renderScreen(
+      <DebtPayoff household={{ id: 'h' }} members={[]} me={null} accounts={[LOAN]} data={{ debts: [], assumptions: null, reload: vi.fn() }} sources={{ errors: { debts: { message: 'canceling statement due to statement timeout' } }, loaded: {} }} loading={false} />,
+    );
+    expect(screen.getByText('Couldn’t load debts.')).toBeTruthy();
+    expect(screen.queryByText('No debts')).toBeNull();
+  });
+
+  it('with only the assumptions unread, shows the debts but not a payoff date, and no editor to save over them', () => {
+    renderScreen(
+      <DebtPayoff household={{ id: 'h' }} members={[]} me={null} accounts={[LOAN]} data={{ debts: [debt()], assumptions: null, reload: vi.fn() }} sources={{ errors: { assumptions: { message: 'canceling statement due to statement timeout' } }, loaded: {} }} loading={false} />,
+    );
+    expect(screen.getByText('Car loan')).toBeTruthy();
+    expect(screen.getByText(/^Couldn’t load planning assumptions\. The projection rests on the saved extra payment/)).toBeTruthy();
+    expect(screen.queryByText('Set an extra payment')).toBeNull();
+  });
+});

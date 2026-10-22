@@ -1,9 +1,13 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest';
+import { useState } from 'react';
+import { act } from '@testing-library/react';
 import { screen, fireEvent, waitFor } from '@testing-library/dom';
 import { renderScreen } from '../../test/renderScreen';
 import Notes from './Notes';
 
-const calls = vi.hoisted(() => ({ inserts: [], updates: [], deletes: [] }));
+// `stored` is the note's updated_at in the database: an update filtered on an
+// older one matches no row, as PostgREST's would after a partner's save.
+const calls = vi.hoisted(() => ({ inserts: [], updates: [], deletes: [], stored: null }));
 vi.mock('../../lib/supabaseClient', () => ({
   supabase: {
     from: (table) => ({
@@ -11,12 +15,21 @@ vi.mock('../../lib/supabaseClient', () => ({
         calls.inserts.push({ table, row });
         return { error: null };
       },
-      update: (row) => ({
-        eq: async (col, id) => {
-          calls.updates.push({ table, row, id });
-          return { error: null };
-        },
-      }),
+      update: (row) => {
+        const filters = {};
+        const chain = {
+          eq: (col, value) => {
+            filters[col] = value;
+            return chain;
+          },
+          select: async () => {
+            calls.updates.push({ table, row, id: filters.id, updatedAt: filters.updated_at });
+            const matches = calls.stored === null || filters.updated_at === calls.stored;
+            return { data: matches ? [{ id: filters.id }] : [], error: null };
+          },
+        };
+        return chain;
+      },
       delete: () => ({
         eq: async (col, id) => {
           calls.deletes.push({ table, id });
@@ -31,15 +44,17 @@ beforeEach(() => {
   calls.inserts.length = 0;
   calls.updates.length = 0;
   calls.deletes.length = 0;
+  calls.stored = null;
 });
 
 const MEMBERS = [{ id: 'm1', display_name: 'Alex' }];
 const NOTE = { id: 'n1', title: 'Who pays what', body: '# Split\nShared costs by income.\n\n- **Rent** is shared\n- <b>not markup</b>', position: 1, updated_by: 'm1', updated_at: '2026-09-28T10:00:00Z' };
 
-function renderNotes(notes = [NOTE]) {
+function renderNotes(notes = [NOTE], sources) {
   const reload = vi.fn().mockResolvedValue(undefined);
-  renderScreen(<Notes household={{ id: 'h' }} me={{ id: 'm1' }} members={MEMBERS} data={{ notes, reload }} loading={false} />);
-  return { reload };
+  const onRetry = vi.fn();
+  renderScreen(<Notes household={{ id: 'h' }} me={{ id: 'm1' }} members={MEMBERS} data={{ notes, reload }} sources={sources} onRetry={onRetry} loading={false} />);
+  return { reload, onRetry };
 }
 
 describe('Notes', () => {
@@ -75,12 +90,79 @@ describe('Notes', () => {
     fireEvent.click(screen.getByText('Edit'));
     fireEvent.click(screen.getByText('Save'));
     await waitFor(() => expect(calls.updates).toHaveLength(1));
-    expect(calls.updates[0].id).toBe('n1');
+    expect(calls.updates[0]).toMatchObject({ id: 'n1', updatedAt: NOTE.updated_at });
     fireEvent.click(screen.getByText('Edit'));
     fireEvent.click(screen.getByText('Delete'));
     expect(screen.getByText('Delete this note?')).toBeTruthy();
     fireEvent.click(screen.getByText('Delete'));
     await waitFor(() => expect(calls.deletes).toEqual([{ table: 'household_notes', id: 'n1' }]));
     expect(reload).toHaveBeenCalledTimes(2);
+  });
+
+  it('asks before Cancel throws away a changed note, and not when nothing changed', () => {
+    renderNotes();
+    fireEvent.click(screen.getByText('Edit'));
+    fireEvent.click(screen.getByText('Cancel'));
+    expect(screen.queryByText('Discard changes?')).toBeNull();
+    expect(screen.getByText('Edit')).toBeTruthy();
+    fireEvent.click(screen.getByText('Edit'));
+    fireEvent.change(screen.getByPlaceholderText('e.g. Who pays what'), { target: { value: 'Who pays what, and why' } });
+    fireEvent.click(screen.getByText('Cancel'));
+    expect(screen.getByText('Discard changes?')).toBeTruthy();
+    fireEvent.click(screen.getByText('Keep editing'));
+    expect(screen.getByPlaceholderText('e.g. Who pays what').value).toBe('Who pays what, and why');
+  });
+
+  it('will not save over a note changed since it was opened', async () => {
+    const { reload } = renderNotes();
+    calls.stored = '2026-09-29T08:00:00Z';
+    fireEvent.click(screen.getByText('Edit'));
+    fireEvent.change(screen.getByPlaceholderText('e.g. Who pays what'), { target: { value: 'Mine' } });
+    fireEvent.click(screen.getByText('Save'));
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent', expect.stringMatching(/^This note was changed after you opened it/));
+    expect(reload).not.toHaveBeenCalled();
+    expect(screen.getByPlaceholderText('e.g. Who pays what').value).toBe('Mine');
+  });
+
+  it('says the notes did not load, rather than that there are none', () => {
+    const { onRetry } = renderNotes([], { errors: { notes: { message: 'timeout' } }, loaded: {} });
+    expect(screen.queryByText('No notes')).toBeNull();
+    expect(screen.getByText('Couldn’t load household notes.')).toBeTruthy();
+    fireEvent.click(screen.getByText('Try again'));
+    expect(onRetry).toHaveBeenCalled();
+  });
+
+  it('saves only over the version it was opened from, though the note is read again while it is open', async () => {
+    // The page reads the notes again every few minutes; here that brings in
+    // the partner's save while this edit is still open.
+    let setNotes;
+    function Page() {
+      const [notes, set] = useState([NOTE]);
+      setNotes = set;
+      return <Notes household={{ id: 'h' }} me={{ id: 'm1' }} members={MEMBERS} data={{ notes, reload: vi.fn() }} loading={false} />;
+    }
+    renderScreen(<Page />);
+    fireEvent.click(screen.getByText('Edit'));
+    fireEvent.change(screen.getByPlaceholderText('e.g. Who pays what'), { target: { value: 'Mine' } });
+
+    const theirs = { ...NOTE, body: 'Their text', updated_at: '2026-09-29T08:00:00Z' };
+    calls.stored = theirs.updated_at;
+    act(() => setNotes([theirs]));
+    fireEvent.click(screen.getByText('Save'));
+
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent', expect.stringMatching(/^This note was changed after you opened it/));
+    expect(calls.updates[0].updatedAt).toBe(NOTE.updated_at);
+  });
+
+  it('opens a note again only once the read after its save has landed', async () => {
+    let finishReload;
+    const reload = vi.fn(() => new Promise((resolve) => (finishReload = resolve)));
+    renderScreen(<Notes household={{ id: 'h' }} me={{ id: 'm1' }} members={MEMBERS} data={{ notes: [NOTE], reload }} loading={false} />);
+    fireEvent.click(screen.getByText('Edit'));
+    fireEvent.click(screen.getByText('Save'));
+    await waitFor(() => expect(reload).toHaveBeenCalled());
+    expect(screen.getByText('Edit').disabled).toBe(true);
+    await act(async () => finishReload());
+    expect(screen.getByText('Edit').disabled).toBe(false);
   });
 });
