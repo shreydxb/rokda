@@ -1,4 +1,5 @@
 import { Buffer } from 'node:buffer';
+import { expect } from '@playwright/test';
 // A synthetic household, served to the browser in place of Supabase.
 //
 // These tests must never point at the real project: the ledger is one
@@ -280,8 +281,17 @@ export async function stubSupabase(page, { empty = false, tables = {}, failReads
 
 // Picks a household scope or display currency in the shell. On a phone those
 // switches are folded behind the "Both · AED" button, so it is opened first.
+// Which layout the page has is only known once the shell has rendered, so it
+// waits for the fold button or the switch to show before deciding: asking
+// straight away, a slow page had neither yet, the fold was never opened and
+// the click waited for a switch that stayed hidden.
 export async function pickInShell(page, group, name) {
   const folded = page.locator('.om-sidetoggle');
-  if ((await folded.isVisible()) && (await folded.getAttribute('aria-expanded')) !== 'true') await folded.click();
-  await page.getByRole('group', { name: group }).getByRole('button', { name, exact: true }).click();
+  const target = page.getByRole('group', { name: group }).getByRole('button', { name, exact: true });
+  await expect.poll(async () => (await folded.isVisible()) || (await target.isVisible())).toBe(true);
+  if ((await folded.isVisible()) && (await folded.getAttribute('aria-expanded')) !== 'true') {
+    await folded.click();
+    await expect(folded).toHaveAttribute('aria-expanded', 'true');
+  }
+  await target.click();
 }
