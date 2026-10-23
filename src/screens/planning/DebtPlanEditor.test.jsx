@@ -21,7 +21,7 @@ function renderEditor(assumptions = null) {
   return { onSaved };
 }
 
-const extra = () => screen.getByLabelText('Committed extra payment, AED a month');
+const extra = () => screen.getByLabelText('Extra payment, AED a month');
 
 beforeEach(() => {
   calls.upserts.length = 0;
@@ -29,22 +29,29 @@ beforeEach(() => {
 
 // Nothing tested what this drawer saves (Planning audit, 0b-C).
 describe('DebtPlanEditor', () => {
-  it('saves a blank extra payment as not set, not as 0', async () => {
-    const { onSaved } = renderEditor();
-    fireEvent.click(screen.getByText('Stops — nothing new charged'));
+  it('saves a blank extra payment as none, not as 0', async () => {
+    const { onSaved } = renderEditor({ debt_extra_payment: 500 });
+    fireEvent.change(extra(), { target: { value: '' } });
     fireEvent.click(screen.getByText('Save changes'));
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
-    expect(calls.upserts[0].row).toMatchObject({ household_id: 'h', debt_extra_payment: null, debt_assume_no_new_card_spend: true });
+    expect(calls.upserts[0].row).toMatchObject({ household_id: 'h', debt_extra_payment: null });
   });
 
-  it('saves 0 when 0 is entered, and the card choice as it stands', async () => {
-    const { onSaved } = renderEditor({ debt_extra_payment: 500, debt_assume_no_new_card_spend: true });
+  it('saves 0 when 0 is entered', async () => {
+    const { onSaved } = renderEditor({ debt_extra_payment: 500 });
     expect(extra().value).toBe('500');
     fireEvent.change(extra(), { target: { value: '0' } });
-    fireEvent.click(screen.getByText('Continues at the current rate'));
     fireEvent.click(screen.getByText('Save changes'));
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
-    expect(calls.upserts[0].row).toMatchObject({ debt_extra_payment: 0, debt_assume_no_new_card_spend: false });
+    expect(calls.upserts[0].row).toMatchObject({ debt_extra_payment: 0 });
+  });
+
+  // Planning audit, 1.4: its answer changed nothing.
+  it('no longer asks about new spend on the card', () => {
+    renderEditor();
+    expect(screen.queryByText(/revolving card/)).toBeNull();
+    fireEvent.click(screen.getByText('Save changes'));
+    return waitFor(() => expect(calls.upserts[0].row).not.toHaveProperty('debt_assume_no_new_card_spend'));
   });
 
   it('refuses a negative extra payment', () => {

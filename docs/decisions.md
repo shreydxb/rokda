@@ -2383,3 +2383,27 @@ one (Planning audit, 1.3).
   the year empty wrote the suggested 60th-birthday year, which then read as
   chosen. It saves nothing, and the editor says the year is assumed until
   one is chosen.
+
+## Debt payoff dates the loan
+
+Debt payoff showed no date until an extra payment and a card-usage answer
+were entered, though every loan clears on its own minimum (Planning audit,
+1.4).
+
+- **It leads with the date at the minimums** and the interest still to pay
+  until then, worked out debt by debt (lib/debt.js, minimumOnlyPayoff), the
+  same words Plan uses. Each debt in the list says when it clears.
+- **An extra payment is a what-if.** It is optional; once set, the page gives
+  its date and interest against the minimums', with a rule of thumb beside
+  it: fill the cash reserve before paying extra on a loan at a low rate. It
+  stays the household's, shown with both partners selected.
+- **The card-usage setting is gone.** Its answer changed nothing the page
+  worked out, but a date waited on it. The column is left as it was, unread.
+- **The order is saved, and only offered when it matters.** Avalanche or
+  snowball is kept for the household (migration `debt_order`), so it holds
+  for both partners and Plan's projection follows it; it was forgotten on
+  every reload and Plan always used avalanche. The switch shows from two
+  debts owed, since with one it changes nothing. "Custom order" is gone until
+  a debt's rank can be set.
+- **A 0 rate or minimum is named for checking**, since every date rests on
+  them and a 0 is also what a blank was once saved as.

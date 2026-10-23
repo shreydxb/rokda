@@ -2,7 +2,7 @@ import { afterEach, describe, it, expect, vi } from 'vitest';
 import { screen, fireEvent, within } from '@testing-library/dom';
 import { MemoryRouter } from 'react-router-dom';
 import { renderScreen } from '../../test/renderScreen';
-import { payoffMonthLabel } from '../../lib/debt';
+import { orderDebts, payoffMonthLabel, simulatePayoffPlan } from '../../lib/debt';
 import PlanSummary from './PlanSummary';
 
 vi.mock('../../lib/supabaseClient', () => ({ supabase: {} }));
@@ -237,5 +237,20 @@ describe('PlanSummary: the budget beside the records', () => {
   it('says nothing more without a budget', () => {
     renderSummary();
     expect(within(card('Stop working')).queryByText(/On your budget/)).toBeNull();
+  });
+});
+
+// Planning audit, 1.4: Plan always used avalanche, whatever was chosen.
+describe('PlanSummary: the debt order chosen on Debt payoff', () => {
+  it('projects the extra payment in that order', () => {
+    const debts = [
+      { ...LOAN, id: 'd1', name: 'Card', balance: 20000, apr_pct: 36, minimum_payment: 600 },
+      { ...LOAN, id: 'd2', name: 'Loan', balance: 3000, apr_pct: 0, minimum_payment: 100 },
+    ];
+    const months = (order) => simulatePayoffPlan(orderDebts(debts, order), 300).months;
+    // Snowball finishes later here, so the date says which order was used.
+    expect(months('snowball')).toBeGreaterThan(months('avalanche'));
+    renderSummary({ debts, assumptions: { debt_extra_payment: 300, debt_order: 'snowball' } });
+    expect(within(card('Debt payoff')).getByText(`Clears about ${payoffMonthLabel(months('snowball'), new Date())} with the extra payment · not all in net worth`)).toBeTruthy();
   });
 });

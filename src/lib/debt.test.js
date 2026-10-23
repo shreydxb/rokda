@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { amortizeMinimumOnly, debtsWithAccounts, minimumOnlyPayoff, payoffMonthLabel, simulatePayoffPlan } from './debt';
+import { amortizeMinimumOnly, debtsWithAccounts, interestText, minimumOnlyPayoff, minimumOnlyText, payoffMonthLabel, simulatePayoffPlan } from './debt';
 
 // QA / SHR-228: simulatePayoffPlan lost the unused part of a minimum payment
 // in the very month it went unused, instead of carrying it into the same
@@ -128,7 +128,7 @@ describe('minimumOnlyPayoff', () => {
   });
 
   it('leaves out what owes nothing, and has no date when nothing is owed', () => {
-    expect(minimumOnlyPayoff([debt('Card', 0, 20, 100)])).toEqual({ owed: 0, months: null, last: null, never: [], tooLong: [] });
+    expect(minimumOnlyPayoff([debt('Card', 0, 20, 100)])).toEqual({ owed: 0, months: null, last: null, never: [], tooLong: [], interest: 0, byDebt: [] });
     expect(minimumOnlyPayoff([debt('Card', 0, 20, 100), debt('Loan', 1000, 0, 500)])).toMatchObject({ owed: 1, months: 2 });
   });
 
@@ -137,5 +137,33 @@ describe('minimumOnlyPayoff', () => {
     expect(payoff.never.map((d) => d.name)).toEqual(['Card']);
     expect(payoff.tooLong.map((d) => d.name)).toEqual(['Loan']);
     expect(payoff.months).toBe(2);
+  });
+});
+
+// Planning audit, 1.4: Debt payoff leads with the date at the minimums and the
+// interest still to pay.
+describe('minimumOnlyPayoff: interest and words', () => {
+  const debt = (name, balance, apr_pct, minimum_payment) => ({ name, balance, apr_pct, minimum_payment });
+  const now = new Date(2026, 9, 20);
+
+  it('adds up the interest the minimums pay until each debt clears', () => {
+    // 1% a month on 1,000, paying 600: 10 then 4.10 of interest, clear in month 2.
+    const payoff = minimumOnlyPayoff([debt('Loan', 1000, 12, 600), debt('Car', 1200, 0, 100)]);
+    expect(payoff.interest).toBeCloseTo(14.1, 6);
+    expect(payoff.byDebt.map((r) => [r.debt.name, r.months])).toEqual([['Loan', 2], ['Car', 12]]);
+    expect(interestText(payoff)).toBe('AED 14 of interest still to pay');
+  });
+
+  it('has no interest figure while a debt has no date', () => {
+    const payoff = minimumOnlyPayoff([debt('Card', 10000, 24, 100), debt('Car', 1200, 0, 100)]);
+    expect(payoff.interest).toBeNull();
+    expect(interestText(payoff)).toBeNull();
+  });
+
+  it('says the date, or why there is none, in the same words everywhere', () => {
+    expect(minimumOnlyText(minimumOnlyPayoff([debt('Car', 1200, 0, 100)]), now)).toBe('Clears about Oct 2027 at the minimum payment');
+    expect(minimumOnlyText(minimumOnlyPayoff([debt('Car', 1200, 0, 100), debt('Card', 200, 0, 100)]), now)).toBe('All clear about Oct 2027 at the minimums, Car last');
+    expect(minimumOnlyText(minimumOnlyPayoff([debt('Card', 10000, 24, 100)]), now)).toBe("No payoff date: the minimum on Card doesn't cover its interest");
+    expect(minimumOnlyText(minimumOnlyPayoff([debt('Car', 0, 0, 100)]), now)).toBe('Nothing owed');
   });
 });

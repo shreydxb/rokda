@@ -410,6 +410,19 @@
 .debt-total {
   color: var(--ink);
 }
+/* The date the debts are on at their minimums, and what that costs: the
+   page's answer, ahead of the list (Planning audit, 1.4). */
+.debt-lead {
+  margin-top: 10px;
+}
+.debt-lead-date {
+  font-size: 18px;
+  color: var(--ink);
+}
+.debt-lead .ov-muted {
+  margin-top: 4px;
+  font-size: 12.5px;
+}
 .debt-note {
   margin-top: 8px;
   font-size: 12.5px;
@@ -460,7 +473,7 @@
 }
 .debt-figures {
   display: grid;
-  grid-template-columns: repeat(3, minmax(88px, auto));
+  grid-template-columns: repeat(4, minmax(80px, auto));
   gap: 4px 20px;
   margin: 0;
   text-align: right;
@@ -478,31 +491,9 @@
 .debt-figures dd.ov-neg {
   font-size: 16px;
 }
-.debt-plan {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 44px;
+.debt-whatif {
   margin-top: 32px;
-}
-.debt-inputs {
-  margin-top: 12px;
-}
-.debt-input {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 0;
-  border-top: 1px solid var(--rule);
-  font-size: 13.5px;
-}
-.debt-input .ov-muted {
-  font-size: 11.5px;
-  margin-top: 3px;
-}
-.debt-input > span {
-  flex: none;
-  white-space: nowrap;
+  max-width: 64ch;
 }
 .debt-projection {
   margin-top: 12px;
@@ -528,13 +519,9 @@
   }
   .debt-figures {
     grid-column: 2;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 4px 12px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 12px;
     text-align: left;
-  }
-  .debt-plan {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 28px;
   }
 }
 

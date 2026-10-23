@@ -3,18 +3,13 @@ import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
 import '../money/TransactionEditor.css';
 
-const CARD_USAGE = [
-  { id: '', label: 'Not set' },
-  { id: 'no', label: 'Stops — nothing new charged' },
-  { id: 'yes', label: 'Continues at the current rate' },
-];
-
+// An extra payment on the debts, as a what-if: Debt payoff dates the debts
+// at their minimums whether or not one is set. It used to ask too whether new
+// spend continues on the card, an answer that changed nothing it worked out
+// (Planning audit, 1.4); the column is left as it was, unread.
 export default function DebtPlanEditor({ householdId, assumptions, onClose, onSaved }) {
   const drawerRef = useDrawerFocus();
   const [extraPayment, setExtraPayment] = useState(assumptions?.debt_extra_payment != null ? String(assumptions.debt_extra_payment) : '');
-  const [cardUsage, setCardUsage] = useState(
-    assumptions?.debt_assume_no_new_card_spend === true ? 'no' : assumptions?.debt_assume_no_new_card_spend === false ? 'yes' : ''
-  );
   const [dirty, setDirty] = useState(false);
   const [confirmingClose, setConfirmingClose] = useState(false);
   const [error, setError] = useState('');
@@ -37,8 +32,8 @@ export default function DebtPlanEditor({ householdId, assumptions, onClose, onSa
     onClose();
   }
 
-  // Blank is "not set", which Debt payoff asks for; a negative payment is no
-  // commitment at all, and the database refuses it too.
+  // Blank is none; a negative payment is no payment at all, and the database
+  // refuses it too.
   const extraProblem = extraPayment.trim() !== '' && !(Number(extraPayment) >= 0) ? 'An extra payment of zero or more.' : '';
 
   async function handleSave(e) {
@@ -54,7 +49,6 @@ export default function DebtPlanEditor({ householdId, assumptions, onClose, onSa
     const payload = {
       household_id: householdId,
       debt_extra_payment: extraPayment.trim() === '' ? null : Number(extraPayment),
-      debt_assume_no_new_card_spend: cardUsage === '' ? null : cardUsage === 'no',
       updated_at: new Date().toISOString(),
     };
 
@@ -76,7 +70,7 @@ export default function DebtPlanEditor({ householdId, assumptions, onClose, onSa
               <span className="ov-kicker">Debt payoff inputs</span>
               {dirty && <span className="te-dirty-chip">Unsaved</span>}
             </div>
-            <div className="te-title">Extra payment &amp; card usage</div>
+            <div className="te-title">Extra payment</div>
           </div>
           <button type="button" className="te-close" onClick={requestClose} aria-label="Close">
             ×
@@ -85,7 +79,7 @@ export default function DebtPlanEditor({ householdId, assumptions, onClose, onSa
 
         <form className="te-form" onSubmit={handleSave} noValidate>
           <div>
-            <div className="te-hero-label">Committed extra payment (per month)</div>
+            <div className="te-hero-label">Extra payment (per month)</div>
             <div className="te-hero-row">
               <span className="te-hero-currency">AED</span>
               <input
@@ -99,36 +93,14 @@ export default function DebtPlanEditor({ householdId, assumptions, onClose, onSa
                   setDirty(true);
                 }}
                 placeholder="0"
-                aria-label="Committed extra payment, AED a month"
+                aria-label="Extra payment, AED a month"
                 aria-invalid={!!error && !!extraProblem}
               />
             </div>
           </div>
           <div className="ov-muted" style={{ fontSize: 11.5, marginTop: -10 }}>
-            On top of every debt's minimum, rolled onto whichever debt is first in the current payoff order.
-          </div>
-
-          <div>
-            <span className="te-fieldlabel">New spend on the revolving card</span>
-            <div className="te-chips">
-              {CARD_USAGE.map((o) => (
-                <button
-                  key={o.id}
-                  type="button"
-                  className="om-seg"
-                  data-active={cardUsage === o.id} aria-pressed={cardUsage === o.id}
-                  onClick={() => {
-                    setCardUsage(o.id);
-                    setDirty(true);
-                  }}
-                >
-                  {o.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="ov-muted" style={{ fontSize: 11.5, marginTop: -10 }}>
-            A payoff date assumes no new spend. If new spend continues, the projection is shown as a floor, not a date.
+            A what-if: on top of every debt&rsquo;s minimum, to the first debt in the payoff order, then the next once it clears. Leave it
+            blank for none.
           </div>
 
           {error && (
