@@ -2245,3 +2245,24 @@ its edges, each from data a household can reach.
 - **Income with no rate is named, not dropped.** Other income in rupees
   before the household sets its AED/INR rate is left out of every figure, as
   before; the income list, its editor and the Life plan now say so.
+
+## Planning works its figures out once
+
+Moving along the Life plan's chart rebuilt the whole page: a new number
+formatter for each of a few hundred figures, the plan and its four solvers,
+and the year-by-year table, though that sits closed by default.
+
+- **One formatter per number of decimals**, made the first time it is asked
+  for (lib/money.js). Building an Intl.NumberFormat costs some forty times
+  what using one does.
+- **The plan is worked out once for each change of input**, not on each step
+  along the chart; missing props share one empty list, so a fresh one does
+  not count as a change.
+- **The year-by-year table is built when it is opened.**
+- **Each figure is counted once**: Plan and Forecast take the month count
+  forecastInputs already found, and the Life plan editor takes each
+  category's year from the spending that stops rather than working it out
+  again.
+
+A chart step went from about 19 ms to about 8 ms in a test render with two
+years of records.

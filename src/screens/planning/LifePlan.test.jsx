@@ -22,6 +22,19 @@ vi.mock('../../lib/supabaseClient', () => ({
   },
 }));
 
+// Counts the solver's runs, to show a step along the chart reruns none of them.
+const solverRuns = vi.hoisted(() => ({ earliest: 0 }));
+vi.mock('../../lib/lifePlan', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    earliestStop: (args) => {
+      solverRuns.earliest += 1;
+      return actual.earliestStop(args);
+    },
+  };
+});
+
 const ACCOUNT = { id: 'a1', type: 'savings', currency: 'AED', balance: 200000, balance_aed: 200000, is_shared: true, archived_at: null };
 const MEMBERS = [
   { id: 'm1', display_name: 'Alex' },
@@ -63,6 +76,12 @@ function renderPlan({ data = {}, ...props } = {}) {
 }
 
 const hero = () => document.querySelector('.ov-hero').textContent;
+// The year-by-year table is built once it is opened.
+function openTable() {
+  const details = document.querySelector('details.ch-table');
+  details.open = true;
+  fireEvent(details, new Event('toggle'));
+}
 const thisYear = new Date().getFullYear();
 
 beforeEach(() => {
@@ -168,6 +187,30 @@ describe('LifePlan: spending that stops', () => {
 // forgiven (Planning audit, 0b-D).
 // With everyone past their plan-to age the page threw and took the whole app
 // with it (Planning audit, 0b-D).
+// Built while closed, the table's rows were most of the work on every chart
+// step (Planning audit, 0b-E).
+describe('LifePlan: the year-by-year table', () => {
+  it('leaves the plan alone on a step along the chart', () => {
+    renderPlan();
+    const before = solverRuns.earliest;
+    expect(before).toBeGreaterThan(0);
+    const readout = () => document.querySelector('.ov-chart-readout .fig').textContent;
+    const year = readout();
+    const chart = screen.getByRole('group', { name: /^The pot at the start of each year/ });
+    fireEvent.keyDown(chart, { key: 'ArrowRight' });
+    fireEvent.keyDown(chart, { key: 'ArrowRight' });
+    expect(readout()).toBe(String(Number(year) + 2));
+    expect(solverRuns.earliest).toBe(before);
+  });
+
+  it('is built only once it is opened', () => {
+    renderPlan();
+    expect(document.querySelectorAll('.ch-table tbody tr')).toHaveLength(0);
+    openTable();
+    expect(document.querySelectorAll('.ch-table tbody tr').length).toBeGreaterThan(50);
+  });
+});
+
 describe('LifePlan: other income with no rate', () => {
   it('names a rupee income it leaves out for want of a rate', () => {
     const pension = { id: 'p1', name: 'Pension in India', kind: 'yearly', amount: 600000, currency: 'INR', starts_after_years: 0, lasts_years: null };
@@ -195,6 +238,7 @@ describe('LifePlan: a loan larger than the accounts', () => {
     const loan = { id: 'l1', type: 'loan', currency: 'AED', balance: 300000, balance_aed: 300000, is_shared: true, archived_at: null };
     renderPlan({ accounts: [ACCOUNT, loan] });
     expect(hero()).not.toMatch(/^Short in/);
+    openTable();
     const firstRow = [...document.querySelectorAll('tbody tr')].find((tr) => tr.textContent.startsWith(String(thisYear)));
     // 200,000 held less 300,000 owed.
     expect([...firstRow.querySelectorAll('td')].map((td) => td.textContent)).toContain('−100,000');
@@ -205,6 +249,7 @@ describe('LifePlan: sums paid in a set year', () => {
   it('adds a policy maturity to the pot in its year, and says so', () => {
     const maturity = { id: 'l', name: 'LIC A maturity', kind: 'lump_sum', amount: 4350000, currency: 'INR', in_year: thisYear + 10, starts_after_years: 0 };
     renderPlan({ data: { independenceIncome: [maturity] } });
+    openTable();
     expect(screen.getByText(new RegExp(`LIC A maturity \\(${thisYear + 10}\\) is added in its year, converted at today's rate`))).toBeTruthy();
     const row = [...document.querySelectorAll('tbody tr')].find((tr) => tr.textContent.startsWith(String(thisYear + 10)));
     // 174,000 AED paid then, in today's money at 2.5% inflation.

@@ -5,6 +5,7 @@ import { scopedGoalRows } from './goals';
 import { monthIncome, monthSpendBreakdown } from './budget';
 import { budgetSummary } from './monthlyReview';
 import { liquidAssets, netWorthSummary } from '../screens/overviewMath';
+import { formatMoney } from './money';
 
 // After the checks: what a month says to do next, and what its close will put
 // into history (SHR-301; docs/decisions.md, "The monthly review ends in what
@@ -19,7 +20,8 @@ import { liquidAssets, netWorthSummary } from '../screens/overviewMath';
 //   4. saving that fell short of its target.
 // They cover the whole household, as the review does.
 
-const fmt = (n) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(Math.round(Math.abs(n)));
+// A whole amount, unsigned: the shared formatter, made once (lib/money.js).
+const fmt = (n) => formatMoney(Math.round(Math.abs(n)));
 const dayLabel = (d) => parseDay(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 
 export function monthActions({ year, month }, data = {}, planning = {}, now = new Date()) {

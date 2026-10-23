@@ -39,3 +39,25 @@ describe('sign-preserving money formatting', () => {
     }
   });
 });
+
+// Building a formatter on every call was most of a Life plan render
+// (Planning audit, 0b-E).
+describe('formatMoney: one formatter per number of decimals', () => {
+  it('is built once and reused', () => {
+    const Real = Intl.NumberFormat;
+    let made = 0;
+    Intl.NumberFormat = function NumberFormat(...args) {
+      made += 1;
+      return new Real(...args);
+    };
+    try {
+      // Three decimals, which no other test asks for, so the first call builds it.
+      expect(formatMoney(1234.5, { decimals: 3 })).toBe('1,234.500');
+      for (let i = 0; i < 50; i++) formatMoney(i, { decimals: 3 });
+      expect(formatBalance(-2, { decimals: 3 })).toBe('−2.000');
+      expect(made).toBe(1);
+    } finally {
+      Intl.NumberFormat = Real;
+    }
+  });
+});

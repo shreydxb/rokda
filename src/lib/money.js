@@ -5,12 +5,21 @@
 // "−", a budget line that is a size rather than a direction — and wrong for any
 // figure that can legitimately be negative. A net worth of −100 formatted with
 // it reads as 100, which is the defect this split exists to prevent.
+//
+// One formatter per number of decimals, made once: building an
+// Intl.NumberFormat costs some forty times what using one does, and a Life
+// plan render formats a few hundred figures (Planning audit, 0b-E).
+const formatters = new Map();
+function numberFormat(decimals) {
+  if (!formatters.has(decimals)) {
+    formatters.set(decimals, new Intl.NumberFormat('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals }));
+  }
+  return formatters.get(decimals);
+}
+
 export function formatMoney(amount, { decimals = 0 } = {}) {
   const n = Number(amount) || 0;
-  return new Intl.NumberFormat('en-US', {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  }).format(Math.abs(n));
+  return numberFormat(decimals).format(Math.abs(n));
 }
 
 // Sign-preserving: negatives keep their minus, positives are undecorated. This
