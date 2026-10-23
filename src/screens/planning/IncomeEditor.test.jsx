@@ -19,6 +19,22 @@ beforeEach(() => {
   calls.writes.length = 0;
 });
 
+describe('IncomeEditor: an amount with no rate to AED', () => {
+  it('warns that a rupee amount is not counted until a rate is set', () => {
+    renderScreen(<IncomeEditor householdId="h" household={{ id: 'h', inr_per_aed: null }} onClose={vi.fn()} onSaved={vi.fn()} />);
+    const warning = 'No AED/INR rate is set yet, so this is not counted until one is (Settings → Household).';
+    expect(screen.queryByText(warning)).toBeNull();
+    fireEvent.change(screen.getByLabelText('Currency'), { target: { value: 'INR' } });
+    expect(screen.getByText(warning)).toBeTruthy();
+  });
+
+  it('says nothing once the household has a rate', () => {
+    renderScreen(<IncomeEditor householdId="h" household={{ id: 'h', inr_per_aed: 25 }} onClose={vi.fn()} onSaved={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText('Currency'), { target: { value: 'INR' } });
+    expect(screen.queryByText(/No AED\/INR rate is set yet/)).toBeNull();
+  });
+});
+
 describe('IncomeEditor: a sum paid in a set year', () => {
   it('saves a policy maturity in rupees, in its year', async () => {
     const onSaved = vi.fn();

@@ -164,6 +164,43 @@ describe('LifePlan: spending that stops', () => {
   });
 });
 
+// A loan larger than the accounts was booked as a shortfall this year and then
+// forgiven (Planning audit, 0b-D).
+// With everyone past their plan-to age the page threw and took the whole app
+// with it (Planning audit, 0b-D).
+describe('LifePlan: other income with no rate', () => {
+  it('names a rupee income it leaves out for want of a rate', () => {
+    const pension = { id: 'p1', name: 'Pension in India', kind: 'yearly', amount: 600000, currency: 'INR', starts_after_years: 0, lasts_years: null };
+    renderPlan({ household: { id: 'h', inr_per_aed: null }, data: { independenceIncome: [pension] } });
+    expect(document.body.textContent).toMatch(/Pension in India is not counted: no AED\/INR rate is set yet \(Settings → Household\)\./);
+  });
+});
+
+describe('LifePlan: a plan everyone has outlived', () => {
+  it('says so and asks for a later age, rather than crashing', () => {
+    const past = [
+      { member_id: 'm1', birth_year: 1940, life_expectancy: 84 },
+      { member_id: 'm2', birth_year: 1940, life_expectancy: 84 },
+    ];
+    renderPlan({ data: { memberLife: past } });
+    expect(screen.getByText('The plan has run its course')).toBeTruthy();
+    expect(screen.getByText(/It plans for Alex to 84 and Sam to 84, and everyone is past that age now/)).toBeTruthy();
+    fireEvent.click(screen.getByText('Plan to a later age'));
+    expect(screen.getByRole('dialog', { name: 'Life plan' })).toBeTruthy();
+  });
+});
+
+describe('LifePlan: a loan larger than the accounts', () => {
+  it('is repaid from saving, and shown as owed rather than held', () => {
+    const loan = { id: 'l1', type: 'loan', currency: 'AED', balance: 300000, balance_aed: 300000, is_shared: true, archived_at: null };
+    renderPlan({ accounts: [ACCOUNT, loan] });
+    expect(hero()).not.toMatch(/^Short in/);
+    const firstRow = [...document.querySelectorAll('tbody tr')].find((tr) => tr.textContent.startsWith(String(thisYear)));
+    // 200,000 held less 300,000 owed.
+    expect([...firstRow.querySelectorAll('td')].map((td) => td.textContent)).toContain('−100,000');
+  });
+});
+
 describe('LifePlan: sums paid in a set year', () => {
   it('adds a policy maturity to the pot in its year, and says so', () => {
     const maturity = { id: 'l', name: 'LIC A maturity', kind: 'lump_sum', amount: 4350000, currency: 'INR', in_year: thisYear + 10, starts_after_years: 0 };

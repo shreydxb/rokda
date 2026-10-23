@@ -2198,3 +2198,50 @@ database stopped any of it.
 - **What the Life plan editor marks shows at once.** Which spending stops
   when work does is kept on the categories, so saving the plan reads them
   again too, rather than waiting for the next refresh.
+
+## The planning engine's edge cases
+
+The Planning audit's code review found the engine giving wrong figures at
+its edges, each from data a household can reach.
+
+- **Pay counts only inside recorded history.** A salary is counted in the
+  month it is for (payMonthTransactions), but at the start of the records
+  that made two months that are not the household's: pay for the month
+  before the first record, counted as a month of saving with nothing spent,
+  and a first month with its spending but not its pay. planningMonths never
+  counts the first and leaves out the second. Spending by category is
+  averaged over the very months the totals are, so "less what stops" is a
+  share of the same year.
+- **A pot below zero is debt, not a shortfall.** A loan larger than the
+  accounts made the Life plan book a shortfall in its first year and then
+  forget the rest of the debt. While working the pot can now be below zero:
+  it earns nothing (the loan's cost is already in the recorded spending),
+  saving repays it, and it cannot pay a goal. Once work stops nothing repays
+  it, so what is still owed then is a shortfall. Figures below zero are
+  shown with their minus sign, and "still owed" in words.
+- **Why no year lasts is said from its cause.** Plan and Forecast blamed a
+  goal whenever no stop year lasted. They now name the goal that falls
+  short, say that more is spent than earned, say the saving is not enough,
+  or say the plan has run its course.
+- **This year counts only what is left of it.** The Life plan credited the
+  current year with a whole year of saving and growth, so its answer was the
+  same on 2 January and on 30 December, and moved a year overnight on
+  1 January. The first year now gets the share still to come; every later
+  year is a whole one.
+- **A plan everyone has outlived asks for a later age.** With every person
+  past the age the plan runs to, the Life plan threw and took the whole app
+  with it.
+- **One sign rule for cards and loans.** A card stored below zero is in
+  credit and owes nothing, as net worth and the bot already read it; Debt
+  payoff called it owed. A loan cannot be in credit, so the account editor
+  asks for a loan's amount owed and stores it as positive.
+- **Paid-off and very long debts are said plainly.** Paying the minimum on
+  nothing owed read "clears in 1 mo", and a debt clearing after more than 50
+  years read "revolves indefinitely", the words for one that never clears.
+- **A linked debt belongs to whoever its account does.** The debt editor
+  showed its own owner chooser, so Debt payoff could give a loan to one
+  partner while net worth gave it to the other. While an account is linked
+  the owner is the account's, changed in Wealth.
+- **Income with no rate is named, not dropped.** Other income in rupees
+  before the household sets its AED/INR rate is left out of every figure, as
+  before; the income list, its editor and the Life plan now say so.

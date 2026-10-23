@@ -78,6 +78,7 @@ export default function AccountEditor({ account, defaultType, householdId, membe
 
   const nameError = form.name.trim() === '' ? 'Name it.' : '';
   const isCard = form.type === 'credit_card';
+  const isLoan = form.type === 'loan';
   const isFd = form.type === 'fd';
 
   function startNewTerm() {
@@ -104,7 +105,10 @@ export default function AccountEditor({ account, defaultType, householdId, membe
       name: form.name.trim(),
       type: form.type,
       currency: form.currency || 'AED',
-      balance: Number(form.balance) || 0,
+      // A loan's balance is the amount owed, and a loan cannot be in credit,
+      // so a loan typed below zero is stored as what it owes. Net worth read
+      // a negative loan as money held (Planning audit, 0b-D).
+      balance: isLoan ? Math.abs(Number(form.balance) || 0) : Number(form.balance) || 0,
       is_shared: form.owner === 'shared',
       owner_member_id: form.owner === 'shared' ? null : form.owner,
       credit_limit: isCard && form.credit_limit ? Number(form.credit_limit) : null,
@@ -195,7 +199,7 @@ export default function AccountEditor({ account, defaultType, householdId, membe
 
         <form className="te-form" onSubmit={handleSave}>
           <div>
-            <div className="te-hero-label">{isCard ? 'Balance owed' : isFd ? 'Current value (auto-calculated)' : 'Current balance'}</div>
+            <div className="te-hero-label">{isCard ? 'Balance owed' : isLoan ? 'Amount owed' : isFd ? 'Current value (auto-calculated)' : 'Current balance'}</div>
             <div className="te-hero-row">
               <span className="te-hero-currency">{form.currency || 'AED'}</span>
               {isFd ? (
@@ -219,6 +223,11 @@ export default function AccountEditor({ account, defaultType, householdId, membe
             {isFd && (
               <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 6 }}>
                 Computed daily from principal, rate and dates below — never edited directly.
+              </div>
+            )}
+            {isCard && (
+              <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 6 }}>
+                A card in credit is entered below zero.
               </div>
             )}
           </div>

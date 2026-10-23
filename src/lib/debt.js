@@ -1,11 +1,14 @@
-import { accountValueAed, isArchived } from './accounts';
+import { accountValueAed, amountOwed, isArchived } from './accounts';
 
 // Simulates paying a single debt at its minimum only: interest accrues on
-// the balance each month, then the minimum is applied. If the minimum
-// doesn't even cover a month's interest the balance never clears — that
-// returns null (revolves indefinitely) rather than looping forever.
+// the balance each month, then the minimum is applied. Returns the months it
+// takes; 0 when nothing is owed; null when the minimum doesn't even cover a
+// month's interest, so the balance never clears; and Infinity when it does
+// clear, but not within maxMonths (50 years). A paid-off debt used to read as
+// clearing in a month, and a very long one as never clearing.
 export function amortizeMinimumOnly(balance, aprPct, minimumPayment, maxMonths = 600) {
   let bal = Number(balance);
+  if (!(bal > 0)) return 0;
   const monthlyRate = Number(aprPct) / 100 / 12;
   const payment = Number(minimumPayment);
   for (let m = 1; m <= maxMonths; m++) {
@@ -14,7 +17,13 @@ export function amortizeMinimumOnly(balance, aprPct, minimumPayment, maxMonths =
     bal = bal + interest - payment;
     if (bal <= 0) return m;
   }
-  return null;
+  return Infinity;
+}
+
+// An account's owner in a debt's terms: shared, or one member's.
+export function accountOwner(account) {
+  const shared = account.is_shared ?? !account.owner_member_id;
+  return { is_shared: shared, owner_member_id: shared ? null : (account.owner_member_id ?? null) };
 }
 
 export function orderDebts(debts, strategy) {
@@ -80,12 +89,22 @@ export function simulatePayoffPlan(orderedDebts, extraPayment, maxMonths = 600) 
 // A debt linked to a loan or card account owes what that account says: the
 // account is the one balance, and it is what net worth counts. A debt with no
 // account, or whose account is closed or has no AED value, keeps the balance
-// last entered on it, and `inNetWorth` says net worth does not see it.
+// last entered on it, and `inNetWorth` says net worth does not see it. A card
+// in credit owes nothing (amountOwed), and `inCredit` says so. A linked debt
+// belongs to whoever the account does: Debt payoff gave a loan to one partner
+// while net worth gave it to the other.
 export function debtsWithAccounts(debts, accounts = []) {
   const byId = new Map(accounts.map((a) => [a.id, a]));
   return debts.map((d) => {
     const account = d.account_id ? (byId.get(d.account_id) ?? null) : null;
     const value = account && !isArchived(account) ? accountValueAed(account) : null;
-    return { ...d, balance: value !== null ? Math.abs(value) : Number(d.balance), account, inNetWorth: value !== null };
+    return {
+      ...d,
+      ...(account ? accountOwner(account) : {}),
+      balance: value !== null ? amountOwed(account, value) : Number(d.balance),
+      account,
+      inNetWorth: value !== null,
+      inCredit: value !== null && account.type === 'credit_card' && value < 0,
+    };
   });
 }

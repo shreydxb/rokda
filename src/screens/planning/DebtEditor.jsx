@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
-import { isArchived } from '../../lib/accounts';
+import { amountOwed, isArchived } from '../../lib/accounts';
+import { accountOwner } from '../../lib/debt';
 import { formatMoney } from '../../lib/money';
 import '../money/TransactionEditor.css';
 
@@ -8,7 +9,6 @@ import '../money/TransactionEditor.css';
 // NEW makes the account along with the debt; '' leaves the debt unlinked.
 const NEW = 'new';
 
-const owed = (account) => Math.abs(Number(account.balance ?? 0));
 const blank = (v) => String(v).trim() === '';
 const FIELDS = ['balance', 'name', 'apr', 'minimum'];
 
@@ -18,7 +18,7 @@ function initialForm(debt, linked) {
       name: debt.name,
       note: debt.note ?? '',
       account: debt.account_id ?? '',
-      balance: String(linked ? owed(linked) : (debt.balance ?? '')),
+      balance: String(linked ? amountOwed(linked) : (debt.balance ?? '')),
       original_amount: debt.original_amount != null ? String(debt.original_amount) : '',
       apr_pct: String(debt.apr_pct ?? ''),
       minimum_payment: String(debt.minimum_payment ?? ''),
@@ -42,6 +42,8 @@ export default function DebtEditor({ debt, householdId, members, accounts = [], 
     return account ? { id: account.id, balance: account.balance } : null;
   });
   const linked = form.account && form.account !== NEW ? (accounts.find((a) => a.id === form.account) ?? null) : null;
+  const linkedOwner = linked ? accountOwner(linked) : null;
+  const linkedOwnerName = linkedOwner ? (linkedOwner.is_shared ? 'Shared' : (members.find((m) => m.id === linkedOwner.owner_member_id)?.display_name ?? 'Shared')) : null;
   // A balance in another currency is kept in Wealth, where its currency is.
   const foreign = linked && String(linked.currency ?? 'AED').toUpperCase() !== 'AED';
   const [dirty, setDirty] = useState(false);
@@ -74,7 +76,7 @@ export default function DebtEditor({ debt, householdId, members, accounts = [], 
     setForm((f) => ({
       ...f,
       account: id,
-      ...(account ? { balance: String(owed(account)), owner: account.is_shared ? 'shared' : (account.owner_member_id ?? 'shared') } : {}),
+      ...(account ? { balance: String(amountOwed(account)), owner: account.is_shared ? 'shared' : (account.owner_member_id ?? 'shared') } : {}),
     }));
     setDirty(true);
   }
@@ -133,7 +135,7 @@ export default function DebtEditor({ debt, householdId, members, accounts = [], 
     let accountId = linked?.id ?? null;
     let createdAccount = null;
     const openedBalance = linked ? (filledFrom?.id === linked.id ? filledFrom.balance : linked.balance) : null;
-    const typedBalance = linked && !foreign && Number(form.balance) !== owed({ balance: openedBalance });
+    const typedBalance = linked && !foreign && Number(form.balance) !== amountOwed(linked, openedBalance);
     if (form.account === NEW) {
       const { data: created, error: accountError } = await supabase
         .from('accounts')
@@ -170,12 +172,12 @@ export default function DebtEditor({ debt, householdId, members, accounts = [], 
       household_id: householdId,
       name: form.name.trim(),
       note: form.note.trim(),
-      balance: foreign ? Math.abs(Number(linked.balance_aed ?? form.balance)) : linked && !typedBalance ? owed(linked) : Number(form.balance),
+      balance: foreign ? amountOwed(linked, linked.balance_aed ?? form.balance) : linked && !typedBalance ? amountOwed(linked) : Number(form.balance),
       original_amount: form.original_amount ? Number(form.original_amount) : null,
       apr_pct: Number(aprText),
       minimum_payment: Number(minimumText),
-      is_shared: form.owner === 'shared',
-      owner_member_id: form.owner === 'shared' ? null : form.owner,
+      // A linked debt belongs to whoever its account does.
+      ...(linked ? accountOwner(linked) : { is_shared: form.owner === 'shared', owner_member_id: form.owner === 'shared' ? null : form.owner }),
       account_id: accountId,
     };
 
@@ -227,7 +229,7 @@ export default function DebtEditor({ debt, householdId, members, accounts = [], 
             <div className="te-hero-row">
               <span className="te-hero-currency">AED</span>
               {foreign ? (
-                <span className="te-hero-input fig">{linked.balance_aed != null ? formatMoney(Math.abs(Number(linked.balance_aed))) : '—'}</span>
+                <span className="te-hero-input fig">{linked.balance_aed != null ? formatMoney(amountOwed(linked, linked.balance_aed)) : '—'}</span>
               ) : (
                 <input
                   ref={fieldRef('balance')}
@@ -326,16 +328,22 @@ export default function DebtEditor({ debt, householdId, members, accounts = [], 
 
           <div>
             <span className="te-fieldlabel">Owner</span>
-            <div className="om-scope-list" style={{ marginTop: 10 }}>
-              <button type="button" className="om-scope" data-active={form.owner === 'shared'} onClick={() => set('owner', 'shared')}>
-                Shared
-              </button>
-              {members.map((m) => (
-                <button key={m.id} type="button" className="om-scope" data-active={form.owner === m.id} onClick={() => set('owner', m.id)}>
-                  {m.display_name}
+            {linked ? (
+              <div className="ov-muted" style={{ fontSize: 12.5, marginTop: 8 }}>
+                {linkedOwnerName}, as {linked.name} is in Wealth, where its owner is changed.
+              </div>
+            ) : (
+              <div className="om-scope-list" style={{ marginTop: 10 }}>
+                <button type="button" className="om-scope" data-active={form.owner === 'shared'} onClick={() => set('owner', 'shared')}>
+                  Shared
                 </button>
-              ))}
-            </div>
+                {members.map((m) => (
+                  <button key={m.id} type="button" className="om-scope" data-active={form.owner === m.id} onClick={() => set('owner', m.id)}>
+                    {m.display_name}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           {error && (

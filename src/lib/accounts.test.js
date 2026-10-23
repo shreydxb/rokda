@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   ACCOUNT_TYPE_LABELS,
   accountTypeLabel,
+  amountOwed,
   accountOptionLabel,
   activeAccounts,
   archivedAccounts,
@@ -113,5 +114,17 @@ describe('account selector labels', () => {
     const closed = { ...SAVINGS, archived_at: '2026-09-05T10:00:00Z' };
     expect(accountOptionLabel(closed, { members, accounts: [closed] })).toContain('closed');
     expect(isArchived(closed)).toBe(true);
+  });
+});
+
+describe('amountOwed', () => {
+  it('reads a card below zero as in credit, owing nothing', () => {
+    expect(amountOwed({ type: 'credit_card', balance: -250 })).toBe(0);
+    expect(amountOwed({ type: 'credit_card', balance: 250 })).toBe(250);
+  });
+
+  it('reads a loan below zero as owed: a loan cannot be in credit', () => {
+    expect(amountOwed({ type: 'loan', balance: -40000 })).toBe(40000);
+    expect(amountOwed({ type: 'loan' }, '12000')).toBe(12000);
   });
 });

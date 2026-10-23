@@ -4,8 +4,8 @@ import { resolveScopeMemberId } from '../../lib/scope';
 import { formatMoney, formatPct } from '../../lib/money';
 import { scopedGoalRows } from '../../lib/goals';
 import { debtsWithAccounts, orderDebts, simulatePayoffPlan } from '../../lib/debt';
-import { budgetPlan, closedMonths, crossingYear, forecastInputs, incomesFromStop, independenceTarget, payMonthTransactions, realReturn, spendThatStops } from '../../lib/forecast';
-import { agesLabel, lifePlanStop, spendAfterText } from '../../lib/lifePlan';
+import { budgetPlan, crossingYear, forecastInputs, incomesFromStop, independenceTarget, planningMonths, realReturn, spendThatStops } from '../../lib/forecast';
+import { agesLabel, lifePlanStop, noStopText, spendAfterText } from '../../lib/lifePlan';
 import { incompleteNote, netWorthSummary, startingNetWorth } from '../overviewMath';
 import { couldntLoad, neverLoaded } from '../../lib/loadState';
 import { DEBT_INPUTS, DEBT_PLAN_INPUTS, GOALS_INPUTS, projectionInputs } from './planningSources';
@@ -84,7 +84,7 @@ export default function PlanSummary({ household = null, members, me, accounts, t
     const s = netWorthSummary(accounts, null, holdings);
     return incompleteNote({ accounts: s.unvalued, holdings: s.unpricedHoldings }, { capitalised: false, sentence: false });
   }, [accounts, holdings]);
-  const monthCount = closedMonths(payMonthTransactions(transactions, recurring), now).size;
+  const monthCount = planningMonths(transactions, recurring, now).size;
   // The same inputs Forecast and Drawdown use, the budget standing in included.
   const plan = useMemo(() => budgetPlan(budgets, categories, now), [budgets, categories, now]);
   const forecast = useMemo(() => forecastInputs(transactions, startNetWorth, now, plan, recurring), [transactions, startNetWorth, now, plan, recurring]);
@@ -120,6 +120,7 @@ export default function PlanSummary({ household = null, members, me, accounts, t
         household,
         stopping,
         startYear: now.getFullYear(),
+        now,
       }),
     [members, data.memberLife, assumptions, forecast, startNetWorth, goals, data.independenceIncome, household, stopping, now]
   );
@@ -176,7 +177,7 @@ export default function PlanSummary({ household = null, members, me, accounts, t
             ? `${agesLabel(stop.ages)} · the money lasts to ${stop.endYear} · ${spendAfterText(stop, (v) => `AED ${formatMoney(v)}`)}${stop.earliest > stop.stopYear ? ` · not by your plan's ${stop.stopYear}` : ''}${
                 basisIncomplete ? ` · incomplete, ${basisIncomplete}` : ''
               }${forecast.source === 'budget' ? ' · from your budget' : ''}`
-            : 'A goal falls short while still working'
+            : noStopText(stop)
         }
         cta="Life plan"
         onClick={() => onOpenTab('life')}

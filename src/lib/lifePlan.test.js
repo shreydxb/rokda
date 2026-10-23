@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { agesIn, agesLabel, datedIncomesOnTimeline, earliestStop, extraSavingNeeded, goalsOnTimeline, lifePlan, lifePlanBasis, lifePlanStop, maxRetirementSpend, planEndYear, planPeople, potNeededAt, spendAfterText } from './lifePlan';
+import { agesIn, agesLabel, datedIncomesOnTimeline, earliestStop, extraSavingNeeded, goalsOnTimeline, lifePlan, lifePlanBasis, lifePlanStop, maxRetirementSpend, noStopCause, noStopText, planEndYear, planPeople, potNeededAt, spendAfterText, yearLeft } from './lifePlan';
 import { projectYears, realReturn } from './forecast';
 
 const people = [
@@ -81,10 +81,59 @@ describe('lifePlan: the timeline', () => {
     expect(y2075.spend).toBe(30_500);
   });
 
-  it('counts spending more than is earned while working as drawing on the pot', () => {
+  // A negative pot was booked as a shortfall in its first year and then
+  // reset to zero, so the rest of the debt vanished (Planning audit, 0b-D).
+  it('carries a pot below zero while working, and lets saving repay it', () => {
+    // A loan 150,000 larger than the accounts, and 60,000 saved a year.
+    const plan = lifePlan({ ...base, startPot: -150_000 });
+    expect(plan.rows[0].short).toBe(0);
+    // Debt earns nothing: 150,000 owed less a year's saving.
+    expect(plan.rows[0].end).toBe(-90_000);
+    expect(plan.rows[1].start).toBe(-90_000);
+    expect(plan.rows[2].start).toBe(-30_000);
+    expect(plan.rows[3].start).toBe(30_000);
+    expect(earliestStop({ ...base, startPot: -150_000 })).not.toBeNull();
+  });
+
+  it('counts what is still owed once work stops as a shortfall', () => {
     const plan = lifePlan({ ...base, startPot: 10_000, annualSaving: -50_000 });
-    expect(plan.shortYear).toBe(2026);
-    expect(plan.rows[0].end).toBe(0);
+    expect(plan.rows.filter((r) => r.working).every((r) => r.short === 0)).toBe(true);
+    expect(plan.shortYear).toBe(2054);
+    const stop = plan.rows.find((r) => r.year === 2054);
+    // The year's spending and the debt carried into it.
+    expect(stop.short).toBeCloseTo(61_000 - stop.start, 6);
+    expect(stop.end).toBe(0);
+  });
+
+  it('cannot pay a goal from a pot below zero', () => {
+    const plan = lifePlan({ ...base, startPot: -150_000, goals: [{ name: 'Car', year: 2027, amount: 20_000 }] });
+    expect(plan.shortYear).toBe(2027);
+    expect(plan.rows[1].short).toBe(20_000);
+    // The debt is still carried, not forgiven alongside.
+    expect(plan.rows[1].end).toBe(-30_000);
+  });
+
+  // This year was credited with a whole year of saving and growth, so the
+  // answer was the same on 2 January and on 30 December (Planning audit, 0b-D).
+  it('credits this year with only the share of it still to come', () => {
+    expect(yearLeft(new Date(2026, 0, 1))).toBe(1);
+    expect(yearLeft(new Date(2026, 9, 21))).toBeCloseTo(72 / 365, 6);
+    const plan = lifePlan({ ...base, firstYearShare: 0.25 });
+    expect(plan.rows[0].saving).toBe(15_000);
+    expect(plan.rows[0].growth).toBeCloseTo(500_000 * ((1 + base.preRate) ** 0.25 - 1), 6);
+    // Every later year is a whole one.
+    expect(plan.rows[1].saving).toBe(60_000);
+    expect(plan.rows[1].start).toBeCloseTo(500_000 * (1 + base.preRate) ** 0.25 + 15_000, 6);
+  });
+
+  it('spends only the rest of this year when work has already stopped', () => {
+    const plan = lifePlan({ ...base, retireYear: 2026, firstYearShare: 0.5 });
+    expect(plan.rows[0].spend).toBe(30_500);
+    expect(plan.rows[1].spend).toBe(61_000);
+  });
+
+  it('needs the same pot on a later stop day whatever the date today', () => {
+    expect(potNeededAt({ ...base, firstYearShare: 0.25 })).toBe(potNeededAt(base));
   });
 
   it('reproduces the adviser\'s retirement corpus to the rupee', () => {
@@ -104,6 +153,32 @@ describe('lifePlan: the timeline', () => {
     };
     const inToday = potNeededAt(adviser);
     expect(Math.abs(inToday * 1.07 ** 18 - 134_876_610)).toBeLessThan(5);
+  });
+});
+
+describe('noStopCause: why no year lasts', () => {
+  it('names a goal the pot cannot pay even while working', () => {
+    expect(noStopCause({ ...base, startPot: 0, goals: [{ name: 'Villa', year: 2027, amount: 10_000_000 }] })).toEqual({ kind: 'goal', goal: 'Villa', year: 2027 });
+  });
+
+  it('says when more is spent than earned', () => {
+    expect(noStopCause({ ...base, annualSaving: -6_000 })).toEqual({ kind: 'spending' });
+  });
+
+  it('otherwise says the saving is not enough', () => {
+    expect(noStopCause({ ...base, startPot: 0, annualSaving: 1_000, retireSpend: 500_000 })).toEqual({ kind: 'short' });
+  });
+
+  it('says when everyone is past the age the plan runs to', () => {
+    const outlived = [{ name: 'Partner A', birthYear: 1940, lifeExpectancy: 84 }];
+    expect(noStopCause({ ...base, people: outlived })).toEqual({ kind: 'ended' });
+    expect(noStopText({ endYear: 2024, whyNone: { kind: 'ended' } })).toBe('Everyone is past the age the plan runs to: plan to a later age');
+  });
+
+  it('is said in words for the screens that lead with the answer', () => {
+    expect(noStopText({ endYear: 2079, whyNone: { kind: 'goal', goal: 'Villa', year: 2027 } })).toBe('Villa in 2027 falls short, even while still working');
+    expect(noStopText({ endYear: 2079, whyNone: { kind: 'spending' } })).toBe('More is spent than earned, so no stop year lasts');
+    expect(noStopText({ endYear: 2079, whyNone: { kind: 'short' } })).toBe("No stop year lasts to 2079 on today's saving");
   });
 });
 

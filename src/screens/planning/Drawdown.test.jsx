@@ -90,6 +90,15 @@ describe('Drawdown: other income once working stops', () => {
     expect(hero()).not.toBe('4 years');
   });
 
+  // A rupee income with no rate was left out of every figure while this list
+  // said it was counted (Planning audit, 0b-D).
+  it('says a rupee income is not counted until the household has a rate', () => {
+    const pension = { ...RENT, id: 'p1', name: 'Pension', currency: 'INR', amount: 600000 };
+    renderDrawdown({ household: { id: 'h', inr_per_aed: null }, data: { assumptions: null, independenceIncome: [pension] } });
+    expect(screen.getByText('Not counted: no AED/INR rate yet (Settings → Household)')).toBeTruthy();
+    expect(screen.queryByText(/lowers the target/)).toBeNull();
+  });
+
   it('offers to add one when there are none', () => {
     renderDrawdown();
     expect(screen.getByText(/None added/)).toBeTruthy();
