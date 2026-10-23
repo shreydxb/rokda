@@ -2461,3 +2461,35 @@ month (Planning audit, 2.7).
   everything, and an undated one has no date to be on time for.
 - **The bot reads goals in full** and says so when it can't, rather than
   answering that no goal matched.
+
+## One source of saved, and a goal's pace
+
+A goal linked to an account counted the same money twice when a transfer
+into that account was also logged as a contribution, and the Telegram bot
+made that easy. Its pace could only come from what was logged (Planning
+audit, 2.8).
+
+- **One source.** A goal with accounts or holdings linked to it counts what
+  they hold; what is logged to it stays its record and is not added on top.
+  A goal with nothing linked counts what is logged. The rule is the same for
+  its cash (a goal due within 3 years, or kept money), for what a later goal
+  shows as set aside and the priority table counts, and for Plan's Goals
+  card. The
+  goal editor says so once a link exists. A per-goal switch was not added:
+  linking an account already says where the money is.
+- **Pace from the same source,** for a goal held in cash: the change in its
+  linked current, savings and cash accounts' balances at their share, or
+  what was logged to it, over about the last three months. It is read from
+  the balance changes the database records (`account_balance_events`, since
+  October 2026), never from `balance_as_of`, which can be back-dated and is
+  not stamped on every save. The balance before an account's first recorded
+  change is not known to have held for any time, so the record starts there,
+  and no pace is given until there is a month of it. Each change is converted
+  at today's rate, so the rupee's drift is not money going in.
+- **Pace is said, not judged.** It is a line under the goal ("Going in from
+  its linked accounts: about X a month over the last 3 months"), with "below
+  the X you plan" when it is. The chip stays the plan against the need (2.7):
+  a pace is history, and three months of it is too short to overrule a plan.
+  Fixed deposits and holdings give no pace: an FD's balance is worked out,
+  not entered, and a holding moves with its market, and neither counts as
+  cash for a goal due soon.

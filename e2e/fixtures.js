@@ -136,6 +136,12 @@ export const data = {
 
   goal_allocations: [{ id: 'eeeeeeee-0000-4000-8000-000000000001', household_id: HH, goal_id: 'dddddddd-0000-4000-8000-000000000001', account_id: A_SAVINGS, holding_id: null, share_pct: 100, note: null, created_at: ts(monthsAgo(3)), updated_at: ts(monthsAgo(1)) }],
 
+  // The savings account's recorded balance changes, which a linked goal's pace is read from.
+  account_balance_events: [
+    { id: 1, household_id: HH, account_id: A_SAVINGS, old_balance: null, new_balance: 70000, old_balance_as_of: null, new_balance_as_of: ts(monthsAgo(4)), source: 'app', member_id: ME, recorded_at: ts(monthsAgo(4)) },
+    { id: 2, household_id: HH, account_id: A_SAVINGS, old_balance: 70000, new_balance: 80000, old_balance_as_of: ts(monthsAgo(4)), new_balance_as_of: ts(monthsAgo(1)), source: 'app', member_id: ME, recorded_at: ts(monthsAgo(1)) },
+  ],
+
   goal_contributions: [{ id: 'ffffffff-0000-4000-8000-000000000001', goal_id: 'dddddddd-0000-4000-8000-000000000001', amount: 5000, occurred_at: monthsAgo(1), note: null, created_at: ts(monthsAgo(1)) }],
 
   debts: [{ id: 'a1a1a1a1-0000-4000-8000-000000000001', household_id: HH, owner_member_id: null, is_shared: true, name: 'Car loan', note: null, balance: 42000, apr_pct: 4.5, minimum_payment: 1200, custom_rank: null, account_id: null, created_at: ts(monthsAgo(6)), updated_at: ts(monthsAgo(1)), original_amount: 60000 }],

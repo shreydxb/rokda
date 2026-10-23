@@ -21,6 +21,7 @@ export const SOURCE_LABELS = {
   debts: 'debts',
   assumptions: 'planning assumptions',
   goalAllocations: 'goal funding',
+  balanceEvents: 'balance history',
   independenceIncome: 'later income',
   memberLife: 'ages for the life plan',
   notes: 'household notes',

@@ -9,7 +9,7 @@ vi.mock('../../lib/supabaseClient', () => ({ supabase: {} }));
 
 const MEMBERS = [{ id: 'm1', display_name: 'Alex' }];
 const GOAL = { id: 'g1', name: 'Emergency fund', target_amount: 100000, target_date: '2027-12-31', is_shared: true, owner_member_id: null, note: '', funding_source: '' };
-const ACCOUNTS = [{ id: 'a1', type: 'savings', currency: 'AED', balance: 40000, balance_aed: 40000, archived_at: null }];
+const ACCOUNTS = [{ id: 'a1', type: 'savings', currency: 'AED', balance: 50000, balance_aed: 50000, archived_at: null }];
 const DATA = {
   goals: [GOAL],
   goalContributions: [{ id: 'c1', goal_id: 'g1', amount: 5000, occurred_at: '2026-09-01' }],
@@ -32,7 +32,8 @@ describe('Plan summary agrees with the Goals tab', () => {
         <PlanSummary members={MEMBERS} me={{ id: 'm1' }} accounts={ACCOUNTS} transactions={[]} holdings={[]} data={DATA} loading={false} onOpenTab={() => {}} />
       </MemoryRouter>,
     );
-    // 5,000 logged + half of a 40,000 account. It used to read 5,000.
+    // Half of a 50,000 account. It used to read only what was logged; the
+    // 5,000 logged is now its record, not added on top (Planning audit, 2.8).
     expect(screen.getByText('25,000')).toBeTruthy();
   });
 });
@@ -107,7 +108,8 @@ const row = (name) => [...document.querySelectorAll('.mn-row')].find((r) => r.te
 describe('Goals: due within 3 years, from cash', () => {
   it('counts only cash set aside, and gives the plain cash a month to its date', () => {
     renderGoals({});
-    // 5,000 logged and half of a 40,000 savings account: 75,000 over the 15 months to Dec 2027.
+    // Half of a 50,000 savings account, the 5,000 logged not added on top:
+    // 75,000 over the 15 months to Dec 2027.
     expect(within(row('Emergency fund')).getByText('Due within 3 years, so paid from cash: 5,000 a month to Dec 2027.')).toBeTruthy();
     expect(within(row('Emergency fund')).getByText('Saving')).toBeTruthy();
     const summary = within(screen.getByRole('region', { name: 'Next 3 years' }));
@@ -118,7 +120,8 @@ describe('Goals: due within 3 years, from cash', () => {
   it('leaves a linked holding out: a goal due soon can\'t wait for a market', () => {
     const allocations = [{ id: 'l2', goal_id: 'g1', account_id: null, holding_id: 'h1', share_pct: 100 }];
     renderGoals({ goalAllocations: allocations }, { holdings: [{ id: 'h1', value_aed: 500000 }] });
-    expect(within(row('Emergency fund')).getByText(/^Due within 3 years, so paid from cash: 6,333 a month to Dec 2027\.$/)).toBeTruthy();
+    // Linked, so the 5,000 logged isn't counted either: 100,000 over 15 months.
+    expect(within(row('Emergency fund')).getByText(/^Due within 3 years, so paid from cash: 6,667 a month to Dec 2027\.$/)).toBeTruthy();
   });
 
   it('holds kept money in cash, in its own section', () => {
@@ -143,6 +146,32 @@ describe('Goals: what you plan a month', () => {
     expect(within(row('Emergency fund')).getByText('Plan short')).toBeTruthy();
     // 75,000 at 3,000 a month: 25 months from Sep 2026.
     expect(within(row('Emergency fund')).getByText('Due within 3 years, so paid from cash: 5,000 a month to Dec 2027. At the 3,000 you plan, it is covered by Oct 2028.')).toBeTruthy();
+  });
+});
+
+// Planning audit, 2.8: what has gone in lately, from the goal's one source.
+describe('Goals: pace', () => {
+  // The account linked at half: 30,000 when it was opened in June, 50,000 now.
+  const opened = [{ id: 1, account_id: 'a1', old_balance: null, new_balance: 30000, recorded_at: '2026-06-01T08:00:00Z' }];
+
+  it('reads a linked goal\'s pace from its account\'s recorded balance, beside its plan', () => {
+    renderGoals({ goals: [{ ...GOAL, planned_monthly: 5000 }], balanceEvents: opened });
+    // Half of 20,000 over the last 91 days.
+    expect(within(row('Emergency fund')).getByText('Going in from its linked accounts: about 3,345 a month over the last 3 months, below the 5,000 you plan.')).toBeTruthy();
+  });
+
+  it('waits for a month of recorded changes, and gives none when they could not be read', () => {
+    renderGoals({ balanceEvents: [] });
+    expect(within(row('Emergency fund')).getByText('Its pace shows once its linked accounts have a month of recorded balance changes.')).toBeTruthy();
+    document.body.innerHTML = '';
+    renderGoals({ balanceEvents: [] }, { sources: { errors: { balanceEvents: { message: 'canceling statement due to statement timeout' } }, loaded: {} } });
+    expect(row('Emergency fund').textContent).not.toMatch(/pace|Going in/);
+  });
+
+  it('reads a goal with nothing linked from what was logged to it', () => {
+    renderGoals({ goalAllocations: [] });
+    // 5,000 logged on 1 Sep, over the last 91 days.
+    expect(within(row('Emergency fund')).getByText('Logged to it: about 1,672 a month over the last 3 months.')).toBeTruthy();
   });
 });
 

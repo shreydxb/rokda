@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { allocatedValue, cashPerMonth, doneMonth, fundInPriority, goalCostAtDate, goalProgress, goalStatuses, isDone, monthlyNeed, scopedGoalRows } from './goals';
+import { allocatedValue, cashPerMonth, doneMonth, fundInPriority, goalCostAtDate, goalPace, goalProgress, goalStatuses, isDone, monthlyNeed, scopedGoalRows } from './goals';
 
 const NOW = new Date(2026, 8, 24, 12); // 24 September 2026
 
@@ -77,9 +77,15 @@ describe('scopedGoalRows: one derivation for Goals and the Plan summary', () => 
   it('includes linked accounts and holdings in saved', () => {
     // 2,000 from half of a1, 2,000 from h1, nothing from the unconverted a2.
     expect(allocatedValue('g1', allocations, accounts, holdings)).toBe(4000);
+    // The 1,000 logged is its record, not added on top (Planning audit, 2.8).
     const [row] = scopedGoalRows({ goals: [GOAL], contributions: [{ goal_id: 'g1', amount: 1000, occurred_at: '2026-09-01' }], allocations, accounts, holdings, now: NOW });
-    expect(row.progress.saved).toBe(5000);
-    expect(row.need.remaining).toBe(7000);
+    expect(row).toMatchObject({ linked: true, progress: { saved: 4000 }, need: { remaining: 8000 } });
+    expect(row.contributions).toHaveLength(1);
+  });
+
+  it('counts what is logged to a goal with nothing linked', () => {
+    const [row] = scopedGoalRows({ goals: [GOAL], contributions: [{ goal_id: 'g1', amount: 1000, occurred_at: '2026-09-01' }], allocations: [], accounts, holdings, now: NOW });
+    expect(row).toMatchObject({ linked: false, progress: { saved: 1000 } });
   });
 
   it('counts nothing from a loan, a card or a closed account, which hold no money for the goal', () => {
@@ -186,7 +192,7 @@ describe('fundInPriority', () => {
 // Planning audit, 1.5: one status per goal, from the one rule for its kind.
 describe('goalStatuses', () => {
   const now = new Date(2026, 9, 20);
-  const savings = { id: 's', type: 'savings', currency: 'AED', balance: 6000, balance_aed: 6000, archived_at: null };
+  const savings = { id: 's', type: 'savings', currency: 'AED', balance: 8000, balance_aed: 8000, archived_at: null };
   const reserve = { id: 'r', type: 'savings', currency: 'AED', balance: 20000, balance_aed: 20000, archived_at: null };
   const goal = (id, extra) => ({ id, name: id, is_shared: true, created_at: '2026-01-01T00:00:00Z', ...extra });
   const goals = [
@@ -215,7 +221,8 @@ describe('goalStatuses', () => {
 
   it('covers a goal due within three years only from cash, with no growth', () => {
     const rows = byName(goalStatuses(args));
-    // 1,000 logged and half of a 6,000 savings account.
+    // Half of an 8,000 savings account; the 1,000 logged to it is its record,
+    // not added on top (Planning audit, 2.8).
     expect(rows.Trip).toMatchObject({ kind: 'near', state: 'saving', cash: 4000, remaining: 8000, monthsLeft: 6, byLabel: 'Apr 2027' });
     expect(rows.Trip.perMonth).toBeCloseTo(8000 / 6, 6);
     // A holding linked to it counts for nothing: it could be down when the bill comes.
@@ -285,5 +292,69 @@ describe('goalStatuses', () => {
     expect(byName(goalStatuses({ ...args, goals: planned, scopeMemberId: 'm1' })).Trip).toMatchObject({ planned: 700, plan: { enough: true } });
     expect(cashPerMonth(goalStatuses({ ...args, goals: planned })).planned).toBe(1400);
     expect(cashPerMonth(goalStatuses(args)).planned).toBeNull();
+  });
+});
+
+// Planning audit, 2.8: a goal's pace from its one source.
+describe('goalPace', () => {
+  const now = new Date('2026-10-20T12:00:00Z');
+  const months = (days) => days / (365.25 / 12);
+  const goal = { id: 'g', created_at: '2026-01-01T00:00:00Z' };
+  const savings = { id: 's', type: 'savings', currency: 'AED', balance: 10000, balance_aed: 10000, archived_at: null };
+  const link = (extra) => ({ goal_id: 'g', account_id: 's', holding_id: null, share_pct: 50, ...extra });
+  const event = (at, old_balance, new_balance, account_id = 's') => ({ account_id, recorded_at: at, old_balance, new_balance });
+  // Opened in June at 2,000, 4,000 by August, 10,000 by October.
+  const events = [event('2026-06-01T08:00:00Z', null, 2000), event('2026-08-01T08:00:00Z', 2000, 4000), event('2026-10-01T08:00:00Z', 4000, 10000)];
+
+  it('takes what was logged over the last three months, for a goal with nothing linked', () => {
+    const contributions = [
+      { goal_id: 'g', amount: 900, occurred_at: '2026-09-15' },
+      { goal_id: 'g', amount: 300, occurred_at: '2026-08-10' },
+      { goal_id: 'g', amount: 5000, occurred_at: '2026-05-01' },
+    ];
+    const pace = goalPace({ goal, contributions, now });
+    expect(pace).toMatchObject({ from: 'logged', months: 3 });
+    expect(pace.perMonth).toBeCloseTo(1200 / months(91), 6);
+  });
+
+  it('waits for a month of record: a goal made last week has no pace yet', () => {
+    expect(goalPace({ goal: { ...goal, created_at: '2026-10-13T00:00:00Z' }, contributions: [{ goal_id: 'g', amount: 500, occurred_at: '2026-10-14' }], now })).toEqual({ from: 'logged', short: true });
+  });
+
+  it('takes a linked account\'s balance change at its share, and nothing that was also logged', () => {
+    const pace = goalPace({ goal, contributions: [{ goal_id: 'g', amount: 700, occurred_at: '2026-09-15' }], allocations: [link()], accounts: [savings], balanceEvents: events, now });
+    // 2,000 at the window's start in July, 10,000 now: half of 8,000.
+    expect(pace).toMatchObject({ from: 'linked', months: 3 });
+    expect(pace.perMonth).toBeCloseTo(4000 / months(91), 6);
+  });
+
+  it('starts at the first recorded change, and waits for a month of them', () => {
+    const recent = [event('2026-10-11T08:00:00Z', 4000, 6000), event('2026-10-15T08:00:00Z', 6000, 10000)];
+    expect(goalPace({ goal, allocations: [link()], accounts: [savings], balanceEvents: recent, now })).toEqual({ from: 'linked', short: true });
+    expect(goalPace({ goal, allocations: [link()], accounts: [savings], balanceEvents: [], now })).toEqual({ from: 'linked', short: true });
+    // From 1 Sep: 4,000 then, 10,000 now, half of it over 49 days.
+    const pace = goalPace({ goal, allocations: [link()], accounts: [savings], balanceEvents: [event('2026-09-01T12:00:00Z', 3000, 4000), ...recent], now });
+    expect(pace.perMonth).toBeCloseTo(3000 / months(49), 6);
+    expect(pace.months).toBe(2);
+  });
+
+  it('converts a rupee account\'s change at today\'s rate, and says when an account fell', () => {
+    const rupees = { id: 'r', type: 'savings', currency: 'INR', balance: 50000, balance_aed: 2000, archived_at: null };
+    const pace = goalPace({ goal, allocations: [link({ account_id: 'r', share_pct: 100 })], accounts: [rupees], balanceEvents: [event('2026-07-01T00:00:00Z', null, 25000, 'r')], now });
+    expect(pace.perMonth).toBeCloseTo(1000 / months(91), 6);
+    const fell = goalPace({ goal, allocations: [link()], accounts: [{ ...savings, balance: 1000, balance_aed: 1000 }], balanceEvents: events, now });
+    expect(fell.perMonth).toBeLessThan(0);
+  });
+
+  it('measures nothing without a cash account linked, or with the history unread', () => {
+    expect(goalPace({ goal, allocations: [{ goal_id: 'g', account_id: null, holding_id: 'h', share_pct: 100 }], accounts: [savings], balanceEvents: events, now })).toBeNull();
+    expect(goalPace({ goal, allocations: [link()], accounts: [savings], balanceEvents: null, now })).toBeNull();
+  });
+
+  it('is on each cash goal\'s status, halved for one person\'s view of a shared goal', () => {
+    const row = (scopeMemberId) =>
+      goalStatuses({ goals: [{ ...goal, name: 'Trip', is_shared: true, target_amount: 30000, target_date: '2027-06-01' }], allocations: [link()], accounts: [savings], balanceEvents: events, scopeMemberId, now, inflationPct: 0 })[0];
+    expect(row(null).pace.perMonth).toBeCloseTo(4000 / months(91), 6);
+    expect(row('m1').pace.perMonth).toBeCloseTo(2000 / months(91), 6);
   });
 });

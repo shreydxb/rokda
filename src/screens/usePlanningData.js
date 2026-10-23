@@ -13,6 +13,14 @@ const SOURCES = [
   // RLS scopes this to the caller's household via a join on goals.
   { key: 'goalContributions', empty: [], run: paged(() => supabase.from('goal_contributions').select('*').order('occurred_at', { ascending: false }).order('id')) },
   { key: 'goalAllocations', empty: [], run: paged((id) => supabase.from('goal_allocations').select('*').eq('household_id', id).order('created_at').order('id')) },
+  // Every recorded balance change, which a goal's pace is measured from
+  // (lib/goals.js, goalPace). A few a month per account: the editor and the
+  // bot write them, never a transaction.
+  {
+    key: 'balanceEvents',
+    empty: [],
+    run: paged((id) => supabase.from('account_balance_events').select('id, account_id, old_balance, new_balance, recorded_at').eq('household_id', id).order('recorded_at').order('id')),
+  },
   { key: 'debts', empty: [], run: paged((id) => supabase.from('debts').select('*').eq('household_id', id).order('created_at').order('id')) },
   { key: 'independenceIncome', empty: [], run: paged((id) => supabase.from('independence_income').select('*').eq('household_id', id).order('created_at').order('id')) },
   { key: 'memberLife', empty: [], run: paged((id) => supabase.from('member_life').select('*').eq('household_id', id).order('member_id')) },
@@ -29,6 +37,7 @@ const EMPTY_STATE = {
   goals: [],
   goalContributions: [],
   goalAllocations: [],
+  balanceEvents: [],
   debts: [],
   independenceIncome: [],
   memberLife: [],

@@ -38,6 +38,26 @@ function planLine(row) {
   return ` At the ${formatMoney(plan.amount)} you plan, it is covered by ${plan.byLabel}.`;
 }
 
+// What has gone into a goal held in cash lately, from its one source, and
+// how that sits beside its plan (Planning audit, 2.8). Nothing for a goal
+// already covered, or a goal whose pace can't be measured.
+function paceText(row) {
+  const { pace, plan } = row;
+  if (!pace || (row.state !== 'saving' && row.state !== 'due')) return '';
+  if (pace.short) return pace.from === 'linked' ? 'Its pace shows once its linked accounts have a month of recorded balance changes.' : '';
+  const over = pace.months === 1 ? 'the last month' : `the last ${pace.months} months`;
+  const amount = formatMoney(Math.abs(pace.perMonth));
+  const level = Math.round(pace.perMonth) === 0;
+  const belowPlan = plan && plan.amount > 0 && pace.perMonth < plan.amount - 0.5 ? `, below the ${formatMoney(plan.amount)} you plan` : '';
+  if (pace.from === 'linked') {
+    if (level) return `Nothing went into its linked accounts over ${over}${belowPlan}.`;
+    if (pace.perMonth < 0) return `Coming out of its linked accounts: about ${amount} a month over ${over}${belowPlan}.`;
+    return `Going in from its linked accounts: about ${amount} a month over ${over}${belowPlan}.`;
+  }
+  if (level) return `Nothing was logged to it over ${over}${belowPlan}.`;
+  return `Logged to it: about ${amount} a month over ${over}${belowPlan}.`;
+}
+
 // The one line under a goal that says why its chip says what it does.
 function why(row) {
   // A later or undated goal's plan is said, not measured: the Life plan pays
@@ -73,6 +93,9 @@ export default function Goals({
   loading,
 }) {
   const { goals, goalContributions, goalAllocations, assumptions, reload } = data;
+  // The recorded balance changes a linked goal's pace is read from; null when
+  // they never loaded, so no pace is given rather than one from nothing.
+  const balanceEvents = neverLoaded(sources, ['balanceEvents']).length > 0 ? null : (data.balanceEvents ?? NONE);
   const inflationPct = assumption(assumptions, 'inflation_pct');
   // The same expected return the Life plan projects with.
   const returnPct = assumption(assumptions, 'nominal_return_pct');
@@ -118,8 +141,9 @@ export default function Goals({
         now,
         inflationPct,
         timeline,
+        balanceEvents,
       }),
-    [goals, goalContributions, goalAllocations, accounts, holdings, scopeMemberId, now, inflationPct, timeline]
+    [goals, goalContributions, goalAllocations, accounts, holdings, scopeMemberId, now, inflationPct, timeline, balanceEvents]
   );
   const near = rows.filter((r) => r.kind === 'near');
   const kept = rows.filter((r) => r.kind === 'kept');
@@ -181,6 +205,7 @@ export default function Goals({
             </div>
           )}
           <div className="gl-need">{why(row)}</div>
+          {paceText(row) && <div className="gl-need">{paceText(row)}</div>}
         </div>
         <div style={{ textAlign: 'right', flex: 'none' }}>
           <div className="fig mn-row-amt">{formatMoney(figure)}</div>
@@ -310,8 +335,8 @@ export default function Goals({
           )}
 
           <div className="ov-muted" style={{ marginTop: 18, fontSize: 11.5, lineHeight: 1.65, maxWidth: '80ch' }}>
-            A goal due within 3 years counts only the cash set aside for it: what is logged to it, and the current, savings and cash accounts
-            linked to it, with no growth. A later goal is paid by the Life plan from everything you own, in its year, so the two tabs agree
+            A goal due within 3 years counts only the cash set aside for it, with no growth: the current, savings and cash accounts linked
+            to it or, with nothing linked, what is logged to it. Linked accounts are counted in place of what is logged, never as well. A later goal is paid by the Life plan from everything you own, in its year, so the two tabs agree
             about it. Money kept rather than spent, like an emergency fund, is held in cash.
           </div>
         </>
