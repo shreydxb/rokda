@@ -4,6 +4,7 @@ import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
 import { formatMoney, formatPct } from '../../lib/money';
 import { scopedGoalRows } from '../../lib/goals';
+import { assumption } from '../../lib/planningDefaults';
 import { debtsWithAccounts, minimumOnlyPayoff, orderDebts, payoffMonthLabel, simulatePayoffPlan } from '../../lib/debt';
 import { isArchived } from '../../lib/accounts';
 import { unconfirmedAccounts } from '../../lib/balance';
@@ -13,8 +14,6 @@ import { agesLabel, DEFAULT_STOP_AGE, leftOutText, lifePlanStop, noStopText, spe
 import { incompleteNote, netWorthSummary, startingNetWorth } from '../overviewMath';
 import { couldntLoad, neverLoaded } from '../../lib/loadState';
 import { DEBT_INPUTS, DEBT_PLAN_INPUTS, GOALS_INPUTS, projectionInputs } from './planningSources';
-
-const DEFAULTS = { nominal_return_pct: 6.0, inflation_pct: 2.5, safe_withdrawal_pct: 4.0 };
 
 // "Card, Loan and Car": names in a sentence.
 function nameList(names) {
@@ -56,7 +55,7 @@ export default function PlanSummary({ household = null, members, me, accounts, t
   // Same rows the Goals tab shows, linked accounts and holdings included.
   // This card used to leave them out, so for a goal funded from an account it
   // showed less saved, and more goals behind, than the tab it links to.
-  const goalInflation = data.assumptions?.inflation_pct != null ? Number(data.assumptions.inflation_pct) : undefined;
+  const goalInflation = assumption(assumptions, 'inflation_pct');
   const goalRows = useMemo(
     () =>
       scopedGoalRows({
@@ -120,9 +119,9 @@ export default function PlanSummary({ household = null, members, me, accounts, t
   const plan = useMemo(() => budgetPlan(budgets, categories, now), [budgets, categories, now]);
   const forecast = useMemo(() => forecastInputs(transactions, startNetWorth, now, plan, recurring), [transactions, startNetWorth, now, plan, recurring]);
   const stopping = useMemo(() => spendThatStops({ inputs: forecast, transactions, budgets, categories, now }), [forecast, transactions, budgets, categories, now]);
-  const nominalPct = assumptions?.nominal_return_pct != null ? Number(assumptions.nominal_return_pct) : DEFAULTS.nominal_return_pct;
-  const inflationPct = assumptions?.inflation_pct != null ? Number(assumptions.inflation_pct) : DEFAULTS.inflation_pct;
-  const swrPct = assumptions?.safe_withdrawal_pct != null ? Number(assumptions.safe_withdrawal_pct) : DEFAULTS.safe_withdrawal_pct;
+  const nominalPct = assumption(assumptions, 'nominal_return_pct');
+  const inflationPct = assumption(assumptions, 'inflation_pct');
+  const swrPct = assumption(assumptions, 'safe_withdrawal_pct');
   const fireTarget = forecast.ready ? independenceTarget(forecast.annualSpend, swrPct, incomesFromStop(data.independenceIncome ?? [], household)).target : null;
   const fireYear = forecast.ready
     ? crossingYear({

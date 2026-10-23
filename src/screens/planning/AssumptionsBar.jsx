@@ -60,7 +60,9 @@ export default function AssumptionsBar({ sets, scenario, onScenario, mode = 'rea
       </div>
       <p className="ov-muted pl-assumptions-note">
         {scenario === 'baseline'
-          ? 'Your saved assumptions. Return, inflation and the withdrawal rate are shared by Forecast, Life plan and Drawdown, and edited in one place.'
+          ? `${
+              sets.baseline.saved ? 'Your saved assumptions.' : "Defaults, nothing saved: the app's figures until you save your own under Edit assumptions."
+            } Return, inflation and the withdrawal rate are shared by Forecast, Life plan and Drawdown, and edited in one place.`
           : `The ${selected.label} scenario (${selected.meta.toLowerCase()}), shown on every planning tab until you switch back. It isn't saved.`}
         {onMode && mode === 'nominal' ? ' Future money: amounts grown with inflation to the year they happen.' : ''}
       </p>

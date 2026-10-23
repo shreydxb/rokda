@@ -1,11 +1,12 @@
 import { formatMoney } from './money';
 import { parseDay } from './day';
 import { accountValueAed, isArchived, isLiabilityAccount } from './accounts';
+import { PLANNING_DEFAULTS } from './planningDefaults';
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-// The planning default, the same as Forecast's until the household saves its own.
-export const DEFAULT_INFLATION_PCT = 2.5;
+// The planning default, until the household saves its own.
+export const DEFAULT_INFLATION_PCT = PLANNING_DEFAULTS.inflation_pct;
 
 // Whole months from this month to the target's, as years; never negative.
 export function yearsUntil(targetDate, now = new Date()) {

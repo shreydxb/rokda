@@ -12,7 +12,6 @@ import { neverLoaded } from '../../lib/loadState';
 import { projectionInputs } from './planningSources';
 import Withheld from './Withheld';
 
-const DEFAULTS = { nominal_return_pct: 6.0, inflation_pct: 2.5, safe_withdrawal_pct: 4.0 };
 const MAX_YEARS = 60;
 const RETURN_STEP = 0.5;
 // The year the market fall starts in, for each choice. The same fall early or
@@ -118,7 +117,7 @@ export default function Drawdown({ household, members = [], accounts = [], trans
     );
   }
 
-  const sets = scenarioSets(assumptions, DEFAULTS);
+  const sets = scenarioSets(assumptions);
   const selected = sets[fcSet] ?? sets.baseline;
   const nominalPct = Math.max(0, selected.nominalPct + returnOffset);
   const rate = realReturn(nominalPct, selected.inflationPct);

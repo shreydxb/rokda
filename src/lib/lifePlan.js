@@ -250,7 +250,6 @@ export function maxRetirementSpend(args) {
 }
 
 // The planning defaults every screen falls back to, the same as Forecast's.
-export const LIFE_PLAN_DEFAULTS = { nominal_return_pct: 6.0, inflation_pct: 2.5, safe_withdrawal_pct: 4.0 };
 // When no stop-work year is saved: the first person's 60th year.
 export const DEFAULT_STOP_AGE = 60;
 
@@ -298,7 +297,7 @@ export function defaultStopPerson(people) {
 // been saved for the plan.
 export function lifePlanBasis({ people, assumptions, inputs, startNetWorth, goals = [], incomes = [], household = null, stopping = null, startYear, now = null, fcSet = 'baseline', stopOverride = null, spendKind = null }) {
   const endYear = planEndYear(people);
-  const sets = scenarioSets(assumptions, LIFE_PLAN_DEFAULTS);
+  const sets = scenarioSets(assumptions);
   const selected = sets[fcSet] ?? sets.baseline;
   const inflationPct = selected.inflationPct;
   const preRate = realReturn(selected.nominalPct, inflationPct);
@@ -396,12 +395,19 @@ export function lifePlanStop({ members, memberLife, inputs, ...rest }) {
 // the spending a stop year rests on, for the screens that lead with one.
 // `fmt` formats an amount in today's money, currency code included.
 export function spendAfterText(stop, fmt) {
-  const how = {
-    planned: 'your plan',
-    less: "today's, less what stops",
-    lean: 'essentials only',
-  }[stop.spendKey] ?? (stop.spendLabel === 'Budgeted' ? 'as budgeted' : 'as today');
-  return `spending ${fmt(stop.spend)} a year after work stops (${how})`;
+  return `spending ${fmt(stop.spend)} a year after work stops (${spendHow(stop)})`;
+}
+
+// How that spending was chosen, in a few words. Only a figure saved for the
+// plan is "your plan"; one the app works out says how (Planning audit, 1.3).
+export function spendHow(stop) {
+  return (
+    {
+      planned: 'your plan',
+      less: "today's, less what stops",
+      lean: 'essentials only',
+    }[stop.spendKey] ?? (stop.spendLabel === 'Budgeted' ? 'as budgeted' : 'as today')
+  );
 }
 
 // Why no year lasts, in a few words, for the screens that lead with the

@@ -2,13 +2,14 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
 import { formatMoney } from '../../lib/money';
+import { PLANNING_DEFAULTS, assumption } from '../../lib/planningDefaults';
 import '../money/TransactionEditor.css';
 
 // What a blank field saves. Never 0: a 0% return or 0% inflation is an answer
 // someone has to type, not what an emptied box should quietly become. Baseline's
 // columns always hold a number, so a blank there is the default its placeholder
 // names; a blank on Custom saves nothing, and that figure follows Baseline.
-const DEFAULTS = { nominal: 6.0, inflation: 2.5, swr: 4.0 };
+const DEFAULTS = { nominal: PLANNING_DEFAULTS.nominal_return_pct, inflation: PLANNING_DEFAULTS.inflation_pct, swr: PLANNING_DEFAULTS.safe_withdrawal_pct };
 
 // The limits the database enforces (planning_assumptions_*_range), the same
 // return range as the life plan's after work, and inflation's as a goal's rise.
@@ -29,9 +30,9 @@ export default function ForecastAssumptionsEditor({ householdId, assumptions, bu
   const fieldRefs = useRef({});
   // Baseline's figures, which a blank on Custom follows.
   const baseline = {
-    nominal: assumptions?.nominal_return_pct != null ? Number(assumptions.nominal_return_pct) : DEFAULTS.nominal,
-    inflation: assumptions?.inflation_pct != null ? Number(assumptions.inflation_pct) : DEFAULTS.inflation,
-    swr: assumptions?.safe_withdrawal_pct != null ? Number(assumptions.safe_withdrawal_pct) : DEFAULTS.swr,
+    nominal: assumption(assumptions, 'nominal_return_pct'),
+    inflation: assumption(assumptions, 'inflation_pct'),
+    swr: assumption(assumptions, 'safe_withdrawal_pct'),
   };
   // Custom starts from Baseline's figures the first time. Once saved, a figure
   // saved blank opens blank again, so saving it again doesn't pin it.
@@ -138,6 +139,9 @@ export default function ForecastAssumptionsEditor({ householdId, assumptions, bu
           inflation_pct: value('inflation'),
           safe_withdrawal_pct: value('swr'),
           lean_annual_spend: blank(form.lean) ? null : Number(form.lean),
+          // From now on these are the household's, not the defaults
+          // (lib/planningDefaults.js).
+          assumptions_saved_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         };
 

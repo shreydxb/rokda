@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
 import { formatMoney } from '../../lib/money';
-import { DEFAULT_INFLATION_PCT, fundInPriority, goalCostAtDate, goalInflationPct, lastContributionLabel, scopedGoalRows } from '../../lib/goals';
+import { assumption } from '../../lib/planningDefaults';
+import { fundInPriority, goalCostAtDate, goalInflationPct, lastContributionLabel, scopedGoalRows } from '../../lib/goals';
 import { startingNetWorth } from '../overviewMath';
 import GoalEditor from './GoalEditor';
 import { neverLoaded } from '../../lib/loadState';
@@ -13,9 +14,9 @@ const STATUS_CHIP = { funded: 'ov-chip-ok', track: 'ov-chip-ok', ahead: 'ov-chip
 
 export default function Goals({ household, members, me, accounts, holdings, data, sources, onRetry, loading }) {
   const { goals, goalContributions, goalAllocations, assumptions, reload } = data;
-  const inflationPct = assumptions?.inflation_pct != null ? Number(assumptions.inflation_pct) : DEFAULT_INFLATION_PCT;
+  const inflationPct = assumption(assumptions, 'inflation_pct');
   // The same expected return Forecast projects with.
-  const returnPct = assumptions?.nominal_return_pct != null ? Number(assumptions.nominal_return_pct) : 6;
+  const returnPct = assumption(assumptions, 'nominal_return_pct');
   const { scope } = useScope();
   const scopeMemberId = resolveScopeMemberId(scope, me, members);
   const [editing, setEditing] = useState(null);

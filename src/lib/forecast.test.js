@@ -541,3 +541,17 @@ describe('budgetInputs', () => {
     expect(budgetInputs(plan, null)).toBeNull();
   });
 });
+
+// Planning audit, 1.3: a row of defaults is not a choice.
+describe('scenarioSets: saved or defaults', () => {
+  it('calls Baseline the defaults until the assumptions drawer has saved', () => {
+    expect(scenarioSets(null).baseline).toMatchObject({ saved: false, meta: 'Defaults, nothing saved', nominalPct: 6, inflationPct: 2.5, swrPct: 4 });
+    // A row another editor created holds the same figures, and is not saved.
+    expect(scenarioSets({ nominal_return_pct: 6, inflation_pct: 2.5, safe_withdrawal_pct: 4, retirement_year: 2050 }).baseline.meta).toBe('Defaults, nothing saved');
+    expect(scenarioSets({ nominal_return_pct: 7, inflation_pct: 3, safe_withdrawal_pct: 4, assumptions_saved_at: '2026-10-23T09:00:00Z' }).baseline).toMatchObject({
+      saved: true,
+      meta: 'Your saved assumptions',
+      nominalPct: 7,
+    });
+  });
+});

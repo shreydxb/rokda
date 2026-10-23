@@ -2358,3 +2358,28 @@ it (Planning audit, 1.2).
   measured against. With no savings target in the budget, no baseline is
   taken, and the editor says so, so a later save once there is one sets it.
   The return and inflation it records are unchanged.
+
+## Defaults are called defaults
+
+The planning assumptions read as the household's choice when nobody had made
+one (Planning audit, 1.3).
+
+- **A saved marker.** The database fills the return, inflation and
+  withdrawal rate with its defaults whenever any editor first creates the
+  row, the life plan's or the debt plan's included, so a row of 6%, 2.5% and
+  4% showed as "Your saved assumptions". `assumptions_saved_at` (migration
+  `assumptions_saved_marker`) is set when the assumptions drawer saves
+  Baseline, and backfilled where a baseline was taken, since only that save
+  ever took one. Until it is set, Baseline reads "Defaults, nothing saved".
+  The figures don't change: the app's defaults are the database's.
+- **One set of defaults in code**, lib/planningDefaults.js, in place of the
+  copies six screens and two libraries kept. A test holds it to the
+  database's column defaults.
+- **Spending after work stops says how it was chosen.** Forecast called it
+  "(your life plan)" whatever it was; it now says "your plan" only for a
+  figure saved for the plan, and "today's, less what stops" and the rest for
+  one the app works out, as Plan and the Life plan do.
+- **A stop year left blank stays blank.** Saving the Life plan editor with
+  the year empty wrote the suggested 60th-birthday year, which then read as
+  chosen. It saves nothing, and the editor says the year is assumed until
+  one is chosen.
