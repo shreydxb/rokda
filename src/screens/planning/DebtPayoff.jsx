@@ -140,7 +140,7 @@ export default function DebtPayoff({ household, members, me, accounts = [], data
       <div className="debt-toolbar">
         <div className="ov-seg-row" role="group" aria-label="Payoff order">
           {STRATEGIES.map((s) => (
-            <button key={s.id} type="button" className="om-seg" data-active={strategy === s.id} onClick={() => setStrategy(s.id)}>
+            <button key={s.id} type="button" className="om-seg" data-active={strategy === s.id} aria-pressed={strategy === s.id} onClick={() => setStrategy(s.id)}>
               {s.label}
             </button>
           ))}

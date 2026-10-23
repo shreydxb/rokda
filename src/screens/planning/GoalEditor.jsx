@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
+import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
 import { formatMoney } from '../../lib/money';
 import { DEFAULT_INFLATION_PCT, accountCanBackGoal, goalCostAtDate } from '../../lib/goals';
@@ -74,7 +75,7 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
   const removeRefs = useRef({});
   const shareRefs = useRef({});
   const headingRefs = useRef({});
-  const drawerRef = useRef(null);
+  const drawerRef = useDrawerFocus();
   const [form, setForm] = useState(() => initialForm(goal));
   const [dirty, setDirty] = useState(false);
   // Fields are marked wrong only once a save has been tried, not on opening.
@@ -397,7 +398,7 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
 
   return (
     <div className="te-overlay" onMouseDown={(e) => e.target === e.currentTarget && requestClose()}>
-      <div className="te-drawer" role="dialog" aria-modal="true" aria-label={goal ? 'Edit goal' : 'Add goal'} ref={drawerRef}>
+      <div className="te-drawer" role="dialog" aria-modal="true" aria-label={goal ? 'Edit goal' : 'Add goal'} ref={drawerRef} tabIndex={-1}>
         <div className="te-head">
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>

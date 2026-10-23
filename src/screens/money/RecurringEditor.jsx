@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
 import { accountOptionLabel, selectableAccounts } from '../../lib/accounts';
 import { CADENCES } from '../../lib/recurring';
@@ -46,6 +47,7 @@ function initialForm(item, accounts) {
 }
 
 export default function RecurringEditor({ item, household = null, householdId, accounts, categories, members, onClose, onSaved }) {
+  const drawerRef = useDrawerFocus();
   // Closed accounts stay out of new-entry choices; an existing schedule keeps
   // the account it already points at (QA-01).
   const selectable = selectableAccounts(accounts, item?.account_id ?? null);
@@ -148,7 +150,7 @@ export default function RecurringEditor({ item, household = null, householdId, a
 
   return (
     <div className="te-overlay" onMouseDown={(e) => e.target === e.currentTarget && requestClose()}>
-      <div className="te-drawer" role="dialog" aria-modal="true" aria-label={item ? 'Edit recurring item' : 'Add recurring item'}>
+      <div className="te-drawer" ref={drawerRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={item ? 'Edit recurring item' : 'Add recurring item'}>
         <div className="te-head">
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>

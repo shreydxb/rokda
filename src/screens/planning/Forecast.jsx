@@ -704,7 +704,7 @@ export default function Forecast({ household, members = [], accounts = [], trans
         <div className="fc-crossings">
           <span className="ov-muted">{stop ? 'Lasts forever by' : 'Independent by'}</span>
           {runs.map((r) => (
-            <button key={r.key} type="button" className="om-seg" data-active={fcSet === r.key} onClick={() => setFcSet(r.key)}>
+            <button key={r.key} type="button" className="om-seg" data-active={fcSet === r.key} aria-pressed={fcSet === r.key} onClick={() => setFcSet(r.key)}>
               {r.label} <b className="fig">{r.year ?? '60+ yrs'}</b>
             </button>
           ))}

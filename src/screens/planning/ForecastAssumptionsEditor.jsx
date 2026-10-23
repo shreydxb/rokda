@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
+import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
 import '../money/TransactionEditor.css';
 
@@ -21,6 +22,7 @@ const str = (v) => (v == null ? '' : String(Number(v)));
 const blank = (v) => String(v).trim() === '';
 
 export default function ForecastAssumptionsEditor({ householdId, assumptions, currentMonthlySaving, scenario = 'baseline', onClose, onSaved }) {
+  const drawerRef = useDrawerFocus();
   const isCustom = scenario === 'custom';
   const uid = useId();
   const fieldRefs = useRef({});
@@ -173,7 +175,7 @@ export default function ForecastAssumptionsEditor({ householdId, assumptions, cu
 
   return (
     <div className="te-overlay" onMouseDown={(e) => e.target === e.currentTarget && requestClose()}>
-      <div className="te-drawer" role="dialog" aria-modal="true" aria-label="Forecast assumptions">
+      <div className="te-drawer" ref={drawerRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Forecast assumptions">
         <div className="te-head">
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
@@ -189,7 +191,7 @@ export default function ForecastAssumptionsEditor({ householdId, assumptions, cu
 
         <form className="te-form" onSubmit={handleSave} noValidate>
           <div className="te-fieldgrid">
-            {field('nominal', 'Investment return (nominal %/yr)', 'Investment return, nominal percent a year', { min: LIMITS.nominal.min, max: LIMITS.nominal.max })}
+            {field('nominal', 'Return (%/yr)', 'Investment return, nominal percent a year', { min: LIMITS.nominal.min, max: LIMITS.nominal.max })}
             {field('inflation', 'Inflation (%/yr)', 'Inflation, percent a year', { min: LIMITS.inflation.min, max: LIMITS.inflation.max })}
             {field('swr', 'Safe withdrawal rate (%/yr)', 'Safe withdrawal rate, percent a year', { min: LIMITS.swr.min, max: LIMITS.swr.max })}
             {!isCustom && (
@@ -218,8 +220,8 @@ export default function ForecastAssumptionsEditor({ householdId, assumptions, cu
           </div>
           <div className="ov-muted" style={{ fontSize: 11.5, lineHeight: 1.6 }}>
             {isCustom
-              ? 'These numbers apply only while the Custom scenario is selected — Baseline and its saved plan are untouched. A field left blank follows Baseline.'
-              : 'The independence target is annual spend ÷ safe withdrawal rate — 4% is the common default (25× spend). Essentials-only spend is optional; set it to see a "lean" target next to the full one.'}
+              ? 'These numbers apply only while the Custom scenario is selected — Baseline and its saved plan are untouched. A field left blank follows Baseline. The return is before inflation.'
+              : 'The return is before inflation. The independence target is annual spend ÷ safe withdrawal rate — 4% is the common default (25× spend). Essentials-only spend is optional; set it to see a "lean" target next to the full one.'}
           </div>
 
           {!isCustom && !hasBaseline && (

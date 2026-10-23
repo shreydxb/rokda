@@ -166,17 +166,17 @@ export default function Drawdown({ household, members = [], accounts = [], trans
         growth={[`${selected.swrPct.toFixed(1)}% withdrawal rate`]}
         onEdit={() => setEditingAssumptions(true)}
         spending={
-          <div className="dd-segs">
+          <div className="dd-segs" role="group" aria-label="Spending">
             {handover && (
-              <button type="button" className="om-seg" data-active={spendKind === 'plan'} onClick={() => setSpendKind('plan')}>
+              <button type="button" className="om-seg" data-active={spendKind === 'plan'} aria-pressed={spendKind === 'plan'} onClick={() => setSpendKind('plan')}>
                 Life plan · {money.fmtCompact(handover.spend)} a year
               </button>
             )}
-            <button type="button" className="om-seg" data-active={spendKind === 'actual'} onClick={() => setSpendKind('actual')}>
+            <button type="button" className="om-seg" data-active={spendKind === 'actual'} aria-pressed={spendKind === 'actual'} onClick={() => setSpendKind('actual')}>
               {inputs.source === 'budget' ? 'Budgeted' : "Today's"} · {money.fmtCompact(inputs.annualSpend)} a year
             </button>
             {leanSpend ? (
-              <button type="button" className="om-seg" data-active={spendKind === 'lean'} onClick={() => setSpendKind('lean')}>
+              <button type="button" className="om-seg" data-active={spendKind === 'lean'} aria-pressed={spendKind === 'lean'} onClick={() => setSpendKind('lean')}>
                 Essentials · {money.fmtCompact(leanSpend)} a year
               </button>
             ) : null}
@@ -228,25 +228,25 @@ export default function Drawdown({ household, members = [], accounts = [], trans
         <div className="dd-controls">
           <div className="dd-control">
             <span className="dd-label">Start from</span>
-            <div className="dd-segs">
+            <div className="dd-segs" role="group" aria-label="Start from">
               {handover && (
-                <button type="button" className="om-seg" data-active={potKind === 'plan'} onClick={() => setPotKind('plan')}>
+                <button type="button" className="om-seg" data-active={potKind === 'plan'} aria-pressed={potKind === 'plan'} onClick={() => setPotKind('plan')}>
                   Life plan, {handover.stopYear} · {money.fmtCompact(handover.pot)}
                 </button>
               )}
-              <button type="button" className="om-seg" data-active={potKind === 'target'} onClick={() => setPotKind('target')}>
+              <button type="button" className="om-seg" data-active={potKind === 'target'} aria-pressed={potKind === 'target'} onClick={() => setPotKind('target')}>
                 Your target · {money.fmtCompact(target)}
               </button>
-              <button type="button" className="om-seg" data-active={potKind === 'today'} onClick={() => setPotKind('today')}>
+              <button type="button" className="om-seg" data-active={potKind === 'today'} aria-pressed={potKind === 'today'} onClick={() => setPotKind('today')}>
                 Stopping today · {money.fmtCompact(startNetWorth)}
               </button>
             </div>
           </div>
           <div className="dd-control">
             <span className="dd-label">Markets</span>
-            <div className="dd-segs">
+            <div className="dd-segs" role="group" aria-label="Markets">
               {MARKETS.map((m) => (
-                <button key={m.key} type="button" className="om-seg" data-active={market === m.key} onClick={() => setMarket(m.key)}>
+                <button key={m.key} type="button" className="om-seg" data-active={market === m.key} aria-pressed={market === m.key} onClick={() => setMarket(m.key)}>
                   {m.label}
                 </button>
               ))}
@@ -444,7 +444,7 @@ export default function Drawdown({ household, members = [], accounts = [], trans
           </div>
           <div className="fc-kpis dd-markets">
             {outcomes.map((o) => (
-              <button key={o.key} type="button" className="fc-kpi dd-market" data-active={market === o.key} onClick={() => setMarket(o.key)}>
+              <button key={o.key} type="button" className="fc-kpi dd-market" data-active={market === o.key} aria-pressed={market === o.key} onClick={() => setMarket(o.key)}>
                 <div style={{ fontSize: 12, color: 'var(--ink2)' }}>{o.label}</div>
                 <div className="fig" style={{ fontSize: 28, marginTop: 6 }}>
                   {lastsText(o.lastsYears)}

@@ -10,8 +10,11 @@
   color: var(--ink3);
 }
 
+/* Caveats and sublines: what qualifies a figure has to be readable. --ink3
+   on the ground was about 3.5:1; --ink2 clears 4.5:1 in both themes
+   (Planning audit, 0b-F). --ink3 stays for decoration. */
 .ov-muted {
-  color: var(--ink3);
+  color: var(--ink2);
   font-size: 11.5px;
 }
 
@@ -384,7 +387,7 @@ button.ov-link {
 .ov-chip-warn,
 .ov-chip-neg,
 .ov-chip-mute {
-  font-size: 10.5px;
+  font-size: 11px;
   letter-spacing: 0.06em;
   padding: 2px 7px;
   border-radius: 2px;
@@ -402,7 +405,7 @@ button.ov-link {
   color: var(--neg);
 }
 .ov-chip-mute {
-  color: var(--ink3);
+  color: var(--ink2);
 }
 
 /* next 30 */

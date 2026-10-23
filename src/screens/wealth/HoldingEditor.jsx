@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
 import { ASSET_CLASS_LABELS, costFromUnits } from '../../lib/holdings';
 import { daysSincePriced, historyPointFor, isPendingValuation, nextPricedAt, todayISODate, valueFieldFor, valuationChanged } from '../../lib/valuation';
@@ -29,6 +30,7 @@ function initialForm(holding) {
 }
 
 export default function HoldingEditor({ holding, householdId, members, onClose, onSaved }) {
+  const drawerRef = useDrawerFocus();
   const [form, setForm] = useState(() => initialForm(holding));
   // A valuation is only as of a date someone states. Editing a name must not
   // silently certify the stored price as current (QA-04).
@@ -218,7 +220,7 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
 
   return (
     <div className="te-overlay" onMouseDown={(e) => e.target === e.currentTarget && requestClose()}>
-      <div className="te-drawer" role="dialog" aria-modal="true" aria-label={holding ? 'Edit holding' : 'Add holding'}>
+      <div className="te-drawer" ref={drawerRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={holding ? 'Edit holding' : 'Add holding'}>
         <div className="te-head">
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>

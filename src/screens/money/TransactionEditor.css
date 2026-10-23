@@ -18,6 +18,11 @@
   overflow-y: auto;
   animation: te-slide 200ms ease both;
 }
+/* The drawer takes focus itself when it opens (useDrawerFocus), to announce
+   the dialog; a ring around the whole drawer would only be noise. */
+.te-drawer:focus {
+  outline: none;
+}
 
 @keyframes te-slide {
   from {

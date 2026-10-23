@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
+import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
 import { amountOwed, isArchived } from '../../lib/accounts';
 import { accountOwner } from '../../lib/debt';
@@ -29,6 +30,7 @@ function initialForm(debt, linked) {
 }
 
 export default function DebtEditor({ debt, householdId, members, accounts = [], debts = [], onClose, onSaved }) {
+  const drawerRef = useDrawerFocus();
   // Open loan and card accounts no other debt already plans for: one plan per loan.
   const takenByOthers = new Set(debts.filter((d) => d.account_id && d.id !== debt?.id).map((d) => d.account_id));
   const liabilityAccounts = accounts.filter((a) => (a.type === 'loan' || a.type === 'credit_card') && !takenByOthers.has(a.id) && (!isArchived(a) || a.id === debt?.account_id));
@@ -209,7 +211,7 @@ export default function DebtEditor({ debt, householdId, members, accounts = [], 
 
   return (
     <div className="te-overlay" onMouseDown={(e) => e.target === e.currentTarget && requestClose()}>
-      <div className="te-drawer" role="dialog" aria-modal="true" aria-label={debt ? 'Edit debt' : 'Add debt'}>
+      <div className="te-drawer" ref={drawerRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={debt ? 'Edit debt' : 'Add debt'}>
         <div className="te-head">
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
@@ -305,7 +307,7 @@ export default function DebtEditor({ debt, householdId, members, accounts = [], 
             </div>
             <div className="te-fieldcell">
               <label className="te-fieldlabel" htmlFor={`${uid}-minimum`}>
-                Minimum payment (AED/mo)
+                Minimum (AED/mo)
               </label>
               <input
                 id={`${uid}-minimum`}
@@ -334,11 +336,11 @@ export default function DebtEditor({ debt, householdId, members, accounts = [], 
               </div>
             ) : (
               <div className="om-scope-list" style={{ marginTop: 10 }}>
-                <button type="button" className="om-scope" data-active={form.owner === 'shared'} onClick={() => set('owner', 'shared')}>
+                <button type="button" className="om-scope" data-active={form.owner === 'shared'} aria-pressed={form.owner === 'shared'} onClick={() => set('owner', 'shared')}>
                   Shared
                 </button>
                 {members.map((m) => (
-                  <button key={m.id} type="button" className="om-scope" data-active={form.owner === m.id} onClick={() => set('owner', m.id)}>
+                  <button key={m.id} type="button" className="om-scope" data-active={form.owner === m.id} aria-pressed={form.owner === m.id} onClick={() => set('owner', m.id)}>
                     {m.display_name}
                   </button>
                 ))}

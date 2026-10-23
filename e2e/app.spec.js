@@ -259,6 +259,48 @@ test('phone: the header folds and the decisions start on the first screen', asyn
   await expect(toggle).toHaveText(/Me · AED/);
 });
 
+// A finger needs about 44px (Planning audit, 0b-F). Every control on these
+// screens is that tall on a phone, or is a text link with an invisible 44px
+// margin around it (its ::after).
+test('phone: every control is big enough for a finger', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile', 'phone layout only');
+  await stubSupabase(page);
+  for (const path of ['/planning', '/planning?tab=life', '/planning?tab=debt', '/money?tab=inbox']) {
+    await gotoReady(page, path);
+    const small = await page.evaluate(() =>
+      [...document.querySelectorAll('.om-main button, .om-main a')]
+        .filter((el) => {
+          const box = el.getBoundingClientRect();
+          if (!box.width || !box.height) return false;
+          const reach = getComputedStyle(el, '::after');
+          const height = reach.content === 'none' ? box.height : Math.max(box.height, parseFloat(reach.height) || 0);
+          return height < 43.5;
+        })
+        .map((el) => `${(el.textContent || el.getAttribute('aria-label') || '').trim().slice(0, 30)} (${Math.round(el.getBoundingClientRect().height)}px)`),
+    );
+    expect(small, `controls under 44px on ${path}`).toEqual([]);
+  }
+});
+
+// An editor drawer is a modal in fact: it takes focus, Tab stays inside it,
+// and closing it gives focus back to what opened it (lib/useDrawerFocus.js).
+test('a drawer holds keyboard focus and gives it back', async ({ page }) => {
+  await stubSupabase(page);
+  await gotoReady(page, '/planning?tab=debt');
+  const opener = page.getByRole('button', { name: '+ Debt', exact: true });
+  await opener.focus();
+  await page.keyboard.press('Enter');
+  const drawer = page.getByRole('dialog', { name: 'Add debt' });
+  await expect(drawer).toBeFocused();
+  for (let i = 0; i < 30; i += 1) {
+    await page.keyboard.press(i % 7 === 6 ? 'Shift+Tab' : 'Tab');
+    expect(await drawer.evaluate((d) => d.contains(document.activeElement)), `Tab ${i + 1} left the drawer`).toBe(true);
+  }
+  await drawer.getByRole('button', { name: 'Close' }).click();
+  await expect(drawer).toBeHidden();
+  await expect(opener).toBeFocused();
+});
+
 test('theme toggle switches and the page stays readable', async ({ page }) => {
   await stubSupabase(page);
   await gotoReady(page, '/');

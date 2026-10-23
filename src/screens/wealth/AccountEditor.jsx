@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
 import { ACCOUNT_TYPE_LABELS, COMPOUNDING_LABELS, closurePlan, isArchived } from '../../lib/accounts';
 import { isBalanceConfirmed } from '../../lib/balance';
@@ -43,6 +44,7 @@ function initialForm(account, defaultType) {
 }
 
 export default function AccountEditor({ account, defaultType, householdId, members, transactions = [], onClose, onSaved }) {
+  const drawerRef = useDrawerFocus();
   const [form, setForm] = useState(() => initialForm(account, defaultType));
   // A balance is a claim someone makes as of a date. Until it is confirmed it
   // stays unknown rather than becoming a confident zero (QA-02).
@@ -183,7 +185,7 @@ export default function AccountEditor({ account, defaultType, householdId, membe
 
   return (
     <div className="te-overlay" onMouseDown={(e) => e.target === e.currentTarget && requestClose()}>
-      <div className="te-drawer" role="dialog" aria-modal="true" aria-label={account ? 'Edit account' : 'Add account'}>
+      <div className="te-drawer" ref={drawerRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={account ? 'Edit account' : 'Add account'}>
         <div className="te-head">
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>

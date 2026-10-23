@@ -70,7 +70,7 @@ beforeEach(() => {
 
 function fillTerms(apr = '3.5', minimum = '2193') {
   type(field('APR (%/yr)'), apr);
-  type(field('Minimum payment (AED/mo)'), minimum);
+  type(field('Minimum (AED/mo)'), minimum);
 }
 
 describe('DebtEditor: where the balance lives', () => {

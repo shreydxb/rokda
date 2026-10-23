@@ -466,10 +466,10 @@
   text-align: right;
 }
 .debt-figures dt {
-  font-size: 10.5px;
+  font-size: 11px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--ink3);
+  color: var(--ink2);
 }
 .debt-figures dd {
   margin: 3px 0 0;
@@ -536,4 +536,32 @@
     grid-template-columns: minmax(0, 1fr);
     gap: 28px;
   }
+}
+
+/* Plan's cards are whole-card buttons (PlanSummary SummaryCard), reset so
+   they read as the cards they were. */
+.pl-card {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.pl-card-figure {
+  display: block;
+  font-size: 22px;
+  margin-top: 8px;
+}
+.pl-card-bar {
+  display: block;
+  height: 4px;
+  margin-top: 10px;
+}
+.pl-card-note {
+  display: block;
+  margin-top: 7px;
 }

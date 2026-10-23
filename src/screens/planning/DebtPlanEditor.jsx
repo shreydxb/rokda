@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
 import '../money/TransactionEditor.css';
 
@@ -9,6 +10,7 @@ const CARD_USAGE = [
 ];
 
 export default function DebtPlanEditor({ householdId, assumptions, onClose, onSaved }) {
+  const drawerRef = useDrawerFocus();
   const [extraPayment, setExtraPayment] = useState(assumptions?.debt_extra_payment != null ? String(assumptions.debt_extra_payment) : '');
   const [cardUsage, setCardUsage] = useState(
     assumptions?.debt_assume_no_new_card_spend === true ? 'no' : assumptions?.debt_assume_no_new_card_spend === false ? 'yes' : ''
@@ -67,7 +69,7 @@ export default function DebtPlanEditor({ householdId, assumptions, onClose, onSa
 
   return (
     <div className="te-overlay" onMouseDown={(e) => e.target === e.currentTarget && requestClose()}>
-      <div className="te-drawer" role="dialog" aria-modal="true" aria-label="Debt payoff inputs">
+      <div className="te-drawer" ref={drawerRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Debt payoff inputs">
         <div className="te-head">
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
@@ -114,7 +116,7 @@ export default function DebtPlanEditor({ householdId, assumptions, onClose, onSa
                   key={o.id}
                   type="button"
                   className="om-seg"
-                  data-active={cardUsage === o.id}
+                  data-active={cardUsage === o.id} aria-pressed={cardUsage === o.id}
                   onClick={() => {
                     setCardUsage(o.id);
                     setDirty(true);

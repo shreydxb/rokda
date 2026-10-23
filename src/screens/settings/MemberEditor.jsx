@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
 import '../money/TransactionEditor.css';
 
@@ -8,6 +9,7 @@ import '../money/TransactionEditor.css';
 // else read-only. Offering the rest only for the database to refuse it showed
 // a raw policy error instead of saying who can do it (SHR-314).
 export default function MemberEditor({ member, householdId, isSelf, isLastOwner, canManage = true, onClose, onSaved }) {
+  const drawerRef = useDrawerFocus();
   // A member who is not an owner can still edit their own row: the name.
   const canEdit = canManage || isSelf;
   const [displayName, setDisplayName] = useState(member?.display_name ?? '');
@@ -103,7 +105,7 @@ export default function MemberEditor({ member, householdId, isSelf, isLastOwner,
 
   return (
     <div className="te-overlay" onMouseDown={(e) => e.target === e.currentTarget && requestClose()}>
-      <div className="te-drawer" role="dialog" aria-modal="true" aria-label={member ? 'Edit member' : 'Add member'}>
+      <div className="te-drawer" ref={drawerRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={member ? 'Edit member' : 'Add member'}>
         <div className="te-head">
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>

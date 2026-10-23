@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
 import { missingKeys, planStarter, starterInserts } from '../../lib/starterCategories';
 import '../money/TransactionEditor.css';
@@ -9,6 +10,7 @@ import '../money/TransactionEditor.css';
 // only for a household with no categories at all; one that built its own set
 // chooses what to fill in.
 export default function StarterCategories({ householdId, categories, onClose, onSaved }) {
+  const drawerRef = useDrawerFocus();
   const plan = useMemo(() => planStarter(categories), [categories]);
   const missing = useMemo(() => missingKeys(plan), [plan]);
   const [selected, setSelected] = useState(() => new Set(categories.length === 0 ? missing : []));
@@ -78,7 +80,7 @@ export default function StarterCategories({ householdId, categories, onClose, on
 
   return (
     <div className="te-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="te-drawer" role="dialog" aria-modal="true" aria-label="Starter categories">
+      <div className="te-drawer" ref={drawerRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Starter categories">
         <div className="te-head">
           <div>
             <span className="ov-kicker">Starter categories</span>

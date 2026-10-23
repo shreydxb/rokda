@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
+import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
 import '../money/TransactionEditor.css';
 
 export default function RuleEditor({ rule, householdId, categories, onClose, onSaved }) {
+  const drawerRef = useDrawerFocus();
   const [pattern, setPattern] = useState(rule?.pattern ?? '');
   const [matchType, setMatchType] = useState(rule?.match_type ?? 'contains');
   const [categoryId, setCategoryId] = useState(rule?.category_id ?? categories[0]?.id ?? '');
@@ -83,7 +85,7 @@ export default function RuleEditor({ rule, householdId, categories, onClose, onS
 
   return (
     <div className="te-overlay" onMouseDown={(e) => e.target === e.currentTarget && requestClose()}>
-      <div className="te-drawer" role="dialog" aria-modal="true" aria-label={rule ? 'Edit rule' : 'Add rule'}>
+      <div className="te-drawer" ref={drawerRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={rule ? 'Edit rule' : 'Add rule'}>
         <div className="te-head">
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
