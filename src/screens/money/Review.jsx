@@ -20,7 +20,7 @@ const CHECK_CTA = { close: 'Close the month', balances: 'Confirm balances', stat
 // Each pair of these is settled here, in the check, rather than on another page.
 const SETTLED_HERE = new Set(['duplicates', 'transfers']);
 
-export default function Review({ household, data, planning = {}, loading }) {
+export default function Review({ household, data, loading }) {
   const [params, setParams] = useSearchParams();
   const now = useMemo(() => new Date(), []);
   const monthParam = params.get('month');
@@ -36,7 +36,7 @@ export default function Review({ household, data, planning = {}, loading }) {
   const review = useMemo(() => monthlyReview(selected, data, now), [selected, data, now]);
   const budget = useMemo(() => budgetSummary(selected, data, now), [selected, data, now]);
   const history = useMemo(() => historyPreview(selected, data, now), [selected, data, now]);
-  const actions = useMemo(() => monthActions(selected, data, planning, now), [selected, data, planning, now]);
+  const actions = useMemo(() => monthActions(selected, data, now), [selected, data, now]);
   // The first check still holding the month up is the next thing to do.
   const nextCheck = review.checks.find((c) => c.required && c.status === 'todo');
   // A link out of the review carries the month, so the page it opens offers
@@ -317,7 +317,7 @@ export default function Review({ household, data, planning = {}, loading }) {
           </ol>
         ) : (
           <div className="ov-muted" style={{ marginTop: 6 }}>
-            Nothing to act on: the bills ahead are covered, no goal is behind its pace, and nothing went over a budget or under a saving target.
+            Nothing to act on: the bills ahead are covered, and nothing went over a budget or under a saving target.
           </div>
         )}
       </section>

@@ -1,24 +1,46 @@
 import { useId, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
 import { formatMoney, formatPct } from '../../lib/money';
 import { scopedGoalRows } from '../../lib/goals';
-import { debtsWithAccounts, orderDebts, simulatePayoffPlan } from '../../lib/debt';
+import { debtsWithAccounts, minimumOnlyPayoff, orderDebts, payoffMonthLabel, simulatePayoffPlan } from '../../lib/debt';
+import { isArchived } from '../../lib/accounts';
+import { unconfirmedAccounts } from '../../lib/balance';
+import { tabHref } from '../../lib/activityLink';
 import { budgetPlan, crossingYear, forecastInputs, incomesFromStop, independenceTarget, realReturn, spendThatStops } from '../../lib/forecast';
-import { agesLabel, lifePlanStop, noStopText, spendAfterText } from '../../lib/lifePlan';
+import { agesLabel, DEFAULT_STOP_AGE, leftOutText, lifePlanStop, noStopText, spendAfterText } from '../../lib/lifePlan';
 import { incompleteNote, netWorthSummary, startingNetWorth } from '../overviewMath';
 import { couldntLoad, neverLoaded } from '../../lib/loadState';
 import { DEBT_INPUTS, DEBT_PLAN_INPUTS, GOALS_INPUTS, projectionInputs } from './planningSources';
 
 const DEFAULTS = { nominal_return_pct: 6.0, inflation_pct: 2.5, safe_withdrawal_pct: 4.0 };
 
-function monthsToLabel(months) {
-  if (months === null) return null;
-  const years = Math.floor(months / 12);
-  const rem = months % 12;
-  if (years === 0) return `${rem} mo`;
-  if (rem === 0) return `${years} yr`;
-  return `${years} yr ${rem} mo`;
+// "Card, Loan and Car": names in a sentence.
+function nameList(names) {
+  return names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+// When the debts in view clear. With a committed extra payment, on the
+// household's plan; otherwise at the minimum payments, which is the date the
+// household is on until it commits more. "No payoff date set" used to stand
+// in for this whenever no extra payment was saved, though the minimums alone
+// clear a loan on a date (Planning audit, 1.1).
+function payoffText({ atMinimums, withExtra, now }) {
+  if (atMinimums.owed === 0) return 'Nothing owed';
+  if (withExtra !== undefined) {
+    return withExtra ? `Clears about ${payoffMonthLabel(withExtra.months, now)} with the extra payment` : "Doesn't clear within 50 years with the extra payment";
+  }
+  if (atMinimums.never.length > 0) {
+    const names = atMinimums.never.map((d) => d.name);
+    return `No payoff date: the minimum on ${nameList(names)} doesn't cover ${names.length === 1 ? 'its' : 'their'} interest`;
+  }
+  if (atMinimums.tooLong.length > 0) {
+    const names = atMinimums.tooLong.map((d) => d.name);
+    return `${nameList(names)} ${names.length === 1 ? 'takes' : 'take'} more than 50 years at the minimum`;
+  }
+  const when = payoffMonthLabel(atMinimums.months, now);
+  return atMinimums.owed === 1 ? `Clears about ${when} at the minimum payment` : `All clear about ${when} at the minimums, ${atMinimums.last.name} last`;
 }
 
 // Composes the same goal/debt/forecast outputs Goals, DebtPayoff and Forecast
@@ -51,17 +73,15 @@ export default function PlanSummary({ household = null, members, me, accounts, t
   );
   const goalsSaved = goalRows.reduce((s, r) => s + r.progress.saved, 0);
   const goalsTarget = goalRows.reduce((s, r) => s + r.progress.target, 0);
-  const behindGoals = goalRows.filter((r) => r.progress.status === 'behind');
 
+  const debtsInView = useMemo(() => debts.filter((d) => scopeMemberId === null || d.is_shared || d.owner_member_id === scopeMemberId), [debts, scopeMemberId]);
   const visibleDebts = useMemo(
     () =>
-      debts
-        .filter((d) => scopeMemberId === null || d.is_shared || d.owner_member_id === scopeMemberId)
-        .map((d) => {
-          const factor = scopeMemberId === null || !d.is_shared ? 1 : 0.5;
-          return { ...d, balance: Number(d.balance) * factor, original_amount: d.original_amount != null ? Number(d.original_amount) * factor : null };
-        }),
-    [debts, scopeMemberId]
+      debtsInView.map((d) => {
+        const factor = scopeMemberId === null || !d.is_shared ? 1 : 0.5;
+        return { ...d, balance: Number(d.balance) * factor, original_amount: d.original_amount != null ? Number(d.original_amount) * factor : null };
+      }),
+    [debtsInView, scopeMemberId]
   );
   const totalOwed = visibleDebts.reduce((s, d) => s + Number(d.balance), 0);
   // Paid down so far, over the debts whose original amount is known -- the
@@ -70,11 +90,23 @@ export default function PlanSummary({ household = null, members, me, accounts, t
   const originalTotal = withOriginal.reduce((s, d) => s + d.original_amount, 0);
   const paidDown = originalTotal > 0 ? Math.max(0, 1 - withOriginal.reduce((s, d) => s + d.balance, 0) / originalTotal) : null;
 
+  // At the minimums, each debt in view clears on its own date, whoever is
+  // looking: a shared debt's half balance and half minimum clear together.
+  const atMinimums = useMemo(() => minimumOnlyPayoff(debtsInView), [debtsInView]);
+  // A committed extra payment is the household's, so its projection is shown
+  // only with both of you selected, as Debt payoff does. In one partner's
+  // view this card showed a household date that Debt payoff refused to show.
   const orderedFull = useMemo(() => orderDebts(debts, 'avalanche'), [debts]);
   const extraPayment = assumptions?.debt_extra_payment != null ? Number(assumptions.debt_extra_payment) : null;
   const cardAssumptionSet = assumptions?.debt_assume_no_new_card_spend != null;
-  const canProjectDebt = extraPayment !== null && extraPayment > 0 && cardAssumptionSet && debts.length > 0;
+  const canProjectDebt = scopeMemberId === null && extraPayment !== null && extraPayment > 0 && cardAssumptionSet && debts.length > 0;
   const debtPlan = useMemo(() => (canProjectDebt ? simulatePayoffPlan(orderedFull, extraPayment) : null), [canProjectDebt, orderedFull, extraPayment]);
+
+  // Balances nobody has entered count as 0 in every projection here, so each
+  // one is provisional until they are (Planning audit, 1.1). Household-wide,
+  // as the projections are; Forecast and Net worth apply the same rule.
+  const unentered = useMemo(() => unconfirmedAccounts((accounts ?? []).filter((a) => !isArchived(a))), [accounts]);
+  const provisional = unentered.length > 0 ? `Provisional: ${unentered.length} balance${unentered.length === 1 ? '' : 's'} not entered, counted as 0` : null;
 
   // The same basis Forecast projects from, not a rule of this card's own:
   // "any account or holding exists" let a household whose only holding had
@@ -131,22 +163,25 @@ export default function PlanSummary({ household = null, members, me, accounts, t
   const debtsMissing = neverLoaded(sources, DEBT_INPUTS);
   const debtPlanMissing = neverLoaded(sources, DEBT_PLAN_INPUTS);
   const answerMissing = neverLoaded(sources, projectionInputs(forecast));
+  const accountsMissing = neverLoaded(sources, ['household', 'accounts']);
   // Each item below is offered only when what it rests on loaded; the rest
   // are named once as not checked, never folded into "All clear".
-  const unchecked = [...new Set([...goalsMissing, ...debtsMissing, ...debtPlanMissing, ...answerMissing])];
+  const unchecked = [...new Set([...goalsMissing, ...debtsMissing, ...debtPlanMissing, ...answerMissing, ...accountsMissing])];
 
+  // Checks that change what you do. "N goals behind pace" and the nudge to
+  // commit an extra debt payment went (Planning audit, 1.1): the first counted
+  // what was logged to a goal in the last 90 days, so goals with no date, or
+  // fed through a linked account, read as behind while Goals called them
+  // covered; the second pressed for prepaying a loan before any cash reserve
+  // was in place. The goal check returns with Goals' 3-year rule.
   const actions = [
-    goalsMissing.length === 0 && behindGoals.length > 0 && {
-      key: 'goals',
-      text: `${behindGoals.length} goal${behindGoals.length === 1 ? '' : 's'} behind pace`,
-      tab: 'goals',
-      cta: 'Open Goals',
-    },
-    debtsMissing.length === 0 && debtPlanMissing.length === 0 && debts.length > 0 && !canProjectDebt && {
-      key: 'debt',
-      text: 'No committed extra payment set, so debt has no payoff date',
-      tab: 'debt',
-      cta: 'Set a plan',
+    accountsMissing.length === 0 && unentered.length > 0 && {
+      key: 'balances',
+      text: `${unentered.length === 1 ? 'Balance' : 'Balances'} not entered: ${nameList(unentered.slice(0, 3).map((a) => a.name))}${
+        unentered.length > 3 ? ` and ${unentered.length - 3} more` : ''
+      }. Every figure here counts ${unentered.length === 1 ? 'it' : 'them'} as 0.`,
+      href: tabHref('/wealth', 'accounts'),
+      cta: 'Open Accounts',
     },
     answerMissing.length === 0 && !forecast.ready && {
       key: 'forecast',
@@ -161,6 +196,20 @@ export default function PlanSummary({ household = null, members, me, accounts, t
 
   const isEmpty = goals.length === 0 && debts.length === 0 && !forecast.ready && unchecked.length === 0;
 
+  // What the stop year rests on that isn't a record, each said once under it
+  // (Planning audit, 1.1). A year nobody chose was called "your plan's".
+  const stopCaveats = (stop) =>
+    [
+      stop.stopAssumed && {
+        text: `${stop.stopYear} is assumed${
+          stop.stopYear === stop.stopAssumed.birthYear + DEFAULT_STOP_AGE ? `, the year ${stop.stopAssumed.name} turns ${DEFAULT_STOP_AGE},` : ''
+        } until you choose a year on the Life plan.`,
+      },
+      provisional && { text: `${provisional}.` },
+      stop.leftOut.length > 0 && { text: leftOutText(stop.leftOut), warn: true },
+      scopeMemberId !== null && { text: "The household's year, whoever is selected." },
+    ].filter(Boolean);
+
   // The answer to when work can stop: the Life plan's year once ages are set,
   // and then the first card, with what it assumes about spending (SHR-324).
   // Before that, the independence year, after goals and debt as it always was.
@@ -173,11 +222,12 @@ export default function PlanSummary({ household = null, members, me, accounts, t
         figure={stop.earliest !== null ? String(stop.earliest) : 'No year lasts'}
         note={
           stop.earliest !== null
-            ? `${agesLabel(stop.ages)} · the money lasts to ${stop.endYear} · ${spendAfterText(stop, (v) => `AED ${formatMoney(v)}`)}${stop.earliest > stop.stopYear ? ` · not by your plan's ${stop.stopYear}` : ''}${
-                basisIncomplete ? ` · incomplete, ${basisIncomplete}` : ''
-              }${forecast.source === 'budget' ? ' · from your budget' : ''}`
+            ? `${agesLabel(stop.ages)} · the money lasts to ${stop.endYear} · ${spendAfterText(stop, (v) => `AED ${formatMoney(v)}`)}${
+                stop.earliest > stop.stopYear ? ` · not by ${stop.stopAssumed ? '' : "your plan's "}${stop.stopYear}` : ''
+              }${basisIncomplete ? ` · incomplete, ${basisIncomplete}` : ''}${forecast.source === 'budget' ? ' · from your budget' : ''}`
             : noStopText(stop)
         }
+        caveats={stopCaveats(stop)}
         cta="Life plan"
         onClick={() => onOpenTab('life')}
       />
@@ -198,6 +248,7 @@ export default function PlanSummary({ household = null, members, me, accounts, t
               }${forecast.source === 'budget' ? ' · from your budget' : ''}`
             : 'Not enough data to project'
         }
+        caveats={forecast.ready && provisional ? [{ text: `${provisional}.` }] : []}
         cta="Forecast"
         onClick={() => onOpenTab('forecast')}
       />
@@ -255,13 +306,7 @@ export default function PlanSummary({ household = null, members, me, accounts, t
               ? 'No debts on record'
               : debtPlanMissing.length > 0
                 ? `${couldntLoad(debtPlanMissing)} No payoff date is worked out.`
-              : `${
-                  canProjectDebt && debtPlan
-                    ? `Debt-free in ${monthsToLabel(debtPlan.months)}`
-                    : canProjectDebt
-                      ? "Doesn't clear within 50 years at this rate"
-                      : 'No payoff date set'
-                }${visibleDebts.some((d) => !d.inNetWorth) ? ' · not all in net worth' : ''}`
+              : `${payoffText({ atMinimums, withExtra: canProjectDebt ? debtPlan : undefined, now })}${visibleDebts.some((d) => !d.inNetWorth) ? ' · not all in net worth' : ''}`
           }
           cta="Debt payoff"
           onClick={() => onOpenTab('debt')}
@@ -288,9 +333,15 @@ export default function PlanSummary({ household = null, members, me, accounts, t
                 <div className="ov-attn-main">
                   <span>{a.text}</span>
                 </div>
-                <button type="button" className="om-btn ov-attn-btn" onClick={() => onOpenTab(a.tab)}>
-                  {a.cta}
-                </button>
+                {a.href ? (
+                  <Link className="om-btn ov-attn-btn" to={a.href}>
+                    {a.cta}
+                  </Link>
+                ) : (
+                  <button type="button" className="om-btn ov-attn-btn" onClick={() => onOpenTab(a.tab)}>
+                    {a.cta}
+                  </button>
+                )}
               </div>
             ))}
             {unchecked.length > 0 && (
@@ -315,10 +366,10 @@ export default function PlanSummary({ household = null, members, me, accounts, t
 // A real button: it was a div that answered Enter but not Space, and was
 // read out as one run of text (Planning audit, 0b-F). It is named by where it
 // goes and described by its figure and note.
-function SummaryCard({ label, figure, note, cta, onClick, progress = null, progressLabel = null }) {
+function SummaryCard({ label, figure, note, cta, onClick, progress = null, progressLabel = null, caveats = [] }) {
   const id = useId();
   return (
-    <button type="button" className="pl-card" onClick={onClick} aria-label={`${label}: open ${cta}`} aria-describedby={`${id}-figure ${id}-note`}>
+    <button type="button" className="pl-card" onClick={onClick} aria-label={`${label}: open ${cta}`} aria-describedby={`${id}-figure ${id}-note${caveats.length ? ` ${id}-caveats` : ''}`}>
       <span className="ov-quality-row">
         <span className="ov-kicker" style={{ marginBottom: 0 }}>{label}</span>
         <span className="ov-link">{cta} →</span>
@@ -335,6 +386,15 @@ function SummaryCard({ label, figure, note, cta, onClick, progress = null, progr
         {note}
         {progressLabel && ` · ${progressLabel}`}
       </span>
+      {caveats.length > 0 && (
+        <span className="pl-card-caveats" id={`${id}-caveats`}>
+          {caveats.map((c) => (
+            <span key={c.text} className={`pl-card-caveat ${c.warn ? 'ov-warn' : 'ov-muted'}`}>
+              {c.text}
+            </span>
+          ))}
+        </span>
+      )}
     </button>
   );
 }

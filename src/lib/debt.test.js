@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { amortizeMinimumOnly, debtsWithAccounts, simulatePayoffPlan } from './debt';
+import { amortizeMinimumOnly, debtsWithAccounts, minimumOnlyPayoff, payoffMonthLabel, simulatePayoffPlan } from './debt';
 
 // QA / SHR-228: simulatePayoffPlan lost the unused part of a minimum payment
 // in the very month it went unused, instead of carrying it into the same
@@ -103,5 +103,39 @@ describe('amortizeMinimumOnly', () => {
   it('tells a very long debt from one that never clears', () => {
     expect(amortizeMinimumOnly(100000, 6, 520)).toBe(Infinity);
     expect(amortizeMinimumOnly(100000, 6, 520, 1200)).toBe(654);
+  });
+});
+
+// Plan's debt card leads with this date (Planning audit, 1.1).
+describe('minimumOnlyPayoff', () => {
+  const debt = (name, balance, apr_pct, minimum_payment) => ({ name, balance, apr_pct, minimum_payment });
+
+  it('dates a loan paid at its minimum', () => {
+    const payoff = minimumOnlyPayoff([debt('Car loan', 12000, 0, 1000)]);
+    expect(payoff).toMatchObject({ owed: 1, months: 12, never: [], tooLong: [] });
+    expect(payoff.last.name).toBe('Car loan');
+    expect(payoffMonthLabel(payoff.months, new Date(2026, 9, 20))).toBe('Oct 2027');
+  });
+
+  it('waits for the last debt at its own minimum, not for minimums rolled on', () => {
+    const debts = [debt('Card', 1000, 0, 500), debt('Loan', 6000, 0, 500)];
+    const payoff = minimumOnlyPayoff(debts);
+    expect(payoff.months).toBe(12);
+    expect(payoff.last.name).toBe('Loan');
+    // Rolling the card's freed minimum onto the loan would say month 7: the
+    // two readings differ, and only the first is what the minimums commit.
+    expect(simulatePayoffPlan(debts, 0).months).toBe(7);
+  });
+
+  it('leaves out what owes nothing, and has no date when nothing is owed', () => {
+    expect(minimumOnlyPayoff([debt('Card', 0, 20, 100)])).toEqual({ owed: 0, months: null, last: null, never: [], tooLong: [] });
+    expect(minimumOnlyPayoff([debt('Card', 0, 20, 100), debt('Loan', 1000, 0, 500)])).toMatchObject({ owed: 1, months: 2 });
+  });
+
+  it('names a debt whose minimum never clears it, or takes more than 50 years', () => {
+    const payoff = minimumOnlyPayoff([debt('Card', 10000, 24, 100), debt('Loan', 70000, 0, 100), debt('Car', 1000, 0, 500)]);
+    expect(payoff.never.map((d) => d.name)).toEqual(['Card']);
+    expect(payoff.tooLong.map((d) => d.name)).toEqual(['Loan']);
+    expect(payoff.months).toBe(2);
   });
 });

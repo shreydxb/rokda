@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
 import { formatMoney } from '../../lib/money';
+import { DEFAULT_STOP_AGE, defaultStopPerson } from '../../lib/lifePlan';
 import '../money/TransactionEditor.css';
 
 // Who the life plan is for, and what it assumes about the years after work
@@ -85,8 +86,9 @@ export default function LifePlanEditor({ householdId, members, memberLife, assum
   }
 
   const planned = form.people.filter((p) => !blank(p.birthYear) || !blank(p.lifeExpectancy));
-  const first = planned[0];
-  const suggestedStop = first && whole(first.birthYear) ? Number(first.birthYear) + 60 : null;
+  // The year the plan assumes until one is chosen, by the same rule.
+  const stopBy = defaultStopPerson(planned.filter((p) => whole(p.birthYear)).map((p) => ({ ...p, birthYear: Number(p.birthYear) })));
+  const suggestedStop = stopBy ? stopBy.birthYear + DEFAULT_STOP_AGE : null;
 
   // The same limits the database enforces, said here in words first.
   function problem() {

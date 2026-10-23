@@ -1,7 +1,6 @@
 import { monthKey, parseDay } from './day';
 import { tabHref } from './activityLink';
 import { upcomingItems } from './recurring';
-import { scopedGoalRows } from './goals';
 import { monthIncome, monthSpendBreakdown } from './budget';
 import { budgetSummary } from './monthlyReview';
 import { liquidAssets, netWorthSummary } from '../screens/overviewMath';
@@ -15,17 +14,21 @@ import { formatMoney } from './money';
 // turn the month into a few actions, most pressing first, each worked out
 // from what is recorded and gone once it no longer applies:
 //   1. bills due in the next 30 days that the money to hand won't cover;
-//   2. goals behind the pace their date needs;
-//   3. spending that went over its budget;
-//   4. saving that fell short of its target.
+//   2. spending that went over its budget;
+//   3. saving that fell short of its target.
 // They cover the whole household, as the review does.
+//
+// "Fund <goal>" went with Plan's "goals behind pace" (Planning audit, 1.1).
+// Both measured a goal by what was logged to it in the last 90 days, so a goal
+// fed through a linked account, or one with no date, read as behind while
+// Goals called it covered.
 
 // A whole amount, unsigned: the shared formatter, made once (lib/money.js).
 const fmt = (n) => formatMoney(Math.round(Math.abs(n)));
 const dayLabel = (d) => parseDay(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 
-export function monthActions({ year, month }, data = {}, planning = {}, now = new Date()) {
-  const { transactions = [], accounts = [], recurring = [], budgets = [], categories = [], holdings = [] } = data;
+export function monthActions({ year, month }, data = {}, now = new Date()) {
+  const { transactions = [], accounts = [], recurring = [], budgets = [], categories = [] } = data;
   const actions = [];
 
   // 1. The next 30 days: bills due, less pay expected, against current and
@@ -46,32 +49,7 @@ export function monthActions({ year, month }, data = {}, planning = {}, now = ne
     });
   }
 
-  // 2. Goals behind the pace their date needs, the largest gap first.
-  const inflationPct = planning.assumptions?.inflation_pct != null ? Number(planning.assumptions.inflation_pct) : undefined;
-  const goalRows = scopedGoalRows({
-    goals: planning.goals ?? [],
-    contributions: planning.goalContributions ?? [],
-    allocations: planning.goalAllocations ?? [],
-    accounts,
-    holdings,
-    scopeMemberId: null,
-    now,
-    inflationPct,
-  });
-  goalRows
-    .filter((r) => r.progress.status === 'behind' && r.need?.shortfall > 0)
-    .sort((a, b) => b.need.shortfall - a.need.shortfall)
-    .forEach((r) => {
-      actions.push({
-        id: `goal-${r.goal.id}`,
-        title: `Fund ${r.goal.name}`,
-        detail: `AED ${fmt(r.need.shortfall)} a month more than it is getting, AED ${fmt(r.need.perMonth)} a month in all, to reach it by ${r.need.byLabel}.`,
-        href: tabHref('/planning', 'goals'),
-        cta: 'Open Goals',
-      });
-    });
-
-  // 3. Spending over its budget in the month: change the plan or the spending.
+  // 2. Spending over its budget in the month: change the plan or the spending.
   const summary = budgetSummary({ year, month }, { transactions, budgets, categories }, now);
   if (summary.over.length > 0) {
     const named = summary.over.slice(0, 3).map((g) => `${g.name} by AED ${fmt(g.spent - g.budget)}`);
@@ -84,7 +62,7 @@ export function monthActions({ year, month }, data = {}, planning = {}, now = ne
     });
   }
 
-  // 4. Saving against the month's savings target: income less all spending.
+  // 3. Saving against the month's savings target: income less all spending.
   const savingsIds = new Set(categories.filter((c) => c.is_savings).map((c) => c.id));
   const target = budgets.filter((b) => b.year === year && b.month === month && savingsIds.has(b.category_id)).reduce((s, b) => s + Number(b.amount), 0);
   if (target > 0) {

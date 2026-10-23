@@ -20,6 +20,38 @@ export function amortizeMinimumOnly(balance, aprPct, minimumPayment, maxMonths =
   return Infinity;
 }
 
+const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// When the debts clear if each is paid only its own minimum: the date the
+// household is on before any extra payment is committed (Planning audit,
+// 1.1). A minimum freed when one debt clears is not assumed to move on to the
+// next. Nothing commits it there, and assuming it can bring the last date
+// years closer; Debt payoff projects that once an extra payment is set.
+//
+// `months` is how long the last of them takes and `last` is that debt; a debt
+// owing nothing is left out, and `owed` counts the rest. `never` holds the
+// debts whose minimum doesn't cover their interest and `tooLong` those taking
+// more than 50 years. Neither has a date, and while there is one, the debts
+// as a whole have none.
+export function minimumOnlyPayoff(debts) {
+  const rows = debts.map((debt) => ({ debt, months: amortizeMinimumOnly(debt.balance, debt.apr_pct, debt.minimum_payment) })).filter((r) => r.months !== 0);
+  const dated = rows.filter((r) => Number.isFinite(r.months));
+  const latest = dated.reduce((a, r) => (!a || r.months > a.months ? r : a), null);
+  return {
+    owed: rows.length,
+    months: latest?.months ?? null,
+    last: latest?.debt ?? null,
+    never: rows.filter((r) => r.months === null).map((r) => r.debt),
+    tooLong: rows.filter((r) => r.months === Infinity).map((r) => r.debt),
+  };
+}
+
+// "Aug 2030": the month a payoff `months` from now lands in.
+export function payoffMonthLabel(months, now = new Date()) {
+  const d = new Date(now.getFullYear(), now.getMonth() + months, 1);
+  return `${MONTH_LABELS[d.getMonth()]} ${d.getFullYear()}`;
+}
+
 // An account's owner in a debt's terms: shared, or one member's.
 export function accountOwner(account) {
   const shared = account.is_shared ?? !account.owner_member_id;

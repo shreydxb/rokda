@@ -2304,3 +2304,37 @@ screen reader or a thumb on a phone each met something that didn't.
   "Minimum payment (AED/mo)" wrapped to two lines in a two-column row and pushed their
   field below its neighbour's; they are "Return (%/yr)" and "Minimum
   (AED/mo)", and the assumptions editor says the return is before inflation.
+
+## Plan tells the truth
+
+Plan's cards and its list of decisions said more than the records support
+(Planning audit, 1.1).
+
+- **The debt card dates the debt.** It said "No payoff date set" until an
+  extra payment was committed, though the minimums alone clear a loan on a
+  date. It now says when the debts in view clear at their minimums, each on
+  its own (lib/debt.js, minimumOnlyPayoff). A minimum freed when one debt
+  clears is not assumed to move on to the next: nothing commits it there, and
+  assuming it can bring the date years closer. With an extra payment
+  committed and both of you selected, the card gives that plan's date
+  instead. In one partner's view it used to show a household date that Debt
+  payoff refuses to show.
+- **The list holds checks that change what you do.** "N goals behind pace"
+  went. It measured each goal by what was logged to it in the last 90 days,
+  so goals with no date, or fed through a linked account, read as behind
+  while Goals called them covered. The review's "Fund <goal>" actions used
+  the same measure and went with it, so Money no longer reads the planning
+  tables for the review. A goal check comes back with Goals' 3-year rule
+  (1.5). The nudge to commit an extra debt payment went too: it pressed for
+  prepaying a loan before any cash reserve was in place. New: balances not
+  entered, by name, with a link to Wealth → Accounts, since every figure
+  counts them as 0.
+- **The stop card says what it assumes.** A stop year nobody chose was
+  called "your plan's". It is now "assumed", with whose 60th birthday it is.
+  That default is the eldest person's 60th, the first by name on a tie,
+  rather than the first in a roster order the database doesn't fix. While
+  balances are not entered the answer is provisional, and says so. A member
+  with no ages is named as left out, here and on the Life plan. In one
+  partner's view, the card says the year is the household's.
+- **Plan's cards start at the top of their row.** As buttons they centred
+  what they held, so a shorter card's label sat lower than its neighbours'.

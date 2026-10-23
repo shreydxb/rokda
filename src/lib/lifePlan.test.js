@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { agesIn, agesLabel, datedIncomesOnTimeline, earliestStop, extraSavingNeeded, goalsOnTimeline, lifePlan, lifePlanBasis, lifePlanStop, maxRetirementSpend, noStopCause, noStopText, planEndYear, planPeople, potNeededAt, spendAfterText, yearLeft } from './lifePlan';
+import { agesIn, agesLabel, datedIncomesOnTimeline, defaultStopPerson, earliestStop, extraSavingNeeded, goalsOnTimeline, lifePlan, lifePlanBasis, lifePlanStop, maxRetirementSpend, membersLeftOut, noStopCause, noStopText, planEndYear, planPeople, potNeededAt, spendAfterText, yearLeft } from './lifePlan';
 import { projectYears, realReturn } from './forecast';
 
 const people = [
@@ -296,6 +296,17 @@ describe('lifePlanStop: the one answer to when work can stop', () => {
     expect(spendAfterText({ spend: 1, spendKey: 'lean', spendLabel: 'Essentials' }, fmt)).toBe('spending AED 1 a year after work stops (essentials only)');
   });
 
+  it('says when the stop year is assumed, and whose 60th birthday it is', () => {
+    expect(lifePlanStop(args)).toMatchObject({ stopYear: 2054, stopAssumed: { name: 'Partner A' } });
+    expect(lifePlanStop({ ...args, assumptions: { retirement_year: 2050 } })).toMatchObject({ stopYear: 2050, stopAssumed: null });
+  });
+
+  it('names a member the plan leaves out', () => {
+    const stop = lifePlanStop({ ...args, memberLife: memberLife.slice(0, 1) });
+    expect(stop.leftOut.map((m) => m.display_name)).toEqual(['Partner B']);
+    expect(lifePlanStop(args).leftOut).toEqual([]);
+  });
+
   it('has no answer until someone\'s age is set, or with nothing to project from', () => {
     expect(lifePlanStop({ ...args, memberLife: [] })).toBeNull();
     expect(lifePlanStop({ ...args, inputs: { ready: false } })).toBeNull();
@@ -338,5 +349,22 @@ describe('sums paid in a set year (policy maturities)', () => {
     });
     expect(basis.args.incomes.map((i) => i.name)).toEqual(['Gratuity']);
     expect(basis.args.inflows.map((i) => i.name)).toEqual(['Policy A maturity']);
+  });
+});
+
+describe('defaultStopPerson and membersLeftOut', () => {
+  it('takes the eldest, then the first by name, whatever order the roster comes in', () => {
+    const a = { name: 'Partner A', birthYear: 1994 };
+    const b = { name: 'Partner B', birthYear: 1990 };
+    const c = { name: 'Partner C', birthYear: 1990 };
+    expect(defaultStopPerson([a, b, c]).name).toBe('Partner B');
+    expect(defaultStopPerson([c, a, b]).name).toBe('Partner B');
+    expect(defaultStopPerson([])).toBeUndefined();
+  });
+
+  it('leaves out the members with no ages for the plan', () => {
+    const members = [{ id: 'm1', display_name: 'Partner A' }, { id: 'm2', display_name: 'Partner B' }];
+    expect(membersLeftOut(members, [{ member_id: 'm2' }])).toEqual([members[0]]);
+    expect(membersLeftOut(members, [])).toEqual(members);
   });
 });

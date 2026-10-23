@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { screen } from '@testing-library/dom';
+import { MemoryRouter } from 'react-router-dom';
 import { renderScreen } from '../../test/renderScreen';
 import Goals from './Goals';
 import PlanSummary from './PlanSummary';
@@ -39,7 +40,9 @@ describe('Goals: the monthly figure a target date needs', () => {
 describe('Plan summary agrees with the Goals tab', () => {
   it('counts linked accounts in saved, as the Goals tab does', () => {
     renderScreen(
-      <PlanSummary members={MEMBERS} me={{ id: 'm1' }} accounts={ACCOUNTS} transactions={[]} holdings={[]} data={DATA} loading={false} onOpenTab={() => {}} />,
+      <MemoryRouter>
+        <PlanSummary members={MEMBERS} me={{ id: 'm1' }} accounts={ACCOUNTS} transactions={[]} holdings={[]} data={DATA} loading={false} onOpenTab={() => {}} />
+      </MemoryRouter>,
     );
     // 5,000 logged + half of a 40,000 account. It used to read 5,000.
     expect(screen.getByText('25,000')).toBeTruthy();
@@ -55,16 +58,18 @@ describe('Plan summary uses the same independence target as Forecast and Drawdow
     });
     const rent = { id: 'r1', kind: 'yearly', amount: 24000, starts_after_years: 0, lasts_years: null };
     renderScreen(
-      <PlanSummary
-        members={MEMBERS}
-        me={{ id: 'm1' }}
-        accounts={ACCOUNTS}
-        transactions={txns}
-        holdings={[]}
-        data={{ ...DATA, independenceIncome: [rent] }}
-        loading={false}
-        onOpenTab={() => {}}
-      />,
+      <MemoryRouter>
+        <PlanSummary
+          members={MEMBERS}
+          me={{ id: 'm1' }}
+          accounts={ACCOUNTS}
+          transactions={txns}
+          holdings={[]}
+          data={{ ...DATA, independenceIncome: [rent] }}
+          loading={false}
+          onOpenTab={() => {}}
+        />
+      </MemoryRouter>,
     );
     // 48,000 − 24,000 = 24,000 a year at 4%: 600,000.
     expect(screen.getByText(/of the way to 600,000/)).toBeTruthy();
