@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { annualSpendByCategory, budgetPlan, closedMonths, crossingYear, drawdownPath, fiTarget, forecastInputs, futureValue, incomeInYear, incomesFromStop, incomesWithoutRate, independenceTarget, MARKET_FALL, marketReturns, payMonthTransactions, planningMonths, potForWithdrawal, projectYears, realReturn, requiredAnnualSaving, scenarioSets, spendThatStops, sustainableWithdrawal } from './forecast';
+import { annualSpendByCategory, budgetInputs, budgetPlan, closedMonths, crossingYear, drawdownPath, fiTarget, forecastInputs, futureValue, incomeInYear, incomesFromStop, incomesWithoutRate, independenceTarget, MARKET_FALL, marketReturns, payMonthTransactions, planningMonths, potForWithdrawal, projectYears, realReturn, requiredAnnualSaving, scenarioSets, spendThatStops, sustainableWithdrawal } from './forecast';
 
 const DEFAULTS = { nominal_return_pct: 6.0, inflation_pct: 2.5, safe_withdrawal_pct: 4.0 };
 
@@ -510,5 +510,34 @@ describe('incomesWithoutRate', () => {
     ];
     expect(incomesWithoutRate(rows, { inr_per_aed: null }).map((r) => r.id)).toEqual(['b']);
     expect(incomesWithoutRate(rows, { inr_per_aed: 25 })).toEqual([]);
+  });
+});
+
+// Planning audit, 1.2: the budget's answer stays in view once records take over.
+describe('budgetInputs', () => {
+  const plan = { monthlySpend: 4000, monthlySaving: 2000, monthCount: 2 };
+
+  it('gives the budget\'s figures however many months are recorded', () => {
+    expect(budgetInputs(plan, 100000, 5)).toEqual({
+      ready: true,
+      source: 'budget',
+      monthCount: 5,
+      budgetMonths: 2,
+      hasNetWorth: true,
+      avgMonthlyIncome: 6000,
+      avgMonthlySpend: 4000,
+      annualSpend: 48000,
+      monthlySaving: 2000,
+      startNetWorth: 100000,
+    });
+  });
+
+  it('is what forecastInputs stands in with before three months end', () => {
+    expect(forecastInputs([], 100000, new Date(2026, 9, 20), plan)).toEqual(budgetInputs(plan, 100000, 0));
+  });
+
+  it('has nothing to give without a budget or a starting point', () => {
+    expect(budgetInputs(null, 100000)).toBeNull();
+    expect(budgetInputs(plan, null)).toBeNull();
   });
 });

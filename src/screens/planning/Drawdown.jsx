@@ -187,7 +187,7 @@ export default function Drawdown({ household, members = [], accounts = [], trans
         <ForecastAssumptionsEditor
           householdId={household?.id}
           assumptions={assumptions}
-          currentMonthlySaving={inputs.monthlySaving}
+          budgetMonthlySaving={plan?.monthlySaving ?? null}
           scenario={fcSet}
           onClose={() => setEditingAssumptions(false)}
           onSaved={async () => {

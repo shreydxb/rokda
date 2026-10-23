@@ -304,3 +304,28 @@ describe('LifePlan: who the plan covers', () => {
     expect(screen.queryByText(/isn't in the plan/)).toBeNull();
   });
 });
+
+// Planning audit, 1.2: once three months have ended the records take over,
+// and the budget's answer stays beside theirs.
+describe('LifePlan: the budget beside the records', () => {
+  const now = new Date();
+  const categories = [
+    { id: 'food', name: 'Groceries', kind: 'expense' },
+    { id: 'save', name: 'Savings', kind: 'expense', is_savings: true },
+  ];
+  const budget = (category_id, amount) => ({ year: now.getFullYear(), month: now.getMonth() + 1, category_id, amount });
+
+  it('gives what the budget plans and the year it gives, beside the months', () => {
+    renderPlan({ categories, budgets: [budget('food', 2000), budget('save', 8000)] });
+    const note = screen.getByText(/^Your budget beside the records\./).closest('div').textContent;
+    expect(note).toMatch(/The last 3 ended months average spending AED 4,000 and saving AED 6,000 a month; your budget plans spending AED 2,000 and saving AED 8,000\./);
+    const [, months, onBudget] = note.match(/The earliest year work can stop is (\d{4}) on the months and (\d{4}) on the budget\./);
+    expect(Number(onBudget)).toBeLessThan(Number(months));
+    expect(note).toMatch(/Stopping in \d{4}, the money (lasts|runs short in \d{4}) on the budget\. Everything below uses the recorded months\.$/);
+  });
+
+  it('says nothing more without a budget', () => {
+    renderPlan();
+    expect(screen.queryByText(/Your budget beside the records/)).toBeNull();
+  });
+});

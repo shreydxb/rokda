@@ -2338,3 +2338,23 @@ Plan's cards and its list of decisions said more than the records support
   partner's view, the card says the year is the household's.
 - **Plan's cards start at the top of their row.** As buttons they centred
   what they held, so a shorter card's label sat lower than its neighbours'.
+
+## Your budget beside the records
+
+Once three months have ended, the plan runs on recorded months and the
+budget used to drop out of view, though it is the plan as the household wrote
+it down. The first save of the assumptions also froze the recorded average as
+the baseline, months recorded only in part included, and nothing could undo
+it (Planning audit, 1.2).
+
+- **Both answers, side by side.** Plan's stop card and the Life plan give the
+  stop year on the budget's figures beside the one on recorded months
+  (lib/forecast.js, budgetInputs). The Life plan also says what each basis
+  spends and saves a month, and whether the chosen stop year lasts on the
+  budget. Everything else still runs on the recorded months; choosing the
+  basis, and when records start counting, is 2.9.
+- **The baseline is the budget's savings target.** The first Baseline save
+  takes the budget's monthly savings target as the saving the plan is
+  measured against. With no savings target in the budget, no baseline is
+  taken, and the editor says so, so a later save once there is one sets it.
+  The return and inflation it records are unchanged.

@@ -8,7 +8,7 @@ import { debtsWithAccounts, minimumOnlyPayoff, orderDebts, payoffMonthLabel, sim
 import { isArchived } from '../../lib/accounts';
 import { unconfirmedAccounts } from '../../lib/balance';
 import { tabHref } from '../../lib/activityLink';
-import { budgetPlan, crossingYear, forecastInputs, incomesFromStop, independenceTarget, realReturn, spendThatStops } from '../../lib/forecast';
+import { budgetInputs, budgetPlan, crossingYear, forecastInputs, incomesFromStop, independenceTarget, realReturn, spendThatStops } from '../../lib/forecast';
 import { agesLabel, DEFAULT_STOP_AGE, leftOutText, lifePlanStop, noStopText, spendAfterText } from '../../lib/lifePlan';
 import { incompleteNote, netWorthSummary, startingNetWorth } from '../overviewMath';
 import { couldntLoad, neverLoaded } from '../../lib/loadState';
@@ -138,23 +138,32 @@ export default function PlanSummary({ household = null, members, me, accounts, t
   // With ages set, the Life plan answers when work can stop: the first year
   // its money lasts to the end. The 25x target above is money that lasts
   // forever, decades later, and used to be the only answer here.
-  const stop = useMemo(
-    () =>
+  const stopFrom = useMemo(
+    () => (inputs, spendStopping) =>
       lifePlanStop({
         members: members ?? [],
         memberLife: data.memberLife ?? [],
         assumptions,
-        inputs: forecast,
+        inputs,
         startNetWorth,
         goals: goals ?? [],
         incomes: data.independenceIncome ?? [],
         household,
-        stopping,
+        stopping: spendStopping,
         startYear: now.getFullYear(),
         now,
       }),
-    [members, data.memberLife, assumptions, forecast, startNetWorth, goals, data.independenceIncome, household, stopping, now]
+    [members, data.memberLife, assumptions, startNetWorth, goals, data.independenceIncome, household, now]
   );
+  const stop = useMemo(() => stopFrom(forecast, stopping), [stopFrom, forecast, stopping]);
+  // The same answer on the budget's figures, once three ended months have
+  // taken over from it: the budget used to drop out of view then, though it
+  // is the plan the household wrote down (Planning audit, 1.2).
+  const budgetBasis = useMemo(() => (forecast.source === 'actual' ? budgetInputs(plan, startNetWorth, forecast.monthCount) : null), [forecast, plan, startNetWorth]);
+  const budgetStop = useMemo(() => {
+    if (!budgetBasis) return null;
+    return stopFrom(budgetBasis, spendThatStops({ inputs: budgetBasis, transactions, budgets, categories, now }));
+  }, [stopFrom, budgetBasis, transactions, budgets, categories, now]);
 
   // What rests on records that never arrived is withheld rather than worked
   // out from an empty placeholder: with goals and debts unread, this page
@@ -200,6 +209,12 @@ export default function PlanSummary({ household = null, members, me, accounts, t
   // (Planning audit, 1.1). A year nobody chose was called "your plan's".
   const stopCaveats = (stop) =>
     [
+      budgetStop && {
+        text:
+          budgetStop.earliest !== null
+            ? `On your budget's figures rather than the recorded months: ${budgetStop.earliest}.`
+            : "On your budget's figures rather than the recorded months, no year lasts.",
+      },
       stop.stopAssumed && {
         text: `${stop.stopYear} is assumed${
           stop.stopYear === stop.stopAssumed.birthYear + DEFAULT_STOP_AGE ? `, the year ${stop.stopAssumed.name} turns ${DEFAULT_STOP_AGE},` : ''

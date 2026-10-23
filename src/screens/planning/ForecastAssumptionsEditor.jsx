@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
+import { formatMoney } from '../../lib/money';
 import '../money/TransactionEditor.css';
 
 // What a blank field saves. Never 0: a 0% return or 0% inflation is an answer
@@ -21,7 +22,7 @@ const FIELDS = ['nominal', 'inflation', 'swr', 'lean'];
 const str = (v) => (v == null ? '' : String(Number(v)));
 const blank = (v) => String(v).trim() === '';
 
-export default function ForecastAssumptionsEditor({ householdId, assumptions, currentMonthlySaving, scenario = 'baseline', onClose, onSaved }) {
+export default function ForecastAssumptionsEditor({ householdId, assumptions, budgetMonthlySaving = null, scenario = 'baseline', onClose, onSaved }) {
   const drawerRef = useDrawerFocus();
   const isCustom = scenario === 'custom';
   const uid = useId();
@@ -53,6 +54,13 @@ export default function ForecastAssumptionsEditor({ householdId, assumptions, cu
   const [saving, setSaving] = useState(false);
 
   const hasBaseline = !!assumptions?.baseline_set_at;
+  // The first save on Baseline sets the baseline, and its saving is the
+  // budget's savings target: the plan as the household wrote it down. It was
+  // the recorded average at that moment, which froze whatever those months
+  // held, months recorded only in part included, and could not be undone
+  // (Planning audit, 1.2). With no savings target in the budget there is
+  // nothing to set it from, so no baseline is taken yet.
+  const takesBaseline = !isCustom && !hasBaseline && budgetMonthlySaving > 0;
 
   useEffect(() => {
     const onKey = (e) => {
@@ -133,11 +141,11 @@ export default function ForecastAssumptionsEditor({ householdId, assumptions, cu
           updated_at: new Date().toISOString(),
         };
 
-    if (!isCustom && !hasBaseline) {
+    if (takesBaseline) {
       payload.baseline_set_at = new Date().toISOString();
       payload.baseline_nominal_return_pct = payload.nominal_return_pct;
       payload.baseline_inflation_pct = payload.inflation_pct;
-      payload.baseline_monthly_saving = currentMonthlySaving;
+      payload.baseline_monthly_saving = budgetMonthlySaving;
     }
 
     const { error: saveError } = await supabase.from('planning_assumptions').upsert(payload, { onConflict: 'household_id' });
@@ -226,8 +234,9 @@ export default function ForecastAssumptionsEditor({ householdId, assumptions, cu
 
           {!isCustom && !hasBaseline && (
             <div className="ov-muted" style={{ fontSize: 11.5, lineHeight: 1.6 }}>
-              This is the first time assumptions are being saved — these numbers become the baseline everything else is compared
-              against. Editing again later won't move the baseline.
+              {takesBaseline
+                ? `This first save sets the baseline everything else is compared against: these figures, and your budget's savings target of ${formatMoney(budgetMonthlySaving)} a month. Editing again later won't move it.`
+                : "No baseline is set yet. It takes your budget's savings target, and the budget has none, so saving keeps these figures without one."}
             </div>
           )}
 
