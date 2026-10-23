@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { startingNetWorth } from '../overviewMath';
-import { annualSpendByCategory, budgetPlan, forecastInputs, incomesWithoutRate, spendThatStops } from '../../lib/forecast';
+import { budgetPlan, forecastInputs, incomesWithoutRate, spendThatStops } from '../../lib/forecast';
 import { agesIn, agesLabel, earliestStop, extraSavingNeeded, lifePlan, lifePlanBasis, maxRetirementSpend, planEndYear, planPeople, potNeededAt } from '../../lib/lifePlan';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { ChartLegend, ColumnChart } from '../../charts/Charts';
@@ -25,15 +25,19 @@ const PHASES = [
 // scenarios and other income). The stop-work year, scenario and spending here
 // are what-ifs; the saved plan is changed with "Make this the plan" or the
 // editor.
+// One empty list for every missing prop: a fresh [] on each render would
+// work the whole plan out again on every step along the chart.
+const NONE = [];
+
 export default function LifePlan({
   household,
-  members = [],
-  accounts = [],
-  transactions = [],
-  recurring = [],
-  holdings = [],
-  budgets = [],
-  categories = [],
+  members = NONE,
+  accounts = NONE,
+  transactions = NONE,
+  recurring = NONE,
+  holdings = NONE,
+  budgets = NONE,
+  categories = NONE,
   data,
   sources,
   onRetry,
@@ -62,6 +66,9 @@ export default function LifePlan({
   const mode = moneyMode ?? localMode;
   const setMode = onMoneyMode ?? setLocalMode;
   const [activeYear, setActiveYear] = useState(null);
+  // The year-by-year table is built only once it is opened: closed, its rows
+  // were most of the work on every chart step (Planning audit, 0b-E).
+  const [tableOpen, setTableOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
 
@@ -72,6 +79,37 @@ export default function LifePlan({
 
   // The people planned for: members with a birth year and an age to plan to.
   const people = useMemo(() => planPeople(members, data.memberLife ?? []), [members, data.memberLife]);
+
+  // The plan and the four answers built on it, worked out once for each change
+  // of input rather than on every step along the chart (Planning audit, 0b-E).
+  // Null while there is no plan to work out; the states below say why.
+  const worked = useMemo(() => {
+    if (!inputs.ready || !people.length || planEndYear(people) < startYear) return null;
+    const basis = lifePlanBasis({
+      people,
+      assumptions,
+      inputs,
+      startNetWorth,
+      goals: data.goals ?? [],
+      incomes: data.independenceIncome ?? [],
+      household,
+      stopping,
+      startYear,
+      now,
+      fcSet,
+      stopOverride,
+      spendKind,
+    });
+    const result = lifePlan(basis.args);
+    return {
+      basis,
+      result,
+      need: potNeededAt(basis.args),
+      earliest: earliestStop(basis.args),
+      extra: result.lasts ? 0 : extraSavingNeeded(basis.args),
+      mostSpend: maxRetirementSpend(basis.args),
+    };
+  }, [people, assumptions, inputs, startNetWorth, data.goals, data.independenceIncome, household, stopping, startYear, now, fcSet, stopOverride, spendKind]);
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
   const missing = neverLoaded(sources, projectionInputs(inputs));
@@ -90,7 +128,7 @@ export default function LifePlan({
       memberLife={data.memberLife ?? []}
       assumptions={assumptions}
       categories={categories}
-      spendByCategory={annualSpendByCategory({ inputs, transactions, budgets, categories, now })}
+      spendByCategory={stopping.byCategory}
       onClose={() => setEditing(false)}
       onSaved={async () => {
         setEditing(false);
@@ -165,29 +203,10 @@ export default function LifePlan({
     );
   }
 
-  const basis = lifePlanBasis({
-    people,
-    assumptions,
-    inputs,
-    startNetWorth,
-    goals: data.goals ?? [],
-    incomes: data.independenceIncome ?? [],
-    household,
-    stopping,
-    startYear,
-    now,
-    fcSet,
-    stopOverride,
-    spendKind,
-  });
-  const { endYear, sets, selected, inflationPct, postNominal, savedStop, stopYear, spendOptions, spendChoice, survivorPct, goals, incomes, inflows, args } = basis;
+  const { basis, result, need, earliest, extra, mostSpend } = worked;
+  const { endYear, sets, selected, inflationPct, postNominal, savedStop, stopYear, spendOptions, spendChoice, survivorPct, goals, incomes, inflows } = basis;
   const anyIncome = incomes.length > 0 || inflows.length > 0;
   const uncounted = incomesWithoutRate(data.independenceIncome ?? [], household);
-  const result = lifePlan(args);
-  const need = potNeededAt(args);
-  const earliest = earliestStop(args);
-  const extra = result.lasts ? 0 : extraSavingNeeded(args);
-  const mostSpend = maxRetirementSpend(args);
 
   // Today's money, or grown with inflation to the year it happens -- the way
   // an adviser's sheets show it.
@@ -483,7 +502,7 @@ export default function LifePlan({
           {active.short > 0 && <span className="ov-neg">Short by {money.fmt(shown(active.short, active.year))}</span>}
         </div>
         <ChartLegend items={PHASES.map((p) => ({ label: p.label, color: p.color }))} />
-        <details className="ch-table">
+        <details className="ch-table" onToggle={(e) => setTableOpen(e.currentTarget.open)}>
           <summary>Year by year, as a table</summary>
           <div className="ch-table-wrap">
             <table>
@@ -500,7 +519,7 @@ export default function LifePlan({
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r, i) => {
+                {tableOpen && rows.map((r, i) => {
                   const notes = [
                     r.year === stopYear && 'Work stops',
                     r.year === firstForOne && 'Planning for one',

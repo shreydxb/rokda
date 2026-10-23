@@ -4,7 +4,7 @@ import { resolveScopeMemberId } from '../../lib/scope';
 import { formatMoney, formatPct } from '../../lib/money';
 import { scopedGoalRows } from '../../lib/goals';
 import { debtsWithAccounts, orderDebts, simulatePayoffPlan } from '../../lib/debt';
-import { budgetPlan, crossingYear, forecastInputs, incomesFromStop, independenceTarget, planningMonths, realReturn, spendThatStops } from '../../lib/forecast';
+import { budgetPlan, crossingYear, forecastInputs, incomesFromStop, independenceTarget, realReturn, spendThatStops } from '../../lib/forecast';
 import { agesLabel, lifePlanStop, noStopText, spendAfterText } from '../../lib/lifePlan';
 import { incompleteNote, netWorthSummary, startingNetWorth } from '../overviewMath';
 import { couldntLoad, neverLoaded } from '../../lib/loadState';
@@ -84,7 +84,6 @@ export default function PlanSummary({ household = null, members, me, accounts, t
     const s = netWorthSummary(accounts, null, holdings);
     return incompleteNote({ accounts: s.unvalued, holdings: s.unpricedHoldings }, { capitalised: false, sentence: false });
   }, [accounts, holdings]);
-  const monthCount = planningMonths(transactions, recurring, now).size;
   // The same inputs Forecast and Drawdown use, the budget standing in included.
   const plan = useMemo(() => budgetPlan(budgets, categories, now), [budgets, categories, now]);
   const forecast = useMemo(() => forecastInputs(transactions, startNetWorth, now, plan, recurring), [transactions, startNetWorth, now, plan, recurring]);
@@ -152,8 +151,8 @@ export default function PlanSummary({ household = null, members, me, accounts, t
     answerMissing.length === 0 && !forecast.ready && {
       key: 'forecast',
       text:
-        monthCount < 3
-          ? `Independence needs three closed months of spend or a budget · has ${monthCount}`
+        forecast.monthCount < 3
+          ? `Independence needs three closed months of spend or a budget · has ${forecast.monthCount}`
           : 'Independence needs a starting account valuation',
       tab: 'forecast',
       cta: 'Open Forecast',

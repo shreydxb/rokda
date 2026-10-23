@@ -4,7 +4,7 @@ import { formatPct } from '../../lib/money';
 import { incompleteNote, netWorthSummary, startingNetWorth } from '../overviewMath';
 import { isArchived } from '../../lib/accounts';
 import { unconfirmedAccounts } from '../../lib/balance';
-import { budgetPlan, crossingYear, fiTarget, forecastInputs, goalAt, incomesFromStop, independenceTarget, planningMonths, projectYears, realReturn, requiredAnnualSaving, scenarioSets, spendThatStops } from '../../lib/forecast';
+import { budgetPlan, crossingYear, fiTarget, forecastInputs, goalAt, incomesFromStop, independenceTarget, projectYears, realReturn, requiredAnnualSaving, scenarioSets, spendThatStops } from '../../lib/forecast';
 import { agesLabel, lifePlanStop, noStopText, spendAfterText } from '../../lib/lifePlan';
 import BudgetBasis from './BudgetBasis';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
@@ -97,7 +97,6 @@ export default function Forecast({ household, members = [], accounts = [], trans
     return { accounts: s.unvalued, holdings: s.unpricedHoldings };
   }, [accounts, holdings]);
   const basisIncomplete = incompleteNote(basisGaps, { capitalised: false, sentence: false });
-  const monthCount = planningMonths(transactions, recurring, now).size;
   // Until three months close, the budget stands in (forecastInputs).
   const plan = useMemo(() => budgetPlan(budgets, categories, now), [budgets, categories, now]);
   const inputs = useMemo(() => forecastInputs(transactions, startNetWorth, now, plan, recurring), [transactions, startNetWorth, now, plan, recurring]);
@@ -162,7 +161,7 @@ export default function Forecast({ household, members = [], accounts = [], trans
         <div style={{ marginTop: 26, display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, padding: '12px 0', borderTop: '1px solid var(--rule)', fontSize: 13.5 }}>
             <span>Annual spend</span>
-            <span className="ov-muted">{monthCount >= 3 ? 'known' : `needs three closed months or a budget · has ${monthCount}`}</span>
+            <span className="ov-muted">{inputs.monthCount >= 3 ? 'known' : `needs three closed months or a budget · has ${inputs.monthCount}`}</span>
           </div>
           <div
             style={{ display: 'flex', justifyContent: 'space-between', gap: 16, padding: '12px 0', borderTop: '1px solid var(--rule)', borderBottom: '1px solid var(--rule)', fontSize: 13.5 }}

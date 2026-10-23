@@ -413,7 +413,7 @@ describe('spendThatStops', () => {
   });
 
   it('is nothing until the inputs are ready', () => {
-    expect(spendThatStops({ inputs: { ready: false }, categories, now })).toEqual({ annual: 0, categories: [] });
+    expect(spendThatStops({ inputs: { ready: false }, categories, now })).toEqual({ annual: 0, categories: [], byCategory: new Map() });
   });
 });
 
