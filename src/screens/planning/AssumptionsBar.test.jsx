@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { screen, fireEvent } from '@testing-library/react';
+import { screen, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { renderScreen } from '../../test/renderScreen';
 
@@ -100,6 +100,29 @@ describe('The assumptions bar', () => {
     expect(screen.getByRole('button', { name: 'Optimistic' }).dataset.active).toBe('true');
     // Drawdown is in today's money only, and says so in the same place.
     expect(label('Show').textContent).toBe('ShowToday’s money');
+  });
+
+  // The chosen option showed only as a fill (Planning audit, 0b-F).
+  it('tells a screen reader which tab, scenario and money are chosen', () => {
+    open('forecast');
+    expect(tab('Forecast').getAttribute('aria-current')).toBe('page');
+    expect(tab('Life plan').hasAttribute('aria-current')).toBe(false);
+    const scenario = screen.getByRole('group', { name: 'Scenario' });
+    fireEvent.click(within(scenario).getByRole('button', { name: 'Optimistic' }));
+    expect(within(scenario).getByRole('button', { name: 'Optimistic', pressed: true })).toBeTruthy();
+    expect(within(scenario).getByRole('button', { name: 'Baseline', pressed: false })).toBeTruthy();
+    expect(within(screen.getByRole('group', { name: 'Show' })).getByRole('button', { name: 'Today’s money', pressed: true })).toBeTruthy();
+  });
+
+  // Plan's cards were divs that ignored Space and left focus nowhere once
+  // the tab changed (Planning audit, 0b-F).
+  it('opens a tab from one of Plan\'s cards and takes focus to it', () => {
+    open('plan');
+    const card = screen.getAllByRole('button').find((b) => b.classList.contains('pl-card') && /open Goals$/.test(b.getAttribute('aria-label')));
+    expect(card.tagName).toBe('BUTTON');
+    fireEvent.click(card);
+    expect(tab('Goals').getAttribute('aria-current')).toBe('page');
+    expect(document.activeElement).toBe(tab('Goals'));
   });
 
   it('puts each view\'s spending in the same place', () => {

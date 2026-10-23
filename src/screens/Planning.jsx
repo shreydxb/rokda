@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTab } from '../lib/useTab';
 import { useHousehold } from '../lib/useHousehold';
 import { usePlanningInputs } from './useOverviewData';
@@ -52,6 +52,20 @@ export default function Planning() {
   const [moneyMode, setMoneyMode] = useState('real');
   const lens = { scenario, onScenario: setScenario, moneyMode, onMoneyMode: setMoneyMode };
 
+  // A link from inside a tab (one of Plan's cards) opens another tab and
+  // takes focus to it, rather than leaving it nowhere when the card it was
+  // on goes away (Planning audit, 0b-F).
+  const focusTab = useRef(false);
+  const openTab = (id) => {
+    focusTab.current = true;
+    setTab(id);
+  };
+  useEffect(() => {
+    if (!focusTab.current) return;
+    focusTab.current = false;
+    document.querySelector('.mn-tabs [aria-current="page"]')?.focus();
+  }, [tab]);
+
   return (
     <div className="mn">
       {/* Two loads; the older of the two is how fresh the page is. */}
@@ -85,7 +99,7 @@ export default function Planning() {
           sources={sources}
           onRetry={retry}
           loading={loading}
-          onOpenTab={setTab}
+          onOpenTab={openTab}
         />
       )}
       {tab === 'life' && (
@@ -104,7 +118,7 @@ export default function Planning() {
           onRetry={retry}
           loading={loading}
           onReload={inputs.reload}
-          onOpenTab={setTab}
+          onOpenTab={openTab}
         />
       )}
       {tab === 'goals' && (
@@ -138,7 +152,7 @@ export default function Planning() {
           sources={sources}
           onRetry={retry}
           loading={loading}
-          onOpenTab={setTab}
+          onOpenTab={openTab}
         />
       )}
       {tab === 'drawdown' && (
@@ -156,7 +170,7 @@ export default function Planning() {
           sources={sources}
           onRetry={retry}
           loading={loading}
-          onOpenTab={setTab}
+          onOpenTab={openTab}
         />
       )}
       {tab === 'notes' && <Notes household={household} me={me} members={members} data={planning} sources={sources} onRetry={retry} loading={loading} />}

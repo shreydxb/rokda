@@ -273,9 +273,9 @@ export default function LifePlan({
         growth={postNominal !== selected.nominalPct ? [`${postNominal.toFixed(1)}% return after work stops`] : []}
         onEdit={() => setEditingAssumptions(true)}
         spending={
-          <div className="dd-segs">
+          <div className="dd-segs" role="group" aria-label="Spending">
             {spendOptions.map((o) => (
-              <button key={o.key} type="button" className="om-seg" data-active={spendChoice.key === o.key} onClick={() => setSpendKind(o.key)}>
+              <button key={o.key} type="button" className="om-seg" data-active={spendChoice.key === o.key} aria-pressed={spendChoice.key === o.key} onClick={() => setSpendKind(o.key)}>
                 {o.label} · {money.fmtCompact(o.value)} a year
               </button>
             ))}

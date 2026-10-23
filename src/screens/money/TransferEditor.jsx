@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
 import { accountOptionLabel, selectableAccounts } from '../../lib/accounts';
 import { householdToday } from '../../lib/day';
@@ -17,6 +18,7 @@ import './TransactionEditor.css';
 // record_transfer, update_transfer, unlink_transfer and delete_transfer.
 // Amounts are AED, as every record's is.
 export default function TransferEditor({ transfer, householdId, accounts, members, onClose, onSaved, onSwitchType }) {
+  const drawerRef = useDrawerFocus();
   // `transfer` is { link, out, in } for an existing one, null for a new one.
   const existing = !!transfer;
   const selectable = selectableAccounts(accounts, transfer?.out?.account_id ?? null).filter((a) => existing || !a.archived_at);
@@ -149,7 +151,7 @@ export default function TransferEditor({ transfer, householdId, accounts, member
 
   return (
     <div className="te-overlay" onMouseDown={(e) => e.target === e.currentTarget && requestClose()}>
-      <div className="te-drawer" role="dialog" aria-modal="true" aria-label={existing ? 'Edit transfer' : 'Add transfer'}>
+      <div className="te-drawer" ref={drawerRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={existing ? 'Edit transfer' : 'Add transfer'}>
         <div className="te-head">
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>

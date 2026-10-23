@@ -19,9 +19,9 @@ export default function AssumptionsBar({ sets, scenario, onScenario, mode = 'rea
     <section className="pl-assumptions" aria-label="Assumptions">
       <div className="dd-control">
         <span className="dd-label">Scenario</span>
-        <div className="dd-segs">
+        <div className="dd-segs" role="group" aria-label="Scenario">
           {Object.values(sets).map((s) => (
-            <button key={s.key} type="button" className="om-seg" data-active={scenario === s.key} onClick={() => onScenario(s.key)}>
+            <button key={s.key} type="button" className="om-seg" data-active={scenario === s.key} aria-pressed={scenario === s.key} onClick={() => onScenario(s.key)}>
               {s.label}
             </button>
           ))}
@@ -30,11 +30,11 @@ export default function AssumptionsBar({ sets, scenario, onScenario, mode = 'rea
       <div className="dd-control">
         <span className="dd-label">Show</span>
         {onMode ? (
-          <div className="dd-segs">
-            <button type="button" className="om-seg" data-active={mode === 'real'} onClick={() => onMode('real')}>
+          <div className="dd-segs" role="group" aria-label="Show">
+            <button type="button" className="om-seg" data-active={mode === 'real'} aria-pressed={mode === 'real'} onClick={() => onMode('real')}>
               Today&rsquo;s money
             </button>
-            <button type="button" className="om-seg" data-active={mode === 'nominal'} onClick={() => onMode('nominal')}>
+            <button type="button" className="om-seg" data-active={mode === 'nominal'} aria-pressed={mode === 'nominal'} onClick={() => onMode('nominal')}>
               Future money
             </button>
           </div>

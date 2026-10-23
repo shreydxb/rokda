@@ -136,3 +136,46 @@ select.om-seg {
   color: var(--ink);
   border-bottom-color: var(--accent);
 }
+
+/* A finger needs about 44px. On a phone, or under any coarse pointer, every
+   control is at least that tall, and a text button reaches it with an
+   invisible margin around it rather than by growing, so the line it sits in
+   keeps its shape (Planning audit, 0b-F). The width test catches a phone that
+   reports a fine pointer. */
+@media (pointer: coarse), (max-width: 640px) {
+  .om-btn,
+  .om-seg,
+  .om-scope,
+  .om-tab,
+  .ib-field {
+    min-height: 44px;
+  }
+  /* A tab grows upwards, so its label keeps its place over the underline. */
+  .om-tab {
+    display: inline-flex;
+    align-items: flex-end;
+  }
+  .te-close,
+  .fc-solve-step {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .nt-edit,
+  .fresh-btn,
+  .om-link,
+  button.ov-link {
+    position: relative;
+  }
+  .nt-edit::after,
+  .fresh-btn::after,
+  .om-link::after,
+  button.ov-link::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: max(100%, 44px);
+    height: max(100%, 44px);
+    transform: translate(-50%, -50%);
+  }
+}

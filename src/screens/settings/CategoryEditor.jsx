@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
+import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
 import '../money/TransactionEditor.css';
 
 export default function CategoryEditor({ category, householdId, members = [], onClose, onSaved }) {
+  const drawerRef = useDrawerFocus();
   const [name, setName] = useState(category?.name ?? '');
   const [kind, setKind] = useState(category?.kind ?? 'expense');
   const [isSavings, setIsSavings] = useState(!!category?.is_savings);
@@ -70,7 +72,7 @@ export default function CategoryEditor({ category, householdId, members = [], on
 
   return (
     <div className="te-overlay" onMouseDown={(e) => e.target === e.currentTarget && requestClose()}>
-      <div className="te-drawer" role="dialog" aria-modal="true" aria-label={category ? 'Edit category' : 'Add category'}>
+      <div className="te-drawer" ref={drawerRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={category ? 'Edit category' : 'Add category'}>
         <div className="te-head">
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>

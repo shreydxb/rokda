@@ -996,6 +996,7 @@
 @media (max-width: 720px) {
   .mn-more-toggle {
     display: inline-flex;
+    align-items: center;
   }
   .mn-more[data-open='false'] {
     display: none;

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
 import { accountOptionLabel, selectableAccounts } from '../../lib/accounts';
 import { formatMoney, formatSigned } from '../../lib/money';
@@ -140,6 +141,7 @@ function buildEdits(tx, form, savedAmount, { accounts, categories, members, spli
 }
 
 export default function TransactionEditor({ tx, household, householdId, accounts, categories, members, allTransactions = [], links = [], categoryRules = [], fxHistory = [], initial, onClose, onSaved, onOpenOther, onSwitchToTransfer }) {
+  const drawerRef = useDrawerFocus();
   // Closed accounts aren't offered for new entries, but an existing record that
   // already points at one keeps it so saving doesn't move it (QA-01).
   const selectable = selectableAccounts(accounts, tx?.account_id ?? null);
@@ -552,7 +554,7 @@ export default function TransactionEditor({ tx, household, householdId, accounts
 
   return (
     <div className="te-overlay" onMouseDown={(e) => e.target === e.currentTarget && requestClose()}>
-      <div className="te-drawer" role="dialog" aria-modal="true" aria-label={tx ? 'Edit transaction' : 'Add transaction'}>
+      <div className="te-drawer" ref={drawerRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={tx ? 'Edit transaction' : 'Add transaction'}>
         <div className="te-head">
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>

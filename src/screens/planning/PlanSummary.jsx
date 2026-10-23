@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useId, useMemo } from 'react';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
 import { formatMoney, formatPct } from '../../lib/money';
@@ -312,23 +312,29 @@ export default function PlanSummary({ household = null, members, me, accounts, t
   );
 }
 
+// A real button: it was a div that answered Enter but not Space, and was
+// read out as one run of text (Planning audit, 0b-F). It is named by where it
+// goes and described by its figure and note.
 function SummaryCard({ label, figure, note, cta, onClick, progress = null, progressLabel = null }) {
+  const id = useId();
   return (
-    <div style={{ cursor: 'pointer' }} onClick={onClick} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && onClick()}>
-      <div className="ov-quality-row">
+    <button type="button" className="pl-card" onClick={onClick} aria-label={`${label}: open ${cta}`} aria-describedby={`${id}-figure ${id}-note`}>
+      <span className="ov-quality-row">
         <span className="ov-kicker" style={{ marginBottom: 0 }}>{label}</span>
         <span className="ov-link">{cta} →</span>
-      </div>
-      <div className="fig" style={{ fontSize: 22, marginTop: 8 }}>{figure}</div>
+      </span>
+      <span className="fig pl-card-figure" id={`${id}-figure`}>
+        {figure}
+      </span>
       {progress !== null && (
-        <div className="bud-bar" style={{ marginTop: 10, height: 4 }} aria-hidden="true">
+        <span className="bud-bar pl-card-bar" aria-hidden="true">
           <span className="bud-bar-spent" style={{ width: `${Math.max(0, Math.min(1, progress)) * 100}%` }} />
-        </div>
+        </span>
       )}
-      <div className="ov-muted ov-quality-note" style={{ marginTop: 7 }}>
+      <span className="ov-muted ov-quality-note pl-card-note" id={`${id}-note`}>
         {note}
         {progressLabel && ` · ${progressLabel}`}
-      </div>
-    </div>
+      </span>
+    </button>
   );
 }

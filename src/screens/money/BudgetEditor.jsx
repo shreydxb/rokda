@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
 import { formatMoney } from '../../lib/money';
 import './TransactionEditor.css';
@@ -6,6 +7,7 @@ import './TransactionEditor.css';
 const MONTH_LABELS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 export default function BudgetEditor({ item, householdId, categories, year, month, onClose, onSaved, onOpenRecords }) {
+  const drawerRef = useDrawerFocus();
   const [categoryId, setCategoryId] = useState(item?.category_id ?? categories.find((c) => c.kind === 'expense')?.id ?? '');
   const [amount, setAmount] = useState(item ? String(item.amount) : '');
   const [applyTo, setApplyTo] = useState('month'); // 'month' | 'year'
@@ -83,7 +85,7 @@ export default function BudgetEditor({ item, householdId, categories, year, mont
 
   return (
     <div className="te-overlay" onMouseDown={(e) => e.target === e.currentTarget && requestClose()}>
-      <div className="te-drawer" role="dialog" aria-modal="true" aria-label={item ? 'Edit budget' : 'Set budget'}>
+      <div className="te-drawer" ref={drawerRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={item ? 'Edit budget' : 'Set budget'}>
         <div className="te-head">
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>

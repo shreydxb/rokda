@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
 import { incomesWithoutRate } from '../../lib/forecast';
 import '../money/TransactionEditor.css';
@@ -33,6 +34,7 @@ function initialForm(row) {
 const whole = (v) => /^\d+$/.test(String(v).trim());
 
 export default function IncomeEditor({ row, householdId, household = null, onClose, onSaved }) {
+  const drawerRef = useDrawerFocus();
   const [form, setForm] = useState(() => initialForm(row));
   const [dirty, setDirty] = useState(false);
   const [confirmingClose, setConfirmingClose] = useState(false);
@@ -128,7 +130,7 @@ export default function IncomeEditor({ row, householdId, household = null, onClo
 
   return (
     <div className="te-overlay" onMouseDown={(e) => e.target === e.currentTarget && requestClose()}>
-      <div className="te-drawer" role="dialog" aria-modal="true" aria-label={row ? 'Edit income' : 'Add income'}>
+      <div className="te-drawer" ref={drawerRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={row ? 'Edit income' : 'Add income'}>
         <div className="te-head">
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
@@ -146,10 +148,10 @@ export default function IncomeEditor({ row, householdId, household = null, onClo
           <div>
             <span className="te-fieldlabel">What kind</span>
             <div className="om-scope-list" style={{ marginTop: 10 }}>
-              <button type="button" className="om-scope" data-active={yearly} onClick={() => set('kind', 'yearly')}>
+              <button type="button" className="om-scope" data-active={yearly} aria-pressed={yearly} onClick={() => set('kind', 'yearly')}>
                 Every year
               </button>
-              <button type="button" className="om-scope" data-active={!yearly} onClick={() => set('kind', 'lump_sum')}>
+              <button type="button" className="om-scope" data-active={!yearly} aria-pressed={!yearly} onClick={() => set('kind', 'lump_sum')}>
                 One-off sum
               </button>
             </div>
@@ -158,10 +160,10 @@ export default function IncomeEditor({ row, householdId, household = null, onClo
           <div>
             {!yearly && (
               <div className="om-scope-list" style={{ marginBottom: 14 }}>
-                <button type="button" className="om-scope" data-active={!dated} onClick={() => set('timing', 'stop')}>
+                <button type="button" className="om-scope" data-active={!dated} aria-pressed={!dated} onClick={() => set('timing', 'stop')}>
                   Once work stops
                 </button>
-                <button type="button" className="om-scope" data-active={dated} onClick={() => set('timing', 'year')}>
+                <button type="button" className="om-scope" data-active={dated} aria-pressed={dated} onClick={() => set('timing', 'year')}>
                   In a set year
                 </button>
               </div>
@@ -220,10 +222,10 @@ export default function IncomeEditor({ row, householdId, household = null, onClo
               <div className="te-fieldcell te-span2">
                 <span className="te-fieldlabel">Pays for</span>
                 <div className="om-scope-list" style={{ marginTop: 8 }}>
-                  <button type="button" className="om-scope" data-active={form.lasts === 'forever'} onClick={() => set('lasts', 'forever')}>
+                  <button type="button" className="om-scope" data-active={form.lasts === 'forever'} aria-pressed={form.lasts === 'forever'} onClick={() => set('lasts', 'forever')}>
                     For good
                   </button>
-                  <button type="button" className="om-scope" data-active={form.lasts === 'years'} onClick={() => set('lasts', 'years')}>
+                  <button type="button" className="om-scope" data-active={form.lasts === 'years'} aria-pressed={form.lasts === 'years'} onClick={() => set('lasts', 'years')}>
                     A set number of years
                   </button>
                 </div>

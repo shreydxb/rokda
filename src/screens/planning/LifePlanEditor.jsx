@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
 import { formatMoney } from '../../lib/money';
 import '../money/TransactionEditor.css';
@@ -33,6 +34,7 @@ function initialForm(members, memberLife, assumptions) {
 }
 
 export default function LifePlanEditor({ householdId, members, memberLife, assumptions, categories = [], spendByCategory = new Map(), onClose, onSaved }) {
+  const drawerRef = useDrawerFocus();
   const [form, setForm] = useState(() => initialForm(members, memberLife, assumptions));
   // Spending categories, the ones with spending first, and which of them stop.
   const spendCategories = categories
@@ -154,7 +156,7 @@ export default function LifePlanEditor({ householdId, members, memberLife, assum
 
   return (
     <div className="te-overlay" onMouseDown={(e) => e.target === e.currentTarget && requestClose()}>
-      <div className="te-drawer" role="dialog" aria-modal="true" aria-label="Life plan">
+      <div className="te-drawer" ref={drawerRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Life plan">
         <div className="te-head">
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>

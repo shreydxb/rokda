@@ -2266,3 +2266,41 @@ and the year-by-year table, though that sits closed by default.
 
 A chart step went from about 19 ms to about 8 ms in a test render with two
 years of records.
+
+## Drawers and controls for everyone
+
+The planning screens worked with a mouse and good eyesight. A keyboard, a
+screen reader or a thumb on a phone each met something that didn't.
+
+- **An editor drawer is a real modal.** It said aria-modal, but focus stayed
+  on the button that opened it and Tab walked on through the page behind.
+  Every drawer now takes focus when it opens, keeps Tab and Shift+Tab inside
+  it, makes the page behind inert, and gives focus back to its opener when
+  it closes (lib/useDrawerFocus.js). The drawer itself takes focus rather
+  than its first field, so a screen reader announces the dialog and a
+  phone's keyboard stays closed until a field is chosen.
+- **What is selected is said, not only shown.** The open tab carries
+  aria-current; Planning's segmented choices (scenario, today's or future
+  money, spending, start from, markets) carry aria-pressed and sit in a named
+  group. Before, the choice was only an underline or a border.
+- **A finger gets 44px.** On a phone, or under any coarse pointer, buttons,
+  segments, tabs and the Inbox's field rows are at least 44px tall, and the
+  drawer's close button and the solver's steps 44px square. Text links
+  (Refresh, "Open Goals", a note's Edit) keep their size and reach 44px with
+  an invisible margin, so the line they sit in keeps its shape. A tab grows
+  upwards, so its label stays over its underline. The width test is there
+  because some phones report a fine pointer.
+- **Caveats are readable.** The muted lines that qualify a figure ("from
+  your budget", "not counted: no rate yet"), Overview's quiet chips, Debt
+  payoff's figure labels and chart table headings were --ink3, about 3.5:1
+  on the ground and 10.5px in places. They are --ink2 at 11px or more, which
+  clears 4.5:1 in both themes. This departs from design/, which sets them in
+  --ink3; --ink3 stays for what is decoration, not information.
+- **Plan's cards are buttons.** The whole card opened its tab on a click but
+  was a div, so a keyboard could not reach it. It is a button named for where
+  it goes, its figure and note read as its description, and the tab it opens
+  takes focus.
+- **Labels fit above their fields.** "Investment return (nominal %/yr)" and
+  "Minimum payment (AED/mo)" wrapped to two lines in a two-column row and pushed their
+  field below its neighbour's; they are "Return (%/yr)" and "Minimum
+  (AED/mo)", and the assumptions editor says the return is before inflation.
