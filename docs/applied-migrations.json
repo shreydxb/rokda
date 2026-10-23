@@ -576,5 +576,12 @@
   "fingerprint": "22424c2c3080eaa9dd388d5764d9f882",
   "framingFingerprint": "89254dd44f9845030747430f92a49296",
   "fingerprintVersion": 2
+ },
+ {
+  "version": "20261023104458",
+  "name": "debt_order",
+  "fingerprint": "1a869262e45ff32d0045ceef726e3634",
+  "framingFingerprint": "0fce0cf1a048c4538d6e6033f25718e0",
+  "fingerprintVersion": 2
  }
 ]
