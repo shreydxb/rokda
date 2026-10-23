@@ -19,9 +19,10 @@ function initialForm(goal) {
       cost_today: !!goal.cost_today,
       inflation_pct: goal.inflation_pct != null ? String(Number(goal.inflation_pct)) : '',
       priority: goal.priority != null ? String(goal.priority) : '',
+      kept: goal.counts_in_life_plan === false,
     };
   }
-  return { name: '', note: '', target_amount: '', target_date: '', funding_source: '', owner: 'shared', cost_today: false, inflation_pct: '', priority: '' };
+  return { name: '', note: '', target_amount: '', target_date: '', funding_source: '', owner: 'shared', cost_today: false, inflation_pct: '', priority: '', kept: false };
 }
 
 const dayLabel = (day) => parseDay(day).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -196,6 +197,9 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
       cost_today: form.cost_today,
       inflation_pct: form.cost_today && rateText !== '' ? Number(rateText) : null,
       priority: priorityText === '' ? null : Number(priorityText),
+      // Kept money, an emergency fund, is never paid out of the Life plan's
+      // pot. Only the Life plan could set this (Planning audit, 1.6).
+      counts_in_life_plan: !form.kept,
     };
 
     const query = goal ? supabase.from('goals').update(payload).eq('id', goal.id) : supabase.from('goals').insert(payload);
@@ -464,6 +468,22 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
                   </span>
                 </div>
               )}
+            </div>
+
+            <div>
+              <div className="om-scope-list" role="group" aria-label="When its date comes">
+                <button type="button" className="om-scope" data-active={!form.kept} aria-pressed={!form.kept} onClick={() => set('kept', false)}>
+                  Spent on its date
+                </button>
+                <button type="button" className="om-scope" data-active={form.kept} aria-pressed={form.kept} onClick={() => set('kept', true)}>
+                  Kept, not spent
+                </button>
+              </div>
+              <span className="ov-muted" style={{ display: 'block', fontSize: 11.5, marginTop: 6, lineHeight: 1.6 }}>
+                {form.kept
+                  ? 'Like an emergency fund: held in cash, and never paid out of the Life plan\u2019s savings.'
+                  : 'Paid in its year: from cash if it is due within 3 years, otherwise by the Life plan.'}
+              </span>
             </div>
 
             <div className="te-fieldgrid">

@@ -277,3 +277,90 @@ export function fundInPriority({ rows, freeMoney, returnPct, now = new Date() })
     freeLeft: left,
   };
 }
+
+// Goals due within three years are paid from cash: what is logged to them
+// and the current, savings and cash accounts linked to them, never holdings,
+// with no growth. A trip months away read as covered by equities. Later
+// goals are the Life plan's to pay, from everything, in their year, so their
+// state is the Life plan's and the two tabs can't disagree (Planning audit,
+// 1.5). Kept money, an emergency fund, is held in cash whatever its date.
+export const NEAR_TERM_MONTHS = 36;
+// The accounts Overview's cash cover counts (overviewMath.js).
+const CASH_TYPES = new Set(['checking', 'savings', 'cash']);
+
+// Whole calendar months from this one to the target's; negative once past.
+export function monthsUntil(targetDate, now = new Date()) {
+  const target = parseDay(targetDate);
+  return (target.getFullYear() - now.getFullYear()) * 12 + (target.getMonth() - now.getMonth());
+}
+
+// What is set aside for a goal in cash: contributions logged to it, and the
+// current, savings and cash accounts linked to it at their share.
+export function cashSetAside(goalId, contributions = [], allocations = [], accounts = []) {
+  const logged = contributions.filter((c) => c.goal_id === goalId).reduce((s, c) => s + Number(c.amount), 0);
+  const linked = allocations
+    .filter((a) => a.goal_id === goalId && a.account_id)
+    .reduce((sum, a) => {
+      const account = accounts.find((acc) => acc.id === a.account_id);
+      if (!accountCanBackGoal(account) || !CASH_TYPES.has(account.type)) return sum;
+      return sum + ((accountValueAed(account) ?? 0) * Number(a.share_pct)) / 100;
+    }, 0);
+  return logged + linked;
+}
+
+// Each goal in a scope with one status, from the one rule for its kind:
+//   near:    dated within three years; covered, saving (so much a month in
+//            cash to its date), or due with cash still missing;
+//   kept:    money kept rather than spent; covered or saving, in cash;
+//   later:   dated three years or more ahead; covered or short in its year
+//            on the Life plan's timeline, or unchecked without one;
+//   undated: no date, so nothing plans for it.
+// `timeline` is the Life plan's rows (lifePlanStop), or null. Amounts follow
+// the scope, as scopedGoalRows' do; the timeline is the household's.
+export function goalStatuses({ timeline = null, ...args }) {
+  const { contributions = [], allocations = [], accounts = [], scopeMemberId = null, now = new Date() } = args;
+  return scopedGoalRows(args).map((row) => {
+    const { goal, progress } = row;
+    const factor = scopeMemberId === null || !goal.is_shared ? 1 : 0.5;
+    const cost = progress.target;
+    const dated = !!goal.target_date;
+    const months = dated ? monthsUntil(goal.target_date, now) : null;
+    const kept = goal.counts_in_life_plan === false;
+    const kind = kept ? 'kept' : !dated ? 'undated' : months < NEAR_TERM_MONTHS ? 'near' : 'later';
+    const byLabel = dated ? row.need?.byLabel ?? monthLabel(parseDay(goal.target_date)) : null;
+    if (kind === 'near' || kind === 'kept') {
+      const cash = cashSetAside(goal.id, contributions, allocations, accounts) * factor;
+      const remaining = Math.max(0, cost - cash);
+      const monthsLeft = dated ? Math.max(0, months) : null;
+      const state = remaining <= 0 ? 'covered' : dated && monthsLeft <= 0 ? 'due' : 'saving';
+      const perMonth = state === 'saving' && dated ? remaining / monthsLeft : null;
+      return { ...row, kind, state, cost, cash, remaining, monthsLeft, perMonth, byLabel };
+    }
+    if (kind === 'later') {
+      const year = Math.max(now.getFullYear(), parseDay(goal.target_date).getFullYear());
+      const inYear = timeline?.find((r) => r.year === year);
+      const state = !timeline ? 'unchecked' : inYear?.short > 0 ? 'short' : 'covered';
+      return { ...row, kind, state, cost, year, short: inYear?.short ?? 0, byLabel };
+    }
+    return { ...row, kind, state: 'undated', cost };
+  });
+}
+
+function monthLabel(d) {
+  return `${MONTH_LABELS[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+// The cash the near-term goals and dated reserves still need each month, the
+// way it really falls: every goal's remainder spread to its own date, so the
+// total drops as each date passes. `now` is the monthly figure today, and
+// `after` what it falls to once the first of them is due, `until`.
+export function cashPerMonth(statuses) {
+  const saving = statuses.filter((r) => (r.kind === 'near' || r.kind === 'kept') && r.perMonth > 0);
+  if (!saving.length) return null;
+  const first = Math.min(...saving.map((r) => r.monthsLeft));
+  return {
+    now: saving.reduce((s, r) => s + r.perMonth, 0),
+    until: saving.find((r) => r.monthsLeft === first).byLabel,
+    after: saving.filter((r) => r.monthsLeft > first).reduce((s, r) => s + r.perMonth, 0),
+  };
+}

@@ -168,6 +168,19 @@ describe('Review', () => {
     expect(within(history).getByText(/^Up .*1,000 on /)).toBeTruthy();
   });
 
+  it('ends in what to do next, including a goal due within 3 years short of cash', () => {
+    const due = new Date(now.getFullYear() + 1, now.getMonth(), 1);
+    const goals = [{ id: 'g', name: 'New car', target_amount: 120000, target_date: `${due.getFullYear()}-${pad(due.getMonth() + 1)}-01`, is_shared: true, created_at: '2026-01-01T00:00:00Z' }];
+    renderScreen(
+      <MemoryRouter initialEntries={['/money?tab=review']}>
+        <Review household={{ id: 'hh' }} data={data({ netWorthSnapshots: [{ snapshot_date: lastMonth(1) }] })} planning={{ goals, goalContributions: [], goalAllocations: [] }} loading={false} />
+      </MemoryRouter>,
+    );
+    const action = screen.getByTestId('action-goal-g');
+    expect(within(action).getByText('Set aside for New car')).toBeTruthy();
+    expect(within(action).getByRole('link', { name: 'Open Goals' }).getAttribute('href')).toMatch(/^\/planning\?tab=goals&reviewing=/);
+  });
+
   it('ends in what to do next: saving short of its target', () => {
     const month = lastMonth(1);
     const [y, m] = month.split('-').map(Number);

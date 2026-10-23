@@ -18,7 +18,19 @@
   flex-wrap: wrap;
   margin-top: 10px;
   font-size: 12px;
-  color: var(--ink3);
+  color: var(--ink2);
+}
+/* Goals in their kinds: next 3 years, kept, later, no date (Planning audit,
+   1.5). */
+.gl-section {
+  margin-top: 28px;
+}
+.gl-priority {
+  margin-top: 22px;
+}
+.gl-priority > summary {
+  cursor: pointer;
+  margin-bottom: 0;
 }
 .gl-summary-row b {
   color: var(--ink);

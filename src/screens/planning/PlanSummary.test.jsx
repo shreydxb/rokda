@@ -254,3 +254,29 @@ describe('PlanSummary: the debt order chosen on Debt payoff', () => {
     expect(within(card('Debt payoff')).getByText(`Clears about ${payoffMonthLabel(months('snowball'), new Date())} with the extra payment · not all in net worth`)).toBeTruthy();
   });
 });
+
+// Planning audit, 1.5: the goal checks are Goals' own rule.
+describe('PlanSummary: goals that need a decision', () => {
+  const soon = new Date(new Date().getFullYear(), new Date().getMonth() + 6, 1);
+  const date = `${soon.getFullYear()}-${String(soon.getMonth() + 1).padStart(2, '0')}-01`;
+
+  it('names a goal due within 3 years that is short of cash', () => {
+    const goal = { id: 'g1', name: 'Trip', target_amount: 12000, target_date: date, is_shared: true, created_at: '2026-01-01T00:00:00Z' };
+    renderSummary({ goals: [goal] });
+    expect(screen.getByText('Due within 3 years and short of cash: Trip, 12,000 still to set aside (2,000 a month now).')).toBeTruthy();
+  });
+
+  it('leads the Goals card with the next 3 years in cash, and counts the rest by kind', () => {
+    const trip = { id: 'g1', name: 'Trip', target_amount: 12000, target_date: date, is_shared: true, created_at: '2026-01-01T00:00:00Z' };
+    const house = { id: 'g2', name: 'House', target_amount: 900000, target_date: null, is_shared: true, created_at: '2026-01-01T00:00:00Z' };
+    renderSummary({ goals: [trip, house] });
+    expect(within(card('Goals')).getByText('0')).toBeTruthy();
+    expect(within(card('Goals')).getByText('of 12,000 in cash for the next 3 years · 1 with no date')).toBeTruthy();
+  });
+
+  it('names a goal with no date, which no plan pays for', () => {
+    const goal = { id: 'g2', name: 'House', target_amount: 900000, target_date: null, is_shared: true, created_at: '2026-01-01T00:00:00Z' };
+    renderSummary({ goals: [goal] });
+    expect(screen.getByText('No date, so no plan pays for it: House (900,000).')).toBeTruthy();
+  });
+});

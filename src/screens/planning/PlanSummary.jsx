@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
 import { formatMoney, formatPct } from '../../lib/money';
-import { scopedGoalRows } from '../../lib/goals';
+import { cashPerMonth, goalStatuses } from '../../lib/goals';
 import { assumption } from '../../lib/planningDefaults';
 import { debtOrder, debtsWithAccounts, minimumOnlyPayoff, minimumOnlyText, orderDebts, payoffMonthLabel, simulatePayoffPlan } from '../../lib/debt';
 import { andList } from '../../lib/words';
@@ -44,9 +44,11 @@ export default function PlanSummary({ household = null, members, me, accounts, t
   // This card used to leave them out, so for a goal funded from an account it
   // showed less saved, and more goals behind, than the tab it links to.
   const goalInflation = assumption(assumptions, 'inflation_pct');
+  // Each with its one status (Planning audit, 1.5), which the decisions below
+  // read.
   const goalRows = useMemo(
     () =>
-      scopedGoalRows({
+      goalStatuses({
         goals,
         contributions: goalContributions,
         allocations: goalAllocations ?? [],
@@ -58,8 +60,19 @@ export default function PlanSummary({ household = null, members, me, accounts, t
       }),
     [goals, goalContributions, goalAllocations, accounts, holdings, scopeMemberId, now, goalInflation]
   );
-  const goalsSaved = goalRows.reduce((s, r) => s + r.progress.saved, 0);
-  const goalsTarget = goalRows.reduce((s, r) => s + r.progress.target, 0);
+  // The card leads with the next 3 years, in cash, as Goals does: the total
+  // of every goal let an undated house drown the bar out (Planning audit, 1.5).
+  const nearGoals = goalRows.filter((r) => r.kind === 'near');
+  const nearCash = nearGoals.reduce((s, r) => s + r.cash, 0);
+  const nearCost = nearGoals.reduce((s, r) => s + r.cost, 0);
+  const goalsElsewhere = [
+    ['later', 'later'],
+    ['kept', 'kept'],
+    ['undated', 'with no date'],
+  ]
+    .map(([kind, words]) => [goalRows.filter((r) => r.kind === kind).length, words])
+    .filter(([n]) => n > 0)
+    .map(([n, words]) => `${n} ${words}`);
 
   const debtsInView = useMemo(() => debts.filter((d) => scopeMemberId === null || d.is_shared || d.owner_member_id === scopeMemberId), [debts, scopeMemberId]);
   const visibleDebts = useMemo(
@@ -169,8 +182,26 @@ export default function PlanSummary({ household = null, members, me, accounts, t
   // what was logged to a goal in the last 90 days, so goals with no date, or
   // fed through a linked account, read as behind while Goals called them
   // covered; the second pressed for prepaying a loan before any cash reserve
-  // was in place. The goal check returns with Goals' 3-year rule.
+  // was in place. The goal checks are Goals' own rule now (1.5): a goal due
+  // within 3 years short of cash, and a goal with no date, which no plan pays.
+  const shortOfCash = goalRows.filter((r) => r.kind === 'near' && (r.state === 'saving' || r.state === 'due'));
+  const cashSchedule = cashPerMonth(shortOfCash);
+  const noDate = goalRows.filter((r) => r.kind === 'undated');
   const actions = [
+    goalsMissing.length === 0 && shortOfCash.length > 0 && {
+      key: 'goals-cash',
+      text: `Due within 3 years and short of cash: ${andList(shortOfCash.map((r) => r.goal.name))}, ${formatMoney(shortOfCash.reduce((s, r) => s + r.remaining, 0))} still to set aside${
+        cashSchedule ? ` (${formatMoney(cashSchedule.now)} a month now)` : ''
+      }.`,
+      tab: 'goals',
+      cta: 'Open Goals',
+    },
+    goalsMissing.length === 0 && noDate.length > 0 && {
+      key: 'goals-undated',
+      text: `No date, so no plan pays for ${noDate.length === 1 ? 'it' : 'them'}: ${andList(noDate.map((r) => `${r.goal.name} (${formatMoney(r.cost)})`))}.`,
+      tab: 'goals',
+      cta: 'Open Goals',
+    },
     accountsMissing.length === 0 && unentered.length > 0 && {
       key: 'balances',
       text: `${unentered.length === 1 ? 'Balance' : 'Balances'} not entered: ${andList(unentered.slice(0, 3).map((a) => a.name))}${
@@ -284,13 +315,13 @@ export default function PlanSummary({ household = null, members, me, accounts, t
         {(stop || answerMissing.length > 0) && answerCard}
         <SummaryCard
           label="Goals"
-          figure={goalsMissing.length === 0 && goalRows.length > 0 ? formatMoney(goalsSaved) : '—'}
-          progress={goalsMissing.length === 0 && goalRows.length > 0 && goalsTarget > 0 ? goalsSaved / goalsTarget : null}
+          figure={goalsMissing.length === 0 && nearGoals.length > 0 ? formatMoney(nearCash) : '—'}
+          progress={goalsMissing.length === 0 && nearGoals.length > 0 && nearCost > 0 ? nearCash / nearCost : null}
           note={
             goalsMissing.length > 0
               ? couldntLoad(goalsMissing)
               : goalRows.length > 0
-                ? `of ${formatMoney(goalsTarget)} target · ${goalRows.length} goal${goalRows.length === 1 ? '' : 's'}`
+                ? [nearGoals.length > 0 ? `of ${formatMoney(nearCost)} in cash for the next 3 years` : 'Nothing due within 3 years', ...goalsElsewhere].join(' · ')
                 : 'No goals yet'
           }
           cta="Goals"

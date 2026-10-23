@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { fundInPriority, goalCostAtDate, allocatedValue, goalProgress, monthlyNeed, scopedGoalRows } from './goals';
+import { allocatedValue, cashPerMonth, fundInPriority, goalCostAtDate, goalProgress, goalStatuses, monthlyNeed, scopedGoalRows } from './goals';
 
 const NOW = new Date(2026, 8, 24, 12); // 24 September 2026
 
@@ -180,5 +180,71 @@ describe('fundInPriority', () => {
     expect(due.goals[0]).toMatchObject({ monthsLeft: 0, monthly: 100 });
     // A lump sum due now is not a monthly rate, so the total leaves it out.
     expect(due.monthly).toBe(0);
+  });
+});
+
+// Planning audit, 1.5: one status per goal, from the one rule for its kind.
+describe('goalStatuses', () => {
+  const now = new Date(2026, 9, 20);
+  const savings = { id: 's', type: 'savings', currency: 'AED', balance: 6000, balance_aed: 6000, archived_at: null };
+  const reserve = { id: 'r', type: 'savings', currency: 'AED', balance: 20000, balance_aed: 20000, archived_at: null };
+  const goal = (id, extra) => ({ id, name: id, is_shared: true, created_at: '2026-01-01T00:00:00Z', ...extra });
+  const goals = [
+    goal('Trip', { target_amount: 12000, target_date: '2027-04-01' }),
+    goal('Licence', { target_amount: 3000, target_date: '2026-12-01' }),
+    goal('House', { target_amount: 900000, target_date: null }),
+    goal('Villa', { target_amount: 500000, target_date: '2035-01-01' }),
+    goal('Emergency', { target_amount: 20000, target_date: null, counts_in_life_plan: false }),
+    goal('Car', { target_amount: 5000, target_date: '2026-10-01' }),
+  ];
+  const allocations = [
+    { goal_id: 'Trip', account_id: 's', share_pct: 50 },
+    { goal_id: 'Licence', holding_id: 'h', share_pct: 100 },
+    { goal_id: 'Emergency', account_id: 'r', share_pct: 100 },
+  ];
+  const args = {
+    goals,
+    contributions: [{ goal_id: 'Trip', amount: 1000, occurred_at: '2026-09-01' }],
+    allocations,
+    accounts: [savings, reserve],
+    holdings: [{ id: 'h', value_aed: 10000 }],
+    now,
+    inflationPct: 0,
+  };
+  const byName = (rows) => Object.fromEntries(rows.map((r) => [r.goal.name, r]));
+
+  it('covers a goal due within three years only from cash, with no growth', () => {
+    const rows = byName(goalStatuses(args));
+    // 1,000 logged and half of a 6,000 savings account.
+    expect(rows.Trip).toMatchObject({ kind: 'near', state: 'saving', cash: 4000, remaining: 8000, monthsLeft: 6, byLabel: 'Apr 2027' });
+    expect(rows.Trip.perMonth).toBeCloseTo(8000 / 6, 6);
+    // A holding linked to it counts for nothing: it could be down when the bill comes.
+    expect(rows.Licence).toMatchObject({ kind: 'near', state: 'saving', cash: 0, perMonth: 1500 });
+    expect(rows.Car).toMatchObject({ kind: 'near', state: 'due', remaining: 5000, perMonth: null });
+  });
+
+  it('holds kept money in cash, and leaves an undated goal out of every plan', () => {
+    const rows = byName(goalStatuses(args));
+    expect(rows.Emergency).toMatchObject({ kind: 'kept', state: 'covered', cash: 20000, remaining: 0 });
+    expect(rows.House).toMatchObject({ kind: 'undated', state: 'undated' });
+  });
+
+  it('takes a later goal\'s state from the Life plan\'s timeline', () => {
+    expect(byName(goalStatuses(args)).Villa).toMatchObject({ kind: 'later', state: 'unchecked' });
+    expect(byName(goalStatuses({ ...args, timeline: [{ year: 2035, short: 5000 }] })).Villa).toMatchObject({ state: 'short', year: 2035, short: 5000 });
+    expect(byName(goalStatuses({ ...args, timeline: [{ year: 2035, short: 0 }] })).Villa).toMatchObject({ state: 'covered' });
+  });
+
+  it('gives the cash a month as it really falls: down once the first date passes', () => {
+    const schedule = cashPerMonth(goalStatuses(args));
+    expect(schedule.now).toBeCloseTo(1500 + 8000 / 6, 6);
+    expect(schedule.until).toBe('Dec 2026');
+    expect(schedule.after).toBeCloseTo(8000 / 6, 6);
+    expect(cashPerMonth(goalStatuses({ ...args, goals: [goals[2]] }))).toBeNull();
+  });
+
+  it('halves a shared goal in one person\'s view, as every joint figure is', () => {
+    const rows = byName(goalStatuses({ ...args, scopeMemberId: 'm1' }));
+    expect(rows.Trip).toMatchObject({ cash: 2000, remaining: 4000 });
   });
 });

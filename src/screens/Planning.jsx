@@ -128,6 +128,10 @@ export default function Planning() {
           me={me}
           accounts={inputs.accounts}
           holdings={inputs.holdings}
+          transactions={inputs.transactions}
+          recurring={inputs.recurring}
+          budgets={inputs.budgets}
+          categories={inputs.categories}
           data={planning}
           sources={sources}
           onRetry={retry}

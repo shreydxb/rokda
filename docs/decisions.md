@@ -2407,3 +2407,32 @@ were entered, though every loan clears on its own minimum (Planning audit,
   a debt's rank can be set.
 - **A 0 rate or minimum is named for checking**, since every date rests on
   them and a 0 is also what a blank was once saved as.
+
+## Goals: one honest number
+
+Goals showed several figures a row, and covered a trip months away with
+equities: "AED 0 a month, invested at 6%" (Planning audit, 1.5 and 1.6).
+This reverses "Goals shows one monthly figure" above.
+
+- **The 3-year rule.** A goal due within 3 years is paid from cash: what is
+  logged to it and the current, savings and cash accounts linked to it (the
+  accounts Overview's cash cover counts), never holdings, with no growth. Its
+  monthly figure is plain cash, each goal's remainder spread to its own date,
+  so the total falls as each date passes, and it sits beside the budget's
+  planned saving. Many planners use 3 to 5 years; 3 is the shorter end.
+- **Later goals are the Life plan's.** It pays every dated goal from
+  everything, in its year, so a later goal's state, paid or short, is read
+  from its timeline (lib/goals.js, goalStatuses; lifePlanStop returns its
+  rows), and the two tabs can't disagree. Goals had called a goal covered
+  that the Life plan found short.
+- **One status per row,** from the rule for its kind; the 90-day pace and its
+  projected date are gone from the row. Kept money, an emergency fund, is
+  held in cash; a goal with no date is in no plan and says so.
+- **The priority table covers later goals only,** closed, as "If your
+  investments paid for these", with what would be left over.
+- **The goal checks come back** on Plan (a goal due within 3 years short of
+  cash, a goal with no date) and in the monthly review (set aside for a goal
+  due within 3 years), from the same rule. Plan's Goals card leads with the
+  next 3 years in cash.
+- **Kept or spent is set in the goal editor** (1.6), not only on the Life
+  plan.
