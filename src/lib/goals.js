@@ -308,6 +308,34 @@ export function cashSetAside(goalId, contributions = [], allocations = [], accou
   return logged + linked;
 }
 
+// A goal marked done, reached or spent, is out of every plan: Goals lists it
+// apart, and its status, the Life plan's timeline, Plan's checks, the
+// monthly review and the Telegram bot all leave it out. Its contributions are
+// kept, and reopening it brings it back (Planning audit, 2.7).
+export function isDone(goal) {
+  return goal?.done_at != null;
+}
+
+// The month a goal was marked done, as the app writes months: "Sep 2026".
+export function doneMonth(goal) {
+  return isDone(goal) ? monthLabel(new Date(goal.done_at)) : null;
+}
+
+// What the household plans to put towards a goal held in cash each month,
+// against what it needs: whether it covers the remainder by the goal's date,
+// the months it takes, and the month that is. A plan that rounds to the
+// whole dirhams shown is on time: 1,333 against 1,333.33 is not a month late
+// for want of two dirhams. `enough` is null for a goal with no date, which
+// has nothing to be on time for. A plan of 0 never covers anything.
+function planAgainst(planned, { remaining, monthsLeft, dated, now }) {
+  if (planned == null) return null;
+  if (remaining <= 0) return { amount: planned, enough: true, months: 0, byLabel: null };
+  const enough = dated ? planned > 0 && monthsLeft > 0 && planned >= remaining / monthsLeft - 0.5 : null;
+  const atPlan = planned > 0 ? Math.ceil(remaining / planned) : null;
+  const months = enough ? Math.min(atPlan, monthsLeft) : atPlan;
+  return { amount: planned, enough, months, byLabel: months != null ? monthLabel(new Date(now.getFullYear(), now.getMonth() + months, 1)) : null };
+}
+
 // Each goal in a scope with one status, from the one rule for its kind:
 //   near:    dated within three years; covered, saving (so much a month in
 //            cash to its date), or due with cash still missing;
@@ -316,12 +344,16 @@ export function cashSetAside(goalId, contributions = [], allocations = [], accou
 //            on the Life plan's timeline, or unchecked without one;
 //   undated: no date, so nothing plans for it.
 // `timeline` is the Life plan's rows (lifePlanStop), or null. Amounts follow
-// the scope, as scopedGoalRows' do; the timeline is the household's.
+// the scope, as scopedGoalRows' do; the timeline is the household's. Goals
+// marked done are left out. `planned` is the goal's planned monthly amount in
+// the scope, or null; a goal held in cash has its `plan` measured against
+// what it needs.
 export function goalStatuses({ timeline = null, ...args }) {
   const { contributions = [], allocations = [], accounts = [], scopeMemberId = null, now = new Date() } = args;
-  return scopedGoalRows(args).map((row) => {
+  return scopedGoalRows({ ...args, goals: (args.goals ?? []).filter((g) => !isDone(g)) }).map((row) => {
     const { goal, progress } = row;
     const factor = scopeMemberId === null || !goal.is_shared ? 1 : 0.5;
+    const planned = goal.planned_monthly != null ? Number(goal.planned_monthly) * factor : null;
     const cost = progress.target;
     const dated = !!goal.target_date;
     const months = dated ? monthsUntil(goal.target_date, now) : null;
@@ -334,15 +366,16 @@ export function goalStatuses({ timeline = null, ...args }) {
       const monthsLeft = dated ? Math.max(0, months) : null;
       const state = remaining <= 0 ? 'covered' : dated && monthsLeft <= 0 ? 'due' : 'saving';
       const perMonth = state === 'saving' && dated ? remaining / monthsLeft : null;
-      return { ...row, kind, state, cost, cash, remaining, monthsLeft, perMonth, byLabel };
+      const plan = planAgainst(planned, { remaining, monthsLeft, dated, now });
+      return { ...row, kind, state, cost, cash, remaining, monthsLeft, perMonth, byLabel, planned, plan };
     }
     if (kind === 'later') {
       const year = Math.max(now.getFullYear(), parseDay(goal.target_date).getFullYear());
       const inYear = timeline?.find((r) => r.year === year);
       const state = !timeline ? 'unchecked' : inYear?.short > 0 ? 'short' : 'covered';
-      return { ...row, kind, state, cost, year, short: inYear?.short ?? 0, byLabel };
+      return { ...row, kind, state, cost, year, short: inYear?.short ?? 0, byLabel, planned };
     }
-    return { ...row, kind, state: 'undated', cost };
+    return { ...row, kind, state: 'undated', cost, planned };
   });
 }
 
@@ -353,14 +386,18 @@ function monthLabel(d) {
 // The cash the near-term goals and dated reserves still need each month, the
 // way it really falls: every goal's remainder spread to its own date, so the
 // total drops as each date passes. `now` is the monthly figure today, and
-// `after` what it falls to once the first of them is due, `until`.
+// `after` what it falls to once the first of them is due, `until`. `planned`
+// is what the household plans to put towards those same goals a month, or
+// null when none of them has a plan.
 export function cashPerMonth(statuses) {
   const saving = statuses.filter((r) => (r.kind === 'near' || r.kind === 'kept') && r.perMonth > 0);
   if (!saving.length) return null;
   const first = Math.min(...saving.map((r) => r.monthsLeft));
+  const withPlan = saving.filter((r) => r.planned != null);
   return {
     now: saving.reduce((s, r) => s + r.perMonth, 0),
     until: saving.find((r) => r.monthsLeft === first).byLabel,
     after: saving.filter((r) => r.monthsLeft > first).reduce((s, r) => s + r.perMonth, 0),
+    planned: withPlan.length ? withPlan.reduce((s, r) => s + r.planned, 0) : null,
   };
 }

@@ -20,12 +20,15 @@ function initialForm(goal) {
       inflation_pct: goal.inflation_pct != null ? String(Number(goal.inflation_pct)) : '',
       priority: goal.priority != null ? String(goal.priority) : '',
       kept: goal.counts_in_life_plan === false,
+      planned_monthly: goal.planned_monthly != null ? String(Number(goal.planned_monthly)) : '',
     };
   }
-  return { name: '', note: '', target_amount: '', target_date: '', funding_source: '', owner: 'shared', cost_today: false, inflation_pct: '', priority: '', kept: false };
+  return { name: '', note: '', target_amount: '', target_date: '', funding_source: '', owner: 'shared', cost_today: false, inflation_pct: '', priority: '', kept: false, planned_monthly: '' };
 }
 
 const dayLabel = (day) => parseDay(day).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+// done_at is a moment, not a day: read in the browser's own time.
+const doneLabel = (at) => new Date(at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 
 // The database's own wording for a link it refuses names neither the account
 // nor what to do instead.
@@ -64,6 +67,7 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
     date: `${uid}-date`,
     note: `${uid}-note`,
     priority: `${uid}-priority`,
+    planned: `${uid}-planned`,
     funding: `${uid}-funding`,
     rate: `${uid}-rate`,
     owner: `${uid}-owner`,
@@ -150,9 +154,11 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
   const priorityText = String(form.priority).trim();
   const rateError = form.cost_today && rateText !== '' && !(Number.isFinite(Number(rateText)) && Number(rateText) >= -10 && Number(rateText) <= 30) ? 'A yearly rise between −10% and 30%.' : '';
   const priorityError = priorityText !== '' && !(/^\d+$/.test(priorityText) && Number(priorityText) >= 1 && Number(priorityText) <= 999) ? 'Priority is a whole number from 1.' : '';
+  const plannedText = String(form.planned_monthly).trim();
+  const plannedError = plannedText !== '' && !(Number.isFinite(Number(plannedText)) && Number(plannedText) >= 0) ? 'A monthly amount of 0 or more, or blank for no plan.' : '';
   // Each field carries its own message once a save has been tried, and the
   // message follows the field as it is corrected.
-  const fieldProblems = { target: targetError, rate: rateError, name: nameError, priority: priorityError };
+  const fieldProblems = { target: targetError, rate: rateError, name: nameError, priority: priorityError, planned: plannedError };
   const invalid = (key) => (triedSave && fieldProblems[key] ? { 'aria-invalid': true, 'aria-describedby': `${uid}-${key}-problem` } : { 'aria-invalid': false });
   const problemText = (key) =>
     triedSave &&
@@ -171,7 +177,7 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
     e.preventDefault();
     if (saving) return;
     setNotice(null);
-    const firstProblem = ['target', 'rate', 'name', 'priority'].find((key) => fieldProblems[key]);
+    const firstProblem = ['target', 'rate', 'name', 'planned', 'priority'].find((key) => fieldProblems[key]);
     if (firstProblem) {
       setTriedSave(true);
       setFormError('Fix the marked field to save.');
@@ -200,6 +206,9 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
       // Kept money, an emergency fund, is never paid out of the Life plan's
       // pot. Only the Life plan could set this (Planning audit, 1.6).
       counts_in_life_plan: !form.kept,
+      // What the household means to put towards it a month; blank is no
+      // plan, and 0 is a plan of nothing (Planning audit, 2.7).
+      planned_monthly: plannedText === '' ? null : Number(plannedText),
     };
 
     const query = goal ? supabase.from('goals').update(payload).eq('id', goal.id) : supabase.from('goals').insert(payload);
@@ -317,6 +326,30 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
       done: `${allocationLabel(allocation)} now counts at ${Number(text)}%.`,
     });
     shareRefs.current[allocation.id]?.focus();
+  }
+
+  // Done, or open again: written at once, like a contribution, and only with
+  // nothing unsaved, which it would otherwise drop. A done goal leaves every
+  // plan and keeps its contributions (Planning audit, 2.7).
+  async function handleDone() {
+    if (saving) return;
+    setNotice(null);
+    if (unsaved) {
+      setFormError(`Save or discard your changes first, then ${goal.done_at ? 'reopen it' : 'mark it done'}.`);
+      return;
+    }
+    setSaving(true);
+    setFormError('');
+    const { error: doneError } = await supabase
+      .from('goals')
+      .update({ done_at: goal.done_at ? null : new Date().toISOString() })
+      .eq('id', goal.id);
+    setSaving(false);
+    if (doneError) {
+      setFormError(doneError.message);
+      return;
+    }
+    await onSaved();
   }
 
   async function handleDelete() {
@@ -501,6 +534,23 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
                 <input id={ids.date} className="te-fieldvalue" type="date" value={form.target_date} onChange={(e) => set('target_date', e.target.value)} />
               </div>
               <div className="te-fieldcell">
+                <label className="te-fieldlabel" htmlFor={ids.planned}>
+                  Monthly plan · AED
+                </label>
+                <input
+                  id={ids.planned}
+                  ref={fieldRef('planned')}
+                  className="te-fieldvalue"
+                  type="number"
+                  step="0.01"
+                  value={form.planned_monthly}
+                  onChange={(e) => set('planned_monthly', e.target.value)}
+                  placeholder="blank: no plan"
+                  {...invalid('planned')}
+                />
+                {problemText('planned')}
+              </div>
+              <div className="te-fieldcell">
                 <label className="te-fieldlabel" htmlFor={ids.note}>
                   Note
                 </label>
@@ -554,6 +604,22 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
               </div>
             </div>
           </form>
+
+          {goal && (
+            <section className="te-section" aria-labelledby={`${uid}-done-head`}>
+              {sectionHeading('done', goal.done_at ? 'Done' : 'Reached or spent?')}
+              <div className="ov-muted" style={{ fontSize: 12.5, lineHeight: 1.6 }}>
+                {goal.done_at
+                  ? `Marked done on ${doneLabel(goal.done_at)}. It is out of every plan and the Telegram bot; its contributions are kept.`
+                  : 'Mark it done: it leaves Goals\u2019 plans, Plan\u2019s checks, the Life plan and the Telegram bot, and keeps its contributions. You can reopen it.'}
+              </div>
+              <div className="te-subactions">
+                <button type="button" className="om-btn" onClick={handleDone} aria-disabled={saving}>
+                  {goal.done_at ? 'Reopen' : 'Mark done'}
+                </button>
+              </div>
+            </section>
+          )}
 
           {goal && (
             <section className="te-section" aria-labelledby={`${uid}-contributions-head`}>

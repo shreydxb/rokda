@@ -82,7 +82,7 @@ function reset(): void {
       ],
       households: [{ id: HOUSEHOLD, name: "Test" }],
       intake: [],
-      goals: [{ id: GOAL, household_id: HOUSEHOLD, name: "House" }],
+      goals: [{ id: GOAL, household_id: HOUSEHOLD, name: "House", done_at: null }],
       goal_contributions: [],
       categories: [],
       accounts: [],
@@ -749,6 +749,28 @@ freshTest("a goal contribution is proposed once however often it is delivered, a
   assertEquals(backend.tables.goal_contributions.length, 1, "a second yes recorded it again");
   assert(lastReply().startsWith("Already recorded"), lastReply());
   assertEquals(capturedIntake().length, 0, "a yes was captured as an expense");
+});
+
+freshTest("a goal marked done takes no contribution, and the reply is told it is done", async () => {
+  backend.tables.goals[0].done_at = "2026-09-01T00:00:00Z";
+  backend.tables.goals.push({ id: "a9100000-0000-4000-8000-0000000000e2", household_id: HOUSEHOLD, name: "Car", done_at: null });
+  backend.route = { tool: "log_goal_contribution", args: { goal_name: "House", amount: 500 } };
+  await handler(textUpdate(7011, "put 500 toward the house goal"));
+  assertEquals(backend.tables.bot_proposals.length, 0, "a contribution to a done goal was proposed");
+  assertEquals(backend.tables.goal_contributions.length, 0);
+  assertEquals(capturedIntake().length, 0, "a goal contribution was captured as an expense");
+  const given = backend.phrasePrompts.join("\n");
+  assert(given.includes("goal_done") && given.includes("House"), given);
+});
+
+freshTest("a goal list that could not be read records nothing and says so", async () => {
+  backend.faults.failReads = ["goals"];
+  backend.route = { tool: "log_goal_contribution", args: { goal_name: "House", amount: 500 } };
+  await handler(textUpdate(7012, "put 500 toward the house goal"));
+  assertEquals(backend.tables.bot_proposals.length, 0);
+  assertEquals(backend.tables.goal_contributions.length, 0);
+  assertEquals(capturedIntake().length, 0, "an unreadable goal list sent the message to the Inbox");
+  assert(lastReply().startsWith("I couldn't read your goals just now"), lastReply());
 });
 
 freshTest("a transfer between the household's own accounts is proposed, and recorded as one only on a yes", async () => {

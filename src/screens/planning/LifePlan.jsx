@@ -10,6 +10,7 @@ import LifePlanEditor from './LifePlanEditor';
 import ForecastAssumptionsEditor from './ForecastAssumptionsEditor';
 import AssumptionsBar from './AssumptionsBar';
 import { neverLoaded } from '../../lib/loadState';
+import { isDone } from '../../lib/goals';
 import { projectionInputs } from './planningSources';
 import Withheld from './Withheld';
 
@@ -89,6 +90,8 @@ export default function LifePlan({
   // Anyone without them is left out, and says so: the money could seem to last
   // when it runs out before their plan would end (Planning audit, 1.1).
   const leftOut = useMemo(() => membersLeftOut(members, data.memberLife ?? []), [members, data.memberLife]);
+  // A goal marked done is off the timeline, and off the list below with it.
+  const openGoals = useMemo(() => (data.goals ?? []).filter((g) => !isDone(g)), [data.goals]);
 
   // The plan and the four answers built on it, worked out once for each change
   // of input rather than on every step along the chart (Planning audit, 0b-E).
@@ -566,7 +569,7 @@ export default function LifePlan({
         </details>
       </section>
 
-      <GoalsOnTimeline goals={data.goals ?? []} startYear={startYear} money={money} onChanged={data.reload} onOpenTab={onOpenTab} />
+      <GoalsOnTimeline goals={openGoals} startYear={startYear} money={money} onChanged={data.reload} onOpenTab={onOpenTab} />
 
       <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 30, lineHeight: 1.7, maxWidth: '92ch' }}>
         {selected.label}: {selected.nominalPct.toFixed(1)}% a year before work stops and {postNominal.toFixed(1)}% after, less {inflationPct.toFixed(1)}%

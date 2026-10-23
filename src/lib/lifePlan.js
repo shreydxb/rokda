@@ -1,7 +1,7 @@
 import { incomeInYear, incomesFromStop, realReturn, scenarioSets } from './forecast';
 import { convertToAed } from './currency';
 import { parseDay } from './day';
-import { goalInflationPct } from './goals';
+import { goalInflationPct, isDone } from './goals';
 import { andList } from './words';
 
 // The life plan: one year-by-year timeline from this year to the end of the
@@ -51,12 +51,12 @@ export function agesIn(people, year) {
 // target stated as today's cost grows at the goal's own rate, so in today's
 // money it moves only by the difference: a villa rising at 8% while prices
 // rise at 2.5% costs more of today's money each year it waits. A date already
-// past is paid this year. Goals with no date, or marked as money kept rather
-// than spent (an emergency fund), stay off the timeline.
+// past is paid this year. Goals with no date, marked as money kept rather
+// than spent (an emergency fund), or marked done stay off the timeline.
 export function goalsOnTimeline(goals, startYear, inflationPct) {
   const inflation = inflationPct / 100;
   return goals
-    .filter((g) => g.target_date && g.counts_in_life_plan !== false && Number(g.target_amount) > 0)
+    .filter((g) => g.target_date && g.counts_in_life_plan !== false && !isDone(g) && Number(g.target_amount) > 0)
     .map((g) => {
       const year = Math.max(startYear, parseDay(g.target_date).getFullYear());
       const n = year - startYear;

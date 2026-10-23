@@ -329,3 +329,14 @@ describe('LifePlan: the budget beside the records', () => {
     expect(screen.queryByText(/Your budget beside the records/)).toBeNull();
   });
 });
+
+// Planning audit, 2.7: a goal marked done is off the timeline and its list.
+describe('LifePlan: done goals', () => {
+  it('leaves a done goal off the goals on the timeline', () => {
+    const goal = (id, name, extra = {}) => ({ id, name, target_amount: 30000, target_date: `${thisYear + 3}-06-01`, counts_in_life_plan: true, ...extra });
+    renderPlan({ data: { goals: [goal('g1', 'Car'), goal('g2', 'Boat', { done_at: '2026-01-02T00:00:00Z' })] } });
+    const list = [...document.querySelectorAll('.lp-goal')].map((r) => r.textContent);
+    expect(list.some((t) => t.startsWith('Car'))).toBe(true);
+    expect(list.some((t) => t.startsWith('Boat'))).toBe(false);
+  });
+});

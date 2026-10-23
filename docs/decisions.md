@@ -2436,3 +2436,28 @@ This reverses "Goals shows one monthly figure" above.
   next 3 years in cash.
 - **Kept or spent is set in the goal editor** (1.6), not only on the Life
   plan.
+
+## A goal can be done, and has a plan
+
+A goal reached or spent could only be deleted, contributions and all, and
+there was nowhere to say what the household means to put towards a goal each
+month (Planning audit, 2.7).
+
+- **Done, not deleted.** `goals.done_at` marks a goal done from its editor,
+  at once and only with nothing unsaved. A done goal keeps its contributions,
+  is listed apart on Goals, and is left out of every status, the Life plan's
+  timeline, Plan's checks, the monthly review and the Telegram bot, which
+  says the goal is done rather than that it does not exist. Reopen clears it.
+  A goal proposed in Telegram before it was marked done is still recorded on
+  a "yes": rare, visible on the goal, and not worth changing the proposal
+  function for.
+- **A planned monthly amount.** `goals.planned_monthly`: blank is no plan, 0
+  is a plan of nothing. For a goal held in cash it is measured against what
+  the date needs: covered on time ("Planned"), or short with the month it
+  would get there ("Plan short"). A plan that rounds to the whole dirhams
+  shown counts as on time. Plan's "short of cash" check leaves out a goal its
+  plan covers, and the monthly review says what was planned. For a later or
+  undated goal it is said, not measured: the Life plan pays a later goal from
+  everything, and an undated one has no date to be on time for.
+- **The bot reads goals in full** and says so when it can't, rather than
+  answering that no goal matched.

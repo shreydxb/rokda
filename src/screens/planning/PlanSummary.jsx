@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
 import { formatMoney, formatPct } from '../../lib/money';
-import { cashPerMonth, goalStatuses } from '../../lib/goals';
+import { cashPerMonth, goalStatuses, isDone } from '../../lib/goals';
 import { assumption } from '../../lib/planningDefaults';
 import { debtOrder, debtsWithAccounts, minimumOnlyPayoff, minimumOnlyText, orderDebts, payoffMonthLabel, simulatePayoffPlan } from '../../lib/debt';
 import { andList } from '../../lib/words';
@@ -184,15 +184,17 @@ export default function PlanSummary({ household = null, members, me, accounts, t
   // covered; the second pressed for prepaying a loan before any cash reserve
   // was in place. The goal checks are Goals' own rule now (1.5): a goal due
   // within 3 years short of cash, and a goal with no date, which no plan pays.
-  const shortOfCash = goalRows.filter((r) => r.kind === 'near' && (r.state === 'saving' || r.state === 'due'));
+  // A goal whose planned monthly amount covers it by its date is settled, so
+  // it is not raised (2.7).
+  const shortOfCash = goalRows.filter((r) => r.kind === 'near' && (r.state === 'saving' || r.state === 'due') && !r.plan?.enough);
   const cashSchedule = cashPerMonth(shortOfCash);
   const noDate = goalRows.filter((r) => r.kind === 'undated');
   const actions = [
     goalsMissing.length === 0 && shortOfCash.length > 0 && {
       key: 'goals-cash',
-      text: `Due within 3 years and short of cash: ${andList(shortOfCash.map((r) => r.goal.name))}, ${formatMoney(shortOfCash.reduce((s, r) => s + r.remaining, 0))} still to set aside${
-        cashSchedule ? ` (${formatMoney(cashSchedule.now)} a month now)` : ''
-      }.`,
+      text: `Due within 3 years and short of cash, with no plan that covers ${shortOfCash.length === 1 ? 'it' : 'them'}: ${andList(shortOfCash.map((r) => r.goal.name))}, ${formatMoney(
+        shortOfCash.reduce((s, r) => s + r.remaining, 0)
+      )} still to set aside${cashSchedule ? ` (${formatMoney(cashSchedule.now)} a month now${cashSchedule.planned != null ? `, ${formatMoney(cashSchedule.planned)} planned` : ''})` : ''}.`,
       tab: 'goals',
       cta: 'Open Goals',
     },
@@ -322,7 +324,9 @@ export default function PlanSummary({ household = null, members, me, accounts, t
               ? couldntLoad(goalsMissing)
               : goalRows.length > 0
                 ? [nearGoals.length > 0 ? `of ${formatMoney(nearCost)} in cash for the next 3 years` : 'Nothing due within 3 years', ...goalsElsewhere].join(' · ')
-                : 'No goals yet'
+                : goals.some(isDone)
+                  ? 'Every goal is done'
+                  : 'No goals yet'
           }
           cta="Goals"
           onClick={() => onOpenTab('goals')}

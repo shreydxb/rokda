@@ -196,7 +196,11 @@ here, because this repository is public.
   growth), with the cash a month as it really falls. Kept, like an emergency
   fund: held in cash. Later: paid by the Life plan, whose timeline says
   covered or short. No date: in no plan. The priority table covers later
-  goals only, closed, as a what-if. The goal editor sets spent or kept.
+  goals only, closed, as a what-if. The goal editor sets spent or kept, what
+  the household plans to put in a month (measured against what a goal held
+  in cash needs, and a goal it covers is not raised on Plan), and done: a
+  done goal is listed apart and left out of every plan and the bot, and can
+  be reopened.
 - **Debt payoff**: leads with when the debts clear at their minimums and the
   interest still to pay. Each debt shows what is owed, its rate, its minimum
   and when it clears, labelled. An extra payment is a what-if, against the

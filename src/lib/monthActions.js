@@ -73,7 +73,9 @@ export function monthActions({ year, month }, data = {}, planning = {}, now = ne
         detail:
           r.state === 'due'
             ? `AED ${fmt(r.remaining)} still needed in cash: its date, ${r.byLabel}, has arrived.`
-            : `AED ${fmt(r.perMonth)} a month in cash to reach it by ${r.byLabel}: AED ${fmt(r.remaining)} still to set aside, with AED ${fmt(r.cash)} set aside now.`,
+            : r.plan?.enough
+              ? `AED ${fmt(r.plan.amount)} a month, as you planned, reaches it by ${r.byLabel}: AED ${fmt(r.remaining)} still to set aside, with AED ${fmt(r.cash)} set aside now.`
+              : `AED ${fmt(r.perMonth)} a month in cash to reach it by ${r.byLabel}${r.plan ? ` (you plan AED ${fmt(r.plan.amount)})` : ''}: AED ${fmt(r.remaining)} still to set aside, with AED ${fmt(r.cash)} set aside now.`,
         href: tabHref('/planning', 'goals'),
         cta: 'Open Goals',
       });

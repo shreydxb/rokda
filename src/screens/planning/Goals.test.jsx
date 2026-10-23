@@ -128,6 +128,42 @@ describe('Goals: due within 3 years, from cash', () => {
   });
 });
 
+// Planning audit, 2.7: a planned monthly amount, and done.
+describe('Goals: what you plan a month', () => {
+  it('settles a goal whose plan covers it by its date, and says when a short plan gets there', () => {
+    renderGoals({ goals: [{ ...GOAL, planned_monthly: 5000 }] });
+    expect(within(row('Emergency fund')).getByText('Planned')).toBeTruthy();
+    expect(within(row('Emergency fund')).getByText('Due within 3 years, so paid from cash: 5,000 a month to Dec 2027. You plan 5,000, which covers it.')).toBeTruthy();
+    const summary = within(screen.getByRole('region', { name: 'Next 3 years' }));
+    expect(summary.getByText(/a month in cash/).textContent).toBe('Needs 5,000 a month in cash until Dec 2027 · you plan 5,000');
+  });
+
+  it('marks a plan that falls short, with the month it would cover the goal by', () => {
+    renderGoals({ goals: [{ ...GOAL, planned_monthly: 3000 }] });
+    expect(within(row('Emergency fund')).getByText('Plan short')).toBeTruthy();
+    // 75,000 at 3,000 a month: 25 months from Sep 2026.
+    expect(within(row('Emergency fund')).getByText('Due within 3 years, so paid from cash: 5,000 a month to Dec 2027. At the 3,000 you plan, it is covered by Oct 2028.')).toBeTruthy();
+  });
+});
+
+describe('Goals: done goals', () => {
+  it('lists a done goal apart, out of every plan, and opens it to reopen', () => {
+    renderGoals({ goals: [GOAL, { ...HOUSE, done_at: '2026-09-01T08:00:00Z' }] });
+    expect(document.querySelector('.mn-filters').textContent).toMatch(/^1 dated goal · 1 done/);
+    expect(screen.queryByRole('region', { name: 'No date' })).toBeNull();
+    const done = within(screen.getByRole('region', { name: 'Done' }));
+    expect(done.getByText('House')).toBeTruthy();
+    expect(done.getByText('Done Sep 2026')).toBeTruthy();
+  });
+
+  it('says every goal is done rather than that there are none', () => {
+    renderGoals({ goals: [{ ...GOAL, done_at: '2026-09-01T08:00:00Z' }] });
+    expect(screen.queryByText('No goals')).toBeNull();
+    expect(screen.getByText('Every goal is done.')).toBeTruthy();
+    expect(screen.queryByRole('region', { name: 'Next 3 years' })).toBeNull();
+  });
+});
+
 describe('Goals: later goals, from the Life plan', () => {
   it('takes each one\'s state from the Life plan\'s timeline', () => {
     renderGoals({ ...LIFE, goals: [CAR, VILLA] }, { transactions: history() });
