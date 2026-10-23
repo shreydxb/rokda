@@ -1,11 +1,13 @@
-import { describe, it, expect, vi } from 'vitest';
-import { screen, fireEvent } from '@testing-library/dom';
+import { afterEach, describe, it, expect, vi } from 'vitest';
+import { screen, fireEvent, within } from '@testing-library/dom';
+import { MemoryRouter } from 'react-router-dom';
 import { renderScreen } from '../../test/renderScreen';
+import { payoffMonthLabel } from '../../lib/debt';
 import PlanSummary from './PlanSummary';
 
 vi.mock('../../lib/supabaseClient', () => ({ supabase: {} }));
 
-const ACCOUNT = { id: 'a1', type: 'savings', currency: 'AED', balance: 200000, balance_aed: 200000, is_shared: true, archived_at: null };
+const ACCOUNT = { id: 'a1', name: 'Savings', type: 'savings', currency: 'AED', balance: 200000, balance_aed: 200000, balance_as_of: '2026-10-01T09:00:00Z', is_shared: true, archived_at: null };
 const MEMBERS = [
   { id: 'm1', display_name: 'Alex' },
   { id: 'm2', display_name: 'Sam' },
@@ -28,25 +30,32 @@ function history() {
   });
 }
 
-function renderSummary(data = {}, sources) {
+function renderSummary(data = {}, sources, { accounts = [ACCOUNT] } = {}) {
   const onOpenTab = vi.fn();
   const onRetry = vi.fn();
   renderScreen(
-    <PlanSummary
-      sources={sources}
-      onRetry={onRetry}
-      members={MEMBERS}
-      me={MEMBERS[0]}
-      accounts={[ACCOUNT]}
-      transactions={history()}
-      holdings={[]}
-      data={{ goals: [], goalContributions: [], goalAllocations: [], debts: [], assumptions: null, independenceIncome: [], memberLife: AGES, ...data }}
-      loading={false}
-      onOpenTab={onOpenTab}
-    />,
+    <MemoryRouter>
+      <PlanSummary
+        sources={sources}
+        onRetry={onRetry}
+        members={MEMBERS}
+        me={MEMBERS[0]}
+        accounts={accounts}
+        transactions={history()}
+        holdings={[]}
+        data={{ goals: [], goalContributions: [], goalAllocations: [], debts: [], assumptions: null, independenceIncome: [], memberLife: AGES, ...data }}
+        loading={false}
+        onOpenTab={onOpenTab}
+      />
+    </MemoryRouter>,
   );
   return { onOpenTab, onRetry };
 }
+
+afterEach(() => localStorage.clear());
+
+const card = (label) => screen.getByRole('button', { name: `${label}: open ${label === 'Stop working' ? 'Life plan' : label}` });
+const LOAN = { id: 'd1', name: 'Car loan', note: '', balance: 12000, apr_pct: 0, minimum_payment: 1000, is_shared: true, account_id: null };
 
 describe('PlanSummary: when work can stop', () => {
   it('gives the Life plan year once ages are set, and opens the Life plan', () => {
@@ -107,10 +116,100 @@ describe('PlanSummary: records that never loaded are not read as none', () => {
   });
 
   it('offers what it could check and names the rest once, when only the ages are unread', () => {
-    const debt = { id: 'd1', name: 'Car loan', note: '', balance: 40000, apr_pct: 3.5, minimum_payment: 2193, is_shared: true, account_id: null };
-    renderSummary({ debts: [debt], memberLife: [] }, { errors: { memberLife: { message: 'canceling statement due to statement timeout' } }, loaded: { household: true, debts: true, assumptions: true } });
+    renderSummary({ debts: [LOAN], memberLife: [] }, { errors: { memberLife: { message: 'canceling statement due to statement timeout' } }, loaded: { household: true, debts: true, assumptions: true } }, { accounts: [{ ...ACCOUNT, balance_as_of: null }] });
     expect(screen.getByText('1 open · not all checked')).toBeTruthy();
-    expect(screen.getByText('No committed extra payment set, so debt has no payoff date')).toBeTruthy();
+    expect(screen.getByText('Balance not entered: Savings. Every figure here counts it as 0.')).toBeTruthy();
     expect(screen.getByText('Couldn’t load ages for the life plan. What rests on them isn’t checked.')).toBeTruthy();
+  });
+});
+
+// Planning audit, 1.1: every figure on Plan comes from a record or says it is
+// assumed.
+describe('PlanSummary: the debt card dates the debt', () => {
+  const now = new Date();
+
+  it('at the minimum payment, with no extra payment committed', () => {
+    renderSummary({ debts: [LOAN] });
+    expect(within(card('Debt payoff')).getByText(`Clears about ${payoffMonthLabel(12, now)} at the minimum payment · not all in net worth`)).toBeTruthy();
+  });
+
+  it('at the minimums for several debts, naming the last to clear', () => {
+    const card2 = { ...LOAN, id: 'd2', name: 'Bank card', balance: 1000, minimum_payment: 500 };
+    renderSummary({ debts: [LOAN, card2] });
+    expect(within(card('Debt payoff')).getByText(`All clear about ${payoffMonthLabel(12, now)} at the minimums, Car loan last · not all in net worth`)).toBeTruthy();
+  });
+
+  it('with the extra payment once one is committed, for the household only', () => {
+    const assumptions = { debt_extra_payment: 1000, debt_assume_no_new_card_spend: true };
+    renderSummary({ debts: [LOAN], assumptions });
+    expect(within(card('Debt payoff')).getByText(`Clears about ${payoffMonthLabel(6, now)} with the extra payment · not all in net worth`)).toBeTruthy();
+  });
+
+  it('in one partner\'s view, at the minimums: the extra payment is the household\'s', () => {
+    localStorage.setItem('rokda.scope', 'me');
+    renderSummary({ debts: [LOAN], assumptions: { debt_extra_payment: 1000, debt_assume_no_new_card_spend: true } });
+    expect(within(card('Debt payoff')).getByText(`Clears about ${payoffMonthLabel(12, now)} at the minimum payment · not all in net worth`)).toBeTruthy();
+  });
+
+  it('says nothing is owed once every debt is paid off', () => {
+    renderSummary({ debts: [{ ...LOAN, balance: 0 }] });
+    expect(within(card('Debt payoff')).getByText('Nothing owed · not all in net worth')).toBeTruthy();
+  });
+
+  it('says when a minimum never clears the debt', () => {
+    renderSummary({ debts: [{ ...LOAN, apr_pct: 24, minimum_payment: 100 }] });
+    expect(within(card('Debt payoff')).getByText("No payoff date: the minimum on Car loan doesn't cover its interest · not all in net worth")).toBeTruthy();
+  });
+});
+
+describe('PlanSummary: what needs a decision', () => {
+  it('no longer counts goals behind a 90-day pace, or presses for an extra debt payment', () => {
+    const goal = { id: 'g1', name: 'Trip', target_amount: 12000, target_date: '2030-01-01', is_shared: true, created_at: '2026-01-01T00:00:00Z' };
+    renderSummary({ goals: [goal], debts: [LOAN] });
+    expect(screen.queryByText(/behind pace/)).toBeNull();
+    expect(screen.queryByText(/extra payment set/)).toBeNull();
+    expect(screen.getByText('All clear — nothing here needs a decision.')).toBeTruthy();
+  });
+
+  it('names the balances not entered and links to them', () => {
+    const accounts = [
+      { ...ACCOUNT, balance_as_of: null },
+      { ...ACCOUNT, id: 'a2', name: 'Current account', balance_as_of: null },
+      { ...ACCOUNT, id: 'a3', name: 'Old account', balance_as_of: null, archived_at: '2026-01-01T00:00:00Z' },
+    ];
+    renderSummary({}, undefined, { accounts });
+    expect(screen.getByText('1 open')).toBeTruthy();
+    expect(screen.getByText('Balances not entered: Savings and Current account. Every figure here counts them as 0.')).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Open Accounts' }).getAttribute('href')).toBe('/wealth?tab=accounts');
+  });
+});
+
+describe('PlanSummary: what the stop year rests on', () => {
+  it('calls a year nobody chose assumed, and whose 60th it is', () => {
+    renderSummary();
+    expect(within(card('Stop working')).getByText('2054 is assumed, the year Alex turns 60, until you choose a year on the Life plan.')).toBeTruthy();
+  });
+
+  it('says nothing is assumed once a year is saved', () => {
+    renderSummary({ assumptions: { retirement_year: 2050 } });
+    expect(within(card('Stop working')).queryByText(/is assumed/)).toBeNull();
+  });
+
+  it('is provisional while balances are not entered', () => {
+    renderSummary({}, undefined, { accounts: [{ ...ACCOUNT, balance_as_of: null }] });
+    expect(within(card('Stop working')).getByText('Provisional: 1 balance not entered, counted as 0.')).toBeTruthy();
+  });
+
+  it('names someone the plan leaves out', () => {
+    renderSummary({ memberLife: AGES.slice(0, 1) });
+    expect(within(card('Stop working')).getByText("Sam isn't in the plan: no birth year and age to plan to yet.")).toBeTruthy();
+  });
+
+  it('says the year is the household\'s in one partner\'s view', () => {
+    renderSummary();
+    expect(within(card('Stop working')).queryByText(/whoever is selected/)).toBeNull();
+    localStorage.setItem('rokda.scope', 'partner');
+    renderSummary();
+    expect(screen.getAllByText("The household's year, whoever is selected.")).toHaveLength(1);
   });
 });

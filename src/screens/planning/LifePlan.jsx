@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { startingNetWorth } from '../overviewMath';
 import { budgetPlan, forecastInputs, incomesWithoutRate, spendThatStops } from '../../lib/forecast';
-import { agesIn, agesLabel, earliestStop, extraSavingNeeded, lifePlan, lifePlanBasis, maxRetirementSpend, planEndYear, planPeople, potNeededAt } from '../../lib/lifePlan';
+import { agesIn, agesLabel, earliestStop, extraSavingNeeded, leftOutText, lifePlan, lifePlanBasis, maxRetirementSpend, membersLeftOut, planEndYear, planPeople, potNeededAt } from '../../lib/lifePlan';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { ChartLegend, ColumnChart } from '../../charts/Charts';
 import BudgetBasis from './BudgetBasis';
@@ -79,6 +79,9 @@ export default function LifePlan({
 
   // The people planned for: members with a birth year and an age to plan to.
   const people = useMemo(() => planPeople(members, data.memberLife ?? []), [members, data.memberLife]);
+  // Anyone without them is left out, and says so: the money could seem to last
+  // when it runs out before their plan would end (Planning audit, 1.1).
+  const leftOut = useMemo(() => membersLeftOut(members, data.memberLife ?? []), [members, data.memberLife]);
 
   // The plan and the four answers built on it, worked out once for each change
   // of input rather than on every step along the chart (Planning audit, 0b-E).
@@ -315,6 +318,11 @@ export default function LifePlan({
         </div>
         <div className={`ov-hero fig ${result.lasts ? '' : 'ov-neg'}`}>{heroFigure}</div>
         <div style={{ fontSize: 13.5, color: 'var(--ink2)', marginTop: 10, lineHeight: 1.6, maxWidth: '92ch' }}>{heroText}</div>
+        {leftOut.length > 0 && (
+          <p className="ov-warn" style={{ fontSize: 12.5, margin: '8px 0 0' }}>
+            {leftOutText(leftOut)} Add {leftOut.length === 1 ? 'them' : 'each'} under Edit plan.
+          </p>
+        )}
 
         <div className="dd-controls">
           <div className="dd-control">

@@ -292,3 +292,15 @@ describe('LifePlan: changing the plan', () => {
     expect(calls.updates).toEqual([{ table: 'categories', patch: { stops_after_work: true }, column: 'id', value: 'rent' }]);
   });
 });
+
+describe('LifePlan: who the plan covers', () => {
+  it('names a member left out for want of ages, and only then', () => {
+    renderPlan({ data: { memberLife: AGES.slice(0, 1) } });
+    expect(screen.getByText(`${MEMBERS[1].display_name} isn't in the plan: no birth year and age to plan to yet. Add them under Edit plan.`)).toBeTruthy();
+  });
+
+  it('says nothing when everyone is planned for', () => {
+    renderPlan();
+    expect(screen.queryByText(/isn't in the plan/)).toBeNull();
+  });
+});

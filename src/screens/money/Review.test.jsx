@@ -168,18 +168,26 @@ describe('Review', () => {
     expect(within(history).getByText(/^Up .*1,000 on /)).toBeTruthy();
   });
 
-  it('ends in what to do next, including a goal behind its pace', () => {
-    const due = new Date(now.getFullYear() + 1, now.getMonth(), 1);
-    const goals = [{ id: 'g', name: 'New car', target_amount: 120000, target_date: `${due.getFullYear()}-${pad(due.getMonth() + 1)}-01`, is_shared: true, created_at: '2026-01-01T00:00:00Z' }];
-    renderScreen(
-      <MemoryRouter initialEntries={['/money?tab=review']}>
-        <Review household={{ id: 'hh' }} data={data({ netWorthSnapshots: [{ snapshot_date: lastMonth(1) }] })} planning={{ goals, goalContributions: [], goalAllocations: [] }} loading={false} />
-      </MemoryRouter>,
+  it('ends in what to do next: saving short of its target', () => {
+    const month = lastMonth(1);
+    const [y, m] = month.split('-').map(Number);
+    const categories = [
+      { id: 'salary', name: 'Salary', kind: 'income' },
+      { id: 'groceries', name: 'Groceries', kind: 'expense' },
+      { id: 'save', name: 'Savings', kind: 'expense', is_savings: true },
+    ];
+    renderReview(
+      data({
+        netWorthSnapshots: [{ snapshot_date: month }],
+        categories,
+        budgets: [{ year: y, month: m, category_id: 'save', amount: 2000 }],
+        transactions: [tx('pay', { amount: 5000, kind: 'income', category_id: 'salary' }), tx('food', { amount: -4000 })],
+      }),
     );
-    const action = screen.getByTestId('action-goal-g');
-    expect(within(action).getByText('Fund New car')).toBeTruthy();
-    expect(within(action).getByRole('link', { name: 'Open Goals' }).getAttribute('href')).toMatch(/^\/planning\?tab=goals&reviewing=/);
+    const action = screen.getByTestId('action-saving');
+    expect(within(action).getByText('Catch up on saving')).toBeTruthy();
+    expect(within(action).getByRole('link', { name: 'Open Budget' }).getAttribute('href')).toMatch(/^\/money\?tab=budget&reviewing=/);
     // With every check done, the next step is the first action.
-    expect(within(screen.getByRole('region', { name: 'Next step' })).getByText('Fund New car')).toBeTruthy();
+    expect(within(screen.getByRole('region', { name: 'Next step' })).getByText('Catch up on saving')).toBeTruthy();
   });
 });

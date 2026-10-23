@@ -263,6 +263,30 @@ export function planPeople(members = [], memberLife = []) {
     .map((m) => ({ id: m.id, name: m.display_name, birthYear: byMember.get(m.id).birth_year, lifeExpectancy: byMember.get(m.id).life_expectancy }));
 }
 
+// Members the plan leaves out, for want of a birth year and an age to plan
+// to. A partner left out dropped out quietly, and if they were the younger,
+// the money could seem to last when it runs out years before their plan ends
+// (Planning audit, 1.1).
+export function membersLeftOut(members = [], memberLife = []) {
+  const planned = new Set(memberLife.map((r) => r.member_id));
+  return members.filter((m) => !planned.has(m.id));
+}
+
+// "Partner B isn't in the plan: ...", for the screens that give the answer.
+export function leftOutText(leftOut) {
+  const names = leftOut.map((m) => m.display_name);
+  const list = names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+  return `${list} ${names.length === 1 ? "isn't" : "aren't"} in the plan: no birth year and age to plan to yet.`;
+}
+
+// Whose 60th birthday the stop year is until one is saved: the eldest person
+// planned for, the first by name if two were born the same year. It was the
+// first in the roster, an order the database doesn't fix, so it could change
+// when a partner linked Telegram (Planning audit, 1.1).
+export function defaultStopPerson(people) {
+  return [...people].sort((a, b) => a.birthYear - b.birthYear || a.name.localeCompare(b.name))[0];
+}
+
 // Everything the life plan runs on, built from the household's saved data one
 // way for every screen that shows it -- the Life plan tab, the Plan summary and
 // Forecast -- so they cannot disagree about when work can stop. `fcSet`,
@@ -285,7 +309,8 @@ export function lifePlanBasis({ people, assumptions, inputs, startNetWorth, goal
 
   const clampYear = (y) => Math.min(endYear, Math.max(startYear, y));
   const savedStop = assumptions?.retirement_year != null ? clampYear(Number(assumptions.retirement_year)) : null;
-  const defaultStop = clampYear(people[0].birthYear + DEFAULT_STOP_AGE);
+  const stopBy = defaultStopPerson(people);
+  const defaultStop = clampYear(stopBy.birthYear + DEFAULT_STOP_AGE);
   const stopYear = stopOverride ?? savedStop ?? defaultStop;
 
   const plannedSpend = assumptions?.retirement_annual_spend != null ? Number(assumptions.retirement_annual_spend) : null;
@@ -310,6 +335,8 @@ export function lifePlanBasis({ people, assumptions, inputs, startNetWorth, goal
     postNominal,
     savedStop,
     stopYear,
+    // A stop year nobody chose is an assumption, and says whose 60th it is.
+    stopAssumed: stopOverride === null && savedStop === null ? stopBy : null,
     spendOptions,
     spendChoice,
     survivorPct,
@@ -355,6 +382,8 @@ export function lifePlanStop({ members, memberLife, inputs, ...rest }) {
     lasts: saved.lasts,
     shortYear: saved.shortYear,
     stopYear: basis.stopYear,
+    stopAssumed: basis.stopAssumed,
+    leftOut: membersLeftOut(members, memberLife),
     // Spending once work stops, in today's money, and which choice it is, so a
     // screen that gives the answer can say what the answer assumes.
     spend: basis.spendChoice.value,
