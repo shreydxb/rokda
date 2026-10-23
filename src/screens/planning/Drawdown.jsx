@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { startingNetWorth } from '../overviewMath';
-import { budgetPlan, drawdownPath, forecastInputs, incomesFromStop, independenceTarget, MARKET_FALL, marketReturns, potForWithdrawal, realReturn, scenarioSets, spendThatStops, sustainableWithdrawal } from '../../lib/forecast';
-import { agesIn, agesLabel, lifePlanBasis, lifePlanHandover, planPeople } from '../../lib/lifePlan';
+import { budgetPlan, drawdownPath, forecastInputs, incomesFromStop, incomesWithoutRate, independenceTarget, MARKET_FALL, marketReturns, potForWithdrawal, realReturn, scenarioSets, spendThatStops, sustainableWithdrawal } from '../../lib/forecast';
+import { agesIn, agesLabel, lifePlanBasis, lifePlanHandover, planEndYear, planPeople } from '../../lib/lifePlan';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { LineChart } from '../../charts/Charts';
 import IncomeEditor from './IncomeEditor';
@@ -73,7 +73,8 @@ export default function Drawdown({ household, members = [], accounts = [], trans
   // screen's scenario. Null until someone's age is set.
   const handover = useMemo(() => {
     const people = planPeople(members, data.memberLife ?? []);
-    if (!people.length || !inputs.ready) return null;
+    // A plan everyone has outlived has no stop year to hand over.
+    if (!people.length || !inputs.ready || planEndYear(people) < now.getFullYear()) return null;
     const basis = lifePlanBasis({
       people,
       assumptions,
@@ -84,6 +85,7 @@ export default function Drawdown({ household, members = [], accounts = [], trans
       household,
       stopping: spendThatStops({ inputs, transactions, budgets, categories, now }),
       startYear: now.getFullYear(),
+      now,
       fcSet,
     });
     return { ...lifePlanHandover(basis), people };
@@ -345,7 +347,7 @@ export default function Drawdown({ household, members = [], accounts = [], trans
                 <div className="mn-row-main">
                   <div>{row.name}</div>
                   <div className="ov-muted" style={{ marginTop: 3, fontSize: 11.5 }}>
-                    {describeIncome(row)}
+                    {describeIncome(row, household)}
                   </div>
                 </div>
                 <div className="fig mn-row-amt">
@@ -465,6 +467,7 @@ export default function Drawdown({ household, members = [], accounts = [], trans
         <IncomeEditor
           row={editing === 'new' ? null : editing}
           householdId={household?.id}
+          household={household}
           onClose={() => setEditing(null)}
           onSaved={async () => {
             setEditing(null);
@@ -494,7 +497,8 @@ function nativeIncomeLabel(row) {
   return `${symbol}${Number(row.amount).toLocaleString(row.currency === 'INR' ? 'en-IN' : 'en-US', { maximumFractionDigits: 0 })}`;
 }
 
-function describeIncome(row) {
+function describeIncome(row, household) {
+  if (incomesWithoutRate([row], household).length) return 'Not counted: no AED/INR rate yet (Settings → Household)';
   if (row.in_year != null) return `Paid in ${row.in_year} · counted on the Life plan in that year`;
   const start = Number(row.starts_after_years) || 0;
   if (row.kind === 'lump_sum') return start === 0 ? 'One-off, in the first year of independence' : `One-off, ${start} year${start === 1 ? '' : 's'} in`;

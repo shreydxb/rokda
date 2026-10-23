@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { annualSpendByCategory, budgetPlan, closedMonths, crossingYear, drawdownPath, fiTarget, forecastInputs, futureValue, incomeInYear, incomesFromStop, independenceTarget, MARKET_FALL, marketReturns, payMonthTransactions, potForWithdrawal, projectYears, realReturn, requiredAnnualSaving, scenarioSets, spendThatStops, sustainableWithdrawal } from './forecast';
+import { annualSpendByCategory, budgetPlan, closedMonths, crossingYear, drawdownPath, fiTarget, forecastInputs, futureValue, incomeInYear, incomesFromStop, incomesWithoutRate, independenceTarget, MARKET_FALL, marketReturns, payMonthTransactions, planningMonths, potForWithdrawal, projectYears, realReturn, requiredAnnualSaving, scenarioSets, spendThatStops, sustainableWithdrawal } from './forecast';
 
 const DEFAULTS = { nominal_return_pct: 6.0, inflation_pct: 2.5, safe_withdrawal_pct: 4.0 };
 
@@ -406,7 +406,9 @@ describe('spendThatStops', () => {
     ]);
     // The open month is not counted.
     transactions.push({ id: 'now', amount: -9999, kind: 'expense', category_id: 'rent', occurred_at: '2026-09-06', is_shared: true });
-    const result = spendThatStops({ inputs: { ready: true, source: 'actual' }, transactions, categories, now });
+    const inputs = forecastInputs(transactions, 0, now);
+    expect(inputs.months).toEqual(['2026-06', '2026-07', '2026-08']);
+    const result = spendThatStops({ inputs, transactions, categories, now });
     expect(result.annual).toBeCloseTo(70_200, 6);
   });
 
@@ -441,6 +443,52 @@ describe('payMonthTransactions: a salary counts in the month it is for', () => {
     expect(payMonthTransactions(other, [])).toBe(other);
   });
 
+  // Where the records begin, moving pay made a month with no spending, or a
+  // month with no pay (Planning audit, 0b-D).
+  const spend = (id, day, amount = -8000, over = {}) => ({ id, amount, kind: 'expense', account_id: 'fab', category_id: 'groc', occurred_at: day, is_shared: true, ...over });
+  const recorded = (months) => [...months.keys()];
+
+  it('never counts pay for the month before the first record', () => {
+    // Records start in August. July's salary landed on 1 August.
+    const txns = [tx('s0', '2026-08-01'), tx('s1', '2026-08-30'), tx('s2', '2026-09-30'), tx('s3', '2026-10-30'), spend('a', '2026-08-05'), spend('b', '2026-09-05'), spend('c', '2026-10-05')];
+    const months = planningMonths(txns, [salary], new Date(2026, 10, 15));
+    expect(recorded(months)).toEqual(['2026-08', '2026-09', '2026-10']);
+    expect([...months.values()].map((m) => m.income)).toEqual([24000, 24000, 24000]);
+    const inputs = forecastInputs(txns, 0, new Date(2026, 10, 15), null, [salary]);
+    expect(inputs.monthCount).toBe(3);
+    expect(inputs.monthlySaving).toBe(16000);
+  });
+
+  it('leaves out a first month whose pay landed before the records began', () => {
+    // Paid on the 28th for the month after. July's pay landed in June.
+    const firstOfMonth = { ...salary, next_due_date: '2026-10-01' };
+    const txns = [tx('s1', '2026-07-28'), tx('s2', '2026-08-28'), tx('s3', '2026-09-28'), spend('a', '2026-07-05'), spend('b', '2026-08-05'), spend('c', '2026-09-05'), spend('d', '2026-10-05'), tx('s4', '2026-10-28')];
+    const months = planningMonths(txns, [firstOfMonth], new Date(2026, 10, 15));
+    expect(recorded(months)).toEqual(['2026-08', '2026-09', '2026-10']);
+    expect(forecastInputs(txns, 0, new Date(2026, 10, 15), null, [firstOfMonth]).monthlySaving).toBe(16000);
+  });
+
+  it('keeps a first month that has its own pay', () => {
+    const firstOfMonth = { ...salary, next_due_date: '2026-10-01' };
+    // July's pay on 1 July, August's on 28 July.
+    const txns = [tx('s0', '2026-07-01'), tx('s1', '2026-07-28'), tx('s2', '2026-08-28'), spend('a', '2026-07-05'), spend('b', '2026-08-05'), spend('c', '2026-09-05')];
+    expect(recorded(planningMonths(txns, [firstOfMonth], new Date(2026, 9, 15)))).toEqual(['2026-07', '2026-08', '2026-09']);
+  });
+
+  it('takes a category\'s spending over the same months as all spending', () => {
+    const rent = (id, day) => spend(id, day, -3000, { category_id: 'rent' });
+    const txns = [tx('s0', '2026-08-01'), tx('s1', '2026-08-30'), tx('s2', '2026-09-30'), tx('s3', '2026-10-30'), spend('a', '2026-08-05', -5000), spend('b', '2026-09-05', -5000), spend('c', '2026-10-05', -5000), rent('r1', '2026-08-01'), rent('r2', '2026-09-01'), rent('r3', '2026-10-01')];
+    const categories = [
+      { id: 'groc', kind: 'expense', name: 'Groceries' },
+      { id: 'rent', kind: 'expense', name: 'Rent', stops_after_work: true },
+    ];
+    const now = new Date(2026, 10, 15);
+    const inputs = forecastInputs(txns, 0, now, null, [salary]);
+    // Three months of 8,000, not four with a phantom month of nothing spent.
+    expect(inputs.annualSpend).toBe(96000);
+    expect(spendThatStops({ inputs, transactions: txns, categories, now }).annual).toBe(36000);
+  });
+
   it('keeps each month at one salary when payday wanders across the month end', () => {
     const txns = [tx('s1', '2026-08-28'), tx('s2', '2026-10-01'), tx('s3', '2026-10-29')];
     const months = closedMonths(payMonthTransactions(txns, [salary]), new Date(2026, 10, 15));
@@ -449,5 +497,18 @@ describe('payMonthTransactions: a salary counts in the month it is for', () => {
       ['2026-09', 24000],
       ['2026-10', 24000],
     ]);
+  });
+});
+
+describe('incomesWithoutRate', () => {
+  it('names the rows in a currency with no rate to AED', () => {
+    const rows = [
+      { id: 'a', currency: 'AED' },
+      { id: 'b', currency: 'INR' },
+      { id: 'c', currency: 'USD' },
+      { id: 'd' },
+    ];
+    expect(incomesWithoutRate(rows, { inr_per_aed: null }).map((r) => r.id)).toEqual(['b']);
+    expect(incomesWithoutRate(rows, { inr_per_aed: 25 })).toEqual([]);
   });
 });

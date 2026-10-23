@@ -4,8 +4,8 @@ import { formatPct } from '../../lib/money';
 import { incompleteNote, netWorthSummary, startingNetWorth } from '../overviewMath';
 import { isArchived } from '../../lib/accounts';
 import { unconfirmedAccounts } from '../../lib/balance';
-import { budgetPlan, closedMonths, crossingYear, fiTarget, forecastInputs, goalAt, incomesFromStop, independenceTarget, payMonthTransactions, projectYears, realReturn, requiredAnnualSaving, scenarioSets, spendThatStops } from '../../lib/forecast';
-import { agesLabel, lifePlanStop, spendAfterText } from '../../lib/lifePlan';
+import { budgetPlan, crossingYear, fiTarget, forecastInputs, goalAt, incomesFromStop, independenceTarget, planningMonths, projectYears, realReturn, requiredAnnualSaving, scenarioSets, spendThatStops } from '../../lib/forecast';
+import { agesLabel, lifePlanStop, noStopText, spendAfterText } from '../../lib/lifePlan';
 import BudgetBasis from './BudgetBasis';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import ForecastAssumptionsEditor from './ForecastAssumptionsEditor';
@@ -97,7 +97,7 @@ export default function Forecast({ household, members = [], accounts = [], trans
     return { accounts: s.unvalued, holdings: s.unpricedHoldings };
   }, [accounts, holdings]);
   const basisIncomplete = incompleteNote(basisGaps, { capitalised: false, sentence: false });
-  const monthCount = closedMonths(payMonthTransactions(transactions, recurring), now).size;
+  const monthCount = planningMonths(transactions, recurring, now).size;
   // Until three months close, the budget stands in (forecastInputs).
   const plan = useMemo(() => budgetPlan(budgets, categories, now), [budgets, categories, now]);
   const inputs = useMemo(() => forecastInputs(transactions, startNetWorth, now, plan, recurring), [transactions, startNetWorth, now, plan, recurring]);
@@ -130,6 +130,7 @@ export default function Forecast({ household, members = [], accounts = [], trans
         household,
         stopping: spendThatStops({ inputs, transactions, budgets, categories, now }),
         startYear,
+        now,
         fcSet,
       }),
     [members, data.memberLife, assumptions, inputs, startNetWorth, data.goals, data.independenceIncome, household, transactions, budgets, categories, now, startYear, fcSet]
@@ -384,7 +385,7 @@ export default function Forecast({ household, members = [], accounts = [], trans
       <div style={{ fontSize: 13.5, color: 'var(--ink2)', marginTop: 10, maxWidth: '84ch', lineHeight: 1.6 }}>
         {stop.earliest !== null
           ? `The earliest year work can stop: ${agesLabel(stop.ages)}, ${spendAfterText(stop, (v) => `${money.code} ${money.fmt(v)}`)}, and the money lasts to ${stop.endYear}.`
-          : `A goal falls short while still working, so no year to stop work lasts to ${stop.endYear}.`}
+          : `${noStopText(stop)}.`}
       </div>
       <div className="ov-muted" style={{ fontSize: 12, marginTop: 6 }}>
         From your life plan, in today's money

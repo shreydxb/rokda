@@ -40,6 +40,15 @@ export function isLiabilityAccount(account) {
   return LIABILITY_TYPES.has(account?.type);
 }
 
+// What a loan or card owes, from a balance stored as the amount owed. A card
+// stored below zero is in credit and owes nothing, as net worth and the bot
+// read it. A loan cannot be in credit: one stored below zero was typed that
+// way before the account editor asked for the amount owed, and owes it.
+export function amountOwed(account, value = account?.balance) {
+  const n = Number(value ?? 0);
+  return account?.type === 'credit_card' ? Math.max(0, n) : Math.abs(n);
+}
+
 export function activeAccounts(accounts = []) {
   return accounts.filter((a) => !isArchived(a));
 }

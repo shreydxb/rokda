@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
+import { incomesWithoutRate } from '../../lib/forecast';
 import '../money/TransactionEditor.css';
 
 // One source of money once working stops: rent, part-time work, or a one-off
@@ -31,7 +32,7 @@ function initialForm(row) {
 
 const whole = (v) => /^\d+$/.test(String(v).trim());
 
-export default function IncomeEditor({ row, householdId, onClose, onSaved }) {
+export default function IncomeEditor({ row, householdId, household = null, onClose, onSaved }) {
   const [form, setForm] = useState(() => initialForm(row));
   const [dirty, setDirty] = useState(false);
   const [confirmingClose, setConfirmingClose] = useState(false);
@@ -176,6 +177,11 @@ export default function IncomeEditor({ row, householdId, onClose, onSaved }) {
               </select>
               <input type="number" step="0.01" min="0" className="te-hero-input" value={form.amount} onChange={(e) => set('amount', e.target.value)} placeholder="0" aria-label="Amount" />
             </div>
+            {incomesWithoutRate([{ currency: form.currency }], household).length > 0 && (
+              <div className="ov-warn" style={{ fontSize: 11.5, marginTop: 6 }}>
+                No AED/INR rate is set yet, so this is not counted until one is (Settings → Household).
+              </div>
+            )}
           </div>
 
           <div className="te-fieldgrid">

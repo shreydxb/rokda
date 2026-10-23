@@ -21,6 +21,14 @@ const STRATEGY_NOTE = {
   custom: "Your own order, edited on each debt's rank. Nothing is enforced beyond changing where the extra payment goes.",
 };
 
+// Paying only the minimum, in words (amortizeMinimumOnly).
+function minimumOnlyText(months) {
+  if (months === 0) return 'nothing owed';
+  if (months === null) return 'revolves indefinitely';
+  if (months === Infinity) return 'takes more than 50 years';
+  return `clears in ${monthsToLabel(months)}`;
+}
+
 function monthsToLabel(months) {
   if (months === null) return null;
   const years = Math.floor(months / 12);
@@ -189,7 +197,7 @@ export default function DebtPayoff({ household, members, me, accounts = [], data
                   <dl className="debt-figures">
                     <div>
                       <dt>Owed</dt>
-                      <dd className="fig ov-neg">−{formatMoney(d.balance)}</dd>
+                      <dd className={Number(d.balance) > 0 ? 'fig ov-neg' : 'fig'}>{d.inCredit ? 'In credit' : Number(d.balance) > 0 ? `−${formatMoney(d.balance)}` : '0'}</dd>
                     </div>
                     <div>
                       <dt>Rate</dt>
@@ -218,7 +226,7 @@ export default function DebtPayoff({ household, members, me, accounts = [], data
                   <div className="debt-projection-head">No payoff date</div>
                   <div className="ov-muted">
                     {couldntLoad(planNotLoaded)} The projection rests on the saved extra payment, so it isn&rsquo;t worked out. At minimums alone:{' '}
-                    {minimumOnlyByDebt.map((m) => `${m.name} ${m.months === null ? 'revolves indefinitely' : `clears in ${monthsToLabel(m.months)}`}`).join(' · ')}.
+                    {minimumOnlyByDebt.map((m) => `${m.name} ${minimumOnlyText(m.months)}`).join(' · ')}.
                   </div>
                   {onRetry && (
                     <button type="button" className="om-btn debt-primary" onClick={onRetry}>
@@ -263,7 +271,7 @@ export default function DebtPayoff({ household, members, me, accounts = [], data
                       <div className="ov-muted">
                         A debt-free date needs a committed extra payment and a card-usage assumption.{' '}
                         {missing.length === 2 ? 'Neither is set' : `${missing[0][0].toUpperCase()}${missing[0].slice(1)} is not set`}, so no date is shown.
-                        At minimums alone: {minimumOnlyByDebt.map((m) => `${m.name} ${m.months === null ? 'revolves indefinitely' : `clears in ${monthsToLabel(m.months)}`}`).join(' · ')}.
+                        At minimums alone: {minimumOnlyByDebt.map((m) => `${m.name} ${minimumOnlyText(m.months)}`).join(' · ')}.
                       </div>
                     </>
                   )}

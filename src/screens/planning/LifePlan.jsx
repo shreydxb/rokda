@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { startingNetWorth } from '../overviewMath';
-import { annualSpendByCategory, budgetPlan, forecastInputs, spendThatStops } from '../../lib/forecast';
-import { agesIn, agesLabel, earliestStop, extraSavingNeeded, lifePlan, lifePlanBasis, maxRetirementSpend, planPeople, potNeededAt } from '../../lib/lifePlan';
+import { annualSpendByCategory, budgetPlan, forecastInputs, incomesWithoutRate, spendThatStops } from '../../lib/forecast';
+import { agesIn, agesLabel, earliestStop, extraSavingNeeded, lifePlan, lifePlanBasis, maxRetirementSpend, planEndYear, planPeople, potNeededAt } from '../../lib/lifePlan';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { ChartLegend, ColumnChart } from '../../charts/Charts';
 import BudgetBasis from './BudgetBasis';
@@ -142,6 +142,29 @@ export default function LifePlan({
     );
   }
 
+  // Everyone planned for is past the age the plan runs to, so there is no
+  // year left to plan. Drawing one crashed the whole app (Planning audit,
+  // 0b-D); the editor asks for a later age before it saves.
+  if (planEndYear(people) < startYear) {
+    return (
+      <>
+        <div className="ov-empty" style={{ marginTop: 22 }}>
+          <div className="ov-empty-kicker">The plan has run its course</div>
+          <div className="ov-empty-body">
+            It plans for {people.map((p) => `${p.name} to ${p.lifeExpectancy}`).join(' and ')}, and everyone is past that age now. Plan to a
+            later age to see the years ahead.
+          </div>
+          <div className="ov-empty-actions">
+            <button type="button" className="om-btn ov-btn-primary" onClick={() => setEditing(true)}>
+              Plan to a later age
+            </button>
+          </div>
+        </div>
+        {editor}
+      </>
+    );
+  }
+
   const basis = lifePlanBasis({
     people,
     assumptions,
@@ -152,12 +175,14 @@ export default function LifePlan({
     household,
     stopping,
     startYear,
+    now,
     fcSet,
     stopOverride,
     spendKind,
   });
   const { endYear, sets, selected, inflationPct, postNominal, savedStop, stopYear, spendOptions, spendChoice, survivorPct, goals, incomes, inflows, args } = basis;
   const anyIncome = incomes.length > 0 || inflows.length > 0;
+  const uncounted = incomesWithoutRate(data.independenceIncome ?? [], household);
   const result = lifePlan(args);
   const need = potNeededAt(args);
   const earliest = earliestStop(args);
@@ -169,6 +194,9 @@ export default function LifePlan({
   const inflation = inflationPct / 100;
   const shown = (value, year) => (mode === 'nominal' ? value * (1 + inflation) ** (year - startYear) : value);
   const agesText = (year) => agesLabel(agesIn(people, year));
+  // While working the pot can be below zero: debt the saving is repaying
+  // (lib/lifePlan.js). Said as what is owed, never as money held.
+  const potText = (value, year) => (value < 0 ? `${money.code} ${money.fmt(shown(value, year))} still owed` : `${money.code} ${money.fmt(shown(value, year))}`);
 
   const shortRow = result.shortYear !== null ? result.rows.find((r) => r.year === result.shortYear) : null;
   const firstForOne = result.rows.find((r) => r.forOne)?.year ?? null;
@@ -197,14 +225,14 @@ export default function LifePlan({
   const spendText = `${money.code} ${money.fmt(shown(spendChoice.value, stopYear))} a year`;
   let heroText;
   if (result.lasts) {
-    heroText = `Stopping work in ${stopYear} (${agesText(stopYear)}) with ${money.code} ${money.fmt(shown(result.potAtStop, stopYear))} by then, and spending ${spendText} after, the money lasts to ${endYear}, the year ${lastPerson.name} turns ${lastPerson.lifeExpectancy}, with ${money.code} ${money.fmtBalance(shown(result.left, endYear + 1))} left.`;
+    heroText = `Stopping work in ${stopYear} (${agesText(stopYear)}) with ${potText(result.potAtStop, stopYear)} by then, and spending ${spendText} after, the money lasts to ${endYear}, the year ${lastPerson.name} turns ${lastPerson.lifeExpectancy}, with ${money.code} ${money.fmtBalance(shown(result.left, endYear + 1))} left.`;
   } else if (shortRow.working) {
+    // While working, only a goal falls short (lib/lifePlan.js).
     const names = shortRow.goals.map((g) => g.name).join(', ');
-    heroText = names
-      ? `${names} in ${result.shortYear} needs ${money.code} ${money.fmt(shown(shortRow.goalOutflow, shortRow.year))}; the pot will hold ${money.code} ${money.fmt(shown(shortRow.start, shortRow.year))} by then, before that year's saving.`
-      : `Spending more than is earned while working uses up the pot in ${result.shortYear}.`;
+    const by = money.fmt(shown(shortRow.start, shortRow.year));
+    heroText = `${names} in ${result.shortYear} needs ${money.code} ${money.fmt(shown(shortRow.goalOutflow, shortRow.year))}; by then ${shortRow.start < 0 ? `${money.code} ${by} will still be owed` : `the pot will hold ${money.code} ${by}`}, before that year's saving.`;
   } else {
-    heroText = `Stopping work in ${stopYear} (${agesText(stopYear)}) with ${money.code} ${money.fmt(shown(result.potAtStop, stopYear))} by then, and spending ${spendText} after, the money runs out in ${result.shortYear} (${agesText(result.shortYear)}), ${endYear - result.shortYear + 1} year${endYear - result.shortYear + 1 === 1 ? '' : 's'} before the plan ends.`;
+    heroText = `Stopping work in ${stopYear} (${agesText(stopYear)}) with ${potText(result.potAtStop, stopYear)} by then, and spending ${spendText} after, the money runs out in ${result.shortYear} (${agesText(result.shortYear)}), ${endYear - result.shortYear + 1} year${endYear - result.shortYear + 1 === 1 ? '' : 's'} before the plan ends.`;
   }
 
   const goalsTotal = goals.reduce((s, g) => s + shown(g.amount, g.year), 0);
@@ -305,7 +333,7 @@ export default function LifePlan({
       <div className="fc-kpis">
         <div className="fc-kpi">
           <div style={{ fontSize: 12, color: 'var(--ink2)' }}>When work stops</div>
-          <div className="fig" style={{ fontSize: 28, marginTop: 6 }}>{money.fmt(shown(result.potAtStop ?? 0, stopYear))}</div>
+          <div className="fig" style={{ fontSize: 28, marginTop: 6 }}>{money.fmtBalance(shown(result.potAtStop ?? 0, stopYear))}</div>
           <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 5 }}>The pot at the start of {stopYear}</div>
         </div>
         <div className="fc-kpi">
@@ -359,14 +387,8 @@ export default function LifePlan({
             // A goal the pot cannot pay while still working: stopping later
             // does not help, so the goal itself is the lever.
             <span className="fc-solve-answer">
-              {shortRow.goals.length ? (
-                <>
-                  The pot is <b className="fig">{money.code} {money.fmt(shown(shortRow.short, shortRow.year))}</b> short for{' '}
-                  {shortRow.goals.map((g) => g.name).join(', ')} in {shortRow.year}. Move it later or make it smaller
-                </>
-              ) : (
-                <>Spending more than is earned empties the pot in {shortRow.year}</>
-              )}
+              The pot is <b className="fig">{money.code} {money.fmt(shown(shortRow.short, shortRow.year))}</b> short for{' '}
+              {shortRow.goals.map((g) => g.name).join(', ')} in {shortRow.year}. Move it later or make it smaller
               {extra !== null && (
                 <span className="ov-muted">
                   {' · or save '}
@@ -429,7 +451,7 @@ export default function LifePlan({
           <span className="fig">{active.year}</span>
           <span>{agesText(active.year)}</span>
           <span>
-            Pot <b className="fig">{money.fmt(shown(active.start, active.year))}</b>
+            Pot <b className="fig">{money.fmtBalance(shown(active.start, active.year))}</b>
           </span>
           {active.working ? (
             <span>
@@ -488,7 +510,7 @@ export default function LifePlan({
                     <tr key={r.year} data-active={i === activeIdx}>
                       <td className="fig">{r.year}</td>
                       <td>{agesText(r.year)}</td>
-                      <td className="fig">{money.fmt(shown(r.start, r.year))}</td>
+                      <td className="fig">{money.fmtBalance(shown(r.start, r.year))}</td>
                       <td className="fig">{r.working ? money.fmtSigned(shown(r.saving, r.year)) : `−${money.fmt(shown(r.spend, r.year))}`}</td>
                       {anyIncome && <td className="fig">{r.income > 0 ? money.fmt(shown(r.income, r.year)) : ''}</td>}
                       <td>{r.goals.length ? `${r.goals.map((g) => g.name).join(', ')} −${money.fmt(shown(r.goalOutflow, r.year))}` : ''}</td>
@@ -512,6 +534,8 @@ export default function LifePlan({
         same in today&rsquo;s money until work stops.
         {people.length > 1 && survivorPct !== 100 && ` Once one person remains, spending is ${survivorPct}% of the couple's.`}
         {incomes.length > 0 && ` ${incomes.length} source${incomes.length === 1 ? '' : 's'} of other income from Drawdown count from ${stopYear}.`}
+        {uncounted.length > 0 &&
+          ` ${uncounted.map((r) => r.name).join(', ')} ${uncounted.length === 1 ? 'is' : 'are'} not counted: no AED/INR rate is set yet (Settings → Household).`}
         {inflows.length > 0 &&
           ` ${inflows.map((i) => `${i.name} (${i.year})`).join(', ')} ${inflows.length === 1 ? 'is' : 'are'} added in ${inflows.length === 1 ? 'its' : 'their'} year, converted at today's rate: the rupee's drift against the dirham is not modelled.`}{' '}
         No tax is

@@ -207,3 +207,24 @@ describe('DebtEditor: a balance changed while it is open', () => {
     expect(onSaved).not.toHaveBeenCalled();
   });
 });
+
+describe('DebtEditor: whose debt it is', () => {
+  it('takes a linked debt\'s owner from its account, and says where to change it', async () => {
+    const own = { ...LOAN, is_shared: false, owner_member_id: 'm1' };
+    const debt = { id: 'd1', name: 'Car loan', note: '', balance: 40000, apr_pct: 3.5, minimum_payment: 2193, is_shared: true, owner_member_id: null, account_id: 'loan' };
+    const onSaved = vi.fn();
+    renderScreen(<DebtEditor householdId="h" members={MEMBERS} accounts={[own, SAVINGS]} debt={debt} debts={[debt]} onClose={vi.fn()} onSaved={onSaved} />);
+    expect(screen.getByText('Alex, as Car loan is in Wealth, where its owner is changed.')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Shared' })).toBeNull();
+    fireEvent.click(screen.getByText('Save changes'));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(calls.writes.at(-1)).toMatchObject({ table: 'debts', row: { is_shared: false, owner_member_id: 'm1' } });
+  });
+
+  it('lets a debt with no account choose its owner', () => {
+    renderEditor();
+    fireEvent.change(screen.getByLabelText('Account'), { target: { value: '' } });
+    expect(screen.getByRole('button', { name: 'Shared' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Alex' })).toBeTruthy();
+  });
+});

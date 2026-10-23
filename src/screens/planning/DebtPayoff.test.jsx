@@ -58,6 +58,18 @@ describe('DebtPayoff: figures and what a projection needs', () => {
   });
 });
 
+describe('DebtPayoff: a card in credit', () => {
+  it('says it is in credit rather than owing what it holds', () => {
+    const card = { id: 'card', name: 'Bank card', type: 'credit_card', currency: 'AED', balance: -1500, balance_aed: -1500, is_shared: true, archived_at: null };
+    renderScreen(<DebtPayoff household={{ id: 'h' }} members={[]} me={null} accounts={[card]} data={{ debts: [debt({ name: 'Bank card', account_id: 'card' })], assumptions: null, reload: vi.fn() }} loading={false} />);
+    const figures = [...document.querySelectorAll('.debt-figures > div')].map((d) => d.textContent);
+    expect(figures[0]).toBe('OwedIn credit');
+    expect(screen.getByText(/outstanding$/).textContent).toBe('0 outstanding');
+    // Paying the minimum on nothing owed is not "clears in 1 mo".
+    expect(document.body.textContent).toMatch(/At minimums alone: Bank card nothing owed\./);
+  });
+});
+
 describe('DebtPayoff: debts that never loaded', () => {
   it('says so, rather than showing no debts', () => {
     renderScreen(

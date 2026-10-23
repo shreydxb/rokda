@@ -55,11 +55,14 @@ function nearestOccurrence(row, date) {
   return best;
 }
 
-export function payMonthTransactions(transactions = [], recurring = []) {
+// Each income row an expected-income reminder claims, with the occurrence it
+// is for. Rows nothing claims are left out.
+function payMatches(transactions, recurring) {
   const expected = recurring.filter((r) => Number(r.amount) > 0 && r.active !== false && r.next_due_date && r.cadence);
-  if (!expected.length) return transactions;
-  return transactions.map((t) => {
-    if (t.kind !== 'income' || !(Number(t.amount) > 0)) return t;
+  const matches = new Map();
+  if (!expected.length) return matches;
+  for (const t of transactions) {
+    if (t.kind !== 'income' || !(Number(t.amount) > 0)) continue;
     const landed = parseDay(t.occurred_at);
     for (const r of expected) {
       if (r.account_id && t.account_id !== r.account_id) continue;
@@ -68,14 +71,56 @@ export function payMonthTransactions(transactions = [], recurring = []) {
       if (Math.abs(Number(t.amount) - amount) > amount * 0.2) continue;
       const due = nearestOccurrence(r, landed);
       if (Math.abs(due - landed) > matchWindowDays(r) * 86400000) continue;
-      if (monthKey(due) === monthKey(landed)) return t;
-      const y = due.getFullYear();
-      const m = String(due.getMonth() + 1).padStart(2, '0');
-      const d = String(due.getDate()).padStart(2, '0');
-      return { ...t, pay_month_date: `${y}-${m}-${d}` };
+      matches.set(t, { reminder: r, due });
+      break;
     }
-    return t;
+  }
+  return matches;
+}
+
+export function payMonthTransactions(transactions = [], recurring = []) {
+  const matches = payMatches(transactions, recurring);
+  if (!matches.size) return transactions;
+  return transactions.map((t) => {
+    const match = matches.get(t);
+    if (!match || monthKey(match.due) === monthKey(parseDay(t.occurred_at))) return t;
+    const { due } = match;
+    const y = due.getFullYear();
+    const m = String(due.getMonth() + 1).padStart(2, '0');
+    const d = String(due.getDate()).padStart(2, '0');
+    return { ...t, pay_month_date: `${y}-${m}-${d}` };
   });
+}
+
+// The closed months every Planning figure is averaged over: each salary in
+// the month it is for (payMonthTransactions), oldest first. Where the records
+// begin, moving pay can make two months that are not the household's:
+//   * pay for the month before the first record, counted in a month with no
+//     spending recorded at all, which then reads as a month of pure saving;
+//   * the first month with its spending but without its pay, which landed
+//     before the records began and so was never recorded.
+// The first is not a month of records, so it is never counted. The second is
+// left out, rather than counted as a month of spending with nothing earned.
+export function planningMonths(transactions = [], recurring = [], now = new Date()) {
+  const months = closedMonths(payMonthTransactions(transactions, recurring), now);
+  if (!transactions.length) return months;
+  const first = transactions.reduce((min, t) => {
+    const key = monthKey(parseDay(t.occurred_at));
+    return key < min ? key : min;
+  }, '9999-99');
+  for (const key of [...months.keys()]) if (key < first) months.delete(key);
+  // A reminder whose pay landed in the first month and counts for a later
+  // one, with none of its pay counted for the first month.
+  const payMonthsByReminder = new Map();
+  const movedOutOfFirst = new Set();
+  for (const [t, { reminder, due }] of payMatches(transactions, recurring)) {
+    const counted = monthKey(due);
+    if (!payMonthsByReminder.has(reminder)) payMonthsByReminder.set(reminder, new Set());
+    payMonthsByReminder.get(reminder).add(counted);
+    if (monthKey(parseDay(t.occurred_at)) === first && counted > first) movedOutOfFirst.add(reminder);
+  }
+  if ([...movedOutOfFirst].some((r) => !payMonthsByReminder.get(r).has(first))) months.delete(first);
+  return months;
 }
 
 // What the household's budget says it will spend and save in a month, for a
@@ -134,7 +179,10 @@ export function annualSpendByCategory({ inputs, transactions = [], budgets = [],
     }
     return totals;
   }
-  const months = new Set([...closedMonths(transactions, now).keys()].slice(-12));
+  // The very months forecastInputs averaged over, so a category's share of
+  // spending is the share of the same months.
+  const months = new Set(inputs.months ?? []);
+  if (!months.size) return totals;
   for (const t of transactions) {
     if (!months.has(monthKey(parseDay(t.occurred_at)))) continue;
     for (const part of categoryParts(t)) {
@@ -171,7 +219,8 @@ export function spendThatStops(args) {
 // closes. From a budget there is no recorded income; saving is the savings
 // target, and income is taken as spend plus that saving.
 export function forecastInputs(transactions, startNetWorth, now = new Date(), plan = null, recurring = []) {
-  const months = [...closedMonths(payMonthTransactions(transactions, recurring), now).values()].slice(-12);
+  const recent = [...planningMonths(transactions, recurring, now).entries()].slice(-12);
+  const months = recent.map(([, m]) => m);
   const monthCount = months.length;
   const hasNetWorth = startNetWorth !== null;
   if (monthCount < 3 && hasNetWorth && plan) {
@@ -198,6 +247,7 @@ export function forecastInputs(transactions, startNetWorth, now = new Date(), pl
     ready,
     source: 'actual',
     monthCount,
+    months: recent.map(([key]) => key),
     hasNetWorth: true,
     avgMonthlyIncome,
     avgMonthlySpend,
@@ -338,6 +388,14 @@ export function incomesFromStop(incomes = [], household = null) {
     .filter((r) => r.in_year == null)
     .map((r) => ({ ...r, amount: convertToAed(Number(r.amount) || 0, r.currency ?? 'AED', household) }))
     .filter((r) => r.amount !== null);
+}
+
+// The other income no plan counts yet: rows in a currency with no rate to AED
+// (rupees before the household sets its AED/INR rate). They are left out of
+// every figure, so the screens that list them say so: the list read "counted"
+// while the Life plan quietly left them out (Planning audit, 0b-D).
+export function incomesWithoutRate(incomes = [], household = null) {
+  return incomes.filter((r) => convertToAed(1, r.currency ?? 'AED', household) === null);
 }
 
 export function incomeInYear(incomes = [], offset) {

@@ -20,9 +20,16 @@ import { goalInflationPct } from './goals';
 // overlap. As in Forecast, a working year's saving is added at the end of the
 // year and the pot grows on what it held. As in Drawdown, a retired year's
 // spending is taken at the start of the year, other income first, and only the
-// rest from the pot; a goal is paid at the start of its year either way. The
-// pot never goes below zero: what it cannot pay is a shortfall, and the first
-// year with one is the year the plan runs out.
+// rest from the pot; a goal is paid at the start of its year either way. What
+// the pot cannot pay is a shortfall, and the first year with one is the year
+// the plan runs out.
+//
+// While working, the pot can be below zero: a loan larger than the accounts,
+// or years of spending more than is earned. That is debt the saving goes on
+// repaying. It earns nothing, as the loan's own cost is in the recorded
+// spending already, and it is carried rather than forgiven. It cannot pay a
+// goal, and once work stops nothing repays it, so what is still owed then is a
+// shortfall and the pot starts again from zero.
 
 // Each person is planned for until the end of the year they reach their life
 // expectancy. The plan ends when the last of them does.
@@ -79,6 +86,15 @@ export function datedIncomesOnTimeline(incomes, startYear, inflationPct, househo
     .sort((a, b) => a.year - b.year);
 }
 
+// The share of this year still to come. The plan starts today, so this year
+// is credited with that share of its saving, growth, spending and income, not
+// a whole year's: from 2 January or from 30 December the answer was the same.
+export function yearLeft(now) {
+  const start = new Date(now.getFullYear(), 0, 1);
+  const next = new Date(now.getFullYear() + 1, 0, 1);
+  return (next - now) / (next - start);
+}
+
 // The timeline itself.
 //
 // `retireYear` is the first year without work: saving stops and spending from
@@ -87,7 +103,8 @@ export function datedIncomesOnTimeline(incomes, startYear, inflationPct, househo
 // income (independence_income rows) counts from `retireYear`, the same way
 // Drawdown counts it from independence. `inflows` are sums paid in a fixed
 // year (datedIncomesOnTimeline), added to the pot at the start of that year
-// whether or not work has stopped.
+// whether or not work has stopped. `firstYearShare` is the share of the first
+// year still to come (yearLeft); a goal or lump sum in it is paid in full.
 export function lifePlan({
   startYear,
   people,
@@ -101,6 +118,7 @@ export function lifePlan({
   goals = [],
   incomes = [],
   inflows = [],
+  firstYearShare = 1,
 }) {
   const endYear = planEndYear(people);
   const rows = [];
@@ -111,9 +129,12 @@ export function lifePlan({
     const working = year < retireYear;
     if (year === retireYear) potAtStop = pot;
     const start = pot;
+    const share = year === startYear ? firstYearShare : 1;
     const forOne = people.length > 1 && plannedCount(people, year) < people.length;
-    const spend = working ? 0 : retireSpend * (forOne ? survivorPct / 100 : 1);
-    const { yearly, lump } = working ? { yearly: 0, lump: 0 } : incomeInYear(incomes, year - retireYear);
+    const spend = working ? 0 : retireSpend * (forOne ? survivorPct / 100 : 1) * share;
+    const fromIncome = working ? { yearly: 0, lump: 0 } : incomeInYear(incomes, year - retireYear);
+    const yearly = fromIncome.yearly * share;
+    const { lump } = fromIncome;
     const due = goals.filter((g) => g.year === year);
     const goalOutflow = due.reduce((s, g) => s + g.amount, 0);
     const arriving = inflows.filter((i) => i.year === year);
@@ -125,11 +146,10 @@ export function lifePlan({
     const paid = Math.min(needed, Math.max(0, balance));
     let short = needed - paid;
     const after = balance - paid;
-    const growth = after > 0 ? after * (working ? preRate : postRate) : 0;
-    const saving = working ? annualSaving : 0;
+    const growth = after > 0 ? after * ((1 + (working ? preRate : postRate)) ** share - 1) : 0;
+    const saving = working ? annualSaving * share : 0;
     let end = after + growth + saving;
-    // Spending more than is earned while working draws on the pot too.
-    if (end < 0) {
+    if (end < 0 && !working) {
       short += -end;
       end = 0;
     }
@@ -185,7 +205,9 @@ const lastsWith = (args, overrides) => lifePlan({ ...args, ...overrides }).lasts
 // day and other income counted, in today's money.
 export function potNeededAt(args) {
   const from = Math.max(args.retireYear, args.startYear);
-  return smallestPassing((p) => lastsWith(args, { startYear: from, startPot: p, annualSaving: 0 }));
+  // Only this year is part-gone: a later stop year starts on 1 January.
+  const firstYearShare = from === args.startYear ? (args.firstYearShare ?? 1) : 1;
+  return smallestPassing((p) => lastsWith(args, { startYear: from, startPot: p, annualSaving: 0, firstYearShare }));
 }
 
 // The first year work could stop with the money lasting to the end, or null
@@ -197,6 +219,20 @@ export function earliestStop(args) {
     if (lastsWith(args, { retireYear: year })) return year;
   }
   return null;
+}
+
+// Why no stop year lasts, for a screen that has to say so in a few words:
+//   { kind: 'goal', goal, year }  a goal the pot cannot pay even while working;
+//   { kind: 'spending' }          more is spent than earned, so nothing builds;
+//   { kind: 'short' }             saving, but not enough to last to the end;
+//   { kind: 'ended' }             everyone is past the age the plan runs to.
+export function noStopCause(args) {
+  if (planEndYear(args.people) < args.startYear) return { kind: 'ended' };
+  const working = lifePlan({ ...args, retireYear: planEndYear(args.people) + 1 });
+  const goalRow = working.rows.find((r) => r.short > 0 && r.goals.length > 0);
+  if (goalRow) return { kind: 'goal', goal: goalRow.goals[0].name, year: goalRow.year };
+  if (args.annualSaving <= 0) return { kind: 'spending' };
+  return { kind: 'short' };
 }
 
 // The extra saving a year it would take for the chosen year to last. Zero when
@@ -236,7 +272,7 @@ export function planPeople(members = [], memberLife = []) {
 // `stopping` is spendThatStops: when some of today's spending will have
 // stopped by then, spending after work stops leaves it out unless a figure has
 // been saved for the plan.
-export function lifePlanBasis({ people, assumptions, inputs, startNetWorth, goals = [], incomes = [], household = null, stopping = null, startYear, fcSet = 'baseline', stopOverride = null, spendKind = null }) {
+export function lifePlanBasis({ people, assumptions, inputs, startNetWorth, goals = [], incomes = [], household = null, stopping = null, startYear, now = null, fcSet = 'baseline', stopOverride = null, spendKind = null }) {
   const endYear = planEndYear(people);
   const sets = scenarioSets(assumptions, LIFE_PLAN_DEFAULTS);
   const selected = sets[fcSet] ?? sets.baseline;
@@ -294,6 +330,7 @@ export function lifePlanBasis({ people, assumptions, inputs, startNetWorth, goal
       goals: timelineGoals,
       incomes: fromStop,
       inflows,
+      firstYearShare: now ? yearLeft(now) : 1,
     },
   };
 }
@@ -312,6 +349,7 @@ export function lifePlanStop({ members, memberLife, inputs, ...rest }) {
     people,
     endYear: basis.endYear,
     earliest,
+    whyNone: earliest === null ? noStopCause(basis.args) : null,
     ages: earliest !== null ? agesIn(people, earliest) : null,
     // Whether the plan's own stop year lasts, and the year it runs short if not.
     lasts: saved.lasts,
@@ -335,6 +373,16 @@ export function spendAfterText(stop, fmt) {
     lean: 'essentials only',
   }[stop.spendKey] ?? (stop.spendLabel === 'Budgeted' ? 'as budgeted' : 'as today');
   return `spending ${fmt(stop.spend)} a year after work stops (${how})`;
+}
+
+// Why no year lasts, in a few words, for the screens that lead with the
+// answer. They used to blame a goal whatever the cause.
+export function noStopText(stop) {
+  const why = stop.whyNone;
+  if (why?.kind === 'goal') return `${why.goal} in ${why.year} falls short, even while still working`;
+  if (why?.kind === 'spending') return 'More is spent than earned, so no stop year lasts';
+  if (why?.kind === 'ended') return 'Everyone is past the age the plan runs to: plan to a later age';
+  return `No stop year lasts to ${stop.endYear} on today's saving`;
 }
 
 // "Partner A 60 · Partner B 60": the ages of everyone still planned for.
