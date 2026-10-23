@@ -210,47 +210,97 @@ export function spendThatStops(args) {
   return { annual: rows.reduce((s, r) => s + r.annual, 0), categories: rows, byCategory };
 }
 
-// A forecast needs three closed months of spend and at least one account
+// The basis the household chose for its planning figures, from its saved
+// assumptions (Planning audit, 2.9): `basis` is 'budget', 'recorded', or null
+// when nothing is chosen, and `recordsFrom` the first month recorded months
+// count from, 'YYYY-MM', or null for all of them.
+export const PLANNING_BASES = ['budget', 'recorded'];
+export function basisChoice(assumptions) {
+  const basis = PLANNING_BASES.includes(assumptions?.planning_basis) ? assumptions.planning_basis : null;
+  const recordsFrom = assumptions?.records_from ? String(assumptions.records_from).slice(0, 7) : null;
+  return { basis, recordsFrom };
+}
+
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+// "Oct 2026" for the month key "2026-10".
+export function monthKeyLabel(key) {
+  const [year, month] = String(key).split('-').map(Number);
+  return `${MONTH_NAMES[month - 1]} ${year}`;
+}
+
+// The months the records can be counted from: every month from the first one
+// recorded to this one, newest first. This month is offered too, so a
+// household can start counting from it before it has ended.
+export function recordsFromOptions(recordedMonths = [], now = new Date()) {
+  const current = monthKey(now);
+  const first = recordedMonths.length && recordedMonths[0] < current ? recordedMonths[0] : current;
+  const keys = [];
+  for (let d = new Date(now.getFullYear(), now.getMonth(), 1); monthKey(d) >= first; d.setMonth(d.getMonth() - 1)) keys.push(monthKey(d));
+  return keys;
+}
+
+// A forecast needs three ended months of spend and at least one account
 // valuation to start from — otherwise a target would be invented, not
-// derived. Averages over up to the last 12 closed months.
+// derived. Averages over up to the last 12 ended months, from the month the
+// household says its records count from: a first month or two recorded in
+// part read as months of saving everything.
 //
-// Until there are three closed months, a budget (budgetPlan) stands in: the
-// household's own stated plan rather than an invented figure. `source` says
-// which one the numbers came from -- 'actual' or 'budget' -- so every screen
-// can say so, and the budget steps aside by itself once the third month
-// closes. From a budget there is no recorded income; saving is the savings
-// target, and income is taken as spend plus that saving.
-export function forecastInputs(transactions, startNetWorth, now = new Date(), plan = null, recurring = []) {
-  const recent = [...planningMonths(transactions, recurring, now).entries()].slice(-12);
+// Which figures the plan rests on is the household's choice (`choice`, from
+// basisChoice; Planning audit, 2.9):
+//   budget:     the budget (budgetPlan), the plan it wrote down, whatever is
+//               recorded; the recorded months stand in only while no month
+//               has a spending budget;
+//   recorded:   the recorded months; the budget stands in until three have
+//               ended;
+//   not chosen: as recorded, the old rule, said as not chosen.
+// `source` says which one the numbers came from -- 'actual' or 'budget' --
+// and `why` why: 'chosen'; 'few-months', the budget standing in until three
+// months have ended; 'no-budget', the records standing in for a budget that
+// isn't there; or 'not-chosen'. From a budget there is no recorded income;
+// saving is the savings target, and income is taken as spend plus that
+// saving. `recordedMonths` is every ended month on record, for choosing
+// where they count from.
+export function forecastInputs(transactions, startNetWorth, now = new Date(), plan = null, recurring = [], choice = {}) {
+  const { basis = null, recordsFrom = null } = choice;
+  const all = [...planningMonths(transactions, recurring, now).entries()];
+  const recent = all.filter(([key]) => !recordsFrom || key >= recordsFrom).slice(-12);
   const months = recent.map(([, m]) => m);
   const monthCount = months.length;
   const hasNetWorth = startNetWorth !== null;
-  if (monthCount < 3 && hasNetWorth && plan) return budgetInputs(plan, startNetWorth, monthCount);
+  const told = (inputs, why) => ({ ...inputs, basis, recordsFrom, why, recordedMonths: all.map(([key]) => key) });
+  if (basis === 'budget' && hasNetWorth && plan) return told(budgetInputs(plan, startNetWorth, monthCount), 'chosen');
+  if (monthCount < 3 && hasNetWorth && plan) return told(budgetInputs(plan, startNetWorth, monthCount), 'few-months');
   const ready = monthCount >= 3 && hasNetWorth;
   if (!ready) {
-    return { ready, source: null, monthCount, hasNetWorth, avgMonthlyIncome: 0, avgMonthlySpend: 0, annualSpend: 0, monthlySaving: 0, startNetWorth: startNetWorth ?? 0 };
+    return told(
+      { ready, source: null, monthCount, hasNetWorth, avgMonthlyIncome: 0, avgMonthlySpend: 0, annualSpend: 0, monthlySaving: 0, startNetWorth: startNetWorth ?? 0 },
+      basis === 'budget' ? 'no-budget' : null
+    );
   }
   const avgMonthlyIncome = months.reduce((s, m) => s + m.income, 0) / monthCount;
   const avgMonthlySpend = months.reduce((s, m) => s + m.spend, 0) / monthCount;
-  return {
-    ready,
-    source: 'actual',
-    monthCount,
-    months: recent.map(([key]) => key),
-    hasNetWorth: true,
-    avgMonthlyIncome,
-    avgMonthlySpend,
-    annualSpend: avgMonthlySpend * 12,
-    monthlySaving: avgMonthlyIncome - avgMonthlySpend,
-    startNetWorth,
-  };
+  return told(
+    {
+      ready,
+      source: 'actual',
+      monthCount,
+      months: recent.map(([key]) => key),
+      hasNetWorth: true,
+      avgMonthlyIncome,
+      avgMonthlySpend,
+      annualSpend: avgMonthlySpend * 12,
+      monthlySaving: avgMonthlyIncome - avgMonthlySpend,
+      startNetWorth,
+    },
+    basis === 'recorded' ? 'chosen' : basis === 'budget' ? 'no-budget' : 'not-chosen'
+  );
 }
 
 // The same inputs on the budget's figures, however many months are recorded:
-// the plan as the household wrote it down. Once three months have ended the
-// records take over, and the screens that give the answer show the budget's
-// beside them rather than dropping it from view (Planning audit, 1.2). Null
-// without a budget or an account valuation to start from.
+// the plan as the household wrote it down. Where the plan rests on the
+// records, the screens that give the answer show the budget's beside them
+// rather than dropping it from view (Planning audit, 1.2). Null without a
+// budget or an account valuation to start from.
 export function budgetInputs(plan, startNetWorth, monthCount = 0) {
   if (!plan || startNetWorth === null) return null;
   return {

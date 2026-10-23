@@ -2493,3 +2493,27 @@ audit, 2.8).
   Fixed deposits and holdings give no pace: an FD's balance is worked out,
   not entered, and a holding moves with its market, and neither counts as
   cash for a goal due soon.
+
+## The household chooses the basis
+
+The plan used the budget until three months had ended, then switched to the
+recorded months on its own, and a first month recorded only in part counted
+like any other (Planning audit, 2.9). Saving on the recorded months can run
+far ahead of the plan the household wrote down, and moves the stop year more
+than any other input but the scenario.
+
+- **A choice, saved with the assumptions:** `planning_basis` is the budget or
+  the recorded months, and `records_from` the month the records count from.
+  Both partners and every tab use the same choice.
+- **Each stands in for the other only when it can't be used,** and the line
+  says so: the records while no month has a spending budget, the budget
+  until three months have ended. Blank keeps the old rule, said as not
+  chosen.
+- **One always-on line** on Plan, Life plan, Forecast and Drawdown says which
+  figures the projection rests on, why, and since when, with Change basis.
+  The Life plan's "budget beside the records" (1.2) stays while the records
+  are the basis, without repeating the recorded figures the line gives.
+- **Records counted from a month, not a day:** the months are what is
+  averaged, and the drawer offers every month from the first recorded to
+  this one.
+- **Ended months, not closed months,** in what the tabs say.

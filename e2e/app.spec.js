@@ -118,7 +118,7 @@ const SUBVIEWS = [
   { name: 'drawdown', path: '/planning', tabs: ['Drawdown', 'Fall in year 1'], expectText: 'The same fall, early or late' },
   // The fixture's own data: two closed months and a budget, so Drawdown
   // projects from the budget and must say so.
-  { name: 'drawdown-from-budget', path: '/planning', tabs: ['Drawdown'], expectText: 'From your budget, for now', history: false },
+  { name: 'drawdown-from-budget', path: '/planning', tabs: ['Drawdown'], expectText: 'Your budget, for now', history: false },
   { name: 'life-plan', path: '/planning', tabs: ['Life plan'], expectText: 'The pot, year by year' },
   { name: 'life-plan-setup', path: '/planning', tabs: ['Life plan'], expectText: 'Set up your life plan', tables: { member_life: [] } },
   // A statement that does not match, opened for resolving: the reason box and

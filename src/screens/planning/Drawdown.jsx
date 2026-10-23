@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react';
 import { startingNetWorth } from '../overviewMath';
-import { budgetPlan, drawdownPath, forecastInputs, incomesFromStop, incomesWithoutRate, independenceTarget, MARKET_FALL, marketReturns, potForWithdrawal, realReturn, scenarioSets, spendThatStops, sustainableWithdrawal } from '../../lib/forecast';
+import { basisChoice, budgetPlan, drawdownPath, forecastInputs, incomesFromStop, incomesWithoutRate, independenceTarget, MARKET_FALL, marketReturns, potForWithdrawal, realReturn, scenarioSets, spendThatStops, sustainableWithdrawal } from '../../lib/forecast';
 import { agesIn, agesLabel, lifePlanBasis, lifePlanHandover, planEndYear, planPeople } from '../../lib/lifePlan';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { LineChart } from '../../charts/Charts';
 import IncomeEditor from './IncomeEditor';
-import BudgetBasis from './BudgetBasis';
+import BasisLine from './BasisLine';
 import ForecastAssumptionsEditor from './ForecastAssumptionsEditor';
 import AssumptionsBar from './AssumptionsBar';
 import { neverLoaded } from '../../lib/loadState';
@@ -67,7 +67,7 @@ export default function Drawdown({ household, members = [], accounts = [], trans
   const startNetWorth = useMemo(() => startingNetWorth(accounts, holdings), [accounts, holdings]);
   // Until three months close, the budget stands in (forecastInputs).
   const plan = useMemo(() => budgetPlan(budgets, categories, now), [budgets, categories, now]);
-  const inputs = useMemo(() => forecastInputs(transactions, startNetWorth, now, plan, recurring), [transactions, startNetWorth, now, plan, recurring]);
+  const inputs = useMemo(() => forecastInputs(transactions, startNetWorth, now, plan, recurring, basisChoice(assumptions)), [transactions, startNetWorth, now, plan, recurring, assumptions]);
   // Where the Life plan leaves the household when work stops, on this
   // screen's scenario. Null until someone's age is set.
   const handover = useMemo(() => {
@@ -157,7 +157,7 @@ export default function Drawdown({ household, members = [], accounts = [], trans
 
   return (
     <div>
-      <BudgetBasis inputs={inputs} />
+      <BasisLine inputs={inputs} householdId={household?.id} assumptions={assumptions} onSaved={data.reload} money={money} />
       <AssumptionsBar
         sets={sets}
         scenario={fcSet}

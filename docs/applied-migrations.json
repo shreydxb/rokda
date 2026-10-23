@@ -590,5 +590,12 @@
   "fingerprint": "8762d0d93d0c239a8d5a8497bee6420b",
   "framingFingerprint": "b695a45b4771dd6d2246d1b6c9f87492",
   "fingerprintVersion": 2
+ },
+ {
+  "version": "20261023212935",
+  "name": "planning_basis",
+  "fingerprint": "d614f9461e996613165573e4eecf1e0a",
+  "framingFingerprint": "fd2dd5b0749fcd96da169fd8bf380e3e",
+  "fingerprintVersion": 2
  }
 ]

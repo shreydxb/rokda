@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { annualSpendByCategory, budgetInputs, budgetPlan, closedMonths, crossingYear, drawdownPath, fiTarget, forecastInputs, futureValue, incomeInYear, incomesFromStop, incomesWithoutRate, independenceTarget, MARKET_FALL, marketReturns, payMonthTransactions, planningMonths, potForWithdrawal, projectYears, realReturn, requiredAnnualSaving, scenarioSets, spendThatStops, sustainableWithdrawal } from './forecast';
+import { annualSpendByCategory, basisChoice, budgetInputs, budgetPlan, closedMonths, crossingYear, drawdownPath, fiTarget, forecastInputs, futureValue, incomeInYear, incomesFromStop, incomesWithoutRate, independenceTarget, MARKET_FALL, marketReturns, monthKeyLabel, payMonthTransactions, planningMonths, recordsFromOptions, potForWithdrawal, projectYears, realReturn, requiredAnnualSaving, scenarioSets, spendThatStops, sustainableWithdrawal } from './forecast';
 
 const DEFAULTS = { nominal_return_pct: 6.0, inflation_pct: 2.5, safe_withdrawal_pct: 4.0 };
 
@@ -355,6 +355,55 @@ describe('budgetPlan and the budget standing in for history', () => {
     expect(forecastInputs(septemberOnly, null, now, budgetPlan(everyMonth2026, cats, now)).ready).toBe(false);
     expect(forecastInputs(septemberOnly, 100000, now, null)).toMatchObject({ ready: false, source: null });
   });
+
+  // Planning audit, 2.9: the household chooses the basis.
+  describe('the chosen basis', () => {
+    // June to August ended, saving 6,000 a month; the budget saves 1,500.
+    const history = [6, 7, 8].flatMap((m) => [
+      { id: `i${m}`, amount: 10000, kind: 'income', occurred_at: `2026-0${m}-05`, is_shared: true },
+      { id: `s${m}`, amount: -4000, kind: 'expense', occurred_at: `2026-0${m}-06`, is_shared: true },
+    ]);
+    const plan = budgetPlan(everyMonth2026, cats, now);
+    const inputs = (choice, p = plan, txns = history) => forecastInputs(txns, 100000, now, p, [], choice);
+
+    it('reads the choice from the saved assumptions, and nothing else as one', () => {
+      expect(basisChoice({ planning_basis: 'budget', records_from: '2026-07-01' })).toEqual({ basis: 'budget', recordsFrom: '2026-07' });
+      expect(basisChoice({ planning_basis: 'forecast' })).toEqual({ basis: null, recordsFrom: null });
+      expect(basisChoice(null)).toEqual({ basis: null, recordsFrom: null });
+    });
+
+    it('keeps the budget once chosen, however many months have ended', () => {
+      expect(inputs({ basis: 'budget' })).toMatchObject({ source: 'budget', why: 'chosen', monthlySaving: 1500, monthCount: 3 });
+    });
+
+    it('takes the records once chosen, or with nothing chosen, and says which', () => {
+      expect(inputs({ basis: 'recorded' })).toMatchObject({ source: 'actual', why: 'chosen', monthlySaving: 6000 });
+      expect(inputs({})).toMatchObject({ source: 'actual', why: 'not-chosen', monthlySaving: 6000 });
+    });
+
+    it('lets the other stand in when the chosen one cannot be used, and says why', () => {
+      // The budget chosen, with no budget set: the records, said as standing in.
+      expect(inputs({ basis: 'budget' }, null)).toMatchObject({ source: 'actual', why: 'no-budget' });
+      expect(inputs({ basis: 'budget' }, null, septemberOnly)).toMatchObject({ ready: false, why: 'no-budget' });
+      // The records chosen, with fewer than three ended: the budget, until then.
+      expect(inputs({ basis: 'recorded' }, plan, septemberOnly)).toMatchObject({ source: 'budget', why: 'few-months', basis: 'recorded' });
+    });
+
+    it('offers every month from the first recorded to this one to count from, newest first', () => {
+      expect(recordsFromOptions(['2026-06', '2026-07', '2026-08'], now)).toEqual(['2026-09', '2026-08', '2026-07', '2026-06']);
+      expect(recordsFromOptions([], now)).toEqual(['2026-09']);
+      expect(monthKeyLabel('2026-10')).toBe('Oct 2026');
+    });
+
+    it('counts records only from the month chosen, and lists every ended month to choose from', () => {
+      // From July, two months have ended: too few, so the budget stands in.
+      expect(inputs({ basis: 'recorded', recordsFrom: '2026-07' })).toMatchObject({ source: 'budget', why: 'few-months', monthCount: 2, recordedMonths: ['2026-06', '2026-07', '2026-08'] });
+      const earlier = [{ id: 'i5', amount: 1000, kind: 'income', occurred_at: '2026-05-05', is_shared: true }, ...history];
+      // May recorded in part reads as saving everything; from June it is left out.
+      expect(inputs({ basis: 'recorded' }, plan, earlier).monthCount).toBe(4);
+      expect(inputs({ basis: 'recorded', recordsFrom: '2026-06' }, plan, earlier)).toMatchObject({ monthCount: 3, monthlySaving: 6000, months: ['2026-06', '2026-07', '2026-08'] });
+    });
+  });
 });
 
 describe('incomesFromStop', () => {
@@ -533,7 +582,7 @@ describe('budgetInputs', () => {
   });
 
   it('is what forecastInputs stands in with before three months end', () => {
-    expect(forecastInputs([], 100000, new Date(2026, 9, 20), plan)).toEqual(budgetInputs(plan, 100000, 0));
+    expect(forecastInputs([], 100000, new Date(2026, 9, 20), plan)).toMatchObject({ ...budgetInputs(plan, 100000, 0), why: 'few-months' });
   });
 
   it('has nothing to give without a budget or a starting point', () => {

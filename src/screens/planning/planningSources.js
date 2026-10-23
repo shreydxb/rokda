@@ -11,9 +11,11 @@ export const NOTES_INPUTS = ['household', 'notes'];
 
 const PROJECTION_INPUTS = ['household', 'memberLife', 'goals', 'independenceIncome', 'assumptions', 'accounts', 'holdings', 'transactions', 'recurring', 'categories'];
 
-// What a projection rests on. The budget stands in for spending and saving
-// only until three months have closed (forecastInputs), so only until then is
-// a budget that never loaded a reason to withhold it.
+// What a projection rests on. The budget is the basis when the household
+// chose it, and otherwise stands in only until three months have ended
+// (forecastInputs), so only then is a budget that never loaded a reason to
+// withhold it: read as no budget, it would pass the records off as standing
+// in for one.
 export function projectionInputs(inputs) {
-  return inputs?.monthCount >= 3 ? PROJECTION_INPUTS : [...PROJECTION_INPUTS, 'budgets'];
+  return inputs?.monthCount >= 3 && inputs?.basis !== 'budget' ? PROJECTION_INPUTS : [...PROJECTION_INPUTS, 'budgets'];
 }
