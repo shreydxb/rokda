@@ -224,20 +224,7 @@ export function forecastInputs(transactions, startNetWorth, now = new Date(), pl
   const months = recent.map(([, m]) => m);
   const monthCount = months.length;
   const hasNetWorth = startNetWorth !== null;
-  if (monthCount < 3 && hasNetWorth && plan) {
-    return {
-      ready: true,
-      source: 'budget',
-      monthCount,
-      budgetMonths: plan.monthCount,
-      hasNetWorth,
-      avgMonthlyIncome: plan.monthlySpend + plan.monthlySaving,
-      avgMonthlySpend: plan.monthlySpend,
-      annualSpend: plan.monthlySpend * 12,
-      monthlySaving: plan.monthlySaving,
-      startNetWorth,
-    };
-  }
+  if (monthCount < 3 && hasNetWorth && plan) return budgetInputs(plan, startNetWorth, monthCount);
   const ready = monthCount >= 3 && hasNetWorth;
   if (!ready) {
     return { ready, source: null, monthCount, hasNetWorth, avgMonthlyIncome: 0, avgMonthlySpend: 0, annualSpend: 0, monthlySaving: 0, startNetWorth: startNetWorth ?? 0 };
@@ -254,6 +241,27 @@ export function forecastInputs(transactions, startNetWorth, now = new Date(), pl
     avgMonthlySpend,
     annualSpend: avgMonthlySpend * 12,
     monthlySaving: avgMonthlyIncome - avgMonthlySpend,
+    startNetWorth,
+  };
+}
+
+// The same inputs on the budget's figures, however many months are recorded:
+// the plan as the household wrote it down. Once three months have ended the
+// records take over, and the screens that give the answer show the budget's
+// beside them rather than dropping it from view (Planning audit, 1.2). Null
+// without a budget or an account valuation to start from.
+export function budgetInputs(plan, startNetWorth, monthCount = 0) {
+  if (!plan || startNetWorth === null) return null;
+  return {
+    ready: true,
+    source: 'budget',
+    monthCount,
+    budgetMonths: plan.monthCount,
+    hasNetWorth: true,
+    avgMonthlyIncome: plan.monthlySpend + plan.monthlySaving,
+    avgMonthlySpend: plan.monthlySpend,
+    annualSpend: plan.monthlySpend * 12,
+    monthlySaving: plan.monthlySaving,
     startNetWorth,
   };
 }

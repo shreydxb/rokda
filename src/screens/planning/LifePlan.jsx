@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { startingNetWorth } from '../overviewMath';
-import { budgetPlan, forecastInputs, incomesWithoutRate, spendThatStops } from '../../lib/forecast';
+import { budgetInputs, budgetPlan, forecastInputs, incomesWithoutRate, spendThatStops } from '../../lib/forecast';
 import { agesIn, agesLabel, earliestStop, extraSavingNeeded, leftOutText, lifePlan, lifePlanBasis, maxRetirementSpend, membersLeftOut, planEndYear, planPeople, potNeededAt } from '../../lib/lifePlan';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { ChartLegend, ColumnChart } from '../../charts/Charts';
-import BudgetBasis from './BudgetBasis';
+import BudgetBasis, { BudgetBeside } from './BudgetBasis';
 import LifePlanEditor from './LifePlanEditor';
 import ForecastAssumptionsEditor from './ForecastAssumptionsEditor';
 import AssumptionsBar from './AssumptionsBar';
@@ -76,6 +76,13 @@ export default function LifePlan({
   const plan = useMemo(() => budgetPlan(budgets, categories, now), [budgets, categories, now]);
   const inputs = useMemo(() => forecastInputs(transactions, startNetWorth, now, plan, recurring), [transactions, startNetWorth, now, plan, recurring]);
   const stopping = useMemo(() => spendThatStops({ inputs, transactions, budgets, categories, now }), [inputs, transactions, budgets, categories, now]);
+  // The budget's figures, once ended months have taken over from them, so its
+  // answer can be given beside theirs (Planning audit, 1.2).
+  const budgetBasis = useMemo(() => (inputs.source === 'actual' ? budgetInputs(plan, startNetWorth, inputs.monthCount) : null), [inputs, plan, startNetWorth]);
+  const budgetStopping = useMemo(
+    () => (budgetBasis ? spendThatStops({ inputs: budgetBasis, transactions, budgets, categories, now }) : null),
+    [budgetBasis, transactions, budgets, categories, now]
+  );
 
   // The people planned for: members with a birth year and an age to plan to.
   const people = useMemo(() => planPeople(members, data.memberLife ?? []), [members, data.memberLife]);
@@ -88,31 +95,37 @@ export default function LifePlan({
   // Null while there is no plan to work out; the states below say why.
   const worked = useMemo(() => {
     if (!inputs.ready || !people.length || planEndYear(people) < startYear) return null;
-    const basis = lifePlanBasis({
-      people,
-      assumptions,
-      inputs,
-      startNetWorth,
-      goals: data.goals ?? [],
-      incomes: data.independenceIncome ?? [],
-      household,
-      stopping,
-      startYear,
-      now,
-      fcSet,
-      stopOverride,
-      spendKind,
-    });
+    const basisOn = (on, spendStopping) =>
+      lifePlanBasis({
+        people,
+        assumptions,
+        inputs: on,
+        startNetWorth,
+        goals: data.goals ?? [],
+        incomes: data.independenceIncome ?? [],
+        household,
+        stopping: spendStopping,
+        startYear,
+        now,
+        fcSet,
+        stopOverride,
+        spendKind,
+      });
+    const basis = basisOn(inputs, stopping);
     const result = lifePlan(basis.args);
+    const earliest = earliestStop(basis.args);
+    const budget = budgetBasis ? basisOn(budgetBasis, budgetStopping) : null;
     return {
       basis,
       result,
       need: potNeededAt(basis.args),
-      earliest: earliestStop(basis.args),
+      earliest,
       extra: result.lasts ? 0 : extraSavingNeeded(basis.args),
       mostSpend: maxRetirementSpend(basis.args),
+      recorded: { inputs, earliest, result },
+      onBudget: budget ? { inputs: budgetBasis, earliest: earliestStop(budget.args), result: lifePlan(budget.args) } : null,
     };
-  }, [people, assumptions, inputs, startNetWorth, data.goals, data.independenceIncome, household, stopping, startYear, now, fcSet, stopOverride, spendKind]);
+  }, [people, assumptions, inputs, startNetWorth, data.goals, data.independenceIncome, household, stopping, budgetBasis, budgetStopping, startYear, now, fcSet, stopOverride, spendKind]);
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
   const missing = neverLoaded(sources, projectionInputs(inputs));
@@ -206,7 +219,7 @@ export default function LifePlan({
     );
   }
 
-  const { basis, result, need, earliest, extra, mostSpend } = worked;
+  const { basis, result, need, earliest, extra, mostSpend, recorded, onBudget } = worked;
   const { endYear, sets, selected, inflationPct, postNominal, savedStop, stopYear, spendOptions, spendChoice, survivorPct, goals, incomes, inflows } = basis;
   const anyIncome = incomes.length > 0 || inflows.length > 0;
   const uncounted = incomesWithoutRate(data.independenceIncome ?? [], household);
@@ -267,6 +280,7 @@ export default function LifePlan({
   return (
     <div>
       <BudgetBasis inputs={inputs} />
+      <BudgetBeside recorded={recorded} budget={onBudget} stopYear={stopYear} money={money} />
       <AssumptionsBar
         sets={sets}
         scenario={fcSet}
@@ -300,7 +314,7 @@ export default function LifePlan({
         <ForecastAssumptionsEditor
           householdId={household?.id}
           assumptions={assumptions}
-          currentMonthlySaving={inputs.monthlySaving}
+          budgetMonthlySaving={plan?.monthlySaving ?? null}
           scenario={fcSet}
           onClose={() => setEditingAssumptions(false)}
           onSaved={async () => {

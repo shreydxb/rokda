@@ -19,7 +19,7 @@ const SAVED = { household_id: 'h', nominal_return_pct: 7, inflation_pct: 3, safe
 
 function renderEditor(props = {}) {
   const onSaved = vi.fn();
-  renderScreen(<ForecastAssumptionsEditor householdId="h" assumptions={SAVED} currentMonthlySaving={5000} onClose={vi.fn()} onSaved={onSaved} {...props} />);
+  renderScreen(<ForecastAssumptionsEditor householdId="h" assumptions={SAVED} budgetMonthlySaving={5000} onClose={vi.fn()} onSaved={onSaved} {...props} />);
   return { onSaved };
 }
 
@@ -37,8 +37,9 @@ beforeEach(() => {
 // A cleared field was saved as 0%, and any number was stored as typed, with
 // nothing in the database to stop either (Planning audit, 0b-C).
 describe('ForecastAssumptionsEditor: Baseline', () => {
-  it('saves what was typed, and on the first save makes it the baseline', async () => {
+  it('saves what was typed, and on the first save makes it the baseline, with the budget\'s savings target', async () => {
     const { onSaved } = renderEditor({ assumptions: null });
+    expect(screen.getByText(/your budget's savings target of 5,000 a month/)).toBeTruthy();
     expect(input(RETURN).value).toBe('6');
     type(RETURN, '7.5');
     fireEvent.click(screen.getByText('Save changes'));
@@ -54,6 +55,18 @@ describe('ForecastAssumptionsEditor: Baseline', () => {
       baseline_inflation_pct: 2.5,
       baseline_monthly_saving: 5000,
     });
+  });
+
+  // Planning audit, 1.2: it froze the recorded average, months recorded only
+  // in part included.
+  it('takes no baseline while the budget has no savings target', async () => {
+    const { onSaved } = renderEditor({ assumptions: null, budgetMonthlySaving: null });
+    expect(screen.getByText(/No baseline is set yet\. It takes your budget's savings target, and the budget has none/)).toBeTruthy();
+    fireEvent.click(screen.getByText('Save changes'));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(calls.upserts[0].row).toMatchObject({ nominal_return_pct: 6, inflation_pct: 2.5 });
+    expect(calls.upserts[0].row).not.toHaveProperty('baseline_set_at');
+    expect(calls.upserts[0].row).not.toHaveProperty('baseline_monthly_saving');
   });
 
   it('saves a cleared field as the default its placeholder names, never 0', async () => {

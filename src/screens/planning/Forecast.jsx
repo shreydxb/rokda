@@ -818,7 +818,7 @@ export default function Forecast({ household, members = [], accounts = [], trans
         <ForecastAssumptionsEditor
           householdId={householdId}
           assumptions={assumptions}
-          currentMonthlySaving={inputs.monthlySaving}
+          budgetMonthlySaving={plan?.monthlySaving ?? null}
           scenario={fcSet}
           onClose={() => setEditing(false)}
           onSaved={async () => {

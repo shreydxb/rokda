@@ -30,7 +30,7 @@ function history() {
   });
 }
 
-function renderSummary(data = {}, sources, { accounts = [ACCOUNT] } = {}) {
+function renderSummary(data = {}, sources, { accounts = [ACCOUNT], budgets = [], categories = [] } = {}) {
   const onOpenTab = vi.fn();
   const onRetry = vi.fn();
   renderScreen(
@@ -41,6 +41,8 @@ function renderSummary(data = {}, sources, { accounts = [ACCOUNT] } = {}) {
         members={MEMBERS}
         me={MEMBERS[0]}
         accounts={accounts}
+        budgets={budgets}
+        categories={categories}
         transactions={history()}
         holdings={[]}
         data={{ goals: [], goalContributions: [], goalAllocations: [], debts: [], assumptions: null, independenceIncome: [], memberLife: AGES, ...data }}
@@ -211,5 +213,29 @@ describe('PlanSummary: what the stop year rests on', () => {
     localStorage.setItem('rokda.scope', 'partner');
     renderSummary();
     expect(screen.getAllByText("The household's year, whoever is selected.")).toHaveLength(1);
+  });
+});
+
+// Planning audit, 1.2: once three months have ended the records take over, and
+// the budget's answer stays beside them.
+describe('PlanSummary: the budget beside the records', () => {
+  const now = new Date();
+  const categories = [
+    { id: 'food', name: 'Groceries', kind: 'expense' },
+    { id: 'save', name: 'Savings', kind: 'expense', is_savings: true },
+  ];
+  const budget = (category_id, amount) => ({ year: now.getFullYear(), month: now.getMonth() + 1, category_id, amount });
+
+  it('gives the stop year on the budget\'s figures beside the recorded one', () => {
+    renderSummary({}, undefined, { categories, budgets: [budget('food', 2000), budget('save', 8000)] });
+    const recorded = Number(within(card('Stop working')).getByText(/^\d{4}$/).textContent);
+    const line = within(card('Stop working')).getByText(/^On your budget's figures rather than the recorded months: \d{4}\.$/);
+    // Spending less and saving more than recorded, the budget stops sooner.
+    expect(Number(line.textContent.match(/\d{4}/)[0])).toBeLessThan(recorded);
+  });
+
+  it('says nothing more without a budget', () => {
+    renderSummary();
+    expect(within(card('Stop working')).queryByText(/On your budget/)).toBeNull();
   });
 });
