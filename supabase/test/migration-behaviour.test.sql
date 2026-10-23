@@ -2613,4 +2613,27 @@ begin
   raise notice 'planning ranges ok: assumptions and debt terms stay in range, and 0 stands where it is real';
 end $$;
 
+-- The saved marker: a row created by another editor holds the database's
+-- defaults and says nothing was saved; the assumptions drawer's save says it
+-- was (Planning audit, 1.3).
+do $$
+declare hh constant uuid := '11111111-1111-1111-1111-111111111111';
+declare r record;
+begin
+  delete from planning_assumptions where household_id = hh;
+  insert into planning_assumptions (household_id, retirement_year) values (hh, 2050);
+  select * into r from planning_assumptions where household_id = hh;
+  if r.nominal_return_pct <> 6 or r.inflation_pct <> 2.5 or r.safe_withdrawal_pct <> 4 then
+    raise exception 'saved marker FAILED: a new row did not hold the defaults the app shows (%, %, %)', r.nominal_return_pct, r.inflation_pct, r.safe_withdrawal_pct;
+  end if;
+  if r.assumptions_saved_at is not null then
+    raise exception 'saved marker FAILED: a row the life plan created reads as saved assumptions';
+  end if;
+  update planning_assumptions set nominal_return_pct = 7, assumptions_saved_at = now() where household_id = hh;
+  if (select assumptions_saved_at from planning_assumptions where household_id = hh) is null then
+    raise exception 'saved marker FAILED: the marker did not keep';
+  end if;
+  raise notice 'saved marker ok: a row another editor creates holds the defaults and is not saved until the drawer saves';
+end $$;
+
 rollback;

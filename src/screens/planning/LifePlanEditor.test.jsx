@@ -61,8 +61,20 @@ describe('LifePlanEditor', () => {
     renderEditor();
     type("Alex's birth year", '1994');
     expect(screen.getByLabelText('Stop working in').getAttribute('placeholder')).toBe('2054');
+    expect(screen.getByText('Assumed until you choose a year · Alex 60')).toBeTruthy();
     type('Stop working in', '2044');
     expect(screen.getByText('Alex 50')).toBeTruthy();
+  });
+
+  // Planning audit, 1.3: it wrote the suggested year, which then read as chosen.
+  it('leaves a stop year left blank unsaved', async () => {
+    const { onSaved } = renderEditor();
+    type("Alex's birth year", '1994');
+    type('Age to plan Alex to', '80');
+    fireEvent.click(screen.getByText('Save plan'));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    const assumptions = calls.upserts.find((c) => c.table === 'planning_assumptions');
+    expect(assumptions.row.retirement_year).toBeNull();
   });
 
   it('saves the ages and the plan together', async () => {

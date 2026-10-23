@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatPct } from '../../lib/money';
+import { assumption } from '../../lib/planningDefaults';
 import { incompleteNote, netWorthSummary, startingNetWorth } from '../overviewMath';
 import { isArchived } from '../../lib/accounts';
 import { unconfirmedAccounts } from '../../lib/balance';
 import { budgetPlan, crossingYear, fiTarget, forecastInputs, goalAt, incomesFromStop, independenceTarget, projectYears, realReturn, requiredAnnualSaving, scenarioSets, spendThatStops } from '../../lib/forecast';
-import { agesLabel, lifePlanStop, noStopText, spendAfterText } from '../../lib/lifePlan';
+import { agesLabel, lifePlanStop, noStopText, spendAfterText, spendHow } from '../../lib/lifePlan';
 import BudgetBasis from './BudgetBasis';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import ForecastAssumptionsEditor from './ForecastAssumptionsEditor';
@@ -16,7 +17,6 @@ import { neverLoaded } from '../../lib/loadState';
 import { projectionInputs } from './planningSources';
 import Withheld from './Withheld';
 
-const DEFAULTS = { nominal_return_pct: 6.0, inflation_pct: 2.5, safe_withdrawal_pct: 4.0 };
 const HORIZON_YEARS = 30;
 const SOLVE_MAX_YEARS = 60;
 
@@ -103,12 +103,12 @@ export default function Forecast({ household, members = [], accounts = [], trans
   const fromBudget = inputs.source === 'budget';
   const basisWord = fromBudget ? 'budgeted' : 'actual';
 
-  const nominalPct = assumptions?.nominal_return_pct != null ? Number(assumptions.nominal_return_pct) : DEFAULTS.nominal_return_pct;
-  const inflationPct = assumptions?.inflation_pct != null ? Number(assumptions.inflation_pct) : DEFAULTS.inflation_pct;
+  const nominalPct = assumption(assumptions, 'nominal_return_pct');
+  const inflationPct = assumption(assumptions, 'inflation_pct');
   const leanSpend = assumptions?.lean_annual_spend != null ? Number(assumptions.lean_annual_spend) : null;
   const hasBaseline = !!assumptions?.baseline_set_at;
 
-  const sets = scenarioSets(assumptions, DEFAULTS);
+  const sets = scenarioSets(assumptions);
   const selected = sets[fcSet] ?? sets.baseline;
   const selNominalPct = selected.nominalPct;
   const selInflationPct = selected.inflationPct;
@@ -413,7 +413,7 @@ export default function Forecast({ household, members = [], accounts = [], trans
         onEdit={() => setEditing(true)}
         spending={
           <span className="pl-assumptions-value">
-            {stop ? `After work stops: ${money.code} ${money.fmt(stop.spend)} a year (your life plan) · ` : ''}
+            {stop ? `After work stops: ${money.code} ${money.fmt(stop.spend)} a year (${spendHow(stop)}) · ` : ''}
             {fromBudget ? 'Budgeted' : "Today's"}: {money.code} {money.fmt(inputs.annualSpend)} a year
           </span>
         }

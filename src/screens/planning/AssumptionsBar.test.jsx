@@ -80,9 +80,10 @@ describe('The assumptions bar', () => {
     }
   });
 
-  it('says the saved assumptions are shared, and a scenario is only a look for now', () => {
+  it('says the assumptions are defaults until saved, and shared, and a scenario is only a look for now', () => {
     open('forecast');
-    expect(bar().textContent).toMatch(/Your saved assumptions\. Return, inflation and the withdrawal rate are shared by Forecast, Life plan and Drawdown/);
+    // Nothing saved: the app's figures, and it says so (Planning audit, 1.3).
+    expect(bar().textContent).toMatch(/Defaults, nothing saved: the app's figures until you save your own under Edit assumptions\. Return, inflation and the withdrawal rate are shared by Forecast, Life plan and Drawdown/);
     expect(label('Growth').textContent).toMatch(/6\.0% return · 2\.5% inflation · 3\.4% after inflation · 4\.0% withdrawal rate/);
     fireEvent.click(label('Scenario').querySelector('button:nth-child(2)'));
     expect(bar().textContent).toMatch(/The Conservative scenario \(derived from baseline · not edited\), shown on every planning tab until you switch back\. It isn't saved\./);

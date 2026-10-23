@@ -131,7 +131,10 @@ export default function LifePlanEditor({ householdId, members, memberLife, assum
       supabase.from('planning_assumptions').upsert(
         {
           household_id: householdId,
-          retirement_year: blank(form.stopYear) ? (suggestedStop ?? null) : Number(form.stopYear),
+          // A year left blank stays blank: the plan assumes the suggested one
+          // and says so. Writing it made a year nobody chose read as chosen
+          // (Planning audit, 1.3).
+          retirement_year: blank(form.stopYear) ? null : Number(form.stopYear),
           retirement_annual_spend: blank(form.spend) ? null : Number(form.spend),
           retirement_return_pct: blank(form.returnPct) ? null : Number(form.returnPct),
           survivor_spend_pct: blank(form.survivorPct) ? null : Number(form.survivorPct),
@@ -224,7 +227,11 @@ export default function LifePlanEditor({ householdId, members, memberLife, assum
                 placeholder={suggestedStop ? String(suggestedStop) : 'year'}
                 aria-label="Stop working in"
               />
-              {stopAges && <span className="ov-muted" style={{ fontSize: 11.5, marginTop: 6 }}>{stopAges}</span>}
+              {stopAges && (
+                <span className="ov-muted" style={{ fontSize: 11.5, marginTop: 6 }}>
+                  {blank(form.stopYear) ? `Assumed until you choose a year · ${stopAges}` : stopAges}
+                </span>
+              )}
             </div>
             <div className="te-fieldcell te-span2">
               <span className="te-fieldlabel">Spending a year after work stops · AED, today&rsquo;s money</span>

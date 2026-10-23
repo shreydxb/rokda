@@ -4,6 +4,7 @@ import { applyToIncomeSpend } from './transactionKind';
 import { categoryParts } from './splits';
 import { convertToAed } from './currency';
 import { matchWindowDays, occurrenceAt } from './recurring';
+import { PLANNING_DEFAULTS, assumptionsSaved } from './planningDefaults';
 
 // The current, still-open month is excluded — its spend is partial and would
 // understate a real month. Forecast is always household-wide ("Both"): an
@@ -308,7 +309,7 @@ export function crossingYear({ startYear, startNetWorth, annualSaving, rate, mod
 // household actually edits independently, so it falls back to the baseline
 // numbers until it's been saved once, and any figure saved blank keeps
 // following Baseline's after that.
-export function scenarioSets(assumptions, defaults) {
+export function scenarioSets(assumptions, defaults = PLANNING_DEFAULTS) {
   const nominal = assumptions?.nominal_return_pct != null ? Number(assumptions.nominal_return_pct) : defaults.nominal_return_pct;
   const inflation = assumptions?.inflation_pct != null ? Number(assumptions.inflation_pct) : defaults.inflation_pct;
   const swr = assumptions?.safe_withdrawal_pct != null ? Number(assumptions.safe_withdrawal_pct) : defaults.safe_withdrawal_pct;
@@ -316,7 +317,17 @@ export function scenarioSets(assumptions, defaults) {
   const custom = (column, fallback) => (hasCustom && assumptions[column] != null ? Number(assumptions[column]) : fallback);
 
   return {
-    baseline: { key: 'baseline', label: 'Baseline', meta: 'Your saved assumptions', nominalPct: nominal, inflationPct: inflation, swrPct: swr },
+    // Until the household saves its own, Baseline is the app's defaults, and
+    // says so (Planning audit, 1.3).
+    baseline: {
+      key: 'baseline',
+      label: 'Baseline',
+      saved: assumptionsSaved(assumptions),
+      meta: assumptionsSaved(assumptions) ? 'Your saved assumptions' : 'Defaults, nothing saved',
+      nominalPct: nominal,
+      inflationPct: inflation,
+      swrPct: swr,
+    },
     conservative: {
       key: 'conservative',
       label: 'Conservative',

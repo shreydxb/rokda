@@ -55,6 +55,8 @@ describe('ForecastAssumptionsEditor: Baseline', () => {
       baseline_inflation_pct: 2.5,
       baseline_monthly_saving: 5000,
     });
+    // From now on they are the household's, not the defaults.
+    expect(calls.upserts[0].row.assumptions_saved_at).toEqual(expect.any(String));
   });
 
   // Planning audit, 1.2: it froze the recorded average, months recorded only
@@ -130,7 +132,8 @@ describe('ForecastAssumptionsEditor: Custom', () => {
     const row = calls.upserts[0].row;
     expect(row).toMatchObject({ household_id: 'h', custom_nominal_return_pct: 9, custom_inflation_pct: null, custom_safe_withdrawal_pct: 4 });
     expect(row.custom_updated_at).toBeTruthy();
-    // Custom never writes Baseline's columns.
+    // Custom never writes Baseline's columns, or says Baseline was chosen.
+    expect(row).not.toHaveProperty('assumptions_saved_at');
     expect(row).not.toHaveProperty('nominal_return_pct');
     expect(row).not.toHaveProperty('inflation_pct');
   });
