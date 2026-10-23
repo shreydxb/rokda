@@ -3,7 +3,7 @@ import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
 import { formatMoney } from '../../lib/money';
 import { assumption } from '../../lib/planningDefaults';
-import { cashPerMonth, fundInPriority, goalCostAtDate, goalInflationPct, goalStatuses } from '../../lib/goals';
+import { cashPerMonth, fundInPriority, goalCostAtDate, goalInflationPct, doneMonth, goalStatuses, isDone } from '../../lib/goals';
 import { budgetPlan, forecastInputs, spendThatStops } from '../../lib/forecast';
 import { lifePlanStop } from '../../lib/lifePlan';
 import { startingNetWorth } from '../overviewMath';
@@ -23,22 +23,38 @@ function chip(row) {
   }
   if (row.state === 'covered') return { label: 'Covered', tone: 'ov-chip-ok' };
   if (row.state === 'due') return { label: 'Due', tone: 'ov-chip-warn' };
+  // A plan that covers it by its date settles it (Planning audit, 2.7).
+  if (row.plan?.enough) return { label: 'Planned', tone: 'ov-chip-ok' };
+  if (row.plan?.enough === false) return { label: 'Plan short', tone: 'ov-chip-warn' };
   return { label: 'Saving', tone: 'ov-chip-warn' };
+}
+
+// What the household's planned monthly amount does, after the need.
+function planLine(row) {
+  const { plan } = row;
+  if (!plan) return '';
+  if (plan.enough) return ` You plan ${formatMoney(plan.amount)}, which covers it.`;
+  if (plan.months == null) return ` You plan ${formatMoney(plan.amount)}, which never covers it.`;
+  return ` At the ${formatMoney(plan.amount)} you plan, it is covered by ${plan.byLabel}.`;
 }
 
 // The one line under a goal that says why its chip says what it does.
 function why(row) {
-  if (row.kind === 'undated') return 'Not in any plan: set a date to plan for it.';
+  // A later or undated goal's plan is said, not measured: the Life plan pays
+  // a later goal from everything, and an undated one has nothing to be on
+  // time for.
+  const planned = row.planned != null ? ` You plan ${formatMoney(row.planned)} a month towards it.` : '';
+  if (row.kind === 'undated') return `Not in any plan: set a date to plan for it.${planned}`;
   if (row.kind === 'later') {
-    if (row.state === 'unchecked') return 'The Life plan can\u2019t check it yet: it needs ages, an account valuation and three months of records or a budget.';
-    if (row.state === 'short') return `The Life plan runs short by ${formatMoney(row.short)} in ${row.year}, the year it is due.`;
-    return `The Life plan pays it from your savings and investments in ${row.year}.`;
+    if (row.state === 'unchecked') return `The Life plan can\u2019t check it yet: it needs ages, an account valuation and three months of records or a budget.${planned}`;
+    if (row.state === 'short') return `The Life plan runs short by ${formatMoney(row.short)} in ${row.year}, the year it is due.${planned}`;
+    return `The Life plan pays it from your savings and investments in ${row.year}.${planned}`;
   }
   const held = row.kind === 'kept' ? 'Kept, not spent, so held in cash' : 'Due within 3 years, so paid from cash';
   if (row.state === 'covered') return `${held}: covered by what is set aside.`;
-  if (row.state === 'due') return `${held}: ${formatMoney(row.remaining)} still needed, and its date has arrived.`;
-  if (row.perMonth) return `${held}: ${formatMoney(row.perMonth)} a month to ${row.byLabel}.`;
-  return `${held}: ${formatMoney(row.remaining)} still to set aside.`;
+  if (row.state === 'due') return `${held}: ${formatMoney(row.remaining)} still needed, and its date has arrived.${planLine(row)}`;
+  if (row.perMonth) return `${held}: ${formatMoney(row.perMonth)} a month to ${row.byLabel}.${planLine(row)}`;
+  return `${held}: ${formatMoney(row.remaining)} still to set aside.${planLine(row)}`;
 }
 
 export default function Goals({
@@ -109,6 +125,15 @@ export default function Goals({
   const kept = rows.filter((r) => r.kind === 'kept');
   const later = rows.filter((r) => r.kind === 'later');
   const undated = rows.filter((r) => r.kind === 'undated');
+  // Done goals in the scope, newest first: out of every plan, listed so they
+  // can be opened and reopened (Planning audit, 2.7).
+  const done = useMemo(
+    () =>
+      (goals ?? [])
+        .filter((g) => isDone(g) && (scopeMemberId === null || g.is_shared || g.owner_member_id === scopeMemberId))
+        .sort((a, b) => String(b.done_at).localeCompare(String(a.done_at))),
+    [goals, scopeMemberId]
+  );
   // The next 3 years' own cash a month; kept money says its own in its row.
   const schedule = cashPerMonth(near);
   const nearCash = near.reduce((s, r) => s + r.cash, 0);
@@ -172,14 +197,20 @@ export default function Goals({
     <div>
       <div className="mn-filters">
         <span className="ov-muted" style={{ marginRight: 'auto' }}>
-          {rows.length > 0 ? `${dated} dated goal${dated === 1 ? '' : 's'}${undated.length ? ` · ${undated.length} with no date` : ''}` : ''}
+          {[
+            rows.length > 0 && `${dated} dated goal${dated === 1 ? '' : 's'}`,
+            undated.length > 0 && `${undated.length} with no date`,
+            done.length > 0 && `${done.length} done`,
+          ]
+            .filter(Boolean)
+            .join(' · ')}
         </span>
         <button type="button" className="om-btn mn-add" onClick={() => setEditing('new')}>
           + Goal
         </button>
       </div>
 
-      {rows.length === 0 ? (
+      {rows.length === 0 && done.length === 0 ? (
         <div className="ov-empty">
           <div className="ov-empty-kicker">No goals</div>
           <div className="ov-empty-body">Add a goal to start tracking progress toward it.</div>
@@ -206,6 +237,11 @@ export default function Goals({
                       </>
                     ) : (
                       ` until ${schedule.until}`
+                    )}
+                    {schedule.planned != null && (
+                      <>
+                        {' · '}you plan <b className="fig">{formatMoney(schedule.planned)}</b>
+                      </>
                     )}
                     {plan?.monthlySaving > 0 && ` · your budget saves ${formatMoney(plan.monthlySaving)} a month`}
                   </span>
@@ -243,6 +279,32 @@ export default function Goals({
               <div className="ov-kicker">No date · not in any plan</div>
               <div className="mn-list" style={{ marginTop: 14 }}>
                 {undated.map((r) => goalRow(r, r.cost, null))}
+              </div>
+            </section>
+          )}
+
+          {rows.length === 0 && <div className="ov-muted">Every goal is done.</div>}
+
+          {done.length > 0 && (
+            <section className="gl-section" aria-label="Done">
+              <div className="ov-kicker">Done · out of every plan</div>
+              <div className="mn-list" style={{ marginTop: 14 }}>
+                {done.map((g) => (
+                  <button key={g.id} type="button" className="mn-row" onClick={() => setEditing(g)}>
+                    <div className="mn-row-main">
+                      <div>{g.name}</div>
+                      <div className="ov-muted" style={{ marginTop: 4 }}>
+                        Done {doneMonth(g)}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right', flex: 'none' }}>
+                      <div className="fig mn-row-amt">{formatMoney(Number(g.target_amount))}</div>
+                      <div style={{ marginTop: 8 }}>
+                        <span className="ov-chip-mute">Done</span>
+                      </div>
+                    </div>
+                  </button>
+                ))}
               </div>
             </section>
           )}

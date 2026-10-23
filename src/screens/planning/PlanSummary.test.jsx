@@ -263,7 +263,26 @@ describe('PlanSummary: goals that need a decision', () => {
   it('names a goal due within 3 years that is short of cash', () => {
     const goal = { id: 'g1', name: 'Trip', target_amount: 12000, target_date: date, is_shared: true, created_at: '2026-01-01T00:00:00Z' };
     renderSummary({ goals: [goal] });
-    expect(screen.getByText('Due within 3 years and short of cash: Trip, 12,000 still to set aside (2,000 a month now).')).toBeTruthy();
+    expect(screen.getByText('Due within 3 years and short of cash, with no plan that covers it: Trip, 12,000 still to set aside (2,000 a month now).')).toBeTruthy();
+  });
+
+  // Planning audit, 2.7.
+  it('raises a goal whose plan falls short, and not one whose plan covers it', () => {
+    const goal = { id: 'g1', name: 'Trip', target_amount: 12000, target_date: date, is_shared: true, created_at: '2026-01-01T00:00:00Z' };
+    renderSummary({ goals: [{ ...goal, planned_monthly: 1500 }] });
+    expect(screen.getByText('Due within 3 years and short of cash, with no plan that covers it: Trip, 12,000 still to set aside (2,000 a month now, 1,500 planned).')).toBeTruthy();
+    document.body.innerHTML = '';
+    renderSummary({ goals: [{ ...goal, planned_monthly: 2000 }] });
+    expect(screen.queryByText(/short of cash/)).toBeNull();
+  });
+
+  it('leaves a done goal out of the checks and the card', () => {
+    const trip = { id: 'g1', name: 'Trip', target_amount: 12000, target_date: date, is_shared: true, created_at: '2026-01-01T00:00:00Z', done_at: '2026-01-02T00:00:00Z' };
+    const house = { id: 'g2', name: 'House', target_amount: 900000, target_date: null, is_shared: true, created_at: '2026-01-01T00:00:00Z', done_at: '2026-01-02T00:00:00Z' };
+    renderSummary({ goals: [trip, house] });
+    expect(screen.queryByText(/short of cash/)).toBeNull();
+    expect(screen.queryByText(/No date, so no plan pays/)).toBeNull();
+    expect(within(card('Goals')).getByText('Every goal is done')).toBeTruthy();
   });
 
   it('leads the Goals card with the next 3 years in cash, and counts the rest by kind', () => {

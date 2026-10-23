@@ -1978,12 +1978,22 @@ async function toolGetHoldings(householdId: string, scopeMemberId: string | null
 // holding matching elsewhere in this file), the amount and the day. It writes
 // nothing: the contribution is proposed, and recorded only on a "yes" (see
 // "Proposals" above). An error is phrased for the member, as before.
+//
+// Only open goals take money. A goal marked done is said to be done rather
+// than missing, so the member knows to reopen it (docs/decisions.md, "A goal
+// can be done, and has a plan"). A goal list that could not be read throws
+// ReadFailed: it used to read as no goals at all, and the reply named none.
 async function goalContributionDraft(householdId: string, args: Record<string, unknown>) {
-  const { data: goals } = await supabase.from("goals").select("id, name").eq("household_id", householdId);
+  const goals = await householdRows<{ id: string; name: string; done_at: string | null }>("goals", householdId, "id, name, done_at");
+  const open = goals.filter((g) => g.done_at == null);
   const norm = String(args.goal_name ?? "").trim().toLowerCase();
-  const matches = (goals ?? []).filter((g: { name: string }) => g.name.toLowerCase().includes(norm));
-  if (matches.length === 0) return { error: "goal_not_found", available: (goals ?? []).map((g: { name: string }) => g.name) };
-  if (matches.length > 1) return { error: "ambiguous_goal", matches: matches.map((g: { name: string }) => g.name) };
+  const matches = open.filter((g) => g.name.toLowerCase().includes(norm));
+  if (matches.length === 0) {
+    const done = goals.filter((g) => g.done_at != null && g.name.toLowerCase().includes(norm));
+    if (done.length > 0) return { error: "goal_done", goals: done.map((g) => g.name), note: "Marked done in Rokda. Reopen it on Goals to add to it." };
+    return { error: "goal_not_found", available: open.map((g) => g.name) };
+  }
+  if (matches.length > 1) return { error: "ambiguous_goal", matches: matches.map((g) => g.name) };
 
   const amount = Number(args.amount);
   if (!amount || amount <= 0) return { error: "invalid_amount" };
@@ -3963,7 +3973,17 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
         }
 
         if (toolCall.function.name === "log_goal_contribution") {
-          const draft = await goalContributionDraft(member.household_id, args);
+          let draft: Awaited<ReturnType<typeof goalContributionDraft>>;
+          try {
+            draft = await goalContributionDraft(member.household_id, args);
+          } catch (err) {
+            // The goals could not be read: said plainly, and the message is
+            // not captured into the Inbox as an expense by the catch below.
+            if (!(err instanceof ReadFailed)) throw err;
+            committedElsewhere = true;
+            await reply(chatId, "I couldn't read your goals just now, so nothing was recorded. Please send it again in a minute.");
+            return new Response("ok");
+          }
           if (!("error" in draft)) {
             await sendProposal(
               chatId,

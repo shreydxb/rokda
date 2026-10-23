@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { allocatedValue, cashPerMonth, fundInPriority, goalCostAtDate, goalProgress, goalStatuses, monthlyNeed, scopedGoalRows } from './goals';
+import { allocatedValue, cashPerMonth, doneMonth, fundInPriority, goalCostAtDate, goalProgress, goalStatuses, isDone, monthlyNeed, scopedGoalRows } from './goals';
 
 const NOW = new Date(2026, 8, 24, 12); // 24 September 2026
 
@@ -246,5 +246,44 @@ describe('goalStatuses', () => {
   it('halves a shared goal in one person\'s view, as every joint figure is', () => {
     const rows = byName(goalStatuses({ ...args, scopeMemberId: 'm1' }));
     expect(rows.Trip).toMatchObject({ cash: 2000, remaining: 4000 });
+  });
+
+  // Planning audit, 2.7.
+  it('leaves a goal marked done out', () => {
+    const done = goals.map((g) => (g.id === 'Licence' ? { ...g, done_at: '2026-10-01T08:00:00Z' } : g));
+    const rows = byName(goalStatuses({ ...args, goals: done }));
+    expect(rows.Licence).toBeUndefined();
+    expect(cashPerMonth(Object.values(rows)).now).toBeCloseTo(8000 / 6, 6);
+    expect(isDone(done[1])).toBe(true);
+    expect(isDone(goals[0])).toBe(false);
+    expect(doneMonth(done[1])).toBe('Oct 2026');
+    expect(doneMonth(goals[0])).toBeNull();
+  });
+
+  it('measures a planned monthly amount against what the date needs', () => {
+    const planned = (amounts) => goals.map((g) => (amounts[g.id] !== undefined ? { ...g, planned_monthly: amounts[g.id] } : g));
+    // 8,000 to go over 6 months, 1,333.33 a month: 1,334 covers it, the
+    // 1,333 shown covers it too, and 1,000 takes 8 months, to Jun 2027.
+    expect(byName(goalStatuses({ ...args, goals: planned({ Trip: 1334 }) })).Trip.plan).toMatchObject({ amount: 1334, enough: true, months: 6, byLabel: 'Apr 2027' });
+    expect(byName(goalStatuses({ ...args, goals: planned({ Trip: 1333 }) })).Trip.plan).toMatchObject({ enough: true, months: 6, byLabel: 'Apr 2027' });
+    expect(byName(goalStatuses({ ...args, goals: planned({ Trip: 1332 }) })).Trip.plan).toMatchObject({ enough: false, months: 7 });
+    expect(byName(goalStatuses({ ...args, goals: planned({ Trip: 1000 }) })).Trip.plan).toMatchObject({ enough: false, months: 8, byLabel: 'Jun 2027' });
+    // A plan of 0 never covers it; no plan is no plan.
+    expect(byName(goalStatuses({ ...args, goals: planned({ Trip: 0 }) })).Trip.plan).toMatchObject({ amount: 0, enough: false, months: null, byLabel: null });
+    expect(byName(goalStatuses(args)).Trip).toMatchObject({ planned: null, plan: null });
+    // Due now: no monthly plan is on time, but it says when it would be covered.
+    expect(byName(goalStatuses({ ...args, goals: planned({ Car: 2500 }) })).Car.plan).toMatchObject({ enough: false, months: 2, byLabel: 'Dec 2026' });
+  });
+
+  it('gives an undated reserve with a plan the month it is covered by, and nothing to be on time for', () => {
+    const short = goals.map((g) => (g.id === 'Emergency' ? { ...g, target_amount: 26000, planned_monthly: 1000 } : g));
+    expect(byName(goalStatuses({ ...args, goals: short })).Emergency).toMatchObject({ state: 'saving', remaining: 6000, plan: { enough: null, months: 6, byLabel: 'Apr 2027' } });
+  });
+
+  it('halves a shared goal\'s plan in one person\'s view, and totals the plans beside the need', () => {
+    const planned = goals.map((g) => (g.id === 'Trip' ? { ...g, planned_monthly: 1400 } : g));
+    expect(byName(goalStatuses({ ...args, goals: planned, scopeMemberId: 'm1' })).Trip).toMatchObject({ planned: 700, plan: { enough: true } });
+    expect(cashPerMonth(goalStatuses({ ...args, goals: planned })).planned).toBe(1400);
+    expect(cashPerMonth(goalStatuses(args)).planned).toBeNull();
   });
 });

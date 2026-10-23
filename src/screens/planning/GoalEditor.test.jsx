@@ -256,3 +256,55 @@ describe('GoalEditor: spent or kept', () => {
     expect(calls.writes.find((w) => w.table === 'goals')).toMatchObject({ op: 'update', payload: { counts_in_life_plan: true } });
   });
 });
+
+// Planning audit, 2.7.
+describe('GoalEditor: a planned monthly amount, and done', () => {
+  it('saves a planned monthly amount, blank as no plan, and refuses one below nothing', async () => {
+    const { onSaved } = renderEditor({ goal: { ...GOAL, planned_monthly: 400 } });
+    const planned = screen.getByLabelText('Monthly plan · AED');
+    expect(planned.value).toBe('400');
+    type(planned, '-5');
+    fireEvent.click(screen.getByText(/^Save/));
+    expect(screen.getByText('A monthly amount of 0 or more, or blank for no plan.')).toBeTruthy();
+    expect(document.activeElement).toBe(planned);
+    expect(calls.writes).toEqual([]);
+    type(planned, '');
+    fireEvent.click(screen.getByText(/^Save/));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(calls.writes[0]).toMatchObject({ table: 'goals', op: 'update', payload: { planned_monthly: null } });
+  });
+
+  it('saves a plan of 0 as a plan of nothing, not as no plan', async () => {
+    const { onSaved } = renderEditor({ goal: GOAL });
+    type(screen.getByLabelText('Monthly plan · AED'), '0');
+    fireEvent.click(screen.getByText(/^Save/));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(calls.writes[0].payload.planned_monthly).toBe(0);
+  });
+
+  it('marks an open goal done at once, and reopens a done one', async () => {
+    const first = renderEditor({ goal: GOAL });
+    fireEvent.click(screen.getByRole('button', { name: 'Mark done' }));
+    await waitFor(() => expect(first.onSaved).toHaveBeenCalled());
+    expect(calls.writes[0]).toMatchObject({ table: 'goals', op: 'update', id: 'g1' });
+    expect(Object.keys(calls.writes[0].payload)).toEqual(['done_at']);
+    expect(Number.isNaN(Date.parse(calls.writes[0].payload.done_at))).toBe(false);
+
+    document.body.innerHTML = '';
+    calls.writes.length = 0;
+    const second = renderEditor({ goal: { ...GOAL, done_at: '2026-10-01T08:00:00Z' } });
+    expect(screen.getByText(/^Marked done on 1 Oct 2026\./)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Reopen' }));
+    await waitFor(() => expect(second.onSaved).toHaveBeenCalled());
+    expect(calls.writes[0]).toMatchObject({ table: 'goals', op: 'update', payload: { done_at: null } });
+  });
+
+  it('will not mark a goal done over unsaved edits, which it would drop', () => {
+    const { onSaved } = renderEditor({ goal: GOAL });
+    type(screen.getByLabelText('Name'), 'Trip to the coast');
+    fireEvent.click(screen.getByRole('button', { name: 'Mark done' }));
+    expect(screen.getByRole('alert').textContent).toBe('Save or discard your changes first, then mark it done.');
+    expect(calls.writes).toEqual([]);
+    expect(onSaved).not.toHaveBeenCalled();
+  });
+});

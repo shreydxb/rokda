@@ -243,8 +243,14 @@ describe('goalsOnTimeline', () => {
     expect(goalsOnTimeline([goal({ target_date: '2024-01-01' })], 2026, 2.5)[0]).toMatchObject({ year: 2026, amount: 45000 });
   });
 
-  it('leaves off goals with no date, or kept rather than spent, and orders by year', () => {
-    const goals = [goal({ id: 'a', target_date: '2030-01-01' }), goal({ id: 'b', target_date: null }), goal({ id: 'c', counts_in_life_plan: false }), goal({ id: 'd', target_date: '2027-01-01' })];
+  it('leaves off goals with no date, kept rather than spent, or done, and orders by year', () => {
+    const goals = [
+      goal({ id: 'a', target_date: '2030-01-01' }),
+      goal({ id: 'b', target_date: null }),
+      goal({ id: 'c', counts_in_life_plan: false }),
+      goal({ id: 'd', target_date: '2027-01-01' }),
+      goal({ id: 'e', target_date: '2028-01-01', done_at: '2026-10-01T08:00:00Z' }),
+    ];
     expect(goalsOnTimeline(goals, 2026, 0).map((g) => g.id)).toEqual(['d', 'a']);
   });
 });

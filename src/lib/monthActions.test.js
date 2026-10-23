@@ -35,6 +35,15 @@ describe('monthActions', () => {
     expect(actions[0].detail).toBe('AED 1,000 a month in cash to reach it by Oct 2027: AED 12,000 still to set aside, with AED 0 set aside now.');
   });
 
+  // Planning audit, 2.7.
+  it('says what is planned for a goal, and has nothing to ask of a done one', () => {
+    const car = { id: 'Car', name: 'Car', is_shared: true, created_at: '2026-06-01T00:00:00Z', target_amount: 12000, target_date: '2027-10-01' };
+    const detail = (extra) => monthActions(SEPT, { accounts: [CURRENT] }, { goals: [{ ...car, ...extra }], goalContributions: [], goalAllocations: [] }, NOW)[0]?.detail;
+    expect(detail({ planned_monthly: 1000 })).toBe('AED 1,000 a month, as you planned, reaches it by Oct 2027: AED 12,000 still to set aside, with AED 0 set aside now.');
+    expect(detail({ planned_monthly: 600 })).toBe('AED 1,000 a month in cash to reach it by Oct 2027 (you plan AED 600): AED 12,000 still to set aside, with AED 0 set aside now.');
+    expect(detail({ done_at: '2026-10-01T08:00:00Z' })).toBeUndefined();
+  });
+
   it('names the spending over budget, and saving short of its target, in that order', () => {
     const budgets = [
       { year: 2026, month: 9, category_id: 'food', amount: 500 },

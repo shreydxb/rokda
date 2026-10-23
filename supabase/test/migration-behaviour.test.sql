@@ -2652,4 +2652,25 @@ begin
   raise notice 'debt order ok: avalanche, snowball or blank, and nothing else';
 end $$;
 
+-- A goal's done mark and planned monthly amount: a plan is never below
+-- nothing, and a done goal reopens (Planning audit, 2.7).
+do $$
+declare hh constant uuid := '11111111-1111-1111-1111-111111111111';
+declare g uuid;
+begin
+  insert into goals (household_id, name, target_amount) values (hh, 'Trip', 1000) returning id into g;
+  if (select done_at from goals where id = g) is not null or (select planned_monthly from goals where id = g) is not null then
+    raise exception 'goal done and planned FAILED: a new goal reads as done or planned';
+  end if;
+  update goals set planned_monthly = 0 where id = g;
+  update goals set planned_monthly = 250, done_at = now() where id = g;
+  update goals set done_at = null where id = g;
+  begin
+    update goals set planned_monthly = -1 where id = g;
+    raise exception 'goal done and planned FAILED: a negative monthly plan was accepted';
+  exception when check_violation then null;
+  end;
+  raise notice 'goal done and planned ok: open by default, a plan of 0 or more, and a done goal reopens';
+end $$;
+
 rollback;
