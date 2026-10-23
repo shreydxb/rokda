@@ -232,3 +232,27 @@ describe('GoalEditor: what a goal can be linked to', () => {
     expect(calls.writes[0]).toMatchObject({ table: 'goal_allocations', op: 'insert', payload: { account_id: 'cur', share_pct: 100 } });
   });
 });
+
+// Planning audit, 1.6: only the Life plan could say a goal's money is kept.
+describe('GoalEditor: spent or kept', () => {
+  it('saves a new goal as spent on its date unless marked kept', async () => {
+    const { onSaved } = renderEditor();
+    type(screen.getByLabelText('Target, AED'), '20000');
+    type(screen.getByLabelText('Name'), 'Emergency fund');
+    expect(screen.getByRole('button', { name: 'Spent on its date' }).getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: 'Kept, not spent' }));
+    expect(screen.getByText(/^Like an emergency fund: held in cash/)).toBeTruthy();
+    fireEvent.click(screen.getByText(/^(Add goal|Save)/));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(calls.writes[0]).toMatchObject({ table: 'goals', op: 'insert', payload: { name: 'Emergency fund', counts_in_life_plan: false } });
+  });
+
+  it('opens a kept goal as kept, and saves it spent once changed back', async () => {
+    const { onSaved } = renderEditor({ goal: { ...GOAL, counts_in_life_plan: false } });
+    expect(screen.getByRole('button', { name: 'Kept, not spent' }).getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: 'Spent on its date' }));
+    fireEvent.click(screen.getByText(/^Save/));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(calls.writes.find((w) => w.table === 'goals')).toMatchObject({ op: 'update', payload: { counts_in_life_plan: true } });
+  });
+});

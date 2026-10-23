@@ -11,6 +11,7 @@ import Inbox from './money/Inbox';
 import Review from './money/Review';
 import LoadFailure from './LoadFailure';
 import Freshness from './Freshness';
+import { usePlanningData } from './usePlanningData';
 import BackToReview from './BackToReview';
 import AedNote from './AedNote';
 import TabRow from './TabRow';
@@ -33,7 +34,10 @@ export default function Money() {
   const [tab, setTab] = useTab(TABS);
   const { household, members, me, loading: householdLoading, error: householdError, reload: reloadHousehold } = useHousehold();
   const data = useOverviewData(household?.id);
-  const loading = householdLoading || data.loading;
+  // The review's goal action needs the goals; nothing else here does, so they
+  // are read only while the review is open.
+  const planning = usePlanningData(tab === 'review' ? household?.id : null);
+  const loading = householdLoading || data.loading || (tab === 'review' && planning.loading);
   const pendingIntake = data.intake?.filter((i) => i.status === 'pending').length ?? 0;
 
   return (
@@ -48,7 +52,7 @@ export default function Money() {
       />
       <AedNote household={household} />
       <LoadFailure
-        errors={{ ...data.errors, ...(householdError ? { household: householdError } : {}) }}
+        errors={{ ...data.errors, ...(tab === 'review' ? planning.errors : {}), ...(householdError ? { household: householdError } : {}) }}
         loadedAt={data.loadedAt}
         onRetry={async () => {
           await Promise.all([reloadHousehold(), data.reload()]);
@@ -93,7 +97,7 @@ export default function Money() {
       {tab === 'inbox' && (
         <Inbox household={household} members={members} accounts={data.accounts} categories={data.categories} data={data} loading={loading} />
       )}
-      {tab === 'review' && <Review household={household} data={data} loading={loading} />}
+      {tab === 'review' && <Review household={household} data={data} planning={planning} loading={loading} />}
     </div>
   );
 }

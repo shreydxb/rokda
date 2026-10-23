@@ -3,30 +3,96 @@ import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
 import { formatMoney } from '../../lib/money';
 import { assumption } from '../../lib/planningDefaults';
-import { fundInPriority, goalCostAtDate, goalInflationPct, lastContributionLabel, scopedGoalRows } from '../../lib/goals';
+import { cashPerMonth, fundInPriority, goalCostAtDate, goalInflationPct, goalStatuses } from '../../lib/goals';
+import { budgetPlan, forecastInputs, spendThatStops } from '../../lib/forecast';
+import { lifePlanStop } from '../../lib/lifePlan';
 import { startingNetWorth } from '../overviewMath';
 import GoalEditor from './GoalEditor';
 import { neverLoaded } from '../../lib/loadState';
-import { GOALS_INPUTS } from './planningSources';
+import { GOALS_INPUTS, projectionInputs } from './planningSources';
 import Withheld from './Withheld';
 
-const STATUS_CHIP = { funded: 'ov-chip-ok', track: 'ov-chip-ok', ahead: 'ov-chip-ok', behind: 'ov-chip-warn' };
+const NONE = [];
 
-export default function Goals({ household, members, me, accounts, holdings, data, sources, onRetry, loading }) {
+// Each goal's one status, as its chip (Planning audit, 1.5).
+function chip(row) {
+  if (row.kind === 'undated') return { label: 'No date', tone: 'ov-chip-mute' };
+  if (row.kind === 'later') {
+    if (row.state === 'unchecked') return { label: 'Not checked', tone: 'ov-chip-mute' };
+    return row.state === 'short' ? { label: `Short in ${row.year}`, tone: 'ov-chip-warn' } : { label: `Paid in ${row.year}`, tone: 'ov-chip-ok' };
+  }
+  if (row.state === 'covered') return { label: 'Covered', tone: 'ov-chip-ok' };
+  if (row.state === 'due') return { label: 'Due', tone: 'ov-chip-warn' };
+  return { label: 'Saving', tone: 'ov-chip-warn' };
+}
+
+// The one line under a goal that says why its chip says what it does.
+function why(row) {
+  if (row.kind === 'undated') return 'Not in any plan: set a date to plan for it.';
+  if (row.kind === 'later') {
+    if (row.state === 'unchecked') return 'The Life plan can\u2019t check it yet: it needs ages, an account valuation and three months of records or a budget.';
+    if (row.state === 'short') return `The Life plan runs short by ${formatMoney(row.short)} in ${row.year}, the year it is due.`;
+    return `The Life plan pays it from your savings and investments in ${row.year}.`;
+  }
+  const held = row.kind === 'kept' ? 'Kept, not spent, so held in cash' : 'Due within 3 years, so paid from cash';
+  if (row.state === 'covered') return `${held}: covered by what is set aside.`;
+  if (row.state === 'due') return `${held}: ${formatMoney(row.remaining)} still needed, and its date has arrived.`;
+  if (row.perMonth) return `${held}: ${formatMoney(row.perMonth)} a month to ${row.byLabel}.`;
+  return `${held}: ${formatMoney(row.remaining)} still to set aside.`;
+}
+
+export default function Goals({
+  household,
+  members = NONE,
+  me,
+  accounts = NONE,
+  holdings = NONE,
+  transactions = NONE,
+  recurring = NONE,
+  budgets = NONE,
+  categories = NONE,
+  data,
+  sources,
+  onRetry,
+  loading,
+}) {
   const { goals, goalContributions, goalAllocations, assumptions, reload } = data;
   const inflationPct = assumption(assumptions, 'inflation_pct');
-  // The same expected return Forecast projects with.
+  // The same expected return the Life plan projects with.
   const returnPct = assumption(assumptions, 'nominal_return_pct');
   const { scope } = useScope();
   const scopeMemberId = resolveScopeMemberId(scope, me, members);
   const [editing, setEditing] = useState(null);
   const now = useMemo(() => new Date(), []);
 
-  // The same derivation the Plan summary uses (lib/goals), so the two tabs
-  // agree on what is saved and which goals are behind.
+  // The Life plan's timeline, which later goals take their state from: the
+  // household's saved plan, as Plan and the Life plan tab show it.
+  const startNetWorth = useMemo(() => startingNetWorth(accounts, holdings), [accounts, holdings]);
+  const plan = useMemo(() => budgetPlan(budgets, categories, now), [budgets, categories, now]);
+  const inputs = useMemo(() => forecastInputs(transactions, startNetWorth, now, plan, recurring), [transactions, startNetWorth, now, plan, recurring]);
+  const timelineMissing = neverLoaded(sources, projectionInputs(inputs)).length > 0;
+  const timeline = useMemo(() => {
+    if (timelineMissing) return null;
+    const stopping = spendThatStops({ inputs, transactions, budgets, categories, now });
+    const stop = lifePlanStop({
+      members,
+      memberLife: data.memberLife ?? [],
+      assumptions,
+      inputs,
+      startNetWorth,
+      goals: goals ?? [],
+      incomes: data.independenceIncome ?? [],
+      household,
+      stopping,
+      startYear: now.getFullYear(),
+      now,
+    });
+    return stop?.rows ?? null;
+  }, [timelineMissing, inputs, transactions, budgets, categories, now, members, data.memberLife, assumptions, startNetWorth, goals, data.independenceIncome, household]);
+
   const rows = useMemo(
     () =>
-      scopedGoalRows({
+      goalStatuses({
         goals,
         contributions: goalContributions,
         allocations: goalAllocations ?? [],
@@ -35,34 +101,28 @@ export default function Goals({ household, members, me, accounts, holdings, data
         scopeMemberId,
         now,
         inflationPct,
+        timeline,
       }),
-    [goals, goalContributions, goalAllocations, accounts, holdings, scopeMemberId, now, inflationPct]
+    [goals, goalContributions, goalAllocations, accounts, holdings, scopeMemberId, now, inflationPct, timeline]
   );
+  const near = rows.filter((r) => r.kind === 'near');
+  const kept = rows.filter((r) => r.kind === 'kept');
+  const later = rows.filter((r) => r.kind === 'later');
+  const undated = rows.filter((r) => r.kind === 'undated');
+  // The next 3 years' own cash a month; kept money says its own in its row.
+  const schedule = cashPerMonth(near);
+  const nearCash = near.reduce((s, r) => s + r.cash, 0);
+  const nearCost = near.reduce((s, r) => s + r.cost, 0);
 
-  // Funding in priority order is a household question: all of its money
-  // against all of its goals, so it is worked out for Both only.
+  // Later goals only, if investments paid for them: a goal due soon can't
+  // wait for a market, so the priority table no longer offers it one. A
+  // household question, worked out for Both only.
   const funding = useMemo(() => {
-    if (scopeMemberId !== null) return null;
-    const netWorth = startingNetWorth(accounts ?? [], holdings ?? []) ?? 0;
+    if (scopeMemberId !== null || later.length === 0) return null;
+    const netWorth = startNetWorth ?? 0;
     const earmarked = rows.reduce((s, r) => s + r.progress.saved, 0);
-    return fundInPriority({ rows, freeMoney: netWorth - earmarked, returnPct, now });
-  }, [rows, scopeMemberId, accounts, holdings, returnPct, now]);
-
-  const totalSaved = rows.reduce((s, r) => s + r.progress.saved, 0);
-  const totalTarget = rows.reduce((s, r) => s + r.progress.target, 0);
-  // Only goals with a date still ahead have a monthly figure to add up; one
-  // already past its date needs its whole remainder now, which is a lump sum,
-  // not a rate.
-  const dated = rows.filter((r) => r.need && !r.need.due);
-  const combinedPace = dated.reduce((s, r) => s + (r.progress.monthlyRate ?? 0), 0);
-  // One monthly figure. For the household it is the priority plan's: what
-  // each goal still needs after what is set aside and the rest of net worth
-  // cover it, saved monthly at the expected return. For one person, whose
-  // share of net worth is not split, it is the plain remainder spread over the
-  // months left.
-  const fundingById = new Map((funding?.goals ?? []).map((g) => [g.goal.id, g]));
-  const combinedNeed = funding ? funding.monthly : dated.reduce((s, r) => s + r.need.perMonth, 0);
-  const needLabel = funding ? 'still need' : 'need';
+    return fundInPriority({ rows: later, freeMoney: netWorth - earmarked, returnPct, now });
+  }, [scopeMemberId, later, rows, startNetWorth, returnPct, now]);
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
   const missing = neverLoaded(sources, GOALS_INPUTS);
@@ -74,11 +134,45 @@ export default function Goals({ household, members, me, accounts, holdings, data
     );
   }
 
+  const dated = rows.length - undated.length;
+  const goalRow = (row, figure, of) => {
+    const c = chip(row);
+    const { goal } = row;
+    const bar = row.kind === 'near' || row.kind === 'kept' ? (row.cost > 0 ? Math.min(1, row.cash / row.cost) : 1) : null;
+    return (
+      <button key={goal.id} type="button" className="mn-row" onClick={() => setEditing(goal)} style={{ alignItems: 'flex-start' }}>
+        <div className="mn-row-main">
+          <div>{goal.name}</div>
+          {goal.note && <div className="ov-muted" style={{ marginTop: 4 }}>{goal.note}</div>}
+          {goal.cost_today && goal.target_date && (
+            <div className="ov-muted" style={{ marginTop: 4 }}>
+              {formatMoney(Number(goal.target_amount))} today, rising {goalInflationPct(goal, inflationPct)}% a year · about {formatMoney(goalCostAtDate(goal, now, inflationPct))} by{' '}
+              {String(goal.target_date).slice(0, 4)}
+            </div>
+          )}
+          {bar !== null && (
+            <div className="bud-bar" style={{ marginTop: 10, maxWidth: 260 }}>
+              <span className="bud-bar-spent" style={{ width: `${bar * 100}%` }} />
+            </div>
+          )}
+          <div className="gl-need">{why(row)}</div>
+        </div>
+        <div style={{ textAlign: 'right', flex: 'none' }}>
+          <div className="fig mn-row-amt">{formatMoney(figure)}</div>
+          {of && <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 4 }}>{of}</div>}
+          <div style={{ marginTop: 8 }}>
+            <span className={c.tone}>{c.label}</span>
+          </div>
+        </div>
+      </button>
+    );
+  };
+
   return (
     <div>
       <div className="mn-filters">
         <span className="ov-muted" style={{ marginRight: 'auto' }}>
-          {rows.length > 0 ? `${formatMoney(totalSaved)} of ${formatMoney(totalTarget)}` : ''}
+          {rows.length > 0 ? `${dated} dated goal${dated === 1 ? '' : 's'}${undated.length ? ` · ${undated.length} with no date` : ''}` : ''}
         </span>
         <button type="button" className="om-btn mn-add" onClick={() => setEditing('new')}>
           + Goal
@@ -92,69 +186,71 @@ export default function Goals({ household, members, me, accounts, holdings, data
         </div>
       ) : (
         <>
-          <section className="gl-summary">
-            <div className="bud-bar bud-bar-lg">
-              <span className="bud-bar-spent" style={{ width: `${totalTarget > 0 ? Math.min(100, (totalSaved / totalTarget) * 100) : 0}%` }} />
-            </div>
-            <div className="gl-summary-row">
-              <span>
-                <b className="fig">{totalTarget > 0 ? Math.round(Math.min(1, totalSaved / totalTarget) * 100) : 0}%</b> of all goal targets saved
-              </span>
-              {dated.length > 0 && (
+          {near.length > 0 && (
+            <section className="gl-section" aria-label="Next 3 years">
+              <div className="ov-kicker">Next 3 years · from cash</div>
+              <div className="bud-bar bud-bar-lg" style={{ marginTop: 12 }}>
+                <span className="bud-bar-spent" style={{ width: `${nearCost > 0 ? Math.min(100, (nearCash / nearCost) * 100) : 0}%` }} />
+              </div>
+              <div className="gl-summary-row">
                 <span>
-                  {funding ? 'Dated goals still need' : dated.length === 1 ? 'The dated goal needs' : `${dated.length} dated goals ${needLabel}`}{' '}
-                  <b className="fig">{formatMoney(combinedNeed)}</b> a month{funding ? `, invested at ${returnPct.toFixed(1)}%` : ''} · recent pace{' '}
-                  <b className="fig">{formatMoney(combinedPace)}</b>
+                  <b className="fig">{formatMoney(nearCash)}</b> of {formatMoney(nearCost)} set aside in cash
                 </span>
-              )}
-            </div>
-          </section>
-          <section style={{ marginTop: 22 }}>
-            <div className="mn-list">
-              {rows.map(({ goal, progress, need }) => (
-                <button key={goal.id} type="button" className="mn-row" onClick={() => setEditing(goal)} style={{ alignItems: 'flex-start' }}>
-                  <div className="mn-row-main">
-                    <div>{goal.name}</div>
-                    {goal.note && <div className="ov-muted" style={{ marginTop: 4 }}>{goal.note}</div>}
-                    {goal.funding_source && <div className="ov-muted" style={{ marginTop: 4 }}>From {goal.funding_source}</div>}
-                    {goal.cost_today && goal.target_date && (
-                      <div className="ov-muted" style={{ marginTop: 4 }}>
-                        {formatMoney(Number(goal.target_amount))} today, rising {goalInflationPct(goal, inflationPct)}% a year · about{' '}
-                        {formatMoney(goalCostAtDate(goal, now, inflationPct))} by {String(goal.target_date).slice(0, 4)}
-                      </div>
+                {schedule ? (
+                  <span>
+                    Needs <b className="fig">{formatMoney(schedule.now)}</b> a month in cash
+                    {schedule.after > 0 ? (
+                      <>
+                        {' '}
+                        now, falling to <b className="fig">{formatMoney(schedule.after)}</b> after {schedule.until}
+                      </>
+                    ) : (
+                      ` until ${schedule.until}`
                     )}
-                    <div style={{ marginTop: 10, maxWidth: 260 }}>
-                      <div className="bud-bar">
-                        <span className="bud-bar-spent" style={{ width: `${progress.pct * 100}%` }} />
-                      </div>
-                      <div className="ov-muted" style={{ marginTop: 6, fontSize: 11.5 }}>
-                        {Math.round(progress.pct * 100)}% funded · last paid in {lastContributionLabel(progress.lastContribution)}
-                      </div>
-                    </div>
-                    {need && <GoalNeed need={need} funded={fundingById.get(goal.id)} returnPct={returnPct} behind={progress.status === 'behind'} />}
-                  </div>
-                  <div style={{ textAlign: 'right', flex: 'none' }}>
-                    <div className="fig mn-row-amt">{formatMoney(progress.saved)}</div>
-                    <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 4 }}>of {formatMoney(progress.target)}</div>
-                    <div style={{ marginTop: 8 }}>
-                      <span className={STATUS_CHIP[progress.status]}>{progress.statusLabel}</span>
-                    </div>
-                    <div className="ov-muted" style={{ fontSize: 12, marginTop: 8, maxWidth: 160, lineHeight: 1.5 }}>
-                      {progress.eta}
-                      <div style={{ fontSize: 11.5, marginTop: 4 }}>{progress.etaWhy}</div>
-                    </div>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </section>
-          {funding && funding.goals.length > 0 && <PriorityFunding funding={funding} returnPct={returnPct} />}
-          <div className="ov-muted" style={{ marginTop: 14, fontSize: 11.5, lineHeight: 1.65, maxWidth: '80ch' }}>
-            Target dates project the recent contribution rate forward. They come from what has actually been transferred, not from a
-            commitment, and they move whenever a contribution is missed. The monthly figure works the other way:{' '}
-            {funding
-              ? `what each goal still needs once what is set aside and the rest of your net worth cover it in priority order, saved each month to its date at ${returnPct.toFixed(1)}%.`
-              : 'what is left, spread over the whole months to the target date, with no investment growth assumed.'}
+                    {plan?.monthlySaving > 0 && ` · your budget saves ${formatMoney(plan.monthlySaving)} a month`}
+                  </span>
+                ) : (
+                  <span>Nothing more to set aside each month</span>
+                )}
+              </div>
+              <div className="mn-list" style={{ marginTop: 14 }}>
+                {near.map((r) => goalRow(r, r.cash, `of ${formatMoney(r.cost)}`))}
+              </div>
+            </section>
+          )}
+
+          {kept.length > 0 && (
+            <section className="gl-section" aria-label="Kept, not spent">
+              <div className="ov-kicker">Kept, not spent · in cash</div>
+              <div className="mn-list" style={{ marginTop: 14 }}>
+                {kept.map((r) => goalRow(r, r.cash, `of ${formatMoney(r.cost)}`))}
+              </div>
+            </section>
+          )}
+
+          {later.length > 0 && (
+            <section className="gl-section" aria-label="Later">
+              <div className="ov-kicker">Later · paid by the Life plan</div>
+              <div className="mn-list" style={{ marginTop: 14 }}>
+                {later.map((r) => goalRow(r, r.cost, `on its date${r.progress.saved > 0 ? ` · ${formatMoney(r.progress.saved)} set aside` : ''}`))}
+              </div>
+              {funding && funding.goals.length > 0 && <PriorityFunding funding={funding} returnPct={returnPct} />}
+            </section>
+          )}
+
+          {undated.length > 0 && (
+            <section className="gl-section" aria-label="No date">
+              <div className="ov-kicker">No date · not in any plan</div>
+              <div className="mn-list" style={{ marginTop: 14 }}>
+                {undated.map((r) => goalRow(r, r.cost, null))}
+              </div>
+            </section>
+          )}
+
+          <div className="ov-muted" style={{ marginTop: 18, fontSize: 11.5, lineHeight: 1.65, maxWidth: '80ch' }}>
+            A goal due within 3 years counts only the cash set aside for it: what is logged to it, and the current, savings and cash accounts
+            linked to it, with no growth. A later goal is paid by the Life plan from everything you own, in its year, so the two tabs agree
+            about it. Money kept rather than spent, like an emergency fund, is held in cash.
           </div>
         </>
       )}
@@ -181,54 +277,18 @@ export default function Goals({ household, members, me, accounts, holdings, data
   );
 }
 
-// The target date's side of the question: what it needs each month from now.
-// Coloured only when the status chip already says Behind, so the two never
-// contradict each other near the edge of the on-track tolerance.
-function GoalNeed({ need, funded = null, returnPct, behind }) {
-  // The household's priority plan, where there is one: the same figure the
-  // table below and the summary add up.
-  if (funded && !need.due) {
-    if (funded.topUp <= 0) {
-      return <div className="gl-need">Covered today, in priority order, by what is set aside and your other savings</div>;
-    }
-    return (
-      <div className="gl-need" data-behind={behind}>
-        Needs <b className="fig">{formatMoney(funded.monthly)}</b> a month to reach it by {need.byLabel}
-        <span className="ov-muted">
-          {' '}
-          · invested at {returnPct.toFixed(1)}%, after {Math.round(funded.pct * 100)}% is covered
-        </span>
-      </div>
-    );
-  }
-  if (need.due) {
-    return (
-      <div className="gl-need" data-behind={need.remaining > 0}>
-        <b className="fig">{formatMoney(need.remaining)}</b> still needed · the target date of {need.byLabel} has arrived
-      </div>
-    );
-  }
-  return (
-    <div className="gl-need" data-behind={behind}>
-      Needs <b className="fig">{formatMoney(need.perMonth)}</b> a month to reach it by {need.byLabel}
-      <span className="ov-muted">
-        {' '}
-        · {need.monthsLeft} month{need.monthsLeft === 1 ? '' : 's'} left
-      </span>
-    </div>
-  );
-}
-
-// The financial plan's view of goals: what each needs set aside today to be
-// paid on its date, covered in priority order by what is already earmarked and
-// then by the household's other money, and the top-up still missing.
+// The financial plan's view of later goals: what each needs set aside today to
+// be paid on its date, covered in priority order by what is already earmarked
+// and then by the household's other money, and the top-up still missing. A
+// what-if, closed until opened: the Life plan is what pays them (Planning
+// audit, 1.5).
 function PriorityFunding({ funding, returnPct }) {
   return (
-    <section style={{ marginTop: 34 }}>
-      <div className="ov-kicker">Funding in priority order</div>
+    <details className="gl-priority">
+      <summary className="ov-kicker">If your investments paid for these</summary>
       <div className="gl-summary-row" style={{ marginTop: 10 }}>
         <span>
-          Needed today for every dated goal <b className="fig">{formatMoney(funding.neededToday)}</b>
+          Needed today for every later goal <b className="fig">{formatMoney(funding.neededToday)}</b>
         </span>
         <span>
           Covered <b className="fig">{formatMoney(funding.covered)}</b>
@@ -238,6 +298,11 @@ function PriorityFunding({ funding, returnPct }) {
             </>
           ) : (
             ' · every goal covered'
+          )}
+          {funding.freeLeft > 0 && (
+            <>
+              {' · '}left over <b className="fig">{formatMoney(funding.freeLeft)}</b>
+            </>
           )}
         </span>
       </div>
@@ -277,10 +342,10 @@ function PriorityFunding({ funding, returnPct }) {
         </div>
       </div>
       <div className="ov-muted" style={{ marginTop: 10, fontSize: 11.5, lineHeight: 1.65, maxWidth: '80ch' }}>
-        Needed today is what would grow to each goal&rsquo;s cost by its date at {returnPct.toFixed(1)}% a year, Forecast&rsquo;s expected
+        Needed today is what would grow to each goal&rsquo;s cost by its date at {returnPct.toFixed(1)}% a year, the expected
         return. Money already set aside for a goal counts first; the rest of your net worth then covers goals in priority order, unnumbered
         goals last and earliest first. Retirement is on the Life plan, which pays these goals out of the same money.
       </div>
-    </section>
+    </details>
   );
 }

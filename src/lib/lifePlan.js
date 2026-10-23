@@ -380,6 +380,8 @@ export function lifePlanStop({ members, memberLife, inputs, ...rest }) {
     // Whether the plan's own stop year lasts, and the year it runs short if not.
     lasts: saved.lasts,
     shortYear: saved.shortYear,
+    // Its year-by-year timeline, which Goals reads each later goal's state from.
+    rows: saved.rows,
     stopYear: basis.stopYear,
     stopAssumed: basis.stopAssumed,
     leftOut: membersLeftOut(members, memberLife),
