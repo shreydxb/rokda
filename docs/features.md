@@ -200,7 +200,10 @@ here, because this repository is public.
   the household plans to put in a month (measured against what a goal held
   in cash needs, and a goal it covers is not raised on Plan), and done: a
   done goal is listed apart and left out of every plan and the bot, and can
-  be reopened.
+  be reopened. A goal has one source of saved: its linked accounts and
+  holdings, or, with none, what is logged to it. A goal held in cash shows
+  its pace over about three months, from its linked accounts' recorded
+  balance changes or from what is logged.
 - **Debt payoff**: leads with when the debts clear at their minimums and the
   interest still to pay. Each debt shows what is owed, its rate, its minimum
   and when it clears, labelled. An extra payment is a what-if, against the

@@ -308,3 +308,14 @@ describe('GoalEditor: a planned monthly amount, and done', () => {
     expect(onSaved).not.toHaveBeenCalled();
   });
 });
+
+// Planning audit, 2.8: one source of saved.
+describe('GoalEditor: what counts as saved', () => {
+  it('says logged contributions are a record once accounts are linked, and says nothing without links', () => {
+    renderEditor({ goal: GOAL, allocations: [{ id: 'l1', goal_id: 'g1', account_id: 'a1', holding_id: null, share_pct: 100 }], accounts: [{ id: 'a1', name: 'Savings', type: 'savings', currency: 'AED', balance: 1000, archived_at: null }] });
+    expect(screen.getByText('Its linked accounts and holdings are what count as saved, so what is logged here is a record and is not added on top.')).toBeTruthy();
+    document.body.innerHTML = '';
+    renderEditor({ goal: GOAL });
+    expect(screen.queryByText(/what is logged here is a record/)).toBeNull();
+  });
+});

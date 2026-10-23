@@ -1,5 +1,5 @@
 import { formatMoney } from './money';
-import { parseDay } from './day';
+import { parseDay, startOfDay } from './day';
 import { accountValueAed, isArchived, isLiabilityAccount } from './accounts';
 import { PLANNING_DEFAULTS } from './planningDefaults';
 
@@ -159,6 +159,15 @@ export function allocatedValue(goalId, allocations = [], accounts = [], holdings
     }, 0);
 }
 
+// One source for what a goal has saved (Planning audit, 2.8). A goal with
+// accounts or holdings linked to it counts what they hold, and what is logged
+// to it stays its record without being added on top: a transfer into a linked
+// account that was also logged counted twice, and the Telegram bot made that
+// easy. A goal with nothing linked counts what is logged to it.
+export function goalIsLinked(goalId, allocations = []) {
+  return allocations.some((a) => a.goal_id === goalId);
+}
+
 // Every goal visible in a scope, with its progress. Goals and the Plan
 // summary both show these figures, and used to derive them separately: the
 // summary left out linked accounts and holdings, so its "saved" total and its
@@ -177,9 +186,11 @@ export function scopedGoalRows({ goals = [], contributions = [], allocations = [
       // as funded when it only has today's price saved.
       const scopedGoal = { ...g, target_amount: goalCostAtDate(g, now, inflationPct) * factor };
       const goalContributions = contributions.filter((c) => c.goal_id === g.id).map((c) => ({ ...c, amount: Number(c.amount) * factor }));
-      const allocated = allocatedValue(g.id, allocations, accounts, holdings) * factor;
-      const progress = goalProgress(scopedGoal, goalContributions, now, allocated);
-      return { goal: g, contributions: goalContributions, progress, need: monthlyNeed(scopedGoal, progress, now) };
+      // Its one source of saved: what is linked, or else what is logged.
+      const linked = goalIsLinked(g.id, allocations);
+      const allocated = linked ? allocatedValue(g.id, allocations, accounts, holdings) * factor : 0;
+      const progress = goalProgress(scopedGoal, linked ? [] : goalContributions, now, allocated);
+      return { goal: g, contributions: goalContributions, progress, need: monthlyNeed(scopedGoal, progress, now), linked };
     });
 }
 
@@ -294,18 +305,86 @@ export function monthsUntil(targetDate, now = new Date()) {
   return (target.getFullYear() - now.getFullYear()) * 12 + (target.getMonth() - now.getMonth());
 }
 
-// What is set aside for a goal in cash: contributions logged to it, and the
-// current, savings and cash accounts linked to it at their share.
+// What is set aside for a goal in cash, from its one source: the current,
+// savings and cash accounts linked to it at their share, or, with nothing
+// linked, the contributions logged to it.
 export function cashSetAside(goalId, contributions = [], allocations = [], accounts = []) {
-  const logged = contributions.filter((c) => c.goal_id === goalId).reduce((s, c) => s + Number(c.amount), 0);
-  const linked = allocations
+  if (!goalIsLinked(goalId, allocations)) return contributions.filter((c) => c.goal_id === goalId).reduce((s, c) => s + Number(c.amount), 0);
+  return linkedCashAccounts(goalId, allocations, accounts).reduce((sum, { allocation, account }) => sum + ((accountValueAed(account) ?? 0) * Number(allocation.share_pct)) / 100, 0);
+}
+
+function linkedCashAccounts(goalId, allocations, accounts) {
+  return allocations
     .filter((a) => a.goal_id === goalId && a.account_id)
-    .reduce((sum, a) => {
-      const account = accounts.find((acc) => acc.id === a.account_id);
-      if (!accountCanBackGoal(account) || !CASH_TYPES.has(account.type)) return sum;
-      return sum + ((accountValueAed(account) ?? 0) * Number(a.share_pct)) / 100;
-    }, 0);
-  return logged + linked;
+    .map((allocation) => ({ allocation, account: accounts.find((acc) => acc.id === allocation.account_id) }))
+    .filter(({ account }) => accountCanBackGoal(account) && CASH_TYPES.has(account.type));
+}
+
+// How much a month has gone into a goal held in cash lately, from the same one
+// source as its cash: the change in its linked current, savings and cash
+// accounts' balances at their share, or what was logged to it (Planning
+// audit, 2.8). Measured over about the last three months, or from where the
+// record begins if that is later, and only once there is a month of it.
+//
+// A balance's past is read from its recorded changes (account_balance_events,
+// written by the database on every change but a fixed deposit's). The balance
+// before an account's first recorded change is not known to have held for any
+// time, so its record begins there. Each change is converted at today's rate,
+// so the rupee's own drift is not counted as money going in.
+//
+// Returns null when there is nothing to measure (no cash account linked, the
+// history unread, or no rate); { from, short: true } when there is less than
+// a month of record; otherwise { from, perMonth, months }, `from` naming the
+// source, 'linked' or 'logged'. perMonth is below zero when the linked
+// accounts fell.
+export const PACE_DAYS = 91;
+const MIN_PACE_DAYS = 28;
+const DAY_MS = 86400000;
+const DAYS_PER_MONTH = 365.25 / 12;
+
+export function goalPace({ goal, contributions = [], allocations = [], accounts = [], balanceEvents = null, factor = 1, now = new Date() }) {
+  const end = now.getTime();
+  const earliest = end - PACE_DAYS * DAY_MS;
+  const measured = (from, went, source) => {
+    const days = (end - from) / DAY_MS;
+    if (days < MIN_PACE_DAYS) return { from: source, short: true };
+    return { from: source, perMonth: (went * factor) / (days / DAYS_PER_MONTH), months: Math.max(1, Math.round(days / DAYS_PER_MONTH)) };
+  };
+
+  if (!goalIsLinked(goal.id, allocations)) {
+    const from = Math.max(earliest, goal.created_at ? Date.parse(goal.created_at) : earliest);
+    // Contributions are dated by day, so the window starts at that day.
+    const firstDay = startOfDay(new Date(from)).getTime();
+    const went = contributions.filter((c) => c.goal_id === goal.id && parseDay(c.occurred_at).getTime() >= firstDay).reduce((s, c) => s + Number(c.amount), 0);
+    return measured(from, went, 'logged');
+  }
+
+  const links = linkedCashAccounts(goal.id, allocations, accounts);
+  if (links.length === 0 || balanceEvents == null) return null;
+  const history = links.map(({ allocation, account }) => ({
+    allocation,
+    account,
+    events: balanceEvents.filter((e) => e.account_id === account.id).sort((a, b) => Date.parse(a.recorded_at) - Date.parse(b.recorded_at)),
+  }));
+  if (history.some((h) => h.events.length === 0)) return { from: 'linked', short: true };
+  const from = Math.max(earliest, ...history.map((h) => Date.parse(h.events[0].recorded_at)));
+  let went = 0;
+  for (const { allocation, account, events } of history) {
+    const rate = aedRate(account);
+    if (rate == null) return null;
+    // The balance as it stood at the window's start: the last change at or
+    // before it, which exists because the window starts at or after the first.
+    const then = Number(events.filter((e) => Date.parse(e.recorded_at) <= from).at(-1).new_balance);
+    went += ((Number(account.balance) - then) * rate * Number(allocation.share_pct)) / 100;
+  }
+  return measured(from, went, 'linked');
+}
+
+// Dirhams per unit of an account's own currency, at today's rate.
+function aedRate(account) {
+  if (String(account.currency ?? 'AED').toUpperCase() === 'AED') return 1;
+  const aed = accountValueAed(account);
+  return aed != null && Number(account.balance) !== 0 ? aed / Number(account.balance) : null;
 }
 
 // A goal marked done, reached or spent, is out of every plan: Goals lists it
@@ -347,8 +426,9 @@ function planAgainst(planned, { remaining, monthsLeft, dated, now }) {
 // the scope, as scopedGoalRows' do; the timeline is the household's. Goals
 // marked done are left out. `planned` is the goal's planned monthly amount in
 // the scope, or null; a goal held in cash has its `plan` measured against
-// what it needs.
-export function goalStatuses({ timeline = null, ...args }) {
+// what it needs, and its `pace` (goalPace) from `balanceEvents`, the
+// accounts' recorded balance changes, or null when they were not read.
+export function goalStatuses({ timeline = null, balanceEvents = null, ...args }) {
   const { contributions = [], allocations = [], accounts = [], scopeMemberId = null, now = new Date() } = args;
   return scopedGoalRows({ ...args, goals: (args.goals ?? []).filter((g) => !isDone(g)) }).map((row) => {
     const { goal, progress } = row;
@@ -367,7 +447,8 @@ export function goalStatuses({ timeline = null, ...args }) {
       const state = remaining <= 0 ? 'covered' : dated && monthsLeft <= 0 ? 'due' : 'saving';
       const perMonth = state === 'saving' && dated ? remaining / monthsLeft : null;
       const plan = planAgainst(planned, { remaining, monthsLeft, dated, now });
-      return { ...row, kind, state, cost, cash, remaining, monthsLeft, perMonth, byLabel, planned, plan };
+      const pace = goalPace({ goal, contributions, allocations, accounts, balanceEvents, factor, now });
+      return { ...row, kind, state, cost, cash, remaining, monthsLeft, perMonth, byLabel, planned, plan, pace };
     }
     if (kind === 'later') {
       const year = Math.max(now.getFullYear(), parseDay(goal.target_date).getFullYear());

@@ -624,6 +624,11 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
           {goal && (
             <section className="te-section" aria-labelledby={`${uid}-contributions-head`}>
               {sectionHeading('contributions', 'Contributions')}
+              {linked.length > 0 && (
+                <div className="ov-muted" style={{ fontSize: 11.5, marginBottom: 12, lineHeight: 1.5 }}>
+                  Its linked accounts and holdings are what count as saved, so what is logged here is a record and is not added on top.
+                </div>
+              )}
               <form onSubmit={handleLogContribution} noValidate>
                 <div className="te-fieldgrid">
                   <div className="te-fieldcell">
@@ -681,8 +686,8 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
             <section className="te-section" aria-labelledby={`${uid}-linked-head`}>
               {sectionHeading('linked', <>Linked accounts &amp; holdings</>, { marginBottom: 4 })}
               <div className="ov-muted" style={{ fontSize: 11.5, marginBottom: 12, lineHeight: 1.5 }}>
-                Earmark a share of a real account or holding toward this goal — its current value (interest or growth included)
-                counts toward progress automatically. One account/holding can be split across several goals as long as its shares
+                Earmark a share of a real account or holding toward this goal: its current value (interest or growth included) is
+                what counts as saved, in place of logged contributions. One account/holding can be split across several goals as long as its shares
                 never add up past 100%. Loans and cards can&rsquo;t be linked: what they hold is owed.
               </div>
               {sourceOptions.length > 0 && (
