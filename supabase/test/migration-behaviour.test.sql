@@ -2673,4 +2673,29 @@ begin
   raise notice 'goal done and planned ok: open by default, a plan of 0 or more, and a done goal reopens';
 end $$;
 
+-- The planning basis: budget, recorded or blank, and records counted from
+-- the first of a month (Planning audit, 2.9).
+do $$
+declare hh constant uuid := '11111111-1111-1111-1111-111111111111';
+begin
+  insert into planning_assumptions (household_id) values (hh) on conflict (household_id) do nothing;
+  if (select planning_basis from planning_assumptions where household_id = hh) is not null then
+    raise exception 'planning basis FAILED: a row reads as having chosen a basis';
+  end if;
+  update planning_assumptions set planning_basis = 'budget', records_from = '2026-10-01' where household_id = hh;
+  update planning_assumptions set planning_basis = 'recorded', records_from = null where household_id = hh;
+  update planning_assumptions set planning_basis = null where household_id = hh;
+  begin
+    update planning_assumptions set planning_basis = 'forecast' where household_id = hh;
+    raise exception 'planning basis FAILED: a basis other than budget or recorded was accepted';
+  exception when check_violation then null;
+  end;
+  begin
+    update planning_assumptions set records_from = '2026-10-15' where household_id = hh;
+    raise exception 'planning basis FAILED: records counted from the middle of a month';
+  exception when check_violation then null;
+  end;
+  raise notice 'planning basis ok: budget, recorded or blank, from the first of a month';
+end $$;
+
 rollback;

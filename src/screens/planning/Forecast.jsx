@@ -5,9 +5,9 @@ import { assumption } from '../../lib/planningDefaults';
 import { incompleteNote, netWorthSummary, startingNetWorth } from '../overviewMath';
 import { isArchived } from '../../lib/accounts';
 import { unconfirmedAccounts } from '../../lib/balance';
-import { budgetPlan, crossingYear, fiTarget, forecastInputs, goalAt, incomesFromStop, independenceTarget, projectYears, realReturn, requiredAnnualSaving, scenarioSets, spendThatStops } from '../../lib/forecast';
+import { basisChoice, budgetPlan, crossingYear, fiTarget, forecastInputs, goalAt, incomesFromStop, independenceTarget, projectYears, realReturn, requiredAnnualSaving, scenarioSets, spendThatStops } from '../../lib/forecast';
 import { agesLabel, lifePlanStop, noStopText, spendAfterText, spendHow } from '../../lib/lifePlan';
-import BudgetBasis from './BudgetBasis';
+import BasisLine from './BasisLine';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import ForecastAssumptionsEditor from './ForecastAssumptionsEditor';
 import AssumptionsBar from './AssumptionsBar';
@@ -99,7 +99,7 @@ export default function Forecast({ household, members = [], accounts = [], trans
   const basisIncomplete = incompleteNote(basisGaps, { capitalised: false, sentence: false });
   // Until three months close, the budget stands in (forecastInputs).
   const plan = useMemo(() => budgetPlan(budgets, categories, now), [budgets, categories, now]);
-  const inputs = useMemo(() => forecastInputs(transactions, startNetWorth, now, plan, recurring), [transactions, startNetWorth, now, plan, recurring]);
+  const inputs = useMemo(() => forecastInputs(transactions, startNetWorth, now, plan, recurring, basisChoice(assumptions)), [transactions, startNetWorth, now, plan, recurring, assumptions]);
   const fromBudget = inputs.source === 'budget';
   const basisWord = fromBudget ? 'budgeted' : 'actual';
 
@@ -161,7 +161,7 @@ export default function Forecast({ household, members = [], accounts = [], trans
         <div style={{ marginTop: 26, display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, padding: '12px 0', borderTop: '1px solid var(--rule)', fontSize: 13.5 }}>
             <span>Annual spend</span>
-            <span className="ov-muted">{inputs.monthCount >= 3 ? 'known' : `needs three closed months or a budget · has ${inputs.monthCount}`}</span>
+            <span className="ov-muted">{inputs.monthCount >= 3 ? 'known' : `needs three ended months or a budget · has ${inputs.monthCount}`}</span>
           </div>
           <div
             style={{ display: 'flex', justifyContent: 'space-between', gap: 16, padding: '12px 0', borderTop: '1px solid var(--rule)', borderBottom: '1px solid var(--rule)', fontSize: 13.5 }}
@@ -402,7 +402,7 @@ export default function Forecast({ household, members = [], accounts = [], trans
 
   return (
     <div>
-      <BudgetBasis inputs={inputs} />
+      <BasisLine inputs={inputs} householdId={household?.id} assumptions={assumptions} onSaved={data.reload} money={money} />
       <AssumptionsBar
         sets={sets}
         scenario={fcSet}
@@ -517,7 +517,7 @@ export default function Forecast({ household, members = [], accounts = [], trans
           <div style={{ fontSize: 12, color: 'var(--ink2)' }}>Saving now</div>
           <div className="fig" style={{ fontSize: 28, marginTop: 6 }}>{money.fmtBalance(inputs.monthlySaving)}</div>
           <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 5 }}>
-            {fromBudget ? 'A month, your savings target in the budget' : `A month, averaged over the last ${inputs.monthCount} closed months`}
+            {fromBudget ? 'A month, your savings target in the budget' : `A month, averaged over the last ${inputs.monthCount} ended months`}
           </div>
         </div>
       </div>

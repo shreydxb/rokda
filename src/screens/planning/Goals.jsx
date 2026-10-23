@@ -4,7 +4,7 @@ import { resolveScopeMemberId } from '../../lib/scope';
 import { formatMoney } from '../../lib/money';
 import { assumption } from '../../lib/planningDefaults';
 import { cashPerMonth, fundInPriority, goalCostAtDate, goalInflationPct, doneMonth, goalStatuses, isDone } from '../../lib/goals';
-import { budgetPlan, forecastInputs, spendThatStops } from '../../lib/forecast';
+import { basisChoice, budgetPlan, forecastInputs, spendThatStops } from '../../lib/forecast';
 import { lifePlanStop } from '../../lib/lifePlan';
 import { startingNetWorth } from '../overviewMath';
 import GoalEditor from './GoalEditor';
@@ -108,7 +108,7 @@ export default function Goals({
   // household's saved plan, as Plan and the Life plan tab show it.
   const startNetWorth = useMemo(() => startingNetWorth(accounts, holdings), [accounts, holdings]);
   const plan = useMemo(() => budgetPlan(budgets, categories, now), [budgets, categories, now]);
-  const inputs = useMemo(() => forecastInputs(transactions, startNetWorth, now, plan, recurring), [transactions, startNetWorth, now, plan, recurring]);
+  const inputs = useMemo(() => forecastInputs(transactions, startNetWorth, now, plan, recurring, basisChoice(assumptions)), [transactions, startNetWorth, now, plan, recurring, assumptions]);
   const timelineMissing = neverLoaded(sources, projectionInputs(inputs)).length > 0;
   const timeline = useMemo(() => {
     if (timelineMissing) return null;

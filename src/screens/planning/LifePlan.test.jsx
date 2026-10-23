@@ -318,15 +318,31 @@ describe('LifePlan: the budget beside the records', () => {
   it('gives what the budget plans and the year it gives, beside the months', () => {
     renderPlan({ categories, budgets: [budget('food', 2000), budget('save', 8000)] });
     const note = screen.getByText(/^Your budget beside the records\./).closest('div').textContent;
-    expect(note).toMatch(/The last 3 ended months average spending AED 4,000 and saving AED 6,000 a month; your budget plans spending AED 2,000 and saving AED 8,000\./);
-    const [, months, onBudget] = note.match(/The earliest year work can stop is (\d{4}) on the months and (\d{4}) on the budget\./);
+    // The recorded figures are the basis line's, just above (Planning audit, 2.9).
+    expect(screen.getByRole('note', { name: 'Planning basis' }).textContent).toMatch(/The average of the last 3 ended months: spending AED 4,000 and saving AED 6,000 a month\./);
+    expect(note).toMatch(/Your budget plans spending AED 2,000 and saving AED 8,000 a month\./);
+    const [, months, onBudget] = note.match(/The earliest year work can stop is (\d{4}) on the recorded months and (\d{4}) on the budget\./);
     expect(Number(onBudget)).toBeLessThan(Number(months));
-    expect(note).toMatch(/Stopping in \d{4}, the money (lasts|runs short in \d{4}) on the budget\. Everything below uses the recorded months\.$/);
+    expect(note).toMatch(/Stopping in \d{4}, the money (lasts|runs short in \d{4}) on the budget\. Everything below uses the recorded months; choose your budget under Change basis to plan on it instead\.$/);
   });
 
   it('says nothing more without a budget', () => {
     renderPlan();
     expect(screen.queryByText(/Your budget beside the records/)).toBeNull();
+  });
+
+  // Planning audit, 2.9: the household chooses the basis.
+  it('plans on the budget once it is chosen, with nothing beside it', () => {
+    renderPlan({ categories, budgets: [budget('food', 2000), budget('save', 8000)], data: { assumptions: { planning_basis: 'budget' } } });
+    expect(screen.getByRole('note', { name: 'Planning basis' }).textContent).toMatch(/^Your budget, as you chose\. Spending AED 2,000 and saving AED 8,000 a month, from your spending budget and savings target/);
+    expect(screen.queryByText(/Your budget beside the records/)).toBeNull();
+  });
+
+  it('counts the records only from the month chosen, the budget standing in until three have ended', () => {
+    const last = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const from = `${last.getFullYear()}-${String(last.getMonth() + 1).padStart(2, '0')}-01`;
+    renderPlan({ categories, budgets: [budget('food', 2000), budget('save', 8000)], data: { assumptions: { planning_basis: 'recorded', records_from: from } } });
+    expect(screen.getByRole('note', { name: 'Planning basis' }).textContent).toMatch(/^Your budget, for now\..* You chose recorded months; they take over once three have ended since \w{3} \d{4} · 1 so far\./);
   });
 });
 

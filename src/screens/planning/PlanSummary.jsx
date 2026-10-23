@@ -10,11 +10,12 @@ import { andList } from '../../lib/words';
 import { isArchived } from '../../lib/accounts';
 import { unconfirmedAccounts } from '../../lib/balance';
 import { tabHref } from '../../lib/activityLink';
-import { budgetInputs, budgetPlan, crossingYear, forecastInputs, incomesFromStop, independenceTarget, realReturn, spendThatStops } from '../../lib/forecast';
+import { basisChoice, budgetInputs, budgetPlan, crossingYear, forecastInputs, incomesFromStop, independenceTarget, realReturn, spendThatStops } from '../../lib/forecast';
 import { agesLabel, DEFAULT_STOP_AGE, leftOutText, lifePlanStop, noStopText, spendAfterText } from '../../lib/lifePlan';
 import { incompleteNote, netWorthSummary, startingNetWorth } from '../overviewMath';
 import { couldntLoad, neverLoaded } from '../../lib/loadState';
 import { DEBT_INPUTS, DEBT_PLAN_INPUTS, GOALS_INPUTS, projectionInputs } from './planningSources';
+import BasisLine from './BasisLine';
 
 
 // When the debts in view clear. With a committed extra payment, on the
@@ -32,6 +33,9 @@ function payoffText({ atMinimums, withExtra, now }) {
 
 // Composes the same goal/debt/forecast outputs Goals, DebtPayoff and Forecast
 // already compute — no new financial math lives here, just a next-action read.
+// Plan is in dirhams, as Goals and Debt payoff are (Planning.jsx, AedNote).
+const AED = { code: 'AED', fmt: (v) => formatMoney(v) };
+
 export default function PlanSummary({ household = null, members, me, accounts, transactions, recurring = [], holdings, budgets = [], categories = [], data, sources, onRetry, loading, onOpenTab }) {
   const { goals, goalContributions, goalAllocations, assumptions } = data;
   // At their linked accounts' balances, as Debt payoff shows them.
@@ -118,7 +122,7 @@ export default function PlanSummary({ household = null, members, me, accounts, t
   }, [accounts, holdings]);
   // The same inputs Forecast and Drawdown use, the budget standing in included.
   const plan = useMemo(() => budgetPlan(budgets, categories, now), [budgets, categories, now]);
-  const forecast = useMemo(() => forecastInputs(transactions, startNetWorth, now, plan, recurring), [transactions, startNetWorth, now, plan, recurring]);
+  const forecast = useMemo(() => forecastInputs(transactions, startNetWorth, now, plan, recurring, basisChoice(assumptions)), [transactions, startNetWorth, now, plan, recurring, assumptions]);
   const stopping = useMemo(() => spendThatStops({ inputs: forecast, transactions, budgets, categories, now }), [forecast, transactions, budgets, categories, now]);
   const nominalPct = assumption(assumptions, 'nominal_return_pct');
   const inflationPct = assumption(assumptions, 'inflation_pct');
@@ -216,7 +220,7 @@ export default function PlanSummary({ household = null, members, me, accounts, t
       key: 'forecast',
       text:
         forecast.monthCount < 3
-          ? `Independence needs three closed months of spend or a budget · has ${forecast.monthCount}`
+          ? `Independence needs three ended months of spend or a budget · has ${forecast.monthCount}`
           : 'Independence needs a starting account valuation',
       tab: 'forecast',
       cta: 'Open Forecast',
@@ -313,6 +317,7 @@ export default function PlanSummary({ household = null, members, me, accounts, t
 
   return (
     <div>
+      {answerMissing.length === 0 && <BasisLine inputs={forecast} householdId={household?.id} assumptions={assumptions} onSaved={data.reload} money={AED} />}
       <section className="ov-quality-grid" style={{ marginTop: 22, rowGap: 26 }}>
         {(stop || answerMissing.length > 0) && answerCard}
         <SummaryCard

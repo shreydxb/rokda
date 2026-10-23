@@ -182,6 +182,12 @@ here, because this repository is public.
   assumptions changes the shared return, inflation and withdrawal rate from
   any of them. The scenario and the money shown hold across the three tabs
   until changed, and are never saved.
+- **Planning basis**: every projection (Plan, Life plan, Forecast,
+  Drawdown) opens with one line saying what it is worked out on: your budget
+  or the recorded months, why, and from which month the records count.
+  Change basis chooses the budget or the recorded months and the month
+  records count from, saved for the household. With nothing chosen, the
+  budget stands in until three months have ended, then the records.
 - **Plan**: one page answering "are we on track". Once ages are set it opens
   with the Life plan's Stop working card (the year, the ages then, the
   spending after work stops it assumes), then goals and linked debts.

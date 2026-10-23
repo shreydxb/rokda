@@ -91,7 +91,7 @@ describe('QA-03: Forecast renders every input state', () => {
   it('renders holdings-only', () => {
     renderForecast({ accounts: [], transactions: [], holdings: [HOLDING] });
     // A valuation exists, so only the spend history is still missing.
-    expect(screen.getByText(/needs three closed months/i)).toBeTruthy();
+    expect(screen.getByText(/needs three ended months/i)).toBeTruthy();
   });
 
   it('renders accounts plus holdings with enough history to project', () => {
@@ -338,7 +338,7 @@ describe('Forecast: the budget stands in until three months close', () => {
   it('projects from the budget and says so', () => {
     renderForecast({ accounts: [ACCOUNT], transactions: openMonthOnly, budgets, categories });
     expect(screen.queryByText('Not enough to project')).toBeNull();
-    expect(screen.getByRole('note').textContent).toMatch(/From your budget, for now\..*averaged over 3 budgeted months.*none yet/);
+    expect(screen.getByRole('note', { name: 'Planning basis' }).textContent).toMatch(/Your budget, for now\..*from your spending budget and savings target over 3 budgeted months\. Recorded months take over once three have ended · none yet\./);
     // 4,000 a month budgeted is 48,000 a year; 25× at 4% is 1,200,000.
     expect(screen.getByText(/25× your budgeted spend of 48,000 a year/)).toBeTruthy();
     expect(screen.getByText('A month, your savings target in the budget')).toBeTruthy();
@@ -347,12 +347,13 @@ describe('Forecast: the budget stands in until three months close', () => {
   it('without a budget still says what it needs', () => {
     renderForecast({ accounts: [ACCOUNT], transactions: openMonthOnly, budgets: [], categories });
     expect(screen.getByText('Not enough to project')).toBeTruthy();
-    expect(screen.getByText(/needs three closed months or a budget · has 0/)).toBeTruthy();
+    expect(screen.getByText(/needs three ended months or a budget · has 0/)).toBeTruthy();
   });
 
   it('actual spending takes over once three months have closed', () => {
     renderForecast({ accounts: [ACCOUNT], transactions: closedMonthTransactions(now), budgets, categories });
-    expect(screen.queryByRole('note')).toBeNull();
+    // Said as the records, and as not chosen (Planning audit, 2.9).
+    expect(screen.getByRole('note', { name: 'Planning basis' }).textContent).toMatch(/^Recorded months\. The average of the last 3 ended months: .* No basis is chosen, so the records took over/);
     expect(screen.getByText(/today's spend of 12,000 a year/)).toBeTruthy();
   });
 });

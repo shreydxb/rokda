@@ -173,7 +173,7 @@ describe('Drawdown: the budget stands in until three months close', () => {
     renderDrawdown({ transactions: [{ id: 'o1', amount: -900, kind: 'expense', occurred_at: thisMonth, is_shared: true }], budgets, categories });
     // 4,000 a month budgeted: the same 48,000 a year as three months of history.
     expect(hero()).toBe('51 years');
-    expect(screen.getByRole('note').textContent).toMatch(/From your budget, for now/);
+    expect(screen.getByRole('note', { name: 'Planning basis' }).textContent).toMatch(/Your budget, for now/);
     expect(screen.getByText(/Budgeted · 48K a year/)).toBeTruthy();
   });
 

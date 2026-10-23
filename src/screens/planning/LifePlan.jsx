@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { startingNetWorth } from '../overviewMath';
-import { budgetInputs, budgetPlan, forecastInputs, incomesWithoutRate, spendThatStops } from '../../lib/forecast';
+import { basisChoice, budgetInputs, budgetPlan, forecastInputs, incomesWithoutRate, spendThatStops } from '../../lib/forecast';
 import { agesIn, agesLabel, earliestStop, extraSavingNeeded, leftOutText, lifePlan, lifePlanBasis, maxRetirementSpend, membersLeftOut, planEndYear, planPeople, potNeededAt } from '../../lib/lifePlan';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { ChartLegend, ColumnChart } from '../../charts/Charts';
-import BudgetBasis, { BudgetBeside } from './BudgetBasis';
+import BasisLine, { BudgetBeside } from './BasisLine';
 import LifePlanEditor from './LifePlanEditor';
 import ForecastAssumptionsEditor from './ForecastAssumptionsEditor';
 import AssumptionsBar from './AssumptionsBar';
@@ -75,7 +75,7 @@ export default function LifePlan({
 
   const startNetWorth = useMemo(() => startingNetWorth(accounts, holdings), [accounts, holdings]);
   const plan = useMemo(() => budgetPlan(budgets, categories, now), [budgets, categories, now]);
-  const inputs = useMemo(() => forecastInputs(transactions, startNetWorth, now, plan, recurring), [transactions, startNetWorth, now, plan, recurring]);
+  const inputs = useMemo(() => forecastInputs(transactions, startNetWorth, now, plan, recurring, basisChoice(assumptions)), [transactions, startNetWorth, now, plan, recurring, assumptions]);
   const stopping = useMemo(() => spendThatStops({ inputs, transactions, budgets, categories, now }), [inputs, transactions, budgets, categories, now]);
   // The budget's figures, once ended months have taken over from them, so its
   // answer can be given beside theirs (Planning audit, 1.2).
@@ -282,7 +282,7 @@ export default function LifePlan({
 
   return (
     <div>
-      <BudgetBasis inputs={inputs} />
+      <BasisLine inputs={inputs} householdId={household?.id} assumptions={assumptions} onSaved={data.reload} money={money} />
       <BudgetBeside recorded={recorded} budget={onBudget} stopYear={stopYear} money={money} />
       <AssumptionsBar
         sets={sets}
@@ -574,7 +574,7 @@ export default function LifePlan({
       <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 30, lineHeight: 1.7, maxWidth: '92ch' }}>
         {selected.label}: {selected.nominalPct.toFixed(1)}% a year before work stops and {postNominal.toFixed(1)}% after, less {inflationPct.toFixed(1)}%
         inflation. Saving is {money.code} {money.fmtBalance(inputs.monthlySaving)} a month
-        {inputs.source === 'budget' ? ', your savings target in the budget' : `, the average of the last ${inputs.monthCount} closed months`}, kept the
+        {inputs.source === 'budget' ? ', your savings target in the budget' : `, the average of the last ${inputs.monthCount} ended months`}, kept the
         same in today&rsquo;s money until work stops.
         {people.length > 1 && survivorPct !== 100 && ` Once one person remains, spending is ${survivorPct}% of the couple's.`}
         {incomes.length > 0 && ` ${incomes.length} source${incomes.length === 1 ? '' : 's'} of other income from Drawdown count from ${stopYear}.`}
