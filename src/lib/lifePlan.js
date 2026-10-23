@@ -2,6 +2,7 @@ import { incomeInYear, incomesFromStop, realReturn, scenarioSets } from './forec
 import { convertToAed } from './currency';
 import { parseDay } from './day';
 import { goalInflationPct } from './goals';
+import { andList } from './words';
 
 // The life plan: one year-by-year timeline from this year to the end of the
 // longest life expectancy, the calculation a financial adviser's "cash
@@ -274,8 +275,7 @@ export function membersLeftOut(members = [], memberLife = []) {
 // "Partner B isn't in the plan: ...", for the screens that give the answer.
 export function leftOutText(leftOut) {
   const names = leftOut.map((m) => m.display_name);
-  const list = names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
-  return `${list} ${names.length === 1 ? "isn't" : "aren't"} in the plan: no birth year and age to plan to yet.`;
+  return `${andList(names)} ${names.length === 1 ? "isn't" : "aren't"} in the plan: no birth year and age to plan to yet.`;
 }
 
 // Whose 60th birthday the stop year is until one is saved: the eldest person

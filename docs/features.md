@@ -192,9 +192,11 @@ here, because this repository is public.
   earliest year work can stop.
 - **Goals**: targets in today's cost with their own inflation, funded in
   priority order. One monthly figure per goal and in total.
-- **Debt payoff**: avalanche / snowball / custom order, with extra payments.
-  Each debt shows what is owed, its rate and its minimum, labelled; the
-  projection says which of its inputs is still missing.
+- **Debt payoff**: leads with when the debts clear at their minimums and the
+  interest still to pay. Each debt shows what is owed, its rate, its minimum
+  and when it clears, labelled. An extra payment is a what-if, against the
+  minimums, beside the rule to fill the cash reserve first. Avalanche or
+  snowball from two debts up, saved for the household and followed by Plan.
 - **Forecast**: projection of net worth under scenario sets, with the saving
   needed by year. Once ages are set it leads with the Life plan's stop year
   and whether the plan's own stop year lasts; the lasts-forever and lean

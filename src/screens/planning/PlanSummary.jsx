@@ -5,7 +5,8 @@ import { resolveScopeMemberId } from '../../lib/scope';
 import { formatMoney, formatPct } from '../../lib/money';
 import { scopedGoalRows } from '../../lib/goals';
 import { assumption } from '../../lib/planningDefaults';
-import { debtsWithAccounts, minimumOnlyPayoff, orderDebts, payoffMonthLabel, simulatePayoffPlan } from '../../lib/debt';
+import { debtOrder, debtsWithAccounts, minimumOnlyPayoff, minimumOnlyText, orderDebts, payoffMonthLabel, simulatePayoffPlan } from '../../lib/debt';
+import { andList } from '../../lib/words';
 import { isArchived } from '../../lib/accounts';
 import { unconfirmedAccounts } from '../../lib/balance';
 import { tabHref } from '../../lib/activityLink';
@@ -15,10 +16,6 @@ import { incompleteNote, netWorthSummary, startingNetWorth } from '../overviewMa
 import { couldntLoad, neverLoaded } from '../../lib/loadState';
 import { DEBT_INPUTS, DEBT_PLAN_INPUTS, GOALS_INPUTS, projectionInputs } from './planningSources';
 
-// "Card, Loan and Car": names in a sentence.
-function nameList(names) {
-  return names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
-}
 
 // When the debts in view clear. With a committed extra payment, on the
 // household's plan; otherwise at the minimum payments, which is the date the
@@ -30,16 +27,7 @@ function payoffText({ atMinimums, withExtra, now }) {
   if (withExtra !== undefined) {
     return withExtra ? `Clears about ${payoffMonthLabel(withExtra.months, now)} with the extra payment` : "Doesn't clear within 50 years with the extra payment";
   }
-  if (atMinimums.never.length > 0) {
-    const names = atMinimums.never.map((d) => d.name);
-    return `No payoff date: the minimum on ${nameList(names)} doesn't cover ${names.length === 1 ? 'its' : 'their'} interest`;
-  }
-  if (atMinimums.tooLong.length > 0) {
-    const names = atMinimums.tooLong.map((d) => d.name);
-    return `${nameList(names)} ${names.length === 1 ? 'takes' : 'take'} more than 50 years at the minimum`;
-  }
-  const when = payoffMonthLabel(atMinimums.months, now);
-  return atMinimums.owed === 1 ? `Clears about ${when} at the minimum payment` : `All clear about ${when} at the minimums, ${atMinimums.last.name} last`;
+  return minimumOnlyText(atMinimums, now);
 }
 
 // Composes the same goal/debt/forecast outputs Goals, DebtPayoff and Forecast
@@ -95,10 +83,10 @@ export default function PlanSummary({ household = null, members, me, accounts, t
   // A committed extra payment is the household's, so its projection is shown
   // only with both of you selected, as Debt payoff does. In one partner's
   // view this card showed a household date that Debt payoff refused to show.
-  const orderedFull = useMemo(() => orderDebts(debts, 'avalanche'), [debts]);
+  // In the order chosen on Debt payoff; this always used avalanche.
+  const orderedFull = useMemo(() => orderDebts(debts, debtOrder(assumptions)), [debts, assumptions]);
   const extraPayment = assumptions?.debt_extra_payment != null ? Number(assumptions.debt_extra_payment) : null;
-  const cardAssumptionSet = assumptions?.debt_assume_no_new_card_spend != null;
-  const canProjectDebt = scopeMemberId === null && extraPayment !== null && extraPayment > 0 && cardAssumptionSet && debts.length > 0;
+  const canProjectDebt = scopeMemberId === null && extraPayment !== null && extraPayment > 0 && debts.length > 0;
   const debtPlan = useMemo(() => (canProjectDebt ? simulatePayoffPlan(orderedFull, extraPayment) : null), [canProjectDebt, orderedFull, extraPayment]);
 
   // Balances nobody has entered count as 0 in every projection here, so each
@@ -185,7 +173,7 @@ export default function PlanSummary({ household = null, members, me, accounts, t
   const actions = [
     accountsMissing.length === 0 && unentered.length > 0 && {
       key: 'balances',
-      text: `${unentered.length === 1 ? 'Balance' : 'Balances'} not entered: ${nameList(unentered.slice(0, 3).map((a) => a.name))}${
+      text: `${unentered.length === 1 ? 'Balance' : 'Balances'} not entered: ${andList(unentered.slice(0, 3).map((a) => a.name))}${
         unentered.length > 3 ? ` and ${unentered.length - 3} more` : ''
       }. Every figure here counts ${unentered.length === 1 ? 'it' : 'them'} as 0.`,
       href: tabHref('/wealth', 'accounts'),

@@ -2636,4 +2636,20 @@ begin
   raise notice 'saved marker ok: a row another editor creates holds the defaults and is not saved until the drawer saves';
 end $$;
 
+-- The saved payoff order: avalanche or snowball, and nothing else (Planning
+-- audit, 1.4).
+do $$
+declare hh constant uuid := '11111111-1111-1111-1111-111111111111';
+begin
+  insert into planning_assumptions (household_id) values (hh) on conflict (household_id) do nothing;
+  update planning_assumptions set debt_order = 'snowball' where household_id = hh;
+  update planning_assumptions set debt_order = null where household_id = hh;
+  begin
+    update planning_assumptions set debt_order = 'custom' where household_id = hh;
+    raise exception 'debt order FAILED: a custom order was accepted before a rank can be set';
+  exception when check_violation then null;
+  end;
+  raise notice 'debt order ok: avalanche, snowball or blank, and nothing else';
+end $$;
+
 rollback;
