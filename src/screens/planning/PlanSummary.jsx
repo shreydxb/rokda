@@ -11,7 +11,7 @@ import { isArchived } from '../../lib/accounts';
 import { unconfirmedAccounts } from '../../lib/balance';
 import { tabHref } from '../../lib/activityLink';
 import { basisChoice, budgetInputs, budgetPlan, crossingYear, forecastInputs, incomesFromStop, independenceTarget, realReturn, spendThatStops } from '../../lib/forecast';
-import { agesLabel, DEFAULT_STOP_AGE, leftOutText, lifePlanStop, noStopText, spendAfterText } from '../../lib/lifePlan';
+import { agesLabel, DEFAULT_STOP_AGE, leftOutText, lifePlanStop, loansInSpending, noStopText, spendAfterText } from '../../lib/lifePlan';
 import { incompleteNote, netWorthSummary, startingNetWorth } from '../overviewMath';
 import { couldntLoad, neverLoaded } from '../../lib/loadState';
 import { DEBT_INPUTS, DEBT_PLAN_INPUTS, GOALS_INPUTS, projectionInputs } from './planningSources';
@@ -142,6 +142,8 @@ export default function PlanSummary({ household = null, members, me, accounts, t
   // With ages set, the Life plan answers when work can stop: the first year
   // its money lasts to the end. The 25x target above is money that lasts
   // forever, decades later, and used to be the only answer here.
+  // Loans paid out of spending, counted there once (Planning audit, 2.10).
+  const loans = useMemo(() => loansInSpending({ debts: data.debts ?? [], accounts, transactions, now }), [data.debts, accounts, transactions, now]);
   const stopFrom = useMemo(
     () => (inputs, spendStopping) =>
       lifePlanStop({
@@ -154,10 +156,11 @@ export default function PlanSummary({ household = null, members, me, accounts, t
         incomes: data.independenceIncome ?? [],
         household,
         stopping: spendStopping,
+        loans,
         startYear: now.getFullYear(),
         now,
       }),
-    [members, data.memberLife, assumptions, startNetWorth, goals, data.independenceIncome, household, now]
+    [members, data.memberLife, assumptions, startNetWorth, goals, data.independenceIncome, household, loans, now]
   );
   const stop = useMemo(() => stopFrom(forecast, stopping), [stopFrom, forecast, stopping]);
   // The same answer on the budget's figures, once three ended months have

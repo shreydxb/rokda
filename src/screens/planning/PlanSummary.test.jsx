@@ -100,7 +100,9 @@ describe('PlanSummary: records that never loaded are not read as none', () => {
     expect(screen.getByText('Couldn’t load goals and debts. What rests on them isn’t checked.')).toBeTruthy();
     expect(screen.getByText('Couldn’t load goals.')).toBeTruthy();
     expect(screen.getByText('Couldn’t load debts.')).toBeTruthy();
-    expect(screen.getByText('Couldn’t load goals. No year is worked out without them.')).toBeTruthy();
+    // The stop year rests on the debts too: a loan paid out of spending is
+    // counted there once (Planning audit, 2.10).
+    expect(screen.getByText('Couldn’t load goals and debts. No year is worked out without them.')).toBeTruthy();
     fireEvent.click(screen.getByText('Try again'));
     expect(onRetry).toHaveBeenCalled();
   });

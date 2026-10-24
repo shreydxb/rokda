@@ -356,3 +356,22 @@ describe('LifePlan: done goals', () => {
     expect(list.some((t) => t.startsWith('Boat'))).toBe(false);
   });
 });
+
+// Planning audit, 2.10: a loan paid out of spending is counted there, once.
+describe('LifePlan: a loan counted once', () => {
+  it('says the instalment is in spending until the loan clears, and starts before what it owes', () => {
+    const loanAccount = { id: 'la', type: 'loan', currency: 'AED', balance: 12000, balance_aed: 12000, is_shared: true, archived_at: null };
+    const debts = [{ id: 'd1', name: 'Car loan', balance: 12000, apr_pct: 0, minimum_payment: 1000, account_id: 'la', is_shared: true }];
+    renderPlan({ accounts: [ACCOUNT, loanAccount], data: { debts } });
+    expect(screen.getByText(/Car loan's AED 1,000 a month is in today's spending until it clears about \w{3} \d{4}, and saving rises by it after that\. The plan starts from what you own before the AED 12,000 it owes/)).toBeTruthy();
+  });
+
+  it('says nothing of a loan paid by transfers into its own account, which the records count as saving', () => {
+    const loanAccount = { id: 'la', type: 'loan', currency: 'AED', balance: 12000, balance_aed: 12000, is_shared: true, archived_at: null };
+    const debts = [{ id: 'd1', name: 'Car loan', balance: 12000, apr_pct: 0, minimum_payment: 1000, account_id: 'la', is_shared: true }];
+    const last = new Date(new Date().getFullYear(), new Date().getMonth() - 1, 15);
+    const paid = { id: 'tr', kind: 'transfer', account_id: 'la', amount: 1000, occurred_at: `${last.getFullYear()}-${String(last.getMonth() + 1).padStart(2, '0')}-15`, is_shared: true };
+    renderPlan({ accounts: [ACCOUNT, loanAccount], transactions: [...history(), paid], data: { debts } });
+    expect(screen.queryByText(/Car loan's AED 1,000 a month/)).toBeNull();
+  });
+});

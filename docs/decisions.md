@@ -2517,3 +2517,27 @@ than any other input but the scenario.
   averaged, and the drawer offers every month from the first recorded to
   this one.
 - **Ended months, not closed months,** in what the tabs say.
+
+## A loan is counted once
+
+The plan took a loan's balance off the starting pot and kept its whole
+instalment in spending until work stopped: the principal counted twice, and
+saving never rose when the loan cleared, years before (Planning audit, 2.10).
+
+- **Which loans:** those whose instalment is part of the spending the plan
+  uses (`loansInSpending`). A card is left alone, since its purchases are the
+  spending, and so is a loan paid by transfers into its own account in the
+  last twelve months, which the records already count as saving. A loan its
+  instalment never clears has no date and is left as it was.
+- **Start from assets for those loans:** the plan starts from what the
+  household owns before what they owe (only for a loan net worth counts),
+  and the instalment repays it inside spending. The audit's other option,
+  starting from net worth and counting only the interest, would have meant
+  splitting every recorded instalment into interest and principal.
+- **Saving rises once each one clears,** from the month after its last
+  instalment at the minimum (Debt payoff's date), by the instalment in
+  today's money then. A loan clearing after work stops lowers spending from
+  then, when that spending is today's; a figure saved for the plan, or
+  today's less what stops, is left as it is.
+- **The Life plan says so** under its timeline, and a projection waits for
+  the debts to load rather than counting the loan twice again.

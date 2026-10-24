@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { startingNetWorth } from '../overviewMath';
 import { basisChoice, budgetInputs, budgetPlan, forecastInputs, incomesWithoutRate, spendThatStops } from '../../lib/forecast';
-import { agesIn, agesLabel, earliestStop, extraSavingNeeded, leftOutText, lifePlan, lifePlanBasis, maxRetirementSpend, membersLeftOut, planEndYear, planPeople, potNeededAt } from '../../lib/lifePlan';
+import { agesIn, agesLabel, earliestStop, extraSavingNeeded, leftOutText, lifePlan, lifePlanBasis, loansInSpending, loansText, maxRetirementSpend, membersLeftOut, planEndYear, planPeople, potNeededAt } from '../../lib/lifePlan';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { ChartLegend, ColumnChart } from '../../charts/Charts';
 import BasisLine, { BudgetBeside } from './BasisLine';
@@ -90,6 +90,8 @@ export default function LifePlan({
   // Anyone without them is left out, and says so: the money could seem to last
   // when it runs out before their plan would end (Planning audit, 1.1).
   const leftOut = useMemo(() => membersLeftOut(members, data.memberLife ?? []), [members, data.memberLife]);
+  // Loans paid out of spending, counted there once (Planning audit, 2.10).
+  const loans = useMemo(() => loansInSpending({ debts: data.debts ?? [], accounts, transactions, now }), [data.debts, accounts, transactions, now]);
   // A goal marked done is off the timeline, and off the list below with it.
   const openGoals = useMemo(() => (data.goals ?? []).filter((g) => !isDone(g)), [data.goals]);
 
@@ -108,6 +110,7 @@ export default function LifePlan({
         incomes: data.independenceIncome ?? [],
         household,
         stopping: spendStopping,
+        loans,
         startYear,
         now,
         fcSet,
@@ -128,7 +131,7 @@ export default function LifePlan({
       recorded: { inputs, earliest, result },
       onBudget: budget ? { inputs: budgetBasis, earliest: earliestStop(budget.args), result: lifePlan(budget.args) } : null,
     };
-  }, [people, assumptions, inputs, startNetWorth, data.goals, data.independenceIncome, household, stopping, budgetBasis, budgetStopping, startYear, now, fcSet, stopOverride, spendKind]);
+  }, [people, assumptions, inputs, startNetWorth, data.goals, data.independenceIncome, household, stopping, loans, budgetBasis, budgetStopping, startYear, now, fcSet, stopOverride, spendKind]);
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
   const missing = neverLoaded(sources, projectionInputs(inputs));
@@ -223,6 +226,7 @@ export default function LifePlan({
   }
 
   const { basis, result, need, earliest, extra, mostSpend, recorded, onBudget } = worked;
+  const loansLine = loansText(basis.loans, basis.owedOnLoans, (v) => `${money.code} ${money.fmt(v)}`);
   const { endYear, sets, selected, inflationPct, postNominal, savedStop, stopYear, spendOptions, spendChoice, survivorPct, goals, incomes, inflows } = basis;
   const anyIncome = incomes.length > 0 || inflows.length > 0;
   const uncounted = incomesWithoutRate(data.independenceIncome ?? [], household);
@@ -576,6 +580,7 @@ export default function LifePlan({
         inflation. Saving is {money.code} {money.fmtBalance(inputs.monthlySaving)} a month
         {inputs.source === 'budget' ? ', your savings target in the budget' : `, the average of the last ${inputs.monthCount} ended months`}, kept the
         same in today&rsquo;s money until work stops.
+        {loansLine && ` ${loansLine}`}
         {people.length > 1 && survivorPct !== 100 && ` Once one person remains, spending is ${survivorPct}% of the couple's.`}
         {incomes.length > 0 && ` ${incomes.length} source${incomes.length === 1 ? '' : 's'} of other income from Drawdown count from ${stopYear}.`}
         {uncounted.length > 0 &&
