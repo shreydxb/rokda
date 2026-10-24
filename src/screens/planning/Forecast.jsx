@@ -6,7 +6,7 @@ import { incompleteNote, netWorthSummary, startingNetWorth } from '../overviewMa
 import { isArchived } from '../../lib/accounts';
 import { unconfirmedAccounts } from '../../lib/balance';
 import { basisChoice, budgetPlan, crossingYear, fiTarget, forecastInputs, goalAt, incomesFromStop, independenceTarget, projectYears, realReturn, requiredAnnualSaving, scenarioSets, spendThatStops } from '../../lib/forecast';
-import { agesLabel, lifePlanStop, noStopText, spendAfterText, spendHow } from '../../lib/lifePlan';
+import { agesLabel, lifePlanStop, loansInSpending, noStopText, spendAfterText, spendHow } from '../../lib/lifePlan';
 import BasisLine from './BasisLine';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import ForecastAssumptionsEditor from './ForecastAssumptionsEditor';
@@ -113,6 +113,8 @@ export default function Forecast({ household, members = [], accounts = [], trans
   const selNominalPct = selected.nominalPct;
   const selInflationPct = selected.inflationPct;
   const selSwrPct = selected.swrPct;
+  // Loans paid out of spending, counted there once (Planning audit, 2.10).
+  const loans = useMemo(() => loansInSpending({ debts: data.debts ?? [], accounts, transactions, now }), [data.debts, accounts, transactions, now]);
   // The Life plan's answer to when work can stop, on this scenario. Where it
   // exists it is the answer; the target here is the stricter one of money
   // that lasts forever.
@@ -128,11 +130,12 @@ export default function Forecast({ household, members = [], accounts = [], trans
         incomes: data.independenceIncome ?? [],
         household,
         stopping: spendThatStops({ inputs, transactions, budgets, categories, now }),
+        loans,
         startYear,
         now,
         fcSet,
       }),
-    [members, data.memberLife, assumptions, inputs, startNetWorth, data.goals, data.independenceIncome, household, transactions, budgets, categories, now, startYear, fcSet]
+    [members, data.memberLife, assumptions, inputs, startNetWorth, data.goals, data.independenceIncome, household, transactions, budgets, categories, loans, now, startYear, fcSet]
   );
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;

@@ -5,7 +5,7 @@ import { formatMoney } from '../../lib/money';
 import { assumption } from '../../lib/planningDefaults';
 import { cashPerMonth, fundInPriority, goalCostAtDate, goalInflationPct, doneMonth, goalStatuses, isDone } from '../../lib/goals';
 import { basisChoice, budgetPlan, forecastInputs, spendThatStops } from '../../lib/forecast';
-import { lifePlanStop } from '../../lib/lifePlan';
+import { lifePlanStop, loansInSpending } from '../../lib/lifePlan';
 import { startingNetWorth } from '../overviewMath';
 import GoalEditor from './GoalEditor';
 import { neverLoaded } from '../../lib/loadState';
@@ -110,6 +110,8 @@ export default function Goals({
   const plan = useMemo(() => budgetPlan(budgets, categories, now), [budgets, categories, now]);
   const inputs = useMemo(() => forecastInputs(transactions, startNetWorth, now, plan, recurring, basisChoice(assumptions)), [transactions, startNetWorth, now, plan, recurring, assumptions]);
   const timelineMissing = neverLoaded(sources, projectionInputs(inputs)).length > 0;
+  // Loans paid out of spending, counted there once (Planning audit, 2.10).
+  const loans = useMemo(() => loansInSpending({ debts: data.debts ?? [], accounts, transactions, now }), [data.debts, accounts, transactions, now]);
   const timeline = useMemo(() => {
     if (timelineMissing) return null;
     const stopping = spendThatStops({ inputs, transactions, budgets, categories, now });
@@ -123,11 +125,12 @@ export default function Goals({
       incomes: data.independenceIncome ?? [],
       household,
       stopping,
+      loans,
       startYear: now.getFullYear(),
       now,
     });
     return stop?.rows ?? null;
-  }, [timelineMissing, inputs, transactions, budgets, categories, now, members, data.memberLife, assumptions, startNetWorth, goals, data.independenceIncome, household]);
+  }, [timelineMissing, inputs, transactions, budgets, categories, now, members, data.memberLife, assumptions, startNetWorth, goals, data.independenceIncome, household, loans]);
 
   const rows = useMemo(
     () =>

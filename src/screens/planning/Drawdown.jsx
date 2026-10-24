@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { startingNetWorth } from '../overviewMath';
 import { basisChoice, budgetPlan, drawdownPath, forecastInputs, incomesFromStop, incomesWithoutRate, independenceTarget, MARKET_FALL, marketReturns, potForWithdrawal, realReturn, scenarioSets, spendThatStops, sustainableWithdrawal } from '../../lib/forecast';
-import { agesIn, agesLabel, lifePlanBasis, lifePlanHandover, planEndYear, planPeople } from '../../lib/lifePlan';
+import { agesIn, agesLabel, lifePlanBasis, lifePlanHandover, loansInSpending, planEndYear, planPeople } from '../../lib/lifePlan';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { LineChart } from '../../charts/Charts';
 import IncomeEditor from './IncomeEditor';
@@ -68,6 +68,8 @@ export default function Drawdown({ household, members = [], accounts = [], trans
   // Until three months close, the budget stands in (forecastInputs).
   const plan = useMemo(() => budgetPlan(budgets, categories, now), [budgets, categories, now]);
   const inputs = useMemo(() => forecastInputs(transactions, startNetWorth, now, plan, recurring, basisChoice(assumptions)), [transactions, startNetWorth, now, plan, recurring, assumptions]);
+  // Loans paid out of spending, counted there once (Planning audit, 2.10).
+  const loans = useMemo(() => loansInSpending({ debts: data.debts ?? [], accounts, transactions, now }), [data.debts, accounts, transactions, now]);
   // Where the Life plan leaves the household when work stops, on this
   // screen's scenario. Null until someone's age is set.
   const handover = useMemo(() => {
@@ -83,12 +85,13 @@ export default function Drawdown({ household, members = [], accounts = [], trans
       incomes: data.independenceIncome ?? [],
       household,
       stopping: spendThatStops({ inputs, transactions, budgets, categories, now }),
+      loans,
       startYear: now.getFullYear(),
       now,
       fcSet,
     });
     return { ...lifePlanHandover(basis), people };
-  }, [members, data.memberLife, data.goals, data.independenceIncome, inputs, assumptions, startNetWorth, household, transactions, budgets, categories, now, fcSet]);
+  }, [members, data.memberLife, data.goals, data.independenceIncome, inputs, assumptions, startNetWorth, household, transactions, budgets, categories, loans, now, fcSet]);
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
   const missing = neverLoaded(sources, projectionInputs(inputs));
