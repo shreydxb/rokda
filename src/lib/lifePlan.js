@@ -1,4 +1,4 @@
-import { incomeInYear, incomesFromStop, realReturn, scenarioSets } from './forecast';
+import { incomeInYear, incomesFromStop, MARKET_FALL, realReturn, scenarioSets } from './forecast';
 import { convertToAed } from './currency';
 import { parseDay } from './day';
 import { goalInflationPct, isDone } from './goals';
@@ -153,7 +153,9 @@ export function yearLeft(now) {
 // work stops fall, when that spending is today's (`freedFromSpend`). `costs`
 // are the costs that start when work stops (costsAfterWork), on top of the
 // spending: a row's `spend` is everything spent that year, and `costs` the
-// part of it they are.
+// part of it they are. `returnFor(year, retireYear)`, when given, is a real
+// return for that year in place of the steady one, or null to keep it: the
+// market fall the stress test puts the plan through (marketFall).
 export function lifePlan({
   startYear,
   people,
@@ -171,6 +173,7 @@ export function lifePlan({
   freed = [],
   freedFromSpend = false,
   costs = [],
+  returnFor = null,
 }) {
   const endYear = planEndYear(people);
   // A loan's instalment, from the month after it clears.
@@ -201,7 +204,8 @@ export function lifePlan({
     const paid = Math.min(needed, Math.max(0, balance));
     let short = needed - paid;
     const after = balance - paid;
-    const growth = after > 0 ? after * ((1 + (working ? preRate : postRate)) ** share - 1) : 0;
+    const rate = returnFor?.(year, retireYear) ?? (working ? preRate : postRate);
+    const growth = after > 0 ? after * ((1 + rate) ** share - 1) : 0;
     const saving = working ? annualSaving * share + freedIn(year) : 0;
     let end = after + growth + saving;
     if (end < 0 && !working) {
@@ -211,7 +215,9 @@ export function lifePlan({
     // A shortfall under a thousandth of a unit is float noise.
     if (short < 1e-3) short = 0;
     if (short > 0 && shortYear === null) shortYear = year;
-    rows.push({ year, working, forOne, start, saving, spend, costs: costsNow, income: yearly + lump + inflow, inflows: arriving, goals: due, goalOutflow, paid, short, growth, end });
+    // What the pot itself pays towards the year's spending, after other income.
+    const drawn = Math.max(0, spend - yearly);
+    rows.push({ year, working, forOne, start, saving, spend, costs: costsNow, drawn, income: yearly + lump + inflow, inflows: arriving, goals: due, goalOutflow, paid, short, rate, growth, end });
     pot = end;
   }
   return { rows, endYear, shortYear, lasts: shortYear === null, left: pot, potAtStop };
@@ -516,6 +522,64 @@ export function stopRange(basisFor) {
       earliest: earliestStop(basis.args),
     };
   });
+}
+
+// The stress test (Planning audit, 3.14): the same market fall after work
+// stops, early or late, put through the Life plan itself rather than a
+// simpler drawdown of its own, so it counts what the plan counts -- spending
+// for one, goals after work stops, other income, the costs that start then.
+// The fall is MARKET_FALL, about what a mixed pot lost after inflation in a
+// bad stretch such as 2008: sized for the more cautious mix the plan assumes
+// once work stops (AFTER_WORK_RETURN_GAP), not today's all-equity one, which
+// fell about twice as far in 1973-74.
+//
+// marketFall(after) is a return override for lifePlan: the fall starts in
+// year `after` of not working (1 is the year work stops), and moves with the
+// stop year, so earliestStop finds the first year that weathers it.
+export function marketFall(after) {
+  return (year, retireYear) => {
+    const k = year - retireYear + 1 - after;
+    return k >= 0 && k < MARKET_FALL.length ? MARKET_FALL[k] : null;
+  };
+}
+
+export const STRESS_FALLS = [
+  { key: 'steady', label: 'Steady', after: null },
+  { key: 'early', label: 'Fall the year work stops', after: 1 },
+  { key: 'late', label: 'Fall ten years in', after: 10 },
+];
+
+// The plan at its stop year with a steady return, and with the fall early and
+// late. `basis` is lifePlanBasis on Baseline: a fall stacked on Conservative
+// would count caution twice. Each outcome says whether the money lasts and
+// what is left, or the year it runs out, its years from the stop year on, and
+// the earliest year work could stop and weather it. A fall that would come
+// after the plan ends is left out. `firstDraw` is what the pot pays towards
+// spending in the year work stops, after other income, and that as a share of
+// what it holds then.
+export function stressTest(basis) {
+  const { stopYear, endYear } = basis;
+  const outcomes = STRESS_FALLS.filter((f) => f.after === null || stopYear + f.after - 1 <= endYear).map((f) => {
+    const returnFor = f.after === null ? null : marketFall(f.after);
+    const result = lifePlan({ ...basis.args, returnFor });
+    return {
+      key: f.key,
+      label: f.label,
+      fallYear: f.after === null ? null : stopYear + f.after - 1,
+      lasts: result.lasts,
+      shortYear: result.shortYear,
+      left: result.left,
+      rows: result.rows.filter((r) => r.year >= stopYear),
+      earliest: earliestStop({ ...basis.args, returnFor }),
+    };
+  });
+  const first = outcomes[0].rows[0];
+  return {
+    stopYear,
+    endYear,
+    outcomes,
+    firstDraw: first ? { year: first.year, drawn: first.drawn, pot: first.start, share: first.start > 0 ? first.drawn / first.start : null } : null,
+  };
 }
 
 // "Baseline lasts to 2080 with AED 2.1M left · Conservative runs out in 2071":

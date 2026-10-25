@@ -217,7 +217,11 @@ here, because this repository is public.
   (`after_work_costs`). Solves for the
   earliest year work can stop. A loan paid out of spending is counted once:
   the plan starts before what it owes, and saving rises by its instalment
-  once it clears at the minimum.
+  once it clears at the minimum. "If markets fall" puts the plan at its stop
+  year through the same two-year fall the year work stops and ten years in,
+  on Baseline, beside a steady return: whether each lasts, the stop year that
+  weathers the early fall, what the first year without work takes from the
+  pot, and the pot's path against the steady one.
 - **Goals**: targets in today's cost with their own inflation, in four
   kinds, each goal with one status. Due within 3 years: paid from cash
   (logged contributions and linked current, savings and cash accounts, no
