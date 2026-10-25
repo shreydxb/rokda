@@ -2698,4 +2698,56 @@ begin
   raise notice 'planning basis ok: budget, recorded or blank, from the first of a month';
 end $$;
 
+-- Costs that start when work stops: amounts, names, currencies, the rise and
+-- the timing are checked at the source (Planning audit, 3.13).
+do $$
+declare
+  hh constant uuid := '11111111-1111-1111-1111-111111111111';
+  c uuid;
+begin
+  insert into after_work_costs (household_id, name, amount) values (hh, 'Visa fees', 2000) returning id into c;
+  if (select (per_person, rise_pct, starts_after_years, lasts_years, currency) from after_work_costs where id = c)
+     is distinct from row(false, 0.00::numeric(5, 2), 0, null::int, 'AED'::text) then
+    raise exception 'after_work_costs FAILED: a new cost is not for the household, level, from the stop, for good, in AED';
+  end if;
+  insert into after_work_costs (household_id, name, amount, currency, per_person, rise_pct, starts_after_years, lasts_years)
+  values (hh, 'Health cover', 30000, 'INR', true, 3.5, 0, 30);
+  begin
+    insert into after_work_costs (household_id, name, amount) values (hh, 'Nothing', 0);
+    raise exception 'after_work_costs FAILED: a zero amount was accepted';
+  exception when check_violation then null;
+  end;
+  begin
+    insert into after_work_costs (household_id, name, amount) values (hh, '  ', 100);
+    raise exception 'after_work_costs FAILED: a blank name was accepted';
+  exception when check_violation then null;
+  end;
+  begin
+    insert into after_work_costs (household_id, name, amount, currency) values (hh, 'Cover', 100, 'EUR');
+    raise exception 'after_work_costs FAILED: a currency the app cannot convert was accepted';
+  exception when check_violation then null;
+  end;
+  begin
+    update after_work_costs set rise_pct = 12 where id = c;
+    raise exception 'after_work_costs FAILED: a rise above 10%% a year was accepted';
+  exception when check_violation then null;
+  end;
+  begin
+    update after_work_costs set rise_pct = -1 where id = c;
+    raise exception 'after_work_costs FAILED: a falling cost was accepted';
+  exception when check_violation then null;
+  end;
+  begin
+    update after_work_costs set starts_after_years = 61 where id = c;
+    raise exception 'after_work_costs FAILED: a start beyond 60 years was accepted';
+  exception when check_violation then null;
+  end;
+  begin
+    update after_work_costs set lasts_years = 0 where id = c;
+    raise exception 'after_work_costs FAILED: a cost lasting no years was accepted';
+  exception when check_violation then null;
+  end;
+  raise notice 'after_work_costs ok: amounts, names, currencies, the rise and the timing are checked';
+end $$;
+
 rollback;

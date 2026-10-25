@@ -72,4 +72,12 @@ describe('planningModel', () => {
     expect(chosen.inputs).toMatchObject({ source: 'budget', why: 'chosen' });
     expect(chosen.budgetBasis).toBeNull();
   });
+
+  it('counts the costs that start when work stops (3.13)', () => {
+    const costs = [{ id: 'c1', name: 'Health cover', amount: '8000', currency: 'AED', per_person: true, rise_pct: '0', starts_after_years: 0, lasts_years: null }];
+    const withCosts = planningModel({ accounts, transactions, budgets, categories, data: { ...data, afterWorkCosts: costs }, members, now });
+    expect(withCosts.stop().costsAtStop).toBe(8000);
+    expect(withCosts.basis().args.costs).toHaveLength(1);
+    expect(model.stop().costsAtStop).toBe(0);
+  });
 });

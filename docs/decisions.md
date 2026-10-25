@@ -2585,3 +2585,63 @@ zero-margin year at one return (Planning audit, 3.12).
   figures beside the records say what Baseline gives on them.
 - **A new plan suggests planning to 95,** a careful age for a couple; the
   age stays the household's to set.
+
+## One drawer for the plan's assumptions
+
+The plan's assumptions were edited in three places: Forecast's assumptions
+drawer, Drawdown's other income and the Life plan editor, while every tab's
+figures rest on all of them (Planning audit, 3.13). They are one drawer now,
+the Life plan's, in the order a plan is thought through: who it is for, when
+work stops, spending after that, the costs that start then, other income,
+and growth.
+
+- **Every Edit opens it:** Edit plan at the top, Edit assumptions on the
+  assumptions bar at the growth figures, Drawdown's Edit in the plan at
+  other income.
+- **Income and costs are rows of their own,** so each opens in a drawer over
+  the plan's and is saved as it is added, as before; Escape closes the one on
+  top.
+- **Growth figures are written only when one is changed.** Saving the people
+  or the stop year no longer marks the defaults as the household's choice,
+  and the baseline Forecast compares against is set the first time they
+  change, as it was set the first time the old drawer saved.
+- **Custom keeps its own figures:** opened on the Custom scenario, the
+  growth section edits Custom's, as Forecast's drawer did.
+
+## The return after work stops
+
+A pot being spent is usually held more cautiously than one being built, and
+the plan assumed the same return either side of the stop year unless told
+otherwise, which flattered every plan (Planning audit, 3.13).
+
+- **A point below the working return** until the household sets its own
+  (`AFTER_WORK_RETURN_GAP`): 6% before work stops is 5% after. The drawer's
+  field says so in its placeholder.
+- **The scenarios move both returns together.** Conservative is two points
+  lower before work stops, so it is two points lower after too, whether the
+  return after is the default or the household's own.
+
+## Costs that start when work stops
+
+The plan was built on today's spending, which leaves out exactly the costs
+the household does not pay today: health cover an employer pays until work
+stops, and residence visa fees (Planning audit, 3.13). They are rows of their
+own (`after_work_costs`), on top of the spending after work stops.
+
+- **A year's cost at today's prices and ages,** in dirhams, rupees or dollars
+  like other income; a rupee cost with no rate yet is left out and named.
+- **For the household or for each person.** A cost for each person counts
+  once for each person still planned for, so cover for two halves when one
+  remains. Spending for one does not apply to them.
+- **Rising above inflation, from now.** Health cover costs more with age, so
+  cover priced at today's ages costs more by the time work stops and goes on
+  rising. The rise counts from the plan's first year even where the plan is
+  worked out from the stop year (the pot needed then).
+- **Timed from the year work stops,** with a start after and a length, as
+  other income is.
+- **Where they count:** the Life plan's timeline and every answer built on it
+  (Plan's Stop working card, Goals, Forecast's stop year), which say the
+  costs beside the spending. Drawdown's handover adds what they come to in
+  the stop year; their rise after that is the Life plan's alone. The
+  independence target, a multiple of spending, leaves them out, as it leaves
+  out income that does not start at once and last.

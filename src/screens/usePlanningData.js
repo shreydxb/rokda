@@ -23,6 +23,7 @@ const SOURCES = [
   },
   { key: 'debts', empty: [], run: paged((id) => supabase.from('debts').select('*').eq('household_id', id).order('created_at').order('id')) },
   { key: 'independenceIncome', empty: [], run: paged((id) => supabase.from('independence_income').select('*').eq('household_id', id).order('created_at').order('id')) },
+  { key: 'afterWorkCosts', empty: [], run: paged((id) => supabase.from('after_work_costs').select('*').eq('household_id', id).order('created_at').order('id')) },
   { key: 'memberLife', empty: [], run: paged((id) => supabase.from('member_life').select('*').eq('household_id', id).order('member_id')) },
   { key: 'notes', empty: [], run: paged((id) => supabase.from('household_notes').select('*').eq('household_id', id).order('position').order('created_at').order('id')) },
   // One row per household, so one request.
@@ -40,6 +41,7 @@ const EMPTY_STATE = {
   balanceEvents: [],
   debts: [],
   independenceIncome: [],
+  afterWorkCosts: [],
   memberLife: [],
   notes: [],
   assumptions: null,

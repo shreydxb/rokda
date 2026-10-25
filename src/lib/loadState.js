@@ -23,6 +23,7 @@ export const SOURCE_LABELS = {
   goalAllocations: 'goal funding',
   balanceEvents: 'balance history',
   independenceIncome: 'later income',
+  afterWorkCosts: 'costs after work stops',
   memberLife: 'ages for the life plan',
   notes: 'household notes',
   statementReconciliations: 'card statements',

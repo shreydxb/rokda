@@ -10,7 +10,7 @@ import { agesLabel, noStopText, spendAfterText, spendHow } from '../../lib/lifeP
 import { planningModel } from '../../lib/planningModel';
 import BasisLine from './BasisLine';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
-import ForecastAssumptionsEditor from './ForecastAssumptionsEditor';
+import LifePlanEditor from './LifePlanEditor';
 import AssumptionsBar from './AssumptionsBar';
 import { ChartLegend, ColumnChart, RangeChart } from '../../charts/Charts';
 import { tabHref } from '../../lib/activityLink';
@@ -44,7 +44,7 @@ function deltaLabel(years) {
 // with no accounts and silently dropped holdings from net worth with
 // accounts (QA-03).
 export default function Forecast({ household, members = [], accounts = [], transactions = [],
-  recurring = [], holdings = [], budgets = [], categories = [], data, sources, onRetry, loading, onOpenTab, scenario, onScenario, moneyMode, onMoneyMode }) {
+  recurring = [], holdings = [], budgets = [], categories = [], data, sources, onRetry, loading, onReload, onOpenTab, scenario, onScenario, moneyMode, onMoneyMode }) {
   const navigate = useNavigate();
   const householdId = household?.id;
   const { assumptions } = data;
@@ -82,14 +82,14 @@ export default function Forecast({ household, members = [], accounts = [], trans
         recurring,
         budgets,
         categories,
-        data: { assumptions, goals: data.goals, memberLife: data.memberLife, independenceIncome: data.independenceIncome, debts: data.debts },
+        data: { assumptions, goals: data.goals, memberLife: data.memberLife, independenceIncome: data.independenceIncome, afterWorkCosts: data.afterWorkCosts, debts: data.debts },
         members,
         household,
         now,
       }),
-    [accounts, holdings, transactions, recurring, budgets, categories, assumptions, data.goals, data.memberLife, data.independenceIncome, data.debts, members, household, now]
+    [accounts, holdings, transactions, recurring, budgets, categories, assumptions, data.goals, data.memberLife, data.independenceIncome, data.afterWorkCosts, data.debts, members, household, now]
   );
-  const { startNetWorth, plan, inputs } = model;
+  const { startNetWorth, plan, inputs, stopping } = model;
   // A projection resting on balances nobody has confirmed is still worth
   // showing -- it is the household's best available picture -- but it must not
   // present itself as settled. Same call Overview makes about net worth
@@ -813,16 +813,26 @@ export default function Forecast({ household, members = [], accounts = [], trans
         </div>
       </div>
 
+      {/* The plan's one drawer, at its growth figures (Planning audit, 3.13). */}
       {editing && (
-        <ForecastAssumptionsEditor
+        <LifePlanEditor
           householdId={householdId}
+          household={household}
+          members={members}
+          memberLife={data.memberLife ?? []}
           assumptions={assumptions}
+          categories={categories}
+          spendByCategory={stopping.byCategory}
+          incomes={data.independenceIncome ?? []}
+          costs={data.afterWorkCosts ?? []}
           budgetMonthlySaving={plan?.monthlySaving ?? null}
           scenario={fcSet}
+          section="growth"
+          onRowsChanged={data.reload}
           onClose={() => setEditing(false)}
           onSaved={async () => {
             setEditing(false);
-            await data.reload();
+            await Promise.all([data.reload(), onReload?.()]);
           }}
         />
       )}

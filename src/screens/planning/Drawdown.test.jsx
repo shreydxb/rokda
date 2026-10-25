@@ -99,11 +99,16 @@ describe('Drawdown: other income once working stops', () => {
     expect(screen.queryByText(/lowers the target/)).toBeNull();
   });
 
-  it('offers to add one when there are none', () => {
+  // Planning audit, 3.13: other income is edited in the plan's one drawer.
+  it('edits it in the plan\'s drawer, at its other income', () => {
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
     renderDrawdown();
     expect(screen.getByText(/None added/)).toBeTruthy();
-    fireEvent.click(screen.getByText('+ Income'));
-    expect(screen.getByRole('dialog', { name: 'Add income' })).toBeTruthy();
+    fireEvent.click(screen.getByText('Edit in the plan'));
+    expect(screen.getByRole('dialog', { name: 'Life plan' })).toBeTruthy();
+    expect(scroll.mock.contexts[0].textContent).toBe('Other income');
+    delete Element.prototype.scrollIntoView;
   });
 });
 

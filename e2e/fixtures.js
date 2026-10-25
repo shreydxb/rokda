@@ -159,6 +159,13 @@ export const data = {
     { id: 'a2a2a2a2-0000-4000-8000-000000000002', household_id: HH, name: 'End-of-service gratuity', kind: 'lump_sum', amount: 90000, starts_after_years: 0, lasts_years: null, note: '', created_at: ts(monthsAgo(1)), updated_at: ts(monthsAgo(1)) },
   ],
 
+  // Costs that start when work stops: cover for each person, rising with age,
+  // and a visa fee for the household.
+  after_work_costs: [
+    { id: 'a2a2a2a2-0000-4000-8000-000000000011', household_id: HH, name: 'Health cover', amount: 8000, currency: 'AED', per_person: true, rise_pct: 3, starts_after_years: 0, lasts_years: null, note: '', created_at: ts(monthsAgo(1)), updated_at: ts(monthsAgo(1)) },
+    { id: 'a2a2a2a2-0000-4000-8000-000000000012', household_id: HH, name: 'Visa fees', amount: 2000, currency: 'AED', per_person: false, rise_pct: 0, starts_after_years: 0, lasts_years: null, note: '', created_at: ts(monthsAgo(1)), updated_at: ts(monthsAgo(1)) },
+  ],
+
   category_rules: [{ id: 'b2b2b2b2-0000-4000-8000-000000000001', household_id: HH, category_id: C_GROCERIES, pattern: 'spinneys', match_type: 'contains', archived: false, created_at: ts(monthsAgo(3)), updated_at: ts(monthsAgo(1)) }],
 
   transaction_edits: [],

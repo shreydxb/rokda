@@ -179,9 +179,18 @@ here, because this repository is public.
   Conservative, Optimistic, Custom), today's or future money (Drawdown is
   today's money only), growth (return, inflation, after inflation, and what
   else the view depends on), and the spending the view is built on. Edit
-  assumptions changes the shared return, inflation and withdrawal rate from
-  any of them. The scenario and the money shown hold across the three tabs
-  until changed, and are never saved.
+  assumptions opens the plan's drawer at its growth figures from any of
+  them. The scenario and the money shown hold across the three tabs until
+  changed, and are never saved.
+- **The plan's drawer** (Edit plan on the Life plan, Edit assumptions, Edit
+  in the plan on Drawdown) holds every planning assumption in one place: who
+  the plan is for and the age to plan each person to, the year work stops,
+  spending after it (a planned figure, essentials only, for one, and the
+  categories that stop), the costs that start when work stops, other income,
+  and growth: the return, inflation, withdrawal rate and the return after
+  work stops, which is a point below the return until one is set and moves
+  with the scenario. Costs and income open in a drawer over it and are saved
+  as they are added.
 - **Planning basis**: every projection (Plan, Life plan, Forecast,
   Drawdown) opens with one line saying what it is worked out on: your budget
   or the recorded months, why, and from which month the records count.
@@ -202,7 +211,10 @@ here, because this repository is public.
   with nothing to spare is a lever under "What it would take". Then a
   year-by-year timeline from today to the last life expectancy: saving and growth while working, each goal paid in its year,
   dated lump sums (policy maturities) and later income, then spending once
-  work stops, less what stops with work (EMIs, rent where set). Solves for the
+  work stops, less what stops with work (EMIs, rent where set), plus the
+  costs that start then: health cover and visa fees, for the household or
+  each person, rising above inflation from now if set
+  (`after_work_costs`). Solves for the
   earliest year work can stop. A loan paid out of spending is counted once:
   the plan starts before what it owes, and saving rises by its instalment
   once it clears at the minimum.
@@ -232,7 +244,8 @@ here, because this repository is public.
   alternatives that leave the year where it is fold into one line ("3 make
   no change") that opens.
 - **Drawdown**: the Life plan's stress test from its stop year: how long the
-  pot lasts, with a market fall early or late.
+  pot lasts, with a market fall early or late. It lists other income, which
+  is edited in the plan's drawer.
 - **Notes**: the household plan in words, private to the household.
 
 ## Settings (`/settings`)

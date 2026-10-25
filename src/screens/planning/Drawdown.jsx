@@ -1,12 +1,12 @@
 import { useMemo, useState } from 'react';
-import { drawdownPath, incomesFromStop, incomesWithoutRate, independenceTarget, MARKET_FALL, marketReturns, potForWithdrawal, realReturn, scenarioSets, sustainableWithdrawal } from '../../lib/forecast';
+import { drawdownPath, incomesFromStop, independenceTarget, MARKET_FALL, marketReturns, potForWithdrawal, realReturn, scenarioSets, sustainableWithdrawal } from '../../lib/forecast';
 import { agesIn, agesLabel, lifePlanHandover, planEndYear } from '../../lib/lifePlan';
 import { planningModel } from '../../lib/planningModel';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { LineChart } from '../../charts/Charts';
-import IncomeEditor from './IncomeEditor';
 import BasisLine from './BasisLine';
-import ForecastAssumptionsEditor from './ForecastAssumptionsEditor';
+import LifePlanEditor from './LifePlanEditor';
+import { describeIncome, nativeAmountLabel } from '../../lib/planRows';
 import AssumptionsBar from './AssumptionsBar';
 import { neverLoaded } from '../../lib/loadState';
 import { projectionInputs } from './planningSources';
@@ -43,24 +43,25 @@ const lastsText = (years) => (years === null ? `${MAX_YEARS}+ years` : `${years}
 // with Forecast and Life plan when Planning passes it (AssumptionsBar); the
 // rest are held on this screen only.
 export default function Drawdown({ household, members = [], accounts = [], transactions = [],
-  recurring = [], holdings = [], budgets = [], categories = [], data, sources, onRetry, loading, onOpenTab, scenario, onScenario }) {
+  recurring = [], holdings = [], budgets = [], categories = [], data, sources, onRetry, loading, onReload, onOpenTab, scenario, onScenario }) {
   const { assumptions } = data;
   const money = useMoneyDisplay(household);
   const now = useMemo(() => new Date(), []);
   const [localSet, setLocalSet] = useState('baseline');
   const fcSet = scenario ?? localSet;
   const setFcSet = onScenario ?? setLocalSet;
-  const [editingAssumptions, setEditingAssumptions] = useState(false);
+  // The plan's one drawer, open at one of its sections, or null (Planning
+  // audit, 3.13): the growth figures and other income are edited there.
+  const [editing, setEditing] = useState(null);
   const [potChoice, setPotKind] = useState(null); // 'plan' | 'target' | 'today'; null follows the plan when there is one
   const [spendChoice, setSpendKind] = useState(null); // 'plan' | 'actual' | 'lean'; null as above
   const [returnOffset, setReturnOffset] = useState(0); // pp added to the scenario's nominal return
   const [lastForChoice, setLastFor] = useState(null); // null: the years the plan needs, or 40
   const [market, setMarket] = useState('steady');
   const [activeYear, setActiveYear] = useState(null);
-  const [editing, setEditing] = useState(null); // null | 'new' | an income row
-  // Every row is listed and edited here; the sums below count only income
-  // timed from the year work stops, in AED. A sum paid in a set year (a
-  // policy maturity) is placed by the Life plan, which runs by calendar year.
+  // Every row is listed here; the sums below count only income timed from the
+  // year work stops, in AED. A sum paid in a set year (a policy maturity) is
+  // placed by the Life plan, which runs by calendar year.
   const incomeRows = data.independenceIncome ?? [];
   const incomes = incomesFromStop(incomeRows, household);
 
@@ -75,14 +76,14 @@ export default function Drawdown({ household, members = [], accounts = [], trans
         recurring,
         budgets,
         categories,
-        data: { assumptions, goals: data.goals, memberLife: data.memberLife, independenceIncome: data.independenceIncome, debts: data.debts },
+        data: { assumptions, goals: data.goals, memberLife: data.memberLife, independenceIncome: data.independenceIncome, afterWorkCosts: data.afterWorkCosts, debts: data.debts },
         members,
         household,
         now,
       }),
-    [accounts, holdings, transactions, recurring, budgets, categories, assumptions, data.goals, data.memberLife, data.independenceIncome, data.debts, members, household, now]
+    [accounts, holdings, transactions, recurring, budgets, categories, assumptions, data.goals, data.memberLife, data.independenceIncome, data.afterWorkCosts, data.debts, members, household, now]
   );
-  const { startNetWorth, plan, inputs } = model;
+  const { startNetWorth, plan, inputs, stopping } = model;
   // Where the Life plan leaves the household when work stops, on this
   // screen's scenario. Null until someone's age is set.
   const handover = useMemo(() => {
@@ -165,7 +166,7 @@ export default function Drawdown({ household, members = [], accounts = [], trans
         scenario={fcSet}
         onScenario={setFcSet}
         growth={[`${selected.swrPct.toFixed(1)}% withdrawal rate`]}
-        onEdit={() => setEditingAssumptions(true)}
+        onEdit={() => setEditing('growth')}
         spending={
           <div className="dd-segs" role="group" aria-label="Spending">
             {handover && (
@@ -184,19 +185,6 @@ export default function Drawdown({ household, members = [], accounts = [], trans
           </div>
         }
       />
-      {editingAssumptions && (
-        <ForecastAssumptionsEditor
-          householdId={household?.id}
-          assumptions={assumptions}
-          budgetMonthlySaving={plan?.monthlySaving ?? null}
-          scenario={fcSet}
-          onClose={() => setEditingAssumptions(false)}
-          onSaved={async () => {
-            setEditingAssumptions(false);
-            await data.reload();
-          }}
-        />
-      )}
       <section className="pl-hero" style={{ marginTop: 22 }}>
         <div className="ov-kicker">How long it lasts</div>
         <div className="ov-hero fig">
@@ -332,8 +320,8 @@ export default function Drawdown({ household, members = [], accounts = [], trans
       <section style={{ marginTop: 40 }}>
         <div className="ov-section-head">
           <div className="ov-kicker">Other income once working stops</div>
-          <button type="button" className="om-btn mn-add" onClick={() => setEditing('new')}>
-            + Income
+          <button type="button" className="om-btn" onClick={() => setEditing('income')}>
+            Edit in the plan
           </button>
         </div>
         {incomeRows.length === 0 ? (
@@ -344,7 +332,7 @@ export default function Drawdown({ household, members = [], accounts = [], trans
         ) : (
           <div className="mn-list">
             {incomeRows.map((row) => (
-              <button key={row.id} type="button" className="mn-row" onClick={() => setEditing(row)}>
+              <div key={row.id} className="mn-row" style={{ cursor: 'default' }}>
                 <div className="mn-row-main">
                   <div>{row.name}</div>
                   <div className="ov-muted" style={{ marginTop: 3, fontSize: 11.5 }}>
@@ -352,12 +340,12 @@ export default function Drawdown({ household, members = [], accounts = [], trans
                   </div>
                 </div>
                 <div className="fig mn-row-amt">
-                  {nativeIncomeLabel(row) ?? money.fmt(Number(row.amount))}
+                  {nativeAmountLabel(row) ?? money.fmt(Number(row.amount))}
                   <span className="ov-muted" style={{ fontSize: 11.5 }}>
                     {row.kind === 'lump_sum' ? ' once' : ' a year'}
                   </span>
                 </div>
-              </button>
+              </div>
             ))}
           </div>
         )}
@@ -458,21 +446,31 @@ export default function Drawdown({ household, members = [], accounts = [], trans
             No tax is taken out.
             {fromPlan &&
               ` Spending stays the same every year here: the Life plan's lower spending once one person remains${
-                handover.goalsAfter.length ? `, and ${handover.goalsAfter.map((g) => `${g.name} (${g.year})`).join(', ')},` : ''
-              } are counted there, not here.`}
+                handover.costsAtStop > 0 ? ', the rise in the costs that start when work stops (counted here at what they come to then)' : ''
+              }${handover.goalsAfter.length ? `, and ${handover.goalsAfter.map((g) => `${g.name} (${g.year})`).join(', ')},` : ''} are counted there, not here.`}
           </div>
         </section>
       )}
 
       {editing && (
-        <IncomeEditor
-          row={editing === 'new' ? null : editing}
+        <LifePlanEditor
           householdId={household?.id}
           household={household}
+          members={members}
+          memberLife={data.memberLife ?? []}
+          assumptions={assumptions}
+          categories={categories}
+          spendByCategory={stopping.byCategory}
+          incomes={incomeRows}
+          costs={data.afterWorkCosts ?? []}
+          budgetMonthlySaving={plan?.monthlySaving ?? null}
+          scenario={fcSet}
+          section={editing}
+          onRowsChanged={data.reload}
           onClose={() => setEditing(null)}
           onSaved={async () => {
             setEditing(null);
-            await data.reload();
+            await Promise.all([data.reload(), onReload?.()]);
           }}
         />
       )}
@@ -489,22 +487,4 @@ function marketNote(o, steady) {
   if (steady.lastsYears === null) return `Down from ${MAX_YEARS}+ years`;
   const lost = steady.lastsYears - o.lastsYears;
   return `${lost} year${lost === 1 ? '' : 's'} shorter than steady`;
-}
-
-// A row set in another currency, in that currency: "₹43,50,000".
-function nativeIncomeLabel(row) {
-  if (!row.currency || row.currency === 'AED') return null;
-  const symbol = { INR: '₹', USD: '$' }[row.currency] ?? `${row.currency} `;
-  return `${symbol}${Number(row.amount).toLocaleString(row.currency === 'INR' ? 'en-IN' : 'en-US', { maximumFractionDigits: 0 })}`;
-}
-
-function describeIncome(row, household) {
-  if (incomesWithoutRate([row], household).length) return 'Not counted: no AED/INR rate yet (Settings → Household)';
-  if (row.in_year != null) return `Paid in ${row.in_year} · counted on the Life plan in that year`;
-  const start = Number(row.starts_after_years) || 0;
-  if (row.kind === 'lump_sum') return start === 0 ? 'One-off, in the first year of independence' : `One-off, ${start} year${start === 1 ? '' : 's'} in`;
-  const from = start === 0 ? 'From the first year' : `From ${start} year${start === 1 ? '' : 's'} in`;
-  const lasts = row.lasts_years == null ? 'for good' : `for ${row.lasts_years} year${Number(row.lasts_years) === 1 ? '' : 's'}`;
-  const lowersTarget = start === 0 && row.lasts_years == null ? ' · lowers the target' : '';
-  return `${from}, ${lasts}${lowersTarget}`;
 }

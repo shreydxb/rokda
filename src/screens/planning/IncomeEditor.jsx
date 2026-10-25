@@ -33,7 +33,7 @@ function initialForm(row) {
 
 const whole = (v) => /^\d+$/.test(String(v).trim());
 
-export default function IncomeEditor({ row, householdId, household = null, onClose, onSaved }) {
+export default function IncomeEditor({ row, householdId, household = null, stacked = false, onClose, onSaved }) {
   const drawerRef = useDrawerFocus();
   const [form, setForm] = useState(() => initialForm(row));
   const [dirty, setDirty] = useState(false);
@@ -129,7 +129,7 @@ export default function IncomeEditor({ row, householdId, household = null, onClo
   }
 
   return (
-    <div className="te-overlay" onMouseDown={(e) => e.target === e.currentTarget && requestClose()}>
+    <div className={stacked ? 'te-overlay te-overlay-stacked' : 'te-overlay'} onMouseDown={(e) => e.target === e.currentTarget && requestClose()}>
       <div className="te-drawer" ref={drawerRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={row ? 'Edit income' : 'Add income'}>
         <div className="te-head">
           <div>
@@ -253,7 +253,7 @@ export default function IncomeEditor({ row, householdId, household = null, onClo
 
           <div className="ov-muted" style={{ fontSize: 11.5, lineHeight: 1.6 }}>
             {yearly
-              ? 'Income that starts in the first year of independence and pays for good lowers the independence target. The rest is counted year by year on Drawdown.'
+              ? 'The Life plan counts it year by year from the year work stops. Income that starts then and pays for good also lowers the independence target.'
               : dated
                 ? 'Added to the pot in that year on the Life plan, whether or not work has stopped, brought back to today’s money at the plan’s inflation. Drawdown and the independence target leave it out.'
                 : 'A one-off sum is added to the pot in the year it arrives. It does not change the independence target.'}{' '}
