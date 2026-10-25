@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { agesIn, loansInSpending, loansText, agesLabel, datedIncomesOnTimeline, defaultStopPerson, earliestStop, extraSavingNeeded, goalsOnTimeline, lifePlan, lifePlanBasis, lifePlanStop, maxRetirementSpend, membersLeftOut, noStopCause, noStopText, planEndYear, planPeople, potNeededAt, spendAfterText, yearLeft } from './lifePlan';
+import { agesIn, loansInSpending, loansText, rangeText, stopRange, agesLabel, datedIncomesOnTimeline, defaultStopPerson, earliestStop, extraSavingNeeded, goalsOnTimeline, lifePlan, lifePlanBasis, lifePlanStop, maxRetirementSpend, membersLeftOut, noStopCause, noStopText, planEndYear, planPeople, potNeededAt, spendAfterText, yearLeft } from './lifePlan';
 import { projectYears, realReturn } from './forecast';
 
 const people = [
@@ -455,5 +455,32 @@ describe('loans counted once', () => {
   it('moves the stop year earlier than counting the loan twice did', () => {
     const loans = loansInSpending({ debts: [car], accounts: [loanAccount], now });
     expect(earliestStop(basisWith(loans).args)).toBeLessThan(earliestStop(basisWith([]).args));
+  });
+});
+
+// Planning audit, 3.12: the stop year under Baseline and Conservative.
+describe('stopRange', () => {
+  const people = [{ id: 'm1', name: 'Partner A', birthYear: 1990, lifeExpectancy: 85 }];
+  const inputs = { ready: true, monthlySaving: 3000, annualSpend: 48000, source: 'actual' };
+  const basisFor = (stop) => (fcSet) => lifePlanBasis({ people, assumptions: { retirement_year: stop }, inputs, startNetWorth: 100000, startYear: 2026, fcSet });
+
+  it('gives each scenario at the same stop year, with what is left or when it runs out, and its earliest year', () => {
+    const range = stopRange(basisFor(2050));
+    expect(range.map((r) => [r.key, r.label, r.stopYear])).toEqual([
+      ['baseline', 'Baseline', 2050],
+      ['conservative', 'Conservative', 2050],
+    ]);
+    const [baseline, conservative] = range;
+    // Conservative's lower return and higher inflation leave less, or none.
+    expect(baseline.lasts ? baseline.left : -Infinity).toBeGreaterThan(conservative.lasts ? conservative.left : -1);
+    expect(conservative.earliest === null || conservative.earliest >= baseline.earliest).toBe(true);
+  });
+
+  it('says the range in words', () => {
+    const fmt = (v) => `AED ${Math.round(v).toLocaleString('en-US')}`;
+    const lasts = { label: 'Baseline', lasts: true, endYear: 2075, left: 1200000 };
+    const out = { label: 'Conservative', lasts: false, shortYear: 2068, shortWorking: false };
+    expect(rangeText([lasts, out], fmt)).toBe('Baseline lasts to 2075 with AED 1,200,000 left · Conservative runs out in 2068');
+    expect(rangeText([{ ...out, shortYear: 2030, shortWorking: true }], fmt)).toBe('Conservative falls short for a goal in 2030');
   });
 });

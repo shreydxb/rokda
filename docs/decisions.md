@@ -2561,3 +2561,27 @@ time.
 - **The household's, whoever is shown,** as the review is, and the section
   says so. Each line says what it couldn't check when its records didn't
   load. The decisions list follows it.
+
+## One planning model, and the Life plan's range
+
+Every Planning tab built its own copy of the same figures, and Plan and
+Forecast worked out the Life plan's answer again, so each change to how the
+plan is worked out had to be made five times over. And every headline was one
+zero-margin year at one return (Planning audit, 3.12).
+
+- **One module** (`lib/planningModel.js`) builds the start, the budget's
+  month, the inputs on the chosen basis, what stops when work does, the
+  loans paid out of spending, the people planned for and the Life plan's
+  basis and answer. Plan, Goals, the Life plan, Forecast and Drawdown take
+  them from it, so no tab can tell a different story.
+- **The headline is the year work stops:** the one saved, one being tried, or
+  "assumed: the year X turns 60" until one is chosen. Beside it are
+  Baseline and Conservative at that same year, each with what is left at the
+  end or the year the money runs out. The scenario chosen on the tab still
+  drives the timeline and figures below.
+- **The earliest year is a lever, not the answer.** It sits under "What it
+  would take", labelled "nothing to spare", with Conservative's beside it.
+- **Plan quotes the same pair** on its Stop working card, and the budget's
+  figures beside the records say what Baseline gives on them.
+- **A new plan suggests planning to 95,** a careful age for a couple; the
+  age stays the household's to set.

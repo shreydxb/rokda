@@ -189,14 +189,18 @@ here, because this repository is public.
   records count from, saved for the household. With nothing chosen, the
   budget stands in until three months have ended, then the records.
 - **Plan**: one page answering "are we on track". Once ages are set it opens
-  with the Life plan's Stop working card (the year, the ages then, the
-  spending after work stops it assumes), then goals and linked debts. A
+  with the Life plan's Stop working card (the year, the ages then, Baseline
+  and Conservative at that year, the spending after work stops it assumes),
+  then goals and linked debts. A
   monthly check follows, for the household: saving in the month just ended
   against the budget's savings target (Review's check), and the cash reserve
   in months of spending against what the kept goals hold. Then what needs a
   decision.
-- **Life plan**: a year-by-year timeline from today to the last life
-  expectancy: saving and growth while working, each goal paid in its year,
+- **Life plan**: leads with the year work stops (saved, being tried, or
+  assumed) and Baseline and Conservative side by side at that year, each
+  with what is left at the end or when the money runs out; the earliest year
+  with nothing to spare is a lever under "What it would take". Then a
+  year-by-year timeline from today to the last life expectancy: saving and growth while working, each goal paid in its year,
   dated lump sums (policy maturities) and later income, then spending once
   work stops, less what stops with work (EMIs, rent where set). Solves for the
   earliest year work can stop. A loan paid out of spending is counted once:

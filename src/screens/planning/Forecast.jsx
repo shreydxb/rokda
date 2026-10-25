@@ -2,11 +2,12 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatPct } from '../../lib/money';
 import { assumption } from '../../lib/planningDefaults';
-import { incompleteNote, netWorthSummary, startingNetWorth } from '../overviewMath';
+import { incompleteNote, netWorthSummary } from '../overviewMath';
 import { isArchived } from '../../lib/accounts';
 import { unconfirmedAccounts } from '../../lib/balance';
-import { basisChoice, budgetPlan, crossingYear, fiTarget, forecastInputs, goalAt, incomesFromStop, independenceTarget, projectYears, realReturn, requiredAnnualSaving, scenarioSets, spendThatStops } from '../../lib/forecast';
-import { agesLabel, lifePlanStop, loansInSpending, noStopText, spendAfterText, spendHow } from '../../lib/lifePlan';
+import { crossingYear, fiTarget, goalAt, incomesFromStop, independenceTarget, projectYears, realReturn, requiredAnnualSaving, scenarioSets } from '../../lib/forecast';
+import { agesLabel, noStopText, spendAfterText, spendHow } from '../../lib/lifePlan';
+import { planningModel } from '../../lib/planningModel';
 import BasisLine from './BasisLine';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import ForecastAssumptionsEditor from './ForecastAssumptionsEditor';
@@ -70,7 +71,25 @@ export default function Forecast({ household, members = [], accounts = [], trans
   const now = useMemo(() => new Date(), []);
   const startYear = now.getFullYear();
 
-  const startNetWorth = useMemo(() => startingNetWorth(accounts, holdings), [accounts, holdings]);
+  // The planning model, built in one place for every tab (lib/planningModel.js;
+  // Planning audit, 3.12).
+  const model = useMemo(
+    () =>
+      planningModel({
+        accounts,
+        holdings,
+        transactions,
+        recurring,
+        budgets,
+        categories,
+        data: { assumptions, goals: data.goals, memberLife: data.memberLife, independenceIncome: data.independenceIncome, debts: data.debts },
+        members,
+        household,
+        now,
+      }),
+    [accounts, holdings, transactions, recurring, budgets, categories, assumptions, data.goals, data.memberLife, data.independenceIncome, data.debts, members, household, now]
+  );
+  const { startNetWorth, plan, inputs } = model;
   // A projection resting on balances nobody has confirmed is still worth
   // showing -- it is the household's best available picture -- but it must not
   // present itself as settled. Same call Overview makes about net worth
@@ -97,9 +116,6 @@ export default function Forecast({ household, members = [], accounts = [], trans
     return { accounts: s.unvalued, holdings: s.unpricedHoldings };
   }, [accounts, holdings]);
   const basisIncomplete = incompleteNote(basisGaps, { capitalised: false, sentence: false });
-  // Until three months close, the budget stands in (forecastInputs).
-  const plan = useMemo(() => budgetPlan(budgets, categories, now), [budgets, categories, now]);
-  const inputs = useMemo(() => forecastInputs(transactions, startNetWorth, now, plan, recurring, basisChoice(assumptions)), [transactions, startNetWorth, now, plan, recurring, assumptions]);
   const fromBudget = inputs.source === 'budget';
   const basisWord = fromBudget ? 'budgeted' : 'actual';
 
@@ -113,30 +129,10 @@ export default function Forecast({ household, members = [], accounts = [], trans
   const selNominalPct = selected.nominalPct;
   const selInflationPct = selected.inflationPct;
   const selSwrPct = selected.swrPct;
-  // Loans paid out of spending, counted there once (Planning audit, 2.10).
-  const loans = useMemo(() => loansInSpending({ debts: data.debts ?? [], accounts, transactions, now }), [data.debts, accounts, transactions, now]);
   // The Life plan's answer to when work can stop, on this scenario. Where it
   // exists it is the answer; the target here is the stricter one of money
   // that lasts forever.
-  const stop = useMemo(
-    () =>
-      lifePlanStop({
-        members,
-        memberLife: data.memberLife ?? [],
-        assumptions,
-        inputs,
-        startNetWorth,
-        goals: data.goals ?? [],
-        incomes: data.independenceIncome ?? [],
-        household,
-        stopping: spendThatStops({ inputs, transactions, budgets, categories, now }),
-        loans,
-        startYear,
-        now,
-        fcSet,
-      }),
-    [members, data.memberLife, assumptions, inputs, startNetWorth, data.goals, data.independenceIncome, household, transactions, budgets, categories, loans, now, startYear, fcSet]
-  );
+  const stop = useMemo(() => model.stop({ fcSet }), [model, fcSet]);
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
   const missing = neverLoaded(sources, projectionInputs(inputs));

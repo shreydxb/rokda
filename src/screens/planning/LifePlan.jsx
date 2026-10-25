@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
-import { startingNetWorth } from '../overviewMath';
-import { basisChoice, budgetInputs, budgetPlan, forecastInputs, incomesWithoutRate, spendThatStops } from '../../lib/forecast';
-import { agesIn, agesLabel, earliestStop, extraSavingNeeded, leftOutText, lifePlan, lifePlanBasis, loansInSpending, loansText, maxRetirementSpend, membersLeftOut, planEndYear, planPeople, potNeededAt } from '../../lib/lifePlan';
+import { incomesWithoutRate } from '../../lib/forecast';
+import { agesIn, agesLabel, DEFAULT_STOP_AGE, earliestStop, extraSavingNeeded, leftOutText, lifePlan, loansText, maxRetirementSpend, membersLeftOut, planEndYear, potNeededAt, stopRange } from '../../lib/lifePlan';
+import { planningModel } from '../../lib/planningModel';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { ChartLegend, ColumnChart } from '../../charts/Charts';
 import BasisLine, { BudgetBeside } from './BasisLine';
@@ -73,54 +73,43 @@ export default function LifePlan({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
 
-  const startNetWorth = useMemo(() => startingNetWorth(accounts, holdings), [accounts, holdings]);
-  const plan = useMemo(() => budgetPlan(budgets, categories, now), [budgets, categories, now]);
-  const inputs = useMemo(() => forecastInputs(transactions, startNetWorth, now, plan, recurring, basisChoice(assumptions)), [transactions, startNetWorth, now, plan, recurring, assumptions]);
-  const stopping = useMemo(() => spendThatStops({ inputs, transactions, budgets, categories, now }), [inputs, transactions, budgets, categories, now]);
-  // The budget's figures, once ended months have taken over from them, so its
-  // answer can be given beside theirs (Planning audit, 1.2).
-  const budgetBasis = useMemo(() => (inputs.source === 'actual' ? budgetInputs(plan, startNetWorth, inputs.monthCount) : null), [inputs, plan, startNetWorth]);
-  const budgetStopping = useMemo(
-    () => (budgetBasis ? spendThatStops({ inputs: budgetBasis, transactions, budgets, categories, now }) : null),
-    [budgetBasis, transactions, budgets, categories, now]
+  // The planning model, built in one place for every tab (lib/planningModel.js;
+  // Planning audit, 3.12): the start, the basis, what stops, the loans and the
+  // people planned for, and the budget's figures beside the records (1.2).
+  const model = useMemo(
+    () =>
+      planningModel({
+        accounts,
+        holdings,
+        transactions,
+        recurring,
+        budgets,
+        categories,
+        data: { assumptions, goals: data.goals, memberLife: data.memberLife, independenceIncome: data.independenceIncome, debts: data.debts },
+        members,
+        household,
+        now,
+      }),
+    [accounts, holdings, transactions, recurring, budgets, categories, assumptions, data.goals, data.memberLife, data.independenceIncome, data.debts, members, household, now]
   );
-
-  // The people planned for: members with a birth year and an age to plan to.
-  const people = useMemo(() => planPeople(members, data.memberLife ?? []), [members, data.memberLife]);
-  // Anyone without them is left out, and says so: the money could seem to last
-  // when it runs out before their plan would end (Planning audit, 1.1).
+  const { plan, inputs, stopping, budgetBasis, people } = model;
+  // Anyone without a birth year and an age to plan to is left out, and says
+  // so: the money could seem to last when it runs out before their plan
+  // would end (Planning audit, 1.1).
   const leftOut = useMemo(() => membersLeftOut(members, data.memberLife ?? []), [members, data.memberLife]);
-  // Loans paid out of spending, counted there once (Planning audit, 2.10).
-  const loans = useMemo(() => loansInSpending({ debts: data.debts ?? [], accounts, transactions, now }), [data.debts, accounts, transactions, now]);
   // A goal marked done is off the timeline, and off the list below with it.
   const openGoals = useMemo(() => (data.goals ?? []).filter((g) => !isDone(g)), [data.goals]);
 
-  // The plan and the four answers built on it, worked out once for each change
-  // of input rather than on every step along the chart (Planning audit, 0b-E).
+  // The plan and the answers built on it, worked out once for each change of
+  // input rather than on every step along the chart (Planning audit, 0b-E).
   // Null while there is no plan to work out; the states below say why.
   const worked = useMemo(() => {
     if (!inputs.ready || !people.length || planEndYear(people) < startYear) return null;
-    const basisOn = (on, spendStopping) =>
-      lifePlanBasis({
-        people,
-        assumptions,
-        inputs: on,
-        startNetWorth,
-        goals: data.goals ?? [],
-        incomes: data.independenceIncome ?? [],
-        household,
-        stopping: spendStopping,
-        loans,
-        startYear,
-        now,
-        fcSet,
-        stopOverride,
-        spendKind,
-      });
-    const basis = basisOn(inputs, stopping);
+    const whatIfs = { fcSet, stopOverride, spendKind };
+    const basis = model.basis(whatIfs);
     const result = lifePlan(basis.args);
     const earliest = earliestStop(basis.args);
-    const budget = budgetBasis ? basisOn(budgetBasis, budgetStopping) : null;
+    const budget = budgetBasis ? model.basis({ ...whatIfs, budget: true }) : null;
     return {
       basis,
       result,
@@ -128,10 +117,13 @@ export default function LifePlan({
       earliest,
       extra: result.lasts ? 0 : extraSavingNeeded(basis.args),
       mostSpend: maxRetirementSpend(basis.args),
+      // Baseline and Conservative at this stop year, the tab's other what-ifs
+      // held as they are (Planning audit, 3.12).
+      range: stopRange((key) => model.basis({ ...whatIfs, fcSet: key })),
       recorded: { inputs, earliest, result },
       onBudget: budget ? { inputs: budgetBasis, earliest: earliestStop(budget.args), result: lifePlan(budget.args) } : null,
     };
-  }, [people, assumptions, inputs, startNetWorth, data.goals, data.independenceIncome, household, stopping, loans, budgetBasis, budgetStopping, startYear, now, fcSet, stopOverride, spendKind]);
+  }, [model, inputs, people, budgetBasis, startYear, fcSet, stopOverride, spendKind]);
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
   const missing = neverLoaded(sources, projectionInputs(inputs));
@@ -225,7 +217,7 @@ export default function LifePlan({
     );
   }
 
-  const { basis, result, need, earliest, extra, mostSpend, recorded, onBudget } = worked;
+  const { basis, result, need, earliest, extra, mostSpend, range, recorded, onBudget } = worked;
   const loansLine = loansText(basis.loans, basis.owedOnLoans, (v) => `${money.code} ${money.fmt(v)}`);
   const { endYear, sets, selected, inflationPct, postNominal, savedStop, stopYear, spendOptions, spendChoice, survivorPct, goals, incomes, inflows } = basis;
   const anyIncome = incomes.length > 0 || inflows.length > 0;
@@ -263,7 +255,20 @@ export default function LifePlan({
     await data.reload();
   }
 
-  const heroFigure = result.lasts ? `Lasts to ${endYear}` : shortRow.working ? `Short in ${result.shortYear}` : `Runs out in ${result.shortYear}`;
+  // The headline is the year work stops: the one saved, one being tried, or
+  // the one assumed until a year is chosen, never the zero-margin earliest
+  // year, which is a lever below (Planning audit, 3.12).
+  const yearSource =
+    stopOverride !== null && stopYear !== savedStop
+      ? savedStop !== null
+        ? `trying it: your plan says ${savedStop}`
+        : 'trying it: no year saved yet'
+      : savedStop !== null
+        ? 'your plan'
+        : basis.stopAssumed && stopYear === basis.stopAssumed.birthYear + DEFAULT_STOP_AGE
+          ? `assumed: the year ${basis.stopAssumed.name} turns ${DEFAULT_STOP_AGE}`
+          : 'assumed until you choose a year';
+  const conservative = range.find((r) => r.key === 'conservative');
   const spendText = `${money.code} ${money.fmt(shown(spendChoice.value, stopYear))} a year`;
   let heroText;
   if (result.lasts) {
@@ -337,8 +342,31 @@ export default function LifePlan({
             Edit plan
           </button>
         </div>
-        <div className={`ov-hero fig ${result.lasts ? '' : 'ov-neg'}`}>{heroFigure}</div>
-        <div style={{ fontSize: 13.5, color: 'var(--ink2)', marginTop: 10, lineHeight: 1.6, maxWidth: '92ch' }}>{heroText}</div>
+        <div className="ov-hero fig">Stopping in {stopYear}</div>
+        <div className="ov-muted" style={{ fontSize: 12.5, marginTop: 6 }}>
+          {agesText(stopYear)} · {yearSource}
+        </div>
+        <div className="lp-range" role="group" aria-label="Baseline and Conservative">
+          {range.map((r) => (
+            <div key={r.key} className="lp-range-cell">
+              <div className="lp-range-label">{r.label}</div>
+              <div className={`fig lp-range-figure ${r.lasts ? '' : 'ov-neg'}`}>
+                {r.lasts ? `Lasts to ${r.endYear}` : `${r.shortWorking ? 'Short' : 'Runs out'} in ${r.shortYear}`}
+              </div>
+              <div className="ov-muted lp-range-note">
+                {r.lasts
+                  ? `${money.code} ${money.fmtBalance(shown(r.left, r.endYear + 1))} left at the end`
+                  : r.shortWorking
+                    ? 'A goal the pot cannot pay while working'
+                    : `${r.endYear - r.shortYear + 1} year${r.endYear - r.shortYear + 1 === 1 ? '' : 's'} before the plan ends`}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={{ fontSize: 13.5, color: 'var(--ink2)', marginTop: 14, lineHeight: 1.6, maxWidth: '92ch' }}>
+          {selected.key === 'baseline' ? '' : `On ${selected.label}: `}
+          {heroText}
+        </div>
         {leftOut.length > 0 && (
           <p className="ov-warn" style={{ fontSize: 12.5, margin: '8px 0 0' }}>
             {leftOutText(leftOut)} Add {leftOut.length === 1 ? 'them' : 'each'} under Edit plan.
@@ -417,12 +445,12 @@ export default function LifePlan({
         <div className="fc-solve lp-take">
           {result.lasts ? (
             <span className="fc-solve-answer">
-              {earliest !== null && earliest < stopYear ? (
-                <>
-                  You could stop as early as <b className="fig">{earliest}</b> ({agesText(earliest)})
-                </>
-              ) : (
-                <>{stopYear} is the earliest year that lasts</>
+              {/* The zero-margin year is a lever, not the answer (3.12). */}
+              Nothing to spare: the earliest year that lasts is <b className="fig">{earliest}</b> ({agesText(earliest)}) on {selected.label}
+              {selected.key !== 'conservative' && conservative && (
+                <span className="ov-muted">
+                  {conservative.earliest !== null ? ` · ${conservative.earliest} on Conservative` : ' · none on Conservative'}
+                </span>
               )}
               {mostSpend !== null && (
                 <span className="ov-muted">
@@ -452,7 +480,7 @@ export default function LifePlan({
               {[
                 earliest !== null && (
                   <span key="stop">
-                    stop work in <b className="fig">{earliest}</b> ({agesText(earliest)})
+                    stop work in <b className="fig">{earliest}</b> ({agesText(earliest)}), with nothing to spare
                   </span>
                 ),
                 extra !== null && (
