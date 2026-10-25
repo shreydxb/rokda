@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { agesIn, agesLabel, datedIncomesOnTimeline, defaultStopPerson, earliestStop, extraSavingNeeded, goalsOnTimeline, lifePlan, lifePlanBasis, lifePlanStop, maxRetirementSpend, membersLeftOut, noStopCause, noStopText, planEndYear, planPeople, potNeededAt, spendAfterText, yearLeft } from './lifePlan';
+import { agesIn, loansInSpending, loansText, agesLabel, datedIncomesOnTimeline, defaultStopPerson, earliestStop, extraSavingNeeded, goalsOnTimeline, lifePlan, lifePlanBasis, lifePlanStop, maxRetirementSpend, membersLeftOut, noStopCause, noStopText, planEndYear, planPeople, potNeededAt, spendAfterText, yearLeft } from './lifePlan';
 import { projectYears, realReturn } from './forecast';
 
 const people = [
@@ -372,5 +372,88 @@ describe('defaultStopPerson and membersLeftOut', () => {
     const members = [{ id: 'm1', display_name: 'Partner A' }, { id: 'm2', display_name: 'Partner B' }];
     expect(membersLeftOut(members, [{ member_id: 'm2' }])).toEqual([members[0]]);
     expect(membersLeftOut(members, [])).toEqual(members);
+  });
+});
+
+// Planning audit, 2.10: a loan paid out of spending is counted there, once.
+describe('loans counted once', () => {
+  const now = new Date(2026, 9, 20);
+  const loanAccount = { id: 'la', type: 'loan', currency: 'AED', balance: 12000, balance_aed: 12000, archived_at: null };
+  const card = { id: 'cc', type: 'credit_card', currency: 'AED', balance: 3000, balance_aed: 3000, archived_at: null };
+  // 12,000 at 0% and 1,000 a month: clears in 12 months, about Oct 2027.
+  const car = { id: 'd1', name: 'Car loan', balance: 12000, apr_pct: 0, minimum_payment: 1000, account_id: 'la' };
+
+  it('takes a loan whose instalment is spending, and leaves cards, transfers and loans that never clear alone', () => {
+    const debts = [
+      car,
+      { id: 'd2', name: 'Card', balance: 3000, apr_pct: 30, minimum_payment: 200, account_id: 'cc' },
+      { id: 'd3', name: 'Family loan', balance: 6000, apr_pct: 0, minimum_payment: 500, account_id: null },
+      { id: 'd4', name: 'Never', balance: 50000, apr_pct: 24, minimum_payment: 500, account_id: null },
+    ];
+    const loans = loansInSpending({ debts, accounts: [loanAccount, card], now });
+    expect(loans).toEqual([
+      { id: 'd1', name: 'Car loan', balance: 12000, monthly: 1000, months: 12, inNetWorth: true },
+      { id: 'd3', name: 'Family loan', balance: 6000, monthly: 500, months: 12, inNetWorth: false },
+    ]);
+    // Paid by transfers into its own account: the records count it as saving.
+    const transfers = [{ id: 't1', kind: 'transfer', account_id: 'la', amount: 1000, occurred_at: '2026-09-01' }];
+    expect(loansInSpending({ debts: [car], accounts: [loanAccount], transactions: transfers, now })).toEqual([]);
+    // A transfer more than a year old says nothing about how it is paid now.
+    expect(loansInSpending({ debts: [car], accounts: [loanAccount], transactions: [{ ...transfers[0], occurred_at: '2025-06-01' }], now })).toHaveLength(1);
+  });
+
+  const people = [{ id: 'm1', name: 'Partner A', birthYear: 1990, lifeExpectancy: 85 }];
+  const inputs = { ready: true, monthlySaving: 2000, annualSpend: 60000, source: 'actual' };
+  const basisWith = (loans, extra = {}) => lifePlanBasis({ people, assumptions: { inflation_pct: 0, retirement_year: 2050 }, inputs, startNetWorth: 88000, loans, startYear: 2026, now, ...extra });
+
+  it('starts from what is owned before what a loan in net worth owes', () => {
+    const loans = loansInSpending({ debts: [car], accounts: [loanAccount], now });
+    expect(basisWith([]).args.startPot).toBe(88000);
+    expect(basisWith(loans).args.startPot).toBe(100000);
+    // A loan net worth doesn't see was never taken off the start.
+    expect(basisWith([{ ...loans[0], inNetWorth: false }]).args.startPot).toBe(88000);
+  });
+
+  it('raises saving by the instalment once the loan clears, from the month after', () => {
+    const basis = basisWith(loansInSpending({ debts: [car], accounts: [loanAccount], now }));
+    expect(basis.loans[0]).toMatchObject({ clears: 'Oct 2027', year: 2027, monthsInYear: 2, perYear: 12000 });
+    const rows = lifePlan(basis.args).rows;
+    const saving = (year) => rows.find((r) => r.year === year).saving;
+    // Nov and Dec 2027 free, then the whole year.
+    expect(saving(2027)).toBeCloseTo(24000 + 2000, 6);
+    expect(saving(2028)).toBeCloseTo(24000 + 12000, 6);
+  });
+
+  it('counts the freed instalment in today\'s money', () => {
+    const basis = basisWith(loansInSpending({ debts: [car], accounts: [loanAccount], now }), { assumptions: { inflation_pct: 2.5, retirement_year: 2050 } });
+    expect(basis.loans[0].perYear).toBeCloseTo(12000 / 1.025, 6);
+  });
+
+  it('takes it off spending after work stops only when that spending is today\'s', () => {
+    const late = { ...car, balance: 120000, account_id: null };
+    const stopEarly = { assumptions: { inflation_pct: 0, retirement_year: 2027 } };
+    const basis = basisWith(loansInSpending({ debts: [late], now }), stopEarly);
+    // 120 months: clears Oct 2036, free from Nov.
+    const spend = (b, year) => lifePlan(b.args).rows.find((r) => r.year === year).spend;
+    expect(spend(basis, 2036)).toBeCloseTo(60000 - 2000, 6);
+    expect(spend(basis, 2037)).toBeCloseTo(60000 - 12000, 6);
+    const planned = basisWith(loansInSpending({ debts: [late], now }), { assumptions: { inflation_pct: 0, retirement_year: 2027, retirement_annual_spend: 50000 } });
+    expect(spend(planned, 2037)).toBe(50000);
+  });
+
+  it('says what it takes the loans to do', () => {
+    const fmt = (v) => `AED ${v.toLocaleString('en-US')}`;
+    const loans = basisWith(loansInSpending({ debts: [car], accounts: [loanAccount], now })).loans;
+    expect(loansText(loans, 12000, fmt)).toBe(
+      "Car loan's AED 1,000 a month is in today's spending until it clears about Oct 2027, and saving rises by it after that. The plan starts from what you own before the AED 12,000 it owes, which its instalment repays."
+    );
+    const two = [...loans, { ...loans[0], name: 'Family loan', months: 30, clears: 'Apr 2029' }];
+    expect(loansText(two, 0, fmt)).toBe("The instalments on Car loan and Family loan are in today's spending until each clears, the last about Apr 2029, and saving rises by each after that.");
+    expect(loansText([], 0, fmt)).toBeNull();
+  });
+
+  it('moves the stop year earlier than counting the loan twice did', () => {
+    const loans = loansInSpending({ debts: [car], accounts: [loanAccount], now });
+    expect(earliestStop(basisWith(loans).args)).toBeLessThan(earliestStop(basisWith([]).args));
   });
 });

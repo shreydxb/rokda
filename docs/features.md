@@ -195,7 +195,9 @@ here, because this repository is public.
   expectancy: saving and growth while working, each goal paid in its year,
   dated lump sums (policy maturities) and later income, then spending once
   work stops, less what stops with work (EMIs, rent where set). Solves for the
-  earliest year work can stop.
+  earliest year work can stop. A loan paid out of spending is counted once:
+  the plan starts before what it owes, and saving rises by its instalment
+  once it clears at the minimum.
 - **Goals**: targets in today's cost with their own inflation, in four
   kinds, each goal with one status. Due within 3 years: paid from cash
   (logged contributions and linked current, savings and cash accounts, no

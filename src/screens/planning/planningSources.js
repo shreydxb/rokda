@@ -9,7 +9,9 @@ export const DEBT_INPUTS = ['household', 'debts', 'accounts'];
 export const DEBT_PLAN_INPUTS = ['assumptions'];
 export const NOTES_INPUTS = ['household', 'notes'];
 
-const PROJECTION_INPUTS = ['household', 'memberLife', 'goals', 'independenceIncome', 'assumptions', 'accounts', 'holdings', 'transactions', 'recurring', 'categories'];
+// The debts too: a loan paid out of spending is counted there, once, and read
+// as none it would be counted twice again (Planning audit, 2.10).
+const PROJECTION_INPUTS = ['household', 'memberLife', 'goals', 'independenceIncome', 'debts', 'assumptions', 'accounts', 'holdings', 'transactions', 'recurring', 'categories'];
 
 // What a projection rests on. The budget is the basis when the household
 // chose it, and otherwise stands in only until three months have ended

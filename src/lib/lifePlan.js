@@ -3,6 +3,7 @@ import { convertToAed } from './currency';
 import { parseDay } from './day';
 import { goalInflationPct, isDone } from './goals';
 import { andList } from './words';
+import { debtsWithAccounts, minimumOnlyPayoff, payoffMonthLabel } from './debt';
 
 // The life plan: one year-by-year timeline from this year to the end of the
 // longest life expectancy, the calculation a financial adviser's "cash
@@ -106,6 +107,9 @@ export function yearLeft(now) {
 // year (datedIncomesOnTimeline), added to the pot at the start of that year
 // whether or not work has stopped. `firstYearShare` is the share of the first
 // year still to come (yearLeft); a goal or lump sum in it is paid in full.
+// `freed` is what loans paid out of spending stop costing once they clear
+// (lifePlanBasis): saving rises by it from then, and so does spending after
+// work stops fall, when that spending is today's (`freedFromSpend`).
 export function lifePlan({
   startYear,
   people,
@@ -120,8 +124,12 @@ export function lifePlan({
   incomes = [],
   inflows = [],
   firstYearShare = 1,
+  freed = [],
+  freedFromSpend = false,
 }) {
   const endYear = planEndYear(people);
+  // A loan's instalment, from the month after it clears.
+  const freedIn = (year) => freed.reduce((s, f) => s + f.perYear * (year > f.year ? 1 : year === f.year ? f.monthsInYear / 12 : 0), 0);
   const rows = [];
   let pot = startPot;
   let shortYear = null;
@@ -132,7 +140,7 @@ export function lifePlan({
     const start = pot;
     const share = year === startYear ? firstYearShare : 1;
     const forOne = people.length > 1 && plannedCount(people, year) < people.length;
-    const spend = working ? 0 : retireSpend * (forOne ? survivorPct / 100 : 1) * share;
+    const spend = working ? 0 : Math.max(0, (retireSpend * share - (freedFromSpend ? freedIn(year) : 0)) * (forOne ? survivorPct / 100 : 1));
     const fromIncome = working ? { yearly: 0, lump: 0 } : incomeInYear(incomes, year - retireYear);
     const yearly = fromIncome.yearly * share;
     const { lump } = fromIncome;
@@ -148,7 +156,7 @@ export function lifePlan({
     let short = needed - paid;
     const after = balance - paid;
     const growth = after > 0 ? after * ((1 + (working ? preRate : postRate)) ** share - 1) : 0;
-    const saving = working ? annualSaving * share : 0;
+    const saving = working ? annualSaving * share + freedIn(year) : 0;
     let end = after + growth + saving;
     if (end < 0 && !working) {
       short += -end;
@@ -286,6 +294,37 @@ export function defaultStopPerson(people) {
   return [...people].sort((a, b) => a.birthYear - b.birthYear || a.name.localeCompare(b.name))[0];
 }
 
+// The loans whose instalments are inside the spending the plan is worked out
+// on, so that they are counted there and not a second time as a balance owed
+// (Planning audit, 2.10): each with what it owes, its instalment and the
+// months until it clears at that. A card is left alone, since its purchases
+// are the spending, and so is a loan paid by transfers into its own account in
+// the last twelve months: the records count those as saving, not spending. A
+// loan its instalment never clears has no date for saving to rise from.
+export function loansInSpending({ debts = [], accounts = [], transactions = [], now = new Date() }) {
+  const since = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+  const paidByTransfer = new Set(transactions.filter((t) => t.kind === 'transfer' && t.account_id && parseDay(t.occurred_at) >= since).map((t) => t.account_id));
+  const loans = debtsWithAccounts(debts, accounts).filter(
+    (d) => d.account?.type !== 'credit_card' && Number(d.minimum_payment) > 0 && !(d.account_id && paidByTransfer.has(d.account_id))
+  );
+  return minimumOnlyPayoff(loans)
+    .byDebt.filter((r) => Number.isFinite(r.months) && r.months > 0)
+    .map(({ debt, months }) => ({ id: debt.id, name: debt.name, balance: debt.balance, monthly: Number(debt.minimum_payment), months, inNetWorth: debt.inNetWorth }));
+}
+
+// What the plan takes the loans paid out of spending to do, said under the
+// Life plan's timeline (Planning audit, 2.10). `loans` is lifePlanBasis'
+// (each with the month it clears); `fmt` formats an amount, currency code
+// included. Null with none.
+export function loansText(loans, owedOnLoans, fmt) {
+  if (!loans?.length) return null;
+  const one = loans.length === 1;
+  const owes = owedOnLoans > 0 ? ` The plan starts from what you own before the ${fmt(owedOnLoans)} ${one ? 'it owes' : 'they owe'}, which ${one ? 'its instalment repays' : 'their instalments repay'}.` : '';
+  if (one) return `${loans[0].name}'s ${fmt(loans[0].monthly)} a month is in today's spending until it clears about ${loans[0].clears}, and saving rises by it after that.${owes}`;
+  const last = loans.reduce((a, l) => (l.months > a.months ? l : a));
+  return `The instalments on ${andList(loans.map((l) => l.name))} are in today's spending until each clears, the last about ${last.clears}, and saving rises by each after that.${owes}`;
+}
+
 // Everything the life plan runs on, built from the household's saved data one
 // way for every screen that shows it -- the Life plan tab, the Plan summary and
 // Forecast -- so they cannot disagree about when work can stop. `fcSet`,
@@ -295,7 +334,14 @@ export function defaultStopPerson(people) {
 // `stopping` is spendThatStops: when some of today's spending will have
 // stopped by then, spending after work stops leaves it out unless a figure has
 // been saved for the plan.
-export function lifePlanBasis({ people, assumptions, inputs, startNetWorth, goals = [], incomes = [], household = null, stopping = null, startYear, now = null, fcSet = 'baseline', stopOverride = null, spendKind = null }) {
+//
+// `loans` is loansInSpending. Each one's instalment is in today's spending
+// until it clears, so the plan starts from what the household owns before
+// what is owed on them, and saving rises by the instalment once it clears,
+// in today's money then. Net worth used to take the balance off the start
+// while the whole instalment stayed in spending until work stopped: the
+// principal counted twice, and saving never rose (Planning audit, 2.10).
+export function lifePlanBasis({ people, assumptions, inputs, startNetWorth, goals = [], incomes = [], household = null, stopping = null, loans = [], startYear, now = null, fcSet = 'baseline', stopOverride = null, spendKind = null }) {
   const endYear = planEndYear(people);
   const sets = scenarioSets(assumptions);
   const selected = sets[fcSet] ?? sets.baseline;
@@ -325,6 +371,20 @@ export function lifePlanBasis({ people, assumptions, inputs, startNetWorth, goal
   const timelineGoals = goalsOnTimeline(goals, startYear, inflationPct);
   const fromStop = incomesFromStop(incomes, household);
   const inflows = datedIncomesOnTimeline(incomes, startYear, inflationPct, household);
+  const from = now ?? new Date(startYear, 0, 1);
+  const freed = loans.map((loan) => {
+    // The month after its last instalment.
+    const free = new Date(from.getFullYear(), from.getMonth() + loan.months + 1, 1);
+    const year = free.getFullYear();
+    return {
+      ...loan,
+      clears: payoffMonthLabel(loan.months, from),
+      year,
+      monthsInYear: 12 - free.getMonth(),
+      perYear: (loan.monthly * 12) / (1 + inflationPct / 100) ** Math.max(0, year - startYear),
+    };
+  });
+  const owedOnLoans = loans.filter((l) => l.inNetWorth).reduce((s, l) => s + l.balance, 0);
 
   return {
     endYear,
@@ -343,11 +403,13 @@ export function lifePlanBasis({ people, assumptions, inputs, startNetWorth, goal
     goals: timelineGoals,
     incomes: fromStop,
     inflows,
+    loans: freed,
+    owedOnLoans,
     args: {
       startYear,
       people,
       retireYear: stopYear,
-      startPot: startNetWorth,
+      startPot: startNetWorth + owedOnLoans,
       annualSaving: inputs.monthlySaving * 12,
       preRate,
       postRate,
@@ -357,6 +419,9 @@ export function lifePlanBasis({ people, assumptions, inputs, startNetWorth, goal
       incomes: fromStop,
       inflows,
       firstYearShare: now ? yearLeft(now) : 1,
+      freed,
+      // Only today's spending still holds the instalments once work stops.
+      freedFromSpend: spendChoice.key === 'today',
     },
   };
 }
@@ -382,6 +447,9 @@ export function lifePlanStop({ members, memberLife, inputs, ...rest }) {
     shortYear: saved.shortYear,
     // Its year-by-year timeline, which Goals reads each later goal's state from.
     rows: saved.rows,
+    // The loans counted in spending until they clear, and what they owe.
+    loans: basis.loans,
+    owedOnLoans: basis.owedOnLoans,
     stopYear: basis.stopYear,
     stopAssumed: basis.stopAssumed,
     leftOut: membersLeftOut(members, memberLife),
