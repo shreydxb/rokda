@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { afterWorkReturn, AFTER_WORK_RETURN_GAP, costInYear, costsAfterWork, costsText, lifePlanHandover, agesIn, loansInSpending, loansText, rangeText, stopRange, agesLabel, datedIncomesOnTimeline, defaultStopPerson, earliestStop, extraSavingNeeded, goalsOnTimeline, lifePlan, lifePlanBasis, lifePlanStop, maxRetirementSpend, membersLeftOut, noStopCause, noStopText, planEndYear, planPeople, potNeededAt, spendAfterText, yearLeft } from './lifePlan';
-import { projectYears, realReturn, scenarioSets } from './forecast';
+import { marketFall, stressTest, STRESS_FALLS, afterWorkReturn, AFTER_WORK_RETURN_GAP, costInYear, costsAfterWork, costsText, lifePlanHandover, agesIn, loansInSpending, loansText, rangeText, stopRange, agesLabel, datedIncomesOnTimeline, defaultStopPerson, earliestStop, extraSavingNeeded, goalsOnTimeline, lifePlan, lifePlanBasis, lifePlanStop, maxRetirementSpend, membersLeftOut, noStopCause, noStopText, planEndYear, planPeople, potNeededAt, spendAfterText, yearLeft } from './lifePlan';
+import { MARKET_FALL, projectYears, realReturn, scenarioSets } from './forecast';
 
 const people = [
   { name: 'Partner A', birthYear: 1994, lifeExpectancy: 80 },
@@ -584,5 +584,68 @@ describe('costs that start when work stops', () => {
     );
     expect(costsText([], fmt)).toBeNull();
     expect(spendAfterText({ spend: 1, spendKey: 'planned', costsAtStop: 2 }, (v) => `AED ${v}`)).toBe('spending AED 1 a year after work stops (your plan), plus AED 2 a year of costs that start then');
+  });
+});
+
+// Planning audit, 3.14: the stress test runs through the Life plan itself.
+describe('the stress test', () => {
+  it('overrides the return in the years the fall comes, counted from the year work stops', () => {
+    const early = marketFall(1);
+    expect([2049, 2050, 2051, 2052].map((y) => early(y, 2050))).toEqual([null, MARKET_FALL[0], MARKET_FALL[1], null]);
+    const late = marketFall(10);
+    expect([2058, 2059, 2060, 2061].map((y) => late(y, 2050))).toEqual([null, MARKET_FALL[0], MARKET_FALL[1], null]);
+    // It moves with the stop year.
+    expect(early(2052, 2052)).toBe(MARKET_FALL[0]);
+  });
+
+  it('grows the pot at the overriding return in those years, and the steady one otherwise', () => {
+    const plan = lifePlan({ ...base, returnFor: marketFall(1) });
+    const row = (y) => plan.rows.find((r) => r.year === y);
+    expect(row(2054).rate).toBe(MARKET_FALL[0]);
+    expect(row(2055).rate).toBe(MARKET_FALL[1]);
+    expect(row(2056).rate).toBe(base.postRate);
+    expect(row(2053).rate).toBe(base.preRate);
+    expect(row(2054).growth).toBeCloseTo((row(2054).start - row(2054).paid) * MARKET_FALL[0], 6);
+  });
+
+  const inputs = { ready: true, monthlySaving: 4000, annualSpend: 60000, source: 'actual' };
+  const basisAt = (stop, extra = {}) =>
+    lifePlanBasis({ people, assumptions: { retirement_year: stop }, inputs, startNetWorth: 300000, startYear: 2026, ...extra });
+
+  it('puts the plan at its stop year through a steady return and the same fall early and late', () => {
+    const stress = stressTest(basisAt(2054));
+    expect(stress.outcomes.map((o) => [o.key, o.fallYear])).toEqual([
+      ['steady', null],
+      ['early', 2054],
+      ['late', 2063],
+    ]);
+    const [steady, early, late] = stress.outcomes;
+    // The same two bad years: earlier hurts more, as the pot is largest then.
+    const ending = (o) => (o.lasts ? o.left : -1e9 + o.shortYear);
+    expect(ending(steady)).toBeGreaterThan(ending(late));
+    expect(ending(late)).toBeGreaterThan(ending(early));
+    expect(early.rows[0].year).toBe(2054);
+    expect(early.earliest === null || early.earliest >= steady.earliest).toBe(true);
+    expect(steady.earliest).toBe(earliestStop(basisAt(2054).args));
+  });
+
+  it('counts what the Life plan counts, spending for one included', () => {
+    const forOne = stressTest(basisAt(2054, { assumptions: { retirement_year: 2054, survivor_spend_pct: 50 } }));
+    const full = stressTest(basisAt(2054));
+    expect(forOne.outcomes[1].left).toBeGreaterThan(full.outcomes[1].left);
+  });
+
+  it('leaves out a fall that would come after the plan ends', () => {
+    const stress = stressTest(basisAt(2078));
+    expect(stress.outcomes.map((o) => o.key)).toEqual(['steady', 'early']);
+    expect(STRESS_FALLS.map((f) => f.key)).toEqual(['steady', 'early', 'late']);
+  });
+
+  it('says what the pot pays in the year work stops, after other income', () => {
+    const basis = basisAt(2054, { incomes: [{ id: 'r', name: 'Rent', kind: 'yearly', amount: 12000, starts_after_years: 0, lasts_years: null }] });
+    const { firstDraw } = stressTest(basis);
+    expect(firstDraw.year).toBe(2054);
+    expect(firstDraw.drawn).toBeCloseTo(60000 - 12000, 6);
+    expect(firstDraw.share).toBeCloseTo(firstDraw.drawn / firstDraw.pot, 10);
   });
 });

@@ -1,13 +1,14 @@
 import { useMemo, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { incomesWithoutRate } from '../../lib/forecast';
-import { agesIn, agesLabel, costsText, DEFAULT_STOP_AGE, earliestStop, extraSavingNeeded, leftOutText, lifePlan, loansText, maxRetirementSpend, membersLeftOut, planEndYear, potNeededAt, stopRange } from '../../lib/lifePlan';
+import { agesIn, agesLabel, costsText, DEFAULT_STOP_AGE, earliestStop, extraSavingNeeded, leftOutText, lifePlan, loansText, maxRetirementSpend, membersLeftOut, planEndYear, potNeededAt, stopRange, stressTest } from '../../lib/lifePlan';
 import { planningModel } from '../../lib/planningModel';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { ChartLegend, ColumnChart } from '../../charts/Charts';
 import BasisLine, { BudgetBeside } from './BasisLine';
 import LifePlanEditor from './LifePlanEditor';
 import AssumptionsBar from './AssumptionsBar';
+import StressTest from './StressTest';
 import { neverLoaded } from '../../lib/loadState';
 import { isDone } from '../../lib/goals';
 import { projectionInputs } from './planningSources';
@@ -119,6 +120,9 @@ export default function LifePlan({
       // Baseline and Conservative at this stop year, the tab's other what-ifs
       // held as they are (Planning audit, 3.12).
       range: stopRange((key) => model.basis({ ...whatIfs, fcSet: key })),
+      // The same market fall early or late, on Baseline at this stop year
+      // (Planning audit, 3.14).
+      stress: stressTest(model.basis({ ...whatIfs, fcSet: 'baseline' })),
       recorded: { inputs, earliest, result },
       onBudget: budget ? { inputs: budgetBasis, earliest: earliestStop(budget.args), result: lifePlan(budget.args) } : null,
     };
@@ -223,7 +227,7 @@ export default function LifePlan({
     );
   }
 
-  const { basis, result, need, earliest, extra, mostSpend, range, recorded, onBudget } = worked;
+  const { basis, result, need, earliest, extra, mostSpend, range, stress, recorded, onBudget } = worked;
   const loansLine = loansText(basis.loans, basis.owedOnLoans, (v) => `${money.code} ${money.fmt(v)}`);
   const { endYear, sets, selected, inflationPct, postNominal, savedStop, stopYear, spendOptions, spendChoice, survivorPct, goals, incomes, inflows } = basis;
   const anyIncome = incomes.length > 0 || inflows.length > 0;
@@ -596,6 +600,8 @@ export default function LifePlan({
           </div>
         </details>
       </section>
+
+      <StressTest stress={stress} scenarioLabel={selected.label} agesText={agesText} money={money} shown={shown} />
 
       <GoalsOnTimeline goals={openGoals} startYear={startYear} money={money} onChanged={data.reload} onOpenTab={onOpenTab} />
 

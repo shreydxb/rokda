@@ -2645,3 +2645,29 @@ own (`after_work_costs`), on top of the spending after work stops.
   the stop year; their rise after that is the Life plan's alone. The
   independence target, a multiple of spending, leaves them out, as it leaves
   out income that does not start at once and last.
+
+## The stress test runs through the Life plan
+
+Drawdown's market fall ran on a simpler drawdown of its own that left out
+spending for one, goals after work stops and the rise in the costs that start
+then, so it could say the money lasted where the Life plan said it didn't
+(Planning audit, 3.14). It is a section of the Life plan now, "If markets
+fall", and runs through the Life plan's own engine with a return for the fall
+years in place of the steady one.
+
+- **The same fall, early or late:** a pot loses 20% then 10% after inflation
+  over two years, starting the year work stops or ten years in, beside a
+  steady return. The fall moves with the stop year, so the section can say
+  which year would weather the early one.
+- **Sized for the mix assumed after work stops,** a more cautious pot than
+  today's (the return after work stops is a point lower): about what a mixed
+  pot lost in 2008. An all-equity pot fell about twice as far in 1973-74;
+  sizing the fall from today's mix would contradict the lower return.
+- **On Baseline, whatever the scenario,** and it says so on any other: a fall
+  on top of Conservative would count caution twice.
+- **One line on the first year's draw:** what the pot pays towards spending
+  the year work stops, after other income, and that as a share of what it
+  holds. Drawdown's sixty-year totals don't come across.
+- **The fall's path is drawn against the steady one** over the plan's own
+  years, from the stop year to the end, in place of Drawdown's chart.
+

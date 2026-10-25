@@ -405,3 +405,31 @@ describe('LifePlan: the one drawer and the costs after work', () => {
     expect(screen.getByText(/Costs that start when work stops, on top of the spending: Health cover AED 8,000 a year for each person\./)).toBeTruthy();
   });
 });
+
+// Planning audit, 3.14: the stress test moved here from Drawdown, through the
+// Life plan's own engine, on Baseline.
+describe('LifePlan: if markets fall', () => {
+  it('gives the plan at its stop year steady, and with the same fall early and late', () => {
+    renderPlan();
+    const falls = screen.getByRole('group', { name: 'Market falls' });
+    const cards = [...falls.querySelectorAll('button')];
+    expect(cards.map((c) => c.textContent.split(/Lasts|Runs/)[0])).toEqual(['Steady', 'Fall the year work stops · 2054', 'Fall ten years in · 2063']);
+    // The early fall is drawn first, against the steady path.
+    expect(cards[1].getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('group', { name: /^With a market fall in 2054, against the steady path/ })).toBeTruthy();
+    fireEvent.click(cards[0]);
+    expect(screen.getByRole('group', { name: /^At a steady return/ })).toBeTruthy();
+  });
+
+  it('says what the first year without work takes from the pot', () => {
+    renderPlan();
+    expect(screen.getByText(/In 2054, the first year without work, the pot pays AED 48,000 towards spending after other income: \d+\.\d% of what it holds\./)).toBeTruthy();
+  });
+
+  it('stays on Baseline whichever scenario is chosen, and says so', () => {
+    renderPlan();
+    expect(screen.queryByText(/would count caution twice/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Conservative' }));
+    expect(screen.getByText(/This is on Baseline whichever scenario is chosen above: a fall on top of Conservative would count caution twice\./)).toBeTruthy();
+  });
+});
