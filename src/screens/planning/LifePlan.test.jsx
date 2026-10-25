@@ -76,6 +76,9 @@ function renderPlan({ data = {}, ...props } = {}) {
 }
 
 const hero = () => document.querySelector('.ov-hero').textContent;
+// What one side of the range says under the stop year (Planning audit, 3.12).
+const rangeFigure = (label) =>
+  [...document.querySelectorAll('.lp-range-cell')].find((c) => c.querySelector('.lp-range-label').textContent === label).querySelector('.lp-range-figure').textContent;
 // The year-by-year table is built once it is opened.
 function openTable() {
   const details = document.querySelector('details.ch-table');
@@ -123,7 +126,9 @@ describe('LifePlan: the timeline', () => {
   it('plans to the last life expectancy, stopping work at 60 until a year is saved', () => {
     renderPlan();
     // 200,000 plus 72,000 a year at 3.4% real, spending 48,000 a year from 60: it lasts.
-    expect(hero()).toBe('Lasts to 2079');
+    expect(hero()).toBe('Stopping in 2054');
+    expect(screen.getByText('Alex 60 · Sam 60 · assumed: the year Alex turns 60')).toBeTruthy();
+    expect(rangeFigure('Baseline')).toBe('Lasts to 2079');
     expect(screen.getByText(/Stopping work in 2054 \(Alex 60 · Sam 60\)/)).toBeTruthy();
     expect(screen.getByText(/the year Sam turns 85/)).toBeTruthy();
     expect(screen.getByText(/not saved yet/)).toBeTruthy();
@@ -131,16 +136,16 @@ describe('LifePlan: the timeline', () => {
 
   it('runs out when work stops too soon for the spending', () => {
     renderPlan({ data: { assumptions: { retirement_year: thisYear + 1, retirement_annual_spend: 150000 } } });
-    expect(hero()).toMatch(/^Runs out in \d{4}$/);
+    expect(rangeFigure('Baseline')).toMatch(/^Runs out in \d{4}$/);
     const take = document.querySelector('.fc-solve-answer').textContent;
     // Stopping later comes first: it is the lever that fits a plan short in retirement.
-    expect(take).toMatch(/^To last to 2079: stop work in \d{4} \(Alex \d+ · Sam \d+\) · or save AED [\d,]+ more a month until \d{4} · or spend at most AED [\d,]+ a year/);
+    expect(take).toMatch(/^To last to 2079: stop work in \d{4} \(Alex \d+ · Sam \d+\), with nothing to spare · or save AED [\d,]+ more a month until \d{4} · or spend at most AED [\d,]+ a year/);
   });
 
   it('falls short in a goal\'s year when the pot cannot pay it', () => {
     const goals = [{ id: 'g1', name: 'Villa', target_amount: '5000000', target_date: `${thisYear + 1}-06-01`, counts_in_life_plan: true }];
     renderPlan({ data: { goals } });
-    expect(hero()).toBe(`Short in ${thisYear + 1}`);
+    expect(rangeFigure('Baseline')).toBe(`Short in ${thisYear + 1}`);
     expect(screen.getByText(new RegExp(`^Villa in ${thisYear + 1} needs AED`))).toBeTruthy();
     expect(document.querySelector('.fc-solve-answer').textContent).toMatch(new RegExp(`^The pot is AED [\\d,]+ short for Villa in ${thisYear + 1}\\. Move it later or make it smaller`));
   });
@@ -148,7 +153,7 @@ describe('LifePlan: the timeline', () => {
   it('leaves a goal kept rather than spent off the timeline', () => {
     const goals = [{ id: 'g1', name: 'Emergency fund', target_amount: '5000000', target_date: `${thisYear + 1}-06-01`, counts_in_life_plan: false }];
     renderPlan({ data: { goals } });
-    expect(hero()).toBe('Lasts to 2079');
+    expect(rangeFigure('Baseline')).toBe('Lasts to 2079');
     expect(screen.getByText('Kept, not spent: stays in the pot')).toBeTruthy();
   });
 

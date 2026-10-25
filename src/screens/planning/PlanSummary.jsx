@@ -12,9 +12,10 @@ import { unconfirmedAccounts } from '../../lib/balance';
 import { tabHref } from '../../lib/activityLink';
 import { reviewMonth, reviewMonthParam } from '../../lib/monthlyReview';
 import { cashReserve, savingCheck } from '../../lib/monthlyCheck';
-import { basisChoice, budgetInputs, budgetPlan, crossingYear, forecastInputs, incomesFromStop, independenceTarget, realReturn, spendThatStops } from '../../lib/forecast';
-import { agesLabel, DEFAULT_STOP_AGE, leftOutText, lifePlanStop, loansInSpending, noStopText, spendAfterText } from '../../lib/lifePlan';
-import { incompleteNote, netWorthSummary, startingNetWorth } from '../overviewMath';
+import { crossingYear, incomesFromStop, independenceTarget, realReturn } from '../../lib/forecast';
+import { agesLabel, DEFAULT_STOP_AGE, leftOutText, rangeText, spendAfterText } from '../../lib/lifePlan';
+import { planningModel } from '../../lib/planningModel';
+import { incompleteNote, netWorthSummary } from '../overviewMath';
 import { couldntLoad, neverLoaded } from '../../lib/loadState';
 import { DEBT_INPUTS, DEBT_PLAN_INPUTS, GOALS_INPUTS, projectionInputs } from './planningSources';
 import BasisLine from './BasisLine';
@@ -37,6 +38,7 @@ function payoffText({ atMinimums, withExtra, now }) {
 // already compute — no new financial math lives here, just a next-action read.
 // Plan is in dirhams, as Goals and Debt payoff are (Planning.jsx, AedNote).
 const AED = { code: 'AED', fmt: (v) => formatMoney(v) };
+const aed = (v) => `AED ${formatMoney(v)}`;
 
 export default function PlanSummary({ household = null, members, me, accounts, transactions, recurring = [], holdings, budgets = [], categories = [], data, sources, onRetry, loading, onOpenTab }) {
   const { goals, goalContributions, goalAllocations, assumptions } = data;
@@ -114,18 +116,31 @@ export default function PlanSummary({ household = null, members, me, accounts, t
   const unentered = useMemo(() => unconfirmedAccounts((accounts ?? []).filter((a) => !isArchived(a))), [accounts]);
   const provisional = unentered.length > 0 ? `Provisional: ${unentered.length} balance${unentered.length === 1 ? '' : 's'} not entered, counted as 0` : null;
 
-  // The same basis Forecast projects from, not a rule of this card's own:
-  // "any account or holding exists" let a household whose only holding had
-  // never been valued start from that holding's placeholder 0 (SHR-292).
-  const startNetWorth = useMemo(() => startingNetWorth(accounts, holdings), [accounts, holdings]);
+  // The planning model, built in one place for every tab (lib/planningModel.js;
+  // Planning audit, 3.12): the start, the basis, what stops, the loans, and
+  // the Life plan's answer on the saved plan and on the budget's figures.
+  const { memberLife, independenceIncome, debts: debtRows } = data;
+  const model = useMemo(
+    () =>
+      planningModel({
+        accounts,
+        holdings,
+        transactions,
+        recurring,
+        budgets,
+        categories,
+        data: { assumptions, goals, memberLife, independenceIncome, debts: debtRows },
+        members: members ?? [],
+        household,
+        now,
+      }),
+    [accounts, holdings, transactions, recurring, budgets, categories, assumptions, goals, memberLife, independenceIncome, debtRows, members, household, now]
+  );
+  const { startNetWorth, inputs: forecast } = model;
   const basisIncomplete = useMemo(() => {
     const s = netWorthSummary(accounts, null, holdings);
     return incompleteNote({ accounts: s.unvalued, holdings: s.unpricedHoldings }, { capitalised: false, sentence: false });
   }, [accounts, holdings]);
-  // The same inputs Forecast and Drawdown use, the budget standing in included.
-  const plan = useMemo(() => budgetPlan(budgets, categories, now), [budgets, categories, now]);
-  const forecast = useMemo(() => forecastInputs(transactions, startNetWorth, now, plan, recurring, basisChoice(assumptions)), [transactions, startNetWorth, now, plan, recurring, assumptions]);
-  const stopping = useMemo(() => spendThatStops({ inputs: forecast, transactions, budgets, categories, now }), [forecast, transactions, budgets, categories, now]);
   const nominalPct = assumption(assumptions, 'nominal_return_pct');
   const inflationPct = assumption(assumptions, 'inflation_pct');
   const swrPct = assumption(assumptions, 'safe_withdrawal_pct');
@@ -141,38 +156,12 @@ export default function PlanSummary({ household = null, members, me, accounts, t
         goal: fireTarget,
       })
     : null;
-  // With ages set, the Life plan answers when work can stop: the first year
-  // its money lasts to the end. The 25x target above is money that lasts
-  // forever, decades later, and used to be the only answer here.
-  // Loans paid out of spending, counted there once (Planning audit, 2.10).
-  const loans = useMemo(() => loansInSpending({ debts: data.debts ?? [], accounts, transactions, now }), [data.debts, accounts, transactions, now]);
-  const stopFrom = useMemo(
-    () => (inputs, spendStopping) =>
-      lifePlanStop({
-        members: members ?? [],
-        memberLife: data.memberLife ?? [],
-        assumptions,
-        inputs,
-        startNetWorth,
-        goals: goals ?? [],
-        incomes: data.independenceIncome ?? [],
-        household,
-        stopping: spendStopping,
-        loans,
-        startYear: now.getFullYear(),
-        now,
-      }),
-    [members, data.memberLife, assumptions, startNetWorth, goals, data.independenceIncome, household, loans, now]
-  );
-  const stop = useMemo(() => stopFrom(forecast, stopping), [stopFrom, forecast, stopping]);
-  // The same answer on the budget's figures, once three ended months have
-  // taken over from it: the budget used to drop out of view then, though it
-  // is the plan the household wrote down (Planning audit, 1.2).
-  const budgetBasis = useMemo(() => (forecast.source === 'actual' ? budgetInputs(plan, startNetWorth, forecast.monthCount) : null), [forecast, plan, startNetWorth]);
-  const budgetStop = useMemo(() => {
-    if (!budgetBasis) return null;
-    return stopFrom(budgetBasis, spendThatStops({ inputs: budgetBasis, transactions, budgets, categories, now }));
-  }, [stopFrom, budgetBasis, transactions, budgets, categories, now]);
+  // With ages set, the Life plan answers when work can stop. The 25x target
+  // above is money that lasts forever, decades later, and used to be the only
+  // answer here. The same answer on the budget's figures stays beside it while
+  // the records are the basis (Planning audit, 1.2).
+  const stop = useMemo(() => model.stop(), [model]);
+  const budgetStop = useMemo(() => model.stop({ budget: true }), [model]);
 
   // What rests on records that never arrived is withheld rather than worked
   // out from an empty placeholder: with goals and debts unread, this page
@@ -269,12 +258,7 @@ export default function PlanSummary({ household = null, members, me, accounts, t
   // (Planning audit, 1.1). A year nobody chose was called "your plan's".
   const stopCaveats = (stop) =>
     [
-      budgetStop && {
-        text:
-          budgetStop.earliest !== null
-            ? `On your budget's figures rather than the recorded months: ${budgetStop.earliest}.`
-            : "On your budget's figures rather than the recorded months, no year lasts.",
-      },
+      budgetStop && { text: `On your budget's figures rather than the recorded months: ${rangeText(budgetStop.range.slice(0, 1), aed)}.` },
       stop.stopAssumed && {
         text: `${stop.stopYear} is assumed${
           stop.stopYear === stop.stopAssumed.birthYear + DEFAULT_STOP_AGE ? `, the year ${stop.stopAssumed.name} turns ${DEFAULT_STOP_AGE},` : ''
@@ -294,14 +278,12 @@ export default function PlanSummary({ household = null, members, me, accounts, t
     stop ? (
       <SummaryCard
         label="Stop working"
-        figure={stop.earliest !== null ? String(stop.earliest) : 'No year lasts'}
-        note={
-          stop.earliest !== null
-            ? `${agesLabel(stop.ages)} · the money lasts to ${stop.endYear} · ${spendAfterText(stop, (v) => `AED ${formatMoney(v)}`)}${
-                stop.earliest > stop.stopYear ? ` · not by ${stop.stopAssumed ? '' : "your plan's "}${stop.stopYear}` : ''
-              }${basisIncomplete ? ` · incomplete, ${basisIncomplete}` : ''}${forecast.source === 'budget' ? ' · from your budget' : ''}`
-            : noStopText(stop)
-        }
+        // The Life plan's year with its range, not the zero-margin earliest
+        // year (Planning audit, 3.12).
+        figure={String(stop.stopYear)}
+        note={`${agesLabel(stop.stopAges)} · ${rangeText(stop.range, aed)} · ${spendAfterText(stop, aed)}${basisIncomplete ? ` · incomplete, ${basisIncomplete}` : ''}${
+          forecast.source === 'budget' ? ' · from your budget' : ''
+        }`}
         caveats={stopCaveats(stop)}
         cta="Life plan"
         onClick={() => onOpenTab('life')}

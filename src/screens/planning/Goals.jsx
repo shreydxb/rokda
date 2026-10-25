@@ -4,9 +4,7 @@ import { resolveScopeMemberId } from '../../lib/scope';
 import { formatMoney } from '../../lib/money';
 import { assumption } from '../../lib/planningDefaults';
 import { cashPerMonth, fundInPriority, goalCostAtDate, goalInflationPct, doneMonth, goalStatuses, isDone } from '../../lib/goals';
-import { basisChoice, budgetPlan, forecastInputs, spendThatStops } from '../../lib/forecast';
-import { lifePlanStop, loansInSpending } from '../../lib/lifePlan';
-import { startingNetWorth } from '../overviewMath';
+import { planningModel } from '../../lib/planningModel';
 import GoalEditor from './GoalEditor';
 import { neverLoaded } from '../../lib/loadState';
 import { GOALS_INPUTS, projectionInputs } from './planningSources';
@@ -105,32 +103,27 @@ export default function Goals({
   const now = useMemo(() => new Date(), []);
 
   // The Life plan's timeline, which later goals take their state from: the
-  // household's saved plan, as Plan and the Life plan tab show it.
-  const startNetWorth = useMemo(() => startingNetWorth(accounts, holdings), [accounts, holdings]);
-  const plan = useMemo(() => budgetPlan(budgets, categories, now), [budgets, categories, now]);
-  const inputs = useMemo(() => forecastInputs(transactions, startNetWorth, now, plan, recurring, basisChoice(assumptions)), [transactions, startNetWorth, now, plan, recurring, assumptions]);
+  // household's saved plan, from the one planning model (Planning audit, 3.12).
+  const { memberLife, independenceIncome, debts: debtRows } = data;
+  const model = useMemo(
+    () =>
+      planningModel({
+        accounts,
+        holdings,
+        transactions,
+        recurring,
+        budgets,
+        categories,
+        data: { assumptions, goals, memberLife, independenceIncome, debts: debtRows },
+        members,
+        household,
+        now,
+      }),
+    [accounts, holdings, transactions, recurring, budgets, categories, assumptions, goals, memberLife, independenceIncome, debtRows, members, household, now]
+  );
+  const { startNetWorth, plan, inputs } = model;
   const timelineMissing = neverLoaded(sources, projectionInputs(inputs)).length > 0;
-  // Loans paid out of spending, counted there once (Planning audit, 2.10).
-  const loans = useMemo(() => loansInSpending({ debts: data.debts ?? [], accounts, transactions, now }), [data.debts, accounts, transactions, now]);
-  const timeline = useMemo(() => {
-    if (timelineMissing) return null;
-    const stopping = spendThatStops({ inputs, transactions, budgets, categories, now });
-    const stop = lifePlanStop({
-      members,
-      memberLife: data.memberLife ?? [],
-      assumptions,
-      inputs,
-      startNetWorth,
-      goals: goals ?? [],
-      incomes: data.independenceIncome ?? [],
-      household,
-      stopping,
-      loans,
-      startYear: now.getFullYear(),
-      now,
-    });
-    return stop?.rows ?? null;
-  }, [timelineMissing, inputs, transactions, budgets, categories, now, members, data.memberLife, assumptions, startNetWorth, goals, data.independenceIncome, household, loans]);
+  const timeline = useMemo(() => (timelineMissing ? null : (model.stop()?.rows ?? null)), [timelineMissing, model]);
 
   const rows = useMemo(
     () =>

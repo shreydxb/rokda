@@ -426,6 +426,46 @@ export function lifePlanBasis({ people, assumptions, inputs, startNetWorth, goal
   };
 }
 
+// The year work stops under Baseline and Conservative side by side, the range
+// every headline gives rather than one zero-margin year at one return
+// (Planning audit, 3.12): whether the money lasts to the end and what is left
+// then, or the year it runs short, and the earliest year that lasts with
+// nothing to spare. `basisFor(fcSet)` is lifePlanBasis for that scenario with
+// everything else held as it is, the stop year included.
+export const RANGE_SETS = ['baseline', 'conservative'];
+export function stopRange(basisFor) {
+  return RANGE_SETS.map((key) => {
+    const basis = basisFor(key);
+    const result = lifePlan(basis.args);
+    const shortRow = result.shortYear !== null ? result.rows.find((r) => r.year === result.shortYear) : null;
+    return {
+      key,
+      label: basis.selected.label,
+      stopYear: basis.stopYear,
+      endYear: basis.endYear,
+      lasts: result.lasts,
+      shortYear: result.shortYear,
+      // Short while still working: a goal the pot cannot pay.
+      shortWorking: shortRow?.working ?? false,
+      left: result.left,
+      earliest: earliestStop(basis.args),
+    };
+  });
+}
+
+// "Baseline lasts to 2080 with AED 2.1M left · Conservative runs out in 2071":
+// the range in words, for the screens that quote it. `fmt` formats an amount
+// in today's money, currency code included.
+export function rangeText(range, fmt) {
+  return range
+    .map((r) =>
+      r.lasts
+        ? `${r.label} lasts to ${r.endYear} with ${fmt(r.left)} left`
+        : `${r.label} ${r.shortWorking ? 'falls short for a goal' : 'runs out'} in ${r.shortYear}`
+    )
+    .join(' · ');
+}
+
 // The household's one answer to "when could we stop working": the first year
 // the saved life plan lasts to the end. The Plan summary and Forecast show it
 // rather than a rule of their own, so they agree with the Life plan tab. Null
@@ -438,6 +478,9 @@ export function lifePlanStop({ members, memberLife, inputs, ...rest }) {
   const saved = lifePlan(basis.args);
   return {
     people,
+    // Baseline and Conservative at the plan's own stop year (stopRange).
+    range: stopRange((fcSet) => lifePlanBasis({ people, inputs, ...rest, fcSet })),
+    stopAges: agesIn(people, basis.stopYear),
     endYear: basis.endYear,
     earliest,
     whyNone: earliest === null ? noStopCause(basis.args) : null,

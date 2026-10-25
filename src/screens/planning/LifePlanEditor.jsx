@@ -178,7 +178,7 @@ export default function LifePlanEditor({ householdId, members, memberLife, assum
         <form className="te-form" onSubmit={handleSave}>
           <div className="ov-muted" style={{ fontSize: 12, lineHeight: 1.6 }}>
             Each person is planned for until the end of the year they reach the age you give. It is the age to plan to, not a prediction:
-            planning a little long is the safer mistake. Leave someone blank to leave them out.
+            planning a little long is the safer mistake, and 95 is a careful age for a couple. Leave someone blank to leave them out.
           </div>
 
           {form.people.map((p) => (
@@ -207,7 +207,7 @@ export default function LifePlanEditor({ householdId, members, memberLife, assum
                   max="120"
                   value={p.lifeExpectancy}
                   onChange={(e) => setPerson(p.id, 'lifeExpectancy', e.target.value)}
-                  placeholder="e.g. 85"
+                  placeholder="e.g. 95"
                   aria-label={`Age to plan ${p.name} to`}
                 />
               </div>

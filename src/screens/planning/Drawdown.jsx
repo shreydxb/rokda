@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
-import { startingNetWorth } from '../overviewMath';
-import { basisChoice, budgetPlan, drawdownPath, forecastInputs, incomesFromStop, incomesWithoutRate, independenceTarget, MARKET_FALL, marketReturns, potForWithdrawal, realReturn, scenarioSets, spendThatStops, sustainableWithdrawal } from '../../lib/forecast';
-import { agesIn, agesLabel, lifePlanBasis, lifePlanHandover, loansInSpending, planEndYear, planPeople } from '../../lib/lifePlan';
+import { drawdownPath, incomesFromStop, incomesWithoutRate, independenceTarget, MARKET_FALL, marketReturns, potForWithdrawal, realReturn, scenarioSets, sustainableWithdrawal } from '../../lib/forecast';
+import { agesIn, agesLabel, lifePlanHandover, planEndYear } from '../../lib/lifePlan';
+import { planningModel } from '../../lib/planningModel';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { LineChart } from '../../charts/Charts';
 import IncomeEditor from './IncomeEditor';
@@ -64,34 +64,33 @@ export default function Drawdown({ household, members = [], accounts = [], trans
   const incomeRows = data.independenceIncome ?? [];
   const incomes = incomesFromStop(incomeRows, household);
 
-  const startNetWorth = useMemo(() => startingNetWorth(accounts, holdings), [accounts, holdings]);
-  // Until three months close, the budget stands in (forecastInputs).
-  const plan = useMemo(() => budgetPlan(budgets, categories, now), [budgets, categories, now]);
-  const inputs = useMemo(() => forecastInputs(transactions, startNetWorth, now, plan, recurring, basisChoice(assumptions)), [transactions, startNetWorth, now, plan, recurring, assumptions]);
-  // Loans paid out of spending, counted there once (Planning audit, 2.10).
-  const loans = useMemo(() => loansInSpending({ debts: data.debts ?? [], accounts, transactions, now }), [data.debts, accounts, transactions, now]);
+  // The planning model, built in one place for every tab (lib/planningModel.js;
+  // Planning audit, 3.12).
+  const model = useMemo(
+    () =>
+      planningModel({
+        accounts,
+        holdings,
+        transactions,
+        recurring,
+        budgets,
+        categories,
+        data: { assumptions, goals: data.goals, memberLife: data.memberLife, independenceIncome: data.independenceIncome, debts: data.debts },
+        members,
+        household,
+        now,
+      }),
+    [accounts, holdings, transactions, recurring, budgets, categories, assumptions, data.goals, data.memberLife, data.independenceIncome, data.debts, members, household, now]
+  );
+  const { startNetWorth, plan, inputs } = model;
   // Where the Life plan leaves the household when work stops, on this
   // screen's scenario. Null until someone's age is set.
   const handover = useMemo(() => {
-    const people = planPeople(members, data.memberLife ?? []);
+    const { people } = model;
     // A plan everyone has outlived has no stop year to hand over.
     if (!people.length || !inputs.ready || planEndYear(people) < now.getFullYear()) return null;
-    const basis = lifePlanBasis({
-      people,
-      assumptions,
-      inputs,
-      startNetWorth,
-      goals: data.goals ?? [],
-      incomes: data.independenceIncome ?? [],
-      household,
-      stopping: spendThatStops({ inputs, transactions, budgets, categories, now }),
-      loans,
-      startYear: now.getFullYear(),
-      now,
-      fcSet,
-    });
-    return { ...lifePlanHandover(basis), people };
-  }, [members, data.memberLife, data.goals, data.independenceIncome, inputs, assumptions, startNetWorth, household, transactions, budgets, categories, loans, now, fcSet]);
+    return { ...lifePlanHandover(model.basis({ fcSet })), people };
+  }, [model, inputs, now, fcSet]);
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
   const missing = neverLoaded(sources, projectionInputs(inputs));

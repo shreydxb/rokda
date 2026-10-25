@@ -64,7 +64,12 @@ describe('PlanSummary: when work can stop', () => {
     const { onOpenTab } = renderSummary();
     expect(screen.queryByText('Independence')).toBeNull();
     expect(screen.getByText('Stop working')).toBeTruthy();
-    expect(screen.getByText(/^Alex \d+ · Sam \d+ · the money lasts to 2079 · spending AED 48,000 a year after work stops \(as today\)$/)).toBeTruthy();
+    // The stop year with Baseline and Conservative beside it, not the
+    // zero-margin earliest year (Planning audit, 3.12).
+    expect(within(card('Stop working')).getByText('2054')).toBeTruthy();
+    expect(
+      screen.getByText(/^Alex 60 · Sam 60 · Baseline lasts to 2079 with AED [\d,]+ left · Conservative (lasts to 2079 with AED [\d,]+ left|runs out in \d{4}) · spending AED 48,000 a year after work stops \(as today\)$/)
+    ).toBeTruthy();
     fireEvent.click(screen.getByText('Life plan →'));
     expect(onOpenTab).toHaveBeenCalledWith('life');
   });
@@ -76,7 +81,8 @@ describe('PlanSummary: when work can stop', () => {
 
   it('says when the saved stop year does not last', () => {
     renderSummary({ assumptions: { retirement_year: new Date().getFullYear() + 1, retirement_annual_spend: 150000 } });
-    expect(screen.getByText(/· not by your plan's \d{4}$/)).toBeTruthy();
+    expect(within(card('Stop working')).getByText(String(new Date().getFullYear() + 1))).toBeTruthy();
+    expect(screen.getByText(/· Baseline runs out in \d{4} · Conservative runs out in \d{4} · /)).toBeTruthy();
   });
 
   it('falls back to the independence year while no ages are set', () => {
@@ -231,10 +237,11 @@ describe('PlanSummary: the budget beside the records', () => {
 
   it('gives the stop year on the budget\'s figures beside the recorded one', () => {
     renderSummary({}, undefined, { categories, budgets: [budget('food', 2000), budget('save', 8000)] });
-    const recorded = Number(within(card('Stop working')).getByText(/^\d{4}$/).textContent);
-    const line = within(card('Stop working')).getByText(/^On your budget's figures rather than the recorded months: \d{4}\.$/);
-    // Spending less and saving more than recorded, the budget stops sooner.
-    expect(Number(line.textContent.match(/\d{4}/)[0])).toBeLessThan(recorded);
+    const left = (text) => Number(text.match(/Baseline lasts to 2079 with AED ([\d,]+) left/)[1].replace(/,/g, ''));
+    const recorded = left(within(card('Stop working')).getByText(/· Baseline lasts to/).textContent);
+    const line = within(card('Stop working')).getByText(/^On your budget's figures rather than the recorded months: Baseline lasts to 2079 with AED [\d,]+ left\.$/);
+    // Spending less and saving more than recorded, the budget leaves more.
+    expect(left(line.textContent)).toBeGreaterThan(recorded);
   });
 
   it('says nothing more without a budget', () => {
