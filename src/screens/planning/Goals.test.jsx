@@ -38,33 +38,6 @@ describe('Plan summary agrees with the Goals tab', () => {
   });
 });
 
-describe('Plan summary uses the same independence target as Forecast and Drawdown', () => {
-  it('takes lasting other income off the target', () => {
-    const now = new Date();
-    const txns = [1, 2, 3].map((back, i) => {
-      const d = new Date(now.getFullYear(), now.getMonth() - back, 10);
-      return { id: `s${i}`, amount: -4000, kind: 'expense', occurred_at: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-10`, is_shared: true };
-    });
-    const rent = { id: 'r1', kind: 'yearly', amount: 24000, starts_after_years: 0, lasts_years: null };
-    renderScreen(
-      <MemoryRouter>
-        <PlanSummary
-          members={MEMBERS}
-          me={{ id: 'm1' }}
-          accounts={ACCOUNTS}
-          transactions={txns}
-          holdings={[]}
-          data={{ ...DATA, independenceIncome: [rent] }}
-          loading={false}
-          onOpenTab={() => {}}
-        />
-      </MemoryRouter>,
-    );
-    // 48,000 − 24,000 = 24,000 a year at 4%: 600,000.
-    expect(screen.getByText(/of the way to 600,000/)).toBeTruthy();
-  });
-});
-
 describe('Goals: goals that never loaded', () => {
   it('says so, rather than offering to add the first goal', () => {
     renderScreen(

@@ -2671,3 +2671,30 @@ years in place of the steady one.
 - **The fall's path is drawn against the steady one** over the plan's own
   years, from the stop year to the end, in place of Drawdown's chart.
 
+## Five Planning tabs
+
+Forecast and Drawdown each drew the plan a second and third time, on bases
+that could drift from the Life plan's: Forecast's projection paid no goals,
+its target was money that lasts forever, and Drawdown's own simulator left
+out spending for one (Planning audit, 3.15). With the range (3.12), the one
+drawer (3.13) and the stress test (3.14) on the Life plan, neither had a job
+of its own, so both tabs went. Planning is Plan, Life plan, Goals, Debt
+payoff and Notes.
+
+- **What they showed that the Life plan didn't, moved there.** Forecast's
+  saving-versus-growth split is a view on the Life plan's chart, over the
+  working years: what each year's saving adds against what the pot earns,
+  and the year the pot starts earning more. Each year's two flows rather
+  than running totals, so a goal paid from the pot takes nothing from either
+  and the view cannot drift from the pot beside it. Its list of what a
+  projection still needs, and its notes on what the start leaves out and on
+  balances never entered, are on the Life plan; the planning model works the
+  start's gaps out once, for Plan and the Life plan alike.
+- **The 25× target goes everywhere.** Plan's card gave it until ages were
+  set; it asks for the ages now. The withdrawal rate fed only that target, so
+  the plan's drawer no longer asks for it, and Forecast's baseline, which
+  only Forecast compared against, is no longer set. Their columns stay, unread.
+- **Old links still land.** `?tab=forecast` and `?tab=drawdown` open the
+  Life plan, through an alias in `useTab`. The bot links to neither and reads
+  no assumptions.
+

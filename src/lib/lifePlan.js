@@ -13,16 +13,15 @@ import { debtsWithAccounts, minimumOnlyPayoff, payoffMonthLabel } from './debt';
 // answers is the one the sheet exists for: does the money last, and if not,
 // in which year does it run out.
 //
-// Everything is in today's money, like Forecast and Drawdown: the pot grows at
-// the real return, saving and spending keep their buying power. It is one
-// formula applied to every year, so no year can be computed differently from
-// its neighbours -- the adviser's sheets had exactly that fault.
+// Everything is in today's money: the pot grows at the real return, saving
+// and spending keep their buying power. It is one formula applied to every
+// year, so no year can be computed differently from its neighbours -- the
+// adviser's sheets had exactly that fault.
 //
-// The conventions match the other two screens, so the three agree where they
-// overlap. As in Forecast, a working year's saving is added at the end of the
-// year and the pot grows on what it held. As in Drawdown, a retired year's
-// spending is taken at the start of the year, other income first, and only the
-// rest from the pot; a goal is paid at the start of its year either way. What
+// A working year's saving is added at the end of the year and the pot grows
+// on what it held. A year without work has its spending taken at the start of
+// the year, other income first, and only the rest from the pot; a goal is
+// paid at the start of its year either way. What
 // the pot cannot pay is a shortfall, and the first year with one is the year
 // the plan runs out.
 //
@@ -143,8 +142,8 @@ export function yearLeft(now) {
 // `retireYear` is the first year without work: saving stops and spending from
 // the pot starts. `retireSpend` is the household's yearly spending then; once
 // only one person is still planned for, it is `survivorPct` of that. Other
-// income (independence_income rows) counts from `retireYear`, the same way
-// Drawdown counts it from independence. `inflows` are sums paid in a fixed
+// income (independence_income rows) counts from `retireYear`, as its
+// starts_after_years does. `inflows` are sums paid in a fixed
 // year (datedIncomesOnTimeline), added to the pot at the start of that year
 // whether or not work has stopped. `firstYearShare` is the share of the first
 // year still to come (yearLeft); a goal or lump sum in it is paid in full.
@@ -310,7 +309,6 @@ export function maxRetirementSpend(args) {
   return largestPassing((s) => lastsWith(args, { retireSpend: s }));
 }
 
-// The planning defaults every screen falls back to, the same as Forecast's.
 // When no stop-work year is saved: the first person's 60th year.
 export const DEFAULT_STOP_AGE = 60;
 
@@ -392,7 +390,7 @@ export function afterWorkReturn(assumptions, sets, selected) {
 
 // Everything the life plan runs on, built from the household's saved data one
 // way for every screen that shows it -- the Life plan tab, the Plan summary and
-// Forecast -- so they cannot disagree about when work can stop. `fcSet`,
+// Goals -- so they cannot disagree about when work can stop. `fcSet`,
 // `stopOverride` and `spendKind` are the Life plan tab's what-ifs; the other
 // screens leave them unset and so read the saved plan.
 //
@@ -596,8 +594,8 @@ export function rangeText(range, fmt) {
 }
 
 // The household's one answer to "when could we stop working": the first year
-// the saved life plan lasts to the end. The Plan summary and Forecast show it
-// rather than a rule of their own, so they agree with the Life plan tab. Null
+// the saved life plan lasts to the end. The Plan summary shows it rather than
+// a rule of its own, so it agrees with the Life plan tab. Null
 // until someone's age is set, or while there is nothing to project from.
 export function lifePlanStop({ members, memberLife, inputs, ...rest }) {
   const people = planPeople(members, memberLife);
@@ -690,32 +688,4 @@ export function agesLabel(ages) {
     .filter((a) => a.planned)
     .map((a) => `${a.name} ${a.age}`)
     .join(' · ');
-}
-
-// Where the Life plan leaves the household on the day work stops, for
-// Drawdown to put under stress: the pot then, the spending after, the years
-// it has to last, and the plan's other income from that year on -- income
-// timed from the stop, and sums paid in a set year (a policy maturity) as
-// lump sums counted from it. All in today's money, as both screens are.
-// The spending includes the costs that start then, at what they come to in
-// that year. Goals due after work stops, spending for one, and those costs'
-// rise after that are the Life plan's alone.
-export function lifePlanHandover(basis) {
-  const result = lifePlan(basis.args);
-  const { stopYear, endYear } = basis;
-  const later = basis.inflows
-    .filter((i) => i.year >= stopYear)
-    .map((i) => ({ id: i.id, name: i.name, kind: 'lump_sum', amount: i.amount, starts_after_years: i.year - stopYear, lasts_years: null }));
-  return {
-    stopYear,
-    endYear,
-    years: endYear - stopYear + 1,
-    pot: result.potAtStop ?? 0,
-    spend: basis.spendChoice.value + basis.costsAtStop,
-    spendLabel: basis.spendChoice.label,
-    costsAtStop: basis.costsAtStop,
-    incomes: [...basis.incomes, ...later],
-    goalsAfter: basis.goals.filter((g) => g.year >= stopYear),
-    lasts: result.lasts,
-  };
 }

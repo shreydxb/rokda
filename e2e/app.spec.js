@@ -107,19 +107,23 @@ for (const route of ROUTES) {
   });
 }
 
-// Views behind a tab, which the per-route loop above never opens: the
-// Forecast headline row overflowed a phone for as long as it existed, unseen,
-// because Planning lands on Plan. The fixture gets income and spend for four
-// closed months so Forecast projects rather than showing its empty state.
+// Views behind a tab, which the per-route loop above never opens: Forecast's
+// headline row overflowed a phone for as long as it existed, unseen, because
+// Planning lands on Plan. The fixture gets income and spend for four closed
+// months so the Life plan projects rather than showing its empty state.
 const SUBVIEWS = [
-  { name: 'forecast', path: '/planning', tabs: ['Forecast'], expectText: 'What it would take' },
   { name: 'goals', path: '/planning', tabs: ['Goals'], expectText: 'counts only the cash set aside for it' },
   { name: 'budget-year', path: '/money', tabs: ['Budget', 'Year'], expectText: 'Net saved each month' },
-  { name: 'drawdown', path: '/planning', tabs: ['Drawdown', 'Fall in year 1'], expectText: 'The same fall, early or late' },
-  // The fixture's own data: two closed months and a budget, so Drawdown
-  // projects from the budget and must say so.
-  { name: 'drawdown-from-budget', path: '/planning', tabs: ['Drawdown'], expectText: 'Your budget, for now', history: false },
   { name: 'life-plan', path: '/planning', tabs: ['Life plan'], expectText: 'The pot, year by year' },
+  // The fixture's own data: two closed months and a budget, so the Life plan
+  // projects from the budget and must say so.
+  { name: 'life-plan-from-budget', path: '/planning', tabs: ['Life plan'], expectText: 'Your budget, for now', history: false },
+  // Forecast's split of saving and growth, on the Life plan (Planning audit,
+  // 3.15). Drawdown's fall is on it too, so the life-plan view above has it.
+  { name: 'life-plan-split', path: '/planning', tabs: ['Life plan', 'Saving and growth'], expectText: 'Saving and growth, until work stops' },
+  // An old link to a tab that has gone opens the Life plan.
+  { name: 'old-forecast-link', path: '/planning?tab=forecast', tabs: [], expectText: 'The pot, year by year' },
+  { name: 'old-drawdown-link', path: '/planning?tab=drawdown', tabs: [], expectText: 'If markets fall' },
   { name: 'life-plan-setup', path: '/planning', tabs: ['Life plan'], expectText: 'Set up your life plan', tables: { member_life: [] } },
   // A statement that does not match, opened for resolving: the reason box and
   // its buttons must fit a phone.

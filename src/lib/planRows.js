@@ -1,6 +1,6 @@
 import { incomesWithoutRate } from './forecast';
 
-// How the plan's drawer and Drawdown list the rows behind the plan: other
+// How the plan's drawer lists the rows behind the plan: other
 // income once work stops, and the costs that start then (Planning audit, 3.13).
 
 // A row set in another currency, in that currency: "₹43,50,000". Null for AED.
@@ -19,8 +19,7 @@ export function describeIncome(row, household) {
   if (row.kind === 'lump_sum') return start === 0 ? 'One-off, in the first year of independence' : `One-off, ${years(start)} in`;
   const from = start === 0 ? 'From the first year' : `From ${years(start)} in`;
   const lasts = row.lasts_years == null ? 'for good' : `for ${years(row.lasts_years)}`;
-  const lowersTarget = start === 0 && row.lasts_years == null ? ' · lowers the target' : '';
-  return `${from}, ${lasts}${lowersTarget}`;
+  return `${from}, ${lasts}`;
 }
 
 // "Each person · rising 3% a year above inflation · from the year work stops,

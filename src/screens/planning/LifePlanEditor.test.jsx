@@ -160,60 +160,39 @@ describe('LifePlanEditor: spending that stops', () => {
 // field was saved as 0%, and any number was stored as typed, with nothing in
 // the database to stop either (0b-C).
 describe('LifePlanEditor: growth, on Baseline', () => {
-  const SAVED = { household_id: 'h', nominal_return_pct: 7, inflation_pct: 3, safe_withdrawal_pct: 4, lean_annual_spend: null, baseline_set_at: '2026-09-01T00:00:00Z' };
+  const SAVED = { household_id: 'h', nominal_return_pct: 7, inflation_pct: 3, lean_annual_spend: null };
   const memberLife = [{ member_id: 'm1', birth_year: 1994, life_expectancy: 90 }];
   const input = (label) => screen.getByLabelText(label);
   const RETURN = 'Investment return, nominal percent a year';
   const INFLATION = 'Inflation, percent a year';
-  const WITHDRAWAL = 'Safe withdrawal rate, percent a year';
   const LEAN = 'Essentials-only annual spend';
   const AFTER = 'Return after work stops';
   const saved = () => calls.upserts.find((c) => c.table === 'planning_assumptions').row;
 
-  it('saves what was typed, and on the first change makes it the baseline, with the budget\'s savings target', async () => {
-    const { onSaved } = renderEditor({ memberLife, assumptions: null, budgetMonthlySaving: 5000 });
-    expect(screen.getByText(/your budget's savings target of 5,000 a month/)).toBeTruthy();
+  // The withdrawal rate and Forecast's baseline went with Forecast
+  // (Planning audit, 3.15): neither is asked for or written.
+  it('saves what was typed, and marks it as the household\'s', async () => {
+    const { onSaved } = renderEditor({ memberLife, assumptions: null });
+    expect(screen.queryByLabelText('Safe withdrawal rate, percent a year')).toBeNull();
+    expect(screen.queryByText(/baseline/i)).toBeNull();
     expect(input(RETURN).value).toBe('6');
     type(RETURN, '7.5');
     fireEvent.click(screen.getByText('Save plan'));
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
-    expect(saved()).toMatchObject({
-      household_id: 'h',
-      nominal_return_pct: 7.5,
-      inflation_pct: 2.5,
-      safe_withdrawal_pct: 4,
-      lean_annual_spend: null,
-      baseline_nominal_return_pct: 7.5,
-      baseline_inflation_pct: 2.5,
-      baseline_monthly_saving: 5000,
-    });
+    expect(saved()).toMatchObject({ household_id: 'h', nominal_return_pct: 7.5, inflation_pct: 2.5, lean_annual_spend: null });
+    expect(saved()).not.toHaveProperty('safe_withdrawal_pct');
+    expect(saved()).not.toHaveProperty('baseline_set_at');
     // From now on they are the household's, not the defaults.
     expect(saved().assumptions_saved_at).toEqual(expect.any(String));
-  });
-
-  // Planning audit, 1.2: it froze the recorded average, months recorded only
-  // in part included.
-  it('takes no baseline while the budget has no savings target', async () => {
-    const { onSaved } = renderEditor({ memberLife, assumptions: null, budgetMonthlySaving: null });
-    expect(screen.getByText(/No baseline is set yet\. It takes your budget's savings target, and the budget has none/)).toBeTruthy();
-    type(RETURN, '6.5');
-    fireEvent.click(screen.getByText('Save plan'));
-    await waitFor(() => expect(onSaved).toHaveBeenCalled());
-    expect(saved()).toMatchObject({ nominal_return_pct: 6.5, inflation_pct: 2.5 });
-    expect(saved()).not.toHaveProperty('baseline_set_at');
-    expect(saved()).not.toHaveProperty('baseline_monthly_saving');
   });
 
   it('saves a cleared field as the default its placeholder names, never 0', async () => {
     const { onSaved } = renderEditor({ memberLife, assumptions: SAVED });
     type(INFLATION, '');
-    type(WITHDRAWAL, '');
     expect(input(INFLATION).placeholder).toBe('blank: 2.5');
     fireEvent.click(screen.getByText('Save plan'));
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
-    expect(saved()).toMatchObject({ nominal_return_pct: 7, inflation_pct: 2.5, safe_withdrawal_pct: 4 });
-    // Saved before, so the baseline stays where it was.
-    expect(saved()).not.toHaveProperty('baseline_set_at');
+    expect(saved()).toMatchObject({ nominal_return_pct: 7, inflation_pct: 2.5 });
   });
 
   it('keeps 0% when 0 is what was typed, and saves the essentials-only spend', async () => {
@@ -229,7 +208,6 @@ describe('LifePlanEditor: growth, on Baseline', () => {
     renderEditor({ memberLife, assumptions: SAVED });
     type(RETURN, '-40');
     type(INFLATION, '-100');
-    type(WITHDRAWAL, '0');
     type(LEAN, '-1');
     type(AFTER, '60');
     fireEvent.click(screen.getByText('Save plan'));
@@ -238,7 +216,6 @@ describe('LifePlanEditor: growth, on Baseline', () => {
     expect(screen.getAllByText('Essentials-only spend is an amount above zero.')).toHaveLength(2);
     expect(screen.getByText('A return between −20% and 50%.')).toBeTruthy();
     expect(screen.getByText('Inflation between −10% and 30%.')).toBeTruthy();
-    expect(screen.getByText('A withdrawal rate between 1% and 10%.')).toBeTruthy();
     expect(screen.getByText('A return after work stops between −20% and 50%.')).toBeTruthy();
     expect(input(RETURN).getAttribute('aria-invalid')).toBe('true');
     expect(document.activeElement).toBe(input(LEAN));
@@ -265,7 +242,7 @@ describe('LifePlanEditor: growth, on Baseline', () => {
 });
 
 describe('LifePlanEditor: growth, on the Custom scenario', () => {
-  const SAVED = { household_id: 'h', nominal_return_pct: 7, inflation_pct: 3, safe_withdrawal_pct: 4, baseline_set_at: '2026-09-01T00:00:00Z' };
+  const SAVED = { household_id: 'h', nominal_return_pct: 7, inflation_pct: 3 };
   const memberLife = [{ member_id: 'm1', birth_year: 1994, life_expectancy: 90 }];
   const input = (label) => screen.getByLabelText(label);
 
@@ -279,7 +256,8 @@ describe('LifePlanEditor: growth, on the Custom scenario', () => {
     fireEvent.click(screen.getByText('Save plan'));
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     const row = calls.upserts.find((c) => c.table === 'planning_assumptions').row;
-    expect(row).toMatchObject({ household_id: 'h', custom_nominal_return_pct: 9, custom_inflation_pct: null, custom_safe_withdrawal_pct: 4 });
+    expect(row).toMatchObject({ household_id: 'h', custom_nominal_return_pct: 9, custom_inflation_pct: null });
+    expect(row).not.toHaveProperty('custom_safe_withdrawal_pct');
     expect(row.custom_updated_at).toBeTruthy();
     // Custom never writes Baseline's columns, or says Baseline was chosen.
     expect(row).not.toHaveProperty('assumptions_saved_at');
@@ -291,12 +269,11 @@ describe('LifePlanEditor: growth, on the Custom scenario', () => {
     renderEditor({
       memberLife,
       scenario: 'custom',
-      assumptions: { ...SAVED, custom_nominal_return_pct: 5.5, custom_inflation_pct: null, custom_safe_withdrawal_pct: 3.5, custom_updated_at: '2026-09-02T00:00:00Z' },
+      assumptions: { ...SAVED, custom_nominal_return_pct: 5.5, custom_inflation_pct: null, custom_updated_at: '2026-09-02T00:00:00Z' },
     });
     expect(input('Investment return, nominal percent a year').value).toBe('5.5');
     expect(input('Inflation, percent a year').value).toBe('');
     expect(input('Inflation, percent a year').placeholder).toBe("blank: Baseline's 3.0");
-    expect(input('Safe withdrawal rate, percent a year').value).toBe('3.5');
   });
 });
 
@@ -311,7 +288,7 @@ describe('LifePlanEditor: other income and costs after work', () => {
     expect(screen.getByText('Health cover')).toBeTruthy();
     expect(screen.getByText('Each person · rising 3% a year above inflation · from the year work stops, for good')).toBeTruthy();
     expect(screen.getByText('Flat rent')).toBeTruthy();
-    expect(screen.getByText('From the first year, for good · lowers the target')).toBeTruthy();
+    expect(screen.getByText('From the first year, for good')).toBeTruthy();
   });
 
   it('adds a cost in a drawer over the plan, and comes back to the plan', async () => {

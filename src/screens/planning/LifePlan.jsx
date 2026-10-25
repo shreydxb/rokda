@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { tabHref } from '../../lib/activityLink';
 import { supabase } from '../../lib/supabaseClient';
 import { incomesWithoutRate } from '../../lib/forecast';
 import { agesIn, agesLabel, costsText, DEFAULT_STOP_AGE, earliestStop, extraSavingNeeded, leftOutText, lifePlan, loansText, maxRetirementSpend, membersLeftOut, planEndYear, potNeededAt, stopRange, stressTest } from '../../lib/lifePlan';
@@ -9,6 +11,8 @@ import BasisLine, { BudgetBeside } from './BasisLine';
 import LifePlanEditor from './LifePlanEditor';
 import AssumptionsBar from './AssumptionsBar';
 import StressTest from './StressTest';
+import NotEnoughToProject from './NotEnoughToProject';
+import SavingAndGrowth from './SavingAndGrowth';
 import { neverLoaded } from '../../lib/loadState';
 import { isDone } from '../../lib/goals';
 import { projectionInputs } from './planningSources';
@@ -21,11 +25,10 @@ const PHASES = [
 ];
 
 // The whole of a household's financial life on one timeline: what an
-// adviser's "cash adequacy" sheet shows, from the household's own figures and
-// on the same basis as Forecast and Drawdown (the same spending, saving,
-// scenarios and other income). The stop-work year, scenario and spending here
-// are what-ifs; the saved plan is changed with "Make this the plan" or the
-// editor.
+// adviser's "cash adequacy" sheet shows, from the household's own figures:
+// spending, saving, scenarios, other income and the costs after work. The
+// stop-work year, scenario and spending here are what-ifs; the saved plan is
+// changed with "Make this the plan" or the editor.
 // One empty list for every missing prop: a fresh [] on each render would
 // work the whole plan out again on every step along the chart.
 const NONE = [];
@@ -56,8 +59,8 @@ export default function LifePlan({
   const startYear = now.getFullYear();
   // The plan's drawer, open at one of its sections, or null.
   const [editing, setEditing] = useState(null);
-  // Shared with Forecast and Drawdown when Planning passes them
-  // (AssumptionsBar); on their own they are local.
+  // Held by Planning while you move between tabs (AssumptionsBar); on their
+  // own they are local.
   const [localSet, setLocalSet] = useState('baseline');
   const fcSet = scenario ?? localSet;
   const setFcSet = onScenario ?? setLocalSet;
@@ -70,6 +73,9 @@ export default function LifePlan({
   // The year-by-year table is built only once it is opened: closed, its rows
   // were most of the work on every chart step (Planning audit, 0b-E).
   const [tableOpen, setTableOpen] = useState(false);
+  // The chart: the pot by phase, or the working years split into saving and
+  // growth (Planning audit, 3.15).
+  const [chartView, setChartView] = useState('pot');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
 
@@ -92,7 +98,7 @@ export default function LifePlan({
       }),
     [accounts, holdings, transactions, recurring, budgets, categories, assumptions, data.goals, data.memberLife, data.independenceIncome, data.afterWorkCosts, data.debts, members, household, now]
   );
-  const { plan, inputs, stopping, budgetBasis, people } = model;
+  const { inputs, stopping, budgetBasis, people } = model;
   // Anyone without a birth year and an age to plan to is left out, and says
   // so: the money could seem to last when it runs out before their plan
   // would end (Planning audit, 1.1).
@@ -149,7 +155,6 @@ export default function LifePlan({
       spendByCategory={stopping.byCategory}
       incomes={data.independenceIncome ?? []}
       costs={data.afterWorkCosts ?? []}
-      budgetMonthlySaving={plan?.monthlySaving ?? null}
       scenario={fcSet}
       section={editing}
       onRowsChanged={data.reload}
@@ -166,21 +171,14 @@ export default function LifePlan({
     />
   );
 
+  // What the start leaves out, and balances never entered, counted as 0: said
+  // here as Plan says them (Planning audit, 3.15). Forecast said them, and
+  // nothing else that projects did.
+  const { incomplete, unentered } = model.startGaps;
+  const provisional = unentered.length > 0 ? `${unentered.length} balance${unentered.length === 1 ? '' : 's'} not entered, counted as 0` : null;
+
   if (!inputs.ready) {
-    return (
-      <div className="ov-empty" style={{ marginTop: 22 }}>
-        <div className="ov-empty-kicker">Not enough to project</div>
-        <div className="ov-empty-body">
-          The life plan starts from what the household spends, saves and holds: three finished months of recorded spending, or a monthly
-          budget until then, and an account valuation. The same inputs Forecast needs.
-        </div>
-        <div className="ov-empty-actions">
-          <button type="button" className="om-btn" onClick={() => onOpenTab?.('forecast')}>
-            Open Forecast
-          </button>
-        </div>
-      </div>
-    );
+    return <NotEnoughToProject inputs={inputs} startNetWorth={model.startNetWorth} incomplete={incomplete} provisional={provisional} />;
   }
 
   if (!people.length) {
@@ -248,6 +246,11 @@ export default function LifePlan({
   const lastPerson = [...people].sort((a, b) => b.birthYear + b.lifeExpectancy - (a.birthYear + a.lifeExpectancy))[0];
 
   const rows = result.rows;
+  // Saving against growth means something only while there is saving to set
+  // against it: years of work, saving more than is spent.
+  const workingRows = rows.filter((r) => r.working);
+  const splitOffered = workingRows.length > 1 && inputs.monthlySaving > 0;
+  const split = splitOffered && chartView === 'split';
   const activeIdx = Math.min(activeYear ?? Math.max(0, rows.findIndex((r) => r.year === (result.shortYear ?? stopYear))), rows.length - 1);
   const active = rows[activeIdx];
 
@@ -368,6 +371,12 @@ export default function LifePlan({
         {leftOut.length > 0 && (
           <p className="ov-warn" style={{ fontSize: 12.5, margin: '8px 0 0' }}>
             {leftOutText(leftOut)} Add {leftOut.length === 1 ? 'them' : 'each'} under Edit plan.
+          </p>
+        )}
+        {(incomplete || provisional) && (
+          <p className="ov-muted" style={{ fontSize: 12.5, margin: '8px 0 0', lineHeight: 1.6 }}>
+            {[incomplete && `The start ${incomplete}.`, provisional && `Provisional: ${provisional}.`].filter(Boolean).join(' ')}{' '}
+            <Link to={tabHref('/wealth', 'accounts')}>Open Accounts</Link>
           </p>
         )}
 
@@ -507,11 +516,26 @@ export default function LifePlan({
 
       <section style={{ marginTop: 40 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
-          <div className="ov-kicker">The pot, year by year</div>
+          <div className="ov-kicker">{split ? 'Saving and growth, until work stops' : 'The pot, year by year'}</div>
           <div className="ov-muted" style={{ fontSize: 11.5 }}>
-            {mode === 'real' ? 'Today’s money' : `Future money, at ${inflationPct.toFixed(1)}% inflation`} · at the start of each year
+            {mode === 'real' ? 'Today’s money' : `Future money, at ${inflationPct.toFixed(1)}% inflation`}
+            {split ? ' · each year' : ' · at the start of each year'}
           </div>
         </div>
+        {splitOffered && (
+          <div className="dd-segs" role="group" aria-label="Chart" style={{ marginTop: 12 }}>
+            <button type="button" className="om-seg" data-active={!split} aria-pressed={!split} onClick={() => setChartView('pot')}>
+              The pot
+            </button>
+            <button type="button" className="om-seg" data-active={split} aria-pressed={split} onClick={() => setChartView('split')}>
+              Saving and growth
+            </button>
+          </div>
+        )}
+        {split ? (
+          <SavingAndGrowth rows={workingRows} agesText={agesText} money={money} shown={shown} />
+        ) : (
+          <>
         <ColumnChart
           columns={columns}
           series={PHASES}
@@ -599,6 +623,8 @@ export default function LifePlan({
             </table>
           </div>
         </details>
+          </>
+        )}
       </section>
 
       <StressTest stress={stress} scenarioLabel={selected.label} agesText={agesText} money={money} shown={shown} />

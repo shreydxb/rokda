@@ -3,9 +3,9 @@ import { screen, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { renderScreen } from '../../test/renderScreen';
 
-// The assumptions every planning view runs on, in the same place and words on
-// Forecast, Life plan and Drawdown, with the scenario and the money shown
-// held across the three tabs (SHR-325).
+// Planning's tabs, and the assumptions bar the Life plan runs on, with the
+// scenario and the money shown held while moving between tabs (SHR-325).
+// Forecast and Drawdown went (Planning audit, 3.15).
 vi.mock('../../lib/supabaseClient', () => ({ supabase: {} }));
 
 const MEMBERS = [{ id: 'm1', display_name: 'Partner A' }];
@@ -71,43 +71,48 @@ const bar = () => document.querySelector('.pl-assumptions');
 const label = (row) => [...bar().querySelectorAll('.dd-control')].find((c) => c.querySelector('.dd-label').textContent === row);
 const tab = (name) => screen.getAllByRole('button', { name }).find((b) => b.classList.contains('om-tab'));
 
-describe('The assumptions bar', () => {
-  it('is on Forecast, Life plan and Drawdown, in the same order', () => {
-    open('forecast');
-    for (const name of ['Forecast', 'Life plan', 'Drawdown']) {
-      fireEvent.click(tab(name));
+describe('Planning tabs and the assumptions bar', () => {
+  const tabNames = () => screen.getAllByRole('button').filter((b) => b.classList.contains('om-tab')).map((b) => b.textContent);
+
+  it('has five tabs, and an old link to Forecast or Drawdown opens the Life plan', () => {
+    for (const old of ['forecast', 'drawdown']) {
+      const { unmount } = renderScreen(
+        <MemoryRouter initialEntries={[`/planning?tab=${old}`]}>
+          <Planning />
+        </MemoryRouter>,
+      );
+      expect(tabNames()).toEqual(['Plan', 'Life plan', 'Goals', 'Debt payoff', 'Notes']);
+      expect(tab('Life plan').getAttribute('aria-current')).toBe('page');
       expect([...bar().querySelectorAll('.dd-label')].map((l) => l.textContent)).toEqual(['Scenario', 'Show', 'Growth', 'Spending']);
+      unmount();
     }
   });
 
-  it('says the assumptions are defaults until saved, and shared, and a scenario is only a look for now', () => {
-    open('forecast');
+  it('says the assumptions are defaults until saved, and a scenario is only a look for now', () => {
+    open('life');
     // Nothing saved: the app's figures, and it says so (Planning audit, 1.3).
-    expect(bar().textContent).toMatch(/Defaults, nothing saved: the app's figures until you save your own under Edit assumptions\. Return, inflation and the withdrawal rate are shared by Forecast, Life plan and Drawdown/);
-    expect(label('Growth').textContent).toMatch(/6\.0% return · 2\.5% inflation · 3\.4% after inflation · 4\.0% withdrawal rate/);
+    expect(bar().textContent).toMatch(/Defaults, nothing saved: the app's figures until you save your own under Edit assumptions\. Return and inflation are edited with the rest of the plan, under Edit assumptions\./);
+    expect(label('Growth').textContent).toMatch(/6\.0% return · 2\.5% inflation · 3\.4% after inflation · 5\.0% return after work stops/);
     fireEvent.click(label('Scenario').querySelector('button:nth-child(2)'));
-    expect(bar().textContent).toMatch(/The Conservative scenario \(derived from baseline · not edited\), shown on every planning tab until you switch back\. It isn't saved\./);
+    expect(bar().textContent).toMatch(/The Conservative scenario \(derived from baseline · not edited\), shown until you switch back\. It isn't saved\./);
   });
 
   it('keeps the scenario and the money shown when moving between the tabs', () => {
-    open('forecast');
+    open('life');
     fireEvent.click(screen.getByRole('button', { name: 'Optimistic' }));
     fireEvent.click(screen.getByRole('button', { name: 'Future money' }));
+    fireEvent.click(tab('Plan'));
     fireEvent.click(tab('Life plan'));
     expect(screen.getByRole('button', { name: 'Optimistic' }).dataset.active).toBe('true');
     expect(screen.getByRole('button', { name: 'Future money' }).dataset.active).toBe('true');
     expect(label('Growth').textContent).toMatch(/^Growth8\.0% return · 1\.5% inflation/);
-    fireEvent.click(tab('Drawdown'));
-    expect(screen.getByRole('button', { name: 'Optimistic' }).dataset.active).toBe('true');
-    // Drawdown is in today's money only, and says so in the same place.
-    expect(label('Show').textContent).toBe('ShowToday’s money');
   });
 
   // The chosen option showed only as a fill (Planning audit, 0b-F).
   it('tells a screen reader which tab, scenario and money are chosen', () => {
-    open('forecast');
-    expect(tab('Forecast').getAttribute('aria-current')).toBe('page');
-    expect(tab('Life plan').hasAttribute('aria-current')).toBe(false);
+    open('life');
+    expect(tab('Life plan').getAttribute('aria-current')).toBe('page');
+    expect(tab('Plan').hasAttribute('aria-current')).toBe(false);
     const scenario = screen.getByRole('group', { name: 'Scenario' });
     fireEvent.click(within(scenario).getByRole('button', { name: 'Optimistic' }));
     expect(within(scenario).getByRole('button', { name: 'Optimistic', pressed: true })).toBeTruthy();
@@ -126,12 +131,8 @@ describe('The assumptions bar', () => {
     expect(document.activeElement).toBe(tab('Goals'));
   });
 
-  it('puts each view\'s spending in the same place', () => {
+  it('gives the spending the plan is built on in its place', () => {
     open('life');
     expect(label('Spending').textContent).toMatch(/Today's · 48K a year/);
-    fireEvent.click(tab('Drawdown'));
-    expect(label('Spending').textContent).toMatch(/Today's · 48K a year/);
-    fireEvent.click(tab('Forecast'));
-    expect(label('Spending').textContent).toMatch(/Today's: AED 48,000 a year/);
   });
 });

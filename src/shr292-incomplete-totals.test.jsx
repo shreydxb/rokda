@@ -151,21 +151,24 @@ describe('SHR-292: every screen that prints the total says what it leaves out', 
     expect(container.textContent).toContain(`Incomplete — ${NOTE}. (Bank card, New fund)`);
   });
 
-  it('Planning › Forecast', async () => {
-    const { default: Forecast } = await import('./screens/planning/Forecast');
+  // Forecast said it, and went (Planning audit, 3.15); the Life plan says it
+  // now, under its headline.
+  it('Planning › Life plan', async () => {
+    const { default: LifePlan } = await import('./screens/planning/LifePlan');
     const { container } = renderScreen(
       <MemoryRouter>
-        <Forecast
+        <LifePlan
           household={{ id: 'hh' }}
+          members={MEMBERS}
           accounts={ACCOUNTS}
           holdings={HOLDINGS}
           transactions={closedMonthTransactions()}
-          data={{ assumptions: null }}
+          data={{ assumptions: null, goals: [], memberLife: [{ member_id: 'm1', birth_year: 1990, life_expectancy: 90 }] }}
           loading={false}
         />
       </MemoryRouter>,
     );
-    expect(container.textContent).toContain(`20,100 today · incomplete, ${NOTE}`);
+    expect(container.textContent).toContain(`The start ${NOTE}.`);
   });
 
   it('Planning › Summary', async () => {
@@ -190,10 +193,11 @@ describe('SHR-292: every screen that prints the total says what it leaves out', 
   // Only the unconverted card and the never-valued holding: nothing on this
   // balance sheet is actually known. Both planning screens used to disagree
   // here -- Forecast refused, the summary card projected from the holding's
-  // placeholder 0 -- and now both come from startingNetWorth.
+  // placeholder 0 -- and now both come from startingNetWorth. Forecast has
+  // gone, and the Life plan says what it needs instead (3.15).
   it('with nothing valued, neither planning screen projects', async () => {
     const { default: PlanSummary } = await import('./screens/planning/PlanSummary');
-    const { default: Forecast } = await import('./screens/planning/Forecast');
+    const { default: LifePlan } = await import('./screens/planning/LifePlan');
     const unknownOnly = { accounts: [ACCOUNTS[1]], holdings: [HOLDINGS[1]], transactions: closedMonthTransactions() };
     const summary = renderScreen(
       <MemoryRouter>
@@ -203,11 +207,11 @@ describe('SHR-292: every screen that prints the total says what it leaves out', 
     expect(summary.container.textContent).not.toContain('of the way to');
     expect(summary.container.textContent).toContain('Nothing to plan yet');
     summary.unmount();
-    const forecast = renderScreen(
+    const lifePlan = renderScreen(
       <MemoryRouter>
-        <Forecast household={{ id: 'hh' }} {...unknownOnly} data={{ assumptions: null }} loading={false} />
+        <LifePlan household={{ id: 'hh' }} members={MEMBERS} {...unknownOnly} data={{ assumptions: null, memberLife: [] }} loading={false} />
       </MemoryRouter>,
     );
-    expect(forecast.container.textContent).toContain('needs one account valuation');
+    expect(lifePlan.container.textContent).toContain('needs one account valuation');
   });
 });
