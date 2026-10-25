@@ -2541,3 +2541,23 @@ saving never rose when the loan cleared, years before (Planning audit, 2.10).
   today's less what stops, is left as it is.
 - **The Life plan says so** under its timeline, and a projection waits for
   the debts to load rather than counting the loan twice again.
+
+## Plan's monthly check
+
+Plan never said whether saving was on target, or how long the cash to hand
+would last (Planning audit, 2.11). Three versions of that check already
+existed: Review's saving check, the cash cover Overview and the bot use, and
+the budget. Plan now shows the first two, reused rather than made a fourth
+time.
+
+- **Saving:** the month just ended, the one Review opens on, against the
+  budget's savings target for it (`savingCheck`, which Review's "Catch up on
+  saving" now uses too). A running month has its pay still to come.
+- **Cash reserve:** the open current, savings and cash accounts (the
+  cash-cover set), as months of the plan's spending on its chosen basis,
+  against what the kept goals hold, like an emergency fund. Without a kept
+  goal it says no target is set; without spending to divide by, it gives the
+  cash alone.
+- **The household's, whoever is shown,** as the review is, and the section
+  says so. Each line says what it couldn't check when its records didn't
+  load. The decisions list follows it.

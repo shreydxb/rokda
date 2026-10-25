@@ -184,7 +184,8 @@ describe('PlanSummary: what needs a decision', () => {
     renderSummary({}, undefined, { accounts });
     expect(screen.getByText('1 open')).toBeTruthy();
     expect(screen.getByText('Balances not entered: Savings and Current account. Every figure here counts them as 0.')).toBeTruthy();
-    expect(screen.getByRole('link', { name: 'Open Accounts' }).getAttribute('href')).toBe('/wealth?tab=accounts');
+    const row = screen.getByText(/^Balances not entered/).closest('.ov-attn-row');
+    expect(within(row).getByRole('link', { name: 'Open Accounts' }).getAttribute('href')).toBe('/wealth?tab=accounts');
   });
 });
 
@@ -299,5 +300,47 @@ describe('PlanSummary: goals that need a decision', () => {
     const goal = { id: 'g2', name: 'House', target_amount: 900000, target_date: null, is_shared: true, created_at: '2026-01-01T00:00:00Z' };
     renderSummary({ goals: [goal] });
     expect(screen.getByText('No date, so no plan pays for it: House (900,000).')).toBeTruthy();
+  });
+});
+
+// Planning audit, 2.11: Review's saving check and the cash reserve, on Plan.
+describe('PlanSummary: the monthly check', () => {
+  const last = new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1);
+  const name = last.toLocaleDateString('en-GB', { month: 'long' });
+  const categories = [{ id: 'save', name: 'Savings', kind: 'expense', is_savings: true }];
+  const target = (amount) => [{ year: last.getFullYear(), month: last.getMonth() + 1, category_id: 'save', amount: String(amount) }];
+  const check = () => within(screen.getByRole('region', { name: 'Monthly check' }));
+
+  it('gives the month just ended against the budget\'s savings target, as Review does', () => {
+    renderSummary({}, undefined, { budgets: target(7500), categories });
+    // 10,000 in and 4,000 out.
+    expect(check().getByText(`Saving in ${name}: 6,000 against a target of 7,500, 1,500 short.`)).toBeTruthy();
+    const month = `${last.getFullYear()}-${String(last.getMonth() + 1).padStart(2, '0')}`;
+    expect(check().getByRole('link', { name: 'Open Review' }).getAttribute('href')).toBe(`/money?tab=review&month=${month}`);
+    document.body.innerHTML = '';
+    renderSummary({}, undefined, { budgets: target(5000), categories });
+    expect(check().getByText(`Saving in ${name}: 6,000 against a target of 5,000, on target.`)).toBeTruthy();
+    document.body.innerHTML = '';
+    renderSummary();
+    expect(check().getByText(`Saving in ${name}: the budget sets no savings target for it to be checked against.`)).toBeTruthy();
+  });
+
+  it('gives the cash reserve in months of spending, against what the kept goals hold', () => {
+    const reserve = { id: 'g1', name: 'Emergency fund', target_amount: 24000, target_date: null, counts_in_life_plan: false, is_shared: true, created_at: '2026-01-01T00:00:00Z' };
+    renderSummary({ goals: [reserve] });
+    // 200,000 in savings, spending 4,000 a month.
+    expect(check().getByText('Cash reserve: 200,000 in current, savings and cash accounts, about 50.0 months of spending, which covers the 24,000 your kept goals hold (6.0 months).')).toBeTruthy();
+    document.body.innerHTML = '';
+    renderSummary({ goals: [{ ...reserve, target_amount: 300000 }] });
+    expect(check().getByText(/, short of the 300,000 your kept goals hold \(75\.0 months\)\.$/)).toBeTruthy();
+    document.body.innerHTML = '';
+    renderSummary();
+    expect(check().getByText(/; no kept goal, like an emergency fund, sets a target for it\.$/)).toBeTruthy();
+  });
+
+  it('is the household\'s whoever is shown, and says what it couldn\'t check', () => {
+    renderSummary({}, { errors: { accounts: { message: 'canceling statement due to statement timeout' } }, loaded: {} });
+    expect(check().getByText('For the household')).toBeTruthy();
+    expect(check().getByText('Couldn’t load accounts. The cash reserve isn’t worked out.')).toBeTruthy();
   });
 });

@@ -190,7 +190,11 @@ here, because this repository is public.
   budget stands in until three months have ended, then the records.
 - **Plan**: one page answering "are we on track". Once ages are set it opens
   with the Life plan's Stop working card (the year, the ages then, the
-  spending after work stops it assumes), then goals and linked debts.
+  spending after work stops it assumes), then goals and linked debts. A
+  monthly check follows, for the household: saving in the month just ended
+  against the budget's savings target (Review's check), and the cash reserve
+  in months of spending against what the kept goals hold. Then what needs a
+  decision.
 - **Life plan**: a year-by-year timeline from today to the last life
   expectancy: saving and growth while working, each goal paid in its year,
   dated lump sums (policy maturities) and later income, then spending once

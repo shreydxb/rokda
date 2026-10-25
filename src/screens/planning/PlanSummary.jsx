@@ -10,6 +10,8 @@ import { andList } from '../../lib/words';
 import { isArchived } from '../../lib/accounts';
 import { unconfirmedAccounts } from '../../lib/balance';
 import { tabHref } from '../../lib/activityLink';
+import { reviewMonth, reviewMonthParam } from '../../lib/monthlyReview';
+import { cashReserve, savingCheck } from '../../lib/monthlyCheck';
 import { basisChoice, budgetInputs, budgetPlan, crossingYear, forecastInputs, incomesFromStop, independenceTarget, realReturn, spendThatStops } from '../../lib/forecast';
 import { agesLabel, DEFAULT_STOP_AGE, leftOutText, lifePlanStop, loansInSpending, noStopText, spendAfterText } from '../../lib/lifePlan';
 import { incompleteNote, netWorthSummary, startingNetWorth } from '../overviewMath';
@@ -183,6 +185,37 @@ export default function PlanSummary({ household = null, members, me, accounts, t
   // Each item below is offered only when what it rests on loaded; the rest
   // are named once as not checked, never folded into "All clear".
   const unchecked = [...new Set([...goalsMissing, ...debtsMissing, ...debtPlanMissing, ...answerMissing, ...accountsMissing])];
+
+  // The monthly check (Planning audit, 2.11): the checks Review and the cash
+  // cover already make, not a fourth. It is the household's whoever is shown,
+  // as the review is: a month's saving and the cash to hand are shared.
+  // Saving is the month just ended, the one Review opens on; a running month
+  // has its pay still to come.
+  const checkMonth = useMemo(() => reviewMonth(null, now), [now]);
+  const saving = useMemo(() => savingCheck(checkMonth, { transactions, budgets, categories }, now), [checkMonth, transactions, budgets, categories, now]);
+  const savingMissing = neverLoaded(sources, ['transactions', 'budgets', 'categories']);
+  // The money the household keeps rather than spends is the reserve's target.
+  const keptCost = useMemo(
+    () =>
+      goalStatuses({
+        goals,
+        contributions: goalContributions,
+        allocations: goalAllocations ?? [],
+        accounts: accounts ?? [],
+        holdings: holdings ?? [],
+        scopeMemberId: null,
+        now,
+        inflationPct: goalInflation,
+      })
+        .filter((r) => r.kind === 'kept')
+        .reduce((sum, r) => sum + r.cost, 0),
+    [goals, goalContributions, goalAllocations, accounts, holdings, now, goalInflation]
+  );
+  const reserve = useMemo(
+    () => cashReserve({ accounts: accounts ?? [], monthlySpend: forecast.ready ? forecast.avgMonthlySpend : null, keptCost }),
+    [accounts, forecast, keptCost]
+  );
+  const reserveMissing = [...new Set([...accountsMissing, ...goalsMissing])];
 
   // Checks that change what you do. "N goals behind pace" and the nudge to
   // commit an extra debt payment went (Planning audit, 1.1): the first counted
@@ -359,6 +392,14 @@ export default function PlanSummary({ household = null, members, me, accounts, t
         {!stop && answerMissing.length === 0 && answerCard}
       </section>
 
+      <MonthlyCheck
+        month={checkMonth}
+        saving={saving}
+        savingMissing={savingMissing}
+        reserve={reserve}
+        reserveMissing={reserveMissing}
+      />
+
       <section style={{ marginTop: 40 }}>
         <div className="ov-section-head">
           <div className="ov-kicker">What needs a decision</div>
@@ -405,6 +446,64 @@ export default function PlanSummary({ household = null, members, me, accounts, t
         )}
       </section>
     </div>
+  );
+}
+
+const months = (m) => `${m.toFixed(1)} month${m.toFixed(1) === '1.0' ? '' : 's'}`;
+
+// Saving in the month just ended against the budget's target, and the cash
+// reserve in months of the plan's spending against what the kept goals hold
+// (Planning audit, 2.11). Each line says what it couldn't check.
+function MonthlyCheck({ month, saving, savingMissing, reserve, reserveMissing }) {
+  const name = new Date(month.year, month.month - 1, 1).toLocaleDateString('en-GB', { month: 'long' });
+  const savingText =
+    savingMissing.length > 0
+      ? `${couldntLoad(savingMissing)} Saving in ${name} isn\u2019t checked.`
+      : !saving
+        ? `Saving in ${name}: the budget sets no savings target for it to be checked against.`
+        : `Saving in ${name}: ${saving.saved < 0 ? '\u2212' : ''}${formatMoney(saving.saved)} against a target of ${formatMoney(saving.target)}, ${saving.short > 0 ? `${formatMoney(saving.short)} short` : 'on target'}.`;
+
+  let reserveText;
+  if (reserveMissing.length > 0) {
+    reserveText = `${couldntLoad(reserveMissing)} The cash reserve isn\u2019t worked out.`;
+  } else {
+    reserveText = `Cash reserve: ${formatMoney(reserve.liquid)} in current, savings and cash accounts`;
+    if (reserve.months !== null) reserveText += `, about ${months(reserve.months)} of spending`;
+    if (reserve.target === null) reserveText += '; no kept goal, like an emergency fund, sets a target for it';
+    else {
+      const held = `the ${formatMoney(reserve.target)} your kept goals hold${reserve.targetMonths !== null ? ` (${months(reserve.targetMonths)})` : ''}`;
+      reserveText += reserve.liquid >= reserve.target ? `, which covers ${held}` : `, short of ${held}`;
+    }
+    reserveText += '.';
+    if (reserve.months === null) reserveText += ' Months of spending need three ended months or a budget.';
+    if (reserve.unvalued > 0) reserveText += ` ${reserve.unvalued === 1 ? 'One account has' : `${reserve.unvalued} accounts have`} no AED value and count as nothing.`;
+  }
+
+  return (
+    <section style={{ marginTop: 40 }} aria-label="Monthly check">
+      <div className="ov-section-head">
+        <div className="ov-kicker">Monthly check</div>
+        <div className="ov-muted">For the household</div>
+      </div>
+      <div className="ov-attn-list">
+        <div className="ov-attn-row">
+          <div className="ov-attn-main">
+            <span>{savingText}</span>
+          </div>
+          <Link className="om-btn ov-attn-btn" to={tabHref('/money', 'review', { month: reviewMonthParam(month.year, month.month) })}>
+            Open Review
+          </Link>
+        </div>
+        <div className="ov-attn-row">
+          <div className="ov-attn-main">
+            <span>{reserveText}</span>
+          </div>
+          <Link className="om-btn ov-attn-btn" to={tabHref('/wealth', 'accounts')}>
+            Open Accounts
+          </Link>
+        </div>
+      </div>
+    </section>
   );
 }
 

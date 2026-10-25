@@ -7,6 +7,7 @@ import { monthIncome, monthSpendBreakdown } from './budget';
 import { budgetSummary } from './monthlyReview';
 import { liquidAssets, netWorthSummary } from '../screens/overviewMath';
 import { formatMoney } from './money';
+import { savingCheck } from './monthlyCheck';
 
 // After the checks: what a month says to do next, and what its close will put
 // into history (SHR-301; docs/decisions.md, "The monthly review ends in what
@@ -94,20 +95,17 @@ export function monthActions({ year, month }, data = {}, planning = {}, now = ne
     });
   }
 
-  // 4. Saving against the month's savings target: income less all spending.
-  const savingsIds = new Set(categories.filter((c) => c.is_savings).map((c) => c.id));
-  const target = budgets.filter((b) => b.year === year && b.month === month && savingsIds.has(b.category_id)).reduce((s, b) => s + Number(b.amount), 0);
-  if (target > 0) {
-    const saved = monthIncome(transactions, year, month, null, now) - monthSpendBreakdown(transactions, [], year, month, null, now).total;
-    if (saved < target) {
-      actions.push({
-        id: 'saving',
-        title: 'Catch up on saving',
-        detail: `Saved AED ${saved < 0 ? `−${fmt(saved)}` : fmt(saved)} against a target of AED ${fmt(target)}: AED ${fmt(target - saved)} short.`,
-        href: tabHref('/money', 'budget'),
-        cta: 'Open Budget',
-      });
-    }
+  // 4. Saving against the month's savings target: income less all spending,
+  // the check Plan shows too (lib/monthlyCheck.js).
+  const saving = savingCheck({ year, month }, { transactions, budgets, categories }, now);
+  if (saving && saving.short > 0) {
+    actions.push({
+      id: 'saving',
+      title: 'Catch up on saving',
+      detail: `Saved AED ${saving.saved < 0 ? `−${fmt(saving.saved)}` : fmt(saving.saved)} against a target of AED ${fmt(saving.target)}: AED ${fmt(saving.short)} short.`,
+      href: tabHref('/money', 'budget'),
+      cta: 'Open Budget',
+    });
   }
 
   return actions;
