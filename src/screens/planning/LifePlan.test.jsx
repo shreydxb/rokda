@@ -380,3 +380,28 @@ describe('LifePlan: a loan counted once', () => {
     expect(screen.queryByText(/Car loan's AED 1,000 a month/)).toBeNull();
   });
 });
+
+// Planning audit, 3.13: one drawer for the plan, a lower return after work
+// stops, and the costs that start then.
+describe('LifePlan: the one drawer and the costs after work', () => {
+  it('opens the plan\'s drawer at its growth figures from Edit assumptions', () => {
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    renderPlan();
+    fireEvent.click(screen.getByText('Edit assumptions'));
+    expect(screen.getByRole('dialog', { name: 'Life plan' })).toBeTruthy();
+    expect(scroll.mock.contexts[0].textContent).toBe('Growth');
+    delete Element.prototype.scrollIntoView;
+  });
+
+  it('grows the pot a point slower once work stops, and says so', () => {
+    renderPlan();
+    expect(screen.getByText(/Baseline: 6\.0% a year before work stops and 5\.0% after/)).toBeTruthy();
+  });
+
+  it('says what the costs after work are, and counts them', () => {
+    const cover = { id: 'c1', name: 'Health cover', amount: 8000, currency: 'AED', per_person: true, rise_pct: 0, starts_after_years: 0, lasts_years: null };
+    renderPlan({ data: { afterWorkCosts: [cover] } });
+    expect(screen.getByText(/Costs that start when work stops, on top of the spending: Health cover AED 8,000 a year for each person\./)).toBeTruthy();
+  });
+});

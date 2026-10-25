@@ -88,6 +88,47 @@ export function datedIncomesOnTimeline(incomes, startYear, inflationPct, househo
     .sort((a, b) => a.year - b.year);
 }
 
+// The costs that start when work stops (after_work_costs rows): health cover,
+// which an employer pays until then, and residence visa fees. Each is a year's
+// cost in today's money at today's prices and ages, converted to AED at
+// today's rate; one in a currency with no rate yet is left out, as other
+// income is (incomesWithoutRate names both). `since` is the year their rise is
+// counted from, the plan's first, fixed here because potNeededAt starts the
+// timeline again at the stop year.
+export function costsAfterWork(rows = [], household = null, since = new Date().getFullYear()) {
+  return rows
+    .map((r) => {
+      const amount = convertToAed(Number(r.amount) || 0, r.currency ?? 'AED', household);
+      if (amount === null) return null;
+      return {
+        id: r.id,
+        name: r.name,
+        amount,
+        perPerson: !!r.per_person,
+        risePct: Number(r.rise_pct) || 0,
+        startsAfterYears: Number(r.starts_after_years) || 0,
+        lastsYears: r.lasts_years == null ? null : Number(r.lasts_years),
+        since,
+      };
+    })
+    .filter(Boolean);
+}
+
+// What those costs come to in `year`, in today's money, for a plan whose work
+// stops in `retireYear`. Timing counts from that year, as other income's does.
+// Each rises at its own rate above inflation from `since`, so health cover
+// priced at today's ages costs more by the time work stops and goes on rising;
+// one for each person counts once for each person still planned for, so cover
+// for two halves when one remains.
+export function costInYear(costs = [], people = [], year, retireYear) {
+  const offset = year - retireYear;
+  const planned = plannedCount(people, year);
+  return costs.reduce((s, c) => {
+    if (offset < c.startsAfterYears || (c.lastsYears != null && offset >= c.startsAfterYears + c.lastsYears)) return s;
+    return s + c.amount * (1 + c.risePct / 100) ** Math.max(0, year - c.since) * (c.perPerson ? planned : 1);
+  }, 0);
+}
+
 // The share of this year still to come. The plan starts today, so this year
 // is credited with that share of its saving, growth, spending and income, not
 // a whole year's: from 2 January or from 30 December the answer was the same.
@@ -109,7 +150,10 @@ export function yearLeft(now) {
 // year still to come (yearLeft); a goal or lump sum in it is paid in full.
 // `freed` is what loans paid out of spending stop costing once they clear
 // (lifePlanBasis): saving rises by it from then, and so does spending after
-// work stops fall, when that spending is today's (`freedFromSpend`).
+// work stops fall, when that spending is today's (`freedFromSpend`). `costs`
+// are the costs that start when work stops (costsAfterWork), on top of the
+// spending: a row's `spend` is everything spent that year, and `costs` the
+// part of it they are.
 export function lifePlan({
   startYear,
   people,
@@ -126,6 +170,7 @@ export function lifePlan({
   firstYearShare = 1,
   freed = [],
   freedFromSpend = false,
+  costs = [],
 }) {
   const endYear = planEndYear(people);
   // A loan's instalment, from the month after it clears.
@@ -140,7 +185,8 @@ export function lifePlan({
     const start = pot;
     const share = year === startYear ? firstYearShare : 1;
     const forOne = people.length > 1 && plannedCount(people, year) < people.length;
-    const spend = working ? 0 : Math.max(0, (retireSpend * share - (freedFromSpend ? freedIn(year) : 0)) * (forOne ? survivorPct / 100 : 1));
+    const costsNow = working ? 0 : costInYear(costs, people, year, retireYear) * share;
+    const spend = (working ? 0 : Math.max(0, (retireSpend * share - (freedFromSpend ? freedIn(year) : 0)) * (forOne ? survivorPct / 100 : 1))) + costsNow;
     const fromIncome = working ? { yearly: 0, lump: 0 } : incomeInYear(incomes, year - retireYear);
     const yearly = fromIncome.yearly * share;
     const { lump } = fromIncome;
@@ -165,7 +211,7 @@ export function lifePlan({
     // A shortfall under a thousandth of a unit is float noise.
     if (short < 1e-3) short = 0;
     if (short > 0 && shortYear === null) shortYear = year;
-    rows.push({ year, working, forOne, start, saving, spend, income: yearly + lump + inflow, inflows: arriving, goals: due, goalOutflow, paid, short, growth, end });
+    rows.push({ year, working, forOne, start, saving, spend, costs: costsNow, income: yearly + lump + inflow, inflows: arriving, goals: due, goalOutflow, paid, short, growth, end });
     pot = end;
   }
   return { rows, endYear, shortYear, lasts: shortYear === null, left: pot, potAtStop };
@@ -325,6 +371,19 @@ export function loansText(loans, owedOnLoans, fmt) {
   return `The instalments on ${andList(loans.map((l) => l.name))} are in today's spending until each clears, the last about ${last.clears}, and saving rises by each after that.${owes}`;
 }
 
+// The return once work stops, before inflation. A pot being spent is usually
+// held more cautiously than one being built, so unless the household sets its
+// own, it is the working return less AFTER_WORK_RETURN_GAP: assuming the same
+// return either side of the stop year flattered every plan (Planning audit,
+// 3.13). Either way it moves with the scenario, by as much as the working
+// return does, so Conservative lowers both returns together.
+export const AFTER_WORK_RETURN_GAP = 1;
+export function afterWorkReturn(assumptions, sets, selected) {
+  const shift = selected.nominalPct - sets.baseline.nominalPct;
+  const own = assumptions?.retirement_return_pct != null ? Number(assumptions.retirement_return_pct) : null;
+  return (own ?? sets.baseline.nominalPct - AFTER_WORK_RETURN_GAP) + shift;
+}
+
 // Everything the life plan runs on, built from the household's saved data one
 // way for every screen that shows it -- the Life plan tab, the Plan summary and
 // Forecast -- so they cannot disagree about when work can stop. `fcSet`,
@@ -341,15 +400,16 @@ export function loansText(loans, owedOnLoans, fmt) {
 // in today's money then. Net worth used to take the balance off the start
 // while the whole instalment stayed in spending until work stopped: the
 // principal counted twice, and saving never rose (Planning audit, 2.10).
-export function lifePlanBasis({ people, assumptions, inputs, startNetWorth, goals = [], incomes = [], household = null, stopping = null, loans = [], startYear, now = null, fcSet = 'baseline', stopOverride = null, spendKind = null }) {
+//
+// `costs` are after_work_costs rows (costsAfterWork), counted on top of the
+// spending once work stops.
+export function lifePlanBasis({ people, assumptions, inputs, startNetWorth, goals = [], incomes = [], costs = [], household = null, stopping = null, loans = [], startYear, now = null, fcSet = 'baseline', stopOverride = null, spendKind = null }) {
   const endYear = planEndYear(people);
   const sets = scenarioSets(assumptions);
   const selected = sets[fcSet] ?? sets.baseline;
   const inflationPct = selected.inflationPct;
   const preRate = realReturn(selected.nominalPct, inflationPct);
-  // A return set for after work stops moves with the scenario, like the one before.
-  const postNominal =
-    assumptions?.retirement_return_pct != null ? Number(assumptions.retirement_return_pct) + (selected.nominalPct - sets.baseline.nominalPct) : selected.nominalPct;
+  const postNominal = afterWorkReturn(assumptions, sets, selected);
   const postRate = realReturn(postNominal, inflationPct);
 
   const clampYear = (y) => Math.min(endYear, Math.max(startYear, y));
@@ -385,6 +445,7 @@ export function lifePlanBasis({ people, assumptions, inputs, startNetWorth, goal
     };
   });
   const owedOnLoans = loans.filter((l) => l.inNetWorth).reduce((s, l) => s + l.balance, 0);
+  const afterWork = costsAfterWork(costs, household, startYear);
 
   return {
     endYear,
@@ -405,6 +466,9 @@ export function lifePlanBasis({ people, assumptions, inputs, startNetWorth, goal
     inflows,
     loans: freed,
     owedOnLoans,
+    costs: afterWork,
+    // What the costs come to in the year work stops, in today's money.
+    costsAtStop: costInYear(afterWork, people, stopYear, stopYear),
     args: {
       startYear,
       people,
@@ -422,6 +486,7 @@ export function lifePlanBasis({ people, assumptions, inputs, startNetWorth, goal
       freed,
       // Only today's spending still holds the instalments once work stops.
       freedFromSpend: spendChoice.key === 'today',
+      costs: afterWork,
     },
   };
 }
@@ -493,6 +558,9 @@ export function lifePlanStop({ members, memberLife, inputs, ...rest }) {
     // The loans counted in spending until they clear, and what they owe.
     loans: basis.loans,
     owedOnLoans: basis.owedOnLoans,
+    // The costs that start when work stops, and what they come to then.
+    costs: basis.costs,
+    costsAtStop: basis.costsAtStop,
     stopYear: basis.stopYear,
     stopAssumed: basis.stopAssumed,
     leftOut: membersLeftOut(members, memberLife),
@@ -505,10 +573,29 @@ export function lifePlanStop({ members, memberLife, inputs, ...rest }) {
 }
 
 // "spending AED 90,000 a year after work stops (today's, less what stops)":
-// the spending a stop year rests on, for the screens that lead with one.
-// `fmt` formats an amount in today's money, currency code included.
+// the spending a stop year rests on, for the screens that lead with one, and
+// the costs that start then on top of it. `fmt` formats an amount in today's
+// money, currency code included.
 export function spendAfterText(stop, fmt) {
-  return `spending ${fmt(stop.spend)} a year after work stops (${spendHow(stop)})`;
+  const costs = stop.costsAtStop > 0 ? `, plus ${fmt(stop.costsAtStop)} a year of costs that start then` : '';
+  return `spending ${fmt(stop.spend)} a year after work stops (${spendHow(stop)})${costs}`;
+}
+
+// What the plan takes the costs that start when work stops to be, said under
+// the Life plan's timeline: "Health cover AED 12,000 a year for each person,
+// rising 3% a year above inflation from now; Visa fees AED 2,000 a year."
+// `costs` is lifePlanBasis'; `fmt` formats an amount, currency code included.
+// Null with none.
+export function costsText(costs, fmt) {
+  if (!costs?.length) return null;
+  const one = (c) => {
+    const parts = [`${c.name} ${fmt(c.amount)} a year${c.perPerson ? ' for each person' : ''}`];
+    if (c.risePct > 0) parts.push(`rising ${c.risePct}% a year above inflation from now`);
+    if (c.startsAfterYears > 0) parts.push(`from ${c.startsAfterYears} year${c.startsAfterYears === 1 ? '' : 's'} after work stops`);
+    if (c.lastsYears != null) parts.push(`for ${c.lastsYears} year${c.lastsYears === 1 ? '' : 's'}`);
+    return parts.join(', ');
+  };
+  return `Costs that start when work stops, on top of the spending: ${costs.map(one).join('; ')}.`;
 }
 
 // How that spending was chosen, in a few words. Only a figure saved for the
@@ -546,7 +633,9 @@ export function agesLabel(ages) {
 // it has to last, and the plan's other income from that year on -- income
 // timed from the stop, and sums paid in a set year (a policy maturity) as
 // lump sums counted from it. All in today's money, as both screens are.
-// Goals due after work stops and spending for one are the Life plan's alone.
+// The spending includes the costs that start then, at what they come to in
+// that year. Goals due after work stops, spending for one, and those costs'
+// rise after that are the Life plan's alone.
 export function lifePlanHandover(basis) {
   const result = lifePlan(basis.args);
   const { stopYear, endYear } = basis;
@@ -558,8 +647,9 @@ export function lifePlanHandover(basis) {
     endYear,
     years: endYear - stopYear + 1,
     pot: result.potAtStop ?? 0,
-    spend: basis.spendChoice.value,
+    spend: basis.spendChoice.value + basis.costsAtStop,
     spendLabel: basis.spendChoice.label,
+    costsAtStop: basis.costsAtStop,
     incomes: [...basis.incomes, ...later],
     goalsAfter: basis.goals.filter((g) => g.year >= stopYear),
     lasts: result.lasts,

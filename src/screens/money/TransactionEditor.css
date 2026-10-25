@@ -7,6 +7,12 @@
   z-index: 80;
 }
 
+/* A drawer opened from another drawer (the plan's, for one income or cost)
+   covers it exactly; the page behind is dimmed once already. */
+.te-overlay-stacked {
+  background: transparent;
+}
+
 .te-drawer {
   width: 420px;
   max-width: 100%;

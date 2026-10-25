@@ -121,6 +121,10 @@ insert into household_members (id, household_id, display_name, role, user_id) va
 insert into independence_income (id, household_id, name, kind, amount) values
   ('f2000000-0000-0000-0000-000000000001', 'd2000000-0000-0000-0000-000000000002', 'Their rent', 'yearly', 36000);
 
+-- Costs after work stops: one row in the other household, to be reached for.
+insert into after_work_costs (id, household_id, name, amount) values
+  ('f2000000-0000-0000-0000-000000000002', 'd2000000-0000-0000-0000-000000000002', 'Their cover', 9000);
+
 -- Household notes: one in the other household, to be reached for.
 insert into household_notes (id, household_id, title, body) values
   ('f3000000-0000-0000-0000-000000000001', 'd2000000-0000-0000-0000-000000000002', 'Their plan', 'Private');
@@ -234,6 +238,40 @@ begin
   get diagnostics n = row_count;
   if n <> 1 then raise exception 'independence_income FAILED: a member could not delete their own row'; end if;
   raise notice 'independence_income ok: own household only, in every direction';
+end $$;
+
+-- Costs after work stops, likewise (Planning audit, 3.13).
+do $$
+declare n int;
+begin
+  insert into after_work_costs (household_id, name, amount, per_person, rise_pct)
+  values ('d1000000-0000-0000-0000-000000000001', 'Health cover', 12000, true, 3);
+  select count(*) into n from after_work_costs;
+  if n <> 1 then raise exception 'after_work_costs FAILED: a member sees % rows, expected only their own 1', n; end if;
+
+  begin
+    insert into after_work_costs (household_id, name, amount)
+    values ('d2000000-0000-0000-0000-000000000002', 'Planted', 1000);
+    raise exception 'after_work_costs FAILED: a member wrote into another household';
+  exception
+    when insufficient_privilege then null;
+  end;
+
+  begin
+    update after_work_costs set household_id = 'd2000000-0000-0000-0000-000000000002' where name = 'Health cover';
+    raise exception 'after_work_costs FAILED: a member moved a row into another household';
+  exception
+    when insufficient_privilege then null;
+  end;
+
+  update after_work_costs set amount = 1 where id = 'f2000000-0000-0000-0000-000000000002';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'after_work_costs FAILED: a member updated another household''s row'; end if;
+
+  delete from after_work_costs where name = 'Health cover';
+  get diagnostics n = row_count;
+  if n <> 1 then raise exception 'after_work_costs FAILED: a member could not delete their own row'; end if;
+  raise notice 'after_work_costs ok: own household only, in every direction';
 end $$;
 
 -- Life plan ages: a member sets them for anyone in their own household --

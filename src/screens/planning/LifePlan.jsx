@@ -1,13 +1,12 @@
 import { useMemo, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { incomesWithoutRate } from '../../lib/forecast';
-import { agesIn, agesLabel, DEFAULT_STOP_AGE, earliestStop, extraSavingNeeded, leftOutText, lifePlan, loansText, maxRetirementSpend, membersLeftOut, planEndYear, potNeededAt, stopRange } from '../../lib/lifePlan';
+import { agesIn, agesLabel, costsText, DEFAULT_STOP_AGE, earliestStop, extraSavingNeeded, leftOutText, lifePlan, loansText, maxRetirementSpend, membersLeftOut, planEndYear, potNeededAt, stopRange } from '../../lib/lifePlan';
 import { planningModel } from '../../lib/planningModel';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { ChartLegend, ColumnChart } from '../../charts/Charts';
 import BasisLine, { BudgetBeside } from './BasisLine';
 import LifePlanEditor from './LifePlanEditor';
-import ForecastAssumptionsEditor from './ForecastAssumptionsEditor';
 import AssumptionsBar from './AssumptionsBar';
 import { neverLoaded } from '../../lib/loadState';
 import { isDone } from '../../lib/goals';
@@ -54,13 +53,13 @@ export default function LifePlan({
   const money = useMoneyDisplay(household);
   const now = useMemo(() => new Date(), []);
   const startYear = now.getFullYear();
-  const [editing, setEditing] = useState(false);
+  // The plan's drawer, open at one of its sections, or null.
+  const [editing, setEditing] = useState(null);
   // Shared with Forecast and Drawdown when Planning passes them
   // (AssumptionsBar); on their own they are local.
   const [localSet, setLocalSet] = useState('baseline');
   const fcSet = scenario ?? localSet;
   const setFcSet = onScenario ?? setLocalSet;
-  const [editingAssumptions, setEditingAssumptions] = useState(false);
   const [stopOverride, setStopOverride] = useState(null);
   const [spendKind, setSpendKind] = useState(null); // null follows the saved plan
   const [localMode, setLocalMode] = useState('real');
@@ -85,12 +84,12 @@ export default function LifePlan({
         recurring,
         budgets,
         categories,
-        data: { assumptions, goals: data.goals, memberLife: data.memberLife, independenceIncome: data.independenceIncome, debts: data.debts },
+        data: { assumptions, goals: data.goals, memberLife: data.memberLife, independenceIncome: data.independenceIncome, afterWorkCosts: data.afterWorkCosts, debts: data.debts },
         members,
         household,
         now,
       }),
-    [accounts, holdings, transactions, recurring, budgets, categories, assumptions, data.goals, data.memberLife, data.independenceIncome, data.debts, members, household, now]
+    [accounts, holdings, transactions, recurring, budgets, categories, assumptions, data.goals, data.memberLife, data.independenceIncome, data.afterWorkCosts, data.debts, members, household, now]
   );
   const { plan, inputs, stopping, budgetBasis, people } = model;
   // Anyone without a birth year and an age to plan to is left out, and says
@@ -138,14 +137,21 @@ export default function LifePlan({
   const editor = editing && (
     <LifePlanEditor
       householdId={household?.id}
+      household={household}
       members={members}
       memberLife={data.memberLife ?? []}
       assumptions={assumptions}
       categories={categories}
       spendByCategory={stopping.byCategory}
-      onClose={() => setEditing(false)}
+      incomes={data.independenceIncome ?? []}
+      costs={data.afterWorkCosts ?? []}
+      budgetMonthlySaving={plan?.monthlySaving ?? null}
+      scenario={fcSet}
+      section={editing}
+      onRowsChanged={data.reload}
+      onClose={() => setEditing(null)}
       onSaved={async () => {
-        setEditing(false);
+        setEditing(null);
         setStopOverride(null);
         setSpendKind(null);
         // The editor also marks which categories stop when work does, and
@@ -184,7 +190,7 @@ export default function LifePlan({
             out. It needs each person&rsquo;s birth year and the age to plan to.
           </div>
           <div className="ov-empty-actions">
-            <button type="button" className="om-btn ov-btn-primary" onClick={() => setEditing(true)}>
+            <button type="button" className="om-btn ov-btn-primary" onClick={() => setEditing('people')}>
               Set up the plan
             </button>
           </div>
@@ -207,7 +213,7 @@ export default function LifePlan({
             later age to see the years ahead.
           </div>
           <div className="ov-empty-actions">
-            <button type="button" className="om-btn ov-btn-primary" onClick={() => setEditing(true)}>
+            <button type="button" className="om-btn ov-btn-primary" onClick={() => setEditing('people')}>
               Plan to a later age
             </button>
           </div>
@@ -221,7 +227,8 @@ export default function LifePlan({
   const loansLine = loansText(basis.loans, basis.owedOnLoans, (v) => `${money.code} ${money.fmt(v)}`);
   const { endYear, sets, selected, inflationPct, postNominal, savedStop, stopYear, spendOptions, spendChoice, survivorPct, goals, incomes, inflows } = basis;
   const anyIncome = incomes.length > 0 || inflows.length > 0;
-  const uncounted = incomesWithoutRate(data.independenceIncome ?? [], household);
+  const uncounted = incomesWithoutRate([...(data.independenceIncome ?? []), ...(data.afterWorkCosts ?? [])], household);
+  const costsLine = costsText(basis.costs, (v) => `${money.code} ${money.fmt(v)}`);
 
   // Today's money, or grown with inflation to the year it happens -- the way
   // an adviser's sheets show it.
@@ -300,7 +307,7 @@ export default function LifePlan({
         mode={mode}
         onMode={setMode}
         growth={postNominal !== selected.nominalPct ? [`${postNominal.toFixed(1)}% return after work stops`] : []}
-        onEdit={() => setEditingAssumptions(true)}
+        onEdit={() => setEditing('growth')}
         spending={
           <div className="dd-segs" role="group" aria-label="Spending">
             {spendOptions.map((o) => (
@@ -317,28 +324,15 @@ export default function LifePlan({
       {spendChoice.key === 'less' && (
         <div className="ov-muted lp-stops" style={{ fontSize: 11.5, lineHeight: 1.6, marginTop: 8 }}>
           Leaves out {stopping.categories.map((c) => `${c.name} ${money.fmtCompact(c.annual)}`).join(', ')} a year, expected to have stopped by then.{' '}
-          <button type="button" className="om-link" style={{ background: 'none', border: 'none', padding: 0, color: 'var(--accent)', cursor: 'pointer', font: 'inherit' }} onClick={() => setEditing(true)}>
+          <button type="button" className="om-link" style={{ background: 'none', border: 'none', padding: 0, color: 'var(--accent)', cursor: 'pointer', font: 'inherit' }} onClick={() => setEditing('spending')}>
             Change
           </button>
         </div>
       )}
-      {editingAssumptions && (
-        <ForecastAssumptionsEditor
-          householdId={household?.id}
-          assumptions={assumptions}
-          budgetMonthlySaving={plan?.monthlySaving ?? null}
-          scenario={fcSet}
-          onClose={() => setEditingAssumptions(false)}
-          onSaved={async () => {
-            setEditingAssumptions(false);
-            await data.reload();
-          }}
-        />
-      )}
       <section className="pl-hero" style={{ marginTop: 22 }}>
         <div className="ov-section-head">
           <div className="ov-kicker">Life plan</div>
-          <button type="button" className="om-btn" onClick={() => setEditing(true)}>
+          <button type="button" className="om-btn" onClick={() => setEditing('people')}>
             Edit plan
           </button>
         </div>
@@ -455,7 +449,7 @@ export default function LifePlan({
               {mostSpend !== null && (
                 <span className="ov-muted">
                   {' · or, stopping in '}
-                  {stopYear}, spend up to {money.code} {money.fmt(shown(mostSpend, stopYear))} a year
+                  {stopYear}, spend up to {money.code} {money.fmt(shown(mostSpend, stopYear))} a year{basis.costs.length ? ', besides the costs that start then' : ''}
                 </span>
               )}
             </span>
@@ -491,6 +485,7 @@ export default function LifePlan({
                 mostSpend !== null && (
                   <span key="spend">
                     spend at most {money.code} {money.fmt(shown(mostSpend, stopYear))} a year after stopping in {stopYear}
+                    {basis.costs.length ? ', besides the costs that start then' : ''}
                   </span>
                 ),
               ]
@@ -536,6 +531,7 @@ export default function LifePlan({
           ) : (
             <span>
               Spent <b className="fig">{money.fmt(shown(active.spend, active.year))}</b>
+              {active.costs > 0 && <span className="ov-muted">, {money.fmt(shown(active.costs, active.year))} of it costs after work</span>}
             </span>
           )}
           {active.inflows.length > 0 && (
@@ -610,7 +606,8 @@ export default function LifePlan({
         same in today&rsquo;s money until work stops.
         {loansLine && ` ${loansLine}`}
         {people.length > 1 && survivorPct !== 100 && ` Once one person remains, spending is ${survivorPct}% of the couple's.`}
-        {incomes.length > 0 && ` ${incomes.length} source${incomes.length === 1 ? '' : 's'} of other income from Drawdown count from ${stopYear}.`}
+        {costsLine && ` ${costsLine}`}
+        {incomes.length > 0 && ` ${incomes.length} source${incomes.length === 1 ? '' : 's'} of other income count from ${stopYear}.`}
         {uncounted.length > 0 &&
           ` ${uncounted.map((r) => r.name).join(', ')} ${uncounted.length === 1 ? 'is' : 'are'} not counted: no AED/INR rate is set yet (Settings → Household).`}
         {inflows.length > 0 &&

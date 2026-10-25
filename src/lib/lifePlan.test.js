@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { agesIn, loansInSpending, loansText, rangeText, stopRange, agesLabel, datedIncomesOnTimeline, defaultStopPerson, earliestStop, extraSavingNeeded, goalsOnTimeline, lifePlan, lifePlanBasis, lifePlanStop, maxRetirementSpend, membersLeftOut, noStopCause, noStopText, planEndYear, planPeople, potNeededAt, spendAfterText, yearLeft } from './lifePlan';
-import { projectYears, realReturn } from './forecast';
+import { afterWorkReturn, AFTER_WORK_RETURN_GAP, costInYear, costsAfterWork, costsText, lifePlanHandover, agesIn, loansInSpending, loansText, rangeText, stopRange, agesLabel, datedIncomesOnTimeline, defaultStopPerson, earliestStop, extraSavingNeeded, goalsOnTimeline, lifePlan, lifePlanBasis, lifePlanStop, maxRetirementSpend, membersLeftOut, noStopCause, noStopText, planEndYear, planPeople, potNeededAt, spendAfterText, yearLeft } from './lifePlan';
+import { projectYears, realReturn, scenarioSets } from './forecast';
 
 const people = [
   { name: 'Partner A', birthYear: 1994, lifeExpectancy: 80 },
@@ -482,5 +482,107 @@ describe('stopRange', () => {
     const out = { label: 'Conservative', lasts: false, shortYear: 2068, shortWorking: false };
     expect(rangeText([lasts, out], fmt)).toBe('Baseline lasts to 2075 with AED 1,200,000 left · Conservative runs out in 2068');
     expect(rangeText([{ ...out, shortYear: 2030, shortWorking: true }], fmt)).toBe('Conservative falls short for a goal in 2030');
+  });
+});
+
+// Planning audit, 3.13: the return once work stops, and the costs that start then.
+describe('afterWorkReturn', () => {
+  const sets = scenarioSets({ nominal_return_pct: 7, inflation_pct: 3 });
+
+  it('is one point below the working return until the household sets its own', () => {
+    expect(AFTER_WORK_RETURN_GAP).toBe(1);
+    expect(afterWorkReturn({ nominal_return_pct: 7 }, sets, sets.baseline)).toBe(6);
+    expect(afterWorkReturn({ nominal_return_pct: 7, retirement_return_pct: 6.5 }, sets, sets.baseline)).toBe(6.5);
+  });
+
+  it('moves with the scenario, both returns together', () => {
+    // Conservative is two points lower before work stops, so it is after too.
+    expect(afterWorkReturn({ nominal_return_pct: 7 }, sets, sets.conservative)).toBe(4);
+    expect(afterWorkReturn({ nominal_return_pct: 7, retirement_return_pct: 6.5 }, sets, sets.optimistic)).toBe(8.5);
+  });
+
+  it('is what the life plan grows the pot at once work stops', () => {
+    const inputs = { ready: true, monthlySaving: 3000, annualSpend: 48000, source: 'actual' };
+    const basis = lifePlanBasis({ people, assumptions: { nominal_return_pct: 7, inflation_pct: 3 }, inputs, startNetWorth: 100000, startYear: 2026 });
+    expect(basis.postNominal).toBe(6);
+    expect(basis.args.postRate).toBeCloseTo(realReturn(6, 3), 10);
+    expect(basis.args.preRate).toBeCloseTo(realReturn(7, 3), 10);
+  });
+});
+
+describe('costs that start when work stops', () => {
+  const two = [
+    { name: 'Partner A', birthYear: 1990, lifeExpectancy: 80 },
+    { name: 'Partner B', birthYear: 1990, lifeExpectancy: 90 },
+  ];
+  const cover = { id: 'c1', name: 'Health cover', amount: '10000', currency: 'AED', per_person: true, rise_pct: '0', starts_after_years: 0, lasts_years: null };
+  const visa = { id: 'c2', name: 'Visa fees', amount: '2000', currency: 'AED', per_person: false, rise_pct: '0', starts_after_years: 0, lasts_years: null };
+
+  it('counts a cost for each person once for each person still planned for', () => {
+    const costs = costsAfterWork([cover, visa], null, 2026);
+    // Both planned in 2050; only Partner B after 2070.
+    expect(costInYear(costs, two, 2050, 2050)).toBe(22000);
+    expect(costInYear(costs, two, 2071, 2050)).toBe(12000);
+  });
+
+  it('rises above inflation from now, not from the year work stops', () => {
+    const costs = costsAfterWork([{ ...cover, per_person: false, rise_pct: '3' }], null, 2026);
+    expect(costInYear(costs, two, 2050, 2050)).toBeCloseTo(10000 * 1.03 ** 24, 6);
+    expect(costInYear(costs, two, 2051, 2050)).toBeCloseTo(10000 * 1.03 ** 25, 6);
+  });
+
+  it('starts and ends when it says, counted from the year work stops', () => {
+    const costs = costsAfterWork([{ ...visa, starts_after_years: 2, lasts_years: 3 }], null, 2026);
+    expect([2050, 2051, 2052, 2053, 2054, 2055].map((y) => costInYear(costs, two, y, 2050))).toEqual([0, 0, 2000, 2000, 2000, 0]);
+  });
+
+  it('converts at today\'s rate, and leaves out a cost with no rate yet', () => {
+    const rupees = { ...visa, id: 'c3', currency: 'INR', amount: '100000' };
+    expect(costsAfterWork([rupees], null)).toEqual([]);
+    expect(costsAfterWork([rupees], { inr_per_aed: 25 })[0].amount).toBeCloseTo(4000, 6);
+  });
+
+  it('adds to the spending once work stops, and not before', () => {
+    const plain = lifePlan({ ...base, people: two, retireYear: 2050 });
+    const costs = costsAfterWork([visa], null, 2026);
+    const plan = lifePlan({ ...base, people: two, retireYear: 2050, costs });
+    const row = (p, y) => p.rows.find((r) => r.year === y);
+    expect(row(plan, 2049)).toMatchObject({ spend: 0, costs: 0 });
+    expect(row(plan, 2050).costs).toBe(2000);
+    expect(row(plan, 2050).spend).toBe(row(plain, 2050).spend + 2000);
+    expect(plan.left).toBeLessThan(plain.left);
+  });
+
+  it('needs a bigger pot when work stops, with the rise counted from now', () => {
+    const args = { ...base, people: two, retireYear: 2050 };
+    const flat = costsAfterWork([{ ...cover, per_person: false }], null, 2026);
+    const rising = costsAfterWork([{ ...cover, per_person: false, rise_pct: '3' }], null, 2026);
+    expect(potNeededAt({ ...args, costs: flat })).toBeGreaterThan(potNeededAt(args));
+    // potNeededAt starts the timeline at the stop year; the rise still counts from 2026.
+    const needed = potNeededAt({ ...args, costs: rising });
+    expect(lifePlan({ ...args, startYear: 2050, startPot: needed, annualSaving: 0, costs: rising }).rows[0].costs).toBeCloseTo(10000 * 1.03 ** 24, 6);
+  });
+
+  it('carries through the basis, the stop answer and the handover to Drawdown', () => {
+    const members = [{ id: 'm1', display_name: 'Partner A' }];
+    const memberLife = [{ member_id: 'm1', birth_year: 1990, life_expectancy: 85 }];
+    const inputs = { ready: true, monthlySaving: 3000, annualSpend: 48000, source: 'actual' };
+    const args = { members, memberLife, assumptions: { retirement_year: 2050 }, inputs, startNetWorth: 100000, startYear: 2026, costs: [cover, visa] };
+    const stop = lifePlanStop(args);
+    expect(stop.costsAtStop).toBe(12000);
+    expect(stop.costs.map((c) => c.name)).toEqual(['Health cover', 'Visa fees']);
+    expect(lifePlanStop({ ...args, costs: [] }).earliest).toBeLessThan(stop.earliest);
+    const basis = lifePlanBasis({ ...args, people: planPeople(members, memberLife) });
+    expect(lifePlanHandover(basis)).toMatchObject({ spend: 48000 + 12000, costsAtStop: 12000 });
+  });
+
+  it('says what the costs are, and adds them to the spending a stop year rests on', () => {
+    const fmt = (v) => `AED ${Math.round(v).toLocaleString('en-US')}`;
+    const costs = costsAfterWork([{ ...cover, rise_pct: '3' }, { ...visa, starts_after_years: 1, lasts_years: 10 }], null, 2026);
+    expect(costsText(costs, fmt)).toBe(
+      'Costs that start when work stops, on top of the spending: Health cover AED 10,000 a year for each person, rising 3% a year above inflation from now; Visa fees AED 2,000 a year, from 1 year after work stops, for 10 years.'
+    );
+    expect(costsText([], fmt)).toBeNull();
+    expect(spendAfterText({ spend: 1, spendKey: 'planned', costsAtStop: 2 }, (v) => `AED ${v}`)).toBe('spending AED 1 a year after work stops (your plan), plus AED 2 a year of costs that start then');
   });
 });

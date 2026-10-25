@@ -104,7 +104,7 @@ export default function Goals({
 
   // The Life plan's timeline, which later goals take their state from: the
   // household's saved plan, from the one planning model (Planning audit, 3.12).
-  const { memberLife, independenceIncome, debts: debtRows } = data;
+  const { memberLife, independenceIncome, afterWorkCosts, debts: debtRows } = data;
   const model = useMemo(
     () =>
       planningModel({
@@ -114,12 +114,12 @@ export default function Goals({
         recurring,
         budgets,
         categories,
-        data: { assumptions, goals, memberLife, independenceIncome, debts: debtRows },
+        data: { assumptions, goals, memberLife, independenceIncome, afterWorkCosts, debts: debtRows },
         members,
         household,
         now,
       }),
-    [accounts, holdings, transactions, recurring, budgets, categories, assumptions, goals, memberLife, independenceIncome, debtRows, members, household, now]
+    [accounts, holdings, transactions, recurring, budgets, categories, assumptions, goals, memberLife, independenceIncome, afterWorkCosts, debtRows, members, household, now]
   );
   const { startNetWorth, plan, inputs } = model;
   const timelineMissing = neverLoaded(sources, projectionInputs(inputs)).length > 0;

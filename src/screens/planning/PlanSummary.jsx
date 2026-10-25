@@ -119,7 +119,7 @@ export default function PlanSummary({ household = null, members, me, accounts, t
   // The planning model, built in one place for every tab (lib/planningModel.js;
   // Planning audit, 3.12): the start, the basis, what stops, the loans, and
   // the Life plan's answer on the saved plan and on the budget's figures.
-  const { memberLife, independenceIncome, debts: debtRows } = data;
+  const { memberLife, independenceIncome, afterWorkCosts, debts: debtRows } = data;
   const model = useMemo(
     () =>
       planningModel({
@@ -129,12 +129,12 @@ export default function PlanSummary({ household = null, members, me, accounts, t
         recurring,
         budgets,
         categories,
-        data: { assumptions, goals, memberLife, independenceIncome, debts: debtRows },
+        data: { assumptions, goals, memberLife, independenceIncome, afterWorkCosts, debts: debtRows },
         members: members ?? [],
         household,
         now,
       }),
-    [accounts, holdings, transactions, recurring, budgets, categories, assumptions, goals, memberLife, independenceIncome, debtRows, members, household, now]
+    [accounts, holdings, transactions, recurring, budgets, categories, assumptions, goals, memberLife, independenceIncome, afterWorkCosts, debtRows, members, household, now]
   );
   const { startNetWorth, inputs: forecast } = model;
   const basisIncomplete = useMemo(() => {

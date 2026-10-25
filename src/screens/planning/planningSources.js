@@ -10,8 +10,10 @@ export const DEBT_PLAN_INPUTS = ['assumptions'];
 export const NOTES_INPUTS = ['household', 'notes'];
 
 // The debts too: a loan paid out of spending is counted there, once, and read
-// as none it would be counted twice again (Planning audit, 2.10).
-const PROJECTION_INPUTS = ['household', 'memberLife', 'goals', 'independenceIncome', 'debts', 'assumptions', 'accounts', 'holdings', 'transactions', 'recurring', 'categories'];
+// as none it would be counted twice again (Planning audit, 2.10). And the
+// costs that start when work stops (3.13), which read as none would pass a
+// plan that leaves them out as the household's.
+const PROJECTION_INPUTS = ['household', 'memberLife', 'goals', 'independenceIncome', 'afterWorkCosts', 'debts', 'assumptions', 'accounts', 'holdings', 'transactions', 'recurring', 'categories'];
 
 // What a projection rests on. The budget is the basis when the household
 // chose it, and otherwise stands in only until three months have ended
