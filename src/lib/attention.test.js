@@ -112,5 +112,23 @@ describe('attentionHref', () => {
     expect(attentionHref({ kind: 'stale_holding' }, TODAY)).toBe('/wealth?tab=investments');
     expect(attentionHref({ kind: 'month_close' }, TODAY)).toBe('/money?tab=review');
     expect(attentionHref({ kind: 'backup' }, TODAY)).toBe('/settings?tab=backups');
+    expect(attentionHref({ kind: 'yearly_check' }, TODAY)).toBe('/planning?tab=notes');
+  });
+});
+
+// A note checked once a year asks here when it is due (Planning audit, 4.18).
+describe('a yearly check that is due', () => {
+  it('is listed with the rest, after anything more pressing', () => {
+    const items = buildAttentionItems({
+      transactions: [],
+      recurring: [],
+      accounts: [],
+      holdings: [],
+      categories: [],
+      yearlyChecks: [{ id: 'n1', title: 'Protection', check_yearly: true, checked_on: null }],
+      scopeMemberId: null,
+      now: new Date('2026-10-15T10:00:00'),
+    });
+    expect(items).toEqual([expect.objectContaining({ id: 'yearly-check-n1', kind: 'yearly_check', severity: 'info', title: 'Yearly check: Protection' })]);
   });
 });

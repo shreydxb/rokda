@@ -32,6 +32,8 @@ describe('planningModel', () => {
 
   it('builds what every tab used to build for itself, the same way', () => {
     expect(model.startNetWorth).toBe(200000);
+    // A savings account is cash, kept at the cash rate (4.19).
+    expect(model.start).toEqual({ cash: 200000, rupees: 0 });
     expect(model.plan).toEqual(budgetPlan(budgets, categories, now));
     expect(model.inputs).toEqual(forecastInputs(transactions, 200000, now, model.plan, []));
     expect(model.inputs).toMatchObject({ source: 'actual', monthlySaving: 6000 });
@@ -48,6 +50,7 @@ describe('planningModel', () => {
       inputs: model.inputs,
       stopping: model.stopping,
       startNetWorth: 200000,
+      start: model.start,
       goals: [],
       incomes: [],
       household: null,
@@ -79,5 +82,32 @@ describe('planningModel', () => {
     expect(withCosts.stop().costsAtStop).toBe(8000);
     expect(withCosts.basis().args.costs).toHaveLength(1);
     expect(model.stop().costsAtStop).toBe(0);
+  });
+
+  // Planning audit, 4.19: cash and rupees in what the plan starts from.
+  it('counts cash accounts, deposits and cash holdings as cash, and rupee accounts and holdings as rupees', () => {
+    const start = planningModel({
+      accounts: [
+        { id: 'c', type: 'checking', currency: 'AED', balance: 1000, is_shared: true, archived_at: null },
+        { id: 'f', type: 'fd', currency: 'INR', balance: 50000, balance_aed: 2000, is_shared: true, archived_at: null },
+        { id: 'i', type: 'investment', currency: 'AED', balance: 9000, is_shared: true, archived_at: null },
+        { id: 'k', type: 'credit_card', currency: 'INR', balance: 500, balance_aed: 20, is_shared: true, archived_at: null },
+        { id: 'x', type: 'savings', currency: 'AED', balance: 7000, is_shared: true, archived_at: '2026-01-01T00:00:00Z' },
+      ],
+      holdings: [
+        { id: 'h1', asset_class: 'cash', currency: 'AED', value_aed: 300, priced_at: '2026-10-01T00:00:00Z' },
+        { id: 'h2', asset_class: 'india_mf', currency: 'INR', value_aed: 4000, priced_at: '2026-10-01T00:00:00Z' },
+        { id: 'h3', asset_class: 'us_equity', currency: 'USD', value_aed: 0, priced_at: null },
+      ],
+      data,
+      members,
+      now,
+    }).start;
+    expect(start).toEqual({ cash: 1000 + 2000 + 300, rupees: 2000 + 4000 });
+  });
+
+  it('earns less on cash than the plan once did, so the same household stops later or no sooner', () => {
+    const withoutCash = lifePlanStop({ members, memberLife: data.memberLife, assumptions: null, inputs: model.inputs, startNetWorth: 200000, loans: model.loans, startYear: 2026, now });
+    expect(model.stop().earliest).toBeGreaterThanOrEqual(withoutCash.earliest);
   });
 });

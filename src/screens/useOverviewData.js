@@ -38,6 +38,11 @@ const SOURCES = [
     query: (id) => supabase.from('statement_reconciliations').select('*').eq('household_id', id).order('statement_date', { ascending: false }).order('id'),
   },
   { key: 'backupRecords', query: (id) => supabase.from('backup_records').select('*').eq('household_id', id).order('done_on', { ascending: false }).order('id') },
+  // Notes the household checks once a year, for Needs attention (lib/yearlyChecks.js).
+  {
+    key: 'yearlyChecks',
+    query: (id) => supabase.from('household_notes').select('id, title, check_yearly, checked_on').eq('household_id', id).eq('check_yearly', true).order('position').order('id'),
+  },
   // Which transactions are two sides of one transfer (docs/decisions.md,
   // "Transfers are neither income nor spending").
   { key: 'transactionLinks', query: (id) => supabase.from('transaction_links').select('*').eq('household_id', id).order('created_at').order('id') },
@@ -67,6 +72,7 @@ const EMPTY_STATE = {
   categoryRules: [],
   statementReconciliations: [],
   backupRecords: [],
+  yearlyChecks: [],
   transactionLinks: [],
   fxRateHistory: [],
   errors: {},

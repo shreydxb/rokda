@@ -70,9 +70,9 @@ export function goalsOnTimeline(goals, startYear, inflationPct) {
 // Lump sums paid in a fixed year -- a policy maturing in 2044 -- in today's
 // money. The amount is what will be paid that year, like a goal's amount on
 // its date, so it is converted to AED at today's rate and brought back at the
-// general inflation rate. The rupee's own drift against the dirham is not
-// modelled. A year already past has been paid, and one with no rate yet is
-// left out.
+// general inflation rate. The rupee's own drift against the dirham is a stress
+// case (rupeeDrift), not the plan. A year already past has been paid, and one
+// with no rate yet is left out.
 export function datedIncomesOnTimeline(incomes, startYear, inflationPct, household = null) {
   const inflation = inflationPct / 100;
   return incomes
@@ -81,7 +81,7 @@ export function datedIncomesOnTimeline(incomes, startYear, inflationPct, househo
       const aed = convertToAed(Number(r.amount) || 0, r.currency ?? 'AED', household);
       if (aed === null) return null;
       const year = Number(r.in_year);
-      return { id: r.id, name: r.name, year, amount: aed / (1 + inflation) ** (year - startYear) };
+      return { id: r.id, name: r.name, year, amount: aed / (1 + inflation) ** (year - startYear), inr: r.currency === 'INR' };
     })
     .filter(Boolean)
     .sort((a, b) => a.year - b.year);
@@ -108,6 +108,7 @@ export function costsAfterWork(rows = [], household = null, since = new Date().g
         startsAfterYears: Number(r.starts_after_years) || 0,
         lastsYears: r.lasts_years == null ? null : Number(r.lasts_years),
         since,
+        inr: r.currency === 'INR',
       };
     })
     .filter(Boolean);
@@ -118,13 +119,15 @@ export function costsAfterWork(rows = [], household = null, since = new Date().g
 // Each rises at its own rate above inflation from `since`, so health cover
 // priced at today's ages costs more by the time work stops and goes on rising;
 // one for each person counts once for each person still planned for, so cover
-// for two halves when one remains.
-export function costInYear(costs = [], people = [], year, retireYear) {
+// for two halves when one remains. `fx` is what a rupee is worth that year
+// against today, for the rupee drift case (rupeeDrift); a cost set in rupees
+// is multiplied by it.
+export function costInYear(costs = [], people = [], year, retireYear, fx = 1) {
   const offset = year - retireYear;
   const planned = plannedCount(people, year);
   return costs.reduce((s, c) => {
     if (offset < c.startsAfterYears || (c.lastsYears != null && offset >= c.startsAfterYears + c.lastsYears)) return s;
-    return s + c.amount * (1 + c.risePct / 100) ** Math.max(0, year - c.since) * (c.perPerson ? planned : 1);
+    return s + c.amount * (1 + c.risePct / 100) ** Math.max(0, year - c.since) * (c.perPerson ? planned : 1) * (c.inr ? fx : 1);
   }, 0);
 }
 
@@ -135,6 +138,15 @@ export function yearLeft(now) {
   const start = new Date(now.getFullYear(), 0, 1);
   const next = new Date(now.getFullYear() + 1, 0, 1);
   return (next - now) / (next - start);
+}
+
+// Other income in a year without work, with income set in rupees worth `fx`
+// of its value today (rupeeDrift).
+function incomeWithDrift(otherIncomes, rupeeIncomes, offset, fx) {
+  const other = incomeInYear(otherIncomes, offset);
+  if (rupeeIncomes.length === 0) return other;
+  const rupee = incomeInYear(rupeeIncomes, offset);
+  return { yearly: other.yearly + rupee.yearly * fx, lump: other.lump + rupee.lump * fx };
 }
 
 // The timeline itself.
@@ -155,6 +167,14 @@ export function yearLeft(now) {
 // part of it they are. `returnFor(year, retireYear)`, when given, is a real
 // return for that year in place of the steady one, or null to keep it: the
 // market fall the stress test puts the plan through (marketFall).
+//
+// `cashPot` is the cash held today, kept as cash in today's money, and
+// `cashRate` the real return it earns (Planning audit, 4.19): the rest of the
+// pot earns the investment return, a fall included, and once the pot is below
+// the cash it is all cash. `drift` is how much a rupee loses against the
+// dirham each year, 0 in the plan itself: income, lump sums and costs set in
+// rupees (`inr`) are worth that much less each year from this one, and so is
+// `rupeeShare` of what the pot holds (rupeeDrift).
 export function lifePlan({
   startYear,
   people,
@@ -173,8 +193,16 @@ export function lifePlan({
   freedFromSpend = false,
   costs = [],
   returnFor = null,
+  cashPot = 0,
+  cashRate = 0,
+  drift = 0,
+  rupeeShare = 0,
 }) {
   const endYear = planEndYear(people);
+  // What a rupee set today is worth in `year`, in dirhams, against today.
+  const fxIn = (year) => (drift > 0 ? (1 - drift) ** (year - startYear) : 1);
+  const rupeeIncomes = incomes.filter((i) => i.inr);
+  const otherIncomes = incomes.filter((i) => !i.inr);
   // A loan's instalment, from the month after it clears.
   const freedIn = (year) => freed.reduce((s, f) => s + f.perYear * (year > f.year ? 1 : year === f.year ? f.monthsInYear / 12 : 0), 0);
   const rows = [];
@@ -187,15 +215,16 @@ export function lifePlan({
     const start = pot;
     const share = year === startYear ? firstYearShare : 1;
     const forOne = people.length > 1 && plannedCount(people, year) < people.length;
-    const costsNow = working ? 0 : costInYear(costs, people, year, retireYear) * share;
+    const fx = fxIn(year);
+    const costsNow = working ? 0 : costInYear(costs, people, year, retireYear, fx) * share;
     const spend = (working ? 0 : Math.max(0, (retireSpend * share - (freedFromSpend ? freedIn(year) : 0)) * (forOne ? survivorPct / 100 : 1))) + costsNow;
-    const fromIncome = working ? { yearly: 0, lump: 0 } : incomeInYear(incomes, year - retireYear);
+    const fromIncome = working ? { yearly: 0, lump: 0 } : incomeWithDrift(otherIncomes, rupeeIncomes, year - retireYear, fx);
     const yearly = fromIncome.yearly * share;
     const { lump } = fromIncome;
     const due = goals.filter((g) => g.year === year);
     const goalOutflow = due.reduce((s, g) => s + g.amount, 0);
     const arriving = inflows.filter((i) => i.year === year);
-    const inflow = arriving.reduce((s, i) => s + i.amount, 0);
+    const inflow = arriving.reduce((s, i) => s + i.amount * (i.inr ? fx : 1), 0);
 
     // Income beyond the year's spending, and any lump sum, goes into the pot.
     const balance = pot + lump + inflow + Math.max(0, yearly - spend);
@@ -204,7 +233,12 @@ export function lifePlan({
     let short = needed - paid;
     const after = balance - paid;
     const rate = returnFor?.(year, retireYear) ?? (working ? preRate : postRate);
-    const growth = after > 0 ? after * ((1 + rate) ** share - 1) : 0;
+    // The cash kept earns the cash rate; the rest, the return.
+    const cash = Math.min(Math.max(after, 0), cashPot);
+    const earned = after > 0 ? cash * ((1 + cashRate) ** share - 1) + (after - cash) * ((1 + rate) ** share - 1) : 0;
+    // And with the rupee weakening, what is held in rupees loses that much.
+    const fxLoss = drift > 0 && after > 0 ? after * rupeeShare * (1 - (1 - drift) ** share) : 0;
+    const growth = earned - fxLoss;
     const saving = working ? annualSaving * share + freedIn(year) : 0;
     let end = after + growth + saving;
     if (end < 0 && !working) {
@@ -382,6 +416,11 @@ export function loansText(loans, owedOnLoans, fmt) {
 // 3.13). Either way it moves with the scenario, by as much as the working
 // return does, so Conservative lowers both returns together.
 export const AFTER_WORK_RETURN_GAP = 1;
+
+// What cash held today earns a year, before inflation, until the household
+// sets its own: about what a UAE savings account or short deposit pays
+// (Planning audit, 4.19). Cash used to earn the investment return.
+export const CASH_RETURN_DEFAULT = 3;
 export function afterWorkReturn(assumptions, sets, selected) {
   const shift = selected.nominalPct - sets.baseline.nominalPct;
   const own = assumptions?.retirement_return_pct != null ? Number(assumptions.retirement_return_pct) : null;
@@ -407,7 +446,11 @@ export function afterWorkReturn(assumptions, sets, selected) {
 //
 // `costs` are after_work_costs rows (costsAfterWork), counted on top of the
 // spending once work stops.
-export function lifePlanBasis({ people, assumptions, inputs, startNetWorth, goals = [], incomes = [], costs = [], household = null, stopping = null, loans = [], startYear, now = null, fcSet = 'baseline', stopOverride = null, spendKind = null }) {
+//
+// `start` is planStart: the cash held today, which stays cash at the cash
+// rate (Planning audit, 4.19), and what is held in rupees, for the rupee
+// drift case.
+export function lifePlanBasis({ people, assumptions, inputs, startNetWorth, start = { cash: 0, rupees: 0 }, goals = [], incomes = [], costs = [], household = null, stopping = null, loans = [], startYear, now = null, fcSet = 'baseline', stopOverride = null, spendKind = null }) {
   const endYear = planEndYear(people);
   const sets = scenarioSets(assumptions);
   const selected = sets[fcSet] ?? sets.baseline;
@@ -415,6 +458,9 @@ export function lifePlanBasis({ people, assumptions, inputs, startNetWorth, goal
   const preRate = realReturn(selected.nominalPct, inflationPct);
   const postNominal = afterWorkReturn(assumptions, sets, selected);
   const postRate = realReturn(postNominal, inflationPct);
+  // The same in every scenario: a scenario is about markets, and cash does
+  // not move with them.
+  const cashNominal = assumptions?.cash_return_pct != null ? Number(assumptions.cash_return_pct) : CASH_RETURN_DEFAULT;
 
   const clampYear = (y) => Math.min(endYear, Math.max(startYear, y));
   const savedStop = assumptions?.retirement_year != null ? clampYear(Number(assumptions.retirement_year)) : null;
@@ -433,7 +479,7 @@ export function lifePlanBasis({ people, assumptions, inputs, startNetWorth, goal
   const spendChoice = spendOptions.find((o) => o.key === spendKind) ?? spendOptions[0];
   const survivorPct = assumptions?.survivor_spend_pct != null ? Number(assumptions.survivor_spend_pct) : 100;
   const timelineGoals = goalsOnTimeline(goals, startYear, inflationPct);
-  const fromStop = incomesFromStop(incomes, household);
+  const fromStop = incomesFromStop(incomes, household).map((r) => ({ ...r, inr: r.currency === 'INR' }));
   const inflows = datedIncomesOnTimeline(incomes, startYear, inflationPct, household);
   const from = now ?? new Date(startYear, 0, 1);
   const freed = loans.map((loan) => {
@@ -450,6 +496,7 @@ export function lifePlanBasis({ people, assumptions, inputs, startNetWorth, goal
   });
   const owedOnLoans = loans.filter((l) => l.inNetWorth).reduce((s, l) => s + l.balance, 0);
   const afterWork = costsAfterWork(costs, household, startYear);
+  const startPot = startNetWorth + owedOnLoans;
 
   return {
     endYear,
@@ -473,11 +520,21 @@ export function lifePlanBasis({ people, assumptions, inputs, startNetWorth, goal
     costs: afterWork,
     // What the costs come to in the year work stops, in today's money.
     costsAtStop: costInYear(afterWork, people, stopYear, stopYear),
+    cashNominal,
+    cashPot: Math.max(0, start.cash),
+    // What is set in rupees, for the rupee drift case: what the pot holds in
+    // them and its share, and the income and costs.
+    rupees: {
+      held: Math.max(0, start.rupees),
+      share: startPot > 0 ? Math.min(1, Math.max(0, start.rupees) / startPot) : 0,
+      incomes: [...fromStop, ...inflows].filter((r) => r.inr).length,
+      costs: afterWork.filter((c) => c.inr).length,
+    },
     args: {
       startYear,
       people,
       retireYear: stopYear,
-      startPot: startNetWorth + owedOnLoans,
+      startPot,
       annualSaving: inputs.monthlySaving * 12,
       preRate,
       postRate,
@@ -491,6 +548,9 @@ export function lifePlanBasis({ people, assumptions, inputs, startNetWorth, goal
       // Only today's spending still holds the instalments once work stops.
       freedFromSpend: spendChoice.key === 'today',
       costs: afterWork,
+      cashPot: Math.max(0, start.cash),
+      cashRate: realReturn(cashNominal, inflationPct),
+      rupeeShare: startPot > 0 ? Math.min(1, Math.max(0, start.rupees) / startPot) : 0,
     },
   };
 }
@@ -578,6 +638,27 @@ export function stressTest(basis) {
     outcomes,
     firstDraw: first ? { year: first.year, drawn: first.drawn, pot: first.start, share: first.start > 0 ? first.drawn / first.start : null } : null,
   };
+}
+
+// The rupee drift case (Planning audit, 4.19): the plan on Baseline with the
+// rupee losing RUPEE_DRIFT of its value against the dirham every year from
+// this one, beyond what prices do, against the plan as it is. It is a stress,
+// like the market fall, not a forecast: about the rupee's pace against the
+// dollar, and so the dirham, over the past twenty years, with nothing in
+// rupees making up for it. Everything set in rupees moves: other income and
+// sums paid in a set year (a policy maturing) are worth less, costs in rupees
+// cost less, and the share of the pot held in rupees loses value. Null when
+// nothing is in rupees. `basis` is lifePlanBasis on Baseline.
+export const RUPEE_DRIFT = 0.03;
+export function rupeeDrift(basis) {
+  const { rupees, stopYear, endYear } = basis;
+  if (!(rupees.held > 0) && rupees.incomes === 0 && rupees.costs === 0) return null;
+  const outcome = (drift) => {
+    const args = { ...basis.args, drift };
+    const result = lifePlan(args);
+    return { lasts: result.lasts, shortYear: result.shortYear, left: result.left, earliest: earliestStop(args) };
+  };
+  return { drift: RUPEE_DRIFT, stopYear, endYear, rupees, steady: outcome(0), weaker: outcome(RUPEE_DRIFT) };
 }
 
 // "Baseline lasts to 2080 with AED 2.1M left · Conservative runs out in 2071":

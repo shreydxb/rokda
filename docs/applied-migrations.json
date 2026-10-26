@@ -611,5 +611,19 @@
   "fingerprint": "ecbe0197dd682e5b7aba625712e62137",
   "framingFingerprint": "07753cfc80ba845188cb58c2bc96e8fe",
   "fingerprintVersion": 2
+ },
+ {
+  "version": "20261026080848",
+  "name": "note_yearly_check",
+  "fingerprint": "18de5ee0fac827d315fdec0b6eb64ab6",
+  "framingFingerprint": "05b3e81ff4e3f81ec9643078419ae378",
+  "fingerprintVersion": 2
+ },
+ {
+  "version": "20261026080900",
+  "name": "cash_return",
+  "fingerprint": "b6df6c3f23264fc50022353a5ece1f4b",
+  "framingFingerprint": "54db352a2d904fdd3a12a9a83734ce11",
+  "fingerprintVersion": 2
  }
 ]

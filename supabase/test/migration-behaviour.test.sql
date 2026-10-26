@@ -2794,4 +2794,52 @@ begin
   raise notice 'holding sector and concentration cap ok: the list, blank, and a cap between nothing and the whole';
 end $$;
 
+-- A note checked once a year: an ordinary note by default, never checked
+-- until marked (Planning audit, 4.18).
+do $$
+declare
+  hh constant uuid := '11111111-1111-1111-1111-111111111111';
+  n uuid;
+begin
+  insert into household_notes (household_id, title) values (hh, 'Protection') returning id into n;
+  if (select (check_yearly, checked_on) from household_notes where id = n) is distinct from row(false, null::date) then
+    raise exception 'yearly check FAILED: a new note is a yearly check, or already checked';
+  end if;
+  update household_notes set check_yearly = true, checked_on = '2026-10-26' where id = n;
+  if (select checked_on from household_notes where id = n) <> date '2026-10-26' then
+    raise exception 'yearly check FAILED: the day it was checked was not kept';
+  end if;
+  begin
+    update household_notes set check_yearly = null where id = n;
+    raise exception 'yearly check FAILED: a note neither yearly nor not was accepted';
+  exception when not_null_violation then null;
+  end;
+  raise notice 'yearly check ok: off by default, the day kept, never null';
+end $$;
+
+-- What cash earns in the Life plan: blank is the default, and a figure is a
+-- plausible rate (Planning audit, 4.19).
+do $$
+declare
+  hh constant uuid := '11111111-1111-1111-1111-111111111111';
+begin
+  insert into planning_assumptions (household_id) values (hh) on conflict (household_id) do nothing;
+  if (select cash_return_pct from planning_assumptions where household_id = hh) is not null then
+    raise exception 'cash return FAILED: a household starts with a cash rate of its own';
+  end if;
+  update planning_assumptions set cash_return_pct = 3.5 where household_id = hh;
+  update planning_assumptions set cash_return_pct = -5 where household_id = hh;
+  begin
+    update planning_assumptions set cash_return_pct = 25 where household_id = hh;
+    raise exception 'cash return FAILED: cash earning 25%% a year was accepted';
+  exception when check_violation then null;
+  end;
+  begin
+    update planning_assumptions set cash_return_pct = -6 where household_id = hh;
+    raise exception 'cash return FAILED: cash losing 6%% a year was accepted';
+  exception when check_violation then null;
+  end;
+  raise notice 'cash return ok: blank by default, between -5%% and 20%%';
+end $$;
+
 rollback;

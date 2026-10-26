@@ -483,3 +483,28 @@ describe('LifePlan: what came from Forecast', () => {
     expect(screen.queryByRole('button', { name: 'Saving and growth' })).toBeNull();
   });
 });
+
+// Planning audit, 4.19: cash keeps a cash rate, said in the bar and the notes,
+// and a weakening rupee is shown only when something is set in rupees.
+describe('cash and the rupee on the Life plan', () => {
+  it('says the cash held today stays cash at its rate', () => {
+    renderPlan();
+    expect(document.querySelector('.pl-assumptions').textContent).toMatch(/3\.0% on cash/);
+    expect(screen.getByText(/held in cash and deposits today stays cash at 3\.0% a year; the rest earns the return\./)).toBeTruthy();
+  });
+
+  it('shows no rupee case with nothing in rupees', () => {
+    renderPlan();
+    expect(screen.queryByText('If the rupee weakens')).toBeNull();
+  });
+
+  it('puts a policy paid in rupees through a weakening rupee, beside the plan as it is', () => {
+    const policy = { id: 'p1', name: 'Policy maturity', kind: 'lump_sum', in_year: thisYear + 15, amount: 2500000, currency: 'INR' };
+    renderPlan({ data: { independenceIncome: [policy] } });
+    expect(screen.getByText('If the rupee weakens')).toBeTruthy();
+    expect(screen.getByText(/The plan counts 1 source of income in rupees: income in rupees is worth less\. Stopping in/)).toBeTruthy();
+    const group = screen.getByRole('group', { name: 'The rupee' });
+    expect(group.textContent).toMatch(/^The rupee as it is.*The rupee 3% weaker a year/);
+    expect(screen.getByText(/If the rupee weakens, above, shows it worth less\./)).toBeTruthy();
+  });
+});

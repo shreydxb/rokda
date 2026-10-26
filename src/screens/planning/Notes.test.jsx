@@ -27,6 +27,11 @@ vi.mock('../../lib/supabaseClient', () => ({
             const matches = calls.stored === null || filters.updated_at === calls.stored;
             return { data: matches ? [{ id: filters.id }] : [], error: null };
           },
+          // An update awaited without reading back, as Checked today does.
+          then: (resolve) => {
+            calls.updates.push({ table, row, id: filters.id, updatedAt: filters.updated_at });
+            resolve({ error: null });
+          },
         };
         return chain;
       },
@@ -166,3 +171,42 @@ describe('Notes', () => {
     expect(screen.getByText('Edit').disabled).toBe(false);
   });
 });
+
+// A note checked once a year (Planning audit, 4.18): the editor marks it, and
+// the note says where it stands and takes Checked today.
+describe('a yearly check', () => {
+  it('is marked in the editor and saved with the note', async () => {
+    renderNotes([]);
+    fireEvent.click(screen.getByRole('button', { name: '+ Add note' }));
+    fireEvent.change(screen.getByPlaceholderText('e.g. Who pays what'), { target: { value: 'Protection' } });
+    const toggle = screen.getByRole('button', { name: /Check once a year/ });
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute('aria-pressed')).toBe('true');
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Add note' })));
+    expect(calls.inserts[0].row).toMatchObject({ title: 'Protection', check_yearly: true });
+  });
+
+  it('says it has not been checked, and Checked today records the household day', async () => {
+    const { reload } = renderNotes([{ ...NOTE, check_yearly: true, checked_on: null }]);
+    const line = screen.getByText('Checked once a year · not checked yet');
+    expect(line.className).toBe('ov-warn');
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Checked today' })));
+    expect(calls.updates).toHaveLength(1);
+    expect(calls.updates[0].row).toEqual({ checked_on: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), updated_by: 'm1' });
+    expect(calls.updates[0].id).toBe('n1');
+    await waitFor(() => expect(reload).toHaveBeenCalled());
+  });
+
+  it('says when it was last checked and when it is next due', () => {
+    const lastYear = new Date().getFullYear() - 1;
+    renderNotes([{ ...NOTE, check_yearly: true, checked_on: `${lastYear}-01-01` }]);
+    expect(screen.getByText(`Checked once a year · last checked 1 Jan ${lastYear} · due now`).className).toBe('ov-warn');
+  });
+
+  it('shows nothing of the kind on an ordinary note', () => {
+    renderNotes();
+    expect(screen.queryByRole('button', { name: 'Checked today' })).toBeNull();
+  });
+});
+

@@ -11,6 +11,7 @@ import { accountValueAed } from './accounts';
 import { pendingClose } from './snapshots';
 import { EXPORT_DUE_DAYS, backupStatus } from './backups';
 import { activityHref, monthRange, tabHref } from './activityLink';
+import { yearlyCheckItems } from './yearlyChecks';
 
 function startOfDay(d) {
   const nd = new Date(d);
@@ -279,7 +280,7 @@ export function attentionPreview(items = [], expanded = false, count = ATTENTION
   return { shown, hidden: sorted.length - shown.length };
 }
 
-export function buildAttentionItems({ transactions, recurring, accounts, holdings, categories, snapshots = [], backupRecords = [], scopeMemberId, now = new Date() }) {
+export function buildAttentionItems({ transactions, recurring, accounts, holdings, categories, snapshots = [], backupRecords = [], yearlyChecks = [], scopeMemberId, now = new Date() }) {
   const reviewItems = transactions
     .filter((t) => t.needs_review && (scopeMemberId === null || t.is_shared || t.owner_member_id === scopeMemberId))
     .map((t) => ({ id: `review-${t.id}`, kind: 'review', severity: 'warn', tx: t }));
@@ -293,6 +294,7 @@ export function buildAttentionItems({ transactions, recurring, accounts, holding
     ...staleHoldingItems(holdings, scopeMemberId, now),
     ...monthCloseItems(accounts, snapshots, now),
     ...backupItems(accounts, backupRecords, now),
+    ...yearlyCheckItems(yearlyChecks, now),
   ];
 }
 
@@ -314,6 +316,8 @@ export function attentionHref(item, now = new Date()) {
       return tabHref('/money', 'review');
     case 'backup':
       return tabHref('/settings', 'backups');
+    case 'yearly_check':
+      return tabHref('/planning', 'notes');
     default:
       return '/';
   }

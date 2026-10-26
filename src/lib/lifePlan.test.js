@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { marketFall, stressTest, STRESS_FALLS, afterWorkReturn, AFTER_WORK_RETURN_GAP, costInYear, costsAfterWork, costsText, agesIn, loansInSpending, loansText, rangeText, stopRange, agesLabel, datedIncomesOnTimeline, defaultStopPerson, earliestStop, extraSavingNeeded, goalsOnTimeline, lifePlan, lifePlanBasis, lifePlanStop, maxRetirementSpend, membersLeftOut, noStopCause, noStopText, planEndYear, planPeople, potNeededAt, spendAfterText, yearLeft } from './lifePlan';
+import { CASH_RETURN_DEFAULT, RUPEE_DRIFT, rupeeDrift, marketFall, stressTest, STRESS_FALLS, afterWorkReturn, AFTER_WORK_RETURN_GAP, costInYear, costsAfterWork, costsText, agesIn, loansInSpending, loansText, rangeText, stopRange, agesLabel, datedIncomesOnTimeline, defaultStopPerson, earliestStop, extraSavingNeeded, goalsOnTimeline, lifePlan, lifePlanBasis, lifePlanStop, maxRetirementSpend, membersLeftOut, noStopCause, noStopText, planEndYear, planPeople, potNeededAt, spendAfterText, yearLeft } from './lifePlan';
 import { MARKET_FALL, realReturn, scenarioSets } from './forecast';
 
 const people = [
@@ -325,7 +325,7 @@ describe('sums paid in a set year (policy maturities)', () => {
   const policy = { id: 'a', name: 'Policy A maturity', kind: 'lump_sum', amount: 5_000_000, currency: 'INR', in_year: 2044 };
 
   it('converts at today\'s rate and brings the amount back to today\'s money', () => {
-    expect(datedIncomesOnTimeline([policy], 2026, 2.5, household)).toEqual([{ id: 'a', name: 'Policy A maturity', year: 2044, amount: 200_000 / 1.025 ** 18 }]);
+    expect(datedIncomesOnTimeline([policy], 2026, 2.5, household)).toEqual([{ id: 'a', name: 'Policy A maturity', year: 2044, amount: 200_000 / 1.025 ** 18, inr: true }]);
   });
 
   it('leaves out a year already past, and a rupee sum with no rate', () => {
@@ -650,3 +650,61 @@ describe('the stress test', () => {
     expect(firstDraw.share).toBeCloseTo(firstDraw.drawn / firstDraw.pot, 10);
   });
 });
+
+// Planning audit, 4.19: cash earns a cash rate, and what is in rupees can be
+// put through a weakening rupee.
+describe('cash and the rupee', () => {
+  it('grows the cash kept at the cash rate and the rest at the return', () => {
+    const cashRate = 0.005;
+    const plan = lifePlan({ ...base, cashPot: 100_000, cashRate });
+    const row = plan.rows[0];
+    expect(row.growth).toBeCloseTo(100_000 * cashRate + 400_000 * base.preRate, 6);
+    // Cash earns less, so the plan ends with less.
+    expect(plan.left).toBeLessThan(lifePlan(base).left);
+  });
+
+  it('keeps it all as cash once the pot is below the cash, and a fall leaves the cash alone', () => {
+    const small = lifePlan({ ...base, startPot: 50_000, annualSaving: 0, retireYear: 2026, retireSpend: 0, cashPot: 100_000, cashRate: 0.01 });
+    expect(small.rows[0].growth).toBeCloseTo(50_000 * 0.01, 6);
+    const fall = lifePlan({ ...base, retireYear: 2026, retireSpend: 0, annualSaving: 0, cashPot: 100_000, cashRate: 0, returnFor: () => -0.2 });
+    expect(fall.rows[0].growth).toBeCloseTo(400_000 * -0.2, 6);
+  });
+
+  it('takes a cash rate from the assumptions, the default when there is none, the same in every scenario', () => {
+    const inputs = { ready: true, monthlySaving: 4000, annualSpend: 60000, source: 'actual' };
+    const basis = (assumptions, fcSet) => lifePlanBasis({ people, assumptions, inputs, startNetWorth: 300000, start: { cash: 50000, rupees: 0 }, startYear: 2026, fcSet });
+    expect(basis(null).cashNominal).toBe(CASH_RETURN_DEFAULT);
+    expect(basis(null).args.cashPot).toBe(50000);
+    expect(basis(null).args.cashRate).toBeCloseTo(realReturn(CASH_RETURN_DEFAULT, 2.5), 10);
+    expect(basis({ cash_return_pct: '4.00' }).cashNominal).toBe(4);
+    expect(basis({ cash_return_pct: '4.00' }, 'conservative').cashNominal).toBe(4);
+  });
+
+  it('with the rupee weakening, makes rupee income, lump sums and the rupee share worth less, and rupee costs cheaper', () => {
+    const at = (year, extra) => lifePlan({ ...base, retireYear: 2030, ...extra }).rows.find((r) => r.year === year);
+    const income = [{ kind: 'yearly', amount: 10_000, starts_after_years: 0, lasts_years: null, inr: true }];
+    expect(at(2036, { incomes: income, drift: 0.03 }).income).toBeCloseTo(10_000 * 0.97 ** 10, 6);
+    expect(at(2036, { incomes: [{ ...income[0], inr: false }], drift: 0.03 }).income).toBe(10_000);
+    const inflows = [{ id: 'p', name: 'Policy', year: 2036, amount: 50_000, inr: true }];
+    expect(at(2036, { inflows, drift: 0.03 }).income).toBeCloseTo(50_000 * 0.97 ** 10, 6);
+    const costs = [{ amount: 5_000, perPerson: false, risePct: 0, startsAfterYears: 0, lastsYears: null, since: 2026, inr: true }];
+    expect(at(2036, { costs, drift: 0.03 }).costs).toBeCloseTo(5_000 * 0.97 ** 10, 6);
+    const held = lifePlan({ ...base, rupeeShare: 0.5, drift: 0.03 }).rows[0];
+    expect(held.growth).toBeCloseTo(500_000 * base.preRate - 500_000 * 0.5 * 0.03, 6);
+  });
+
+  it('puts the plan through the rupee weakening when anything is in rupees, and not otherwise', () => {
+    const inputs = { ready: true, monthlySaving: 4000, annualSpend: 60000, source: 'actual' };
+    const household = { inr_per_aed: 25 };
+    const policy = { id: 'p', name: 'Policy maturity', kind: 'lump_sum', in_year: 2044, amount: 2_500_000, currency: 'INR' };
+    const basis = (extra) => lifePlanBasis({ people, assumptions: { retirement_year: 2054 }, inputs, startNetWorth: 300000, household, startYear: 2026, ...extra });
+    expect(rupeeDrift(basis({}))).toBeNull();
+    const drift = rupeeDrift(basis({ incomes: [policy], start: { cash: 0, rupees: 60000 } }));
+    expect(drift.drift).toBe(RUPEE_DRIFT);
+    expect(drift.rupees).toEqual({ held: 60000, share: 0.2, incomes: 1, costs: 0 });
+    const ending = (o) => (o.lasts ? o.left : -1e9 + o.shortYear);
+    expect(ending(drift.weaker)).toBeLessThan(ending(drift.steady));
+    expect(drift.weaker.earliest === null || drift.weaker.earliest >= drift.steady.earliest).toBe(true);
+  });
+});
+

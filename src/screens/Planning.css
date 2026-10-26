@@ -266,6 +266,15 @@
     font-size: 21px;
   }
 }
+/* The rupee drift case: the plan as it is beside the rupee weaker, two
+   figures side by side at every width (Planning audit, 4.19). */
+.fc-kpis.lp-drift {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 20px;
+}
+.lp-drift .fc-kpi:nth-child(2) {
+  padding-left: 24px;
+}
 
 /* Planning figures resting on the budget rather than on recorded spend. */
 .pl-basis {
@@ -366,6 +375,23 @@
 }
 .nt-meta {
   margin-top: 10px;
+}
+/* A note checked once a year (Planning audit, 4.18): where it stands and
+   Checked today, on one line that wraps on a phone. */
+.nt-check {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin-top: 12px;
+  font-size: 12.5px;
+}
+.nt-check-error {
+  flex-basis: 100%;
+  margin: 0;
+}
+.nt-yearly {
+  margin-top: 14px;
 }
 .nt-textarea {
   width: 100%;

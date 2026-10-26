@@ -45,8 +45,8 @@ here, because this repository is public.
 - Needs attention: bills and expected income not yet matched, card payments
   due, spending well above a category's usual, items waiting in the Inbox,
   accounts with no balance set, holdings whose price has gone stale, the
-  month that just ended until someone closes it, and a backup export that is
-  late or failed.
+  month that just ended until someone closes it, a backup export that is
+  late or failed, and a note checked once a year that is due.
 - Upcoming bills and income, with rupee amounts shown in rupees as well.
 
 ## Money (`/money`)
@@ -200,9 +200,10 @@ Forecast or Drawdown, which went (Planning audit, 3.15), opens the Life plan.
   age to plan each person to, the year work stops, spending after it (a
   planned figure, essentials only, for one, and the categories that stop),
   the costs that start when work stops, other income, and growth: the return,
-  inflation and the return after work stops, which is a point below the
-  return until one is set and moves with the scenario. Costs and income open
-  in a drawer over it and are saved as they are added.
+  inflation, the return after work stops, which is a point below the
+  return until one is set and moves with the scenario, and the return on
+  cash, 3% until one is set, the same in every scenario. Costs and income
+  open in a drawer over it and are saved as they are added.
 - **Planning basis**: every projection (Plan and the Life plan) opens with
   one line saying what it is worked out on: your budget
   or the recorded months, why, and from which month the records count.
@@ -241,7 +242,12 @@ Forecast or Drawdown, which went (Planning audit, 3.15), opens the Life plan.
   year through the same two-year fall the year work stops and ten years in,
   on Baseline, beside a steady return: whether each lasts, the stop year that
   weathers the early fall, what the first year without work takes from the
-  pot, and the pot's path against the steady one.
+  pot, and the pot's path against the steady one. The cash and deposits held
+  today stay cash at the return on cash; the rest earns the return. When
+  anything is in rupees (accounts or holdings, other income, a cost), "If the
+  rupee weakens" sets the plan with the rupee losing 3% a year against the
+  dirham beside the plan as it is: what is left at the end, and the earliest
+  stop year, each way.
 - **Goals**: targets in today's cost with their own inflation, in four
   kinds, each goal with one status. Due within 3 years: paid from cash
   (logged contributions and linked current, savings and cash accounts, no
@@ -261,7 +267,10 @@ Forecast or Drawdown, which went (Planning audit, 3.15), opens the Life plan.
   and when it clears, labelled. An extra payment is a what-if, against the
   minimums, beside the rule to fill the cash reserve first. Avalanche or
   snowball from two debts up, saved for the household and followed by Plan.
-- **Notes**: the household plan in words, private to the household.
+- **Notes**: the household plan in words, private to the household. A note
+  can be checked once a year (insurance, wills, nominations): it says when it
+  was last checked, "Checked today" records it, and Overview's Needs
+  attention asks for it a year later, or at once until it first is.
 
 ## Settings (`/settings`)
 

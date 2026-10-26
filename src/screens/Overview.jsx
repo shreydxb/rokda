@@ -54,6 +54,7 @@ export default function Overview() {
     netWorthSnapshots,
     holdings,
     backupRecords,
+    yearlyChecks,
     errors,
     loadedAt,
     refreshing,
@@ -128,8 +129,8 @@ export default function Overview() {
   const qualityIssues = Object.values(qualityOk).filter((ok) => !ok).length;
 
   const attention = useMemo(
-    () => buildAttentionItems({ transactions, recurring, accounts, holdings, categories, snapshots: netWorthSnapshots, backupRecords, scopeMemberId, now }),
-    [transactions, recurring, accounts, holdings, categories, netWorthSnapshots, backupRecords, scopeMemberId, now]
+    () => buildAttentionItems({ transactions, recurring, accounts, holdings, categories, snapshots: netWorthSnapshots, backupRecords, yearlyChecks, scopeMemberId, now }),
+    [transactions, recurring, accounts, holdings, categories, netWorthSnapshots, backupRecords, yearlyChecks, scopeMemberId, now]
   );
   // The most pressing few, with the rest a tap away: a long list pushed the
   // rest of the page out of sight.
