@@ -128,6 +128,10 @@ const SUBVIEWS = [
   // A statement that does not match, opened for resolving: the reason box and
   // its buttons must fit a phone.
   { name: 'statements', path: '/wealth', tabs: ['Statements', 'Resolve…'], expectText: 'Mark resolved', history: false, tables: { statement_reconciliations: cardStatements } },
+  // The largest concentration under Allocation, and its cap set in place
+  // (Planning audit, 4.17).
+  { name: 'investments-concentration', path: '/wealth', tabs: ['Investments'], expectText: 'Largest concentration: Technology, 57% of investments', history: false, tables: { holdings: concentratedHoldings } },
+  { name: 'investments-cap', path: '/wealth', tabs: ['Investments', 'Set a cap'], expectText: 'No single sector or holding above', history: false, tables: { holdings: concentratedHoldings } },
   { name: 'backups', path: '/settings', tabs: ['Backups'], expectText: 'Restore drill' },
   { name: 'starter-categories', path: '/settings', tabs: ['Categories & rules', 'Starter set'], expectText: 'Starter categories' },
   {
@@ -153,6 +157,16 @@ const SUBVIEWS = [
 
 // The Platinum card's two latest statements (it closes on the 10th): the
 // latest checked and not matching, by a cent, the one before marked done.
+// Two chip makers and a world fund: 57% of the investments in one sector.
+function concentratedHoldings() {
+  const [fund] = data.holdings;
+  return [
+    { ...fund, id: 'abababab-0000-4000-8000-000000000001', name: 'Chip maker A', asset_class: 'us_equity', sector: 'technology', value_aed: 30000, price_provider: null },
+    { ...fund, id: 'abababab-0000-4000-8000-000000000002', name: 'Chip maker B', asset_class: 'us_equity', sector: 'technology', value_aed: 27000, price_provider: null },
+    { ...fund, id: 'abababab-0000-4000-8000-000000000003', name: 'World fund', asset_class: 'intl_equity', sector: 'broad', value_aed: 43000, price_provider: null },
+  ];
+}
+
 function cardStatements() {
   const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const now = new Date();

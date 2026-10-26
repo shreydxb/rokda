@@ -2718,3 +2718,34 @@ pot or the amount a goal needs sat off the right edge (Planning audit, 3.16).
 - **The same markup at every width.** The cells carry their labels and their
   place (`ch-row-id`, `ch-row-key`) and CSS does the rest, so there is one
   table to keep right, not a phone copy beside it.
+
+## A concentration line on Wealth
+
+When much of a portfolio sits in one sector, nothing in the app said so:
+the allocation boxes split by asset class, which a single sector cuts
+across (Planning audit, 4.17). Wealth, where the holdings are, now has
+one line under Allocation naming the largest concentration and its share.
+
+- **A sector is tagged, not typed as a share.** A sector share entered by
+  hand is stale the day prices move, so each share or share fund carries its
+  sector once, from the eleven market sectors, and the share is worked out
+  from current values. A fixed list rather than free text, so one sector is
+  never two spellings. Cash, gold, crypto and sukuk have no sector and are
+  not asked for one.
+- **A broad fund is in no sector.** A world or index fund is tagged "Spread
+  across sectors": it counts in the whole but in no sector, and is not a
+  concentration on its own. Untagged, it would read as one large holding.
+- **The larger of a sector and a single holding.** A sector wins only when
+  it is more than its largest holding, so one holding alone in its sector is
+  named as itself. Holdings not tagged yet count only on their own, and the
+  line says how many there are.
+- **Of investments, in the scope shown.** The share is of everything held
+  but cash, as Wealth's Both, Me or a partner shows it, and the line shows
+  only when no asset-class filter is on, since it is about the whole.
+- **The cap is the household's, set beside the line.** One cap covers any
+  sector or holding, as the household's own rule (for example, no more than
+  25% in one place); it is blank until set, and the line says above or
+  within. It is saved with the household and set on Wealth, not in
+  Settings, where it would be out of sight of what it governs. No currency
+  line: the dirham is pegged to the dollar, and the rupee's drift is its own
+  item.

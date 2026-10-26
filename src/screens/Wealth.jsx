@@ -47,7 +47,7 @@ export default function Wealth() {
 
       {tab === 'networth' && <NetWorth household={household} me={me} members={members} data={data} loading={loading} />}
       {tab === 'accounts' && <Accounts household={household} members={members} me={me} data={data} loading={loading} />}
-      {tab === 'investments' && <Investments household={household} members={members} me={me} data={data} loading={loading} />}
+      {tab === 'investments' && <Investments household={household} members={members} me={me} data={data} loading={loading} reloadHousehold={reloadHousehold} />}
       {tab === 'statements' && <Statements household={household} me={me} members={members} data={data} loading={loading} />}
     </div>
   );

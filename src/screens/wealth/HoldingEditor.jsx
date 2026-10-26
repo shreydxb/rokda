@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
-import { ASSET_CLASS_LABELS, costFromUnits } from '../../lib/holdings';
+import { ASSET_CLASS_LABELS, SECTOR_LABELS, costFromUnits, hasSector } from '../../lib/holdings';
 import { daysSincePriced, historyPointFor, isPendingValuation, nextPricedAt, todayISODate, valueFieldFor, valuationChanged } from '../../lib/valuation';
 import '../money/TransactionEditor.css';
 
@@ -10,6 +10,7 @@ function initialForm(holding) {
     return {
       name: holding.name,
       asset_class: holding.asset_class,
+      sector: holding.sector ?? '',
       currency: holding.currency ?? 'AED',
       value_aed: valueFieldFor(holding),
       owner: holding.is_shared ? 'shared' : (holding.owner_member_id ?? ''),
@@ -23,7 +24,7 @@ function initialForm(holding) {
     };
   }
   return {
-    name: '', asset_class: 'us_equity', currency: 'USD', value_aed: '', owner: 'shared',
+    name: '', asset_class: 'us_equity', sector: '', currency: 'USD', value_aed: '', owner: 'shared',
     quantity: '', avg_price: '', current_price: '', invested_value_aed: '', day_change_pct: '',
     price_provider: '', price_symbol: '',
   };
@@ -143,6 +144,8 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
       household_id: householdId,
       name: form.name.trim(),
       asset_class: form.asset_class,
+      // Only shares and share funds have a sector.
+      sector: hasSector(form.asset_class) ? form.sector || null : null,
       currency: form.currency || 'AED',
       is_shared: form.owner === 'shared',
       owner_member_id: form.owner === 'shared' ? null : form.owner,
@@ -319,6 +322,23 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
               <span className="te-fieldlabel">Native currency</span>
               <input className="te-fieldvalue" type="text" value={form.currency} onChange={(e) => set('currency', e.target.value.toUpperCase())} maxLength={3} />
             </div>
+            {/* Tagged once, so Wealth can say how much sits in one sector
+                (Planning audit, 4.17). Only shares and share funds have one. */}
+            {hasSector(form.asset_class) && (
+              <div className="te-fieldcell te-span2">
+                <label className="te-fieldlabel" htmlFor="holding-sector">
+                  Sector
+                </label>
+                <select id="holding-sector" className="te-fieldvalue" value={form.sector} onChange={(e) => set('sector', e.target.value)}>
+                  <option value="">Not tagged</option>
+                  {Object.entries(SECTOR_LABELS).map(([id, label]) => (
+                    <option key={id} value={id}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
 
           <div>

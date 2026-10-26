@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { costFromUnits, holdingGain, portfolioDayChange, portfolioInvestedAndGain, portfolioValueChange } from './holdings';
+import { costFromUnits, holdingGain, largestConcentration, portfolioDayChange, portfolioInvestedAndGain, portfolioValueChange } from './holdings';
 
 describe('portfolioDayChange', () => {
   it('weights each holding change by its value, not a flat average', () => {
@@ -212,3 +212,52 @@ describe('costFromUnits', () => {
   });
 });
 
+describe('largestConcentration', () => {
+  const PRICED = '2026-09-01T00:00:00Z';
+  const holding = (name, value, extra = {}) => ({ id: name, name, value_aed: value, asset_class: 'us_equity', is_shared: true, priced_at: PRICED, ...extra });
+
+  it('names a sector when it holds more than any one holding', () => {
+    const c = largestConcentration([holding('A', 300, { sector: 'technology' }), holding('B', 300, { sector: 'technology' }), holding('C', 400, { sector: 'energy' })], null);
+    expect(c).toMatchObject({ kind: 'sector', name: 'Technology', value: 600, total: 1000, untagged: 0, cap: null });
+    expect(c.share).toBeCloseTo(0.6);
+  });
+
+  it('names the holding itself when it is alone in its sector, or has none', () => {
+    expect(largestConcentration([holding('A', 500, { sector: 'technology' }), holding('B', 500, { sector: 'energy' })], null)).toMatchObject({ kind: 'holding', name: 'A', sector: 'technology' });
+    const untagged = largestConcentration([holding('A', 700), holding('B', 300, { sector: 'energy' })], null);
+    expect(untagged).toMatchObject({ kind: 'holding', name: 'A', sector: null, untagged: 1 });
+    expect(untagged.share).toBeCloseTo(0.7);
+  });
+
+  it('leaves out cash and holdings not valued yet, and counts a broad fund only in the whole', () => {
+    const c = largestConcentration(
+      [holding('Fund', 600, { sector: 'broad' }), holding('A', 400, { sector: 'technology' }), holding('Cash', 5000, { asset_class: 'cash' }), holding('New', 0, { priced_at: null })],
+      null,
+    );
+    expect(c).toMatchObject({ kind: 'holding', name: 'A', total: 1000 });
+    expect(c.share).toBeCloseTo(0.4);
+  });
+
+  it('says when everything is in funds spread across sectors, and null with nothing invested', () => {
+    expect(largestConcentration([holding('Fund', 600, { sector: 'broad' })], null, 25)).toMatchObject({ kind: 'spread', share: 0, cap: { pct: 25, above: false } });
+    expect(largestConcentration([holding('Cash', 5000, { asset_class: 'cash' })], null)).toBeNull();
+    expect(largestConcentration([], null)).toBeNull();
+  });
+
+  it('measures against the cap, above only past it', () => {
+    const hs = [holding('A', 250, { sector: 'technology' }), holding('B', 750, { sector: 'broad' })];
+    expect(largestConcentration(hs, null, 25).cap).toEqual({ pct: 25, above: false });
+    expect(largestConcentration(hs, null, '20.00').cap).toEqual({ pct: 20, above: true });
+  });
+
+  it('reads a sector only on shares and share funds, and asks only for theirs', () => {
+    const c = largestConcentration([holding('Gold', 500, { asset_class: 'commodity', sector: 'materials' }), holding('Coin', 300, { asset_class: 'crypto' }), holding('B', 200)], null);
+    expect(c).toMatchObject({ kind: 'holding', name: 'Gold', sector: null, untagged: 1 });
+  });
+
+  it('follows the scope: a partner sees their own holdings and half of the shared ones', () => {
+    const hs = [holding('Shared', 400, { sector: 'energy' }), holding('Mine', 300, { is_shared: false, owner_member_id: 'm1' }), holding('Theirs', 900, { is_shared: false, owner_member_id: 'm2' })];
+    const c = largestConcentration(hs, 'm1');
+    expect(c).toMatchObject({ kind: 'holding', name: 'Mine', value: 300, total: 500 });
+  });
+});
