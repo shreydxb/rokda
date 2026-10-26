@@ -167,7 +167,9 @@ here, because this repository is public.
   investments (cash left out), against the household's cap: "above your 25%
   cap" in warning colour, or within it. "Set a cap" sets it in place, for the
   household. A share or share fund is tagged with its sector once, in its
-  editor; a fund spread across sectors is tagged so, and counts in no sector.
+  editor: one of the market sectors, or for an Indian holding the sector its
+  broker's statement gives it (Defence, FMCG, Auto ancillary and the like);
+  a fund spread across sectors is tagged so, and counts in no sector.
 - **Statements**: one section per card (when it closes and is due), with the
   statements still to check first and the settled ones folded under
   "Checked". Each statement shows its period and status, then three figures

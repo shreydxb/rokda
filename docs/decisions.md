@@ -2807,3 +2807,22 @@ the rupee would never move against the dirham (Planning audit, 4.19).
   each year. A rupee debt is left out of that share, so the case errs
   towards harm. Shown only when something is in rupees.
 
+## Indian holdings keep their broker's sectors
+
+The sector tag was one list, the eleven market sectors. An Indian broker's
+holdings statement gives each share a sector of its own, and the household
+wants its Indian holdings tagged as the statement tags them, so the app and
+the statement agree line by line.
+
+- **A second list, not free text.** The statement's sectors (Software
+  services, Financial services, Defence, Engineering & capital goods,
+  Healthcare, Auto ancillary, Automobile, Metals, Chemicals, Building
+  materials, FMCG, Retail) are added beside the market sectors, and the
+  editor shows the two as groups. A fixed list still means one sector is
+  never two spellings. The statement's Energy is the market sector of that
+  name. Another sector on a later statement is added the same way.
+- **Each tag counts on its own.** The concentration line adds up holdings by
+  tag, so Software services and Technology are two sectors, as are
+  Financial services and Financials. That keeps the statement's own grouping
+  of the Indian holdings, at the cost of not merging them with the US ones.
+

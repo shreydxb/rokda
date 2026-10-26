@@ -2842,4 +2842,23 @@ begin
   raise notice 'cash return ok: blank by default, between -5%% and 20%%';
 end $$;
 
+-- An Indian holding can carry its broker's sector; anything off both lists
+-- is still refused.
+do $$
+declare
+  hh constant uuid := '11111111-1111-1111-1111-111111111111';
+  h uuid;
+begin
+  insert into holdings (household_id, name, asset_class, currency, value_aed) values (hh, 'Broker sector test', 'india_equity', 'INR', 1000) returning id into h;
+  update holdings set sector = 'defence' where id = h;
+  update holdings set sector = 'engineering_capital_goods' where id = h;
+  update holdings set sector = 'fmcg' where id = h;
+  begin
+    update holdings set sector = 'textiles' where id = h;
+    raise exception 'broker sectors FAILED: a sector on neither list was accepted';
+  exception when check_violation then null;
+  end;
+  raise notice 'broker sectors ok: the statement''s sectors, and nothing else';
+end $$;
+
 rollback;
