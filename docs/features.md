@@ -182,7 +182,14 @@ Forecast or Drawdown, which went (Planning audit, 3.15), opens the Life plan.
   growth (return, inflation, after inflation, and the return after work
   stops), and the spending the plan is built on. Edit assumptions opens the
   plan's drawer at its growth figures. The scenario and the money shown
-  hold while moving between tabs, and are never saved.
+  hold while moving between tabs, and are never saved. On a phone the bar
+  folds to a summary ("Baseline · today's money · 6.0% return · 48K a year
+  after work"); Change opens it.
+- **Tables on a phone**: the Life plan's year-by-year table and Goals'
+  priority table become two-line rows below 640px: the year and the pot, or
+  the goal and what it needs today, on the first line, and every other
+  column on the second, each figure labelled from its header. Nothing is
+  dropped and nothing scrolls sideways.
 - **The plan's drawer** (Edit plan and Edit assumptions on the Life plan)
   holds every planning assumption in one place: who the plan is for and the
   age to plan each person to, the year work stops, spending after it (a

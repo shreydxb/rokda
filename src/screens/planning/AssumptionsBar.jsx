@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { realReturn } from '../../lib/forecast';
 
 // The assumptions the Life plan runs on (SHR-325): the scenario, today's or
@@ -9,13 +10,25 @@ import { realReturn } from '../../lib/forecast';
 // hold while you move between tabs, and are never saved.
 //
 // `onMode` is left out by a view that only shows today's money; `spending` is
-// the view's own description or control of the spending it uses; `growth`
-// lists what else the view's figures depend on, beyond return and inflation.
-export default function AssumptionsBar({ sets, scenario, onScenario, mode = 'real', onMode = null, growth = [], spending, onEdit }) {
+// the view's own description or control of the spending it uses, and
+// `spendingSummary` the same in a few words; `growth` lists what else the
+// view's figures depend on, beyond return and inflation.
+//
+// On a phone the bar was 421px tall and pushed the answer below the first
+// screen (Planning audit, 3.16), so there it folds to a summary of what the
+// plan is on, and Change opens the rest. On a wider screen it is always open.
+export default function AssumptionsBar({ sets, scenario, onScenario, mode = 'real', onMode = null, growth = [], spending, spendingSummary = null, onEdit }) {
+  const [open, setOpen] = useState(false);
   const selected = sets[scenario] ?? sets.baseline;
   const real = realReturn(selected.nominalPct, selected.inflationPct) * 100;
+  const summary = [selected.label, mode === 'real' ? 'today’s money' : 'future money', `${selected.nominalPct.toFixed(1)}% return`, spendingSummary].filter(Boolean).join(' · ');
   return (
-    <section className="pl-assumptions" aria-label="Assumptions">
+    <section className="pl-assumptions" data-open={open} aria-label="Assumptions">
+      <button type="button" className="pl-assumptions-toggle" aria-expanded={open} aria-controls="pl-assumptions-body" onClick={() => setOpen((o) => !o)}>
+        <span className="pl-assumptions-line">{summary}</span>
+        <span className="pl-assumptions-change">{open ? 'Done' : 'Change'}</span>
+      </button>
+      <div className="pl-assumptions-body" id="pl-assumptions-body">
       <div className="dd-control">
         <span className="dd-label">Scenario</span>
         <div className="dd-segs" role="group" aria-label="Scenario">
@@ -65,6 +78,7 @@ export default function AssumptionsBar({ sets, scenario, onScenario, mode = 'rea
           : `The ${selected.label} scenario (${selected.meta.toLowerCase()}), shown until you switch back. It isn't saved.`}
         {onMode && mode === 'nominal' ? ' Future money: amounts grown with inflation to the year they happen.' : ''}
       </p>
+      </div>
     </section>
   );
 }

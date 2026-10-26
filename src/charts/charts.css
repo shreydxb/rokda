@@ -143,3 +143,68 @@
 .ch-table tr[data-active='true'] td {
   background: var(--raise);
 }
+/* Below 640px a table marked .ch-rows becomes a list of two-line rows rather
+   than scrolling sideways (Planning audit, 3.16): the cell marked
+   .ch-row-id and the one marked .ch-row-key on line 1, the rest in grey on
+   line 2, each with its header as a label (data-label). Fields move to line
+   2; none is dropped. */
+@media (max-width: 640px) {
+  .ch-rows .ch-table-wrap {
+    overflow-x: visible;
+  }
+  .ch-rows table,
+  .ch-rows tbody {
+    display: block;
+  }
+  .ch-rows thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .ch-rows tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    column-gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  /* The break between the two lines. */
+  .ch-rows tr::after {
+    content: '';
+    order: 2;
+    flex-basis: 100%;
+  }
+  .ch-rows td {
+    display: block;
+    padding: 0;
+    border: none;
+    text-align: left;
+    white-space: normal;
+  }
+  .ch-rows td.ch-row-id {
+    order: 0;
+    font-size: 14px;
+  }
+  .ch-rows td.ch-row-key {
+    order: 1;
+    margin-left: auto;
+    font-size: 14px;
+    text-align: right;
+  }
+  .ch-rows td:not(.ch-row-id):not(.ch-row-key) {
+    order: 3;
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--ink3);
+  }
+  .ch-rows td[data-label]::before {
+    content: attr(data-label) ' ';
+  }
+  .ch-rows td:empty {
+    display: none;
+  }
+}

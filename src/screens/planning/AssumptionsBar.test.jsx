@@ -135,4 +135,19 @@ describe('Planning tabs and the assumptions bar', () => {
     open('life');
     expect(label('Spending').textContent).toMatch(/Today's · 48K a year/);
   });
+
+  // On a phone the bar took 421px and pushed the answer down (Planning audit,
+  // 3.16): it folds to a summary there, and Change opens the rest. Its styles hide
+  // the rest only on a phone; here the line and its toggle are checked.
+  it('folds to a summary of what the plan is on, and opens the rest from it', () => {
+    open('life');
+    const toggle = bar().querySelector('.pl-assumptions-toggle');
+    expect(toggle.textContent).toBe('Baseline · today’s money · 6.0% return · 48K a year after workChange');
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(bar().dataset.open).toBe('false');
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(bar().dataset.open).toBe('true');
+    expect(toggle.textContent).toMatch(/Done$/);
+  });
 });

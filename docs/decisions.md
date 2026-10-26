@@ -2698,3 +2698,23 @@ payoff and Notes.
   Life plan, through an alias in `useTab`. The bot links to neither and reads
   no assumptions.
 
+## Planning on a phone
+
+At 390px the assumptions bar was a screen and a half of buttons before the
+first figure, and the Life plan and Goals tables scrolled sideways, so the
+pot or the amount a goal needs sat off the right edge (Planning audit, 3.16).
+
+- **The bar folds to what it says.** Below 640px it is a summary, the
+  scenario, the money shown, the return and the spending after work, with
+  Change to open the rest. It opens folded every time: the summary already
+  says what the plan stands on, and choosing again is the rarer act. Wider
+  screens keep the open bar.
+- **A table row becomes two lines, not fewer columns.** The first line is
+  what the row is and the figure it is read for: the year and the pot, the
+  goal and what it needs today. The rest follow on the second line, each
+  labelled from its column's header, since the header row is hidden. Every
+  column stays: dropping one on a phone would make the phone a different
+  plan. Line two may wrap where a row has many figures; it never scrolls.
+- **The same markup at every width.** The cells carry their labels and their
+  place (`ch-row-id`, `ch-row-key`) and CSS does the rest, so there is one
+  table to keep right, not a phone copy beside it.

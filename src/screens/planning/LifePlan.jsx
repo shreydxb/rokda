@@ -314,6 +314,7 @@ export default function LifePlan({
         mode={mode}
         onMode={setMode}
         growth={postNominal !== selected.nominalPct ? [`${postNominal.toFixed(1)}% return after work stops`] : []}
+        spendingSummary={`${money.fmtCompact(spendChoice.value)} a year after work`}
         onEdit={() => setEditing('growth')}
         spending={
           <div className="dd-segs" role="group" aria-label="Spending">
@@ -583,7 +584,8 @@ export default function LifePlan({
           {active.short > 0 && <span className="ov-neg">Short by {money.fmt(shown(active.short, active.year))}</span>}
         </div>
         <ChartLegend items={PHASES.map((p) => ({ label: p.label, color: p.color }))} />
-        <details className="ch-table" onToggle={(e) => setTableOpen(e.currentTarget.open)}>
+        {/* Two-line rows on a phone (Planning audit, 3.16). */}
+        <details className="ch-table ch-rows" onToggle={(e) => setTableOpen(e.currentTarget.open)}>
           <summary>Year by year, as a table</summary>
           <div className="ch-table-wrap">
             <table>
@@ -608,13 +610,19 @@ export default function LifePlan({
                   ].filter(Boolean);
                   return (
                     <tr key={r.year} data-active={i === activeIdx}>
-                      <td className="fig">{r.year}</td>
+                      <td className="fig ch-row-id">{r.year}</td>
                       <td>{agesText(r.year)}</td>
-                      <td className="fig">{money.fmtBalance(shown(r.start, r.year))}</td>
-                      <td className="fig">{r.working ? money.fmtSigned(shown(r.saving, r.year)) : `−${money.fmt(shown(r.spend, r.year))}`}</td>
-                      {anyIncome && <td className="fig">{r.income > 0 ? money.fmt(shown(r.income, r.year)) : ''}</td>}
+                      <td className="fig ch-row-key" data-label="Pot">
+                        {money.fmtBalance(shown(r.start, r.year))}
+                      </td>
+                      <td className="fig" data-label={r.working ? 'Saved' : 'Spent'}>
+                        {r.working ? money.fmtSigned(shown(r.saving, r.year)) : `−${money.fmt(shown(r.spend, r.year))}`}
+                      </td>
+                      {anyIncome && (r.income > 0 ? <td className="fig" data-label="Income">{money.fmt(shown(r.income, r.year))}</td> : <td className="fig" />)}
                       <td>{r.goals.length ? `${r.goals.map((g) => g.name).join(', ')} −${money.fmt(shown(r.goalOutflow, r.year))}` : ''}</td>
-                      <td className="fig">{money.fmtBalance(shown(r.growth, r.year))}</td>
+                      <td className="fig" data-label="Earned">
+                        {money.fmtBalance(shown(r.growth, r.year))}
+                      </td>
                       <td className={r.short > 0 ? 'ov-neg' : undefined}>{notes.join(' · ')}</td>
                     </tr>
                   );
