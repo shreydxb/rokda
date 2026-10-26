@@ -203,6 +203,20 @@ describe('sector', () => {
     cleanup();
   });
 
+  it("offers the market sectors and an Indian broker's, and saves the broker's", async () => {
+    const indian = { ...holding, id: 'h2', name: 'BEL', asset_class: 'india_equity', currency: 'INR' };
+    db.holdings.set('h2', { ...indian });
+    renderScreen(<HoldingEditor holding={indian} householdId="hh" members={[]} onClose={() => {}} onSaved={async () => {}} />);
+    const groups = [...screen.getByLabelText('Sector').querySelectorAll('optgroup')].map((g) => g.label);
+    expect(groups).toEqual(['Market sectors', "Indian broker's sectors"]);
+    fireEvent.change(screen.getByLabelText('Sector'), { target: { value: 'defence' } });
+    await act(async () => {
+      fireEvent.submit(document.querySelector('form'));
+    });
+    expect(db.holdings.get('h2').sector).toBe('defence');
+    cleanup();
+  });
+
   it('is not asked for gold, and a holding moved to it loses its sector', async () => {
     db.holdings.set('h1', { ...holding, sector: 'technology' });
     renderScreen(<HoldingEditor holding={{ ...holding, sector: 'technology' }} householdId="hh" members={[]} onClose={() => {}} onSaved={async () => {}} />);

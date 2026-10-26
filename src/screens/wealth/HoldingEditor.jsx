@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
-import { ASSET_CLASS_LABELS, SECTOR_LABELS, costFromUnits, hasSector } from '../../lib/holdings';
+import { ASSET_CLASS_LABELS, SECTOR_GROUPS, SECTOR_LABELS, costFromUnits, hasSector } from '../../lib/holdings';
 import { daysSincePriced, historyPointFor, isPendingValuation, nextPricedAt, todayISODate, valueFieldFor, valuationChanged } from '../../lib/valuation';
 import '../money/TransactionEditor.css';
 
@@ -331,11 +331,16 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
                 </label>
                 <select id="holding-sector" className="te-fieldvalue" value={form.sector} onChange={(e) => set('sector', e.target.value)}>
                   <option value="">Not tagged</option>
-                  {Object.entries(SECTOR_LABELS).map(([id, label]) => (
-                    <option key={id} value={id}>
-                      {label}
-                    </option>
+                  {SECTOR_GROUPS.map((group) => (
+                    <optgroup key={group.label} label={group.label}>
+                      {Object.entries(group.sectors).map(([id, label]) => (
+                        <option key={id} value={id}>
+                          {label}
+                        </option>
+                      ))}
+                    </optgroup>
                   ))}
+                  <option value="broad">{SECTOR_LABELS.broad}</option>
                 </select>
               </div>
             )}

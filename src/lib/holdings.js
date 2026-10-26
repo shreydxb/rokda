@@ -148,20 +148,49 @@ export function allocationByClass(holdings, scopeMemberId) {
 }
 
 // A holding's market sector, tagged once in its editor (Planning audit,
-// 4.17). The order is the editor's. A fund spread across sectors is tagged
+// 4.17), in the editor's groups and order. The eleven market sectors, and
+// the sectors an Indian broker's holdings statement gives its shares, so an
+// Indian holding carries the same tag as the statement (docs/decisions.md,
+// "Indian holdings keep their broker's sectors"). The statement's Energy is
+// the market sector of that name. A fund spread across sectors is tagged
 // broad: it is in no sector, and not a concentration on its own.
+export const SECTOR_GROUPS = [
+  {
+    label: 'Market sectors',
+    sectors: {
+      technology: 'Technology',
+      communication: 'Communication',
+      consumer_discretionary: 'Consumer discretionary',
+      consumer_staples: 'Consumer staples',
+      energy: 'Energy',
+      financials: 'Financials',
+      health_care: 'Health care',
+      industrials: 'Industrials',
+      materials: 'Materials',
+      real_estate: 'Real estate',
+      utilities: 'Utilities',
+    },
+  },
+  {
+    label: "Indian broker's sectors",
+    sectors: {
+      software_services: 'Software services',
+      financial_services: 'Financial services',
+      defence: 'Defence',
+      engineering_capital_goods: 'Engineering & capital goods',
+      healthcare: 'Healthcare',
+      auto_ancillary: 'Auto ancillary',
+      automobile: 'Automobile',
+      metals: 'Metals',
+      chemicals: 'Chemicals',
+      building_materials: 'Building materials',
+      fmcg: 'FMCG',
+      retail: 'Retail',
+    },
+  },
+];
 export const SECTOR_LABELS = {
-  technology: 'Technology',
-  communication: 'Communication',
-  consumer_discretionary: 'Consumer discretionary',
-  consumer_staples: 'Consumer staples',
-  energy: 'Energy',
-  financials: 'Financials',
-  health_care: 'Health care',
-  industrials: 'Industrials',
-  materials: 'Materials',
-  real_estate: 'Real estate',
-  utilities: 'Utilities',
+  ...Object.assign({}, ...SECTOR_GROUPS.map((g) => g.sectors)),
   broad: 'Spread across sectors',
 };
 

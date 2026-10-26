@@ -255,6 +255,17 @@ describe('largestConcentration', () => {
     expect(c).toMatchObject({ kind: 'holding', name: 'Gold', sector: null, untagged: 1 });
   });
 
+  // An Indian holding keeps its broker's sector, which counts on its own.
+  it("names an Indian broker's sector, and counts it apart from the market sector beside it", () => {
+    const hs = [
+      holding('L&T', 300, { asset_class: 'india_equity', sector: 'engineering_capital_goods' }),
+      holding('Cummins', 250, { asset_class: 'india_equity', sector: 'engineering_capital_goods' }),
+      holding('Netweb', 200, { asset_class: 'india_equity', sector: 'software_services' }),
+      holding('MSFT', 250, { sector: 'technology' }),
+    ];
+    expect(largestConcentration(hs, null)).toMatchObject({ kind: 'sector', name: 'Engineering & capital goods', value: 550 });
+  });
+
   it('follows the scope: a partner sees their own holdings and half of the shared ones', () => {
     const hs = [holding('Shared', 400, { sector: 'energy' }), holding('Mine', 300, { is_shared: false, owner_member_id: 'm1' }), holding('Theirs', 900, { is_shared: false, owner_member_id: 'm2' })];
     const c = largestConcentration(hs, 'm1');
