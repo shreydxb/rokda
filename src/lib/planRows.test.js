@@ -8,8 +8,8 @@ describe('planRows', () => {
     expect(nativeAmountLabel({ currency: 'AED', amount: 1200 })).toBeNull();
   });
 
-  it('says when other income starts, how long it pays, and whether it lowers the target', () => {
-    expect(describeIncome({ kind: 'yearly', starts_after_years: 0, lasts_years: null }, null)).toBe('From the first year, for good · lowers the target');
+  it('says when other income starts and how long it pays', () => {
+    expect(describeIncome({ kind: 'yearly', starts_after_years: 0, lasts_years: null }, null)).toBe('From the first year, for good');
     expect(describeIncome({ kind: 'yearly', starts_after_years: 2, lasts_years: 1 }, null)).toBe('From 2 years in, for 1 year');
     expect(describeIncome({ kind: 'lump_sum', starts_after_years: 0 }, null)).toBe('One-off, in the first year of independence');
     expect(describeIncome({ kind: 'lump_sum', in_year: 2044 }, null)).toBe('Paid in 2044 · counted on the Life plan in that year');

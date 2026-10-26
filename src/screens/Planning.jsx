@@ -6,8 +6,6 @@ import { usePlanningData } from './usePlanningData';
 import PlanSummary from './planning/PlanSummary';
 import Goals from './planning/Goals';
 import DebtPayoff from './planning/DebtPayoff';
-import Forecast from './planning/Forecast';
-import Drawdown from './planning/Drawdown';
 import LifePlan from './planning/LifePlan';
 import Notes from './planning/Notes';
 import LoadFailure from './LoadFailure';
@@ -22,14 +20,15 @@ const TABS = [
   { id: 'life', label: 'Life plan' },
   { id: 'goals', label: 'Goals' },
   { id: 'debt', label: 'Debt payoff' },
-  { id: 'forecast', label: 'Forecast' },
-  { id: 'drawdown', label: 'Drawdown' },
   { id: 'notes', label: 'Notes' },
 ];
+// Forecast and Drawdown went (Planning audit, 3.15): what they showed that
+// the Life plan didn't moved there, so an old link to either opens it.
+const RETIRED_TABS = { forecast: 'life', drawdown: 'life' };
 
 export default function Planning() {
   // In the address, so Back returns to the tab you were on.
-  const [tab, setTab] = useTab(TABS);
+  const [tab, setTab] = useTab(TABS, TABS[0].id, RETIRED_TABS);
   const { household, members, me, loading: householdLoading, refreshing: householdRefreshing, error: householdError, reload: reloadHousehold } = useHousehold();
   const inputs = usePlanningInputs(household?.id);
   const planning = usePlanningData(household?.id);
@@ -45,9 +44,8 @@ export default function Planning() {
   const retry = async () => {
     await Promise.all([reloadHousehold(), inputs.reload(), planning.reload()]);
   };
-  // The scenario and the money shown are chosen on Forecast, Life plan or
-  // Drawdown and hold on all three until changed (planning/AssumptionsBar.jsx).
-  // A look for now: never saved.
+  // The scenario and the money shown on the Life plan hold while you move
+  // between tabs (planning/AssumptionsBar.jsx). A look for now: never saved.
   const [scenario, setScenario] = useState('baseline');
   const [moneyMode, setMoneyMode] = useState('real');
   const lens = { scenario, onScenario: setScenario, moneyMode, onMoneyMode: setMoneyMode };
@@ -140,44 +138,6 @@ export default function Planning() {
       )}
       {tab === 'debt' && (
         <DebtPayoff household={household} members={members} me={me} accounts={inputs.accounts} data={planning} sources={sources} onRetry={retry} loading={loading} onReload={inputs.reload} />
-      )}
-      {tab === 'forecast' && (
-        <Forecast
-          {...lens}
-          household={household}
-          members={members}
-          accounts={inputs.accounts}
-          transactions={inputs.transactions}
-          recurring={inputs.recurring}
-          holdings={inputs.holdings}
-          budgets={inputs.budgets}
-          categories={inputs.categories}
-          data={planning}
-          sources={sources}
-          onRetry={retry}
-          loading={loading}
-          onReload={inputs.reload}
-          onOpenTab={openTab}
-        />
-      )}
-      {tab === 'drawdown' && (
-        <Drawdown
-          {...lens}
-          household={household}
-          members={members}
-          accounts={inputs.accounts}
-          transactions={inputs.transactions}
-          recurring={inputs.recurring}
-          holdings={inputs.holdings}
-          budgets={inputs.budgets}
-          categories={inputs.categories}
-          data={planning}
-          sources={sources}
-          onRetry={retry}
-          loading={loading}
-          onReload={inputs.reload}
-          onOpenTab={openTab}
-        />
       )}
       {tab === 'notes' && <Notes household={household} me={me} members={members} data={planning} sources={sources} onRetry={retry} loading={loading} />}
     </div>

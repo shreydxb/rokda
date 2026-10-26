@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { marketFall, stressTest, STRESS_FALLS, afterWorkReturn, AFTER_WORK_RETURN_GAP, costInYear, costsAfterWork, costsText, lifePlanHandover, agesIn, loansInSpending, loansText, rangeText, stopRange, agesLabel, datedIncomesOnTimeline, defaultStopPerson, earliestStop, extraSavingNeeded, goalsOnTimeline, lifePlan, lifePlanBasis, lifePlanStop, maxRetirementSpend, membersLeftOut, noStopCause, noStopText, planEndYear, planPeople, potNeededAt, spendAfterText, yearLeft } from './lifePlan';
-import { MARKET_FALL, projectYears, realReturn, scenarioSets } from './forecast';
+import { marketFall, stressTest, STRESS_FALLS, afterWorkReturn, AFTER_WORK_RETURN_GAP, costInYear, costsAfterWork, costsText, agesIn, loansInSpending, loansText, rangeText, stopRange, agesLabel, datedIncomesOnTimeline, defaultStopPerson, earliestStop, extraSavingNeeded, goalsOnTimeline, lifePlan, lifePlanBasis, lifePlanStop, maxRetirementSpend, membersLeftOut, noStopCause, noStopText, planEndYear, planPeople, potNeededAt, spendAfterText, yearLeft } from './lifePlan';
+import { MARKET_FALL, realReturn, scenarioSets } from './forecast';
 
 const people = [
   { name: 'Partner A', birthYear: 1994, lifeExpectancy: 80 },
@@ -40,10 +40,11 @@ describe('lifePlan: who is planned for, and until when', () => {
 });
 
 describe('lifePlan: the timeline', () => {
-  it('grows exactly as Forecast projects until work stops', () => {
+  it('grows the pot and adds each year\'s saving at its end until work stops', () => {
     const plan = lifePlan(base);
-    const forecast = projectYears({ startNetWorth: 500_000, annualSaving: 60_000, rate: base.preRate, mode: 'real', inflationPct: 7, years: 28 });
-    expect(plan.potAtStop).toBeCloseTo(forecast[28].value, 4);
+    let pot = 500_000;
+    for (let i = 0; i < 28; i++) pot = pot * (1 + base.preRate) + 60_000;
+    expect(plan.potAtStop).toBeCloseTo(pot, 4);
   });
 
   it('pays a goal at the start of its year, and falls short when the pot cannot', () => {
@@ -563,7 +564,7 @@ describe('costs that start when work stops', () => {
     expect(lifePlan({ ...args, startYear: 2050, startPot: needed, annualSaving: 0, costs: rising }).rows[0].costs).toBeCloseTo(10000 * 1.03 ** 24, 6);
   });
 
-  it('carries through the basis, the stop answer and the handover to Drawdown', () => {
+  it('carries through the basis and the stop answer', () => {
     const members = [{ id: 'm1', display_name: 'Partner A' }];
     const memberLife = [{ member_id: 'm1', birth_year: 1990, life_expectancy: 85 }];
     const inputs = { ready: true, monthlySaving: 3000, annualSpend: 48000, source: 'actual' };
@@ -573,7 +574,7 @@ describe('costs that start when work stops', () => {
     expect(stop.costs.map((c) => c.name)).toEqual(['Health cover', 'Visa fees']);
     expect(lifePlanStop({ ...args, costs: [] }).earliest).toBeLessThan(stop.earliest);
     const basis = lifePlanBasis({ ...args, people: planPeople(members, memberLife) });
-    expect(lifePlanHandover(basis)).toMatchObject({ spend: 48000 + 12000, costsAtStop: 12000 });
+    expect(basis.costsAtStop).toBe(12000);
   });
 
   it('says what the costs are, and adds them to the spending a stop year rests on', () => {

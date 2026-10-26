@@ -7,15 +7,11 @@ import { cashPerMonth, goalStatuses, isDone } from '../../lib/goals';
 import { assumption } from '../../lib/planningDefaults';
 import { debtOrder, debtsWithAccounts, minimumOnlyPayoff, minimumOnlyText, orderDebts, payoffMonthLabel, simulatePayoffPlan } from '../../lib/debt';
 import { andList } from '../../lib/words';
-import { isArchived } from '../../lib/accounts';
-import { unconfirmedAccounts } from '../../lib/balance';
 import { tabHref } from '../../lib/activityLink';
 import { reviewMonth, reviewMonthParam } from '../../lib/monthlyReview';
 import { cashReserve, savingCheck } from '../../lib/monthlyCheck';
-import { crossingYear, incomesFromStop, independenceTarget, realReturn } from '../../lib/forecast';
 import { agesLabel, DEFAULT_STOP_AGE, leftOutText, rangeText, spendAfterText } from '../../lib/lifePlan';
 import { planningModel } from '../../lib/planningModel';
-import { incompleteNote, netWorthSummary } from '../overviewMath';
 import { couldntLoad, neverLoaded } from '../../lib/loadState';
 import { DEBT_INPUTS, DEBT_PLAN_INPUTS, GOALS_INPUTS, projectionInputs } from './planningSources';
 import BasisLine from './BasisLine';
@@ -34,8 +30,9 @@ function payoffText({ atMinimums, withExtra, now }) {
   return minimumOnlyText(atMinimums, now);
 }
 
-// Composes the same goal/debt/forecast outputs Goals, DebtPayoff and Forecast
-// already compute — no new financial math lives here, just a next-action read.
+// Composes the same goal, debt and life-plan outputs Goals, Debt payoff and
+// the Life plan already compute — no new financial math lives here, just a
+// next-action read.
 // Plan is in dirhams, as Goals and Debt payoff are (Planning.jsx, AedNote).
 const AED = { code: 'AED', fmt: (v) => formatMoney(v) };
 const aed = (v) => `AED ${formatMoney(v)}`;
@@ -110,12 +107,6 @@ export default function PlanSummary({ household = null, members, me, accounts, t
   const canProjectDebt = scopeMemberId === null && extraPayment !== null && extraPayment > 0 && debts.length > 0;
   const debtPlan = useMemo(() => (canProjectDebt ? simulatePayoffPlan(orderedFull, extraPayment) : null), [canProjectDebt, orderedFull, extraPayment]);
 
-  // Balances nobody has entered count as 0 in every projection here, so each
-  // one is provisional until they are (Planning audit, 1.1). Household-wide,
-  // as the projections are; Forecast and Net worth apply the same rule.
-  const unentered = useMemo(() => unconfirmedAccounts((accounts ?? []).filter((a) => !isArchived(a))), [accounts]);
-  const provisional = unentered.length > 0 ? `Provisional: ${unentered.length} balance${unentered.length === 1 ? '' : 's'} not entered, counted as 0` : null;
-
   // The planning model, built in one place for every tab (lib/planningModel.js;
   // Planning audit, 3.12): the start, the basis, what stops, the loans, and
   // the Life plan's answer on the saved plan and on the budget's figures.
@@ -136,30 +127,18 @@ export default function PlanSummary({ household = null, members, me, accounts, t
       }),
     [accounts, holdings, transactions, recurring, budgets, categories, assumptions, goals, memberLife, independenceIncome, afterWorkCosts, debtRows, members, household, now]
   );
-  const { startNetWorth, inputs: forecast } = model;
-  const basisIncomplete = useMemo(() => {
-    const s = netWorthSummary(accounts, null, holdings);
-    return incompleteNote({ accounts: s.unvalued, holdings: s.unpricedHoldings }, { capitalised: false, sentence: false });
-  }, [accounts, holdings]);
-  const nominalPct = assumption(assumptions, 'nominal_return_pct');
-  const inflationPct = assumption(assumptions, 'inflation_pct');
-  const swrPct = assumption(assumptions, 'safe_withdrawal_pct');
-  const fireTarget = forecast.ready ? independenceTarget(forecast.annualSpend, swrPct, incomesFromStop(data.independenceIncome ?? [], household)).target : null;
-  const fireYear = forecast.ready
-    ? crossingYear({
-        startYear: now.getFullYear(),
-        startNetWorth,
-        annualSaving: forecast.monthlySaving * 12,
-        rate: realReturn(nominalPct, inflationPct),
-        mode: 'real',
-        inflationPct,
-        goal: fireTarget,
-      })
-    : null;
-  // With ages set, the Life plan answers when work can stop. The 25x target
-  // above is money that lasts forever, decades later, and used to be the only
-  // answer here. The same answer on the budget's figures stays beside it while
-  // the records are the basis (Planning audit, 1.2).
+  const { inputs: forecast } = model;
+  // Balances nobody has entered count as 0 in every projection here, so each
+  // one is provisional until they are (Planning audit, 1.1); what the start
+  // leaves out is said beside the answer. Household-wide, as the projections
+  // are, and worked out once with the model for every tab (3.15).
+  const { unentered, incomplete: basisIncomplete } = model.startGaps;
+  const provisional = unentered.length > 0 ? `Provisional: ${unentered.length} balance${unentered.length === 1 ? '' : 's'} not entered, counted as 0` : null;
+  // With ages set, the Life plan answers when work can stop, and only it does:
+  // the 25x target of money that lasts forever, decades later, used to answer
+  // here until ages were set, and went with Forecast (Planning audit, 3.15).
+  // The same answer on the budget's figures stays beside it while the records
+  // are the basis (1.2).
   const stop = useMemo(() => model.stop(), [model]);
   const budgetStop = useMemo(() => model.stop({ budget: true }), [model]);
 
@@ -242,13 +221,15 @@ export default function PlanSummary({ household = null, members, me, accounts, t
       cta: 'Open Accounts',
     },
     answerMissing.length === 0 && !forecast.ready && {
-      key: 'forecast',
+      key: 'projection',
       text:
-        forecast.monthCount < 3
-          ? `Independence needs three ended months of spend or a budget · has ${forecast.monthCount}`
-          : 'Independence needs a starting account valuation',
-      tab: 'forecast',
-      cta: 'Open Forecast',
+        forecast.why === 'no-budget'
+          ? 'The stop year needs a monthly budget, the basis you chose'
+          : !forecast.hasNetWorth
+            ? 'The stop year needs a starting account valuation'
+            : `The stop year needs three ended months of records or a budget · has ${forecast.monthCount}`,
+      tab: 'life',
+      cta: 'Open Life plan',
     },
   ].filter(Boolean);
 
@@ -270,8 +251,8 @@ export default function PlanSummary({ household = null, members, me, accounts, t
     ].filter(Boolean);
 
   // The answer to when work can stop: the Life plan's year once ages are set,
-  // and then the first card, with what it assumes about spending (SHR-324).
-  // Before that, the independence year, after goals and debt as it always was.
+  // with what it assumes about spending (SHR-324), and before that what it
+  // needs.
   const answerCard = answerMissing.length > 0 ? (
     <SummaryCard label="Stop working" figure="—" note={`${couldntLoad(answerMissing)} No year is worked out without them.`} cta="Life plan" onClick={() => onOpenTab('life')} />
   ) : (
@@ -289,25 +270,19 @@ export default function PlanSummary({ household = null, members, me, accounts, t
         onClick={() => onOpenTab('life')}
       />
     ) : (
+      // Until each person's birth year and age to plan to are set there is no
+      // year to give, and the card says what it needs (Planning audit, 3.15).
       <SummaryCard
-        label="Independence"
-        figure={forecast.ready ? String(fireYear ?? '60+ yrs out') : '—'}
-        progress={forecast.ready && fireTarget > 0 ? startNetWorth / fireTarget : null}
+        label="Stop working"
+        figure="—"
         note={
           forecast.ready
-            ? // The progress figure rests on a net worth that skips any
-              // account with no AED conversion, so it reads high when one
-              // of those is a debt (QA #4), and any holding never valued
-              // (SHR-292). Say so here rather than only on Forecast, since
-              // this card is what most people look at.
-              `${formatPct(startNetWorth / fireTarget)} of the way to ${formatMoney(fireTarget)}${
-                basisIncomplete ? ` · incomplete, ${basisIncomplete}` : ''
-              }${forecast.source === 'budget' ? ' · from your budget' : ''}`
-            : 'Not enough data to project'
+            ? `Set each person's birth year and the age to plan to, and this gives the year work can stop, with its range${basisIncomplete ? ` · incomplete, ${basisIncomplete}` : ''}`
+            : 'Not enough to project yet: the Life plan says what it needs.'
         }
         caveats={forecast.ready && provisional ? [{ text: `${provisional}.` }] : []}
-        cta="Forecast"
-        onClick={() => onOpenTab('forecast')}
+        cta="Life plan"
+        onClick={() => onOpenTab('life')}
       />
     )
   );

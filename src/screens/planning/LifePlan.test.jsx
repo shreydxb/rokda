@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { screen, fireEvent, waitFor } from '@testing-library/dom';
+import { cleanup } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { renderScreen } from '../../test/renderScreen';
 import LifePlan from './LifePlan';
 
@@ -61,6 +63,7 @@ function history() {
 function renderPlan({ data = {}, ...props } = {}) {
   const reload = vi.fn();
   renderScreen(
+    <MemoryRouter>
     <LifePlan
       household={{ id: 'h', inr_per_aed: 25 }}
       members={MEMBERS}
@@ -70,7 +73,8 @@ function renderPlan({ data = {}, ...props } = {}) {
       data={{ assumptions: null, goals: [], independenceIncome: [], memberLife: AGES, reload, ...data }}
       loading={false}
       {...props}
-    />,
+    />
+    </MemoryRouter>,
   );
   return { reload };
 }
@@ -116,9 +120,22 @@ describe('LifePlan: setting up', () => {
     expect(screen.getByRole('dialog', { name: 'Life plan' })).toBeTruthy();
   });
 
+  // It sent you to Forecast, the only list of what was missing (Planning
+  // audit, 3.15); it says it itself now.
   it('says what it needs when there is nothing to project from', () => {
     renderPlan({ transactions: [] });
     expect(screen.getByText('Not enough to project')).toBeTruthy();
+    const rows = [...document.querySelectorAll('.lp-need')].map((r) => r.textContent);
+    // The test account's balance was never confirmed, so the start says so.
+    expect(rows).toEqual(['Spending and savingneeds three ended months of records or a monthly budget · has 0', 'What you hold todayprovisional · 1 balance not entered, counted as 0']);
+    expect(screen.getByRole('link', { name: 'Add an account' }).getAttribute('href')).toBe('/wealth?tab=accounts');
+    expect(screen.getByRole('link', { name: 'Set a budget' }).getAttribute('href')).toBe('/money?tab=budget');
+    expect(screen.queryByText('Open Forecast')).toBeNull();
+  });
+
+  it('needs a valuation with nothing held, and says what the start leaves out', () => {
+    renderPlan({ accounts: [] });
+    expect([...document.querySelectorAll('.lp-need')][1].textContent).toBe('What you hold todayneeds one account valuation');
   });
 });
 
@@ -431,5 +448,38 @@ describe('LifePlan: if markets fall', () => {
     expect(screen.queryByText(/would count caution twice/)).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Conservative' }));
     expect(screen.getByText(/This is on Baseline whichever scenario is chosen above: a fall on top of Conservative would count caution twice\./)).toBeTruthy();
+  });
+});
+
+// Planning audit, 3.15: what Forecast showed that the Life plan didn't.
+describe('LifePlan: what came from Forecast', () => {
+  it('says the start leaves out balances never entered, counted as 0', () => {
+    const unentered = { id: 'a2', name: 'Current account', type: 'checking', currency: 'AED', balance: null, balance_aed: null, balance_as_of: null, is_shared: true, archived_at: null };
+    const confirmed = { ...ACCOUNT, balance_as_of: '2026-10-01' };
+    renderPlan({ accounts: [confirmed] });
+    expect(screen.queryByText(/Provisional:/)).toBeNull();
+    cleanup();
+    renderPlan({ accounts: [confirmed, unentered] });
+    expect(screen.getByText(/Provisional: 1 balance not entered, counted as 0\./)).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Open Accounts' }).getAttribute('href')).toBe('/wealth?tab=accounts');
+  });
+
+  it('splits the working years into what saving adds and what the pot earns', () => {
+    renderPlan();
+    expect(screen.getByText('The pot, year by year')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Saving and growth' }));
+    expect(screen.getByText('Saving and growth, until work stops')).toBeTruthy();
+    // 72,000 saved a year; the pot earns more once it passes about 2.1M at 3.4%.
+    expect(screen.getByText(/^Saving adds more than the pot earns each year until \d{4}; from \d{4} the pot earns more\.$/)).toBeTruthy();
+    const chart = screen.getByRole('group', { name: /^What each year's saving adds and what the pot earns, from \d{4} to 2053, the last year of work/ });
+    expect(chart).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'The pot' }));
+    expect(screen.getByText('The pot, year by year')).toBeTruthy();
+  });
+
+  it('offers no split while more is spent than earned', () => {
+    const overspend = history().map((t) => (t.kind === 'expense' ? { ...t, amount: -12000 } : t));
+    renderPlan({ transactions: overspend });
+    expect(screen.queryByRole('button', { name: 'Saving and growth' })).toBeNull();
   });
 });

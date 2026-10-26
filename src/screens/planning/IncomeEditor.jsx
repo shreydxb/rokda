@@ -253,10 +253,10 @@ export default function IncomeEditor({ row, householdId, household = null, stack
 
           <div className="ov-muted" style={{ fontSize: 11.5, lineHeight: 1.6 }}>
             {yearly
-              ? 'The Life plan counts it year by year from the year work stops. Income that starts then and pays for good also lowers the independence target.'
+              ? 'The Life plan counts it year by year from the year work stops, before anything is taken from the pot.'
               : dated
-                ? 'Added to the pot in that year on the Life plan, whether or not work has stopped, brought back to today’s money at the plan’s inflation. Drawdown and the independence target leave it out.'
-                : 'A one-off sum is added to the pot in the year it arrives. It does not change the independence target.'}{' '}
+                ? 'Added to the pot in that year on the Life plan, whether or not work has stopped, brought back to today’s money at the plan’s inflation.'
+                : 'A one-off sum is added to the pot in the year it arrives.'}{' '}
             Enter it after tax.
           </div>
 

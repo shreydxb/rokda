@@ -5,7 +5,7 @@
 // Deliberately no "Savings" group. Money moved into savings or investments is
 // not spending, and a category of kind 'expense' would count it as spending
 // everywhere a total is taken: net saved, the savings rate, the budget and
-// the independence target would all read low.
+// the plan's saving would all read low.
 //
 // Each group and category carries match words. Whatever the household already
 // has that matches is shown as already there and never added again, so the

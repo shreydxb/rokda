@@ -12,7 +12,7 @@ export default function AedNote({ household }) {
   if (money.code === 'AED') return null;
   return (
     <div className="ov-muted" role="note" style={{ marginTop: 6, fontSize: 12 }}>
-      Amounts here are in AED, as recorded. The {money.code} display applies to Overview, Wealth, Life plan, Forecast and Drawdown.
+      Amounts here are in AED, as recorded. The {money.code} display applies to Overview, Wealth and the Life plan.
     </div>
   );
 }

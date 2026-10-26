@@ -85,12 +85,15 @@ describe('PlanSummary: when work can stop', () => {
     expect(screen.getByText(/· Baseline runs out in \d{4} · Conservative runs out in \d{4} · /)).toBeTruthy();
   });
 
-  it('falls back to the independence year while no ages are set', () => {
+  // The 25x target that stood in until ages were set went with Forecast
+  // (Planning audit, 3.15).
+  it('asks for ages, rather than giving a target, while none are set', () => {
     const { onOpenTab } = renderSummary({ memberLife: [] });
-    expect(screen.getByText('Independence')).toBeTruthy();
+    expect(screen.queryByText('Independence')).toBeNull();
+    expect(screen.getByText(/Set each person's birth year and the age to plan to, and this gives the year work can stop, with its range/)).toBeTruthy();
     expect(document.querySelector('.ov-quality-grid .ov-kicker').textContent).toBe('Goals');
-    fireEvent.click(screen.getByText('Forecast →'));
-    expect(onOpenTab).toHaveBeenCalledWith('forecast');
+    fireEvent.click(screen.getByText('Life plan →'));
+    expect(onOpenTab).toHaveBeenCalledWith('life');
   });
 });
 

@@ -174,25 +174,25 @@ here, because this repository is public.
 
 ## Planning (`/planning`)
 
-- **The assumptions bar** at the top of Forecast, Life plan and Drawdown,
-  in the same order and words on each: the scenario (Baseline,
-  Conservative, Optimistic, Custom), today's or future money (Drawdown is
-  today's money only), growth (return, inflation, after inflation, and what
-  else the view depends on), and the spending the view is built on. Edit
-  assumptions opens the plan's drawer at its growth figures from any of
-  them. The scenario and the money shown hold across the three tabs until
-  changed, and are never saved.
-- **The plan's drawer** (Edit plan on the Life plan, Edit assumptions, Edit
-  in the plan on Drawdown) holds every planning assumption in one place: who
-  the plan is for and the age to plan each person to, the year work stops,
-  spending after it (a planned figure, essentials only, for one, and the
-  categories that stop), the costs that start when work stops, other income,
-  and growth: the return, inflation, withdrawal rate and the return after
-  work stops, which is a point below the return until one is set and moves
-  with the scenario. Costs and income open in a drawer over it and are saved
-  as they are added.
-- **Planning basis**: every projection (Plan, Life plan, Forecast,
-  Drawdown) opens with one line saying what it is worked out on: your budget
+Five tabs: Plan, Life plan, Goals, Debt payoff, Notes. An old link to
+Forecast or Drawdown, which went (Planning audit, 3.15), opens the Life plan.
+
+- **The assumptions bar** at the top of the Life plan: the scenario
+  (Baseline, Conservative, Optimistic, Custom), today's or future money,
+  growth (return, inflation, after inflation, and the return after work
+  stops), and the spending the plan is built on. Edit assumptions opens the
+  plan's drawer at its growth figures. The scenario and the money shown
+  hold while moving between tabs, and are never saved.
+- **The plan's drawer** (Edit plan and Edit assumptions on the Life plan)
+  holds every planning assumption in one place: who the plan is for and the
+  age to plan each person to, the year work stops, spending after it (a
+  planned figure, essentials only, for one, and the categories that stop),
+  the costs that start when work stops, other income, and growth: the return,
+  inflation and the return after work stops, which is a point below the
+  return until one is set and moves with the scenario. Costs and income open
+  in a drawer over it and are saved as they are added.
+- **Planning basis**: every projection (Plan and the Life plan) opens with
+  one line saying what it is worked out on: your budget
   or the recorded months, why, and from which month the records count.
   Change basis chooses the budget or the recorded months and the month
   records count from, saved for the household. With nothing chosen, the
@@ -200,7 +200,9 @@ here, because this repository is public.
 - **Plan**: one page answering "are we on track". Once ages are set it opens
   with the Life plan's Stop working card (the year, the ages then, Baseline
   and Conservative at that year, the spending after work stops it assumes),
-  then goals and linked debts. A
+  then goals and linked debts. Until ages are set, the card asks for them
+  rather than giving a target; with not enough to project, it says the Life
+  plan lists what is missing. A
   monthly check follows, for the household: saving in the month just ended
   against the budget's savings target (Review's check), and the cash reserve
   in months of spending against what the kept goals hold. Then what needs a
@@ -208,7 +210,11 @@ here, because this repository is public.
 - **Life plan**: leads with the year work stops (saved, being tried, or
   assumed) and Baseline and Conservative side by side at that year, each
   with what is left at the end or when the money runs out; the earliest year
-  with nothing to spare is a lever under "What it would take". Then a
+  with nothing to spare is a lever under "What it would take". Under the
+  headline it says what the start leaves out (accounts with no AED value,
+  holdings never valued) and balances never entered, counted as 0. With
+  not enough to project it lists what is missing, item by item, with where
+  to add it. Then a
   year-by-year timeline from today to the last life expectancy: saving and growth while working, each goal paid in its year,
   dated lump sums (policy maturities) and later income, then spending once
   work stops, less what stops with work (EMIs, rent where set), plus the
@@ -217,7 +223,9 @@ here, because this repository is public.
   (`after_work_costs`). Solves for the
   earliest year work can stop. A loan paid out of spending is counted once:
   the plan starts before what it owes, and saving rises by its instalment
-  once it clears at the minimum. "If markets fall" puts the plan at its stop
+  once it clears at the minimum. The chart switches between the pot by phase
+  and the working years split into what each year's saving adds and what the
+  pot earns, with the year the pot starts earning more. "If markets fall" puts the plan at its stop
   year through the same two-year fall the year work stops and ten years in,
   on Baseline, beside a steady return: whether each lasts, the stop year that
   weathers the early fall, what the first year without work takes from the
@@ -241,15 +249,6 @@ here, because this repository is public.
   and when it clears, labelled. An extra payment is a what-if, against the
   minimums, beside the rule to fill the cash reserve first. Avalanche or
   snowball from two debts up, saved for the household and followed by Plan.
-- **Forecast**: projection of net worth under scenario sets, with the saving
-  needed by year. Once ages are set it leads with the Life plan's stop year
-  and whether the plan's own stop year lasts; the lasts-forever and lean
-  targets sit under "Other ways to look at the plan". In "If things change",
-  alternatives that leave the year where it is fold into one line ("3 make
-  no change") that opens.
-- **Drawdown**: the Life plan's stress test from its stop year: how long the
-  pot lasts, with a market fall early or late. It lists other income, which
-  is edited in the plan's drawer.
 - **Notes**: the household plan in words, private to the household.
 
 ## Settings (`/settings`)

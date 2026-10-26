@@ -1,13 +1,12 @@
 import { realReturn } from '../../lib/forecast';
 
-// The assumptions a planning view runs on, in the same place and the same
-// words on Forecast, Life plan and Drawdown (SHR-325): the scenario, today's
-// or future money, growth, and the spending the view is built on.
+// The assumptions the Life plan runs on (SHR-325): the scenario, today's or
+// future money, growth, and the spending it is built on. It was on Forecast
+// and Drawdown too, in the same words, until they went (Planning audit, 3.15).
 //
-// Return, inflation and the withdrawal rate are the household's saved
-// assumptions, shared by every planning view and edited in one place. The
-// scenario and the money shown are a look for now: chosen on any of the three
-// tabs, they hold on all of them until changed, and are never saved.
+// Return and inflation are the household's saved assumptions, edited in the
+// plan's drawer. The scenario and the money shown are a look for now: they
+// hold while you move between tabs, and are never saved.
 //
 // `onMode` is left out by a view that only shows today's money; `spending` is
 // the view's own description or control of the spending it uses; `growth`
@@ -62,8 +61,8 @@ export default function AssumptionsBar({ sets, scenario, onScenario, mode = 'rea
         {scenario === 'baseline'
           ? `${
               sets.baseline.saved ? 'Your saved assumptions.' : "Defaults, nothing saved: the app's figures until you save your own under Edit assumptions."
-            } Return, inflation and the withdrawal rate are shared by Forecast, Life plan and Drawdown, and edited in one place.`
-          : `The ${selected.label} scenario (${selected.meta.toLowerCase()}), shown on every planning tab until you switch back. It isn't saved.`}
+            } Return and inflation are edited with the rest of the plan, under Edit assumptions.`
+          : `The ${selected.label} scenario (${selected.meta.toLowerCase()}), shown until you switch back. It isn't saved.`}
         {onMode && mode === 'nominal' ? ' Future money: amounts grown with inflation to the year they happen.' : ''}
       </p>
     </section>

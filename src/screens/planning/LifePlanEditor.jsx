@@ -12,8 +12,9 @@ import '../money/TransactionEditor.css';
 // The plan's one drawer (Planning audit, 3.13): who the plan is for, when work
 // stops, spending after that and the costs that start then, other income, and
 // the growth it all rests on. These were edited in three places, Forecast's
-// assumptions, Drawdown's other income and this editor, and each tab's figures
-// rest on all of them.
+// assumptions, Drawdown's other income and this editor, and every figure
+// rests on all of them. The withdrawal rate and Forecast's baseline went with
+// Forecast (3.15): nothing works from either now.
 //
 // Ages are kept per member (member_life); other income and the costs that
 // start when work stops are rows of their own, each saved as it is added in a
@@ -31,8 +32,8 @@ const USUALLY_STOPS = /\b(rent|emi|loan|mortgage|instal?ments?)\b/i;
 // answer someone has to type, not what an emptied box should quietly become.
 // Baseline's columns always hold a number, so a blank there is the default its
 // placeholder names; a blank on Custom saves nothing, and follows Baseline.
-const DEFAULTS = { nominal: PLANNING_DEFAULTS.nominal_return_pct, inflation: PLANNING_DEFAULTS.inflation_pct, swr: PLANNING_DEFAULTS.safe_withdrawal_pct };
-const GROWTH = ['nominal', 'inflation', 'swr'];
+const DEFAULTS = { nominal: PLANNING_DEFAULTS.nominal_return_pct, inflation: PLANNING_DEFAULTS.inflation_pct };
+const GROWTH = ['nominal', 'inflation'];
 
 function initialForm(members, memberLife, assumptions, isCustom) {
   const byMember = new Map(memberLife.map((r) => [r.member_id, r]));
@@ -43,7 +44,7 @@ function initialForm(members, memberLife, assumptions, isCustom) {
     lifeExpectancy: byMember.has(m.id) ? String(byMember.get(m.id).life_expectancy) : '',
     had: byMember.has(m.id),
   }));
-  const baseline = { nominal: assumption(assumptions, 'nominal_return_pct'), inflation: assumption(assumptions, 'inflation_pct'), swr: assumption(assumptions, 'safe_withdrawal_pct') };
+  const baseline = { nominal: assumption(assumptions, 'nominal_return_pct'), inflation: assumption(assumptions, 'inflation_pct') };
   // Custom starts from Baseline's figures the first time. Once saved, a figure
   // saved blank opens blank again, so saving it again doesn't pin it.
   const customSaved = assumptions?.custom_updated_at != null;
@@ -56,8 +57,8 @@ function initialForm(members, memberLife, assumptions, isCustom) {
     survivorPct: str(assumptions?.survivor_spend_pct),
     returnPct: str(assumptions?.retirement_return_pct),
     ...(isCustom
-      ? { nominal: custom('custom_nominal_return_pct', 'nominal'), inflation: custom('custom_inflation_pct', 'inflation'), swr: custom('custom_safe_withdrawal_pct', 'swr') }
-      : { nominal: str(baseline.nominal), inflation: str(baseline.inflation), swr: str(baseline.swr) }),
+      ? { nominal: custom('custom_nominal_return_pct', 'nominal'), inflation: custom('custom_inflation_pct', 'inflation') }
+      : { nominal: str(baseline.nominal), inflation: str(baseline.inflation) }),
   };
 }
 
@@ -71,7 +72,6 @@ export default function LifePlanEditor({
   spendByCategory = new Map(),
   incomes = [],
   costs = [],
-  budgetMonthlySaving = null,
   scenario = 'baseline',
   section = null,
   onClose,
@@ -169,7 +169,6 @@ export default function LifePlanEditor({
   if (!inRange('survivorPct', 10, 100)) problems.push(['survivorPct', 'Spending for one between 10% and 100%.']);
   if (!inRange('nominal', -20, 50)) problems.push(['nominal', 'A return between −20% and 50%.']);
   if (!inRange('inflation', -10, 30)) problems.push(['inflation', 'Inflation between −10% and 30%.']);
-  if (!inRange('swr', 1, 10)) problems.push(['swr', 'A withdrawal rate between 1% and 10%.']);
   if (!inRange('returnPct', -20, 50)) problems.push(['returnPct', 'A return after work stops between −20% and 50%.']);
   const problemFor = new Map(problems.slice().reverse());
 
@@ -187,16 +186,10 @@ export default function LifePlanEditor({
 
   // Baseline's figures, which a blank on Custom follows, and which the return
   // after work stops sits a point below until one is set.
-  const baseline = { nominal: assumption(assumptions, 'nominal_return_pct'), inflation: assumption(assumptions, 'inflation_pct'), swr: assumption(assumptions, 'safe_withdrawal_pct') };
+  const baseline = { nominal: assumption(assumptions, 'nominal_return_pct'), inflation: assumption(assumptions, 'inflation_pct') };
   const growthValue = (key) => (blank(form[key]) ? (isCustom ? null : DEFAULTS[key]) : Number(form[key]));
   const growthPlaceholder = (key) => (isCustom ? `blank: Baseline's ${baseline[key].toFixed(1)}` : `blank: ${DEFAULTS[key].toFixed(1)}`);
   const workingReturn = !isCustom && numeric(form.nominal) ? Number(form.nominal) : isCustom ? baseline.nominal : DEFAULTS.nominal;
-  const hasBaseline = !!assumptions?.baseline_set_at;
-  // The first save of Baseline's figures sets the baseline Forecast compares
-  // against, and its saving is the budget's savings target: the plan as the
-  // household wrote it down (Planning audit, 1.2). With no savings target in
-  // the budget there is nothing to set it from, so no baseline is taken yet.
-  const takesBaseline = !isCustom && !hasBaseline && budgetMonthlySaving > 0;
 
   async function handleSave(e) {
     e.preventDefault();
@@ -235,26 +228,16 @@ export default function LifePlanEditor({
       Object.assign(plan, {
         custom_nominal_return_pct: growthValue('nominal'),
         custom_inflation_pct: growthValue('inflation'),
-        custom_safe_withdrawal_pct: growthValue('swr'),
         custom_updated_at: now,
       });
     } else if (growthChanged) {
       Object.assign(plan, {
         nominal_return_pct: growthValue('nominal'),
         inflation_pct: growthValue('inflation'),
-        safe_withdrawal_pct: growthValue('swr'),
         // From now on these are the household's, not the defaults
         // (lib/planningDefaults.js).
         assumptions_saved_at: now,
       });
-      if (takesBaseline) {
-        Object.assign(plan, {
-          baseline_set_at: now,
-          baseline_nominal_return_pct: plan.nominal_return_pct,
-          baseline_inflation_pct: plan.inflation_pct,
-          baseline_monthly_saving: budgetMonthlySaving,
-        });
-      }
     }
     const results = await Promise.all([
       ...changedStops.map((c) => supabase.from('categories').update({ stops_after_work: stops.has(c.id) }).eq('id', c.id)),
@@ -486,8 +469,8 @@ export default function LifePlanEditor({
               <div className="te-fieldgrid">
                 {numberField('nominal', 'Return · %', 'Investment return, nominal percent a year', { placeholder: growthPlaceholder('nominal') })}
                 {numberField('inflation', 'Inflation · %', 'Inflation, percent a year', { placeholder: growthPlaceholder('inflation') })}
-                {numberField('swr', 'Withdrawal · %', 'Safe withdrawal rate, percent a year', { placeholder: growthPlaceholder('swr') })}
-                {numberField('returnPct', 'After work · %', 'Return after work stops', {
+                {numberField('returnPct', 'Return after work stops · %', 'Return after work stops', {
+                  span2: true,
                   placeholder: `blank: ${(workingReturn - AFTER_WORK_RETURN_GAP).toFixed(1)}, a point below`,
                 })}
               </div>
@@ -495,16 +478,8 @@ export default function LifePlanEditor({
                 {isCustom
                   ? 'These apply only while the Custom scenario is selected; Baseline and its saved plan are untouched. A field left blank follows Baseline. The return after work stops is Baseline\'s, moved by as much as this return is. '
                   : 'Conservative and Optimistic move from these: two points lower or higher, both returns together. '}
-                Returns are a year, before inflation. The withdrawal rate sets the independence target, spending ÷ the rate: 4% is 25 times
-                spending.
+                Returns are a year, before inflation.
               </div>
-              {!isCustom && !hasBaseline && (
-                <div className="ov-muted" style={{ fontSize: 11.5, lineHeight: 1.6, marginTop: 8 }}>
-                  {takesBaseline
-                    ? `The first time you change these figures, saving sets the baseline Forecast compares against: these figures, and your budget's savings target of ${formatMoney(budgetMonthlySaving)} a month. Changing them again later won't move it.`
-                    : "No baseline is set yet. It takes your budget's savings target, and the budget has none, so saving keeps these figures without one."}
-                </div>
-              )}
             </section>
 
             {error && (
