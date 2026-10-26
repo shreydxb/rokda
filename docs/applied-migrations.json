@@ -604,5 +604,12 @@
   "fingerprint": "7dcb164f52f05d210b2485cdc6fd57c4",
   "framingFingerprint": "5fb5b54188cbc3ebca890824b1c0f195",
   "fingerprintVersion": 2
+ },
+ {
+  "version": "20261026055247",
+  "name": "holding_sector_and_concentration_cap",
+  "fingerprint": "ecbe0197dd682e5b7aba625712e62137",
+  "framingFingerprint": "07753cfc80ba845188cb58c2bc96e8fe",
+  "fingerprintVersion": 2
  }
 ]
