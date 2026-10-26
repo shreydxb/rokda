@@ -625,5 +625,12 @@
   "fingerprint": "b6df6c3f23264fc50022353a5ece1f4b",
   "framingFingerprint": "54db352a2d904fdd3a12a9a83734ce11",
   "fingerprintVersion": 2
+ },
+ {
+  "version": "20261026200649",
+  "name": "indian_broker_sectors",
+  "fingerprint": "23ac3f92cc35834238060be6c1564df2",
+  "framingFingerprint": "b51307c672ee31027349dbe3c1e115d8",
+  "fingerprintVersion": 2
  }
 ]
