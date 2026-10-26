@@ -411,6 +411,55 @@
   margin: 0;
   max-width: 92ch;
 }
+.pl-assumptions-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+/* On a wider screen the bar is always open, and its summary is not needed. */
+.pl-assumptions-toggle {
+  display: none;
+}
+/* On a phone it folds to a summary of what the plan is on, and Change opens
+   the rest (Planning audit, 3.16). */
+@media (max-width: 640px) {
+  .pl-assumptions {
+    padding: 0 14px;
+    gap: 0;
+  }
+  .pl-assumptions-toggle {
+    appearance: none;
+    background: none;
+    border: none;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+    min-height: 44px;
+    padding: 0;
+    text-align: left;
+  }
+  .pl-assumptions-line {
+    font-size: 12.5px;
+    color: var(--ink2);
+    min-width: 0;
+  }
+  .pl-assumptions-change {
+    flex: none;
+    font-size: 12.5px;
+    color: var(--accent);
+  }
+  .pl-assumptions[data-open='false'] .pl-assumptions-body {
+    display: none;
+  }
+  .pl-assumptions[data-open='true'] .pl-assumptions-body {
+    padding: 4px 0 16px;
+  }
+}
 
 /* Debt payoff. The order on the left and "+ Debt" on the right, then each
    debt with its rank, name and progress and its three figures labelled,

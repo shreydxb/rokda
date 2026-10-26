@@ -286,6 +286,53 @@ test('phone: every control is big enough for a finger', async ({ page }, testInf
   }
 });
 
+// A two-line row's identity and key figure sit side by side on its first line.
+async function expectOneFirstLine(row) {
+  const id = await row.locator('td.ch-row-id').boundingBox();
+  const key = await row.locator('td.ch-row-key').boundingBox();
+  expect(Math.abs(key.y - id.y), 'identity and key share the first line').toBeLessThan(6);
+  expect(key.x, 'the key figure sits right of the identity').toBeGreaterThan(id.x + id.width);
+}
+
+// Planning on a phone (Planning audit, 3.16): the assumptions bar is a
+// summary until opened, and the Life plan and Goals tables are two-line rows
+// rather than scrolling sideways.
+test('phone: the assumptions bar folds to a summary, and planning tables are two-line rows', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile', 'phone layout only');
+  const later = { ...data.goals[1], id: 'dddddddd-0000-4000-8000-000000000009', name: 'Education fund', target_amount: 400000, target_date: `${new Date().getFullYear() + 12}-06-30`, priority: 2 };
+  await stubSupabase(page, { tables: { transactions: closedMonthsOfHistory(), goals: [...data.goals, later] } });
+  await gotoReady(page, '/planning?tab=life');
+
+  const bar = page.locator('.pl-assumptions');
+  const folded = await bar.boundingBox();
+  expect(folded.height, 'the folded bar is a summary').toBeLessThan(60);
+  await bar.screenshot({ path: testInfo.outputPath('assumptions-folded-mobile.png') });
+  await expect(page.getByRole('group', { name: 'Scenario' })).toBeHidden();
+  await page.getByRole('button', { name: /^Baseline · today’s money/ }).click();
+  await expect(page.getByRole('group', { name: 'Scenario' })).toBeVisible();
+
+  await page.getByText('Year by year, as a table').click();
+  const lifeRows = page.locator('.ch-rows tbody tr');
+  await expect(lifeRows.first()).toBeVisible();
+  await expect(page.locator('.ch-rows thead')).toHaveCSS('position', 'absolute');
+  await expectOneFirstLine(lifeRows.first());
+  expect((await lifeRows.first().boundingBox()).height, 'a year is two lines').toBeLessThan(80);
+  expect((await horizontalOverflow(page)).documentOverflow).toBe(false);
+  await page.locator('.ch-rows').first().screenshot({ path: testInfo.outputPath('life-plan-table-mobile.png') });
+
+  await page.getByRole('button', { name: 'Goals', exact: true }).first().click();
+  await page.getByText('If your investments paid for these').click();
+  const goalRow = page.locator('.ch-rows tbody tr', { hasText: 'Education fund' });
+  await expect(goalRow).toBeVisible();
+  // Each figure carries its header as a label on a phone.
+  expect(await goalRow.locator('td.ch-row-key').evaluate((td) => getComputedStyle(td, '::before').content)).toBe('"Needed today "');
+  await page.locator('.ch-rows').first().screenshot({ path: testInfo.outputPath('goals-table-mobile.png') });
+  // A goal's second line has five labelled figures and may wrap; what holds
+  // is the name and the amount needed sharing the first line.
+  await expectOneFirstLine(goalRow);
+  expect((await horizontalOverflow(page)).documentOverflow).toBe(false);
+});
+
 // An editor drawer is a modal in fact: it takes focus, Tab stays inside it,
 // and closing it gives focus back to what opened it (lib/useDrawerFocus.js).
 test('a drawer holds keyboard focus and gives it back', async ({ page }) => {

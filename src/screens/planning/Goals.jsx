@@ -389,7 +389,8 @@ function PriorityFunding({ funding, returnPct }) {
           )}
         </span>
       </div>
-      <div className="ch-table" style={{ marginTop: 14 }}>
+      {/* Two-line rows on a phone (Planning audit, 3.16). */}
+      <div className="ch-table ch-rows" style={{ marginTop: 14 }}>
         <div className="ch-table-wrap">
           <table>
             <thead>
@@ -408,16 +409,28 @@ function PriorityFunding({ funding, returnPct }) {
             <tbody>
               {funding.goals.map((g) => (
                 <tr key={g.goal.id}>
-                  <td className="fig">{g.goal.priority ?? '—'}</td>
-                  <td style={{ textAlign: 'left' }}>
+                  <td className="fig" data-label="Priority">
+                    {g.goal.priority ?? '—'}
+                  </td>
+                  <td className="ch-row-id" style={{ textAlign: 'left' }}>
                     {g.goal.name}
                     <span className="ov-muted"> · {String(g.goal.target_date).slice(0, 4)}</span>
                   </td>
-                  <td className="fig">{formatMoney(g.costAtDate)}</td>
-                  <td className="fig">{formatMoney(g.neededToday)}</td>
-                  <td className="fig">{Math.round(g.pct * 100)}%</td>
-                  <td className={`fig ${g.topUp > 0 ? 'ov-neg' : ''}`}>{g.topUp > 0 ? formatMoney(g.topUp) : '—'}</td>
-                  <td className="fig">{g.topUp > 0 && g.monthsLeft > 0 ? formatMoney(g.monthly) : '—'}</td>
+                  <td className="fig" data-label="On its date">
+                    {formatMoney(g.costAtDate)}
+                  </td>
+                  <td className="fig ch-row-key" data-label="Needed today">
+                    {formatMoney(g.neededToday)}
+                  </td>
+                  <td className="fig" data-label="Covered">
+                    {Math.round(g.pct * 100)}%
+                  </td>
+                  <td className={`fig ${g.topUp > 0 ? 'ov-neg' : ''}`} data-label="Top-up today">
+                    {g.topUp > 0 ? formatMoney(g.topUp) : '—'}
+                  </td>
+                  <td className="fig" data-label="Or a month">
+                    {g.topUp > 0 && g.monthsLeft > 0 ? formatMoney(g.monthly) : '—'}
+                  </td>
                 </tr>
               ))}
             </tbody>
