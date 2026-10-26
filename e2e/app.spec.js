@@ -111,6 +111,19 @@ for (const route of ROUTES) {
 // headline row overflowed a phone for as long as it existed, unseen, because
 // Planning lands on Plan. The fixture gets income and spend for four closed
 // months so the Life plan projects rather than showing its empty state.
+// A note checked once a year, for the views below.
+const YEARLY_NOTE = {
+  id: 'a3a3a3a3-0000-4000-8000-000000000002',
+  household_id: 'hh',
+  title: 'Protection',
+  body: '- Term cover\n- Health cover that outlasts a job\n- Wills and nominations',
+  position: 2,
+  updated_by: null,
+  updated_at: '2026-09-28T10:00:00Z',
+  check_yearly: true,
+  checked_on: null,
+};
+
 const SUBVIEWS = [
   { name: 'goals', path: '/planning', tabs: ['Goals'], expectText: 'counts only the cash set aside for it' },
   { name: 'budget-year', path: '/money', tabs: ['Budget', 'Year'], expectText: 'Net saved each month' },
@@ -153,10 +166,23 @@ const SUBVIEWS = [
       ],
     },
   },
+  // A note checked once a year, never checked yet: on the note and on
+  // Overview's Needs attention (Planning audit, 4.18).
+  { name: 'notes-yearly-check', path: '/planning', tabs: ['Notes'], expectText: 'Checked once a year · not checked yet', tables: { household_notes: [YEARLY_NOTE] } },
+  { name: 'overview-yearly-check', path: '/', tabs: [], expectText: 'Yearly check: Protection', tables: { household_notes: [YEARLY_NOTE] } },
+  // A policy paid in rupees: the Life plan puts it through a weakening rupee
+  // (Planning audit, 4.19).
+  { name: 'life-plan-rupee', path: '/planning', tabs: ['Life plan'], expectText: 'If the rupee weakens', tables: { independence_income: rupeeIncome } },
 ];
 
-// The Platinum card's two latest statements (it closes on the 10th): the
-// latest checked and not matching, by a cent, the one before marked done.
+// The fixture's other income and a policy maturing in rupees.
+function rupeeIncome() {
+  return [
+    ...data.independence_income,
+    { id: 'a2a2a2a2-0000-4000-8000-000000000009', household_id: data.households[0].id, name: 'Policy maturity', kind: 'lump_sum', in_year: new Date().getFullYear() + 15, amount: 2500000, currency: 'INR', starts_after_years: 0, lasts_years: null, note: '' },
+  ];
+}
+
 // Two chip makers and a world fund: 57% of the investments in one sector.
 function concentratedHoldings() {
   const [fund] = data.holdings;
@@ -167,6 +193,8 @@ function concentratedHoldings() {
   ];
 }
 
+// The Platinum card's two latest statements (it closes on the 10th): the
+// latest checked and not matching, by a cent, the one before marked done.
 function cardStatements() {
   const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const now = new Date();

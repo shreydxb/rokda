@@ -2749,3 +2749,61 @@ one line under Allocation naming the largest concentration and its share.
   Settings, where it would be out of sight of what it governs. No currency
   line: the dirham is pegged to the dollar, and the rupee's drift is its own
   item.
+
+## A yearly check is a note
+
+Insurance, wills and nominations fail when nobody looks at them, and nothing
+in the app asked (Planning audit, 4.18). A note in Planning → Notes can be
+checked once a year: the note is what to check, and the app keeps only the
+day it was last checked.
+
+- **A note, not a reminder in Recurring.** Recurring reminders are payments:
+  they have an amount, are matched against records, count in cash cover and
+  the forecast, and the bot asks about them as bills. A check has none of
+  that, and fitting it in would have touched every one. A note already holds
+  text the household writes and edits together, so two columns on it do the
+  job and no new table is needed.
+- **Due a year after it was last checked, and at once until it first is.**
+  Marking a note yearly asks for the first check, so a list written today is
+  gone through today. Checking early is fine: the next one is a year from
+  whenever it was done. A check on 29 February comes round on 28 February.
+- **Asked for on Overview.** It joins Needs attention as information, after
+  anything due to be paid, and opens Notes. The bot does not send it.
+
+## Cash earns a cash rate
+
+The Life plan grew every dirham at the investment return, the cash in
+current and savings accounts included, so a household holding much of its
+money in cash looked better off than it was (Planning audit, 4.19).
+
+- **Today's cash stays cash.** The current, savings, cash and fixed-deposit
+  accounts and cash holdings at the start are kept as cash, in today's
+  money, at the return on cash; everything else, and all saving from now on,
+  earns the investment return. Once the pot is smaller than that cash, it is
+  all cash. A market fall in the stress test falls on the invested part only.
+- **3% until the household sets its own.** About what a UAE savings account
+  or short deposit pays, before inflation. It is set in the plan's drawer
+  with the other returns and is the same in every scenario: a scenario is
+  about markets, and cash does not move with them.
+- **Kept in today's money, not as a share.** Holding the same cash in real
+  terms is what a household keeping a reserve does; a fixed share would have
+  moved saving into cash for ever.
+
+## If the rupee weakens
+
+Policies, income and costs set in rupees were converted at today's rate for
+every year of the plan, and rupee holdings kept their dirham value, as if
+the rupee would never move against the dirham (Planning audit, 4.19).
+
+- **A stress, beside the plan.** The plan itself stays at today's rate, like
+  the steady return. "If the rupee weakens" puts the plan, on Baseline at its
+  stop year, through the rupee losing 3% a year against the dirham from this
+  one, about its pace against the dollar over the past twenty years, with
+  nothing in rupees making up for it. It shows what is left at the end and
+  the earliest stop year both ways.
+- **Everything in rupees moves.** Income and sums paid in a set year are
+  worth less, costs in rupees cost less, and the share of what the plan
+  starts from that is held in rupees, in accounts and holdings, loses value
+  each year. A rupee debt is left out of that share, so the case errs
+  towards harm. Shown only when something is in rupees.
+

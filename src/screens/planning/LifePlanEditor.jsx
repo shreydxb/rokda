@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
 import { formatMoney } from '../../lib/money';
-import { AFTER_WORK_RETURN_GAP, DEFAULT_STOP_AGE, defaultStopPerson } from '../../lib/lifePlan';
+import { AFTER_WORK_RETURN_GAP, CASH_RETURN_DEFAULT, DEFAULT_STOP_AGE, defaultStopPerson } from '../../lib/lifePlan';
 import { PLANNING_DEFAULTS, assumption } from '../../lib/planningDefaults';
 import { describeCost, describeIncome, nativeAmountLabel } from '../../lib/planRows';
 import IncomeEditor from './IncomeEditor';
@@ -56,6 +56,7 @@ function initialForm(members, memberLife, assumptions, isCustom) {
     lean: str(assumptions?.lean_annual_spend),
     survivorPct: str(assumptions?.survivor_spend_pct),
     returnPct: str(assumptions?.retirement_return_pct),
+    cashPct: str(assumptions?.cash_return_pct),
     ...(isCustom
       ? { nominal: custom('custom_nominal_return_pct', 'nominal'), inflation: custom('custom_inflation_pct', 'inflation') }
       : { nominal: str(baseline.nominal), inflation: str(baseline.inflation) }),
@@ -170,6 +171,7 @@ export default function LifePlanEditor({
   if (!inRange('nominal', -20, 50)) problems.push(['nominal', 'A return between −20% and 50%.']);
   if (!inRange('inflation', -10, 30)) problems.push(['inflation', 'Inflation between −10% and 30%.']);
   if (!inRange('returnPct', -20, 50)) problems.push(['returnPct', 'A return after work stops between −20% and 50%.']);
+  if (!inRange('cashPct', -5, 20)) problems.push(['cashPct', 'A return on cash between −5% and 20%.']);
   const problemFor = new Map(problems.slice().reverse());
 
   const invalid = (key) => (triedSave && problemFor.has(key) ? { 'aria-invalid': true, 'aria-describedby': `${uid}-${key}-problem` } : { 'aria-invalid': false });
@@ -221,6 +223,7 @@ export default function LifePlanEditor({
       retirement_annual_spend: blank(form.spend) ? null : Number(form.spend),
       lean_annual_spend: blank(form.lean) ? null : Number(form.lean),
       retirement_return_pct: blank(form.returnPct) ? null : Number(form.returnPct),
+      cash_return_pct: blank(form.cashPct) ? null : Number(form.cashPct),
       survivor_spend_pct: blank(form.survivorPct) ? null : Number(form.survivorPct),
       updated_at: now,
     };
@@ -473,12 +476,16 @@ export default function LifePlanEditor({
                   span2: true,
                   placeholder: `blank: ${(workingReturn - AFTER_WORK_RETURN_GAP).toFixed(1)}, a point below`,
                 })}
+                {numberField('cashPct', 'Return on cash · %', 'Return on cash held today', {
+                  span2: true,
+                  placeholder: `blank: ${CASH_RETURN_DEFAULT.toFixed(1)}`,
+                })}
               </div>
               <div className="ov-muted" style={{ fontSize: 11.5, lineHeight: 1.6, marginTop: 10 }}>
                 {isCustom
                   ? 'These apply only while the Custom scenario is selected; Baseline and its saved plan are untouched. A field left blank follows Baseline. The return after work stops is Baseline\'s, moved by as much as this return is. '
                   : 'Conservative and Optimistic move from these: two points lower or higher, both returns together. '}
-                Returns are a year, before inflation.
+                The cash held today stays cash at its own return, in every scenario; the rest earns the return. Returns are a year, before inflation.
               </div>
             </section>
 

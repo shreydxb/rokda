@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { tabHref } from '../../lib/activityLink';
 import { supabase } from '../../lib/supabaseClient';
 import { incomesWithoutRate } from '../../lib/forecast';
-import { agesIn, agesLabel, costsText, DEFAULT_STOP_AGE, earliestStop, extraSavingNeeded, leftOutText, lifePlan, loansText, maxRetirementSpend, membersLeftOut, planEndYear, potNeededAt, stopRange, stressTest } from '../../lib/lifePlan';
+import { agesIn, agesLabel, costsText, DEFAULT_STOP_AGE, earliestStop, extraSavingNeeded, leftOutText, lifePlan, loansText, maxRetirementSpend, membersLeftOut, planEndYear, potNeededAt, rupeeDrift, stopRange, stressTest } from '../../lib/lifePlan';
 import { planningModel } from '../../lib/planningModel';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { ChartLegend, ColumnChart } from '../../charts/Charts';
@@ -11,6 +11,7 @@ import BasisLine, { BudgetBeside } from './BasisLine';
 import LifePlanEditor from './LifePlanEditor';
 import AssumptionsBar from './AssumptionsBar';
 import StressTest from './StressTest';
+import RupeeDrift from './RupeeDrift';
 import NotEnoughToProject from './NotEnoughToProject';
 import SavingAndGrowth from './SavingAndGrowth';
 import { neverLoaded } from '../../lib/loadState';
@@ -116,6 +117,7 @@ export default function LifePlan({
     const result = lifePlan(basis.args);
     const earliest = earliestStop(basis.args);
     const budget = budgetBasis ? model.basis({ ...whatIfs, budget: true }) : null;
+    const onBaseline = model.basis({ ...whatIfs, fcSet: 'baseline' });
     return {
       basis,
       result,
@@ -128,7 +130,10 @@ export default function LifePlan({
       range: stopRange((key) => model.basis({ ...whatIfs, fcSet: key })),
       // The same market fall early or late, on Baseline at this stop year
       // (Planning audit, 3.14).
-      stress: stressTest(model.basis({ ...whatIfs, fcSet: 'baseline' })),
+      stress: stressTest(onBaseline),
+      // The rupee weakening against the dirham, likewise; null when nothing
+      // is in rupees (Planning audit, 4.19).
+      drift: rupeeDrift(onBaseline),
       recorded: { inputs, earliest, result },
       onBudget: budget ? { inputs: budgetBasis, earliest: earliestStop(budget.args), result: lifePlan(budget.args) } : null,
     };
@@ -225,7 +230,7 @@ export default function LifePlan({
     );
   }
 
-  const { basis, result, need, earliest, extra, mostSpend, range, stress, recorded, onBudget } = worked;
+  const { basis, result, need, earliest, extra, mostSpend, range, stress, drift, recorded, onBudget } = worked;
   const loansLine = loansText(basis.loans, basis.owedOnLoans, (v) => `${money.code} ${money.fmt(v)}`);
   const { endYear, sets, selected, inflationPct, postNominal, savedStop, stopYear, spendOptions, spendChoice, survivorPct, goals, incomes, inflows } = basis;
   const anyIncome = incomes.length > 0 || inflows.length > 0;
@@ -313,7 +318,10 @@ export default function LifePlan({
         onScenario={setFcSet}
         mode={mode}
         onMode={setMode}
-        growth={postNominal !== selected.nominalPct ? [`${postNominal.toFixed(1)}% return after work stops`] : []}
+        growth={[
+          ...(postNominal !== selected.nominalPct ? [`${postNominal.toFixed(1)}% return after work stops`] : []),
+          ...(basis.cashPot > 0 ? [`${basis.cashNominal.toFixed(1)}% on cash`] : []),
+        ]}
         spendingSummary={`${money.fmtCompact(spendChoice.value)} a year after work`}
         onEdit={() => setEditing('growth')}
         spending={
@@ -636,6 +644,7 @@ export default function LifePlan({
       </section>
 
       <StressTest stress={stress} scenarioLabel={selected.label} agesText={agesText} money={money} shown={shown} />
+      {drift && <RupeeDrift drift={drift} scenarioLabel={selected.label} agesText={agesText} money={money} shown={shown} />}
 
       <GoalsOnTimeline goals={openGoals} startYear={startYear} money={money} onChanged={data.reload} onOpenTab={onOpenTab} />
 
@@ -644,6 +653,8 @@ export default function LifePlan({
         inflation. Saving is {money.code} {money.fmtBalance(inputs.monthlySaving)} a month
         {inputs.source === 'budget' ? ', your savings target in the budget' : `, the average of the last ${inputs.monthCount} ended months`}, kept the
         same in today&rsquo;s money until work stops.
+        {basis.cashPot > 0 &&
+          ` The ${money.code} ${money.fmt(basis.cashPot)} held in cash and deposits today stays cash at ${basis.cashNominal.toFixed(1)}% a year; the rest earns the return.`}
         {loansLine && ` ${loansLine}`}
         {people.length > 1 && survivorPct !== 100 && ` Once one person remains, spending is ${survivorPct}% of the couple's.`}
         {costsLine && ` ${costsLine}`}
@@ -651,7 +662,7 @@ export default function LifePlan({
         {uncounted.length > 0 &&
           ` ${uncounted.map((r) => r.name).join(', ')} ${uncounted.length === 1 ? 'is' : 'are'} not counted: no AED/INR rate is set yet (Settings → Household).`}
         {inflows.length > 0 &&
-          ` ${inflows.map((i) => `${i.name} (${i.year})`).join(', ')} ${inflows.length === 1 ? 'is' : 'are'} added in ${inflows.length === 1 ? 'its' : 'their'} year, converted at today's rate: the rupee's drift against the dirham is not modelled.`}{' '}
+          ` ${inflows.map((i) => `${i.name} (${i.year})`).join(', ')} ${inflows.length === 1 ? 'is' : 'are'} added in ${inflows.length === 1 ? 'its' : 'their'} year, converted at today's rate${drift ? `: If the rupee weakens, above, shows ${inflows.length === 1 ? 'it' : 'them'} worth less` : ''}.`}{' '}
         No tax is
         taken out.
       </div>

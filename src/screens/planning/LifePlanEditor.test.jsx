@@ -195,6 +195,22 @@ describe('LifePlanEditor: growth, on Baseline', () => {
     expect(saved()).toMatchObject({ nominal_return_pct: 7, inflation_pct: 2.5 });
   });
 
+  // Planning audit, 4.19: what cash earns, blank for the default, which a
+  // scenario does not move.
+  it('saves the return on cash, blank as the default, and refuses one out of range', async () => {
+    const CASH = 'Return on cash held today';
+    const { onSaved } = renderEditor({ memberLife, assumptions: SAVED });
+    expect(input(CASH).value).toBe('');
+    expect(input(CASH).placeholder).toBe('blank: 3.0');
+    type(CASH, '25');
+    fireEvent.click(screen.getByText('Save plan'));
+    expect(screen.getByRole('alert').textContent).toBe('A return on cash between −5% and 20%.');
+    type(CASH, '4');
+    fireEvent.click(screen.getByText('Save plan'));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(saved()).toMatchObject({ cash_return_pct: 4 });
+  });
+
   it('keeps 0% when 0 is what was typed, and saves the essentials-only spend', async () => {
     const { onSaved } = renderEditor({ memberLife, assumptions: SAVED });
     type(INFLATION, '0');

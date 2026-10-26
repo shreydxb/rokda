@@ -29,6 +29,7 @@ export const SOURCE_LABELS = {
   statementReconciliations: 'card statements',
 
   backupRecords: 'backup records',
+  yearlyChecks: 'yearly checks',
   transactionLinks: 'transfer links',
   fxRateHistory: 'exchange-rate history',
   household: 'your household',

@@ -1,6 +1,8 @@
 import { Fragment, useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { parseNote } from '../../lib/notes';
+import { householdToday } from '../../lib/day';
+import { yearlyCheckStatus, yearlyCheckText } from '../../lib/yearlyChecks';
 import { neverLoaded } from '../../lib/loadState';
 import { NOTES_INPUTS } from './planningSources';
 import Withheld from './Withheld';
@@ -72,6 +74,7 @@ export default function Notes({ household, me, members = [], data, sources, onRe
                 </button>
               </div>
               <NoteBody body={note.body} />
+              {note.check_yearly && <YearlyCheck note={note} me={me} disabled={editing !== null || reloading} onChecked={done} />}
               <div className="ov-muted nt-meta">
                 Updated {new Date(note.updated_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
                 {nameOf(note.updated_by) && ` by ${nameOf(note.updated_by)}`}
@@ -123,9 +126,45 @@ function NoteBody({ body }) {
   );
 }
 
+// A note checked once a year (Planning audit, 4.18): where it stands, and
+// Checked today, which Overview's reminder waits on. Checking it early is
+// fine: the next one is a year from whenever it was done.
+function YearlyCheck({ note, me, disabled, onChecked }) {
+  const status = yearlyCheckStatus(note);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  async function check() {
+    setSaving(true);
+    setError('');
+    const { error: saveError } = await supabase.from('household_notes').update({ checked_on: householdToday(), updated_by: me?.id ?? null }).eq('id', note.id);
+    setSaving(false);
+    if (saveError) {
+      setError(saveError.message);
+      return;
+    }
+    await onChecked();
+  }
+
+  return (
+    <div className="nt-check">
+      <span className={status.due ? 'ov-warn' : 'ov-muted'}>{yearlyCheckText(status)}</span>
+      <button type="button" className="om-btn" onClick={check} disabled={disabled || saving}>
+        {saving ? 'Saving…' : 'Checked today'}
+      </button>
+      {error && (
+        <p className="ov-warn nt-check-error" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function NoteEditor({ note, householdId, me, position = 0, onCancel, onSaved }) {
   const [title, setTitle] = useState(note?.title ?? '');
   const [body, setBody] = useState(note?.body ?? '');
+  const [yearly, setYearly] = useState(note?.check_yearly ?? false);
   // The version this edit started from. The note itself is read again every
   // few minutes while the editor is open, so the check below must not use the
   // latest one: that would let this save replace a change made meanwhile.
@@ -136,7 +175,7 @@ function NoteEditor({ note, householdId, me, position = 0, onCancel, onSaved }) 
   const [error, setError] = useState('');
   // A note can run to pages. Changed and unsaved, Cancel asks first, as the
   // drawers do, and so does leaving the page.
-  const dirty = title !== (note?.title ?? '') || body !== (note?.body ?? '');
+  const dirty = title !== (note?.title ?? '') || body !== (note?.body ?? '') || yearly !== (note?.check_yearly ?? false);
 
   useEffect(() => {
     if (!dirty) return undefined;
@@ -164,7 +203,7 @@ function NoteEditor({ note, householdId, me, position = 0, onCancel, onSaved }) 
     }
     setSaving(true);
     setError('');
-    const payload = { title: title.trim(), body, updated_by: me?.id ?? null, updated_at: new Date().toISOString() };
+    const payload = { title: title.trim(), body, check_yearly: yearly, updated_by: me?.id ?? null, updated_at: new Date().toISOString() };
     // An edit saves only over the version it was opened from. Both partners
     // can edit the same note, and the second save used to replace the first
     // without a word.
@@ -207,6 +246,13 @@ function NoteEditor({ note, householdId, me, position = 0, onCancel, onSaved }) 
       <div className="ov-muted" style={{ marginTop: 6 }}>
         “# ” for a heading, “- ” for a bullet, **bold**, a blank line between paragraphs.
       </div>
+      <button type="button" className="te-togglerow nt-yearly" aria-pressed={yearly} onClick={() => setYearly((y) => !y)}>
+        <div>
+          <div className="te-togglelabel">Check once a year</div>
+          <div className="te-togglenote">Overview asks for it a year after it was last checked, and at once until it first is. For insurance, wills and nominations, or anything else to look at yearly.</div>
+        </div>
+        <span className="te-togglestate">{yearly ? 'Yearly' : 'Off'}</span>
+      </button>
       {error && (
         <p className="ov-warn" role="alert" style={{ fontSize: 12.5 }}>
           {error}
