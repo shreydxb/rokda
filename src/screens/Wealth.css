@@ -294,6 +294,70 @@
   font-size: 20px;
   margin-top: 4px;
 }
+/* The concentration line under Allocation (Planning audit, 4.17): what is
+   most concentrated, against the cap, with the cap set in place. */
+.wl-concentration {
+  margin-top: 14px;
+}
+.wl-concentration-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 10px;
+  row-gap: 4px;
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--ink);
+}
+.wl-concentration-cap {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--accent);
+  cursor: pointer;
+}
+.wl-concentration-note {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+  max-width: 80ch;
+}
+.wl-cap-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 12px;
+  font-size: 13px;
+}
+.wl-cap-form .wl-concentration-note {
+  flex-basis: 100%;
+  margin-top: 0;
+}
+.wl-cap-field,
+.wl-cap-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.wl-cap-input {
+  width: 72px;
+  background: none;
+  border: 1px solid var(--rule2);
+  border-radius: var(--radius-sm);
+  padding: 9px 10px;
+  font-size: 14px;
+  color: var(--ink);
+  font-family: inherit;
+}
+@media (max-width: 640px) {
+  .wl-concentration-cap {
+    min-height: 44px;
+  }
+}
 
 .wl-invstats {
   display: flex;

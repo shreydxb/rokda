@@ -183,3 +183,36 @@ describe('cost from units', () => {
   });
 });
 
+
+// A holding's sector is tagged once, for Wealth's concentration line
+// (Planning audit, 4.17). Only shares and share funds have one.
+describe('sector', () => {
+  const holding = { id: 'h1', name: 'Chip fund', asset_class: 'us_equity', currency: 'USD', value_aed: 5000, is_shared: true, priced_at: '2026-09-01T00:00:00Z' };
+
+  it('is saved with the holding, and changing it is not a new valuation', async () => {
+    db.holdings.set('h1', { ...holding });
+    renderScreen(<HoldingEditor holding={holding} householdId="hh" members={[]} onClose={() => {}} onSaved={async () => {}} />);
+    expect(screen.getByLabelText('Sector').value).toBe('');
+    fireEvent.change(screen.getByLabelText('Sector'), { target: { value: 'technology' } });
+    await act(async () => {
+      fireEvent.submit(document.querySelector('form'));
+    });
+    expect(db.holdings.get('h1').sector).toBe('technology');
+    expect(db.holdings.get('h1').priced_at).toBe('2026-09-01T00:00:00Z');
+    expect(db.histories).toHaveLength(0);
+    cleanup();
+  });
+
+  it('is not asked for gold, and a holding moved to it loses its sector', async () => {
+    db.holdings.set('h1', { ...holding, sector: 'technology' });
+    renderScreen(<HoldingEditor holding={{ ...holding, sector: 'technology' }} householdId="hh" members={[]} onClose={() => {}} onSaved={async () => {}} />);
+    expect(screen.getByLabelText('Sector').value).toBe('technology');
+    fireEvent.change(document.querySelector('select.te-fieldvalue'), { target: { value: 'commodity' } });
+    expect(screen.queryByLabelText('Sector')).toBeNull();
+    await act(async () => {
+      fireEvent.submit(document.querySelector('form'));
+    });
+    expect(db.holdings.get('h1').sector).toBeNull();
+    cleanup();
+  });
+});

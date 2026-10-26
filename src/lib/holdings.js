@@ -147,6 +147,66 @@ export function allocationByClass(holdings, scopeMemberId) {
     .sort((a, b) => b.value - a.value);
 }
 
+// A holding's market sector, tagged once in its editor (Planning audit,
+// 4.17). The order is the editor's. A fund spread across sectors is tagged
+// broad: it is in no sector, and not a concentration on its own.
+export const SECTOR_LABELS = {
+  technology: 'Technology',
+  communication: 'Communication',
+  consumer_discretionary: 'Consumer discretionary',
+  consumer_staples: 'Consumer staples',
+  energy: 'Energy',
+  financials: 'Financials',
+  health_care: 'Health care',
+  industrials: 'Industrials',
+  materials: 'Materials',
+  real_estate: 'Real estate',
+  utilities: 'Utilities',
+  broad: 'Spread across sectors',
+};
+
+// Shares and share funds have a sector; cash, gold, crypto and sukuk do not,
+// so they are never asked for one and count only on their own.
+const SECTOR_CLASSES = new Set(['us_equity', 'intl_equity', 'uae_equity', 'india_equity', 'india_mf']);
+export function hasSector(assetClass) {
+  return SECTOR_CLASSES.has(assetClass);
+}
+
+// The most of the investments that sits in one place: the largest sector,
+// from the holdings tagged with it, or the largest single holding, whichever
+// is more (docs/decisions.md, "A concentration line on Wealth"). Cash is not
+// an investment here, and a holding not valued yet counts nothing. A sector
+// only wins when it is more than its largest holding, so one holding alone
+// in its sector is named as itself. Against the household's cap, when one is
+// set. Null when there is nothing invested; kind 'spread' when everything is
+// in funds spread across sectors.
+export function largestConcentration(holdings, scopeMemberId, capPct = null) {
+  const invested = holdings.filter((h) => h.asset_class !== 'cash' && !isAwaitingFirstValuation(h));
+  const total = invested.reduce((s, h) => s + scopedHoldingValue(h, scopeMemberId), 0);
+  if (!(total > 0)) return null;
+  const bySector = new Map();
+  let holding = null;
+  let untagged = 0;
+  for (const h of invested) {
+    const sector = hasSector(h.asset_class) ? (h.sector ?? null) : null;
+    if (sector === 'broad') continue;
+    const value = scopedHoldingValue(h, scopeMemberId);
+    if (value <= 0) continue;
+    if (!holding || value > holding.value) holding = { name: h.name, sector, value };
+    if (sector) bySector.set(sector, (bySector.get(sector) ?? 0) + value);
+    else if (hasSector(h.asset_class)) untagged += 1;
+  }
+  const cap = (share) => (Number(capPct) > 0 ? { pct: Number(capPct), above: share > Number(capPct) / 100 } : null);
+  if (!holding) return { kind: 'spread', name: null, sector: null, value: 0, share: 0, total, untagged: 0, cap: cap(0) };
+  const [sector, sectorValue] = [...bySector.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0] ?? [null, 0];
+  const largest =
+    sectorValue > holding.value
+      ? { kind: 'sector', name: SECTOR_LABELS[sector] ?? sector, sector, value: sectorValue }
+      : { kind: 'holding', name: holding.name, sector: holding.sector, value: holding.value };
+  const share = largest.value / total;
+  return { ...largest, share, total, untagged, cap: cap(share) };
+}
+
 const RANGE_DAYS = { '1W': 7, '1M': 30, '3M': 90, '6M': 180, '1Y': 365, '5Y': 1825 };
 export const RANGES = ['1W', '1M', '3M', '6M', 'YTD', '1Y', '5Y'];
 

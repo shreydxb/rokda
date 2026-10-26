@@ -114,8 +114,8 @@ export const data = {
   }],
 
   holdings: [
-    { id: H_STOCK, household_id: HH, owner_member_id: null, is_shared: true, name: 'Index fund', asset_class: 'equity', currency: 'USD', value_aed: 45000, last_refreshed: ts(dayThisMonth(13)), created_at: ts(monthsAgo(6)), updated_at: ts(dayThisMonth(13)), quantity: 100, avg_price: 100, current_price: 122.5, invested_value_aed: 36700, day_change_pct: 1.2, price_symbol: 'VOO', price_provider: 'stub', price_fetch_error: null, price_fetch_fail_count: 0, priced_at: ts(dayThisMonth(13)) },
-    { id: H_GOLD, household_id: HH, owner_member_id: ME, is_shared: false, name: 'Gold', asset_class: 'commodity', currency: 'AED', value_aed: 12000, last_refreshed: ts(dayThisMonth(13)), created_at: ts(monthsAgo(6)), updated_at: ts(dayThisMonth(13)), quantity: 50, avg_price: 220, current_price: 240, invested_value_aed: 11000, day_change_pct: -0.4, price_symbol: 'XAU', price_provider: 'stub', price_fetch_error: null, price_fetch_fail_count: 0, priced_at: ts(dayThisMonth(13)) },
+    { id: H_STOCK, household_id: HH, owner_member_id: null, is_shared: true, name: 'Index fund', asset_class: 'equity', sector: null, currency: 'USD', value_aed: 45000, last_refreshed: ts(dayThisMonth(13)), created_at: ts(monthsAgo(6)), updated_at: ts(dayThisMonth(13)), quantity: 100, avg_price: 100, current_price: 122.5, invested_value_aed: 36700, day_change_pct: 1.2, price_symbol: 'VOO', price_provider: 'stub', price_fetch_error: null, price_fetch_fail_count: 0, priced_at: ts(dayThisMonth(13)) },
+    { id: H_GOLD, household_id: HH, owner_member_id: ME, is_shared: false, name: 'Gold', asset_class: 'commodity', sector: null, currency: 'AED', value_aed: 12000, last_refreshed: ts(dayThisMonth(13)), created_at: ts(monthsAgo(6)), updated_at: ts(dayThisMonth(13)), quantity: 50, avg_price: 220, current_price: 240, invested_value_aed: 11000, day_change_pct: -0.4, price_symbol: 'XAU', price_provider: 'stub', price_fetch_error: null, price_fetch_fail_count: 0, priced_at: ts(dayThisMonth(13)) },
   ],
 
   holding_value_history: [

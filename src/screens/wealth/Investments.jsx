@@ -21,8 +21,9 @@ import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { isAwaitingFirstValuation, isStale } from '../../lib/valuation';
 import { supabase } from '../../lib/supabaseClient';
 import HoldingEditor from './HoldingEditor';
+import ConcentrationLine from './ConcentrationLine';
 
-export default function Investments({ household, members, me, data, loading }) {
+export default function Investments({ household, members, me, data, loading, reloadHousehold }) {
   const { scope } = useScope();
   const scopeMemberId = resolveScopeMemberId(scope, me, members);
   const money = useMoneyDisplay(household);
@@ -229,6 +230,8 @@ export default function Investments({ household, members, me, data, loading }) {
                 </div>
               ))}
             </div>
+            {/* Of everything invested, so only when nothing is filtered out. */}
+            {group === 'All' && <ConcentrationLine holdings={rows} scopeMemberId={scopeMemberId} household={household} onCapSaved={reloadHousehold} />}
           </section>
 
           <section className="wl-invstats">

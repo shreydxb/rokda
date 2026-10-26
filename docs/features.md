@@ -162,7 +162,12 @@ here, because this repository is public.
   read as words ("Credit card", "Fixed deposit"), never as stored.
 - **Investments**: holdings with prices pulled daily where a symbol is set,
   and FX rates for USD and INR. "Refresh prices" fetches them; the page's own
-  Refresh re-reads what is stored.
+  Refresh re-reads what is stored. Under Allocation, one line names the
+  largest concentration, a sector or a single holding, and its share of
+  investments (cash left out), against the household's cap: "above your 25%
+  cap" in warning colour, or within it. "Set a cap" sets it in place, for the
+  household. A share or share fund is tagged with its sector once, in its
+  editor; a fund spread across sectors is tagged so, and counts in no sector.
 - **Statements**: one section per card (when it closes and is due), with the
   statements still to check first and the settled ones folded under
   "Checked". Each statement shows its period and status, then three figures

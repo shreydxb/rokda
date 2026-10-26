@@ -2750,4 +2750,48 @@ begin
   raise notice 'after_work_costs ok: amounts, names, currencies, the rise and the timing are checked';
 end $$;
 
+-- A holding's sector comes from the fixed list, and the household's
+-- concentration cap is a share above nothing and at most the whole
+-- (Planning audit, 4.17).
+do $$
+declare
+  hh constant uuid := '11111111-1111-1111-1111-111111111111';
+  h uuid;
+begin
+  insert into holdings (household_id, name, asset_class, value_aed) values (hh, 'Sector test', 'us_equity', 1000) returning id into h;
+  if (select sector from holdings where id = h) is not null then
+    raise exception 'holding sector FAILED: a new holding was given a sector';
+  end if;
+  update holdings set sector = 'technology' where id = h;
+  update holdings set sector = 'broad' where id = h;
+  update holdings set sector = null where id = h;
+  begin
+    update holdings set sector = 'Technology' where id = h;
+    raise exception 'holding sector FAILED: a sector off the list was accepted';
+  exception when check_violation then null;
+  end;
+  begin
+    update holdings set sector = '' where id = h;
+    raise exception 'holding sector FAILED: a blank sector was accepted';
+  exception when check_violation then null;
+  end;
+  if (select concentration_cap_pct from households where id = hh) is not null then
+    raise exception 'concentration cap FAILED: a household starts with a cap';
+  end if;
+  update households set concentration_cap_pct = 25 where id = hh;
+  update households set concentration_cap_pct = 100 where id = hh;
+  update households set concentration_cap_pct = null where id = hh;
+  begin
+    update households set concentration_cap_pct = 0 where id = hh;
+    raise exception 'concentration cap FAILED: a cap of nothing was accepted';
+  exception when check_violation then null;
+  end;
+  begin
+    update households set concentration_cap_pct = 101 where id = hh;
+    raise exception 'concentration cap FAILED: a cap above the whole was accepted';
+  exception when check_violation then null;
+  end;
+  raise notice 'holding sector and concentration cap ok: the list, blank, and a cap between nothing and the whole';
+end $$;
+
 rollback;
