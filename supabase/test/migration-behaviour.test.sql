@@ -2861,4 +2861,127 @@ begin
   raise notice 'broker sectors ok: the statement''s sectors, and nothing else';
 end $$;
 
+-- ---------------------------------------------------------------------------
+-- Share trades (SHR-367): trades are the record of a holding. Fixtures for
+-- every B2 case below: a dollar broker fund, a rupee broker fund, and helpers
+-- that build a holding with an opening entry.
+-- ---------------------------------------------------------------------------
+
+-- B2-01: a broker's cash is an account of its own kind, in its currency.
+insert into accounts (id, household_id, name, type, currency, balance, is_shared)
+values ('b2000000-0000-0000-0000-0000000000f1', '11111111-1111-1111-1111-111111111111', 'Dollar broker funds', 'broker_funds', 'USD', 1000, false);
+insert into accounts (id, household_id, name, type, currency, balance, is_shared)
+values ('b2000000-0000-0000-0000-0000000000f2', '11111111-1111-1111-1111-111111111111', 'Rupee broker funds', 'broker_funds', 'INR', 100000, false);
+do $$ begin raise notice 'B2-01 ok: a broker funds account in dollars and one in rupees'; end $$;
+
+-- B2-02: units keep eight decimals, so a fractional holding sold whole is not
+-- read as selling more than was held.
+do $$
+declare q numeric;
+begin
+  insert into holdings (id, household_id, owner_member_id, is_shared, name, asset_class, currency, quantity, avg_price, value_aed)
+  values ('b2000000-0000-0000-0000-000000000101', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', false, 'ABC', 'us_equity', 'USD', 1.23456789, 100.123456, 0);
+  select quantity into q from holdings where id = 'b2000000-0000-0000-0000-000000000101';
+  if q <> 1.23456789 then raise exception 'B2-02 FAILED: units stored as %', q; end if;
+  raise notice 'B2-02 ok: 1.23456789 units kept exactly';
+end $$;
+
+-- B2-03: one opening entry per holding.
+do $$
+begin
+  insert into holding_trades (household_id, holding_id, member_id, kind, trade_date, units, price, source)
+  values ('11111111-1111-1111-1111-111111111111', 'b2000000-0000-0000-0000-000000000101', '22222222-2222-2222-2222-222222222222', 'opening', '2026-10-01', 1.23456789, 100.123456, 'opening');
+  begin
+    insert into holding_trades (household_id, holding_id, member_id, kind, trade_date, units, price, source)
+    values ('11111111-1111-1111-1111-111111111111', 'b2000000-0000-0000-0000-000000000101', '22222222-2222-2222-2222-222222222222', 'opening', '2026-10-02', 1, 100, 'opening');
+    raise exception 'B2-03 FAILED: a second opening entry was accepted';
+  exception when unique_violation then null;
+  end;
+  raise notice 'B2-03 ok: a second opening entry is refused';
+end $$;
+
+-- B2-04: a buy carries a fund and a price; a split carries neither.
+do $$
+begin
+  begin
+    insert into holding_trades (household_id, holding_id, member_id, kind, trade_date, units, price, source)
+    values ('11111111-1111-1111-1111-111111111111', 'b2000000-0000-0000-0000-000000000101', '22222222-2222-2222-2222-222222222222', 'buy', '2026-10-03', 1, 100, 'app');
+    raise exception 'B2-04 FAILED: a buy without a fund was accepted';
+  exception when check_violation then null;
+  end;
+  begin
+    insert into holding_trades (household_id, holding_id, member_id, kind, trade_date, units, price, source)
+    values ('11111111-1111-1111-1111-111111111111', 'b2000000-0000-0000-0000-000000000101', '22222222-2222-2222-2222-222222222222', 'split', '2026-10-03', 10, 5, 'app');
+    raise exception 'B2-04 FAILED: a split with a price was accepted';
+  exception when check_violation then null;
+  end;
+  raise notice 'B2-04 ok: a buy needs a fund, a split takes no price';
+end $$;
+
+-- B2-05: the fund is in the holding's currency and still open.
+do $$
+begin
+  begin
+    insert into holding_trades (household_id, holding_id, member_id, kind, trade_date, units, price, funds_account_id, source)
+    values ('11111111-1111-1111-1111-111111111111', 'b2000000-0000-0000-0000-000000000101', '22222222-2222-2222-2222-222222222222', 'buy', '2026-10-03', 1, 100, 'b2000000-0000-0000-0000-0000000000f2', 'app');
+    raise exception 'B2-05 FAILED: a dollar holding''s buy through a rupee fund was accepted';
+  exception when check_violation then null;
+  end;
+  update accounts set archived_at = now() where id = 'b2000000-0000-0000-0000-0000000000f1';
+  begin
+    insert into holding_trades (household_id, holding_id, member_id, kind, trade_date, units, price, funds_account_id, source)
+    values ('11111111-1111-1111-1111-111111111111', 'b2000000-0000-0000-0000-000000000101', '22222222-2222-2222-2222-222222222222', 'buy', '2026-10-03', 1, 100, 'b2000000-0000-0000-0000-0000000000f1', 'app');
+    raise exception 'B2-05 FAILED: a buy through a closed fund was accepted';
+  exception when check_violation then null;
+  end;
+  update accounts set archived_at = null where id = 'b2000000-0000-0000-0000-0000000000f1';
+  raise notice 'B2-05 ok: the fund must match the currency and be open';
+end $$;
+
+-- B2-06: a traded holding's units and average change only through the replay.
+do $$
+begin
+  update holdings set trades_version = 1 where id = 'b2000000-0000-0000-0000-000000000101';
+  begin
+    update holdings set quantity = quantity + 1 where id = 'b2000000-0000-0000-0000-000000000101';
+    raise exception 'B2-06 FAILED: units of a traded holding were edited by hand';
+  exception when check_violation then null;
+  end;
+  begin
+    update holdings set avg_price = 1 where id = 'b2000000-0000-0000-0000-000000000101';
+    raise exception 'B2-06 FAILED: the average of a traded holding was edited by hand';
+  exception when check_violation then null;
+  end;
+  perform set_config('rokda.trade_replay', 'on', true);
+  update holdings set quantity = 2 where id = 'b2000000-0000-0000-0000-000000000101';
+  perform set_config('rokda.trade_replay', '', true);
+  update holdings set quantity = 2, name = 'ABC renamed' where id = 'b2000000-0000-0000-0000-000000000101';
+  update holdings set trades_version = 0 where id = 'b2000000-0000-0000-0000-000000000101';
+  update holdings set quantity = 3 where id = 'b2000000-0000-0000-0000-000000000101';
+  raise notice 'B2-06 ok: hand edits refused on a traded holding, allowed to the replay and on untraded holdings';
+end $$;
+
+-- B2-07: a holding with buys or sells is kept; one with only its opening goes.
+do $$
+declare n int;
+begin
+  insert into holdings (id, household_id, owner_member_id, is_shared, name, asset_class, currency, quantity, avg_price, value_aed)
+  values ('b2000000-0000-0000-0000-000000000102', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', false, 'XYZ', 'us_equity', 'USD', 10, 100, 0);
+  insert into holding_trades (household_id, holding_id, member_id, kind, trade_date, units, price, source)
+  values ('11111111-1111-1111-1111-111111111111', 'b2000000-0000-0000-0000-000000000102', '22222222-2222-2222-2222-222222222222', 'opening', '2026-10-01', 10, 100, 'opening');
+  insert into holding_trades (household_id, holding_id, member_id, kind, trade_date, units, price, funds_account_id, source)
+  values ('11111111-1111-1111-1111-111111111111', 'b2000000-0000-0000-0000-000000000102', '22222222-2222-2222-2222-222222222222', 'buy', '2026-10-02', 1, 100, 'b2000000-0000-0000-0000-0000000000f1', 'app');
+  begin
+    delete from holdings where id = 'b2000000-0000-0000-0000-000000000102';
+    raise exception 'B2-07 FAILED: a holding with a buy was deleted';
+  exception when check_violation then null;
+  end;
+  delete from holdings where id = 'b2000000-0000-0000-0000-000000000101';
+  select count(*) into n from holding_trades where holding_id = 'b2000000-0000-0000-0000-000000000101';
+  if n <> 0 then raise exception 'B2-07 FAILED: % entries outlived their holding', n; end if;
+  delete from holding_trades where holding_id = 'b2000000-0000-0000-0000-000000000102';
+  delete from holdings where id = 'b2000000-0000-0000-0000-000000000102';
+  raise notice 'B2-07 ok: a holding with buys or sells is kept, one with only its opening is deleted with it';
+end $$;
+
 rollback;

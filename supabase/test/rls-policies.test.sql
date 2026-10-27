@@ -1307,6 +1307,42 @@ begin
 end $$;
 reset role;
 
+-- Share trades (SHR-367): members read their household's trades and no one
+-- else's; nobody writes a trade directly, only through the trade functions.
+reset role;
+insert into holdings (id, household_id, name, asset_class, currency, quantity, avg_price, value_aed) values
+  ('fb000000-0000-0000-0000-000000000001', 'd1000000-0000-0000-0000-000000000001', 'Our share', 'us_equity', 'USD', 10, 100, 0),
+  ('fb000000-0000-0000-0000-000000000002', 'd2000000-0000-0000-0000-000000000002', 'Their share', 'us_equity', 'USD', 10, 100, 0);
+insert into holding_trades (id, household_id, holding_id, kind, trade_date, units, price, source) values
+  ('fb100000-0000-0000-0000-000000000001', 'd1000000-0000-0000-0000-000000000001', 'fb000000-0000-0000-0000-000000000001', 'opening', '2026-10-01', 10, 100, 'opening'),
+  ('fb100000-0000-0000-0000-000000000002', 'd2000000-0000-0000-0000-000000000002', 'fb000000-0000-0000-0000-000000000002', 'opening', '2026-10-01', 10, 100, 'opening');
+set role authenticated;
+set request.jwt.claim.sub = '0b000000-0000-0000-0000-00000000000b';
+do $$
+declare n int;
+begin
+  select count(*) into n from holding_trades;
+  if n <> 1 then raise exception 'trades RLS FAILED: a member sees % trades, expected their household''s 1', n; end if;
+  begin
+    insert into holding_trades (household_id, holding_id, kind, trade_date, units, price, source)
+    values ('d1000000-0000-0000-0000-000000000001', 'fb000000-0000-0000-0000-000000000001', 'split', '2026-10-02', 2, null, 'app');
+    raise exception 'trades RLS FAILED: a member inserted a trade directly';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    update holding_trades set units = 99 where id = 'fb100000-0000-0000-0000-000000000001';
+    raise exception 'trades RLS FAILED: a member edited a trade directly';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    delete from holding_trades where id = 'fb100000-0000-0000-0000-000000000001';
+    raise exception 'trades RLS FAILED: a member deleted a trade directly';
+  exception when insufficient_privilege then null;
+  end;
+  raise notice 'trades RLS ok: a member reads only their household''s trades and writes none directly';
+end $$;
+reset role;
+
 -- A household can still be deleted outright: the cascade takes the roster with
 -- it, and that is not "a household left without an owner".
 reset role;
