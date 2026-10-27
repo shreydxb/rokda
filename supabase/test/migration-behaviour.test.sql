@@ -3394,4 +3394,30 @@ begin
   raise notice 'B2-42 ok: linked to the one fund in its currency, left alone with two';
 end $$;
 
+-- B2-50: the nightly price update writes a holding's value from its units as
+-- they are when the price is written, so a trade in between is never undone.
+do $$
+declare v numeric; h holdings; hist numeric;
+begin
+  update accounts set balance = 1000, balance_as_of = null where id = 'b2000000-0000-0000-0000-0000000000f1';
+  insert into holdings (id, household_id, owner_member_id, is_shared, name, asset_class, currency, quantity, avg_price, current_price, value_aed, funds_account_id, trades_version, price_fetch_error, price_fetch_fail_count)
+  values ('b2000000-0000-0000-0000-000000000501', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', false, 'MNO', 'us_equity', 'USD', 10, 100, 100, 3672.5, 'b2000000-0000-0000-0000-0000000000f1', 1, 'old error', 2);
+  insert into holding_trades (household_id, holding_id, member_id, kind, trade_date, units, price, source)
+  values ('11111111-1111-1111-1111-111111111111', 'b2000000-0000-0000-0000-000000000501', '22222222-2222-2222-2222-222222222222', 'opening', '2026-10-01', 10, 100, 'opening');
+  v := set_holding_price('b2000000-0000-0000-0000-000000000501', 150, 1.5, '2026-10-26 20:00+00', now());
+  select * into h from holdings where id = 'b2000000-0000-0000-0000-000000000501';
+  select value_aed into hist from holding_value_history where holding_id = h.id and as_of = household_today();
+  if v <> 5508.75 or h.value_aed <> 5508.75 or hist <> 5508.75 or h.current_price <> 150 or h.day_change_pct <> 1.5
+     or h.priced_at <> '2026-10-26 20:00+00' or h.price_fetch_error is not null or h.price_fetch_fail_count <> 0 then
+    raise exception 'B2-50 FAILED: value %, holding %', v, row_to_json(h);
+  end if;
+  perform record_trade('b2000000-0000-0000-0000-000000000501', 'buy', '2026-10-02', 5, 150, 0, p_source => 'app', p_member_id => '22222222-2222-2222-2222-222222222222');
+  v := set_holding_price('b2000000-0000-0000-0000-000000000501', 160, null, null, now());
+  select * into h from holdings where id = 'b2000000-0000-0000-0000-000000000501';
+  if v <> 8814.00 or h.value_aed <> 8814.00 or h.priced_at <> '2026-10-26 20:00+00' then
+    raise exception 'B2-50 FAILED: after the trade the value is % (priced at %)', v, h.priced_at;
+  end if;
+  raise notice 'B2-50 ok: the price update values the units as they are now, and keeps the quote time when none is given';
+end $$;
+
 rollback;

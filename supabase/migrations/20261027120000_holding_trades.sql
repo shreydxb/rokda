@@ -848,3 +848,52 @@ $$;
 
 revoke execute on function public.open_trade_history(uuid, date) from public, anon, authenticated;
 grant execute on function public.open_trade_history(uuid, date) to service_role;
+
+-- ---------------------------------------------------------------------------
+-- 6. The price update values a holding from its units as it writes
+-- ---------------------------------------------------------------------------
+
+-- The nightly price feed's write for one holding: the price, the day's move,
+-- the quote time (kept as it was when the provider gives none), and the value
+-- and today's value point worked from the holding's units at this moment,
+-- under a row lock. The feed used to work the value from units it had read
+-- earlier, so a trade saved in between could be written over. A holding with
+-- no units keeps its entered value. Run by the service role.
+create or replace function public.set_holding_price(
+  p_holding_id uuid, p_price numeric, p_day_change_pct numeric, p_quoted_at timestamptz, p_fetched_at timestamptz)
+returns numeric
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_holding public.holdings%rowtype;
+  v_value numeric;
+begin
+  perform 1 from public.holdings where id = p_holding_id for update;
+  if not found then
+    return null;
+  end if;
+  update public.holdings
+  set current_price = p_price,
+      day_change_pct = p_day_change_pct,
+      priced_at = coalesce(p_quoted_at, priced_at),
+      price_fetched_at = p_fetched_at,
+      price_fetch_error = null,
+      price_fetch_fail_count = 0
+  where id = p_holding_id
+  returning * into v_holding;
+
+  v_value := private.holding_value_aed(v_holding);
+  if v_value is not null then
+    update public.holdings set value_aed = v_value where id = p_holding_id;
+    insert into public.holding_value_history (holding_id, as_of, value_aed)
+    values (p_holding_id, public.household_today(), v_value)
+    on conflict (holding_id, as_of) do update set value_aed = excluded.value_aed;
+  end if;
+  return v_value;
+end;
+$$;
+
+revoke execute on function public.set_holding_price(uuid, numeric, numeric, timestamptz, timestamptz) from public, anon, authenticated;
+grant execute on function public.set_holding_price(uuid, numeric, numeric, timestamptz, timestamptz) to service_role;
