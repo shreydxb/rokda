@@ -1,6 +1,6 @@
 # Share trades: buys and sells by Telegram, with their cash side
 
-Design for SHR-367 (B2 on the household's tracker). Status: written 27 October 2026, waiting on the household's review. This repository is public: every figure below is a round example, never the household's.
+Design for SHR-367 (B2 on the household's tracker). Status: approved by the household on 27 October 2026. This repository is public: every figure below is a round example, never the household's.
 
 ## 1. What this is
 
@@ -227,7 +227,7 @@ The fund accounts are accounts, so the existing check-in lists them with no chan
 
 ## 10. Open questions for the household
 
-1. **The Indian bank account** the rupee broker pays out to (and is topped up from): add it to the app? Recommended. Without it, the quarterly settlement reads as money leaving the household.
+1. **The Indian bank account** the rupee broker pays out to (and is topped up from): **decided, it is added to the app** at go-live, so the quarterly settlement is a transfer between two of the household's accounts. Its bank, type and balance come from the household then.
 2. **The bank account** dollar-fund withdrawals go to: is it in the app already?
 3. **Brokerage in the average:** settled per broker by the samples (pending).
 4. **The partner's broker(s) and fund accounts:** from their screenshots (pending).
