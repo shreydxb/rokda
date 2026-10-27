@@ -98,6 +98,9 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
       invested_value_aed: form.invested_value_aed.trim() === '' ? null : Number(form.invested_value_aed),
       day_change_pct: form.day_change_pct.trim() === '' ? null : Number(form.day_change_pct),
     });
+  // Once a holding has its opening entry, its units and average price come
+  // only from its trades (SHR-367).
+  const traded = (holding?.trades_version ?? 0) > 0;
   const daysOld = holding ? daysSincePriced(holding) : null;
   const lastValuedLabel =
     daysOld === null ? 'No valuation confirmed yet.' : `Unchanged numbers keep the existing valuation date (${daysOld}d ago).`;
@@ -153,6 +156,12 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
       ...valuation,
       ...(nextPriced ? { priced_at: nextPriced } : {}),
     };
+    // A traded holding's units and average come only from its trades, and the
+    // database refuses them from anywhere else (SHR-367), so they are never sent.
+    if (traded) {
+      delete payload.quantity;
+      delete payload.avg_price;
+    }
 
     // A brand-new holding's id is generated and recorded BEFORE the first
     // write is dispatched — not read back from a successful response — so a
@@ -353,14 +362,19 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
               overwritten by the daily refresh below when auto-pricing is on; otherwise they're manual. With units
               and a currency the feed can convert (AED, USD, or INR), the Value field above is overwritten too.
             </div>
+            {traded && (
+              <div className="ov-muted" style={{ fontSize: 11.5, marginBottom: 10 }}>
+                Units and average price come from this holding&rsquo;s trades.
+              </div>
+            )}
             <div className="te-fieldgrid">
               <div className="te-fieldcell">
                 <span className="te-fieldlabel">Units</span>
-                <input className="te-fieldvalue" type="number" step="any" value={form.quantity} onChange={(e) => set('quantity', e.target.value)} placeholder="—" />
+                <input className="te-fieldvalue" aria-label="Units" type="number" step="any" value={form.quantity} onChange={(e) => set('quantity', e.target.value)} readOnly={traded} placeholder="—" />
               </div>
               <div className="te-fieldcell">
                 <span className="te-fieldlabel">Avg price ({form.currency || '—'})</span>
-                <input className="te-fieldvalue" type="number" step="any" value={form.avg_price} onChange={(e) => set('avg_price', e.target.value)} placeholder="—" />
+                <input className="te-fieldvalue" aria-label={`Avg price (${form.currency || '—'})`} type="number" step="any" value={form.avg_price} onChange={(e) => set('avg_price', e.target.value)} readOnly={traded} placeholder="—" />
               </div>
               <div className="te-fieldcell">
                 <span className="te-fieldlabel">Price now ({form.currency || '—'})</span>

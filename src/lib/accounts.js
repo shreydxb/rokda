@@ -14,6 +14,7 @@ export const ACCOUNT_TYPE_LABELS = {
   credit_card: 'Credit card',
   loan: 'Loan',
   investment: 'Investment',
+  broker_funds: 'Broker funds',
   other: 'Other',
 };
 

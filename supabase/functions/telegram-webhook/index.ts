@@ -569,10 +569,17 @@ const QUESTION_TOOLS = new Set([
 // accountOptionLabel in the frontend) -- if a bank SMS names a card ending,
 // match it against that suffix. Only trusted when it resolves to exactly
 // one open account; otherwise the reviewer picks manually, same as today.
+// A broker's uninvested cash (a broker funds account) is the household's
+// money but never where an expense was paid from: "paid on Wio" must not land
+// in the broker's funds (SHR-367). Everything else can be.
+export function isSpendingAccount(a: { type?: string | null }): boolean {
+  return a.type !== "broker_funds";
+}
+
 async function matchAccountByCardLast4(householdId: string, cardLast4: string | null): Promise<{ id: string; name: string } | null> {
   if (!cardLast4) return null;
-  const { data: accounts } = await supabase.from("accounts").select("id, name").eq("household_id", householdId).is("archived_at", null);
-  const matches = (accounts ?? []).filter((a: { name: string }) => a.name.includes(cardLast4));
+  const { data: accounts } = await supabase.from("accounts").select("id, name, type").eq("household_id", householdId).is("archived_at", null);
+  const matches = (accounts ?? []).filter((a: { name: string; type: string }) => isSpendingAccount(a) && a.name.includes(cardLast4));
   return matches.length === 1 ? matches[0] : null;
 }
 
@@ -598,8 +605,8 @@ function accountBaseName(name: string): string {
 // named cards) abstains rather than guessing which one.
 async function matchAccountByNameHint(householdId: string, hint: string | null): Promise<{ id: string; name: string } | null> {
   if (!hint?.trim()) return null;
-  const { data: accounts } = await supabase.from("accounts").select("id, name").eq("household_id", householdId).is("archived_at", null);
-  return pickAccountByHint((accounts ?? []) as Array<{ id: string; name: string }>, hint);
+  const { data: accounts } = await supabase.from("accounts").select("id, name, type").eq("household_id", householdId).is("archived_at", null);
+  return pickAccountByHint(((accounts ?? []) as Array<{ id: string; name: string; type: string }>).filter(isSpendingAccount), hint);
 }
 
 // Words said around a card's name that are not part of it ("my marriott

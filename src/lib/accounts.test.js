@@ -103,10 +103,11 @@ describe('account selector labels', () => {
   });
 
   it('names every account type the database allows, with no raw value left', () => {
-    const allowed = ['checking', 'savings', 'credit_card', 'investment', 'loan', 'cash', 'other', 'fd'];
+    const allowed = ['checking', 'savings', 'credit_card', 'investment', 'loan', 'cash', 'other', 'fd', 'broker_funds'];
     expect(Object.keys(ACCOUNT_TYPE_LABELS).sort()).toEqual([...allowed].sort());
     expect(allowed.map(accountTypeLabel).every((l) => /^[A-Z][a-z ]+$/.test(l))).toBe(true);
     expect(accountTypeLabel('fd')).toBe('Fixed deposit');
+    expect(accountTypeLabel('broker_funds')).toBe('Broker funds');
     expect(accountTypeLabel('something new')).toBe('Other');
   });
 

@@ -232,6 +232,13 @@ describe('O3: an unconverted foreign balance is unknown, not AED', () => {
     expect(liquidAssets([aed, inr], null)).toBe(100);
   });
 
+  // A broker's uninvested cash is the household's money, but it does not pay
+  // bills: liquid assets leave it out (SHR-367).
+  it('leaves broker funds out of liquid assets', () => {
+    const funds = { id: 'f', type: 'broker_funds', currency: 'AED', balance: 500, balance_aed: null, is_shared: true, archived_at: null };
+    expect(liquidAssets([aed, funds], null)).toBe(100);
+  });
+
   it('reports how many accounts it could not value, so a total can say it is partial', () => {
     expect(netWorthSummary([inr], null, []).unvalued).toBe(1);
     expect(netWorthSummary([inr], null, []).netWorth).toBe(0);
