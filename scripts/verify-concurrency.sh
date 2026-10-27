@@ -174,6 +174,72 @@ else
   fail=1
 fi
 
+# A household with a dollar broker fund of 1000 and one holding of 10 units at
+# 100 bought through it, opened for trades.
+seed_trades() {
+  seed
+  psql -d "$DB" -v ON_ERROR_STOP=1 -q <<'SQL' >/dev/null
+set client_min_messages = warning;
+select set_config('request.jwt.claim.role', 'service_role', false);
+insert into accounts (id, household_id, name, type, currency, balance) values
+  ('f1000000-0000-4000-8000-000000000003', 'd1000000-0000-4000-8000-000000000001', 'Broker funds', 'broker_funds', 'USD', 1000);
+insert into holdings (id, household_id, owner_member_id, name, asset_class, currency, quantity, avg_price, current_price, value_aed, funds_account_id) values
+  ('a1000000-0000-4000-8000-000000000001', 'd1000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-00000000000a', 'Share', 'us_equity', 'USD', 10, 100, 100, 3672.5, 'f1000000-0000-4000-8000-000000000003');
+select open_trade_history('e1000000-0000-4000-8000-00000000000a', '2026-10-01');
+SQL
+}
+
+echo "verify-concurrency: two deletes of the same sale"
+# The app and the bot, or two taps on Delete, can delete one sale at the same
+# instant. Both find the trade before either has locked its holding; the one
+# that waits for the lock must then find it gone, or it reverses the sale's
+# money a second time.
+seed_trades
+psql -d "$DB" -v ON_ERROR_STOP=1 -q <<'SQL' >/dev/null
+select set_config('request.jwt.claim.role', 'service_role', false);
+select record_trade('a1000000-0000-4000-8000-000000000001', 'sell', '2026-10-20', 5, 120, p_source => 'bot', p_member_id => 'e1000000-0000-4000-8000-00000000000a');
+SQL
+sale=$(psql -At -d "$DB" -c "select id from holding_trades where kind = 'sell'")
+DELETE="select set_config('request.jwt.claim.role', 'service_role', true); select delete_trade('$sale', null, 'e1000000-0000-4000-8000-00000000000a');"
+overlap "$DELETE" &
+overlap "$DELETE" &
+wait
+deleted=$(psql -At -d "$DB" -c "select (select balance from accounts where id = 'f1000000-0000-4000-8000-000000000003') || ',' || (select quantity from holdings where id = 'a1000000-0000-4000-8000-000000000001') || ',' || (select count(*) from holding_trades)")
+if [ "$deleted" = "1000.00,10.00000000,1" ]; then
+  echo "  ok   two concurrent deletes of a sale reverse its money once (fund,units,trades left=$deleted)"
+else
+  echo "  FAIL two concurrent deletes of a sale gave fund,units,trades left=$deleted, expected 1000.00,10.00000000,1" >&2
+  fail=1
+fi
+
+echo "verify-concurrency: a buy saved while the fund's balance is checked in"
+# A member enters the fund's balance from the broker's screen, a figure that
+# already includes a buy, while the bot saves that buy. Whichever commits
+# second must see the other: the buy is either inside the checked-in balance
+# or moves the fund, never both.
+seed_trades
+psql -d "$DB" <<'SQL' >/dev/null 2>&1 &
+begin;
+update accounts set balance = 500, balance_as_of = '2026-10-21 00:00+04' where id = 'f1000000-0000-4000-8000-000000000003';
+select pg_sleep(1);
+commit;
+SQL
+psql -d "$DB" <<'SQL' >/dev/null 2>&1 &
+begin;
+select pg_sleep(0.3);
+select set_config('request.jwt.claim.role', 'service_role', true);
+select record_trade('a1000000-0000-4000-8000-000000000001', 'buy', '2026-10-20', 5, 100, p_traded_at => '2026-10-20 10:00+04', p_source => 'bot', p_member_id => 'e1000000-0000-4000-8000-00000000000a');
+commit;
+SQL
+wait
+checked=$(psql -At -d "$DB" -c "select balance || ',' || (select quantity from holdings where id = 'a1000000-0000-4000-8000-000000000001') from accounts where id = 'f1000000-0000-4000-8000-000000000003'")
+if [ "$checked" = "500.00,15.00000000" ]; then
+  echo "  ok   a buy racing a balance check-in is counted once (fund,units=$checked)"
+else
+  echo "  FAIL a buy racing a balance check-in gave fund,units=$checked, expected 500.00,15.00000000" >&2
+  fail=1
+fi
+
 if [ "$fail" -ne 0 ]; then
   echo "verify-concurrency: FAILED" >&2
   exit 1

@@ -1346,7 +1346,9 @@ reset role;
 -- Recording a trade as a signed-in member: on their household's holding it
 -- works; on another household's it is refused; signed out, it can't be called.
 reset role;
+select set_config('rokda.trade_replay', 'on', true);
 update holdings set trades_version = 1 where id in ('fb000000-0000-0000-0000-000000000001', 'fb000000-0000-0000-0000-000000000002');
+select set_config('rokda.trade_replay', '', true);
 insert into accounts (id, household_id, name, type, currency, balance, is_shared) values
   ('fb200000-0000-0000-0000-000000000001', 'd1000000-0000-0000-0000-000000000001', 'Our broker funds', 'broker_funds', 'USD', 1000, true),
   ('fb200000-0000-0000-0000-000000000002', 'd2000000-0000-0000-0000-000000000002', 'Their broker funds', 'broker_funds', 'USD', 1000, true);

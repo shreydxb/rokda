@@ -2941,7 +2941,9 @@ end $$;
 -- B2-06: a traded holding's units and average change only through the replay.
 do $$
 begin
+  perform set_config('rokda.trade_replay', 'on', true);
   update holdings set trades_version = 1 where id = 'b2000000-0000-0000-0000-000000000101';
+  perform set_config('rokda.trade_replay', '', true);
   begin
     update holdings set quantity = quantity + 1 where id = 'b2000000-0000-0000-0000-000000000101';
     raise exception 'B2-06 FAILED: units of a traded holding were edited by hand';
@@ -2956,7 +2958,9 @@ begin
   update holdings set quantity = 2 where id = 'b2000000-0000-0000-0000-000000000101';
   perform set_config('rokda.trade_replay', '', true);
   update holdings set quantity = 2, name = 'ABC renamed' where id = 'b2000000-0000-0000-0000-000000000101';
+  perform set_config('rokda.trade_replay', 'on', true);
   update holdings set trades_version = 0 where id = 'b2000000-0000-0000-0000-000000000101';
+  perform set_config('rokda.trade_replay', '', true);
   update holdings set quantity = 3 where id = 'b2000000-0000-0000-0000-000000000101';
   raise notice 'B2-06 ok: hand edits refused on a traded holding, allowed to the replay and on untraded holdings';
 end $$;
@@ -3072,7 +3076,9 @@ insert into holdings (id, household_id, owner_member_id, is_shared, name, asset_
 values ('b2000000-0000-0000-0000-000000000201', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', false, 'ABC', 'us_equity', 'USD', 10, 100, 150, 5508.75, 'b2000000-0000-0000-0000-0000000000f1');
 insert into holding_trades (household_id, holding_id, member_id, kind, trade_date, units, price, source, units_after, avg_after)
 values ('11111111-1111-1111-1111-111111111111', 'b2000000-0000-0000-0000-000000000201', '22222222-2222-2222-2222-222222222222', 'opening', '2026-10-01', 10, 100, 'opening', 10, 100);
+select set_config('rokda.trade_replay', 'on', true);
 update holdings set trades_version = 1 where id = 'b2000000-0000-0000-0000-000000000201';
+select set_config('rokda.trade_replay', '', true);
 
 -- B2-20 (and Review Focus 1): a buy moves the holding, the never-confirmed
 -- fund, the value and today's value point together.
@@ -3191,8 +3197,10 @@ end $$;
 do $$
 declare v numeric;
 begin
+  perform set_config('rokda.trade_replay', 'on', true);
   insert into holdings (id, household_id, owner_member_id, is_shared, name, asset_class, currency, quantity, avg_price, current_price, value_aed, funds_account_id, trades_version)
   values ('b2000000-0000-0000-0000-000000000202', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', false, 'Unpriced', 'us_equity', 'USD', 10, 100, null, 500, 'b2000000-0000-0000-0000-0000000000f1', 1);
+  perform set_config('rokda.trade_replay', '', true);
   insert into holding_trades (household_id, holding_id, member_id, kind, trade_date, units, price, source)
   values ('11111111-1111-1111-1111-111111111111', 'b2000000-0000-0000-0000-000000000202', '22222222-2222-2222-2222-222222222222', 'opening', '2026-10-01', 10, 100, 'opening');
   perform record_trade('b2000000-0000-0000-0000-000000000202', 'buy', '2026-10-02', 1, 100, 0, p_source => 'bot', p_member_id => '22222222-2222-2222-2222-222222222222');
@@ -3200,8 +3208,10 @@ begin
   if v <> 500 then raise exception 'B2-28 FAILED: an unpriced holding''s value became %', v; end if;
 
   update households set inr_per_aed = null where id = '11111111-1111-1111-1111-111111111111';
+  perform set_config('rokda.trade_replay', 'on', true);
   insert into holdings (id, household_id, owner_member_id, is_shared, name, asset_class, currency, quantity, avg_price, current_price, value_aed, funds_account_id, trades_version)
   values ('b2000000-0000-0000-0000-000000000203', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', false, 'Rupee share', 'india_equity', 'INR', 10, 1000, 1000, 777, 'b2000000-0000-0000-0000-0000000000f2', 1);
+  perform set_config('rokda.trade_replay', '', true);
   insert into holding_trades (household_id, holding_id, member_id, kind, trade_date, units, price, source)
   values ('11111111-1111-1111-1111-111111111111', 'b2000000-0000-0000-0000-000000000203', '22222222-2222-2222-2222-222222222222', 'opening', '2026-10-01', 10, 1000, 'opening');
   perform record_trade('b2000000-0000-0000-0000-000000000203', 'buy', '2026-10-02', 1, 1000, 0, p_source => 'bot', p_member_id => '22222222-2222-2222-2222-222222222222');
@@ -3227,8 +3237,10 @@ end $$;
 update accounts set balance = 1000, balance_as_of = null where id = 'b2000000-0000-0000-0000-0000000000f1';
 insert into accounts (id, household_id, name, type, currency, balance, is_shared)
 values ('b2000000-0000-0000-0000-0000000000f3', '11111111-1111-1111-1111-111111111111', 'Second dollar fund', 'broker_funds', 'USD', 1000, false);
+select set_config('rokda.trade_replay', 'on', true);
 insert into holdings (id, household_id, owner_member_id, is_shared, name, asset_class, currency, quantity, avg_price, current_price, value_aed, funds_account_id, trades_version)
 values ('b2000000-0000-0000-0000-000000000301', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', false, 'DEF', 'us_equity', 'USD', 10, 100, 150, 5508.75, 'b2000000-0000-0000-0000-0000000000f1', 1);
+select set_config('rokda.trade_replay', '', true);
 insert into holding_trades (id, household_id, holding_id, member_id, kind, trade_date, units, price, source, units_after, avg_after)
 values ('b2000000-0000-0000-0000-000000000310', '11111111-1111-1111-1111-111111111111', 'b2000000-0000-0000-0000-000000000301', '22222222-2222-2222-2222-222222222222', 'opening', '2026-10-01', 10, 100, 'opening', 10, 100);
 create temporary table b2_ids (name text primary key, id uuid);
@@ -3346,15 +3358,17 @@ insert into holdings (id, household_id, owner_member_id, is_shared, name, asset_
   ('b2000000-0000-0000-0000-000000000401', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-0000000000b2', false, 'GHI', 'us_equity', 'USD', 4.12345678, 50, 60, 908.64),
   ('b2000000-0000-0000-0000-000000000402', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-0000000000b2', false, 'JKL', 'india_equity', 'INR', 3, 1000, 1100, 140),
   ('b2000000-0000-0000-0000-000000000403', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-0000000000b2', false, 'Valued only', 'us_equity', 'USD', 2, null, null, 300),
-  ('b2000000-0000-0000-0000-000000000404', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', false, 'Not theirs', 'us_equity', 'USD', 1, 10, 10, 36.73);
+  ('b2000000-0000-0000-0000-000000000404', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', false, 'Not theirs', 'us_equity', 'USD', 1, 10, 10, 36.73),
+  ('b2000000-0000-0000-0000-000000000405', '11111111-1111-1111-1111-111111111111', null, true, 'Shared', 'us_equity', 'USD', 1, 10, 10, 36.73);
 
 -- B2-40: opening entries for the member's holdings with units and an
 -- average, and only theirs; nothing about the holdings themselves changes.
 do $$
-declare n int; h holdings;
+declare r jsonb; n int; h holdings;
 begin
-  n := open_trade_history('22222222-2222-2222-2222-0000000000b2', '2026-10-27');
-  if n <> 2 then raise exception 'B2-40 FAILED: % opening entries, expected 2', n; end if;
+  r := open_trade_history('22222222-2222-2222-2222-0000000000b2', '2026-10-27');
+  n := (r ->> 'opened')::int;
+  if n <> 2 or (r ->> 'shared_left')::int <> 1 then raise exception 'B2-40 FAILED: %, expected 2 opened and the 1 shared holding reported', r; end if;
   select * into h from holdings where id = 'b2000000-0000-0000-0000-000000000401';
   if h.trades_version <> 1 or h.quantity <> 4.12345678 or h.avg_price <> 50 or h.value_aed <> 908.64 then
     raise exception 'B2-40 FAILED: the dollar holding is now % at %, worth %, version %', h.quantity, h.avg_price, h.value_aed, h.trades_version;
@@ -3374,7 +3388,7 @@ end $$;
 do $$
 declare n int;
 begin
-  n := open_trade_history('22222222-2222-2222-2222-0000000000b2', '2026-10-28');
+  n := (open_trade_history('22222222-2222-2222-2222-0000000000b2', '2026-10-28') ->> 'opened')::int;
   if n <> 0 or (select count(*) from holding_trades where holding_id = 'b2000000-0000-0000-0000-000000000401') <> 1 then
     raise exception 'B2-41 FAILED: a second run made % entries', n;
   end if;
@@ -3400,8 +3414,10 @@ do $$
 declare v numeric; h holdings; hist numeric;
 begin
   update accounts set balance = 1000, balance_as_of = null where id = 'b2000000-0000-0000-0000-0000000000f1';
+  perform set_config('rokda.trade_replay', 'on', true);
   insert into holdings (id, household_id, owner_member_id, is_shared, name, asset_class, currency, quantity, avg_price, current_price, value_aed, funds_account_id, trades_version, price_fetch_error, price_fetch_fail_count)
   values ('b2000000-0000-0000-0000-000000000501', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', false, 'MNO', 'us_equity', 'USD', 10, 100, 100, 3672.5, 'b2000000-0000-0000-0000-0000000000f1', 1, 'old error', 2);
+  perform set_config('rokda.trade_replay', '', true);
   insert into holding_trades (household_id, holding_id, member_id, kind, trade_date, units, price, source)
   values ('11111111-1111-1111-1111-111111111111', 'b2000000-0000-0000-0000-000000000501', '22222222-2222-2222-2222-222222222222', 'opening', '2026-10-01', 10, 100, 'opening');
   v := set_holding_price('b2000000-0000-0000-0000-000000000501', 150, 1.5, '2026-10-26 20:00+00', now());
@@ -3418,6 +3434,142 @@ begin
     raise exception 'B2-50 FAILED: after the trade the value is % (priced at %)', v, h.priced_at;
   end if;
   raise notice 'B2-50 ok: the price update values the units as they are now, and keeps the quote time when none is given';
+end $$;
+
+-- Review fixes (SHR-368). B2-16 (C1): the replay keeps units at eight
+-- decimals at every step, so after a split by a fractional ratio the units
+-- shown are the units that can be sold.
+do $$
+declare r jsonb;
+begin
+  r := private.replay_entries('[
+    {"id":"o","kind":"opening","trade_date":"2026-10-01","created_at":"2026-10-01T08:00:00Z","units":3.12345678,"price":10,"fees":0},
+    {"id":"x","kind":"split","trade_date":"2026-10-02","created_at":"2026-10-02T08:00:00Z","units":0.1,"price":null,"fees":0},
+    {"id":"s","kind":"sell","trade_date":"2026-10-03","created_at":"2026-10-03T08:00:00Z","units":0.31234568,"price":100,"fees":0}
+  ]'::jsonb, false);
+  if (r ->> 'ok')::boolean is not true or (r ->> 'units')::numeric <> 0 then raise exception 'B2-16 FAILED: %', r; end if;
+  raise notice 'B2-16 ok: after a reverse split the units shown can all be sold';
+end $$;
+
+-- B2-17 (I2): brokerage goes into the average by the fund each buy went
+-- through, not by the holding's default.
+do $$
+declare r jsonb;
+begin
+  r := private.replay_entries('[
+    {"id":"o","kind":"opening","trade_date":"2026-10-01","created_at":"2026-10-01T08:00:00Z","units":10,"price":100,"fees":0},
+    {"id":"b","kind":"buy","trade_date":"2026-10-02","created_at":"2026-10-02T08:00:00Z","units":5,"price":130,"fees":1,"brokerage_in_average":true}
+  ]'::jsonb, false);
+  if (r ->> 'avg')::numeric <> 110.066667 then raise exception 'B2-17 FAILED: average %', r ->> 'avg'; end if;
+  raise notice 'B2-17 ok: a buy through a fund that averages brokerage includes it';
+end $$;
+
+-- B2-36 (C1): a sale of the exact units after a reverse split closes the
+-- holding; inputs are rounded to what is stored, so nothing is saved with
+-- figures the replay cannot reproduce, and the fund preview is in fils.
+do $$
+declare r jsonb; p jsonb; h holdings;
+begin
+  update accounts set balance = 1000, balance_as_of = null where id = 'b2000000-0000-0000-0000-0000000000f1';
+  perform set_config('rokda.trade_replay', 'on', true);
+  insert into holdings (id, household_id, owner_member_id, is_shared, name, asset_class, currency, quantity, avg_price, current_price, value_aed, funds_account_id, trades_version)
+  values ('b2000000-0000-0000-0000-000000000601', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', false, 'PQR', 'us_equity', 'USD', 3.12345678, 10, 100, 1147.08, 'b2000000-0000-0000-0000-0000000000f1', 1);
+  perform set_config('rokda.trade_replay', '', true);
+  insert into holding_trades (household_id, holding_id, member_id, kind, trade_date, units, price, source)
+  values ('11111111-1111-1111-1111-111111111111', 'b2000000-0000-0000-0000-000000000601', '22222222-2222-2222-2222-222222222222', 'opening', '2026-10-01', 3.12345678, 10, 'opening');
+  r := record_trade('b2000000-0000-0000-0000-000000000601', 'split', '2026-10-02', 0.1, null, p_source => 'bot', p_member_id => '22222222-2222-2222-2222-222222222222');
+  select * into h from holdings where id = 'b2000000-0000-0000-0000-000000000601';
+  if h.quantity <> 0.31234568 then raise exception 'B2-36 FAILED: after the split the holding shows %', h.quantity; end if;
+  p := preview_trade('b2000000-0000-0000-0000-000000000601', 'sell', '2026-10-03', 0.312345678, 100.0000001, 0.00001, p_member_id => '22222222-2222-2222-2222-222222222222');
+  if (p ->> 'funds_balance_after')::numeric <> round((p ->> 'funds_balance_after')::numeric, 2) then raise exception 'B2-36 FAILED: fund preview in more than fils: %', p; end if;
+  r := record_trade('b2000000-0000-0000-0000-000000000601', 'sell', '2026-10-03', 0.312345678, 100.0000001, 0.00001, p_source => 'bot', p_member_id => '22222222-2222-2222-2222-222222222222');
+  select * into h from holdings where id = 'b2000000-0000-0000-0000-000000000601';
+  if (r ->> 'ok')::boolean is not true or h.quantity <> 0 or h.avg_price is null or h.value_aed <> 0
+     or (select balance from accounts where id = 'b2000000-0000-0000-0000-0000000000f1') <> (p ->> 'funds_balance_after')::numeric then
+    raise exception 'B2-36 FAILED: %, holding % at %, worth %', r, h.quantity, h.avg_price, h.value_aed;
+  end if;
+  r := record_trade('b2000000-0000-0000-0000-000000000601', 'buy', '2026-10-04', 0.000000001, 100, 0, p_source => 'bot', p_member_id => '22222222-2222-2222-2222-222222222222');
+  if r ->> 'error' is distinct from 'bad_input' then raise exception 'B2-36 FAILED: a buy of less than a hundred-millionth of a unit gave %', r; end if;
+  raise notice 'B2-36 ok: a reverse split then selling the units shown closes the holding, with the preview''s fund figure stored';
+end $$;
+
+-- B2-37 (I1): a fix that names no fund keeps the trade's own fund.
+do $$
+declare b jsonb; r jsonb;
+begin
+  b := record_trade('b2000000-0000-0000-0000-000000000201', 'buy', '2026-10-27', 1, 150, 0, p_funds_account_id => 'b2000000-0000-0000-0000-0000000000f3',
+    p_source => 'app', p_member_id => '22222222-2222-2222-2222-222222222222');
+  r := fix_trade((b ->> 'trade_id')::uuid, '2026-10-27', 1, 150, 2, 0, null, null, false, null, null, p_member_id => '22222222-2222-2222-2222-222222222222');
+  if (r ->> 'ok')::boolean is not true or (select funds_account_id from holding_trades where id = (b ->> 'trade_id')::uuid) <> 'b2000000-0000-0000-0000-0000000000f3' then
+    raise exception 'B2-37 FAILED: %, fund now %', r, (select funds_account_id from holding_trades where id = (b ->> 'trade_id')::uuid);
+  end if;
+  raise notice 'B2-37 ok: a fix that names no fund keeps the trade''s fund';
+end $$;
+
+-- B2-38 (I2): a buy through a fund that puts brokerage into the average
+-- includes it, whatever the holding's default fund says.
+do $$
+declare h holdings;
+begin
+  insert into accounts (id, household_id, name, type, currency, balance, is_shared, brokerage_in_average)
+  values ('b2000000-0000-0000-0000-0000000000f5', '11111111-1111-1111-1111-111111111111', 'Averaging fund', 'broker_funds', 'USD', 1000, false, true);
+  perform set_config('rokda.trade_replay', 'on', true);
+  insert into holdings (id, household_id, owner_member_id, is_shared, name, asset_class, currency, quantity, avg_price, current_price, value_aed, funds_account_id, trades_version)
+  values ('b2000000-0000-0000-0000-000000000602', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', false, 'STU', 'us_equity', 'USD', 10, 100, 100, 3672.5, 'b2000000-0000-0000-0000-0000000000f1', 1);
+  perform set_config('rokda.trade_replay', '', true);
+  insert into holding_trades (household_id, holding_id, member_id, kind, trade_date, units, price, source)
+  values ('11111111-1111-1111-1111-111111111111', 'b2000000-0000-0000-0000-000000000602', '22222222-2222-2222-2222-222222222222', 'opening', '2026-10-01', 10, 100, 'opening');
+  perform record_trade('b2000000-0000-0000-0000-000000000602', 'buy', '2026-10-02', 5, 130, 1, p_funds_account_id => 'b2000000-0000-0000-0000-0000000000f5',
+    p_source => 'app', p_member_id => '22222222-2222-2222-2222-222222222222');
+  select * into h from holdings where id = 'b2000000-0000-0000-0000-000000000602';
+  if h.avg_price <> 110.066667 then raise exception 'B2-38 FAILED: average %', h.avg_price; end if;
+  raise notice 'B2-38 ok: brokerage in the average follows the fund the buy went through';
+end $$;
+
+-- B2-39 (I3): only a broker funds account can be a trade's fund.
+do $$
+declare r jsonb;
+begin
+  insert into accounts (id, household_id, name, type, currency, balance, is_shared)
+  values ('b2000000-0000-0000-0000-0000000000c1', '11111111-1111-1111-1111-111111111111', 'Dollar card', 'credit_card', 'USD', 0, false);
+  r := record_trade('b2000000-0000-0000-0000-000000000201', 'buy', '2026-10-27', 1, 150, 0, p_funds_account_id => 'b2000000-0000-0000-0000-0000000000c1',
+    p_source => 'app', p_member_id => '22222222-2222-2222-2222-222222222222');
+  if r ->> 'error' is distinct from 'not_broker_funds' then raise exception 'B2-39 FAILED: a card as the fund gave %', r; end if;
+  begin
+    insert into holding_trades (household_id, holding_id, member_id, kind, trade_date, units, price, funds_account_id, source)
+    values ('11111111-1111-1111-1111-111111111111', 'b2000000-0000-0000-0000-000000000201', '22222222-2222-2222-2222-222222222222', 'buy', '2026-10-27', 1, 150, 'b2000000-0000-0000-0000-0000000000c1', 'app');
+    raise exception 'B2-39 FAILED: a trade through a card was inserted';
+  exception when check_violation then null;
+  end;
+  raise notice 'B2-39 ok: a card is refused as a trade''s fund';
+end $$;
+
+-- B2-08 (I4): a holding's version moves only with the replay, so it cannot be
+-- reset to unlock its units or forged to pass the stale check.
+do $$
+begin
+  begin
+    update holdings set trades_version = 0 where id = 'b2000000-0000-0000-0000-000000000201';
+    raise exception 'B2-08 FAILED: a traded holding''s version was reset by hand';
+  exception when check_violation then null;
+  end;
+  begin
+    update holdings set trades_version = trades_version + 5 where id = 'b2000000-0000-0000-0000-000000000202';
+    raise exception 'B2-08 FAILED: a version was moved by hand';
+  exception when check_violation then null;
+  end;
+  begin
+    update holdings set trades_version = 1 where id = 'b2000000-0000-0000-0000-000000000404';
+    raise exception 'B2-08 FAILED: an untraded holding was marked traded by hand';
+  exception when check_violation then null;
+  end;
+  begin
+    insert into holdings (id, household_id, owner_member_id, is_shared, name, asset_class, currency, quantity, avg_price, current_price, value_aed, trades_version)
+    values ('b2000000-0000-0000-0000-000000000701', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', false, 'VWX', 'us_equity', 'USD', 1, 1, 1, 3.67, 1);
+    raise exception 'B2-08 FAILED: a holding was created already marked traded';
+  exception when check_violation then null;
+  end;
+  raise notice 'B2-08 ok: versions move only with the replay';
 end $$;
 
 rollback;

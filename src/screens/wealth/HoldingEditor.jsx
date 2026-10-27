@@ -73,9 +73,9 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
 
   const nameError = form.name.trim() === '' ? 'Name it.' : '';
   const symbolError = form.price_provider && form.price_symbol.trim() === '' ? 'Enter the symbol this provider expects.' : '';
-  // Matches the price-refresh function's own toAed(): only these currencies
-  // have a real conversion path, and units are required to turn a per-unit
-  // price into a total value.
+  // Matches how the database values a priced holding (set_holding_price):
+  // only these currencies have a real conversion path, and units are required
+  // to turn a per-unit price into a total value.
   const autoValued = !!form.price_provider && form.quantity.trim() !== '' && ['AED', 'USD', 'INR'].includes((form.currency || '').toUpperCase());
 
   // An auto-valued holding whose value field is blank because it is disabled

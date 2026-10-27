@@ -286,9 +286,12 @@ test("price-refresh leaves priced_at alone when the provider gives no quote time
 });
 
 // A holding sold to zero is closed and needs no price (SHR-367).
-test("price-refresh asks only for holdings with units, or with none recorded", async () => {
+// Only a holding its trades sold to zero is closed. One without trades whose
+// units were set to zero by hand is still priced, so its value falls to zero
+// rather than keeping the last one.
+test("price-refresh skips only holdings their trades have closed", async () => {
   feedHoldings = [RELIANCE];
   const res = await call(priceRefresh, "POST", null, SCHEDULER_SECRET);
   await res.body?.cancel();
-  assertEquals(holdingFilters, ["(quantity.is.null,quantity.gt.0)"]);
+  assertEquals(holdingFilters, ["(quantity.is.null,quantity.gt.0,trades_version.eq.0)"]);
 });

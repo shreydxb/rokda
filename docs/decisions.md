@@ -2842,13 +2842,17 @@ and average price are worked out from them.
   then the order recorded): a buy re-averages, a sale keeps the average and
   records profit against it, a split multiplies units and divides the
   average. The preview the bot and the app show and the save run the same
-  function, so what is confirmed is exactly what is saved. A fixed or
+  function on figures already rounded to the places they are stored at, and
+  the save is undone if its result differs from the preview, so what is
+  confirmed is exactly what is saved. A fixed or
   back-dated trade replays everything after it, and is refused when a later
   sale would then sell more than was held.
 - **Written only by the trade functions.** Members read their household's
-  trades; nobody writes them directly, and a traded holding's units and
-  average are refused from anywhere but the replay. A trade, its holding,
-  its fund and the holding's value change in one transaction, or not at all.
+  trades; nobody writes them directly, and a traded holding's units,
+  average and version are refused from anywhere but the replay. A trade, its
+  holding, its fund and the holding's value change in one transaction, or not
+  at all; two saves on one holding take turns, and one that waited reads the
+  trade again, so a sale deleted twice at once is reversed once.
 - **Once per confirmation.** A bot confirmation records at most one trade,
   and a confirmation shown on an older version of the holding is refused.
 - **Eight decimals.** Units keep eight places, as a broker of fractional
@@ -2865,14 +2869,18 @@ into it, so net worth does not jump or drop on the day of a trade.
 - **Cash, but not for bills.** Broker funds count in net worth and in the
   Life plan's starting cash. They stay out of Overview's liquid money, cash
   cover and near-term goals paid from cash, and the bot never takes one as
-  the account an expense was paid from.
+  the account an expense was paid from. The other way round, a trade's fund
+  must be a Broker funds account, so a trade's money never lands in a card or
+  a bank account. A fix that names no fund keeps the trade's own.
 - **The monthly check-in sets the truth.** Dividends, fees and payouts to the
   bank move a broker's cash without a trade; the 1st-of-month check-in
   confirms the balance, as for any account.
 - **Never counted twice.** A trade that happened before the fund's balance
   was last confirmed does not move it, whether it is recorded late,
   back-dated, fixed or deleted: the confirmed figure already includes it.
-  A trade's moment is its time, or the end of its trade date in Dubai.
+  A trade's moment is its time, or the end of its trade date in Dubai. A
+  balance confirmed while a trade is being saved waits for the trade, or the
+  trade waits for it, so the two never both count.
 - **Brokerage in the average is per broker.** Some brokers add a buy's
   brokerage into the average price and some do not; each fund says which,
   so the app's average matches the broker's.
@@ -2885,5 +2893,7 @@ with the value of the old units. It now writes through one database function
 that takes the holding's row lock and works the value, and today's value
 point, from the units at that moment. A rupee holding is valued at the
 household's stored rate, which the feed refreshes first, the same rate every
-other rupee figure uses. A holding sold to zero is not priced at all.
+other rupee figure uses. A holding its trades sold to zero is not priced at
+all; one without trades is priced whatever its units, so a zero typed by hand
+values it at zero instead of keeping the last value.
 

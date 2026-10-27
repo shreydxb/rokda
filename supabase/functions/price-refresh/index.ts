@@ -20,8 +20,9 @@ const TWELVEDATA_API_KEY = Deno.env.get("TWELVEDATA_API_KEY");
 
 const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
-// AED-USD is a hard peg (3.6725, fixed by the UAE Central Bank since 1997) —
-// a real constant, not a rate that needs fetching.
+// AED-USD is a hard peg (3.6725, fixed by the UAE Central Bank since 1997),
+// so only the rupee rate is fetched. The database applies the peg when it
+// values a holding (private.holding_value_aed, through set_holding_price).
 
 async function refreshFx(): Promise<{ ok: boolean; rate: number | null; error?: string }> {
   const { data: existing } = await supabase
@@ -244,13 +245,15 @@ async function fetchYahoo(symbol: string): Promise<PriceResult> {
 }
 
 async function refreshHoldings() {
-  // A holding sold to zero is closed: it keeps its history and needs no price.
+  // A holding its trades sold to zero is closed: it keeps its history and
+  // needs no price. One without trades is priced whatever its units, so a
+  // zero typed by hand values it at zero.
   const { data: holdings, error } = await supabase
     .from("holdings")
     .select("id, currency, price_symbol, price_provider, price_fetch_fail_count")
     .not("price_symbol", "is", null)
     .not("price_provider", "is", null)
-    .or("quantity.is.null,quantity.gt.0");
+    .or("quantity.is.null,quantity.gt.0,trades_version.eq.0");
   if (error || !holdings) return { updated: 0, failed: 0, historyCaptured: 0 };
 
   const byProvider = new Map<string, Holding[]>();

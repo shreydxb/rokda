@@ -99,6 +99,14 @@ comment on column holding_trades.units is 'Units bought, sold or opened with; fo
 comment on column holding_trades.cash_amount is 'The money that moved through the fund, in its currency: negative on a buy (units × price + fees), positive on a sale (units × price − fees − tax). Zero on an opening or a split.';
 comment on column holding_trades.traded_at is 'The moment of the trade when the broker''s confirmation shows it; it orders trades within a day and decides whether a fund''s confirmed balance already includes the trade.';
 comment on column holding_trades.tax_to_confirm is 'An Indian sale saved before the broker''s statement was read: its tax is not yet the broker''s figure.';
+comment on column holding_trades.price is 'Price per unit in the holding''s currency, before fees. Empty on a split.';
+comment on column holding_trades.fees is 'Brokerage and charges on a buy or a sale, in the holding''s currency. Added to the average on a buy only where the fund says so (accounts.brokerage_in_average).';
+comment on column holding_trades.tax_withheld is 'Tax the broker deducted from a sale''s proceeds, in the holding''s currency. Zero on anything else.';
+comment on column holding_trades.units_after is 'The holding''s units after this trade, written by the replay of all its trades; never entered.';
+comment on column holding_trades.avg_after is 'The holding''s average price after this trade, written by the replay; a sale leaves it unchanged.';
+comment on column holding_trades.realised is 'On a sale, the profit taken: units × (price − average before the sale) − fees. Tax withheld is not taken off. Written by the replay; empty on anything else.';
+comment on column holding_trades.source is 'Where the trade was entered: opening (the fresh start), bot (Telegram), app, or statement (read from a broker''s statement).';
+comment on column holding_trades.proposal_id is 'The bot proposal that recorded this trade, so a repeated confirmation of the same proposal saves it once.';
 
 -- The fund is in the holding's currency and still open. A dollar trade
 -- through a rupee fund, or into a closed account, is refused here even if a
@@ -119,6 +127,9 @@ begin
     raise exception 'a trade''s fund must be in the holding''s currency (% fund, % holding)', v_fund.currency, v_currency
       using errcode = 'check_violation';
   end if;
+  if v_fund.type is distinct from 'broker_funds' then
+    raise exception 'a trade''s fund must be a broker funds account' using errcode = 'check_violation';
+  end if;
   if v_fund.archived_at is not null then
     raise exception 'a closed account takes no new trades' using errcode = 'check_violation';
   end if;
@@ -133,16 +144,29 @@ create trigger holding_trades_check_fund
 -- Once a holding has its opening entry, its units and average come only from
 -- the replay of its trades. A hand edit would make the two disagree, so it is
 -- refused unless the replay itself is writing (a transaction-local flag only
--- the trade functions set).
+-- the trade functions set). The version is guarded the same way: resetting it
+-- would unlock the units, and moving it would get past the stale check on a
+-- save made from an old screen. A new holding starts with no trades.
 create or replace function private.guard_traded_units()
 returns trigger
 language plpgsql
 set search_path = ''
 as $$
 begin
+  if coalesce(current_setting('rokda.trade_replay', true), '') = 'on' then
+    return new;
+  end if;
+  if tg_op = 'INSERT' then
+    if new.trades_version <> 0 then
+      raise exception 'a new holding starts with no trades' using errcode = 'check_violation';
+    end if;
+    return new;
+  end if;
+  if new.trades_version is distinct from old.trades_version then
+    raise exception 'a holding''s trade version moves only with its trades' using errcode = 'check_violation';
+  end if;
   if old.trades_version > 0
-     and (new.quantity is distinct from old.quantity or new.avg_price is distinct from old.avg_price)
-     and coalesce(current_setting('rokda.trade_replay', true), '') <> 'on' then
+     and (new.quantity is distinct from old.quantity or new.avg_price is distinct from old.avg_price) then
     raise exception 'units and average price of a traded holding change only through its trades'
       using errcode = 'check_violation';
   end if;
@@ -151,7 +175,7 @@ end;
 $$;
 
 create trigger holdings_guard_traded_units
-  before update of quantity, avg_price on holdings
+  before insert or update of quantity, avg_price, trades_version on holdings
   for each row execute function private.guard_traded_units();
 
 -- A holding with buys or sales is kept: deleting it would lose where its money
@@ -206,7 +230,9 @@ revoke insert, update, delete on holding_trades from anon, authenticated;
 -- re-averages; a sale keeps the average and records profit against it; a
 -- split multiplies units and divides the average. It refuses an entry before
 -- the opening, a holding with no opening, and selling more than was held at
--- that point.
+-- that point. Whether a buy's brokerage goes into the average is the fund's
+-- setting, carried on each entry; p_brokerage_in_average is only the default
+-- for an entry that does not say.
 create or replace function private.replay_entries(p_entries jsonb, p_brokerage_in_average boolean)
 returns jsonb
 language plpgsql
@@ -233,29 +259,34 @@ begin
   end if;
 
   for e in
-    select x.id, x.kind, x.trade_date, x.units, x.price, coalesce(x.fees, 0) as fees
+    select x.id, x.kind, x.trade_date, x.units, x.price, coalesce(x.fees, 0) as fees,
+      coalesce(x.brokerage_in_average, p_brokerage_in_average) as brokerage_in_average
     from jsonb_to_recordset(p_entries)
-      as x(id text, kind text, trade_date date, traded_at timestamptz, created_at timestamptz, units numeric, price numeric, fees numeric)
+      as x(id text, kind text, trade_date date, traded_at timestamptz, created_at timestamptz, units numeric, price numeric,
+           fees numeric, brokerage_in_average boolean)
     order by x.trade_date, x.kind <> 'opening', x.traded_at nulls last, x.created_at nulls last, x.id
   loop
     if e.trade_date < v_opening_date then
       return jsonb_build_object('ok', false, 'error', 'before_opening', 'entry_id', e.id);
     end if;
     v_realised := null;
+    -- Units are kept at the eight decimals they are stored and shown in, at
+    -- every step, so after a split by a fractional ratio the units shown are
+    -- exactly the units that can be sold.
     if e.kind = 'opening' then
-      v_units := e.units;
+      v_units := round(e.units, 8);
       v_avg := e.price;
     elsif e.kind = 'buy' then
-      v_avg := (v_units * v_avg + e.units * e.price + case when p_brokerage_in_average then e.fees else 0 end) / (v_units + e.units);
-      v_units := v_units + e.units;
+      v_avg := (v_units * v_avg + e.units * e.price + case when e.brokerage_in_average then e.fees else 0 end) / (v_units + e.units);
+      v_units := round(v_units + e.units, 8);
     elsif e.kind = 'sell' then
       if e.units > v_units then
         return jsonb_build_object('ok', false, 'error', 'exceeds_units', 'entry_id', e.id);
       end if;
       v_realised := e.units * (e.price - v_avg) - e.fees;
-      v_units := v_units - e.units;
+      v_units := round(v_units - e.units, 8);
     elsif e.kind = 'split' then
-      v_units := v_units * e.units;
+      v_units := round(v_units * e.units, 8);
       v_avg := v_avg / e.units;
     else
       return jsonb_build_object('ok', false, 'error', 'bad_input', 'entry_id', e.id);
@@ -339,8 +370,8 @@ as $$
       or coalesce(p_traded_at, (p_trade_date + 1)::timestamp at time zone 'Asia/Dubai') > p_balance_as_of;
 $$;
 
--- A holding's entries as the replay takes them, leaving one out (the trade
--- being fixed or deleted).
+-- A holding's entries as the replay takes them, each with its fund's
+-- brokerage setting, leaving one out (the trade being fixed or deleted).
 create or replace function private.holding_entries(p_holding_id uuid, p_exclude_id uuid)
 returns jsonb
 language sql
@@ -349,8 +380,10 @@ set search_path = ''
 as $$
   select coalesce(jsonb_agg(jsonb_build_object(
     'id', t.id, 'kind', t.kind, 'trade_date', t.trade_date, 'traded_at', t.traded_at,
-    'created_at', t.created_at, 'units', t.units, 'price', t.price, 'fees', t.fees)), '[]'::jsonb)
+    'created_at', t.created_at, 'units', t.units, 'price', t.price, 'fees', t.fees,
+    'brokerage_in_average', a.brokerage_in_average)), '[]'::jsonb)
   from public.holding_trades t
+  left join public.accounts a on a.id = t.funds_account_id
   where t.holding_id = p_holding_id and t.id is distinct from p_exclude_id;
 $$;
 
@@ -378,6 +411,9 @@ declare
   v_holding public.holdings%rowtype;
   v_value numeric;
 begin
+  if not coalesce((p_result ->> 'ok')::boolean, false) then
+    raise exception 'refusing to write a replay that failed: %', p_result;
+  end if;
   update public.holding_trades t
   set units_after = (x ->> 'units_after')::numeric,
       avg_after = (x ->> 'avg_after')::numeric,
@@ -404,6 +440,43 @@ begin
 end;
 $$;
 
+-- Locks the funds a save may move, before it reads when each was last checked
+-- in. A balance entered at the same moment then either lands first, and the
+-- trade sees it, or waits for the trade; the trade is never counted both in
+-- the entered balance and as a movement. Id order, so two saves never wait
+-- on each other.
+create or replace function private.lock_funds(p_fund_ids uuid[])
+returns void
+language sql
+security definer
+set search_path = ''
+as $$
+  select null from public.accounts where id = any(p_fund_ids) order by id for update;
+$$;
+
+-- Replays a holding from its saved entries and writes the result, after
+-- checking it is what the preview promised. They run the same function on
+-- the same figures, so a difference means a bug, and the whole save is undone
+-- rather than written with figures nobody was shown.
+create or replace function private.save_replay(p_holding public.holdings, p_effect jsonb)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_result jsonb;
+begin
+  v_result := private.replay_entries(private.holding_entries(p_holding.id, null), private.holding_brokerage_in_average(p_holding));
+  if not coalesce((v_result ->> 'ok')::boolean, false)
+     or v_result -> 'units' <> p_effect -> 'holding_units_after'
+     or v_result -> 'avg' <> p_effect -> 'holding_avg_after' then
+    raise exception 'the saved replay % does not match the preview %', v_result, p_effect;
+  end if;
+  perform private.write_replay(p_holding.id, v_result);
+end;
+$$;
+
 -- What a trade would do, without saving it: checks, the replay, the money and
 -- the warnings. The preview shows this, and record, fix and delete save
 -- exactly this, so the two cannot disagree. p_replace_trade_id is the trade a
@@ -416,8 +489,12 @@ language plpgsql
 set search_path = ''
 as $$
 declare
-  v_fees numeric := coalesce(p_fees, 0);
-  v_tax numeric := coalesce(p_tax_withheld, 0);
+  -- Inputs are rounded to the scales they are stored at, so the replay here
+  -- works on exactly the figures that will be saved.
+  v_units numeric := round(p_units, 8);
+  v_price numeric := round(p_price, 6);
+  v_fees numeric := round(coalesce(p_fees, 0), 4);
+  v_tax numeric := round(coalesce(p_tax_withheld, 0), 4);
   v_old public.holding_trades%rowtype;
   v_old_fund public.accounts%rowtype;
   v_fund public.accounts%rowtype;
@@ -433,8 +510,8 @@ declare
   v_warnings jsonb := '[]'::jsonb;
 begin
   if p_kind is null or p_kind not in ('opening', 'buy', 'sell', 'split') or p_trade_date is null
-     or p_units is null or p_units <= 0 or v_fees < 0 or v_tax < 0
-     or (p_kind = 'split') <> (p_price is null) or coalesce(p_price, 0) < 0
+     or v_units is null or v_units <= 0 or v_fees < 0 or v_tax < 0
+     or (p_kind = 'split') <> (v_price is null) or coalesce(v_price, 0) < 0
      or (p_kind <> 'sell' and v_tax <> 0) or (p_kind in ('opening', 'split') and v_fees <> 0) then
     return jsonb_build_object('ok', false, 'error', 'bad_input');
   end if;
@@ -455,12 +532,14 @@ begin
   if p_holding.trades_version = 0 then
     return jsonb_build_object('ok', false, 'error', 'no_opening');
   end if;
-  if p_holding.asset_class = 'india_equity' and p_kind <> 'split' and p_units <> trunc(p_units) then
+  if p_holding.asset_class = 'india_equity' and p_kind <> 'split' and v_units <> trunc(v_units) then
     return jsonb_build_object('ok', false, 'error', 'whole_units_only');
   end if;
 
+  -- The fund named, else the fund the trade already used (a fix that leaves
+  -- the fund alone keeps it), else the holding's usual one.
   if p_kind in ('buy', 'sell') then
-    v_fund_id := coalesce(p_funds_account_id, p_holding.funds_account_id);
+    v_fund_id := coalesce(p_funds_account_id, v_old.funds_account_id, p_holding.funds_account_id);
     if v_fund_id is null then
       return jsonb_build_object('ok', false, 'error', 'fund_required');
     end if;
@@ -468,19 +547,25 @@ begin
     if not found then
       return jsonb_build_object('ok', false, 'error', 'fund_required');
     end if;
+    -- A trade's money sits with the broker; a card or a bank account would
+    -- take the trade's cash into spending and the cash cover.
+    if v_fund.type <> 'broker_funds' then
+      return jsonb_build_object('ok', false, 'error', 'not_broker_funds');
+    end if;
     if v_fund.currency is distinct from p_holding.currency then
       return jsonb_build_object('ok', false, 'error', 'currency_mismatch');
     end if;
     if v_fund.archived_at is not null then
       return jsonb_build_object('ok', false, 'error', 'fund_archived');
     end if;
-    v_cash := round(case when p_kind = 'buy' then -(p_units * p_price + v_fees) else p_units * p_price - v_fees - v_tax end, 4);
+    v_cash := round(case when p_kind = 'buy' then -(v_units * v_price + v_fees) else v_units * v_price - v_fees - v_tax end, 4);
     v_moves := private.trade_moves_fund(v_fund.balance_as_of, p_trade_date, p_traded_at);
   end if;
 
   v_entries := private.holding_entries(p_holding.id, p_replace_trade_id) || jsonb_build_array(jsonb_build_object(
     'id', 'new', 'kind', p_kind, 'trade_date', p_trade_date, 'traded_at', p_traded_at,
-    'created_at', coalesce(v_old.created_at, clock_timestamp()), 'units', p_units, 'price', p_price, 'fees', v_fees));
+    'created_at', coalesce(v_old.created_at, clock_timestamp()), 'units', v_units, 'price', v_price, 'fees', v_fees,
+    'brokerage_in_average', v_fund.brokerage_in_average));
   v_result := private.replay_entries(v_entries, private.holding_brokerage_in_average(p_holding));
   if not (v_result ->> 'ok')::boolean then
     return v_result;
@@ -488,7 +573,8 @@ begin
   select x into v_new from jsonb_array_elements(v_result -> 'entries') x where x ->> 'id' = 'new';
 
   -- The money: the new trade's, less the replaced trade's where that had
-  -- moved its fund. A different fund is reversed on its own.
+  -- moved its fund. A different fund is reversed on its own. A balance is
+  -- kept in fils, so the movement is too.
   if v_moves then v_delta := v_cash; end if;
   if v_old.funds_account_id is not null then
     select * into v_old_fund from public.accounts where id = v_old.funds_account_id;
@@ -501,6 +587,8 @@ begin
       end if;
     end if;
   end if;
+  v_delta := round(v_delta, 2);
+  v_old_delta := round(v_old_delta, 2);
 
   if p_kind in ('buy', 'sell') then
     if not v_moves then
@@ -509,12 +597,12 @@ begin
     if v_fund.balance + v_delta < 0 then
       v_warnings := v_warnings || '"fund_below_zero"'::jsonb;
     end if;
-    if p_holding.current_price > 0 and abs(p_price / p_holding.current_price - 1) > 0.20 then
+    if p_holding.current_price > 0 and abs(v_price / p_holding.current_price - 1) > 0.20 then
       v_warnings := v_warnings || '"price_off_market"'::jsonb;
     end if;
     if exists (
       select 1 from public.holding_trades t
-      where t.holding_id = p_holding.id and t.kind = p_kind and t.units = p_units and t.price = p_price
+      where t.holding_id = p_holding.id and t.kind = p_kind and t.units = v_units and t.price = v_price
         and abs(t.trade_date - p_trade_date) <= 2 and t.id is distinct from p_replace_trade_id
     ) then
       v_warnings := v_warnings || '"possible_duplicate"'::jsonb;
@@ -523,6 +611,10 @@ begin
 
   return jsonb_build_object(
     'ok', true,
+    'units', v_units,
+    'price', v_price,
+    'fees', v_fees,
+    'tax_withheld', v_tax,
     'trades_version', p_holding.trades_version,
     'units_before', p_holding.quantity,
     'avg_before', p_holding.avg_price,
@@ -628,6 +720,7 @@ begin
     return jsonb_build_object('ok', false, 'error', 'stale', 'trades_version', v_holding.trades_version);
   end if;
 
+  perform private.lock_funds(array[coalesce(p_funds_account_id, v_holding.funds_account_id)]);
   v_effect := private.trade_effect(v_holding, p_kind, p_trade_date, p_units, p_price, p_fees, p_tax_withheld,
     p_traded_at, p_funds_account_id, null);
   if not (v_effect ->> 'ok')::boolean then
@@ -639,13 +732,13 @@ begin
     tax_to_confirm, funds_account_id, cash_amount, source, proposal_id, note, created_by, created_at)
   values (
     v_holding.household_id, v_holding.id, coalesce(v_holding.owner_member_id, v_member), p_kind, p_trade_date,
-    p_traded_at, p_units, p_price, coalesce(p_fees, 0), coalesce(p_tax_withheld, 0), coalesce(p_tax_to_confirm, false),
+    p_traded_at, (v_effect ->> 'units')::numeric, (v_effect ->> 'price')::numeric, (v_effect ->> 'fees')::numeric,
+    (v_effect ->> 'tax_withheld')::numeric, coalesce(p_tax_to_confirm, false),
     (v_effect ->> 'funds_account_id')::uuid, (v_effect ->> 'cash_amount')::numeric, p_source, p_proposal_id,
     p_note, v_member, clock_timestamp())
   returning id into v_trade;
 
-  perform private.write_replay(v_holding.id,
-    private.replay_entries(private.holding_entries(v_holding.id, null), private.holding_brokerage_in_average(v_holding)));
+  perform private.save_replay(v_holding, v_effect);
   perform private.move_fund((v_effect ->> 'funds_account_id')::uuid, (v_effect ->> 'funds_delta')::numeric, p_source, v_member);
 
   return v_effect || jsonb_build_object('trade_id', v_trade, 'trades_version', v_holding.trades_version + 1);
@@ -660,6 +753,8 @@ revoke execute on function private.holding_brokerage_in_average(public.holdings)
 revoke execute on function private.write_replay(uuid, jsonb) from public, anon, authenticated;
 revoke execute on function private.trade_effect(public.holdings, text, date, numeric, numeric, numeric, numeric, timestamptz, uuid, uuid) from public, anon, authenticated;
 revoke execute on function private.move_fund(uuid, numeric, text, uuid) from public, anon, authenticated;
+revoke execute on function private.save_replay(public.holdings, jsonb) from public, anon, authenticated;
+revoke execute on function private.lock_funds(uuid[]) from public, anon, authenticated;
 revoke execute on function public.preview_trade(uuid, text, date, numeric, numeric, numeric, numeric, timestamptz, uuid, uuid, uuid) from public, anon;
 revoke execute on function public.record_trade(uuid, text, date, numeric, numeric, numeric, numeric, timestamptz, uuid, text, uuid, uuid, integer, boolean, text) from public, anon;
 grant execute on function public.preview_trade(uuid, text, date, numeric, numeric, numeric, numeric, timestamptz, uuid, uuid, uuid) to authenticated, service_role;
@@ -694,6 +789,13 @@ begin
     return jsonb_build_object('ok', false, 'error', 'trade_not_found');
   end if;
   select * into v_holding from public.holdings where id = v_trade.holding_id for update;
+  -- Read the trade again now the holding is locked: a save that held the lock
+  -- first may have changed or deleted it, and acting on the first read would
+  -- move its money twice.
+  select * into v_trade from public.holding_trades where id = p_trade_id;
+  if not found then
+    return jsonb_build_object('ok', false, 'error', 'trade_not_found');
+  end if;
   v_member := private.trade_caller(v_holding.household_id, p_member_id);
   if v_member is null then
     return jsonb_build_object('ok', false, 'error', 'not_member');
@@ -705,6 +807,8 @@ begin
     return jsonb_build_object('ok', false, 'error', 'bad_input');
   end if;
 
+  perform private.lock_funds(array[coalesce(p_funds_account_id, v_trade.funds_account_id, v_holding.funds_account_id),
+    v_trade.funds_account_id]);
   v_effect := private.trade_effect(v_holding, v_trade.kind, p_trade_date, p_units, p_price, p_fees, p_tax_withheld,
     p_traded_at, p_funds_account_id, v_trade.id);
   if not (v_effect ->> 'ok')::boolean then
@@ -712,15 +816,15 @@ begin
   end if;
 
   update public.holding_trades
-  set trade_date = p_trade_date, traded_at = p_traded_at, units = p_units, price = p_price,
-      fees = coalesce(p_fees, 0), tax_withheld = coalesce(p_tax_withheld, 0),
+  set trade_date = p_trade_date, traded_at = p_traded_at, units = (v_effect ->> 'units')::numeric,
+      price = (v_effect ->> 'price')::numeric, fees = (v_effect ->> 'fees')::numeric,
+      tax_withheld = (v_effect ->> 'tax_withheld')::numeric,
       tax_to_confirm = coalesce(p_tax_to_confirm, false),
       funds_account_id = (v_effect ->> 'funds_account_id')::uuid,
       cash_amount = (v_effect ->> 'cash_amount')::numeric, note = p_note
   where id = v_trade.id;
 
-  perform private.write_replay(v_holding.id,
-    private.replay_entries(private.holding_entries(v_holding.id, null), private.holding_brokerage_in_average(v_holding)));
+  perform private.save_replay(v_holding, v_effect);
   perform private.move_fund((v_effect ->> 'funds_account_id')::uuid, (v_effect ->> 'funds_delta')::numeric, v_source, v_member);
   perform private.move_fund((v_effect ->> 'old_funds_account_id')::uuid, (v_effect ->> 'old_funds_delta')::numeric, v_source, v_member);
 
@@ -752,6 +856,13 @@ begin
     return jsonb_build_object('ok', false, 'error', 'trade_not_found');
   end if;
   select * into v_holding from public.holdings where id = v_trade.holding_id for update;
+  -- Read the trade again now the holding is locked: a save that held the lock
+  -- first may have changed or deleted it, and acting on the first read would
+  -- move its money twice.
+  select * into v_trade from public.holding_trades where id = p_trade_id;
+  if not found then
+    return jsonb_build_object('ok', false, 'error', 'trade_not_found');
+  end if;
   v_member := private.trade_caller(v_holding.household_id, p_member_id);
   if v_member is null then
     return jsonb_build_object('ok', false, 'error', 'not_member');
@@ -765,10 +876,13 @@ begin
       return jsonb_build_object('ok', false, 'error', 'opening_has_trades');
     end if;
     delete from public.holding_trades where id = v_trade.id;
+    perform set_config('rokda.trade_replay', 'on', true);
     update public.holdings set trades_version = 0 where id = v_holding.id;
+    perform set_config('rokda.trade_replay', '', true);
     return jsonb_build_object('ok', true, 'trade_id', v_trade.id, 'trades_version', 0);
   end if;
 
+  perform private.lock_funds(array[v_trade.funds_account_id]);
   v_result := private.replay_entries(private.holding_entries(v_holding.id, v_trade.id), private.holding_brokerage_in_average(v_holding));
   if not (v_result ->> 'ok')::boolean then
     return v_result;
@@ -806,18 +920,24 @@ grant execute on function public.delete_trade(uuid, integer, uuid) to authentica
 -- (no units or no average) are left as they are. A holding with no fund is
 -- linked to the member's broker funds account in its currency when there is
 -- exactly one; with more, the member chooses later. Nothing about the
--- holdings' units, average or value changes. Run by the service role.
+-- holdings' units, average or value changes. Shared holdings have no owner,
+-- so they are not opened here; how many are left is reported, so go-live
+-- assigns them an owner first rather than leaving them out silently. Run by
+-- the service role. Returns {"opened": n, "shared_left": n}.
 create or replace function public.open_trade_history(p_member_id uuid, p_trade_date date)
-returns integer
+returns jsonb
 language plpgsql
 security definer
 set search_path = ''
 as $$
 declare
   v_holding record;
+  v_household uuid;
   v_funds uuid[];
   v_count integer := 0;
+  v_shared integer;
 begin
+  select household_id into v_household from public.household_members where id = p_member_id;
   for v_holding in
     select h.* from public.holdings h
     where h.owner_member_id = p_member_id and h.trades_version = 0
@@ -839,10 +959,16 @@ begin
     values (
       v_holding.household_id, v_holding.id, p_member_id, 'opening', p_trade_date, v_holding.quantity, v_holding.avg_price,
       'opening', v_holding.quantity, v_holding.avg_price, p_member_id, clock_timestamp());
+    perform set_config('rokda.trade_replay', 'on', true);
     update public.holdings set trades_version = 1 where id = v_holding.id;
+    perform set_config('rokda.trade_replay', '', true);
     v_count := v_count + 1;
   end loop;
-  return v_count;
+
+  select count(*) into v_shared from public.holdings h
+  where h.household_id = v_household and h.owner_member_id is null and h.trades_version = 0
+    and h.quantity > 0 and h.avg_price is not null;
+  return jsonb_build_object('opened', v_count, 'shared_left', v_shared);
 end;
 $$;
 
