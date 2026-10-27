@@ -3222,4 +3222,115 @@ begin
   raise notice 'B2-29 ok: Indian shares in whole units, through a rupee fund';
 end $$;
 
+-- B2-30 to B2-35: fix and delete a trade. A fresh holding of 10 at 100,
+-- priced at 150, with two unconfirmed dollar funds of 1000.
+update accounts set balance = 1000, balance_as_of = null where id = 'b2000000-0000-0000-0000-0000000000f1';
+insert into accounts (id, household_id, name, type, currency, balance, is_shared)
+values ('b2000000-0000-0000-0000-0000000000f3', '11111111-1111-1111-1111-111111111111', 'Second dollar fund', 'broker_funds', 'USD', 1000, false);
+insert into holdings (id, household_id, owner_member_id, is_shared, name, asset_class, currency, quantity, avg_price, current_price, value_aed, funds_account_id, trades_version)
+values ('b2000000-0000-0000-0000-000000000301', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', false, 'DEF', 'us_equity', 'USD', 10, 100, 150, 5508.75, 'b2000000-0000-0000-0000-0000000000f1', 1);
+insert into holding_trades (id, household_id, holding_id, member_id, kind, trade_date, units, price, source, units_after, avg_after)
+values ('b2000000-0000-0000-0000-000000000310', '11111111-1111-1111-1111-111111111111', 'b2000000-0000-0000-0000-000000000301', '22222222-2222-2222-2222-222222222222', 'opening', '2026-10-01', 10, 100, 'opening', 10, 100);
+create temporary table b2_ids (name text primary key, id uuid);
+
+-- B2-30: fixing the buy's price replays the average and the later sale's
+-- profit; the fund moves only by the difference.
+do $$
+declare b jsonb; sl jsonb; r jsonb; t holding_trades; h holdings; f numeric;
+begin
+  b := record_trade('b2000000-0000-0000-0000-000000000301', 'buy', '2026-10-02', 5, 130, 1, p_source => 'app', p_member_id => '22222222-2222-2222-2222-222222222222');
+  sl := record_trade('b2000000-0000-0000-0000-000000000301', 'sell', '2026-10-03', 6, 150, 1, p_source => 'app', p_member_id => '22222222-2222-2222-2222-222222222222');
+  insert into b2_ids values ('buy', (b ->> 'trade_id')::uuid), ('sell', (sl ->> 'trade_id')::uuid);
+  r := fix_trade((b ->> 'trade_id')::uuid, '2026-10-02', 5, 120, 1, 0, null, 'b2000000-0000-0000-0000-0000000000f1', false, null, null,
+    p_member_id => '22222222-2222-2222-2222-222222222222');
+  select * into t from holding_trades where id = (sl ->> 'trade_id')::uuid;
+  select * into h from holdings where id = 'b2000000-0000-0000-0000-000000000301';
+  select balance into f from accounts where id = 'b2000000-0000-0000-0000-0000000000f1';
+  if (r ->> 'ok')::boolean is not true or t.realised <> 259 or h.avg_price <> 106.666667 or h.quantity <> 9 or f <> 1298 then
+    raise exception 'B2-30 FAILED: %, sale profit %, holding % at %, fund %', r, t.realised, h.quantity, h.avg_price, f;
+  end if;
+  raise notice 'B2-30 ok: a fixed buy price replays the sale''s profit (259) and moves the fund by the difference only (1298)';
+end $$;
+
+-- B2-31: deleting the sale restores its units and reverses its money.
+do $$
+declare r jsonb; h holdings; f numeric;
+begin
+  r := delete_trade((select id from b2_ids where name = 'sell'), null, p_member_id => '22222222-2222-2222-2222-222222222222');
+  select * into h from holdings where id = 'b2000000-0000-0000-0000-000000000301';
+  select balance into f from accounts where id = 'b2000000-0000-0000-0000-0000000000f1';
+  if (r ->> 'ok')::boolean is not true or h.quantity <> 15 or f <> 399 or exists (select 1 from holding_trades where id = (select id from b2_ids where name = 'sell')) then
+    raise exception 'B2-31 FAILED: %, % units, fund %', r, h.quantity, f;
+  end if;
+  raise notice 'B2-31 ok: deleting the sale gives back 15 units and takes its 899 out of the fund';
+end $$;
+
+-- B2-32: a fix that would leave a later sale selling more than was held is
+-- refused, and nothing changes.
+do $$
+declare s2 jsonb; r jsonb; h holdings; f numeric; u numeric;
+begin
+  s2 := record_trade('b2000000-0000-0000-0000-000000000301', 'sell', '2026-10-04', 12, 150, 0, p_source => 'app', p_member_id => '22222222-2222-2222-2222-222222222222');
+  select balance into f from accounts where id = 'b2000000-0000-0000-0000-0000000000f1';
+  r := fix_trade((select id from b2_ids where name = 'buy'), '2026-10-02', 1, 120, 1, 0, null, 'b2000000-0000-0000-0000-0000000000f1', false, null, null,
+    p_member_id => '22222222-2222-2222-2222-222222222222');
+  select * into h from holdings where id = 'b2000000-0000-0000-0000-000000000301';
+  select units into u from holding_trades where id = (select id from b2_ids where name = 'buy');
+  if r ->> 'error' is distinct from 'exceeds_units' or h.quantity <> 3 or u <> 5
+     or (select balance from accounts where id = 'b2000000-0000-0000-0000-0000000000f1') <> f then
+    raise exception 'B2-32 FAILED: %, holding %, buy units %', r, h.quantity, u;
+  end if;
+  perform delete_trade((s2 ->> 'trade_id')::uuid, null, p_member_id => '22222222-2222-2222-2222-222222222222');
+  raise notice 'B2-32 ok: a fix that a later sale cannot survive is refused';
+end $$;
+
+-- B2-33 (Review Focus 5): moving a trade to another fund reverses the first
+-- fund and moves the second.
+do $$
+declare r jsonb; f1 numeric; f3 numeric;
+begin
+  r := fix_trade((select id from b2_ids where name = 'buy'), '2026-10-02', 5, 120, 1, 0, null, 'b2000000-0000-0000-0000-0000000000f3', false, null, null,
+    p_member_id => '22222222-2222-2222-2222-222222222222');
+  select balance into f1 from accounts where id = 'b2000000-0000-0000-0000-0000000000f1';
+  select balance into f3 from accounts where id = 'b2000000-0000-0000-0000-0000000000f3';
+  if (r ->> 'ok')::boolean is not true or f1 <> 1000 or f3 <> 399 then
+    raise exception 'B2-33 FAILED: %, first fund %, second fund %', r, f1, f3;
+  end if;
+  raise notice 'B2-33 ok: the first fund gets its 601 back and the second pays it';
+end $$;
+
+-- B2-34: fixing or deleting a trade from before the fund's confirmed balance
+-- changes the trade and the holding, never the fund.
+do $$
+declare r jsonb; f3 numeric; h holdings;
+begin
+  update accounts set balance_as_of = '2026-10-20 12:00+04' where id = 'b2000000-0000-0000-0000-0000000000f3';
+  r := fix_trade((select id from b2_ids where name = 'buy'), '2026-10-02', 5, 110, 1, 0, null, 'b2000000-0000-0000-0000-0000000000f3', false, null, null,
+    p_member_id => '22222222-2222-2222-2222-222222222222');
+  select balance into f3 from accounts where id = 'b2000000-0000-0000-0000-0000000000f3';
+  if (r ->> 'ok')::boolean is not true or f3 <> 399 then raise exception 'B2-34 FAILED: a fix moved a confirmed fund to %', f3; end if;
+  r := delete_trade((select id from b2_ids where name = 'buy'), null, p_member_id => '22222222-2222-2222-2222-222222222222');
+  select balance into f3 from accounts where id = 'b2000000-0000-0000-0000-0000000000f3';
+  select * into h from holdings where id = 'b2000000-0000-0000-0000-000000000301';
+  if (r ->> 'ok')::boolean is not true or f3 <> 399 or h.quantity <> 10 then raise exception 'B2-34 FAILED: delete gave %, fund %, units %', r, f3, h.quantity; end if;
+  update accounts set balance_as_of = null where id = 'b2000000-0000-0000-0000-0000000000f3';
+  raise notice 'B2-34 ok: a trade from before the confirmed balance is fixed and deleted without moving the fund';
+end $$;
+
+-- B2-35: selling everything closes the holding at no value; buying again
+-- reopens it; the opening entry stays while trades exist.
+do $$
+declare r jsonb; h holdings;
+begin
+  perform record_trade('b2000000-0000-0000-0000-000000000301', 'sell', '2026-10-05', 10, 150, 0, p_source => 'app', p_member_id => '22222222-2222-2222-2222-222222222222');
+  select * into h from holdings where id = 'b2000000-0000-0000-0000-000000000301';
+  if h.quantity <> 0 or h.value_aed <> 0 then raise exception 'B2-35 FAILED: sold out left % units worth %', h.quantity, h.value_aed; end if;
+  perform record_trade('b2000000-0000-0000-0000-000000000301', 'buy', '2026-10-06', 3, 100, 0, p_source => 'app', p_member_id => '22222222-2222-2222-2222-222222222222');
+  select * into h from holdings where id = 'b2000000-0000-0000-0000-000000000301';
+  if h.quantity <> 3 or h.avg_price <> 100 then raise exception 'B2-35 FAILED: bought again gives % at %', h.quantity, h.avg_price; end if;
+  r := delete_trade('b2000000-0000-0000-0000-000000000310', null, p_member_id => '22222222-2222-2222-2222-222222222222');
+  if r ->> 'error' is distinct from 'opening_has_trades' then raise exception 'B2-35 FAILED: deleting the opening gave %', r; end if;
+  raise notice 'B2-35 ok: sold out is worth 0, buying again reopens it, and the opening entry stays';
+end $$;
+
 rollback;

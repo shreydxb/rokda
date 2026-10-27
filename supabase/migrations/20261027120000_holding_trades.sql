@@ -664,3 +664,134 @@ revoke execute on function public.preview_trade(uuid, text, date, numeric, numer
 revoke execute on function public.record_trade(uuid, text, date, numeric, numeric, numeric, numeric, timestamptz, uuid, text, uuid, uuid, integer, boolean, text) from public, anon;
 grant execute on function public.preview_trade(uuid, text, date, numeric, numeric, numeric, numeric, timestamptz, uuid, uuid, uuid) to authenticated, service_role;
 grant execute on function public.record_trade(uuid, text, date, numeric, numeric, numeric, numeric, timestamptz, uuid, text, uuid, uuid, integer, boolean, text) to authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+-- 4. Fix and delete a trade
+-- ---------------------------------------------------------------------------
+
+-- Changes a trade and replays its holding. The money follows: the old trade's
+-- is reversed from its fund and the new one's moved through the (possibly
+-- different) fund, each only where it is not already in a confirmed balance.
+-- A trade keeps its kind; an opening entry can be fixed (units and price).
+create or replace function public.fix_trade(
+  p_trade_id uuid, p_trade_date date, p_units numeric, p_price numeric, p_fees numeric,
+  p_tax_withheld numeric, p_traded_at timestamptz, p_funds_account_id uuid, p_tax_to_confirm boolean,
+  p_note text, p_expected_version integer, p_member_id uuid default null)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_trade public.holding_trades%rowtype;
+  v_holding public.holdings%rowtype;
+  v_member uuid;
+  v_effect jsonb;
+  v_source text := case when auth.uid() is not null then 'app' else 'bot' end;
+begin
+  select * into v_trade from public.holding_trades where id = p_trade_id;
+  if not found then
+    return jsonb_build_object('ok', false, 'error', 'trade_not_found');
+  end if;
+  select * into v_holding from public.holdings where id = v_trade.holding_id for update;
+  v_member := private.trade_caller(v_holding.household_id, p_member_id);
+  if v_member is null then
+    return jsonb_build_object('ok', false, 'error', 'not_member');
+  end if;
+  if p_expected_version is not null and p_expected_version <> v_holding.trades_version then
+    return jsonb_build_object('ok', false, 'error', 'stale', 'trades_version', v_holding.trades_version);
+  end if;
+  if coalesce(p_tax_to_confirm, false) and v_trade.kind <> 'sell' then
+    return jsonb_build_object('ok', false, 'error', 'bad_input');
+  end if;
+
+  v_effect := private.trade_effect(v_holding, v_trade.kind, p_trade_date, p_units, p_price, p_fees, p_tax_withheld,
+    p_traded_at, p_funds_account_id, v_trade.id);
+  if not (v_effect ->> 'ok')::boolean then
+    return v_effect;
+  end if;
+
+  update public.holding_trades
+  set trade_date = p_trade_date, traded_at = p_traded_at, units = p_units, price = p_price,
+      fees = coalesce(p_fees, 0), tax_withheld = coalesce(p_tax_withheld, 0),
+      tax_to_confirm = coalesce(p_tax_to_confirm, false),
+      funds_account_id = (v_effect ->> 'funds_account_id')::uuid,
+      cash_amount = (v_effect ->> 'cash_amount')::numeric, note = p_note
+  where id = v_trade.id;
+
+  perform private.write_replay(v_holding.id,
+    private.replay_entries(private.holding_entries(v_holding.id, null), private.holding_brokerage_in_average(v_holding)));
+  perform private.move_fund((v_effect ->> 'funds_account_id')::uuid, (v_effect ->> 'funds_delta')::numeric, v_source, v_member);
+  perform private.move_fund((v_effect ->> 'old_funds_account_id')::uuid, (v_effect ->> 'old_funds_delta')::numeric, v_source, v_member);
+
+  return v_effect || jsonb_build_object('trade_id', v_trade.id, 'trades_version', v_holding.trades_version + 1);
+end;
+$$;
+
+-- Removes a trade and replays its holding, reversing its money where it had
+-- moved its fund. Refused when a later sale would then sell more than was
+-- held. The opening entry goes only when it is the last entry left, which
+-- takes the holding back to being edited by hand.
+create or replace function public.delete_trade(p_trade_id uuid, p_expected_version integer, p_member_id uuid default null)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_trade public.holding_trades%rowtype;
+  v_holding public.holdings%rowtype;
+  v_fund public.accounts%rowtype;
+  v_member uuid;
+  v_result jsonb;
+  v_delta numeric := 0;
+  v_source text := case when auth.uid() is not null then 'app' else 'bot' end;
+begin
+  select * into v_trade from public.holding_trades where id = p_trade_id;
+  if not found then
+    return jsonb_build_object('ok', false, 'error', 'trade_not_found');
+  end if;
+  select * into v_holding from public.holdings where id = v_trade.holding_id for update;
+  v_member := private.trade_caller(v_holding.household_id, p_member_id);
+  if v_member is null then
+    return jsonb_build_object('ok', false, 'error', 'not_member');
+  end if;
+  if p_expected_version is not null and p_expected_version <> v_holding.trades_version then
+    return jsonb_build_object('ok', false, 'error', 'stale', 'trades_version', v_holding.trades_version);
+  end if;
+
+  if v_trade.kind = 'opening' then
+    if exists (select 1 from public.holding_trades t where t.holding_id = v_holding.id and t.id <> v_trade.id) then
+      return jsonb_build_object('ok', false, 'error', 'opening_has_trades');
+    end if;
+    delete from public.holding_trades where id = v_trade.id;
+    update public.holdings set trades_version = 0 where id = v_holding.id;
+    return jsonb_build_object('ok', true, 'trade_id', v_trade.id, 'trades_version', 0);
+  end if;
+
+  v_result := private.replay_entries(private.holding_entries(v_holding.id, v_trade.id), private.holding_brokerage_in_average(v_holding));
+  if not (v_result ->> 'ok')::boolean then
+    return v_result;
+  end if;
+
+  delete from public.holding_trades where id = v_trade.id;
+  perform private.write_replay(v_holding.id, v_result);
+
+  if v_trade.funds_account_id is not null then
+    select * into v_fund from public.accounts where id = v_trade.funds_account_id;
+    if private.trade_moves_fund(v_fund.balance_as_of, v_trade.trade_date, v_trade.traded_at) then
+      v_delta := -v_trade.cash_amount;
+      perform private.move_fund(v_fund.id, v_delta, v_source, v_member);
+    end if;
+  end if;
+
+  return jsonb_build_object('ok', true, 'trade_id', v_trade.id, 'trades_version', v_holding.trades_version + 1,
+    'holding_units_after', v_result -> 'units', 'holding_avg_after', v_result -> 'avg',
+    'funds_account_id', v_trade.funds_account_id, 'funds_delta', v_delta);
+end;
+$$;
+
+revoke execute on function public.fix_trade(uuid, date, numeric, numeric, numeric, numeric, timestamptz, uuid, boolean, text, integer, uuid) from public, anon;
+revoke execute on function public.delete_trade(uuid, integer, uuid) from public, anon;
+grant execute on function public.fix_trade(uuid, date, numeric, numeric, numeric, numeric, timestamptz, uuid, boolean, text, integer, uuid) to authenticated, service_role;
+grant execute on function public.delete_trade(uuid, integer, uuid) to authenticated, service_role;
