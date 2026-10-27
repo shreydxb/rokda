@@ -185,3 +185,81 @@ alter table holding_trades enable row level security;
 create policy "members can read trades" on holding_trades
   for select using (private.is_household_member(household_id));
 revoke insert, update, delete on holding_trades from anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+-- 2. The sums: one replay, which the preview and every save call
+-- ---------------------------------------------------------------------------
+
+-- Works out a holding's units, average price and each sale's profit from its
+-- entries, in order: by trade date, the opening entry first on its day, then
+-- by time where known, then in the order recorded. It reads no table, so a
+-- preview and a save given the same entries give the same figures. A buy
+-- re-averages; a sale keeps the average and records profit against it; a
+-- split multiplies units and divides the average. It refuses an entry before
+-- the opening, a holding with no opening, and selling more than was held at
+-- that point.
+create or replace function private.replay_entries(p_entries jsonb, p_brokerage_in_average boolean)
+returns jsonb
+language plpgsql
+immutable
+set search_path = ''
+as $$
+declare
+  e record;
+  v_units numeric;
+  v_avg numeric;
+  v_realised numeric;
+  v_opening_date date;
+  v_openings int;
+  v_out jsonb := '[]'::jsonb;
+begin
+  select count(*), min(x.trade_date) into v_openings, v_opening_date
+  from jsonb_to_recordset(p_entries) as x(kind text, trade_date date)
+  where x.kind = 'opening';
+  if v_openings = 0 then
+    return jsonb_build_object('ok', false, 'error', 'no_opening');
+  end if;
+  if v_openings > 1 then
+    return jsonb_build_object('ok', false, 'error', 'bad_input');
+  end if;
+
+  for e in
+    select x.id, x.kind, x.trade_date, x.units, x.price, coalesce(x.fees, 0) as fees
+    from jsonb_to_recordset(p_entries)
+      as x(id text, kind text, trade_date date, traded_at timestamptz, created_at timestamptz, units numeric, price numeric, fees numeric)
+    order by x.trade_date, x.kind <> 'opening', x.traded_at nulls last, x.created_at nulls last
+  loop
+    if e.trade_date < v_opening_date then
+      return jsonb_build_object('ok', false, 'error', 'before_opening', 'entry_id', e.id);
+    end if;
+    v_realised := null;
+    if e.kind = 'opening' then
+      v_units := e.units;
+      v_avg := e.price;
+    elsif e.kind = 'buy' then
+      v_avg := (v_units * v_avg + e.units * e.price + case when p_brokerage_in_average then e.fees else 0 end) / (v_units + e.units);
+      v_units := v_units + e.units;
+    elsif e.kind = 'sell' then
+      if e.units > v_units then
+        return jsonb_build_object('ok', false, 'error', 'exceeds_units', 'entry_id', e.id);
+      end if;
+      v_realised := e.units * (e.price - v_avg) - e.fees;
+      v_units := v_units - e.units;
+    elsif e.kind = 'split' then
+      v_units := v_units * e.units;
+      v_avg := v_avg / e.units;
+    else
+      return jsonb_build_object('ok', false, 'error', 'bad_input', 'entry_id', e.id);
+    end if;
+    v_out := v_out || jsonb_build_object(
+      'id', e.id,
+      'units_after', round(v_units, 8),
+      'avg_after', round(v_avg, 6),
+      'realised', round(v_realised, 4));
+  end loop;
+
+  return jsonb_build_object('ok', true, 'units', round(v_units, 8), 'avg', round(v_avg, 6), 'entries', v_out);
+end;
+$$;
+
+revoke execute on function private.replay_entries(jsonb, boolean) from public, anon, authenticated;

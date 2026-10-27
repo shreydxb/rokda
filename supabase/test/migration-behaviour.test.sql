@@ -2984,4 +2984,82 @@ begin
   raise notice 'B2-07 ok: a holding with buys or sells is kept, one with only its opening is deleted with it';
 end $$;
 
+-- B2-10 to B2-15: the replay, the one place units, average and profit are
+-- worked out. Entries are given as JSON, as the trade functions pass them.
+do $$
+declare r jsonb; sell jsonb; buy jsonb;
+begin
+  -- B2-10: the spec's worked example, brokerage kept out of the average.
+  r := private.replay_entries('[
+    {"id":"o","kind":"opening","trade_date":"2026-10-01","created_at":"2026-10-01T08:00:00Z","units":10,"price":100,"fees":0},
+    {"id":"b","kind":"buy","trade_date":"2026-10-02","created_at":"2026-10-02T08:00:00Z","units":5,"price":130,"fees":1},
+    {"id":"s","kind":"sell","trade_date":"2026-10-03","created_at":"2026-10-03T08:00:00Z","units":6,"price":150,"fees":1}
+  ]'::jsonb, false);
+  select x into buy from jsonb_array_elements(r -> 'entries') x where x ->> 'id' = 'b';
+  select x into sell from jsonb_array_elements(r -> 'entries') x where x ->> 'id' = 's';
+  if (r ->> 'ok')::boolean is not true or (r ->> 'units')::numeric <> 9 or (r ->> 'avg')::numeric <> 110
+     or (sell ->> 'realised')::numeric <> 239 or (buy ->> 'avg_after')::numeric <> 110 or (buy ->> 'units_after')::numeric <> 15 then
+    raise exception 'B2-10 FAILED: %', r;
+  end if;
+  raise notice 'B2-10 ok: 10 at 100, buy 5 at 130, sell 6 at 150 leaves 9 at 110 and a profit of 239';
+
+  -- B2-11: a broker that puts brokerage into the average.
+  r := private.replay_entries('[
+    {"id":"o","kind":"opening","trade_date":"2026-10-01","created_at":"2026-10-01T08:00:00Z","units":10,"price":100,"fees":0},
+    {"id":"b","kind":"buy","trade_date":"2026-10-02","created_at":"2026-10-02T08:00:00Z","units":5,"price":130,"fees":1}
+  ]'::jsonb, true);
+  if (r ->> 'avg')::numeric <> 110.066667 then raise exception 'B2-11 FAILED: average %', r ->> 'avg'; end if;
+  raise notice 'B2-11 ok: brokerage in the average gives 110.066667';
+
+  -- B2-12: a split multiplies units and divides the average; no profit.
+  r := private.replay_entries('[
+    {"id":"o","kind":"opening","trade_date":"2026-10-01","created_at":"2026-10-01T08:00:00Z","units":9,"price":110,"fees":0},
+    {"id":"x","kind":"split","trade_date":"2026-10-05","created_at":"2026-10-05T08:00:00Z","units":10,"price":null,"fees":0}
+  ]'::jsonb, false);
+  select x into sell from jsonb_array_elements(r -> 'entries') x where x ->> 'id' = 'x';
+  if (r ->> 'units')::numeric <> 90 or (r ->> 'avg')::numeric <> 11 or sell -> 'realised' <> 'null'::jsonb then
+    raise exception 'B2-12 FAILED: %', r;
+  end if;
+  raise notice 'B2-12 ok: a 10-for-1 split of 9 at 110 gives 90 at 11';
+
+  -- B2-13: a sale back-dated before the buy it needed is refused.
+  r := private.replay_entries('[
+    {"id":"o","kind":"opening","trade_date":"2026-10-01","created_at":"2026-10-01T08:00:00Z","units":10,"price":100,"fees":0},
+    {"id":"b","kind":"buy","trade_date":"2026-10-10","created_at":"2026-10-10T08:00:00Z","units":5,"price":100,"fees":0},
+    {"id":"s","kind":"sell","trade_date":"2026-10-05","created_at":"2026-10-11T08:00:00Z","units":12,"price":100,"fees":0}
+  ]'::jsonb, false);
+  if (r ->> 'ok')::boolean is not false or r ->> 'error' <> 'exceeds_units' or r ->> 'entry_id' <> 's' then
+    raise exception 'B2-13 FAILED: %', r;
+  end if;
+  raise notice 'B2-13 ok: a sale before the buy it needed is refused';
+
+  -- B2-14: nothing before the opening entry, and nothing without one.
+  r := private.replay_entries('[
+    {"id":"o","kind":"opening","trade_date":"2026-10-05","created_at":"2026-10-05T08:00:00Z","units":10,"price":100,"fees":0},
+    {"id":"b","kind":"buy","trade_date":"2026-10-01","created_at":"2026-10-06T08:00:00Z","units":5,"price":100,"fees":0}
+  ]'::jsonb, false);
+  if r ->> 'error' is distinct from 'before_opening' then raise exception 'B2-14 FAILED: %', r; end if;
+  r := private.replay_entries('[
+    {"id":"b","kind":"buy","trade_date":"2026-10-01","created_at":"2026-10-01T08:00:00Z","units":5,"price":100,"fees":0}
+  ]'::jsonb, false);
+  if r ->> 'error' is distinct from 'no_opening' then raise exception 'B2-14 FAILED: %', r; end if;
+  raise notice 'B2-14 ok: a trade before the opening entry, or with none, is refused';
+
+  -- B2-15 (Review Focus 4): two trades on one day with no time replay in the
+  -- order they were recorded.
+  r := private.replay_entries('[
+    {"id":"o","kind":"opening","trade_date":"2026-10-01","created_at":"2026-10-01T08:00:00Z","units":10,"price":100,"fees":0},
+    {"id":"s","kind":"sell","trade_date":"2026-10-02","created_at":"2026-10-02T08:00:00Z","units":12,"price":100,"fees":0},
+    {"id":"b","kind":"buy","trade_date":"2026-10-02","created_at":"2026-10-02T09:00:00Z","units":5,"price":100,"fees":0}
+  ]'::jsonb, false);
+  if r ->> 'error' is distinct from 'exceeds_units' then raise exception 'B2-15 FAILED: sell first was %', r; end if;
+  r := private.replay_entries('[
+    {"id":"o","kind":"opening","trade_date":"2026-10-01","created_at":"2026-10-01T08:00:00Z","units":10,"price":100,"fees":0},
+    {"id":"s","kind":"sell","trade_date":"2026-10-02","created_at":"2026-10-02T09:00:00Z","units":12,"price":100,"fees":0},
+    {"id":"b","kind":"buy","trade_date":"2026-10-02","created_at":"2026-10-02T08:00:00Z","units":5,"price":100,"fees":0}
+  ]'::jsonb, false);
+  if (r ->> 'ok')::boolean is not true or (r ->> 'units')::numeric <> 3 then raise exception 'B2-15 FAILED: buy first was %', r; end if;
+  raise notice 'B2-15 ok: same-day trades with no time replay in the order recorded';
+end $$;
+
 rollback;
