@@ -3333,4 +3333,65 @@ begin
   raise notice 'B2-35 ok: sold out is worth 0, buying again reopens it, and the opening entry stays';
 end $$;
 
+-- B2-40 to B2-42: the fresh start for one member. A second member with a
+-- dollar fund, two rupee funds and three holdings (one without an average);
+-- the first member's holding must be left alone.
+insert into household_members (id, household_id, display_name)
+values ('22222222-2222-2222-2222-0000000000b2', '11111111-1111-1111-1111-111111111111', 'Partner');
+insert into accounts (id, household_id, owner_member_id, name, type, currency, balance, is_shared) values
+  ('b2000000-0000-0000-0000-0000000004f1', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-0000000000b2', 'Partner dollar funds', 'broker_funds', 'USD', 0, false),
+  ('b2000000-0000-0000-0000-0000000004f2', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-0000000000b2', 'Partner rupee funds A', 'broker_funds', 'INR', 0, false),
+  ('b2000000-0000-0000-0000-0000000004f3', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-0000000000b2', 'Partner rupee funds B', 'broker_funds', 'INR', 0, false);
+insert into holdings (id, household_id, owner_member_id, is_shared, name, asset_class, currency, quantity, avg_price, current_price, value_aed) values
+  ('b2000000-0000-0000-0000-000000000401', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-0000000000b2', false, 'GHI', 'us_equity', 'USD', 4.12345678, 50, 60, 908.64),
+  ('b2000000-0000-0000-0000-000000000402', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-0000000000b2', false, 'JKL', 'india_equity', 'INR', 3, 1000, 1100, 140),
+  ('b2000000-0000-0000-0000-000000000403', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-0000000000b2', false, 'Valued only', 'us_equity', 'USD', 2, null, null, 300),
+  ('b2000000-0000-0000-0000-000000000404', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', false, 'Not theirs', 'us_equity', 'USD', 1, 10, 10, 36.73);
+
+-- B2-40: opening entries for the member's holdings with units and an
+-- average, and only theirs; nothing about the holdings themselves changes.
+do $$
+declare n int; h holdings;
+begin
+  n := open_trade_history('22222222-2222-2222-2222-0000000000b2', '2026-10-27');
+  if n <> 2 then raise exception 'B2-40 FAILED: % opening entries, expected 2', n; end if;
+  select * into h from holdings where id = 'b2000000-0000-0000-0000-000000000401';
+  if h.trades_version <> 1 or h.quantity <> 4.12345678 or h.avg_price <> 50 or h.value_aed <> 908.64 then
+    raise exception 'B2-40 FAILED: the dollar holding is now % at %, worth %, version %', h.quantity, h.avg_price, h.value_aed, h.trades_version;
+  end if;
+  if not exists (select 1 from holding_trades where holding_id = h.id and kind = 'opening' and units = 4.12345678 and price = 50 and trade_date = '2026-10-27' and units_after = 4.12345678) then
+    raise exception 'B2-40 FAILED: the opening entry does not match the holding';
+  end if;
+  if (select trades_version from holdings where id = 'b2000000-0000-0000-0000-000000000403') <> 0
+     or (select trades_version from holdings where id = 'b2000000-0000-0000-0000-000000000404') <> 0
+     or exists (select 1 from holding_trades where holding_id in ('b2000000-0000-0000-0000-000000000403', 'b2000000-0000-0000-0000-000000000404')) then
+    raise exception 'B2-40 FAILED: a holding without an average, or another member''s, was opened';
+  end if;
+  raise notice 'B2-40 ok: two opening entries, the holdings unchanged, the rest untouched';
+end $$;
+
+-- B2-41: running it again makes nothing.
+do $$
+declare n int;
+begin
+  n := open_trade_history('22222222-2222-2222-2222-0000000000b2', '2026-10-28');
+  if n <> 0 or (select count(*) from holding_trades where holding_id = 'b2000000-0000-0000-0000-000000000401') <> 1 then
+    raise exception 'B2-41 FAILED: a second run made % entries', n;
+  end if;
+  raise notice 'B2-41 ok: the fresh start happens once';
+end $$;
+
+-- B2-42: a holding is linked to the member's one fund in its currency; with
+-- two, it waits for the member to choose.
+do $$
+begin
+  if (select funds_account_id from holdings where id = 'b2000000-0000-0000-0000-000000000401') is distinct from 'b2000000-0000-0000-0000-0000000004f1' then
+    raise exception 'B2-42 FAILED: the dollar holding was not linked to the one dollar fund';
+  end if;
+  if (select funds_account_id from holdings where id = 'b2000000-0000-0000-0000-000000000402') is not null then
+    raise exception 'B2-42 FAILED: a rupee holding was linked although there are two rupee funds';
+  end if;
+  raise notice 'B2-42 ok: linked to the one fund in its currency, left alone with two';
+end $$;
+
 rollback;

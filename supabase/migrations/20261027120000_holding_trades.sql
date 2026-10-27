@@ -795,3 +795,56 @@ revoke execute on function public.fix_trade(uuid, date, numeric, numeric, numeri
 revoke execute on function public.delete_trade(uuid, integer, uuid) from public, anon;
 grant execute on function public.fix_trade(uuid, date, numeric, numeric, numeric, numeric, timestamptz, uuid, boolean, text, integer, uuid) to authenticated, service_role;
 grant execute on function public.delete_trade(uuid, integer, uuid) to authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+-- 5. The fresh start
+-- ---------------------------------------------------------------------------
+
+-- Gives each of one member's holdings its opening entry at the units and
+-- average it has now, once, on the day that member goes live (after their
+-- holdings were checked against the broker). Holdings entered by value only
+-- (no units or no average) are left as they are. A holding with no fund is
+-- linked to the member's broker funds account in its currency when there is
+-- exactly one; with more, the member chooses later. Nothing about the
+-- holdings' units, average or value changes. Run by the service role.
+create or replace function public.open_trade_history(p_member_id uuid, p_trade_date date)
+returns integer
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_holding record;
+  v_funds uuid[];
+  v_count integer := 0;
+begin
+  for v_holding in
+    select h.* from public.holdings h
+    where h.owner_member_id = p_member_id and h.trades_version = 0
+      and h.quantity > 0 and h.avg_price is not null
+      and not exists (select 1 from public.holding_trades t where t.holding_id = h.id and t.kind = 'opening')
+    order by h.created_at, h.id
+    for update
+  loop
+    if v_holding.funds_account_id is null then
+      select array_agg(a.id) into v_funds from public.accounts a
+      where a.household_id = v_holding.household_id and a.owner_member_id = p_member_id
+        and a.type = 'broker_funds' and a.currency = v_holding.currency and a.archived_at is null;
+      if cardinality(v_funds) = 1 then
+        update public.holdings set funds_account_id = v_funds[1] where id = v_holding.id;
+      end if;
+    end if;
+    insert into public.holding_trades (
+      household_id, holding_id, member_id, kind, trade_date, units, price, source, units_after, avg_after, created_by, created_at)
+    values (
+      v_holding.household_id, v_holding.id, p_member_id, 'opening', p_trade_date, v_holding.quantity, v_holding.avg_price,
+      'opening', v_holding.quantity, v_holding.avg_price, p_member_id, clock_timestamp());
+    update public.holdings set trades_version = 1 where id = v_holding.id;
+    v_count := v_count + 1;
+  end loop;
+  return v_count;
+end;
+$$;
+
+revoke execute on function public.open_trade_history(uuid, date) from public, anon, authenticated;
+grant execute on function public.open_trade_history(uuid, date) to service_role;
