@@ -2826,3 +2826,64 @@ the statement agree line by line.
   Financial services and Financials. That keeps the statement's own grouping
   of the Indian holdings, at the cost of not merging them with the US ones.
 
+## Trades are the record of a holding
+
+A holding changed only when someone edited it, so nothing recorded a sale,
+what it made, or where its money went (SHR-367). From each holding's fresh
+start, every buy, sell and split is a dated trade, and the holding's units
+and average price are worked out from them.
+
+- **A fresh start, not history.** Each holding gets one opening entry at the
+  units and average price the broker shows on the day its owner goes live.
+  Nothing before it is rebuilt: a later sale's profit is worked against that
+  average, the way the broker works it.
+- **One replay, in the database.** One function replays a holding's entries
+  in order (trade date, the opening first on its day, then time where known,
+  then the order recorded): a buy re-averages, a sale keeps the average and
+  records profit against it, a split multiplies units and divides the
+  average. The preview the bot and the app show and the save run the same
+  function, so what is confirmed is exactly what is saved. A fixed or
+  back-dated trade replays everything after it, and is refused when a later
+  sale would then sell more than was held.
+- **Written only by the trade functions.** Members read their household's
+  trades; nobody writes them directly, and a traded holding's units and
+  average are refused from anywhere but the replay. A trade, its holding,
+  its fund and the holding's value change in one transaction, or not at all.
+- **Once per confirmation.** A bot confirmation records at most one trade,
+  and a confirmation shown on an older version of the holding is refused.
+- **Eight decimals.** Units keep eight places, as a broker of fractional
+  shares shows them; at four, selling a whole fractional holding read as
+  selling more than was held.
+
+## A broker's cash is an account
+
+Money from a sale stays at the broker until it buys something or is moved
+out, so a broker's uninvested cash is an account of its own kind, Broker
+funds, in the broker's currency. Every buy pays from it and every sale pays
+into it, so net worth does not jump or drop on the day of a trade.
+
+- **Cash, but not for bills.** Broker funds count in net worth and in the
+  Life plan's starting cash. They stay out of Overview's liquid money, cash
+  cover and near-term goals paid from cash, and the bot never takes one as
+  the account an expense was paid from.
+- **The monthly check-in sets the truth.** Dividends, fees and payouts to the
+  bank move a broker's cash without a trade; the 1st-of-month check-in
+  confirms the balance, as for any account.
+- **Never counted twice.** A trade that happened before the fund's balance
+  was last confirmed does not move it, whether it is recorded late,
+  back-dated, fixed or deleted: the confirmed figure already includes it.
+  A trade's moment is its time, or the end of its trade date in Dubai.
+- **Brokerage in the average is per broker.** Some brokers add a buy's
+  brokerage into the average price and some do not; each fund says which,
+  so the app's average matches the broker's.
+
+## The price feed values a holding as it writes
+
+The nightly feed read every holding's units first and wrote each value from
+them afterwards, so a trade saved in between would have been written over
+with the value of the old units. It now writes through one database function
+that takes the holding's row lock and works the value, and today's value
+point, from the units at that moment. A rupee holding is valued at the
+household's stored rate, which the feed refreshes first, the same rate every
+other rupee figure uses. A holding sold to zero is not priced at all.
+
