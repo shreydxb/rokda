@@ -1245,6 +1245,22 @@ been recorded, so it was sent again.
   what was missing (the amount, who was paid, the card or account, the
   category, an AED amount), or that it looks like one already recorded.
 
+## The bot tries again when the assistant is busy
+
+"What's our net worth?" was filed in the Inbox. The AI service answered "too
+many requests" to both the call that tells a question from an expense and the
+call that reads an expense. The bot keeps any message it cannot route, so an
+expense is never lost, and replied "Got it — check the Inbox to review", as
+if it had understood (SHR-373).
+
+- **One more try.** A 429 or 5xx from the AI service is tried once more after
+  a second, for routing and for reading. Both attempts are logged in
+  `telegram_call_log`, so the failure still shows.
+- **Then it says so.** If routing still fails and nothing could be read, the
+  message stays in the Inbox and the reply is "I couldn't read that just now,
+  so it's saved in the Inbox. If it was a question, ask again in a minute."
+  An expense read while routing was busy gets its ordinary reply.
+
 ## The bot reads every row, and says when it cannot
 
 The screens were made to read past 1,000 rows (above); the bot was not. It
