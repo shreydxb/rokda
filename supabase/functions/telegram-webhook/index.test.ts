@@ -56,7 +56,11 @@ type Backend = {
     failReads?: string[];
     // Writing to any of these tables fails.
     failWrites?: string[];
+    // OpenRouter answers 429 (too many requests) to its first N calls.
+    aiBusyFirst?: number;
   };
+  // Calls OpenRouter has received.
+  aiCalls: number;
   // What OpenRouter's router answers for a message: a tool name plus args.
   route?: { tool: string; args: Row };
   // What the parser extracts from a message; unset, it answers prose, which
@@ -104,6 +108,7 @@ function reset(): void {
     phrasePrompts: [],
     applyCalls: 0,
     approveCalls: 0,
+    aiCalls: 0,
   };
 }
 
@@ -476,6 +481,10 @@ async function telegram(req: Request, url: URL): Promise<Response> {
 
 async function openrouter(req: Request): Promise<Response> {
   const body = await req.json();
+  backend.aiCalls += 1;
+  if (backend.faults.aiBusyFirst && backend.aiCalls <= backend.faults.aiBusyFirst) {
+    return json({ error: { code: 429, message: "Rate limit exceeded" } }, 429);
+  }
   // The router is the call that offers tools; parsing and phrasing do not.
   if (Array.isArray(body.tools) && backend.route) {
     return json({
@@ -1917,3 +1926,42 @@ Deno.test("a broker funds account is never offered for spending", () => {
   assertEquals(isSpendingAccount({ type: "credit_card" }), true);
 });
 
+// The AI service answers "too many requests" now and then, for a second or
+// so. A question asked in that second was filed in the Inbox as an expense,
+// with a reply that said nothing had gone wrong (SHR-373).
+function aiCalls(): Array<[unknown, unknown]> {
+  return backend.tables.telegram_call_log.map((r) => [r.call_kind, r.error_type]);
+}
+
+freshTest("a question asked while the AI service is briefly busy is still answered", async () => {
+  backend.tables.holdings = [{ id: "a9100000-0000-4000-8000-0000000000d1", household_id: HOUSEHOLD, name: "Fund", asset_class: "equity", value_aed: 100, is_shared: true, owner_member_id: null }];
+  backend.route = { tool: "get_net_worth", args: {} };
+  backend.faults.aiBusyFirst = 1;
+  await handler(textUpdate(7301, "whats our networth?"));
+  assertEquals(capturedIntake().length, 0);
+  assertEquals(lastReply(), "Done.");
+  assertEquals(aiCalls().slice(0, 2), [["classify_and_route", "http_429"], ["classify_and_route", null]]);
+});
+
+freshTest("a message the AI service cannot read even on a second try is kept, and the reply says so", async () => {
+  backend.faults.aiBusyFirst = 4;
+  await handler(textUpdate(7302, "whats our networth?"));
+  assertEquals(capturedIntake().length, 1);
+  assertEquals(lastReply(), "I couldn't read that just now, so it's saved in the Inbox. If it was a question, ask again in a minute.");
+  assertEquals(aiCalls(), [["classify_and_route", "http_429"], ["classify_and_route", "http_429"], ["parse_intake", "http_429"], ["parse_intake", "http_429"]]);
+});
+
+freshTest("an expense read while routing was busy gets the ordinary reply", async () => {
+  backend.faults.aiBusyFirst = 2;
+  backend.parse = [{ merchant: "Cafe", amount: 40, currency: "AED", occurred_at: "2026-09-24", date_stated: true, source: "typed", category: null, card_last4: null, account_hint: null, confidence: 1, kind: "expense" }];
+  await handler(textUpdate(7303, "spent 40 at cafe"));
+  assertEquals(capturedIntake().length, 1);
+  assertEquals(capturedIntake()[0].parsed_amount, 40);
+  assert(!lastReply().includes("couldn't read"), lastReply());
+});
+
+freshTest("an AI service that answers at once is asked once for each step", async () => {
+  backend.parse = [{ merchant: "Cafe", amount: 40, currency: "AED", occurred_at: "2026-09-24", date_stated: true, source: "typed", category: null, card_last4: null, account_hint: null, confidence: 1, kind: "expense" }];
+  await handler(textUpdate(7304, "spent 40 at cafe"));
+  assertEquals(aiCalls(), [["classify_and_route", null], ["parse_intake", null]]);
+});

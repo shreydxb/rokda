@@ -288,6 +288,45 @@ async function logTelegramCall(entry: {
   }
 }
 
+// The AI service answers 429 when it is briefly overloaded and 5xx when it
+// fails, and either usually clears within a second. Routing used to give up
+// on the first such answer, so a question asked in that second was filed in
+// the Inbox as an expense (SHR-373). One more try after a short wait covers
+// it; every attempt is logged, so telegram_call_log still shows the failure.
+// Returns the parsed body, or null when the service did not answer OK. A
+// network failure is thrown to the caller, which logs it.
+const AI_RETRY_DELAY_MS = 1000;
+
+async function postToAiService(
+  callKind: TelegramCallKind,
+  payload: Record<string, unknown>,
+  householdId: string | null,
+  memberId: string | null,
+): Promise<any | null> {
+  for (let attempt = 1; ; attempt++) {
+    const startedAt = Date.now();
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) {
+      const body = await res.json();
+      await logTelegramCall({ callKind, householdId, memberId, model: PARSE_MODEL, latencyMs: Date.now() - startedAt, success: true, usage: body?.usage });
+      return body;
+    }
+    await res.body?.cancel();
+    await logTelegramCall({ callKind, householdId, memberId, model: PARSE_MODEL, latencyMs: Date.now() - startedAt, success: false, errorType: `http_${res.status}` });
+    const busy = res.status === 429 || res.status >= 500;
+    if (!busy || attempt > 1) return null;
+    await new Promise((resolve) => setTimeout(resolve, AI_RETRY_DELAY_MS));
+  }
+}
+
+// What the bot says when the AI service could not read a message at all. The
+// message is kept in the Inbox all the same, so an expense is never lost.
+const AI_BUSY_REPLY = "I couldn't read that just now, so it's saved in the Inbox. If it was a question, ask again in a minute.";
+
 // The shared secret every request to this function must present (see the
 // check at the top of Deno.serve). Lives in Supabase Vault, not an
 // environment variable -- read via a narrowly-scoped RPC only the
@@ -491,40 +530,13 @@ async function parseIntakeWithAI(params: {
 
   const startedAt = Date.now();
   try {
-    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: PARSE_MODEL,
-        messages: [{ role: "user", content }],
-        response_format: { type: "json_object" },
-      }),
-    });
-    if (!res.ok) {
-      await logTelegramCall({
-        callKind: "parse_intake",
-        householdId,
-        memberId,
-        model: PARSE_MODEL,
-        latencyMs: Date.now() - startedAt,
-        success: false,
-        errorType: `http_${res.status}`,
-      });
-      return null;
-    }
-    const body = await res.json();
-    await logTelegramCall({
-      callKind: "parse_intake",
+    const body = await postToAiService(
+      "parse_intake",
+      { model: PARSE_MODEL, messages: [{ role: "user", content }], response_format: { type: "json_object" } },
       householdId,
       memberId,
-      model: PARSE_MODEL,
-      latencyMs: Date.now() - startedAt,
-      success: true,
-      usage: body?.usage,
-    });
+    );
+    if (!body) return null;
     const raw = body?.choices?.[0]?.message?.content;
     if (typeof raw !== "string") return null;
     const parsedBody = JSON.parse(raw);
@@ -2229,39 +2241,12 @@ async function classifyAndRoute(
 
   const startedAt = Date.now();
   try {
-    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: PARSE_MODEL,
-        messages,
-        tools: buildTools(recentPending !== null),
-        tool_choice: "auto",
-      }),
-    });
-    if (!res.ok) {
-      await logTelegramCall({
-        callKind: "classify_and_route",
-        householdId,
-        memberId,
-        model: PARSE_MODEL,
-        latencyMs: Date.now() - startedAt,
-        success: false,
-        errorType: `http_${res.status}`,
-      });
-      return null;
-    }
-    const body = await res.json();
-    await logTelegramCall({
-      callKind: "classify_and_route",
+    return await postToAiService(
+      "classify_and_route",
+      { model: PARSE_MODEL, messages, tools: buildTools(recentPending !== null), tool_choice: "auto" },
       householdId,
       memberId,
-      model: PARSE_MODEL,
-      latencyMs: Date.now() - startedAt,
-      success: true,
-      usage: body?.usage,
-    });
-    return body;
+    );
   } catch (err) {
     // Logged, then re-thrown unchanged -- this function's own callers already
     // wrap it in a try/catch and must keep seeing an exception, not a value.
@@ -3865,6 +3850,10 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
     }
   }
 
+  // Set when routing could not get an answer from the AI service, even on a
+  // second try. The message is then captured unread, and its reply must not
+  // suggest otherwise: it may have been a question (SHR-373).
+  let routingFailed = false;
   // SHR-240: a plain text message (no photo/document) might be a question
   // rather than something to log -- route it before ever touching `intake`.
   // A photo is presumptively a receipt, so this never runs for one.
@@ -3903,6 +3892,7 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
           : null;
 
       const routed = await classifyAndRoute(rawText, (categories ?? []).map((c) => c.name), recentPending, priorContext, member.household_id, member.id);
+      if (!routed) routingFailed = true;
       const choice = routed?.choices?.[0];
       const toolCall = choice?.message?.tool_calls?.[0];
 
@@ -4106,6 +4096,7 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
       // Routing failed -- fall through to intake capture rather than losing
       // the message. But only if routing is what failed: see committedElsewhere.
       if (committedElsewhere) throw err;
+      routingFailed = true;
     }
   }
 
@@ -4177,6 +4168,7 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
   let singleInboxReason: string | null = null;
   const multiItemSummaries: string[] = [];
   const guessedDates: string[] = [];
+  let itemsRead = false;
   try {
     const { data: categories } = await supabase
       .from("categories")
@@ -4195,6 +4187,7 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
       memberId: member.id,
     });
     const items = parsedItems ? datedItems(parsedItems, householdToday(), forwardedDay(message)) : null;
+    itemsRead = (items?.length ?? 0) > 0;
 
     // A message can describe more than one expense ("bought two plants for
     // 260 and 50") -- the first item updates the row already inserted
@@ -4278,6 +4271,8 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
       inserted.id,
       `Got it — ${fastConfirmSummary}. Everything matched, so reply "yes" to record it, or edit in the Inbox.`
     );
+  } else if (routingFailed && !itemsRead) {
+    await reply(chatId, AI_BUSY_REPLY);
   } else {
     await reply(
       chatId,
