@@ -632,5 +632,12 @@
   "fingerprint": "23ac3f92cc35834238060be6c1564df2",
   "framingFingerprint": "b51307c672ee31027349dbe3c1e115d8",
   "fingerprintVersion": 2
+ },
+ {
+  "version": "20261028054814",
+  "name": "holding_trades",
+  "fingerprint": "3d7a033cea1e2582aba8277f61dc13f9",
+  "framingFingerprint": "c80749300329a6e9adc3e8e4521bf036",
+  "fingerprintVersion": 2
  }
 ]
