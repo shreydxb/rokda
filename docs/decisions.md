@@ -2855,6 +2855,16 @@ and average price are worked out from them.
   trade again, so a sale deleted twice at once is reversed once.
 - **Once per confirmation.** A bot confirmation records at most one trade,
   and a confirmation shown on an older version of the holding is refused.
+  A version never comes round again: undoing a holding's fresh start keeps
+  its last version as a negative number, and going live again continues
+  from it. Only the bot marks a trade as the bot's or ties it to a bot
+  confirmation; a member's own trade is the app's.
+- **An editor never undoes a trade.** The holding editor saves only while
+  the holding's version is the one it opened with, and says to reopen it
+  otherwise. For a traded holding the feed prices, it never sends a value
+  or price, which the database works out. The account editor sends a
+  balance only when one was typed, so renaming a broker fund keeps the
+  balance its trades moved.
 - **Eight decimals.** Units keep eight places, as a broker of fractional
   shares shows them; at four, selling a whole fractional holding read as
   selling more than was held.
@@ -2872,6 +2882,10 @@ into it, so net worth does not jump or drop on the day of a trade.
   the account an expense was paid from. The other way round, a trade's fund
   must be a Broker funds account, so a trade's money never lands in a card or
   a bank account. A fix that names no fund keeps the trade's own.
+- **Closed, not deleted, once money moved through it.** A fund that is only
+  a holding's usual fund can be deleted, and the holding is left without
+  one. A fund that trades went through is refused, and the editor offers
+  to close it, which keeps everything recorded through it.
 - **The monthly check-in sets the truth.** Dividends, fees and payouts to the
   bank move a broker's cash without a trade; the 1st-of-month check-in
   confirms the balance, as for any account.
