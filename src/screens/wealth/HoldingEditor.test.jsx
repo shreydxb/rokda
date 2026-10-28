@@ -230,3 +230,36 @@ describe('sector', () => {
     cleanup();
   });
 });
+
+// Once a holding has its opening entry, its units and average price come
+// only from its trades; the database refuses a hand edit (SHR-367). The
+// editor shows them read-only and never sends them.
+describe('a traded holding', () => {
+  const traded = { id: 'h3', name: 'ABC', asset_class: 'us_equity', currency: 'USD', quantity: 10, avg_price: 100, value_aed: 3672.5, is_shared: true, priced_at: '2026-09-01T00:00:00Z', trades_version: 1 };
+
+  it('shows units and average read-only and leaves them out of the save', async () => {
+    // The stored row starts without units or an average, so any that appear
+    // after saving were sent by the editor.
+    db.holdings.set('h3', { id: 'h3', name: 'ABC' });
+    renderScreen(<HoldingEditor holding={traded} householdId="hh" members={[]} onClose={() => {}} onSaved={async () => {}} />);
+    expect(screen.getByLabelText('Units').readOnly).toBe(true);
+    expect(screen.getByLabelText(/^Avg price/).readOnly).toBe(true);
+    expect(screen.getByText("Units and average price come from this holding’s trades.")).toBeTruthy();
+    fireEvent.change(screen.getByPlaceholderText('e.g. VWRA'), { target: { value: 'ABC renamed' } });
+    await act(async () => {
+      fireEvent.submit(document.querySelector('form'));
+    });
+    expect(db.holdings.get('h3').name).toBe('ABC renamed');
+    expect(db.holdings.get('h3')).not.toHaveProperty('quantity');
+    expect(db.holdings.get('h3')).not.toHaveProperty('avg_price');
+    cleanup();
+  });
+
+  it('keeps them editable on a holding without trades', () => {
+    renderScreen(<HoldingEditor holding={{ ...traded, trades_version: 0 }} householdId="hh" members={[]} onClose={() => {}} onSaved={async () => {}} />);
+    expect(screen.getByLabelText('Units').readOnly).toBe(false);
+    expect(screen.queryByText("Units and average price come from this holding’s trades.")).toBeNull();
+    cleanup();
+  });
+});
+

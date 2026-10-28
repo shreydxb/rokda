@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { planningModel } from './planningModel';
+import { planStart, planningModel } from './planningModel';
 import { forecastInputs, budgetPlan } from './forecast';
 import { lifePlanStop, loansInSpending } from './lifePlan';
 
@@ -111,3 +111,14 @@ describe('planningModel', () => {
     expect(model.stop().earliest).toBeGreaterThanOrEqual(withoutCash.earliest);
   });
 });
+
+// A broker's uninvested cash is cash the Life plan starts from, like a bank
+// balance, not money invested (SHR-367).
+describe('planStart', () => {
+  it('counts broker funds as cash', () => {
+    const funds = { id: 'f', type: 'broker_funds', currency: 'USD', balance: 100, balance_aed: 367.25, archived_at: null };
+    const bank = { id: 'b', type: 'checking', currency: 'AED', balance: 1000, balance_aed: null, archived_at: null };
+    expect(planStart([funds, bank], []).cash).toBe(1367.25);
+  });
+});
+

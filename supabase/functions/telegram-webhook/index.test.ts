@@ -536,7 +536,7 @@ Deno.env.set("TELEGRAM_BOT_TOKEN", TOKEN);
 Deno.env.set("OPENROUTER_API_KEY", "openrouter-test");
 
 reset();
-const { accountsForCheckin, buildBalanceCheckinMessage, datedItems, figuresUnavailableMessage, forwardedDay, inboxReason, merchantHistoryMatches, pickAccountByHint, pickCheckinAccount, proposalOutcomeMessage, transferDraftFrom, undatedNote } = await import("./index.ts");
+const { accountsForCheckin, buildBalanceCheckinMessage, datedItems, figuresUnavailableMessage, forwardedDay, inboxReason, isSpendingAccount, merchantHistoryMatches, pickAccountByHint, pickCheckinAccount, proposalOutcomeMessage, transferDraftFrom, undatedNote } = await import("./index.ts");
 assert(handler!, "index.ts did not register a handler with Deno.serve");
 
 // ---------------------------------------------------------------------------
@@ -1908,3 +1908,12 @@ for (const [tool, args, table] of [
     assertEquals(capturedIntake().length, 0);
   });
 }
+
+// A broker's uninvested cash is never where an expense was paid from: "paid
+// on Wio" must not land in the broker's funds account (SHR-367).
+Deno.test("a broker funds account is never offered for spending", () => {
+  assertEquals(isSpendingAccount({ type: "broker_funds" }), false);
+  assertEquals(isSpendingAccount({ type: "checking" }), true);
+  assertEquals(isSpendingAccount({ type: "credit_card" }), true);
+});
+

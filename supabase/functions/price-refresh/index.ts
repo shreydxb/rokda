@@ -20,9 +20,9 @@ const TWELVEDATA_API_KEY = Deno.env.get("TWELVEDATA_API_KEY");
 
 const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
-// AED-USD is a hard peg (3.6725, fixed by the UAE Central Bank since 1997) —
-// a real constant, not a rate that needs fetching.
-const AED_PER_USD = 3.6725;
+// AED-USD is a hard peg (3.6725, fixed by the UAE Central Bank since 1997),
+// so only the rupee rate is fetched. The database applies the peg when it
+// values a holding (private.holding_value_aed, through set_holding_price).
 
 async function refreshFx(): Promise<{ ok: boolean; rate: number | null; error?: string }> {
   const { data: existing } = await supabase
@@ -114,20 +114,9 @@ async function backfillFxHistory(): Promise<{ ok: boolean; added?: number; skipp
   }
 }
 
-// AED-equivalent of one unit's worth of native-currency value, or null when
-// the currency isn't one we can convert (only AED/USD/INR are), so callers
-// know to leave that holding's AED value untouched rather than guess.
-function toAed(currency: string, nativeAmount: number, inrPerAed: number | null): number | null {
-  if (currency === "AED") return nativeAmount;
-  if (currency === "USD") return nativeAmount * AED_PER_USD;
-  if (currency === "INR") return inrPerAed ? nativeAmount / inrPerAed : null;
-  return null;
-}
-
 type Holding = {
   id: string;
   currency: string;
-  quantity: string | null;
   price_symbol: string;
   price_provider: "twelvedata" | "coingecko" | "mfapi" | "yahoo";
   price_fetch_fail_count: number;
@@ -255,12 +244,16 @@ async function fetchYahoo(symbol: string): Promise<PriceResult> {
   }
 }
 
-async function refreshHoldings(inrPerAed: number | null) {
+async function refreshHoldings() {
+  // A holding its trades sold to zero is closed: it keeps its history and
+  // needs no price. One without trades is priced whatever its units, so a
+  // zero typed by hand values it at zero.
   const { data: holdings, error } = await supabase
     .from("holdings")
-    .select("id, currency, quantity, price_symbol, price_provider, price_fetch_fail_count")
+    .select("id, currency, price_symbol, price_provider, price_fetch_fail_count")
     .not("price_symbol", "is", null)
-    .not("price_provider", "is", null);
+    .not("price_provider", "is", null)
+    .or("quantity.is.null,quantity.gt.0,trades_version.eq.0");
   if (error || !holdings) return { updated: 0, failed: 0, historyCaptured: 0 };
 
   const byProvider = new Map<string, Holding[]>();
@@ -296,12 +289,7 @@ async function refreshHoldings(inrPerAed: number | null) {
   let updated = 0;
   let failed = 0;
   let historyCaptured = 0;
-  const now = new Date();
-  const nowIso = now.toISOString();
-  // A history point is dated the household's day. The weekday run is at
-  // 03:00 Dubai, when the UTC date is still the day before, and so is a
-  // Refresh pressed after midnight.
-  const today = householdToday(now);
+  const nowIso = new Date().toISOString();
 
   for (const h of holdings as Holding[]) {
     const result = results.get(h.id);
@@ -316,38 +304,28 @@ async function refreshHoldings(inrPerAed: number | null) {
     }
 
     updated++;
-    // Only holdings with real units and a currency we can convert get an
-    // auto-computed AED value; everything else keeps its manually-entered
-    // value_aed exactly as before — this never guesses a number it can't
-    // actually derive.
-    const quantity = h.quantity != null ? Number(h.quantity) : null;
-    const valueAed = quantity != null ? toAed(h.currency, quantity * result.price, inrPerAed) : null;
-
-    await supabase
-      .from("holdings")
-      .update({
-        current_price: result.price,
-        day_change_pct: result.dayChangePct,
-        // priced_at is how old the price is, and staleness (isStale,
-        // daysSincePriced) is measured against it: the provider's quote time,
-        // not this run's. A quote with no usable time leaves priced_at where
-        // it was, so the holding goes on ageing rather than looking fresh.
-        // The holdings_sync_priced_at trigger mirrors priced_at onto
-        // last_refreshed for any remaining legacy reader.
-        ...(result.quotedAt ? { priced_at: result.quotedAt } : {}),
-        price_fetched_at: nowIso,
-        price_fetch_error: null,
-        price_fetch_fail_count: 0,
-        ...(valueAed !== null ? { value_aed: Math.round(valueAed * 100) / 100 } : {}),
-      })
-      .eq("id", h.id);
-
-    if (valueAed !== null) {
-      const { error: historyError } = await supabase
-        .from("holding_value_history")
-        .upsert({ holding_id: h.id, as_of: today, value_aed: Math.round(valueAed * 100) / 100 }, { onConflict: "holding_id,as_of" });
-      if (!historyError) historyCaptured++;
-    }
+    // set_holding_price writes the price and works the AED value, and today's
+    // history point (dated the household's day), from the holding's units as
+    // they are at that moment, under a row lock. Working it here from units
+    // read at the start of the run could write over a trade saved since
+    // (docs/decisions.md, "The price feed values a holding as it writes"). A
+    // holding with no units, or a rupee one with no rate, keeps its entered
+    // value: nothing is guessed.
+    //
+    // priced_at is how old the price is, and staleness (isStale,
+    // daysSincePriced) is measured against it: the provider's quote time,
+    // not this run's. A quote with no usable time leaves priced_at where
+    // it was, so the holding goes on ageing rather than looking fresh.
+    // The holdings_sync_priced_at trigger mirrors priced_at onto
+    // last_refreshed for any remaining legacy reader.
+    const { data: valueAed, error: writeError } = await supabase.rpc("set_holding_price", {
+      p_holding_id: h.id,
+      p_price: result.price,
+      p_day_change_pct: result.dayChangePct,
+      p_quoted_at: result.quotedAt ?? null,
+      p_fetched_at: nowIso,
+    });
+    if (!writeError && valueAed !== null) historyCaptured++;
   }
   return { updated, failed, historyCaptured };
 }
@@ -398,10 +376,11 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return jsonResponse({ error: "method not allowed" }, 405);
   if (!(await callerMayRefresh(req))) return jsonResponse({ error: "forbidden" }, 403);
 
-  // Sequential, not parallel: holdings priced in INR need this run's own
-  // fx rate (or the last good one) to convert to AED correctly.
+  // Sequential, not parallel: holdings priced in INR are valued in the
+  // database from the household's rate, which refreshFx stores first (or the
+  // last good one stays).
   const fx = await refreshFx();
   const fxHistory = await backfillFxHistory();
-  const holdings = await refreshHoldings(fx.rate);
+  const holdings = await refreshHoldings();
   return jsonResponse({ fx, fxHistory, holdings });
 });

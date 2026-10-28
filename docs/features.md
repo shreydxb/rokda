@@ -151,7 +151,7 @@ here, because this repository is public.
 ## Wealth (`/wealth`)
 
 - **Net worth**: history from dated balance snapshots and valuations.
-- **Accounts**: bank, card, loan, cash, investment and fixed-deposit accounts.
+- **Accounts**: bank, card, loan, cash, investment, fixed-deposit and broker funds accounts (a broker's uninvested cash, which trades move).
   Balances are entered by hand and confirmed, never derived. Every change is
   kept with the figure it replaced, where it came from (app, bot or system)
   and who made it (`account_balance_events`). A balance in
@@ -169,7 +169,11 @@ here, because this repository is public.
   household. A share or share fund is tagged with its sector once, in its
   editor: one of the market sectors, or for an Indian holding the sector its
   broker's statement gives it (Defence, FMCG, Auto ancillary and the like);
-  a fund spread across sectors is tagged so, and counts in no sector.
+  a fund spread across sectors is tagged so, and counts in no sector. Each
+  holding's buys, sells and splits are kept as dated trades from its fresh
+  start (`holding_trades`); its units and average price are worked out from
+  them, and read-only in its editor once it has them. A trade moves the
+  broker's funds account and the holding's value together.
 - **Statements**: one section per card (when it closes and is due), with the
   statements still to check first and the settled ones folded under
   "Checked". Each statement shows its period and status, then three figures

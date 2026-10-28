@@ -77,13 +77,14 @@ export function planningModel({ accounts = [], holdings = [], transactions = [],
 }
 
 // What the plan starts from that is cash, and what is in rupees, household-wide
-// and in AED (Planning audit, 4.19). Cash is the current, savings, cash and
-// fixed-deposit accounts and holdings in cash: the plan keeps it as cash at a
-// cash rate, where it used to earn the investment return. Rupees are the open
+// and in AED (Planning audit, 4.19). Cash is the current, savings, cash,
+// fixed-deposit and broker funds accounts (a broker's uninvested cash, SHR-367)
+// and holdings in cash: the plan keeps it as cash at a cash rate, where it
+// used to earn the investment return. Rupees are the open
 // accounts and holdings in rupees, for the rupee drift case; a rupee debt is
 // left out, so the case errs towards harm. An account or holding with no
 // value yet counts nothing, as it does in net worth.
-const CASH_ACCOUNT_TYPES = new Set(['checking', 'savings', 'cash', 'fd']);
+const CASH_ACCOUNT_TYPES = new Set(['checking', 'savings', 'cash', 'fd', 'broker_funds']);
 export function planStart(accounts = [], holdings = []) {
   let cash = 0;
   let rupees = 0;

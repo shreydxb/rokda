@@ -41,6 +41,10 @@ let requests: string[] = [];
 let feedHoldings: Record<string, unknown>[] = [];
 let yahooMeta: Record<string, unknown> = {};
 let holdingPatches: Record<string, unknown>[] = [];
+// Each price the run writes through set_holding_price, and the filter each
+// read of the holdings asked for.
+let priceWrites: Record<string, unknown>[] = [];
+let holdingFilters: (string | null)[] = [];
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -65,8 +69,15 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     if (wantsObject) return rows.length === 1 ? json(rows[0]) : json({ code: "PGRST116", message: "no rows" }, 406);
     return json(rows);
   }
+  if (url.origin === SUPABASE_URL && url.pathname === "/rest/v1/rpc/set_holding_price") {
+    priceWrites.push(await req.json());
+    return json(3672.5);
+  }
   if (url.origin === SUPABASE_URL && url.pathname === "/rest/v1/holdings") {
-    if (req.method === "GET") return json(feedHoldings);
+    if (req.method === "GET") {
+      holdingFilters.push(url.searchParams.get("or"));
+      return json(feedHoldings);
+    }
     holdingPatches.push(await req.json());
     return new Response(null, { status: 204 });
   }
@@ -123,6 +134,8 @@ function test(name: string, fn: () => Promise<void>): void {
       feedHoldings = [];
       yahooMeta = {};
       holdingPatches = [];
+      priceWrites = [];
+      holdingFilters = [];
       await fn();
     },
   });
@@ -251,10 +264,14 @@ test("price-refresh dates a price by the exchange's quote, and records when it f
   const res = await call(priceRefresh, "POST", null, SCHEDULER_SECRET);
   assertEquals(res.status, 200);
   await res.body?.cancel();
-  const [patch] = holdingPatches.filter((p) => "current_price" in p);
-  assertEquals(patch.current_price, 100);
-  assertEquals(patch.priced_at, "2026-10-09T10:00:00.000Z");
-  assert(Date.parse(String(patch.price_fetched_at)) >= before, "price_fetched_at is not this run's time");
+  // The value is worked in the database from the units at that moment
+  // (set_holding_price), so the run sends the price and its times only.
+  const [write] = priceWrites;
+  assertEquals(write.p_holding_id, "h1");
+  assertEquals(write.p_price, 100);
+  assertEquals(write.p_quoted_at, "2026-10-09T10:00:00.000Z");
+  assert(Date.parse(String(write.p_fetched_at)) >= before, "the fetch time is not this run's time");
+  assertEquals(holdingPatches.filter((p) => "current_price" in p || "value_aed" in p), []);
 });
 
 test("price-refresh leaves priced_at alone when the provider gives no quote time", async () => {
@@ -262,8 +279,19 @@ test("price-refresh leaves priced_at alone when the provider gives no quote time
   const res = await call(priceRefresh, "POST", null, SCHEDULER_SECRET);
   assertEquals(res.status, 200);
   await res.body?.cancel();
-  const [patch] = holdingPatches.filter((p) => "current_price" in p);
-  assertEquals(patch.current_price, 100);
-  assert(!("priced_at" in patch), "a price with no quote time was dated now");
-  assert(typeof patch.price_fetched_at === "string");
+  const [write] = priceWrites;
+  assertEquals(write.p_price, 100);
+  assertEquals(write.p_quoted_at, null, "a price with no quote time was dated now");
+  assert(typeof write.p_fetched_at === "string");
+});
+
+// A holding sold to zero is closed and needs no price (SHR-367).
+// Only a holding its trades sold to zero is closed. One without trades whose
+// units were set to zero by hand is still priced, so its value falls to zero
+// rather than keeping the last one.
+test("price-refresh skips only holdings their trades have closed", async () => {
+  feedHoldings = [RELIANCE];
+  const res = await call(priceRefresh, "POST", null, SCHEDULER_SECRET);
+  await res.body?.cancel();
+  assertEquals(holdingFilters, ["(quantity.is.null,quantity.gt.0,trades_version.eq.0)"]);
 });

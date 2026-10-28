@@ -1307,6 +1307,76 @@ begin
 end $$;
 reset role;
 
+-- Share trades (SHR-367): members read their household's trades and no one
+-- else's; nobody writes a trade directly, only through the trade functions.
+reset role;
+insert into holdings (id, household_id, name, asset_class, currency, quantity, avg_price, value_aed) values
+  ('fb000000-0000-0000-0000-000000000001', 'd1000000-0000-0000-0000-000000000001', 'Our share', 'us_equity', 'USD', 10, 100, 0),
+  ('fb000000-0000-0000-0000-000000000002', 'd2000000-0000-0000-0000-000000000002', 'Their share', 'us_equity', 'USD', 10, 100, 0);
+insert into holding_trades (id, household_id, holding_id, kind, trade_date, units, price, source) values
+  ('fb100000-0000-0000-0000-000000000001', 'd1000000-0000-0000-0000-000000000001', 'fb000000-0000-0000-0000-000000000001', 'opening', '2026-10-01', 10, 100, 'opening'),
+  ('fb100000-0000-0000-0000-000000000002', 'd2000000-0000-0000-0000-000000000002', 'fb000000-0000-0000-0000-000000000002', 'opening', '2026-10-01', 10, 100, 'opening');
+set role authenticated;
+set request.jwt.claim.sub = '0b000000-0000-0000-0000-00000000000b';
+do $$
+declare n int;
+begin
+  select count(*) into n from holding_trades;
+  if n <> 1 then raise exception 'trades RLS FAILED: a member sees % trades, expected their household''s 1', n; end if;
+  begin
+    insert into holding_trades (household_id, holding_id, kind, trade_date, units, price, source)
+    values ('d1000000-0000-0000-0000-000000000001', 'fb000000-0000-0000-0000-000000000001', 'split', '2026-10-02', 2, null, 'app');
+    raise exception 'trades RLS FAILED: a member inserted a trade directly';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    update holding_trades set units = 99 where id = 'fb100000-0000-0000-0000-000000000001';
+    raise exception 'trades RLS FAILED: a member edited a trade directly';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    delete from holding_trades where id = 'fb100000-0000-0000-0000-000000000001';
+    raise exception 'trades RLS FAILED: a member deleted a trade directly';
+  exception when insufficient_privilege then null;
+  end;
+  raise notice 'trades RLS ok: a member reads only their household''s trades and writes none directly';
+end $$;
+reset role;
+
+-- Recording a trade as a signed-in member: on their household's holding it
+-- works; on another household's it is refused; signed out, it can't be called.
+reset role;
+select set_config('rokda.trade_replay', 'on', true);
+update holdings set trades_version = 1 where id in ('fb000000-0000-0000-0000-000000000001', 'fb000000-0000-0000-0000-000000000002');
+select set_config('rokda.trade_replay', '', true);
+insert into accounts (id, household_id, name, type, currency, balance, is_shared) values
+  ('fb200000-0000-0000-0000-000000000001', 'd1000000-0000-0000-0000-000000000001', 'Our broker funds', 'broker_funds', 'USD', 1000, true),
+  ('fb200000-0000-0000-0000-000000000002', 'd2000000-0000-0000-0000-000000000002', 'Their broker funds', 'broker_funds', 'USD', 1000, true);
+set role authenticated;
+set request.jwt.claim.sub = '0b000000-0000-0000-0000-00000000000b';
+do $$
+declare r jsonb;
+begin
+  r := record_trade('fb000000-0000-0000-0000-000000000001', 'buy', '2026-10-02', 1, 100, 0,
+    p_funds_account_id => 'fb200000-0000-0000-0000-000000000001');
+  if (r ->> 'ok')::boolean is not true then raise exception 'trade functions FAILED: a member could not record on their own holding: %', r; end if;
+  r := record_trade('fb000000-0000-0000-0000-000000000002', 'buy', '2026-10-02', 1, 100, 0,
+    p_funds_account_id => 'fb200000-0000-0000-0000-000000000002');
+  if r ->> 'error' is distinct from 'not_member' then raise exception 'trade functions FAILED: another household''s holding gave %', r; end if;
+  raise notice 'trade functions ok: a member records on their household''s holding and no one else''s';
+end $$;
+set role anon;
+do $$
+begin
+  begin
+    perform record_trade('fb000000-0000-0000-0000-000000000001', 'buy', '2026-10-02', 1, 100, 0);
+    raise exception 'trade functions FAILED: a signed-out caller recorded a trade';
+  exception when insufficient_privilege then null;
+  end;
+  raise notice 'trade functions ok: signed out, the trade functions cannot be called';
+end $$;
+reset role;
+
 -- A household can still be deleted outright: the cascade takes the roster with
 -- it, and that is not "a household left without an owner".
 reset role;
