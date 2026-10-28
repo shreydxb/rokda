@@ -639,5 +639,12 @@
   "fingerprint": "3d7a033cea1e2582aba8277f61dc13f9",
   "framingFingerprint": "c80749300329a6e9adc3e8e4521bf036",
   "fingerprintVersion": 2
+ },
+ {
+  "version": "20261028104630",
+  "name": "trade_guards",
+  "fingerprint": "940670c4df4ea5c1daee8546648d80ac",
+  "framingFingerprint": "1e9763c3d5a4e0bb6e210b62148a7ca7",
+  "fingerprintVersion": 2
  }
 ]

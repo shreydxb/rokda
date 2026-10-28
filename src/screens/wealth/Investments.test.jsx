@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { screen } from '@testing-library/dom';
+import { screen, fireEvent } from '@testing-library/dom';
+import { act } from 'react';
 import { renderScreen } from '../../test/renderScreen';
 
 // Any write at all would be a defect here, so the mock records every call.
@@ -9,7 +10,16 @@ vi.mock('../../lib/supabaseClient', () => ({
     from(table) {
       const record = (op) => (payload) => {
         writes.push({ table, op, payload });
-        return { in: () => Promise.resolve({ error: null }), eq: () => Promise.resolve({ error: null }) };
+        // Filters chain as on the real client. select() reports the rows a
+        // filtered update changed: none, as when the row changed after the
+        // tab loaded it.
+        const chain = {
+          in: () => chain,
+          eq: () => chain,
+          select: () => Promise.resolve({ data: [], error: null }),
+          then: (resolve) => resolve({ error: null }),
+        };
+        return chain;
       };
       return { update: record('update'), insert: record('insert'), upsert: record('upsert'), delete: record('delete') };
     },
@@ -129,5 +139,29 @@ describe('Investments: table currency and % of total', () => {
     expect(screen.getByText('Invested (AED)')).toBeTruthy();
     expect(screen.getByText('Value (AED)')).toBeTruthy();
     expect(screen.getByText(/100%.*of total/)).toBeTruthy();
+  });
+});
+
+describe('Investments: a refused holding save reads the data afresh', () => {
+  // The editor gets the row this tab loaded. Without a reload, opening it
+  // again after a refusal would hand it the same old row, refused again.
+  it('reloads, so the editor opened again shows what changed', async () => {
+    const reload = vi.fn().mockResolvedValue(undefined);
+    renderScreen(
+      <Investments
+        household={{ id: 'h' }}
+        members={MEMBERS}
+        me={MEMBERS[0]}
+        loading={false}
+        data={{ holdings: [PRICED_HOLDING], holdingHistory: [], reload }}
+      />,
+    );
+    fireEvent.click(document.querySelector('.wl-holdrow'));
+    fireEvent.change(screen.getByPlaceholderText('e.g. VWRA'), { target: { value: 'AAPL renamed' } });
+    await act(async () => {
+      fireEvent.submit(document.querySelector('form'));
+    });
+    expect(screen.getByText(/changed or was removed after you opened it/)).toBeTruthy();
+    expect(reload).toHaveBeenCalledTimes(1);
   });
 });

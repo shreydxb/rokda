@@ -3572,4 +3572,48 @@ begin
   raise notice 'B2-08 ok: versions move only with the replay';
 end $$;
 
+-- B2-60 (M2): undoing a fresh start never lets a version come round again. A
+-- confirmation shown at version 1, before the undo, must not apply to the
+-- holding gone live a second time.
+insert into household_members (id, household_id, display_name)
+values ('22222222-2222-2222-2222-0000000000b6', '11111111-1111-1111-1111-111111111111', 'Third');
+insert into holdings (id, household_id, owner_member_id, is_shared, name, asset_class, currency, quantity, avg_price, current_price, value_aed, funds_account_id)
+values ('b2000000-0000-0000-0000-000000000801', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-0000000000b6', false, 'YZA', 'us_equity', 'USD', 5, 10, 10, 183.63, 'b2000000-0000-0000-0000-0000000000f1');
+do $$
+declare r jsonb; v int; opening uuid;
+begin
+  perform open_trade_history('22222222-2222-2222-2222-0000000000b6', '2026-10-20');
+  select id into opening from holding_trades where holding_id = 'b2000000-0000-0000-0000-000000000801' and kind = 'opening';
+  r := delete_trade(opening, null, '22222222-2222-2222-2222-0000000000b6');
+  select trades_version into v from holdings where id = 'b2000000-0000-0000-0000-000000000801';
+  if (r ->> 'ok')::boolean is not true or v <> -1 then raise exception 'B2-60 FAILED: undoing the fresh start gave %, version %', r, v; end if;
+  update holdings set quantity = 6 where id = 'b2000000-0000-0000-0000-000000000801';
+  perform open_trade_history('22222222-2222-2222-2222-0000000000b6', '2026-10-21');
+  select trades_version into v from holdings where id = 'b2000000-0000-0000-0000-000000000801';
+  if v <> 2 then raise exception 'B2-60 FAILED: going live again gave version %, expected 2', v; end if;
+  r := record_trade('b2000000-0000-0000-0000-000000000801', 'buy', '2026-10-22', 1, 10, p_member_id => '22222222-2222-2222-2222-0000000000b6', p_expected_version => 1);
+  if r ->> 'error' is distinct from 'stale' then raise exception 'B2-60 FAILED: a confirmation from before the undo gave %', r; end if;
+  raise notice 'B2-60 ok: a version is never reused after a fresh start is undone';
+end $$;
+
+-- B2-61 (M3): a fund that is only a holding's usual fund can be deleted, and
+-- the holding is left with none; a fund money moved through cannot.
+insert into accounts (id, household_id, name, type, currency, balance, is_shared)
+values ('b2000000-0000-0000-0000-0000000000f6', '11111111-1111-1111-1111-111111111111', 'Unused dollar fund', 'broker_funds', 'USD', 0, false);
+insert into holdings (id, household_id, owner_member_id, is_shared, name, asset_class, currency, quantity, avg_price, current_price, value_aed, funds_account_id)
+values ('b2000000-0000-0000-0000-000000000802', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', false, 'BCD', 'us_equity', 'USD', 1, 10, 10, 36.73, 'b2000000-0000-0000-0000-0000000000f6');
+do $$
+begin
+  delete from accounts where id = 'b2000000-0000-0000-0000-0000000000f6';
+  if (select funds_account_id from holdings where id = 'b2000000-0000-0000-0000-000000000802') is not null then
+    raise exception 'B2-61 FAILED: the holding still points at the deleted fund';
+  end if;
+  begin
+    delete from accounts where id = 'b2000000-0000-0000-0000-0000000000f1';
+    raise exception 'B2-61 FAILED: a fund with trades through it was deleted';
+  exception when foreign_key_violation then null;
+  end;
+  raise notice 'B2-61 ok: a fund that is only a default can go; one with trades cannot';
+end $$;
+
 rollback;

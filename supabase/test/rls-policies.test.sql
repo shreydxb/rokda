@@ -1363,6 +1363,14 @@ begin
   r := record_trade('fb000000-0000-0000-0000-000000000002', 'buy', '2026-10-02', 1, 100, 0,
     p_funds_account_id => 'fb200000-0000-0000-0000-000000000002');
   if r ->> 'error' is distinct from 'not_member' then raise exception 'trade functions FAILED: another household''s holding gave %', r; end if;
+  -- Only the bot marks a trade as the bot's, or ties it to a bot proposal
+  -- (M5): a member's own call is an app trade.
+  r := record_trade('fb000000-0000-0000-0000-000000000001', 'buy', '2026-10-02', 1, 100, 0,
+    p_funds_account_id => 'fb200000-0000-0000-0000-000000000001', p_source => 'bot');
+  if r ->> 'error' is distinct from 'not_allowed' then raise exception 'trade functions FAILED: a member marked a trade as the bot''s: %', r; end if;
+  r := record_trade('fb000000-0000-0000-0000-000000000001', 'buy', '2026-10-02', 1, 100, 0,
+    p_funds_account_id => 'fb200000-0000-0000-0000-000000000001', p_proposal_id => gen_random_uuid());
+  if r ->> 'error' is distinct from 'not_allowed' then raise exception 'trade functions FAILED: a member tied a trade to a proposal: %', r; end if;
   raise notice 'trade functions ok: a member records on their household''s holding and no one else''s';
 end $$;
 set role anon;

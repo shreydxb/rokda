@@ -383,6 +383,7 @@ export default function Investments({ household, members, me, data, loading, rel
             setEditing(null);
             await reload();
           }}
+          onStale={reload}
         />
       )}
     </div>
