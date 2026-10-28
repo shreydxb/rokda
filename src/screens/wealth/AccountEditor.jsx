@@ -55,6 +55,9 @@ export default function AccountEditor({ account, defaultType, householdId, membe
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  // The database refused to delete the account because trades went through
+  // it; from then on the only way to remove it is to close it.
+  const [deleteRefused, setDeleteRefused] = useState(false);
 
   useEffect(() => {
     const onKey = (e) => {
@@ -107,10 +110,6 @@ export default function AccountEditor({ account, defaultType, householdId, membe
       name: form.name.trim(),
       type: form.type,
       currency: form.currency || 'AED',
-      // A loan's balance is the amount owed, and a loan cannot be in credit,
-      // so a loan typed below zero is stored as what it owes. Net worth read
-      // a negative loan as money held (Planning audit, 0b-D).
-      balance: isLoan ? Math.abs(Number(form.balance) || 0) : Number(form.balance) || 0,
       is_shared: form.owner === 'shared',
       owner_member_id: form.owner === 'shared' ? null : form.owner,
       credit_limit: isCard && form.credit_limit ? Number(form.credit_limit) : null,
@@ -128,6 +127,15 @@ export default function AccountEditor({ account, defaultType, householdId, membe
       // it never gets a balance_as_of stamp.
       ...(!isFd && confirmBalance ? { balance_as_of: new Date(`${balanceAsOf}T00:00:00Z`).toISOString() } : {}),
     };
+    // The balance is sent only when it was typed here. A trade moves a broker
+    // fund's balance while this editor may be open, and sending the figure it
+    // opened with would put the old balance back (SHR-367).
+    if (!account || form.balance !== initialForm(account).balance) {
+      // A loan's balance is the amount owed, and a loan cannot be in credit,
+      // so a loan typed below zero is stored as what it owes. Net worth read
+      // a negative loan as money held (Planning audit, 0b-D).
+      payload.balance = isLoan ? Math.abs(Number(form.balance) || 0) : Number(form.balance) || 0;
+    }
 
     const query = account
       ? supabase.from('accounts').update(payload).eq('id', account.id)
@@ -144,7 +152,16 @@ export default function AccountEditor({ account, defaultType, householdId, membe
 
   // Closing keeps the ledger; deleting is only offered for an account that was
   // never used. The foreign key enforces the same rule server-side (QA-01).
-  const plan = account ? closurePlan(account, transactions) : null;
+  const plan = account
+    ? deleteRefused
+      ? {
+          ...closurePlan(account, transactions),
+          action: 'archive',
+          title: 'Close this account?',
+          detail: 'It stops being offered for new entries; everything recorded through it stays.',
+        }
+      : closurePlan(account, transactions)
+    : null;
 
   async function handleClose() {
     if (!confirmingDelete) {
@@ -161,6 +178,15 @@ export default function AccountEditor({ account, defaultType, householdId, membe
             .update({ archived_at: new Date().toISOString(), updated_at: new Date().toISOString() })
             .eq('id', account.id);
     setSaving(false);
+    // A foreign key refused the delete: trades went through this account (a
+    // broker fund), which the transactions above do not show. Closing keeps
+    // them, so that is what is offered instead of the database's error.
+    if (mutationError && plan.action === 'delete' && mutationError.code === '23503') {
+      setDeleteRefused(true);
+      setConfirmingDelete(false);
+      setError("Money moved through this account in recorded trades, so it can't be deleted. Close it instead: everything recorded through it stays.");
+      return;
+    }
     if (mutationError) {
       setError(mutationError.message);
       return;
