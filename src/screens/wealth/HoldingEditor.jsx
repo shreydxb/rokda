@@ -142,7 +142,12 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
         : explicitlyConfirmed
           ? nextPricedAt(holding, holding, { confirmedAsOf: asOf })
           : (holding?.priced_at ?? null);
-    const writesHistory = !pendingValuation && (repriced || explicitlyConfirmed);
+    // A traded holding the feed prices is valued by the database, from its
+    // units under the holding's lock, whenever a trade or a price lands. The
+    // figures this editor loaded may already be older than that, so it sends
+    // none of them and records no value point (SHR-367).
+    const feedValued = traded && autoValued;
+    const writesHistory = !feedValued && !pendingValuation && (repriced || explicitlyConfirmed);
     const payload = {
       household_id: householdId,
       name: form.name.trim(),
@@ -162,6 +167,12 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
       delete payload.quantity;
       delete payload.avg_price;
     }
+    if (feedValued) {
+      delete payload.value_aed;
+      delete payload.current_price;
+      delete payload.day_change_pct;
+      delete payload.priced_at;
+    }
 
     // A brand-new holding's id is generated and recorded BEFORE the first
     // write is dispatched — not read back from a successful response — so a
@@ -177,10 +188,22 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
     // row, and never silently no-ops on a row that was never written.
     let holdingId = holding?.id ?? createdId;
     if (holding) {
-      const { error: saveError } = await supabase.from('holdings').update(payload).eq('id', holding.id);
+      // Saved only if no trade or go-live moved the holding since the editor
+      // opened: otherwise this save would put back what that trade changed.
+      const { data: saved, error: saveError } = await supabase
+        .from('holdings')
+        .update(payload)
+        .eq('id', holding.id)
+        .eq('trades_version', holding.trades_version ?? 0)
+        .select('id');
       if (saveError) {
         setSaving(false);
         setError(saveError.message);
+        return;
+      }
+      if (!saved?.length) {
+        setSaving(false);
+        setError('This holding changed after you opened it: a trade was recorded or it went live. Close it and open it again.');
         return;
       }
     } else {

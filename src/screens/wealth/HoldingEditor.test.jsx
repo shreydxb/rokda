@@ -7,19 +7,40 @@ import { renderScreen } from '../../test/renderScreen';
 // either inserts (id not present yet) or updates in place (id already
 // there) — the same semantics a real `on conflict (id) do update` has.
 const db = { holdings: new Map(), histories: [] };
+// Column defaults a stored row reads when a test seeds it without them.
+const COLUMN_DEFAULTS = { trades_version: 0 };
 let historyFailsOnce = false;
 
 vi.mock('../../lib/supabaseClient', () => ({
   supabase: {
     from: (table) => ({
-      update: (row) => ({
-        eq: async (_field, id) => {
-          if (table === 'holdings' && db.holdings.has(id)) {
-            db.holdings.set(id, { ...db.holdings.get(id), ...row });
+      // An update applies only to rows matching every .eq() filter, as
+      // PostgREST does, and .select() returns the rows it changed: how the
+      // editor learns that a trade moved the holding's version first.
+      update: (row) => {
+        const filters = [];
+        const apply = async () => {
+          const changed = [];
+          if (table === 'holdings') {
+            for (const [id, stored] of db.holdings) {
+              if (filters.every(([field, value]) => (field in stored ? stored[field] : COLUMN_DEFAULTS[field]) === value)) {
+                db.holdings.set(id, { ...stored, ...row });
+                changed.push({ id });
+              }
+            }
           }
-          return { error: null };
-        },
-      }),
+          return { data: changed, error: null };
+        };
+        const builder = {
+          eq: (field, value) => {
+            filters.push([field, value]);
+            return builder;
+          },
+          select: apply,
+          then: (resolve, reject) => apply().then(({ error }) => ({ error })).then(resolve, reject),
+        };
+        return builder;
+      },
       upsert: async (row) => {
         if (table === 'holding_value_history') {
           db.histories.push(row);
@@ -240,7 +261,7 @@ describe('a traded holding', () => {
   it('shows units and average read-only and leaves them out of the save', async () => {
     // The stored row starts without units or an average, so any that appear
     // after saving were sent by the editor.
-    db.holdings.set('h3', { id: 'h3', name: 'ABC' });
+    db.holdings.set('h3', { id: 'h3', name: 'ABC', trades_version: 1 });
     renderScreen(<HoldingEditor holding={traded} householdId="hh" members={[]} onClose={() => {}} onSaved={async () => {}} />);
     expect(screen.getByLabelText('Units').readOnly).toBe(true);
     expect(screen.getByLabelText(/^Avg price/).readOnly).toBe(true);
@@ -252,6 +273,52 @@ describe('a traded holding', () => {
     expect(db.holdings.get('h3').name).toBe('ABC renamed');
     expect(db.holdings.get('h3')).not.toHaveProperty('quantity');
     expect(db.holdings.get('h3')).not.toHaveProperty('avg_price');
+    cleanup();
+  });
+
+  it('refuses a save from before a trade, and writes nothing', async () => {
+    // A trade recorded while the editor was open moved the version to 2.
+    db.holdings.set('h4', { ...traded, id: 'h4', trades_version: 2 });
+    renderScreen(<HoldingEditor holding={{ ...traded, id: 'h4' }} householdId="hh" members={[]} onClose={() => {}} onSaved={async () => {}} />);
+    fireEvent.change(screen.getByPlaceholderText('e.g. VWRA'), { target: { value: 'ABC renamed' } });
+    await act(async () => {
+      fireEvent.submit(document.querySelector('form'));
+    });
+    expect(db.holdings.get('h4').name).toBe('ABC');
+    expect(db.histories).toHaveLength(0);
+    expect(screen.getByText('This holding changed after you opened it: a trade was recorded or it went live. Close it and open it again.')).toBeTruthy();
+    cleanup();
+  });
+
+  it("a traded, auto-priced holding's value is left to the price feed", async () => {
+    const priced = { ...traded, id: 'h5', price_provider: 'twelvedata', price_symbol: 'ABC', current_price: 140, quantity: 10 };
+    // The feed valued it at 5,000 after the editor loaded it at 4,000.
+    db.holdings.set('h5', { ...priced, value_aed: 5000 });
+    renderScreen(<HoldingEditor holding={{ ...priced, value_aed: 4000 }} householdId="hh" members={[]} onClose={() => {}} onSaved={async () => {}} />);
+    fireEvent.change(screen.getByPlaceholderText('e.g. VWRA'), { target: { value: 'ABC renamed' } });
+    // Confirming the value as unchanged would otherwise write the stale 4,000
+    // as today's value point.
+    fireEvent.click(screen.getByLabelText(/Still worth the same/));
+    await act(async () => {
+      fireEvent.submit(document.querySelector('form'));
+    });
+    expect(db.holdings.get('h5').name).toBe('ABC renamed');
+    expect(db.holdings.get('h5').value_aed).toBe(5000);
+    expect(db.histories).toHaveLength(0);
+    cleanup();
+  });
+
+  it('an untraded holding still saves its value as before', async () => {
+    const gold = { id: 'h6', name: 'Gold', asset_class: 'commodity', currency: 'AED', value_aed: 1000, is_shared: true, priced_at: '2026-09-01T00:00:00Z', trades_version: 0 };
+    db.holdings.set('h6', { ...gold });
+    renderScreen(<HoldingEditor holding={gold} householdId="hh" members={[]} onClose={() => {}} onSaved={async () => {}} />);
+    fireEvent.change(document.querySelector('.te-hero-input'), { target: { value: '1200' } });
+    await act(async () => {
+      fireEvent.submit(document.querySelector('form'));
+    });
+    expect(db.holdings.get('h6').value_aed).toBe(1200);
+    expect(db.histories).toHaveLength(1);
+    expect(db.histories[0].value_aed).toBe(1200);
     cleanup();
   });
 
