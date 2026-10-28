@@ -95,6 +95,18 @@ describe('AccountEditor: an existing fund', () => {
     expect(calls.updates[0].row).toMatchObject({ balance: 1200 });
   });
 
+  it('retyping an account as a loan stores what it owes, though the balance was not typed', async () => {
+    // A loan's balance is what is owed. Left at -2000, net worth would read
+    // the new loan as money held (0b-D).
+    const overdrawn = { ...fund, id: 'a2', name: 'Bank card', type: 'checking', currency: 'AED', balance: -2000 };
+    const onSaved = vi.fn();
+    renderScreen(<AccountEditor account={overdrawn} householdId="h" members={[]} transactions={[]} onClose={vi.fn()} onSaved={onSaved} />);
+    fireEvent.change(screen.getByText('Type').parentElement.querySelector('select'), { target: { value: 'loan' } });
+    fireEvent.click(screen.getByText('Save changes'));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(calls.updates[0].row).toMatchObject({ type: 'loan', balance: 2000 });
+  });
+
   it('an account money moved through is closed, not deleted, and says why', async () => {
     calls.deleteResult = { error: { code: '23503', message: 'violates foreign key' } };
     const { onSaved } = renderFund();

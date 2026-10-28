@@ -127,10 +127,12 @@ export default function AccountEditor({ account, defaultType, householdId, membe
       // it never gets a balance_as_of stamp.
       ...(!isFd && confirmBalance ? { balance_as_of: new Date(`${balanceAsOf}T00:00:00Z`).toISOString() } : {}),
     };
-    // The balance is sent only when it was typed here. A trade moves a broker
-    // fund's balance while this editor may be open, and sending the figure it
-    // opened with would put the old balance back (SHR-367).
-    if (!account || form.balance !== initialForm(account).balance) {
+    // The balance is sent only when it was typed here, or when the type
+    // changed and the loan rule below may change how it is stored. A trade
+    // moves a broker fund's balance while this editor may be open, and
+    // sending the figure it opened with would put the old balance back
+    // (SHR-367).
+    if (!account || form.balance !== initialForm(account).balance || form.type !== account.type) {
       // A loan's balance is the amount owed, and a loan cannot be in credit,
       // so a loan typed below zero is stored as what it owes. Net worth read
       // a negative loan as money held (Planning audit, 0b-D).

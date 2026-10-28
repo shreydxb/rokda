@@ -30,7 +30,7 @@ function initialForm(holding) {
   };
 }
 
-export default function HoldingEditor({ holding, householdId, members, onClose, onSaved }) {
+export default function HoldingEditor({ holding, householdId, members, onClose, onSaved, onStale }) {
   const drawerRef = useDrawerFocus();
   const [form, setForm] = useState(() => initialForm(holding));
   // A valuation is only as of a date someone states. Editing a name must not
@@ -203,7 +203,10 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
       }
       if (!saved?.length) {
         setSaving(false);
-        setError('This holding changed after you opened it: a trade was recorded or it went live. Close it and open it again.');
+        setError('This holding changed or was removed after you opened it, so nothing was saved. Close it and open it again to see the latest.');
+        // The screen opened this editor with the row it had loaded. Reading
+        // its data afresh now is what makes opening it again show the change.
+        await onStale?.();
         return;
       }
     } else {

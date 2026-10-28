@@ -2860,11 +2860,13 @@ and average price are worked out from them.
   from it. Only the bot marks a trade as the bot's or ties it to a bot
   confirmation; a member's own trade is the app's.
 - **An editor never undoes a trade.** The holding editor saves only while
-  the holding's version is the one it opened with, and says to reopen it
-  otherwise. For a traded holding the feed prices, it never sends a value
-  or price, which the database works out. The account editor sends a
-  balance only when one was typed, so renaming a broker fund keeps the
-  balance its trades moved.
+  the holding's version is the one it opened with. Otherwise it saves
+  nothing, reloads the screen's data and says to reopen it, so the reopened
+  editor shows the change. For a traded holding the feed prices, it never
+  sends a value or price, which the database works out. The account editor
+  sends a balance only when one was typed or the type changed (a loan stores
+  what it owes), so renaming a broker fund keeps the balance its trades
+  moved.
 - **Eight decimals.** Units keep eight places, as a broker of fractional
   shares shows them; at four, selling a whole fractional holding read as
   selling more than was held.

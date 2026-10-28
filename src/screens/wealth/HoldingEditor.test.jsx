@@ -276,17 +276,21 @@ describe('a traded holding', () => {
     cleanup();
   });
 
-  it('refuses a save from before a trade, and writes nothing', async () => {
+  it('refuses a save from before a trade, writes nothing, and asks for fresh data', async () => {
     // A trade recorded while the editor was open moved the version to 2.
     db.holdings.set('h4', { ...traded, id: 'h4', trades_version: 2 });
-    renderScreen(<HoldingEditor holding={{ ...traded, id: 'h4' }} householdId="hh" members={[]} onClose={() => {}} onSaved={async () => {}} />);
+    // The screen hands the editor the row it loaded, so opening it again
+    // would be refused again unless that row is read afresh first.
+    const onStale = vi.fn().mockResolvedValue(undefined);
+    renderScreen(<HoldingEditor holding={{ ...traded, id: 'h4' }} householdId="hh" members={[]} onClose={() => {}} onSaved={async () => {}} onStale={onStale} />);
     fireEvent.change(screen.getByPlaceholderText('e.g. VWRA'), { target: { value: 'ABC renamed' } });
     await act(async () => {
       fireEvent.submit(document.querySelector('form'));
     });
     expect(db.holdings.get('h4').name).toBe('ABC');
     expect(db.histories).toHaveLength(0);
-    expect(screen.getByText('This holding changed after you opened it: a trade was recorded or it went live. Close it and open it again.')).toBeTruthy();
+    expect(onStale).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('This holding changed or was removed after you opened it, so nothing was saved. Close it and open it again to see the latest.')).toBeTruthy();
     cleanup();
   });
 
