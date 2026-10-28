@@ -246,14 +246,15 @@ async function fetchYahoo(symbol: string): Promise<PriceResult> {
 
 async function refreshHoldings() {
   // A holding its trades sold to zero is closed: it keeps its history and
-  // needs no price. One without trades is priced whatever its units, so a
-  // zero typed by hand values it at zero.
+  // needs no price. One without trades (version 0, or negative once a fresh
+  // start was undone) is priced whatever its units, so a zero typed by hand
+  // values it at zero.
   const { data: holdings, error } = await supabase
     .from("holdings")
     .select("id, currency, price_symbol, price_provider, price_fetch_fail_count")
     .not("price_symbol", "is", null)
     .not("price_provider", "is", null)
-    .or("quantity.is.null,quantity.gt.0,trades_version.eq.0");
+    .or("quantity.is.null,quantity.gt.0,trades_version.lte.0");
   if (error || !holdings) return { updated: 0, failed: 0, historyCaptured: 0 };
 
   const byProvider = new Map<string, Holding[]>();

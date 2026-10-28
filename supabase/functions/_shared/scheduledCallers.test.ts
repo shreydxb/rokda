@@ -293,5 +293,5 @@ test("price-refresh skips only holdings their trades have closed", async () => {
   feedHoldings = [RELIANCE];
   const res = await call(priceRefresh, "POST", null, SCHEDULER_SECRET);
   await res.body?.cancel();
-  assertEquals(holdingFilters, ["(quantity.is.null,quantity.gt.0,trades_version.eq.0)"]);
+  assertEquals(holdingFilters, ["(quantity.is.null,quantity.gt.0,trades_version.lte.0)"]);
 });
