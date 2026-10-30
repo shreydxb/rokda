@@ -295,6 +295,18 @@ Forecast or Drawdown, which went (Planning audit, 3.15), opens the Life plan.
 
 ## Telegram bot (`supabase/functions/telegram-webhook`)
 
+- Records share trades from a message: "bought 10 ABC at 120.5", "sold 2 ABC
+  at 150 on 24 Oct, brokerage 1", "Partner bought 3 XYZ at 600", "ABC split 10
+  for 1". It asks one question at a time for whatever is missing (which
+  holding, how many, the currency of a share not yet held, the price; a price
+  in another currency is asked again, never converted), then confirms with
+  the database's own figures (the holding before and after, the profit, the
+  broker fund's movement, and any warning) and saves only on a "yes" or 👍. A
+  share bought for the first time becomes a new holding with its price-feed
+  symbol and fund shown. "undo last trade" undoes the sender's latest trade
+  the same way, and "what did I make on ABC this year?" answers from the
+  recorded sales. A traded holding whose price moves by more than 40% in a day
+  gets a question about a split.
 - Records transfers between the household's own accounts ("paid the card
   3000 from the current account"): it names both accounts and the amount and
   records the transfer on a "yes" or 👍. A side already recorded (the payment

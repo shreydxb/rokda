@@ -2917,6 +2917,43 @@ into it, so net worth does not jump or drop on the day of a trade.
   brokerage into the average price and some do not; each fund says which,
   so the app's average matches the broker's.
 
+## The bot records trades
+
+Most trades happen on a phone, so the household tells the bot (SHR-370). A
+trade moves a holding and a broker fund at once, and a misread figure costs
+real money, so the bot never saves one the member has not seen.
+
+- **Confirmed with the database's own figures.** A trade message is read by
+  the router (`log_trade`), matched to the sender's holding (or the member
+  named), and previewed by the database: `preview_trade`, or for a share not
+  yet held `preview_new_holding_trade`, which makes the holding and rolls it
+  back. The confirmation shows those figures and nothing worked out in the
+  bot. It is saved only on the sender's "yes" or 👍, through
+  `apply_bot_proposal`, at the holding's version when it was shown: if the
+  holding changed in between, nothing is saved and the trade is confirmed
+  again with today's figures.
+- **One question at a time.** Whatever is missing (which of two lots, how
+  many, the currency of a share not yet held, the price) is asked for in
+  turn, the draft kept as an `asking` proposal no "yes" can apply. An answer
+  is a reply to the question, or the next message soon after it that reads as
+  one; anything else is a message of its own. A price in another currency is
+  asked again, never converted.
+- **A first buy starts a holding from an empty opening entry.** The holding
+  gets its price-feed symbol (".NS" for an Indian share), class and the
+  owner's broker fund in its currency, all shown before the yes. It is valued
+  at the buy until the feed prices it. A second first buy of the same share
+  confirmed later goes into that holding, not a second one.
+- **Undo is for the sender's last trade.** "undo last trade" proposes deleting
+  the most recent trade the sender recorded, previewed the same way. Anything
+  older is fixed in the app.
+- **A large move asks about a split.** A traded holding whose price moves by
+  more than 40% in a day gets a question to its owner, once for that price:
+  an unrecorded split would halve the value with the price.
+- **Not yet:** reading a broker's screenshot or statement, the Indian-sale
+  tax follow-up and brokerage in the average per broker wait for the
+  household's samples; transfers between a bank account and a fund in two
+  currencies get their own plan.
+
 ## The price feed values a holding as it writes
 
 The nightly feed read every holding's units first and wrote each value from
