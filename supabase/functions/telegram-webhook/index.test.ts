@@ -61,6 +61,12 @@ type Backend = {
   };
   // Calls OpenRouter has received.
   aiCalls: number;
+  // What the router was told, as it was sent.
+  routerPrompts: string[];
+  // Every database function the handler called, with its arguments.
+  rpcCalls: Array<{ fn: string; args: Row }>;
+  // What a trade preview answers, by function; unset, a plain buy or sale.
+  previews: Record<string, Row>;
   // What OpenRouter's router answers for a message: a tool name plus args.
   route?: { tool: string; args: Row };
   // What the parser extracts from a message; unset, it answers prose, which
@@ -109,6 +115,9 @@ function reset(): void {
     applyCalls: 0,
     approveCalls: 0,
     aiCalls: 0,
+    routerPrompts: [],
+    rpcCalls: [],
+    previews: {},
   };
 }
 
@@ -424,8 +433,26 @@ function applyProposal(id: string, memberId: string): Row {
   return { outcome: "applied", ...result };
 }
 
+// A trade preview as the database answers one, from the trade asked about:
+// ABC held at 15 shares averaging 110, its dollar fund at 1,000.
+function tradePreview(args: Row): Row {
+  const units = Number(args.p_units);
+  const price = Number(args.p_price ?? 0);
+  const fees = Number(args.p_fees ?? 0);
+  const sale = args.p_kind === "sell";
+  const cash = sale ? units * price - fees : -(units * price + fees);
+  return {
+    ok: true, units, price, fees, tax_withheld: 0, trades_version: 3, units_before: 15, avg_before: 110,
+    holding_units_after: sale ? 15 - units : 15 + units, holding_avg_after: sale ? 110 : (15 * 110 + units * price) / (15 + units),
+    realised: sale ? units * (price - 110) - fees : null, funds_account_id: args.p_funds_account_id ?? "a3700000-0000-4000-8000-0000000000f1",
+    funds_moves: true, funds_delta: cash, funds_balance_before: 1000, funds_balance_after: 1000 + cash, warnings: [],
+  };
+}
+
 async function rpc(req: Request, fn: string): Promise<Response> {
   const args = await req.json().catch(() => ({}));
+  backend.rpcCalls.push({ fn, args });
+  if (fn === "preview_trade") return json(backend.previews.preview_trade ?? tradePreview(args));
   if (fn === "get_telegram_webhook_secret") return json(SECRET);
   if (fn === "apply_bot_proposal") {
     backend.applyCalls += 1;
@@ -486,6 +513,7 @@ async function openrouter(req: Request): Promise<Response> {
     return json({ error: { code: 429, message: "Rate limit exceeded" } }, 429);
   }
   // The router is the call that offers tools; parsing and phrasing do not.
+  if (Array.isArray(body.tools)) backend.routerPrompts.push(JSON.stringify(body.messages ?? []));
   if (Array.isArray(body.tools) && backend.route) {
     return json({
       choices: [{
@@ -1964,4 +1992,58 @@ freshTest("an AI service that answers at once is asked once for each step", asyn
   backend.parse = [{ merchant: "Cafe", amount: 40, currency: "AED", occurred_at: "2026-09-24", date_stated: true, source: "typed", category: null, card_last4: null, account_hint: null, confidence: 1, kind: "expense" }];
   await handler(textUpdate(7304, "spent 40 at cafe"));
   assertEquals(aiCalls(), [["classify_and_route", null], ["parse_intake", null]]);
+});
+
+// ---------------------------------------------------------------------------
+// Share trades by message (SHR-370)
+// ---------------------------------------------------------------------------
+
+const ABC = "a3700000-0000-4000-8000-0000000000a1";
+const USD_FUND = "a3700000-0000-4000-8000-0000000000f1";
+
+// ABC, held by the sender at 15 shares, bought through their dollar fund.
+function tradeFixtures(): void {
+  backend.tables.holdings = [{
+    id: ABC, household_id: HOUSEHOLD, name: "ABC", currency: "USD", asset_class: "us_equity", price_symbol: "ABC",
+    price_provider: "twelvedata", owner_member_id: MEMBER, funds_account_id: USD_FUND, trades_version: 3, quantity: 15,
+    current_price: 150, is_shared: false, value_aed: 8263.13,
+  }];
+  backend.tables.accounts.push({
+    id: USD_FUND, household_id: HOUSEHOLD, name: "Dollar broker funds", type: "broker_funds", currency: "USD",
+    owner_member_id: MEMBER, is_shared: false, archived_at: null, balance: 1000,
+  });
+}
+
+freshTest("a share bought by message goes to the trade preview, never the Inbox", async () => {
+  tradeFixtures();
+  backend.route = { tool: "log_trade", args: { side: "buy", stock: "ABC", units: 10, price: 120 } };
+  await handler(textUpdate(7401, "bought 10 ABC at 120"));
+  assertEquals(capturedIntake().length, 0);
+  const preview = backend.rpcCalls.find((c) => c.fn === "preview_trade");
+  assert(preview, "preview_trade was never called");
+  assertEquals([preview.args.p_holding_id, preview.args.p_kind, preview.args.p_units, preview.args.p_price], [ABC, "buy", 10, 120]);
+});
+
+freshTest("a trade dated after today is refused before any preview", async () => {
+  tradeFixtures();
+  backend.route = { tool: "log_trade", args: { side: "buy", stock: "ABC", units: 10, price: 120, trade_date: "2099-11-30" } };
+  await handler(textUpdate(7402, "bought 10 ABC at 120 on 30 Nov 2099"));
+  assert(lastReply().startsWith("That date hasn't happened yet"), lastReply());
+  assertEquals(backend.rpcCalls.filter((c) => c.fn.startsWith("preview")).length, 0);
+  assertEquals(capturedIntake().length, 0);
+  assertEquals(backend.tables.bot_proposals.length, 0);
+});
+
+freshTest("a sale of a stock not held says so and saves nothing", async () => {
+  tradeFixtures();
+  backend.route = { tool: "log_trade", args: { side: "sell", stock: "XYZ", units: 2, price: 50 } };
+  await handler(textUpdate(7403, "sold 2 XYZ at 50"));
+  assertEquals(lastReply(), "You don't hold XYZ, so nothing was saved.");
+  assertEquals(capturedIntake().length, 0);
+  assertEquals(backend.tables.bot_proposals.length, 0);
+});
+
+freshTest("the router is told a share trade is log_trade, never an expense", async () => {
+  await handler(textUpdate(7404, "spent 40 on lunch"));
+  assert(backend.routerPrompts[0]?.includes("call log_trade"), backend.routerPrompts[0]);
 });

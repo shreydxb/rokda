@@ -54,7 +54,17 @@ import { autopayAnswer, autopayCycle, autopayNotYetMessage, autopayQuestion, aut
 import { incompleteNote, netWorthSummary } from "../_shared/applib/overviewMath.js";
 import { merchantMatches, pickCategory } from "../_shared/applib/merchants.js";
 import { closedStatementDates, isoDay, statementDueDate, statementPeriodStart } from "../_shared/applib/statements.js";
-import { ANSWER_HINT } from "./trades.ts";
+import {
+  ANSWER_HINT,
+  draftFromArgs,
+  type HoldingLite,
+  matchHoldings,
+  nextQuestion,
+  normaliseSymbol,
+  type TradeDraft,
+  tradeConfirmation,
+  tradeRefusal,
+} from "./trades.ts";
 import {
   statementAlreadySettledMessage,
   statementAnswer,
@@ -1162,7 +1172,7 @@ async function sendProposal(
   chatId: number,
   householdId: string,
   memberId: string,
-  kind: "account_balances" | "goal_contribution" | "transfer",
+  kind: "account_balances" | "goal_contribution" | "transfer" | "trade",
   payload: Record<string, unknown>,
   prompt: string,
   updateId: unknown,
@@ -1577,6 +1587,31 @@ const TOOLS_BASE = [
           note: { type: "string", description: "Anything else the message says about it, briefly. Omit if nothing." },
         },
         required: ["amount"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "log_trade",
+      description:
+        "The message reports buying or selling a share, fund or ETF, or a split or bonus of one (e.g. 'bought 10 ABC at 120.5', 'sold 2 ABC at 150 on 24 Oct, brokerage 1', 'Partner bought 3 XYZ at 600', 'ABC split 10 for 1'). A share bought is not spending, so never call log_expense for it. Give only what the message says; anything missing is asked for afterwards.",
+      parameters: {
+        type: "object",
+        properties: {
+          side: { type: "string", enum: ["buy", "sell", "split"], description: "buy, sell, or split (a bonus issue is a split)." },
+          stock: { type: "string", description: "The share's symbol or name as written, e.g. 'ABC' or 'abc.ns'." },
+          units: { type: "number", description: "How many shares. Omit if not stated." },
+          price: { type: "number", description: "The price per share, as stated. Omit if not stated." },
+          currency: { type: "string", enum: ["USD", "INR", "AED"], description: "The price's currency, only if the message states it ('$', 'rs', 'AED'). Omit otherwise." },
+          trade_date: { type: "string", description: "YYYY-MM-DD if a date is stated; omit for today." },
+          traded_at: { type: "string", description: "ISO time of the trade if stated; omit otherwise." },
+          brokerage: { type: "number", description: "Brokerage or fees, if stated." },
+          tax: { type: "number", description: "Tax deducted on a sale, if stated." },
+          member: { type: "string", description: "The household member whose trade it is, when the message names someone else ('Partner bought ...'); omit for the sender's own." },
+          ratio: { type: "number", description: "For a split or bonus: new shares per old share, e.g. 10 for '10 for 1', 2 for a 1:1 bonus." },
+        },
+        required: ["side", "stock"],
       },
     },
   },
@@ -2054,6 +2089,179 @@ export function transferPrompt(draft: { from: { name: string }; to: { name: stri
 }
 
 // ---------------------------------------------------------------------------
+// Share trades (SHR-370; docs/decisions.md, "The bot records trades"). The
+// router reads a trade message (log_trade); trades.ts matches it to the
+// member's holding and asks for anything missing; the database previews it;
+// and it is proposed with the preview's own figures. Nothing is saved until
+// the sender says yes.
+// ---------------------------------------------------------------------------
+
+const TRADE_HOLDING_COLUMNS =
+  "id, name, currency, asset_class, price_symbol, price_provider, owner_member_id, funds_account_id, trades_version, quantity, current_price";
+
+// Every holding in the household, as the trade helpers match them. Read in
+// pages, so a failed or partial read is never matched against.
+async function tradeHoldings(householdId: string): Promise<HoldingLite[]> {
+  const rows = await allRowsOf<HoldingLite>("holdings", () =>
+    supabase.from("holdings").select(TRADE_HOLDING_COLUMNS).eq("household_id", householdId).order("id")
+  );
+  return rows.map((h) => ({
+    ...h,
+    trades_version: Number(h.trades_version ?? 0),
+    quantity: h.quantity === null || h.quantity === undefined ? null : Number(h.quantity),
+    current_price: h.current_price === null || h.current_price === undefined ? null : Number(h.current_price),
+  }));
+}
+
+async function householdMembers(householdId: string): Promise<Array<{ id: string; display_name: string }>> {
+  return await allRowsOf("household_members", () =>
+    supabase.from("household_members").select("id, display_name").eq("household_id", householdId).order("id")
+  );
+}
+
+const TRADE_READ_FAILED = "I couldn't read your holdings just now, so nothing was saved. Please send it again in a minute.";
+
+// Why a trade message could not even be drafted.
+function tradeDraftError(error: string, args: Record<string, unknown>): string {
+  switch (error) {
+    case "future_date":
+      return "That date hasn't happened yet, so nothing was saved. Send it again with the day of the trade.";
+    case "unknown_member":
+      return `I don't know a member called ${String(args.member ?? "").trim()}, so nothing was saved.`;
+    case "no_side":
+      return "Was that a buy, a sale or a split? Nothing was saved; send it again saying which.";
+    default:
+      return "Which share was that? Nothing was saved; send it again with its name or symbol.";
+  }
+}
+
+// A trade message: drafted from the router's arguments, matched to the
+// owner's holding, and then asked about (the first thing missing) or
+// previewed and proposed. A sale or split of a share not held stops here.
+async function handleTradeMessage(
+  chatId: number,
+  member: { id: string; household_id: string },
+  args: Record<string, unknown>,
+  updateId: unknown,
+): Promise<void> {
+  let members: Array<{ id: string; display_name: string }>;
+  let holdings: HoldingLite[];
+  try {
+    members = await householdMembers(member.household_id);
+    holdings = await tradeHoldings(member.household_id);
+  } catch (err) {
+    if (!(err instanceof ReadFailed)) throw err;
+    await reply(chatId, TRADE_READ_FAILED);
+    return;
+  }
+  const draft = draftFromArgs(args, { senderId: member.id, members, today: householdToday() });
+  if ("error" in draft) {
+    await reply(chatId, tradeDraftError(draft.error, args));
+    return;
+  }
+  const matches = matchHoldings(holdings, draft.ownerMemberId, draft.stock);
+  if (matches.length === 1) draft.holdingId = matches[0].id;
+  else if (matches.length > 1) draft.candidates = matches.map((h) => h.id);
+  else if (draft.side !== "buy") {
+    await reply(chatId, tradeRefusal("not_held", { holdingName: normaliseSymbol(draft.stock) || draft.stock }));
+    return;
+  }
+  const question = nextQuestion(draft, holdings);
+  if (question) {
+    await reply(chatId, question.text);
+    return;
+  }
+  await proposeTrade(chatId, member, draft, updateId);
+}
+
+// Previews a complete draft in the database and proposes it with the
+// preview's figures, or says why the database refused it. The proposal
+// carries the version the member was shown, so a yes after the holding has
+// changed is refused as stale rather than saving figures they never saw.
+async function proposeTrade(
+  chatId: number,
+  member: { id: string; household_id: string },
+  draft: TradeDraft,
+  updateId: unknown,
+): Promise<void> {
+  let holdings: HoldingLite[];
+  let members: Array<{ id: string; display_name: string }>;
+  let funds: Array<{ id: string; name: string }>;
+  try {
+    holdings = await tradeHoldings(member.household_id);
+    members = await householdMembers(member.household_id);
+    funds = await allRowsOf("accounts", () =>
+      supabase.from("accounts").select("id, name").eq("household_id", member.household_id).eq("type", "broker_funds").order("id")
+    );
+  } catch (err) {
+    if (!(err instanceof ReadFailed)) throw err;
+    await reply(chatId, TRADE_READ_FAILED);
+    return;
+  }
+  const holding = holdings.find((h) => h.id === draft.holdingId);
+  if (!holding) {
+    await reply(chatId, tradeRefusal("not_held", { holdingName: normaliseSymbol(draft.stock) || draft.stock }));
+    return;
+  }
+  const split = draft.side === "split";
+  const { data: effect, error } = await supabase.rpc("preview_trade", {
+    p_holding_id: holding.id,
+    p_kind: draft.side,
+    p_trade_date: draft.tradeDate,
+    p_units: split ? draft.ratio : draft.units,
+    p_price: split ? null : draft.price,
+    p_fees: draft.fees,
+    p_tax_withheld: draft.tax ?? 0,
+    p_traded_at: draft.tradedAt,
+    p_member_id: member.id,
+  });
+  if (error || !effect) {
+    await reply(chatId, "I couldn't check that trade just now, so nothing was saved. Please send it again in a minute.");
+    return;
+  }
+  if (!effect.ok) {
+    await reply(chatId, tradeRefusal(String(effect.error), { holdingName: holding.name, units: draft.units ?? undefined }));
+    return;
+  }
+  const fundName = funds.find((f) => f.id === effect.funds_account_id)?.name ?? "the broker funds account";
+  const ownerName = holding.owner_member_id && holding.owner_member_id !== member.id
+    ? members.find((m) => m.id === holding.owner_member_id)?.display_name ?? null
+    : null;
+  // An Indian sale's tax is deducted by the broker and read later from its
+  // statement, unless the message gave it.
+  const taxToConfirm = draft.side === "sell" && holding.currency === "INR" && draft.tax === null;
+  await sendProposal(
+    chatId,
+    member.household_id,
+    member.id,
+    "trade",
+    {
+      holding_id: holding.id,
+      kind: draft.side,
+      trade_date: draft.tradeDate,
+      traded_at: draft.tradedAt,
+      units: split ? draft.ratio : draft.units,
+      price: split ? null : draft.price,
+      fees: draft.fees,
+      tax_withheld: draft.tax ?? 0,
+      tax_to_confirm: taxToConfirm,
+      funds_account_id: effect.funds_account_id ?? null,
+      expected_version: effect.trades_version,
+      draft,
+    },
+    tradeConfirmation(draft, effect, {
+      holdingName: holding.name,
+      ownerName,
+      fundName,
+      currency: holding.currency,
+      newHolding: null,
+      lastPrice: holding.current_price,
+    }),
+    updateId,
+  );
+}
+
+// ---------------------------------------------------------------------------
 // /brief digest -- deterministic, template-built from the same real tools
 // above rather than another LLM call: cheaper, and there's no room for a
 // phrasing pass to drift from the actual numbers on something meant to be
@@ -2218,6 +2426,7 @@ async function classifyAndRoute(
     `If their message reports a real expense/income/refund that already happened (e.g. "spent 40 on lunch", "paid the rent", "got paid my salary", "got a refund from Noon"), ALWAYS call log_expense immediately -- even if the category, merchant, or exact amount isn't fully clear. log_expense covers all three: the extraction step itself decides which one from the wording, you don't need to. ` +
     `EXCEPTION: if the message specifically says money is going toward a named savings or debt-payoff GOAL (e.g. "put 500 toward emergency fund", "added 1000 to the house downpayment goal"), call log_goal_contribution instead -- never log_expense for that message, since a goal contribution never touches an account balance or the ledger. An ordinary purchase or bill with no named goal is still log_expense. ` +
     `EXCEPTION: if the message says money moved between two of the household's own accounts (paying off the credit card from the bank account, moving money to savings), call log_transfer instead -- never log_expense, since a transfer is neither spending nor income. ` +
+    `EXCEPTION: if the message reports buying, selling, a split or a bonus of a share, fund or ETF (e.g. "bought 10 ABC at 120.5", "sold 2 ABC at 150", "ABC split 10 for 1"), call log_trade instead -- never log_expense, since a share bought is not spending and a share sold is not income. ` +
     `Never ask a clarifying question about an expense to log: category assignment happens later when a human reviews it, not in this chat, and an uncategorised expense is a completely normal, expected outcome -- do not treat that as ambiguity. ` +
     `Only treat a message as ambiguous, and only then reply in plain text with a short clarifying question instead of calling a tool, when it is a QUESTION whose target is genuinely unclear (e.g. asking about an account name that matches nothing, or a category that doesn't fit any real one) -- never for something being logged. ` +
     `If it asks a real question about their finances, call the matching tool to fetch the real number -- you must NEVER answer from your own knowledge or guess a figure; only a tool result is a real number. ` +
@@ -3957,6 +4166,20 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
       // with nothing pending, used to reply "Error: unknown_tool"; it falls
       // through to capture instead, the same as log_expense, so the message
       // is never lost.
+      // A share trade has its own path: matched, asked about, previewed by the
+      // database and proposed. It is never captured as an expense.
+      if (toolCall?.function?.name === "log_trade") {
+        committedElsewhere = true;
+        let args: Record<string, unknown> = {};
+        try {
+          args = JSON.parse(toolCall.function.arguments || "{}");
+        } catch {
+          // Unreadable arguments read as nothing given: the draft asks for the share.
+        }
+        await handleTradeMessage(chatId, member, args, updateId);
+        return new Response("ok");
+      }
+
       if (toolCall && QUESTION_TOOLS.has(toolCall.function?.name)) {
         committedElsewhere = true;
         const args = JSON.parse(toolCall.function.arguments || "{}");
