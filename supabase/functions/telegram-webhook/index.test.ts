@@ -2359,3 +2359,70 @@ freshTest("a large one-day move on a traded holding asks its owner about a split
   await handler(dailyCheck());
   assertEquals(asked().length, 1);
 });
+
+const RUPCO = "a3700000-0000-4000-8000-0000000000a4";
+
+// ABC sold twice this year (100 profit each) and once last year; RUPCO, an
+// Indian share, sold once this year for a profit of 2,290 rupees.
+function recordedSales(): number {
+  const year = Number(dubaiToday().slice(0, 4));
+  backend.tables.holdings.push({
+    ...backend.tables.holdings[0], id: RUPCO, name: "RUPCO", currency: "INR", asset_class: "india_equity", price_symbol: "RUPCO.NS",
+    price_provider: "yahoo",
+  });
+  const sale = (id: string, holding: string, day: string, realised: number, tax: number) => ({
+    id, household_id: HOUSEHOLD, holding_id: holding, kind: "sell", units: 1, price: 1, trade_date: day, realised, tax_withheld: tax,
+    created_by: MEMBER, created_at: `${day}T08:00:00Z`, funds_account_id: USD_FUND,
+  });
+  backend.tables.holding_trades = [
+    sale("s1", ABC, `${year}-03-10`, 100, 0),
+    sale("s2", ABC, `${year}-06-10`, 100, 0),
+    sale("s3", ABC, `${year - 1}-12-10`, 999, 0),
+    sale("s4", RUPCO, `${year}-05-01`, 2290, 10),
+  ];
+  backend.tables.fx_rate_history = [
+    { base: "AED", quote: "INR", day: `${year}-04-30`, rate: 22.9 },
+    { base: "AED", quote: "INR", day: `${year}-06-01`, rate: 25 },
+  ];
+  return year;
+}
+
+freshTest("what a share made this year is summed from its sales this year, in dirhams at the peg", async () => {
+  tradeFixtures();
+  recordedSales();
+  backend.route = { tool: "get_trade_profit", args: { stock: "ABC", scope: "me" } };
+  await handler(textUpdate(7701, "what did I make on ABC this year?"));
+  const given = backend.phrasePrompts.join("\n");
+  assert(given.includes('\\"sales\\":2'), given);
+  assert(given.includes('\\"profit\\":200'), given);
+  assert(given.includes('\\"profit_aed\\":734.5'), given);
+});
+
+freshTest("a rupee sale is valued in dirhams at its own day's rate", async () => {
+  tradeFixtures();
+  recordedSales();
+  backend.route = { tool: "get_trade_profit", args: { stock: "RUPCO", scope: "me" } };
+  await handler(textUpdate(7702, "what did I make on RUPCO this year?"));
+  const given = backend.phrasePrompts.join("\n");
+  assert(given.includes('\\"profit_aed\\":100'), given);
+  assert(given.includes('\\"tax_withheld\\":10'), given);
+});
+
+freshTest("profit on a share not held names the ones that are", async () => {
+  tradeFixtures();
+  recordedSales();
+  backend.route = { tool: "get_trade_profit", args: { stock: "XYZ", scope: "me" } };
+  await handler(textUpdate(7703, "what did I make on XYZ this year?"));
+  const given = backend.phrasePrompts.join("\n");
+  assert(given.includes("holding_not_found") && given.includes("ABC") && given.includes("RUPCO"), given);
+});
+
+freshTest("profit with its trades unreadable says the figures are unavailable", async () => {
+  tradeFixtures();
+  recordedSales();
+  backend.faults.failReads = ["holding_trades"];
+  backend.route = { tool: "get_trade_profit", args: { stock: "ABC", scope: "me" } };
+  await handler(textUpdate(7704, "what did I make on ABC this year?"));
+  assertEquals(lastReply(), figuresUnavailableMessage());
+  assertEquals(capturedIntake().length, 0);
+});

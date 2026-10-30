@@ -90,6 +90,7 @@ import { lastDueOccurrence, matchWindowDays, upcomingItems } from "../_shared/ap
 import { isPosted, parseDay, atDayOfMonth, startOfDay, householdDay, householdToday, householdYearMonth } from "../_shared/applib/day.js";
 import { isSpendRow, spendDelta } from "../_shared/applib/transactionKind.js";
 import { visibleHoldings, scopedHoldingValue, holdingGain, allocationByClass, portfolioValueChange } from "../_shared/applib/holdings.js";
+import { estimateAed } from "../_shared/applib/fxHistory.js";
 import { isAwaitingFirstValuation } from "../_shared/applib/valuation.js";
 import { cashCoverStatus, formatCashCoverLine } from "../_shared/applib/cashCover.js";
 import { notableMoves } from "../_shared/applib/insights.js";
@@ -590,6 +591,7 @@ const QUESTION_TOOLS = new Set([
   "get_upcoming_bills",
   "get_budget_status",
   "get_holdings",
+  "get_trade_profit",
   "log_goal_contribution",
   "log_transfer",
   "update_account_balances",
@@ -1633,6 +1635,23 @@ const TOOLS_BASE = [
   {
     type: "function",
     function: {
+      name: "get_trade_profit",
+      description:
+        "What a share, or every share, made from SALES in a year, from the recorded trades: realised profit, tax withheld and the number of sales (e.g. 'what did I make on ABC this year?', 'profit from selling shares in 2025'). Not the gain on shares still held: that is get_holdings.",
+      parameters: {
+        type: "object",
+        properties: {
+          stock: { type: "string", description: "The share's name or symbol, if one was named. Omit for every share." },
+          year: { type: "number", description: "The calendar year asked about; omit for this year." },
+          scope: { type: "string", enum: SCOPE_ENUM },
+        },
+        required: ["scope"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "log_goal_contribution",
       description:
         "The message reports money being put toward a savings or debt-payoff GOAL specifically (e.g. 'put 500 toward emergency fund', 'added 1000 to the house downpayment goal', 'paid 300 extra on the car loan goal'). This is a goal-tracking entry only -- it never touches any account balance or the ledger, so never also call log_expense for the same message. If the message is just an ordinary purchase or bill with no named goal, use log_expense instead.",
@@ -2005,6 +2024,68 @@ async function toolGetBudgetStatus(householdId: string, scopeMemberId: string | 
 // a portfolio-level view instead: total value, allocation by asset class,
 // and an invested-value-based gain (only over holdings that actually have a
 // real invested figure -- see holdingGain, never a guessed cost basis).
+// What a share, or every share, made from sales in a year: each sale's
+// profit as the replay recorded it, the tax withheld, and its value in
+// dirhams at the sale's own day's rate (a dollar at the peg). Every read is
+// paged, so a failed or partial read is never summed: it throws, and the
+// question is answered as unavailable.
+async function toolGetTradeProfit(householdId: string, scopeMemberId: string | null, args: Record<string, unknown>) {
+  const year = Number.isInteger(Number(args.year)) && Number(args.year) > 1900 ? Number(args.year) : householdYearMonth(householdDay()).year;
+  const holdings = visibleHoldings(await householdRows("holdings", householdId) as never, scopeMemberId) as Array<{
+    id: string;
+    name: string;
+    currency: string;
+    price_symbol: string | null;
+  }>;
+  const stock = typeof args.stock === "string" ? args.stock.trim() : "";
+  let chosen = holdings;
+  if (stock) {
+    const wanted = normaliseSymbol(stock);
+    chosen = holdings.filter((h) =>
+      (h.price_symbol !== null && normaliseSymbol(h.price_symbol) === wanted) ||
+      h.name.trim().toLowerCase() === stock.toLowerCase() ||
+      normaliseSymbol(h.name) === wanted
+    );
+    if (!chosen.length) return { error: "holding_not_found", available: holdings.map((h) => h.name) };
+  }
+  const ids = chosen.map((h) => h.id);
+  const sales = ids.length
+    ? await allRowsOf<{ holding_id: string; trade_date: string; realised: number | null; tax_withheld: number | null }>("holding_trades", () =>
+      supabase.from("holding_trades").select("id, holding_id, trade_date, realised, tax_withheld")
+        .eq("household_id", householdId).eq("kind", "sell").in("holding_id", ids)
+        .gte("trade_date", `${year}-01-01`).lt("trade_date", `${year + 1}-01-01`).order("id")
+    )
+    : [];
+  const rupees = chosen.some((h) => h.currency === "INR");
+  const history = rupees
+    ? await allRowsOf("fx_rate_history", () =>
+      supabase.from("fx_rate_history").select("base, quote, day, rate").eq("base", "AED").eq("quote", "INR")
+        .lte("day", `${year}-12-31`).order("day")
+    )
+    : [];
+  const household = rupees ? await rowOf<{ inr_per_aed: number | null }>("households", supabase.from("households").select("inr_per_aed").eq("id", householdId).maybeSingle()) : null;
+
+  const rows = chosen.map((h) => {
+    const own = sales.filter((t) => t.holding_id === h.id);
+    // Unknown, not guessed, when a sale has no rate to value it at.
+    let profitAed: number | null = 0;
+    for (const t of own) {
+      const value = estimateAed(Number(t.realised ?? 0), h.currency, t.trade_date, history as never, (household?.inr_per_aed ?? null) as never);
+      profitAed = value && profitAed !== null ? round2(profitAed + value.aed) : null;
+    }
+    return {
+      name: h.name,
+      currency: h.currency,
+      profit: round2(own.reduce((sum, t) => sum + Number(t.realised ?? 0), 0)),
+      tax_withheld: round2(own.reduce((sum, t) => sum + Number(t.tax_withheld ?? 0), 0)),
+      sales: own.length,
+      profit_aed: profitAed,
+    };
+  }).filter((r) => stock || r.sales > 0);
+  const totalAed = rows.every((r) => r.profit_aed !== null) ? round2(rows.reduce((sum, r) => sum + (r.profit_aed ?? 0), 0)) : null;
+  return { year, holdings: rows, total_aed: totalAed };
+}
+
 async function toolGetHoldings(householdId: string, scopeMemberId: string | null, args: Record<string, unknown>) {
   const holdings = await householdRows("holdings", householdId);
   const visible = visibleHoldings(holdings as never, scopeMemberId) as Array<{
@@ -4660,6 +4741,9 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
               break;
             case "get_holdings":
               result = await toolGetHoldings(member.household_id, scopeMemberId, args);
+              break;
+            case "get_trade_profit":
+              result = await toolGetTradeProfit(member.household_id, scopeMemberId, args);
               break;
             case "log_goal_contribution":
               // Only a draft that failed reaches here (above): the goal or the
