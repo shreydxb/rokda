@@ -54,6 +54,7 @@ import { autopayAnswer, autopayCycle, autopayNotYetMessage, autopayQuestion, aut
 import { incompleteNote, netWorthSummary } from "../_shared/applib/overviewMath.js";
 import { merchantMatches, pickCategory } from "../_shared/applib/merchants.js";
 import { closedStatementDates, isoDay, statementDueDate, statementPeriodStart } from "../_shared/applib/statements.js";
+import { ANSWER_HINT } from "./trades.ts";
 import {
   statementAlreadySettledMessage,
   statementAnswer,
@@ -1232,7 +1233,6 @@ async function discardUnaskedProposal(id: string): Promise<void> {
   await supabase.from("bot_proposals").delete().eq("id", id).eq("status", "proposed").is("prompt_message_id", null);
 }
 
-const ANSWER_HINT = 'Reply "yes" to this message (or react 👍) to save it, or "no" to drop it.';
 
 type ProposalItem = { name?: string; type?: string; currency?: string | null; old_balance?: number | string | null; new_balance?: number | string | null; balance?: number | string | null; reason?: string; amount?: number | string; occurred_at?: string; already_recorded?: boolean };
 type ProposalResult = { kind?: string; applied?: ProposalItem[]; skipped?: ProposalItem[] };
