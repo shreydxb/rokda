@@ -433,3 +433,12 @@ export function tradeSavedMessage(p: TradePayload, effect: Effect, opts: { repea
     : ` ${name} now ${units(effect.holding_units_after)} shares${fund}.`;
   return `${lead}: ${tradeSummary(p)}.${after}`;
 }
+
+// The question after a large one-day move on a traded holding: a split the
+// household has not recorded would show as a fall like this. The example
+// ratio is the one the move suggests (a fall of 50% is 2 for 1).
+export function splitQuestion(name: string, dayChangePct: number): string {
+  const pct = Number(dayChangePct);
+  const ratio = pct < 0 && 100 + pct > 0 ? Math.max(2, Math.round(100 / (100 + pct))) : 2;
+  return `${name} moved ${pct < 0 ? "−" : "+"}${Math.round(Math.abs(pct))}% on its last price. If it split, tell me, e.g. "${name} split ${ratio} for 1". If not, ignore this.`;
+}

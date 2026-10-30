@@ -386,7 +386,9 @@ function applyProposal(id: string, memberId: string): Row {
       p.result = { kind: p.kind, error: scripted.error ?? scripted.outcome };
       return { ...scripted, kind: p.kind };
     }
-    const effect = { ...tradePreview({ p_kind: payload.kind, p_units: payload.units, p_price: payload.price, p_fees: payload.fees }), trade_id: crypto.randomUUID() };
+    const effect = p.kind === "trade_undo"
+      ? (backend.previews.preview_delete_trade ?? UNDO_EFFECT)
+      : { ...tradePreview({ p_kind: payload.kind, p_units: payload.units, p_price: payload.price, p_fees: payload.fees }), trade_id: crypto.randomUUID() };
     p.status = "applied";
     p.result = { kind: p.kind, effect };
     return { outcome: "applied", kind: p.kind, effect };
@@ -450,6 +452,12 @@ function applyProposal(id: string, memberId: string): Row {
   return { outcome: "applied", ...result };
 }
 
+// Undoing the sale of 6 ABC at 150: back from 9 shares to 15, the fund down 899.
+const UNDO_EFFECT: Row = {
+  ok: true, trade_id: "t-sale", trades_version: 6, units_before: 9, avg_before: 110, holding_units_after: 15,
+  holding_avg_after: 110, funds_account_id: "a3700000-0000-4000-8000-0000000000f1", funds_delta: -899,
+};
+
 // A trade preview as the database answers one, from the trade asked about:
 // ABC held at 15 shares averaging 110, its dollar fund at 1,000.
 function tradePreview(args: Row): Row {
@@ -472,6 +480,7 @@ async function rpc(req: Request, fn: string): Promise<Response> {
   const args = await req.json().catch(() => ({}));
   backend.rpcCalls.push({ fn, args });
   if (fn === "preview_trade") return json(backend.previews.preview_trade ?? tradePreview(args));
+  if (fn === "preview_delete_trade") return json(backend.previews.preview_delete_trade ?? UNDO_EFFECT);
   if (fn === "preview_new_holding_trade") {
     const holding = args.p_new_holding as Row;
     if (!holding?.funds_account_id) return json({ ok: false, error: "fund_required" });
@@ -2282,4 +2291,71 @@ freshTest("a first buy with no broker fund in its currency says one is needed", 
   await handler(textUpdate(7523, "bought 3 XYZ at $690"));
   assertEquals(lastReply(), "There's no broker funds account for XYZ's money to come from or go to, so nothing was saved. Add one in Wealth, then send the trade again.");
   assertEquals(tradeProposals().length, 0);
+});
+
+
+// The sender's trades on ABC: its opening, a buy, then the sale of 6 at 150
+// (their latest); and a later trade someone else recorded.
+function recordedTrades(): void {
+  const trade = (id: string, kind: string, units: number, price: number | null, day: string, by: string) => ({
+    id, household_id: HOUSEHOLD, holding_id: ABC, kind, units, price, trade_date: day, created_by: by,
+    created_at: `${day}T08:00:00Z`, funds_account_id: kind === "opening" ? null : USD_FUND,
+  });
+  backend.tables.holding_trades = [
+    trade("t-open", "opening", 15, 110, "2026-10-20", MEMBER),
+    trade("t-buy", "buy", 1, 120, "2026-10-25", MEMBER),
+    trade("t-sale", "sell", 6, 150, "2026-10-27", MEMBER),
+    trade("t-other", "buy", 1, 140, "2026-10-28", "a3700000-0000-4000-8000-0000000000b9"),
+  ];
+}
+
+freshTest("undo last trade proposes undoing the sender's latest trade, and yes undoes it", async () => {
+  tradeFixtures();
+  recordedTrades();
+  backend.route = { tool: "undo_last_trade", args: {} };
+  await handler(textUpdate(7601, "undo last trade"));
+  assertEquals(backend.rpcCalls.find((c) => c.fn === "preview_delete_trade")?.args.p_trade_id, "t-sale");
+  assertEquals(lastReply().split("\n").slice(0, 3), ["Undo: Sell 6 ABC at $150 on 27 Oct", "ABC: 9 → 15 shares, average stays $110", "Dollar broker funds −$899"]);
+  assertEquals(backend.tables.bot_proposals.filter((r) => r.kind === "trade_undo").length, 1);
+  assertEquals(capturedIntake().length, 0);
+  await handler(textUpdate(7602, "yes"));
+  assertEquals(lastReply(), "Undone: Sell 6 ABC at $150 on 27 Oct. ABC now 15 shares; Dollar broker funds −$899.");
+});
+
+freshTest("undo with no trades of the sender's says there is nothing to undo", async () => {
+  tradeFixtures();
+  backend.tables.holding_trades = [];
+  backend.route = { tool: "undo_last_trade", args: {} };
+  await handler(textUpdate(7603, "undo last trade"));
+  assertEquals(lastReply(), "You have no trades to undo.");
+  assertEquals(capturedIntake().length, 0);
+});
+
+freshTest("a split is confirmed with the units and average it gives, and no money line", async () => {
+  tradeFixtures();
+  backend.previews.preview_trade = {
+    ok: true, units: 10, price: null, fees: 0, tax_withheld: 0, trades_version: 3, units_before: 9, avg_before: 110,
+    holding_units_after: 90, holding_avg_after: 11, realised: null, funds_account_id: null, funds_delta: 0, warnings: [],
+  };
+  backend.route = { tool: "log_trade", args: { side: "split", stock: "ABC", ratio: 10 } };
+  await handler(textUpdate(7604, "ABC split 10 for 1"));
+  const lines = lastReply().split("\n");
+  assert(lines[0].startsWith("Split ABC 10 for 1 on "), lines[0]);
+  assertEquals(lines.slice(1, 3), ["ABC: 9 → 90 shares, average $110 → $11", ""]);
+  const preview = backend.rpcCalls.find((c) => c.fn === "preview_trade");
+  assertEquals([preview?.args.p_kind, preview?.args.p_units, preview?.args.p_price], ["split", 10, null]);
+});
+
+freshTest("a large one-day move on a traded holding asks its owner about a split, once for that price", async () => {
+  tradeFixtures();
+  const today = dubaiToday();
+  Object.assign(backend.tables.holdings[0], { day_change_pct: -50, priced_at: `${today}T06:00:00Z`, split_asked_for: null });
+  // Moved as much, but never traded: its units are its own, not a replay's.
+  backend.tables.holdings.push({ ...backend.tables.holdings[0], id: "a3700000-0000-4000-8000-0000000000a9", name: "UNTRADED", trades_version: 0 });
+  await handler(dailyCheck());
+  const asked = () => backend.telegramSent.map((m) => String(m.body.text)).filter((t) => t.includes("If it split"));
+  assertEquals(asked(), ['ABC moved −50% on its last price. If it split, tell me, e.g. "ABC split 2 for 1". If not, ignore this.']);
+  assertEquals(backend.tables.holdings[0].split_asked_for, today);
+  await handler(dailyCheck());
+  assertEquals(asked().length, 1);
 });

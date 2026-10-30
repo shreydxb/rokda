@@ -3839,4 +3839,18 @@ begin
   raise notice 'B3-12 ok: trade, trade_undo and asking are accepted; an unknown kind is not';
 end $$;
 
+-- B3-13: the day a split was asked about is kept on a traded holding without
+-- touching its units, average or version, which only its trades move.
+do $$
+declare v int;
+begin
+  select trades_version into v from holdings where id = 'b3000000-0000-0000-0000-000000000001';
+  update holdings set split_asked_for = '2026-10-29' where id = 'b3000000-0000-0000-0000-000000000001';
+  if (select split_asked_for from holdings where id = 'b3000000-0000-0000-0000-000000000001') <> '2026-10-29'
+     or (select trades_version from holdings where id = 'b3000000-0000-0000-0000-000000000001') <> v then
+    raise exception 'B3-13 FAILED: the split question''s day was not kept, or the version moved';
+  end if;
+  raise notice 'B3-13 ok: a split question''s day is kept without touching the trade guards';
+end $$;
+
 rollback;

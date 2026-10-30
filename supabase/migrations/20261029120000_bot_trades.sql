@@ -36,6 +36,14 @@ alter table holding_trades drop constraint holding_trades_units_check;
 alter table holding_trades add constraint holding_trades_units_check
   check (units > 0 or (kind = 'opening' and units = 0));
 
+-- A split never recorded halves the units' value with the price. When a
+-- traded holding's price moves by more than 40% in a day, the bot asks its
+-- owner whether it split, once for that price: this is the price day it last
+-- asked about.
+alter table holdings add column split_asked_for date;
+comment on column holdings.split_asked_for is
+  'The price day (Dubai) the bot last asked this holding''s owner whether a large one-day move was a split, so it asks once per price.';
+
 -- Makes the holding a first buy of a stock goes into, with its empty opening
 -- entry, ready for the buy to be replayed on it. It belongs to its owner (a
 -- member's shares are theirs, not the household's), in the owner's household.

@@ -67,8 +67,10 @@ import {
   type TradePayload,
   tradeConfirmation,
   tradeDropSummary,
+  splitQuestion,
   tradeRefusal,
   tradeSavedMessage,
+  undoConfirmation,
 } from "./trades.ts";
 import {
   statementAlreadySettledMessage,
@@ -1182,7 +1184,7 @@ async function sendProposal(
   chatId: number,
   householdId: string,
   memberId: string,
-  kind: "account_balances" | "goal_contribution" | "transfer" | "trade",
+  kind: "account_balances" | "goal_contribution" | "transfer" | "trade" | "trade_undo",
   payload: Record<string, unknown>,
   prompt: string,
   updateId: unknown,
@@ -1687,6 +1689,15 @@ const TOOLS_BASE = [
         },
         required: ["side", "stock"],
       },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "undo_last_trade",
+      description:
+        "The member asks to undo, cancel or delete the last share trade they recorded (e.g. 'undo last trade', 'cancel that trade'). Proposes undoing it; nothing changes until they confirm.",
+      parameters: { type: "object", properties: {}, additionalProperties: false },
     },
   },
   {
@@ -2248,6 +2259,73 @@ async function handleTradeMessage(
   await proposeTrade(chatId, member, draft, updateId);
 }
 
+// "undo last trade": proposes deleting the sender's most recent trade (not a
+// fresh start's opening entry), previewed by the database: the holding and
+// the fund as they would be after it. Anything older is fixed in the app.
+async function handleUndoTrade(chatId: number, member: { id: string; household_id: string }, updateId: unknown): Promise<void> {
+  const { data: trades, error } = await supabase.from("holding_trades")
+    .select("id, holding_id, kind, units, price, trade_date, funds_account_id, created_at")
+    .eq("household_id", member.household_id).eq("created_by", member.id).neq("kind", "opening")
+    .order("created_at", { ascending: false }).limit(1);
+  if (error) {
+    await reply(chatId, TRADE_READ_FAILED);
+    return;
+  }
+  const trade = (trades ?? [])[0] as
+    | { id: string; holding_id: string; kind: string; units: number; price: number | null; trade_date: string; funds_account_id: string | null }
+    | undefined;
+  if (!trade) {
+    await reply(chatId, "You have no trades to undo.");
+    return;
+  }
+  let holdings: HoldingLite[];
+  let funds: Array<{ id: string; name: string }>;
+  try {
+    holdings = await tradeHoldings(member.household_id);
+    funds = await allRowsOf("accounts", () =>
+      supabase.from("accounts").select("id, name").eq("household_id", member.household_id).eq("type", "broker_funds").order("id")
+    );
+  } catch (err) {
+    if (!(err instanceof ReadFailed)) throw err;
+    await reply(chatId, TRADE_READ_FAILED);
+    return;
+  }
+  const holding = holdings.find((h) => h.id === trade.holding_id);
+  const name = holding?.name ?? "that holding";
+  const { data: effect, error: previewError } = await supabase.rpc("preview_delete_trade", { p_trade_id: trade.id, p_member_id: member.id });
+  if (previewError || !effect) {
+    await reply(chatId, "I couldn't check that undo just now, so nothing was undone. Please ask again in a minute.");
+    return;
+  }
+  if (!effect.ok) {
+    // Undoing a buy a later sale depended on would leave that sale selling
+    // more than was held.
+    await reply(chatId, effect.error === "exceeds_units"
+      ? `Undoing that would leave a later sale of ${name} selling more than was held, so nothing was undone. Fix it in the app.`
+      : tradeRefusal(String(effect.error), { holdingName: name }).replace("nothing was saved", "nothing was undone"));
+    return;
+  }
+  const fundName = trade.funds_account_id ? funds.find((f) => f.id === trade.funds_account_id)?.name ?? null : null;
+  const currency = holding?.currency ?? "USD";
+  const undone = {
+    kind: trade.kind,
+    units: Number(trade.units),
+    price: trade.price === null ? null : Number(trade.price),
+    trade_date: trade.trade_date,
+    currency,
+    holding_name: name,
+  };
+  await sendProposal(
+    chatId,
+    member.household_id,
+    member.id,
+    "trade_undo",
+    { trade_id: trade.id, expected_version: holding?.trades_version ?? null, ...undone, fund_name: fundName },
+    undoConfirmation(undone, effect, fundName),
+    updateId,
+  );
+}
+
 // What to say when a reply to a trade question does not answer it.
 const NOT_AN_ANSWER: Record<string, string> = {
   units: "I need a number, like 10 or 2.5.",
@@ -2696,7 +2774,7 @@ async function classifyAndRoute(
     `If their message reports a real expense/income/refund that already happened (e.g. "spent 40 on lunch", "paid the rent", "got paid my salary", "got a refund from Noon"), ALWAYS call log_expense immediately -- even if the category, merchant, or exact amount isn't fully clear. log_expense covers all three: the extraction step itself decides which one from the wording, you don't need to. ` +
     `EXCEPTION: if the message specifically says money is going toward a named savings or debt-payoff GOAL (e.g. "put 500 toward emergency fund", "added 1000 to the house downpayment goal"), call log_goal_contribution instead -- never log_expense for that message, since a goal contribution never touches an account balance or the ledger. An ordinary purchase or bill with no named goal is still log_expense. ` +
     `EXCEPTION: if the message says money moved between two of the household's own accounts (paying off the credit card from the bank account, moving money to savings), call log_transfer instead -- never log_expense, since a transfer is neither spending nor income. ` +
-    `EXCEPTION: if the message reports buying, selling, a split or a bonus of a share, fund or ETF (e.g. "bought 10 ABC at 120.5", "sold 2 ABC at 150", "ABC split 10 for 1"), call log_trade instead -- never log_expense, since a share bought is not spending and a share sold is not income. ` +
+    `EXCEPTION: if the message reports buying, selling, a split or a bonus of a share, fund or ETF (e.g. "bought 10 ABC at 120.5", "sold 2 ABC at 150", "ABC split 10 for 1"), call log_trade instead -- never log_expense, since a share bought is not spending and a share sold is not income. "undo last trade" (or cancelling the last trade) is undo_last_trade. ` +
     `Never ask a clarifying question about an expense to log: category assignment happens later when a human reviews it, not in this chat, and an uncategorised expense is a completely normal, expected outcome -- do not treat that as ambiguity. ` +
     `Only treat a message as ambiguous, and only then reply in plain text with a short clarifying question instead of calling a tool, when it is a QUESTION whose target is genuinely unclear (e.g. asking about an account name that matches nothing, or a category that doesn't fit any real one) -- never for something being logged. ` +
     `If it asks a real question about their finances, call the matching tool to fetch the real number -- you must NEVER answer from your own knowledge or guess a figure; only a tool result is a real number. ` +
@@ -3892,6 +3970,44 @@ const UNUSUAL_SPEND_MONTHS_BACK = 6;
 // with the much stricter bar above. unusual_spend_nudges dedupes per
 // (household, category, month) -- flagged once, not re-nagged every day
 // even if the category keeps climbing further past the bar.
+// A traded holding whose price moved by more than this in a day is asked
+// about: an unrecorded split shows as a fall like that (spec 9).
+const SPLIT_MOVE_PCT = 40;
+
+// Asks each traded holding's owner whether a large one-day move was a split,
+// once for that price: split_asked_for keeps the price day asked about, set
+// only once the question reached them. A holding that was never traded, or
+// is sold out, is not asked about: its units are not a replay's.
+async function runSplitCheck(): Promise<{ checked: number; asked: number }> {
+  let holdings: Array<{ id: string; name: string; owner_member_id: string | null; day_change_pct: number | null; priced_at: string | null; split_asked_for: string | null }>;
+  try {
+    holdings = await allRowsOf("holdings", () =>
+      supabase.from("holdings").select("id, name, owner_member_id, day_change_pct, priced_at, split_asked_for")
+        .gt("trades_version", 0).gt("quantity", 0).order("id")
+    );
+  } catch {
+    return { checked: 0, asked: 0 };
+  }
+  let asked = 0;
+  for (const h of holdings) {
+    const pct = Number(h.day_change_pct);
+    if (h.day_change_pct === null || !(Math.abs(pct) > SPLIT_MOVE_PCT) || !h.priced_at || !h.owner_member_id) continue;
+    const priceDay = householdToday(new Date(h.priced_at));
+    if (h.split_asked_for === priceDay) continue;
+    try {
+      const { data: owner } = await supabase.from("household_members").select("telegram_user_id").eq("id", h.owner_member_id).maybeSingle();
+      const chatId = (owner as { telegram_user_id: number | null } | null)?.telegram_user_id;
+      if (!chatId) continue;
+      if ((await reply(chatId, splitQuestion(h.name, pct))) == null) continue;
+      await supabase.from("holdings").update({ split_asked_for: priceDay }).eq("id", h.id);
+      asked++;
+    } catch {
+      // One holding's question failing must never block the rest.
+    }
+  }
+  return { checked: holdings.length, asked };
+}
+
 async function runUnusualSpendCheck(): Promise<{ checked: number; nudged: number }> {
   const now = householdDay();
   const { year, month } = householdYearMonth(now);
@@ -3997,15 +4113,16 @@ async function handleRequest(req: Request): Promise<Response> {
     );
   }
 
-  // Daily proactive-reminder check, triggered by pg_cron. Covers six
+  // Daily proactive-reminder check, triggered by pg_cron. Covers several
   // independent things in one run: missed recurring bills, credit-card due
   // dates, budget thresholds, a weekly brief (Mondays only), a month-end
-  // review (1st of the month only) and a cash-cover warning -- kept under
+  // review (1st of the month only), a cash-cover warning and a question
+  // after a traded holding's large one-day move -- kept under
   // the same query param the existing pg_cron job already calls, rather
   // than adding new jobs for each. The weekly/monthly checks no-op on every
   // day but their own, so running them daily costs nothing.
   if (req.method === "GET" && url.searchParams.get("run_recurring_check") === "1") {
-    const [recurring, autopay, creditCards, statements, budgets, weeklyBrief, monthlyBrief, cashCover, unusualSpend, balanceCheckin] = await Promise.all([
+    const [recurring, autopay, creditCards, statements, budgets, weeklyBrief, monthlyBrief, cashCover, unusualSpend, balanceCheckin, splits] = await Promise.all([
       runRecurringCheck(),
       runAutopayCheck(),
       runCreditCardCheck(),
@@ -4016,6 +4133,7 @@ async function handleRequest(req: Request): Promise<Response> {
       runCashCoverCheck(),
       runUnusualSpendCheck(),
       runBalanceCheckin(),
+      runSplitCheck(),
     ]);
     // Housekeeping, not a check: nothing reports on it and nothing depends on
     // it having run today.
@@ -4032,6 +4150,7 @@ async function handleRequest(req: Request): Promise<Response> {
         cash_cover: cashCover,
         unusual_spend: unusualSpend,
         balance_checkin: balanceCheckin,
+        splits,
       }),
       { headers: { "Content-Type": "application/json" } }
     );
@@ -4439,6 +4558,12 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
       // with nothing pending, used to reply "Error: unknown_tool"; it falls
       // through to capture instead, the same as log_expense, so the message
       // is never lost.
+      if (toolCall?.function?.name === "undo_last_trade") {
+        committedElsewhere = true;
+        await handleUndoTrade(chatId, member, updateId);
+        return new Response("ok");
+      }
+
       // A share trade has its own path: matched, asked about, previewed by the
       // database and proposed. It is never captured as an expense.
       if (toolCall?.function?.name === "log_trade") {
