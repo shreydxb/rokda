@@ -2047,3 +2047,109 @@ freshTest("the router is told a share trade is log_trade, never an expense", asy
   await handler(textUpdate(7404, "spent 40 on lunch"));
   assert(backend.routerPrompts[0]?.includes("call log_trade"), backend.routerPrompts[0]);
 });
+
+// The member's trade still being asked about, if any.
+function askingRow(): Row | undefined {
+  return backend.tables.bot_proposals.find((r) => r.kind === "trade" && r.status === "asking");
+}
+
+function tradeProposals(): Row[] {
+  return backend.tables.bot_proposals.filter((r) => r.kind === "trade" && r.status !== "asking");
+}
+
+freshTest("a trade with no units asks how many, and the answer completes it", async () => {
+  tradeFixtures();
+  backend.route = { tool: "log_trade", args: { side: "buy", stock: "ABC", price: 120 } };
+  await handler(textUpdate(7411, "bought ABC at 120"));
+  assertEquals(lastReply(), "How many ABC did you buy?");
+  const asked = askingRow();
+  assert(asked, "no asking draft was kept");
+  await handler(replyUpdate(7412, "10", Number(asked.prompt_message_id)));
+  const preview = backend.rpcCalls.find((c) => c.fn === "preview_trade");
+  assertEquals([preview?.args.p_units, preview?.args.p_price], [10, 120]);
+  assertEquals(tradeProposals().map((r) => r.status), ["proposed"]);
+  assertEquals(askingRow(), undefined);
+  assert(lastReply().startsWith("Buy 10 ABC at $120"), lastReply());
+});
+
+freshTest("a trade with no price asks for it, and the next message answers it", async () => {
+  tradeFixtures();
+  backend.route = { tool: "log_trade", args: { side: "buy", stock: "ABC", units: 10 } };
+  await handler(textUpdate(7413, "bought 10 ABC"));
+  assertEquals(lastReply(), "At what price per share, in dollars?");
+  await handler(textUpdate(7414, "120"));
+  assertEquals(backend.rpcCalls.find((c) => c.fn === "preview_trade")?.args.p_price, 120);
+  assertEquals(tradeProposals().length, 1);
+});
+
+freshTest("two lots of one stock are asked about by number", async () => {
+  tradeFixtures();
+  const second = "a3700000-0000-4000-8000-0000000000a2";
+  backend.tables.holdings.push({ ...backend.tables.holdings[0], id: second, name: "ABC lot 2", quantity: 5 });
+  backend.route = { tool: "log_trade", args: { side: "buy", stock: "ABC", units: 1, price: 120 } };
+  await handler(textUpdate(7415, "bought 1 ABC at 120"));
+  assert(lastReply().includes("1. ") && lastReply().includes("2. "), lastReply());
+  await handler(textUpdate(7416, "2"));
+  assertEquals(backend.rpcCalls.find((c) => c.fn === "preview_trade")?.args.p_holding_id, second);
+});
+
+freshTest("a price in dirhams for a dollar share is asked again in dollars, never converted", async () => {
+  tradeFixtures();
+  backend.route = { tool: "log_trade", args: { side: "buy", stock: "ABC", units: 10, price: 1500, currency: "AED" } };
+  await handler(textUpdate(7417, "bought 10 ABC at AED 1500"));
+  assertEquals(lastReply(), "ABC trades in dollars. What was the price per share in dollars?");
+  await handler(textUpdate(7418, "130"));
+  assertEquals(backend.rpcCalls.find((c) => c.fn === "preview_trade")?.args.p_price, 130);
+});
+
+freshTest("a message that does not answer the question is its own message; a reply that does not is told what is needed", async () => {
+  tradeFixtures();
+  backend.route = { tool: "log_trade", args: { side: "buy", stock: "ABC", price: 120 } };
+  await handler(textUpdate(7419, "bought ABC at 120"));
+  const asked = askingRow();
+  backend.route = { tool: "log_expense", args: {} };
+  await handler(textUpdate(7420, "spent 40 on lunch"));
+  assertEquals(capturedIntake().length, 1);
+  assert(askingRow(), "the draft was dropped by an unrelated message");
+  await handler(replyUpdate(7421, "lunch", Number(asked!.prompt_message_id)));
+  assertEquals(lastReply(), "I need a number, like 10 or 2.5.");
+  assertEquals(capturedIntake().length, 1);
+});
+
+freshTest("an answer Telegram delivers twice fills its question once, and the next question is asked again", async () => {
+  tradeFixtures();
+  backend.route = { tool: "log_trade", args: { side: "buy", stock: "ABC" } };
+  await handler(textUpdate(7422, "bought ABC"));
+  assertEquals(lastReply(), "How many ABC did you buy?");
+  await handler(textUpdate(7423, "10"));
+  assertEquals(lastReply(), "At what price per share, in dollars?");
+  // The run failed after answering, so Telegram delivers "10" again.
+  backend.log.get(7423)!.status = "failed";
+  await handler(textUpdate(7423, "10"));
+  assertEquals(lastReply(), "At what price per share, in dollars?");
+  const draft = (askingRow()!.payload as Row).draft as Row;
+  assertEquals([draft.units, draft.price], [10, null]);
+  assertEquals(backend.rpcCalls.filter((c) => c.fn === "preview_trade").length, 0);
+});
+
+freshTest("the answer that completes a trade, delivered twice, proposes it once", async () => {
+  tradeFixtures();
+  backend.route = { tool: "log_trade", args: { side: "buy", stock: "ABC", price: 120 } };
+  await handler(textUpdate(7424, "bought ABC at 120"));
+  await handler(textUpdate(7425, "10"));
+  backend.log.get(7425)!.status = "failed";
+  backend.route = { tool: "log_expense", args: {} };
+  await handler(textUpdate(7425, "10"));
+  assertEquals(tradeProposals().length, 1);
+  assertEquals(capturedIntake().length, 0);
+});
+
+freshTest("a bare yes while a trade is still being asked about applies nothing", async () => {
+  tradeFixtures();
+  backend.route = { tool: "log_trade", args: { side: "buy", stock: "ABC", price: 120 } };
+  await handler(textUpdate(7426, "bought ABC at 120"));
+  await handler(textUpdate(7427, "yes"));
+  assertEquals(backend.applyCalls, 0);
+  assert(askingRow(), "the draft was dropped by a bare yes");
+  assertEquals(tradeProposals().length, 0);
+});

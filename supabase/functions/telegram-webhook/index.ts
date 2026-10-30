@@ -56,6 +56,7 @@ import { merchantMatches, pickCategory } from "../_shared/applib/merchants.js";
 import { closedStatementDates, isoDay, statementDueDate, statementPeriodStart } from "../_shared/applib/statements.js";
 import {
   ANSWER_HINT,
+  applyAnswer,
   draftFromArgs,
   type HoldingLite,
   matchHoldings,
@@ -1087,6 +1088,9 @@ async function proposalForPrompt(
     .eq("member_id", memberId)
     .eq("chat_id", chatId)
     .eq("prompt_message_id", messageId)
+    // A trade still being asked about has a question, not a confirmation:
+    // its answers are read by answerTradeQuestion, and no "yes" applies it.
+    .neq("status", "asking")
     .maybeSingle();
   if (error) return { kind: PROMPT_FAILED, row: null };
   if (data) return { kind: PROMPT_FOUND, row: data as ProposalRow };
@@ -2168,10 +2172,128 @@ async function handleTradeMessage(
   }
   const question = nextQuestion(draft, holdings);
   if (question) {
-    await reply(chatId, question.text);
+    await askTradeQuestion(chatId, member, draft, question, updateId);
     return;
   }
   await proposeTrade(chatId, member, draft, updateId);
+}
+
+// What to say when a reply to a trade question does not answer it.
+const NOT_AN_ANSWER: Record<string, string> = {
+  units: "I need a number, like 10 or 2.5.",
+  price: "I need a price per share, like 150 or 150.5.",
+  holding: "Reply with the holding's number from the list.",
+  currency: "Reply dollars or rupees.",
+};
+
+// Asks the one thing a trade is missing, keeping the trade as the member's
+// 'asking' row until it is answered. A new trade message replaces a draft
+// still asking: one trade is asked about at a time. The question's message id
+// is recorded, so a reply to it names the draft.
+async function askTradeQuestion(
+  chatId: number,
+  member: { id: string; household_id: string },
+  draft: TradeDraft,
+  question: { field: string; text: string },
+  updateId: unknown,
+  askingId: string | null = null,
+): Promise<void> {
+  const payload = { draft: { ...draft, awaiting: question.field }, asked_at: new Date().toISOString() };
+  let id = askingId;
+  if (id) {
+    const updated = await supabase.from("bot_proposals").update({ payload }).eq("id", id).eq("status", "asking").select("id");
+    if (updated.error) throw new Error(`updating a trade question failed (${updated.error.code ?? "no code"})`);
+  } else {
+    const dropped = await supabase.from("bot_proposals").delete()
+      .eq("household_id", member.household_id).eq("member_id", member.id).eq("status", "asking");
+    if (dropped.error) throw new Error(`replacing a trade question failed (${dropped.error.code ?? "no code"})`);
+    const inserted = await supabase.from("bot_proposals").insert({
+      household_id: member.household_id,
+      member_id: member.id,
+      kind: "trade",
+      status: "asking",
+      payload,
+      chat_id: chatId,
+      source_ref: typeof updateId === "number" ? String(updateId) : null,
+    }).select("id").single();
+    if (inserted.error || !inserted.data) throw new Error(`saving a trade question failed (${inserted.error?.code ?? "no row"})`);
+    id = (inserted.data as { id: string }).id;
+  }
+  const messageId = await reply(chatId, question.text);
+  if (messageId != null) {
+    await supabase.from("bot_proposals").update({ prompt_message_id: messageId }).eq("id", id);
+  }
+}
+
+// Reads a message as the answer to the member's trade question, if it is one:
+// a reply to the question, or their next message soon after it that reads as
+// an answer. True when the message was taken as the answer (or a reply to the
+// question that did not answer it, which is told what is needed). Anything
+// else is left to be handled as a message of its own, and the draft waits.
+async function answerTradeQuestion(
+  chatId: number,
+  member: { id: string; household_id: string },
+  text: string,
+  repliedTo: number | null,
+  updateId: unknown,
+): Promise<boolean> {
+  // Telegram delivering again an answer that already completed a trade: the
+  // proposal it made is this update's, and it is not proposed twice, nor
+  // taken for a message of its own.
+  if (typeof updateId === "number") {
+    const made = await supabase.from("bot_proposals").select("id, status, payload, prompt_message_id")
+      .eq("household_id", member.household_id).eq("member_id", member.id).eq("kind", "trade")
+      .eq("source_ref", String(updateId)).neq("status", "asking").maybeSingle();
+    if (made.data) {
+      const row = made.data as { status: string; payload: { draft?: TradeDraft }; prompt_message_id: number | null };
+      if (row.status === "proposed" && row.prompt_message_id == null && row.payload.draft) {
+        await proposeTrade(chatId, member, row.payload.draft, updateId);
+      }
+      return true;
+    }
+  }
+  let query = supabase.from("bot_proposals").select("id, payload, prompt_message_id")
+    .eq("household_id", member.household_id).eq("member_id", member.id).eq("chat_id", chatId)
+    .eq("kind", "trade").eq("status", "asking").gt("expires_at", new Date().toISOString());
+  query = repliedTo != null ? query.eq("prompt_message_id", repliedTo) : query.order("created_at", { ascending: false });
+  const { data, error } = await query.limit(1);
+  if (error || !data?.length) return false;
+  const row = data[0] as { id: string; payload: { draft?: TradeDraft; asked_at?: string } };
+  const draft = row.payload.draft;
+  if (!draft?.awaiting) return false;
+  // A message that is not a reply counts only soon after the question.
+  if (repliedTo == null && !(Date.parse(row.payload.asked_at ?? "") > Date.now() - PENDING_WINDOW_MS)) return false;
+  let holdings: HoldingLite[];
+  try {
+    holdings = await tradeHoldings(member.household_id);
+  } catch (err) {
+    if (!(err instanceof ReadFailed)) throw err;
+    await reply(chatId, TRADE_READ_FAILED);
+    return true;
+  }
+  // The same answer delivered again: it was used once already, so the
+  // question it led to is asked again, and the answer is not used for it.
+  if (draft.lastUpdateId != null && draft.lastUpdateId === updateId) {
+    const again = nextQuestion(draft, holdings);
+    if (again) await askTradeQuestion(chatId, member, draft, again, updateId, row.id);
+    return true;
+  }
+  const answered = applyAnswer(draft, text, holdings);
+  if (!answered) {
+    if (repliedTo == null) return false;
+    await reply(chatId, NOT_AN_ANSWER[draft.awaiting] ?? NOT_AN_ANSWER.units);
+    return true;
+  }
+  answered.lastUpdateId = typeof updateId === "number" ? updateId : null;
+  const question = nextQuestion(answered, holdings);
+  if (question) {
+    await askTradeQuestion(chatId, member, answered, question, updateId, row.id);
+    return true;
+  }
+  await proposeTrade(chatId, member, answered, updateId);
+  // The draft gives way to the proposal (or to the refusal proposeTrade sent).
+  await supabase.from("bot_proposals").delete().eq("id", row.id).eq("status", "asking");
+  return true;
 }
 
 // Previews a complete draft in the database and proposes it with the
@@ -3981,6 +4103,9 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
     // aimed at a balance change or an expense is not an answer to it.
     // A statement question is settled first when the message answers one
     // (handleStatementText decides when that is).
+    // An answer to the bot's question about a trade comes first: "10" to
+    // "How many ABC did you buy?" is that, not an expense.
+    if (await answerTradeQuestion(chatId, member, trimmedText, repliedTo, updateId)) return new Response("ok");
     if (await handleStatementText(chatId, member, trimmedText, repliedTo)) return new Response("ok");
 
     const strictYes = isConfirmationText(trimmedText);
