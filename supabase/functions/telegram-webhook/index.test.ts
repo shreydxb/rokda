@@ -67,6 +67,8 @@ type Backend = {
   rpcCalls: Array<{ fn: string; args: Row }>;
   // What a trade preview answers, by function; unset, a plain buy or sale.
   previews: Record<string, Row>;
+  // What applying a trade proposal answers; unset, it is saved.
+  tradeOutcome?: Row;
   // What OpenRouter's router answers for a message: a tool name plus args.
   route?: { tool: string; args: Row };
   // What the parser extracts from a message; unset, it answers prose, which
@@ -374,6 +376,21 @@ function applyProposal(id: string, memberId: string): Row {
   if (p.member_id !== memberId) return { outcome: "not_yours" };
   if (p.status !== "proposed") return { outcome: p.status, result: p.result };
   const payload = p.payload as Row;
+  // A trade or an undo: saved, unless the test scripts another outcome, as
+  // the database answers it (stale and refused expire the proposal).
+  if (p.kind === "trade" || p.kind === "trade_undo") {
+    const scripted = backend.tradeOutcome;
+    p.decided_at = new Date().toISOString();
+    if (scripted && scripted.outcome !== "applied") {
+      p.status = "expired";
+      p.result = { kind: p.kind, error: scripted.error ?? scripted.outcome };
+      return { ...scripted, kind: p.kind };
+    }
+    const effect = { ...tradePreview({ p_kind: payload.kind, p_units: payload.units, p_price: payload.price, p_fees: payload.fees }), trade_id: crypto.randomUUID() };
+    p.status = "applied";
+    p.result = { kind: p.kind, effect };
+    return { outcome: "applied", kind: p.kind, effect };
+  }
   const applied: Row[] = [];
   const skipped: Row[] = [];
   if (p.kind === "account_balances") {
@@ -444,7 +461,9 @@ function tradePreview(args: Row): Row {
   return {
     ok: true, units, price, fees, tax_withheld: 0, trades_version: 3, units_before: 15, avg_before: 110,
     holding_units_after: sale ? 15 - units : 15 + units, holding_avg_after: sale ? 110 : (15 * 110 + units * price) / (15 + units),
-    realised: sale ? units * (price - 110) - fees : null, funds_account_id: args.p_funds_account_id ?? "a3700000-0000-4000-8000-0000000000f1",
+    realised: sale ? units * (price - 110) - fees : null,
+    funds_account_id: args.p_funds_account_id ??
+      (backend.tables.holdings ?? []).find((h) => h.id === args.p_holding_id)?.funds_account_id ?? "a3700000-0000-4000-8000-0000000000f1",
     funds_moves: true, funds_delta: cash, funds_balance_before: 1000, funds_balance_after: 1000 + cash, warnings: [],
   };
 }
@@ -453,6 +472,15 @@ async function rpc(req: Request, fn: string): Promise<Response> {
   const args = await req.json().catch(() => ({}));
   backend.rpcCalls.push({ fn, args });
   if (fn === "preview_trade") return json(backend.previews.preview_trade ?? tradePreview(args));
+  if (fn === "preview_new_holding_trade") {
+    const holding = args.p_new_holding as Row;
+    if (!holding?.funds_account_id) return json({ ok: false, error: "fund_required" });
+    return json(backend.previews.preview_new_holding_trade ?? {
+      ...tradePreview({ ...args, p_kind: "buy", p_funds_account_id: holding.funds_account_id }),
+      trades_version: 1, units_before: 0, avg_before: null, holding_units_after: Number(args.p_units), holding_avg_after: Number(args.p_price),
+      new_holding: true,
+    });
+  }
   if (fn === "get_telegram_webhook_secret") return json(SECRET);
   if (fn === "apply_bot_proposal") {
     backend.applyCalls += 1;
@@ -2151,5 +2179,107 @@ freshTest("a bare yes while a trade is still being asked about applies nothing",
   await handler(textUpdate(7427, "yes"));
   assertEquals(backend.applyCalls, 0);
   assert(askingRow(), "the draft was dropped by a bare yes");
+  assertEquals(tradeProposals().length, 0);
+});
+
+const TRADE_PARTNER = "a3700000-0000-4000-8000-0000000000b2";
+const XYZ = "a3700000-0000-4000-8000-0000000000a3";
+
+// Partner holds XYZ, bought through their own dollar fund.
+function partnerFixtures(): void {
+  backend.tables.household_members.push({ id: TRADE_PARTNER, household_id: HOUSEHOLD, display_name: "Partner", telegram_user_id: null, role: "member" });
+  backend.tables.holdings.push({ ...backend.tables.holdings[0], id: XYZ, name: "XYZ", price_symbol: "XYZ", owner_member_id: TRADE_PARTNER, funds_account_id: "a3700000-0000-4000-8000-0000000000f2" });
+  backend.tables.accounts.push({
+    id: "a3700000-0000-4000-8000-0000000000f2", household_id: HOUSEHOLD, name: "Partner's dollar funds", type: "broker_funds",
+    currency: "USD", owner_member_id: TRADE_PARTNER, is_shared: false, archived_at: null, balance: 1000,
+  });
+}
+
+async function sixABCSoldOn27Oct(updateId: number): Promise<void> {
+  backend.route = { tool: "log_trade", args: { side: "sell", stock: "ABC", units: 6, price: 150, trade_date: "2026-10-27", brokerage: 1 } };
+  await handler(textUpdate(updateId, "sold 6 ABC at 150 on 27 Oct, brokerage 1"));
+}
+
+freshTest("the three trades are confirmed with the database's figures, in the spec's words", async () => {
+  tradeFixtures();
+  partnerFixtures();
+  backend.route = { tool: "log_trade", args: { side: "buy", stock: "ABC", units: 10, price: 182.5 } };
+  await handler(textUpdate(7501, "bought 10 ABC at 182.5"));
+  const buy = lastReply().split("\n");
+  assert(buy[0].startsWith("Buy 10 ABC at $182.50 on "), buy[0]);
+  assertEquals(buy.slice(1, 3), ["ABC: 15 → 25 shares, average $110 → $139", "Dollar broker funds −$1,825"]);
+  backend.route = { tool: "log_trade", args: { side: "sell", stock: "ABC", units: 2, price: 430, trade_date: "2026-10-24", brokerage: 1 } };
+  await handler(textUpdate(7502, "sold 2 ABC at 430 on 24 Oct, brokerage 1"));
+  assertEquals(lastReply().split("\n").slice(0, 3), ["Sell 2 ABC at $430 on 24 Oct, brokerage $1", "ABC: 15 → 13 shares, average stays $110", "Profit $639 · Dollar broker funds +$859"]);
+  backend.route = { tool: "log_trade", args: { side: "buy", stock: "XYZ", units: 3, price: 690, member: "Partner" } };
+  await handler(textUpdate(7503, "Partner bought 3 XYZ at 690"));
+  assert(lastReply().split("\n")[1].startsWith("Partner's XYZ: 15 → 18 shares"), lastReply());
+  assert(lastReply().includes("Partner's dollar funds −$2,070"), lastReply());
+  assertEquals(tradeProposals().length, 3);
+});
+
+freshTest("yes saves the trade once and says what was saved", async () => {
+  tradeFixtures();
+  await sixABCSoldOn27Oct(7511);
+  await handler(textUpdate(7512, "yes"));
+  assertEquals(backend.applyCalls, 1);
+  assertEquals(lastReply(), "Saved: Sell 6 ABC at $150 on 27 Oct. ABC now 9 shares; Dollar broker funds +$899.");
+  await handler(textUpdate(7513, "yes"));
+  assert(lastReply().startsWith("Already saved: Sell 6 ABC at $150 on 27 Oct."), lastReply());
+});
+
+freshTest("no drops the trade and says which", async () => {
+  tradeFixtures();
+  await sixABCSoldOn27Oct(7514);
+  await handler(textUpdate(7515, "no"));
+  assertEquals(lastReply(), "Dropped the sale of 6 ABC at $150. Nothing was saved.");
+  assertEquals(backend.applyCalls, 0);
+});
+
+freshTest("a yes after the holding changed saves nothing and confirms again with today's figures", async () => {
+  tradeFixtures();
+  await sixABCSoldOn27Oct(7516);
+  backend.tradeOutcome = { outcome: "stale" };
+  await handler(textUpdate(7517, "yes"));
+  const sent = backend.telegramSent.map((m) => String(m.body.text));
+  assertEquals(sent.at(-2), "ABC changed since I asked, so nothing was saved. Here it is again with today's figures:");
+  assert(sent.at(-1)!.startsWith("Sell 6 ABC at $150 on 27 Oct"), sent.at(-1));
+  assertEquals(tradeProposals().map((r) => r.status), ["expired", "proposed"]);
+});
+
+freshTest("a yes after the confirmation lapsed confirms again with today's figures", async () => {
+  tradeFixtures();
+  await sixABCSoldOn27Oct(7518);
+  backend.tradeOutcome = { outcome: "expired" };
+  await handler(textUpdate(7519, "yes"));
+  assert(lastReply().startsWith("Sell 6 ABC at $150 on 27 Oct"), lastReply());
+  assertEquals(tradeProposals().filter((r) => r.status === "proposed").length, 1);
+});
+
+freshTest("a trade the database refuses on yes says why, and saves nothing", async () => {
+  tradeFixtures();
+  await sixABCSoldOn27Oct(7520);
+  backend.tradeOutcome = { outcome: "refused", error: "exceeds_units" };
+  await handler(textUpdate(7521, "yes"));
+  assertEquals(lastReply(), "That sells more ABC than was held on that date (6), so nothing was saved.");
+});
+
+freshTest("a first buy of a stock is previewed as a new holding, with its feed and fund shown", async () => {
+  tradeFixtures();
+  backend.route = { tool: "log_trade", args: { side: "buy", stock: "XYZ", units: 3, price: 690, currency: "USD" } };
+  await handler(textUpdate(7522, "bought 3 XYZ at $690"));
+  const preview = backend.rpcCalls.find((c) => c.fn === "preview_new_holding_trade");
+  assert(preview, "the new holding was not previewed");
+  assertEquals((preview.args.p_new_holding as Row).price_symbol, "XYZ");
+  assert(lastReply().includes("New holding: XYZ (US equity, priced by Twelve Data as XYZ), paid from Dollar broker funds"), lastReply());
+  assertEquals(((tradeProposals()[0].payload as Row).new_holding as Row).name, "XYZ");
+});
+
+freshTest("a first buy with no broker fund in its currency says one is needed", async () => {
+  tradeFixtures();
+  backend.tables.accounts = backend.tables.accounts.filter((a) => a.id !== USD_FUND);
+  backend.route = { tool: "log_trade", args: { side: "buy", stock: "XYZ", units: 3, price: 690, currency: "USD" } };
+  await handler(textUpdate(7523, "bought 3 XYZ at $690"));
+  assertEquals(lastReply(), "There's no broker funds account for XYZ's money to come from or go to, so nothing was saved. Add one in Wealth, then send the trade again.");
   assertEquals(tradeProposals().length, 0);
 });

@@ -386,3 +386,50 @@ export function tradeRefusal(error: string, ctx: { holdingName: string; units?: 
       return `I couldn't save that trade on ${name}, so nothing was saved.`;
   }
 }
+
+// A trade proposal's payload as index.ts saves it: the trade (or, for an
+// undo, the trade being undone) and the names the messages about it use.
+export type TradePayload = {
+  kind?: string;
+  trade_date?: string;
+  units?: number | string | null;
+  price?: number | string | null;
+  holding_name?: string;
+  currency?: string;
+  fund_name?: string | null;
+};
+
+// "Sell 6 ABC at $150 on 27 Oct", "Split ABC 10 for 1 on 28 Oct".
+export function tradeSummary(p: TradePayload): string {
+  const name = p.holding_name ?? "that holding";
+  const cur = p.currency ?? "USD";
+  const day = p.trade_date ? ` on ${shortDay(p.trade_date)}` : "";
+  if (p.kind === "split") return `Split ${name} ${units(p.units)} for 1${day}`;
+  return `${p.kind === "sell" ? "Sell" : "Buy"} ${units(p.units)} ${name} at ${formatMoney(Number(p.price), cur)}${day}`;
+}
+
+// What a "no" dropped: "the sale of 6 ABC at $150", "the undo of the buy of
+// 10 ABC at $120".
+export function tradeDropSummary(p: TradePayload, proposalKind: string): string {
+  const name = p.holding_name ?? "that holding";
+  const cur = p.currency ?? "USD";
+  const what = p.kind === "split"
+    ? `the split of ${name} ${units(p.units)} for 1`
+    : `the ${p.kind === "sell" ? "sale" : "buy"} of ${units(p.units)} ${name} at ${formatMoney(Number(p.price), cur)}`;
+  return proposalKind === "trade_undo" ? `the undo of ${what}` : what;
+}
+
+// What a "yes" saved, from what the database returned: "Saved: Sell 6 ABC at
+// $150 on 27 Oct. ABC now 9 shares; Dollar broker funds +$899." A second
+// "yes" gets the same, marked as already saved.
+export function tradeSavedMessage(p: TradePayload, effect: Effect, opts: { repeat: boolean; undo: boolean }): string {
+  const lead = opts.undo ? (opts.repeat ? "Already undone" : "Undone") : (opts.repeat ? "Already saved" : "Saved");
+  const name = p.holding_name ?? "The holding";
+  const cur = p.currency ?? "USD";
+  const delta = Number(effect.funds_delta ?? 0);
+  const fund = p.fund_name && delta !== 0 ? `; ${p.fund_name} ${signed(delta, cur)}` : "";
+  const after = effect.holding_units_after === null || effect.holding_units_after === undefined
+    ? ""
+    : ` ${name} now ${units(effect.holding_units_after)} shares${fund}.`;
+  return `${lead}: ${tradeSummary(p)}.${after}`;
+}

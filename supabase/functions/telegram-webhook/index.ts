@@ -60,11 +60,15 @@ import {
   draftFromArgs,
   type HoldingLite,
   matchHoldings,
+  newHoldingFor,
   nextQuestion,
   normaliseSymbol,
   type TradeDraft,
+  type TradePayload,
   tradeConfirmation,
+  tradeDropSummary,
   tradeRefusal,
+  tradeSavedMessage,
 } from "./trades.ts";
 import {
   statementAlreadySettledMessage,
@@ -971,7 +975,7 @@ async function confirmPendingIntake(chatId: number, householdId: string, recentP
 // when that prompt was sent -- so this route resolves to one specific entry
 // rather than to whichever is newest. Requires the bot's webhook to be
 // registered for "message_reaction" updates (see the ?setup=1 handler).
-async function handleReaction(reaction: Record<string, unknown>): Promise<Response> {
+async function handleReaction(reaction: Record<string, unknown>, updateId: unknown = null): Promise<Response> {
   const chat = reaction.chat as Record<string, unknown> | undefined;
   const user = reaction.user as Record<string, unknown> | undefined;
   const chatId = chat?.id as number | undefined;
@@ -1021,7 +1025,9 @@ async function handleReaction(reaction: Record<string, unknown>): Promise<Respon
       if (proposal.row.status === "proposed" && autopayDecision) await decideAutopay(chatId, member.id, proposal.row, autopayDecision);
       return new Response("ok");
     }
-    if (proposal.row.status === "proposed" && thumbsUp) await decideProposal(chatId, member.id, proposal.row, "apply");
+    if (proposal.row.status === "proposed" && thumbsUp) {
+      await decideProposal(chatId, member.id, proposal.row, "apply", { householdId: member.household_id, updateId });
+    }
     return new Response("ok");
   }
   if (!thumbsUp) return new Response("ok");
@@ -1317,6 +1323,7 @@ export function proposalOutcomeMessage(data: Record<string, unknown>): string {
 // a bare "no" must say what it dropped.
 export function proposalSummary(row: { kind: string; payload: Record<string, unknown> }): string {
   const payload = row.payload ?? {};
+  if (row.kind === "trade" || row.kind === "trade_undo") return tradeDropSummary(payload as TradePayload, row.kind);
   if (row.kind === "autopay_payment") {
     return `${String(payload.name ?? "the bill")} (AED ${Number(payload.amount ?? 0).toFixed(2)})`;
   }
@@ -1336,12 +1343,27 @@ export function proposalSummary(row: { kind: string; payload: Record<string, unk
 // saved figures again when it was applied.
 function decidedProposalMessage(row: ProposalRow): string {
   if (row.kind === "autopay_payment" && row.status !== "applied") return autopayClosedMessage(row);
+  if (row.kind === "trade" || row.kind === "trade_undo") {
+    if (row.status === "applied") {
+      const effect = ((row.result ?? {}) as { effect?: Record<string, unknown> }).effect ?? {};
+      return tradeSavedMessage(row.payload as TradePayload, effect, { repeat: true, undo: row.kind === "trade_undo" });
+    }
+    if (row.status === "cancelled") return `You dropped ${proposalSummary(row)}, so nothing was saved.`;
+    return "That one was not saved: the holding changed or it lapsed. Send the trade again if it still holds.";
+  }
   if (row.status === "applied") return row.result ? proposalOutcomeMessage({ outcome: "applied", result: row.result }) : "That one is already saved.";
   if (row.status === "cancelled") return `You dropped ${proposalSummary(row)}, so nothing was changed.`;
   return "That one has lapsed, so nothing was changed. Send it again if it still holds.";
 }
 
-async function decideProposal(chatId: number, memberId: string, proposal: ProposalRow, decision: "apply" | "cancel"): Promise<void> {
+async function decideProposal(
+  chatId: number,
+  memberId: string,
+  proposal: ProposalRow,
+  decision: "apply" | "cancel",
+  again: { householdId: string; updateId: unknown } | null = null,
+): Promise<void> {
+  const trade = proposal.kind === "trade" || proposal.kind === "trade_undo";
   if (decision === "cancel") {
     const { data, error } = await supabase
       .from("bot_proposals")
@@ -1355,7 +1377,7 @@ async function decideProposal(chatId: number, memberId: string, proposal: Propos
       return;
     }
     if (data?.length) {
-      await reply(chatId, `Dropped ${proposalSummary(proposal)}. Nothing was changed.`);
+      await reply(chatId, `Dropped ${proposalSummary(proposal)}. Nothing was ${trade ? "saved" : "changed"}.`);
       return;
     }
     // Decided in between, by a "yes" a moment earlier or by lapsing.
@@ -1375,7 +1397,55 @@ async function decideProposal(chatId: number, memberId: string, proposal: Propos
     await reply(chatId, 'I couldn\'t confirm that just now. Reply "yes" to my message again in a moment; it will only be saved once.');
     return;
   }
+  if (trade) {
+    await tradeDecided(chatId, memberId, proposal, data as Record<string, unknown>, again);
+    return;
+  }
   await reply(chatId, proposalOutcomeMessage(data as Record<string, unknown>));
+}
+
+// What a "yes" to a trade did. Saved: what was saved, from what the database
+// returned. The holding changed since the member was shown it (stale), or
+// the confirmation lapsed: nothing was saved, and the trade is previewed and
+// confirmed again with today's figures, never applied with the old ones.
+// Refused: why, in the same words as a refused preview.
+async function tradeDecided(
+  chatId: number,
+  memberId: string,
+  proposal: ProposalRow,
+  data: Record<string, unknown>,
+  again: { householdId: string; updateId: unknown } | null,
+): Promise<void> {
+  const payload = proposal.payload as TradePayload & { draft?: TradeDraft };
+  const outcome = String(data.outcome ?? "");
+  const undo = proposal.kind === "trade_undo";
+  const name = payload.holding_name ?? "That holding";
+  if (outcome === "applied") {
+    const result = (data.result ?? data) as { effect?: Record<string, unknown> };
+    await reply(chatId, tradeSavedMessage(payload, result.effect ?? {}, { repeat: data.result != null, undo }));
+    return;
+  }
+  if (outcome === "refused") {
+    await reply(chatId, tradeRefusal(String(data.error ?? ""), { holdingName: name, units: Number(payload.units) || undefined }));
+    return;
+  }
+  if (outcome === "stale" || outcome === "expired") {
+    const lead = outcome === "stale"
+      ? `${name} changed since I asked, so nothing was ${undo ? "undone" : "saved"}.`
+      : `That confirmation lapsed, so nothing was ${undo ? "undone" : "saved"}.`;
+    if (!undo && payload.draft && again) {
+      await reply(chatId, `${lead} Here it is again with today's figures:`);
+      await proposeTrade(chatId, { id: memberId, household_id: again.householdId }, payload.draft, again.updateId);
+      return;
+    }
+    await reply(chatId, `${lead} Send it again if it still holds.`);
+    return;
+  }
+  if (outcome === "cancelled") {
+    await reply(chatId, `You dropped ${proposalSummary(proposal)}, so nothing was saved.`);
+    return;
+  }
+  await reply(chatId, proposalOutcomeMessage(data));
 }
 
 // An autopay question that can no longer be answered: someone else confirmed
@@ -2299,7 +2369,9 @@ async function answerTradeQuestion(
 // Previews a complete draft in the database and proposes it with the
 // preview's figures, or says why the database refused it. The proposal
 // carries the version the member was shown, so a yes after the holding has
-// changed is refused as stale rather than saving figures they never saw.
+// changed is refused as stale rather than saving figures they never saw. It
+// also carries the draft, so a stale or lapsed one can be previewed again,
+// and the names the messages about it use.
 async function proposeTrade(
   chatId: number,
   member: { id: string; household_id: string },
@@ -2308,23 +2380,99 @@ async function proposeTrade(
 ): Promise<void> {
   let holdings: HoldingLite[];
   let members: Array<{ id: string; display_name: string }>;
-  let funds: Array<{ id: string; name: string }>;
+  let funds: Array<{ id: string; name: string; currency: string; owner_member_id: string | null; archived_at: string | null }>;
   try {
     holdings = await tradeHoldings(member.household_id);
     members = await householdMembers(member.household_id);
     funds = await allRowsOf("accounts", () =>
-      supabase.from("accounts").select("id, name").eq("household_id", member.household_id).eq("type", "broker_funds").order("id")
+      supabase.from("accounts").select("id, name, currency, owner_member_id, archived_at")
+        .eq("household_id", member.household_id).eq("type", "broker_funds").order("id")
     );
   } catch (err) {
     if (!(err instanceof ReadFailed)) throw err;
     await reply(chatId, TRADE_READ_FAILED);
     return;
   }
-  const holding = holdings.find((h) => h.id === draft.holdingId);
+  let holding = draft.holdingId ? holdings.find((h) => h.id === draft.holdingId) ?? null : null;
   if (!holding) {
-    await reply(chatId, tradeRefusal("not_held", { holdingName: normaliseSymbol(draft.stock) || draft.stock }));
+    // Matched again: a first buy of a stock the member holds by now (another
+    // first buy confirmed in between) goes into that holding, not a second.
+    const matches = matchHoldings(holdings, draft.ownerMemberId, draft.stock);
+    if (matches.length > 1) {
+      const which = { ...draft, holdingId: null, candidates: matches.map((h) => h.id), newHolding: null };
+      const question = nextQuestion(which, holdings);
+      if (question) {
+        await askTradeQuestion(chatId, member, which, question, updateId);
+        return;
+      }
+    }
+    if (matches.length === 1) {
+      holding = matches[0];
+      draft = { ...draft, holdingId: holding.id, newHolding: null };
+    }
+  }
+  const ownerId = holding?.owner_member_id ?? draft.ownerMemberId;
+  const ownerName = ownerId && ownerId !== member.id ? members.find((m) => m.id === ownerId)?.display_name ?? null : null;
+  const fundNamed = (id: unknown) => funds.find((f) => f.id === id)?.name ?? "the broker funds account";
+
+  if (!holding) {
+    if (draft.side !== "buy") {
+      await reply(chatId, tradeRefusal("not_held", { holdingName: normaliseSymbol(draft.stock) || draft.stock }));
+      return;
+    }
+    // A first buy of a stock: previewed on the holding it would make, with
+    // its feed symbol, class and fund shown for the member to confirm.
+    const currency = draft.newHolding?.currency ?? (draft.priceCurrency === "USD" || draft.priceCurrency === "INR" ? draft.priceCurrency : null);
+    if (!currency) {
+      const question = nextQuestion(draft, holdings);
+      if (question) await askTradeQuestion(chatId, member, draft, question, updateId);
+      return;
+    }
+    const newHolding = draft.newHolding ?? newHoldingFor(draft.stock, currency, draft.ownerMemberId, funds);
+    const first = { ...draft, newHolding };
+    const { data: effect, error } = await supabase.rpc("preview_new_holding_trade", {
+      p_new_holding: newHolding,
+      p_trade_date: draft.tradeDate,
+      p_units: draft.units,
+      p_price: draft.price,
+      p_fees: draft.fees,
+      p_traded_at: draft.tradedAt,
+      p_member_id: member.id,
+    });
+    if (error || !effect) {
+      await reply(chatId, "I couldn't check that trade just now, so nothing was saved. Please send it again in a minute.");
+      return;
+    }
+    if (!effect.ok) {
+      await reply(chatId, tradeRefusal(String(effect.error), { holdingName: newHolding.name, units: draft.units ?? undefined }));
+      return;
+    }
+    const fundName = fundNamed(effect.funds_account_id);
+    await sendProposal(
+      chatId,
+      member.household_id,
+      member.id,
+      "trade",
+      {
+        new_holding: newHolding,
+        kind: "buy",
+        trade_date: draft.tradeDate,
+        traded_at: draft.tradedAt,
+        units: draft.units,
+        price: draft.price,
+        fees: draft.fees,
+        funds_account_id: null,
+        draft: first,
+        holding_name: newHolding.name,
+        currency: newHolding.currency,
+        fund_name: fundName,
+      },
+      tradeConfirmation(first, effect, { holdingName: newHolding.name, ownerName, fundName, currency: newHolding.currency, newHolding }),
+      updateId,
+    );
     return;
   }
+
   const split = draft.side === "split";
   const { data: effect, error } = await supabase.rpc("preview_trade", {
     p_holding_id: holding.id,
@@ -2345,10 +2493,7 @@ async function proposeTrade(
     await reply(chatId, tradeRefusal(String(effect.error), { holdingName: holding.name, units: draft.units ?? undefined }));
     return;
   }
-  const fundName = funds.find((f) => f.id === effect.funds_account_id)?.name ?? "the broker funds account";
-  const ownerName = holding.owner_member_id && holding.owner_member_id !== member.id
-    ? members.find((m) => m.id === holding.owner_member_id)?.display_name ?? null
-    : null;
+  const fundName = fundNamed(effect.funds_account_id);
   // An Indian sale's tax is deducted by the broker and read later from its
   // statement, unless the message gave it.
   const taxToConfirm = draft.side === "sell" && holding.currency === "INR" && draft.tax === null;
@@ -2370,6 +2515,9 @@ async function proposeTrade(
       funds_account_id: effect.funds_account_id ?? null,
       expected_version: effect.trades_version,
       draft,
+      holding_name: holding.name,
+      currency: holding.currency,
+      fund_name: split ? null : fundName,
     },
     tradeConfirmation(draft, effect, {
       holdingName: holding.name,
@@ -3925,7 +4073,7 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
   const message = update?.message as Record<string, unknown> | undefined;
   if (!message) {
     const reaction = update?.message_reaction as Record<string, unknown> | undefined;
-    if (reaction) return await handleReaction(reaction);
+    if (reaction) return await handleReaction(reaction, update.update_id);
     return new Response("ok");
   }
 
@@ -4136,7 +4284,7 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
         return new Response("ok");
       }
       if (target.kind === "one" && (strictYes || strictNo)) {
-        await decideProposal(chatId, member.id, target.row, strictYes ? "apply" : "cancel");
+        await decideProposal(chatId, member.id, target.row, strictYes ? "apply" : "cancel", { householdId: member.household_id, updateId });
         return new Response("ok");
       }
       if (target.kind === "decided" && (strictYes || strictNo || target.row.kind === "autopay_payment")) {

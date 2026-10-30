@@ -16,7 +16,9 @@ import {
   normaliseSymbol,
   type TradeDraft,
   tradeConfirmation,
+  tradeDropSummary,
   tradeRefusal,
+  tradeSavedMessage,
   undoConfirmation,
 } from "./trades.ts";
 
@@ -219,4 +221,16 @@ Deno.test("money is written the way each currency is, with decimals only when ne
   assertEquals(formatMoney(1234.5, "INR"), "₹1,234.50");
   assertEquals(formatMoney(1234.5, "AED"), "AED 1,234.50");
   assertEquals(formatMoney(-120, "USD"), "−$120");
+});
+
+Deno.test("what a yes saved and what a no dropped are said from the proposal and the database's answer", () => {
+  const sale = { kind: "sell", trade_date: "2026-10-27", units: 6, price: 150, holding_name: "ABC", currency: "USD", fund_name: "Dollar broker funds" };
+  const effect = { holding_units_after: 9, funds_delta: 899 };
+  assertEquals(tradeSavedMessage(sale, effect, { repeat: false, undo: false }), "Saved: Sell 6 ABC at $150 on 27 Oct. ABC now 9 shares; Dollar broker funds +$899.");
+  assert(tradeSavedMessage(sale, effect, { repeat: true, undo: false }).startsWith("Already saved: Sell 6 ABC"));
+  assertEquals(tradeSavedMessage(sale, { holding_units_after: 15, funds_delta: -899 }, { repeat: false, undo: true }),
+    "Undone: Sell 6 ABC at $150 on 27 Oct. ABC now 15 shares; Dollar broker funds −$899.");
+  assertEquals(tradeDropSummary(sale, "trade"), "the sale of 6 ABC at $150");
+  assertEquals(tradeDropSummary({ ...sale, kind: "buy", units: 10, price: 120 }, "trade_undo"), "the undo of the buy of 10 ABC at $120");
+  assertEquals(tradeDropSummary({ kind: "split", units: 10, holding_name: "ABC" }, "trade"), "the split of ABC 10 for 1");
 });
