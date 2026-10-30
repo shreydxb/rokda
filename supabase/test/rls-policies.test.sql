@@ -1373,12 +1373,47 @@ begin
   if r ->> 'error' is distinct from 'not_allowed' then raise exception 'trade functions FAILED: a member tied a trade to a proposal: %', r; end if;
   raise notice 'trade functions ok: a member records on their household''s holding and no one else''s';
 end $$;
+-- The bot-trade functions (SHR-370): a member works only in their own
+-- household, and only the bot marks a new holding's buy as the bot's.
+do $$
+declare r jsonb;
+begin
+  r := preview_new_holding_trade(jsonb_build_object('owner_member_id', 'e2000000-0000-0000-0000-00000000000a', 'name', 'XYZ',
+    'asset_class', 'us_equity', 'currency', 'USD'), '2026-10-02', 1, 10, p_funds_account_id => 'fb200000-0000-0000-0000-000000000002');
+  if r ->> 'error' is distinct from 'not_member' then raise exception 'bot trades FAILED: previewing in another household gave %', r; end if;
+  r := record_new_holding_trade(jsonb_build_object('owner_member_id', 'e2000000-0000-0000-0000-00000000000a', 'name', 'XYZ',
+    'asset_class', 'us_equity', 'currency', 'USD'), '2026-10-02', 1, 10, p_funds_account_id => 'fb200000-0000-0000-0000-000000000002');
+  if r ->> 'error' is distinct from 'not_member' then raise exception 'bot trades FAILED: recording in another household gave %', r; end if;
+  r := preview_delete_trade('fb100000-0000-0000-0000-000000000002');
+  if r ->> 'error' is distinct from 'not_member' then raise exception 'bot trades FAILED: previewing another household''s undo gave %', r; end if;
+  r := record_new_holding_trade(jsonb_build_object('owner_member_id', 'e1000000-0000-0000-0000-00000000000b', 'name', 'XYZ',
+    'asset_class', 'us_equity', 'currency', 'USD'), '2026-10-02', 1, 10, p_funds_account_id => 'fb200000-0000-0000-0000-000000000001',
+    p_source => 'bot');
+  if r ->> 'error' is distinct from 'not_allowed' then raise exception 'bot trades FAILED: a member marked a new holding''s buy as the bot''s: %', r; end if;
+  if exists (select 1 from holdings where name = 'XYZ') then raise exception 'bot trades FAILED: a refused buy left a holding'; end if;
+  raise notice 'bot trades ok: a member previews and records only in their household, and never as the bot';
+end $$;
 set role anon;
 do $$
 begin
   begin
     perform record_trade('fb000000-0000-0000-0000-000000000001', 'buy', '2026-10-02', 1, 100, 0);
     raise exception 'trade functions FAILED: a signed-out caller recorded a trade';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform preview_new_holding_trade('{}'::jsonb, '2026-10-02', 1, 10);
+    raise exception 'bot trades FAILED: a signed-out caller previewed a new holding';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform record_new_holding_trade('{}'::jsonb, '2026-10-02', 1, 10);
+    raise exception 'bot trades FAILED: a signed-out caller recorded a new holding';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform preview_delete_trade('fb100000-0000-0000-0000-000000000001');
+    raise exception 'bot trades FAILED: a signed-out caller previewed an undo';
   exception when insufficient_privilege then null;
   end;
   raise notice 'trade functions ok: signed out, the trade functions cannot be called';
