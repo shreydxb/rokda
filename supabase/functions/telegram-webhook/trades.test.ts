@@ -234,3 +234,23 @@ Deno.test("what a yes saved and what a no dropped are said from the proposal and
   assertEquals(tradeDropSummary({ ...sale, kind: "buy", units: 10, price: 120 }, "trade_undo"), "the undo of the buy of 10 ABC at $120");
   assertEquals(tradeDropSummary({ kind: "split", units: 10, holding_name: "ABC" }, "trade"), "the split of ABC 10 for 1");
 });
+
+
+Deno.test("a price answered in another currency is asked again, never taken as the holding's", () => {
+  const lots = [holding({})];
+  const asked = draft({ price: null, awaiting: "price" });
+  for (const [answer, currency] of [["AED 480", "AED"], ["₹500", "INR"], ["rs 500", "INR"], ["500 rupees", "INR"]]) {
+    const read = applyAnswer(asked, answer, lots);
+    assertEquals(read?.priceCurrency, currency, answer);
+    assertEquals(nextQuestion(read!, lots)?.text, "ABC trades in dollars. What was the price per share in dollars?", answer);
+  }
+  const dollars = applyAnswer(asked, "$150", lots);
+  assertEquals([dollars?.price, dollars?.priceCurrency, nextQuestion(dollars!, lots)], [150, "USD", null]);
+});
+
+Deno.test("a trade dated in another year shows its year in the confirmation", () => {
+  const text = tradeConfirmation(draft({ side: "sell", units: 6, price: 150, fees: 1, tradeDate: "2025-12-28" }), SALE_EFFECT,
+    { ...SALE_CTX, today: "2026-01-05" });
+  assert(text.startsWith("Sell 6 ABC at $150 on 28 Dec 2025, brokerage $1"), text);
+  assert(tradeConfirmation(SALE, SALE_EFFECT, { ...SALE_CTX, today: "2026-10-30" }).startsWith("Sell 6 ABC at $150 on 27 Oct,"));
+});

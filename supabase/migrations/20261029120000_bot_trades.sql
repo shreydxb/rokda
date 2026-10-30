@@ -37,12 +37,12 @@ alter table holding_trades add constraint holding_trades_units_check
   check (units > 0 or (kind = 'opening' and units = 0));
 
 -- A split never recorded halves the units' value with the price. When a
--- traded holding's price moves by more than 40% in a day, the bot asks its
--- owner whether it split, once for that price: this is the price day it last
--- asked about.
+-- traded holding's value moves by more than 40% between its last two value
+-- points with no trade between them, the bot asks its owner whether it split,
+-- once for that point: this is the day of the point it last asked about.
 alter table holdings add column split_asked_for date;
 comment on column holdings.split_asked_for is
-  'The price day (Dubai) the bot last asked this holding''s owner whether a large one-day move was a split, so it asks once per price.';
+  'The day of the value point the bot last asked this holding''s owner about (a large move with no trade, perhaps a split), so it asks once per point.';
 
 -- Makes the holding a first buy of a stock goes into, with its empty opening
 -- entry, ready for the buy to be replayed on it. It belongs to its owner (a
@@ -86,6 +86,19 @@ $$;
 
 revoke execute on function private.create_trade_holding(jsonb, date) from public, anon, authenticated;
 
+-- When a trade's price was quoted: its time, else the end of its day in
+-- Dubai, and never later than now. A new holding's first price is its buy's.
+create or replace function private.trade_priced_at(p_trade_date date, p_traded_at timestamptz)
+returns timestamptz
+language sql
+stable
+set search_path = ''
+as $$
+  select least(now(), coalesce(p_traded_at, (p_trade_date + 1)::timestamp at time zone 'Asia/Dubai'));
+$$;
+
+revoke execute on function private.trade_priced_at(date, timestamptz) from public, anon, authenticated;
+
 -- Who a new holding's caller is, and whether the holding can be made: the
 -- owner a member, the caller in the owner's household, a name. Answered as
 -- the trade functions answer, never raised.
@@ -114,8 +127,8 @@ revoke execute on function private.new_holding_check(jsonb, uuid) from public, a
 -- The figures a first buy of a stock would give, worked out on the holding it
 -- would make. The holding is made and then rolled back, so nothing survives
 -- the preview; the effect is kept in a variable, which a rollback leaves alone.
--- Its price starts at the buy's, so its value is what was paid until the
--- price feed prices it, as record_new_holding_trade does.
+-- Its price starts at the buy's, dated at the trade, so its value is what was
+-- paid until the price feed prices it, as record_new_holding_trade does.
 create or replace function public.preview_new_holding_trade(
   p_new_holding jsonb, p_trade_date date, p_units numeric, p_price numeric, p_fees numeric default 0,
   p_traded_at timestamptz default null, p_funds_account_id uuid default null, p_member_id uuid default null)
@@ -134,7 +147,8 @@ begin
   end if;
   begin
     v_holding := private.create_trade_holding(p_new_holding, p_trade_date);
-    update public.holdings set current_price = p_price where id = v_holding.id returning * into v_holding;
+    update public.holdings set current_price = p_price, priced_at = private.trade_priced_at(p_trade_date, p_traded_at)
+    where id = v_holding.id returning * into v_holding;
     v_effect := private.trade_effect(v_holding, 'buy', p_trade_date, p_units, p_price, p_fees, 0, p_traded_at,
       p_funds_account_id, null);
     raise exception 'preview only' using errcode = 'RK001';
@@ -174,7 +188,10 @@ begin
   end if;
   begin
     v_holding := private.create_trade_holding(p_new_holding, p_trade_date);
-    update public.holdings set current_price = p_price where id = v_holding.id;
+    -- Priced at the buy and dated at the trade: net worth leaves out a
+    -- holding with no price date, and the fund has already paid for it.
+    update public.holdings set current_price = p_price, priced_at = private.trade_priced_at(p_trade_date, p_traded_at)
+    where id = v_holding.id;
     v_result := public.record_trade(v_holding.id, 'buy', p_trade_date, p_units, p_price, p_fees, 0, p_traded_at,
       p_funds_account_id, p_source, p_proposal_id, p_member_id, 1, false, p_note);
     if not coalesce((v_result ->> 'ok')::boolean, false) then

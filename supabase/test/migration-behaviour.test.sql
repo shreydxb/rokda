@@ -3689,6 +3689,11 @@ begin
   if h.quantity <> 10 or h.avg_price <> 50 or h.trades_version <> 2 or h.owner_member_id <> '22222222-2222-2222-2222-0000000000b7' then
     raise exception 'B3-03 FAILED: the holding is % at %, version %', h.quantity, h.avg_price, h.trades_version;
   end if;
+  -- Priced at the buy, and dated, so net worth counts it until the feed
+  -- prices it: a holding with no price date is left out of net worth.
+  if h.current_price <> 50 or h.priced_at is null then
+    raise exception 'B3-03 FAILED: the new holding is priced at %, dated %', h.current_price, h.priced_at;
+  end if;
   select count(*) into n from holding_trades where holding_id = h.id;
   if n <> 2 or not exists (select 1 from holding_trades where holding_id = h.id and kind = 'opening' and units = 0) then
     raise exception 'B3-03 FAILED: % entries, or no empty opening entry', n;

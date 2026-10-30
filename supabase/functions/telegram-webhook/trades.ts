@@ -185,9 +185,24 @@ export function nextQuestion(draft: TradeDraft, holdings: HoldingLite[]): { fiel
   return null;
 }
 
-function readNumber(text: string): number | null {
-  const m = /^\s*(?:\$|₹|rs\.?|usd|inr|aed)?\s*([\d,]*\.?\d+)\s*(?:shares?|units?|\$|usd|inr|rupees?|dollars?)?\s*$/i.exec(text);
-  return m ? positive(m[1]) : null;
+const CURRENCY_MARKS: Array<[RegExp, string]> = [
+  [/^(\$|usd|us\$|dollars?)$/i, "USD"],
+  [/^(₹|inr|rs\.?|rupees?)$/i, "INR"],
+  [/^(aed|dhs?|dirhams?)$/i, "AED"],
+];
+
+function markCurrency(mark: string | undefined): string | null {
+  if (!mark) return null;
+  return CURRENCY_MARKS.find(([re]) => re.test(mark.trim()))?.[1] ?? null;
+}
+
+// A number as typed, with the currency it was marked with, if any: "10",
+// "1,000", "$150", "AED 480", "500 rupees".
+function readAmount(text: string): { n: number; currency: string | null } | null {
+  const m = /^\s*(\$|₹|rs\.?|usd|us\$|inr|aed|dhs?)?\s*([\d,]*\.?\d+)\s*(shares?|units?|\$|usd|inr|aed|rupees?|dollars?|dirhams?)?\s*$/i.exec(text);
+  if (!m) return null;
+  const n = positive(m[2]);
+  return n === null ? null : { n, currency: markCurrency(m[1]) ?? markCurrency(m[3]) };
 }
 
 function readCurrency(text: string): string | null {
@@ -203,13 +218,15 @@ export function applyAnswer(draft: TradeDraft, text: string, holdings: HoldingLi
   const done = (changes: Partial<TradeDraft>): TradeDraft => ({ ...draft, ...changes, awaiting: null });
   switch (draft.awaiting) {
     case "units": {
-      const n = readNumber(text);
-      return n === null ? null : done({ units: n });
+      const a = readAmount(text);
+      return a === null ? null : done({ units: a.n });
     }
     case "price": {
-      const n = readNumber(text);
-      // Asked in the holding's currency, so the answer is in it.
-      return n === null ? null : done({ price: n, priceCurrency: draftCurrency({ ...draft, priceCurrency: null }, holdings) ?? draft.priceCurrency });
+      const a = readAmount(text);
+      if (a === null) return null;
+      // Asked in the holding's currency, so an unmarked answer is in it. One
+      // marked with another currency keeps it, and is asked about again.
+      return done({ price: a.n, priceCurrency: a.currency ?? draftCurrency({ ...draft, priceCurrency: null }, holdings) ?? draft.priceCurrency });
     }
     case "holding": {
       const n = Number(text.trim().replace(/\.$/, ""));
@@ -284,24 +301,39 @@ function holdingLine(name: string, effect: Effect, currency: string): string {
   return `${name}: ${units(before)} → ${units(after)} shares${average}`;
 }
 
+// A trade's day as the confirmation shows it: "24 Oct", with its year when
+// that is not this year, so a year read wrongly is seen before the yes.
+function tradeDay(date: string, today?: string | null): string {
+  const label = shortDay(date);
+  return today && date.slice(0, 4) !== today.slice(0, 4) ? `${label} ${date.slice(0, 4)}` : label;
+}
+
 // The confirmation of a trade, from the preview's figures: what was traded,
 // the holding before and after, the profit and the fund's movement, then any
 // warning the preview raised, then how to answer.
 export function tradeConfirmation(
   draft: TradeDraft,
   effect: Effect,
-  ctx: { holdingName: string; ownerName: string | null; fundName: string; currency: string; newHolding: NewHolding | null; lastPrice?: number | null },
+  ctx: {
+    holdingName: string;
+    ownerName: string | null;
+    fundName: string;
+    currency: string;
+    newHolding: NewHolding | null;
+    lastPrice?: number | null;
+    today?: string | null;
+  },
 ): string {
   const cur = ctx.currency;
   const name = ctx.holdingName;
   const lines: string[] = [];
   if (draft.side === "split") {
-    lines.push(`Split ${name} ${units(draft.ratio)} for 1 on ${shortDay(draft.tradeDate)}`);
+    lines.push(`Split ${name} ${units(draft.ratio)} for 1 on ${tradeDay(draft.tradeDate, ctx.today)}`);
   } else {
     const verb = draft.side === "buy" ? "Buy" : "Sell";
     const fees = Number(effect.fees ?? 0);
     lines.push(
-      `${verb} ${units(effect.units)} ${name} at ${formatMoney(Number(effect.price), cur)} on ${shortDay(draft.tradeDate)}` +
+      `${verb} ${units(effect.units)} ${name} at ${formatMoney(Number(effect.price), cur)} on ${tradeDay(draft.tradeDate, ctx.today)}` +
         (fees > 0 ? `, brokerage ${formatMoney(fees, cur)}` : ""),
     );
   }

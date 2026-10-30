@@ -1699,7 +1699,7 @@ const TOOLS_BASE = [
           units: { type: "number", description: "How many shares. Omit if not stated." },
           price: { type: "number", description: "The price per share, as stated. Omit if not stated." },
           currency: { type: "string", enum: ["USD", "INR", "AED"], description: "The price's currency, only if the message states it ('$', 'rs', 'AED'). Omit otherwise." },
-          trade_date: { type: "string", description: "YYYY-MM-DD if a date is stated; omit for today." },
+          trade_date: { type: "string", description: "YYYY-MM-DD if a date is stated; a day and month with no year is in the current year. Omit for today." },
           traded_at: { type: "string", description: "ISO time of the trade if stated; omit otherwise." },
           brokerage: { type: "number", description: "Brokerage or fees, if stated." },
           tax: { type: "number", description: "Tax deducted on a sale, if stated." },
@@ -2426,8 +2426,9 @@ async function askTradeQuestion(
   question: { field: string; text: string },
   updateId: unknown,
   askingId: string | null = null,
+  askedBefore: number[] = [],
 ): Promise<void> {
-  const payload = { draft: { ...draft, awaiting: question.field }, asked_at: new Date().toISOString() };
+  const payload = { draft: { ...draft, awaiting: question.field }, asked_at: new Date().toISOString(), asked_message_ids: askedBefore };
   let id = askingId;
   if (id) {
     const updated = await supabase.from("bot_proposals").update({ payload }).eq("id", id).eq("status", "asking").select("id");
@@ -2448,9 +2449,13 @@ async function askTradeQuestion(
     if (inserted.error || !inserted.data) throw new Error(`saving a trade question failed (${inserted.error?.code ?? "no row"})`);
     id = (inserted.data as { id: string }).id;
   }
+  // Every question of the draft is kept, so a reply to an earlier one still
+  // reaches it once the next has been asked.
   const messageId = await reply(chatId, question.text);
   if (messageId != null) {
-    await supabase.from("bot_proposals").update({ prompt_message_id: messageId }).eq("id", id);
+    await supabase.from("bot_proposals")
+      .update({ prompt_message_id: messageId, payload: { ...payload, asked_message_ids: [...askedBefore, messageId] } })
+      .eq("id", id);
   }
 }
 
@@ -2481,17 +2486,26 @@ async function answerTradeQuestion(
       return true;
     }
   }
+  // A reply names its draft by any of the draft's questions; otherwise the
+  // member's latest draft is the one an answer could be for.
   let query = supabase.from("bot_proposals").select("id, payload, prompt_message_id")
     .eq("household_id", member.household_id).eq("member_id", member.id).eq("chat_id", chatId)
     .eq("kind", "trade").eq("status", "asking").gt("expires_at", new Date().toISOString());
-  query = repliedTo != null ? query.eq("prompt_message_id", repliedTo) : query.order("created_at", { ascending: false });
+  query = repliedTo != null
+    ? query.contains("payload", { asked_message_ids: [repliedTo] })
+    : query.order("created_at", { ascending: false });
   const { data, error } = await query.limit(1);
   if (error || !data?.length) return false;
-  const row = data[0] as { id: string; payload: { draft?: TradeDraft; asked_at?: string } };
+  const row = data[0] as { id: string; payload: { draft?: TradeDraft; asked_at?: string; asked_message_ids?: number[] } };
   const draft = row.payload.draft;
   if (!draft?.awaiting) return false;
+  const asked = row.payload.asked_message_ids ?? [];
+  // The same answer delivered again, however late and in whatever form: it
+  // was used once already, so the question it led to is asked again, and the
+  // answer is not used for it. Checked before anything else can turn it away.
+  const redelivered = draft.lastUpdateId != null && draft.lastUpdateId === updateId;
   // A message that is not a reply counts only soon after the question.
-  if (repliedTo == null && !(Date.parse(row.payload.asked_at ?? "") > Date.now() - PENDING_WINDOW_MS)) return false;
+  if (!redelivered && repliedTo == null && !(Date.parse(row.payload.asked_at ?? "") > Date.now() - PENDING_WINDOW_MS)) return false;
   let holdings: HoldingLite[];
   try {
     holdings = await tradeHoldings(member.household_id);
@@ -2500,11 +2514,9 @@ async function answerTradeQuestion(
     await reply(chatId, TRADE_READ_FAILED);
     return true;
   }
-  // The same answer delivered again: it was used once already, so the
-  // question it led to is asked again, and the answer is not used for it.
-  if (draft.lastUpdateId != null && draft.lastUpdateId === updateId) {
+  if (redelivered) {
     const again = nextQuestion(draft, holdings);
-    if (again) await askTradeQuestion(chatId, member, draft, again, updateId, row.id);
+    if (again) await askTradeQuestion(chatId, member, draft, again, updateId, row.id, asked);
     return true;
   }
   const answered = applyAnswer(draft, text, holdings);
@@ -2516,7 +2528,7 @@ async function answerTradeQuestion(
   answered.lastUpdateId = typeof updateId === "number" ? updateId : null;
   const question = nextQuestion(answered, holdings);
   if (question) {
-    await askTradeQuestion(chatId, member, answered, question, updateId, row.id);
+    await askTradeQuestion(chatId, member, answered, question, updateId, row.id, asked);
     return true;
   }
   await proposeTrade(chatId, member, answered, updateId);
@@ -2626,7 +2638,14 @@ async function proposeTrade(
         currency: newHolding.currency,
         fund_name: fundName,
       },
-      tradeConfirmation(first, effect, { holdingName: newHolding.name, ownerName, fundName, currency: newHolding.currency, newHolding }),
+      tradeConfirmation(first, effect, {
+        holdingName: newHolding.name,
+        ownerName,
+        fundName,
+        currency: newHolding.currency,
+        newHolding,
+        today: householdToday(),
+      }),
       updateId,
     );
     return;
@@ -2685,6 +2704,7 @@ async function proposeTrade(
       currency: holding.currency,
       newHolding: null,
       lastPrice: holding.current_price,
+      today: householdToday(),
     }),
     updateId,
   );
@@ -2852,6 +2872,9 @@ async function classifyAndRoute(
 ) {
   const system =
     `You are a household finance assistant for Rokda, chatting with a household member via Telegram. ` +
+    // Without it a date like "24 Oct" is given whatever year the model
+    // guesses, and a trade lands a year off.
+    `Today's date is ${householdToday()} (Dubai). ` +
     `If their message reports a real expense/income/refund that already happened (e.g. "spent 40 on lunch", "paid the rent", "got paid my salary", "got a refund from Noon"), ALWAYS call log_expense immediately -- even if the category, merchant, or exact amount isn't fully clear. log_expense covers all three: the extraction step itself decides which one from the wording, you don't need to. ` +
     `EXCEPTION: if the message specifically says money is going toward a named savings or debt-payoff GOAL (e.g. "put 500 toward emergency fund", "added 1000 to the house downpayment goal"), call log_goal_contribution instead -- never log_expense for that message, since a goal contribution never touches an account balance or the ledger. An ordinary purchase or bill with no named goal is still log_expense. ` +
     `EXCEPTION: if the message says money moved between two of the household's own accounts (paying off the credit card from the bank account, moving money to savings), call log_transfer instead -- never log_expense, since a transfer is neither spending nor income. ` +
@@ -4051,36 +4074,48 @@ const UNUSUAL_SPEND_MONTHS_BACK = 6;
 // with the much stricter bar above. unusual_spend_nudges dedupes per
 // (household, category, month) -- flagged once, not re-nagged every day
 // even if the category keeps climbing further past the bar.
-// A traded holding whose price moved by more than this in a day is asked
-// about: an unrecorded split shows as a fall like that (spec 9).
+// A traded holding whose value moved by more than this between its last two
+// price days, with no trade between them, is asked about: an unrecorded split
+// shows as a fall like that (spec 9).
 const SPLIT_MOVE_PCT = 40;
 
-// Asks each traded holding's owner whether a large one-day move was a split,
-// once for that price: split_asked_for keeps the price day asked about, set
-// only once the question reached them. A holding that was never traded, or
-// is sold out, is not asked about: its units are not a replay's.
+// Asks each traded holding's owner whether a large move was a split, once for
+// that value point (split_asked_for, set only once the question reached
+// them). The move is read from the holding's own value history, not the price
+// feed's day change: a provider adjusts its previous close for a split, so a
+// split day does not show as a move there. Its units are the same at both
+// points (no trade between), so the value moved with the price. A holding
+// never traded, or sold out, is not asked about.
 async function runSplitCheck(): Promise<{ checked: number; asked: number }> {
-  let holdings: Array<{ id: string; name: string; owner_member_id: string | null; day_change_pct: number | null; priced_at: string | null; split_asked_for: string | null }>;
+  let holdings: Array<{ id: string; name: string; owner_member_id: string | null; split_asked_for: string | null }>;
   try {
     holdings = await allRowsOf("holdings", () =>
-      supabase.from("holdings").select("id, name, owner_member_id, day_change_pct, priced_at, split_asked_for")
-        .gt("trades_version", 0).gt("quantity", 0).order("id")
+      supabase.from("holdings").select("id, name, owner_member_id, split_asked_for").gt("trades_version", 0).gt("quantity", 0).order("id")
     );
   } catch {
     return { checked: 0, asked: 0 };
   }
   let asked = 0;
   for (const h of holdings) {
-    const pct = Number(h.day_change_pct);
-    if (h.day_change_pct === null || !(Math.abs(pct) > SPLIT_MOVE_PCT) || !h.priced_at || !h.owner_member_id) continue;
-    const priceDay = householdToday(new Date(h.priced_at));
-    if (h.split_asked_for === priceDay) continue;
+    if (!h.owner_member_id) continue;
     try {
+      const { data: points, error } = await supabase.from("holding_value_history").select("as_of, value_aed")
+        .eq("holding_id", h.id).order("as_of", { ascending: false }).limit(2);
+      if (error || !points || points.length < 2) continue;
+      const [latest, before] = points as Array<{ as_of: string; value_aed: number }>;
+      if (h.split_asked_for === latest.as_of || !(Number(before.value_aed) > 0)) continue;
+      // A trade dated or recorded since the earlier point moved the value
+      // itself.
+      const { data: trades, error: tradesError } = await supabase.from("holding_trades").select("id").eq("holding_id", h.id)
+        .or(`trade_date.gt.${before.as_of},created_at.gt.${before.as_of}`).limit(1);
+      if (tradesError || trades?.length) continue;
+      const pct = (Number(latest.value_aed) / Number(before.value_aed) - 1) * 100;
+      if (!(Math.abs(pct) > SPLIT_MOVE_PCT)) continue;
       const { data: owner } = await supabase.from("household_members").select("telegram_user_id").eq("id", h.owner_member_id).maybeSingle();
       const chatId = (owner as { telegram_user_id: number | null } | null)?.telegram_user_id;
       if (!chatId) continue;
       if ((await reply(chatId, splitQuestion(h.name, pct))) == null) continue;
-      await supabase.from("holdings").update({ split_asked_for: priceDay }).eq("id", h.id);
+      await supabase.from("holdings").update({ split_asked_for: latest.as_of }).eq("id", h.id);
       asked++;
     } catch {
       // One holding's question failing must never block the rest.

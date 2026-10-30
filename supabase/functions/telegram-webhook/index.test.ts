@@ -2346,18 +2346,47 @@ freshTest("a split is confirmed with the units and average it gives, and no mone
   assertEquals([preview?.args.p_kind, preview?.args.p_units, preview?.args.p_price], ["split", 10, null]);
 });
 
-freshTest("a large one-day move on a traded holding asks its owner about a split, once for that price", async () => {
+freshTest("a large move between two price days with no trade between asks the owner about a split, once", async () => {
   tradeFixtures();
   const today = dubaiToday();
-  Object.assign(backend.tables.holdings[0], { day_change_pct: -50, priced_at: `${today}T06:00:00Z`, split_asked_for: null });
+  const yesterday = dubaiDaysAgo(1);
+  // The providers' own day change is adjusted for a split, so it cannot show
+  // one: the move is read from the holding's own stored values.
+  backend.tables.holding_value_history = [
+    { id: "v1", holding_id: ABC, as_of: yesterday, value_aed: 1000 },
+    { id: "v2", holding_id: ABC, as_of: today, value_aed: 500 },
+  ];
+  backend.tables.holding_trades = [];
+  Object.assign(backend.tables.holdings[0], { day_change_pct: 0, split_asked_for: null });
   // Moved as much, but never traded: its units are its own, not a replay's.
   backend.tables.holdings.push({ ...backend.tables.holdings[0], id: "a3700000-0000-4000-8000-0000000000a9", name: "UNTRADED", trades_version: 0 });
+  backend.tables.holding_value_history.push(
+    { id: "v3", holding_id: "a3700000-0000-4000-8000-0000000000a9", as_of: yesterday, value_aed: 1000 },
+    { id: "v4", holding_id: "a3700000-0000-4000-8000-0000000000a9", as_of: today, value_aed: 400 },
+  );
   await handler(dailyCheck());
   const asked = () => backend.telegramSent.map((m) => String(m.body.text)).filter((t) => t.includes("If it split"));
   assertEquals(asked(), ['ABC moved −50% on its last price. If it split, tell me, e.g. "ABC split 2 for 1". If not, ignore this.']);
   assertEquals(backend.tables.holdings[0].split_asked_for, today);
   await handler(dailyCheck());
   assertEquals(asked().length, 1);
+});
+
+freshTest("a value that moved because of a trade is not asked about as a split", async () => {
+  tradeFixtures();
+  const today = dubaiToday();
+  const yesterday = dubaiDaysAgo(1);
+  backend.tables.holding_value_history = [
+    { id: "v1", holding_id: ABC, as_of: yesterday, value_aed: 1000 },
+    { id: "v2", holding_id: ABC, as_of: today, value_aed: 500 },
+  ];
+  backend.tables.holding_trades = [{
+    id: "t-half", household_id: HOUSEHOLD, holding_id: ABC, kind: "sell", units: 7, price: 150, trade_date: today,
+    created_by: MEMBER, created_at: `${today}T08:00:00Z`, funds_account_id: USD_FUND,
+  }];
+  Object.assign(backend.tables.holdings[0], { split_asked_for: null });
+  await handler(dailyCheck());
+  assertEquals(backend.telegramSent.filter((m) => String(m.body.text).includes("If it split")).length, 0);
 });
 
 const RUPCO = "a3700000-0000-4000-8000-0000000000a4";
@@ -2424,5 +2453,38 @@ freshTest("profit with its trades unreadable says the figures are unavailable", 
   backend.route = { tool: "get_trade_profit", args: { stock: "ABC", scope: "me" } };
   await handler(textUpdate(7704, "what did I make on ABC this year?"));
   assertEquals(lastReply(), figuresUnavailableMessage());
+  assertEquals(capturedIntake().length, 0);
+});
+
+
+freshTest("the router is told today's date, so a day and month are read in this year", async () => {
+  await handler(textUpdate(7801, "sold 2 ABC at 150 on 24 Oct"));
+  assert(backend.routerPrompts[0]?.includes(`Today's date is ${dubaiToday()}`), backend.routerPrompts[0]);
+});
+
+freshTest("a reply to an earlier question of the same trade answers the question now asked", async () => {
+  tradeFixtures();
+  backend.route = { tool: "log_trade", args: { side: "buy", stock: "ABC" } };
+  await handler(textUpdate(7802, "bought ABC"));
+  const first = Number(askingRow()!.prompt_message_id);
+  await handler(replyUpdate(7803, "10", first));
+  assertEquals(lastReply(), "At what price per share, in dollars?");
+  backend.route = { tool: "log_expense", args: {} };
+  await handler(replyUpdate(7804, "120", first));
+  assertEquals(backend.rpcCalls.find((c) => c.fn === "preview_trade")?.args.p_price, 120);
+  assertEquals(capturedIntake().length, 0);
+});
+
+freshTest("an answer Telegram delivers again long after the question is still recognised", async () => {
+  tradeFixtures();
+  backend.route = { tool: "log_trade", args: { side: "buy", stock: "ABC" } };
+  await handler(textUpdate(7805, "bought ABC"));
+  await handler(textUpdate(7806, "10"));
+  const row = askingRow()!;
+  (row.payload as Row).asked_at = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  backend.log.get(7806)!.status = "failed";
+  backend.route = { tool: "log_expense", args: {} };
+  await handler(textUpdate(7806, "10"));
+  assertEquals(lastReply(), "At what price per share, in dollars?");
   assertEquals(capturedIntake().length, 0);
 });

@@ -2935,20 +2935,27 @@ real money, so the bot never saves one the member has not seen.
 - **One question at a time.** Whatever is missing (which of two lots, how
   many, the currency of a share not yet held, the price) is asked for in
   turn, the draft kept as an `asking` proposal no "yes" can apply. An answer
-  is a reply to the question, or the next message soon after it that reads as
-  one; anything else is a message of its own. A price in another currency is
-  asked again, never converted.
+  is a reply to any of the draft's questions, or the next message soon after
+  one that reads as an answer; anything else is a message of its own. A price
+  given or answered in another currency is asked again, never converted.
+- **Dates are read against today.** The router is told today's date, a day
+  and month with no year is this year, and a confirmation shows the year of
+  a trade dated in another one.
 - **A first buy starts a holding from an empty opening entry.** The holding
   gets its price-feed symbol (".NS" for an Indian share), class and the
-  owner's broker fund in its currency, all shown before the yes. It is valued
-  at the buy until the feed prices it. A second first buy of the same share
+  owner's broker fund in its currency, all shown before the yes. It is priced
+  at the buy, dated at the trade, until the feed prices it, so net worth
+  counts it the moment the fund pays for it. A second first buy of the same share
   confirmed later goes into that holding, not a second one.
 - **Undo is for the sender's last trade.** "undo last trade" proposes deleting
   the most recent trade the sender recorded, previewed the same way. Anything
   older is fixed in the app.
-- **A large move asks about a split.** A traded holding whose price moves by
-  more than 40% in a day gets a question to its owner, once for that price:
-  an unrecorded split would halve the value with the price.
+- **A large move asks about a split.** A traded holding whose value moves by
+  more than 40% between its last two price days, with no trade between them,
+  gets a question to its owner, once for that point: an unrecorded split
+  would halve the value with the price. The move is read from the holding's
+  own value history, not the feed's day change, which providers adjust for a
+  split.
 - **Not yet:** reading a broker's screenshot or statement, the Indian-sale
   tax follow-up and brokerage in the average per broker wait for the
   household's samples; transfers between a bank account and a fund in two

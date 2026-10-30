@@ -305,8 +305,8 @@ Forecast or Drawdown, which went (Planning audit, 3.15), opens the Life plan.
   share bought for the first time becomes a new holding with its price-feed
   symbol and fund shown. "undo last trade" undoes the sender's latest trade
   the same way, and "what did I make on ABC this year?" answers from the
-  recorded sales. A traded holding whose price moves by more than 40% in a day
-  gets a question about a split.
+  recorded sales. A traded holding whose value moves by more than 40% between
+  two price days with no trade between gets a question about a split.
 - Records transfers between the household's own accounts ("paid the card
   3000 from the current account"): it names both accounts and the amount and
   records the transfer on a "yes" or 👍. A side already recorded (the payment
