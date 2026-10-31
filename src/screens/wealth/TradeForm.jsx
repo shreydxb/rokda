@@ -25,7 +25,10 @@ function initialForm(holding, trade, funds) {
       units: String(Number(trade.units)),
       price: trade.price == null ? '' : String(Number(trade.price)),
       fees: text(trade.fees),
-      tax_withheld: text(trade.tax_withheld),
+      // A sale's tax reads blank only while it is still to confirm. Once it
+      // was confirmed, a 0 is a figure (a loss-making Indian sale withholds
+      // none), and a blank would mark the sale as awaiting its tax again.
+      tax_withheld: trade.kind === 'sell' && !trade.tax_to_confirm ? String(Number(trade.tax_withheld ?? 0)) : text(trade.tax_withheld),
       funds_account_id: trade.funds_account_id ?? funds[0]?.id ?? '',
     };
   }

@@ -2993,7 +2993,10 @@ the bot uses.
   of them stale, so the trade buttons are off until the holding is saved or
   its changes discarded. While a trade is being recorded or fixed, the
   holding's own Cancel and Save are hidden: under a trade's figures, "Save
-  changes" would read as saving the trade.
+  changes" would read as saving the trade. An open editor keeps the holding
+  as it was opened: the screen's own refreshes (every few minutes, and after
+  a refused save) leave it and whatever is typed in it alone, and only a
+  trade made in it opens it afresh on the new figures.
 - **The opening entry is fixed, not deleted.** Its units and average can be
   corrected; its date is where the history starts and stays. Undoing a
   holding's fresh start is not offered in the app.

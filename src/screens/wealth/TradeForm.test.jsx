@@ -275,6 +275,26 @@ describe('TradeForm: fixing a trade', () => {
     expect(calls.find((c) => c.name === 'fix_trade').args).toMatchObject({ p_trade_id: 't-open', p_trade_date: '2026-10-27', p_units: 12, p_funds_account_id: null, p_note: null });
   });
 
+  it('keeps a rupee sale\'s tax confirmed as none when fixing something else', async () => {
+    // A loss-making Indian sale has no tax withheld, and that was confirmed.
+    const rupeeSale = { ...SELL, id: 't-xyz', holding_id: 'h-xyz', price: 900, units: 1, fees: 20, realised: -120, tax_withheld: 0, tax_to_confirm: false, funds_account_id: 'f-inr' };
+    answers.preview_trade = { ...SALE_EFFECT, funds_account_id: 'f-inr', realised: -125 };
+    answers.fix_trade = { ok: true, trade_id: 't-xyz', trades_version: 3 };
+    renderScreen(<TradeForm holding={XYZ} trade={rupeeSale} trades={[rupeeSale]} accounts={ACCOUNTS} onCancel={vi.fn()} onSaved={vi.fn().mockResolvedValue(undefined)} />);
+    expect(screen.getByLabelText('Tax withheld (leave blank if not known yet)').value).toBe('0');
+    type('Brokerage (INR)', '25');
+    await check();
+    expect(screen.queryByText('Tax: to confirm from the broker\'s statement.')).toBeNull();
+    await save();
+    expect(calls.find((c) => c.name === 'fix_trade').args).toMatchObject({ p_tax_withheld: 0, p_tax_to_confirm: false });
+  });
+
+  it('leaves a rupee sale\'s tax blank while it is still to confirm', () => {
+    const waiting = { ...SELL, id: 't-xyz', holding_id: 'h-xyz', tax_withheld: 0, tax_to_confirm: true, funds_account_id: 'f-inr' };
+    renderScreen(<TradeForm holding={XYZ} trade={waiting} trades={[waiting]} accounts={ACCOUNTS} onCancel={vi.fn()} onSaved={vi.fn()} />);
+    expect(screen.getByLabelText('Tax withheld (leave blank if not known yet)').value).toBe('');
+  });
+
   it('names the sale a fix would oversell', async () => {
     answers.preview_trade = { ok: false, error: 'exceeds_units', entry_id: 't-sell' };
     fix(BUY);

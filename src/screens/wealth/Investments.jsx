@@ -44,6 +44,10 @@ export default function Investments({ household, members, me, data, loading, rel
   // the editor must show the holding as it is now, not as it was opened.
   const [editingId, setEditingId] = useState(null);
   const editing = editingId === 'new' ? 'new' : (holdings.find((h) => h.id === editingId) ?? null);
+  // Raised after a trade made in the editor has been re-read: the editor is
+  // then opened afresh on the holding's new figures. A refresh from anywhere
+  // else leaves an open editor, and whatever is typed in it, alone.
+  const [editorGeneration, setEditorGeneration] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState('');
   const [selectedIdx, setSelectedIdx] = useState(null);
@@ -454,9 +458,7 @@ export default function Investments({ household, members, me, data, loading, rel
 
       {editing && (
         <HoldingEditor
-          // A trade moves the holding's version: opening the editor afresh on
-          // the reloaded row shows its new units, average and trades.
-          key={editing === 'new' ? 'new' : `${editing.id}:${editing.trades_version ?? 0}`}
+          key={editing === 'new' ? 'new' : `${editing.id}:${editorGeneration}`}
           holding={editing === 'new' ? null : editing}
           householdId={household?.id}
           members={members}
@@ -468,7 +470,10 @@ export default function Investments({ household, members, me, data, loading, rel
             await reload();
           }}
           onStale={reload}
-          onTradesChanged={reload}
+          onTradesChanged={async () => {
+            await reload();
+            setEditorGeneration((g) => g + 1);
+          }}
         />
       )}
     </div>

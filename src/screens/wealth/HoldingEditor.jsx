@@ -34,7 +34,14 @@ function initialForm(holding) {
 
 const NO_TRADES = [];
 
-export default function HoldingEditor({ holding, householdId, members, trades = NO_TRADES, accounts = NO_TRADES, onClose, onSaved, onStale, onTradesChanged }) {
+export default function HoldingEditor({ holding: holdingAsOpened, householdId, members, trades = NO_TRADES, accounts = NO_TRADES, onClose, onSaved, onStale, onTradesChanged }) {
+  // The editor works from the holding as it was when opened. The screen
+  // re-reads its data every few minutes and after a refused save, and the row
+  // it hands over then may be newer (a trade from Telegram, a price): taking
+  // it would move figures under someone's edits, and judge a plain rename a
+  // new valuation. A save from an older version is refused by the database,
+  // and a trade made here opens the editor afresh (Investments).
+  const [holding] = useState(holdingAsOpened);
   const drawerRef = useDrawerFocus();
   const [form, setForm] = useState(() => initialForm(holding));
   // A valuation is only as of a date someone states. Editing a name must not
