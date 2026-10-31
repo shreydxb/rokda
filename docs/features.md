@@ -173,7 +173,13 @@ here, because this repository is public.
   holding's buys, sells and splits are kept as dated trades from its fresh
   start (`holding_trades`); its units and average price are worked out from
   them, and read-only in its editor once it has them. A trade moves the
-  broker's funds account and the holding's value together.
+  broker's funds account and the holding's value together. The editor lists
+  a traded holding's trades, newest first, with brokerage, tax and what each
+  sale made; "Record a trade" (buy, sell or split), "Fix" and "Delete" are
+  checked by the database first, and saved exactly as shown. A holding sold
+  down to nothing moves to a "Sold" fold with what its sales made, and
+  "Profit on sales this year" (in dirhams, a rupee sale at its own day's
+  rate) sits beside "Profit not yet taken" on what is still held.
 - **Statements**: one section per card (when it closes and is due), with the
   statements still to check first and the settled ones folded under
   "Checked". Each statement shows its period and status, then three figures

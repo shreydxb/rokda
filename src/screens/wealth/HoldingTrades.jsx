@@ -11,11 +11,17 @@ import './HoldingTrades.css';
 // where an older trade is fixed or deleted; Telegram is where most are
 // recorded. Every action waits while the holding itself has unsaved changes:
 // a trade reloads the holding, which would drop them (disabledReason).
-export default function HoldingTrades({ holding, trades, accounts, disabledReason, onChanged }) {
+export default function HoldingTrades({ holding, trades, accounts, disabledReason, onChanged, onFormOpen }) {
   const list = tradesOfHolding(trades, holding.id);
   const disabled = !!disabledReason;
   // Which trade the form is open for: 'new' to record one, a trade to fix it.
-  const [formFor, setFormFor] = useState(null);
+  const [formFor, setFormForState] = useState(null);
+  // The editor hides its own Save while a trade form is open: under a trade's
+  // preview, "Save changes" would read as saving the trade.
+  const setFormFor = (value) => {
+    setFormForState(value);
+    onFormOpen?.(value !== null);
+  };
   // The delete being asked about: the trade, the database's preview of
   // undoing it (or why it can't be), and whether it is being sent.
   const [deleting, setDeleting] = useState(null);

@@ -484,6 +484,18 @@ describe('a holding\'s trades', () => {
     cleanup();
   });
 
+  it('hides the holding\'s own Save while a trade is being recorded', () => {
+    open();
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Record a trade' }));
+    // Under a trade's preview, "Save changes" would read as saving the trade.
+    expect(screen.queryByRole('button', { name: 'Save changes' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Back to trades' }));
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeTruthy();
+    cleanup();
+  });
+
   it('keeps Delete on a holding with only its opening entry', () => {
     open(abc, [trades[0]]);
     expect(screen.getByRole('button', { name: 'Delete' })).toBeTruthy();

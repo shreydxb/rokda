@@ -118,6 +118,9 @@ export const data = {
     { id: H_GOLD, household_id: HH, owner_member_id: ME, is_shared: false, name: 'Gold', asset_class: 'commodity', sector: null, currency: 'AED', value_aed: 12000, last_refreshed: ts(dayThisMonth(13)), created_at: ts(monthsAgo(6)), updated_at: ts(dayThisMonth(13)), quantity: 50, avg_price: 220, current_price: 240, invested_value_aed: 11000, day_change_pct: -0.4, price_symbol: 'XAU', price_provider: 'stub', price_fetch_error: null, price_fetch_fail_count: 0, priced_at: ts(dayThisMonth(13)) },
   ],
 
+  // No trades unless a test brings its own (e2e/trades.spec.js).
+  holding_trades: [],
+
   holding_value_history: [
     { id: 'bbbbbbbb-0000-4000-8000-000000000001', holding_id: H_STOCK, as_of: monthsAgo(2), value_aed: 41000 },
     { id: 'bbbbbbbb-0000-4000-8000-000000000002', holding_id: H_STOCK, as_of: monthsAgo(1), value_aed: 43000 },
@@ -220,7 +223,9 @@ function sessionFor(aal, factors) {
  * never-used-it state, which is a real screen the app has to render and the
  * one most likely to have been written blind.
  */
-export async function stubSupabase(page, { empty = false, tables = {}, failReads = [], failWrites = [], aal = 'aal2', factors = [VERIFIED_FACTOR], onRest = () => {} } = {}) {
+// `rpc` answers a database function by name with the JSON given (the trade
+// previews and saves, say); any other function answers null, as before.
+export async function stubSupabase(page, { empty = false, tables = {}, failReads = [], failWrites = [], aal = 'aal2', factors = [VERIFIED_FACTOR], onRest = () => {}, rpc = {} } = {}) {
   // aal2 with an authenticator: a member who has passed the second step of
   // signing in. aal1 is a password-only session, which the app must not let
   // past its two-step screen (src/screens/TwoStep.jsx).
@@ -261,7 +266,7 @@ export async function stubSupabase(page, { empty = false, tables = {}, failReads
     const rest = url.pathname.split('/rest/v1/')[1] ?? '';
     const wantsObject = (request.headers()['accept'] ?? '').includes('vnd.pgrst.object+json');
 
-    if (rest.startsWith('rpc/')) return route.fulfill({ json: null });
+    if (rest.startsWith('rpc/')) return route.fulfill({ json: rpc[rest.slice(4).split('?')[0]] ?? null });
 
     // A failure the way PostgREST reports one: a status and a JSON error. The
     // app must say what it could not load or save, never show an empty list

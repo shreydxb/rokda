@@ -158,7 +158,7 @@ export default function TradeForm({ holding, trade = null, trades = [], accounts
       {!trade && (
         <div className="om-scope-list" role="group" aria-label="Kind of trade">
           {KINDS.map((k) => (
-            <button key={k} type="button" className="om-seg" data-active={kind === k} aria-pressed={kind === k} onClick={() => set('kind', k)}>
+            <button key={k} type="button" className="om-scope" data-active={kind === k} aria-pressed={kind === k} onClick={() => set('kind', k)}>
               {TRADE_KIND_LABELS[k]}
             </button>
           ))}
