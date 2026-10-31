@@ -3,6 +3,8 @@ import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
 import { ASSET_CLASS_LABELS, SECTOR_GROUPS, SECTOR_LABELS, costFromUnits, hasSector } from '../../lib/holdings';
 import { daysSincePriced, historyPointFor, isPendingValuation, nextPricedAt, todayISODate, valueFieldFor, valuationChanged } from '../../lib/valuation';
+import { hasBuysOrSales } from '../../lib/trades';
+import HoldingTrades from './HoldingTrades';
 import '../money/TransactionEditor.css';
 
 function initialForm(holding) {
@@ -30,7 +32,9 @@ function initialForm(holding) {
   };
 }
 
-export default function HoldingEditor({ holding, householdId, members, onClose, onSaved, onStale }) {
+const NO_TRADES = [];
+
+export default function HoldingEditor({ holding, householdId, members, trades = NO_TRADES, accounts = NO_TRADES, onClose, onSaved, onStale, onTradesChanged }) {
   const drawerRef = useDrawerFocus();
   const [form, setForm] = useState(() => initialForm(holding));
   // A valuation is only as of a date someone states. Editing a name must not
@@ -101,6 +105,9 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
   // Once a holding has its opening entry, its units and average price come
   // only from its trades (SHR-367).
   const traded = (holding?.trades_version ?? 0) > 0;
+  // The database refuses to delete a holding with buys or sales (their money
+  // moved through a fund); saying so beats offering a button that fails.
+  const deletable = holding && !hasBuysOrSales(trades, holding.id);
   const daysOld = holding ? daysSincePriced(holding) : null;
   const lastValuedLabel =
     daysOld === null ? 'No valuation confirmed yet.' : `Unchanged numbers keep the existing valuation date (${daysOld}d ago).`;
@@ -485,6 +492,16 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
             </div>
           </div>
 
+          {traded && (
+            <HoldingTrades
+              holding={holding}
+              trades={trades}
+              accounts={accounts}
+              disabledReason={dirty ? 'Save or discard your changes to the holding first.' : null}
+              onChanged={onTradesChanged}
+            />
+          )}
+
           {error && (
             <p className="ov-warn" role="alert" style={{ fontSize: 12.5 }}>
               {error}
@@ -493,10 +510,15 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
 
           <div className="te-sticky-actions">
             <div className="te-actions" style={{ borderTop: 'none', paddingTop: 0, marginTop: 0 }}>
-              {holding && (
+              {deletable && (
                 <button type="button" className="om-btn te-delete" onClick={handleDelete} disabled={saving}>
                   {confirmingDelete ? 'Confirm delete?' : 'Delete'}
                 </button>
+              )}
+              {holding && !deletable && (
+                <span className="ov-muted" style={{ fontSize: 11.5, maxWidth: 260 }}>
+                  A holding with buys or sales can&rsquo;t be deleted. Delete its trades first, or keep it: sold to zero, it moves to Sold.
+                </span>
               )}
               <div className="te-actions-right">
                 {confirmingClose ? (

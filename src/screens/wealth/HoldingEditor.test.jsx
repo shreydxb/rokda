@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, fireEvent, cleanup } from '@testing-library/react';
+import { screen, fireEvent, cleanup, within } from '@testing-library/react';
 import { act } from 'react';
 import { renderScreen } from '../../test/renderScreen';
 
@@ -334,3 +334,71 @@ describe('a traded holding', () => {
   });
 });
 
+
+// SHR-371: a traded holding's editor lists its trades, newest first, and is
+// where an older one is fixed or deleted.
+describe('a holding\'s trades', () => {
+  const abc = { id: 'h3', name: 'ABC', asset_class: 'us_equity', currency: 'USD', quantity: 9, avg_price: 110, value_aed: 3672.5, is_shared: true, priced_at: '2026-09-01T00:00:00Z', trades_version: 3 };
+  const t = (id, extra) => ({ id, holding_id: 'h3', kind: 'buy', trade_date: '2026-10-28', traded_at: null, created_at: '2026-10-28T10:00:00Z', units: 5, price: 130, fees: 0, tax_withheld: 0, tax_to_confirm: false, realised: null, ...extra });
+  const trades = [
+    t('t-open', { kind: 'opening', units: 10, price: 100, trade_date: '2026-10-27', created_at: '2026-10-31T09:00:00Z' }),
+    t('t-buy', {}),
+    t('t-sell', { kind: 'sell', units: 6, price: 150, fees: 1, realised: 239, trade_date: '2026-10-29' }),
+    t('t-other', { holding_id: 'h-other', trade_date: '2026-10-30' }),
+  ];
+  const open = (holding = abc, list = trades) =>
+    renderScreen(<HoldingEditor holding={holding} trades={list} accounts={[]} householdId="hh" members={[]} onClose={() => {}} onSaved={async () => {}} onTradesChanged={async () => {}} />);
+  const rows = () => within(screen.getByRole('list', { name: 'Trades' })).getAllByRole('listitem');
+
+  it('lists a traded holding\'s trades newest first, with brokerage, tax and profit', () => {
+    open();
+    const items = rows();
+    expect(items).toHaveLength(3);
+    expect(items[0].textContent).toContain('Sell 6 at USD 150.00');
+    expect(items[0].textContent).toContain('29 Oct 2026 · brokerage 1.00 · profit 239.00');
+    expect(items[1].textContent).toContain('Buy 5 at USD 130.00');
+    expect(items[2].textContent).toContain('Opening 10 at USD 100.00');
+    expect(screen.getByRole('button', { name: 'Record a trade' })).toBeTruthy();
+    cleanup();
+  });
+
+  it('shows no trades section for a holding without a trade history', () => {
+    open({ ...abc, trades_version: 0 }, []);
+    expect(screen.queryByRole('list', { name: 'Trades' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Record a trade' })).toBeNull();
+    cleanup();
+  });
+
+  it('offers no Delete on the opening entry', () => {
+    open();
+    const [sell, buy, opening] = rows();
+    expect(within(sell).getByRole('button', { name: 'Delete Sell 6 at USD 150.00' })).toBeTruthy();
+    expect(within(buy).getByRole('button', { name: 'Delete Buy 5 at USD 130.00' })).toBeTruthy();
+    expect(within(opening).getByRole('button', { name: 'Fix Opening 10 at USD 100.00' })).toBeTruthy();
+    expect(within(opening).queryByRole('button', { name: /^Delete/ })).toBeNull();
+    cleanup();
+  });
+
+  it('disables trade actions while the holding has unsaved changes', () => {
+    open();
+    expect(screen.getByRole('button', { name: 'Record a trade' }).disabled).toBe(false);
+    fireEvent.change(screen.getByPlaceholderText('e.g. VWRA'), { target: { value: 'ABC renamed' } });
+    expect(screen.getByRole('button', { name: 'Record a trade' }).disabled).toBe(true);
+    for (const button of screen.getAllByRole('button', { name: /^(Fix|Delete) / })) expect(button.disabled).toBe(true);
+    expect(screen.getByText('Save or discard your changes to the holding first.')).toBeTruthy();
+    cleanup();
+  });
+
+  it('replaces Delete with the reason on a holding with buys or sales', () => {
+    open();
+    expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
+    expect(screen.getByText('A holding with buys or sales can’t be deleted. Delete its trades first, or keep it: sold to zero, it moves to Sold.')).toBeTruthy();
+    cleanup();
+  });
+
+  it('keeps Delete on a holding with only its opening entry', () => {
+    open(abc, [trades[0]]);
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeTruthy();
+    cleanup();
+  });
+});

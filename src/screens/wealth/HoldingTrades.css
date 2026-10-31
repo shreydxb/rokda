@@ -1,0 +1,36 @@
+/* A holding's trades inside its editor (SHR-371): one two-line row per trade,
+   what it was over when and what it made, with its actions beside it. The
+   rows keep two lines at every width, so a phone needs no other layout. */
+.ht-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ht-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.ht-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.ht-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--rule);
+}
+.ht-row .mn-row-main > div:last-child {
+  font-size: 12px;
+  margin-top: 2px;
+}
+.ht-actions {
+  display: flex;
+  gap: 6px;
+  flex: none;
+}

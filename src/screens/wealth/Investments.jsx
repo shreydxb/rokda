@@ -40,7 +40,10 @@ export default function Investments({ household, members, me, data, loading, rel
 
   const [group, setGroup] = useState('All');
   const [range, setRange] = useState('3M');
-  const [editing, setEditing] = useState(null);
+  // The id being edited, not the row: after a trade the screen reloads, and
+  // the editor must show the holding as it is now, not as it was opened.
+  const [editingId, setEditingId] = useState(null);
+  const editing = editingId === 'new' ? 'new' : (holdings.find((h) => h.id === editingId) ?? null);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState('');
   const [selectedIdx, setSelectedIdx] = useState(null);
@@ -146,7 +149,7 @@ export default function Investments({ household, members, me, data, loading, rel
           <button type="button" className="om-btn" onClick={handleRefresh} disabled={refreshing}>
             {refreshing ? 'Refreshing prices…' : 'Refresh prices'}
           </button>
-          <button type="button" className="om-btn mn-add" onClick={() => setEditing('new')}>
+          <button type="button" className="om-btn mn-add" onClick={() => setEditingId('new')}>
             + Holding
           </button>
         </div>
@@ -382,7 +385,7 @@ export default function Investments({ household, members, me, data, loading, rel
                     const value = scopedHoldingValue(h, scopeMemberId);
                     const pctOfTotal = totalValue > 0 ? value / totalValue : null;
                     return (
-                      <tr key={h.id} className="wl-holdrow" onClick={() => setEditing(h)}>
+                      <tr key={h.id} className="wl-holdrow" onClick={() => setEditingId(h.id)}>
                         <td>
                           <div>{h.name}</div>
                           <div className="ov-muted">{ASSET_CLASS_LABELS[h.asset_class]}</div>
@@ -442,7 +445,7 @@ export default function Investments({ household, members, me, data, loading, rel
           {showSold && (
             <div className="mn-list" style={{ marginTop: 10 }}>
               {sold.map((h) => (
-                <SoldRow key={h.id} holding={h} trades={holdingTrades} members={members} money={money} scopeMemberId={scopeMemberId} fx={fx} onOpen={() => setEditing(h)} />
+                <SoldRow key={h.id} holding={h} trades={holdingTrades} members={members} money={money} scopeMemberId={scopeMemberId} fx={fx} onOpen={() => setEditingId(h.id)} />
               ))}
             </div>
           )}
@@ -451,15 +454,21 @@ export default function Investments({ household, members, me, data, loading, rel
 
       {editing && (
         <HoldingEditor
+          // A trade moves the holding's version: opening the editor afresh on
+          // the reloaded row shows its new units, average and trades.
+          key={editing === 'new' ? 'new' : `${editing.id}:${editing.trades_version ?? 0}`}
           holding={editing === 'new' ? null : editing}
           householdId={household?.id}
           members={members}
-          onClose={() => setEditing(null)}
+          trades={holdingTrades}
+          accounts={data.accounts ?? NONE}
+          onClose={() => setEditingId(null)}
           onSaved={async () => {
-            setEditing(null);
+            setEditingId(null);
             await reload();
           }}
           onStale={reload}
+          onTradesChanged={reload}
         />
       )}
     </div>

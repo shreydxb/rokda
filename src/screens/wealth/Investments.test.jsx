@@ -3,6 +3,8 @@ import { screen, fireEvent } from '@testing-library/dom';
 import { act } from 'react';
 import { renderScreen } from '../../test/renderScreen';
 import { householdToday } from '../../lib/day';
+import { ScopeProvider } from '../../lib/ScopeContext';
+import { CurrencyProvider } from '../../lib/CurrencyContext';
 
 // Any write at all would be a defect here, so the mock records every call.
 const writes = [];
@@ -256,5 +258,27 @@ describe('Investments: sold-out holdings and profit on sales', () => {
     render([SOLD], [sale('t1', SOLD, `${YEAR}-01-15`, 100)]);
     expect(screen.getByText('No holdings')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Sold (1)' })).toBeTruthy();
+  });
+});
+
+describe('Investments: the holding editor after a trade', () => {
+  // A trade moves the holding's units and version. The editor stays open on
+  // the holding as reloaded, so its figures and trades are the new ones.
+  it('keeps the editor open on the reloaded holding after its trades change', () => {
+    const abc = { ...PRICED_HOLDING, id: 'h7', name: 'ABC', quantity: 9, avg_price: 110, trades_version: 3 };
+    const screenFor = (holding) => (
+      <Investments household={{ id: 'h' }} members={MEMBERS} me={MEMBERS[0]} loading={false} data={{ holdings: [holding], holdingHistory: [], holdingTrades: [], accounts: [], reload: vi.fn() }} />
+    );
+    const { rerender } = renderScreen(screenFor(abc));
+    fireEvent.click(document.querySelector('.wl-holdrow'));
+    expect(screen.getByLabelText('Units').value).toBe('9');
+    // The same tree renderScreen built, so the screen keeps its state.
+    rerender(
+      <ScopeProvider>
+        <CurrencyProvider>{screenFor({ ...abc, quantity: 6, trades_version: 4 })}</CurrencyProvider>
+      </ScopeProvider>,
+    );
+    expect(screen.getByRole('dialog', { name: 'Edit holding' })).toBeTruthy();
+    expect(screen.getByLabelText('Units').value).toBe('6');
   });
 });
