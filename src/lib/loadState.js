@@ -15,6 +15,7 @@ export const SOURCE_LABELS = {
   netWorthSnapshots: 'net-worth history',
   holdings: 'investments',
   holdingHistory: 'holding history',
+  holdingTrades: 'trades',
   categoryRules: 'category rules',
   goals: 'goals',
   goalContributions: 'goal contributions',
