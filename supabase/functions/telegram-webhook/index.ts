@@ -55,6 +55,24 @@ import { incompleteNote, netWorthSummary } from "../_shared/applib/overviewMath.
 import { merchantMatches, pickCategory } from "../_shared/applib/merchants.js";
 import { closedStatementDates, isoDay, statementDueDate, statementPeriodStart } from "../_shared/applib/statements.js";
 import {
+  ANSWER_HINT,
+  applyAnswer,
+  draftFromArgs,
+  type HoldingLite,
+  matchHoldings,
+  newHoldingFor,
+  nextQuestion,
+  normaliseSymbol,
+  type TradeDraft,
+  type TradePayload,
+  tradeConfirmation,
+  tradeDropSummary,
+  splitQuestion,
+  tradeRefusal,
+  tradeSavedMessage,
+  undoConfirmation,
+} from "./trades.ts";
+import {
   statementAlreadySettledMessage,
   statementAnswer,
   statementDoneMessage,
@@ -72,6 +90,7 @@ import { lastDueOccurrence, matchWindowDays, upcomingItems } from "../_shared/ap
 import { isPosted, parseDay, atDayOfMonth, startOfDay, householdDay, householdToday, householdYearMonth } from "../_shared/applib/day.js";
 import { isSpendRow, spendDelta } from "../_shared/applib/transactionKind.js";
 import { visibleHoldings, scopedHoldingValue, holdingGain, allocationByClass, portfolioValueChange } from "../_shared/applib/holdings.js";
+import { estimateAed } from "../_shared/applib/fxHistory.js";
 import { isAwaitingFirstValuation } from "../_shared/applib/valuation.js";
 import { cashCoverStatus, formatCashCoverLine } from "../_shared/applib/cashCover.js";
 import { notableMoves } from "../_shared/applib/insights.js";
@@ -572,6 +591,7 @@ const QUESTION_TOOLS = new Set([
   "get_upcoming_bills",
   "get_budget_status",
   "get_holdings",
+  "get_trade_profit",
   "log_goal_contribution",
   "log_transfer",
   "update_account_balances",
@@ -959,7 +979,7 @@ async function confirmPendingIntake(chatId: number, householdId: string, recentP
 // when that prompt was sent -- so this route resolves to one specific entry
 // rather than to whichever is newest. Requires the bot's webhook to be
 // registered for "message_reaction" updates (see the ?setup=1 handler).
-async function handleReaction(reaction: Record<string, unknown>): Promise<Response> {
+async function handleReaction(reaction: Record<string, unknown>, updateId: unknown = null): Promise<Response> {
   const chat = reaction.chat as Record<string, unknown> | undefined;
   const user = reaction.user as Record<string, unknown> | undefined;
   const chatId = chat?.id as number | undefined;
@@ -1009,7 +1029,9 @@ async function handleReaction(reaction: Record<string, unknown>): Promise<Respon
       if (proposal.row.status === "proposed" && autopayDecision) await decideAutopay(chatId, member.id, proposal.row, autopayDecision);
       return new Response("ok");
     }
-    if (proposal.row.status === "proposed" && thumbsUp) await decideProposal(chatId, member.id, proposal.row, "apply");
+    if (proposal.row.status === "proposed" && thumbsUp) {
+      await decideProposal(chatId, member.id, proposal.row, "apply", { householdId: member.household_id, updateId });
+    }
     return new Response("ok");
   }
   if (!thumbsUp) return new Response("ok");
@@ -1076,6 +1098,9 @@ async function proposalForPrompt(
     .eq("member_id", memberId)
     .eq("chat_id", chatId)
     .eq("prompt_message_id", messageId)
+    // A trade still being asked about has a question, not a confirmation:
+    // its answers are read by answerTradeQuestion, and no "yes" applies it.
+    .neq("status", "asking")
     .maybeSingle();
   if (error) return { kind: PROMPT_FAILED, row: null };
   if (data) return { kind: PROMPT_FOUND, row: data as ProposalRow };
@@ -1161,7 +1186,7 @@ async function sendProposal(
   chatId: number,
   householdId: string,
   memberId: string,
-  kind: "account_balances" | "goal_contribution" | "transfer",
+  kind: "account_balances" | "goal_contribution" | "transfer" | "trade" | "trade_undo",
   payload: Record<string, unknown>,
   prompt: string,
   updateId: unknown,
@@ -1232,7 +1257,6 @@ async function discardUnaskedProposal(id: string): Promise<void> {
   await supabase.from("bot_proposals").delete().eq("id", id).eq("status", "proposed").is("prompt_message_id", null);
 }
 
-const ANSWER_HINT = 'Reply "yes" to this message (or react 👍) to save it, or "no" to drop it.';
 
 type ProposalItem = { name?: string; type?: string; currency?: string | null; old_balance?: number | string | null; new_balance?: number | string | null; balance?: number | string | null; reason?: string; amount?: number | string; occurred_at?: string; already_recorded?: boolean };
 type ProposalResult = { kind?: string; applied?: ProposalItem[]; skipped?: ProposalItem[] };
@@ -1303,6 +1327,7 @@ export function proposalOutcomeMessage(data: Record<string, unknown>): string {
 // a bare "no" must say what it dropped.
 export function proposalSummary(row: { kind: string; payload: Record<string, unknown> }): string {
   const payload = row.payload ?? {};
+  if (row.kind === "trade" || row.kind === "trade_undo") return tradeDropSummary(payload as TradePayload, row.kind);
   if (row.kind === "autopay_payment") {
     return `${String(payload.name ?? "the bill")} (AED ${Number(payload.amount ?? 0).toFixed(2)})`;
   }
@@ -1322,12 +1347,27 @@ export function proposalSummary(row: { kind: string; payload: Record<string, unk
 // saved figures again when it was applied.
 function decidedProposalMessage(row: ProposalRow): string {
   if (row.kind === "autopay_payment" && row.status !== "applied") return autopayClosedMessage(row);
+  if (row.kind === "trade" || row.kind === "trade_undo") {
+    if (row.status === "applied") {
+      const effect = ((row.result ?? {}) as { effect?: Record<string, unknown> }).effect ?? {};
+      return tradeSavedMessage(row.payload as TradePayload, effect, { repeat: true, undo: row.kind === "trade_undo" });
+    }
+    if (row.status === "cancelled") return `You dropped ${proposalSummary(row)}, so nothing was saved.`;
+    return "That one was not saved: the holding changed or it lapsed. Send the trade again if it still holds.";
+  }
   if (row.status === "applied") return row.result ? proposalOutcomeMessage({ outcome: "applied", result: row.result }) : "That one is already saved.";
   if (row.status === "cancelled") return `You dropped ${proposalSummary(row)}, so nothing was changed.`;
   return "That one has lapsed, so nothing was changed. Send it again if it still holds.";
 }
 
-async function decideProposal(chatId: number, memberId: string, proposal: ProposalRow, decision: "apply" | "cancel"): Promise<void> {
+async function decideProposal(
+  chatId: number,
+  memberId: string,
+  proposal: ProposalRow,
+  decision: "apply" | "cancel",
+  again: { householdId: string; updateId: unknown } | null = null,
+): Promise<void> {
+  const trade = proposal.kind === "trade" || proposal.kind === "trade_undo";
   if (decision === "cancel") {
     const { data, error } = await supabase
       .from("bot_proposals")
@@ -1341,7 +1381,7 @@ async function decideProposal(chatId: number, memberId: string, proposal: Propos
       return;
     }
     if (data?.length) {
-      await reply(chatId, `Dropped ${proposalSummary(proposal)}. Nothing was changed.`);
+      await reply(chatId, `Dropped ${proposalSummary(proposal)}. Nothing was ${trade ? "saved" : "changed"}.`);
       return;
     }
     // Decided in between, by a "yes" a moment earlier or by lapsing.
@@ -1361,7 +1401,55 @@ async function decideProposal(chatId: number, memberId: string, proposal: Propos
     await reply(chatId, 'I couldn\'t confirm that just now. Reply "yes" to my message again in a moment; it will only be saved once.');
     return;
   }
+  if (trade) {
+    await tradeDecided(chatId, memberId, proposal, data as Record<string, unknown>, again);
+    return;
+  }
   await reply(chatId, proposalOutcomeMessage(data as Record<string, unknown>));
+}
+
+// What a "yes" to a trade did. Saved: what was saved, from what the database
+// returned. The holding changed since the member was shown it (stale), or
+// the confirmation lapsed: nothing was saved, and the trade is previewed and
+// confirmed again with today's figures, never applied with the old ones.
+// Refused: why, in the same words as a refused preview.
+async function tradeDecided(
+  chatId: number,
+  memberId: string,
+  proposal: ProposalRow,
+  data: Record<string, unknown>,
+  again: { householdId: string; updateId: unknown } | null,
+): Promise<void> {
+  const payload = proposal.payload as TradePayload & { draft?: TradeDraft };
+  const outcome = String(data.outcome ?? "");
+  const undo = proposal.kind === "trade_undo";
+  const name = payload.holding_name ?? "That holding";
+  if (outcome === "applied") {
+    const result = (data.result ?? data) as { effect?: Record<string, unknown> };
+    await reply(chatId, tradeSavedMessage(payload, result.effect ?? {}, { repeat: data.result != null, undo }));
+    return;
+  }
+  if (outcome === "refused") {
+    await reply(chatId, tradeRefusal(String(data.error ?? ""), { holdingName: name, units: Number(payload.units) || undefined }));
+    return;
+  }
+  if (outcome === "stale" || outcome === "expired") {
+    const lead = outcome === "stale"
+      ? `${name} changed since I asked, so nothing was ${undo ? "undone" : "saved"}.`
+      : `That confirmation lapsed, so nothing was ${undo ? "undone" : "saved"}.`;
+    if (!undo && payload.draft && again) {
+      await reply(chatId, `${lead} Here it is again with today's figures:`);
+      await proposeTrade(chatId, { id: memberId, household_id: again.householdId }, payload.draft, again.updateId);
+      return;
+    }
+    await reply(chatId, `${lead} Send it again if it still holds.`);
+    return;
+  }
+  if (outcome === "cancelled") {
+    await reply(chatId, `You dropped ${proposalSummary(proposal)}, so nothing was saved.`);
+    return;
+  }
+  await reply(chatId, proposalOutcomeMessage(data));
 }
 
 // An autopay question that can no longer be answered: someone else confirmed
@@ -1547,6 +1635,23 @@ const TOOLS_BASE = [
   {
     type: "function",
     function: {
+      name: "get_trade_profit",
+      description:
+        "What a share, or every share, made from SALES in a year, from the recorded trades: realised profit, tax withheld and the number of sales (e.g. 'what did I make on ABC this year?', 'profit from selling shares in 2025'). Not the gain on shares still held: that is get_holdings.",
+      parameters: {
+        type: "object",
+        properties: {
+          stock: { type: "string", description: "The share's name or symbol, if one was named. Omit for every share." },
+          year: { type: "number", description: "The calendar year asked about; omit for this year." },
+          scope: { type: "string", enum: SCOPE_ENUM },
+        },
+        required: ["scope"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "log_goal_contribution",
       description:
         "The message reports money being put toward a savings or debt-payoff GOAL specifically (e.g. 'put 500 toward emergency fund', 'added 1000 to the house downpayment goal', 'paid 300 extra on the car loan goal'). This is a goal-tracking entry only -- it never touches any account balance or the ledger, so never also call log_expense for the same message. If the message is just an ordinary purchase or bill with no named goal, use log_expense instead.",
@@ -1578,6 +1683,40 @@ const TOOLS_BASE = [
         },
         required: ["amount"],
       },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "log_trade",
+      description:
+        "The message reports buying or selling a share, fund or ETF, or a split or bonus of one (e.g. 'bought 10 ABC at 120.5', 'sold 2 ABC at 150 on 24 Oct, brokerage 1', 'Partner bought 3 XYZ at 600', 'ABC split 10 for 1'). A share bought is not spending, so never call log_expense for it. Give only what the message says; anything missing is asked for afterwards.",
+      parameters: {
+        type: "object",
+        properties: {
+          side: { type: "string", enum: ["buy", "sell", "split"], description: "buy, sell, or split (a bonus issue is a split)." },
+          stock: { type: "string", description: "The share's symbol or name as written, e.g. 'ABC' or 'abc.ns'." },
+          units: { type: "number", description: "How many shares. Omit if not stated." },
+          price: { type: "number", description: "The price per share, as stated. Omit if not stated." },
+          currency: { type: "string", enum: ["USD", "INR", "AED"], description: "The price's currency, only if the message states it ('$', 'rs', 'AED'). Omit otherwise." },
+          trade_date: { type: "string", description: "YYYY-MM-DD if a date is stated; a day and month with no year is in the current year. Omit for today." },
+          traded_at: { type: "string", description: "ISO time of the trade if stated; omit otherwise." },
+          brokerage: { type: "number", description: "Brokerage or fees, if stated." },
+          tax: { type: "number", description: "Tax deducted on a sale, if stated." },
+          member: { type: "string", description: "The household member whose trade it is, when the message names someone else ('Partner bought ...'); omit for the sender's own." },
+          ratio: { type: "number", description: "For a split or bonus: new shares per old share, e.g. 10 for '10 for 1', 2 for a 1:1 bonus." },
+        },
+        required: ["side", "stock"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "undo_last_trade",
+      description:
+        "The member asks to undo, cancel or delete the last share trade they recorded (e.g. 'undo last trade', 'cancel that trade'). Proposes undoing it; nothing changes until they confirm.",
+      parameters: { type: "object", properties: {}, additionalProperties: false },
     },
   },
   {
@@ -1885,6 +2024,68 @@ async function toolGetBudgetStatus(householdId: string, scopeMemberId: string | 
 // a portfolio-level view instead: total value, allocation by asset class,
 // and an invested-value-based gain (only over holdings that actually have a
 // real invested figure -- see holdingGain, never a guessed cost basis).
+// What a share, or every share, made from sales in a year: each sale's
+// profit as the replay recorded it, the tax withheld, and its value in
+// dirhams at the sale's own day's rate (a dollar at the peg). Every read is
+// paged, so a failed or partial read is never summed: it throws, and the
+// question is answered as unavailable.
+async function toolGetTradeProfit(householdId: string, scopeMemberId: string | null, args: Record<string, unknown>) {
+  const year = Number.isInteger(Number(args.year)) && Number(args.year) > 1900 ? Number(args.year) : householdYearMonth(householdDay()).year;
+  const holdings = visibleHoldings(await householdRows("holdings", householdId) as never, scopeMemberId) as Array<{
+    id: string;
+    name: string;
+    currency: string;
+    price_symbol: string | null;
+  }>;
+  const stock = typeof args.stock === "string" ? args.stock.trim() : "";
+  let chosen = holdings;
+  if (stock) {
+    const wanted = normaliseSymbol(stock);
+    chosen = holdings.filter((h) =>
+      (h.price_symbol !== null && normaliseSymbol(h.price_symbol) === wanted) ||
+      h.name.trim().toLowerCase() === stock.toLowerCase() ||
+      normaliseSymbol(h.name) === wanted
+    );
+    if (!chosen.length) return { error: "holding_not_found", available: holdings.map((h) => h.name) };
+  }
+  const ids = chosen.map((h) => h.id);
+  const sales = ids.length
+    ? await allRowsOf<{ holding_id: string; trade_date: string; realised: number | null; tax_withheld: number | null }>("holding_trades", () =>
+      supabase.from("holding_trades").select("id, holding_id, trade_date, realised, tax_withheld")
+        .eq("household_id", householdId).eq("kind", "sell").in("holding_id", ids)
+        .gte("trade_date", `${year}-01-01`).lt("trade_date", `${year + 1}-01-01`).order("id")
+    )
+    : [];
+  const rupees = chosen.some((h) => h.currency === "INR");
+  const history = rupees
+    ? await allRowsOf("fx_rate_history", () =>
+      supabase.from("fx_rate_history").select("base, quote, day, rate").eq("base", "AED").eq("quote", "INR")
+        .lte("day", `${year}-12-31`).order("day")
+    )
+    : [];
+  const household = rupees ? await rowOf<{ inr_per_aed: number | null }>("households", supabase.from("households").select("inr_per_aed").eq("id", householdId).maybeSingle()) : null;
+
+  const rows = chosen.map((h) => {
+    const own = sales.filter((t) => t.holding_id === h.id);
+    // Unknown, not guessed, when a sale has no rate to value it at.
+    let profitAed: number | null = 0;
+    for (const t of own) {
+      const value = estimateAed(Number(t.realised ?? 0), h.currency, t.trade_date, history as never, (household?.inr_per_aed ?? null) as never);
+      profitAed = value && profitAed !== null ? round2(profitAed + value.aed) : null;
+    }
+    return {
+      name: h.name,
+      currency: h.currency,
+      profit: round2(own.reduce((sum, t) => sum + Number(t.realised ?? 0), 0)),
+      tax_withheld: round2(own.reduce((sum, t) => sum + Number(t.tax_withheld ?? 0), 0)),
+      sales: own.length,
+      profit_aed: profitAed,
+    };
+  }).filter((r) => stock || r.sales > 0);
+  const totalAed = rows.every((r) => r.profit_aed !== null) ? round2(rows.reduce((sum, r) => sum + (r.profit_aed ?? 0), 0)) : null;
+  return { year, holdings: rows, total_aed: totalAed };
+}
+
 async function toolGetHoldings(householdId: string, scopeMemberId: string | null, args: Record<string, unknown>) {
   const holdings = await householdRows("holdings", householdId);
   const visible = visibleHoldings(holdings as never, scopeMemberId) as Array<{
@@ -2054,6 +2255,462 @@ export function transferPrompt(draft: { from: { name: string }; to: { name: stri
 }
 
 // ---------------------------------------------------------------------------
+// Share trades (SHR-370; docs/decisions.md, "The bot records trades"). The
+// router reads a trade message (log_trade); trades.ts matches it to the
+// member's holding and asks for anything missing; the database previews it;
+// and it is proposed with the preview's own figures. Nothing is saved until
+// the sender says yes.
+// ---------------------------------------------------------------------------
+
+const TRADE_HOLDING_COLUMNS =
+  "id, name, currency, asset_class, price_symbol, price_provider, owner_member_id, funds_account_id, trades_version, quantity, current_price";
+
+// Every holding in the household, as the trade helpers match them. Read in
+// pages, so a failed or partial read is never matched against.
+async function tradeHoldings(householdId: string): Promise<HoldingLite[]> {
+  const rows = await allRowsOf<HoldingLite>("holdings", () =>
+    supabase.from("holdings").select(TRADE_HOLDING_COLUMNS).eq("household_id", householdId).order("id")
+  );
+  return rows.map((h) => ({
+    ...h,
+    trades_version: Number(h.trades_version ?? 0),
+    quantity: h.quantity === null || h.quantity === undefined ? null : Number(h.quantity),
+    current_price: h.current_price === null || h.current_price === undefined ? null : Number(h.current_price),
+  }));
+}
+
+async function householdMembers(householdId: string): Promise<Array<{ id: string; display_name: string }>> {
+  return await allRowsOf("household_members", () =>
+    supabase.from("household_members").select("id, display_name").eq("household_id", householdId).order("id")
+  );
+}
+
+const TRADE_READ_FAILED = "I couldn't read your holdings just now, so nothing was saved. Please send it again in a minute.";
+
+// Why a trade message could not even be drafted.
+function tradeDraftError(error: string, args: Record<string, unknown>): string {
+  switch (error) {
+    case "future_date":
+      return "That date hasn't happened yet, so nothing was saved. Send it again with the day of the trade.";
+    case "unknown_member":
+      return `I don't know a member called ${String(args.member ?? "").trim()}, so nothing was saved.`;
+    case "no_side":
+      return "Was that a buy, a sale or a split? Nothing was saved; send it again saying which.";
+    default:
+      return "Which share was that? Nothing was saved; send it again with its name or symbol.";
+  }
+}
+
+// A trade message: drafted from the router's arguments, matched to the
+// owner's holding, and then asked about (the first thing missing) or
+// previewed and proposed. A sale or split of a share not held stops here.
+async function handleTradeMessage(
+  chatId: number,
+  member: { id: string; household_id: string },
+  args: Record<string, unknown>,
+  updateId: unknown,
+): Promise<void> {
+  let members: Array<{ id: string; display_name: string }>;
+  let holdings: HoldingLite[];
+  try {
+    members = await householdMembers(member.household_id);
+    holdings = await tradeHoldings(member.household_id);
+  } catch (err) {
+    if (!(err instanceof ReadFailed)) throw err;
+    await reply(chatId, TRADE_READ_FAILED);
+    return;
+  }
+  const draft = draftFromArgs(args, { senderId: member.id, members, today: householdToday() });
+  if ("error" in draft) {
+    await reply(chatId, tradeDraftError(draft.error, args));
+    return;
+  }
+  const matches = matchHoldings(holdings, draft.ownerMemberId, draft.stock);
+  if (matches.length === 1) draft.holdingId = matches[0].id;
+  else if (matches.length > 1) draft.candidates = matches.map((h) => h.id);
+  else if (draft.side !== "buy") {
+    await reply(chatId, tradeRefusal("not_held", { holdingName: normaliseSymbol(draft.stock) || draft.stock }));
+    return;
+  }
+  const question = nextQuestion(draft, holdings);
+  if (question) {
+    await askTradeQuestion(chatId, member, draft, question, updateId);
+    return;
+  }
+  await proposeTrade(chatId, member, draft, updateId);
+}
+
+// "undo last trade": proposes deleting the sender's most recent trade (not a
+// fresh start's opening entry), previewed by the database: the holding and
+// the fund as they would be after it. Anything older is fixed in the app.
+async function handleUndoTrade(chatId: number, member: { id: string; household_id: string }, updateId: unknown): Promise<void> {
+  const { data: trades, error } = await supabase.from("holding_trades")
+    .select("id, holding_id, kind, units, price, trade_date, funds_account_id, created_at")
+    .eq("household_id", member.household_id).eq("created_by", member.id).neq("kind", "opening")
+    .order("created_at", { ascending: false }).limit(1);
+  if (error) {
+    await reply(chatId, TRADE_READ_FAILED);
+    return;
+  }
+  const trade = (trades ?? [])[0] as
+    | { id: string; holding_id: string; kind: string; units: number; price: number | null; trade_date: string; funds_account_id: string | null }
+    | undefined;
+  if (!trade) {
+    await reply(chatId, "You have no trades to undo.");
+    return;
+  }
+  let holdings: HoldingLite[];
+  let funds: Array<{ id: string; name: string }>;
+  try {
+    holdings = await tradeHoldings(member.household_id);
+    funds = await allRowsOf("accounts", () =>
+      supabase.from("accounts").select("id, name").eq("household_id", member.household_id).eq("type", "broker_funds").order("id")
+    );
+  } catch (err) {
+    if (!(err instanceof ReadFailed)) throw err;
+    await reply(chatId, TRADE_READ_FAILED);
+    return;
+  }
+  const holding = holdings.find((h) => h.id === trade.holding_id);
+  const name = holding?.name ?? "that holding";
+  const { data: effect, error: previewError } = await supabase.rpc("preview_delete_trade", { p_trade_id: trade.id, p_member_id: member.id });
+  if (previewError || !effect) {
+    await reply(chatId, "I couldn't check that undo just now, so nothing was undone. Please ask again in a minute.");
+    return;
+  }
+  if (!effect.ok) {
+    // Undoing a buy a later sale depended on would leave that sale selling
+    // more than was held.
+    await reply(chatId, effect.error === "exceeds_units"
+      ? `Undoing that would leave a later sale of ${name} selling more than was held, so nothing was undone. Fix it in the app.`
+      : tradeRefusal(String(effect.error), { holdingName: name }).replace("nothing was saved", "nothing was undone"));
+    return;
+  }
+  const fundName = trade.funds_account_id ? funds.find((f) => f.id === trade.funds_account_id)?.name ?? null : null;
+  const currency = holding?.currency ?? "USD";
+  const undone = {
+    kind: trade.kind,
+    units: Number(trade.units),
+    price: trade.price === null ? null : Number(trade.price),
+    trade_date: trade.trade_date,
+    currency,
+    holding_name: name,
+  };
+  await sendProposal(
+    chatId,
+    member.household_id,
+    member.id,
+    "trade_undo",
+    { trade_id: trade.id, expected_version: holding?.trades_version ?? null, ...undone, fund_name: fundName },
+    undoConfirmation(undone, effect, fundName),
+    updateId,
+  );
+}
+
+// What to say when a reply to a trade question does not answer it.
+const NOT_AN_ANSWER: Record<string, string> = {
+  units: "I need a number, like 10 or 2.5.",
+  price: "I need a price per share, like 150 or 150.5.",
+  holding: "Reply with the holding's number from the list.",
+  currency: "Reply dollars or rupees.",
+};
+
+// Asks the one thing a trade is missing, keeping the trade as the member's
+// 'asking' row until it is answered. A new trade message replaces a draft
+// still asking: one trade is asked about at a time. The question's message id
+// is recorded, so a reply to it names the draft.
+async function askTradeQuestion(
+  chatId: number,
+  member: { id: string; household_id: string },
+  draft: TradeDraft,
+  question: { field: string; text: string },
+  updateId: unknown,
+  askingId: string | null = null,
+  askedBefore: number[] = [],
+): Promise<void> {
+  const payload = { draft: { ...draft, awaiting: question.field }, asked_at: new Date().toISOString(), asked_message_ids: askedBefore };
+  let id = askingId;
+  if (id) {
+    const updated = await supabase.from("bot_proposals").update({ payload }).eq("id", id).eq("status", "asking").select("id");
+    if (updated.error) throw new Error(`updating a trade question failed (${updated.error.code ?? "no code"})`);
+  } else {
+    const dropped = await supabase.from("bot_proposals").delete()
+      .eq("household_id", member.household_id).eq("member_id", member.id).eq("status", "asking");
+    if (dropped.error) throw new Error(`replacing a trade question failed (${dropped.error.code ?? "no code"})`);
+    const inserted = await supabase.from("bot_proposals").insert({
+      household_id: member.household_id,
+      member_id: member.id,
+      kind: "trade",
+      status: "asking",
+      payload,
+      chat_id: chatId,
+      source_ref: typeof updateId === "number" ? String(updateId) : null,
+    }).select("id").single();
+    if (inserted.error || !inserted.data) throw new Error(`saving a trade question failed (${inserted.error?.code ?? "no row"})`);
+    id = (inserted.data as { id: string }).id;
+  }
+  // Every question of the draft is kept, so a reply to an earlier one still
+  // reaches it once the next has been asked.
+  const messageId = await reply(chatId, question.text);
+  if (messageId != null) {
+    await supabase.from("bot_proposals")
+      .update({ prompt_message_id: messageId, payload: { ...payload, asked_message_ids: [...askedBefore, messageId] } })
+      .eq("id", id);
+  }
+}
+
+// Reads a message as the answer to the member's trade question, if it is one:
+// a reply to the question, or their next message soon after it that reads as
+// an answer. True when the message was taken as the answer (or a reply to the
+// question that did not answer it, which is told what is needed). Anything
+// else is left to be handled as a message of its own, and the draft waits.
+async function answerTradeQuestion(
+  chatId: number,
+  member: { id: string; household_id: string },
+  text: string,
+  repliedTo: number | null,
+  updateId: unknown,
+): Promise<boolean> {
+  // Telegram delivering again an answer that already completed a trade: the
+  // proposal it made is this update's, and it is not proposed twice, nor
+  // taken for a message of its own.
+  if (typeof updateId === "number") {
+    const made = await supabase.from("bot_proposals").select("id, status, payload, prompt_message_id")
+      .eq("household_id", member.household_id).eq("member_id", member.id).eq("kind", "trade")
+      .eq("source_ref", String(updateId)).neq("status", "asking").maybeSingle();
+    if (made.data) {
+      const row = made.data as { status: string; payload: { draft?: TradeDraft }; prompt_message_id: number | null };
+      if (row.status === "proposed" && row.prompt_message_id == null && row.payload.draft) {
+        await proposeTrade(chatId, member, row.payload.draft, updateId);
+      }
+      return true;
+    }
+  }
+  // A reply names its draft by any of the draft's questions; otherwise the
+  // member's latest draft is the one an answer could be for.
+  let query = supabase.from("bot_proposals").select("id, payload, prompt_message_id")
+    .eq("household_id", member.household_id).eq("member_id", member.id).eq("chat_id", chatId)
+    .eq("kind", "trade").eq("status", "asking").gt("expires_at", new Date().toISOString());
+  query = repliedTo != null
+    ? query.contains("payload", { asked_message_ids: [repliedTo] })
+    : query.order("created_at", { ascending: false });
+  const { data, error } = await query.limit(1);
+  if (error || !data?.length) return false;
+  const row = data[0] as { id: string; payload: { draft?: TradeDraft; asked_at?: string; asked_message_ids?: number[] } };
+  const draft = row.payload.draft;
+  if (!draft?.awaiting) return false;
+  const asked = row.payload.asked_message_ids ?? [];
+  // The same answer delivered again, however late and in whatever form: it
+  // was used once already, so the question it led to is asked again, and the
+  // answer is not used for it. Checked before anything else can turn it away.
+  const redelivered = draft.lastUpdateId != null && draft.lastUpdateId === updateId;
+  // A message that is not a reply counts only soon after the question.
+  if (!redelivered && repliedTo == null && !(Date.parse(row.payload.asked_at ?? "") > Date.now() - PENDING_WINDOW_MS)) return false;
+  let holdings: HoldingLite[];
+  try {
+    holdings = await tradeHoldings(member.household_id);
+  } catch (err) {
+    if (!(err instanceof ReadFailed)) throw err;
+    await reply(chatId, TRADE_READ_FAILED);
+    return true;
+  }
+  if (redelivered) {
+    const again = nextQuestion(draft, holdings);
+    if (again) await askTradeQuestion(chatId, member, draft, again, updateId, row.id, asked);
+    return true;
+  }
+  const answered = applyAnswer(draft, text, holdings);
+  if (!answered) {
+    if (repliedTo == null) return false;
+    await reply(chatId, NOT_AN_ANSWER[draft.awaiting] ?? NOT_AN_ANSWER.units);
+    return true;
+  }
+  answered.lastUpdateId = typeof updateId === "number" ? updateId : null;
+  const question = nextQuestion(answered, holdings);
+  if (question) {
+    await askTradeQuestion(chatId, member, answered, question, updateId, row.id, asked);
+    return true;
+  }
+  await proposeTrade(chatId, member, answered, updateId);
+  // The draft gives way to the proposal (or to the refusal proposeTrade sent).
+  await supabase.from("bot_proposals").delete().eq("id", row.id).eq("status", "asking");
+  return true;
+}
+
+// Previews a complete draft in the database and proposes it with the
+// preview's figures, or says why the database refused it. The proposal
+// carries the version the member was shown, so a yes after the holding has
+// changed is refused as stale rather than saving figures they never saw. It
+// also carries the draft, so a stale or lapsed one can be previewed again,
+// and the names the messages about it use.
+async function proposeTrade(
+  chatId: number,
+  member: { id: string; household_id: string },
+  draft: TradeDraft,
+  updateId: unknown,
+): Promise<void> {
+  let holdings: HoldingLite[];
+  let members: Array<{ id: string; display_name: string }>;
+  let funds: Array<{ id: string; name: string; currency: string; owner_member_id: string | null; archived_at: string | null }>;
+  try {
+    holdings = await tradeHoldings(member.household_id);
+    members = await householdMembers(member.household_id);
+    funds = await allRowsOf("accounts", () =>
+      supabase.from("accounts").select("id, name, currency, owner_member_id, archived_at")
+        .eq("household_id", member.household_id).eq("type", "broker_funds").order("id")
+    );
+  } catch (err) {
+    if (!(err instanceof ReadFailed)) throw err;
+    await reply(chatId, TRADE_READ_FAILED);
+    return;
+  }
+  let holding = draft.holdingId ? holdings.find((h) => h.id === draft.holdingId) ?? null : null;
+  if (!holding) {
+    // Matched again: a first buy of a stock the member holds by now (another
+    // first buy confirmed in between) goes into that holding, not a second.
+    const matches = matchHoldings(holdings, draft.ownerMemberId, draft.stock);
+    if (matches.length > 1) {
+      const which = { ...draft, holdingId: null, candidates: matches.map((h) => h.id), newHolding: null };
+      const question = nextQuestion(which, holdings);
+      if (question) {
+        await askTradeQuestion(chatId, member, which, question, updateId);
+        return;
+      }
+    }
+    if (matches.length === 1) {
+      holding = matches[0];
+      draft = { ...draft, holdingId: holding.id, newHolding: null };
+    }
+  }
+  const ownerId = holding?.owner_member_id ?? draft.ownerMemberId;
+  const ownerName = ownerId && ownerId !== member.id ? members.find((m) => m.id === ownerId)?.display_name ?? null : null;
+  const fundNamed = (id: unknown) => funds.find((f) => f.id === id)?.name ?? "the broker funds account";
+
+  if (!holding) {
+    if (draft.side !== "buy") {
+      await reply(chatId, tradeRefusal("not_held", { holdingName: normaliseSymbol(draft.stock) || draft.stock }));
+      return;
+    }
+    // A first buy of a stock: previewed on the holding it would make, with
+    // its feed symbol, class and fund shown for the member to confirm.
+    const currency = draft.newHolding?.currency ?? (draft.priceCurrency === "USD" || draft.priceCurrency === "INR" ? draft.priceCurrency : null);
+    if (!currency) {
+      const question = nextQuestion(draft, holdings);
+      if (question) await askTradeQuestion(chatId, member, draft, question, updateId);
+      return;
+    }
+    const newHolding = draft.newHolding ?? newHoldingFor(draft.stock, currency, draft.ownerMemberId, funds);
+    const first = { ...draft, newHolding };
+    const { data: effect, error } = await supabase.rpc("preview_new_holding_trade", {
+      p_new_holding: newHolding,
+      p_trade_date: draft.tradeDate,
+      p_units: draft.units,
+      p_price: draft.price,
+      p_fees: draft.fees,
+      p_traded_at: draft.tradedAt,
+      p_member_id: member.id,
+    });
+    if (error || !effect) {
+      await reply(chatId, "I couldn't check that trade just now, so nothing was saved. Please send it again in a minute.");
+      return;
+    }
+    if (!effect.ok) {
+      await reply(chatId, tradeRefusal(String(effect.error), { holdingName: newHolding.name, units: draft.units ?? undefined }));
+      return;
+    }
+    const fundName = fundNamed(effect.funds_account_id);
+    await sendProposal(
+      chatId,
+      member.household_id,
+      member.id,
+      "trade",
+      {
+        new_holding: newHolding,
+        kind: "buy",
+        trade_date: draft.tradeDate,
+        traded_at: draft.tradedAt,
+        units: draft.units,
+        price: draft.price,
+        fees: draft.fees,
+        funds_account_id: null,
+        draft: first,
+        holding_name: newHolding.name,
+        currency: newHolding.currency,
+        fund_name: fundName,
+      },
+      tradeConfirmation(first, effect, {
+        holdingName: newHolding.name,
+        ownerName,
+        fundName,
+        currency: newHolding.currency,
+        newHolding,
+        today: householdToday(),
+      }),
+      updateId,
+    );
+    return;
+  }
+
+  const split = draft.side === "split";
+  const { data: effect, error } = await supabase.rpc("preview_trade", {
+    p_holding_id: holding.id,
+    p_kind: draft.side,
+    p_trade_date: draft.tradeDate,
+    p_units: split ? draft.ratio : draft.units,
+    p_price: split ? null : draft.price,
+    p_fees: draft.fees,
+    p_tax_withheld: draft.tax ?? 0,
+    p_traded_at: draft.tradedAt,
+    p_member_id: member.id,
+  });
+  if (error || !effect) {
+    await reply(chatId, "I couldn't check that trade just now, so nothing was saved. Please send it again in a minute.");
+    return;
+  }
+  if (!effect.ok) {
+    await reply(chatId, tradeRefusal(String(effect.error), { holdingName: holding.name, units: draft.units ?? undefined }));
+    return;
+  }
+  const fundName = fundNamed(effect.funds_account_id);
+  // An Indian sale's tax is deducted by the broker and read later from its
+  // statement, unless the message gave it.
+  const taxToConfirm = draft.side === "sell" && holding.currency === "INR" && draft.tax === null;
+  await sendProposal(
+    chatId,
+    member.household_id,
+    member.id,
+    "trade",
+    {
+      holding_id: holding.id,
+      kind: draft.side,
+      trade_date: draft.tradeDate,
+      traded_at: draft.tradedAt,
+      units: split ? draft.ratio : draft.units,
+      price: split ? null : draft.price,
+      fees: draft.fees,
+      tax_withheld: draft.tax ?? 0,
+      tax_to_confirm: taxToConfirm,
+      funds_account_id: effect.funds_account_id ?? null,
+      expected_version: effect.trades_version,
+      draft,
+      holding_name: holding.name,
+      currency: holding.currency,
+      fund_name: split ? null : fundName,
+    },
+    tradeConfirmation(draft, effect, {
+      holdingName: holding.name,
+      ownerName,
+      fundName,
+      currency: holding.currency,
+      newHolding: null,
+      lastPrice: holding.current_price,
+      today: householdToday(),
+    }),
+    updateId,
+  );
+}
+
+// ---------------------------------------------------------------------------
 // /brief digest -- deterministic, template-built from the same real tools
 // above rather than another LLM call: cheaper, and there's no room for a
 // phrasing pass to drift from the actual numbers on something meant to be
@@ -2215,9 +2872,13 @@ async function classifyAndRoute(
 ) {
   const system =
     `You are a household finance assistant for Rokda, chatting with a household member via Telegram. ` +
+    // Without it a date like "24 Oct" is given whatever year the model
+    // guesses, and a trade lands a year off.
+    `Today's date is ${householdToday()} (Dubai). ` +
     `If their message reports a real expense/income/refund that already happened (e.g. "spent 40 on lunch", "paid the rent", "got paid my salary", "got a refund from Noon"), ALWAYS call log_expense immediately -- even if the category, merchant, or exact amount isn't fully clear. log_expense covers all three: the extraction step itself decides which one from the wording, you don't need to. ` +
     `EXCEPTION: if the message specifically says money is going toward a named savings or debt-payoff GOAL (e.g. "put 500 toward emergency fund", "added 1000 to the house downpayment goal"), call log_goal_contribution instead -- never log_expense for that message, since a goal contribution never touches an account balance or the ledger. An ordinary purchase or bill with no named goal is still log_expense. ` +
     `EXCEPTION: if the message says money moved between two of the household's own accounts (paying off the credit card from the bank account, moving money to savings), call log_transfer instead -- never log_expense, since a transfer is neither spending nor income. ` +
+    `EXCEPTION: if the message reports buying, selling, a split or a bonus of a share, fund or ETF (e.g. "bought 10 ABC at 120.5", "sold 2 ABC at 150", "ABC split 10 for 1"), call log_trade instead -- never log_expense, since a share bought is not spending and a share sold is not income. "undo last trade" (or cancelling the last trade) is undo_last_trade. ` +
     `Never ask a clarifying question about an expense to log: category assignment happens later when a human reviews it, not in this chat, and an uncategorised expense is a completely normal, expected outcome -- do not treat that as ambiguity. ` +
     `Only treat a message as ambiguous, and only then reply in plain text with a short clarifying question instead of calling a tool, when it is a QUESTION whose target is genuinely unclear (e.g. asking about an account name that matches nothing, or a category that doesn't fit any real one) -- never for something being logged. ` +
     `If it asks a real question about their finances, call the matching tool to fetch the real number -- you must NEVER answer from your own knowledge or guess a figure; only a tool result is a real number. ` +
@@ -3413,6 +4074,56 @@ const UNUSUAL_SPEND_MONTHS_BACK = 6;
 // with the much stricter bar above. unusual_spend_nudges dedupes per
 // (household, category, month) -- flagged once, not re-nagged every day
 // even if the category keeps climbing further past the bar.
+// A traded holding whose value moved by more than this between its last two
+// price days, with no trade between them, is asked about: an unrecorded split
+// shows as a fall like that (spec 9).
+const SPLIT_MOVE_PCT = 40;
+
+// Asks each traded holding's owner whether a large move was a split, once for
+// that value point (split_asked_for, set only once the question reached
+// them). The move is read from the holding's own value history, not the price
+// feed's day change: a provider adjusts its previous close for a split, so a
+// split day does not show as a move there. Its units are the same at both
+// points (no trade between), so the value moved with the price. A holding
+// never traded, or sold out, is not asked about.
+async function runSplitCheck(): Promise<{ checked: number; asked: number }> {
+  let holdings: Array<{ id: string; name: string; owner_member_id: string | null; split_asked_for: string | null }>;
+  try {
+    holdings = await allRowsOf("holdings", () =>
+      supabase.from("holdings").select("id, name, owner_member_id, split_asked_for").gt("trades_version", 0).gt("quantity", 0).order("id")
+    );
+  } catch {
+    return { checked: 0, asked: 0 };
+  }
+  let asked = 0;
+  for (const h of holdings) {
+    if (!h.owner_member_id) continue;
+    try {
+      const { data: points, error } = await supabase.from("holding_value_history").select("as_of, value_aed")
+        .eq("holding_id", h.id).order("as_of", { ascending: false }).limit(2);
+      if (error || !points || points.length < 2) continue;
+      const [latest, before] = points as Array<{ as_of: string; value_aed: number }>;
+      if (h.split_asked_for === latest.as_of || !(Number(before.value_aed) > 0)) continue;
+      // A trade dated or recorded since the earlier point moved the value
+      // itself.
+      const { data: trades, error: tradesError } = await supabase.from("holding_trades").select("id").eq("holding_id", h.id)
+        .or(`trade_date.gt.${before.as_of},created_at.gt.${before.as_of}`).limit(1);
+      if (tradesError || trades?.length) continue;
+      const pct = (Number(latest.value_aed) / Number(before.value_aed) - 1) * 100;
+      if (!(Math.abs(pct) > SPLIT_MOVE_PCT)) continue;
+      const { data: owner } = await supabase.from("household_members").select("telegram_user_id").eq("id", h.owner_member_id).maybeSingle();
+      const chatId = (owner as { telegram_user_id: number | null } | null)?.telegram_user_id;
+      if (!chatId) continue;
+      if ((await reply(chatId, splitQuestion(h.name, pct))) == null) continue;
+      await supabase.from("holdings").update({ split_asked_for: latest.as_of }).eq("id", h.id);
+      asked++;
+    } catch {
+      // One holding's question failing must never block the rest.
+    }
+  }
+  return { checked: holdings.length, asked };
+}
+
 async function runUnusualSpendCheck(): Promise<{ checked: number; nudged: number }> {
   const now = householdDay();
   const { year, month } = householdYearMonth(now);
@@ -3518,15 +4229,16 @@ async function handleRequest(req: Request): Promise<Response> {
     );
   }
 
-  // Daily proactive-reminder check, triggered by pg_cron. Covers six
+  // Daily proactive-reminder check, triggered by pg_cron. Covers several
   // independent things in one run: missed recurring bills, credit-card due
   // dates, budget thresholds, a weekly brief (Mondays only), a month-end
-  // review (1st of the month only) and a cash-cover warning -- kept under
+  // review (1st of the month only), a cash-cover warning and a question
+  // after a traded holding's large one-day move -- kept under
   // the same query param the existing pg_cron job already calls, rather
   // than adding new jobs for each. The weekly/monthly checks no-op on every
   // day but their own, so running them daily costs nothing.
   if (req.method === "GET" && url.searchParams.get("run_recurring_check") === "1") {
-    const [recurring, autopay, creditCards, statements, budgets, weeklyBrief, monthlyBrief, cashCover, unusualSpend, balanceCheckin] = await Promise.all([
+    const [recurring, autopay, creditCards, statements, budgets, weeklyBrief, monthlyBrief, cashCover, unusualSpend, balanceCheckin, splits] = await Promise.all([
       runRecurringCheck(),
       runAutopayCheck(),
       runCreditCardCheck(),
@@ -3537,6 +4249,7 @@ async function handleRequest(req: Request): Promise<Response> {
       runCashCoverCheck(),
       runUnusualSpendCheck(),
       runBalanceCheckin(),
+      runSplitCheck(),
     ]);
     // Housekeeping, not a check: nothing reports on it and nothing depends on
     // it having run today.
@@ -3553,6 +4266,7 @@ async function handleRequest(req: Request): Promise<Response> {
         cash_cover: cashCover,
         unusual_spend: unusualSpend,
         balance_checkin: balanceCheckin,
+        splits,
       }),
       { headers: { "Content-Type": "application/json" } }
     );
@@ -3594,7 +4308,7 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
   const message = update?.message as Record<string, unknown> | undefined;
   if (!message) {
     const reaction = update?.message_reaction as Record<string, unknown> | undefined;
-    if (reaction) return await handleReaction(reaction);
+    if (reaction) return await handleReaction(reaction, update.update_id);
     return new Response("ok");
   }
 
@@ -3772,6 +4486,9 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
     // aimed at a balance change or an expense is not an answer to it.
     // A statement question is settled first when the message answers one
     // (handleStatementText decides when that is).
+    // An answer to the bot's question about a trade comes first: "10" to
+    // "How many ABC did you buy?" is that, not an expense.
+    if (await answerTradeQuestion(chatId, member, trimmedText, repliedTo, updateId)) return new Response("ok");
     if (await handleStatementText(chatId, member, trimmedText, repliedTo)) return new Response("ok");
 
     const strictYes = isConfirmationText(trimmedText);
@@ -3802,7 +4519,7 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
         return new Response("ok");
       }
       if (target.kind === "one" && (strictYes || strictNo)) {
-        await decideProposal(chatId, member.id, target.row, strictYes ? "apply" : "cancel");
+        await decideProposal(chatId, member.id, target.row, strictYes ? "apply" : "cancel", { householdId: member.household_id, updateId });
         return new Response("ok");
       }
       if (target.kind === "decided" && (strictYes || strictNo || target.row.kind === "autopay_payment")) {
@@ -3957,6 +4674,26 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
       // with nothing pending, used to reply "Error: unknown_tool"; it falls
       // through to capture instead, the same as log_expense, so the message
       // is never lost.
+      if (toolCall?.function?.name === "undo_last_trade") {
+        committedElsewhere = true;
+        await handleUndoTrade(chatId, member, updateId);
+        return new Response("ok");
+      }
+
+      // A share trade has its own path: matched, asked about, previewed by the
+      // database and proposed. It is never captured as an expense.
+      if (toolCall?.function?.name === "log_trade") {
+        committedElsewhere = true;
+        let args: Record<string, unknown> = {};
+        try {
+          args = JSON.parse(toolCall.function.arguments || "{}");
+        } catch {
+          // Unreadable arguments read as nothing given: the draft asks for the share.
+        }
+        await handleTradeMessage(chatId, member, args, updateId);
+        return new Response("ok");
+      }
+
       if (toolCall && QUESTION_TOOLS.has(toolCall.function?.name)) {
         committedElsewhere = true;
         const args = JSON.parse(toolCall.function.arguments || "{}");
@@ -4039,6 +4776,9 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
               break;
             case "get_holdings":
               result = await toolGetHoldings(member.household_id, scopeMemberId, args);
+              break;
+            case "get_trade_profit":
+              result = await toolGetTradeProfit(member.household_id, scopeMemberId, args);
               break;
             case "log_goal_contribution":
               // Only a draft that failed reaches here (above): the goal or the

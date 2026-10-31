@@ -3616,4 +3616,246 @@ begin
   raise notice 'B2-61 ok: a fund that is only a default can go; one with trades cannot';
 end $$;
 
+-- ---------------------------------------------------------------------------
+-- Bot trades (SHR-370). Fixtures for the B3 cases: a member of their own, so
+-- going live opens only their holdings, a dollar and a rupee broker fund with
+-- known balances, and ABC at 15 shares averaging 110 from 20 Oct.
+-- ---------------------------------------------------------------------------
+insert into household_members (id, household_id, display_name)
+values ('22222222-2222-2222-2222-0000000000b7', '11111111-1111-1111-1111-111111111111', 'Trader');
+insert into accounts (id, household_id, name, type, currency, balance, is_shared, owner_member_id) values
+  ('b3000000-0000-0000-0000-0000000000f1', '11111111-1111-1111-1111-111111111111', 'Trader dollar funds', 'broker_funds', 'USD', 1000, false, '22222222-2222-2222-2222-0000000000b7'),
+  ('b3000000-0000-0000-0000-0000000000f2', '11111111-1111-1111-1111-111111111111', 'Trader rupee funds', 'broker_funds', 'INR', 100000, false, '22222222-2222-2222-2222-0000000000b7');
+insert into holdings (id, household_id, owner_member_id, is_shared, name, asset_class, currency, quantity, avg_price, current_price, value_aed, funds_account_id)
+values ('b3000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-0000000000b7', false, 'ABC', 'us_equity', 'USD', 15, 110, 150, 8263.13, 'b3000000-0000-0000-0000-0000000000f1');
+select open_trade_history('22222222-2222-2222-2222-0000000000b7', '2026-10-20');
+
+-- B3-01: a holding bought new starts from an empty opening entry; a buy of
+-- nothing is still refused.
+do $$
+declare h uuid;
+begin
+  insert into holdings (household_id, owner_member_id, is_shared, name, asset_class, currency, quantity, value_aed)
+  values ('11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-0000000000b7', false, 'B3 empty', 'us_equity', 'USD', 0, 0)
+  returning id into h;
+  insert into holding_trades (household_id, holding_id, kind, trade_date, units, price, source)
+  values ('11111111-1111-1111-1111-111111111111', h, 'opening', '2026-10-20', 0, 0, 'opening');
+  begin
+    insert into holding_trades (household_id, holding_id, kind, trade_date, units, price, funds_account_id, source)
+    values ('11111111-1111-1111-1111-111111111111', h, 'buy', '2026-10-21', 0, 10, 'b3000000-0000-0000-0000-0000000000f1', 'app');
+    raise exception 'B3-01 FAILED: a buy of no units was accepted';
+  exception when check_violation then null;
+  end;
+  raise notice 'B3-01 ok: an empty opening entry is accepted, a buy of nothing is not';
+end $$;
+
+-- B3-02: the preview of a buy of a stock not yet held shows the database's
+-- figures and leaves nothing behind.
+do $$
+declare r jsonb;
+begin
+  r := preview_new_holding_trade(
+    jsonb_build_object('owner_member_id', '22222222-2222-2222-2222-0000000000b7', 'name', 'NEWCO', 'asset_class', 'us_equity',
+      'currency', 'USD', 'price_symbol', 'NEWCO', 'price_provider', 'twelvedata', 'sector', null,
+      'funds_account_id', 'b3000000-0000-0000-0000-0000000000f1'),
+    '2026-10-25', 10, 50, 1, p_member_id => '22222222-2222-2222-2222-0000000000b7');
+  if (r ->> 'ok')::boolean is not true or (r ->> 'holding_units_after')::numeric <> 10
+     or (r ->> 'holding_avg_after')::numeric <> 50 or (r ->> 'funds_delta')::numeric <> -501
+     or (r ->> 'new_holding')::boolean is not true then
+    raise exception 'B3-02 FAILED: the preview gave %', r;
+  end if;
+  if exists (select 1 from holdings where name = 'NEWCO') then
+    raise exception 'B3-02 FAILED: the preview left a holding behind';
+  end if;
+  if (select balance from accounts where id = 'b3000000-0000-0000-0000-0000000000f1') <> 1000 then
+    raise exception 'B3-02 FAILED: the preview moved the fund';
+  end if;
+  raise notice 'B3-02 ok: a new holding''s buy is previewed and nothing is saved';
+end $$;
+
+-- B3-03: recording it makes the holding from an empty opening entry and the buy.
+do $$
+declare r jsonb; h holdings%rowtype; n int;
+begin
+  r := record_new_holding_trade(
+    jsonb_build_object('owner_member_id', '22222222-2222-2222-2222-0000000000b7', 'name', 'NEWCO', 'asset_class', 'us_equity',
+      'currency', 'USD', 'price_symbol', 'NEWCO', 'price_provider', 'twelvedata', 'sector', null,
+      'funds_account_id', 'b3000000-0000-0000-0000-0000000000f1'),
+    '2026-10-25', 10, 50, 1, p_source => 'bot', p_member_id => '22222222-2222-2222-2222-0000000000b7');
+  select * into h from holdings where name = 'NEWCO';
+  if (r ->> 'ok')::boolean is not true or (r ->> 'holding_id')::uuid is distinct from h.id then
+    raise exception 'B3-03 FAILED: recording gave %', r;
+  end if;
+  if h.quantity <> 10 or h.avg_price <> 50 or h.trades_version <> 2 or h.owner_member_id <> '22222222-2222-2222-2222-0000000000b7' then
+    raise exception 'B3-03 FAILED: the holding is % at %, version %', h.quantity, h.avg_price, h.trades_version;
+  end if;
+  -- Priced at the buy, and dated, so net worth counts it until the feed
+  -- prices it: a holding with no price date is left out of net worth.
+  if h.current_price <> 50 or h.priced_at is null then
+    raise exception 'B3-03 FAILED: the new holding is priced at %, dated %', h.current_price, h.priced_at;
+  end if;
+  select count(*) into n from holding_trades where holding_id = h.id;
+  if n <> 2 or not exists (select 1 from holding_trades where holding_id = h.id and kind = 'opening' and units = 0) then
+    raise exception 'B3-03 FAILED: % entries, or no empty opening entry', n;
+  end if;
+  if (select balance from accounts where id = 'b3000000-0000-0000-0000-0000000000f1') <> 499 then
+    raise exception 'B3-03 FAILED: the fund is %, expected 499', (select balance from accounts where id = 'b3000000-0000-0000-0000-0000000000f1');
+  end if;
+  raise notice 'B3-03 ok: a new holding at 10 / 50, two entries, and the fund down 501';
+end $$;
+
+-- B3-04: a refused buy leaves no empty holding behind.
+do $$
+declare r jsonb;
+begin
+  r := record_new_holding_trade(
+    jsonb_build_object('owner_member_id', '22222222-2222-2222-2222-0000000000b7', 'name', 'MISMATCH', 'asset_class', 'us_equity',
+      'currency', 'USD', 'price_symbol', 'MISMATCH', 'price_provider', 'twelvedata', 'sector', null,
+      'funds_account_id', 'b3000000-0000-0000-0000-0000000000f2'),
+    '2026-10-25', 1, 10, p_member_id => '22222222-2222-2222-2222-0000000000b7');
+  if r ->> 'error' is distinct from 'currency_mismatch' then raise exception 'B3-04 FAILED: a dollar buy through a rupee fund gave %', r; end if;
+  if exists (select 1 from holdings where name = 'MISMATCH') then
+    raise exception 'B3-04 FAILED: a refused buy left its holding behind';
+  end if;
+  raise notice 'B3-04 ok: a refused buy leaves nothing';
+end $$;
+
+-- B3-05: the preview of undoing a sale shows the units before and after, and
+-- changes nothing.
+do $$
+declare r jsonb; sale uuid; bal numeric;
+begin
+  r := record_trade('b3000000-0000-0000-0000-000000000001', 'sell', '2026-10-27', 6, 150, 1,
+    p_member_id => '22222222-2222-2222-2222-0000000000b7');
+  sale := (r ->> 'trade_id')::uuid;
+  select balance into bal from accounts where id = 'b3000000-0000-0000-0000-0000000000f1';
+  r := preview_delete_trade(sale, '22222222-2222-2222-2222-0000000000b7');
+  if (r ->> 'ok')::boolean is not true or (r ->> 'units_before')::numeric <> 9 or (r ->> 'holding_units_after')::numeric <> 15
+     or (r ->> 'avg_before')::numeric <> 110 or (r ->> 'funds_delta')::numeric <> -899 then
+    raise exception 'B3-05 FAILED: the undo preview gave %', r;
+  end if;
+  if not exists (select 1 from holding_trades where id = sale)
+     or (select balance from accounts where id = 'b3000000-0000-0000-0000-0000000000f1') <> bal
+     or (select quantity from holdings where id = 'b3000000-0000-0000-0000-000000000001') <> 9 then
+    raise exception 'B3-05 FAILED: the undo preview changed the sale, the fund or the holding';
+  end if;
+  raise notice 'B3-05 ok: undoing the sale would take ABC from 9 back to 15, and nothing changed';
+end $$;
+
+-- B3-06 to B3-12: trade proposals, applied once by their own member, refused
+-- when the holding has moved on or the trade cannot be made.
+do $$
+declare
+  hh constant uuid := '11111111-1111-1111-1111-111111111111';
+  m constant uuid := '22222222-2222-2222-2222-0000000000b7';
+  abc constant uuid := 'b3000000-0000-0000-0000-000000000001';
+  v int; r jsonb; again jsonb; n int; bal numeric; buy uuid;
+begin
+  select trades_version into v from holdings where id = abc;
+  select balance into bal from accounts where id = 'b3000000-0000-0000-0000-0000000000f1';
+
+  -- B3-06: applied twice, recorded once.
+  insert into bot_proposals (id, household_id, member_id, kind, payload, chat_id) values
+    ('b3a00000-0000-4000-8000-000000000006', hh, m, 'trade', jsonb_build_object(
+      'holding_id', abc, 'kind', 'buy', 'trade_date', '2026-10-28', 'units', 1, 'price', 150, 'fees', 0,
+      'tax_withheld', 0, 'tax_to_confirm', false, 'funds_account_id', null, 'expected_version', v), 1);
+  r := apply_bot_proposal('b3a00000-0000-4000-8000-000000000006', m);
+  again := apply_bot_proposal('b3a00000-0000-4000-8000-000000000006', m);
+  select count(*) into n from holding_trades where proposal_id = 'b3a00000-0000-4000-8000-000000000006';
+  if r ->> 'outcome' <> 'applied' or n <> 1 or again ->> 'outcome' <> 'applied' or again -> 'result' -> 'effect' is null then
+    raise exception 'B3-06 FAILED: applying gave % then % (% trades)', r, again, n;
+  end if;
+  select id into buy from holding_trades where proposal_id = 'b3a00000-0000-4000-8000-000000000006';
+  if (select source from holding_trades where id = buy) <> 'bot' or (select balance from accounts where id = 'b3000000-0000-0000-0000-0000000000f1') <> bal - 150 then
+    raise exception 'B3-06 FAILED: the trade is not the bot''s, or the fund moved by other than 150';
+  end if;
+  raise notice 'B3-06 ok: a trade proposal applied twice records one trade and repeats its answer';
+
+  -- B3-07: a confirmation shown on an older version is stale.
+  insert into bot_proposals (id, household_id, member_id, kind, payload, chat_id) values
+    ('b3a00000-0000-4000-8000-000000000007', hh, m, 'trade', jsonb_build_object(
+      'holding_id', abc, 'kind', 'buy', 'trade_date', '2026-10-28', 'units', 2, 'price', 150, 'fees', 0,
+      'expected_version', v), 1);
+  r := apply_bot_proposal('b3a00000-0000-4000-8000-000000000007', m);
+  if r ->> 'outcome' <> 'stale' or exists (select 1 from holding_trades where proposal_id = 'b3a00000-0000-4000-8000-000000000007')
+     or (select status from bot_proposals where id = 'b3a00000-0000-4000-8000-000000000007') <> 'expired' then
+    raise exception 'B3-07 FAILED: a stale confirmation gave %', r;
+  end if;
+  raise notice 'B3-07 ok: a confirmation on an older version records nothing and expires';
+
+  -- A first buy of a stock the member has bought into since they were shown
+  -- it (NEWCO, from B3-03) is stale too: no second holding of one stock.
+  insert into bot_proposals (id, household_id, member_id, kind, payload, chat_id) values
+    ('b3a00000-0000-4000-8000-000000000017', hh, m, 'trade', jsonb_build_object(
+      'new_holding', jsonb_build_object('owner_member_id', m, 'name', 'newco', 'asset_class', 'us_equity', 'currency', 'USD',
+        'price_symbol', 'NEWCO', 'price_provider', 'twelvedata', 'funds_account_id', 'b3000000-0000-0000-0000-0000000000f1'),
+      'kind', 'buy', 'trade_date', '2026-10-28', 'units', 1, 'price', 50, 'fees', 0), 1);
+  r := apply_bot_proposal('b3a00000-0000-4000-8000-000000000017', m);
+  if r ->> 'outcome' <> 'stale' or (select count(*) from holdings where lower(name) = 'newco') <> 1 then
+    raise exception 'B3-07 FAILED: a second first buy of NEWCO gave %', r;
+  end if;
+  raise notice 'B3-07 ok: a first buy of a stock already held since is stale, and makes no second holding';
+
+  -- B3-08: a sale of more than is held is refused, with the replay's reason.
+  insert into bot_proposals (id, household_id, member_id, kind, payload, chat_id) values
+    ('b3a00000-0000-4000-8000-000000000008', hh, m, 'trade', jsonb_build_object(
+      'holding_id', abc, 'kind', 'sell', 'trade_date', '2026-10-28', 'units', 500, 'price', 150, 'fees', 0,
+      'expected_version', v + 1), 1);
+  r := apply_bot_proposal('b3a00000-0000-4000-8000-000000000008', m);
+  if r ->> 'outcome' <> 'refused' or r ->> 'error' <> 'exceeds_units' then
+    raise exception 'B3-08 FAILED: selling more than is held gave %', r;
+  end if;
+  raise notice 'B3-08 ok: a sale of more than is held is refused as exceeds_units';
+
+  -- B3-09: an undo deletes the trade and reverses its money, once.
+  insert into bot_proposals (id, household_id, member_id, kind, payload, chat_id) values
+    ('b3a00000-0000-4000-8000-000000000009', hh, m, 'trade_undo', jsonb_build_object('trade_id', buy, 'expected_version', v + 1), 1);
+  r := apply_bot_proposal('b3a00000-0000-4000-8000-000000000009', m);
+  perform apply_bot_proposal('b3a00000-0000-4000-8000-000000000009', m);
+  if r ->> 'outcome' <> 'applied' or exists (select 1 from holding_trades where id = buy)
+     or (select balance from accounts where id = 'b3000000-0000-0000-0000-0000000000f1') <> bal then
+    raise exception 'B3-09 FAILED: undoing gave %, fund %', r, (select balance from accounts where id = 'b3000000-0000-0000-0000-0000000000f1');
+  end if;
+  raise notice 'B3-09 ok: an undo deletes the trade and gives its money back once';
+
+  -- B3-10: a trade still being asked about cannot be applied.
+  insert into bot_proposals (id, household_id, member_id, kind, payload, chat_id, status) values
+    ('b3a00000-0000-4000-8000-000000000010', hh, m, 'trade', jsonb_build_object('draft', jsonb_build_object('stock', 'ABC')), 1, 'asking');
+  r := apply_bot_proposal('b3a00000-0000-4000-8000-000000000010', m);
+  if r ->> 'outcome' <> 'asking' or (select status from bot_proposals where id = 'b3a00000-0000-4000-8000-000000000010') <> 'asking' then
+    raise exception 'B3-10 FAILED: an asking proposal gave %', r;
+  end if;
+  raise notice 'B3-10 ok: an asking proposal cannot be applied';
+
+  -- B3-11: only the sender confirms.
+  insert into bot_proposals (id, household_id, member_id, kind, payload, chat_id) values
+    ('b3a00000-0000-4000-8000-000000000011', hh, m, 'trade', jsonb_build_object(
+      'holding_id', abc, 'kind', 'buy', 'trade_date', '2026-10-28', 'units', 1, 'price', 150, 'expected_version', v + 2), 1);
+  r := apply_bot_proposal('b3a00000-0000-4000-8000-000000000011', '22222222-2222-2222-2222-222222222222');
+  if r ->> 'outcome' <> 'not_yours' then raise exception 'B3-11 FAILED: another member confirming gave %', r; end if;
+  raise notice 'B3-11 ok: another member cannot confirm a trade';
+
+  -- B3-12: the new kinds and status are accepted; an unknown kind is not.
+  begin
+    insert into bot_proposals (household_id, member_id, kind, payload, chat_id) values (hh, m, 'share_swap', '{}'::jsonb, 1);
+    raise exception 'B3-12 FAILED: an unknown kind was accepted';
+  exception when check_violation then null;
+  end;
+  raise notice 'B3-12 ok: trade, trade_undo and asking are accepted; an unknown kind is not';
+end $$;
+
+-- B3-13: the day a split was asked about is kept on a traded holding without
+-- touching its units, average or version, which only its trades move.
+do $$
+declare v int;
+begin
+  select trades_version into v from holdings where id = 'b3000000-0000-0000-0000-000000000001';
+  update holdings set split_asked_for = '2026-10-29' where id = 'b3000000-0000-0000-0000-000000000001';
+  if (select split_asked_for from holdings where id = 'b3000000-0000-0000-0000-000000000001') <> '2026-10-29'
+     or (select trades_version from holdings where id = 'b3000000-0000-0000-0000-000000000001') <> v then
+    raise exception 'B3-13 FAILED: the split question''s day was not kept, or the version moved';
+  end if;
+  raise notice 'B3-13 ok: a split question''s day is kept without touching the trade guards';
+end $$;
+
 rollback;
