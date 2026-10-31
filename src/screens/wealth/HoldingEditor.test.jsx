@@ -396,6 +396,16 @@ describe('a holding\'s trades', () => {
     cleanup();
   });
 
+  it('opens the trade form in place of the list, and Back to trades brings the list back', () => {
+    open();
+    fireEvent.click(screen.getByRole('button', { name: 'Record a trade' }));
+    expect(screen.getByRole('button', { name: 'Check' })).toBeTruthy();
+    expect(screen.queryByRole('list', { name: 'Trades' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Back to trades' }));
+    expect(screen.getByRole('list', { name: 'Trades' })).toBeTruthy();
+    cleanup();
+  });
+
   it('keeps Delete on a holding with only its opening entry', () => {
     open(abc, [trades[0]]);
     expect(screen.getByRole('button', { name: 'Delete' })).toBeTruthy();

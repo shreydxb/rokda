@@ -34,3 +34,29 @@
   gap: 6px;
   flex: none;
 }
+.ht-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ht-error {
+  display: block;
+  font-size: 11.5px;
+  margin-top: 4px;
+}
+/* The database's answer to Check: what saving would do, read before saving. */
+.ht-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--raise);
+  font-size: 13px;
+}
+.ht-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
