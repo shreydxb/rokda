@@ -160,6 +160,19 @@ describe('Accounts: group by type / by owner toggle', () => {
     expect(screen.getByText('Checking')).toBeTruthy();
   });
 
+  // SHR-367/371: a broker's uninvested cash is its own kind of account, and
+  // sits in its own group rather than among the bank accounts.
+  it('shows Broker funds in their own group', () => {
+    const FUNDS = { id: 'bf1', name: 'Dollar broker funds', type: 'broker_funds', currency: 'USD', balance: 1000, balance_as_of: '2026-09-01', is_shared: false, archived_at: null, owner_member_id: 'm1' };
+    renderAccounts({ accounts: [SAVINGS, FUNDS, PERSONAL], transactions: [] });
+    const kickers = [...document.querySelectorAll('.ov-kicker')].map((k) => k.textContent);
+    expect(kickers).toEqual(['Checking', 'Savings', 'Broker funds']);
+    const group = screen.getByText('Broker funds').parentElement;
+    expect(within(group).getByText('Dollar broker funds')).toBeTruthy();
+    expect(within(group).queryByText('Emirates NBD Savings')).toBeNull();
+    expect(within(group).queryByText("Alex's checking")).toBeNull();
+  });
+
   it('switches to grouping by owner, with Joint first', () => {
     renderAccounts({ accounts: [SAVINGS, PERSONAL], transactions: [] });
     fireEvent.click(screen.getByRole('button', { name: 'By owner' }));

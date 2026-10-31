@@ -39,6 +39,14 @@ export function visibleHoldings(holdings, scopeMemberId, group) {
   });
 }
 
+// A holding sold down to nothing after its trade history started: kept, so
+// its sales and what they made stay on record, but no longer one of the
+// holdings the household has (SHR-367). A holding never traded is edited by
+// hand, and a zero there is just a figure someone typed, not a sale.
+export function isClosedHolding(holding) {
+  return Number(holding?.trades_version) > 0 && holding.quantity != null && Number(holding.quantity) === 0;
+}
+
 export function scopedHoldingValue(holding, scopeMemberId) {
   return scopedValue(holding.value_aed, holding, scopeMemberId);
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { costFromUnits, holdingGain, largestConcentration, portfolioDayChange, portfolioInvestedAndGain, portfolioValueChange } from './holdings';
+import { costFromUnits, holdingGain, isClosedHolding, largestConcentration, portfolioDayChange, portfolioInvestedAndGain, portfolioValueChange } from './holdings';
 
 describe('portfolioDayChange', () => {
   it('weights each holding change by its value, not a flat average', () => {
@@ -270,5 +270,17 @@ describe('largestConcentration', () => {
     const hs = [holding('Shared', 400, { sector: 'energy' }), holding('Mine', 300, { is_shared: false, owner_member_id: 'm1' }), holding('Theirs', 900, { is_shared: false, owner_member_id: 'm2' })];
     const c = largestConcentration(hs, 'm1');
     expect(c).toMatchObject({ kind: 'holding', name: 'Mine', value: 300, total: 500 });
+  });
+});
+
+describe('isClosedHolding', () => {
+  it('calls a traded holding at zero units closed, and nothing else', () => {
+    expect(isClosedHolding({ trades_version: 4, quantity: 0 })).toBe(true);
+    expect(isClosedHolding({ trades_version: 4, quantity: '0.00000000' })).toBe(true);
+    expect(isClosedHolding({ trades_version: 4, quantity: 3 })).toBe(false);
+    // Never traded: a zero (or blank) is a hand-entered figure, not a sale.
+    expect(isClosedHolding({ trades_version: 0, quantity: 0 })).toBe(false);
+    expect(isClosedHolding({ trades_version: -2, quantity: 0 })).toBe(false);
+    expect(isClosedHolding({ trades_version: 4, quantity: null })).toBe(false);
   });
 });

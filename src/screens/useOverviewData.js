@@ -32,6 +32,12 @@ const SOURCES = [
   { key: 'holdings', query: (id) => supabase.from('holdings').select('*').eq('household_id', id).order('created_at').order('id') },
   // RLS scopes this to the caller's household via a join on holdings, so no explicit filter needed.
   { key: 'holdingHistory', query: () => supabase.from('holding_value_history').select('*').order('as_of').order('id') },
+  // A holding's trades, for its editor and what sales made (SHR-371).
+  // Members read them; only the trade functions write them.
+  {
+    key: 'holdingTrades',
+    query: (id) => supabase.from('holding_trades').select('*').eq('household_id', id).order('trade_date').order('created_at').order('id'),
+  },
   { key: 'categoryRules', query: (id) => supabase.from('category_rules').select('*').eq('household_id', id).order('created_at').order('id') },
   {
     key: 'statementReconciliations',
@@ -69,6 +75,7 @@ const EMPTY_STATE = {
   netWorthSnapshots: [],
   holdings: [],
   holdingHistory: [],
+  holdingTrades: [],
   categoryRules: [],
   statementReconciliations: [],
   backupRecords: [],

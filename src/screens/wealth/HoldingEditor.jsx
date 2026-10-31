@@ -3,6 +3,8 @@ import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
 import { ASSET_CLASS_LABELS, SECTOR_GROUPS, SECTOR_LABELS, costFromUnits, hasSector } from '../../lib/holdings';
 import { daysSincePriced, historyPointFor, isPendingValuation, nextPricedAt, todayISODate, valueFieldFor, valuationChanged } from '../../lib/valuation';
+import { hasBuysOrSales } from '../../lib/trades';
+import HoldingTrades from './HoldingTrades';
 import '../money/TransactionEditor.css';
 
 function initialForm(holding) {
@@ -30,7 +32,16 @@ function initialForm(holding) {
   };
 }
 
-export default function HoldingEditor({ holding, householdId, members, onClose, onSaved, onStale }) {
+const NO_TRADES = [];
+
+export default function HoldingEditor({ holding: holdingAsOpened, householdId, members, trades = NO_TRADES, accounts = NO_TRADES, onClose, onSaved, onStale, onTradesChanged }) {
+  // The editor works from the holding as it was when opened. The screen
+  // re-reads its data every few minutes and after a refused save, and the row
+  // it hands over then may be newer (a trade from Telegram, a price): taking
+  // it would move figures under someone's edits, and judge a plain rename a
+  // new valuation. A save from an older version is refused by the database,
+  // and a trade made here opens the editor afresh (Investments).
+  const [holding] = useState(holdingAsOpened);
   const drawerRef = useDrawerFocus();
   const [form, setForm] = useState(() => initialForm(holding));
   // A valuation is only as of a date someone states. Editing a name must not
@@ -48,6 +59,8 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
   // here so a retry (e.g. after the history write fails) reuses it instead of
   // inserting a second row (SHR-246: a stable id makes the retry idempotent).
   const [createdId, setCreatedId] = useState(null);
+  // A trade being recorded or fixed has its own way back and its own save.
+  const [tradeFormOpen, setTradeFormOpen] = useState(false);
 
   useEffect(() => {
     const onKey = (e) => {
@@ -101,6 +114,9 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
   // Once a holding has its opening entry, its units and average price come
   // only from its trades (SHR-367).
   const traded = (holding?.trades_version ?? 0) > 0;
+  // The database refuses to delete a holding with buys or sales (their money
+  // moved through a fund); saying so beats offering a button that fails.
+  const deletable = holding && !hasBuysOrSales(trades, holding.id);
   const daysOld = holding ? daysSincePriced(holding) : null;
   const lastValuedLabel =
     daysOld === null ? 'No valuation confirmed yet.' : `Unchanged numbers keep the existing valuation date (${daysOld}d ago).`;
@@ -485,45 +501,63 @@ export default function HoldingEditor({ holding, householdId, members, onClose, 
             </div>
           </div>
 
+          {traded && (
+            <HoldingTrades
+              holding={holding}
+              trades={trades}
+              accounts={accounts}
+              disabledReason={dirty ? 'Save or discard your changes to the holding first.' : null}
+              onChanged={onTradesChanged}
+              onFormOpen={setTradeFormOpen}
+            />
+          )}
+
           {error && (
             <p className="ov-warn" role="alert" style={{ fontSize: 12.5 }}>
               {error}
             </p>
           )}
 
-          <div className="te-sticky-actions">
-            <div className="te-actions" style={{ borderTop: 'none', paddingTop: 0, marginTop: 0 }}>
-              {holding && (
-                <button type="button" className="om-btn te-delete" onClick={handleDelete} disabled={saving}>
-                  {confirmingDelete ? 'Confirm delete?' : 'Delete'}
-                </button>
-              )}
-              <div className="te-actions-right">
-                {confirmingClose ? (
-                  <>
-                    <span className="ov-muted" style={{ marginRight: 8 }}>
-                      Discard changes?
-                    </span>
-                    <button type="button" className="om-btn" onClick={onClose}>
-                      Discard
-                    </button>
-                    <button type="button" className="om-btn" onClick={() => setConfirmingClose(false)}>
-                      Keep editing
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button type="button" className="om-btn" onClick={requestClose}>
-                      Cancel
-                    </button>
-                    <button type="submit" className="om-btn ov-btn-primary" disabled={saving}>
-                      {saving ? 'Saving…' : holding ? 'Save changes' : 'Add holding'}
-                    </button>
-                  </>
+          {!tradeFormOpen && (
+            <div className="te-sticky-actions">
+              <div className="te-actions" style={{ borderTop: 'none', paddingTop: 0, marginTop: 0 }}>
+                {deletable && (
+                  <button type="button" className="om-btn te-delete" onClick={handleDelete} disabled={saving}>
+                    {confirmingDelete ? 'Confirm delete?' : 'Delete'}
+                  </button>
                 )}
+                {holding && !deletable && (
+                  <span className="ov-muted" style={{ fontSize: 11.5, maxWidth: 260 }}>
+                    A holding with buys or sales can&rsquo;t be deleted. Delete its trades first, or keep it: sold to zero, it moves to Sold.
+                  </span>
+                )}
+                <div className="te-actions-right">
+                  {confirmingClose ? (
+                    <>
+                      <span className="ov-muted" style={{ marginRight: 8 }}>
+                        Discard changes?
+                      </span>
+                      <button type="button" className="om-btn" onClick={onClose}>
+                        Discard
+                      </button>
+                      <button type="button" className="om-btn" onClick={() => setConfirmingClose(false)}>
+                        Keep editing
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button type="button" className="om-btn" onClick={requestClose}>
+                        Cancel
+                      </button>
+                      <button type="submit" className="om-btn ov-btn-primary" disabled={saving}>
+                        {saving ? 'Saving…' : holding ? 'Save changes' : 'Add holding'}
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </form>
       </div>
     </div>

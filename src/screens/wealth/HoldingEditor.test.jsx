@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, fireEvent, cleanup } from '@testing-library/react';
+import { screen, fireEvent, cleanup, within } from '@testing-library/react';
 import { act } from 'react';
 import { renderScreen } from '../../test/renderScreen';
 
@@ -10,9 +10,17 @@ const db = { holdings: new Map(), histories: [] };
 // Column defaults a stored row reads when a test seeds it without them.
 const COLUMN_DEFAULTS = { trades_version: 0 };
 let historyFailsOnce = false;
+// The trade functions, answered per name, every call recorded.
+const rpcCalls = [];
+let rpcAnswers = {};
 
 vi.mock('../../lib/supabaseClient', () => ({
   supabase: {
+    rpc: async (name, args) => {
+      rpcCalls.push({ name, args });
+      const answer = rpcAnswers[name];
+      return { data: (typeof answer === 'function' ? answer(args) : answer) ?? null, error: null };
+    },
     from: (table) => ({
       // An update applies only to rows matching every .eq() filter, as
       // PostgREST does, and .select() returns the rows it changed: how the
@@ -60,6 +68,8 @@ vi.mock('../../lib/supabaseClient', () => ({
 const { default: HoldingEditor } = await import('./HoldingEditor');
 
 beforeEach(() => {
+  rpcCalls.length = 0;
+  rpcAnswers = {};
   db.holdings.clear();
   db.histories.length = 0;
   historyFailsOnce = false;
@@ -334,3 +344,161 @@ describe('a traded holding', () => {
   });
 });
 
+
+// SHR-371: a traded holding's editor lists its trades, newest first, and is
+// where an older one is fixed or deleted.
+describe('a holding\'s trades', () => {
+  const abc = { id: 'h3', name: 'ABC', asset_class: 'us_equity', currency: 'USD', quantity: 9, avg_price: 110, value_aed: 3672.5, is_shared: true, priced_at: '2026-09-01T00:00:00Z', trades_version: 3 };
+  const t = (id, extra) => ({ id, holding_id: 'h3', kind: 'buy', trade_date: '2026-10-28', traded_at: null, created_at: '2026-10-28T10:00:00Z', units: 5, price: 130, fees: 0, tax_withheld: 0, tax_to_confirm: false, realised: null, ...extra });
+  const trades = [
+    t('t-open', { kind: 'opening', units: 10, price: 100, trade_date: '2026-10-27', created_at: '2026-10-31T09:00:00Z' }),
+    t('t-buy', {}),
+    t('t-sell', { kind: 'sell', units: 6, price: 150, fees: 1, realised: 239, trade_date: '2026-10-29' }),
+    t('t-other', { holding_id: 'h-other', trade_date: '2026-10-30' }),
+  ];
+  const ACCOUNTS = [{ id: 'f-usd', name: 'Dollar broker funds', type: 'broker_funds', currency: 'USD', balance: 1000, balance_as_of: '2026-10-01T00:00:00Z', archived_at: null }];
+  const open = (holding = abc, list = trades, onTradesChanged = async () => {}) =>
+    renderScreen(<HoldingEditor holding={holding} trades={list} accounts={ACCOUNTS} householdId="hh" members={[]} onClose={() => {}} onSaved={async () => {}} onTradesChanged={onTradesChanged} />);
+  const DELETE_SELL = { ok: true, trade_id: 't-sell', trades_version: 4, units_before: 9, avg_before: 110, holding_units_after: 15, holding_avg_after: 110, funds_account_id: 'f-usd', funds_delta: -899 };
+  const press = async (name) => {
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name }));
+    });
+  };
+  const rows = () => within(screen.getByRole('list', { name: 'Trades' })).getAllByRole('listitem');
+
+  it('lists a traded holding\'s trades newest first, with brokerage, tax and profit', () => {
+    open();
+    const items = rows();
+    expect(items).toHaveLength(3);
+    expect(items[0].textContent).toContain('Sell 6 at USD 150.00');
+    expect(items[0].textContent).toContain('29 Oct 2026 · brokerage 1.00 · profit 239.00');
+    expect(items[1].textContent).toContain('Buy 5 at USD 130.00');
+    expect(items[2].textContent).toContain('Opening 10 at USD 100.00');
+    expect(screen.getByRole('button', { name: 'Record a trade' })).toBeTruthy();
+    cleanup();
+  });
+
+  it('shows no trades section for a holding without a trade history', () => {
+    open({ ...abc, trades_version: 0 }, []);
+    expect(screen.queryByRole('list', { name: 'Trades' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Record a trade' })).toBeNull();
+    cleanup();
+  });
+
+  it('offers no Delete on the opening entry', () => {
+    open();
+    const [sell, buy, opening] = rows();
+    expect(within(sell).getByRole('button', { name: 'Delete Sell 6 at USD 150.00' })).toBeTruthy();
+    expect(within(buy).getByRole('button', { name: 'Delete Buy 5 at USD 130.00' })).toBeTruthy();
+    expect(within(opening).getByRole('button', { name: 'Fix Opening 10 at USD 100.00' })).toBeTruthy();
+    expect(within(opening).queryByRole('button', { name: /^Delete/ })).toBeNull();
+    cleanup();
+  });
+
+  it('disables trade actions while the holding has unsaved changes', () => {
+    open();
+    expect(screen.getByRole('button', { name: 'Record a trade' }).disabled).toBe(false);
+    fireEvent.change(screen.getByPlaceholderText('e.g. VWRA'), { target: { value: 'ABC renamed' } });
+    expect(screen.getByRole('button', { name: 'Record a trade' }).disabled).toBe(true);
+    for (const button of screen.getAllByRole('button', { name: /^(Fix|Delete) / })) expect(button.disabled).toBe(true);
+    expect(screen.getByText('Save or discard your changes to the holding first.')).toBeTruthy();
+    cleanup();
+  });
+
+  it('replaces Delete with the reason on a holding with buys or sales', () => {
+    open();
+    expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
+    expect(screen.getByText('A holding with buys or sales can’t be deleted. Delete its trades first, or keep it: sold to zero, it moves to Sold.')).toBeTruthy();
+    cleanup();
+  });
+
+  it('opens the trade form in place of the list, and Back to trades brings the list back', () => {
+    open();
+    fireEvent.click(screen.getByRole('button', { name: 'Record a trade' }));
+    expect(screen.getByRole('button', { name: 'Check' })).toBeTruthy();
+    expect(screen.queryByRole('list', { name: 'Trades' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Back to trades' }));
+    expect(screen.getByRole('list', { name: 'Trades' })).toBeTruthy();
+    cleanup();
+  });
+
+  it('asks before deleting a trade, with what it would undo', async () => {
+    rpcAnswers.preview_delete_trade = DELETE_SELL;
+    open();
+    await press('Delete Sell 6 at USD 150.00');
+    expect(rpcCalls).toEqual([{ name: 'preview_delete_trade', args: { p_trade_id: 't-sell' } }]);
+    expect(screen.getByText('Delete Sell 6 at USD 150.00 on 29 Oct? ABC: 9 → 15 shares · Dollar broker funds -USD 899.00')).toBeTruthy();
+    await press('Keep it');
+    expect(screen.queryByText(/^Delete Sell 6 at USD 150.00 on 29 Oct\?/)).toBeNull();
+    expect(rpcCalls.map((c) => c.name)).toEqual(['preview_delete_trade']);
+    cleanup();
+  });
+
+  it('leaves the fund out of the question when the delete moves no money', async () => {
+    rpcAnswers.preview_delete_trade = { ...DELETE_SELL, holding_units_after: 9, funds_delta: 0 };
+    open();
+    await press('Delete Buy 5 at USD 130.00');
+    expect(screen.getByText('Delete Buy 5 at USD 130.00 on 28 Oct? ABC: 9 → 9 shares')).toBeTruthy();
+    cleanup();
+  });
+
+  it('deletes a trade on the version shown and reloads', async () => {
+    rpcAnswers.preview_delete_trade = DELETE_SELL;
+    rpcAnswers.delete_trade = { ok: true, trade_id: 't-sell', trades_version: 4 };
+    const onTradesChanged = vi.fn().mockResolvedValue(undefined);
+    open(abc, trades, onTradesChanged);
+    await press('Delete Sell 6 at USD 150.00');
+    await press('Delete trade');
+    expect(rpcCalls[1]).toEqual({ name: 'delete_trade', args: { p_trade_id: 't-sell', p_expected_version: 3 } });
+    expect(onTradesChanged).toHaveBeenCalledTimes(1);
+    cleanup();
+  });
+
+  it('deletes on the version the question was worked out on, after a trade from Telegram', async () => {
+    // The editor opened on version 3; a trade from Telegram made it 4, and
+    // the question was worked out on 4 (the delete would leave 5).
+    rpcAnswers.preview_delete_trade = { ...DELETE_SELL, trades_version: 5 };
+    rpcAnswers.delete_trade = { ok: true, trade_id: 't-sell', trades_version: 5 };
+    open();
+    await press('Delete Sell 6 at USD 150.00');
+    await press('Delete trade');
+    expect(rpcCalls[1].args.p_expected_version).toBe(4);
+    cleanup();
+  });
+
+  it('says why a trade cannot be deleted', async () => {
+    rpcAnswers.preview_delete_trade = { ok: false, error: 'exceeds_units', entry_id: 't-sell' };
+    open();
+    await press('Delete Buy 5 at USD 130.00');
+    expect(screen.getByText('This would sell more ABC than was held on 29 Oct. Nothing was saved.')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Delete trade' })).toBeNull();
+    cleanup();
+  });
+
+  it('opens a trade to fix it', () => {
+    open();
+    fireEvent.click(screen.getByRole('button', { name: 'Fix Buy 5 at USD 130.00' }));
+    expect(screen.getByLabelText('Units traded').value).toBe('5');
+    expect(screen.getByRole('button', { name: 'Check' })).toBeTruthy();
+    cleanup();
+  });
+
+  it('hides the holding\'s own Save while a trade is being recorded', () => {
+    open();
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Record a trade' }));
+    // Under a trade's preview, "Save changes" would read as saving the trade.
+    expect(screen.queryByRole('button', { name: 'Save changes' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Back to trades' }));
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeTruthy();
+    cleanup();
+  });
+
+  it('keeps Delete on a holding with only its opening entry', () => {
+    open(abc, [trades[0]]);
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeTruthy();
+    cleanup();
+  });
+});

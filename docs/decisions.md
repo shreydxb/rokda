@@ -2973,3 +2973,53 @@ other rupee figure uses. A holding its trades sold to zero is not priced at
 all; one without trades is priced whatever its units, so a zero typed by hand
 values it at zero instead of keeping the last value.
 
+
+## Trades in the app
+
+Most trades come in through Telegram; the app is where they are seen, and
+where an older one is fixed or deleted (SHR-371). Nothing new is worked out
+here: every figure a trade produces comes from the same database functions
+the bot uses.
+
+- **Check, then save exactly what was checked.** "Check" asks
+  `preview_trade` (or `preview_delete_trade`) and shows its answer: units and
+  average after, a sale's profit, the fund's movement, any warning. "Save
+  trade" saves that trade at the holding's version the check was worked out
+  on; changing any figure clears the check. If the holding moved in between
+  (a trade from Telegram), nothing is saved, the form keeps what was typed,
+  and checking again works from the holding as it now is.
+- **Trades wait for the holding's own edits.** A saved trade reloads the
+  holding, which would throw away edits not yet saved and make the next save
+  of them stale, so the trade buttons are off until the holding is saved or
+  its changes discarded. While a trade is being recorded or fixed, the
+  holding's own Cancel and Save are hidden: under a trade's figures, "Save
+  changes" would read as saving the trade. An open editor keeps the holding
+  as it was opened: the screen's own refreshes (every few minutes, and after
+  a refused save) leave it and whatever is typed in it alone, and only a
+  trade made in it opens it afresh on the new figures.
+- **The opening entry is fixed, not deleted.** Its units and average can be
+  corrected; its date is where the history starts and stays. Undoing a
+  holding's fresh start is not offered in the app.
+- **A holding with buys or sales is not deleted.** The database refuses it,
+  since their money moved through a fund; the editor says so and why, in
+  place of a Delete that would fail.
+- **Sold-out holdings are kept apart.** A holding sold down to nothing leaves
+  the holdings table and the figures above it for a "Sold" fold: when its
+  last units went and what its sales made. Buying it again brings it back.
+  The freshness lines leave sold holdings out, since the price feed no longer
+  prices them.
+- **What sales made has its own figure.** "Profit on sales this year" sits
+  beside the gains on what is still held, renamed "Profit not yet taken" so
+  neither reads as the whole. It is in dirhams, each sale at its own date's
+  rate (the dollar at the peg; the rupee at that day's rate, or the
+  household's when none is kept), scoped like the screen's other figures (a
+  shared holding's half in one member's view), and unknown rather than
+  guessed when a rupee sale has no rate at all. Tax withheld and Indian sales
+  still waiting for the broker's tax figure are said beside it.
+- **An unconfirmed fund is said to be unconfirmed.** A fund nobody has set a
+  balance for (both start at 0 on go-live) would otherwise warn on every buy
+  that it is going below zero; the warning says instead that it has no
+  confirmed balance yet.
+- **Not in the app:** a fund's "brokerage in the average", which would
+  re-average past buys if switched after trades exist; a trade's time of day
+  and its note, which a fix keeps as they are.
