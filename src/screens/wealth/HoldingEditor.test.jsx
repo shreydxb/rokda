@@ -496,6 +496,67 @@ describe('a holding\'s trades', () => {
     cleanup();
   });
 
+  // SHR-374: follow-ups from the final review.
+  it('locks the holding\'s own fields while a trade is being recorded', () => {
+    open();
+    expect(screen.getByPlaceholderText('e.g. VWRA').matches(':disabled')).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Record a trade' }));
+    // An edit made now would be lost when the trade saves and reloads.
+    expect(screen.getByPlaceholderText('e.g. VWRA').matches(':disabled')).toBe(true);
+    expect(screen.getByLabelText('Units traded').matches(':disabled')).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Back to trades' }));
+    expect(screen.getByPlaceholderText('e.g. VWRA').matches(':disabled')).toBe(false);
+    cleanup();
+  });
+
+  it('asks before closing on a trade being typed', () => {
+    const onClose = vi.fn();
+    renderScreen(<HoldingEditor holding={abc} trades={trades} accounts={ACCOUNTS} householdId="hh" members={[]} onClose={onClose} onSaved={async () => {}} onTradesChanged={async () => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Record a trade' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByText('Discard this trade?')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    cleanup();
+  });
+
+  it('says when its trades could not be loaded, and offers no Delete', () => {
+    renderScreen(<HoldingEditor holding={abc} trades={[]} tradesFailed accounts={ACCOUNTS} householdId="hh" members={[]} onClose={() => {}} onSaved={async () => {}} onTradesChanged={async () => {}} />);
+    expect(screen.getByText('Couldn’t load this holding’s trades. Refresh the page to try again.')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Record a trade' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
+    cleanup();
+  });
+
+  it('puts focus on the form when it opens, and back on Record a trade when it closes', () => {
+    open();
+    fireEvent.click(screen.getByRole('button', { name: 'Record a trade' }));
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Buy' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Back to trades' }));
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Record a trade' }));
+    cleanup();
+  });
+
+  it('asks about a delete with focus on Keep it, the question read with it', async () => {
+    rpcAnswers.preview_delete_trade = DELETE_SELL;
+    open();
+    await press('Delete Sell 6 at USD 150.00');
+    const keep = screen.getByRole('button', { name: 'Keep it' });
+    expect(document.activeElement).toBe(keep);
+    const question = document.getElementById(keep.getAttribute('aria-describedby'));
+    expect(question.textContent).toBe('Delete Sell 6 at USD 150.00 on 29 Oct? ABC: 9 → 15 shares · Dollar broker funds -USD 899.00');
+    cleanup();
+  });
+
+  it('ties the reason the trade buttons are off to the buttons', () => {
+    open();
+    fireEvent.change(screen.getByPlaceholderText('e.g. VWRA'), { target: { value: 'ABC renamed' } });
+    const record = screen.getByRole('button', { name: 'Record a trade' });
+    expect(document.getElementById(record.getAttribute('aria-describedby')).textContent).toBe('Save or discard your changes to the holding first.');
+    cleanup();
+  });
+
   it('keeps Delete on a holding with only its opening entry', () => {
     open(abc, [trades[0]]);
     expect(screen.getByRole('button', { name: 'Delete' })).toBeTruthy();

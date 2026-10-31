@@ -258,6 +258,31 @@ describe('Investments: sold-out holdings and profit on sales', () => {
     expect(stat.textContent).toContain('Not known: a rupee sale has no exchange rate');
   });
 
+  it('says so when trades could not be loaded, instead of none this year', () => {
+    renderScreen(
+      <Investments household={{ id: 'h' }} members={MEMBERS} me={MEMBERS[0]} loading={false}
+        data={{ holdings: [PRICED_HOLDING, SOLD], holdingHistory: [], holdingTrades: [], fxRateHistory: [], errors: { holdingTrades: new Error('timeout') }, loaded: {}, reload: vi.fn() }} />,
+    );
+    const stat = screen.getByText('Profit on sales this year').parentElement;
+    expect(stat.textContent).toContain('Not known: couldn’t load trades.');
+    expect(stat.textContent).not.toContain('None this year');
+  });
+
+  it('withholds a rupee sale\'s profit when exchange rates could not be loaded', () => {
+    renderScreen(
+      <Investments household={{ id: 'h', inr_per_aed: 23 }} members={MEMBERS} me={MEMBERS[0]} loading={false}
+        data={{ holdings: [PRICED_HOLDING, RUPEE], holdingHistory: [], holdingTrades: [sale('t1', RUPEE, `${YEAR}-01-15`, 2300)], fxRateHistory: [], errors: { fxRateHistory: new Error('timeout') }, loaded: { holdingTrades: true }, reload: vi.fn() }} />,
+    );
+    const stat = screen.getByText('Profit on sales this year').parentElement;
+    expect(stat.textContent).toContain('Not known: couldn’t load exchange-rate history.');
+  });
+
+  it('still shows what sales made this year when every holding in view is sold', () => {
+    render([SOLD], [sale('t1', SOLD, `${YEAR}-01-15`, 100)]);
+    const stat = screen.getByText('Profit on sales this year').parentElement;
+    expect(stat.textContent).toContain('+367');
+  });
+
   it('shows the Sold fold even when every holding is sold', () => {
     render([SOLD], [sale('t1', SOLD, `${YEAR}-01-15`, 100)]);
     expect(screen.getByText('No holdings')).toBeTruthy();

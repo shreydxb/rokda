@@ -60,3 +60,13 @@
   gap: 8px;
   flex-wrap: wrap;
 }
+/* The holding editor's own fields, as one group it can lock while a trade is
+   recorded or fixed. It adds no box of its own: the fields keep the form's
+   layout as if the group were not there. */
+.he-fields {
+  display: contents;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}

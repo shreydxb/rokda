@@ -221,6 +221,30 @@ describe('TradeForm: recording a trade', () => {
     expect(calls.map((c) => c.name)).toEqual(['preview_trade']);
   });
 
+  it('will not save twice while the screen reloads after a save', async () => {
+    answers.preview_trade = SALE_EFFECT;
+    answers.record_trade = { ...SALE_EFFECT, trade_id: 't-new', trades_version: 4 };
+    // The reload the save asks for is still running.
+    open(ABC, { onSaved: vi.fn(() => new Promise(() => {})) });
+    fillSale();
+    await check();
+    await save();
+    expect(screen.getByRole('button', { name: 'Save trade' }).disabled).toBe(true);
+    await save();
+    expect(calls.filter((c) => c.name === 'record_trade')).toHaveLength(1);
+  });
+
+  it('announces the preview through a region that was there before it', async () => {
+    answers.preview_trade = SALE_EFFECT;
+    open();
+    const region = document.querySelector('[aria-live="polite"]');
+    expect(region).toBeTruthy();
+    expect(region.textContent).toBe('');
+    fillSale();
+    await check();
+    expect(region.textContent).toContain('Profit USD 239.00');
+  });
+
   it('goes back to the list without saving', () => {
     const { onCancel } = open();
     fireEvent.click(screen.getByRole('button', { name: 'Back to trades' }));

@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { formatMoney } from '../../lib/money';
 import { householdToday } from '../../lib/day';
@@ -48,6 +48,16 @@ export default function TradeForm({ holding, trade = null, trades = [], accounts
   const [checked, setChecked] = useState(null);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  // Opening the form moves focus into it: the button that opened it is gone.
+  // Recording starts at the kind of trade; a fix at its first editable field.
+  const rootRef = useRef(null);
+  useEffect(() => {
+    const first = trade
+      ? rootRef.current?.querySelector('input:not([readonly]), select')
+      : rootRef.current?.querySelector('button[aria-pressed="true"]');
+    first?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on opening
+  }, []);
 
   const currency = holding.currency;
   const kind = form.kind;
@@ -94,6 +104,9 @@ export default function TradeForm({ holding, trade = null, trades = [], accounts
   async function handleSave() {
     if (!checked || busy) return;
     const { args, effect } = checked;
+    // Stays busy after a save that worked, until the screen has reloaded and
+    // closed the form: pressed again meanwhile, it would be refused as stale
+    // with a message that reads as if nothing was saved.
     setBusy(true);
     // A fix keeps what the form does not show: the trade's time of day and
     // its note. Its kind never changes (the database refuses that).
@@ -124,12 +137,13 @@ export default function TradeForm({ holding, trade = null, trades = [], accounts
           p_expected_version: effect.trades_version,
           p_tax_to_confirm: args.p_tax_to_confirm,
         });
-    setBusy(false);
     if (error) {
+      setBusy(false);
       setMessage(`Couldn't save this trade: ${error.message}. Nothing was saved.`);
       return;
     }
     if (!data?.ok) {
+      setBusy(false);
       // Stale included: the form keeps what was typed, and checking again
       // reads the holding afresh in the database, so the next save is on the
       // version it now has. Reloading here would reopen the editor and lose
@@ -155,7 +169,7 @@ export default function TradeForm({ holding, trade = null, trades = [], accounts
   const field = (key) => `${uid}-${key}`;
 
   return (
-    <div className="ht-form" onKeyDown={onKeyDown}>
+    <div className="ht-form" ref={rootRef} onKeyDown={onKeyDown}>
       <div className="te-fieldlabel">{trade ? `Fix ${tradeRow(trade, currency).title}` : 'Record a trade'}</div>
 
       {!trade && (
@@ -248,13 +262,17 @@ export default function TradeForm({ holding, trade = null, trades = [], accounts
         </p>
       )}
 
-      {checked && (
-        <div className="ht-preview" aria-live="polite">
-          {lines.map((line) => (
-            <div key={line}>{line}</div>
-          ))}
-        </div>
-      )}
+      {/* The region is there before the preview, so a screen reader hears
+          the preview arrive rather than missing a region born with it. */}
+      <div aria-live="polite">
+        {checked && (
+          <div className="ht-preview">
+            {lines.map((line) => (
+              <div key={line}>{line}</div>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div className="ht-form-actions">
         {/* Not "Cancel": the holding editor around this form has its own. */}

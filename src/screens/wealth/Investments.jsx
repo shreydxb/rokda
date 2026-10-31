@@ -21,6 +21,7 @@ import {
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { isAwaitingFirstValuation, isStale } from '../../lib/valuation';
 import { salesProfit } from '../../lib/trades';
+import { couldntLoad, neverLoaded } from '../../lib/loadState';
 import { householdToday } from '../../lib/day';
 import { supabase } from '../../lib/supabaseClient';
 import HoldingEditor from './HoldingEditor';
@@ -62,12 +63,19 @@ export default function Investments({ household, members, me, data, loading, rel
   // What sales made this calendar year, in the household's year, on the
   // holdings in view (sold ones included: selling out is when most is made).
   const year = Number(householdToday().slice(0, 4));
-  const inrPerAed = household?.inr_per_aed ?? null;
+  // Trades or rates that never loaded are placeholders, not data: what sales
+  // made is withheld rather than shown as none, and a rupee sale is not
+  // valued at today's rate in place of its day's (loadState.js).
+  const missing = neverLoaded(data, ['holdingTrades', 'fxRateHistory']);
+  const tradesMissing = missing.includes('holdingTrades');
+  const ratesMissing = missing.includes('fxRateHistory');
+  const inrPerAed = ratesMissing ? null : (household?.inr_per_aed ?? null);
   const fx = useMemo(() => ({ fxHistory: fxRateHistory, inrPerAed }), [fxRateHistory, inrPerAed]);
   const yearProfit = useMemo(
     () => salesProfit(holdingTrades, visibleHoldings(holdings, scopeMemberId, group), { from: `${year}-01-01`, to: `${year + 1}-01-01`, scopeMemberId, ...fx }),
     [holdingTrades, holdings, scopeMemberId, group, year, fx],
   );
+  const profitMissing = tradesMissing ? ['holdingTrades'] : !yearProfit.available && ratesMissing ? ['fxRateHistory'] : null;
   const groupsPresent = ['All', ...GROUP_ORDER.filter((g) => g !== 'All' && holdings.some((h) => groupOf(h.asset_class) === g))];
 
   const totalValue = rows.reduce((s, h) => s + scopedHoldingValue(h, scopeMemberId), 0);
@@ -160,10 +168,18 @@ export default function Investments({ household, members, me, data, loading, rel
       </div>
 
       {rows.length === 0 ? (
-        <div className="ov-empty">
-          <div className="ov-empty-kicker">No holdings</div>
-          <div className="ov-empty-body">Add your first holding to start tracking performance.</div>
-        </div>
+        <>
+          <div className="ov-empty">
+            <div className="ov-empty-kicker">No holdings</div>
+            <div className="ov-empty-body">Add your first holding to start tracking performance.</div>
+          </div>
+          {/* Everything in view sold: what the sales made still counts. */}
+          {(sold.length > 0 || tradesMissing) && (
+            <section className="wl-invstats">
+              <ProfitOnSales profit={yearProfit} missing={profitMissing} money={money} />
+            </section>
+          )}
+        </>
       ) : (
         <>
           {(refreshError || failing.length > 0) && (
@@ -292,41 +308,7 @@ export default function Investments({ household, members, me, data, loading, rel
                 )}
               </div>
             </div>
-            <div>
-              <div className="ov-muted" style={{ fontSize: 11 }}>
-                Profit on sales this year
-              </div>
-              {!yearProfit.available ? (
-                <div className="ov-muted" style={{ fontSize: 12.5, marginTop: 5 }}>
-                  Not known: a rupee sale has no exchange rate
-                </div>
-              ) : yearProfit.sales === 0 ? (
-                <div className="ov-muted" style={{ fontSize: 15, marginTop: 7 }}>
-                  None this year
-                </div>
-              ) : (
-                <>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 5 }}>
-                    <span className={`fig ${yearProfit.profitAed >= 0 ? 'ov-pos' : 'ov-neg'}`} style={{ fontSize: 19 }}>
-                      {money.fmtSigned(yearProfit.profitAed)}
-                    </span>
-                    {yearProfit.taxAed > 0 && (
-                      <span className="ov-muted" style={{ fontSize: 12 }}>
-                        after tax {money.fmtSigned(yearProfit.profitAed - yearProfit.taxAed)}
-                      </span>
-                    )}
-                  </div>
-                  {/* An Indian sale's tax is deducted by the broker and read
-                      from its statement later; until then its profit is
-                      before a tax not yet known. */}
-                  {yearProfit.taxToConfirm > 0 && (
-                    <div className="ov-muted" style={{ fontSize: 11, marginTop: 3 }}>
-                      {yearProfit.taxToConfirm} sale{yearProfit.taxToConfirm === 1 ? '' : 's'} awaiting the broker&rsquo;s tax
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
+            <ProfitOnSales profit={yearProfit} missing={profitMissing} money={money} />
             <div>
               <div className="ov-muted" style={{ fontSize: 11 }}>
                 Change today
@@ -463,6 +445,7 @@ export default function Investments({ household, members, me, data, loading, rel
           householdId={household?.id}
           members={members}
           trades={holdingTrades}
+          tradesFailed={tradesMissing}
           accounts={data.accounts ?? NONE}
           onClose={() => setEditingId(null)}
           onSaved={async () => {
@@ -475,6 +458,54 @@ export default function Investments({ household, members, me, data, loading, rel
             setEditorGeneration((g) => g + 1);
           }}
         />
+      )}
+    </div>
+  );
+}
+
+// What sales made this year, in the screen's currency: after tax and with
+// sales still awaiting the broker's tax said beside it. Withheld, and why,
+// when its trades or rates never loaded, or a rupee sale has no rate.
+function ProfitOnSales({ profit, missing, money }) {
+  const failed = missing ? couldntLoad(missing) : null;
+  return (
+    <div>
+      <div className="ov-muted" style={{ fontSize: 11 }}>
+        Profit on sales this year
+      </div>
+      {failed ? (
+        <div className="ov-muted" style={{ fontSize: 12.5, marginTop: 5 }}>
+          Not known: {failed.charAt(0).toLowerCase() + failed.slice(1)}
+        </div>
+      ) : !profit.available ? (
+        <div className="ov-muted" style={{ fontSize: 12.5, marginTop: 5 }}>
+          Not known: a rupee sale has no exchange rate
+        </div>
+      ) : profit.sales === 0 ? (
+        <div className="ov-muted" style={{ fontSize: 15, marginTop: 7 }}>
+          None this year
+        </div>
+      ) : (
+        <>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 5 }}>
+            <span className={`fig ${profit.profitAed >= 0 ? 'ov-pos' : 'ov-neg'}`} style={{ fontSize: 19 }}>
+              {money.fmtSigned(profit.profitAed)}
+            </span>
+            {profit.taxAed > 0 && (
+              <span className="ov-muted" style={{ fontSize: 12 }}>
+                after tax {money.fmtSigned(profit.profitAed - profit.taxAed)}
+              </span>
+            )}
+          </div>
+          {/* An Indian sale's tax is deducted by the broker and read from its
+              statement later; until then its profit is before a tax not yet
+              known. */}
+          {profit.taxToConfirm > 0 && (
+            <div className="ov-muted" style={{ fontSize: 11, marginTop: 3 }}>
+              {profit.taxToConfirm} sale{profit.taxToConfirm === 1 ? '' : 's'} awaiting the broker&rsquo;s tax
+            </div>
+          )}
+        </>
       )}
     </div>
   );
