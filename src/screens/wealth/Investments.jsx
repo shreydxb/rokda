@@ -9,6 +9,7 @@ import {
   allocationByClass,
   groupOf,
   holdingGain,
+  isClosedHolding,
   portfolioDayChange,
   portfolioValueChange,
   portfolioInvestedAndGain,
@@ -19,15 +20,23 @@ import {
 } from '../../lib/holdings';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { isAwaitingFirstValuation, isStale } from '../../lib/valuation';
+import { salesProfit } from '../../lib/trades';
+import { householdToday } from '../../lib/day';
 import { supabase } from '../../lib/supabaseClient';
 import HoldingEditor from './HoldingEditor';
 import ConcentrationLine from './ConcentrationLine';
+
+// One empty list for a source a caller did not pass, so the figures worked
+// from it are not worked out again on every render.
+const NONE = [];
 
 export default function Investments({ household, members, me, data, loading, reloadHousehold }) {
   const { scope } = useScope();
   const scopeMemberId = resolveScopeMemberId(scope, me, members);
   const money = useMoneyDisplay(household);
   const { holdings, holdingHistory, reload } = data;
+  const holdingTrades = data.holdingTrades ?? NONE;
+  const fxRateHistory = data.fxRateHistory ?? NONE;
 
   const [group, setGroup] = useState('All');
   const [range, setRange] = useState('3M');
@@ -35,9 +44,23 @@ export default function Investments({ household, members, me, data, loading, rel
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState('');
   const [selectedIdx, setSelectedIdx] = useState(null);
+  const [showSold, setShowSold] = useState(false);
 
   const now = useMemo(() => new Date(), []);
-  const rows = useMemo(() => visibleHoldings(holdings, scopeMemberId, group), [holdings, scopeMemberId, group]);
+  // A holding sold down to nothing is kept with its trades, but it is not
+  // one of the holdings the household has: the table and every figure above
+  // it are the open ones, and the sold ones have their own fold (SHR-371).
+  const rows = useMemo(() => visibleHoldings(holdings, scopeMemberId, group).filter((h) => !isClosedHolding(h)), [holdings, scopeMemberId, group]);
+  const sold = useMemo(() => visibleHoldings(holdings, scopeMemberId, 'All').filter(isClosedHolding), [holdings, scopeMemberId]);
+  // What sales made this calendar year, in the household's year, on the
+  // holdings in view (sold ones included: selling out is when most is made).
+  const year = Number(householdToday().slice(0, 4));
+  const inrPerAed = household?.inr_per_aed ?? null;
+  const fx = useMemo(() => ({ fxHistory: fxRateHistory, inrPerAed }), [fxRateHistory, inrPerAed]);
+  const yearProfit = useMemo(
+    () => salesProfit(holdingTrades, visibleHoldings(holdings, scopeMemberId, group), { from: `${year}-01-01`, to: `${year + 1}-01-01`, scopeMemberId, ...fx }),
+    [holdingTrades, holdings, scopeMemberId, group, year, fx],
+  );
   const groupsPresent = ['All', ...GROUP_ORDER.filter((g) => g !== 'All' && holdings.some((h) => groupOf(h.asset_class) === g))];
 
   const totalValue = rows.reduce((s, h) => s + scopedHoldingValue(h, scopeMemberId), 0);
@@ -61,7 +84,10 @@ export default function Investments({ household, members, me, data, loading, rel
   // The oldest valuation is the honest headline: a portfolio is only as fresh
   // as its stalest holding. Previously this showed the newest, which a single
   // recent edit could make look current (QA-04).
-  const oldestPricedAt = holdings.reduce((oldest, h) => {
+  // The price feed skips a sold-out holding, so its last price only ages:
+  // counting it would call the portfolio stale for good.
+  const held = holdings.filter((h) => !isClosedHolding(h));
+  const oldestPricedAt = held.reduce((oldest, h) => {
     if (!h.priced_at) return oldest;
     const d = new Date(h.priced_at);
     return !oldest || d < oldest ? d : oldest;
@@ -69,16 +95,16 @@ export default function Investments({ household, members, me, data, loading, rel
   // When the feed last ran, which is not how old its prices are: those carry
   // the exchange's quote time in priced_at (docs/decisions.md, "A price is as
   // old as its quote"). Older rows have only last_refreshed.
-  const lastRefreshed = holdings.reduce((latest, h) => {
+  const lastRefreshed = held.reduce((latest, h) => {
     const at = h.price_fetched_at ?? h.last_refreshed;
     if (!at) return latest;
     const d = new Date(at);
     return !latest || d > latest ? d : latest;
   }, null);
-  const autoPriced = holdings.filter((h) => h.price_provider);
+  const autoPriced = held.filter((h) => h.price_provider);
   const failing = autoPriced.filter((h) => h.price_fetch_error);
-  const neverPriced = holdings.filter((h) => !h.priced_at).length;
-  const staleCount = holdings.filter((h) => isStale(h, now)).length;
+  const neverPriced = held.filter((h) => !h.priced_at).length;
+  const staleCount = held.filter((h) => isStale(h, now)).length;
 
   // Refresh prices calls the price-refresh feed (SHR-237) for whatever
   // holdings have opted into a provider (price_provider set). Re-reading what
@@ -245,7 +271,7 @@ export default function Investments({ household, members, me, data, loading, rel
             </div>
             <div>
               <div className="ov-muted" style={{ fontSize: 11 }}>
-                Profit and loss to date
+                Profit not yet taken
               </div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 5 }}>
                 <span className={`fig ${investedGain.available ? (investedGain.absolute >= 0 ? 'ov-pos' : 'ov-neg') : ''}`} style={{ fontSize: 19 }}>
@@ -258,6 +284,41 @@ export default function Investments({ household, members, me, data, loading, rel
                   </span>
                 )}
               </div>
+            </div>
+            <div>
+              <div className="ov-muted" style={{ fontSize: 11 }}>
+                Profit on sales this year
+              </div>
+              {!yearProfit.available ? (
+                <div className="ov-muted" style={{ fontSize: 12.5, marginTop: 5 }}>
+                  Not known: a rupee sale has no exchange rate
+                </div>
+              ) : yearProfit.sales === 0 ? (
+                <div className="ov-muted" style={{ fontSize: 15, marginTop: 7 }}>
+                  None this year
+                </div>
+              ) : (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 5 }}>
+                    <span className={`fig ${yearProfit.profitAed >= 0 ? 'ov-pos' : 'ov-neg'}`} style={{ fontSize: 19 }}>
+                      {money.fmtSigned(yearProfit.profitAed)}
+                    </span>
+                    {yearProfit.taxAed > 0 && (
+                      <span className="ov-muted" style={{ fontSize: 12 }}>
+                        after tax {money.fmtSigned(yearProfit.profitAed - yearProfit.taxAed)}
+                      </span>
+                    )}
+                  </div>
+                  {/* An Indian sale's tax is deducted by the broker and read
+                      from its statement later; until then its profit is
+                      before a tax not yet known. */}
+                  {yearProfit.taxToConfirm > 0 && (
+                    <div className="ov-muted" style={{ fontSize: 11, marginTop: 3 }}>
+                      {yearProfit.taxToConfirm} sale{yearProfit.taxToConfirm === 1 ? '' : 's'} awaiting the broker&rsquo;s tax
+                    </div>
+                  )}
+                </>
+              )}
             </div>
             <div>
               <div className="ov-muted" style={{ fontSize: 11 }}>
@@ -279,7 +340,7 @@ export default function Investments({ household, members, me, data, loading, rel
 
           <section style={{ marginTop: 8 }}>
             <div className="ov-muted" style={{ fontSize: 11.5 }}>
-              {neverPriced > 0 && holdings.length === neverPriced
+              {neverPriced > 0 && held.length === neverPriced
                 ? 'No holding has a confirmed valuation yet.'
                 : oldestPricedAt
                   ? `Oldest valuation ${oldestPricedAt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` +
@@ -294,7 +355,7 @@ export default function Investments({ household, members, me, data, loading, rel
             </div>
           </section>
 
-          <section style={{ marginTop: 34, paddingBottom: 40 }}>
+          <section style={{ marginTop: 34, paddingBottom: sold.length > 0 ? 22 : 40 }}>
             <div className="ov-kicker" style={{ marginBottom: 10 }}>
               Holdings
             </div>
@@ -373,6 +434,21 @@ export default function Investments({ household, members, me, data, loading, rel
         </>
       )}
 
+      {sold.length > 0 && (
+        <section style={{ marginTop: rows.length === 0 ? 26 : 0, paddingBottom: 40 }}>
+          <button type="button" className="om-btn" aria-expanded={showSold} onClick={() => setShowSold((v) => !v)}>
+            Sold ({sold.length})
+          </button>
+          {showSold && (
+            <div className="mn-list" style={{ marginTop: 10 }}>
+              {sold.map((h) => (
+                <SoldRow key={h.id} holding={h} trades={holdingTrades} members={members} money={money} scopeMemberId={scopeMemberId} fx={fx} onOpen={() => setEditing(h)} />
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
       {editing && (
         <HoldingEditor
           holding={editing === 'new' ? null : editing}
@@ -386,6 +462,39 @@ export default function Investments({ household, members, me, data, loading, rel
           onStale={reload}
         />
       )}
+    </div>
+  );
+}
+
+// A sold-out holding: whose it was, when its last units went, and what all its
+// sales made since its trade history started, in the screen's currency.
+function SoldRow({ holding, trades, members, money, scopeMemberId, fx, onOpen }) {
+  const lastSale = trades.filter((t) => t.holding_id === holding.id && t.kind === 'sell').reduce((last, t) => (!last || t.trade_date > last ? t.trade_date : last), null);
+  const made = salesProfit(trades, [holding], { scopeMemberId, ...fx });
+  const owner = holding.is_shared ? 'Shared' : (members.find((m) => m.id === holding.owner_member_id)?.display_name ?? '—');
+  const soldOn = lastSale ? new Date(`${lastSale}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }) : null;
+  return (
+    <div className="mn-row-wrap">
+      <button type="button" className="mn-row" onClick={onOpen}>
+        <div className="mn-row-main">
+          <div>{holding.name}</div>
+          <div className="ov-muted">
+            {owner}
+            {soldOn ? ` · Sold out on ${soldOn}` : ''}
+          </div>
+        </div>
+        <div className="mn-row-amt" style={{ textAlign: 'right' }}>
+          {!made.available ? (
+            <span className="ov-muted">Profit not known</span>
+          ) : made.sales > 0 ? (
+            <span className={`fig ${made.profitAed >= 0 ? 'ov-pos' : 'ov-neg'}`}>
+              {money.code} {money.fmtSigned(made.profitAed)}
+            </span>
+          ) : (
+            <span className="ov-muted">—</span>
+          )}
+        </div>
+      </button>
     </div>
   );
 }
