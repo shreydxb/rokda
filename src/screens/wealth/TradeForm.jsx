@@ -2,7 +2,7 @@ import { useId, useMemo, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { formatMoney } from '../../lib/money';
 import { householdToday } from '../../lib/day';
-import { TRADE_KIND_LABELS, formatUnits, refusalMessage, tradeArgs, warningLines } from '../../lib/trades';
+import { TRADE_KIND_LABELS, formatUnits, refusalMessage, tradeArgs, tradeRow, warningLines } from '../../lib/trades';
 
 const KINDS = ['buy', 'sell', 'split'];
 const money2 = (n) => formatMoney(n, { decimals: 2 });
@@ -92,19 +92,35 @@ export default function TradeForm({ holding, trade = null, trades = [], accounts
     if (!checked || busy) return;
     const { args, effect } = checked;
     setBusy(true);
-    const { data, error } = await supabase.rpc('record_trade', {
-      p_holding_id: holding.id,
-      p_kind: args.p_kind,
-      p_trade_date: args.p_trade_date,
-      p_units: args.p_units,
-      p_price: args.p_price,
-      p_fees: args.p_fees,
-      p_tax_withheld: args.p_tax_withheld,
-      p_traded_at: null,
-      p_funds_account_id: args.p_funds_account_id,
-      p_expected_version: effect.trades_version,
-      p_tax_to_confirm: args.p_tax_to_confirm,
-    });
+    // A fix keeps what the form does not show: the trade's time of day and
+    // its note. Its kind never changes (the database refuses that).
+    const { data, error } = trade
+      ? await supabase.rpc('fix_trade', {
+          p_trade_id: trade.id,
+          p_trade_date: args.p_trade_date,
+          p_units: args.p_units,
+          p_price: args.p_price,
+          p_fees: args.p_fees,
+          p_tax_withheld: args.p_tax_withheld,
+          p_traded_at: trade.traded_at ?? null,
+          p_funds_account_id: args.p_funds_account_id,
+          p_tax_to_confirm: args.p_tax_to_confirm,
+          p_note: trade.note ?? null,
+          p_expected_version: effect.trades_version,
+        })
+      : await supabase.rpc('record_trade', {
+          p_holding_id: holding.id,
+          p_kind: args.p_kind,
+          p_trade_date: args.p_trade_date,
+          p_units: args.p_units,
+          p_price: args.p_price,
+          p_fees: args.p_fees,
+          p_tax_withheld: args.p_tax_withheld,
+          p_traded_at: null,
+          p_funds_account_id: args.p_funds_account_id,
+          p_expected_version: effect.trades_version,
+          p_tax_to_confirm: args.p_tax_to_confirm,
+        });
     setBusy(false);
     if (error) {
       setMessage(`Couldn't save this trade: ${error.message}. Nothing was saved.`);
@@ -137,7 +153,7 @@ export default function TradeForm({ holding, trade = null, trades = [], accounts
 
   return (
     <div className="ht-form" onKeyDown={onKeyDown}>
-      <div className="te-fieldlabel">{trade ? `Fix: ${TRADE_KIND_LABELS[trade.kind] ?? trade.kind}` : 'Record a trade'}</div>
+      <div className="te-fieldlabel">{trade ? `Fix ${tradeRow(trade, currency).title}` : 'Record a trade'}</div>
 
       {!trade && (
         <div className="om-scope-list" role="group" aria-label="Kind of trade">
@@ -160,6 +176,8 @@ export default function TradeForm({ holding, trade = null, trades = [], accounts
             type="date"
             value={form.trade_date}
             max={householdToday()}
+            // The opening entry is the day the history starts; moving it
+            // would move every trade's place in it.
             readOnly={kind === 'opening'}
             onChange={(e) => set('trade_date', e.target.value)}
           />

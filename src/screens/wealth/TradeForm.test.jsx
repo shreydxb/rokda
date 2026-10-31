@@ -227,3 +227,59 @@ describe('TradeForm: recording a trade', () => {
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('TradeForm: fixing a trade', () => {
+  const BUY = { id: 't-buy', holding_id: 'h-abc', kind: 'buy', trade_date: '2026-10-28', traded_at: '2026-10-28T09:30:00Z', created_at: '2026-10-28T10:00:00Z', units: 5, price: 130, fees: 2, tax_withheld: 0, tax_to_confirm: false, funds_account_id: 'f-usd', note: 'typed in the app', realised: null };
+  const OPENING = { ...BUY, id: 't-open', kind: 'opening', trade_date: '2026-10-27', traded_at: null, units: 10, price: 100, fees: 0, funds_account_id: null, note: null };
+  const SELL = { ...BUY, id: 't-sell', kind: 'sell', trade_date: '2026-10-29', traded_at: null, units: 6, price: 150, fees: 1, realised: 239, note: null };
+  const fix = (trade, extra = {}) => {
+    const onSaved = vi.fn().mockResolvedValue(undefined);
+    renderScreen(<TradeForm holding={ABC} trade={trade} trades={[OPENING, BUY, SELL]} accounts={ACCOUNTS} onCancel={vi.fn()} onSaved={onSaved} {...extra} />);
+    return { onSaved };
+  };
+
+  it('fixes a trade through the database, keeping its time and note', async () => {
+    answers.preview_trade = { ...SALE_EFFECT, realised: null, units_before: 9, holding_units_after: 9, holding_avg_after: 110.4, funds_delta: -5 };
+    answers.fix_trade = { ok: true, trade_id: 't-buy', trades_version: 4 };
+    const { onSaved } = fix(BUY);
+    expect(screen.queryByRole('group', { name: 'Kind of trade' })).toBeNull();
+    expect(screen.getByLabelText('Units traded').value).toBe('5');
+    expect(screen.getByLabelText('Price (USD)').value).toBe('130');
+    expect(screen.getByLabelText('Brokerage (USD)').value).toBe('2');
+    type('Price (USD)', '131');
+    await check();
+    expect(calls[0]).toEqual({
+      name: 'preview_trade',
+      args: { p_holding_id: 'h-abc', p_kind: 'buy', p_trade_date: '2026-10-28', p_units: 5, p_price: 131, p_fees: 2, p_tax_withheld: 0, p_traded_at: '2026-10-28T09:30:00Z', p_funds_account_id: 'f-usd', p_replace_trade_id: 't-buy' },
+    });
+    await save();
+    expect(calls.find((c) => c.name === 'fix_trade').args).toEqual({
+      p_trade_id: 't-buy', p_trade_date: '2026-10-28', p_units: 5, p_price: 131, p_fees: 2, p_tax_withheld: 0,
+      p_traded_at: '2026-10-28T09:30:00Z', p_funds_account_id: 'f-usd', p_tax_to_confirm: false, p_note: 'typed in the app', p_expected_version: 3,
+    });
+    expect(calls.some((c) => c.name === 'record_trade')).toBe(false);
+    expect(onSaved).toHaveBeenCalledTimes(1);
+  });
+
+  it('lets an opening entry change its units and price, not its date', async () => {
+    answers.preview_trade = { ...SALE_EFFECT, realised: null, funds_account_id: null, funds_delta: 0 };
+    answers.fix_trade = { ok: true, trade_id: 't-open', trades_version: 4 };
+    fix(OPENING);
+    expect(screen.getByLabelText('Date').readOnly).toBe(true);
+    expect(screen.queryByLabelText('Brokerage (USD)')).toBeNull();
+    expect(screen.queryByLabelText('Fund')).toBeNull();
+    type('Units traded', '12');
+    await check();
+    expect(calls[0].args).toMatchObject({ p_kind: 'opening', p_units: 12, p_price: 100, p_fees: 0, p_funds_account_id: null, p_replace_trade_id: 't-open' });
+    await save();
+    expect(calls.find((c) => c.name === 'fix_trade').args).toMatchObject({ p_trade_id: 't-open', p_trade_date: '2026-10-27', p_units: 12, p_funds_account_id: null, p_note: null });
+  });
+
+  it('names the sale a fix would oversell', async () => {
+    answers.preview_trade = { ok: false, error: 'exceeds_units', entry_id: 't-sell' };
+    fix(BUY);
+    type('Date', '2026-10-30');
+    await check();
+    expect(screen.getByText('This would sell more ABC than was held on 29 Oct. Nothing was saved.')).toBeTruthy();
+  });
+});
