@@ -2973,7 +2973,6 @@ other rupee figure uses. A holding its trades sold to zero is not priced at
 all; one without trades is priced whatever its units, so a zero typed by hand
 values it at zero instead of keeping the last value.
 
-
 ## Trades in the app
 
 Most trades come in through Telegram; the app is where they are seen, and
@@ -2993,7 +2992,9 @@ the bot uses.
   of them stale, so the trade buttons are off until the holding is saved or
   its changes discarded. While a trade is being recorded or fixed, the
   holding's own Cancel and Save are hidden: under a trade's figures, "Save
-  changes" would read as saving the trade. An open editor keeps the holding
+  changes" would read as saving the trade, and the holding's own fields are
+  locked, so no edit is made that the trade's reload would throw away;
+  closing the editor on a trade being typed asks first. An open editor keeps the holding
   as it was opened: the screen's own refreshes (every few minutes, and after
   a refused save) leave it and whatever is typed in it alone, and only a
   trade made in it opens it afresh on the new figures.
@@ -3016,6 +3017,12 @@ the bot uses.
   shared holding's half in one member's view), and unknown rather than
   guessed when a rupee sale has no rate at all. Tax withheld and Indian sales
   still waiting for the broker's tax figure are said beside it.
+- **Trades that did not load are not none.** If the trades never loaded,
+  "Profit on sales this year" says so instead of "None this year", the
+  editor says it couldn't load the holding's trades and offers no Delete;
+  if the exchange rates never loaded, a rupee sale's profit is unknown
+  rather than worked at today's rate. The figure also stays when every
+  holding in view is sold.
 - **An unconfirmed fund is said to be unconfirmed.** A fund nobody has set a
   balance for (both start at 0 on go-live) would otherwise warn on every buy
   that it is going below zero; the warning says instead that it has no

@@ -1,19 +1,23 @@
-import { useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { formatMoney } from '../../lib/money';
 import { formatUnits, refusalMessage, tradeRow, tradesOfHolding } from '../../lib/trades';
 import TradeForm from './TradeForm';
+import './HoldingTrades.css';
 
 const dayMonth = (date) => new Date(`${date}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
-import './HoldingTrades.css';
 
 // A traded holding's trades, newest first, in its editor (SHR-371). This is
 // where an older trade is fixed or deleted; Telegram is where most are
 // recorded. Every action waits while the holding itself has unsaved changes:
 // a trade reloads the holding, which would drop them (disabledReason).
-export default function HoldingTrades({ holding, trades, accounts, disabledReason, onChanged, onFormOpen }) {
+export default function HoldingTrades({ holding, trades, failed = false, accounts, disabledReason, onChanged, onFormOpen }) {
   const list = tradesOfHolding(trades, holding.id);
   const disabled = !!disabledReason;
+  const uid = useId();
+  const reasonId = `${uid}-reason`;
+  const recordRef = useRef(null);
+  const keepRef = useRef(null);
   // Which trade the form is open for: 'new' to record one, a trade to fix it.
   const [formFor, setFormForState] = useState(null);
   // The editor hides its own Save while a trade form is open: under a trade's
@@ -26,11 +30,26 @@ export default function HoldingTrades({ holding, trades, accounts, disabledReaso
   // undoing it (or why it can't be), and whether it is being sent.
   const [deleting, setDeleting] = useState(null);
 
+  // Focus goes where the person is: back to "Record a trade" when the form
+  // closes, since the button that opened it is gone; to the safe choice when
+  // a delete asks, with the question read alongside it.
+  const formWasOpen = useRef(false);
+  useEffect(() => {
+    if (formWasOpen.current && !formFor) recordRef.current?.focus();
+    formWasOpen.current = !!formFor;
+  }, [formFor]);
+  const asking = !!deleting && !deleting.busy && !!(deleting.effect || deleting.message);
+  useEffect(() => {
+    if (asking) keepRef.current?.focus();
+  }, [asking]);
+
   // A saved trade reloads the screen, which opens the editor afresh on the
   // holding's new version (Investments keys it so), with this form closed.
   async function saved() {
     if (onChanged) await onChanged();
-    else setFormFor(null);
+    // Normally the reload has already reopened the editor; this closes the
+    // form if it did not.
+    setFormFor(null);
   }
 
   async function askDelete(t) {
@@ -61,6 +80,19 @@ export default function HoldingTrades({ holding, trades, accounts, disabledReaso
     if (onChanged) await onChanged();
   }
 
+  if (failed) {
+    return (
+      <section className="ht-section" aria-labelledby="ht-title">
+        <span className="te-fieldlabel" id="ht-title">
+          Trades
+        </span>
+        <p className="ov-warn" role="alert" style={{ fontSize: 12.5, margin: 0 }}>
+          Couldn&rsquo;t load this holding&rsquo;s trades. Refresh the page to try again.
+        </p>
+      </section>
+    );
+  }
+
   if (formFor) {
     return (
       <section className="ht-section" aria-label="Trades">
@@ -75,26 +107,29 @@ export default function HoldingTrades({ holding, trades, accounts, disabledReaso
         <span className="te-fieldlabel" id="ht-title">
           Trades
         </span>
-        <button type="button" className="om-btn" disabled={disabled} onClick={() => setFormFor('new')}>
+        <button type="button" className="om-btn" ref={recordRef} disabled={disabled} aria-describedby={disabled ? reasonId : undefined} onClick={() => setFormFor('new')}>
           Record a trade
         </button>
       </div>
       {disabledReason && (
-        <div className="ov-muted" style={{ fontSize: 11.5 }}>
+        <div className="ov-muted" id={reasonId} style={{ fontSize: 11.5 }}>
           {disabledReason}
         </div>
       )}
       <ul className="ht-list" aria-label="Trades">
         {list.map((t) => {
           const row = tradeRow(t, holding.currency);
-          if (deleting?.trade.id === t.id && !deleting.busy && (deleting.effect || deleting.message)) {
+          if (asking && deleting.trade.id === t.id) {
+            const questionId = `${uid}-q-${t.id}`;
             return (
               <li key={t.id} className="ht-row ht-row-asking">
                 {deleting.effect ? (
                   <>
-                    <div className="mn-row-main">{deleteQuestion(t, row.title, deleting.effect, holding, accounts)}</div>
+                    <div className="mn-row-main" id={questionId}>
+                      {deleteQuestion(t, row.title, deleting.effect, holding, accounts)}
+                    </div>
                     <div className="ht-actions">
-                      <button type="button" className="om-btn" onClick={() => setDeleting(null)}>
+                      <button type="button" className="om-btn" ref={keepRef} aria-describedby={questionId} onClick={() => setDeleting(null)}>
                         Keep it
                       </button>
                       <button type="button" className="om-btn te-delete" onClick={confirmDelete}>
@@ -104,11 +139,11 @@ export default function HoldingTrades({ holding, trades, accounts, disabledReaso
                   </>
                 ) : (
                   <>
-                    <div className="mn-row-main ov-warn" role="alert">
+                    <div className="mn-row-main ov-warn" role="alert" id={questionId}>
                       {deleting.message}
                     </div>
                     <div className="ht-actions">
-                      <button type="button" className="om-btn" onClick={() => setDeleting(null)}>
+                      <button type="button" className="om-btn" ref={keepRef} aria-describedby={questionId} onClick={() => setDeleting(null)}>
                         Keep it
                       </button>
                     </div>
@@ -124,14 +159,14 @@ export default function HoldingTrades({ holding, trades, accounts, disabledReaso
                 <div className="ov-muted">{row.detail}</div>
               </div>
               <div className="ht-actions">
-                <button type="button" className="om-btn" aria-label={`Fix ${row.title}`} disabled={disabled || !!deleting} onClick={() => setFormFor(t)}>
+                <button type="button" className="om-btn" aria-label={`Fix ${row.title}`} aria-describedby={disabled ? reasonId : undefined} disabled={disabled || !!deleting} onClick={() => setFormFor(t)}>
                   Fix
                 </button>
                 {/* The opening entry is where the history starts: it can be
                     corrected, but removing it is undoing the fresh start,
                     which the app does not offer. */}
                 {t.kind !== 'opening' && (
-                  <button type="button" className="om-btn" aria-label={`Delete ${row.title}`} disabled={disabled || !!deleting} onClick={() => askDelete(t)}>
+                  <button type="button" className="om-btn" aria-label={`Delete ${row.title}`} aria-describedby={disabled ? reasonId : undefined} disabled={disabled || !!deleting} onClick={() => askDelete(t)}>
                     Delete
                   </button>
                 )}
