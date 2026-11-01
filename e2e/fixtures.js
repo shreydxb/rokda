@@ -20,7 +20,14 @@ const USER = '33333333-3333-4333-8333-333333333333';
 const pad = (n) => String(n).padStart(2, '0');
 const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const now = new Date();
-export const dayThisMonth = (day) => iso(new Date(now.getFullYear(), now.getMonth(), day));
+// A day of this month for something that has already happened: never later
+// than today. A transaction dated the 13th is in the future on the 1st, and the
+// app rightly reads a future one as scheduled, not spent; the suite went red on
+// 1 Nov 2026 for exactly that, with nothing wrong in the app.
+export const dayThisMonth = (day) => iso(new Date(now.getFullYear(), now.getMonth(), Math.min(day, now.getDate())));
+// A day of this month for something still to come (a bill's due date, a
+// deposit's maturity), kept where it is whatever today is.
+export const upcomingDayThisMonth = (day) => iso(new Date(now.getFullYear(), now.getMonth(), day));
 const monthsAgo = (n) => iso(new Date(now.getFullYear(), now.getMonth() - n, 15));
 const ts = (d) => `${d}T09:00:00+00:00`;
 
@@ -74,7 +81,7 @@ export const data = {
     acc(A_SAVINGS, 'Savings', 'savings', { balance: 80000, balance_aed: 80000 }),
     // Statement day 10 and a limit, so the card panel renders a real cycle.
     acc(A_CARD, 'Platinum card', 'credit_card', { balance: 3200.75, balance_aed: 3200.75, credit_limit: 25000, statement_day: 10, due_day: 25 }),
-    acc(A_FD, 'Term deposit', 'fd', { balance: 10600, balance_aed: 10600, principal: 10000, interest_rate_pct: 6, compounding: 'simple', opened_date: monthsAgo(12), maturity_date: dayThisMonth(28), balance_as_of: null }),
+    acc(A_FD, 'Term deposit', 'fd', { balance: 10600, balance_aed: 10600, principal: 10000, interest_rate_pct: 6, compounding: 'simple', opened_date: monthsAgo(12), maturity_date: upcomingDayThisMonth(28), balance_as_of: null }),
     // An unconfirmed balance and an archived account: both are states the UI
     // is meant to render differently, and both are easy to get wrong.
     acc(A_ARCHIVED, 'Old account', 'checking', { balance: 0, archived_at: ts(monthsAgo(2)), closing_note: 'Closed' }),
@@ -96,8 +103,8 @@ export const data = {
   ],
 
   recurring: [
-    { id: '88888888-0000-4000-8000-000000000001', household_id: HH, name: 'Rent', account_id: A_CURRENT, category_id: C_RENT, owner_member_id: null, is_shared: true, amount: -6500, currency: 'AED', cadence: 'monthly', next_due_date: dayThisMonth(28), autopay: false, is_fixed: true, active: true, created_at: ts(monthsAgo(6)), updated_at: ts(monthsAgo(1)), interval_count: 1 },
-    { id: '88888888-0000-4000-8000-000000000002', household_id: HH, name: 'Streaming', account_id: A_CARD, category_id: C_DINING, owner_member_id: ME, is_shared: false, amount: -55, currency: 'AED', cadence: 'monthly', next_due_date: dayThisMonth(20), autopay: true, is_fixed: true, active: true, created_at: ts(monthsAgo(6)), updated_at: ts(monthsAgo(1)), interval_count: 1 },
+    { id: '88888888-0000-4000-8000-000000000001', household_id: HH, name: 'Rent', account_id: A_CURRENT, category_id: C_RENT, owner_member_id: null, is_shared: true, amount: -6500, currency: 'AED', cadence: 'monthly', next_due_date: upcomingDayThisMonth(28), autopay: false, is_fixed: true, active: true, created_at: ts(monthsAgo(6)), updated_at: ts(monthsAgo(1)), interval_count: 1 },
+    { id: '88888888-0000-4000-8000-000000000002', household_id: HH, name: 'Streaming', account_id: A_CARD, category_id: C_DINING, owner_member_id: ME, is_shared: false, amount: -55, currency: 'AED', cadence: 'monthly', next_due_date: upcomingDayThisMonth(20), autopay: true, is_fixed: true, active: true, created_at: ts(monthsAgo(6)), updated_at: ts(monthsAgo(1)), interval_count: 1 },
   ],
 
   budgets: [
