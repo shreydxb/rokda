@@ -43,20 +43,20 @@ Reference data from the feeds, the same for every household, like `fx_rate_histo
 | `symbol` | the holding's `price_symbol` (`ABC` for a US share, `ABC.NS` for an Indian one) |
 | `ex_date` | in the exchange's own calendar |
 | `amount` | numeric(18,6), per share **on the share basis of the ex-date**, in `currency` (3.1.1) |
-| `source_amount`, `source_factor` | the amount as the source last gave it, and the split factor applied to it |
+| `source_amount`, `source_factor`, `source_fetched_on` | the amount as the source last gave it, the split factor applied to it, and the day of that fetch |
 | `currency` | the currency the dividend is paid in, as the source states; the share's currency when the source says nothing |
 | `pay_date`, `record_date`, `declared_on` | where the source gives them |
 | `source` | `alphavantage` or `yahoo` |
 | `first_seen_at`, `last_seen_at` | the first and the latest successful fetch that listed it |
 | `superseded_by` | the event that replaced it after a moved ex-date (5.2), or null |
 
-Unique `(symbol, ex_date)`. An event is **listed** when the latest successful fetch of its symbol listed it (`last_seen_at` equals the symbol's `last_success_at`, 3.4). Every fetch returns the symbol's whole history (5.1), so "not listed" means the source no longer has it. A failed fetch changes nothing. Events are never deleted.
+Unique `(symbol, ex_date)`. An event is **listed** when the latest successful fetch of its symbol listed it (`last_seen_at` equals the symbol's `last_success_at`, 3.4). Every fetch returns the symbol's whole history (5.1). One answer that leaves an event out changes nothing; `missed_checks` counts successful fetches in a row that have not listed it, and only two count as the source dropping it. An event listed again has `missed_checks` 0 and is no longer superseded. A failed fetch changes nothing; an answer with an unreadable item, or with no dividends for a symbol that has listed ones, is a failure. Two items on one ex-date are one event of both amounts, and two splits on one date one split of both ratios. Events are never deleted.
 
 RLS: any signed-in member reads; only the service role writes.
 
 #### 3.1.1 The share basis
 
-A split multiplies the units and divides the per-share amounts after it. A dividend's entitlement is the units on its ex-date times its amount per share **as of that ex-date**. Sources that adjust past amounts for later splits give a smaller figure after a split, so each event stores `amount = source_amount × source_factor`, where `source_factor` is the product of the ratios of every split with an effective date after the ex-date, from `dividend_splits` (3.2), for a source that adjusts, and 1 for one that does not. Every fetch recomputes it from the splits known then, so an event's `amount` stays the same on its ex-date's basis however many splits follow. A split effective on the ex-date itself is ambiguous: such an event is not earned automatically and goes to review.
+A split multiplies the units and divides the per-share amounts after it. A dividend's entitlement is the units on its ex-date times its amount per share **as of that ex-date**. Sources that adjust past amounts for later splits give a smaller figure after a split, so each event stores `amount = source_amount × source_factor`, where `source_factor` is, for a source that adjusts, the product of the ratios of every split in `dividend_splits` (3.2) effective after the ex-date and before the day of the fetch that gave `source_amount` (`source_fetched_on`), and 1 for a source that does not. A split the source had not yet applied when it gave the amount is therefore never applied to it, and one learnt of later is applied as soon as it is known. It is recomputed whenever splits or the event are recorded, so an event's `amount` stays the same on its ex-date's basis however many splits follow. A split effective on the ex-date itself is ambiguous: such an event is not earned automatically and goes to review.
 
 For projections the app wants the amount per share **today**, which is `amount` divided by the ratios of every split after the ex-date (4.3).
 
@@ -119,11 +119,17 @@ That a row made by the feed is dated on or after its holding's opening entry is 
 
 - `holdings.dividend_tax_pct` numeric(5,2), 0–100, and `holdings.dividend_fee_per_share` numeric(18,6), default 0. The migration fills the rate from the asset class (Indian equity 20.8, US and international equity 30, others null) and a trigger does the same for new holdings; both are editable in the holding editor ("Withholding on dividends", "Fees per share"). A change applies to dividends earned afterwards and to `earned` rows not yet fixed; it never rewrites a received, presumed or fixed one.
 - `accounts.dividends_into_account_id`, on a Broker funds account only: where its holdings' dividends are paid. Null means the fund itself. It must name an open account of the household in the fund's currency. The rupee broker's fund points at the Indian bank account; the dollar broker's fund stays null. Editable in the account editor for a Broker funds account.
-- A holding's dividends go where its fund says. A holding with no fund has no destination: its dividends are earned, never moved, presumed received like a bank's, and the tab says where they went is not set.
+- A holding's dividends go where its fund says, or to the fund itself once the account it names is closed (closing it never stops the fund's trades or balance). An `earned` row not fixed follows a change of destination at the next run of 5.2; received, presumed and fixed rows keep theirs. A holding with no fund has no destination: its dividends are earned, never moved, presumed received like a bank's, and the tab says where they went is not set.
 
-### 3.7 One household's writes take turns
+### 3.7 Locks: the holding first
 
-`private.lock_household(household_id)` takes a transaction-level advisory lock on the household. Every function that writes trades, dividends or a fund's balance through them takes it first: the trade functions (`record_trade`, `fix_trade`, `delete_trade`, `record_new_holding_trade`, `open_trade_history`), the dividend functions (section 5), `earn_dividends()` for each household it touches, and `apply_bot_proposal`. Only then does it lock rows: holdings, then dividends, then funds, each in id order. Two saves in one household therefore take turns, and no two writers can wait on each other. A balance confirmed in the app locks only its account's row, and every writer above locks that row before reading the confirmation, so a confirmation and a save are ordered by that row lock (5.4).
+A holding's dividend rows are written only by a transaction that holds that holding's row lock, and every writer locks in one order: holdings (in id order), then dividend rows, then funds (in id order).
+
+- The trade functions already lock their holding first and its funds after. They re-work dividends through a trigger on `holding_trades` (5.3), which runs inside them, under that holding lock, so they need no change.
+- The dividend functions (section 5), a bot proposal that receives dividends, and `earn_dividends()` lock the holdings concerned first, in id order, then their dividend rows, then any funds.
+- A balance confirmed in the app locks only its account's row, and every writer above locks that row before reading the confirmation, so a confirmation and a save are ordered by that row lock (5.4).
+
+So two writers on one holding wait for each other at the holding, two on different holdings never share a dividend row, and no two writers can wait on each other. (An outside review proposed a household-wide lock taken first by every writer; this gives the same guarantee without rewriting the trade functions.)
 
 ## 4. The sums
 
@@ -200,9 +206,9 @@ PR 1 settles, against recorded responses for shares that split, whether each sou
 
 ### 5.2 Earned: `earn_dividends()`
 
-Service role only, idempotent, safe to run any number of times. Per household, under its lock (3.7):
+Service role only, idempotent, safe to run any number of times. Holding by holding, in id order, each under its row lock (3.7) and in its own subtransaction: a holding that cannot be done is reported in the result and the others are still earned.
 
-1. **Moved ex-dates.** For an event with rows that is no longer listed, when exactly one listed event of the same symbol, not yet earned by that holding, has an ex-date within 15 days of it, that event supersedes it (`superseded_by`): each of its `earned` rows not fixed moves to the new event, with units and figures worked out again; any other row is flagged `moved_ex_date`. Any other unlisted event with rows flags them `moved_ex_date` and nothing moves. A superseded event is never earned again.
+1. **Moved ex-dates.** Decided once per symbol, before any holding is locked: an event with rows that two checks in a row have not listed is superseded (`superseded_by`) by the one listed event of the same symbol within 15 days of it, when there is exactly one. Then, per holding, each `earned` row not fixed on a superseded event moves to its replacement, with units and figures worked out again, unless the holding already has a row on the replacement or its ex-date; any other row on a dropped or superseded event is flagged `moved_ex_date`, and is not presumed received. A superseded event is never earned again unless it is listed again.
 2. **New rows.** For every listed event whose ex-date has passed, with no pay date before its ex-date and no split effective on its ex-date, not superseded, and every holding with that symbol whose units on the ex-date (4.1) are above zero and whose opening entry is on or before the ex-date:
    - if the holding has a row for that event, nothing;
    - else if it has a row with no event for **the same ex-date**, that row is linked to the event and keeps its figures, flagged `feed_changed` if its per-share amount differs;
@@ -215,7 +221,7 @@ Service role only, idempotent, safe to run any number of times. Per household, u
 
 ### 5.3 Trades change what was earned
 
-Every function that saves, fixes or deletes a trade re-works, in the same transaction and under the household lock, the holding's dividends with an ex-date on or after the earliest date the change touches:
+A trigger on `holding_trades` (after a trade is inserted or deleted, or its date, time, units or kind change) re-works, in the same transaction and under the holding's lock (and never refusing the trade if the re-work fails; the nightly run then tries again), the holding's dividends with an ex-date on or after the earliest date the change touches:
 
 - an `earned` row not fixed takes its new units and expected figures, and is removed if its units are now zero;
 - a `received`, `presumed` or fixed row whose units would change keeps its figures and is flagged `trades_changed`, unless the new units match its `review_baseline`;
@@ -240,7 +246,7 @@ So a backdated buy, a sale fixed to an earlier date, or a split recorded late re
 
 Bank destinations are refused any movement by the function itself.
 
-**Concurrency.** Each save takes the household lock (3.7), locks the dividend rows, then every fund it touches in id order, and only then reads the funds' confirmations. A confirmation in the app on the same fund either commits first, and the save reads it, or waits for the save's lock, and replaces the balance after it. Each save states the dividend `version` it was shown, and the fund confirmation it was shown (`balance_as_of`): either different, and nothing is saved. Balance changes are written to `account_balance_events` as trades' are.
+**Concurrency.** Each save locks the holdings concerned (3.7), then the dividend rows, then every fund it touches in id order, and only then reads the funds' confirmations. A confirmation in the app on the same fund either commits first, and the save reads it, or waits for the save's lock, and replaces the balance after it. Each save states the dividend `version` it was shown, and the fund confirmation it was shown (`balance_as_of`): either different, and nothing is saved. Balance changes are written to `account_balance_events` as trades' are.
 
 ### 5.5 The bot
 
@@ -269,7 +275,7 @@ Every member write goes through a function that checks, at save time, that the m
 - **Add**: a dividend the feed missed, or an older receipt (`source = 'app'`, `units_basis = 'stated'`), with or without an ex-date.
 - **Review**: a flagged row shows what changed; "keep" stores the current figures as its `review_baseline` and clears the flag, and "fix" opens Fix; a `possible_duplicate` is linked to the named event or kept apart.
 
-The feed job is the one writer outside this contract: it writes reference data and earned rows as the service role (5.1, 5.2), under the household lock.
+The feed job is the one writer outside this contract: it writes reference data and earned rows as the service role (5.1, 5.2), under each holding's lock.
 
 ## 6. The Dividends tab
 
@@ -298,7 +304,7 @@ Nothing about the emails or their figures enters the repository.
 
 | PR | What | Done when |
 |---|---|---|
-| **1. Records and feed** | 3.1–3.7 with their constraints and RLS, the household lock in the trade functions, `earn_dividends()`, 5.3, `dividend-refresh` and its job, the withholding, fee and "paid into" fields in the editors | the event, entitlement, supersession and trade rules are proved in SQL tests before ingestion is built; parsers pass on recorded responses for both sources, including errors, a split and a combined special; the scenarios below marked 1 pass |
+| **1. Records and feed** | 3.1–3.7 with their constraints and RLS, the trigger that re-works dividends when trades change, `earn_dividends()`, 5.3, `dividend-refresh` and its job, the withholding, fee and "paid into" fields in the editors | the event, entitlement, supersession and trade rules are proved in SQL tests before ingestion is built; parsers pass on recorded responses for both sources, including errors, a split and a combined special; the scenarios below marked 1 pass |
 | **2. Receipts** | 5.4–5.6: the functions, the morning message, the bot's dividend guard, Record / Fix / One-off / Skip / Add / Review | the scenarios below marked 2 pass, with exact balances, in both transaction orders where two writers meet |
 | **3. The tab** | section 6 and `src/lib/dividends.js` | the sums in section 4 and the tab's states are tested; a browser test on a phone covers long holding names, unknown dates, one market failing, and Record and Fix |
 | **Data task** | section 7 | the worksheet is approved; imported rows reconcile with it; a rerun changes nothing |
@@ -339,8 +345,8 @@ Each PR updates `docs/features.md` and a "Dividends" section in `docs/decisions.
 
 | Risk | What stops it |
 |---|---|
-| A dividend counted twice in a fund | the balance rule (5.4), worked out from the receipt and the fund as they are, on every save, under the household lock, at a checked version and confirmation |
-| Two writers waiting on each other | one household lock taken first by every writer, then rows in one order (3.7) |
+| A dividend counted twice in a fund | the balance rule (5.4), worked out from the receipt and the fund as they are, on every save, under the holding's and the fund's locks, at a checked version and confirmation |
+| Two writers waiting on each other | holdings locked first, then dividend rows, then funds, by every writer (3.7) |
 | Counted twice in the Life plan | dividends are not income transactions, and the bot does not log one as income |
 | Wrong units, or the wrong share basis | units from the trade replay on the ex-date's basis; amounts normalised to that basis from the source's splits; re-worked when trades change; nothing before an opening entry |
 | A feed misreads, moves or withdraws a dividend | whole-history fetches; only listed events are earned; moved dates supersede, never duplicate; changes to received rows are flagged, never applied; every broker-fund figure is seen before a fund moves |
