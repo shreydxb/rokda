@@ -5258,4 +5258,35 @@ begin
   raise notice 'D2-20 ok: a refused line rolls back the lines saved before it';
 end $$;
 
+-- D2-21: a save at a version someone else has moved on from is stale, even
+-- when what they did (recording it first) would also refuse the change.
+do $$
+declare c jsonb := pg_temp.d2_case(); dv uuid; pv jsonb; r jsonb;
+begin
+  dv := (c ->> 'dividend')::uuid;
+  pv := preview_dividend(dv, '{"action": "record"}', '22222222-2222-2222-2222-0000000000b7');
+  r := pg_temp.d2_save(dv, '{"action": "record"}');
+  r := save_dividend(dv, '{"action": "record"}', (pv ->> 'version')::integer, pv -> 'confirmations', '22222222-2222-2222-2222-0000000000b7');
+  if r ->> 'error' is distinct from 'stale' or pg_temp.d2_bal((c ->> 'fund')::uuid) <> 107 then
+    raise exception 'D2-21 FAILED: the second save gave % and the fund %', r, pg_temp.d2_bal((c ->> 'fund')::uuid);
+  end if;
+  raise notice 'D2-21 ok: a save on a version since moved on is stale';
+end $$;
+
+-- D2-22: a fund confirmed since the preview refuses the save as such, even
+-- when the new confirmation would also ask whether it was already in: the
+-- member is shown the change again, question and all.
+do $$
+declare c jsonb := pg_temp.d2_case(); dv uuid; f uuid; pv jsonb; r jsonb;
+begin
+  dv := (c ->> 'dividend')::uuid; f := (c ->> 'fund')::uuid;
+  pv := preview_dividend(dv, '{"action": "record"}', '22222222-2222-2222-2222-0000000000b7');
+  perform pg_temp.d2_fix_confirmation(f, 107, pg_temp.d2_m1() + 5);
+  r := save_dividend(dv, '{"action": "record"}', (pv ->> 'version')::integer, pv -> 'confirmations', '22222222-2222-2222-2222-0000000000b7');
+  if pv ->> 'asks' is not null or r ->> 'error' is distinct from 'fund_confirmed_since' or pg_temp.d2_bal(f) <> 107 then
+    raise exception 'D2-22 FAILED: the preview asked % and the save gave % with the fund %', pv ->> 'asks', r, pg_temp.d2_bal(f);
+  end if;
+  raise notice 'D2-22 ok: a fund confirmed since the preview is reported before a new question';
+end $$;
+
 rollback;

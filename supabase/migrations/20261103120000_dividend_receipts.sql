@@ -154,6 +154,11 @@ begin
     if p_save then
       perform 1 from public.holdings where id = v_old.holding_id for update;
       select * into v_old from public.holding_dividends where id = p_dividend_id for update;
+      -- Changed since the preview: stale, before anything else about it is
+      -- judged, so a member who lost a race is told to look again.
+      if v_old.version is distinct from p_expected_version then
+        return jsonb_build_object('ok', false, 'error', 'stale');
+      end if;
     end if;
     select * into v_h from public.holdings where id = v_old.holding_id;
     v_new := v_old;
@@ -334,17 +339,16 @@ begin
       'version', v_version, 'asks', v_asks, 'warnings', '[]'::jsonb);
   end if;
 
-  if v_asks is not null then
-    return jsonb_build_object('ok', false, 'error', 'needs_answer');
-  end if;
-  if v_action <> 'add' and v_old.version is distinct from p_expected_version then
-    return jsonb_build_object('ok', false, 'error', 'stale');
-  end if;
+  -- A fund confirmed since the preview makes the preview itself out of date,
+  -- question and all, so it is reported first.
   foreach v_key in array coalesce(array(select jsonb_object_keys(v_confirmations)), '{}'::text[]) loop
     if (v_confirmations ->> v_key) is distinct from (coalesce(p_expected_confirmations, '{}'::jsonb) ->> v_key) then
       return jsonb_build_object('ok', false, 'error', 'fund_confirmed_since');
     end if;
   end loop;
+  if v_asks is not null then
+    return jsonb_build_object('ok', false, 'error', 'needs_answer');
+  end if;
 
   if v_action = 'add' then
     begin

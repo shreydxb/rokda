@@ -281,6 +281,119 @@ else
 fi
 rm -f /tmp/rokda_race_trade.$$ /tmp/rokda_race_earn.$$
 
+# A household whose dollar fund was confirmed at 100 on 1 October, with a
+# dividend of net 7 paid into it on 20 October, earned and not yet received.
+FUND=f1000000-0000-4000-8000-000000000003
+DIVIDEND=b1000000-0000-4000-8000-000000000001
+seed_dividend() {
+  seed_trades
+  psql -d "$DB" -v ON_ERROR_STOP=1 -q <<SQL >/dev/null
+set client_min_messages = warning;
+update accounts set balance = 100, balance_as_of = '2026-10-01 00:00+04' where id = '$FUND';
+insert into holding_dividends (id, household_id, holding_id, ex_date, pay_date, currency, units, units_basis, per_share, tax_pct,
+  expected_gross, expected_tax, expected_fees, expected_net, status, source, paid_into_account_id)
+values ('$DIVIDEND', 'd1000000-0000-4000-8000-000000000001', 'a1000000-0000-4000-8000-000000000001', '2026-10-15', '2026-10-20', 'USD',
+  10, 'trades', 1, 30, 10, 3, 0, 7, 'earned', 'feed', '$FUND');
+-- What the member was shown before saving: the version and the fund's
+-- confirmation the save must still find.
+select set_config('request.jwt.claim.role', 'service_role', false);
+drop table if exists race_preview;
+create table race_preview as
+  select preview_dividend('$DIVIDEND', '{"action": "record"}', 'e1000000-0000-4000-8000-00000000000a') as pv;
+SQL
+}
+SAVE_DIVIDEND="select set_config('request.jwt.claim.role', 'service_role', true);
+select save_dividend('$DIVIDEND', '{\"action\": \"record\"}', (pv ->> 'version')::integer, pv -> 'confirmations', 'MEMBER') from race_preview;"
+
+echo "verify-concurrency: two members recording the same dividend (SHR-366)"
+# Both were shown the same version. The one that waits for the holding's lock
+# must find it moved on and be told so, or the fund moves twice.
+seed_dividend
+events_before=$(psql -At -d "$DB" -c "select count(*) from account_balance_events where account_id = '$FUND'")
+psql -d "$DB" -At > /tmp/rokda_race_save_a.$$ 2>&1 <<SQL &
+begin;
+select pg_sleep(0.4);
+${SAVE_DIVIDEND/MEMBER/e1000000-0000-4000-8000-00000000000a}
+select pg_sleep(0.6);
+commit;
+SQL
+psql -d "$DB" -At > /tmp/rokda_race_save_b.$$ 2>&1 <<SQL &
+begin;
+select pg_sleep(0.4);
+${SAVE_DIVIDEND/MEMBER/e1000000-0000-4000-8000-00000000000b}
+select pg_sleep(0.6);
+commit;
+SQL
+wait
+saved=$(cat /tmp/rokda_race_save_a.$$ /tmp/rokda_race_save_b.$$ | grep -c '"ok": true' || true)
+stale=$(cat /tmp/rokda_race_save_a.$$ /tmp/rokda_race_save_b.$$ | grep -c '"error": "stale"' || true)
+recorded=$(psql -At -d "$DB" -c "select balance || ',' || (select count(*) from account_balance_events where account_id = '$FUND') - $events_before from accounts where id = '$FUND'")
+if [ "$saved,$stale,$recorded" = "1,1,107.00,1" ]; then
+  echo "  ok   two members recording one dividend: one saves, one is stale (fund,new balance events=$recorded)"
+else
+  echo "  FAIL two members recording one dividend gave saved=$saved stale=$stale fund,new balance events=$recorded, expected 1,1,107.00,1" >&2
+  fail=1
+fi
+rm -f /tmp/rokda_race_save_a.$$ /tmp/rokda_race_save_b.$$
+
+# A member enters the fund's balance from the broker's screen, 107 as of the
+# day after the dividend arrived, so it includes it, while another records
+# the dividend from an earlier preview. Whichever commits second must see the
+# other: the dividend is inside the checked-in balance or moves the fund,
+# never both.
+CHECK_IN="update accounts set balance = 107, balance_as_of = '2026-10-21 00:00+04' where id = '$FUND';"
+
+echo "verify-concurrency: a dividend recorded while the fund is checked in, check-in first (SHR-366)"
+seed_dividend
+psql -d "$DB" <<SQL >/dev/null 2>&1 &
+begin;
+$CHECK_IN
+select pg_sleep(1);
+commit;
+SQL
+psql -d "$DB" -At > /tmp/rokda_race_receipt.$$ 2>&1 <<SQL &
+begin;
+select pg_sleep(0.3);
+${SAVE_DIVIDEND/MEMBER/e1000000-0000-4000-8000-00000000000a}
+commit;
+SQL
+wait
+refused=$(grep -c '"error": "fund_confirmed_since"' /tmp/rokda_race_receipt.$$ || true)
+after=$(psql -At -d "$DB" -c "select balance || ',' || (select status from holding_dividends where id = '$DIVIDEND') from accounts where id = '$FUND'")
+if [ "$refused,$after" = "1,107.00,earned" ]; then
+  echo "  ok   a check-in committed first refuses the receipt's save (fund,dividend=$after)"
+else
+  echo "  FAIL a check-in committed first gave refused=$refused fund,dividend=$after, expected 1,107.00,earned" >&2
+  fail=1
+fi
+
+echo "verify-concurrency: a dividend recorded while the fund is checked in, receipt first (SHR-366)"
+# The save locks the fund first and moves it to 107; the check-in waits and
+# then sets the balance the member read, which already holds the dividend.
+seed_dividend
+psql -d "$DB" -At > /tmp/rokda_race_receipt.$$ 2>&1 <<SQL &
+begin;
+${SAVE_DIVIDEND/MEMBER/e1000000-0000-4000-8000-00000000000a}
+select pg_sleep(1);
+commit;
+SQL
+psql -d "$DB" <<SQL >/dev/null 2>&1 &
+begin;
+select pg_sleep(0.3);
+$CHECK_IN
+commit;
+SQL
+wait
+saved=$(grep -c '"ok": true' /tmp/rokda_race_receipt.$$ || true)
+after=$(psql -At -d "$DB" -c "select balance || ',' || (select status from holding_dividends where id = '$DIVIDEND') from accounts where id = '$FUND'")
+if [ "$saved,$after" = "1,107.00,received" ]; then
+  echo "  ok   a receipt committed first is then inside the check-in (fund,dividend=$after)"
+else
+  echo "  FAIL a receipt committed first gave saved=$saved fund,dividend=$after, expected 1,107.00,received" >&2
+  fail=1
+fi
+rm -f /tmp/rokda_race_receipt.$$
+
 if [ "$fail" -ne 0 ]; then
   echo "verify-concurrency: FAILED" >&2
   exit 1
