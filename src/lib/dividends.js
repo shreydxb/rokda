@@ -2,6 +2,21 @@
 // records"). Pure helpers for showing a holding's dividends and the database's
 // answers about them. The figures themselves are worked out by the database
 // (preview_dividend, save_dividend); nothing here computes a net.
+import { householdToday } from './day';
+import { formatMoney } from './money';
+import { formatUnits } from './trades';
+
+const money2 = (n) => formatMoney(n, { decimals: 2 });
+// An amount per share keeps its digits: a quarter-cent is not rounded away.
+export function formatPerShare(n) {
+  return Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 });
+}
+
+// "15 Oct", or "14 Mar 2025" for a day in another year than today's.
+export function shortDate(day, today = householdToday()) {
+  const sameYear = day.slice(0, 4) === today.slice(0, 4);
+  return new Date(`${day}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: sameYear ? undefined : 'numeric', timeZone: 'UTC' });
+}
 
 // A holding's dividends, newest first: by ex-date, or for one added without
 // an ex-date, by the day it was credited.
@@ -58,4 +73,29 @@ const REFUSALS = {
 // One sentence for a refusal from the database, keeping what was typed.
 export function dividendRefusalMessage(code) {
   return REFUSALS[code] ?? 'That could not be saved. Nothing was changed.';
+}
+
+// A dividend as one two-line row: its date and net (received, or expected
+// until then), then its status, the sum it came from, when it was credited
+// or is paid, and where it goes.
+export function dividendRow(row, accounts, today = householdToday()) {
+  const cur = row.currency;
+  const net = row.status === 'received' ? row.received_net : row.expected_net;
+  const day = row.ex_date ?? row.credited_on;
+  const title = `${day ? shortDate(day, today) : 'Undated'} · ${cur} ${money2(net)}`;
+  const parts = [dividendStatusText(row), `${formatUnits(row.units)} × ${cur} ${formatPerShare(row.per_share)}`];
+  if (row.credited_on) parts.push(`credited ${shortDate(row.credited_on, today)}`);
+  else if (row.pay_date) parts.push(`paid ${shortDate(row.pay_date, today)}`);
+  const account = (accounts ?? []).find((a) => a.id === row.paid_into_account_id);
+  parts.push(account ? `into ${account.name}` : 'no account to pay into');
+  return { title, detail: parts.join(' · ') };
+}
+
+// What a change does to each fund, from the database's preview.
+export function movementLines(movements) {
+  const moving = (movements ?? []).filter((m) => Number(m.delta) !== 0);
+  if (!moving.length) return ['Moves no balance'];
+  return moving.map((m) =>
+    Number(m.delta) > 0 ? `Adds ${m.currency} ${money2(m.delta)} to ${m.account_name}` : `Takes ${m.currency} ${money2(-Number(m.delta))} from ${m.account_name}`,
+  );
 }

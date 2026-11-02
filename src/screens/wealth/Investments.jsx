@@ -68,6 +68,8 @@ export default function Investments({ household, members, me, data, loading, rel
   // valued at today's rate in place of its day's (loadState.js).
   const missing = neverLoaded(data, ['holdingTrades', 'fxRateHistory']);
   const tradesMissing = missing.includes('holdingTrades');
+  // Dividends that never loaded are not shown as none: the editor says so.
+  const dividendsMissing = neverLoaded(data, ['holdingDividends', 'dividendSpecialParts']).length > 0;
   const ratesMissing = missing.includes('fxRateHistory');
   const inrPerAed = ratesMissing ? null : (household?.inr_per_aed ?? null);
   const fx = useMemo(() => ({ fxHistory: fxRateHistory, inrPerAed }), [fxRateHistory, inrPerAed]);
@@ -446,6 +448,9 @@ export default function Investments({ household, members, me, data, loading, rel
           members={members}
           trades={holdingTrades}
           tradesFailed={tradesMissing}
+          dividends={data.holdingDividends ?? NONE}
+          specialParts={data.dividendSpecialParts ?? NONE}
+          dividendsFailed={dividendsMissing}
           accounts={data.accounts ?? NONE}
           onClose={() => setEditingId(null)}
           onSaved={async () => {

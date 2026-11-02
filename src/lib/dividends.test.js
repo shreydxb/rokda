@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { canRecord, dividendRefusalMessage, dividendStatusText, dividendsOfHolding, reviewText } from './dividends';
+import { canRecord, dividendRefusalMessage, dividendRow, dividendStatusText, dividendsOfHolding, movementLines, reviewText } from './dividends';
 
 describe('dividendsOfHolding', () => {
   it("keeps that holding's rows, newest first by ex-date or, without one, credit date", () => {
@@ -65,5 +65,47 @@ describe('dividendRefusalMessage', () => {
   it('falls back for a refusal it does not know', () => {
     expect(dividendRefusalMessage('something_new')).toBe('That could not be saved. Nothing was changed.');
     expect(dividendRefusalMessage(undefined)).toBe('That could not be saved. Nothing was changed.');
+  });
+});
+
+describe('dividendRow', () => {
+  const accounts = [{ id: 'f-usd', name: 'Dollar funds' }];
+  const row = {
+    status: 'received', currency: 'USD', ex_date: '2026-10-15', pay_date: '2026-10-20', credited_on: '2026-10-21', units: 40, per_share: 0.25,
+    expected_net: 7, received_net: 6.8, paid_into_account_id: 'f-usd',
+  };
+
+  it('puts the date and the net first, then the status, sum, credit and destination', () => {
+    expect(dividendRow(row, accounts, '2026-11-02')).toEqual({
+      title: '15 Oct · USD 6.80',
+      detail: 'Received · 40 × USD 0.25 · credited 21 Oct · into Dollar funds',
+    });
+  });
+
+  it('shows what is expected until it is received, its pay date, and the year when it is not this one', () => {
+    const earned = { ...row, status: 'earned', credited_on: null, received_net: null, ex_date: '2025-03-14', pay_date: '2025-04-01' };
+    expect(dividendRow(earned, accounts, '2026-11-02')).toEqual({
+      title: '14 Mar 2025 · USD 7.00',
+      detail: 'Earned · 40 × USD 0.25 · paid 1 Apr 2025 · into Dollar funds',
+    });
+  });
+
+  it('keeps a small amount per share whole, and says when nothing is set to pay into', () => {
+    const small = { ...row, per_share: 0.0625, paid_into_account_id: null };
+    expect(dividendRow(small, accounts, '2026-11-02').detail).toBe('Received · 40 × USD 0.0625 · credited 21 Oct · no account to pay into');
+  });
+});
+
+describe('movementLines', () => {
+  it('says what each fund gains or loses', () => {
+    expect(movementLines([
+      { account_name: 'Dollar funds', currency: 'USD', delta: 7 },
+      { account_name: 'Other funds', currency: 'USD', delta: -2 },
+    ])).toEqual(['Adds USD 7.00 to Dollar funds', 'Takes USD 2.00 from Other funds']);
+  });
+
+  it('says when no balance moves', () => {
+    expect(movementLines([])).toEqual(['Moves no balance']);
+    expect(movementLines(null)).toEqual(['Moves no balance']);
   });
 });

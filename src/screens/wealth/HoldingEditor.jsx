@@ -5,6 +5,7 @@ import { ASSET_CLASS_LABELS, SECTOR_GROUPS, SECTOR_LABELS, costFromUnits, hasSec
 import { daysSincePriced, historyPointFor, isPendingValuation, nextPricedAt, todayISODate, valueFieldFor, valuationChanged } from '../../lib/valuation';
 import { hasBuysOrSales } from '../../lib/trades';
 import HoldingTrades from './HoldingTrades';
+import HoldingDividends from './HoldingDividends';
 import '../money/TransactionEditor.css';
 
 function initialForm(holding) {
@@ -36,7 +37,21 @@ function initialForm(holding) {
 
 const NO_TRADES = [];
 
-export default function HoldingEditor({ holding: holdingAsOpened, householdId, members, trades = NO_TRADES, tradesFailed = false, accounts = NO_TRADES, onClose, onSaved, onStale, onTradesChanged }) {
+export default function HoldingEditor({
+  holding: holdingAsOpened,
+  householdId,
+  members,
+  trades = NO_TRADES,
+  tradesFailed = false,
+  dividends = NO_TRADES,
+  specialParts = NO_TRADES,
+  dividendsFailed = false,
+  accounts = NO_TRADES,
+  onClose,
+  onSaved,
+  onStale,
+  onTradesChanged,
+}) {
   // The editor works from the holding as it was when opened. The screen
   // re-reads its data every few minutes and after a refused save, and the row
   // it hands over then may be newer (a trade from Telegram, a price): taking
@@ -63,6 +78,9 @@ export default function HoldingEditor({ holding: holdingAsOpened, householdId, m
   const [createdId, setCreatedId] = useState(null);
   // A trade being recorded or fixed has its own way back and its own save.
   const [tradeFormOpen, setTradeFormOpen] = useState(false);
+  // So has a dividend being recorded, fixed or added (SHR-366).
+  const [dividendFormOpen, setDividendFormOpen] = useState(false);
+  const subFormOpen = tradeFormOpen || dividendFormOpen;
 
   useEffect(() => {
     const onKey = (e) => {
@@ -71,7 +89,7 @@ export default function HoldingEditor({ holding: holdingAsOpened, householdId, m
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dirty, confirmingClose, tradeFormOpen]);
+  }, [dirty, confirmingClose, subFormOpen]);
 
   function set(key, value) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -79,8 +97,9 @@ export default function HoldingEditor({ holding: holdingAsOpened, householdId, m
   }
 
   function requestClose() {
-    // A trade being typed is as much unsaved work as an edited field.
-    if ((dirty || tradeFormOpen) && !confirmingClose) {
+    // A trade or a dividend being typed is as much unsaved work as an edited
+    // field.
+    if ((dirty || subFormOpen) && !confirmingClose) {
       setConfirmingClose(true);
       return;
     }
@@ -307,7 +326,7 @@ export default function HoldingEditor({ holding: holdingAsOpened, householdId, m
           {/* The holding's own fields lock while a trade is recorded or fixed:
               saving the trade reloads the holding, and an edit made meanwhile
               would be lost. */}
-          <fieldset className="he-fields" disabled={tradeFormOpen}>
+          <fieldset className="he-fields" disabled={subFormOpen}>
             <div>
               <div className="te-hero-label">Value</div>
               <div className="te-hero-row">
@@ -547,9 +566,24 @@ export default function HoldingEditor({ holding: holdingAsOpened, householdId, m
               trades={trades}
               failed={tradesFailed}
               accounts={accounts}
-              disabledReason={dirty ? 'Save or discard your changes to the holding first.' : null}
+              disabledReason={dirty ? 'Save or discard your changes to the holding first.' : dividendFormOpen ? 'Finish the dividend first.' : null}
               onChanged={onTradesChanged}
               onFormOpen={setTradeFormOpen}
+            />
+          )}
+
+          {/* A share the dividend feeds cover, once it is saved. A dividend
+              saved reloads the screen as a trade does. */}
+          {holding && paysDividends(holding.asset_class) && (
+            <HoldingDividends
+              holding={holding}
+              dividends={dividends}
+              specialParts={specialParts}
+              failed={dividendsFailed}
+              accounts={accounts}
+              disabledReason={dirty ? 'Save or discard your changes to the holding first.' : tradeFormOpen ? 'Finish the trade first.' : null}
+              onChanged={onTradesChanged}
+              onFormOpen={setDividendFormOpen}
             />
           )}
 
@@ -559,17 +593,17 @@ export default function HoldingEditor({ holding: holdingAsOpened, householdId, m
             </p>
           )}
 
-          {/* While a trade form is open only the question about leaving shows
-              here: the trade has its own way back and its own save. */}
-          {(!tradeFormOpen || confirmingClose) && (
+          {/* While a trade or dividend form is open only the question about
+              leaving shows here: it has its own way back and its own save. */}
+          {(!subFormOpen || confirmingClose) && (
             <div className="te-sticky-actions">
               <div className="te-actions" style={{ borderTop: 'none', paddingTop: 0, marginTop: 0 }}>
-                {!tradeFormOpen && deletable && (
+                {!subFormOpen && deletable && (
                   <button type="button" className="om-btn te-delete" onClick={handleDelete} disabled={saving}>
                     {confirmingDelete ? 'Confirm delete?' : 'Delete'}
                   </button>
                 )}
-                {!tradeFormOpen && holding && !deletable && !(traded && tradesFailed) && (
+                {!subFormOpen && holding && !deletable && !(traded && tradesFailed) && (
                   <span className="ov-muted" style={{ fontSize: 11.5, maxWidth: 260 }}>
                     A holding with buys or sales can&rsquo;t be deleted. Delete its trades first, or keep it: sold to zero, it moves to Sold.
                   </span>
@@ -578,7 +612,7 @@ export default function HoldingEditor({ holding: holdingAsOpened, householdId, m
                   {confirmingClose ? (
                     <>
                       <span className="ov-muted" style={{ marginRight: 8 }}>
-                        {tradeFormOpen ? 'Discard this trade?' : 'Discard changes?'}
+                        {tradeFormOpen ? 'Discard this trade?' : dividendFormOpen ? 'Discard this dividend?' : 'Discard changes?'}
                       </span>
                       <button type="button" className="om-btn" onClick={onClose}>
                         Discard

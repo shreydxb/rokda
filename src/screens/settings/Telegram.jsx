@@ -10,6 +10,7 @@ const DEFAULTS = {
   unusual_spend_enabled: true,
   balance_checkin_enabled: true,
   statement_enabled: true,
+  dividends_enabled: true,
 };
 
 const SIGNALS = [
@@ -20,6 +21,7 @@ const SIGNALS = [
   { key: 'unusual_spend_enabled', label: 'Unusual spend', note: "Nudge once when a category runs well past its usual trailing average -- a deliberately high bar to avoid false alarms" },
   { key: 'balance_checkin_enabled', label: 'Month-end balance check-in', note: 'On the 1st, asks for every account and card balance; reply in one message to set them all' },
   { key: 'statement_enabled', label: 'Card statements', note: "From the day after a card's statement closes, asks each morning until it's reconciled; reply \"done\" or react 👍" },
+  { key: 'dividends_enabled', label: 'Dividends', note: 'Each morning, asks about dividends paid into a broker fund that day; reply "yes" once they\'re in' },
 ];
 
 const STATS_WINDOW_DAYS = 30;

@@ -38,6 +38,15 @@ const SOURCES = [
     key: 'holdingTrades',
     query: (id) => supabase.from('holding_trades').select('*').eq('household_id', id).order('trade_date').order('created_at').order('id'),
   },
+  // A holding's dividends and the one-off parts of the feed's dividends
+  // (SHR-366), for its editor. Members read them; only the dividend
+  // functions write them.
+  {
+    key: 'holdingDividends',
+    query: (id) => supabase.from('holding_dividends').select('*').eq('household_id', id).order('created_at').order('id'),
+  },
+  // One row per event in a household, so the event orders it.
+  { key: 'dividendSpecialParts', query: (id) => supabase.from('dividend_special_parts').select('*').eq('household_id', id).order('event_id') },
   { key: 'categoryRules', query: (id) => supabase.from('category_rules').select('*').eq('household_id', id).order('created_at').order('id') },
   {
     key: 'statementReconciliations',
@@ -76,6 +85,8 @@ const EMPTY_STATE = {
   holdings: [],
   holdingHistory: [],
   holdingTrades: [],
+  holdingDividends: [],
+  dividendSpecialParts: [],
   categoryRules: [],
   statementReconciliations: [],
   backupRecords: [],
