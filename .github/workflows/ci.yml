@@ -138,8 +138,9 @@ jobs:
       # the migrations job.
       #
       # The second file covers the bot's trade helpers on their own: matching,
-      # the questions it asks, and the confirmation's wording. The third and
-      # fourth cover who may call each function: the constant-time secret
+      # the questions it asks, and the confirmation's wording. The third covers
+      # its dividend messages and the words that read as a dividend. The fourth
+      # and fifth cover who may call each function: the constant-time secret
       # compare, and fd-accrual, price-refresh and dividend-refresh refusing
       # every caller but the scheduler (and, for price-refresh, a signed-in
       # household member). The last reads recorded Yahoo and Alpha Vantage
@@ -151,6 +152,7 @@ jobs:
           --allow-net=api.telegram.org,openrouter.ai,supabase.test
           supabase/functions/telegram-webhook/index.test.ts
           supabase/functions/telegram-webhook/trades.test.ts
+          supabase/functions/telegram-webhook/dividends.test.ts
           supabase/functions/_shared/requestAuth.test.ts
           supabase/functions/_shared/scheduledCallers.test.ts
           supabase/functions/_shared/quoteTime.test.ts
