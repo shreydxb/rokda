@@ -1492,6 +1492,47 @@ begin
 end $$;
 reset role;
 
+-- Dividend receipts (SHR-366, PR 2): a member checks and saves their own
+-- household's dividend, not another's, and the movement is the app's; signed
+-- out, neither function can be called.
+set role authenticated;
+set request.jwt.claim.sub = '0b000000-0000-0000-0000-00000000000b';
+do $$
+declare p jsonb; r jsonb;
+begin
+  p := preview_dividend('fd100000-0000-0000-0000-000000000001', '{"action": "record", "credited_on": "2026-10-20"}');
+  if (p ->> 'ok')::boolean is not true then raise exception 'dividend receipts RLS FAILED: a member could not preview their own: %', p; end if;
+  r := save_dividend('fd100000-0000-0000-0000-000000000001', '{"action": "record", "credited_on": "2026-10-20"}', (p ->> 'version')::int, p -> 'confirmations');
+  if (r ->> 'ok')::boolean is not true then raise exception 'dividend receipts RLS FAILED: a member could not save their own: %', r; end if;
+  p := preview_dividend('fd100000-0000-0000-0000-000000000002', '{"action": "record"}');
+  if p ->> 'error' is distinct from 'not_member' then raise exception 'dividend receipts RLS FAILED: another household''s dividend gave %', p; end if;
+  r := save_dividend('fd100000-0000-0000-0000-000000000002', '{"action": "record"}', 1, '{}'::jsonb);
+  if r ->> 'error' is distinct from 'not_member' then raise exception 'dividend receipts RLS FAILED: saving another household''s gave %', r; end if;
+end $$;
+reset role;
+do $$
+begin
+  if (select source from account_balance_events where account_id = 'fb200000-0000-0000-0000-000000000001' order by id desc limit 1) <> 'app' then
+    raise exception 'dividend receipts RLS FAILED: a member''s receipt was not recorded as the app''s';
+  end if;
+end $$;
+set role anon;
+do $$
+begin
+  begin
+    perform preview_dividend('fd100000-0000-0000-0000-000000000001', '{"action": "record"}');
+    raise exception 'dividend receipts RLS FAILED: signed out, a preview ran';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform save_dividend('fd100000-0000-0000-0000-000000000001', '{"action": "record"}', 1, '{}'::jsonb);
+    raise exception 'dividend receipts RLS FAILED: signed out, a save ran';
+  exception when insufficient_privilege then null;
+  end;
+  raise notice 'dividend receipts RLS ok: members check and save their own household''s dividends only';
+end $$;
+reset role;
+
 -- A household can still be deleted outright: the cascade takes the roster with
 -- it, and that is not "a household left without an owner".
 reset role;

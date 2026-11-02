@@ -4815,4 +4815,242 @@ begin
   raise notice 'D1-38 ok: a dividend fetched after a split is earned on its ex-date''s basis';
 end $$;
 
+-- ---------------------------------------------------------------------------
+-- Dividends (SHR-366), PR 2: receipts. Each case gets its own dollar broker
+-- fund (balance 100, confirmed at the start of the 1st of last month), a
+-- holding in it, and an earned dividend of 10 units at 1.00 with 30% withheld
+-- (net 7), ex-dated the 2nd and paid the 5th of last month.
+-- ---------------------------------------------------------------------------
+create or replace function pg_temp.d2_m1() returns date language sql as $$
+  select (date_trunc('month', household_today()) - interval '1 month')::date;
+$$;
+create or replace function pg_temp.d2_case(p_confirmed timestamptz default 'epoch') returns jsonb language plpgsql as $$
+declare v_fund uuid := gen_random_uuid(); v_holding uuid := gen_random_uuid(); v_div uuid := gen_random_uuid(); m1 date := pg_temp.d2_m1();
+begin
+  insert into accounts (id, household_id, name, type, currency, balance, balance_as_of, is_shared)
+  values (v_fund, '11111111-1111-1111-1111-111111111111', 'D2 fund ' || left(v_fund::text, 4), 'broker_funds', 'USD', 100,
+    case when p_confirmed = 'epoch' then m1::timestamp at time zone 'Asia/Dubai' else p_confirmed end, true);
+  insert into holdings (id, household_id, owner_member_id, is_shared, name, asset_class, currency, quantity, avg_price, value_aed, funds_account_id)
+  values (v_holding, '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-0000000000b7', false, 'D2 ' || left(v_holding::text, 4), 'us_equity', 'USD', 10, 10, 0, v_fund);
+  insert into holding_dividends (id, household_id, holding_id, ex_date, pay_date, currency, units, units_basis, per_share, tax_pct,
+    expected_gross, expected_tax, expected_fees, expected_net, status, source, paid_into_account_id)
+  values (v_div, '11111111-1111-1111-1111-111111111111', v_holding, m1 + 1, m1 + 4, 'USD', 10, 'trades', 1, 30, 10, 3, 0, 7, 'earned', 'feed', v_fund);
+  return jsonb_build_object('fund', v_fund, 'holding', v_holding, 'dividend', v_div);
+end $$;
+create or replace function pg_temp.d2_bal(p_fund uuid) returns numeric language sql as $$ select balance from accounts where id = p_fund; $$;
+-- Preview, then save exactly what was previewed.
+create or replace function pg_temp.d2_save(p_dividend uuid, p_change jsonb) returns jsonb language plpgsql as $$
+declare p jsonb;
+begin
+  p := preview_dividend(p_dividend, p_change, p_member_id => '22222222-2222-2222-2222-0000000000b7');
+  if not coalesce((p ->> 'ok')::boolean, false) then return p; end if;
+  return save_dividend(p_dividend, p_change, (p ->> 'version')::int, p -> 'confirmations', p_member_id => '22222222-2222-2222-2222-0000000000b7');
+end $$;
+create or replace function pg_temp.d2_fix_confirmation(p_fund uuid, p_balance numeric, p_day date) returns void language sql as $$
+  update accounts set balance = p_balance, balance_as_of = p_day::timestamp at time zone 'Asia/Dubai' where id = p_fund;
+$$;
+
+-- D2-01: recording a dividend received into its fund moves the fund once.
+do $$
+declare c jsonb := pg_temp.d2_case(); r jsonb; d holding_dividends%rowtype;
+begin
+  r := pg_temp.d2_save((c ->> 'dividend')::uuid, '{"action": "record"}');
+  if (r ->> 'ok')::boolean is not true then raise exception 'D2-01 FAILED: record refused: %', r; end if;
+  select * into d from holding_dividends where id = (c ->> 'dividend')::uuid;
+  if d.status <> 'received' or d.received_net <> 7 or d.evidence <> 'member' or d.credited_on <> pg_temp.d2_m1() + 4 then
+    raise exception 'D2-01 FAILED: the dividend is %', row_to_json(d);
+  end if;
+  if pg_temp.d2_bal((c ->> 'fund')::uuid) <> 107 then raise exception 'D2-01 FAILED: the fund is %', pg_temp.d2_bal((c ->> 'fund')::uuid); end if;
+  if (select count(*) from account_balance_events where account_id = (c ->> 'fund')::uuid and new_balance = 107) <> 1 then
+    raise exception 'D2-01 FAILED: the movement was not recorded as a balance change';
+  end if;
+  raise notice 'D2-01 ok: a receipt moves its fund once';
+end $$;
+
+-- D2-02: every change follows the balance rule (spec 5.4's table).
+do $$
+declare c jsonb; f uuid; dv uuid; b jsonb; r jsonb; m1 date := pg_temp.d2_m1();
+begin
+  -- Fixed to 6.80 before any later confirmation: -0.20.
+  c := pg_temp.d2_case(); f := (c ->> 'fund')::uuid; dv := (c ->> 'dividend')::uuid;
+  r := pg_temp.d2_save(dv, '{"action": "record"}');
+  r := pg_temp.d2_save(dv, '{"action": "fix", "received_gross": 10, "received_tax": 3, "received_fees": 0.2}');
+  if pg_temp.d2_bal(f) <> 106.8 then raise exception 'D2-02 FAILED: fixed to 6.80 the fund is %', pg_temp.d2_bal(f); end if;
+  -- Then confirmed at 106.80 on the 10th and fixed to 6.60: the confirmation holds the real figure.
+  perform pg_temp.d2_fix_confirmation(f, 106.8, m1 + 9);
+  r := pg_temp.d2_save(dv, '{"action": "fix", "received_gross": 10, "received_tax": 3, "received_fees": 0.4}');
+  if (r ->> 'ok')::boolean is not true or pg_temp.d2_bal(f) <> 106.8 then
+    raise exception 'D2-02 FAILED: a fix after a later confirmation moved the fund to % (%)', pg_temp.d2_bal(f), r;
+  end if;
+
+  -- Its credit date moved to before the confirmation: -7.
+  c := pg_temp.d2_case(); f := (c ->> 'fund')::uuid; dv := (c ->> 'dividend')::uuid;
+  r := pg_temp.d2_save(dv, '{"action": "record"}');
+  r := pg_temp.d2_save(dv, jsonb_build_object('action', 'fix', 'credited_on', m1 - 1));
+  if pg_temp.d2_bal(f) <> 100 then raise exception 'D2-02 FAILED: moved before the confirmation the fund is % (%)', pg_temp.d2_bal(f), r; end if;
+
+  -- Moved to fund B, confirmed on the 6th: A -7, B unchanged.
+  c := pg_temp.d2_case(); f := (c ->> 'fund')::uuid; dv := (c ->> 'dividend')::uuid;
+  b := pg_temp.d2_case(m1 + 5);
+  r := pg_temp.d2_save(dv, '{"action": "record"}');
+  r := pg_temp.d2_save(dv, jsonb_build_object('action', 'fix', 'paid_into_account_id', b ->> 'fund'));
+  if pg_temp.d2_bal(f) <> 100 or pg_temp.d2_bal((b ->> 'fund')::uuid) <> 100 then
+    raise exception 'D2-02 FAILED: moving funds left A at %, B at % (%)', pg_temp.d2_bal(f), pg_temp.d2_bal((b ->> 'fund')::uuid), r;
+  end if;
+
+  -- Skipped after the confirmation: -7; restored: nothing until received again.
+  c := pg_temp.d2_case(); f := (c ->> 'fund')::uuid; dv := (c ->> 'dividend')::uuid;
+  r := pg_temp.d2_save(dv, '{"action": "record"}');
+  r := pg_temp.d2_save(dv, '{"action": "skip"}');
+  if pg_temp.d2_bal(f) <> 100 then raise exception 'D2-02 FAILED: skipping left the fund at %', pg_temp.d2_bal(f); end if;
+  r := pg_temp.d2_save(dv, '{"action": "restore"}');
+  if pg_temp.d2_bal(f) <> 100 or (select status from holding_dividends where id = dv) <> 'earned' then
+    raise exception 'D2-02 FAILED: restoring moved the fund to % or left it %', pg_temp.d2_bal(f), (select status from holding_dividends where id = dv);
+  end if;
+
+  -- Skipped when the fund was confirmed on the 7th: nothing moves.
+  c := pg_temp.d2_case(); f := (c ->> 'fund')::uuid; dv := (c ->> 'dividend')::uuid;
+  r := pg_temp.d2_save(dv, '{"action": "record"}');
+  perform pg_temp.d2_fix_confirmation(f, 107, m1 + 6);
+  r := pg_temp.d2_save(dv, '{"action": "skip"}');
+  if pg_temp.d2_bal(f) <> 107 then raise exception 'D2-02 FAILED: a skip before the confirmation moved the fund to %', pg_temp.d2_bal(f); end if;
+  raise notice 'D2-02 ok: fixes, moves, skips and restores follow the balance rule';
+end $$;
+
+-- D2-03: a fund never confirmed is moved by every receipt, without a question.
+do $$
+declare c jsonb := pg_temp.d2_case(null); p jsonb; r jsonb;
+begin
+  p := preview_dividend((c ->> 'dividend')::uuid, '{"action": "record"}', p_member_id => '22222222-2222-2222-2222-0000000000b7');
+  if p ->> 'asks' is not null then raise exception 'D2-03 FAILED: an unconfirmed fund asked %', p ->> 'asks'; end if;
+  r := pg_temp.d2_save((c ->> 'dividend')::uuid, '{"action": "record"}');
+  if pg_temp.d2_bal((c ->> 'fund')::uuid) <> 107 then raise exception 'D2-03 FAILED: the fund is %', pg_temp.d2_bal((c ->> 'fund')::uuid); end if;
+  raise notice 'D2-03 ok: an unconfirmed fund is moved, with no question';
+end $$;
+
+-- D2-04: a fund confirmed on the pay date asks whether the dividend was
+-- already in that balance, and the answer decides.
+do $$
+declare m1 date := pg_temp.d2_m1(); c jsonb; p jsonb; r jsonb;
+begin
+  c := pg_temp.d2_case((m1 + 4)::timestamp at time zone 'Asia/Dubai');
+  p := preview_dividend((c ->> 'dividend')::uuid, '{"action": "record"}', p_member_id => '22222222-2222-2222-2222-0000000000b7');
+  if p ->> 'asks' is distinct from 'already_included' then raise exception 'D2-04 FAILED: the preview asked %', p; end if;
+  r := save_dividend((c ->> 'dividend')::uuid, '{"action": "record"}', (p ->> 'version')::int, p -> 'confirmations', p_member_id => '22222222-2222-2222-2222-0000000000b7');
+  if r ->> 'error' is distinct from 'needs_answer' then raise exception 'D2-04 FAILED: a save without the answer gave %', r; end if;
+  r := pg_temp.d2_save((c ->> 'dividend')::uuid, '{"action": "record", "already_included": true}');
+  if pg_temp.d2_bal((c ->> 'fund')::uuid) <> 100 or (select credited_on from holding_dividends where id = (c ->> 'dividend')::uuid) <> m1 + 4 then
+    raise exception 'D2-04 FAILED: already included moved the fund to % (%)', pg_temp.d2_bal((c ->> 'fund')::uuid), r;
+  end if;
+  c := pg_temp.d2_case((m1 + 4)::timestamp at time zone 'Asia/Dubai');
+  r := pg_temp.d2_save((c ->> 'dividend')::uuid, '{"action": "record", "already_included": false}');
+  if pg_temp.d2_bal((c ->> 'fund')::uuid) <> 107 or (select credited_on from holding_dividends where id = (c ->> 'dividend')::uuid) <> household_today() then
+    raise exception 'D2-04 FAILED: arrived after left the fund at % (%)', pg_temp.d2_bal((c ->> 'fund')::uuid), r;
+  end if;
+  raise notice 'D2-04 ok: a same-day confirmation is asked about, and the answer decides';
+end $$;
+
+-- D2-05: a save at an older version, or after the fund was confirmed since
+-- the preview, saves nothing.
+do $$
+declare c jsonb := pg_temp.d2_case(); dv uuid; p jsonb; r jsonb;
+begin
+  dv := (c ->> 'dividend')::uuid;
+  p := preview_dividend(dv, '{"action": "record"}', p_member_id => '22222222-2222-2222-2222-0000000000b7');
+  r := save_dividend(dv, '{"action": "record"}', (p ->> 'version')::int - 1, p -> 'confirmations', p_member_id => '22222222-2222-2222-2222-0000000000b7');
+  if r ->> 'error' is distinct from 'stale' then raise exception 'D2-05 FAILED: an old version gave %', r; end if;
+  perform pg_temp.d2_fix_confirmation((c ->> 'fund')::uuid, 100, pg_temp.d2_m1() + 2);
+  r := save_dividend(dv, '{"action": "record"}', (p ->> 'version')::int, p -> 'confirmations', p_member_id => '22222222-2222-2222-2222-0000000000b7');
+  if r ->> 'error' is distinct from 'fund_confirmed_since' then raise exception 'D2-05 FAILED: a changed confirmation gave %', r; end if;
+  if (select status from holding_dividends where id = dv) <> 'earned' or pg_temp.d2_bal((c ->> 'fund')::uuid) <> 100 then
+    raise exception 'D2-05 FAILED: a refused save changed something';
+  end if;
+  raise notice 'D2-05 ok: a stale version or confirmation saves nothing';
+end $$;
+
+-- D2-06: received net is worked out from gross, withholding and fees.
+do $$
+declare c jsonb := pg_temp.d2_case(); r jsonb;
+begin
+  r := pg_temp.d2_save((c ->> 'dividend')::uuid, '{"action": "record", "received_gross": 10, "received_tax": 3, "received_fees": 0.5, "received_net": 99}');
+  if (select received_net from holding_dividends where id = (c ->> 'dividend')::uuid) <> 6.5 then
+    raise exception 'D2-06 FAILED: net is % (%)', (select received_net from holding_dividends where id = (c ->> 'dividend')::uuid), r;
+  end if;
+  r := pg_temp.d2_save((c ->> 'dividend')::uuid, '{"action": "fix", "received_gross": 10, "received_tax": 11}');
+  if r ->> 'error' is distinct from 'bad_figures' then raise exception 'D2-06 FAILED: withholding above gross gave %', r; end if;
+  raise notice 'D2-06 ok: net is gross less withholding and fees, and impossible figures are refused';
+end $$;
+
+-- D2-07: a dividend into a bank account, or with no destination, moves
+-- nothing; a presumed one fixed with the company's figures is received.
+do $$
+declare c jsonb := pg_temp.d2_case(); dv uuid; r jsonb; d holding_dividends%rowtype; bank uuid := gen_random_uuid();
+begin
+  dv := (c ->> 'dividend')::uuid;
+  insert into accounts (id, household_id, name, type, currency, balance, balance_as_of, is_shared)
+  values (bank, '11111111-1111-1111-1111-111111111111', 'D2 dollar bank', 'checking', 'USD', 500, now() - interval '60 days', true);
+  update holding_dividends set status = 'presumed', credited_on = pg_temp.d2_m1() + 4, credited_on_estimated = true, paid_into_account_id = bank where id = dv;
+  r := pg_temp.d2_save(dv, '{"action": "fix", "received_gross": 10, "received_tax": 2.08, "received_fees": 0}');
+  select * into d from holding_dividends where id = dv;
+  if d.status <> 'received' or d.evidence <> 'member' or d.received_net <> 7.92 or pg_temp.d2_bal(bank) <> 500 then
+    raise exception 'D2-07 FAILED: the presumed dividend became % and the bank %', row_to_json(d), pg_temp.d2_bal(bank);
+  end if;
+  c := pg_temp.d2_case(); dv := (c ->> 'dividend')::uuid;
+  update holding_dividends set paid_into_account_id = null where id = dv;
+  r := pg_temp.d2_save(dv, '{"action": "record"}');
+  if (select status from holding_dividends where id = dv) <> 'received' or pg_temp.d2_bal((c ->> 'fund')::uuid) <> 100 then
+    raise exception 'D2-07 FAILED: a dividend with no destination moved a fund (%)', r;
+  end if;
+  raise notice 'D2-07 ok: a bank or no destination moves nothing; a presumed dividend fixed is received';
+end $$;
+
+-- D2-08: a destination in another currency is refused.
+do $$
+declare c jsonb := pg_temp.d2_case(); p jsonb; r jsonb;
+begin
+  p := preview_dividend((c ->> 'dividend')::uuid, jsonb_build_object('action', 'fix', 'paid_into_account_id', 'd1a00000-0000-0000-0000-000000000002'),
+    p_member_id => '22222222-2222-2222-2222-0000000000b7');
+  if p ->> 'error' is distinct from 'currency_mismatch' then raise exception 'D2-08 FAILED: a rupee destination gave %', p; end if;
+  r := save_dividend((c ->> 'dividend')::uuid, jsonb_build_object('action', 'fix', 'paid_into_account_id', 'd1a00000-0000-0000-0000-000000000002'), 1, '{}'::jsonb,
+    p_member_id => '22222222-2222-2222-2222-0000000000b7');
+  if r ->> 'error' is distinct from 'currency_mismatch' then raise exception 'D2-08 FAILED: the save gave %', r; end if;
+  raise notice 'D2-08 ok: a destination in another currency is refused';
+end $$;
+
+-- D2-09: a received dividend in a fund since closed cannot move it.
+do $$
+declare c jsonb := pg_temp.d2_case(); r jsonb;
+begin
+  r := pg_temp.d2_save((c ->> 'dividend')::uuid, '{"action": "record"}');
+  update accounts set archived_at = now() where id = (c ->> 'fund')::uuid;
+  r := pg_temp.d2_save((c ->> 'dividend')::uuid, '{"action": "skip"}');
+  if r ->> 'error' is distinct from 'fund_archived' or pg_temp.d2_bal((c ->> 'fund')::uuid) <> 107 then
+    raise exception 'D2-09 FAILED: skipping in a closed fund gave % (fund %)', r, pg_temp.d2_bal((c ->> 'fund')::uuid);
+  end if;
+  raise notice 'D2-09 ok: a closed fund is not moved';
+end $$;
+
+-- D2-10: a dividend added by hand, and an import run twice.
+do $$
+declare c jsonb := pg_temp.d2_case(); r jsonb; m1 date := pg_temp.d2_m1(); n int;
+begin
+  r := pg_temp.d2_save(null, jsonb_build_object('action', 'add', 'holding_id', c ->> 'holding', 'ex_date', m1 + 15, 'units', 10, 'per_share', 0.5,
+    'credited_on', m1 + 20, 'received_gross', 5, 'received_tax', 1.5, 'received_fees', 0));
+  if (r ->> 'ok')::boolean is not true or pg_temp.d2_bal((c ->> 'fund')::uuid) <> 103.5
+     or not exists (select 1 from holding_dividends where holding_id = (c ->> 'holding')::uuid and source = 'app' and units_basis = 'stated' and status = 'received') then
+    raise exception 'D2-10 FAILED: the added dividend gave % (fund %)', r, pg_temp.d2_bal((c ->> 'fund')::uuid);
+  end if;
+  r := pg_temp.d2_save(null, jsonb_build_object('action', 'add', 'holding_id', c ->> 'holding', 'units', 10, 'per_share', 0.5));
+  if r ->> 'error' is distinct from 'bad_input' then raise exception 'D2-10 FAILED: an add with no dates gave %', r; end if;
+  for n in 1..2 loop
+    r := pg_temp.d2_save(null, jsonb_build_object('action', 'add', 'holding_id', c ->> 'holding', 'ex_date', m1 + 25, 'units', 10, 'per_share', 0.5,
+      'credited_on', m1 + 27, 'received_gross', 5, 'received_tax', 1.5, 'received_fees', 0, 'evidence', 'intimation', 'import_ref', 'X1'));
+  end loop;
+  if (select count(*) from holding_dividends where import_ref = 'X1') <> 1 or pg_temp.d2_bal((c ->> 'fund')::uuid) <> 107 then
+    raise exception 'D2-10 FAILED: an import run twice made % rows and left the fund at %',
+      (select count(*) from holding_dividends where import_ref = 'X1'), pg_temp.d2_bal((c ->> 'fund')::uuid);
+  end if;
+  raise notice 'D2-10 ok: added and imported dividends, an import rerun changes nothing';
+end $$;
+
 rollback;
