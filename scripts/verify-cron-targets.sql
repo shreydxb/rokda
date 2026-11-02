@@ -29,7 +29,7 @@ select set_config('rokda.expected_base_url', :'base_url', false);
 do $$
 declare
   v_base text := rtrim(current_setting('rokda.expected_base_url'), '/');
-  expected text[] := array['daily-fd-accrual', 'daily-recurring-nudge-check', 'weekday-price-refresh'];
+  expected text[] := array['daily-dividend-refresh', 'daily-fd-accrual', 'daily-recurring-nudge-check', 'weekday-price-refresh'];
   name text;
   cmd text;
   is_active boolean;
@@ -72,11 +72,11 @@ begin
     end if;
   end loop;
 
-  -- The secret the two jobs send. Unset, or shorter than the functions accept
-  -- (MIN_SCHEDULER_SECRET_LENGTH), and both are refused every night. Only the
+  -- The secret the scheduled jobs send. Unset, or shorter than the functions
+  -- accept (MIN_SCHEDULER_SECRET_LENGTH), and all are refused every night. Only the
   -- length is read; the value never leaves the vault.
   if coalesce(length(get_scheduler_secret()), 0) < 32 then
-    raise warning 'NO SECRET: the vault has no scheduler_secret of at least 32 characters; price-refresh and fd-accrual will refuse every scheduled call';
+    raise warning 'NO SECRET: the vault has no scheduler_secret of at least 32 characters; price-refresh, fd-accrual and dividend-refresh will refuse every scheduled call';
     problems := problems + 1;
   end if;
 
@@ -91,5 +91,5 @@ begin
       using hint = 'Retarget with: select schedule_all_jobs(''<https://project-ref.supabase.co>''); create the scheduler secret as docs/backup-restore.md §5 says.';
   end if;
 
-  raise notice 'verify-cron-targets: ok — all three jobs are active, authenticated, and aimed at %, and the scheduler secret is set', v_base;
+  raise notice 'verify-cron-targets: ok — all four jobs are active, authenticated, and aimed at %, and the scheduler secret is set', v_base;
 end $$;

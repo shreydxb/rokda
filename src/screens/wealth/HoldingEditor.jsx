@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
-import { ASSET_CLASS_LABELS, SECTOR_GROUPS, SECTOR_LABELS, costFromUnits, hasSector } from '../../lib/holdings';
+import { ASSET_CLASS_LABELS, SECTOR_GROUPS, SECTOR_LABELS, costFromUnits, hasSector, paysDividends } from '../../lib/holdings';
 import { daysSincePriced, historyPointFor, isPendingValuation, nextPricedAt, todayISODate, valueFieldFor, valuationChanged } from '../../lib/valuation';
 import { hasBuysOrSales } from '../../lib/trades';
 import HoldingTrades from './HoldingTrades';
@@ -23,12 +23,14 @@ function initialForm(holding) {
       day_change_pct: holding.day_change_pct != null ? String(holding.day_change_pct) : '',
       price_provider: holding.price_provider ?? '',
       price_symbol: holding.price_symbol ?? '',
+      dividend_tax_pct: holding.dividend_tax_pct != null ? String(holding.dividend_tax_pct) : '',
+      dividend_fee_per_share: holding.dividend_fee_per_share != null ? String(holding.dividend_fee_per_share) : '',
     };
   }
   return {
     name: '', asset_class: 'us_equity', sector: '', currency: 'USD', value_aed: '', owner: 'shared',
     quantity: '', avg_price: '', current_price: '', invested_value_aed: '', day_change_pct: '',
-    price_provider: '', price_symbol: '',
+    price_provider: '', price_symbol: '', dividend_tax_pct: '', dividend_fee_per_share: '',
   };
 }
 
@@ -87,6 +89,14 @@ export default function HoldingEditor({ holding: holdingAsOpened, householdId, m
 
   const nameError = form.name.trim() === '' ? 'Name it.' : '';
   const symbolError = form.price_provider && form.price_symbol.trim() === '' ? 'Enter the symbol this provider expects.' : '';
+  // Withholding is a default per holding, not a fact (SHR-366): a US-listed
+  // share of a foreign company is withheld by its home country. Left empty, a
+  // new holding takes its class's default and an existing one keeps its rate.
+  const dividendFields = paysDividends(form.asset_class);
+  const taxRate = form.dividend_tax_pct.trim() === '' ? null : Number(form.dividend_tax_pct);
+  const feePerShare = form.dividend_fee_per_share.trim() === '' ? null : Number(form.dividend_fee_per_share);
+  const rateError = dividendFields && taxRate !== null && !(taxRate >= 0 && taxRate <= 100) ? 'Enter a rate from 0 to 100.' : '';
+  const feeError = dividendFields && feePerShare !== null && !(feePerShare >= 0) ? 'Enter a fee of 0 or more.' : '';
   // Matches how the database values a priced holding (set_holding_price):
   // only these currencies have a real conversion path, and units are required
   // to turn a per-unit price into a total value.
@@ -126,8 +136,8 @@ export default function HoldingEditor({ holding: holdingAsOpened, householdId, m
 
   async function handleSave(e) {
     e.preventDefault();
-    if (nameError || symbolError) {
-      setError(nameError || symbolError);
+    if (nameError || symbolError || rateError || feeError) {
+      setError(nameError || symbolError || rateError || feeError);
       return;
     }
     setSaving(true);
@@ -179,6 +189,8 @@ export default function HoldingEditor({ holding: holdingAsOpened, householdId, m
       updated_at: new Date().toISOString(),
       ...valuation,
       ...(nextPriced ? { priced_at: nextPriced } : {}),
+      ...(dividendFields && taxRate !== null ? { dividend_tax_pct: taxRate } : {}),
+      ...(dividendFields && feePerShare !== null ? { dividend_fee_per_share: feePerShare } : {}),
     };
     // A traded holding's units and average come only from its trades, and the
     // database refuses them from anywhere else (SHR-367), so they are never sent.
@@ -401,6 +413,26 @@ export default function HoldingEditor({ holding: holdingAsOpened, householdId, m
                     <option value="broad">{SECTOR_LABELS.broad}</option>
                   </select>
                 </div>
+              )}
+              {/* What is withheld from this share's dividends, and any fee per
+                  share a depositary takes (SHR-366). */}
+              {dividendFields && (
+                <>
+                  <div className="te-fieldcell">
+                    <label className="te-fieldlabel" htmlFor="holding-dividend-tax">
+                      Withholding on dividends
+                    </label>
+                    <input id="holding-dividend-tax" className="te-fieldvalue" type="text" inputMode="decimal" value={form.dividend_tax_pct}
+                      onChange={(e) => set('dividend_tax_pct', e.target.value)} aria-invalid={!!rateError} placeholder="Default for its class" />
+                  </div>
+                  <div className="te-fieldcell">
+                    <label className="te-fieldlabel" htmlFor="holding-dividend-fee">
+                      Fees per share
+                    </label>
+                    <input id="holding-dividend-fee" className="te-fieldvalue" type="text" inputMode="decimal" value={form.dividend_fee_per_share}
+                      onChange={(e) => set('dividend_fee_per_share', e.target.value)} aria-invalid={!!feeError} placeholder="0" />
+                  </div>
+                </>
               )}
             </div>
 

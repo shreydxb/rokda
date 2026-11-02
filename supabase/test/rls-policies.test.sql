@@ -1420,6 +1420,78 @@ begin
 end $$;
 reset role;
 
+-- Dividends (SHR-366): the feed's reference data is readable by every member;
+-- a household's dividends and one-off answers only by its own; the feed's
+-- bookkeeping by nobody signed in. Nobody writes any of it directly.
+reset role;
+insert into dividend_events (id, symbol, ex_date, amount, source_amount, currency, source, first_seen_at, last_seen_at) values
+  ('fd000000-0000-0000-0000-000000000001', 'ABC', '2026-10-10', 0.5, 0.5, 'USD', 'alphavantage', now(), now());
+insert into dividend_splits (symbol, effective_date, ratio, source, first_seen_at, last_seen_at) values
+  ('ABC', '2026-06-10', 2, 'alphavantage', now(), now());
+insert into dividend_feed_state (symbol, provider, kind, last_attempt_at, last_success_at) values
+  ('ABC', 'alphavantage', 'dividends', now(), now());
+insert into holdings (id, household_id, name, asset_class, currency, quantity, avg_price, value_aed) values
+  ('fd200000-0000-0000-0000-000000000001', 'd1000000-0000-0000-0000-000000000001', 'Our payer', 'us_equity', 'USD', 10, 100, 0),
+  ('fd200000-0000-0000-0000-000000000002', 'd2000000-0000-0000-0000-000000000002', 'Their payer', 'us_equity', 'USD', 10, 100, 0);
+-- Our row lands in our broker fund, so the household-deletion case below also
+-- proves a household with dividends can still be deleted.
+insert into holding_dividends (id, household_id, holding_id, event_id, ex_date, currency, units, units_basis, per_share, tax_pct,
+  expected_gross, expected_tax, expected_fees, expected_net, status, source, paid_into_account_id) values
+  ('fd100000-0000-0000-0000-000000000001', 'd1000000-0000-0000-0000-000000000001', 'fd200000-0000-0000-0000-000000000001', 'fd000000-0000-0000-0000-000000000001',
+   '2026-10-10', 'USD', 10, 'trades', 0.5, 30, 5, 1.5, 0, 3.5, 'earned', 'feed', 'fb200000-0000-0000-0000-000000000001'),
+  ('fd100000-0000-0000-0000-000000000002', 'd2000000-0000-0000-0000-000000000002', 'fd200000-0000-0000-0000-000000000002', 'fd000000-0000-0000-0000-000000000001',
+   '2026-10-10', 'USD', 10, 'trades', 0.5, 30, 5, 1.5, 0, 3.5, 'earned', 'feed', null);
+insert into dividend_special_parts (household_id, event_id, special_per_share) values
+  ('d1000000-0000-0000-0000-000000000001', 'fd000000-0000-0000-0000-000000000001', 0.1),
+  ('d2000000-0000-0000-0000-000000000002', 'fd000000-0000-0000-0000-000000000001', 0.2);
+set role authenticated;
+set request.jwt.claim.sub = '0b000000-0000-0000-0000-00000000000b';
+do $$
+declare n int;
+begin
+  select count(*) into n from dividend_events;
+  if n <> 1 then raise exception 'dividends RLS FAILED: a member sees % dividend events, expected 1', n; end if;
+  select count(*) into n from dividend_splits;
+  if n <> 1 then raise exception 'dividends RLS FAILED: a member sees % splits, expected 1', n; end if;
+  select count(*) into n from holding_dividends;
+  if n <> 1 then raise exception 'dividends RLS FAILED: a member sees % dividends, expected their household''s 1', n; end if;
+  select count(*) into n from dividend_special_parts;
+  if n <> 1 then raise exception 'dividends RLS FAILED: a member sees % one-off answers, expected their household''s 1', n; end if;
+  begin
+    select count(*) into n from dividend_feed_state;
+    if n <> 0 then raise exception 'dividends RLS FAILED: a member reads the feed''s bookkeeping'; end if;
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    insert into dividend_events (symbol, ex_date, amount, source_amount, currency, source) values ('XYZ', '2026-10-01', 1, 1, 'USD', 'yahoo');
+    raise exception 'dividends RLS FAILED: a member inserted a dividend event';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    update dividend_splits set ratio = 3;
+    raise exception 'dividends RLS FAILED: a member edited a split';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    delete from dividend_feed_state;
+    raise exception 'dividends RLS FAILED: a member deleted the feed''s bookkeeping';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    update holding_dividends set units = 99 where id = 'fd100000-0000-0000-0000-000000000001';
+    raise exception 'dividends RLS FAILED: a member edited a dividend directly';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    insert into dividend_special_parts (household_id, event_id, special_per_share)
+    values ('d1000000-0000-0000-0000-000000000001', 'fd000000-0000-0000-0000-000000000001', 0);
+    raise exception 'dividends RLS FAILED: a member wrote a one-off answer directly';
+  exception when insufficient_privilege then null;
+  end;
+  raise notice 'dividends RLS ok: reference data for all members, a household''s dividends for its own, no direct writes';
+end $$;
+reset role;
+
 -- A household can still be deleted outright: the cascade takes the roster with
 -- it, and that is not "a household left without an owner".
 reset role;

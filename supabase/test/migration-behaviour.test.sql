@@ -3858,4 +3858,961 @@ begin
   raise notice 'B3-13 ok: a split question''s day is kept without touching the trade guards';
 end $$;
 
+-- ---------------------------------------------------------------------------
+-- Dividends (SHR-366), PR 1. Fixtures: a dollar and a rupee broker fund, a
+-- rupee bank account, and one holding in each currency.
+-- ---------------------------------------------------------------------------
+insert into accounts (id, household_id, name, type, currency, balance, is_shared) values
+  ('d1a00000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'D1 dollar funds', 'broker_funds', 'USD', 1000, true),
+  ('d1a00000-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'D1 rupee funds', 'broker_funds', 'INR', 1000, true),
+  ('d1a00000-0000-0000-0000-000000000003', '11111111-1111-1111-1111-111111111111', 'D1 rupee bank', 'checking', 'INR', 1000, true);
+insert into holdings (id, household_id, owner_member_id, is_shared, name, asset_class, currency, quantity, avg_price, value_aed, price_symbol, funds_account_id) values
+  ('d1b00000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-0000000000b7', false, 'D1 ABC', 'us_equity', 'USD', 100, 10, 3672.5, 'ABC', 'd1a00000-0000-0000-0000-000000000001'),
+  ('d1b00000-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-0000000000b7', false, 'D1 DEF', 'india_equity', 'INR', 100, 500, 1000, 'DEF.NS', 'd1a00000-0000-0000-0000-000000000002');
+insert into dividend_events (id, symbol, ex_date, amount, source_amount, currency, source, first_seen_at, last_seen_at) values
+  ('d1c00000-0000-0000-0000-000000000001', 'ABC', '2026-10-10', 0.5, 0.5, 'USD', 'alphavantage', now(), now());
+
+-- D1-01: a new holding's withholding comes from its class, unless one is given.
+do $$
+declare r record;
+begin
+  insert into holdings (id, household_id, name, asset_class, currency, quantity, value_aed) values
+    ('d1b10000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'D1-01 in', 'india_equity', 'INR', 1, 0),
+    ('d1b10000-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'D1-01 us', 'us_equity', 'USD', 1, 0),
+    ('d1b10000-0000-0000-0000-000000000003', '11111111-1111-1111-1111-111111111111', 'D1-01 intl', 'intl_equity', 'USD', 1, 0),
+    ('d1b10000-0000-0000-0000-000000000004', '11111111-1111-1111-1111-111111111111', 'D1-01 gold', 'commodity', 'USD', 1, 0);
+  insert into holdings (id, household_id, name, asset_class, currency, quantity, value_aed, dividend_tax_pct) values
+    ('d1b10000-0000-0000-0000-000000000005', '11111111-1111-1111-1111-111111111111', 'D1-01 set', 'us_equity', 'USD', 1, 0, 15);
+  for r in select name, dividend_tax_pct as pct from holdings where id::text like 'd1b10000%' loop
+    if (r.name = 'D1-01 in' and r.pct is distinct from 20.8) or (r.name in ('D1-01 us', 'D1-01 intl') and r.pct is distinct from 30)
+       or (r.name = 'D1-01 gold' and r.pct is not null) or (r.name = 'D1-01 set' and r.pct is distinct from 15) then
+      raise exception 'D1-01 FAILED: % got withholding %', r.name, r.pct;
+    end if;
+  end loop;
+  if (select dividend_fee_per_share from holdings where id = 'd1b10000-0000-0000-0000-000000000002') <> 0 then
+    raise exception 'D1-01 FAILED: a new holding''s fee per share is not 0';
+  end if;
+  raise notice 'D1-01 ok: withholding defaults by class, and a given rate is kept';
+end $$;
+
+-- D1-02: a dividend's figures add up, received figures come only with a
+-- receipt, a receipt has its credit date, and one holding earns an event once.
+do $$
+begin
+  begin
+    insert into holding_dividends (household_id, holding_id, event_id, ex_date, currency, units, units_basis, per_share, tax_pct,
+      expected_gross, expected_tax, expected_fees, expected_net, status, source)
+    values ('11111111-1111-1111-1111-111111111111', 'd1b00000-0000-0000-0000-000000000001', null, '2026-10-10', 'USD', 100, 'trades', 0.5, 30,
+      50, 15, 0, 36, 'earned', 'feed');
+    raise exception 'D1-02 FAILED: an expected net that does not add up was accepted';
+  exception when check_violation then null;
+  end;
+  begin
+    insert into holding_dividends (household_id, holding_id, ex_date, currency, units, units_basis, per_share, tax_pct,
+      expected_gross, expected_tax, expected_fees, expected_net, received_gross, received_tax, received_fees, received_net, status, source)
+    values ('11111111-1111-1111-1111-111111111111', 'd1b00000-0000-0000-0000-000000000001', '2026-10-11', 'USD', 100, 'trades', 0.5, 30,
+      50, 15, 0, 35, 50, 15, 0, 35, 'earned', 'feed');
+    raise exception 'D1-02 FAILED: received figures were accepted on an earned dividend';
+  exception when check_violation then null;
+  end;
+  begin
+    insert into holding_dividends (household_id, holding_id, ex_date, currency, units, units_basis, per_share, tax_pct,
+      expected_gross, expected_tax, expected_fees, expected_net, received_gross, received_tax, received_fees, received_net, status, evidence, source)
+    values ('11111111-1111-1111-1111-111111111111', 'd1b00000-0000-0000-0000-000000000001', '2026-10-12', 'USD', 100, 'trades', 0.5, 30,
+      50, 15, 0, 35, 50, 15, 0, 35, 'received', 'member', 'app');
+    raise exception 'D1-02 FAILED: a receipt without a credit date was accepted';
+  exception when check_violation then null;
+  end;
+  insert into holding_dividends (household_id, holding_id, event_id, ex_date, currency, units, units_basis, per_share, tax_pct,
+    expected_gross, expected_tax, expected_fees, expected_net, status, source)
+  values ('11111111-1111-1111-1111-111111111111', 'd1b00000-0000-0000-0000-000000000001', 'd1c00000-0000-0000-0000-000000000001', '2026-10-10', 'USD', 100, 'trades', 0.5, 30,
+    50, 15, 0, 35, 'earned', 'feed');
+  begin
+    insert into holding_dividends (household_id, holding_id, event_id, ex_date, currency, units, units_basis, per_share, tax_pct,
+      expected_gross, expected_tax, expected_fees, expected_net, status, source)
+    values ('11111111-1111-1111-1111-111111111111', 'd1b00000-0000-0000-0000-000000000001', 'd1c00000-0000-0000-0000-000000000001', '2026-10-13', 'USD', 100, 'trades', 0.5, 30,
+      50, 15, 0, 35, 'earned', 'feed');
+    raise exception 'D1-02 FAILED: one holding earned one event twice';
+  exception when unique_violation then null;
+  end;
+  delete from holding_dividends where holding_id = 'd1b00000-0000-0000-0000-000000000001';
+  raise notice 'D1-02 ok: figures add up, receipts carry their figures and date, an event is earned once per holding';
+end $$;
+
+-- D1-03: a dividend is in its holding's currency, and lands only in an
+-- account of that currency.
+do $$
+begin
+  begin
+    insert into holding_dividends (household_id, holding_id, ex_date, currency, units, units_basis, per_share, tax_pct,
+      expected_gross, expected_tax, expected_fees, expected_net, status, source)
+    values ('11111111-1111-1111-1111-111111111111', 'd1b00000-0000-0000-0000-000000000002', '2026-10-10', 'USD', 100, 'trades', 0.5, 20.8,
+      50, 10.4, 0, 39.6, 'earned', 'feed');
+    raise exception 'D1-03 FAILED: a dollar dividend was accepted on a rupee holding';
+  exception when check_violation then null;
+  end;
+  begin
+    insert into holding_dividends (household_id, holding_id, ex_date, currency, units, units_basis, per_share, tax_pct,
+      expected_gross, expected_tax, expected_fees, expected_net, status, source, paid_into_account_id)
+    values ('11111111-1111-1111-1111-111111111111', 'd1b00000-0000-0000-0000-000000000001', '2026-10-10', 'USD', 100, 'trades', 0.5, 30,
+      50, 15, 0, 35, 'earned', 'feed', 'd1a00000-0000-0000-0000-000000000003');
+    raise exception 'D1-03 FAILED: a dollar dividend was accepted into a rupee account';
+  exception when check_violation then null;
+  end;
+  raise notice 'D1-03 ok: a dividend keeps its holding''s currency and its destination''s';
+end $$;
+
+-- D1-04: only a broker fund names where its dividends land, and only an open
+-- account of its own household and currency.
+do $$
+begin
+  begin
+    update accounts set dividends_into_account_id = 'd1a00000-0000-0000-0000-000000000002' where id = 'd1a00000-0000-0000-0000-000000000003';
+    raise exception 'D1-04 FAILED: a bank account was given a dividend destination';
+  exception when check_violation then null;
+  end;
+  begin
+    update accounts set dividends_into_account_id = 'd1a00000-0000-0000-0000-000000000003' where id = 'd1a00000-0000-0000-0000-000000000001';
+    raise exception 'D1-04 FAILED: a dollar fund was pointed at a rupee account';
+  exception when check_violation then null;
+  end;
+  update accounts set dividends_into_account_id = 'd1a00000-0000-0000-0000-000000000003' where id = 'd1a00000-0000-0000-0000-000000000002';
+  if (select dividends_into_account_id from accounts where id = 'd1a00000-0000-0000-0000-000000000002') is distinct from 'd1a00000-0000-0000-0000-000000000003' then
+    raise exception 'D1-04 FAILED: a rupee fund could not point at the rupee bank account';
+  end if;
+  raise notice 'D1-04 ok: a broker fund names a destination of its own household and currency';
+end $$;
+
+-- D1-05: a member's one-off part is never more than the dividend itself.
+do $$
+begin
+  begin
+    insert into dividend_special_parts (household_id, event_id, special_per_share)
+    values ('11111111-1111-1111-1111-111111111111', 'd1c00000-0000-0000-0000-000000000001', 0.6);
+    raise exception 'D1-05 FAILED: a one-off part above the amount was accepted';
+  exception when check_violation then null;
+  end;
+  insert into dividend_special_parts (household_id, event_id, special_per_share)
+  values ('11111111-1111-1111-1111-111111111111', 'd1c00000-0000-0000-0000-000000000001', 0.4);
+  raise notice 'D1-05 ok: a one-off part is between nothing and the whole amount';
+end $$;
+
+
+-- D1-06: a failed check changes no event and keeps the last success, so the
+-- events it listed stay listed.
+do $$
+declare r jsonb; s record;
+begin
+  r := record_dividend_fetch('D6', 'alphavantage', 'dividends',
+    '{"ok": true, "covered_from": "2025-01-01", "items": [{"ex_date": "2025-03-01", "amount": 1}, {"ex_date": "2025-06-01", "amount": 1}]}',
+    '2026-07-01 10:00+04');
+  r := record_dividend_fetch('D6', 'alphavantage', 'dividends', '{"ok": false, "error": "limit reached"}', '2026-07-02 10:00+04');
+  select * into s from dividend_feed_state where symbol = 'D6' and kind = 'dividends';
+  if s.fail_count <> 1 or s.last_success_at <> '2026-07-01 10:00+04' or s.last_failure_at <> '2026-07-02 10:00+04' or s.last_error <> 'limit reached' then
+    raise exception 'D1-06 FAILED: the failure was recorded as %', row_to_json(s);
+  end if;
+  if (select count(*) from dividend_events where symbol = 'D6' and last_seen_at = s.last_success_at) <> 2 then
+    raise exception 'D1-06 FAILED: a failed check unlisted an event';
+  end if;
+  -- A response with one unreadable item is a failure too, not a shorter list.
+  r := record_dividend_fetch('D6', 'alphavantage', 'dividends',
+    '{"ok": true, "items": [{"ex_date": "2025-03-01", "amount": 1}, {"ex_date": "None", "amount": 1}]}', '2026-07-03 10:00+04');
+  if (r ->> 'failed')::boolean is not true
+     or (select count(*) from dividend_events where symbol = 'D6' and last_seen_at = '2026-07-01 10:00+04') <> 2 then
+    raise exception 'D1-06 FAILED: an unreadable item was taken as a shorter list: %', r;
+  end if;
+  raise notice 'D1-06 ok: a failed check changes no event and keeps them listed';
+end $$;
+
+-- D1-07: a check that no longer lists an event leaves it unlisted, never
+-- deleted, and keeps the listed one's first sighting.
+do $$
+declare r jsonb; first_seen timestamptz;
+begin
+  r := record_dividend_fetch('D7', 'alphavantage', 'dividends',
+    '{"ok": true, "items": [{"ex_date": "2025-03-01", "amount": 1}, {"ex_date": "2025-06-01", "amount": 1}]}', '2026-07-01 10:00+04');
+  select first_seen_at into first_seen from dividend_events where symbol = 'D7' and ex_date = '2025-03-01';
+  r := record_dividend_fetch('D7', 'alphavantage', 'dividends',
+    '{"ok": true, "items": [{"ex_date": "2025-03-01", "amount": 1}]}', '2026-07-02 10:00+04');
+  if (r ->> 'listed')::int <> 1 then raise exception 'D1-07 FAILED: the check reported %', r; end if;
+  if (select count(*) from dividend_events where symbol = 'D7') <> 2 then raise exception 'D1-07 FAILED: an unlisted event was deleted'; end if;
+  if (select last_seen_at from dividend_events where symbol = 'D7' and ex_date = '2025-06-01') <> '2026-07-01 10:00+04' then
+    raise exception 'D1-07 FAILED: the unlisted event looks listed';
+  end if;
+  if (select first_seen_at from dividend_events where symbol = 'D7' and ex_date = '2025-03-01') <> first_seen then
+    raise exception 'D1-07 FAILED: a listed event''s first sighting moved';
+  end if;
+  raise notice 'D1-07 ok: an event the source drops is unlisted, not deleted';
+end $$;
+
+-- D1-08: amounts are kept on their ex-date's share basis. Yahoo adjusts past
+-- amounts for splits it has applied by the day of the check.
+do $$
+declare r jsonb;
+begin
+  r := record_dividend_fetch('D8.NS', 'yahoo', 'splits', '{"ok": true, "items": [{"effective_date": "2026-06-10", "ratio": 10}]}', '2026-07-01 10:00+04');
+  r := record_dividend_fetch('D8.NS', 'yahoo', 'dividends',
+    '{"ok": true, "items": [{"ex_date": "2026-03-05", "amount": 0.004, "currency": "INR"}, {"ex_date": "2026-06-20", "amount": 0.01, "currency": "INR"}]}',
+    '2026-07-01 10:00+04');
+  if (select amount from dividend_events where symbol = 'D8.NS' and ex_date = '2026-03-05') <> 0.04
+     or (select source_factor from dividend_events where symbol = 'D8.NS' and ex_date = '2026-03-05') <> 10
+     or (select amount from dividend_events where symbol = 'D8.NS' and ex_date = '2026-06-20') <> 0.01 then
+    raise exception 'D1-08 FAILED: amounts after the first split are %',
+      (select jsonb_agg(jsonb_build_object('ex', ex_date, 'amount', amount, 'factor', source_factor)) from dividend_events where symbol = 'D8.NS');
+  end if;
+  -- A later split the source had not applied when it gave the amount is not applied to it.
+  r := record_dividend_fetch('D8.NS', 'yahoo', 'splits',
+    '{"ok": true, "items": [{"effective_date": "2026-06-10", "ratio": 10}, {"effective_date": "2026-08-01", "ratio": 2}]}', '2026-08-05 10:00+04');
+  if (select amount from dividend_events where symbol = 'D8.NS' and ex_date = '2026-03-05') <> 0.04 then
+    raise exception 'D1-08 FAILED: a split applied twice made %', (select amount from dividend_events where symbol = 'D8.NS' and ex_date = '2026-03-05');
+  end if;
+  -- Once the source re-adjusts, the amount on the ex-date's basis is the same.
+  r := record_dividend_fetch('D8.NS', 'yahoo', 'dividends',
+    '{"ok": true, "items": [{"ex_date": "2026-03-05", "amount": 0.002, "currency": "INR"}, {"ex_date": "2026-06-20", "amount": 0.005, "currency": "INR"}]}',
+    '2026-08-05 10:00+04');
+  if (select amount from dividend_events where symbol = 'D8.NS' and ex_date = '2026-03-05') <> 0.04
+     or (select amount from dividend_events where symbol = 'D8.NS' and ex_date = '2026-06-20') <> 0.01 then
+    raise exception 'D1-08 FAILED: after the source re-adjusted, amounts are %',
+      (select jsonb_agg(jsonb_build_object('ex', ex_date, 'amount', amount)) from dividend_events where symbol = 'D8.NS');
+  end if;
+  raise notice 'D1-08 ok: amounts stay on their ex-date''s basis across later splits';
+end $$;
+
+-- D1-08b: a split learnt of after the source already applied it is applied
+-- as soon as it is known.
+do $$
+declare r jsonb;
+begin
+  r := record_dividend_fetch('D8B.NS', 'yahoo', 'splits', '{"ok": true, "items": [{"effective_date": "2026-06-10", "ratio": 10}]}', '2026-08-05 10:00+04');
+  r := record_dividend_fetch('D8B.NS', 'yahoo', 'dividends', '{"ok": true, "items": [{"ex_date": "2026-03-05", "amount": 0.002}]}', '2026-08-05 10:00+04');
+  if (select amount from dividend_events where symbol = 'D8B.NS') <> 0.02 then
+    raise exception 'D1-08b FAILED: before the second split was known the amount is %', (select amount from dividend_events where symbol = 'D8B.NS');
+  end if;
+  r := record_dividend_fetch('D8B.NS', 'yahoo', 'splits',
+    '{"ok": true, "items": [{"effective_date": "2026-06-10", "ratio": 10}, {"effective_date": "2026-08-01", "ratio": 2}]}', '2026-08-06 10:00+04');
+  if (select amount from dividend_events where symbol = 'D8B.NS') <> 0.04 then
+    raise exception 'D1-08b FAILED: once the split was known the amount is %', (select amount from dividend_events where symbol = 'D8B.NS');
+  end if;
+  raise notice 'D1-08b ok: a split learnt of late is applied once known';
+end $$;
+
+-- D1-09: Alpha Vantage gives amounts as paid. A past amount that changes
+-- asks for that share's splits on the next run; a splits check answers it.
+do $$
+declare r jsonb;
+begin
+  r := record_dividend_fetch('D9', 'alphavantage', 'dividends', '{"ok": true, "items": [{"ex_date": "2025-03-01", "amount": 0.5}]}', '2026-07-01 10:00+04');
+  if (select amount from dividend_events where symbol = 'D9') <> 0.5 then raise exception 'D1-09 FAILED: an Alpha Vantage amount was adjusted'; end if;
+  r := record_dividend_fetch('D9', 'alphavantage', 'dividends', '{"ok": true, "items": [{"ex_date": "2025-03-01", "amount": 0.25}]}', '2026-07-02 10:00+04');
+  if (r ->> 'changed_past')::int <> 1 or not (select needs_splits from dividend_feed_state where symbol = 'D9' and kind = 'dividends') then
+    raise exception 'D1-09 FAILED: a changed past amount did not ask for splits: %', r;
+  end if;
+  r := record_dividend_fetch('D9', 'alphavantage', 'splits', '{"ok": true, "items": []}', '2026-07-03 10:00+04');
+  if (select needs_splits from dividend_feed_state where symbol = 'D9' and kind = 'dividends') then
+    raise exception 'D1-09 FAILED: a splits check left the question open';
+  end if;
+  raise notice 'D1-09 ok: a changed past amount asks for splits, and a splits check answers it';
+end $$;
+
+-- D1-10: the feed follows held shares, shares with a dividend still owed, and
+-- shares sold within a year; not commodities, funds or unpriced holdings.
+do $$
+declare r jsonb; n int; row record;
+begin
+  insert into holdings (id, household_id, name, asset_class, currency, quantity, value_aed, price_symbol, price_provider) values
+    ('d1b20000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'D10 in', 'india_equity', 'INR', 5, 0, 'D10IN.NS', 'yahoo'),
+    ('d1b20000-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'D10 us', 'us_equity', 'USD', 5, 0, 'D10US', 'twelvedata'),
+    ('d1b20000-0000-0000-0000-000000000003', '11111111-1111-1111-1111-111111111111', 'D10 gold', 'commodity', 'USD', 5, 0, 'D10GOLD', 'twelvedata'),
+    ('d1b20000-0000-0000-0000-000000000004', '11111111-1111-1111-1111-111111111111', 'D10 fund', 'india_mf', 'INR', 5, 0, 'D10MF', 'mfapi'),
+    ('d1b20000-0000-0000-0000-000000000005', '11111111-1111-1111-1111-111111111111', 'D10 none', 'us_equity', 'USD', 5, 0, null, null),
+    ('d1b20000-0000-0000-0000-000000000006', '11111111-1111-1111-1111-111111111111', 'D10 sold recently', 'us_equity', 'USD', 0, 0, 'D10SOLD', 'twelvedata'),
+    ('d1b20000-0000-0000-0000-000000000007', '11111111-1111-1111-1111-111111111111', 'D10 sold long ago', 'us_equity', 'USD', 0, 0, 'D10OLD', 'twelvedata');
+  insert into holding_trades (household_id, holding_id, kind, trade_date, units, price, funds_account_id, source) values
+    ('11111111-1111-1111-1111-111111111111', 'd1b20000-0000-0000-0000-000000000006', 'opening', household_today() - 200, 5, 10, null, 'opening'),
+    ('11111111-1111-1111-1111-111111111111', 'd1b20000-0000-0000-0000-000000000006', 'sell', household_today() - 100, 5, 12, 'd1a00000-0000-0000-0000-000000000001', 'app'),
+    ('11111111-1111-1111-1111-111111111111', 'd1b20000-0000-0000-0000-000000000007', 'opening', household_today() - 500, 5, 10, null, 'opening'),
+    ('11111111-1111-1111-1111-111111111111', 'd1b20000-0000-0000-0000-000000000007', 'sell', household_today() - 400, 5, 12, 'd1a00000-0000-0000-0000-000000000001', 'app');
+  -- D10US was last checked two days ago, and has an event that went ex since.
+  r := record_dividend_fetch('D10US', 'alphavantage', 'dividends',
+    jsonb_build_object('ok', true, 'items', jsonb_build_array(jsonb_build_object('ex_date', household_today() - 1, 'amount', 0.1))),
+    (household_today() - 2)::timestamp at time zone 'Asia/Dubai' + interval '6 hours');
+  select count(*) into n from dividend_symbols() s where s.symbol like 'D10%';
+  if n <> 3 then raise exception 'D1-10 FAILED: the feed follows % D10 symbols, expected 3: %', n,
+    (select jsonb_agg(s.symbol) from dividend_symbols() s where s.symbol like 'D10%'); end if;
+  for row in select * from dividend_symbols() s where s.symbol like 'D10%' loop
+    if (row.symbol = 'D10IN.NS' and (row.provider <> 'yahoo' or not row.held))
+       or (row.symbol = 'D10US' and (row.provider <> 'alphavantage' or not row.held or not row.ex_passed_since_success))
+       or (row.symbol = 'D10SOLD' and (row.provider <> 'alphavantage' or row.held)) then
+      raise exception 'D1-10 FAILED: % came back as %', row.symbol, row_to_json(row);
+    end if;
+  end loop;
+  raise notice 'D1-10 ok: the feed follows held, owed and recently sold shares, and nothing it cannot price';
+end $$;
+
+-- Earning (Task 3). Each case gives its holding its own symbol, an opening
+-- entry and its trades directly, and its events through record_dividend_fetch
+-- at today's time, so the check that lists them comes after their ex-dates.
+create or replace function pg_temp.d1_holding(p_id uuid, p_symbol text, p_class text, p_currency text, p_fund uuid, p_opening date, p_units numeric,
+  p_provider text default 'twelvedata')
+returns void language sql as $$
+  insert into holdings (id, household_id, owner_member_id, is_shared, name, asset_class, currency, quantity, avg_price, value_aed, price_symbol, price_provider, funds_account_id)
+  values (p_id, '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-0000000000b7', false, p_symbol, p_class, p_currency, p_units, 10, 0, p_symbol, p_provider, p_fund);
+  insert into holding_trades (household_id, holding_id, kind, trade_date, units, price, source)
+  select '11111111-1111-1111-1111-111111111111', p_id, 'opening', p_opening, p_units, 10, 'opening' where p_opening is not null;
+  -- Live, as open_trade_history leaves a holding, so the trade functions take it.
+  select set_config('rokda.trade_replay', 'on', true);
+  update holdings set trades_version = 1 where id = p_id and p_opening is not null;
+  select set_config('rokda.trade_replay', '', true);
+$$;
+create or replace function pg_temp.d1_trade(p_holding uuid, p_kind text, p_date date, p_units numeric, p_at timestamptz default null)
+returns void language sql as $$
+  insert into holding_trades (household_id, holding_id, kind, trade_date, traded_at, units, price, funds_account_id, source)
+  values ('11111111-1111-1111-1111-111111111111', p_holding, p_kind, p_date, p_at, p_units, case when p_kind = 'split' then null else 10 end,
+    case when p_kind in ('buy', 'sell') then (select funds_account_id from holdings where id = p_holding) end, 'app');
+$$;
+create or replace function pg_temp.d1_events(p_symbol text, p_provider text, p_items jsonb)
+returns jsonb language sql as $$
+  select record_dividend_fetch(p_symbol, p_provider, 'dividends', jsonb_build_object('ok', true, 'items', p_items));
+$$;
+
+-- D1-11: units on an ex-date count the trades of the market days before it.
+do $$
+declare h uuid := 'd1b30000-0000-0000-0000-000000000011';
+begin
+  perform pg_temp.d1_holding(h, 'D11', 'us_equity', 'USD', 'd1a00000-0000-0000-0000-000000000001', '2026-10-01', 100);
+  perform pg_temp.d1_trade(h, 'buy', '2026-10-09', 10);
+  perform pg_temp.d1_trade(h, 'buy', '2026-10-10', 7);
+  -- Confirmed in Dubai just after midnight: the 9th in New York.
+  perform pg_temp.d1_trade(h, 'buy', '2026-10-10', 5, '2026-10-10 00:30+04');
+  if private.units_on_ex_date(h, '2026-10-10') <> 115 then
+    raise exception 'D1-11 FAILED: units on 10 Oct are %, expected 115', private.units_on_ex_date(h, '2026-10-10');
+  end if;
+  if private.units_on_ex_date(h, '2026-10-11') <> 122 then
+    raise exception 'D1-11 FAILED: units on 11 Oct are %, expected 122', private.units_on_ex_date(h, '2026-10-11');
+  end if;
+  if private.units_on_ex_date(h, '2026-10-01') <> 100 then
+    raise exception 'D1-11 FAILED: an ex-date on the opening day gave %', private.units_on_ex_date(h, '2026-10-01');
+  end if;
+  if private.units_on_ex_date(h, '2026-09-30') is not null then
+    raise exception 'D1-11 FAILED: an ex-date before the opening gave units';
+  end if;
+  raise notice 'D1-11 ok: units on an ex-date count the market days before it';
+end $$;
+
+-- D1-12: each holding earns each listed event after its opening, at its own
+-- units and withholding, into its fund; nothing for what cannot pay.
+do $$
+declare t date := household_today(); d holding_dividends%rowtype; n int;
+begin
+  perform pg_temp.d1_holding('d1b30000-0000-0000-0000-000000000012', 'D12', 'us_equity', 'USD', 'd1a00000-0000-0000-0000-000000000001', t - 40, 100);
+  perform pg_temp.d1_holding('d1b30000-0000-0000-0000-000000000112', 'D12', 'us_equity', 'USD', 'd1a00000-0000-0000-0000-000000000001', t - 15, 20);
+  perform pg_temp.d1_holding('d1b30000-0000-0000-0000-000000000212', 'D12', 'us_equity', 'USD', 'd1a00000-0000-0000-0000-000000000001', null, 30);
+  perform pg_temp.d1_holding('d1b30000-0000-0000-0000-000000000312', 'D12GOLD', 'commodity', 'USD', null, t - 40, 1);
+  perform pg_temp.d1_events('D12', 'alphavantage', jsonb_build_array(
+    jsonb_build_object('ex_date', t - 20, 'amount', 0.5, 'pay_date', t - 5),
+    jsonb_build_object('ex_date', t - 10, 'amount', 0.5)));
+  perform pg_temp.d1_events('D12GOLD', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 20, 'amount', 1)));
+  perform earn_dividends();
+  select count(*) into n from holding_dividends where holding_id = 'd1b30000-0000-0000-0000-000000000012';
+  if n <> 2 then raise exception 'D1-12 FAILED: the holding earned % dividends, expected 2', n; end if;
+  select * into d from holding_dividends where holding_id = 'd1b30000-0000-0000-0000-000000000012' and ex_date = t - 20;
+  if d.status <> 'earned' or d.units <> 100 or d.per_share <> 0.5 or d.tax_pct <> 30 or d.expected_gross <> 50 or d.expected_tax <> 15
+     or d.expected_fees <> 0 or d.expected_net <> 35 or d.paid_into_account_id <> 'd1a00000-0000-0000-0000-000000000001'
+     or d.units_basis <> 'trades' or d.source <> 'feed' or d.pay_date <> t - 5 or d.currency <> 'USD' then
+    raise exception 'D1-12 FAILED: the dividend was recorded as %', row_to_json(d);
+  end if;
+  if (select count(*) from holding_dividends where holding_id = 'd1b30000-0000-0000-0000-000000000112') <> 1
+     or (select ex_date from holding_dividends where holding_id = 'd1b30000-0000-0000-0000-000000000112') <> t - 10 then
+    raise exception 'D1-12 FAILED: a holding opened after an ex-date earned it';
+  end if;
+  if exists (select 1 from holding_dividends where holding_id in ('d1b30000-0000-0000-0000-000000000212', 'd1b30000-0000-0000-0000-000000000312')) then
+    raise exception 'D1-12 FAILED: a holding without an opening, or a commodity, earned a dividend';
+  end if;
+  raise notice 'D1-12 ok: each holding earns each listed event after its opening, at its own units';
+end $$;
+
+-- D1-13: a pay date before the ex-date, or a split on it, is left for a member.
+do $$
+declare t date := household_today(); r jsonb;
+begin
+  perform pg_temp.d1_holding('d1b30000-0000-0000-0000-000000000013', 'D13', 'us_equity', 'USD', 'd1a00000-0000-0000-0000-000000000001', t - 40, 100);
+  r := record_dividend_fetch('D13', 'alphavantage', 'splits', jsonb_build_object('ok', true, 'items', jsonb_build_array(
+    jsonb_build_object('effective_date', t - 10, 'ratio', 2))));
+  perform pg_temp.d1_events('D13', 'alphavantage', jsonb_build_array(
+    jsonb_build_object('ex_date', t - 20, 'amount', 5, 'pay_date', t - 25),
+    jsonb_build_object('ex_date', t - 10, 'amount', 0.5),
+    jsonb_build_object('ex_date', t - 5, 'amount', 0.5)));
+  perform earn_dividends();
+  if (select count(*) from holding_dividends where holding_id = 'd1b30000-0000-0000-0000-000000000013') <> 1
+     or (select ex_date from holding_dividends where holding_id = 'd1b30000-0000-0000-0000-000000000013') <> t - 5 then
+    raise exception 'D1-13 FAILED: earned %', (select jsonb_agg(ex_date) from holding_dividends where holding_id = 'd1b30000-0000-0000-0000-000000000013');
+  end if;
+  raise notice 'D1-13 ok: a pay date before the ex-date, or a split on it, is not earned automatically';
+end $$;
+
+-- D1-14: a dividend added by hand on the event's ex-date is linked, not
+-- doubled; one a few days off is never doubled either, but asked about.
+do $$
+declare t date := household_today(); h uuid := 'd1b30000-0000-0000-0000-000000000014'; d holding_dividends%rowtype;
+begin
+  perform pg_temp.d1_holding(h, 'D14', 'us_equity', 'USD', 'd1a00000-0000-0000-0000-000000000001', t - 40, 100);
+  insert into holding_dividends (household_id, holding_id, ex_date, currency, units, units_basis, per_share, tax_pct,
+    expected_gross, expected_tax, expected_fees, expected_net, status, source) values
+    ('11111111-1111-1111-1111-111111111111', h, t - 20, 'USD', 100, 'stated', 0.6, 30, 60, 18, 0, 42, 'earned', 'app'),
+    ('11111111-1111-1111-1111-111111111111', h, t - 2, 'USD', 100, 'stated', 0.5, 30, 50, 15, 0, 35, 'earned', 'app');
+  perform pg_temp.d1_events('D14', 'alphavantage', jsonb_build_array(
+    jsonb_build_object('ex_date', t - 20, 'amount', 0.5),
+    jsonb_build_object('ex_date', t - 10, 'amount', 0.5)));
+  perform earn_dividends();
+  if (select count(*) from holding_dividends where holding_id = h) <> 2 then
+    raise exception 'D1-14 FAILED: % rows after linking, expected 2', (select count(*) from holding_dividends where holding_id = h);
+  end if;
+  select * into d from holding_dividends where holding_id = h and ex_date = t - 20;
+  if d.event_id is null or d.per_share <> 0.6 or d.review_reason is distinct from 'feed_changed' then
+    raise exception 'D1-14 FAILED: the same-day row became %', row_to_json(d);
+  end if;
+  select * into d from holding_dividends where holding_id = h and ex_date = t - 2;
+  if d.event_id is not null or d.review_reason is distinct from 'possible_duplicate'
+     or d.review_event_id is distinct from (select id from dividend_events where symbol = 'D14' and ex_date = t - 10) then
+    raise exception 'D1-14 FAILED: the near row became %', row_to_json(d);
+  end if;
+  raise notice 'D1-14 ok: a hand-added dividend is linked on its ex-date and asked about when near';
+end $$;
+
+-- D1-15: a corrected amount or date reaches an earned row, and is only
+-- flagged on a received one, unless a member already kept that figure.
+do $$
+declare t date := household_today(); h uuid := 'd1b30000-0000-0000-0000-000000000015'; d holding_dividends%rowtype;
+begin
+  perform pg_temp.d1_holding(h, 'D15', 'us_equity', 'USD', 'd1a00000-0000-0000-0000-000000000001', t - 40, 100);
+  perform pg_temp.d1_events('D15', 'alphavantage', jsonb_build_array(
+    jsonb_build_object('ex_date', t - 20, 'amount', 0.5, 'pay_date', t - 5),
+    jsonb_build_object('ex_date', t - 12, 'amount', 0.5)));
+  perform earn_dividends();
+  update holding_dividends set status = 'received', evidence = 'member', credited_on = t - 3,
+    received_gross = 50, received_tax = 15, received_fees = 0, received_net = 35
+  where holding_id = h and ex_date = t - 12;
+  perform pg_temp.d1_events('D15', 'alphavantage', jsonb_build_array(
+    jsonb_build_object('ex_date', t - 20, 'amount', 0.6, 'pay_date', t - 4),
+    jsonb_build_object('ex_date', t - 12, 'amount', 0.7)));
+  perform earn_dividends();
+  select * into d from holding_dividends where holding_id = h and ex_date = t - 20;
+  if d.per_share <> 0.6 or d.expected_gross <> 60 or d.expected_net <> 42 or d.pay_date <> t - 4 or d.review_reason is not null then
+    raise exception 'D1-15 FAILED: the earned row became %', row_to_json(d);
+  end if;
+  select * into d from holding_dividends where holding_id = h and ex_date = t - 12;
+  if d.per_share <> 0.5 or d.received_net <> 35 or d.review_reason is distinct from 'feed_changed' then
+    raise exception 'D1-15 FAILED: the received row became %', row_to_json(d);
+  end if;
+  update holding_dividends set review_reason = null, review_baseline = jsonb_build_object('per_share', 0.7, 'units', 100, 'ex_date', t - 12)
+  where id = d.id;
+  perform earn_dividends();
+  if (select review_reason from holding_dividends where id = d.id) is not null then
+    raise exception 'D1-15 FAILED: a kept figure was flagged again';
+  end if;
+  raise notice 'D1-15 ok: corrections reach earned rows, and are flagged once on received ones';
+end $$;
+
+-- D1-16: a dividend paid into a bank account is presumed received 30 days
+-- after its ex-date; one paid into a broker fund waits for a member.
+do $$
+declare t date := household_today(); d holding_dividends%rowtype;
+begin
+  perform pg_temp.d1_holding('d1b30000-0000-0000-0000-000000000016', 'D16.NS', 'india_equity', 'INR', 'd1a00000-0000-0000-0000-000000000002', t - 60, 100, 'yahoo');
+  perform pg_temp.d1_holding('d1b30000-0000-0000-0000-000000000116', 'D16US', 'us_equity', 'USD', 'd1a00000-0000-0000-0000-000000000001', t - 60, 100);
+  perform pg_temp.d1_events('D16.NS', 'yahoo', jsonb_build_array(
+    jsonb_build_object('ex_date', t - 40, 'amount', 5, 'currency', 'INR'),
+    jsonb_build_object('ex_date', t - 10, 'amount', 5, 'currency', 'INR')));
+  perform pg_temp.d1_events('D16US', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 40, 'amount', 0.5)));
+  perform earn_dividends();
+  select * into d from holding_dividends where holding_id = 'd1b30000-0000-0000-0000-000000000016' and ex_date = t - 40;
+  if d.status <> 'presumed' or d.credited_on <> t - 10 or not d.credited_on_estimated
+     or d.paid_into_account_id <> 'd1a00000-0000-0000-0000-000000000003' or d.expected_net <> 396 or d.received_net is not null then
+    raise exception 'D1-16 FAILED: the older rupee dividend is %', row_to_json(d);
+  end if;
+  if (select status from holding_dividends where holding_id = 'd1b30000-0000-0000-0000-000000000016' and ex_date = t - 10) <> 'earned' then
+    raise exception 'D1-16 FAILED: a rupee dividend was presumed before 30 days';
+  end if;
+  if (select status from holding_dividends where holding_id = 'd1b30000-0000-0000-0000-000000000116') <> 'earned' then
+    raise exception 'D1-16 FAILED: a broker-fund dividend was presumed received';
+  end if;
+  raise notice 'D1-16 ok: a bank dividend is presumed after 30 days; a fund''s waits for a member';
+end $$;
+
+-- D1-17: a holding sold after the ex-date keeps its dividend.
+do $$
+declare t date := household_today(); h uuid := 'd1b30000-0000-0000-0000-000000000017';
+begin
+  perform pg_temp.d1_holding(h, 'D17', 'us_equity', 'USD', 'd1a00000-0000-0000-0000-000000000001', t - 40, 100);
+  perform pg_temp.d1_trade(h, 'sell', t - 19, 100);
+  perform pg_temp.d1_events('D17', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 20, 'amount', 0.5)));
+  perform earn_dividends();
+  if (select units from holding_dividends where holding_id = h) is distinct from 100 then
+    raise exception 'D1-17 FAILED: a holding sold after the ex-date earned %', (select units from holding_dividends where holding_id = h);
+  end if;
+  raise notice 'D1-17 ok: a holding sold after the ex-date keeps its dividend';
+end $$;
+
+-- D1-18: one check after a long gap earns every dividend in it.
+do $$
+declare t date := household_today(); h uuid := 'd1b30000-0000-0000-0000-000000000018';
+begin
+  perform pg_temp.d1_holding(h, 'D18', 'us_equity', 'USD', 'd1a00000-0000-0000-0000-000000000001', t - 200, 100);
+  perform pg_temp.d1_events('D18', 'alphavantage', jsonb_build_array(
+    jsonb_build_object('ex_date', t - 150, 'amount', 0.5), jsonb_build_object('ex_date', t - 120, 'amount', 0.5),
+    jsonb_build_object('ex_date', t - 90, 'amount', 0.5), jsonb_build_object('ex_date', t - 60, 'amount', 0.5),
+    jsonb_build_object('ex_date', t - 30, 'amount', 0.5)));
+  perform earn_dividends();
+  if (select count(*) from holding_dividends where holding_id = h) <> 5 then
+    raise exception 'D1-18 FAILED: % of 5 dividends earned after the gap', (select count(*) from holding_dividends where holding_id = h);
+  end if;
+  raise notice 'D1-18 ok: one check after a gap earns every dividend in it';
+end $$;
+
+-- D1-19: running again changes nothing.
+do $$
+declare r jsonb; v_versions bigint; v_touched timestamptz;
+begin
+  perform earn_dividends();
+  select sum(version), max(updated_at) into v_versions, v_touched from holding_dividends;
+  r := earn_dividends();
+  if (r ->> 'made')::int + (r ->> 'updated')::int + (r ->> 'removed')::int + (r ->> 'flagged')::int + (r ->> 'presumed')::int <> 0
+     or (select sum(version) from holding_dividends) <> v_versions or (select max(updated_at) from holding_dividends) <> v_touched then
+    raise exception 'D1-19 FAILED: a second run reported % and moved rows', r;
+  end if;
+  raise notice 'D1-19 ok: earning again changes nothing';
+end $$;
+
+-- D1-20: an ex-date that moves before the first check after it is earned
+-- once, on its new date.
+do $$
+declare t date := household_today(); h uuid := 'd1b30000-0000-0000-0000-000000000020'; r jsonb;
+begin
+  perform pg_temp.d1_holding(h, 'D20', 'us_equity', 'USD', 'd1a00000-0000-0000-0000-000000000001', t - 40, 100);
+  r := record_dividend_fetch('D20', 'alphavantage', 'dividends', jsonb_build_object('ok', true, 'items', jsonb_build_array(
+    jsonb_build_object('ex_date', t - 10, 'amount', 0.5))), (t - 15)::timestamp at time zone 'Asia/Dubai' + interval '6 hours');
+  r := record_dividend_fetch('D20', 'alphavantage', 'dividends', jsonb_build_object('ok', true, 'items', jsonb_build_array(
+    jsonb_build_object('ex_date', t - 8, 'amount', 0.5))), (t - 7)::timestamp at time zone 'Asia/Dubai' + interval '6 hours');
+  perform earn_dividends();
+  if (select count(*) from holding_dividends where holding_id = h) <> 1 or (select ex_date from holding_dividends where holding_id = h) <> t - 8 then
+    raise exception 'D1-20 FAILED: earned %', (select jsonb_agg(ex_date) from holding_dividends where holding_id = h);
+  end if;
+  raise notice 'D1-20 ok: a date moved before its first check is earned once, on the new date';
+end $$;
+
+-- D1-21: an ex-date that moves after it was earned moves the earned dividend
+-- with it; there is never a second one.
+do $$
+declare t date := household_today(); h uuid := 'd1b30000-0000-0000-0000-000000000021'; d holding_dividends%rowtype; a uuid; b uuid; v int;
+begin
+  perform pg_temp.d1_holding(h, 'D21', 'us_equity', 'USD', 'd1a00000-0000-0000-0000-000000000001', t - 40, 100);
+  perform pg_temp.d1_trade(h, 'buy', t - 9, 50);
+  perform pg_temp.d1_events('D21', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 10, 'amount', 0.5)));
+  perform earn_dividends();
+  -- The source drops the old date in two answers in a row.
+  perform pg_temp.d1_events('D21', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 7, 'amount', 0.5)));
+  perform pg_temp.d1_events('D21', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 7, 'amount', 0.5)));
+  perform earn_dividends();
+  select id into a from dividend_events where symbol = 'D21' and ex_date = t - 10;
+  select id into b from dividend_events where symbol = 'D21' and ex_date = t - 7;
+  if (select count(*) from holding_dividends where holding_id = h) <> 1 then
+    raise exception 'D1-21 FAILED: % dividends after the date moved, expected 1', (select count(*) from holding_dividends where holding_id = h);
+  end if;
+  select * into d from holding_dividends where holding_id = h;
+  if d.event_id <> b or d.ex_date <> t - 7 or d.units <> 150 or d.expected_gross <> 75
+     or (select superseded_by from dividend_events where id = a) is distinct from b then
+    raise exception 'D1-21 FAILED: the moved dividend is %', row_to_json(d);
+  end if;
+  v := d.version;
+  perform earn_dividends();
+  if (select version from holding_dividends where id = d.id) <> v then raise exception 'D1-21 FAILED: a further run moved it again'; end if;
+  raise notice 'D1-21 ok: an earned dividend moves with its ex-date, never doubled';
+end $$;
+
+-- D1-22: a received dividend keeps its date when the feed moves it, is asked
+-- about, and the new date earns nothing more for that holding.
+do $$
+declare t date := household_today(); h uuid := 'd1b30000-0000-0000-0000-000000000022'; d holding_dividends%rowtype;
+begin
+  perform pg_temp.d1_holding(h, 'D22', 'us_equity', 'USD', 'd1a00000-0000-0000-0000-000000000001', t - 40, 100);
+  perform pg_temp.d1_events('D22', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 10, 'amount', 0.5)));
+  perform earn_dividends();
+  update holding_dividends set status = 'received', evidence = 'member', credited_on = t - 2,
+    received_gross = 50, received_tax = 15, received_fees = 0, received_net = 35
+  where holding_id = h;
+  -- The source drops the old date in two answers in a row.
+  perform pg_temp.d1_events('D22', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 7, 'amount', 0.5)));
+  perform pg_temp.d1_events('D22', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 7, 'amount', 0.5)));
+  perform earn_dividends();
+  if (select count(*) from holding_dividends where holding_id = h) <> 1 then
+    raise exception 'D1-22 FAILED: the new date earned a second dividend';
+  end if;
+  select * into d from holding_dividends where holding_id = h;
+  if d.ex_date <> t - 10 or d.review_reason is distinct from 'moved_ex_date' or d.received_net <> 35 then
+    raise exception 'D1-22 FAILED: the received dividend became %', row_to_json(d);
+  end if;
+  raise notice 'D1-22 ok: a received dividend keeps its date and is asked about';
+end $$;
+
+-- D1-23: when it is not clear which new date replaced the old, nothing moves,
+-- nothing new is earned beside it, and it is asked about.
+do $$
+declare t date := household_today(); h uuid := 'd1b30000-0000-0000-0000-000000000023'; d holding_dividends%rowtype;
+begin
+  perform pg_temp.d1_holding(h, 'D23', 'us_equity', 'USD', 'd1a00000-0000-0000-0000-000000000001', t - 40, 100);
+  perform pg_temp.d1_events('D23', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 10, 'amount', 0.5)));
+  perform earn_dividends();
+  perform pg_temp.d1_events('D23', 'alphavantage', jsonb_build_array(
+    jsonb_build_object('ex_date', t - 7, 'amount', 0.5), jsonb_build_object('ex_date', t - 4, 'amount', 0.5)));
+  perform pg_temp.d1_events('D23', 'alphavantage', jsonb_build_array(
+    jsonb_build_object('ex_date', t - 7, 'amount', 0.5), jsonb_build_object('ex_date', t - 4, 'amount', 0.5)));
+  perform earn_dividends();
+  if (select count(*) from holding_dividends where holding_id = h) <> 1 then
+    raise exception 'D1-23 FAILED: % dividends with an unclear move, expected 1', (select count(*) from holding_dividends where holding_id = h);
+  end if;
+  select * into d from holding_dividends where holding_id = h;
+  if d.ex_date <> t - 10 or d.review_reason is distinct from 'moved_ex_date' then
+    raise exception 'D1-23 FAILED: the dividend became %', row_to_json(d);
+  end if;
+  if (select superseded_by from dividend_events where symbol = 'D23' and ex_date = t - 10) is not null then
+    raise exception 'D1-23 FAILED: an unclear move was recorded as a replacement';
+  end if;
+  raise notice 'D1-23 ok: an unclear move changes nothing and is asked about';
+end $$;
+
+-- D1-24: recording a trade re-works the dividends it changes, at once; a
+-- received one keeps its figures and is asked about, unless already kept.
+do $$
+declare t date := household_today(); h uuid := 'd1b30000-0000-0000-0000-000000000024'; r jsonb; d holding_dividends%rowtype;
+begin
+  perform pg_temp.d1_holding(h, 'D24', 'us_equity', 'USD', 'd1a00000-0000-0000-0000-000000000001', t - 40, 100);
+  perform pg_temp.d1_events('D24', 'alphavantage', jsonb_build_array(
+    jsonb_build_object('ex_date', t - 20, 'amount', 0.5), jsonb_build_object('ex_date', t - 12, 'amount', 0.5)));
+  perform earn_dividends();
+  update holding_dividends set status = 'received', evidence = 'member', credited_on = t - 2,
+    received_gross = 50, received_tax = 15, received_fees = 0, received_net = 35
+  where holding_id = h and ex_date = t - 12;
+  r := record_trade(h, 'buy', t - 25, 10, 10, 0, p_member_id => '22222222-2222-2222-2222-0000000000b7');
+  if (r ->> 'ok')::boolean is not true then raise exception 'D1-24 FAILED: the buy was refused: %', r; end if;
+  select * into d from holding_dividends where holding_id = h and ex_date = t - 20;
+  if d.units <> 110 or d.expected_gross <> 55 or d.expected_net <> 38.5 then
+    raise exception 'D1-24 FAILED: the earned dividend after the buy is %', row_to_json(d);
+  end if;
+  select * into d from holding_dividends where holding_id = h and ex_date = t - 12;
+  if d.units <> 100 or d.received_net <> 35 or d.review_reason is distinct from 'trades_changed' then
+    raise exception 'D1-24 FAILED: the received dividend after the buy is %', row_to_json(d);
+  end if;
+  update holding_dividends set review_reason = null, review_baseline = jsonb_build_object('units', 110, 'per_share', 0.5, 'ex_date', t - 12)
+  where id = d.id;
+  perform earn_dividends();
+  if (select review_reason from holding_dividends where id = d.id) is not null then
+    raise exception 'D1-24 FAILED: units a member kept were flagged again';
+  end if;
+  raise notice 'D1-24 ok: a trade re-works earned dividends and flags received ones once';
+end $$;
+
+-- D1-25: fixing or deleting a trade re-works them the same way.
+do $$
+declare t date := household_today(); h uuid := 'd1b30000-0000-0000-0000-000000000024'; h2 uuid := 'd1b30000-0000-0000-0000-000000000025';
+  r jsonb; v_buy uuid; v_sell uuid;
+begin
+  select id into v_buy from holding_trades where holding_id = h and kind = 'buy';
+  r := fix_trade(v_buy, t - 15, 10, 10, 0, 0, null, 'd1a00000-0000-0000-0000-000000000001', false, null,
+    (select trades_version from holdings where id = h), p_member_id => '22222222-2222-2222-2222-0000000000b7');
+  if (r ->> 'ok')::boolean is not true then raise exception 'D1-25 FAILED: the fix was refused: %', r; end if;
+  if (select units from holding_dividends where holding_id = h and ex_date = t - 20) <> 100 then
+    raise exception 'D1-25 FAILED: moving the buy after the ex-date left %', (select units from holding_dividends where holding_id = h and ex_date = t - 20);
+  end if;
+
+  perform pg_temp.d1_holding(h2, 'D25', 'us_equity', 'USD', 'd1a00000-0000-0000-0000-000000000001', t - 40, 100);
+  r := record_trade(h2, 'sell', t - 30, 100, 10, 0, p_member_id => '22222222-2222-2222-2222-0000000000b7');
+  v_sell := (r ->> 'trade_id')::uuid;
+  perform pg_temp.d1_events('D25', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 20, 'amount', 0.5)));
+  perform earn_dividends();
+  if exists (select 1 from holding_dividends where holding_id = h2) then raise exception 'D1-25 FAILED: an emptied holding earned'; end if;
+  r := delete_trade(v_sell, (select trades_version from holdings where id = h2), p_member_id => '22222222-2222-2222-2222-0000000000b7');
+  if (r ->> 'ok')::boolean is not true then raise exception 'D1-25 FAILED: the delete was refused: %', r; end if;
+  if (select units from holding_dividends where holding_id = h2) is distinct from 100 then
+    raise exception 'D1-25 FAILED: deleting the sale did not earn the dividend at once';
+  end if;
+  raise notice 'D1-25 ok: fixing or deleting a trade re-works its dividends at once';
+end $$;
+
+-- D1-26: a split recorded before an ex-date doubles that dividend's units.
+do $$
+declare t date := household_today(); h uuid := 'd1b30000-0000-0000-0000-000000000026'; r jsonb;
+begin
+  perform pg_temp.d1_holding(h, 'D26', 'us_equity', 'USD', 'd1a00000-0000-0000-0000-000000000001', t - 40, 100);
+  perform pg_temp.d1_events('D26', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 20, 'amount', 0.5)));
+  perform earn_dividends();
+  r := record_trade(h, 'split', t - 25, 2, null, 0, p_member_id => '22222222-2222-2222-2222-0000000000b7');
+  if (r ->> 'ok')::boolean is not true then raise exception 'D1-26 FAILED: the split was refused: %', r; end if;
+  if (select units from holding_dividends where holding_id = h) <> 200 or (select expected_gross from holding_dividends where holding_id = h) <> 100 then
+    raise exception 'D1-26 FAILED: after the split the dividend is %', (select row_to_json(d) from holding_dividends d where holding_id = h);
+  end if;
+  raise notice 'D1-26 ok: a split recorded late reaches the dividend';
+end $$;
+
+-- D1-27: a new withholding rate re-works earned dividends nobody fixed, and
+-- leaves received ones as they were.
+do $$
+declare t date := household_today(); h uuid := 'd1b30000-0000-0000-0000-000000000024';
+begin
+  update holdings set dividend_tax_pct = 15 where id = h;
+  if (select tax_pct from holding_dividends where holding_id = h and ex_date = t - 20) <> 15
+     or (select expected_tax from holding_dividends where holding_id = h and ex_date = t - 20) <> 7.5 then
+    raise exception 'D1-27 FAILED: the earned dividend kept its old rate';
+  end if;
+  if (select tax_pct from holding_dividends where holding_id = h and ex_date = t - 12) <> 30 then
+    raise exception 'D1-27 FAILED: a received dividend took the new rate';
+  end if;
+  raise notice 'D1-27 ok: a new rate reaches earned dividends only';
+end $$;
+
+-- D1-28: a holding with only its opening entry can still be deleted, and its
+-- dividends go with it.
+do $$
+declare t date := household_today(); h uuid := 'd1b30000-0000-0000-0000-000000000028';
+begin
+  perform pg_temp.d1_holding(h, 'D28', 'us_equity', 'USD', 'd1a00000-0000-0000-0000-000000000001', t - 40, 100);
+  perform pg_temp.d1_events('D28', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 20, 'amount', 0.5)));
+  perform earn_dividends();
+  delete from holdings where id = h;
+  if exists (select 1 from holding_dividends where holding_id = h) or exists (select 1 from holding_trades where holding_id = h) then
+    raise exception 'D1-28 FAILED: the deleted holding left rows behind';
+  end if;
+  raise notice 'D1-28 ok: deleting a holding with only its opening entry takes its dividends with it';
+end $$;
+
+-- Cases from the final review.
+
+-- D1-29 (C1): archiving the account a fund's dividends go to leaves the fund
+-- and its trades working, and new dividends then land in the fund itself.
+do $$
+declare t date := household_today(); h uuid := 'd1b40000-0000-0000-0000-000000000029'; r jsonb;
+begin
+  insert into accounts (id, household_id, name, type, currency, balance, is_shared) values
+    ('d1a40000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'D29 rupee funds', 'broker_funds', 'INR', 1000, true),
+    ('d1a40000-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'D29 rupee bank', 'checking', 'INR', 1000, true);
+  update accounts set dividends_into_account_id = 'd1a40000-0000-0000-0000-000000000002' where id = 'd1a40000-0000-0000-0000-000000000001';
+  perform pg_temp.d1_holding(h, 'D29.NS', 'india_equity', 'INR', 'd1a40000-0000-0000-0000-000000000001', t - 40, 100, 'yahoo');
+  update accounts set archived_at = now() where id = 'd1a40000-0000-0000-0000-000000000002';
+  update accounts set name = 'D29 rupee funds renamed' where id = 'd1a40000-0000-0000-0000-000000000001';
+  r := record_trade(h, 'buy', t - 30, 1, 10, 0, p_member_id => '22222222-2222-2222-2222-0000000000b7');
+  if (r ->> 'ok')::boolean is not true then raise exception 'D1-29 FAILED: a trade on the fund was refused: %', r; end if;
+  perform pg_temp.d1_events('D29.NS', 'yahoo', jsonb_build_array(jsonb_build_object('ex_date', t - 20, 'amount', 5, 'currency', 'INR')));
+  perform earn_dividends();
+  if (select paid_into_account_id from holding_dividends where holding_id = h) is distinct from 'd1a40000-0000-0000-0000-000000000001' then
+    raise exception 'D1-29 FAILED: a dividend was paid into an archived account';
+  end if;
+  raise notice 'D1-29 ok: an archived destination leaves the fund working and dividends land in the fund';
+end $$;
+
+-- D1-30 (I1): when one holding sold between an old and a new date, a move
+-- decided for the share does not crash the run for another holding that
+-- already earned the new date; that one is asked about instead.
+do $$
+declare t date := household_today(); h1 uuid := 'd1b40000-0000-0000-0000-000000000030'; h2 uuid := 'd1b40000-0000-0000-0000-000000000130'; r jsonb;
+begin
+  perform pg_temp.d1_holding(h1, 'D30', 'us_equity', 'USD', 'd1a00000-0000-0000-0000-000000000001', t - 40, 100);
+  perform pg_temp.d1_holding(h2, 'D30', 'us_equity', 'USD', 'd1a00000-0000-0000-0000-000000000001', t - 40, 100);
+  perform pg_temp.d1_trade(h1, 'sell', t - 17, 100);
+  perform pg_temp.d1_events('D30', 'alphavantage', jsonb_build_array(
+    jsonb_build_object('ex_date', t - 20, 'amount', 0.5), jsonb_build_object('ex_date', t - 14, 'amount', 0.5)));
+  perform earn_dividends();
+  -- The source drops the earlier date, twice.
+  perform pg_temp.d1_events('D30', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 14, 'amount', 0.5)));
+  perform pg_temp.d1_events('D30', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 14, 'amount', 0.5)));
+  r := earn_dividends();
+  if (select count(*) from holding_dividends where holding_id = h2) <> 2
+     or (select review_reason from holding_dividends where holding_id = h2 and ex_date = t - 20) is distinct from 'moved_ex_date' then
+    raise exception 'D1-30 FAILED: the second holding''s dividends are %',
+      (select jsonb_agg(jsonb_build_object('ex', ex_date, 'reason', review_reason)) from holding_dividends where holding_id = h2);
+  end if;
+  raise notice 'D1-30 ok: a move decided for the share never crashes another holding''s run';
+end $$;
+
+-- D1-31 (I4): one answer that leaves out a dividend changes nothing; when the
+-- next lists it again, both dividends are earned.
+do $$
+declare t date := household_today(); h uuid := 'd1b40000-0000-0000-0000-000000000031';
+begin
+  perform pg_temp.d1_holding(h, 'D31', 'us_equity', 'USD', 'd1a00000-0000-0000-0000-000000000001', t - 40, 100);
+  perform pg_temp.d1_events('D31', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 20, 'amount', 0.5)));
+  perform earn_dividends();
+  perform pg_temp.d1_events('D31', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 12, 'amount', 3)));
+  perform earn_dividends();
+  if (select count(*) from holding_dividends where holding_id = h) <> 1
+     or (select ex_date from holding_dividends where holding_id = h) <> t - 20
+     or (select review_reason from holding_dividends where holding_id = h) is not null then
+    raise exception 'D1-31 FAILED: one incomplete answer changed the dividends to %',
+      (select jsonb_agg(jsonb_build_object('ex', ex_date, 'reason', review_reason)) from holding_dividends where holding_id = h);
+  end if;
+  perform pg_temp.d1_events('D31', 'alphavantage', jsonb_build_array(
+    jsonb_build_object('ex_date', t - 20, 'amount', 0.5), jsonb_build_object('ex_date', t - 12, 'amount', 3)));
+  perform earn_dividends();
+  if (select count(*) from holding_dividends where holding_id = h) <> 2 then
+    raise exception 'D1-31 FAILED: after both were listed again, % dividends', (select count(*) from holding_dividends where holding_id = h);
+  end if;
+  raise notice 'D1-31 ok: one incomplete answer changes nothing';
+end $$;
+
+-- D1-32 (I3): an answer with no dividends for a share that has some is a
+-- failure, and a flag raised because a dividend went missing clears when it
+-- is listed again.
+do $$
+declare t date := household_today(); h uuid := 'd1b40000-0000-0000-0000-000000000032'; r jsonb;
+begin
+  perform pg_temp.d1_holding(h, 'D32.NS', 'india_equity', 'INR', 'd1a00000-0000-0000-0000-000000000002', t - 40, 100, 'yahoo');
+  perform pg_temp.d1_events('D32.NS', 'yahoo', jsonb_build_array(jsonb_build_object('ex_date', t - 20, 'amount', 5, 'currency', 'INR')));
+  perform earn_dividends();
+  r := pg_temp.d1_events('D32.NS', 'yahoo', '[]'::jsonb);
+  if (r ->> 'failed')::boolean is not true then raise exception 'D1-32 FAILED: an empty answer for a paying share was a success: %', r; end if;
+  -- Two answers that list something else unlist it; the row is asked about.
+  perform pg_temp.d1_events('D32.NS', 'yahoo', jsonb_build_array(jsonb_build_object('ex_date', t - 100, 'amount', 5, 'currency', 'INR')));
+  perform pg_temp.d1_events('D32.NS', 'yahoo', jsonb_build_array(jsonb_build_object('ex_date', t - 100, 'amount', 5, 'currency', 'INR')));
+  perform earn_dividends();
+  if (select review_reason from holding_dividends where holding_id = h) is distinct from 'moved_ex_date' then
+    raise exception 'D1-32 FAILED: a dividend gone from the source was not asked about';
+  end if;
+  perform pg_temp.d1_events('D32.NS', 'yahoo', jsonb_build_array(
+    jsonb_build_object('ex_date', t - 100, 'amount', 5, 'currency', 'INR'), jsonb_build_object('ex_date', t - 20, 'amount', 5, 'currency', 'INR')));
+  perform earn_dividends();
+  if (select review_reason from holding_dividends where holding_id = h) is not null then
+    raise exception 'D1-32 FAILED: the flag stayed after the dividend was listed again';
+  end if;
+  raise notice 'D1-32 ok: an empty answer is a failure, and a missing-dividend flag clears when it returns';
+end $$;
+
+-- D1-33 (I5): two dividends on one ex-date are one dividend of both amounts,
+-- and two splits on one date multiply.
+do $$
+declare r jsonb;
+begin
+  r := record_dividend_fetch('D33', 'alphavantage', 'dividends',
+    '{"ok": true, "items": [{"ex_date": "2025-03-01", "amount": 0.5}, {"ex_date": "2025-03-01", "amount": 10}]}', '2026-07-01 10:00+04');
+  if (select amount from dividend_events where symbol = 'D33') <> 10.5 or (r ->> 'listed')::int <> 1 then
+    raise exception 'D1-33 FAILED: two same-day dividends became % (%)', (select amount from dividend_events where symbol = 'D33'), r;
+  end if;
+  r := record_dividend_fetch('D33', 'alphavantage', 'dividends',
+    '{"ok": true, "items": [{"ex_date": "2025-03-01", "amount": 0.5}, {"ex_date": "2025-03-01", "amount": 10}]}', '2026-07-02 10:00+04');
+  if (r ->> 'changed_past')::int <> 0 or (select needs_splits from dividend_feed_state where symbol = 'D33' and kind = 'dividends') then
+    raise exception 'D1-33 FAILED: the same answer again read as a changed amount: %', r;
+  end if;
+  r := record_dividend_fetch('D33', 'alphavantage', 'splits',
+    '{"ok": true, "items": [{"effective_date": "2025-06-01", "ratio": 2}, {"effective_date": "2025-06-01", "ratio": 3}]}', '2026-07-03 10:00+04');
+  if (select ratio from dividend_splits where symbol = 'D33') <> 6 then
+    raise exception 'D1-33 FAILED: two same-day splits became %', (select ratio from dividend_splits where symbol = 'D33');
+  end if;
+  raise notice 'D1-33 ok: same-day dividends add up and same-day splits multiply';
+end $$;
+
+-- D1-34 (I2): one holding whose dividends cannot be recorded does not stop
+-- the others; the run reports it.
+do $$
+declare t date := household_today(); bad uuid := 'd1b40000-0000-0000-0000-000000000034'; good uuid := 'd1b40000-0000-0000-0000-000000000134'; r jsonb;
+begin
+  perform pg_temp.d1_holding(bad, 'D34.NS', 'india_equity', 'INR', 'd1a00000-0000-0000-0000-000000000002', t - 40, 100, 'yahoo');
+  perform pg_temp.d1_holding(good, 'D34US', 'us_equity', 'USD', 'd1a00000-0000-0000-0000-000000000001', t - 40, 100);
+  -- A currency typed wrongly in the editor: its dividends would land in an
+  -- account of another currency, which the database refuses.
+  update holdings set currency = 'USD' where id = bad;
+  perform pg_temp.d1_events('D34.NS', 'yahoo', jsonb_build_array(jsonb_build_object('ex_date', t - 20, 'amount', 5, 'currency', 'INR')));
+  perform pg_temp.d1_events('D34US', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 20, 'amount', 0.5)));
+  r := earn_dividends();
+  if (select count(*) from holding_dividends where holding_id = good) <> 1 then
+    raise exception 'D1-34 FAILED: one holding''s error stopped another''s dividends';
+  end if;
+  if coalesce(jsonb_array_length(r -> 'failures'), 0) < 1
+     or not exists (select 1 from jsonb_array_elements(r -> 'failures') f where f ->> 'holding_id' = bad::text) then
+    raise exception 'D1-34 FAILED: the run did not report the holding it could not do: %', r;
+  end if;
+  update holdings set currency = 'INR' where id = bad;
+  raise notice 'D1-34 ok: one holding''s error is reported and the others are earned';
+end $$;
+
+-- D1-35 (M6): a split later found on an earned dividend's ex-date is asked
+-- about; a dividend whose date went missing is not presumed received.
+do $$
+declare t date := household_today(); h uuid := 'd1b40000-0000-0000-0000-000000000035'; h2 uuid := 'd1b40000-0000-0000-0000-000000000135'; r jsonb;
+begin
+  perform pg_temp.d1_holding(h, 'D35', 'us_equity', 'USD', 'd1a00000-0000-0000-0000-000000000001', t - 40, 100);
+  perform pg_temp.d1_events('D35', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 20, 'amount', 0.5)));
+  perform earn_dividends();
+  r := record_dividend_fetch('D35', 'alphavantage', 'splits', jsonb_build_object('ok', true, 'items', jsonb_build_array(
+    jsonb_build_object('effective_date', t - 20, 'ratio', 2))));
+  perform earn_dividends();
+  if (select review_reason from holding_dividends where holding_id = h) is distinct from 'split_on_ex_date' then
+    raise exception 'D1-35 FAILED: a split on an earned dividend''s ex-date was not asked about';
+  end if;
+  perform pg_temp.d1_holding(h2, 'D35B.NS', 'india_equity', 'INR', 'd1a00000-0000-0000-0000-000000000002', t - 60, 100, 'yahoo');
+  perform pg_temp.d1_events('D35B.NS', 'yahoo', jsonb_build_array(jsonb_build_object('ex_date', t - 40, 'amount', 5, 'currency', 'INR')));
+  -- Presumed before it goes missing? Ex-date 40 days ago, so make it go missing first.
+  delete from holding_dividends where holding_id = h2;
+  perform pg_temp.d1_events('D35B.NS', 'yahoo', jsonb_build_array(jsonb_build_object('ex_date', t - 100, 'amount', 5, 'currency', 'INR')));
+  perform pg_temp.d1_events('D35B.NS', 'yahoo', jsonb_build_array(jsonb_build_object('ex_date', t - 100, 'amount', 5, 'currency', 'INR')));
+  insert into holding_dividends (household_id, holding_id, event_id, ex_date, currency, units, units_basis, per_share, tax_pct,
+    expected_gross, expected_tax, expected_fees, expected_net, status, source, paid_into_account_id, review_reason)
+  values ('11111111-1111-1111-1111-111111111111', h2, (select id from dividend_events where symbol = 'D35B.NS' and ex_date = t - 40), t - 40, 'INR', 100, 'trades', 5, 20.8,
+    500, 104, 0, 396, 'earned', 'feed', 'd1a00000-0000-0000-0000-000000000003', 'moved_ex_date');
+  perform earn_dividends();
+  if (select status from holding_dividends where holding_id = h2 and ex_date = t - 40) <> 'earned' then
+    raise exception 'D1-35 FAILED: a dividend gone from the source was presumed received';
+  end if;
+  raise notice 'D1-35 ok: a split on the ex-date is asked about, and a missing dividend is not presumed';
+end $$;
+
+-- D1-36 (M7): a dividend added by hand near two feed dividends is asked about
+-- once; running again changes nothing.
+do $$
+declare t date := household_today(); h uuid := 'd1b40000-0000-0000-0000-000000000036'; v int;
+begin
+  perform pg_temp.d1_holding(h, 'D36', 'us_equity', 'USD', 'd1a00000-0000-0000-0000-000000000001', t - 40, 100);
+  insert into holding_dividends (household_id, holding_id, ex_date, currency, units, units_basis, per_share, tax_pct,
+    expected_gross, expected_tax, expected_fees, expected_net, status, source)
+  values ('11111111-1111-1111-1111-111111111111', h, t - 15, 'USD', 100, 'stated', 0.5, 30, 50, 15, 0, 35, 'earned', 'app');
+  perform pg_temp.d1_events('D36', 'alphavantage', jsonb_build_array(
+    jsonb_build_object('ex_date', t - 20, 'amount', 0.5), jsonb_build_object('ex_date', t - 10, 'amount', 0.5)));
+  perform earn_dividends();
+  select version into v from holding_dividends where holding_id = h and event_id is null;
+  perform earn_dividends();
+  perform earn_dividends();
+  if (select version from holding_dividends where holding_id = h and event_id is null) <> v then
+    raise exception 'D1-36 FAILED: the possible-duplicate question moved on every run';
+  end if;
+  raise notice 'D1-36 ok: a possible duplicate is asked about once';
+end $$;
+
+-- D1-37 (M1): a holding whose class becomes a share class takes that class's
+-- withholding when it has none.
+do $$
+begin
+  insert into holdings (id, household_id, name, asset_class, currency, quantity, value_aed)
+  values ('d1b40000-0000-0000-0000-000000000037', '11111111-1111-1111-1111-111111111111', 'D37', 'commodity', 'USD', 1, 0);
+  update holdings set asset_class = 'us_equity' where id = 'd1b40000-0000-0000-0000-000000000037';
+  if (select dividend_tax_pct from holdings where id = 'd1b40000-0000-0000-0000-000000000037') is distinct from 30 then
+    raise exception 'D1-37 FAILED: the new share class left withholding at %', (select dividend_tax_pct from holdings where id = 'd1b40000-0000-0000-0000-000000000037');
+  end if;
+  raise notice 'D1-37 ok: a holding becoming a share takes its class''s withholding';
+end $$;
+
+-- D1-38 (M11): a dividend before a 10:1 split, first fetched after it from a
+-- source that adjusts, is earned at the units on the ex-date times the amount
+-- on the ex-date's basis.
+do $$
+declare t date := household_today(); h uuid := 'd1b40000-0000-0000-0000-000000000038'; r jsonb; d holding_dividends%rowtype;
+begin
+  perform pg_temp.d1_holding(h, 'D38.NS', 'india_equity', 'INR', 'd1a00000-0000-0000-0000-000000000002', t - 60, 100, 'yahoo');
+  perform pg_temp.d1_trade(h, 'split', t - 10, 10);
+  r := record_dividend_fetch('D38.NS', 'yahoo', 'splits', jsonb_build_object('ok', true, 'items', jsonb_build_array(
+    jsonb_build_object('effective_date', t - 10, 'ratio', 10))));
+  perform pg_temp.d1_events('D38.NS', 'yahoo', jsonb_build_array(jsonb_build_object('ex_date', t - 30, 'amount', 0.5, 'currency', 'INR')));
+  perform earn_dividends();
+  select * into d from holding_dividends where holding_id = h;
+  if d.units <> 100 or d.per_share <> 5 or d.expected_gross <> 500 then
+    raise exception 'D1-38 FAILED: the dividend before the split is %', row_to_json(d);
+  end if;
+  raise notice 'D1-38 ok: a dividend fetched after a split is earned on its ex-date''s basis';
+end $$;
+
 rollback;

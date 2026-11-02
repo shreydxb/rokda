@@ -180,6 +180,13 @@ here, because this repository is public.
   down to nothing moves to a "Sold" fold with what its sales made, and
   "Profit on sales this year" (in dirhams, a rupee sale at its own day's
   rate) sits beside "Profit not yet taken" on what is still held.
+  A US-listed or Indian share has a withholding rate on dividends (30% and
+  20.8% by default) and a fee per share in its editor, and a broker fund
+  says where its holdings' dividends are paid. Each night the dividend feed
+  records what every holding earned on each ex-date, at the units its trades
+  say it held (`holding_dividends`); a dividend paid into a bank account is
+  presumed received 30 days after its ex-date. Seeing and recording them
+  comes in the next part (SHR-366).
 - **Statements**: one section per card (when it closes and is due), with the
   statements still to check first and the settled ones folded under
   "Checked". Each statement shows its period and status, then three figures
@@ -344,8 +351,9 @@ Forecast or Drawdown, which went (Planning audit, 3.15), opens the Life plan.
 | `daily-recurring-nudge-check` | 05:00 daily | Runs the bot's nudges, briefs and the month-start check-in |
 | `weekday-price-refresh` | 23:00 Sun–Thu | Prices, and the rupee rate that re-values holdings, rupee accounts and rupee reminders (`price-refresh`) |
 | `daily-fd-accrual` | 23:00 daily | Re-values fixed deposits for the Dubai day (`fd-accrual`) |
+| `daily-dividend-refresh` | 01:30 daily | What each followed share pays (Yahoo for Indian shares, Alpha Vantage for US-listed ones), then what each holding earned (`dividend-refresh`) |
 
-`fd-accrual` runs only for the job, which sends the vault's scheduler secret.
+`fd-accrual` and `dividend-refresh` run only for their jobs, which send the vault's scheduler secret.
 `price-refresh` runs for the job, or for a signed-in household member pressing
 Refresh prices on the Investments screen. The bot's webhook needs its own shared
 secret. Every secret is compared in constant time.

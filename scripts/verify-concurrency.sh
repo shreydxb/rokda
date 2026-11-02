@@ -240,6 +240,47 @@ else
   fail=1
 fi
 
+echo "verify-concurrency: a trade racing the nightly dividend run (SHR-366)"
+# A trade re-works its holding's dividends under the holding lock it already
+# holds; the nightly run locks each holding before it touches its dividends.
+# Neither may deadlock the other, and the dividend must end up at the units
+# the trades say, whichever goes first.
+seed_trades
+psql -d "$DB" -v ON_ERROR_STOP=1 -q <<'SQL' >/dev/null
+set client_min_messages = warning;
+delete from dividend_events where symbol = 'RACE';
+delete from dividend_feed_state where symbol = 'RACE';
+update holdings set price_symbol = 'RACE', price_provider = 'twelvedata' where id = 'a1000000-0000-4000-8000-000000000001';
+select record_dividend_fetch('RACE', 'alphavantage', 'dividends', '{"ok": true, "items": [{"ex_date": "2026-10-15", "amount": 0.5}]}');
+select earn_dividends();
+SQL
+psql -d "$DB" -v ON_ERROR_STOP=1 > /tmp/rokda_race_trade.$$ 2>&1 <<'SQL' &
+begin;
+select set_config('request.jwt.claim.role', 'service_role', true);
+select record_trade('a1000000-0000-4000-8000-000000000001', 'buy', '2026-10-10', 5, 100, p_source => 'bot', p_member_id => 'e1000000-0000-4000-8000-00000000000a');
+select pg_sleep(0.6);
+commit;
+SQL
+psql -d "$DB" -v ON_ERROR_STOP=1 > /tmp/rokda_race_earn.$$ 2>&1 <<'SQL' &
+begin;
+select pg_sleep(0.2);
+select earn_dividends();
+commit;
+SQL
+wait
+units=$(psql -At -d "$DB" -c "select units from holding_dividends where holding_id = 'a1000000-0000-4000-8000-000000000001'")
+if grep -qi "error" /tmp/rokda_race_trade.$$ /tmp/rokda_race_earn.$$; then
+  echo "  FAIL a trade racing the dividend run errored:" >&2
+  grep -hi "error" /tmp/rokda_race_trade.$$ /tmp/rokda_race_earn.$$ >&2
+  fail=1
+elif [ "$units" = "15.00000000" ]; then
+  echo "  ok   a trade racing the dividend run: no deadlock, dividend at the trades' units ($units)"
+else
+  echo "  FAIL a trade racing the dividend run left the dividend at $units units, expected 15" >&2
+  fail=1
+fi
+rm -f /tmp/rokda_race_trade.$$ /tmp/rokda_race_earn.$$
+
 if [ "$fail" -ne 0 ]; then
   echo "verify-concurrency: FAILED" >&2
   exit 1

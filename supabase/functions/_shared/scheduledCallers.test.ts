@@ -45,6 +45,11 @@ let holdingPatches: Record<string, unknown>[] = [];
 // read of the holdings asked for.
 let priceWrites: Record<string, unknown>[] = [];
 let holdingFilters: (string | null)[] = [];
+// What dividend_symbols answers (null: an empty 204), and what the dividend
+// run records and earns.
+let dividendSymbols: Record<string, unknown>[] | null = [];
+let dividendRecords: Record<string, unknown>[] = [];
+let earnCalls = 0;
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -81,6 +86,20 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     holdingPatches.push(await req.json());
     return new Response(null, { status: 204 });
   }
+  if (url.origin === SUPABASE_URL && url.pathname === "/rest/v1/rpc/dividend_symbols") {
+    return dividendSymbols === null ? new Response(null, { status: 204 }) : json(dividendSymbols);
+  }
+  if (url.origin === SUPABASE_URL && url.pathname === "/rest/v1/rpc/record_dividend_fetch") {
+    dividendRecords.push(await req.json());
+    return json({ ok: true, listed: 0, changed_past: 0 });
+  }
+  if (url.origin === SUPABASE_URL && url.pathname === "/rest/v1/rpc/earn_dividends") {
+    earnCalls += 1;
+    return json({ made: 0, updated: 0, removed: 0, flagged: 0, presumed: 0, superseded: 0 });
+  }
+  if (url.hostname === "www.alphavantage.co") {
+    return json({ Information: "The demo key is for demo purposes only." });
+  }
   if (url.hostname === "query1.finance.yahoo.com") {
     return json({ chart: { result: [{ meta: { regularMarketPrice: 100, regularMarketChangePercent: 1.5, ...yahooMeta } }] } });
   }
@@ -112,6 +131,10 @@ await import("../fd-accrual/index.ts");
 const fdAccrual = registered("fd-accrual");
 await import("../price-refresh/index.ts");
 const priceRefresh = registered("price-refresh");
+const dividendModule = await import("../dividend-refresh/index.ts");
+const dividendRefresh = registered("dividend-refresh");
+// Alpha Vantage calls are spaced twelve seconds apart; not in a test.
+dividendModule.timing.sleep = () => Promise.resolve();
 
 // A request as the cron job or the browser would send it: `token` goes in the
 // Authorization header, `secret` in the scheduler header.
@@ -136,6 +159,10 @@ function test(name: string, fn: () => Promise<void>): void {
       holdingPatches = [];
       priceWrites = [];
       holdingFilters = [];
+      dividendSymbols = [];
+      dividendRecords = [];
+      earnCalls = 0;
+      Deno.env.delete("ALPHAVANTAGE_API_KEY");
       await fn();
     },
   });
@@ -294,4 +321,60 @@ test("price-refresh skips only holdings their trades have closed", async () => {
   const res = await call(priceRefresh, "POST", null, SCHEDULER_SECRET);
   await res.body?.cancel();
   assertEquals(holdingFilters, ["(quantity.is.null,quantity.gt.0,trades_version.lte.0)"]);
+});
+
+// dividend-refresh (SHR-366): the nightly dividend run.
+
+const followed = (symbol: string, provider: "yahoo" | "alphavantage") => ({
+  symbol, provider, held: true, dividends_last_success_at: null, splits_last_success_at: null,
+  ex_passed_since_success: false, needs_splits: false,
+});
+
+test("dividend-refresh refuses every caller without the secret, and touches nothing", async () => {
+  for (const token of [null, SERVICE, MEMBER]) {
+    const res = await call(dividendRefresh, "POST", token);
+    assertEquals(res.status, 403, String(token));
+    assertEquals(requests, [], `${token} reached the database`);
+    await res.body?.cancel();
+  }
+});
+
+test("dividend-refresh runs for the nightly job's secret: the shares it follows, then earning", async () => {
+  const res = await call(dividendRefresh, "POST", null, SCHEDULER_SECRET);
+  assertEquals(res.status, 200);
+  assertEquals(requests, [LOOKUP, "POST supabase.test/rest/v1/rpc/dividend_symbols", "POST supabase.test/rest/v1/rpc/earn_dividends"]);
+  assertEquals(earnCalls, 1);
+  await res.body?.cancel();
+});
+
+test("dividend-refresh records an Indian share's splits before its dividends", async () => {
+  dividendSymbols = [followed("ABC.NS", "yahoo")];
+  const res = await call(dividendRefresh, "POST", null, SCHEDULER_SECRET);
+  assertEquals(res.status, 200);
+  assertEquals(dividendRecords.map((r) => [r.p_symbol, r.p_provider, r.p_kind]), [["ABC.NS", "yahoo", "splits"], ["ABC.NS", "yahoo", "dividends"]]);
+  await res.body?.cancel();
+});
+
+test("dividend-refresh reads an empty answer for the shares it follows as none, not a crash", async () => {
+  dividendSymbols = null;
+  const res = await call(dividendRefresh, "POST", null, SCHEDULER_SECRET);
+  assertEquals(res.status, 200);
+  assertEquals(earnCalls, 1);
+  await res.body?.cancel();
+});
+
+test("dividend-refresh calls Alpha Vantage only with a key, and records its note as a failure", async () => {
+  dividendSymbols = [followed("XYZ", "alphavantage")];
+  let res = await call(dividendRefresh, "POST", null, SCHEDULER_SECRET);
+  assertEquals(res.status, 200);
+  assert(!requests.some((r) => r.includes("alphavantage")), "Alpha Vantage was called without a key");
+  await res.body?.cancel();
+
+  Deno.env.set("ALPHAVANTAGE_API_KEY", "test-key");
+  res = await call(dividendRefresh, "POST", null, SCHEDULER_SECRET);
+  assertEquals(res.status, 200);
+  assert(requests.some((r) => r.includes("www.alphavantage.co")), "Alpha Vantage was not called with a key");
+  const recorded = dividendRecords.find((r) => r.p_provider === "alphavantage");
+  assertEquals((recorded?.p_result as { ok?: boolean })?.ok, false);
+  await res.body?.cancel();
 });

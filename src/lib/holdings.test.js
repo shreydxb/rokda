@@ -284,3 +284,11 @@ describe('isClosedHolding', () => {
     expect(isClosedHolding({ trades_version: 4, quantity: null })).toBe(false);
   });
 });
+
+describe('paysDividends', () => {
+  it('is true for the share classes the dividend feeds cover, and false otherwise', async () => {
+    const { paysDividends } = await import('./holdings');
+    expect(['us_equity', 'intl_equity', 'india_equity'].every(paysDividends)).toBe(true);
+    expect(['commodity', 'india_mf', 'crypto', 'cash', 'uae_equity', 'sukuk'].some(paysDividends)).toBe(false);
+  });
+});

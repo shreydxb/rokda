@@ -2904,9 +2904,11 @@ into it, so net worth does not jump or drop on the day of a trade.
   a holding's usual fund can be deleted, and the holding is left without
   one. A fund that trades went through is refused, and the editor offers
   to close it, which keeps everything recorded through it.
-- **The monthly check-in sets the truth.** Dividends, fees and payouts to the
-  bank move a broker's cash without a trade; the 1st-of-month check-in
-  confirms the balance, as for any account.
+- **The monthly check-in sets the truth.** Fees and payouts to the bank move
+  a broker's cash without a trade; the 1st-of-month check-in confirms the
+  balance, as for any account. A dividend paid into a fund is recorded as
+  one (see "Dividends are their own records"), and moves the fund once a
+  member confirms it arrived, under the same rule as a trade.
 - **Never counted twice.** A trade that happened before the fund's balance
   was last confirmed does not move it, whether it is recorded late,
   back-dated, fixed or deleted: the confirmed figure already includes it.
@@ -3030,3 +3032,73 @@ the bot uses.
 - **Not in the app:** a fund's "brokerage in the average", which would
   re-average past buys if switched after trades exist; a trade's time of day
   and its note, which a fix keeps as they are.
+
+## Dividends are their own records
+
+The household wants to see dividends as passive income: what came in, what
+is coming, and whether it grows into a real share of what it lives on
+(SHR-366). The first part records them; the receipts, the bot's question and
+the Dividends tab follow.
+
+- **Not income transactions.** Recorded income feeds the Life plan's monthly
+  saving, and the plan's return already includes dividends, so a dividend
+  logged as income would count twice. Transactions also never move a
+  balance, and a dividend paid into a broker's fund must.
+- **Earned, expected, received.** A dividend is earned on its ex-date, at the
+  units the trades say were held on the market days before it (a US trade
+  confirmed after midnight in Dubai belongs to the day before in New York),
+  from each holding's opening entry on. Units before that are unknown, so
+  nothing earlier is estimated; past dividends are imported from evidence.
+  What it should pay (expected) is kept apart from what arrived (received).
+- **Withholding is a default, not a fact.** 30% on a US-listed share at the
+  household's dollar broker, 20.8% on an Indian share held as a non-resident
+  without a Tax Residency Certificate. Each holding has its own rate and a
+  fee per share, since a US-listed share of a foreign company is withheld by
+  its home country and a depositary may take a fee. A new rate re-works only
+  dividends nobody has received or fixed.
+- **Where it lands.** A broker fund says where its holdings' dividends are
+  paid: itself (the dollar broker credits its cash) or an open account in
+  its currency (Indian companies pay the bank account linked to the demat
+  account). A dividend paid into a bank account moves no balance and is
+  never asked about: it is presumed received 30 days after its ex-date (an
+  Indian company must pay within 30 days of declaring) and shown as not
+  checked until the company's credit intimation or a member's fix checks it.
+- **Free sources, read whole.** Yahoo gives Indian shares' dividends and
+  splits (bonus issues included), from the ex-date on, with no payment date;
+  Alpha Vantage gives US-listed shares' dividends with every date, including
+  declared ones, on a free key, at most five calls a night. Every check reads
+  a share's whole history, so a gap of any length is caught up by one
+  success, and an event is listed exactly when the latest successful check
+  listed it. A failure, or an answer that does not read as a list, changes
+  nothing.
+- **The ex-date's share basis.** Yahoo adjusts past amounts for later splits;
+  Alpha Vantage gives them as paid. Each amount is stored on its ex-date's
+  basis, multiplied back by the splits the source had applied by the day it
+  answered, so a split learnt of later never shrinks a dividend and one the
+  source had not applied is never applied twice.
+- **A moved date replaces, never doubles.** Only an event a check made after
+  its ex-date still lists is earned. One answer that leaves an event out
+  changes nothing; only two successful checks in a row count as the source
+  dropping it. Then, if exactly one listed event of that share within 15
+  days can have replaced it, that is decided once for the share, and an
+  earned dividend nobody fixed moves to it unless the holding already has
+  one on that date; anything else is asked about. An event listed again is
+  no longer replaced.
+- **One bad answer or holding stops nothing.** An answer with an item that
+  cannot be read, or with no dividends for a share that has some, is a
+  failed check. Two dividends on one ex-date are one dividend of both
+  amounts. Each holding is earned in its own subtransaction, so one that
+  cannot be done is reported and the rest are earned; a trade is never
+  refused because its dividends could not be re-worked.
+- **Trades re-work what was earned.** A trade saved, fixed or deleted, a late
+  split included, re-works the holding's dividends from the day before it, in
+  the same transaction. Earned dividends follow; received and fixed ones keep
+  their figures and are asked about once, unless a member already kept them.
+- **The holding first.** Every writer of a holding's dividends locks the
+  holding first, then its dividends, then funds. The trade functions already
+  lock the holding and re-work dividends through a trigger under that lock,
+  and moved dates are decided before any holding is locked, so a trade and
+  the nightly run may wait for each other but never deadlock.
+- **A closed destination falls back to the fund.** Closing the account a
+  fund's dividends go to never stops the fund's trades or balance; new
+  dividends then land in the fund itself.

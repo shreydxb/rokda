@@ -123,3 +123,36 @@ describe('AccountEditor: an existing fund', () => {
     expect(calls.updates[0].row.archived_at).toBeTruthy();
   });
 });
+
+// Dividends (SHR-366): a broker fund names where its holdings' dividends are
+// paid; the rupee broker's go to the bank account linked to the demat account.
+describe('AccountEditor: where a broker fund\'s dividends land', () => {
+  const fund = { id: 'f1', name: 'Dollar broker funds', type: 'broker_funds', currency: 'USD', balance: 100, is_shared: true,
+    credit_limit: null, statement_day: null, due_day: null, principal: null, interest_rate_pct: null, dividends_into_account_id: null };
+  const accounts = [
+    fund,
+    { id: 'a1', name: 'Dollar current', type: 'checking', currency: 'USD' },
+    { id: 'a2', name: 'Rupee bank', type: 'checking', currency: 'INR' },
+    { id: 'a3', name: 'Old dollar account', type: 'checking', currency: 'USD', archived_at: '2026-01-01T00:00:00Z' },
+  ];
+
+  it('offers this fund and the open accounts in its currency, and saves the choice', async () => {
+    const onSaved = vi.fn();
+    renderScreen(<AccountEditor account={fund} accounts={accounts} householdId="h" members={[]} onClose={vi.fn()} onSaved={onSaved} />);
+    const select = screen.getByLabelText('Dividends paid into');
+    expect([...select.options].map((o) => o.textContent)).toEqual(['This fund', 'Dollar current']);
+    fireEvent.change(select, { target: { value: 'a1' } });
+    fireEvent.click(screen.getByText('Save changes'));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(calls.updates[0].row.dividends_into_account_id).toBe('a1');
+  });
+
+  it('is not offered for a bank account, which saves no destination', async () => {
+    const { onSaved } = renderEditor('checking');
+    expect(screen.queryByLabelText('Dividends paid into')).toBeNull();
+    fireEvent.change(name(), { target: { value: 'Current' } });
+    fireEvent.click(screen.getByText('Add account'));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(calls.inserts[0].row.dividends_into_account_id).toBeNull();
+  });
+});

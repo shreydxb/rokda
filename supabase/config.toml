@@ -26,11 +26,14 @@ verify_jwt = false
 # every scheduled call when it is unset; price-refresh also admits a signed-in
 # household member, whose token it checks with the Auth server
 # (supabase/functions/_shared/requestAuth.ts, docs/decisions.md). Turning
-# verify_jwt back on makes the gateway 401 both nightly jobs.
+# verify_jwt back on makes the gateway 401 the nightly jobs.
 [functions.price-refresh]
 verify_jwt = false
 
 [functions.fd-accrual]
+verify_jwt = false
+
+[functions.dividend-refresh]
 verify_jwt = false
 
 # Sign-ups are closed. Rokda is one household's ledger, and its logins are made
