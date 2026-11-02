@@ -1551,6 +1551,18 @@ begin
   raise notice 'dividend review RLS ok: members keep, link and answer for their own household only';
 end $$;
 reset role;
+set role authenticated;
+set request.jwt.claim.sub = '0b000000-0000-0000-0000-00000000000b';
+do $$
+begin
+  begin
+    perform mark_dividends_asked(array['fd100000-0000-0000-0000-000000000001'::uuid]);
+    raise exception 'dividend asking RLS FAILED: a member marked a dividend asked';
+  exception when insufficient_privilege then null;
+  end;
+  raise notice 'dividend asking RLS ok: only the bot marks what it asked';
+end $$;
+reset role;
 
 -- A household can still be deleted outright: the cascade takes the roster with
 -- it, and that is not "a household left without an owner".

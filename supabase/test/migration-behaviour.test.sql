@@ -5138,4 +5138,124 @@ begin
   raise notice 'D2-14 ok: a one-off answer is stored, bounded and cleared';
 end $$;
 
+-- The bot's morning question about dividends paid into a fund (Task 3). A
+-- second holding in the same fund, with a dividend of net 3.50.
+create or replace function pg_temp.d2_more(p_fund uuid) returns uuid language plpgsql as $$
+declare v_holding uuid := gen_random_uuid(); v_div uuid := gen_random_uuid(); m1 date := pg_temp.d2_m1();
+begin
+  insert into holdings (id, household_id, owner_member_id, is_shared, name, asset_class, currency, quantity, avg_price, value_aed, funds_account_id)
+  values (v_holding, '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-0000000000b7', false, 'D2 more', 'us_equity', 'USD', 5, 10, 0, p_fund);
+  insert into holding_dividends (id, household_id, holding_id, ex_date, pay_date, currency, units, units_basis, per_share, tax_pct,
+    expected_gross, expected_tax, expected_fees, expected_net, status, source, paid_into_account_id)
+  values (v_div, '11111111-1111-1111-1111-111111111111', v_holding, m1 + 1, m1 + 4, 'USD', 5, 'trades', 1, 30, 5, 1.5, 0, 3.5, 'earned', 'feed', p_fund);
+  return v_div;
+end $$;
+-- A proposal as the morning check makes it, for these dividends in this fund.
+create or replace function pg_temp.d2_proposal(p_fund uuid, p_dividends uuid[], p_ask text default null, p_answer text default null) returns uuid language plpgsql as $$
+declare v_id uuid;
+begin
+  insert into bot_proposals (household_id, member_id, kind, payload, chat_id, status)
+  values ('11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-0000000000b7', 'dividends_received',
+    jsonb_build_object('fund_id', p_fund, 'fund_name', 'D2 fund', 'currency', 'USD',
+      'confirmation', (select balance_as_of::text from accounts where id = p_fund), 'ask', p_ask, 'answer', p_answer,
+      'lines', (select jsonb_agg(jsonb_build_object('dividend_id', d.id, 'version', d.version, 'holding_name', 'D2', 'net', d.expected_net, 'pay_date', d.pay_date) order by d.id)
+                from holding_dividends d where d.id = any(p_dividends))),
+    1, 'proposed')
+  returning id into v_id;
+  return v_id;
+end $$;
+
+-- D2-15: one "yes" receives every dividend in the question, once.
+do $$
+declare c jsonb := pg_temp.d2_case(); f uuid; d1 uuid; d2 uuid; p uuid; r jsonb;
+begin
+  f := (c ->> 'fund')::uuid; d1 := (c ->> 'dividend')::uuid; d2 := pg_temp.d2_more(f);
+  p := pg_temp.d2_proposal(f, array[d1, d2]);
+  r := apply_bot_proposal(p, '22222222-2222-2222-2222-0000000000b7');
+  if r ->> 'outcome' <> 'applied' or (select count(*) from holding_dividends where id in (d1, d2) and status = 'received' and proposal_id = p) <> 2
+     or pg_temp.d2_bal(f) <> 110.5 then
+    raise exception 'D2-15 FAILED: applying gave % and the fund %', r, pg_temp.d2_bal(f);
+  end if;
+  r := apply_bot_proposal(p, '22222222-2222-2222-2222-0000000000b7');
+  if r ->> 'outcome' <> 'applied' or pg_temp.d2_bal(f) <> 110.5 then raise exception 'D2-15 FAILED: a second yes gave % and the fund %', r, pg_temp.d2_bal(f); end if;
+  raise notice 'D2-15 ok: one yes receives every line, once';
+end $$;
+
+-- D2-16: a line changed since the question: nothing is saved.
+do $$
+declare c jsonb := pg_temp.d2_case(); f uuid; d1 uuid; d2 uuid; p uuid; r jsonb;
+begin
+  f := (c ->> 'fund')::uuid; d1 := (c ->> 'dividend')::uuid; d2 := pg_temp.d2_more(f);
+  p := pg_temp.d2_proposal(f, array[d1, d2]);
+  r := pg_temp.d2_save(d2, '{"action": "fix", "note": "changed"}');
+  r := apply_bot_proposal(p, '22222222-2222-2222-2222-0000000000b7');
+  if r ->> 'outcome' <> 'stale' or exists (select 1 from holding_dividends where id in (d1, d2) and status = 'received') or pg_temp.d2_bal(f) <> 100 then
+    raise exception 'D2-16 FAILED: a changed line gave % and the fund %', r, pg_temp.d2_bal(f);
+  end if;
+  raise notice 'D2-16 ok: a line changed since the question saves nothing';
+end $$;
+
+-- D2-17: the fund confirmed since the question: nothing is saved.
+do $$
+declare c jsonb := pg_temp.d2_case(); f uuid; p uuid; r jsonb;
+begin
+  f := (c ->> 'fund')::uuid;
+  p := pg_temp.d2_proposal(f, array[(c ->> 'dividend')::uuid]);
+  perform pg_temp.d2_fix_confirmation(f, 100, pg_temp.d2_m1() + 2);
+  r := apply_bot_proposal(p, '22222222-2222-2222-2222-0000000000b7');
+  if r ->> 'outcome' <> 'stale' or pg_temp.d2_bal(f) <> 100 then raise exception 'D2-17 FAILED: gave % and the fund %', r, pg_temp.d2_bal(f); end if;
+  raise notice 'D2-17 ok: a fund confirmed since the question saves nothing';
+end $$;
+
+-- D2-18: asked whether it was already in the balance confirmed on the pay
+-- date, the answer decides.
+do $$
+declare m1 date := pg_temp.d2_m1(); c jsonb; f uuid; dv uuid; p uuid; r jsonb;
+begin
+  c := pg_temp.d2_case((m1 + 4)::timestamp at time zone 'Asia/Dubai'); f := (c ->> 'fund')::uuid; dv := (c ->> 'dividend')::uuid;
+  p := pg_temp.d2_proposal(f, array[dv], 'already_included', 'included');
+  r := apply_bot_proposal(p, '22222222-2222-2222-2222-0000000000b7');
+  if r ->> 'outcome' <> 'applied' or pg_temp.d2_bal(f) <> 100 or (select credited_on from holding_dividends where id = dv) <> m1 + 4 then
+    raise exception 'D2-18 FAILED: "included" gave % and the fund %', r, pg_temp.d2_bal(f);
+  end if;
+  c := pg_temp.d2_case((m1 + 4)::timestamp at time zone 'Asia/Dubai'); f := (c ->> 'fund')::uuid; dv := (c ->> 'dividend')::uuid;
+  p := pg_temp.d2_proposal(f, array[dv], 'already_included', 'not_included');
+  r := apply_bot_proposal(p, '22222222-2222-2222-2222-0000000000b7');
+  if r ->> 'outcome' <> 'applied' or pg_temp.d2_bal(f) <> 107 or (select credited_on from holding_dividends where id = dv) <> household_today() then
+    raise exception 'D2-18 FAILED: "not included" gave % and the fund %', r, pg_temp.d2_bal(f);
+  end if;
+  raise notice 'D2-18 ok: the answer about the confirmed balance decides';
+end $$;
+
+-- D2-19: the morning check marks a dividend asked about, and can clear it to
+-- ask again.
+do $$
+declare c jsonb := pg_temp.d2_case(); dv uuid;
+begin
+  dv := (c ->> 'dividend')::uuid;
+  perform mark_dividends_asked(array[dv]);
+  if (select asked_at from holding_dividends where id = dv) is null then raise exception 'D2-19 FAILED: not marked asked'; end if;
+  perform mark_dividends_asked(array[dv], false);
+  if (select asked_at from holding_dividends where id = dv) is not null then raise exception 'D2-19 FAILED: not cleared'; end if;
+  raise notice 'D2-19 ok: asked is marked and cleared';
+end $$;
+
+-- D2-20: a line refused after another was saved rolls that one back too. The
+-- fund was confirmed at the start of one line's pay date, so that line needs
+-- the answer this question never asked; the other is paid later and saves.
+do $$
+declare m1 date := pg_temp.d2_m1(); c jsonb; f uuid; d1 uuid; d2 uuid; p uuid; r jsonb;
+begin
+  c := pg_temp.d2_case((m1 + 4)::timestamp at time zone 'Asia/Dubai'); f := (c ->> 'fund')::uuid; d1 := (c ->> 'dividend')::uuid;
+  d2 := pg_temp.d2_more(f);
+  -- The first line saved (by id) is the one paid later.
+  update holding_dividends set pay_date = m1 + 6 where id = least(d1, d2);
+  p := pg_temp.d2_proposal(f, array[d1, d2]);
+  r := apply_bot_proposal(p, '22222222-2222-2222-2222-0000000000b7');
+  if r ->> 'outcome' <> 'stale' or exists (select 1 from holding_dividends where id in (d1, d2) and status = 'received') or pg_temp.d2_bal(f) <> 100 then
+    raise exception 'D2-20 FAILED: gave % and the fund %', r, pg_temp.d2_bal(f);
+  end if;
+  raise notice 'D2-20 ok: a refused line rolls back the lines saved before it';
+end $$;
+
 rollback;
