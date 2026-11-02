@@ -209,6 +209,13 @@ export function hasSector(assetClass) {
   return SECTOR_CLASSES.has(assetClass);
 }
 
+// The share classes the dividend feeds cover (SHR-366): US-listed shares and
+// Indian shares. Only these are asked for a withholding rate and a fee.
+const DIVIDEND_CLASSES = new Set(['us_equity', 'intl_equity', 'india_equity']);
+export function paysDividends(assetClass) {
+  return DIVIDEND_CLASSES.has(assetClass);
+}
+
 // The most of the investments that sits in one place: the largest sector,
 // from the holdings tagged with it, or the largest single holding, whichever
 // is more (docs/decisions.md, "A concentration line on Wealth"). Cash is not

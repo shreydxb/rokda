@@ -24,6 +24,7 @@ function initialForm(account, defaultType) {
       compounding: account.compounding ?? 'simple',
       opened_date: account.opened_date ?? '',
       maturity_date: account.maturity_date ?? '',
+      dividends_into: account.dividends_into_account_id ?? '',
     };
   }
   return {
@@ -40,10 +41,11 @@ function initialForm(account, defaultType) {
     compounding: 'simple',
     opened_date: '',
     maturity_date: '',
+    dividends_into: '',
   };
 }
 
-export default function AccountEditor({ account, defaultType, householdId, members, transactions = [], onClose, onSaved }) {
+export default function AccountEditor({ account, defaultType, householdId, members, accounts = [], transactions = [], onClose, onSaved }) {
   const drawerRef = useDrawerFocus();
   const [form, setForm] = useState(() => initialForm(account, defaultType));
   // A balance is a claim someone makes as of a date. Until it is confirmed it
@@ -120,6 +122,9 @@ export default function AccountEditor({ account, defaultType, householdId, membe
       compounding: isFd ? form.compounding : null,
       opened_date: isFd && form.opened_date ? form.opened_date : null,
       maturity_date: isFd && form.maturity_date ? form.maturity_date : null,
+      // Only a broker fund names where its dividends land (SHR-366); the
+      // database refuses one on any other account.
+      dividends_into_account_id: form.type === 'broker_funds' ? form.dividends_into || null : null,
       updated_at: new Date().toISOString(),
       // Only an explicit confirmation dates the balance, and only for a
       // manually-claimed balance -- an FD's value is computed server-side
@@ -324,6 +329,26 @@ export default function AccountEditor({ account, defaultType, householdId, membe
               <span className="te-fieldlabel">Currency</span>
               <input className="te-fieldvalue" type="text" value={form.currency} onChange={(e) => set('currency', e.target.value.toUpperCase())} maxLength={3} />
             </div>
+            {form.type === 'broker_funds' && (
+              <div className="te-fieldcell te-span2">
+                <label className="te-fieldlabel" htmlFor="dividends-into">
+                  Dividends paid into
+                </label>
+                <select id="dividends-into" className="te-fieldvalue" value={form.dividends_into} onChange={(e) => set('dividends_into', e.target.value)}>
+                  <option value="">This fund</option>
+                  {accounts
+                    .filter((a) => a.id !== account?.id && a.currency === form.currency && !isArchived(a))
+                    .map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name}
+                      </option>
+                    ))}
+                </select>
+                <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 4 }}>
+                  Where this broker&apos;s dividends land. Indian companies pay the bank account linked to the demat account.
+                </div>
+              </div>
+            )}
             {isCard && (
               <>
                 <div className="te-fieldcell">

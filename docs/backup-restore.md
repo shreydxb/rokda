@@ -122,12 +122,13 @@ Several things live outside the `public` schema and are missed by the obvious
   Encrypted with a key that does not travel with a dump. These are
   **re-provisioned, not restored** — see §5.
 - **Edge Function environment secrets** (`TELEGRAM_BOT_TOKEN`,
-  `OPENROUTER_API_KEY`, `TWELVEDATA_API_KEY`). Not in any dump, not in git, and
+  `OPENROUTER_API_KEY`, `TWELVEDATA_API_KEY`, `ALPHAVANTAGE_API_KEY`). Not in any dump, not in git, and
   not in the vault either — they are set on the platform, per function. Without
   them the functions deploy and run and every outbound call fails. Also
   re-provisioned, see §5.
-- **`cron.job`** (3: `daily-fd-accrual` 23:00, `daily-recurring-nudge-check`
-  05:00, `weekday-price-refresh` 23:00 Sun–Thu). All three are created by the
+- **`cron.job`** (4: `daily-fd-accrual` 23:00, `daily-recurring-nudge-check`
+  05:00, `weekday-price-refresh` 23:00 Sun–Thu, `daily-dividend-refresh` 01:30).
+  All four are created by the
   migrations now — `daily-fd-accrual` was scheduled by hand and existed in no
   migration, so a rebuilt project simply never accrued fixed-deposit interest
   (QA #1). Their bodies read the vault secrets above, so they are inert until
@@ -409,9 +410,9 @@ cannot, because none of those four is a row in `public`.
    - `telegram_webhook_secret` — must match what Telegram sends. Re-run
      `setWebhook` with a new `secret_token` and store the same value in the
      vault; the two are one secret in two places. See `docs/environments.md`.
-   - `scheduler_secret` — what `weekday-price-refresh` and
-     `daily-fd-accrual` send, and what `price-refresh` and `fd-accrual`
-     check. Make a new one in the new project's SQL Editor; the value is
+   - `scheduler_secret` — what `weekday-price-refresh`,
+     `daily-fd-accrual` and `daily-dividend-refresh` send, and what
+     `price-refresh`, `fd-accrual` and `dividend-refresh` check. Make a new one in the new project's SQL Editor; the value is
      generated inside the database and nobody needs to see it:
 
      ```sql
@@ -445,10 +446,10 @@ cannot, because none of those four is a row in `public`.
    do not set those by hand.
 6. **Redeploy the Edge Functions** from git, then prove it:
    `npm run verify:functions`. Do not assume a deploy landed. Deploying from a
-   checkout applies `supabase/config.toml`, which is what keeps all three
+   checkout applies `supabase/config.toml`, which is what keeps all four
    functions on `verify_jwt = false`; deploying any other way gives Telegram,
-   and both nightly jobs, a gateway 401 on every call.
-7. **Retarget the scheduled jobs.** The migrations create all three, with the
+   and the nightly jobs, a gateway 401 on every call.
+7. **Retarget the scheduled jobs.** The migrations create all four, with the
    URL of whichever project built them — so after a restore they call the OLD
    project using the NEW project's credentials, nightly, and cron reports a
    successful dispatch every time.

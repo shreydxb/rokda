@@ -563,3 +563,46 @@ describe('a holding\'s trades', () => {
     cleanup();
   });
 });
+
+// Dividends (SHR-366): a share's withholding is a default the household can
+// change, with a fee per share for a depositary that takes one.
+describe('dividend withholding and fees', () => {
+  const indian = { id: 'hd1', name: 'Indian share', asset_class: 'india_equity', currency: 'INR', value_aed: 5000, is_shared: true,
+    priced_at: '2026-09-01T00:00:00Z', dividend_tax_pct: 20.8, dividend_fee_per_share: 0 };
+
+  it('shows the holding\'s rate and fee, and saves what is typed', async () => {
+    db.holdings.set('hd1', { ...indian });
+    renderScreen(<HoldingEditor holding={indian} householdId="hh" members={[]} onClose={() => {}} onSaved={async () => {}} />);
+    expect(screen.getByLabelText('Withholding on dividends').value).toBe('20.8');
+    expect(screen.getByLabelText('Fees per share').value).toBe('0');
+    fireEvent.change(screen.getByLabelText('Withholding on dividends'), { target: { value: '10' } });
+    fireEvent.change(screen.getByLabelText('Fees per share'), { target: { value: '0.01' } });
+    await act(async () => {
+      fireEvent.submit(document.querySelector('form'));
+    });
+    expect(db.holdings.get('hd1').dividend_tax_pct).toBe(10);
+    expect(db.holdings.get('hd1').dividend_fee_per_share).toBe(0.01);
+    cleanup();
+  });
+
+  it('refuses a rate above 100 and saves nothing', async () => {
+    db.holdings.set('hd1', { ...indian });
+    renderScreen(<HoldingEditor holding={indian} householdId="hh" members={[]} onClose={() => {}} onSaved={async () => {}} />);
+    fireEvent.change(screen.getByLabelText('Withholding on dividends'), { target: { value: '120' } });
+    await act(async () => {
+      fireEvent.submit(document.querySelector('form'));
+    });
+    expect(screen.getAllByText('Enter a rate from 0 to 100.').length).toBeGreaterThan(0);
+    expect(db.holdings.get('hd1').dividend_tax_pct).toBe(20.8);
+    cleanup();
+  });
+
+  it('is not asked of a holding that pays no dividend the feeds know', () => {
+    const gold = { ...indian, id: 'hd2', name: 'Gold', asset_class: 'commodity', currency: 'USD', dividend_tax_pct: null };
+    db.holdings.set('hd2', { ...gold });
+    renderScreen(<HoldingEditor holding={gold} householdId="hh" members={[]} onClose={() => {}} onSaved={async () => {}} />);
+    expect(screen.queryByLabelText('Withholding on dividends')).toBeNull();
+    expect(screen.queryByLabelText('Fees per share')).toBeNull();
+    cleanup();
+  });
+});

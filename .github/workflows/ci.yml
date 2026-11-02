@@ -140,8 +140,10 @@ jobs:
       # The second file covers the bot's trade helpers on their own: matching,
       # the questions it asks, and the confirmation's wording. The third and
       # fourth cover who may call each function: the constant-time secret
-      # compare, and fd-accrual and price-refresh refusing every caller but
-      # the scheduler (and, for price-refresh, a signed-in household member).
+      # compare, and fd-accrual, price-refresh and dividend-refresh refusing
+      # every caller but the scheduler (and, for price-refresh, a signed-in
+      # household member). The last reads recorded Yahoo and Alpha Vantage
+      # answers and plans the dividend run's calls.
       - name: Handler tests
         run: >
           deno test --node-modules-dir=none
@@ -152,6 +154,7 @@ jobs:
           supabase/functions/_shared/requestAuth.test.ts
           supabase/functions/_shared/scheduledCallers.test.ts
           supabase/functions/_shared/quoteTime.test.ts
+          supabase/functions/dividend-refresh/sources.test.ts
 
   functions:
     name: deployed Edge Functions match this commit

@@ -653,5 +653,12 @@
   "fingerprint": "6608648e9bf127c285d3ae04a6065b38",
   "framingFingerprint": "12236afbb2323b8bcf0d2ffa279e7584",
   "fingerprintVersion": 2
+ },
+ {
+  "version": "20261102181711",
+  "name": "dividends",
+  "fingerprint": "e967bc63168e3c993bc7afa91df2d20d",
+  "framingFingerprint": "1a605b65969b116ce7d3b1334cc0d6af",
+  "fingerprintVersion": 2
  }
 ]

@@ -174,6 +174,7 @@ export default function Accounts({ household, members, me, data, loading }) {
           account={editing === 'new' || editing === 'new-card' ? null : editing}
           defaultType={editing === 'new-card' ? 'credit_card' : undefined}
           householdId={household?.id}
+          accounts={accounts}
           members={members}
           transactions={transactions}
           onClose={() => setEditing(null)}

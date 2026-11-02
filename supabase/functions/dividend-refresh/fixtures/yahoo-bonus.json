@@ -1,0 +1,40 @@
+{
+ "chart": {
+  "result": [
+   {
+    "meta": {
+     "currency": "INR",
+     "symbol": "DEF.NS",
+     "exchangeName": "NSI",
+     "exchangeTimezoneName": "Asia/Kolkata",
+     "firstTradeDate": 1199159100
+    },
+    "events": {
+     "dividends": {
+      "1660880700": {
+       "amount": 2.4,
+       "date": 1660880700
+      },
+      "1692330300": {
+       "amount": 1.2,
+       "date": 1692330300
+      },
+      "1723779900": {
+       "amount": 1.3,
+       "date": 1723779900
+      }
+     },
+     "splits": {
+      "1678419900": {
+       "date": 1678419900,
+       "numerator": 2,
+       "denominator": 1,
+       "splitRatio": "2:1"
+      }
+     }
+    }
+   }
+  ],
+  "error": null
+ }
+}
