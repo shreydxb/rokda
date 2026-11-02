@@ -5173,7 +5173,9 @@ begin
   p := pg_temp.d2_proposal(f, array[d1, d2]);
   r := apply_bot_proposal(p, '22222222-2222-2222-2222-0000000000b7');
   if r ->> 'outcome' <> 'applied' or (select count(*) from holding_dividends where id in (d1, d2) and status = 'received' and proposal_id = p) <> 2
-     or pg_temp.d2_bal(f) <> 110.5 then
+     or pg_temp.d2_bal(f) <> 110.5 or (r ->> 'moved')::numeric <> 10.5 or (r ->> 'total')::numeric <> 10.5
+     or (select count(*) from jsonb_array_elements(r -> 'lines') l where (l ->> 'moved')::numeric = (l ->> 'net')::numeric
+           and (l ->> 'gross')::numeric > 0 and (l ->> 'tax')::numeric > 0 and l ? 'per_share' and l ? 'units' and l ? 'pay_date') <> 2 then
     raise exception 'D2-15 FAILED: applying gave % and the fund %', r, pg_temp.d2_bal(f);
   end if;
   r := apply_bot_proposal(p, '22222222-2222-2222-2222-0000000000b7');
@@ -5215,7 +5217,8 @@ begin
   c := pg_temp.d2_case((m1 + 4)::timestamp at time zone 'Asia/Dubai'); f := (c ->> 'fund')::uuid; dv := (c ->> 'dividend')::uuid;
   p := pg_temp.d2_proposal(f, array[dv], 'already_included', 'included');
   r := apply_bot_proposal(p, '22222222-2222-2222-2222-0000000000b7');
-  if r ->> 'outcome' <> 'applied' or pg_temp.d2_bal(f) <> 100 or (select credited_on from holding_dividends where id = dv) <> m1 + 4 then
+  if r ->> 'outcome' <> 'applied' or pg_temp.d2_bal(f) <> 100 or (select credited_on from holding_dividends where id = dv) <> m1 + 4
+     or (r ->> 'moved')::numeric <> 0 or (r -> 'lines' -> 0 ->> 'moved')::numeric <> 0 then
     raise exception 'D2-18 FAILED: "included" gave % and the fund %', r, pg_temp.d2_bal(f);
   end if;
   c := pg_temp.d2_case((m1 + 4)::timestamp at time zone 'Asia/Dubai'); f := (c ->> 'fund')::uuid; dv := (c ->> 'dividend')::uuid;

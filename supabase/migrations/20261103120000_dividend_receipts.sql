@@ -679,6 +679,7 @@ declare
   v_saved jsonb := '[]'::jsonb;
   v_total numeric := 0;
   v_moved numeric := 0;
+  v_line_moved numeric;
 begin
   begin
     v_fund := (p_proposal.payload ->> 'fund_id')::uuid;
@@ -725,10 +726,15 @@ begin
         raise exception 'dividend line refused' using errcode = 'RD001';
       end if;
       update public.holding_dividends set proposal_id = p_proposal.id where id = (v_line ->> 'dividend_id')::uuid;
+      v_line_moved := coalesce((select sum((m ->> 'delta')::numeric) from jsonb_array_elements(v_out -> 'movements') m), 0);
+      -- The figures saved, as the bot's reply shows them.
       v_saved := v_saved || jsonb_build_object('dividend_id', v_line -> 'dividend_id', 'holding_name', v_line -> 'holding_name',
-        'net', v_out -> 'dividend' -> 'received_net', 'credited_on', v_out -> 'dividend' -> 'credited_on');
+        'units', v_out -> 'dividend' -> 'units', 'per_share', v_out -> 'dividend' -> 'per_share',
+        'gross', v_out -> 'dividend' -> 'received_gross', 'tax', v_out -> 'dividend' -> 'received_tax',
+        'fees', v_out -> 'dividend' -> 'received_fees', 'net', v_out -> 'dividend' -> 'received_net',
+        'pay_date', v_out -> 'dividend' -> 'pay_date', 'credited_on', v_out -> 'dividend' -> 'credited_on', 'moved', v_line_moved);
       v_total := v_total + (v_out -> 'dividend' ->> 'received_net')::numeric;
-      v_moved := v_moved + coalesce((select sum((m ->> 'delta')::numeric) from jsonb_array_elements(v_out -> 'movements') m), 0);
+      v_moved := v_moved + v_line_moved;
     end loop;
   exception when sqlstate 'RD001' then
     -- A line the fund's confirmation or the dividend no longer allows is the
