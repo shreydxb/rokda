@@ -117,4 +117,4 @@ export function readsAsDividend(text: string | null | undefined): boolean {
 }
 
 export const DIVIDENDS_STALE_NONE =
-  "Something changed since I asked, so nothing was recorded. They have been recorded or changed in the app since; nothing is left to ask about.";
+  "Something changed since I asked, so nothing was recorded. They were recorded or changed since, here or in the app, so nothing is left to ask about.";

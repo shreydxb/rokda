@@ -3037,8 +3037,8 @@ the bot uses.
 
 The household wants to see dividends as passive income: what came in, what
 is coming, and whether it grows into a real share of what it lives on
-(SHR-366). The first part records them; the receipts, the bot's question and
-the Dividends tab follow.
+(SHR-366). The first part records them, the second their receipts and the
+bot's question; the Dividends tab follows.
 
 - **Not income transactions.** Recorded income feeds the Life plan's monthly
   saving, and the plan's return already includes dividends, so a dividend
@@ -3102,3 +3102,37 @@ the Dividends tab follow.
 - **A closed destination falls back to the fund.** Closing the account a
   fund's dividends go to never stops the fund's trades or balance; new
   dividends then land in the fund itself.
+- **Received is a member's word.** A dividend becomes received when a member
+  says it arrived, in the app or to the bot, or from the company's own
+  credit intimation. Its figures are what was expected unless the member
+  gives the broker's; the net is always worked out from them, never taken
+  from the client.
+- **A receipt moves its fund once, by the trades' rule.** Received into a
+  broker's fund after the fund's last confirmed balance, it adds its net;
+  before it, the confirmed balance already holds it. Nothing about the
+  effect is stored: every change (a fix, a skip, a move to another fund)
+  moves each fund by what the receipt adds now less what it added before,
+  both against the fund's current confirmation, so a balance confirmed later
+  takes the receipt in rather than counting it twice. A bank balance is a
+  snapshot and never moves.
+- **When the date cannot say, the member does.** An app confirmation is
+  dated at the start of its day, so a receipt on the pay date with the fund
+  confirmed on or after it, or one credited on the confirmation's own day,
+  could be either side of it: the app and the bot ask whether it was already
+  in that balance, and the answer places it.
+- **Saved as shown.** Every change is checked first and saved only at the
+  version and the fund confirmations it was checked against; anything that
+  moved since is refused, and checked again, never saved on figures the
+  member did not see.
+- **The morning question.** Each morning the bot asks once about the
+  dividends due in each broker's fund, of the holding's owner, or every
+  linked member for a shared holding: one message per fund, with each line's
+  sum, withholding and net. A "yes" or 👍 records them all or none; "no"
+  leaves them for the app. Something changed since, and nothing is recorded:
+  what still waits is asked about again. A bank account's dividends are not
+  asked about (above). It has its own switch in Telegram settings, on by
+  default.
+- **A dividend typed as income is not logged.** The bot leaves it out and
+  says where dividends live, so the money is never counted as both income
+  and a dividend. In a message of several items only the dividend is left
+  out.

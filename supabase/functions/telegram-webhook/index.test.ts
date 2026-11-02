@@ -2704,7 +2704,7 @@ freshTest("a dividend recorded elsewhere since the question is not asked again",
   const proposal = backend.tables.bot_proposals.find((p) => p.kind === "dividends_received")!;
   for (const d of backend.tables.holding_dividends) Object.assign(d, { status: "received", version: 2 });
   await handler(replyUpdate(9606, "yes", Number(proposal.prompt_message_id)));
-  assertEquals(lastReply(), "Something changed since I asked, so nothing was recorded. They have been recorded or changed in the app since; nothing is left to ask about.");
+  assertEquals(lastReply(), "Something changed since I asked, so nothing was recorded. They were recorded or changed since, here or in the app, so nothing is left to ask about.");
   assertEquals(backend.tables.bot_proposals.filter((p) => p.status === "proposed").length, 0);
 });
 
