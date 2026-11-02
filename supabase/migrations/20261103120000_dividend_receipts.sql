@@ -471,3 +471,143 @@ revoke execute on function public.preview_dividend(uuid, jsonb, uuid) from publi
 revoke execute on function public.save_dividend(uuid, jsonb, integer, jsonb, uuid) from public, anon;
 grant execute on function public.preview_dividend(uuid, jsonb, uuid) to authenticated, service_role;
 grant execute on function public.save_dividend(uuid, jsonb, integer, jsonb, uuid) to authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+-- 2. Review and one-off answers
+-- ---------------------------------------------------------------------------
+
+-- "Keep as it is": a member has looked at what changed under a dividend and
+-- keeps its figures. What they saw is added to its baseline, so the same
+-- change is not raised again: the feed's amount (for a feed change), the
+-- units the trades now give (for a trade change), the row's own amount and
+-- date (for a missing or moved date), and, for a possible duplicate, which
+-- event it is not.
+create or replace function public.keep_dividend(p_dividend_id uuid, p_expected_version integer, p_member_id uuid default null)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_caller jsonb := private.dividend_caller(p_dividend_id, '{}'::jsonb, p_member_id);
+  r public.holding_dividends%rowtype;
+  v_baseline jsonb;
+begin
+  if v_caller ? 'error' then
+    return jsonb_build_object('ok', false, 'error', v_caller ->> 'error');
+  end if;
+  select * into r from public.holding_dividends where id = p_dividend_id;
+  perform 1 from public.holdings where id = r.holding_id for update;
+  select * into r from public.holding_dividends where id = p_dividend_id for update;
+  if r.version is distinct from p_expected_version then
+    return jsonb_build_object('ok', false, 'error', 'stale');
+  end if;
+  -- Each answer adds to what was kept before: keeping a trade change must not
+  -- undo a feed change kept earlier, or the feed's question comes back.
+  v_baseline := jsonb_build_object(
+    'per_share', case r.review_reason
+      when 'feed_changed' then coalesce((select e.amount from public.dividend_events e where e.id = r.event_id), r.per_share)
+      when 'moved_ex_date' then r.per_share
+      else coalesce((r.review_baseline ->> 'per_share')::numeric, r.per_share) end,
+    'units', case r.review_reason
+      when 'trades_changed' then coalesce(case when r.ex_date is not null then private.units_on_ex_date(r.holding_id, r.ex_date) end, r.units)
+      else coalesce((r.review_baseline ->> 'units')::numeric, r.units) end,
+    'ex_date', r.ex_date);
+  if r.review_reason = 'possible_duplicate' and r.review_event_id is not null then
+    v_baseline := v_baseline || jsonb_build_object('not_duplicate_of', r.review_event_id);
+  end if;
+  update public.holding_dividends
+  set review_baseline = v_baseline, review_reason = null, review_event_id = null, version = version + 1,
+      updated_by = (v_caller ->> 'member')::uuid
+  where id = r.id;
+  return jsonb_build_object('ok', true, 'version', r.version + 1);
+end;
+$$;
+
+-- "It's this one": a dividend a member added is the feed's event it was
+-- asked about. It keeps the member's figures, and its baseline holds the
+-- event's amount and the units the trades give on the event's date, so the
+-- link raises no question of its own.
+create or replace function public.link_dividend(p_dividend_id uuid, p_event_id uuid, p_expected_version integer, p_member_id uuid default null)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_caller jsonb := private.dividend_caller(p_dividend_id, '{}'::jsonb, p_member_id);
+  r public.holding_dividends%rowtype;
+  e public.dividend_events%rowtype;
+begin
+  if v_caller ? 'error' then
+    return jsonb_build_object('ok', false, 'error', v_caller ->> 'error');
+  end if;
+  select * into r from public.holding_dividends where id = p_dividend_id;
+  perform 1 from public.holdings where id = r.holding_id for update;
+  select * into r from public.holding_dividends where id = p_dividend_id for update;
+  if r.version is distinct from p_expected_version then
+    return jsonb_build_object('ok', false, 'error', 'stale');
+  end if;
+  select * into e from public.dividend_events where id = p_event_id
+    and symbol = (select h.price_symbol from public.holdings h where h.id = r.holding_id);
+  if not found then
+    return jsonb_build_object('ok', false, 'error', 'bad_input');
+  end if;
+  if r.event_id is not null or exists (
+    select 1 from public.holding_dividends d where d.holding_id = r.holding_id and d.event_id = p_event_id) then
+    return jsonb_build_object('ok', false, 'error', 'already_linked');
+  end if;
+  update public.holding_dividends
+  set event_id = e.id, review_reason = null, review_event_id = null, version = version + 1,
+      review_baseline = jsonb_build_object('per_share', e.amount,
+        'units', coalesce(private.units_on_ex_date(r.holding_id, e.ex_date), r.units), 'ex_date', r.ex_date),
+      updated_by = (v_caller ->> 'member')::uuid
+  where id = r.id;
+  return jsonb_build_object('ok', true, 'version', r.version + 1);
+end;
+$$;
+
+-- A member's answer about how much of an event was a one-off, from nothing to
+-- the whole amount; null removes it. Only for an event one of the household's
+-- holdings has a dividend on.
+create or replace function public.set_special_part(p_event_id uuid, p_special_per_share numeric, p_member_id uuid default null)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_household uuid;
+  v_member uuid;
+  v_amount numeric;
+begin
+  select m.household_id into v_household from public.household_members m
+  where (auth.uid() is not null and m.user_id = auth.uid()) or (auth.uid() is null and m.id = p_member_id)
+  limit 1;
+  v_member := case when v_household is null then null else private.trade_caller(v_household, p_member_id) end;
+  if v_member is null or not exists (
+    select 1 from public.holding_dividends d where d.household_id = v_household and d.event_id = p_event_id) then
+    return jsonb_build_object('ok', false, 'error', 'not_member');
+  end if;
+  if p_special_per_share is null then
+    delete from public.dividend_special_parts where household_id = v_household and event_id = p_event_id;
+    return jsonb_build_object('ok', true, 'special_per_share', null);
+  end if;
+  select e.amount into v_amount from public.dividend_events e where e.id = p_event_id;
+  if p_special_per_share < 0 or p_special_per_share > v_amount then
+    return jsonb_build_object('ok', false, 'error', 'bad_figures');
+  end if;
+  insert into public.dividend_special_parts (household_id, event_id, special_per_share, updated_by)
+  values (v_household, p_event_id, p_special_per_share, v_member)
+  on conflict (household_id, event_id) do update
+    set special_per_share = excluded.special_per_share, updated_by = excluded.updated_by;
+  return jsonb_build_object('ok', true, 'special_per_share', p_special_per_share);
+end;
+$$;
+
+revoke execute on function public.keep_dividend(uuid, integer, uuid) from public, anon;
+revoke execute on function public.link_dividend(uuid, uuid, integer, uuid) from public, anon;
+revoke execute on function public.set_special_part(uuid, numeric, uuid) from public, anon;
+grant execute on function public.keep_dividend(uuid, integer, uuid) to authenticated, service_role;
+grant execute on function public.link_dividend(uuid, uuid, integer, uuid) to authenticated, service_role;
+grant execute on function public.set_special_part(uuid, numeric, uuid) to authenticated, service_role;

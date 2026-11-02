@@ -5053,4 +5053,89 @@ begin
   raise notice 'D2-10 ok: added and imported dividends, an import rerun changes nothing';
 end $$;
 
+-- D2-11: keeping a received dividend's figures after the feed or the trades
+-- changed under it is not asked about again.
+do $$
+declare t date := household_today(); h uuid := 'd2b00000-0000-0000-0000-000000000011'; dv uuid; r jsonb;
+begin
+  perform pg_temp.d1_holding(h, 'D211', 'us_equity', 'USD', 'd1a00000-0000-0000-0000-000000000001', t - 40, 100);
+  perform pg_temp.d1_events('D211', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 20, 'amount', 0.5)));
+  perform earn_dividends();
+  select id into dv from holding_dividends where holding_id = h;
+  r := pg_temp.d2_save(dv, jsonb_build_object('action', 'record', 'credited_on', t - 5));
+  perform pg_temp.d1_events('D211', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 20, 'amount', 0.6)));
+  perform earn_dividends();
+  if (select review_reason from holding_dividends where id = dv) is distinct from 'feed_changed' then raise exception 'D2-11 FAILED: the feed change was not flagged'; end if;
+  r := keep_dividend(dv, (select version from holding_dividends where id = dv), p_member_id => '22222222-2222-2222-2222-0000000000b7');
+  perform earn_dividends();
+  if (select review_reason from holding_dividends where id = dv) is not null then raise exception 'D2-11 FAILED: a kept feed figure was flagged again (%)', r; end if;
+  r := record_trade(h, 'buy', t - 30, 10, 10, 0, p_member_id => '22222222-2222-2222-2222-0000000000b7');
+  if (select review_reason from holding_dividends where id = dv) is distinct from 'trades_changed' then raise exception 'D2-11 FAILED: the trade change was not flagged'; end if;
+  r := keep_dividend(dv, (select version from holding_dividends where id = dv), p_member_id => '22222222-2222-2222-2222-0000000000b7');
+  perform earn_dividends();
+  if (select review_reason from holding_dividends where id = dv) is not null then raise exception 'D2-11 FAILED: kept units were flagged again'; end if;
+  raise notice 'D2-11 ok: what a member keeps is not asked about again';
+end $$;
+
+-- D2-12: a possible duplicate kept apart is not asked about again.
+do $$
+declare t date := household_today(); h uuid := 'd2b00000-0000-0000-0000-000000000012'; dv uuid; r jsonb;
+begin
+  perform pg_temp.d1_holding(h, 'D212', 'us_equity', 'USD', 'd1a00000-0000-0000-0000-000000000001', t - 40, 100);
+  insert into holding_dividends (household_id, holding_id, ex_date, currency, units, units_basis, per_share, tax_pct,
+    expected_gross, expected_tax, expected_fees, expected_net, status, source)
+  values ('11111111-1111-1111-1111-111111111111', h, t - 15, 'USD', 100, 'stated', 0.5, 30, 50, 15, 0, 35, 'earned', 'app')
+  returning id into dv;
+  perform pg_temp.d1_events('D212', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 20, 'amount', 0.5)));
+  perform earn_dividends();
+  if (select review_reason from holding_dividends where id = dv) is distinct from 'possible_duplicate' then raise exception 'D2-12 FAILED: not asked about'; end if;
+  r := keep_dividend(dv, (select version from holding_dividends where id = dv), p_member_id => '22222222-2222-2222-2222-0000000000b7');
+  perform earn_dividends();
+  if (select review_reason from holding_dividends where id = dv) is not null then raise exception 'D2-12 FAILED: a kept duplicate question came back'; end if;
+  raise notice 'D2-12 ok: a possible duplicate kept apart stays answered';
+end $$;
+
+-- D2-13: a possible duplicate linked to the feed's dividend is one dividend.
+do $$
+declare t date := household_today(); h uuid := 'd2b00000-0000-0000-0000-000000000013'; dv uuid; ev uuid; r jsonb;
+begin
+  perform pg_temp.d1_holding(h, 'D213', 'us_equity', 'USD', 'd1a00000-0000-0000-0000-000000000001', t - 40, 100);
+  insert into holding_dividends (household_id, holding_id, ex_date, currency, units, units_basis, per_share, tax_pct,
+    expected_gross, expected_tax, expected_fees, expected_net, status, source)
+  values ('11111111-1111-1111-1111-111111111111', h, t - 15, 'USD', 100, 'stated', 0.5, 30, 50, 15, 0, 35, 'earned', 'app')
+  returning id into dv;
+  perform pg_temp.d1_events('D213', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 20, 'amount', 0.5)));
+  perform earn_dividends();
+  select id into ev from dividend_events where symbol = 'D213';
+  r := link_dividend(dv, ev, (select version from holding_dividends where id = dv), p_member_id => '22222222-2222-2222-2222-0000000000b7');
+  if (r ->> 'ok')::boolean is not true then raise exception 'D2-13 FAILED: link refused: %', r; end if;
+  perform earn_dividends();
+  if (select count(*) from holding_dividends where holding_id = h) <> 1 or (select event_id from holding_dividends where holding_id = h) <> ev
+     or (select review_reason from holding_dividends where holding_id = h) is not null then
+    raise exception 'D2-13 FAILED: after linking, %', (select jsonb_agg(to_jsonb(d)) from holding_dividends d where holding_id = h);
+  end if;
+  r := link_dividend(dv, ev, (select version from holding_dividends where id = dv), p_member_id => '22222222-2222-2222-2222-0000000000b7');
+  if r ->> 'error' is distinct from 'already_linked' then raise exception 'D2-13 FAILED: a second link gave %', r; end if;
+  raise notice 'D2-13 ok: a linked duplicate is one dividend';
+end $$;
+
+-- D2-14: a member's answer about a one-off part.
+do $$
+declare t date := household_today(); h uuid := 'd2b00000-0000-0000-0000-000000000014'; ev uuid; r jsonb;
+begin
+  perform pg_temp.d1_holding(h, 'D214.NS', 'india_equity', 'INR', 'd1a00000-0000-0000-0000-000000000002', t - 40, 100, 'yahoo');
+  perform pg_temp.d1_events('D214.NS', 'yahoo', jsonb_build_array(jsonb_build_object('ex_date', t - 20, 'amount', 76, 'currency', 'INR')));
+  perform earn_dividends();
+  select id into ev from dividend_events where symbol = 'D214.NS';
+  r := set_special_part(ev, 66, p_member_id => '22222222-2222-2222-2222-0000000000b7');
+  if (select special_per_share from dividend_special_parts where event_id = ev) is distinct from 66 then raise exception 'D2-14 FAILED: 66 not stored (%)', r; end if;
+  r := set_special_part(ev, 80, p_member_id => '22222222-2222-2222-2222-0000000000b7');
+  if r ->> 'error' is distinct from 'bad_figures' then raise exception 'D2-14 FAILED: 80 gave %', r; end if;
+  r := set_special_part(ev, null, p_member_id => '22222222-2222-2222-2222-0000000000b7');
+  if exists (select 1 from dividend_special_parts where event_id = ev) then raise exception 'D2-14 FAILED: clearing left the answer'; end if;
+  r := set_special_part((select id from dividend_events where symbol = 'D6' limit 1), 0, p_member_id => '22222222-2222-2222-2222-0000000000b7');
+  if r ->> 'error' is distinct from 'not_member' then raise exception 'D2-14 FAILED: an event the household has nothing on gave %', r; end if;
+  raise notice 'D2-14 ok: a one-off answer is stored, bounded and cleared';
+end $$;
+
 rollback;

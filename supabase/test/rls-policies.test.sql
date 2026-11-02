@@ -1533,6 +1533,25 @@ begin
 end $$;
 reset role;
 
+-- Review and one-off answers: a member keeps, links and answers for their own
+-- household's dividends only.
+set role authenticated;
+set request.jwt.claim.sub = '0b000000-0000-0000-0000-00000000000b';
+do $$
+declare r jsonb;
+begin
+  r := keep_dividend('fd100000-0000-0000-0000-000000000001', (select version from holding_dividends where id = 'fd100000-0000-0000-0000-000000000001'));
+  if (r ->> 'ok')::boolean is not true then raise exception 'dividend review RLS FAILED: a member could not keep their own: %', r; end if;
+  r := keep_dividend('fd100000-0000-0000-0000-000000000002', 1);
+  if r ->> 'error' is distinct from 'not_member' then raise exception 'dividend review RLS FAILED: keeping another household''s gave %', r; end if;
+  r := link_dividend('fd100000-0000-0000-0000-000000000002', 'fd000000-0000-0000-0000-000000000001', 1);
+  if r ->> 'error' is distinct from 'not_member' then raise exception 'dividend review RLS FAILED: linking another household''s gave %', r; end if;
+  r := set_special_part('fd000000-0000-0000-0000-000000000001', 0.3);
+  if (r ->> 'ok')::boolean is not true then raise exception 'dividend review RLS FAILED: a member could not answer for their own: %', r; end if;
+  raise notice 'dividend review RLS ok: members keep, link and answer for their own household only';
+end $$;
+reset role;
+
 -- A household can still be deleted outright: the cascade takes the roster with
 -- it, and that is not "a household left without an owner".
 reset role;
