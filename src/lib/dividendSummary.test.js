@@ -80,8 +80,8 @@ describe('the headline', () => {
     const h = dividendHeadline(input());
     expect(h.received.since).toBeNull();
     expect(h.markets).toEqual([
-      expect.objectContaining({ market: 'IN', since: null }),
-      expect.objectContaining({ market: 'US', since: '2026-09-01' }),
+      expect.objectContaining({ market: 'IN', since: null, start: '2025-09-01' }),
+      expect.objectContaining({ market: 'US', since: '2026-09-01', start: '2026-09-01' }),
     ]);
     expect(h.markets[1].receivedAed).toBeCloseTo(146.9, 2);
     expect(h.coverageDiffers).toBe(true);

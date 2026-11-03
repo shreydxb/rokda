@@ -1,0 +1,175 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { screen, fireEvent, cleanup, within } from '@testing-library/react';
+import { act } from 'react';
+import { renderScreen } from '../../test/renderScreen';
+import { householdToday } from '../../lib/day';
+import { addDays } from '../../lib/dividendHistory';
+import { shortDate } from '../../lib/dividends';
+import { couldntLoad } from '../../lib/loadState';
+
+// The dividend functions, answered per name, every call recorded.
+const calls = [];
+let answers = {};
+vi.mock('../../lib/supabaseClient', () => ({
+  supabase: {
+    rpc: async (name, args) => {
+      calls.push({ name, args });
+      const answer = answers[name];
+      return { data: (typeof answer === 'function' ? answer(args) : answer) ?? null, error: null };
+    },
+  },
+}));
+
+const { default: Dividends } = await import('./Dividends');
+
+const TODAY = householdToday();
+const ago = (n) => addDays(TODAY, -n);
+const ahead = (n) => addDays(TODAY, n);
+const US = { id: 'h-us', name: 'ABC', asset_class: 'us_equity', currency: 'USD', price_symbol: 'ABC', price_provider: 'twelvedata', quantity: 10,
+  is_shared: true, owner_member_id: null, funds_account_id: 'f-usd', sector: 'technology', dividend_tax_pct: 30, dividend_fee_per_share: 0, current_price: 50, avg_price: 40 };
+const IN = { id: 'h-in', name: 'XYZ', asset_class: 'india_equity', currency: 'INR', price_symbol: 'XYZ.NS', price_provider: 'yahoo', quantity: 100,
+  is_shared: true, owner_member_id: null, funds_account_id: 'f-inr', sector: null, dividend_tax_pct: 20.8, dividend_fee_per_share: 0, current_price: 500, avg_price: 400 };
+const ACCOUNTS = [
+  { id: 'f-usd', name: 'Dollar broker funds', type: 'broker_funds', currency: 'USD', dividends_into_account_id: null, archived_at: null, balance_as_of: null },
+  { id: 'f-inr', name: 'Rupee broker funds', type: 'broker_funds', currency: 'INR', dividends_into_account_id: 'a-inr', archived_at: null },
+  { id: 'a-inr', name: 'Rupee bank', type: 'checking', currency: 'INR', archived_at: null },
+];
+const div = (id, holding, extra) => ({ id, holding_id: holding.id, currency: holding.currency, review_reason: null, review_event_id: null, event_id: null, ex_date: null,
+  pay_date: null, credited_on: null, units: 10, per_share: 1, tax_pct: 30, expected_gross: 10, expected_tax: 3, expected_fees: 0, expected_net: 7, received_net: null, version: 1, ...extra });
+const event = (id, symbol, ex_date, amount, extra = {}) => ({ id, symbol, ex_date, amount, pay_date: null, superseded_by: null, missed_checks: 0, currency: 'USD', ...extra });
+
+function data(over = {}) {
+  return {
+    holdings: [US, IN],
+    holdingDividends: [
+      div('d1', US, { status: 'received', ex_date: ago(60), credited_on: ago(40), received_net: 7, paid_into_account_id: 'f-usd' }),
+      div('d2', IN, { status: 'presumed', ex_date: ago(90), credited_on: ago(60), expected_net: 500, paid_into_account_id: 'a-inr' }),
+      div('d5', US, { status: 'earned', ex_date: ago(5), pay_date: ahead(5), paid_into_account_id: 'f-usd' }),
+      div('d7', IN, { status: 'received', ex_date: ago(100), credited_on: ago(80), received_net: 400, review_reason: 'feed_changed', paid_into_account_id: 'a-inr' }),
+    ],
+    holdingTrades: [
+      { holding_id: 'h-us', kind: 'opening', trade_date: ago(60) },
+      { holding_id: 'h-in', kind: 'opening', trade_date: ago(430) },
+    ],
+    dividendEvents: [
+      event('e1', 'ABC', ago(300), 1), event('e2', 'ABC', ago(210), 1), event('e3', 'ABC', ago(120), 1), event('e4', 'ABC', ago(30), 5),
+      event('e-dec', 'ABC', ahead(10), 1, { pay_date: ahead(20) }),
+    ],
+    dividendSplits: [],
+    dividendSpecialParts: [],
+    dividendFeedStatus: [
+      { symbol: 'ABC', provider: 'alphavantage', kind: 'dividends', last_success_at: `${TODAY}T01:30:00Z`, fail_count: 0, covered_from: '2010-01-01' },
+      { symbol: 'XYZ.NS', provider: 'yahoo', kind: 'dividends', last_success_at: `${TODAY}T01:30:00Z`, fail_count: 0, covered_from: '2005-01-01' },
+    ],
+    accounts: ACCOUNTS,
+    fxRateHistory: [{ base: 'AED', quote: 'INR', day: '2020-01-01', rate: 25 }],
+    transactions: [1, 2, 3, 4].map((m) => ({ amount: -1000, kind: 'expense', occurred_at: addDays(`${TODAY.slice(0, 7)}-15`, -31 * m), is_shared: true, category_id: 'c' })),
+    errors: {},
+    loaded: {},
+    reload: vi.fn().mockResolvedValue(undefined),
+    ...over,
+  };
+}
+
+const HOUSEHOLD = { id: 'hh', inr_per_aed: 25 };
+const ME = { id: 'm1' };
+const MEMBERS = [{ id: 'm1', display_name: 'One' }, { id: 'm2', display_name: 'Two' }];
+
+beforeEach(() => {
+  calls.length = 0;
+  answers = {};
+  cleanup();
+});
+
+function open(d = data(), { loading = false } = {}) {
+  renderScreen(<Dividends household={HOUSEHOLD} members={MEMBERS} me={ME} data={d} loading={loading} />);
+  return d;
+}
+const section = (name) => screen.getByRole('region', { name });
+
+describe('Dividends: the headline', () => {
+  it('says what came in, how much was presumed, what is expected, and against spending', () => {
+    open();
+    const head = section('Dividends at a glance');
+    expect(within(head).getByText('Received in the last 12 months')).toBeTruthy();
+    expect(within(head).getByText(/^of which AED \S+ presumed, not checked$/)).toBeTruthy();
+    expect(within(head).getByText('Expected in the next 12 months')).toBeTruthy();
+    expect(within(head).getByText(/^about AED \S+ a month$/)).toBeTruthy();
+    expect(within(head).getByText(/^Expected to equal [\d.]+% of recorded spending$/)).toBeTruthy();
+    expect(within(head).getByText(/^India: /)).toBeTruthy();
+    expect(within(head).getByText(/^US: /)).toBeTruthy();
+    expect(within(head).getByText(`Indian dividends are counted from ${shortDate(ago(430))}, US from ${shortDate(ago(60))}.`)).toBeTruthy();
+  });
+});
+
+describe('Dividends: coming up', () => {
+  it('lists the declared dividend with its date, and an earned one into a fund can be recorded', async () => {
+    const d = open();
+    const coming = section('Coming up');
+    const rows = within(coming).getAllByRole('listitem');
+    expect(rows[0].textContent).toContain('ABC');
+    expect(rows[0].textContent).toContain('Earned');
+    expect(rows[1].textContent).toContain('Declared');
+    expect(rows[1].textContent).toContain(shortDate(ahead(20)));
+    expect(rows[1].textContent).toContain('into Dollar broker funds');
+    expect(within(rows[1]).queryByRole('button', { name: 'Record' })).toBeNull();
+
+    answers.preview_dividend = { ok: true, dividend: { ...data().holdingDividends[2], status: 'received', received_net: 7 }, movements: [], confirmations: {}, version: 1, asks: null };
+    answers.save_dividend = { ok: true };
+    fireEvent.click(within(rows[0]).getByRole('button', { name: 'Record' }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Check' }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save dividend' }));
+    });
+    expect(calls.at(-1)).toMatchObject({ name: 'save_dividend', args: { p_dividend_id: 'd5' } });
+    expect(d.reload).toHaveBeenCalled();
+  });
+});
+
+describe('Dividends: needs you', () => {
+  it('shows why a row is flagged, and asks about a one-off', async () => {
+    const d = open();
+    const needs = section('Needs you');
+    expect(within(needs).getByText("The feed's amount per share has changed since this was recorded.")).toBeTruthy();
+    expect(within(needs).getByText(`ABC paid 5.00 a share on ${shortDate(ago(30))}, more than twice its usual. Was part of it a one-off?`)).toBeTruthy();
+    answers.set_special_part = { ok: true };
+    await act(async () => {
+      fireEvent.click(within(needs).getByRole('button', { name: 'Yes, part was a one-off' }));
+    });
+    expect(calls).toEqual([{ name: 'set_special_part', args: { p_event_id: 'e4', p_special_per_share: 4 } }]);
+    expect(d.reload).toHaveBeenCalled();
+  });
+
+  it('a one-off answered "all ordinary" is recorded as no special part', async () => {
+    open();
+    answers.set_special_part = { ok: true };
+    await act(async () => {
+      fireEvent.click(within(section('Needs you')).getByRole('button', { name: 'No, all ordinary' }));
+    });
+    expect(calls).toEqual([{ name: 'set_special_part', args: { p_event_id: 'e4', p_special_per_share: 0 } }]);
+  });
+});
+
+describe('Dividends: states', () => {
+  it('shows the frame while loading', () => {
+    open(data(), { loading: true });
+    expect(document.querySelector('[aria-busy="true"]')).toBeTruthy();
+  });
+
+  it('says what did not load', () => {
+    open(data({ errors: { dividendEvents: 'timeout' }, loaded: {} }));
+    expect(screen.getByRole('alert').textContent).toContain(couldntLoad(['dividendEvents']));
+  });
+
+  it('says when no holding pays dividends', () => {
+    open(data({ holdings: [{ id: 'h-cash', name: 'Cash fund', asset_class: 'cash', is_shared: true }], holdingDividends: [] }));
+    expect(screen.getByText("No holdings that pay dividends. US-listed and Indian shares appear here once they're added under Investments.")).toBeTruthy();
+  });
+
+  it('says when the feed has not run yet', () => {
+    open(data({ dividendFeedStatus: [] }));
+    expect(screen.getByText("The dividend feed hasn't run yet. It checks each night.")).toBeTruthy();
+  });
+});

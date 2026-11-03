@@ -4,6 +4,7 @@ import { useOverviewData } from './useOverviewData';
 import NetWorth from './wealth/NetWorth';
 import Accounts from './wealth/Accounts';
 import Investments from './wealth/Investments';
+import Dividends from './wealth/Dividends';
 import Statements from './wealth/Statements';
 import LoadFailure from './LoadFailure';
 import Freshness from './Freshness';
@@ -15,6 +16,7 @@ const TABS = [
   { id: 'networth', label: 'Net worth' },
   { id: 'accounts', label: 'Accounts' },
   { id: 'investments', label: 'Investments' },
+  { id: 'dividends', label: 'Dividends' },
   { id: 'statements', label: 'Statements' },
 ];
 
@@ -48,6 +50,7 @@ export default function Wealth() {
       {tab === 'networth' && <NetWorth household={household} me={me} members={members} data={data} loading={loading} />}
       {tab === 'accounts' && <Accounts household={household} members={members} me={me} data={data} loading={loading} />}
       {tab === 'investments' && <Investments household={household} members={members} me={me} data={data} loading={loading} reloadHousehold={reloadHousehold} />}
+      {tab === 'dividends' && <Dividends household={household} members={members} me={me} data={data} loading={loading} />}
       {tab === 'statements' && <Statements household={household} me={me} members={members} data={data} loading={loading} />}
     </div>
   );

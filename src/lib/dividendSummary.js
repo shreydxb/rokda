@@ -149,9 +149,8 @@ export function dividendHeadline(input) {
   const sinceOf = (start) => (start && start > yearAgo ? start : null);
   const markets = marketsPresent(input).map((market) => {
     const isMarket = (h) => marketOf(h) === market;
-    return {
-      market, receivedAed: receivedSince(input, yearAgo, isMarket).aed, expectedAed: expectedOf(input, isMarket).aed, since: sinceOf(coverageStart(input, market)),
-    };
+    const start = coverageStart(input, market);
+    return { market, receivedAed: receivedSince(input, yearAgo, isMarket).aed, expectedAed: expectedOf(input, isMarket).aed, since: sinceOf(start), start };
   });
   const starts = marketsPresent(input).map((m) => coverageStart(input, m)).filter(Boolean).sort();
   const expected = expectedOf(input);

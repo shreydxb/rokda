@@ -1,6 +1,8 @@
 import { supabase } from '../lib/supabaseClient';
 import { readAllPages } from '../lib/pagedRead';
 import { useSources } from '../lib/useSources';
+import { householdToday } from '../lib/day';
+import { addMonths } from '../lib/dividendHistory';
 
 // One entry per query. Failures are reported per source rather than collapsed
 // into a single flag, so a screen can say exactly what is missing (QA-10).
@@ -47,6 +49,17 @@ const SOURCES = [
   },
   // One row per event in a household, so the event orders it.
   { key: 'dividendSpecialParts', query: (id) => supabase.from('dividend_special_parts').select('*').eq('household_id', id).order('event_id') },
+  // What each share the feed follows has paid, and its splits, for the
+  // Dividends tab: market data, the same for every household. Five years of
+  // events is all its sums look back over (a one-off is judged against the
+  // 24 months before a payment of the last 24).
+  {
+    key: 'dividendEvents',
+    query: () => supabase.from('dividend_events').select('*').gte('ex_date', addMonths(householdToday(), -60)).order('symbol').order('ex_date').order('id'),
+  },
+  { key: 'dividendSplits', query: () => supabase.from('dividend_splits').select('*').order('symbol').order('effective_date') },
+  // When the feed last checked the household's shares (never its errors).
+  { key: 'dividendFeedStatus', query: () => supabase.rpc('dividend_feed_status').order('symbol').order('provider').order('kind') },
   { key: 'categoryRules', query: (id) => supabase.from('category_rules').select('*').eq('household_id', id).order('created_at').order('id') },
   {
     key: 'statementReconciliations',
@@ -87,6 +100,9 @@ const EMPTY_STATE = {
   holdingTrades: [],
   holdingDividends: [],
   dividendSpecialParts: [],
+  dividendEvents: [],
+  dividendSplits: [],
+  dividendFeedStatus: [],
   categoryRules: [],
   statementReconciliations: [],
   backupRecords: [],
