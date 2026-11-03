@@ -5380,4 +5380,23 @@ begin
   raise notice 'D2-25 ok: one yes answers every question about the same dividends';
 end $$;
 
+-- D3-01: a one-off can be answered for any event of a share a holding
+-- follows, though the household earned nothing on it (it came before the
+-- holding's opening entry); never for a share no holding follows.
+do $$
+declare t date := household_today(); h uuid := 'd3b00000-0000-0000-0000-000000000001'; r jsonb;
+begin
+  perform pg_temp.d1_holding(h, 'D301', 'us_equity', 'USD', 'd1a00000-0000-0000-0000-000000000001', t - 40, 100);
+  perform pg_temp.d1_events('D301', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 200, 'amount', 2)));
+  perform pg_temp.d1_events('D301X', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 200, 'amount', 2)));
+  if exists (select 1 from holding_dividends where holding_id = h) then raise exception 'D3-01 FAILED: the fixture earned a dividend'; end if;
+  r := set_special_part((select id from dividend_events where symbol = 'D301'), 1.5, '22222222-2222-2222-2222-0000000000b7');
+  if (r ->> 'ok')::boolean is not true or (select special_per_share from dividend_special_parts where event_id = (select id from dividend_events where symbol = 'D301')) <> 1.5 then
+    raise exception 'D3-01 FAILED: an answer on a followed share gave %', r;
+  end if;
+  r := set_special_part((select id from dividend_events where symbol = 'D301X'), 1, '22222222-2222-2222-2222-0000000000b7');
+  if r ->> 'error' is distinct from 'not_member' then raise exception 'D3-01 FAILED: an answer on a share nobody follows gave %', r; end if;
+  raise notice 'D3-01 ok: a one-off is answered for any event of a followed share';
+end $$;
+
 rollback;

@@ -1578,6 +1578,40 @@ begin
   raise notice 'dividend asking RLS ok: only the bot marks what it asked';
 end $$;
 reset role;
+-- The feed's freshness (SHR-366, PR 3): a member reads it for the shares
+-- their own household follows, never another's, and never the feed's raw
+-- error, which can quote a provider's request URL; signed out, not at all.
+update holdings set price_symbol = 'ABC' where id = 'fd200000-0000-0000-0000-000000000001';
+update holdings set price_symbol = 'XYZ' where id = 'fd200000-0000-0000-0000-000000000002';
+insert into dividend_feed_state (symbol, provider, kind, last_attempt_at, last_success_at, last_error) values
+  ('XYZ', 'alphavantage', 'dividends', now(), now(), 'not for members');
+update dividend_feed_state set last_error = 'not for members' where symbol = 'ABC';
+set role authenticated;
+set request.jwt.claim.sub = '0b000000-0000-0000-0000-00000000000b';
+do $$
+begin
+  if (select count(*) from dividend_feed_status() where symbol = 'ABC') <> 1 then
+    raise exception 'dividend freshness RLS FAILED: a member could not read their own share''s feed state';
+  end if;
+  if exists (select 1 from dividend_feed_status() where symbol = 'XYZ') then
+    raise exception 'dividend freshness RLS FAILED: a member read another household''s share';
+  end if;
+  if exists (select 1 from dividend_feed_status() s where to_jsonb(s) ? 'last_error') then
+    raise exception 'dividend freshness RLS FAILED: the feed''s raw error reached a member';
+  end if;
+end $$;
+reset role;
+set role anon;
+do $$
+begin
+  begin
+    perform dividend_feed_status();
+    raise exception 'dividend freshness RLS FAILED: signed out, the feed state was read';
+  exception when insufficient_privilege then null;
+  end;
+  raise notice 'dividend freshness RLS ok: members read their own shares'' feed state, without its errors';
+end $$;
+reset role;
 
 -- A household can still be deleted outright: the cascade takes the roster with
 -- it, and that is not "a household left without an owner".
