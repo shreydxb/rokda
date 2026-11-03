@@ -4,10 +4,13 @@ import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { householdToday } from '../../lib/day';
-import { formatMoney } from '../../lib/money';
+import { formatMoney, formatPct } from '../../lib/money';
+import { SECTOR_LABELS } from '../../lib/holdings';
 import { couldntLoad, neverLoaded } from '../../lib/loadState';
-import { dividendRefusalMessage, monthLabel, shortDate } from '../../lib/dividends';
-import { buildDividendInput, comingUp, dividendHeadline, feedFreshness, needsYou, spendingEquivalent } from '../../lib/dividendSummary';
+import { dividendRefusalMessage, formatPerShare, monthLabel, shortDate } from '../../lib/dividends';
+import {
+  buildDividendInput, comingUp, dividendHeadline, dividendSources, dividendsByHolding, dividendsByMonth, feedFreshness, needsYou, spendingEquivalent,
+} from '../../lib/dividendSummary';
 import DividendForm from './DividendForm';
 import HoldingDividends from './HoldingDividends';
 import './HoldingTrades.css';
@@ -54,6 +57,10 @@ export default function Dividends({ household, members, me, data, loading }) {
       <Headline input={input} money={money} transactions={data.transactions} />
       <ComingUp input={input} data={data} money={money} />
       <NeedsYou input={input} data={data} />
+      <ByMonth input={input} money={money} />
+      <ByHolding input={input} data={data} money={money} />
+      <Sources input={input} money={money} />
+      <Freshness input={input} />
     </div>
   );
 }
@@ -63,8 +70,6 @@ const aed = (money, value) => `${money.code} ${money.fmt(value)}`;
 function Headline({ input, money, transactions }) {
   const h = dividendHeadline(input);
   const spending = spendingEquivalent(input, { transactions: transactions ?? [], now: new Date() });
-  const sinceIn = h.markets.find((m) => m.market === 'IN');
-  const sinceUs = h.markets.find((m) => m.market === 'US');
   return (
     <section className="dv-headline" aria-label="Dividends at a glance">
       <div className="dv-figures">
@@ -95,12 +100,21 @@ function Headline({ input, money, transactions }) {
           </li>
         ))}
       </ul>
-      {h.coverageDiffers && sinceIn?.start && sinceUs?.start && (
-        <p className="ov-muted dv-sub">
-          {`${MARKET_ADJECTIVES.IN} dividends are counted from ${shortDate(sinceIn.start)}, ${MARKET_ADJECTIVES.US} from ${shortDate(sinceUs.start)}.`}
-        </p>
-      )}
+      <Coverage headline={h} />
     </section>
+  );
+}
+
+// When the two markets' records start at different times, both dates, so
+// neither total reads as covering what it does not.
+function Coverage({ headline }) {
+  const india = headline.markets.find((m) => m.market === 'IN');
+  const us = headline.markets.find((m) => m.market === 'US');
+  if (!headline.coverageDiffers || !india?.start || !us?.start) return null;
+  return (
+    <p className="ov-muted dv-sub">
+      {`${MARKET_ADJECTIVES.IN} dividends are counted from ${shortDate(india.start)}, ${MARKET_ADJECTIVES.US} from ${shortDate(us.start)}.`}
+    </p>
   );
 }
 
@@ -228,6 +242,199 @@ function NeedsYou({ input, data }) {
             </li>
           );
         })}
+      </ul>
+    </section>
+  );
+}
+
+const FREQUENCY = {
+  monthly: 'Monthly', quarterly: 'Quarterly', 'half-yearly': 'Half-yearly', yearly: 'Yearly', irregular: 'Irregular', too_new: 'Too new to say',
+  none: 'No payments in two years',
+};
+const STATUS = { may_have_stopped: 'may have stopped paying', not_enough_history: 'not enough history', not_held: 'sold' };
+
+// Received (or earned) month by month, presumed receipts shaded apart, and
+// the next twelve months expected in a lighter shade: one bar a month, each
+// named for a screen reader by its month and figures.
+function ByMonth({ input, money }) {
+  const [view, setView] = useState('received');
+  const { months, years, leftOut } = dividendsByMonth(input, view);
+  const peak = Math.max(1, ...months.map((m) => m.actualAed + m.presumedAed + m.expectedAed));
+  const W = months.length * 10;
+  const H = 120;
+  const height = (v) => (v / peak) * H;
+  return (
+    <section className="dv-section" aria-labelledby="dv-months">
+      <div className="dv-head">
+        <h3 className="ov-kicker dv-title" id="dv-months">
+          By month
+        </h3>
+        <div className="dv-switch" role="group" aria-label="Show">
+          {['received', 'earned'].map((v) => (
+            <button key={v} type="button" className="om-seg" data-active={view === v} aria-pressed={view === v} onClick={() => setView(v)}>
+              {v === 'received' ? 'Received' : 'Earned'}
+            </button>
+          ))}
+        </div>
+      </div>
+      <svg className="dv-chart" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={`Dividends ${view} by month, and expected`}>
+        {months.map((m, i) => {
+          const parts = [`${aed(money, m.actualAed)} ${view}`];
+          if (m.presumedAed > 0) parts.push(`${aed(money, m.presumedAed)} presumed`);
+          if (m.expectedAed > 0) parts.push(`${aed(money, m.expectedAed)} expected`);
+          const a = height(m.actualAed);
+          const p = height(m.presumedAed);
+          const e = height(m.expectedAed);
+          return (
+            // Each month its own small drawing, so its title names it.
+            <svg key={m.month} x={i * 10} y="0" width="10" height={H}>
+              <title>{`${monthLabel(m.month)}: ${parts.join(', ')}`}</title>
+              <rect x="1" y={H - a} width="8" height={a} className="dv-bar-actual" />
+              <rect x="1" y={H - a - p} width="8" height={p} className="dv-bar-presumed" />
+              <rect x="1" y={H - a - p - e} width="8" height={e} className="dv-bar-expected" />
+            </svg>
+          );
+        })}
+      </svg>
+      <div className="dv-axis ov-muted">
+        <span>{monthLabel(months[0].month)}</span>
+        <span>{monthLabel(months.at(-1).month)}</span>
+      </div>
+      <p className="ov-muted dv-sub">{`Total ${years.map((y) => `${y.year}: ${aed(money, y.aed)}`).join(' · ')}`}</p>
+      {view === 'earned' && leftOut > 0 && (
+        <p className="ov-muted dv-sub">{leftOut === 1 ? "1 receipt with no ex-date isn't shown." : `${leftOut} receipts with no ex-date aren't shown.`}</p>
+      )}
+    </section>
+  );
+}
+
+// Each holding with dividends found, most expected first; opening one shows
+// its dividends, to record, fix or skip. The rest are folded by why they
+// have none to show.
+function ByHolding({ input, data, money }) {
+  const [opened, setOpened] = useState(null);
+  const { rows, none, failing, notChecked } = dividendsByHolding(input);
+  const names = (holdings) => holdings.map((h) => h.name).join(', ');
+  return (
+    <section className="dv-section" aria-labelledby="dv-holdings">
+      <h3 className="ov-kicker dv-title" id="dv-holdings">
+        By holding
+      </h3>
+      <ul className="ht-list">
+        {rows.map((r) => {
+          const h = r.holding;
+          const next = r.next?.day ? shortDate(r.next.day) : r.next?.month ? monthLabel(r.next.month) : null;
+          const parts = [
+            r.lastOrdinaryPerShare !== null ? `last ${h.currency} ${formatPerShare(r.lastOrdinaryPerShare)} a share` : null,
+            `${aed(money, r.receivedAed)} received`,
+            `${aed(money, r.expectedAed)} expected`,
+            r.yields.onValue !== null ? `${formatPct(r.yields.onValue, { decimals: 1 })} on value` : null,
+            r.yields.onCost !== null ? `${formatPct(r.yields.onCost, { decimals: 1 })} on cost` : null,
+            next ? `next ${next}` : null,
+          ].filter(Boolean);
+          const frequency = [FREQUENCY[r.frequency?.kind] ?? null, STATUS[r.status] ?? null].filter(Boolean).join(', ');
+          return (
+            <li key={h.id} className="ht-row hd-row">
+              <button type="button" className="dv-rowbutton" aria-expanded={opened === h.id} onClick={() => setOpened(opened === h.id ? null : h.id)}>
+                <span className="mn-row-main">
+                  <span className="dv-name">{`${h.name}${frequency ? ` · ${frequency}` : ''}`}</span>
+                  <span className="ov-muted dv-detail">{parts.join(' · ')}</span>
+                </span>
+              </button>
+              {opened === h.id && (
+                <HoldingDividends holding={h} dividends={data.holdingDividends} specialParts={data.dividendSpecialParts} accounts={input.accounts} onChanged={data.reload} />
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {none.holdings.length > 0 && (
+        <details className="dv-fold">
+          <summary>{none.since ? `No dividends found since ${shortDate(none.since)}` : 'No dividends found'}</summary>
+          <p className="ov-muted dv-sub">{names(none.holdings)}</p>
+        </details>
+      )}
+      {failing.length > 0 && (
+        <details className="dv-fold">
+          <summary>Checks failing</summary>
+          <p className="ov-muted dv-sub">{names(failing)}</p>
+        </details>
+      )}
+      {notChecked.length > 0 && (
+        <details className="dv-fold">
+          <summary>Not checked yet</summary>
+          <p className="ov-muted dv-sub">{names(notChecked)}</p>
+        </details>
+      )}
+    </section>
+  );
+}
+
+// Where the next twelve months come from: each market with what is withheld
+// there, and each sector, as short bars.
+function Sources({ input, money }) {
+  const { markets, sectors } = dividendSources(input);
+  const headline = dividendHeadline(input);
+  if (markets.length === 0) return null;
+  const total = Math.max(1, ...markets.map((m) => m.expectedAed));
+  const sectorTotal = Math.max(1, ...sectors.map((x) => x.expectedAed));
+  const bar = (value, of) => <span className="dv-bar" style={{ width: `${Math.max(2, (value / of) * 100)}%` }} aria-hidden="true" />;
+  return (
+    <section className="dv-section" aria-labelledby="dv-sources">
+      <h3 className="ov-kicker dv-title" id="dv-sources">
+        Where it comes from
+      </h3>
+      <ul className="dv-bars">
+        {markets.map((m) => (
+          <li key={m.market}>
+            <span>{`${MARKET_NAMES[m.market]} · ${aed(money, m.expectedAed)}${m.withholdingPct !== null ? ` · ${m.withholdingPct}% withheld` : ''}`}</span>
+            {bar(m.expectedAed, total)}
+          </li>
+        ))}
+      </ul>
+      <ul className="dv-bars">
+        {sectors.map((x) => (
+          <li key={x.sector}>
+            <span>{`${x.sector === 'unknown' ? 'Unknown' : (SECTOR_LABELS[x.sector] ?? x.sector)} · ${aed(money, x.expectedAed)}`}</span>
+            {bar(x.expectedAed, sectorTotal)}
+          </li>
+        ))}
+      </ul>
+      <Coverage headline={headline} />
+    </section>
+  );
+}
+
+const checkedAt = (ts) => new Date(ts).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+
+// When each market was last checked, what is failing, and what the figures
+// here do not claim.
+function Freshness({ input }) {
+  const markets = feedFreshness(input);
+  return (
+    <section className="dv-section" aria-labelledby="dv-fresh">
+      <h3 className="ov-kicker dv-title" id="dv-fresh">
+        How fresh this is
+      </h3>
+      <ul className="dv-markets">
+        {markets.map((m) => (
+          <li key={m.market}>
+            {`${MARKET_NAMES[m.market]}: ${m.lastSuccessAt ? `checked ${checkedAt(m.lastSuccessAt)}` : 'not checked yet'}${m.coveredFrom ? ` · history from ${shortDate(m.coveredFrom)}` : ''}`}
+          </li>
+        ))}
+        {markets.flatMap((m) =>
+          m.failing.map((f) => (
+            <li key={`${m.market}-${f.symbol}`} className="ov-warn">
+              {`Checks failing for ${f.symbol} since ${f.since ? shortDate(f.since.slice(0, 10)) : 'it was added'}`}
+            </li>
+          )),
+        )}
+      </ul>
+      <ul className="dv-notes ov-muted">
+        <li>{"Dividends from before a holding's opening entry aren't counted: the units held then are unknown."}</li>
+        <li>{"Expected figures are a projection at today's units and exchange rates."}</li>
+        <li>{"Dividends earned but not yet received aren't in net worth."}</li>
+        <li>The Life plan already counts dividends in its return, so this tab is cash flow, not a second return.</li>
       </ul>
     </section>
   );

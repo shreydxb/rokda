@@ -4,7 +4,7 @@ import { act } from 'react';
 import { renderScreen } from '../../test/renderScreen';
 import { householdToday } from '../../lib/day';
 import { addDays } from '../../lib/dividendHistory';
-import { shortDate } from '../../lib/dividends';
+import { monthLabel, shortDate } from '../../lib/dividends';
 import { couldntLoad } from '../../lib/loadState';
 
 // The dividend functions, answered per name, every call recorded.
@@ -54,6 +54,7 @@ function data(over = {}) {
     dividendEvents: [
       event('e1', 'ABC', ago(300), 1), event('e2', 'ABC', ago(210), 1), event('e3', 'ABC', ago(120), 1), event('e4', 'ABC', ago(30), 5),
       event('e-dec', 'ABC', ahead(10), 1, { pay_date: ahead(20) }),
+      event('e-in1', 'XYZ.NS', ago(400), 5, { currency: 'INR' }), event('e-in2', 'XYZ.NS', ago(35), 5, { currency: 'INR' }),
     ],
     dividendSplits: [],
     dividendSpecialParts: [],
@@ -171,5 +172,75 @@ describe('Dividends: states', () => {
   it('says when the feed has not run yet', () => {
     open(data({ dividendFeedStatus: [] }));
     expect(screen.getByText("The dividend feed hasn't run yet. It checks each night.")).toBeTruthy();
+  });
+});
+
+describe('Dividends: by month', () => {
+  it('draws received, presumed and expected by month, with a total a year, and an earned view that counts what it cannot place', () => {
+    const d = data();
+    d.holdingDividends = [...d.holdingDividends, div('d8', US, { status: 'received', ex_date: null, credited_on: ago(20), received_net: 7, paid_into_account_id: 'f-usd' })];
+    open(d);
+    const months = section('By month');
+    expect(within(months).getByTitle(new RegExp(`^${monthLabel(ago(40).slice(0, 7))}: AED \\S+ received`))).toBeTruthy();
+    expect(within(months).getByTitle(new RegExp(`^${monthLabel(ago(60).slice(0, 7))}: .*AED \\S+ presumed`))).toBeTruthy();
+    expect(within(months).getByText(/^Total /)).toBeTruthy();
+    expect(within(months).queryByText("1 receipt with no ex-date isn't shown.")).toBeNull();
+    fireEvent.click(within(months).getByRole('button', { name: 'Earned' }));
+    expect(within(months).getByText("1 receipt with no ex-date isn't shown.")).toBeTruthy();
+  });
+});
+
+describe('Dividends: by holding', () => {
+  it("each holding's frequency, figures and next date; opening one shows its dividends; the rest folded by why", () => {
+    const quiet = { ...US, id: 'h-quiet', name: 'QUIET', price_symbol: 'QUIET' };
+    const broken = { ...US, id: 'h-broken', name: 'BROKEN', price_symbol: 'BROKEN' };
+    const fresh = { ...US, id: 'h-fresh', name: 'FRESH', price_symbol: 'FRESH' };
+    const d = data({ holdings: [US, IN, quiet, broken, fresh] });
+    d.dividendFeedStatus = [
+      ...d.dividendFeedStatus,
+      { symbol: 'QUIET', provider: 'alphavantage', kind: 'dividends', last_success_at: `${TODAY}T01:30:00Z`, fail_count: 0, covered_from: '2016-03-01' },
+      { symbol: 'BROKEN', provider: 'alphavantage', kind: 'dividends', last_success_at: null, fail_count: 3, covered_from: null },
+    ];
+    open(d);
+    const byHolding = section('By holding');
+    const abc = within(byHolding).getByRole('button', { name: /^ABC/ });
+    expect(abc.closest('li').textContent).toContain('Half-yearly');
+    // The earned one pays before the declared one.
+    expect(abc.closest('li').textContent).toContain(`next ${shortDate(ahead(5))}`);
+    expect(abc.closest('li').textContent).toMatch(/on value/);
+    fireEvent.click(abc);
+    expect(within(byHolding).getByRole('button', { name: 'Add a dividend' })).toBeTruthy();
+    expect(within(byHolding).getByText(`No dividends found since ${shortDate('2016-03-01')}`)).toBeTruthy();
+    expect(within(byHolding).getByText('Checks failing')).toBeTruthy();
+    expect(within(byHolding).getByText('Not checked yet')).toBeTruthy();
+    expect(within(byHolding).getByText('FRESH')).toBeTruthy();
+  });
+});
+
+describe('Dividends: where it comes from, and how fresh', () => {
+  it('splits the next twelve months by market and by sector, unknown last', () => {
+    open();
+    const sources = section('Where it comes from');
+    expect(within(sources).getByText(/^US · AED \S+ · 30% withheld$/)).toBeTruthy();
+    expect(within(sources).getByText(/^India · AED \S+ · 20.8% withheld$/)).toBeTruthy();
+    const sectors = within(sources).getAllByText(/^(Technology|Unknown) · /).map((n) => n.textContent.split(' · ')[0]);
+    expect(sectors).toEqual(['Technology', 'Unknown']);
+    expect(within(sources).getByText(`Indian dividends are counted from ${shortDate(ago(430))}, US from ${shortDate(ago(60))}.`)).toBeTruthy();
+  });
+
+  it('says when each market was checked, which shares are failing, and what the figures do not claim', () => {
+    const d = data();
+    d.dividendFeedStatus = [{ ...d.dividendFeedStatus[0], fail_count: 2, last_success_at: '2026-10-30T01:30:00Z' }, d.dividendFeedStatus[1]];
+    open(d);
+    const fresh = section('How fresh this is');
+    expect(within(fresh).getByText(/^Checks failing for ABC since /)).toBeTruthy();
+    for (const sentence of [
+      "Dividends from before a holding's opening entry aren't counted: the units held then are unknown.",
+      "Expected figures are a projection at today's units and exchange rates.",
+      "Dividends earned but not yet received aren't in net worth.",
+      'The Life plan already counts dividends in its return, so this tab is cash flow, not a second return.',
+    ]) {
+      expect(within(fresh).getByText(sentence)).toBeTruthy();
+    }
   });
 });
