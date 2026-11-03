@@ -23,7 +23,7 @@ Deno.test("question: each line's sum, withholding and net, and what a yes adds",
       "Dividends due in Dollar funds today:",
       "ABC: 40 × $0.25 = $10.00, $3.00 withheld, $7.00",
       "XYZ: 10 × $0.50 = $5.00, $1.50 withheld, $3.50",
-      'Reply "yes" (or react 👍) once they are in the fund to add $10.50, or "no" to leave them for the app.',
+      'Reply "yes" (or react 👍) once they are in the fund to add $10.50, "not yet" to be asked again tomorrow, or "no" to leave them for the app.',
     ].join("\n"),
   );
 });
@@ -34,7 +34,7 @@ Deno.test("question: fees come before the net; one dividend reads in the singula
     [
       "Dividend due in Dollar funds today:",
       "ABC: 40 × $0.25 = $10.00, $3.00 withheld, $0.20 fees, $6.80",
-      'Reply "yes" (or react 👍) once it is in the fund to add $6.80, or "no" to leave it for the app.',
+      'Reply "yes" (or react 👍) once it is in the fund to add $6.80, "not yet" to be asked again tomorrow, or "no" to leave it for the app.',
     ].join("\n"),
   );
 });
@@ -49,7 +49,7 @@ Deno.test("question: when the fund was confirmed on or after the pay date, it as
   const lines = dividendsQuestion("Dollar funds", "USD", [ABC, XYZ], { confirmedOn: "2026-11-12" }).split("\n");
   assertEquals(
     lines[lines.length - 1],
-    `Your fund's balance was confirmed on 12 Nov. Was this already in it? Reply "yes" if it was (nothing is added), or "no" if it arrived after (adds $10.50).`,
+    `Your fund's balance was confirmed on 12 Nov. Was this already in it? Reply "yes" if it was (nothing is added), "no" if it arrived after (adds $10.50), or "not yet" if it hasn't arrived.`,
   );
 });
 
@@ -100,6 +100,6 @@ Deno.test("reads as a dividend: the word, or div on its own", () => {
 Deno.test("the guard's reply", () => {
   assertEquals(
     DIVIDEND_GUARD_REPLY,
-    "That looks like a dividend. Rokda records dividends from your shares' own records, so I haven't logged it as income. You'll find it on the holding, under Wealth → Investments.",
+    "That looks like a dividend, so I haven't logged it as income: Rokda records dividends from US and Indian shares on the holding that paid them, under Wealth → Investments. If it came from anything else, add it as income in the app.",
   );
 });

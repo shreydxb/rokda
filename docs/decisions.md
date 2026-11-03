@@ -3106,7 +3106,9 @@ bot's question; the Dividends tab follows.
   says it arrived, in the app or to the bot, or from the company's own
   credit intimation. Its figures are what was expected unless the member
   gives the broker's; the net is always worked out from them, never taken
-  from the client.
+  from the client. It is never dated after today: one recorded before its
+  pay date arrived today, since a future date would count after every later
+  confirmation of the fund, even one that already holds it.
 - **A receipt moves its fund once, by the trades' rule.** Received into a
   broker's fund after the fund's last confirmed balance, it adds its net;
   before it, the confirmed balance already holds it. Nothing about the
@@ -3127,12 +3129,21 @@ bot's question; the Dividends tab follows.
 - **The morning question.** Each morning the bot asks once about the
   dividends due in each broker's fund, of the holding's owner, or every
   linked member for a shared holding: one message per fund, with each line's
-  sum, withholding and net. A "yes" or 👍 records them all or none; "no"
-  leaves them for the app. Something changed since, and nothing is recorded:
-  what still waits is asked about again. A bank account's dividends are not
-  asked about (above). It has its own switch in Telegram settings, on by
-  default.
-- **A dividend typed as income is not logged.** The bot leaves it out and
-  says where dividends live, so the money is never counted as both income
-  and a dividend. In a message of several items only the dividend is left
-  out.
+  sum, withholding and net. A "yes" or 👍 records them all or none, and
+  answers every other member's question about them; "not yet" (or 👎) asks
+  again the next morning; "no" leaves them for the app. Something changed
+  since, and nothing is recorded: what still waits is asked about again. A
+  question about a confirmed balance records on "no" too, so a bare answer
+  counts for it only for a few minutes, not all day. A bank account's
+  dividends are not asked about (above). It has its own switch in Telegram
+  settings, on by default.
+- **A dividend typed as income is not logged,** in a household with a share
+  the feeds cover: the bot leaves it out and says where dividends live, so
+  the money is never counted as both income and a dividend. In a message of
+  several items only the dividend is left out. A household with no such
+  share has nowhere else to record one, so there it is income as before.
+- **What a member keeps stays kept.** "Keep as it is" adds to what was kept
+  before: a feed amount, a trade change, a split on the ex-date, or that an
+  added dividend is not the feed's one. The nightly run does not ask again,
+  and a dividend kept apart from the feed's leaves the feed's own to be
+  earned beside it.

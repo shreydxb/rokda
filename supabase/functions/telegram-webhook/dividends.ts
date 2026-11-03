@@ -17,7 +17,14 @@ export type DividendLine = {
 };
 
 export const DIVIDEND_GUARD_REPLY =
-  "That looks like a dividend. Rokda records dividends from your shares' own records, so I haven't logged it as income. You'll find it on the holding, under Wealth → Investments.";
+  "That looks like a dividend, so I haven't logged it as income: Rokda records dividends from US and Indian shares on the holding that paid them, under Wealth → Investments. If it came from anything else, add it as income in the app.";
+
+// The share classes the dividend feeds cover: the same three as paysDividends
+// in src/lib/holdings.js. The guard applies only in a household that has one.
+export const DIVIDEND_CLASSES = ["us_equity", "intl_equity", "india_equity"];
+
+export const DIVIDENDS_NOT_YET_REPLY = "Then I'll ask about them again tomorrow morning.";
+export const DIVIDENDS_ANSWERED = "Already recorded: another member answered this question.";
 
 export const DIVIDENDS_STALE_LEAD = "Something changed since I asked, so nothing was recorded. Here it is again:";
 
@@ -60,8 +67,8 @@ export function dividendsQuestion(
   const one = lines.length === 1;
   const total = money(sum(lines), currency);
   const last = ask
-    ? `Your fund's balance was confirmed on ${shortDay(ask.confirmedOn)}. Was this already in it? Reply "yes" if it was (nothing is added), or "no" if it arrived after (adds ${total}).`
-    : `Reply "yes" (or react 👍) once ${one ? "it is" : "they are"} in the fund to add ${total}, or "no" to leave ${one ? "it" : "them"} for the app.`;
+    ? `Your fund's balance was confirmed on ${shortDay(ask.confirmedOn)}. Was this already in it? Reply "yes" if it was (nothing is added), "no" if it arrived after (adds ${total}), or "not yet" if it hasn't arrived.`
+    : `Reply "yes" (or react 👍) once ${one ? "it is" : "they are"} in the fund to add ${total}, "not yet" to be asked again tomorrow, or "no" to leave ${one ? "it" : "them"} for the app.`;
   return [`${one ? "Dividend" : "Dividends"} due in ${fundName} today:`, ...lines.map((l) => line(l, currency)), last].join("\n");
 }
 

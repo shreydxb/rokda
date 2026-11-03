@@ -353,10 +353,11 @@ Forecast or Drawdown, which went (Planning audit, 3.15), opens the Life plan.
   day after it closes until someone says it is reconciled ("done" or 👍).
 - Asks each morning about dividends due in a broker's fund, once, one
   message per fund with each line's sum, withholding and net; "yes" or 👍
-  records them all, "no" leaves them for the app. When the fund was
-  confirmed on or after the pay date it asks whether they were already in
-  that balance instead. A dividend typed in as income is not logged: the
-  bot says where dividends live.
+  records them all, "not yet" or 👎 asks again tomorrow, "no" leaves them
+  for the app. When the fund was confirmed on or after the pay date it asks
+  whether they were already in that balance instead. A dividend typed in as
+  income is not logged in a household with a US or Indian share: the bot
+  says where dividends live.
 
 ## Scheduled jobs (pg_cron)
 
