@@ -44,6 +44,29 @@ export function marketOf(holding) {
   return null;
 }
 
+// A split the feed lists and a split a member recorded as a trade are the
+// same split when their ratios match and their dates are within a month: a
+// member may record it when the new shares arrive, not on the effective day.
+const SAME_SPLIT_DAYS = 31;
+export function sameSplit(feedSplit, trade) {
+  return Number(feedSplit.ratio) === Number(trade.units) && Math.abs(daysBetween(feedSplit.effective_date, trade.trade_date)) <= SAME_SPLIT_DAYS;
+}
+
+// The feed's splits, and each split the holdings' trades show that the feed
+// has not listed yet (a US share's splits are checked only monthly). Without
+// it, a past amount on the old basis would be projected at the new units.
+export function splitsWithTrades(splits, trades, holdings) {
+  const symbolOf = new Map((holdings ?? []).map((h) => [h.id, h.price_symbol]));
+  const out = [...(splits ?? [])];
+  for (const t of trades ?? []) {
+    const symbol = symbolOf.get(t.holding_id);
+    if (t.kind !== 'split' || !symbol || !(Number(t.units) > 0)) continue;
+    if (out.some((s) => s.symbol === symbol && sameSplit(s, t))) continue;
+    out.push({ symbol, effective_date: t.trade_date, ratio: Number(t.units) });
+  }
+  return out;
+}
+
 // What a past amount per share is divided by to put it on today's basis:
 // the ratios of the share's splits after its ex-date. A split taking effect
 // on the ex-date itself is that ex-date's own basis.

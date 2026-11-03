@@ -128,6 +128,28 @@ describe('by month', () => {
   });
 });
 
+describe('by holding: what is and is not projected or recorded', () => {
+  const payments = { ABC: [{ exDate: '2026-09-01', ordinary: 2, ordinaryToday: 2 }], 'XYZ.NS': [{ exDate: '2026-07-01', ordinary: 5, ordinaryToday: 5 }] };
+
+  it("a holding with no opening entry says its dividends aren't recorded", () => {
+    const b = dividendsByHolding(input({ trades: [TRADES[0]], payments }));
+    expect(b.rows.find((r) => r.holding.id === 'h-in').noOpening).toBe(true);
+    expect(b.rows.find((r) => r.holding.id === 'h-us').noOpening).toBe(false);
+  });
+
+  it("a holding that isn't projected has no yield, and the headline counts it", () => {
+    const forecasts = { ...FORECASTS, 'h-in': { status: 'not_enough_history', frequency: { kind: 'too_new' }, next: null, ordinaryPerShareNextYear: 0, items: [] } };
+    const b = dividendsByHolding(input({ forecasts, payments }));
+    expect(b.rows.find((r) => r.holding.id === 'h-in')).toMatchObject({ projected: false, yields: { onValue: null, onCost: null } });
+    expect(b.rows.find((r) => r.holding.id === 'h-us')).toMatchObject({ projected: true, yields: { onValue: 0.04, onCost: 0.05 } });
+    expect(dividendHeadline(input({ forecasts })).expected.notProjected).toBe(1);
+    expect(dividendHeadline(input()).expected.notProjected).toBe(0);
+    // Sold: what was earned still counts, but there is no yield on units not held.
+    const sold = { ...FORECASTS, 'h-us': { ...FORECASTS['h-us'], status: 'not_held', items: [FORECASTS['h-us'].items[0]] } };
+    expect(dividendsByHolding(input({ forecasts: sold, payments })).rows.find((r) => r.holding.id === 'h-us').yields).toEqual({ onValue: null, onCost: null });
+  });
+});
+
 describe('by holding', () => {
   const NONE = { ...US, id: 'h-none', name: 'QUIET', price_symbol: 'QUIET' };
   const FAILING = { ...US, id: 'h-fail', name: 'BROKEN', price_symbol: 'BROKEN' };
@@ -198,6 +220,17 @@ describe('coming up', () => {
   });
 });
 
+describe('coming up, in scope', () => {
+  it("in one member's scope, a shared holding's dividends are half, in their own currency as in dirhams", () => {
+    const shared = { ...US, is_shared: true, owner_member_id: null };
+    const c = comingUp(input({ holdings: [shared, IN], scopeMemberId: 'm1' }));
+    const earned = c.find((x) => x.dividendId === 'd5');
+    expect(earned.net).toBe(10);
+    expect(earned.netAed).toBeCloseTo(36.7, 1);
+    expect(c.find((x) => x.eventId === 'e-dec').net).toBe(10);
+  });
+});
+
 describe('needs you', () => {
   it('names each thing that needs a member, in words', () => {
     const flagged = needsYou(input({ dividends: [row('d7', US, { status: 'received', review_reason: 'possible_duplicate' })] }));
@@ -213,7 +246,11 @@ describe('needs you', () => {
     expect(needsYou(input({ dividends: [], trades, splits }))).toEqual([
       expect.objectContaining({ kind: 'split_not_traded', text: "ABC split 10 for 1 on 2 Jun, but its trades don't show it." }),
     ]);
-    expect(needsYou(input({ dividends: [], splits, trades: [...trades, { holding_id: 'h-us', kind: 'split', trade_date: '2026-06-02' }] }))).toEqual([]);
+    expect(needsYou(input({ dividends: [], splits, trades: [...trades, { holding_id: 'h-us', kind: 'split', trade_date: '2026-06-02', units: 10 }] }))).toEqual([]);
+    // Recorded when the new shares arrived, a few days on: the same split.
+    expect(needsYou(input({ dividends: [], splits, trades: [...trades, { holding_id: 'h-us', kind: 'split', trade_date: '2026-06-05', units: 10 }] }))).toEqual([]);
+    // A different ratio is a different split.
+    expect(needsYou(input({ dividends: [], splits, trades: [...trades, { holding_id: 'h-us', kind: 'split', trade_date: '2026-06-02', units: 2 }] }))).toHaveLength(1);
 
     const events = [{ id: 'e-early', symbol: 'ABC', ex_date: '2026-03-14', pay_date: '2026-03-10', amount: 1, superseded_by: null, missed_checks: 0 }];
     expect(needsYou(input({ dividends: [], trades, events }))).toEqual([
@@ -255,5 +292,30 @@ describe('building the input', () => {
     expect(built.forecasts['h-us'].frequency.kind).toBe('monthly');
     expect(built.forecasts['h-us'].status).toBe('ok');
     expect(built.fx).toEqual({ fxHistory: RUPEES, inrPerAed: 24 });
+  });
+
+  it("a split trade the feed hasn't listed yet doesn't multiply the projection, and isn't applied twice once it has", () => {
+    // ABC paid 1 a share each quarter on the old basis; a member recorded a
+    // 10-for-1 split two weeks ago, so 100 units are now 1,000.
+    const events = ['2025-01-15', '2025-04-15', '2025-07-15', '2025-10-15', '2026-01-15', '2026-04-15', '2026-07-15', '2026-10-15']
+      .map((d, i) => ({ id: `e-${i}`, symbol: 'ABC', ex_date: d, pay_date: `${d.slice(0, 8)}25`, amount: 1, superseded_by: null, missed_checks: 0 }));
+    const trades = [
+      { holding_id: 'h-us', kind: 'opening', trade_date: '2024-06-01', units: 100 },
+      { holding_id: 'h-us', kind: 'split', trade_date: '2026-10-20', units: 10 },
+    ];
+    const build = (dividendSplits) => buildDividendInput({
+      data: {
+        holdings: [{ ...US, quantity: 1000 }], holdingDividends: [], holdingTrades: trades, dividendEvents: events, dividendSplits, dividendSpecialParts: [],
+        accounts: ACCOUNTS, fxRateHistory: RUPEES,
+        dividendFeedStatus: [{ symbol: 'ABC', provider: 'alphavantage', kind: 'dividends', last_success_at: '2026-11-02T01:30:00Z', fail_count: 0, covered_from: '2010-01-01' }],
+      },
+      household: { inr_per_aed: 24 }, scopeMemberId: null, today: TODAY,
+    });
+    const gross = (built) => built.forecasts['h-us'].items.filter((i) => i.kind === 'projected').map((i) => i.gross);
+    expect(gross(build([]))).toEqual([100, 100, 100, 100]);
+    // The feed lists it two days before the trade: the same split, once.
+    expect(gross(build([{ symbol: 'ABC', effective_date: '2026-10-18', ratio: 10 }]))).toEqual([100, 100, 100, 100]);
+    // Needs you still compares the trades against the feed's own splits.
+    expect(build([]).splits).toEqual([]);
   });
 });

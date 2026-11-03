@@ -20,6 +20,7 @@ import './Dividends.css';
 const SOURCES = ['holdings', 'holdingDividends', 'holdingTrades', 'dividendEvents', 'dividendSplits', 'dividendSpecialParts', 'dividendFeedStatus', 'accounts'];
 const MARKET_NAMES = { IN: 'India', US: 'US' };
 const MARKET_ADJECTIVES = { IN: 'Indian', US: 'US' };
+const A_MARKET_HOLDING = { IN: 'an Indian holding', US: 'a US holding' };
 
 const native = (amount, currency) => `${currency} ${formatMoney(amount, { decimals: 2 })}`;
 
@@ -86,6 +87,9 @@ function Headline({ input, money, transactions }) {
           <div className="dv-figure fig">{aed(money, h.expected.aed)}</div>
           <div className="ov-muted dv-sub">{`about ${aed(money, h.expected.monthlyAed)} a month`}</div>
           {h.expected.notCounted > 0 && <div className="ov-warn dv-sub">{`${h.expected.notCounted} not counted: no exchange rate`}</div>}
+          {h.expected.notProjected > 0 && (
+            <div className="ov-muted dv-sub">{`${h.expected.notProjected} holding${h.expected.notProjected === 1 ? '' : 's'} not projected: see By holding.`}</div>
+          )}
           {spending && (
             <div className="ov-muted dv-sub">
               {spending.basis === 'received' ? `Equal to ${spending.pct}% of recorded spending` : `Expected to equal ${spending.pct}% of recorded spending`}
@@ -96,7 +100,9 @@ function Headline({ input, money, transactions }) {
       <ul className="dv-markets">
         {h.markets.map((m) => (
           <li key={m.market}>
-            {`${MARKET_NAMES[m.market]}: ${aed(money, m.receivedAed)} received ${m.since ? `since ${shortDate(m.since)}` : 'in the last 12 months'} · ${aed(money, m.expectedAed)} expected`}
+            {m.start
+              ? `${MARKET_NAMES[m.market]}: ${aed(money, m.receivedAed)} received ${m.since ? `since ${shortDate(m.since)}` : 'in the last 12 months'} · ${aed(money, m.expectedAed)} expected`
+              : `${MARKET_NAMES[m.market]}: nothing recorded, no opening entry · ${aed(money, m.expectedAed)} expected`}
           </li>
         ))}
       </ul>
@@ -106,8 +112,17 @@ function Headline({ input, money, transactions }) {
 }
 
 // When the two markets' records start at different times, both dates, so
-// neither total reads as covering what it does not.
+// neither total reads as covering what it does not. A market none of whose
+// holdings has an opening entry records nothing, and says so.
 function Coverage({ headline }) {
+  const untracked = headline.markets.filter((m) => !m.start);
+  if (untracked.length > 0) {
+    return (
+      <p className="ov-muted dv-sub">
+        {untracked.map((m) => `${MARKET_ADJECTIVES[m.market]} dividends aren't recorded until ${A_MARKET_HOLDING[m.market]} has an opening entry.`).join(' ')}
+      </p>
+    );
+  }
   const india = headline.markets.find((m) => m.market === 'IN');
   const us = headline.markets.find((m) => m.market === 'US');
   if (!headline.coverageDiffers || !india?.start || !us?.start) return null;
@@ -224,6 +239,9 @@ function NeedsYou({ input, data }) {
                     No, all ordinary
                   </button>
                 </div>
+              ) : item.kind === 'split_not_traded' ? (
+                // Its dividends can't settle it: the split goes in the holding's trades.
+                <p className="ov-muted hd-note">Record the split in its trades, under Investments.</p>
               ) : reviewing === key ? (
                 <HoldingDividends
                   holding={h}
@@ -325,9 +343,11 @@ function ByHolding({ input, data, money }) {
           const h = r.holding;
           const next = r.next?.day ? shortDate(r.next.day) : r.next?.month ? monthLabel(r.next.month) : null;
           const parts = [
+            r.noOpening ? "no opening entry, so its dividends aren't recorded" : null,
             r.lastOrdinaryPerShare !== null ? `last ${h.currency} ${formatPerShare(r.lastOrdinaryPerShare)} a share` : null,
             `${aed(money, r.receivedAed)} received`,
-            `${aed(money, r.expectedAed)} expected`,
+            // Not projected (too new, stopped, sold) is said by its status, not as a zero.
+            r.projected || r.expectedAed > 0 ? `${aed(money, r.expectedAed)} expected` : null,
             r.yields.onValue !== null ? `${formatPct(r.yields.onValue, { decimals: 1 })} on value` : null,
             r.yields.onCost !== null ? `${formatPct(r.yields.onCost, { decimals: 1 })} on cost` : null,
             next ? `next ${next}` : null,

@@ -10,7 +10,7 @@ import { estimateAed } from './fxHistory';
 import { scopedValue } from './scope';
 import { paysDividends, visibleHoldings } from './holdings';
 import { closedMonths } from './forecast';
-import { addMonths, marketOf, sharePayments, shareFrequency, usualGapDays } from './dividendHistory';
+import { addMonths, marketOf, sameSplit, sharePayments, shareFrequency, splitsWithTrades, usualGapDays } from './dividendHistory';
 import { forecastHolding, nextYearYields } from './dividendForecast';
 import { formatPerShare, reviewText, shortDate } from './dividends';
 
@@ -55,8 +55,11 @@ export function buildDividendInput({ data, household, scopeMemberId, today }) {
     holdings, dividends, events, splits, specialParts, feedStatus, trades: data.holdingTrades ?? [], accounts: data.accounts ?? [],
     scopeMemberId, fx: { fxHistory: data.fxRateHistory ?? [], inrPerAed: household?.inr_per_aed ?? null }, today, payments: {}, forecasts: {},
   };
+  // Amounts go on today's basis by the feed's splits and the ones members have
+  // recorded that the feed has not listed yet; Needs you compares the two.
+  const basisSplits = splitsWithTrades(splits, input.trades, data.holdings ?? []);
   for (const symbol of new Set(holdings.map((h) => h.price_symbol).filter(Boolean))) {
-    input.payments[symbol] = sharePayments(events, symbol, { splits, specialParts, today });
+    input.payments[symbol] = sharePayments(events, symbol, { splits: basisSplits, specialParts, today });
   }
   for (const h of holdings) {
     const payments = input.payments[h.price_symbol] ?? [];
@@ -142,6 +145,11 @@ function coverageStart(input, market) {
   return days[0] ?? null;
 }
 
+// A share that pays but cannot be projected: too little history, or it may
+// have stopped. The headline says how many, so Expected never reads as whole.
+const NOT_PROJECTED = new Set(['not_enough_history', 'may_have_stopped']);
+const PROJECTED = new Set(['ok', 'irregular']);
+
 const marketsPresent = (input) => MARKETS.filter((m) => input.holdings.some((h) => marketOf(h) === m));
 
 export function dividendHeadline(input) {
@@ -154,9 +162,10 @@ export function dividendHeadline(input) {
   });
   const starts = marketsPresent(input).map((m) => coverageStart(input, m)).filter(Boolean).sort();
   const expected = expectedOf(input);
+  const notProjected = input.holdings.filter((h) => NOT_PROJECTED.has(input.forecasts[h.id]?.status)).length;
   return {
     received: { ...receivedSince(input, yearAgo), since: sinceOf(starts[0] ?? null) },
-    expected: { ...expected, monthlyAed: round2(expected.aed / 12) },
+    expected: { ...expected, monthlyAed: round2(expected.aed / 12), notProjected },
     markets,
     coverageDiffers: markets.length > 1 && markets[0].since !== markets[1].since,
   };
@@ -174,7 +183,8 @@ export function comingUp(input) {
     const h = byId.get(d.holding_id);
     out.push({
       kind: 'earned', holdingId: h.id, dividendId: d.id, day: d.pay_date ?? null, month: d.pay_date ? null : (d.ex_date ?? '').slice(0, 7) || null,
-      net: Number(d.expected_net), currency: h.currency, netAed: rowAed(input, d, h, 'earned'), destinationAccountId: d.paid_into_account_id ?? null,
+      net: scopedValue(Number(d.expected_net), h, input.scopeMemberId), currency: h.currency, netAed: rowAed(input, d, h, 'earned'),
+      destinationAccountId: d.paid_into_account_id ?? null,
       canRecord: accounts.get(d.paid_into_account_id)?.type === 'broker_funds',
     });
   }
@@ -182,7 +192,8 @@ export function comingUp(input) {
     for (const item of input.forecasts[h.id]?.items ?? []) {
       if (item.kind !== 'declared') continue;
       out.push({
-        kind: 'declared', holdingId: h.id, eventId: item.eventId, day: item.day, month: null, net: item.net, currency: item.currency ?? h.currency,
+        kind: 'declared', holdingId: h.id, eventId: item.eventId, day: item.day, month: null, net: scopedValue(item.net, h, input.scopeMemberId),
+        currency: item.currency ?? h.currency,
         netAed: itemAed(input, item, h), destinationAccountId: dividendDestination(h, input.accounts), canRecord: false,
       });
     }
@@ -267,10 +278,16 @@ export function dividendsByHolding(input) {
     if (hasDividends) {
       const forecast = input.forecasts[h.id] ?? { items: [], status: 'none', next: null, ordinaryPerShareNextYear: 0, frequency: null };
       const lastOrdinary = payments.filter((p) => p.ordinary > 0).at(-1);
+      // A yield only on what is projected at units still held: a share too new
+      // or stopped, or one sold, has none rather than a zero.
+      const projected = PROJECTED.has(forecast.status);
       rows.push({
         holding: h, frequency: forecast.frequency ?? null, lastOrdinaryPerShare: lastOrdinary ? lastOrdinary.ordinaryToday : null,
-        receivedAed: receivedSince(input, yearAgo, (x) => x.id === h.id).aed, expectedAed: expectedOf(input, (x) => x.id === h.id).aed,
-        yields: nextYearYields(h, forecast.ordinaryPerShareNextYear), next: forecast.next, status: forecast.status,
+        receivedAed: receivedSince(input, yearAgo, (x) => x.id === h.id).aed, expectedAed: expectedOf(input, (x) => x.id === h.id).aed, projected,
+        yields: projected && Number(h.quantity) > 0 ? nextYearYields(h, forecast.ordinaryPerShareNextYear) : { onValue: null, onCost: null },
+        next: forecast.next, status: forecast.status,
+        // Without an opening entry nothing is earned (units before it are unknown).
+        noOpening: !input.trades.some((t) => t.holding_id === h.id && t.kind === 'opening'),
       });
     } else if (status && Number(status.fail_count) > 0) {
       failing.push(h);
@@ -365,7 +382,7 @@ export function needsYou(input) {
     const splitsOn = new Set((input.splits ?? []).filter((s) => s.symbol === h.price_symbol).map((s) => s.effective_date));
     for (const s of input.splits ?? []) {
       if (s.symbol !== h.price_symbol || s.effective_date <= opening || s.effective_date > input.today) continue;
-      if (input.trades.some((t) => t.holding_id === h.id && t.kind === 'split' && t.trade_date === s.effective_date)) continue;
+      if (input.trades.some((t) => t.holding_id === h.id && t.kind === 'split' && sameSplit(s, t))) continue;
       out.push({
         kind: 'split_not_traded', holdingId: h.id,
         text: `${h.name} split ${Number(s.ratio)} for 1 on ${shortDate(s.effective_date, input.today)}, but its trades don't show it.`,

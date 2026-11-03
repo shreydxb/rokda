@@ -34,7 +34,9 @@ describe('the next twelve months', () => {
     const declared = [event('ABC', '2026-11-17', 1)];
     const f = forecast(monthly(24), { declared });
     expect(f.status).toBe('ok');
-    expect(f.items.filter((i) => i.kind === 'projected')).toHaveLength(11);
+    // Ten, not eleven: October's repeat is paid in November 2027, after the
+    // twelve months (October's own payment would be an earned row).
+    expect(f.items.filter((i) => i.kind === 'projected')).toHaveLength(10);
     expect(f.items.filter((i) => i.kind === 'declared')).toHaveLength(1);
     // The declared one replaced the projection for November, not another.
     expect(f.items.filter((i) => i.kind === 'projected').map((i) => i.month)).not.toContain('2026-12');
@@ -47,7 +49,9 @@ describe('the next twelve months', () => {
     // Ex-date 15 Nov 2026 plus the usual 30 days.
     expect(first.month).toBe('2026-12');
     expect(f.next).toEqual({ month: '2026-12' });
-    expect(f.ordinaryPerShareNextYear).toBe(12);
+    // October's repeat is paid after the twelve months; October's own payment
+    // would be an earned row, passed in where the holding earned it.
+    expect(f.ordinaryPerShareNextYear).toBe(11);
   });
 
   it('a declared dividend counts in full, on its pay date', () => {
@@ -84,6 +88,22 @@ describe('the next twelve months', () => {
     const irregular = forecast(lumpy);
     expect(irregular.status).toBe('irregular');
     expect(irregular.items).toEqual([expect.objectContaining({ kind: 'irregular', day: null, month: null, gross: 25 })]);
+  });
+});
+
+describe('earned and projected', () => {
+  it('an earned dividend does not add a fifth quarterly payment', () => {
+    // Ex-dates on the 1st of February, May, August and November, paid on the
+    // 28th. November's is earned and not paid yet: it is the one counted, and
+    // next November's is paid after the twelve months end.
+    const quarterly = ['2024-11-01', '2025-02-01', '2025-05-01', '2025-08-01', '2025-11-01', '2026-02-01', '2026-05-01', '2026-08-01', '2026-11-01']
+      .map((d) => event('ABC', d, 1, { pay_date: `${d.slice(0, 8)}28` }));
+    const earnedUnpaid = [{ id: 'd-nov', ex_date: '2026-11-01', pay_date: '2026-11-28', per_share: 1, expected_gross: 10, expected_tax: 3, expected_fees: 0, expected_net: 7 }];
+    const f = forecast(quarterly, { earnedUnpaid });
+    expect(f.items.map((i) => i.kind)).toEqual(['earned', 'projected', 'projected', 'projected']);
+    expect(f.items.filter((i) => i.kind === 'projected').map((i) => i.month)).toEqual(['2027-02', '2027-05', '2027-08']);
+    // The yield reads the same either side of the ex-date: four payments a share.
+    expect(f.ordinaryPerShareNextYear).toBe(4);
   });
 });
 

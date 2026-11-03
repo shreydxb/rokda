@@ -29,7 +29,9 @@ export function forecastHolding({ holding, payments = [], frequency, gapDays = 3
     kind: 'earned', dividendId: d.id, day: d.pay_date ?? null, month: d.pay_date ? null : addDays(d.ex_date, gapDays).slice(0, 7),
     gross: Number(d.expected_gross), withheld: Number(d.expected_tax), fees: Number(d.expected_fees), net: Number(d.expected_net), currency,
   }));
-  let perShareYear = 0;
+  // What a share pays in the next twelve months, for its yield: an earned one
+  // pays in them too, so the yield reads the same either side of its ex-date.
+  let perShareYear = (earnedUnpaid ?? []).reduce((sum, d) => sum + (Number(d.per_share) || 0), 0);
   let status;
 
   if (units <= 0) {
@@ -73,8 +75,14 @@ export function forecastHolding({ holding, payments = [], frequency, gapDays = 3
         });
         if (best >= 0) projected.splice(best, 1);
       }
+      // Only what is paid within the twelve months: the payment earned and not
+      // yet paid is counted as earned above, and its repeat a year on is paid
+      // after them.
+      const end = addMonths(today, 12);
       for (const p of projected) {
-        items.push(item('projected', p.perShare, { month: addDays(p.exDate, gapDays).slice(0, 7) }));
+        const payDay = addDays(p.exDate, gapDays);
+        if (payDay > end) continue;
+        items.push(item('projected', p.perShare, { month: payDay.slice(0, 7) }));
         perShareYear += p.perShare;
       }
       status = 'ok';

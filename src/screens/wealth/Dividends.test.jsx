@@ -103,6 +103,39 @@ describe('Dividends: the headline', () => {
   });
 });
 
+describe('Dividends: what is not recorded or projected', () => {
+  it("a market with no opening entry says it isn't recorded, and so does its holding", () => {
+    const d = data();
+    open(data({ holdingTrades: [d.holdingTrades[0]], holdingDividends: d.holdingDividends.filter((x) => x.holding_id === 'h-us') }));
+    const head = section('Dividends at a glance');
+    expect(within(head).getByText(/^India: nothing recorded, no opening entry · AED \S+ expected$/)).toBeTruthy();
+    expect(within(head).getByText("Indian dividends aren't recorded until an Indian holding has an opening entry.")).toBeTruthy();
+    expect(within(section('By holding')).getByText(/no opening entry, so its dividends aren't recorded/)).toBeTruthy();
+  });
+
+  it("a holding too new to project shows no zero, and the headline says one isn't projected", () => {
+    const NEW = { ...US, id: 'h-new', name: 'FRESH', price_symbol: 'FRESH' };
+    const d = data();
+    open(data({
+      holdings: [US, IN, NEW],
+      holdingTrades: [...d.holdingTrades, { holding_id: 'h-new', kind: 'opening', trade_date: ago(60) }],
+      dividendEvents: [...d.dividendEvents, event('e-new', 'FRESH', ago(30), 1)],
+      dividendFeedStatus: [...d.dividendFeedStatus, { symbol: 'FRESH', provider: 'alphavantage', kind: 'dividends', last_success_at: `${TODAY}T01:30:00Z`, fail_count: 0, covered_from: ago(60) }],
+    }));
+    expect(within(section('Dividends at a glance')).getByText('1 holding not projected: see By holding.')).toBeTruthy();
+    const row = within(section('By holding')).getByText(/^FRESH · /).closest('button');
+    expect(row.textContent).not.toMatch(/expected|on value|on cost/);
+  });
+
+  it("a split the trades don't show says where to record it, with no Review that can't settle it", () => {
+    open(data({ dividendSplits: [{ symbol: 'ABC', effective_date: ago(20), ratio: 2 }] }));
+    const text = within(section('Needs you')).getByText(`ABC split 2 for 1 on ${shortDate(ago(20))}, but its trades don't show it.`);
+    const row = text.closest('li');
+    expect(within(row).getByText('Record the split in its trades, under Investments.')).toBeTruthy();
+    expect(within(row).queryByRole('button', { name: 'Review' })).toBeNull();
+  });
+});
+
 describe('Dividends: coming up', () => {
   it('lists the declared dividend with its date, and an earned one into a fund can be recorded', async () => {
     const d = open();
