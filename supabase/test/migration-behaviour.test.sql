@@ -5292,4 +5292,29 @@ begin
   raise notice 'D2-22 ok: a fund confirmed since the preview is reported before a new question';
 end $$;
 
+-- D2-23: a receipt is never dated after today. Recorded before its pay date,
+-- it arrived today; a credit date after today is refused, for a record, a fix
+-- and an add alike, since a future date would count after every later
+-- confirmation of the fund, including one that already holds it.
+do $$
+declare c jsonb := pg_temp.d2_case(); dv uuid; f uuid; pv jsonb; r jsonb; h uuid;
+begin
+  dv := (c ->> 'dividend')::uuid; f := (c ->> 'fund')::uuid; h := (c ->> 'holding')::uuid;
+  update holding_dividends set pay_date = household_today() + 10 where id = dv;
+  pv := preview_dividend(dv, '{"action": "record"}', '22222222-2222-2222-2222-0000000000b7');
+  if (pv -> 'dividend' ->> 'credited_on')::date is distinct from household_today() then
+    raise exception 'D2-23 FAILED: recorded before its pay date, it was credited on %', pv -> 'dividend' ->> 'credited_on';
+  end if;
+  r := preview_dividend(dv, jsonb_build_object('action', 'record', 'credited_on', household_today() + 1), '22222222-2222-2222-2222-0000000000b7');
+  if r ->> 'error' is distinct from 'credited_in_future' then raise exception 'D2-23 FAILED: a record dated tomorrow gave %', r; end if;
+  r := pg_temp.d2_save(dv, '{"action": "record"}');
+  r := preview_dividend(dv, jsonb_build_object('action', 'fix', 'credited_on', household_today() + 30), '22222222-2222-2222-2222-0000000000b7');
+  if r ->> 'error' is distinct from 'credited_in_future' then raise exception 'D2-23 FAILED: a fix dated next month gave %', r; end if;
+  r := preview_dividend(null, jsonb_build_object('action', 'add', 'holding_id', h, 'credited_on', household_today() + 1, 'units', 5, 'per_share', 1),
+    '22222222-2222-2222-2222-0000000000b7');
+  if r ->> 'error' is distinct from 'credited_in_future' then raise exception 'D2-23 FAILED: an add dated tomorrow gave %', r; end if;
+  if pg_temp.d2_bal(f) <> 107 then raise exception 'D2-23 FAILED: the fund is %', pg_temp.d2_bal(f); end if;
+  raise notice 'D2-23 ok: a receipt is never dated after today';
+end $$;
+
 rollback;

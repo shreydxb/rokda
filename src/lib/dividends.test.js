@@ -55,7 +55,7 @@ describe('dividendRefusalMessage', () => {
     expect(dividendRefusalMessage('stale')).toBe('This dividend changed since you opened it. Check it again.');
     expect(dividendRefusalMessage('fund_confirmed_since')).toBe("The fund's balance was confirmed since you checked. Check again.");
     expect(dividendRefusalMessage('needs_answer')).toBe("Say whether this was already in the fund's confirmed balance.");
-    for (const code of ['not_member', 'dividend_not_found', 'holding_not_found', 'bad_input', 'bad_figures', 'currency_mismatch', 'fund_archived', 'already_linked', 'already_recorded', 'wrong_status']) {
+    for (const code of ['not_member', 'dividend_not_found', 'holding_not_found', 'bad_input', 'bad_figures', 'currency_mismatch', 'fund_archived', 'already_linked', 'already_recorded', 'credited_in_future', 'wrong_status']) {
       const sentence = dividendRefusalMessage(code);
       expect(sentence, code).not.toBe('That could not be saved. Nothing was changed.');
       expect(sentence, code).toMatch(/^[A-Z].*\.$/);

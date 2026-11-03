@@ -96,6 +96,11 @@ begin
   exception when others then
     return jsonb_build_object('ok', false, 'error', 'bad_input');
   end;
+  -- A receipt is never dated after today: a future date would count after
+  -- every later confirmation of the fund, including one that already holds it.
+  if (p_change ->> 'credited_on')::date > v_today then
+    return jsonb_build_object('ok', false, 'error', 'credited_in_future');
+  end if;
 
   if v_action = 'add' then
     select * into v_h from public.holdings where id = (p_change ->> 'holding_id')::uuid;
@@ -178,7 +183,8 @@ begin
       else
         -- The pay date, until the member says otherwise: when the fund was
         -- confirmed on or after it, whether it was already in is asked.
-        v_new.credited_on := coalesce(v_old.pay_date, v_today);
+        -- Recorded before its pay date, it arrived today.
+        v_new.credited_on := least(coalesce(v_old.pay_date, v_today), v_today);
         v_new.credited_on_estimated := false;
         v_defaulted := true;
       end if;
@@ -200,7 +206,7 @@ begin
           v_new.status := 'received';
           v_new.evidence := coalesce(p_change ->> 'evidence', 'member');
           if not p_change ? 'credited_on' and v_new.credited_on is null then
-            v_new.credited_on := coalesce(v_old.pay_date, v_today);
+            v_new.credited_on := least(coalesce(v_old.pay_date, v_today), v_today);
             v_defaulted := true;
           end if;
         end if;
@@ -389,9 +395,11 @@ end;
 $$;
 
 -- The household a change is in, and the member making it: a signed-in member
--- of it, or for the service role the member it names. Evidence and an import
--- reference come only from the service role (the import of credit
--- intimations), never from the app.
+-- of it, or for the service role the member it names. An add is in the
+-- household of the holding it adds to, and names no dividend: the household
+-- is taken from what the change writes to, never from another row the call
+-- names. Evidence and an import reference come only from the service role
+-- (the import of credit intimations), never from the app.
 create or replace function private.dividend_caller(p_dividend_id uuid, p_change jsonb, p_member_id uuid)
 returns jsonb
 language plpgsql
@@ -403,7 +411,10 @@ declare
   v_household uuid;
   v_member uuid;
 begin
-  if p_dividend_id is null then
+  if p_change ->> 'action' = 'add' then
+    if p_dividend_id is not null then
+      return jsonb_build_object('error', 'bad_input');
+    end if;
     begin
       select h.household_id into v_household from public.holdings h where h.id = (p_change ->> 'holding_id')::uuid;
     exception when others then

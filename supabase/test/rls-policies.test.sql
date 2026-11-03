@@ -1508,12 +1508,27 @@ begin
   if p ->> 'error' is distinct from 'not_member' then raise exception 'dividend receipts RLS FAILED: another household''s dividend gave %', p; end if;
   r := save_dividend('fd100000-0000-0000-0000-000000000002', '{"action": "record"}', 1, '{}'::jsonb);
   if r ->> 'error' is distinct from 'not_member' then raise exception 'dividend receipts RLS FAILED: saving another household''s gave %', r; end if;
+  -- Adding to another household's holding, whether or not the call also
+  -- names one of our own dividends, is refused before anything is read.
+  p := preview_dividend('fd100000-0000-0000-0000-000000000001',
+    '{"action": "add", "holding_id": "fd200000-0000-0000-0000-000000000002", "ex_date": "2026-09-01", "units": 1000, "per_share": 5}');
+  if (p ->> 'ok')::boolean is not false then raise exception 'dividend receipts RLS FAILED: an add to another household''s holding, named with our dividend, previewed: %', p; end if;
+  r := save_dividend('fd100000-0000-0000-0000-000000000001',
+    '{"action": "add", "holding_id": "fd200000-0000-0000-0000-000000000002", "ex_date": "2026-09-01", "units": 1000, "per_share": 5}', 0, '{}'::jsonb);
+  if (r ->> 'ok')::boolean is not false then raise exception 'dividend receipts RLS FAILED: an add to another household''s holding, named with our dividend, saved: %', r; end if;
+  p := preview_dividend(null, '{"action": "add", "holding_id": "fd200000-0000-0000-0000-000000000002", "ex_date": "2026-09-01", "units": 1000, "per_share": 5}');
+  if p ->> 'error' is distinct from 'not_member' then raise exception 'dividend receipts RLS FAILED: an add to another household''s holding previewed: %', p; end if;
+  r := save_dividend(null, '{"action": "add", "holding_id": "fd200000-0000-0000-0000-000000000002", "ex_date": "2026-09-01", "units": 1000, "per_share": 5}', 0, '{}'::jsonb);
+  if r ->> 'error' is distinct from 'not_member' then raise exception 'dividend receipts RLS FAILED: an add to another household''s holding saved: %', r; end if;
 end $$;
 reset role;
 do $$
 begin
   if (select source from account_balance_events where account_id = 'fb200000-0000-0000-0000-000000000001' order by id desc limit 1) <> 'app' then
     raise exception 'dividend receipts RLS FAILED: a member''s receipt was not recorded as the app''s';
+  end if;
+  if (select count(*) from holding_dividends where holding_id = 'fd200000-0000-0000-0000-000000000002') <> 1 then
+    raise exception 'dividend receipts RLS FAILED: a dividend was added to another household''s holding';
   end if;
 end $$;
 set role anon;

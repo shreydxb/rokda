@@ -67,6 +67,7 @@ const REFUSALS = {
   fund_archived: 'That fund is archived, so its balance cannot move.',
   already_linked: 'That dividend from the feed is already linked to another one.',
   already_recorded: 'This holding already has a dividend on that ex-date.',
+  credited_in_future: "The credit date can't be after today.",
   wrong_status: 'This dividend has moved on since you opened it. Check it again.',
 };
 
