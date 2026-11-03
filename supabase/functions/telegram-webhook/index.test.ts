@@ -106,6 +106,7 @@ function reset(): void {
       statement_reconciliations: [],
       category_rules: [],
       telegram_notification_prefs: [],
+      holding_dividends: [],
     },
     log: new Map(),
     telegramSent: [],
@@ -393,6 +394,42 @@ function applyProposal(id: string, memberId: string): Row {
     p.result = { kind: p.kind, effect };
     return { outcome: "applied", kind: p.kind, effect };
   }
+  // The morning question about dividends: every line received, or none.
+  // Stale when the fund's confirmation or any line moved on since, or when a
+  // question about the confirmed balance was applied without its answer.
+  if (p.kind === "dividends_received") {
+    const fund = backend.tables.accounts.find((a) => a.id === payload.fund_id);
+    const lines = (payload.lines as Row[]) ?? [];
+    const rows = lines.map((l) => backend.tables.holding_dividends.find((d) => d.id === l.dividend_id));
+    p.decided_at = new Date().toISOString();
+    const stale = !fund || String(fund.balance_as_of ?? null) !== String(payload.confirmation ?? null) ||
+      rows.some((d, i) => !d || d.version !== lines[i].version || d.status !== "earned") || (payload.ask != null && payload.answer == null);
+    if (stale) {
+      p.status = "expired";
+      p.result = { kind: p.kind, error: "stale" };
+      return { outcome: "stale", kind: p.kind };
+    }
+    const included = payload.ask === "already_included" && payload.answer === "included";
+    const saved = rows.map((d, i) => {
+      d!.status = "received";
+      d!.version = Number(d!.version) + 1;
+      const moved = included ? 0 : Number(d!.expected_net);
+      fund!.balance = Number(fund!.balance) + moved;
+      return { ...lines[i], net: d!.expected_net, moved };
+    });
+    const result = {
+      kind: p.kind, lines: saved, total: saved.reduce((t, l) => t + Number(l.net), 0), moved: saved.reduce((t, l) => t + l.moved, 0),
+    };
+    Object.assign(p, { status: "applied", result });
+    // Every other question still open about any of these is answered.
+    const ids = new Set(lines.map((l) => String(l.dividend_id)));
+    for (const o of backend.tables.bot_proposals) {
+      if (o.id === p.id || o.kind !== "dividends_received" || o.status !== "proposed") continue;
+      if (!((o.payload as Row).lines as Row[]).some((l) => ids.has(String(l.dividend_id)))) continue;
+      Object.assign(o, { status: "expired", decided_at: new Date().toISOString(), result: { kind: o.kind, error: "answered" } });
+    }
+    return { outcome: "applied", ...result };
+  }
   const applied: Row[] = [];
   const skipped: Row[] = [];
   if (p.kind === "account_balances") {
@@ -496,6 +533,12 @@ async function rpc(req: Request, fn: string): Promise<Response> {
     return json(applyProposal(String(args.p_proposal_id), String(args.p_member_id)));
   }
   if (fn === "approve_intake") backend.approveCalls += 1;
+  if (fn === "mark_dividends_asked") {
+    for (const d of backend.tables.holding_dividends ?? []) {
+      if ((args.p_ids as string[]).includes(String(d.id))) d.asked_at = args.p_asked === false ? null : new Date().toISOString();
+    }
+    return json(null);
+  }
   // Mirrors merchant_category_counts in the statement_reconciliations migration.
   if (fn === "merchant_category_counts") {
     const tally = new Map<string, Row>();
@@ -2487,4 +2530,275 @@ freshTest("an answer Telegram delivers again long after the question is still re
   await handler(textUpdate(7806, "10"));
   assertEquals(lastReply(), "At what price per share, in dollars?");
   assertEquals(capturedIntake().length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// Dividends: asked about once they are due in a fund, received on a "yes"
+// (SHR-366), and never logged as income
+// ---------------------------------------------------------------------------
+
+const DIV_FUND = "a8000000-0000-4000-8000-0000000000f1";
+const DIV_BANK = "a8000000-0000-4000-8000-0000000000b1";
+const DIV_ABC = "a8000000-0000-4000-8000-000000000a01";
+const DIV_XYZ = "a8000000-0000-4000-8000-000000000a02";
+
+const PLAIN_QUESTION = [
+  "Dividends due in Dollar funds today:",
+  "ABC: 40 × $0.25 = $10.00, $3.00 withheld, $7.00",
+  "XYZ: 10 × $0.50 = $5.00, $1.50 withheld, $3.50",
+  'Reply "yes" (or react 👍) once they are in the fund to add $10.50, "not yet" to be asked again tomorrow, or "no" to leave them for the app.',
+].join("\n");
+
+// A dollar fund last confirmed a month ago (or at the start of today), and
+// two of the member's holdings with a dividend each, paid into it today.
+function seedDividends(opts: { confirmedToday?: boolean; shared?: boolean } = {}): void {
+  backend.tables.accounts.push(
+    {
+      id: DIV_FUND, household_id: HOUSEHOLD, name: "Dollar funds", type: "broker_funds", currency: "USD", balance: 100, archived_at: null,
+      balance_as_of: opts.confirmedToday ? `${dubaiToday()}T00:00:00+04:00` : `${dubaiDaysAgo(30)}T00:00:00+04:00`,
+    },
+    { id: DIV_BANK, household_id: HOUSEHOLD, name: "Bank", type: "checking", currency: "USD", balance: 0, balance_as_of: null, archived_at: null },
+  );
+  const owner = opts.shared ? null : MEMBER;
+  backend.tables.holdings = [
+    { id: "a8000000-0000-4000-8000-0000000000c1", household_id: HOUSEHOLD, name: "ABC", owner_member_id: owner, currency: "USD" },
+    { id: "a8000000-0000-4000-8000-0000000000c2", household_id: HOUSEHOLD, name: "XYZ", owner_member_id: owner, currency: "USD" },
+  ];
+  const dividend = (id: string, holding: string, units: number, perShare: number, gross: number, tax: number) => ({
+    id, household_id: HOUSEHOLD, holding_id: holding, version: 1, status: "earned", asked_at: null, pay_date: dubaiToday(), currency: "USD",
+    units, per_share: perShare, expected_gross: gross, expected_tax: tax, expected_fees: 0, expected_net: gross - tax, paid_into_account_id: DIV_FUND,
+  });
+  backend.tables.holding_dividends.push(
+    dividend(DIV_ABC, "a8000000-0000-4000-8000-0000000000c1", 40, 0.25, 10, 3),
+    dividend(DIV_XYZ, "a8000000-0000-4000-8000-0000000000c2", 10, 0.5, 5, 1.5),
+  );
+}
+
+function dividendQuestions(): Array<{ method: string; body: Row }> {
+  return backend.telegramSent.filter((m) => /^(Dividends?|Something changed) /.test(String(m.body.text)));
+}
+
+async function morningCheck(): Promise<Row> {
+  const res = await handler(dailyCheck());
+  assertEquals(res.status, 200);
+  return await res.json();
+}
+
+freshTest("dividends due today in a fund are asked about once, in one message, and marked asked", async () => {
+  seedDividends();
+  const body = await morningCheck();
+  assertEquals(body.dividends, { checked: 2, asked: 1 });
+  const questions = dividendQuestions();
+  assertEquals(questions.length, 1);
+  assertEquals(questions[0].body.text, PLAIN_QUESTION);
+  assertEquals(questions[0].body.chat_id, TELEGRAM_USER);
+  const proposal = backend.tables.bot_proposals.find((p) => p.kind === "dividends_received")!;
+  assert(proposal.prompt_message_id != null, "the question's id was not kept");
+  assertEquals((proposal.payload as Row).ask, null);
+  assertEquals(((proposal.payload as Row).lines as Row[]).map((l) => [l.dividend_id, l.version]), [[DIV_ABC, 1], [DIV_XYZ, 1]]);
+  assert(backend.tables.holding_dividends.every((d) => d.asked_at != null), "not marked asked");
+
+  // The same morning's check again, or the next: nothing more.
+  await morningCheck();
+  assertEquals(dividendQuestions().length, 1);
+});
+
+freshTest("a shared holding's dividends are asked of every linked member", async () => {
+  backend.tables.household_members.push({ id: PARTNER, household_id: HOUSEHOLD, display_name: "Partner", telegram_user_id: PARTNER_TELEGRAM, role: "member" });
+  seedDividends({ shared: true });
+  await morningCheck();
+  assertEquals(dividendQuestions().map((m) => m.body.chat_id).sort(), [TELEGRAM_USER, PARTNER_TELEGRAM].sort());
+  assertEquals(new Set(backend.tables.bot_proposals.map((p) => p.member_id)), new Set([MEMBER, PARTNER]));
+});
+
+freshTest("a dividend not yet paid, or paid into a bank account, is not asked about", async () => {
+  seedDividends();
+  backend.tables.holding_dividends[0].pay_date = "2999-01-01";
+  backend.tables.holding_dividends[1].paid_into_account_id = DIV_BANK;
+  await morningCheck();
+  assertEquals(dividendQuestions().length, 0);
+  assertEquals(backend.tables.bot_proposals.length, 0);
+});
+
+freshTest("with dividend questions switched off, nothing is asked", async () => {
+  seedDividends();
+  backend.tables.telegram_notification_prefs.push({ household_id: HOUSEHOLD, dividends_enabled: false });
+  await morningCheck();
+  assertEquals(dividendQuestions().length, 0);
+});
+
+freshTest("a question that cannot be sent leaves nothing asked, so tomorrow asks again", async () => {
+  seedDividends();
+  backend.faults.failFirstSends = 99;
+  await morningCheck();
+  assertEquals(backend.tables.bot_proposals.length, 0);
+  assert(backend.tables.holding_dividends.every((d) => d.asked_at == null), "marked asked though never sent");
+});
+
+freshTest("a fund confirmed on the pay date asks whether they were already in its balance", async () => {
+  seedDividends({ confirmedToday: true });
+  await morningCheck();
+  const text = String(dividendQuestions()[0].body.text).split("\n");
+  assertEquals(
+    text.at(-1),
+    `Your fund's balance was confirmed on ${new Date(`${dubaiToday()}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}. Was this already in it? Reply "yes" if it was (nothing is added), "no" if it arrived after (adds $10.50), or "not yet" if it hasn't arrived.`,
+  );
+  assertEquals((backend.tables.bot_proposals[0].payload as Row).ask, "already_included");
+});
+
+freshTest("a bare \"yes\" hours after the question records them, and says what moved", async () => {
+  seedDividends();
+  await morningCheck();
+  const proposal = backend.tables.bot_proposals.find((p) => p.kind === "dividends_received")!;
+  proposal.created_at = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
+  await handler(textUpdate(9601, "yes"));
+  assertEquals(proposal.status, "applied");
+  assertEquals(lastReply().split("\n")[0], "Recorded: $10.50 into Dollar funds.");
+  assertEquals(backend.tables.accounts.find((a) => a.id === DIV_FUND)!.balance, 110.5);
+  assertEquals(capturedIntake().length, 0);
+});
+
+freshTest("\"no\" leaves them for the app", async () => {
+  seedDividends();
+  await morningCheck();
+  const proposal = backend.tables.bot_proposals.find((p) => p.kind === "dividends_received")!;
+  await handler(replyUpdate(9602, "no", Number(proposal.prompt_message_id)));
+  assertEquals(proposal.status, "cancelled");
+  assertEquals(lastReply(), "Left for the app: 2 dividends into Dollar funds, $10.50. Nothing was recorded.");
+  assertEquals(backend.applyCalls, 0);
+});
+
+freshTest("on a confirmed-balance question, \"no\" records them as arriving after it", async () => {
+  seedDividends({ confirmedToday: true });
+  await morningCheck();
+  const proposal = backend.tables.bot_proposals.find((p) => p.kind === "dividends_received")!;
+  await handler(replyUpdate(9603, "no", Number(proposal.prompt_message_id)));
+  assertEquals((proposal.payload as Row).answer, "not_included");
+  assertEquals(proposal.status, "applied");
+  assertEquals(backend.tables.accounts.find((a) => a.id === DIV_FUND)!.balance, 110.5);
+  assertEquals(lastReply().split("\n")[0], "Recorded: $10.50 into Dollar funds.");
+});
+
+freshTest("on a confirmed-balance question, a 👍 says they were already in it", async () => {
+  seedDividends({ confirmedToday: true });
+  await morningCheck();
+  const proposal = backend.tables.bot_proposals.find((p) => p.kind === "dividends_received")!;
+  await handler(reactionUpdate(9604, Number(proposal.prompt_message_id), "👍"));
+  assertEquals((proposal.payload as Row).answer, "included");
+  assertEquals(backend.tables.accounts.find((a) => a.id === DIV_FUND)!.balance, 100);
+  assertEquals(lastReply().split("\n")[0], "Recorded as already in the fund's balance: $10.50.");
+});
+
+freshTest("a dividend changed since the question saves nothing and is asked about again", async () => {
+  seedDividends();
+  await morningCheck();
+  const proposal = backend.tables.bot_proposals.find((p) => p.kind === "dividends_received")!;
+  // Fixed in the app in between.
+  backend.tables.holding_dividends[1].version = 2;
+  await handler(replyUpdate(9605, "yes", Number(proposal.prompt_message_id)));
+  assertEquals(proposal.status, "expired");
+  assertEquals(backend.tables.accounts.find((a) => a.id === DIV_FUND)!.balance, 100);
+  assertEquals(lastReply(), `Something changed since I asked, so nothing was recorded. Here it is again:\n${PLAIN_QUESTION}`);
+  const again = backend.tables.bot_proposals.find((p) => p.kind === "dividends_received" && p.status === "proposed")!;
+  assertEquals(((again.payload as Row).lines as Row[]).map((l) => l.version), [1, 2]);
+  assertEquals(again.prompt_message_id != null, true);
+  assert(backend.tables.holding_dividends.every((d) => d.asked_at != null), "not marked asked again");
+});
+
+freshTest("a dividend recorded elsewhere since the question is not asked again", async () => {
+  seedDividends();
+  await morningCheck();
+  const proposal = backend.tables.bot_proposals.find((p) => p.kind === "dividends_received")!;
+  for (const d of backend.tables.holding_dividends) Object.assign(d, { status: "received", version: 2 });
+  await handler(replyUpdate(9606, "yes", Number(proposal.prompt_message_id)));
+  assertEquals(lastReply(), "Something changed since I asked, so nothing was recorded. They were recorded or changed since, here or in the app, so nothing is left to ask about.");
+  assertEquals(backend.tables.bot_proposals.filter((p) => p.status === "proposed").length, 0);
+});
+
+freshTest("a dividend typed in as income is not logged, and says where dividends live", async () => {
+  backend.tables.holdings = [{ id: "a8000000-0000-4000-8000-0000000000c1", household_id: HOUSEHOLD, name: "ABC", asset_class: "us_equity", currency: "USD" }];
+  backend.parse = [{ merchant: "ABC dividend", amount: 700, currency: "INR", occurred_at: dubaiToday(), category: null, card_last4: null, account_hint: null, confidence: 1, kind: "income" }];
+  await handler(textUpdate(9607, "ABC dividend credit 700"));
+  assertEquals(capturedIntake().filter((r) => r.status === "pending").length, 0);
+  assertEquals(capturedIntake()[0].status, "rejected");
+  assertEquals(
+    lastReply(),
+    "That looks like a dividend, so I haven't logged it as income: Rokda records dividends from US and Indian shares on the holding that paid them, under Wealth → Investments. If it came from anything else, add it as income in the app.",
+  );
+});
+
+freshTest("income that is not a dividend is captured as before", async () => {
+  backend.parse = [{ merchant: "Salary", amount: 7000, currency: "AED", occurred_at: dubaiToday(), category: null, card_last4: null, account_hint: null, confidence: 1, kind: "income" }];
+  await handler(textUpdate(9608, "salary 7000"));
+  assertEquals(capturedIntake().filter((r) => r.status === "pending").length, 1);
+  assert(!lastReply().startsWith("That looks like a dividend"), lastReply());
+});
+
+freshTest("a dividend among other items is left out; the others are captured", async () => {
+  backend.tables.holdings = [{ id: "a8000000-0000-4000-8000-0000000000c1", household_id: HOUSEHOLD, name: "ABC", asset_class: "us_equity", currency: "USD" }];
+  backend.parse = [
+    { merchant: "Salary", amount: 7000, currency: "AED", occurred_at: dubaiToday(), category: null, card_last4: null, account_hint: null, confidence: 1, kind: "income" },
+    { merchant: "ABC dividend", amount: 700, currency: "INR", occurred_at: dubaiToday(), category: null, card_last4: null, account_hint: null, confidence: 1, kind: "income" },
+    { merchant: "Lunch", amount: 40, currency: "AED", occurred_at: dubaiToday(), category: null, card_last4: null, account_hint: null, confidence: 1, kind: "expense" },
+  ];
+  await handler(textUpdate(9609, "salary 7000, dividend 700, lunch 40"));
+  assertEquals(capturedIntake().filter((r) => r.status === "pending").map((r) => r.parsed_merchant).sort(), ["Lunch", "Salary"]);
+  assert(/dividend/i.test(lastReply()), lastReply());
+});
+
+freshTest("\"not yet\" puts the question off until tomorrow morning", async () => {
+  seedDividends();
+  await morningCheck();
+  const proposal = backend.tables.bot_proposals.find((p) => p.kind === "dividends_received")!;
+  await handler(replyUpdate(9610, "not yet", Number(proposal.prompt_message_id)));
+  assertEquals(proposal.status, "cancelled");
+  assertEquals(backend.applyCalls, 0);
+  assert(backend.tables.holding_dividends.every((d) => d.asked_at == null), "still marked asked");
+  assertEquals(lastReply(), "Then I'll ask about them again tomorrow morning.");
+  // Not again the same morning.
+  await morningCheck();
+  assertEquals(dividendQuestions().length, 1);
+});
+
+freshTest("a 👎 on the question means not yet", async () => {
+  seedDividends();
+  await morningCheck();
+  const proposal = backend.tables.bot_proposals.find((p) => p.kind === "dividends_received")!;
+  await handler(reactionUpdate(9611, Number(proposal.prompt_message_id), "👎"));
+  assertEquals(proposal.status, "cancelled");
+  assertEquals(backend.applyCalls, 0);
+  assert(backend.tables.holding_dividends.every((d) => d.asked_at == null), "still marked asked");
+});
+
+freshTest("a bare \"no\" hours after a confirmed-balance question records nothing", async () => {
+  seedDividends({ confirmedToday: true });
+  await morningCheck();
+  const proposal = backend.tables.bot_proposals.find((p) => p.kind === "dividends_received")!;
+  proposal.created_at = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
+  await handler(textUpdate(9612, "no"));
+  assertEquals(backend.applyCalls, 0);
+  assertEquals(proposal.status, "proposed");
+  assertEquals(backend.tables.accounts.find((a) => a.id === DIV_FUND)!.balance, 100);
+});
+
+freshTest("on a shared holding, the second member's \"yes\" is told it is already recorded", async () => {
+  backend.tables.household_members.push({ id: PARTNER, household_id: HOUSEHOLD, display_name: "Partner", telegram_user_id: PARTNER_TELEGRAM, role: "member" });
+  seedDividends({ shared: true });
+  await morningCheck();
+  const mine = backend.tables.bot_proposals.find((p) => p.member_id === MEMBER)!;
+  const theirs = backend.tables.bot_proposals.find((p) => p.member_id === PARTNER)!;
+  await handler(replyUpdate(9613, "yes", Number(mine.prompt_message_id)));
+  assertEquals(mine.status, "applied");
+  await handler(partnerUpdate(9614, { text: "yes", reply_to_message: { message_id: Number(theirs.prompt_message_id) } }));
+  assertEquals(lastReply(), "Already recorded: another member answered this question.");
+  assertEquals(backend.tables.accounts.find((a) => a.id === DIV_FUND)!.balance, 110.5);
+  assertEquals(backend.tables.bot_proposals.filter((p) => p.status === "proposed").length, 0);
+});
+
+freshTest("in a household with no share the feeds cover, a dividend is captured as income", async () => {
+  backend.tables.holdings = [{ id: "a8000000-0000-4000-8000-0000000000c3", household_id: HOUSEHOLD, name: "Local fund", asset_class: "uae_equity", currency: "AED" }];
+  backend.parse = [{ merchant: "Fund dividend", amount: 700, currency: "AED", occurred_at: dubaiToday(), category: null, card_last4: null, account_hint: null, confidence: 1, kind: "income" }];
+  await handler(textUpdate(9615, "fund dividend 700"));
+  assertEquals(capturedIntake().filter((r) => r.status === "pending").length, 1);
+  assert(!lastReply().startsWith("That looks like a dividend"), lastReply());
 });

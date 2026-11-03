@@ -185,8 +185,15 @@ here, because this repository is public.
   says where its holdings' dividends are paid. Each night the dividend feed
   records what every holding earned on each ex-date, at the units its trades
   say it held (`holding_dividends`); a dividend paid into a bank account is
-  presumed received 30 days after its ex-date. Seeing and recording them
-  comes in the next part (SHR-366).
+  presumed received 30 days after its ex-date. The editor lists a share's
+  dividends under its trades, newest first: date and net, status (earned,
+  received, presumed received and not checked, skipped), the sum it came
+  from and where it goes, with the reason when the feed has flagged it.
+  "Record", "Fix", "Skip" and "Restore" are checked by the database first,
+  showing the net and what each fund gains or loses, and asking whether a
+  receipt was already in a balance confirmed on its day; "Add a dividend"
+  adds one the feed missed. A flagged one can be kept as it is or linked to
+  the feed's dividend, and a feed dividend's one-off part given.
 - **Statements**: one section per card (when it closes and is due), with the
   statements still to check first and the settled ones folded under
   "Checked". Each statement shows its period and status, then three figures
@@ -301,7 +308,8 @@ Forecast or Drawdown, which went (Planning audit, 3.15), opens the Life plan.
 - **Categories & rules**: categories and subcategories, whose cost each is
   (shared or one person's), savings categories, what stops when work stops,
   and merchant rules. `?tab=categories&rule=<id>` opens one rule's editor.
-- **Telegram**: linking, and which nudges and briefs each person gets.
+- **Telegram**: linking, and which nudges and briefs each person gets
+  (the morning dividend question among them).
 - **Backups**: when the data was last exported and last restored from an
   export, and a form to record each one (`backup_records`). Needs attention
   says when an export is more than 35 days old or the last one failed.
@@ -343,6 +351,13 @@ Forecast or Drawdown, which went (Planning audit, 3.15), opens the Life plan.
   alerts, cash cover, unusual spending, a weekly and a monthly brief, a
   balance check-in on the 1st of each month, and each card statement from the
   day after it closes until someone says it is reconciled ("done" or 👍).
+- Asks each morning about dividends due in a broker's fund, once, one
+  message per fund with each line's sum, withholding and net; "yes" or 👍
+  records them all, "not yet" or 👎 asks again tomorrow, "no" leaves them
+  for the app. When the fund was confirmed on or after the pay date it asks
+  whether they were already in that balance instead. A dividend typed in as
+  income is not logged in a household with a US or Indian share: the bot
+  says where dividends live.
 
 ## Scheduled jobs (pg_cron)
 

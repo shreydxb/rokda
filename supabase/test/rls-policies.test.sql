@@ -1492,6 +1492,93 @@ begin
 end $$;
 reset role;
 
+-- Dividend receipts (SHR-366, PR 2): a member checks and saves their own
+-- household's dividend, not another's, and the movement is the app's; signed
+-- out, neither function can be called.
+set role authenticated;
+set request.jwt.claim.sub = '0b000000-0000-0000-0000-00000000000b';
+do $$
+declare p jsonb; r jsonb;
+begin
+  p := preview_dividend('fd100000-0000-0000-0000-000000000001', '{"action": "record", "credited_on": "2026-10-20"}');
+  if (p ->> 'ok')::boolean is not true then raise exception 'dividend receipts RLS FAILED: a member could not preview their own: %', p; end if;
+  r := save_dividend('fd100000-0000-0000-0000-000000000001', '{"action": "record", "credited_on": "2026-10-20"}', (p ->> 'version')::int, p -> 'confirmations');
+  if (r ->> 'ok')::boolean is not true then raise exception 'dividend receipts RLS FAILED: a member could not save their own: %', r; end if;
+  p := preview_dividend('fd100000-0000-0000-0000-000000000002', '{"action": "record"}');
+  if p ->> 'error' is distinct from 'not_member' then raise exception 'dividend receipts RLS FAILED: another household''s dividend gave %', p; end if;
+  r := save_dividend('fd100000-0000-0000-0000-000000000002', '{"action": "record"}', 1, '{}'::jsonb);
+  if r ->> 'error' is distinct from 'not_member' then raise exception 'dividend receipts RLS FAILED: saving another household''s gave %', r; end if;
+  -- Adding to another household's holding, whether or not the call also
+  -- names one of our own dividends, is refused before anything is read.
+  p := preview_dividend('fd100000-0000-0000-0000-000000000001',
+    '{"action": "add", "holding_id": "fd200000-0000-0000-0000-000000000002", "ex_date": "2026-09-01", "units": 1000, "per_share": 5}');
+  if (p ->> 'ok')::boolean is not false then raise exception 'dividend receipts RLS FAILED: an add to another household''s holding, named with our dividend, previewed: %', p; end if;
+  r := save_dividend('fd100000-0000-0000-0000-000000000001',
+    '{"action": "add", "holding_id": "fd200000-0000-0000-0000-000000000002", "ex_date": "2026-09-01", "units": 1000, "per_share": 5}', 0, '{}'::jsonb);
+  if (r ->> 'ok')::boolean is not false then raise exception 'dividend receipts RLS FAILED: an add to another household''s holding, named with our dividend, saved: %', r; end if;
+  p := preview_dividend(null, '{"action": "add", "holding_id": "fd200000-0000-0000-0000-000000000002", "ex_date": "2026-09-01", "units": 1000, "per_share": 5}');
+  if p ->> 'error' is distinct from 'not_member' then raise exception 'dividend receipts RLS FAILED: an add to another household''s holding previewed: %', p; end if;
+  r := save_dividend(null, '{"action": "add", "holding_id": "fd200000-0000-0000-0000-000000000002", "ex_date": "2026-09-01", "units": 1000, "per_share": 5}', 0, '{}'::jsonb);
+  if r ->> 'error' is distinct from 'not_member' then raise exception 'dividend receipts RLS FAILED: an add to another household''s holding saved: %', r; end if;
+end $$;
+reset role;
+do $$
+begin
+  if (select source from account_balance_events where account_id = 'fb200000-0000-0000-0000-000000000001' order by id desc limit 1) <> 'app' then
+    raise exception 'dividend receipts RLS FAILED: a member''s receipt was not recorded as the app''s';
+  end if;
+  if (select count(*) from holding_dividends where holding_id = 'fd200000-0000-0000-0000-000000000002') <> 1 then
+    raise exception 'dividend receipts RLS FAILED: a dividend was added to another household''s holding';
+  end if;
+end $$;
+set role anon;
+do $$
+begin
+  begin
+    perform preview_dividend('fd100000-0000-0000-0000-000000000001', '{"action": "record"}');
+    raise exception 'dividend receipts RLS FAILED: signed out, a preview ran';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform save_dividend('fd100000-0000-0000-0000-000000000001', '{"action": "record"}', 1, '{}'::jsonb);
+    raise exception 'dividend receipts RLS FAILED: signed out, a save ran';
+  exception when insufficient_privilege then null;
+  end;
+  raise notice 'dividend receipts RLS ok: members check and save their own household''s dividends only';
+end $$;
+reset role;
+
+-- Review and one-off answers: a member keeps, links and answers for their own
+-- household's dividends only.
+set role authenticated;
+set request.jwt.claim.sub = '0b000000-0000-0000-0000-00000000000b';
+do $$
+declare r jsonb;
+begin
+  r := keep_dividend('fd100000-0000-0000-0000-000000000001', (select version from holding_dividends where id = 'fd100000-0000-0000-0000-000000000001'));
+  if (r ->> 'ok')::boolean is not true then raise exception 'dividend review RLS FAILED: a member could not keep their own: %', r; end if;
+  r := keep_dividend('fd100000-0000-0000-0000-000000000002', 1);
+  if r ->> 'error' is distinct from 'not_member' then raise exception 'dividend review RLS FAILED: keeping another household''s gave %', r; end if;
+  r := link_dividend('fd100000-0000-0000-0000-000000000002', 'fd000000-0000-0000-0000-000000000001', 1);
+  if r ->> 'error' is distinct from 'not_member' then raise exception 'dividend review RLS FAILED: linking another household''s gave %', r; end if;
+  r := set_special_part('fd000000-0000-0000-0000-000000000001', 0.3);
+  if (r ->> 'ok')::boolean is not true then raise exception 'dividend review RLS FAILED: a member could not answer for their own: %', r; end if;
+  raise notice 'dividend review RLS ok: members keep, link and answer for their own household only';
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '0b000000-0000-0000-0000-00000000000b';
+do $$
+begin
+  begin
+    perform mark_dividends_asked(array['fd100000-0000-0000-0000-000000000001'::uuid]);
+    raise exception 'dividend asking RLS FAILED: a member marked a dividend asked';
+  exception when insufficient_privilege then null;
+  end;
+  raise notice 'dividend asking RLS ok: only the bot marks what it asked';
+end $$;
+reset role;
+
 -- A household can still be deleted outright: the cascade takes the roster with
 -- it, and that is not "a household left without an owner".
 reset role;

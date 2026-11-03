@@ -16,6 +16,8 @@ export const SOURCE_LABELS = {
   holdings: 'investments',
   holdingHistory: 'holding history',
   holdingTrades: 'trades',
+  holdingDividends: 'dividends',
+  dividendSpecialParts: 'one-off dividend parts',
   categoryRules: 'category rules',
   goals: 'goals',
   goalContributions: 'goal contributions',

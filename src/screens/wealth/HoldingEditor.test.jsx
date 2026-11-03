@@ -402,7 +402,9 @@ describe('a holding\'s trades', () => {
     fireEvent.change(screen.getByPlaceholderText('e.g. VWRA'), { target: { value: 'ABC renamed' } });
     expect(screen.getByRole('button', { name: 'Record a trade' }).disabled).toBe(true);
     for (const button of screen.getAllByRole('button', { name: /^(Fix|Delete) / })) expect(button.disabled).toBe(true);
-    expect(screen.getByText('Save or discard your changes to the holding first.')).toBeTruthy();
+    // Said beside the trades and beside the dividends, whose actions wait too.
+    expect(screen.getAllByText('Save or discard your changes to the holding first.')).toHaveLength(2);
+    expect(screen.getByRole('button', { name: 'Add a dividend' }).disabled).toBe(true);
     cleanup();
   });
 
@@ -420,6 +422,35 @@ describe('a holding\'s trades', () => {
     expect(screen.queryByRole('list', { name: 'Trades' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Back to trades' }));
     expect(screen.getByRole('list', { name: 'Trades' })).toBeTruthy();
+    cleanup();
+  });
+
+  // SHR-366: a share the dividend feeds cover shows its dividends under its
+  // trades, and while one is being typed nothing else in the editor saves.
+  it('shows the dividends of a share that pays them, and none for one that does not', () => {
+    open();
+    expect(screen.getByRole('button', { name: 'Add a dividend' })).toBeTruthy();
+    cleanup();
+    open({ ...abc, asset_class: 'crypto' });
+    expect(screen.queryByRole('button', { name: 'Add a dividend' })).toBeNull();
+    cleanup();
+  });
+
+  it('while a dividend is being typed, the trades wait and the holding has no Save of its own', () => {
+    open();
+    fireEvent.click(screen.getByRole('button', { name: 'Add a dividend' }));
+    expect(screen.getByRole('button', { name: 'Record a trade' }).disabled).toBe(true);
+    expect(screen.getByText('Finish the dividend first.')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Save changes' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Back to dividends' }));
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Record a trade' }).disabled).toBe(false);
+    cleanup();
+  });
+
+  it('says when the dividends did not load', () => {
+    renderScreen(<HoldingEditor holding={abc} trades={trades} dividendsFailed accounts={ACCOUNTS} householdId="hh" members={[]} onClose={() => {}} onSaved={async () => {}} />);
+    expect(screen.getByText(/Couldn.t load this holding.s dividends\./)).toBeTruthy();
     cleanup();
   });
 

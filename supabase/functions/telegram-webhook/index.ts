@@ -73,6 +73,20 @@ import {
   undoConfirmation,
 } from "./trades.ts";
 import {
+  DIVIDEND_CLASSES,
+  DIVIDEND_GUARD_REPLY,
+  type DividendLine,
+  DIVIDENDS_ANSWERED,
+  DIVIDENDS_NOT_YET_REPLY,
+  dividendsDropSummary,
+  dividendsQuestion,
+  dividendsRefusal,
+  dividendsSavedMessage,
+  DIVIDENDS_STALE_LEAD,
+  DIVIDENDS_STALE_NONE,
+  readsAsDividend,
+} from "./dividends.ts";
+import {
   statementAlreadySettledMessage,
   statementAnswer,
   statementDoneMessage,
@@ -1029,6 +1043,10 @@ async function handleReaction(reaction: Record<string, unknown>, updateId: unkno
       if (proposal.row.status === "proposed" && autopayDecision) await decideAutopay(chatId, member.id, proposal.row, autopayDecision);
       return new Response("ok");
     }
+    if (proposal.row.kind === "dividends_received" && !thumbsUp && autopayDecision === "not_yet") {
+      if (proposal.row.status === "proposed") await dividendsNotYet(chatId, member.id, proposal.row);
+      return new Response("ok");
+    }
     if (proposal.row.status === "proposed" && thumbsUp) {
       await decideProposal(chatId, member.id, proposal.row, "apply", { householdId: member.household_id, updateId });
     }
@@ -1137,15 +1155,22 @@ async function openProposals(householdId: string, memberId: string): Promise<{ r
     // saving and asking, when the redelivery then read the message as
     // something else and never came back to it.
     .not("prompt_message_id", "is", null)
-    // An autopay question waits all day for an answer, often hours after it
-    // was asked, so a bare "paid" counts for it whenever it comes. Everything
-    // else counts only for a few minutes.
-    .or(`created_at.gt.${new Date(now - PENDING_WINDOW_MS).toISOString()},kind.eq.autopay_payment`)
+    // An autopay or dividend question waits all day for an answer, often
+    // hours after it was asked, so a bare "paid" or "yes" counts for it
+    // whenever it comes. Everything else counts only for a few minutes.
+    .or(`created_at.gt.${new Date(now - PENDING_WINDOW_MS).toISOString()},kind.eq.autopay_payment,kind.eq.dividends_received`)
     .gt("expires_at", new Date(now).toISOString())
     .order("created_at", { ascending: false })
     .limit(5);
   if (error) return { rows: [], failed: true };
-  return { rows: (data ?? []) as ProposalRow[], failed: false };
+  // Except a dividend question about a confirmed balance: its "no" records
+  // and moves the fund, so a bare one counts only for a few minutes, as for
+  // anything else.
+  const rows = ((data ?? []) as ProposalRow[]).filter((r) =>
+    !(r.kind === "dividends_received" && (r.payload as { ask?: unknown } | null)?.ask != null &&
+      Date.parse(String(r.created_at)) <= now - PENDING_WINDOW_MS)
+  );
+  return { rows, failed: false };
 }
 
 // The member's proposal decided in the last few minutes, if any: what a
@@ -1328,6 +1353,7 @@ export function proposalOutcomeMessage(data: Record<string, unknown>): string {
 export function proposalSummary(row: { kind: string; payload: Record<string, unknown> }): string {
   const payload = row.payload ?? {};
   if (row.kind === "trade" || row.kind === "trade_undo") return tradeDropSummary(payload as TradePayload, row.kind);
+  if (row.kind === "dividends_received") return dividendsDropSummary(payload as DividendsPayload);
   if (row.kind === "autopay_payment") {
     return `${String(payload.name ?? "the bill")} (AED ${Number(payload.amount ?? 0).toFixed(2)})`;
   }
@@ -1347,6 +1373,15 @@ export function proposalSummary(row: { kind: string; payload: Record<string, unk
 // saved figures again when it was applied.
 function decidedProposalMessage(row: ProposalRow): string {
   if (row.kind === "autopay_payment" && row.status !== "applied") return autopayClosedMessage(row);
+  if (row.kind === "dividends_received") {
+    const payload = row.payload as DividendsPayload;
+    if (row.status === "applied") return dividendsSavedMessage(payload.fund_name, payload.currency, row.result as DividendsResult, true);
+    const result = (row.result ?? {}) as { error?: string; not_yet?: boolean };
+    if (row.status === "cancelled" && result.not_yet) return "You said not yet, so I'll ask about them again tomorrow morning.";
+    if (row.status === "cancelled") return `You left ${dividendsDropSummary(payload)} for the app, so nothing was recorded.`;
+    if (result.error === "answered") return DIVIDENDS_ANSWERED;
+    return "That question lapsed or changed, so nothing was recorded. You can record them on the holding in the app.";
+  }
   if (row.kind === "trade" || row.kind === "trade_undo") {
     if (row.status === "applied") {
       const effect = ((row.result ?? {}) as { effect?: Record<string, unknown> }).effect ?? {};
@@ -1367,6 +1402,10 @@ async function decideProposal(
   decision: "apply" | "cancel",
   again: { householdId: string; updateId: unknown } | null = null,
 ): Promise<void> {
+  if (proposal.kind === "dividends_received") {
+    await decideDividends(chatId, memberId, proposal, decision);
+    return;
+  }
   const trade = proposal.kind === "trade" || proposal.kind === "trade_undo";
   if (decision === "cancel") {
     const { data, error } = await supabase
@@ -3282,6 +3321,266 @@ async function askAutopay(
 }
 
 // ---------------------------------------------------------------------------
+// Dividends due in a fund (docs/decisions.md, "Dividends are their own
+// records")
+// ---------------------------------------------------------------------------
+//
+// Each morning, a dividend paid into a broker's fund that nobody has recorded
+// is asked about once, from its pay date: one message per member per fund,
+// to the holding's owner, or to every linked member for a shared holding. A
+// "yes" (or 👍) receives every line in it through apply_bot_proposal, which
+// saves them only as they were shown. A dividend paid into a bank account is
+// not asked about: a bank balance is a snapshot, and one unanswered is
+// presumed received after 30 days. When the fund's balance was confirmed on
+// or after a pay date, only the member can say whether the dividend was in
+// it, so that message asks, and its "yes" and "no" both record.
+
+type DividendsPayload = {
+  fund_id: string;
+  fund_name: string;
+  currency: string;
+  confirmation: string | null;
+  ask: "already_included" | null;
+  answer: "included" | "not_included" | null;
+  lines: Array<DividendLine & { dividend_id: string; version: number }>;
+  total: number;
+};
+type DividendsResult = { lines: Array<DividendLine & { moved: number }>; total: number };
+type DueDividend = {
+  id: string;
+  household_id: string;
+  holding_id: string;
+  version: number;
+  pay_date: string;
+  units: number;
+  per_share: number;
+  expected_gross: number;
+  expected_tax: number;
+  expected_fees: number;
+  expected_net: number;
+  paid_into_account_id: string | null;
+};
+type DividendFund = { id: string; household_id: string; name: string; type: string; currency: string; balance_as_of: string | null; archived_at: string | null };
+type DividendGroup = { householdId: string; memberId: string; chatId: number; fund: DividendFund; ask: boolean; lines: DividendsPayload["lines"] };
+const DUE_DIVIDEND_COLUMNS =
+  "id, household_id, holding_id, version, pay_date, units, per_share, expected_gross, expected_tax, expected_fees, expected_net, paid_into_account_id";
+
+async function runDividendCheck(): Promise<{ checked: number; asked: number }> {
+  const todayStr = householdToday(new Date());
+  const [{ data: rows, error }, prefs] = await Promise.all([
+    supabase
+      .from("holding_dividends")
+      .select(DUE_DIVIDEND_COLUMNS)
+      .eq("status", "earned")
+      .is("asked_at", null)
+      .lte("pay_date", todayStr)
+      .not("paid_into_account_id", "is", null),
+    telegramPrefsMap(),
+  ]);
+  if (error) return { checked: 0, asked: 0 };
+  const due = ((rows ?? []) as DueDividend[]).filter((d) => prefEnabled(prefs, d.household_id, "dividends_enabled"));
+  const { groups, checked } = await dividendGroups(due);
+  let asked = 0;
+  for (const g of groups) {
+    try {
+      if (await askDividends(g, `dividends:${g.memberId}:${g.fund.id}:${todayStr}:${g.ask ? "ask" : "plain"}`, null)) asked++;
+    } catch {
+      // One member's question failing must never block the rest.
+    }
+  }
+  return { checked, asked };
+}
+
+// The questions these dividends make: by member, fund, and whether the fund
+// was confirmed on or after the pay date. Only dividends due in an open
+// broker's fund count.
+async function dividendGroups(due: DueDividend[]): Promise<{ groups: DividendGroup[]; checked: number }> {
+  if (!due.length) return { groups: [], checked: 0 };
+  const unique = (xs: string[]) => [...new Set(xs)];
+  const [{ data: holdings }, { data: funds }, { data: members }] = await Promise.all([
+    supabase.from("holdings").select("id, name, owner_member_id").in("id", unique(due.map((d) => d.holding_id))),
+    supabase.from("accounts").select("id, household_id, name, type, currency, balance_as_of, archived_at").in("id", unique(due.map((d) => String(d.paid_into_account_id)))),
+    supabase.from("household_members").select("id, household_id, telegram_user_id").in("household_id", unique(due.map((d) => d.household_id))),
+  ]);
+  const holdingById = new Map(((holdings ?? []) as Array<{ id: string; name: string; owner_member_id: string | null }>).map((h) => [h.id, h]));
+  const fundById = new Map(((funds ?? []) as DividendFund[]).map((f) => [f.id, f]));
+  const groups = new Map<string, DividendGroup>();
+  let checked = 0;
+  for (const d of due) {
+    const fund = fundById.get(String(d.paid_into_account_id));
+    const holding = holdingById.get(d.holding_id);
+    if (!fund || fund.type !== "broker_funds" || fund.archived_at != null || !holding) continue;
+    checked++;
+    const ask = fund.balance_as_of != null && householdToday(new Date(fund.balance_as_of)) >= d.pay_date;
+    const recipients = ((members ?? []) as Array<{ id: string; household_id: string; telegram_user_id: number | null }>)
+      .filter((m) => m.household_id === d.household_id && m.telegram_user_id != null && (holding.owner_member_id == null || m.id === holding.owner_member_id));
+    for (const m of recipients) {
+      const key = `${m.id}|${fund.id}|${ask}`;
+      const group = groups.get(key) ?? { householdId: d.household_id, memberId: m.id, chatId: Number(m.telegram_user_id), fund, ask, lines: [] };
+      group.lines.push({
+        dividend_id: d.id, version: Number(d.version), holding_name: holding.name, units: Number(d.units), per_share: Number(d.per_share),
+        gross: Number(d.expected_gross), tax: Number(d.expected_tax), fees: Number(d.expected_fees), net: Number(d.expected_net), pay_date: d.pay_date,
+      });
+      groups.set(key, group);
+    }
+  }
+  for (const g of groups.values()) g.lines.sort((a, b) => a.holding_name.localeCompare(b.holding_name) || a.dividend_id.localeCompare(b.dividend_id));
+  return { groups: [...groups.values()], checked };
+}
+
+// Asks one member about one fund's dividends, and marks them asked once the
+// message is out. True when it went out. A message that never went out, or
+// whose id could not be kept, leaves nothing asked, so tomorrow asks again.
+async function askDividends(g: DividendGroup, sourceRef: string, lead: string | null): Promise<boolean> {
+  const total = Math.round(g.lines.reduce((t, l) => t + l.net, 0) * 10000) / 10000;
+  const payload: DividendsPayload = {
+    fund_id: g.fund.id, fund_name: g.fund.name, currency: g.fund.currency, confirmation: g.fund.balance_as_of,
+    ask: g.ask ? "already_included" : null, answer: null, lines: g.lines, total,
+  };
+  const inserted = await supabase
+    .from("bot_proposals")
+    .insert({ household_id: g.householdId, member_id: g.memberId, kind: "dividends_received", payload, chat_id: g.chatId, source_ref: sourceRef })
+    .select("id")
+    .single();
+  // 23505: asked already today.
+  if (inserted.error || !inserted.data) return false;
+  const id = String(inserted.data.id);
+  const question = dividendsQuestion(g.fund.name, g.fund.currency, g.lines, g.ask ? { confirmedOn: householdToday(new Date(String(g.fund.balance_as_of))) } : null);
+  let messageId: number | null = null;
+  try {
+    messageId = await reply(g.chatId, lead ? `${lead}\n${question}` : question);
+  } catch {
+    messageId = null;
+  }
+  if (messageId == null) {
+    await discardUnaskedProposal(id);
+    return false;
+  }
+  let recorded = await supabase.from("bot_proposals").update({ prompt_message_id: messageId }).eq("id", id);
+  if (recorded.error) recorded = await supabase.from("bot_proposals").update({ prompt_message_id: messageId }).eq("id", id);
+  if (recorded.error) {
+    // Unanswerable without its id: withdrawn, and asked again tomorrow.
+    await tgCall("deleteMessage", { chat_id: g.chatId, message_id: messageId }).catch(() => {});
+    await discardUnaskedProposal(id);
+    return false;
+  }
+  await supabase.rpc("mark_dividends_asked", { p_ids: g.lines.map((l) => l.dividend_id) });
+  return true;
+}
+
+// A member's answer to a dividend question. On a plain question "yes"
+// records them and "no" leaves them for the app. On a question about a
+// confirmed balance both record: "yes" as already in it, "no" as arriving
+// after it.
+async function decideDividends(chatId: number, memberId: string, proposal: ProposalRow, decision: "apply" | "cancel"): Promise<void> {
+  const payload = proposal.payload as DividendsPayload;
+  if (payload.ask == null && decision === "cancel") {
+    const { data, error } = await supabase
+      .from("bot_proposals")
+      .update({ status: "cancelled", decided_at: new Date().toISOString() })
+      .eq("id", proposal.id)
+      .eq("member_id", memberId)
+      .eq("status", "proposed")
+      .select(PROPOSAL_COLUMNS);
+    if (error) {
+      await reply(chatId, "I couldn't drop that just now. Nothing has been changed; try again in a moment.");
+      return;
+    }
+    if (data?.length) {
+      await reply(chatId, `Left for the app: ${dividendsDropSummary(payload)}. Nothing was recorded.`);
+      return;
+    }
+    const { data: fresh } = await supabase.from("bot_proposals").select(PROPOSAL_COLUMNS).eq("id", proposal.id).maybeSingle();
+    await reply(chatId, decidedProposalMessage((fresh as ProposalRow | null) ?? proposal));
+    return;
+  }
+  if (payload.ask != null) {
+    // Only while it waits: one already decided keeps the answer it had.
+    const answer = decision === "apply" ? "included" : "not_included";
+    const { error } = await supabase
+      .from("bot_proposals")
+      .update({ payload: { ...payload, answer } })
+      .eq("id", proposal.id)
+      .eq("member_id", memberId)
+      .eq("status", "proposed");
+    if (error) {
+      await reply(chatId, "I couldn't record that just now. Answer my message again in a moment; it will only be recorded once.");
+      return;
+    }
+  }
+  const { data, error } = await supabase.rpc("apply_bot_proposal", { p_proposal_id: proposal.id, p_member_id: memberId });
+  if (error || !data || typeof data !== "object") {
+    await reply(chatId, "I couldn't record that just now. Answer my message again in a moment; it will only be recorded once.");
+    return;
+  }
+  const outcome = String((data as Record<string, unknown>).outcome ?? "");
+  if (outcome === "applied") {
+    const repeat = (data as Record<string, unknown>).result != null;
+    const result = (repeat ? (data as Record<string, unknown>).result : data) as DividendsResult;
+    await reply(chatId, dividendsSavedMessage(payload.fund_name, payload.currency, result, repeat));
+    return;
+  }
+  if (outcome === "stale") {
+    await reaskDividends(chatId, memberId, payload, proposal.id);
+    return;
+  }
+  if (outcome === "refused") {
+    await reply(chatId, dividendsRefusal(String((data as Record<string, unknown>).error ?? "")));
+    return;
+  }
+  await reply(chatId, decidedProposalMessage({
+    ...proposal,
+    status: outcome === "cancelled" ? "cancelled" : "expired",
+    result: ((data as Record<string, unknown>).result ?? proposal.result) as ProposalRow["result"],
+  }));
+}
+
+// "Not yet" (or 👎): it has not arrived. Nothing is recorded, and the
+// dividends are asked about again the next morning.
+async function dividendsNotYet(chatId: number, memberId: string, proposal: ProposalRow): Promise<void> {
+  const payload = proposal.payload as DividendsPayload;
+  const { data, error } = await supabase
+    .from("bot_proposals")
+    .update({ status: "cancelled", decided_at: new Date().toISOString(), result: { kind: "dividends_received", not_yet: true } })
+    .eq("id", proposal.id)
+    .eq("member_id", memberId)
+    .eq("status", "proposed")
+    .select(PROPOSAL_COLUMNS);
+  if (error) {
+    await reply(chatId, "I couldn't put that off just now. Nothing has been changed; try again in a moment.");
+    return;
+  }
+  if (!data?.length) {
+    const { data: fresh } = await supabase.from("bot_proposals").select(PROPOSAL_COLUMNS).eq("id", proposal.id).maybeSingle();
+    await reply(chatId, decidedProposalMessage((fresh as ProposalRow | null) ?? proposal));
+    return;
+  }
+  await supabase.rpc("mark_dividends_asked", { p_ids: payload.lines.map((l) => l.dividend_id), p_asked: false });
+  await reply(chatId, DIVIDENDS_NOT_YET_REPLY);
+}
+
+// Something changed since the question (a line fixed or recorded in the app,
+// the fund confirmed again): nothing was recorded, so what still waits is
+// asked about again, as it is now.
+async function reaskDividends(chatId: number, memberId: string, payload: DividendsPayload, proposalId: string): Promise<void> {
+  const ids = payload.lines.map((l) => l.dividend_id);
+  await supabase.rpc("mark_dividends_asked", { p_ids: ids, p_asked: false });
+  const { data: rows } = await supabase.from("holding_dividends").select(DUE_DIVIDEND_COLUMNS).in("id", ids).eq("status", "earned");
+  const { groups } = await dividendGroups((rows ?? []) as DueDividend[]);
+  const mine = groups.filter((g) => g.memberId === memberId);
+  if (!mine.length) {
+    await reply(chatId, DIVIDENDS_STALE_NONE);
+    return;
+  }
+  const todayStr = householdToday(new Date());
+  let lead: string | null = DIVIDENDS_STALE_LEAD;
+  for (const g of mine) {
+    if (await askDividends(g, `dividends:${g.memberId}:${g.fund.id}:${todayStr}:${g.ask ? "ask" : "plain"}:${proposalId}`, lead)) lead = null;
+  }
+  if (lead) await reply(chatId, "Something changed since I asked, so nothing was recorded. I'll ask about them again tomorrow morning.");
+}
+
+// ---------------------------------------------------------------------------
 // Card statements wait to be reconciled (docs/decisions.md, "A statement is
 // reconciled, and Rokda records it")
 // ---------------------------------------------------------------------------
@@ -3704,8 +4003,9 @@ type TelegramPrefRow = {
   unusual_spend_enabled: boolean;
   balance_checkin_enabled: boolean;
   statement_enabled: boolean;
+  dividends_enabled: boolean;
 };
-type TelegramPrefKey = "recurring_enabled" | "credit_card_enabled" | "cash_cover_enabled" | "brief_enabled" | "unusual_spend_enabled" | "balance_checkin_enabled" | "statement_enabled";
+type TelegramPrefKey = "recurring_enabled" | "credit_card_enabled" | "cash_cover_enabled" | "brief_enabled" | "unusual_spend_enabled" | "balance_checkin_enabled" | "statement_enabled" | "dividends_enabled";
 
 // Fetched once per check run (the table has one row per household, so this
 // is cheap) rather than once per item/household inside a loop.
@@ -4238,7 +4538,7 @@ async function handleRequest(req: Request): Promise<Response> {
   // than adding new jobs for each. The weekly/monthly checks no-op on every
   // day but their own, so running them daily costs nothing.
   if (req.method === "GET" && url.searchParams.get("run_recurring_check") === "1") {
-    const [recurring, autopay, creditCards, statements, budgets, weeklyBrief, monthlyBrief, cashCover, unusualSpend, balanceCheckin, splits] = await Promise.all([
+    const [recurring, autopay, creditCards, statements, budgets, weeklyBrief, monthlyBrief, cashCover, unusualSpend, balanceCheckin, splits, dividends] = await Promise.all([
       runRecurringCheck(),
       runAutopayCheck(),
       runCreditCardCheck(),
@@ -4250,6 +4550,7 @@ async function handleRequest(req: Request): Promise<Response> {
       runUnusualSpendCheck(),
       runBalanceCheckin(),
       runSplitCheck(),
+      runDividendCheck(),
     ]);
     // Housekeeping, not a check: nothing reports on it and nothing depends on
     // it having run today.
@@ -4267,6 +4568,7 @@ async function handleRequest(req: Request): Promise<Response> {
         unusual_spend: unusualSpend,
         balance_checkin: balanceCheckin,
         splits,
+        dividends,
       }),
       { headers: { "Content-Type": "application/json" } }
     );
@@ -4516,6 +4818,12 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
       });
       if (target.kind === "one" && target.row.kind === "autopay_payment") {
         await decideAutopay(chatId, member.id, target.row, confirming ? "paid" : "not_yet", confirming ? autopay.amount : null);
+        return new Response("ok");
+      }
+      // "Not yet" puts a dividend question off; a plain "no" (which an autopay
+      // question also reads as not yet) still answers it.
+      if (target.kind === "one" && target.row.kind === "dividends_received" && autopay.decision === "not_yet" && !strictNo) {
+        await dividendsNotYet(chatId, member.id, target.row);
         return new Response("ok");
       }
       if (target.kind === "one" && (strictYes || strictNo)) {
@@ -4909,6 +5217,8 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
   const multiItemSummaries: string[] = [];
   const guessedDates: string[] = [];
   let itemsRead = false;
+  let dividendsLeftOut = 0;
+  let kept: NonNullable<ReturnType<typeof datedItems>> = [];
   try {
     const { data: categories } = await supabase
       .from("categories")
@@ -4929,6 +5239,33 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
     const items = parsedItems ? datedItems(parsedItems, householdToday(), forwardedDay(message)) : null;
     itemsRead = (items?.length ?? 0) > 0;
 
+    // A dividend typed in as income is never captured (docs/decisions.md,
+    // "Dividends are their own records"): it is recorded from the holding's
+    // own records, and logged as income too it would count twice. The
+    // message's words decide only for a message of one item; otherwise each
+    // item's own merchant does, so "salary 7000, dividend 700" keeps the
+    // salary.
+    const readsAsDividendIncome = (item: NonNullable<typeof items>[number]) =>
+      item.kind === "income" && (readsAsDividend(item.merchant) || (items!.length === 1 && readsAsDividend(rawText)));
+    // Only a household with a share the feeds cover records its dividends
+    // there; elsewhere, or if that cannot be read, a dividend is income as
+    // before.
+    let guarded = false;
+    if ((items ?? []).some(readsAsDividendIncome)) {
+      const { data: payers, error: payersError } = await supabase
+        .from("holdings")
+        .select("id")
+        .eq("household_id", member.household_id)
+        .in("asset_class", DIVIDEND_CLASSES)
+        .limit(1);
+      guarded = !payersError && (payers?.length ?? 0) > 0;
+    }
+    kept = guarded ? (items ?? []).filter((item) => !readsAsDividendIncome(item)) : (items ?? []);
+    dividendsLeftOut = (items?.length ?? 0) - kept.length;
+    if (dividendsLeftOut > 0 && !kept.length) {
+      await supabase.from("intake").update({ status: "rejected" }).eq("id", inserted.id);
+    }
+
     // A message can describe more than one expense ("bought two plants for
     // 260 and 50") -- the first item updates the row already inserted
     // above, and each additional item gets its OWN new intake row rather
@@ -4936,9 +5273,9 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
     // a single amount was ever extracted. Each item's own DB work is
     // wrapped separately so one item's failure (a bad category/account
     // lookup) never costs the others.
-    const knowledge = items?.length ? await loadCategoryKnowledge(member.household_id) : { rules: [], history: [] };
-    for (let i = 0; i < (items?.length ?? 0); i++) {
-      const item = items![i];
+    const knowledge = kept.length ? await loadCategoryKnowledge(member.household_id) : { rules: [], history: [] };
+    for (let i = 0; i < kept.length; i++) {
+      const item = kept[i];
       try {
         const matchedCategory =
           (await matchCategoryFromMerchantHistory(knowledge, item.merchant)) ??
@@ -4973,7 +5310,7 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
           });
         }
 
-        if (items!.length === 1) {
+        if (kept.length === 1) {
           singleInboxReason = inboxReason(updatedRow);
           // Same bar as the fast-confirm "yes" path above: only invite it
           // when account, category, currency and date are all already
@@ -5002,6 +5339,12 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
     // Leave the intake row exactly as captured -- raw content, no suggestions.
   }
 
+  if (dividendsLeftOut > 0 && !kept.length) {
+    await reply(chatId, DIVIDEND_GUARD_REPLY);
+    return new Response("ok");
+  }
+  const dividendNote = dividendsLeftOut > 0 ? " I left out the dividend: Rokda records dividends from your shares' own records, not as income." : "";
+
   if (fastConfirmSummary) {
     // fastConfirmSummary is only ever set for a single-item message, whose one
     // item is the row inserted above -- so that is the intake this prompt is
@@ -5009,7 +5352,7 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
     await sendFastConfirmPrompt(
       chatId,
       inserted.id,
-      `Got it — ${fastConfirmSummary}. Everything matched, so reply "yes" to record it, or edit in the Inbox.`
+      `Got it — ${fastConfirmSummary}. Everything matched, so reply "yes" to record it, or edit in the Inbox.${dividendNote}`
     );
   } else if (routingFailed && !itemsRead) {
     await reply(chatId, AI_BUSY_REPLY);
@@ -5018,7 +5361,7 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
       chatId,
       (multiItemSummaries.length > 1
         ? `Got it — ${multiItemSummaries.length} expenses captured (${multiItemSummaries.join(", ")}). Check the Inbox to review each.`
-        : singleInboxReason ?? "Got it — check the Inbox to review.") + undatedNote(guessedDates, multiItemSummaries.length > 1 ? multiItemSummaries.length : 1)
+        : singleInboxReason ?? "Got it — check the Inbox to review.") + undatedNote(guessedDates, multiItemSummaries.length > 1 ? multiItemSummaries.length : 1) + dividendNote
     );
   }
   return new Response("ok");
