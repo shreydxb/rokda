@@ -72,6 +72,7 @@ declare
   v_answer boolean;
   v_timing boolean := false;
   v_asks text;
+  v_asks_on date;
   v_ambiguous boolean := false;
   v_old_c numeric := 0;
   v_new_c numeric := 0;
@@ -302,6 +303,8 @@ begin
       if v_ambiguous then
         if v_answer is null then
           v_asks := 'already_included';
+          -- The day the question names: the confirmation as it is now.
+          v_asks_on := (v_dest.balance_as_of at time zone 'Asia/Dubai')::date;
         elsif v_answer then
           v_new.credited_at := v_dest.balance_as_of - interval '1 second';
         elsif v_defaulted then
@@ -342,7 +345,7 @@ begin
   v_version := case when v_action = 'add' then 0 else v_old.version end;
   if not p_save then
     return jsonb_build_object('ok', true, 'dividend', to_jsonb(v_new), 'movements', v_movements, 'confirmations', v_confirmations,
-      'version', v_version, 'asks', v_asks, 'warnings', '[]'::jsonb);
+      'version', v_version, 'asks', v_asks, 'asks_confirmed_on', v_asks_on, 'warnings', '[]'::jsonb);
   end if;
 
   -- A fund confirmed since the preview makes the preview itself out of date,
@@ -759,6 +762,25 @@ begin
     end if;
     return jsonb_build_object('ok', false, 'error', v_error);
   end;
+
+  -- The same dividends asked of another member (a shared holding) are
+  -- answered now, and that question says so. A dividend only such a question
+  -- asked about is asked again in the morning. A question being answered at
+  -- this very moment is skipped rather than waited for, which could deadlock:
+  -- its own save then finds these dividends changed.
+  with answered as (
+    update public.bot_proposals b
+    set status = 'expired', decided_at = now(), result = jsonb_build_object('kind', 'dividends_received', 'error', 'answered')
+    where b.id in (
+      select o.id from public.bot_proposals o
+      where o.household_id = p_proposal.household_id and o.kind = 'dividends_received' and o.status = 'proposed' and o.id <> p_proposal.id
+        and exists (select 1 from jsonb_array_elements(o.payload -> 'lines') l where l ->> 'dividend_id' = any(v_ids::text[]))
+      for update skip locked)
+    returning b.payload)
+  update public.holding_dividends d set asked_at = null
+  where d.status = 'earned' and not (d.id = any(v_ids))
+    and d.id::text in (select l ->> 'dividend_id' from answered a, jsonb_array_elements(a.payload -> 'lines') l);
+
   return jsonb_build_object('ok', true, 'lines', v_saved, 'total', v_total, 'moved', v_moved);
 end;
 $$;

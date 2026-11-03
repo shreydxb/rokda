@@ -4935,7 +4935,9 @@ declare m1 date := pg_temp.d2_m1(); c jsonb; p jsonb; r jsonb;
 begin
   c := pg_temp.d2_case((m1 + 4)::timestamp at time zone 'Asia/Dubai');
   p := preview_dividend((c ->> 'dividend')::uuid, '{"action": "record"}', p_member_id => '22222222-2222-2222-2222-0000000000b7');
-  if p ->> 'asks' is distinct from 'already_included' then raise exception 'D2-04 FAILED: the preview asked %', p; end if;
+  if p ->> 'asks' is distinct from 'already_included' or (p ->> 'asks_confirmed_on')::date is distinct from m1 + 4 then
+    raise exception 'D2-04 FAILED: the preview asked %', p;
+  end if;
   r := save_dividend((c ->> 'dividend')::uuid, '{"action": "record"}', (p ->> 'version')::int, p -> 'confirmations', p_member_id => '22222222-2222-2222-2222-0000000000b7');
   if r ->> 'error' is distinct from 'needs_answer' then raise exception 'D2-04 FAILED: a save without the answer gave %', r; end if;
   r := pg_temp.d2_save((c ->> 'dividend')::uuid, '{"action": "record", "already_included": true}');
@@ -4984,12 +4986,18 @@ end $$;
 -- D2-07: a dividend into a bank account, or with no destination, moves
 -- nothing; a presumed one fixed with the company's figures is received.
 do $$
-declare c jsonb := pg_temp.d2_case(); dv uuid; r jsonb; d holding_dividends%rowtype; bank uuid := gen_random_uuid();
+declare c jsonb; dv uuid := gen_random_uuid(); r jsonb; d holding_dividends%rowtype; bank uuid := gen_random_uuid();
+  h uuid := 'd2b00000-0000-0000-0000-000000000007'; m1 date := pg_temp.d2_m1();
 begin
-  dv := (c ->> 'dividend')::uuid;
+  -- An Indian share paying the rupee bank account, presumed received, then
+  -- fixed with the company's credit intimation.
+  perform pg_temp.d1_holding(h, 'D207.NS', 'india_equity', 'INR', 'd1a00000-0000-0000-0000-000000000002', m1 - 60, 100, 'yahoo');
   insert into accounts (id, household_id, name, type, currency, balance, balance_as_of, is_shared)
-  values (bank, '11111111-1111-1111-1111-111111111111', 'D2 dollar bank', 'checking', 'USD', 500, now() - interval '60 days', true);
-  update holding_dividends set status = 'presumed', credited_on = pg_temp.d2_m1() + 4, credited_on_estimated = true, paid_into_account_id = bank where id = dv;
+  values (bank, '11111111-1111-1111-1111-111111111111', 'D2 rupee bank', 'checking', 'INR', 500, now() - interval '60 days', true);
+  insert into holding_dividends (id, household_id, holding_id, ex_date, currency, units, units_basis, per_share, tax_pct,
+    expected_gross, expected_tax, expected_fees, expected_net, status, credited_on, credited_on_estimated, source, paid_into_account_id)
+  values (dv, '11111111-1111-1111-1111-111111111111', h, m1 - 30, 'INR', 100, 'trades', 0.1, 20.8, 10, 2.08, 0, 7.92,
+    'presumed', m1, true, 'feed', bank);
   r := pg_temp.d2_save(dv, '{"action": "fix", "received_gross": 10, "received_tax": 2.08, "received_fees": 0}');
   select * into d from holding_dividends where id = dv;
   if d.status <> 'received' or d.evidence <> 'member' or d.received_net <> 7.92 or pg_temp.d2_bal(bank) <> 500 then
@@ -5345,6 +5353,31 @@ begin
     raise exception 'D2-24 FAILED: a kept split came back as %', (select review_reason from holding_dividends where id = dv);
   end if;
   raise notice 'D2-24 ok: a kept split stays answered, with what was kept before it';
+end $$;
+
+-- D2-25: once one member's "yes" records dividends, every other question
+-- still open about any of them is answered; a dividend only that other
+-- question asked about is asked about again.
+do $$
+declare c jsonb := pg_temp.d2_case(); f uuid; d1 uuid; d2 uuid; p1 uuid; p2 uuid; r jsonb;
+begin
+  f := (c ->> 'fund')::uuid; d1 := (c ->> 'dividend')::uuid; d2 := pg_temp.d2_more(f);
+  p1 := pg_temp.d2_proposal(f, array[d1]);
+  p2 := pg_temp.d2_proposal(f, array[d1, d2]);
+  update holding_dividends set asked_at = now() where id in (d1, d2);
+  r := apply_bot_proposal(p1, '22222222-2222-2222-2222-0000000000b7');
+  if r ->> 'outcome' <> 'applied' then raise exception 'D2-25 FAILED: the first yes gave %', r; end if;
+  if (select status from bot_proposals where id = p2) <> 'expired' or (select result ->> 'error' from bot_proposals where id = p2) is distinct from 'answered' then
+    raise exception 'D2-25 FAILED: the other question was left %', (select row_to_json(b) from bot_proposals b where b.id = p2);
+  end if;
+  if (select asked_at from holding_dividends where id = d2) is not null or (select asked_at from holding_dividends where id = d1) is null then
+    raise exception 'D2-25 FAILED: what is asked again is wrong';
+  end if;
+  r := apply_bot_proposal(p2, '22222222-2222-2222-2222-0000000000b7');
+  if r ->> 'outcome' <> 'expired' or r -> 'result' ->> 'error' <> 'answered' or pg_temp.d2_bal(f) <> 107 then
+    raise exception 'D2-25 FAILED: a yes to the answered question gave % and the fund %', r, pg_temp.d2_bal(f);
+  end if;
+  raise notice 'D2-25 ok: one yes answers every question about the same dividends';
 end $$;
 
 rollback;

@@ -122,8 +122,9 @@ export default function DividendForm({ holding, dividend = null, action, account
   const [errors, setErrors] = useState({});
   const [checked, setChecked] = useState(null);
   // Whether the database asked if the receipt was already in a confirmed
-  // balance, and the member's answer: saving waits for one.
-  const [asked, setAsked] = useState(false);
+  // balance (the day of that confirmation, as the database read it), and the
+  // member's answer: saving waits for one.
+  const [asked, setAsked] = useState(null);
   const [answer, setAnswer] = useState(null);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
@@ -139,7 +140,7 @@ export default function DividendForm({ holding, dividend = null, action, account
     setForm((f) => ({ ...f, [key]: value }));
     setErrors((e) => ({ ...e, [key]: undefined }));
     setChecked(null);
-    setAsked(false);
+    setAsked(null);
     setAnswer(null);
     setMessage('');
   }
@@ -164,7 +165,7 @@ export default function DividendForm({ holding, dividend = null, action, account
       return;
     }
     if (given === null) {
-      setAsked(data.asks === 'already_included');
+      setAsked(data.asks === 'already_included' ? (data.asks_confirmed_on ?? '') : null);
       setAnswer(null);
     }
     setChecked({ change: sent, data });
@@ -176,7 +177,7 @@ export default function DividendForm({ holding, dividend = null, action, account
   }
 
   async function save() {
-    if (!checked || busy || (asked && answer === null)) return;
+    if (!checked || busy || (asked !== null && answer === null)) return;
     // Stays busy after a save that worked, until the screen has reloaded and
     // closed the form.
     setBusy(true);
@@ -191,7 +192,7 @@ export default function DividendForm({ holding, dividend = null, action, account
       // The form keeps what was typed; checking again reads the dividend and
       // the funds afresh.
       setChecked(null);
-      setAsked(false);
+      setAsked(null);
       setAnswer(null);
       setMessage(error ? `Couldn't save this dividend: ${error.message}. Nothing was saved.` : dividendRefusalMessage(data?.error));
       return;
@@ -213,9 +214,7 @@ export default function DividendForm({ holding, dividend = null, action, account
   const title = action === 'add' ? 'Add a dividend' : `${TITLES[action]} the ${day ? shortDate(day) : 'undated'} dividend`;
   const result = checked?.data.dividend;
   const net = result ? (result.status === 'received' ? result.received_net : result.expected_net) : null;
-  // The fund whose confirmation the question is about: where it is paid.
-  const destination = (accounts ?? []).find((a) => a.id === result?.paid_into_account_id);
-  const confirmedOn = destination?.balance_as_of ? shortDate(householdToday(new Date(destination.balance_as_of))) : 'its last confirmation';
+  const confirmedOn = asked ? shortDate(asked) : 'its last confirmation';
   const expected = (key) => (dividend ? `${money2(dividend[`expected_${key}`])} expected` : undefined);
 
   const input = (key, label, { type = 'number', span = false, placeholder } = {}) => (
@@ -300,7 +299,7 @@ export default function DividendForm({ holding, dividend = null, action, account
         )}
       </div>
 
-      {asked && (
+      {asked !== null && (
         <fieldset className="hd-question">
           <legend className="te-fieldlabel">Was it already in the fund&rsquo;s confirmed balance?</legend>
           <label className="hd-choice">
@@ -322,7 +321,7 @@ export default function DividendForm({ holding, dividend = null, action, account
         <button type="button" className="om-btn" onClick={() => check()} disabled={busy}>
           Check
         </button>
-        <button type="button" className="om-btn ov-btn-primary" onClick={save} disabled={busy || !checked || (asked && answer === null)}>
+        <button type="button" className="om-btn ov-btn-primary" onClick={save} disabled={busy || !checked || (asked !== null && answer === null)}>
           Save dividend
         </button>
       </div>

@@ -92,13 +92,16 @@ describe('DividendForm: recording one that arrived', () => {
   });
 
   it('asks whether it was already in a balance confirmed on or after it, and saves only with an answer', async () => {
-    answers.preview_dividend = (args) => (args.p_change.already_included === undefined ? preview({ asks: 'already_included' }) : preview({ movements: [] }));
+    // The day the question names is the preview's own, not the screen's copy
+    // of the fund, which may be older.
+    answers.preview_dividend = (args) =>
+      args.p_change.already_included === undefined ? preview({ asks: 'already_included', asks_confirmed_on: '2026-10-21' }) : preview({ movements: [] });
     answers.save_dividend = { ok: true };
     open();
     await press('Check');
     expect(saveButton().disabled).toBe(true);
     await act(async () => {
-      fireEvent.click(screen.getByLabelText(`Already in the balance confirmed on ${shortDate('2026-10-20')}`));
+      fireEvent.click(screen.getByLabelText(`Already in the balance confirmed on ${shortDate('2026-10-21')}`));
     });
     expect(calls.at(-1).args.p_change).toEqual({ action: 'record', already_included: true });
     expect(screen.getByText('Moves no balance')).toBeTruthy();
