@@ -101,9 +101,12 @@
   margin-top: 10px;
   font-size: 12.5px;
 }
+/* A fold's summary is a control: a thumb's height on a phone. */
 .dv-fold summary {
   cursor: pointer;
-  min-height: 32px;
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 12px 0;
   display: list-item;
 }
 .dv-bars {

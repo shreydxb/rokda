@@ -93,7 +93,6 @@ describe('by month', () => {
   it('by month: presumed apart, expected in the next twelve, earned view leaves out receipts with no ex-date and counts them', () => {
     const received = dividendsByMonth(input(), 'received');
     const month = (m) => received.months.find((x) => x.month === m);
-    expect(received.months[0].month).toBe('2024-12');
     expect(received.months.at(-1).month).toBe('2027-11');
     expect(month('2026-09').actualAed).toBeCloseTo(73.45, 2);
     expect(month('2026-08')).toMatchObject({ actualAed: 0, presumedAed: 20 });
@@ -106,6 +105,26 @@ describe('by month', () => {
     expect(earned.months.find((x) => x.month === '2026-07').actualAed).toBeCloseTo(20, 2);
     expect(earned.months.find((x) => x.month === '2026-10').actualAed).toBeCloseTo(73.45, 2);
     expect(earned.leftOut).toBe(1);
+  });
+
+  it("starts where the earliest record does, so months nobody tracked aren't shown as nothing received", () => {
+    // India's opening entry is September 2025, the earliest of the two markets.
+    const received = dividendsByMonth(input(), 'received');
+    expect(received.months[0].month).toBe('2025-09');
+    expect(received.years.map((y) => y.year)).toEqual([2025, 2026]);
+
+    // A record from long ago still starts the chart only 24 months back.
+    const old = dividendsByMonth(input({ trades: [{ holding_id: 'h-in', kind: 'opening', trade_date: '2020-01-01' }] }), 'received');
+    expect(old.months[0].month).toBe('2024-12');
+
+    // An imported receipt's ex-date before its credit date keeps its month in the Earned view.
+    const imported = row('d9', IN, { status: 'received', ex_date: '2025-06-20', credited_on: '2025-07-10', expected_net: 500, received_net: 500 });
+    const earned = dividendsByMonth(input({ dividends: [...DIVIDENDS, imported] }), 'earned');
+    expect(earned.months[0].month).toBe('2025-06');
+    expect(earned.months[0].actualAed).toBeCloseTo(20, 2);
+
+    // With nothing recorded at all, only this month and the year ahead.
+    expect(dividendsByMonth(input({ trades: [], dividends: [] }), 'received').months[0].month).toBe('2026-11');
   });
 });
 
@@ -186,7 +205,7 @@ describe('needs you', () => {
 
     const oneOff = needsYou(input({ dividends: [], payments: { ABC: [{ eventId: 'e-big', exDate: '2026-03-14', amount: 4, oneOff: 'candidate', special: 3 }] } }));
     expect(oneOff).toEqual([expect.objectContaining({
-      kind: 'one_off', eventId: 'e-big', special: 3, text: 'ABC paid 4.00 a share on 14 Mar, more than twice its usual. Was part of it a one-off?',
+      kind: 'one_off', eventId: 'e-big', special: 3, text: 'ABC paid USD 4.00 a share on 14 Mar, more than twice its usual. Was part of it a one-off?',
     })]);
 
     const trades = [{ holding_id: 'h-us', kind: 'opening', trade_date: '2025-01-01' }];

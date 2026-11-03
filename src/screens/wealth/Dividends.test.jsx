@@ -134,7 +134,7 @@ describe('Dividends: needs you', () => {
     const d = open();
     const needs = section('Needs you');
     expect(within(needs).getByText("The feed's amount per share has changed since this was recorded.")).toBeTruthy();
-    expect(within(needs).getByText(`ABC paid 5.00 a share on ${shortDate(ago(30))}, more than twice its usual. Was part of it a one-off?`)).toBeTruthy();
+    expect(within(needs).getByText(`ABC paid USD 5.00 a share on ${shortDate(ago(30))}, more than twice its usual. Was part of it a one-off?`)).toBeTruthy();
     answers.set_special_part = { ok: true };
     await act(async () => {
       fireEvent.click(within(needs).getByRole('button', { name: 'Yes, part was a one-off' }));

@@ -52,7 +52,7 @@ export default function Dividends({ household, members, me, data, loading }) {
   }
   const neverRun = feedFreshness(input).every((m) => m.neverRun);
   return (
-    <div>
+    <div className="dv-tab">
       {neverRun && <p className="ov-muted dv-gap dv-note">{"The dividend feed hasn't run yet. It checks each night."}</p>}
       <Headline input={input} money={money} transactions={data.transactions} />
       <ComingUp input={input} data={data} money={money} />

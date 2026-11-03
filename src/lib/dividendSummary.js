@@ -198,7 +198,14 @@ export function comingUp(input) {
 export function dividendsByMonth(input, view = 'received') {
   const byId = holdingById(input);
   const current = input.today.slice(0, 7);
-  const first = addMonths(`${current}-01`, -23).slice(0, 7);
+  // The chart starts where the record does, up to 24 months back: a month
+  // before any market's record began would read as nothing received, when
+  // nothing was tracked. An imported receipt's ex-date can be earlier than
+  // the credit date that starts its market, so ex-dates count too.
+  const earliest = [...marketsPresent(input).map((m) => coverageStart(input, m)), ...inScope(input).map((d) => d.ex_date)].filter(Boolean).sort()[0];
+  const floor = addMonths(`${current}-01`, -23).slice(0, 7);
+  const recordStart = earliest ? earliest.slice(0, 7) : current;
+  const first = recordStart > floor ? (recordStart < current ? recordStart : current) : floor;
   const last = addMonths(`${current}-01`, 12).slice(0, 7);
   const months = [];
   for (let m = `${first}-01`; m.slice(0, 7) <= last; m = addMonths(m, 1)) months.push({ month: m.slice(0, 7), actualAed: 0, presumedAed: 0, expectedAed: 0 });
@@ -350,7 +357,7 @@ export function needsYou(input) {
       seen.add(p.eventId);
       out.push({
         kind: 'one_off', holdingId: h.id, eventId: p.eventId, special: p.special,
-        text: `${h.name} paid ${formatPerShare(p.amount)} a share on ${shortDate(p.exDate, input.today)}, more than twice its usual. Was part of it a one-off?`,
+        text: `${h.name} paid ${h.currency} ${formatPerShare(p.amount)} a share on ${shortDate(p.exDate, input.today)}, more than twice its usual. Was part of it a one-off?`,
       });
     }
     const opening = input.trades.find((t) => t.holding_id === h.id && t.kind === 'opening')?.trade_date;
