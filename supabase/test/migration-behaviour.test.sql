@@ -5092,7 +5092,11 @@ begin
   r := keep_dividend(dv, (select version from holding_dividends where id = dv), p_member_id => '22222222-2222-2222-2222-0000000000b7');
   perform earn_dividends();
   if (select review_reason from holding_dividends where id = dv) is not null then raise exception 'D2-12 FAILED: a kept duplicate question came back'; end if;
-  raise notice 'D2-12 ok: a possible duplicate kept apart stays answered';
+  -- Kept apart, the feed's dividend is another one, so it is earned beside it.
+  if (select count(*) from holding_dividends where holding_id = h and event_id is not null and units = 100) <> 1 then
+    raise exception 'D2-12 FAILED: the feed''s dividend was never earned beside the one kept apart';
+  end if;
+  raise notice 'D2-12 ok: a possible duplicate kept apart stays answered, and the feed''s own is earned';
 end $$;
 
 -- D2-13: a possible duplicate linked to the feed's dividend is one dividend.
@@ -5315,6 +5319,32 @@ begin
   if r ->> 'error' is distinct from 'credited_in_future' then raise exception 'D2-23 FAILED: an add dated tomorrow gave %', r; end if;
   if pg_temp.d2_bal(f) <> 107 then raise exception 'D2-23 FAILED: the fund is %', pg_temp.d2_bal(f); end if;
   raise notice 'D2-23 ok: a receipt is never dated after today';
+end $$;
+
+-- D2-24: a split on the ex-date kept as it is is not asked about again, and
+-- keeping it does not undo a feed change kept before it.
+do $$
+declare t date := household_today(); h uuid := 'd2b00000-0000-0000-0000-000000000024'; dv uuid; r jsonb;
+begin
+  perform pg_temp.d1_holding(h, 'D224', 'us_equity', 'USD', 'd1a00000-0000-0000-0000-000000000001', t - 40, 100);
+  perform pg_temp.d1_events('D224', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 20, 'amount', 0.5)));
+  perform earn_dividends();
+  select id into dv from holding_dividends where holding_id = h;
+  r := pg_temp.d2_save(dv, jsonb_build_object('action', 'record', 'credited_on', t - 5));
+  perform pg_temp.d1_events('D224', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 20, 'amount', 0.6)));
+  perform earn_dividends();
+  r := keep_dividend(dv, (select version from holding_dividends where id = dv), p_member_id => '22222222-2222-2222-2222-0000000000b7');
+  r := record_dividend_fetch('D224', 'alphavantage', 'splits', jsonb_build_object('ok', true, 'items', jsonb_build_array(
+    jsonb_build_object('effective_date', t - 20, 'ratio', 2))));
+  perform earn_dividends();
+  if (select review_reason from holding_dividends where id = dv) is distinct from 'split_on_ex_date' then raise exception 'D2-24 FAILED: the split was not asked about'; end if;
+  r := keep_dividend(dv, (select version from holding_dividends where id = dv), p_member_id => '22222222-2222-2222-2222-0000000000b7');
+  perform earn_dividends();
+  perform earn_dividends();
+  if (select review_reason from holding_dividends where id = dv) is not null then
+    raise exception 'D2-24 FAILED: a kept split came back as %', (select review_reason from holding_dividends where id = dv);
+  end if;
+  raise notice 'D2-24 ok: a kept split stays answered, with what was kept before it';
 end $$;
 
 rollback;

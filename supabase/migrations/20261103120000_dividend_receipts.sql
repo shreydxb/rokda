@@ -495,8 +495,8 @@ grant execute on function public.save_dividend(uuid, jsonb, integer, jsonb, uuid
 -- keeps its figures. What they saw is added to its baseline, so the same
 -- change is not raised again: the feed's amount (for a feed change), the
 -- units the trades now give (for a trade change), the row's own amount and
--- date (for a missing or moved date), and, for a possible duplicate, which
--- event it is not.
+-- date (for a missing or moved date), for a possible duplicate the events it
+-- is not, and for a split on its ex-date that it was looked at.
 create or replace function public.keep_dividend(p_dividend_id uuid, p_expected_version integer, p_member_id uuid default null)
 returns jsonb
 language plpgsql
@@ -519,7 +519,7 @@ begin
   end if;
   -- Each answer adds to what was kept before: keeping a trade change must not
   -- undo a feed change kept earlier, or the feed's question comes back.
-  v_baseline := jsonb_build_object(
+  v_baseline := coalesce(r.review_baseline, '{}'::jsonb) || jsonb_build_object(
     'per_share', case r.review_reason
       when 'feed_changed' then coalesce((select e.amount from public.dividend_events e where e.id = r.event_id), r.per_share)
       when 'moved_ex_date' then r.per_share
@@ -529,7 +529,11 @@ begin
       else coalesce((r.review_baseline ->> 'units')::numeric, r.units) end,
     'ex_date', r.ex_date);
   if r.review_reason = 'possible_duplicate' and r.review_event_id is not null then
-    v_baseline := v_baseline || jsonb_build_object('not_duplicate_of', r.review_event_id);
+    v_baseline := jsonb_set(v_baseline, '{not_duplicate_of}',
+      coalesce(case when jsonb_typeof(v_baseline -> 'not_duplicate_of') = 'array' then v_baseline -> 'not_duplicate_of' end, '[]'::jsonb)
+        || to_jsonb(r.review_event_id::text));
+  elsif r.review_reason = 'split_on_ex_date' then
+    v_baseline := v_baseline || jsonb_build_object('split_kept', true);
   end if;
   update public.holding_dividends
   set review_baseline = v_baseline, review_reason = null, review_event_id = null, version = version + 1,
@@ -1065,3 +1069,248 @@ grant execute on function apply_bot_proposal(uuid, uuid) to service_role;
 
 comment on function apply_bot_proposal(uuid, uuid) is
   'Applies a bot_proposals row once, on the confirming member''s behalf: sets the proposed balances that are still the figure the member was shown, records the goal contribution, records the autopay bill unless it is already recorded, records the transfer (joining a side already in the ledger, and not again if it is recorded), records or undoes a share trade, refused as stale if the holding changed since it was shown, or receives the dividends it asked about, refused as stale if any of them or their fund changed since. A proposal still asking a question cannot be applied. Repeating it returns the first outcome and changes nothing.';
+
+-- ---------------------------------------------------------------------------
+-- 4. What a member kept stays kept
+-- ---------------------------------------------------------------------------
+
+-- The same function as 20261102181711_dividends, with two answers honoured
+-- that it could not see before keep_dividend existed: a split on the ex-date
+-- a member kept is not asked about again, and an added dividend a member
+-- kept apart from a feed's event no longer stops that event's own dividend
+-- from being earned beside it.
+create or replace function private.sync_holding_dividends(p_holding_id uuid, p_from date)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_h public.holdings%rowtype;
+  v_provider text;
+  v_state public.dividend_feed_state%rowtype;
+  v_today date := public.household_today();
+  v_from date := coalesce(p_from, '-infinity'::date);
+  v_dest uuid;
+  e public.dividend_events%rowtype;
+  r public.holding_dividends%rowtype;
+  v_units numeric;
+  v_exp jsonb;
+  v_made integer := 0;
+  v_updated integer := 0;
+  v_removed integer := 0;
+  v_flagged integer := 0;
+  v_presumed integer := 0;
+  v_split_on_ex boolean;
+begin
+  select * into v_h from public.holdings where id = p_holding_id;
+  if not found or v_h.price_symbol is null then
+    return jsonb_build_object('made', 0, 'updated', 0, 'removed', 0, 'flagged', 0, 'presumed', 0);
+  end if;
+  v_provider := private.dividend_provider(v_h);
+  if v_provider is null then
+    return jsonb_build_object('made', 0, 'updated', 0, 'removed', 0, 'flagged', 0, 'presumed', 0);
+  end if;
+  select * into v_state from public.dividend_feed_state s
+  where s.symbol = v_h.price_symbol and s.provider = v_provider and s.kind = 'dividends';
+  v_dest := private.dividend_destination(v_h);
+
+  -- 1. Dividends on an event the source has dropped (two checks in a row) or
+  -- that a moved ex-date replaced. An earned one nobody fixed moves to the
+  -- replacement (or goes, if no units were held then or its date has not
+  -- passed), unless this holding already has a dividend on the replacement's
+  -- date. Every other one, and every one with no replacement, is asked about.
+  for r in
+    select d.* from public.holding_dividends d
+    join public.dividend_events a on a.id = d.event_id
+    where d.holding_id = v_h.id and d.status <> 'skipped' and coalesce(d.ex_date, a.ex_date) >= v_from
+      and (a.superseded_by is not null or a.missed_checks >= 2)
+    order by d.ex_date, d.id
+  loop
+    select * into e from public.dividend_events x where x.id = (select a.superseded_by from public.dividend_events a where a.id = r.event_id);
+    if found and r.status = 'earned' and not r.fixed
+       and not exists (select 1 from public.holding_dividends y where y.holding_id = v_h.id and y.id <> r.id and (y.event_id = e.id or y.ex_date = e.ex_date)) then
+      v_units := case when e.ex_date <= v_today then coalesce(private.units_on_ex_date(v_h.id, e.ex_date), 0) else 0 end;
+      if v_units = 0 then
+        delete from public.holding_dividends where id = r.id;
+        v_removed := v_removed + 1;
+      else
+        v_exp := private.dividend_expected(v_units, e.amount, v_h.dividend_tax_pct, v_h.dividend_fee_per_share);
+        update public.holding_dividends set
+          event_id = e.id, ex_date = e.ex_date, pay_date = e.pay_date, record_date = e.record_date,
+          units = v_units, per_share = e.amount, tax_pct = v_h.dividend_tax_pct,
+          expected_gross = (v_exp ->> 'gross')::numeric, expected_tax = (v_exp ->> 'tax')::numeric,
+          expected_fees = (v_exp ->> 'fees')::numeric, expected_net = (v_exp ->> 'net')::numeric,
+          review_reason = case when review_reason = 'moved_ex_date' then null else review_reason end,
+          version = version + 1
+        where id = r.id;
+        v_updated := v_updated + 1;
+      end if;
+    elsif r.review_reason is null
+       and ((r.review_baseline ->> 'ex_date')::date is distinct from r.ex_date
+            or (r.review_baseline ->> 'per_share')::numeric is distinct from r.per_share) then
+      update public.holding_dividends set review_reason = 'moved_ex_date', version = version + 1 where id = r.id;
+      v_flagged := v_flagged + 1;
+    end if;
+  end loop;
+
+  -- 2. Every listed event whose ex-date has passed, as listed by a check made
+  -- on or after it, so a date that moved before then is never earned.
+  for e in
+    select * from public.dividend_events ev
+    where ev.symbol = v_h.price_symbol and ev.ex_date >= v_from and ev.ex_date <= v_today
+      and ev.superseded_by is null
+      and v_state.last_success_at is not null and ev.last_seen_at = v_state.last_success_at
+      and (v_state.last_success_at at time zone 'Asia/Dubai')::date >= ev.ex_date
+    order by ev.ex_date
+  loop
+    v_units := coalesce(private.units_on_ex_date(v_h.id, e.ex_date), 0);
+    v_split_on_ex := exists (select 1 from public.dividend_splits sp where sp.symbol = e.symbol and sp.effective_date = e.ex_date);
+
+    select * into r from public.holding_dividends d where d.holding_id = v_h.id and d.event_id = e.id;
+    if found then
+      if r.status = 'skipped' then
+        continue;
+      end if;
+      -- A split found later on the ex-date leaves its basis unclear: asked
+      -- about, and not worked out again until a member looks.
+      if v_split_on_ex then
+        if r.review_reason is null and not coalesce((r.review_baseline ->> 'split_kept')::boolean, false) then
+          update public.holding_dividends set review_reason = 'split_on_ex_date', version = version + 1 where id = r.id;
+          v_flagged := v_flagged + 1;
+        end if;
+        continue;
+      end if;
+      -- Listed again after it went missing: the question no longer stands.
+      if r.review_reason = 'moved_ex_date' then
+        update public.holding_dividends set review_reason = null, version = version + 1 where id = r.id
+        returning * into r;
+        v_updated := v_updated + 1;
+      end if;
+      if r.status = 'earned' and not r.fixed then
+        if v_units = 0 then
+          delete from public.holding_dividends where id = r.id;
+          v_removed := v_removed + 1;
+          continue;
+        end if;
+        v_exp := private.dividend_expected(v_units, e.amount, v_h.dividend_tax_pct, v_h.dividend_fee_per_share);
+        if r.units is distinct from v_units or r.per_share is distinct from e.amount or r.ex_date is distinct from e.ex_date
+           or r.pay_date is distinct from e.pay_date or r.record_date is distinct from e.record_date
+           or r.tax_pct is distinct from v_h.dividend_tax_pct or r.expected_net is distinct from (v_exp ->> 'net')::numeric
+           or r.expected_fees is distinct from (v_exp ->> 'fees')::numeric then
+          update public.holding_dividends set
+            units = v_units, per_share = e.amount, ex_date = e.ex_date, pay_date = e.pay_date, record_date = e.record_date,
+            tax_pct = v_h.dividend_tax_pct,
+            expected_gross = (v_exp ->> 'gross')::numeric, expected_tax = (v_exp ->> 'tax')::numeric,
+            expected_fees = (v_exp ->> 'fees')::numeric, expected_net = (v_exp ->> 'net')::numeric,
+            version = version + 1
+          where id = r.id;
+          v_updated := v_updated + 1;
+        end if;
+      elsif r.review_reason is null then
+        -- A row a member received, presumed or fixed keeps its figures; a
+        -- change under it is asked about once, unless already kept.
+        if r.units is distinct from v_units and (r.review_baseline ->> 'units')::numeric is distinct from v_units then
+          update public.holding_dividends set review_reason = 'trades_changed', version = version + 1 where id = r.id;
+          v_flagged := v_flagged + 1;
+        elsif r.per_share is distinct from e.amount and (r.review_baseline ->> 'per_share')::numeric is distinct from e.amount then
+          update public.holding_dividends set review_reason = 'feed_changed', version = version + 1 where id = r.id;
+          v_flagged := v_flagged + 1;
+        end if;
+      end if;
+      continue;
+    end if;
+
+    -- From here a new dividend would be made. A pay date before the ex-date
+    -- (some large special distributions) and a split on the ex-date itself
+    -- are left for a member to add by hand.
+    if v_units = 0 or e.pay_date < e.ex_date or v_split_on_ex then
+      continue;
+    end if;
+    -- Nothing is made beside a dividend that stayed on an older date this
+    -- event replaced, or on one the source has stopped listing nearby: either
+    -- may be this very dividend.
+    if exists (
+      select 1 from public.holding_dividends d join public.dividend_events a on a.id = d.event_id
+      where d.holding_id = v_h.id and d.event_id <> e.id and d.status <> 'skipped'
+        and (a.superseded_by = e.id
+             or (a.superseded_by is null and a.last_seen_at <> v_state.last_success_at and abs(a.ex_date - e.ex_date) <= 15))) then
+      continue;
+    end if;
+
+    -- A dividend a member added for the same ex-date is this event: link it,
+    -- keeping its figures, and ask about it if the feed's amount differs.
+    select * into r from public.holding_dividends d
+    where d.holding_id = v_h.id and d.event_id is null and d.ex_date = e.ex_date;
+    if found then
+      update public.holding_dividends set
+        event_id = e.id,
+        review_reason = case
+          when review_reason is null and per_share is distinct from e.amount
+            and (review_baseline ->> 'per_share')::numeric is distinct from e.amount then 'feed_changed'
+          else review_reason end,
+        version = version + 1
+      where id = r.id
+      returning * into r;
+      if r.review_reason = 'feed_changed' then v_flagged := v_flagged + 1; else v_updated := v_updated + 1; end if;
+      continue;
+    end if;
+
+    -- One added for a date close to it may be the same dividend under a date
+    -- the member remembered differently: nothing is made, and it is asked,
+    -- once, about the first such event.
+    select * into r from public.holding_dividends d
+    where d.holding_id = v_h.id and d.event_id is null
+      and (abs(d.ex_date - e.ex_date) <= 10 or abs(d.pay_date - e.pay_date) <= 10)
+      and not coalesce(d.review_baseline -> 'not_duplicate_of', '[]'::jsonb) ? e.id::text
+    order by abs(coalesce(d.ex_date, d.pay_date) - coalesce(e.ex_date, e.pay_date)), d.id
+    limit 1;
+    if found then
+      if r.review_reason is null then
+        update public.holding_dividends set review_reason = 'possible_duplicate', review_event_id = e.id, version = version + 1
+        where id = r.id;
+        v_flagged := v_flagged + 1;
+      end if;
+      continue;
+    end if;
+
+    v_exp := private.dividend_expected(v_units, e.amount, v_h.dividend_tax_pct, v_h.dividend_fee_per_share);
+    insert into public.holding_dividends (
+      household_id, holding_id, event_id, ex_date, record_date, pay_date, currency, units, units_basis, per_share, tax_pct,
+      expected_gross, expected_tax, expected_fees, expected_net, status, paid_into_account_id, source)
+    values (
+      v_h.household_id, v_h.id, e.id, e.ex_date, e.record_date, e.pay_date, v_h.currency, v_units, 'trades', e.amount, v_h.dividend_tax_pct,
+      (v_exp ->> 'gross')::numeric, (v_exp ->> 'tax')::numeric, (v_exp ->> 'fees')::numeric, (v_exp ->> 'net')::numeric,
+      'earned', v_dest, 'feed');
+    v_made := v_made + 1;
+  end loop;
+
+  -- 3. An earned row nobody fixed follows a change of where the fund's
+  -- dividends land.
+  with moved as (
+    update public.holding_dividends set paid_into_account_id = v_dest, version = version + 1
+    where holding_id = v_h.id and status = 'earned' and not fixed and paid_into_account_id is distinct from v_dest
+    returning 1)
+  select v_updated + count(*) into v_updated from moved;
+
+  -- 4. A dividend that lands outside a broker fund moves no balance and is
+  -- never asked about: it is presumed received 30 days after its ex-date (an
+  -- Indian company must pay within 30 days of declaring, and declares before
+  -- the record date), or once its pay date has passed if that is later. One
+  -- whose event the source has dropped may never be paid, so it is not.
+  with presumed as (
+    update public.holding_dividends d set
+      status = 'presumed',
+      credited_on = greatest(d.ex_date + 30, coalesce(d.pay_date, d.ex_date + 30)),
+      credited_on_estimated = true,
+      version = d.version + 1
+    where d.holding_id = v_h.id and d.status = 'earned' and d.ex_date is not null
+      and d.review_reason is distinct from 'moved_ex_date'
+      and greatest(d.ex_date + 30, coalesce(d.pay_date, d.ex_date + 30)) <= v_today
+      and not exists (select 1 from public.accounts a where a.id = d.paid_into_account_id and a.type = 'broker_funds')
+    returning 1)
+  select count(*) into v_presumed from presumed;
+
+  return jsonb_build_object('made', v_made, 'updated', v_updated, 'removed', v_removed, 'flagged', v_flagged, 'presumed', v_presumed);
+end;
+$$;
