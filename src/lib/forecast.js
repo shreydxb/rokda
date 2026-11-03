@@ -9,8 +9,9 @@ import { PLANNING_DEFAULTS, assumptionsSaved } from './planningDefaults';
 // The current, still-open month is excluded — its spend is partial and would
 // understate a real month. The plan is always household-wide ("Both"): an
 // individual stop year would need income and spend cleanly split per person,
-// which isn't tracked, so scopeMemberId is always null here.
-export function closedMonths(transactions, now = new Date()) {
+// which isn't tracked, so the plan never passes a scope. The Dividends tab
+// does, to set dividends beside one member's spending.
+export function closedMonths(transactions, now = new Date(), scopeMemberId = null) {
   const byMonth = new Map();
   const currentMonth = monthKey(now);
   for (const t of transactions) {
@@ -24,7 +25,7 @@ export function closedMonths(transactions, now = new Date()) {
     const bucket = byMonth.get(key);
     // A refund nets against spend rather than inflating income, the same as
     // every other consumer of transaction amounts (SHR-252).
-    applyToIncomeSpend(t, scopedValue(t.amount, t, null), bucket);
+    applyToIncomeSpend(t, scopedValue(t.amount, t, scopeMemberId), bucket);
   }
   // Chronological, so "the last 12 closed months" means the newest twelve
   // rather than whichever twelve happened to be inserted last.
