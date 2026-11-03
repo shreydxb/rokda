@@ -20,6 +20,7 @@ import {
   parseYahooChart,
   planAlphaVantageCalls,
   planYahooSymbols,
+  redactSecrets,
   yahooUrl,
 } from "./sources.ts";
 
@@ -45,7 +46,7 @@ async function fetchJson(url: string, init?: RequestInit): Promise<unknown> {
 }
 
 function failure(err: unknown): { ok: false; error: string } {
-  return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  return { ok: false, error: redactSecrets(err instanceof Error ? err.message : String(err)) };
 }
 
 async function record(symbol: string, provider: string, kind: "dividends" | "splits", result: FetchResult<unknown>): Promise<boolean> {
