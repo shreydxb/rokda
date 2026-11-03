@@ -11,6 +11,7 @@ function builder(table) {
   const chain = {
     select: () => chain,
     eq: () => chain,
+    gte: () => chain,
     order: () => chain,
     range: () => Promise.resolve(result()),
     maybeSingle: () => Promise.resolve(result()),
@@ -25,6 +26,11 @@ vi.mock('../lib/supabaseClient', () => ({
     from: (table) => {
       reads.push(table);
       return builder(table);
+    },
+    // A database function read as a source, as the dividend feed's status is.
+    rpc: (name) => {
+      reads.push(`rpc:${name}`);
+      return builder(`rpc:${name}`);
     },
   },
 }));

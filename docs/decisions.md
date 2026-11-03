@@ -3038,7 +3038,7 @@ the bot uses.
 The household wants to see dividends as passive income: what came in, what
 is coming, and whether it grows into a real share of what it lives on
 (SHR-366). The first part records them, the second their receipts and the
-bot's question; the Dividends tab follows.
+bot's question, the third the Dividends tab.
 
 - **Not income transactions.** Recorded income feeds the Life plan's monthly
   saving, and the plan's return already includes dividends, so a dividend
@@ -3147,3 +3147,57 @@ bot's question; the Dividends tab follows.
   added dividend is not the feed's one. The nightly run does not ask again,
   and a dividend kept apart from the feed's leaves the feed's own to be
   earned beside it.
+- **The tab is cash flow, not a second return.** The Life plan's return
+  already includes dividends, so the Dividends tab shows what came in and
+  what is coming, never a yield added to net worth. Received is the last
+  twelve months by credit date, with the presumed part said apart; expected
+  is the next twelve months; both in dirhams.
+- **Today's basis.** A past amount per share is divided by the splits after
+  its ex-date (a split on the ex-date itself is already in it), so a
+  projection at today's units never multiplies an old amount by a split
+  that came later. A split a member has recorded as a trade counts before
+  the feed lists it (a US share's splits are checked monthly); a feed split
+  and a split trade of the same ratio within a month are the same split,
+  counted once, and Needs you asks only about a feed split no trade shows.
+- **One-offs are asked, not guessed.** A payment more than twice the median
+  of the share's payments in the 24 months before it, with at least three
+  of them, may hold a one-off part. Until a member answers, its excess is
+  left out of projections; the answer then rules. Only the last 24 months
+  are asked about.
+- **Projections from the share's own rhythm.** A share pays yearly,
+  half-yearly, quarterly or monthly when its ordinary payments over the
+  last 24 months (or what the source covers, if less) come strictly within
+  25% of that; otherwise it is irregular, and expected is its average a
+  year, with no month. Each ordinary payment of the last twelve months
+  recurs a year later at today's units, less withholding and fees, in the
+  month its usual ex-date-to-pay gap gives, if that is within the twelve
+  months: a dividend earned and not yet paid counts as earned, and its
+  repeat a year on is paid after them, so Expected does not jump on an
+  ex-date. A declared dividend replaces the nearest projected one within
+  half the interval, never more than one. A share that has not paid for one
+  and a half intervals, with nothing declared, may have stopped; one with
+  too little history cannot be projected. Neither shows a zero expected or
+  a yield: the row says why, and the headline says how many holdings are
+  not projected. A sold holding has no yield either.
+- **Dirhams by the day that fixes them.** An earned dividend at its
+  ex-date's rate, a received one at its credit date's, a projection at
+  today's. A rupee figure with no rate is not counted, and the total says
+  how many were left out instead of counting them as zero.
+- **Coverage, said once.** Each market counts from its holdings' earliest
+  opening entry (or an earlier imported receipt). When that is under a
+  year ago, the headline says "since" the date, and when the two markets
+  start apart it says so. A market none of whose holdings has an opening
+  entry records nothing and says so, as does each holding without one. The
+  month chart starts where the record does, at most 24 months back: a month
+  nobody tracked is not shown as nothing received. Beside spending, from
+  three closed months of it: received over the last twelve closed months
+  once there are twelve and every market's record covers them, else
+  expected over a year at the average month.
+- **Feed health is the members' to see.** `dividend_feed_status()` gives a
+  member the last success, failures and coverage of the symbols their
+  household follows, never the error text, which could carry a key; the
+  nightly run also strips the key from what it records.
+- **Three files of sums.** `dividendHistory.js` reads the feed (today's
+  basis, one-offs, frequency), `dividendForecast.js` projects one holding,
+  and `dividendSummary.js` turns them into the tab's figures in dirhams and
+  scope. Each is pure and tested alone, and the screen only lays them out.

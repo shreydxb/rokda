@@ -71,6 +71,16 @@ describe('SHR-252: the plan treats refunds the same as Overview', () => {
     expect([...months.values()][0]).toEqual({ income: 0, spend: 0 });
   });
 
+  it("counts spending in one member's scope: a shared expense half, their own in full, another's not at all", () => {
+    const rows = [
+      { amount: -100, kind: 'expense', occurred_at: '2026-08-05', is_shared: true, category_id: 'c' },
+      { amount: -40, kind: 'expense', occurred_at: '2026-08-06', is_shared: false, owner_member_id: 'm1', category_id: 'c' },
+      { amount: -30, kind: 'expense', occurred_at: '2026-08-07', is_shared: false, owner_member_id: 'm2', category_id: 'c' },
+    ];
+    expect([...closedMonths(rows, new Date(2026, 8, 6), 'm1').values()][0]).toEqual({ income: 0, spend: 90 });
+    expect([...closedMonths(rows, new Date(2026, 8, 6)).values()][0]).toEqual({ income: 0, spend: 170 });
+  });
+
   it('still counts real income and real spend normally', () => {
     const rows = [
       { amount: 500, kind: 'income', occurred_at: '2026-08-01', is_shared: true },

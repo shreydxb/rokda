@@ -194,6 +194,23 @@ here, because this repository is public.
   receipt was already in a balance confirmed on its day; "Add a dividend"
   adds one the feed missed. A flagged one can be kept as it is or linked to
   the feed's dividend, and a feed dividend's one-off part given.
+- **Dividends**: dividends as passive income, in dirhams and in the scope
+  chosen. At the top, what was received in the last twelve months (or since
+  the record starts, with the presumed part said apart) and what is expected
+  in the next twelve, about so much a month, then one line per market. Under
+  it: "Coming up", the earned and declared dividends still to come in, with
+  "Record" for one that arrived; "Needs you", the flagged dividends, the
+  one-off questions ("Yes, part was a one-off" / "No, all ordinary"), splits
+  the trades don't show and dividends to add by hand; "By month", a bar a
+  month (presumed receipts paler, the year ahead lighter) with a total per
+  year, switching between Received and Earned (a receipt with no ex-date is
+  left out of Earned, and it says how many); "By holding", each share's
+  rhythm, last amount, received, expected, yield on value and on cost, and
+  next payment, opening its dividends, with the shares that paid nothing,
+  whose checks fail or that are not checked yet in folds; "Where it comes
+  from", expected by market (with its withholding) and by sector; and "How
+  fresh this is", when each market's feed last checked, how far back its
+  history goes, any failing checks, and what the figures leave out.
 - **Statements**: one section per card (when it closes and is due), with the
   statements still to check first and the settled ones folded under
   "Checked". Each statement shows its period and status, then three figures

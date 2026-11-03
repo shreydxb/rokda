@@ -18,6 +18,11 @@ export function shortDate(day, today = householdToday()) {
   return new Date(`${day}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: sameYear ? undefined : 'numeric', timeZone: 'UTC' });
 }
 
+// "Mar 2027", for a month a dividend is projected into.
+export function monthLabel(month) {
+  return new Date(`${month}-01T00:00:00Z`).toLocaleDateString('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+}
+
 // A holding's dividends, newest first: by ex-date, or for one added without
 // an ex-date, by the day it was credited.
 export function dividendsOfHolding(rows, holdingId) {

@@ -667,5 +667,12 @@
   "fingerprint": "e5b450e67b1ec96bbce1f3cebc7414e9",
   "framingFingerprint": "67627aeb1dc481bd07ab8d71aeaa55a8",
   "fingerprintVersion": 2
+ },
+ {
+  "version": "20261103104639",
+  "name": "dividend_tab",
+  "fingerprint": "df4d76441e01738d2cf66b0e38077eff",
+  "framingFingerprint": "ac5ebe0b5eeed2ad38b81b1486b22a61",
+  "fingerprintVersion": 2
  }
 ]

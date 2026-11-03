@@ -11,6 +11,7 @@ import {
   parseYahooChart,
   planAlphaVantageCalls,
   planYahooSymbols,
+  redactSecrets,
 } from "./sources.ts";
 
 const fixture = (name: string) => JSON.parse(Deno.readTextFileSync(new URL(`./fixtures/${name}`, import.meta.url)));
@@ -154,4 +155,15 @@ Deno.test("Alpha Vantage: an unreadable entry fails the answer; a zero amount is
   const zero = parseAlphaVantageDividends({ data: [entry({ amount: "0.0" }), entry({ ex_dividend_date: "2025-06-01" })] });
   assert(zero.ok);
   assertEquals(zero.items.length, 1);
+});
+
+// Deno's network errors quote the request URL, and Alpha Vantage's carries
+// the key: the feed records errors, so the key must never reach one.
+Deno.test("a recorded error never carries the API key", () => {
+  assertEquals(
+    redactSecrets("error sending request for url (https://www.alphavantage.co/query?function=DIVIDENDS&symbol=ABC&apikey=SECRET123)"),
+    "error sending request for url (https://www.alphavantage.co/query?function=DIVIDENDS&symbol=ABC&apikey=***)",
+  );
+  assertEquals(redactSecrets("https://www.alphavantage.co/query?apikey=SECRET123&function=SPLITS"), "https://www.alphavantage.co/query?apikey=***&function=SPLITS");
+  assertEquals(redactSecrets("timed out"), "timed out");
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { canRecord, dividendRefusalMessage, dividendRow, dividendStatusText, dividendsOfHolding, movementLines, reviewText } from './dividends';
+import { canRecord, dividendRefusalMessage, dividendRow, dividendStatusText, dividendsOfHolding, monthLabel, movementLines, reviewText } from './dividends';
 
 describe('dividendsOfHolding', () => {
   it("keeps that holding's rows, newest first by ex-date or, without one, credit date", () => {
@@ -107,5 +107,11 @@ describe('movementLines', () => {
   it('says when no balance moves', () => {
     expect(movementLines([])).toEqual(['Moves no balance']);
     expect(movementLines(null)).toEqual(['Moves no balance']);
+  });
+});
+
+describe('monthLabel', () => {
+  it('names a month and its year', () => {
+    expect(monthLabel('2027-03')).toBe('Mar 2027');
   });
 });

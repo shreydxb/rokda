@@ -38,6 +38,13 @@ export type FollowedSymbol = {
 
 export type AlphaVantageCall = { fn: "DIVIDENDS" | "SPLITS"; symbol: string };
 
+// An error message with any API key in it blanked. Deno's network errors
+// quote the request URL, and Alpha Vantage's carries the key; the feed
+// records errors in the database, so the key must never reach one.
+export function redactSecrets(message: string): string {
+  return message.replace(/apikey=[^&\s)]*/gi, "apikey=***");
+}
+
 export function yahooUrl(symbol: string): string {
   return `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=max&interval=1mo&events=div,split`;
 }
