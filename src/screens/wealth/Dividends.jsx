@@ -13,6 +13,7 @@ import {
 } from '../../lib/dividendSummary';
 import DividendForm from './DividendForm';
 import HoldingDividends from './HoldingDividends';
+import TaxYears from './TaxYears';
 import './HoldingTrades.css';
 import './Dividends.css';
 
@@ -45,9 +46,13 @@ export default function Dividends({ household, members, me, data, loading }) {
     );
   }
   if (input.holdings.length === 0) {
+    // Tax history outlives the holdings it came from.
     return (
-      <div className="ov-empty dv-gap">
-        <div className="ov-empty-body">{"No holdings that pay dividends. US-listed and Indian shares appear here once they're added under Investments."}</div>
+      <div className="dv-tab">
+        <div className="ov-empty dv-gap">
+          <div className="ov-empty-body">{"No holdings that pay dividends. US-listed and Indian shares appear here once they're added under Investments."}</div>
+        </div>
+        <TaxYears members={members} scopeMemberId={scopeMemberId} data={data} />
       </div>
     );
   }
@@ -62,6 +67,7 @@ export default function Dividends({ household, members, me, data, loading }) {
       <ByHolding input={input} data={data} money={money} />
       <Sources input={input} money={money} />
       <Freshness input={input} />
+      <TaxYears members={members} scopeMemberId={scopeMemberId} data={data} />
     </div>
   );
 }

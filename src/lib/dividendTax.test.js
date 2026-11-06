@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  dividendTaxSurplus, dividendTaxYear, financialYearOf, lineKey, refundEstimate, refundState, rokdaShareYears, shareKey, statementCheck, taxRefusalMessage,
+  dividendTaxSurplus, dividendTaxYear, dividendsInYear, financialYearOf, lineKey, refundEstimate, refundState, rokdaShareYears, shareKey, statementCheck, taxRefusalMessage,
   taxYearLabel, taxYears,
 } from './dividendTax';
 
@@ -238,7 +238,7 @@ describe("what happened to a return's refund", () => {
   it('interest and an offset', () => {
     const due = [processed(10000, 300), event('offset_against_demand', { amount: 2000 })];
     expect(refundState(filed(), [...due, event('refund_credited', { amount: 8000 })])).toEqual(
-      { stage: 'partly_settled', determined: 10000, interest: 300, credited: 8000, offset: 2000, unexplained: 300 });
+      { stage: 'partly_settled', determined: 10000, interest: 300, credited: 8000, offset: 2000, unexplained: 300, lastCreditedOn: '2026-09-01' });
     expect(refundState(filed(), [...due, event('refund_credited', { amount: 8300 })])).toMatchObject({ stage: 'settled', unexplained: 0 });
     expect(refundState(filed(), [processed(10000, 300)]).stage).toBe('refund_due');
   });
@@ -334,5 +334,26 @@ describe('refusals', () => {
       expect(taxRefusalMessage(code)).not.toBe(fallback);
     }
     expect(taxRefusalMessage('identifier_in_text')).toBe('Leave out PAN, account and acknowledgement numbers.');
+  });
+});
+
+describe("a year's dividends of a share", () => {
+  it('are the ones its sums count', () => {
+    const a1 = rec(IN_A, 500, 104, { id: 'y1', credited_on: '2025-08-01' });
+    const a2 = rec(IN_A, 500, 104, { id: 'y2', credited_on: '2025-05-01' });
+    const b1 = pre(IN_A2, 500, 104, { id: 'y3', credited_on: '2025-06-01' });
+    const others = [
+      rec(IN_S, 500, 104, { id: 'n1' }), div(IN_A, { id: 'n2', status: 'earned', credited_on: null }), rec(IN_A, 500, 104, { id: 'n3', credited_on: '2026-05-01' }),
+    ];
+    const rows = dividendsInYear({ holdings: [IN_A, IN_A2, IN_S], dividends: [a1, a2, b1, ...others], memberId: 'm1', year: 2025, key: 'ABC.NS' });
+    expect(rows.map((r) => r.id)).toEqual(['y2', 'y3', 'y1']);
+  });
+});
+
+describe('the last credit date', () => {
+  it('is the latest refund credited', () => {
+    expect(refundState(filed(), [processed(5000), event('refund_credited', { amount: 100, happened_on: '2026-10-05' }),
+      event('refund_credited', { amount: 100, happened_on: '2026-09-20' })]).lastCreditedOn).toBe('2026-10-05');
+    expect(refundState(filed(), [processed(5000)]).lastCreditedOn).toBeNull();
   });
 });

@@ -277,3 +277,18 @@ describe('Dividends: where it comes from, and how fresh', () => {
     }
   });
 });
+
+describe('Dividends: tax years', () => {
+  it('a tax load failure never hides the tab', () => {
+    open(data({ errors: { taxReturns: new Error('x') }, loaded: {} }));
+    expect(section('Dividends at a glance')).toBeTruthy();
+    expect(within(section('Tax years')).getByRole('alert').textContent).toMatch(/tax returns/);
+  });
+
+  it('comes last in the tab', () => {
+    open();
+    const regions = screen.getAllByRole('region').map((r) => r.getAttribute('aria-labelledby'));
+    expect(regions.at(-1)).toBe('dv-tax');
+  });
+});
+

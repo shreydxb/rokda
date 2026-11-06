@@ -3250,3 +3250,11 @@ and the department's statements, and works out each year's figures in
   and intimation are read in a working session, shown as a worksheet, saved
   through the functions on the household's go, and deleted. Only the
   service role imports a statement.
+- **The screen (part 2).** "Tax years" closes the Dividends tab, in rupees
+  as the department reckons them, never converted. One row per member and
+  year says the year in one line: the dividends, how many differences the
+  statements show (rounding is not one), and the surplus or the estimate.
+  An estimate appears only at the claim basis set for that year, last
+  year's shown beside as reference. A failed read of the tax records is
+  said in the section and never hides the rest of the tab, and tax history
+  still shows once no dividend-paying holding is left.

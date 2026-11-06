@@ -90,6 +90,19 @@ export function rokdaShareYears(holdings, dividends) {
   return { rows, unassigned: [...unassigned.values()] };
 }
 
+// The dividends a share-year's sums count, oldest credit first: received and
+// presumed dividends of the member's own Indian holdings of that share.
+export function dividendsInYear({ holdings, dividends, memberId, year, key }) {
+  const byId = new Map((holdings ?? []).map((h) => [h.id, h]));
+  return (dividends ?? [])
+    .filter((d) => {
+      const h = byId.get(d.holding_id);
+      return isIndian(h) && !h.is_shared && h.owner_member_id === memberId && shareKey(h) === key
+        && (d.status === 'received' || d.status === 'presumed') && dividendTaxYear(d).year === year;
+    })
+    .sort((a, b) => (a.credited_on < b.credited_on ? -1 : a.credited_on > b.credited_on ? 1 : 0));
+}
+
 const SETTLED_LABELS = new Set(['agrees', 'within_rounding', 'not_imported', 'neither']);
 
 // One figure of a share against one statement, in paise, before reasons.
@@ -214,9 +227,10 @@ export function refundState(taxReturn, events) {
   const sum = (kind) => mine.filter((e) => e.kind === kind).reduce((total, e) => total + paise(e.amount), 0);
   const credited = sum('refund_credited');
   const offset = sum('offset_against_demand');
+  const lastCreditedOn = mine.filter((e) => e.kind === 'refund_credited').map((e) => e.happened_on).sort().at(-1) ?? null;
   const state = (stage, determined = null, interest = null, unexplained = null) =>
     ({ stage, determined: determined == null ? null : rupees(determined), interest: interest == null ? null : rupees(interest),
-      credited: rupees(credited), offset: rupees(offset), unexplained: unexplained == null ? null : rupees(unexplained) });
+      credited: rupees(credited), offset: rupees(offset), unexplained: unexplained == null ? null : rupees(unexplained), lastCreditedOn });
   if (!isFiled(taxReturn)) return state('not_filed');
   const processing = mine.filter((e) => e.kind === 'processed').sort(latestFirst)[0];
   if (!processing) return state('filed');
