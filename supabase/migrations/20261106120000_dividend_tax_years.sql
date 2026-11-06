@@ -580,6 +580,10 @@ begin
         refund_interest = e.refund_interest, tds_allowed_total = e.tds_allowed_total, amount = e.amount, note = e.note,
         updated_by = (v_caller ->> 'actor')::uuid
     where id = e.id;
+    -- Removed since it was found: a removal committed while this waited.
+    if not found then
+      return jsonb_build_object('ok', false, 'error', 'event_not_found');
+    end if;
   end if;
   return jsonb_build_object('ok', true, 'id', e.id);
 end;

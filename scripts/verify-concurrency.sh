@@ -424,6 +424,44 @@ else
 fi
 rm -f /tmp/rokda_race_import_208.$$ /tmp/rokda_race_import_210.$$
 
+echo "verify-concurrency: fixing an event while it is removed (SHR-366, tax years)"
+# The removal starts first and holds the event until it commits; the fix
+# found the event before that and must not then report a save that wrote
+# nothing.
+seed
+psql -d "$DB" -v ON_ERROR_STOP=1 -q <<'SQL' >/dev/null
+set client_min_messages = warning;
+insert into tax_returns (id, household_id, member_id, financial_year, revision, filed_on) values
+  ('fe100000-0000-4000-8000-000000000001', 'd1000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-00000000000a', 2025, 1, '2026-07-20');
+insert into tax_return_events (id, household_id, return_id, revision, kind, happened_on, amount) values
+  ('fe500000-0000-4000-8000-000000000001', 'd1000000-0000-4000-8000-000000000001', 'fe100000-0000-4000-8000-000000000001', 1, 'refund_credited', '2026-09-20', 100);
+SQL
+psql -d "$DB" -At > /tmp/rokda_race_remove.$$ 2>&1 <<SQL &
+begin;
+select set_config('request.jwt.claim.role', 'service_role', true);
+select pg_sleep(0.2);
+select remove_tax_return_event('e1000000-0000-4000-8000-00000000000a', 'fe500000-0000-4000-8000-000000000001');
+select pg_sleep(0.8);
+commit;
+SQL
+psql -d "$DB" -At > /tmp/rokda_race_fix.$$ 2>&1 <<SQL &
+begin;
+select set_config('request.jwt.claim.role', 'service_role', true);
+select pg_sleep(0.5);
+select save_tax_return_event('e1000000-0000-4000-8000-00000000000a', 2025, '{"kind": "refund_credited", "happened_on": "2026-09-20", "amount": 200}', 'fe500000-0000-4000-8000-000000000001');
+commit;
+SQL
+wait
+fixed=$(grep -o '"error": "[a-z_]*"\|"ok": true' /tmp/rokda_race_fix.$$ | head -1)
+left=$(psql -At -d "$DB" -c "select count(*) from tax_return_events")
+if [ "$fixed,$left" = '"error": "event_not_found",0' ]; then
+  echo "  ok   a fix racing a removal is told the event is gone (events left=$left)"
+else
+  echo "  FAIL a fix racing a removal gave $fixed with $left events left, expected \"error\": \"event_not_found\",0" >&2
+  fail=1
+fi
+rm -f /tmp/rokda_race_remove.$$ /tmp/rokda_race_fix.$$
+
 if [ "$fail" -ne 0 ]; then
   echo "verify-concurrency: FAILED" >&2
   exit 1

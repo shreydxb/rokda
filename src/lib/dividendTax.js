@@ -90,11 +90,13 @@ export function rokdaShareYears(holdings, dividends) {
   return { rows, unassigned: [...unassigned.values()] };
 }
 
-const SETTLED_LABELS = new Set(['agrees', 'within_rounding', 'not_imported']);
+const SETTLED_LABELS = new Set(['agrees', 'within_rounding', 'not_imported', 'neither']);
 
 // One figure of a share against one statement, in paise, before reasons.
 function compare({ imported, statementPaise, rokdaPaise, count }) {
   if (!imported) return { difference: null, label: 'not_imported', reasons: [] };
+  // Nothing on either side: there is nothing to agree about.
+  if (count === 0 && statementPaise == null) return { difference: null, label: 'neither', reasons: [] };
   const difference = (statementPaise ?? 0) - rokdaPaise;
   let label;
   if (count === 0 && statementPaise != null) label = 'only_in_statement';
@@ -113,7 +115,18 @@ export function statementCheck({ shareYears, statements, lines }) {
   const statementOf = new Map((statements ?? []).map((s) => [`${s.member_id}|${s.financial_year}|${s.source}`, s]));
   const linesOf = new Map();
   for (const l of lines ?? []) linesOf.set(l.statement_id, [...(linesOf.get(l.statement_id) ?? []), l]);
-  const lineIn = (statement, key) => (statement ? (linesOf.get(statement.id) ?? []).find((l) => lineKey(l) === key) ?? null : null);
+  // A share can appear under two payer names in one statement (a company
+  // renamed in the year): its lines are added together.
+  const lineIn = (statement, key) => {
+    const own = statement ? (linesOf.get(statement.id) ?? []).filter((l) => lineKey(l) === key) : [];
+    if (!own.length) return null;
+    const tdsKnown = own.some((l) => l.tds != null);
+    return {
+      payer: own[0].payer,
+      gross: rupees(own.reduce((t, l) => t + paise(l.gross), 0)),
+      tds: tdsKnown ? rupees(own.reduce((t, l) => t + paise(l.tds ?? 0), 0)) : null,
+    };
+  };
 
   const entries = new Map();
   for (const row of shareYears ?? []) entries.set(`${row.memberId}|${row.year}|${row.key}`, { memberId: row.memberId, year: row.year, key: row.key, row });

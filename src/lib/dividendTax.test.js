@@ -172,6 +172,23 @@ describe('the statement check', () => {
     expect(c.rokda.presumed).toEqual({ count: 1, gross: 1000, tax: 208 });
   });
 
+  it('two payer lines for one share are added together', () => {
+    const c = find(check({
+      dividends: [rec(IN_A, 1000, 208)], statements: [statement('s-26', '26as', 2025)],
+      lines: [line('s-26', 'ABC.NS', 600, 124.8, 'ABC Limited'), line('s-26', 'ABC.NS', 400, 83.2, 'ABC Old Name Limited')],
+    }), 2025);
+    expect(c.tax).toEqual({ difference: 0, label: 'agrees', reasons: [] });
+    expect(c.f26as).toEqual({ gross: 1000, tds: 208 });
+  });
+
+  it('a share on neither side of a statement is not said to agree', () => {
+    const c = find(check({
+      dividends: [], statements: [statement('s-ais', 'ais', 2025), statement('s-26', '26as', 2025)], lines: [line('s-ais', 'ABC.NS', 1000, null)],
+    }), 2025);
+    expect(c.income.label).toBe('only_in_statement');
+    expect(c.tax).toEqual({ difference: null, label: 'neither', reasons: [] });
+  });
+
   it("one member's statement never checks another's dividends", () => {
     const checks = check({
       dividends: [rec(IN_A, 1000, 208)], statements: [statement('s-26', '26as', 2025, 'm2')], lines: [line('s-26', 'ABC.NS', 1000, 208)],
