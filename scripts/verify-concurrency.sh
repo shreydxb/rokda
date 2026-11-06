@@ -394,6 +394,36 @@ else
 fi
 rm -f /tmp/rokda_race_receipt.$$
 
+echo "verify-concurrency: two imports of one statement at once (SHR-366, tax years)"
+# Both were told no statement was held (expected revision 0). The second waits
+# for the first's lock, then must find a statement it was not shown and be
+# told so, never overwrite it or add a second.
+seed
+IMPORT="select set_config('request.jwt.claim.role', 'service_role', true);
+select import_tax_statement('e1000000-0000-4000-8000-00000000000a', 2025, '26as', '2026-06-15',
+  '[{\"symbol\": null, \"payer\": \"ABC Limited\", \"gross\": 1000, \"tds\": TDS}]', 0);"
+for tds in 208 210; do
+  psql -d "$DB" -At > /tmp/rokda_race_import_$tds.$$ 2>&1 <<SQL &
+begin;
+select pg_sleep(0.4);
+${IMPORT/TDS/$tds}
+select pg_sleep(0.6);
+commit;
+SQL
+done
+wait
+imported=$(cat /tmp/rokda_race_import_208.$$ /tmp/rokda_race_import_210.$$ | grep -c '"ok": true' || true)
+stale=$(cat /tmp/rokda_race_import_208.$$ /tmp/rokda_race_import_210.$$ | grep -c '"error": "stale"' || true)
+winner=$(grep -l '"ok": true' /tmp/rokda_race_import_208.$$ /tmp/rokda_race_import_210.$$ | sed -E 's/.*_([0-9]+)\..*/\1/' || true)
+held=$(psql -At -d "$DB" -c "select count(*) || ',' || max(s.revision) || ',' || string_agg(l.tds::text, ',') from tax_statements s join tax_statement_lines l on l.statement_id = s.id")
+if [ "$imported,$stale,$held" = "1,1,1,1,$winner.00" ]; then
+  echo "  ok   two imports of one statement: one saves, one is stale (statements,revision,tds=$held)"
+else
+  echo "  FAIL two imports of one statement gave imported=$imported stale=$stale statements,revision,tds=$held, expected 1,1,1,1,$winner.00" >&2
+  fail=1
+fi
+rm -f /tmp/rokda_race_import_208.$$ /tmp/rokda_race_import_210.$$
+
 if [ "$fail" -ne 0 ]; then
   echo "verify-concurrency: FAILED" >&2
   exit 1

@@ -1657,6 +1657,18 @@ begin
   raise notice 'tax years RLS ok: a household''s tax records for its own members, no direct writes';
 end $$;
 reset role;
+set role authenticated;
+set request.jwt.claim.sub = '0b000000-0000-0000-0000-00000000000b';
+do $$
+begin
+  begin
+    perform import_tax_statement('e1000000-0000-0000-0000-00000000000b', 2025, '26as', '2026-06-15', '[]', 1);
+    raise exception 'tax years RLS FAILED: a signed-in member imported a statement';
+  exception when insufficient_privilege then null;
+  end;
+  raise notice 'tax import RLS ok: only the service role imports statements';
+end $$;
+reset role;
 
 -- A household can still be deleted outright: the cascade takes the roster with
 -- it, and that is not "a household left without an owner".

@@ -180,3 +180,136 @@ create policy "members can read their tax statement lines" on tax_statement_line
   for select using (private.is_household_member(household_id));
 
 revoke insert, update, delete on tax_returns, tax_return_events, tax_statements, tax_statement_lines from anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+-- 2. Importing a statement
+-- ---------------------------------------------------------------------------
+
+-- An AIS or Form 26AS for a member and tax year, as read in a working
+-- session from the household's document. Only the service role imports.
+-- Every line is checked before anything is written; a refusal names the
+-- line (from 0). The member, year and source are then locked, so two imports
+-- of one statement wait for each other: the same content again is a no-op,
+-- content changed since the caller looked (its expected revision, 0 for
+-- none) is stale, and an older statement does not replace a newer one
+-- unless the caller says so.
+create or replace function public.import_tax_statement(
+  p_member_id uuid, p_financial_year integer, p_source text, p_as_of date, p_lines jsonb, p_expected_revision integer,
+  p_replace_newer boolean default false)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_household uuid;
+  v_today date := public.household_today();
+  v_line jsonb;
+  v_i integer;
+  v_gross numeric;
+  v_tds numeric;
+  v_payer text;
+  v_symbol text;
+  v_keys text[] := '{}';
+  v_lines jsonb := '[]'::jsonb;
+  v_held public.tax_statements%rowtype;
+  v_held_lines jsonb;
+  v_id uuid;
+begin
+  if auth.uid() is not null or auth.role() is distinct from 'service_role' then
+    return jsonb_build_object('ok', false, 'error', 'not_member');
+  end if;
+  select m.household_id into v_household from public.household_members m where m.id = p_member_id;
+  if v_household is null then
+    return jsonb_build_object('ok', false, 'error', 'not_member');
+  end if;
+  if p_source is null or p_source not in ('ais', '26as')
+     or p_financial_year is null or p_financial_year < 2000 or p_financial_year > private.financial_year_of(v_today)
+     or p_as_of is null or p_as_of < make_date(p_financial_year, 4, 1) or p_as_of > v_today
+     or p_expected_revision is null or p_expected_revision < 0
+     or jsonb_typeof(p_lines) is distinct from 'array' then
+    return jsonb_build_object('ok', false, 'error', 'bad_input');
+  end if;
+
+  for v_line, v_i in select l.value, l.ordinality - 1 from jsonb_array_elements(p_lines) with ordinality l loop
+    if jsonb_typeof(v_line) <> 'object'
+       or exists (select 1 from jsonb_object_keys(v_line) k where k not in ('symbol', 'payer', 'gross', 'tds'))
+       or jsonb_typeof(v_line -> 'gross') is distinct from 'number'
+       or coalesce(jsonb_typeof(v_line -> 'tds'), 'null') not in ('number', 'null')
+       or coalesce(jsonb_typeof(v_line -> 'symbol'), 'null') not in ('string', 'null')
+       or jsonb_typeof(v_line -> 'payer') is distinct from 'string' then
+      return jsonb_build_object('ok', false, 'error', 'bad_input', 'line', v_i);
+    end if;
+    v_gross := (v_line ->> 'gross')::numeric;
+    v_tds := (v_line ->> 'tds')::numeric;
+    if v_gross < 0 or v_gross <> round(v_gross, 2) or v_gross >= 1e14
+       or (v_tds is not null and (v_tds < 0 or v_tds <> round(v_tds, 2) or v_tds > v_gross))
+       or (p_source = '26as' and v_tds is null) then
+      return jsonb_build_object('ok', false, 'error', 'bad_figures', 'line', v_i);
+    end if;
+    v_payer := btrim(v_line ->> 'payer');
+    if length(v_payer) not between 1 and 200 then
+      return jsonb_build_object('ok', false, 'error', 'bad_input', 'line', v_i);
+    end if;
+    if private.has_identifier(v_payer) then
+      return jsonb_build_object('ok', false, 'error', 'identifier_in_text', 'line', v_i);
+    end if;
+    v_symbol := null;
+    if v_line ->> 'symbol' is not null then
+      -- The holding's own spelling, so the check pairs the line with its dividends.
+      select h.price_symbol into v_symbol from public.holdings h
+      where h.household_id = v_household and h.asset_class = 'india_equity' and upper(h.price_symbol) = upper(btrim(v_line ->> 'symbol'))
+      order by h.price_symbol limit 1;
+      if v_symbol is null then
+        return jsonb_build_object('ok', false, 'error', 'unknown_share', 'line', v_i);
+      end if;
+    end if;
+    if lower(v_payer) = any (v_keys) then
+      return jsonb_build_object('ok', false, 'error', 'duplicate_payer', 'line', v_i);
+    end if;
+    v_keys := v_keys || lower(v_payer);
+    v_lines := v_lines || jsonb_build_object('symbol', v_symbol, 'payer', v_payer,
+      'gross', v_gross::numeric(16,2), 'tds', v_tds::numeric(16,2));
+  end loop;
+
+  perform pg_advisory_xact_lock(hashtextextended('tax_statement:' || p_member_id || ':' || p_financial_year || ':' || p_source, 0));
+  select * into v_held from public.tax_statements s
+  where s.member_id = p_member_id and s.financial_year = p_financial_year and s.source = p_source
+  for update;
+  -- Both sides as the table holds them, in one order, so equal content compares equal.
+  select coalesce(jsonb_agg(x.value order by lower(x.value ->> 'payer')), '[]'::jsonb) into v_lines from jsonb_array_elements(v_lines) x;
+  if v_held.id is not null then
+    select coalesce(jsonb_agg(jsonb_build_object('symbol', l.symbol, 'payer', l.payer, 'gross', l.gross, 'tds', l.tds)
+      order by lower(btrim(l.payer))), '[]'::jsonb) into v_held_lines
+    from public.tax_statement_lines l where l.statement_id = v_held.id;
+    if v_held.as_of = p_as_of and v_held_lines = v_lines then
+      return jsonb_build_object('ok', true, 'statement_id', v_held.id, 'revision', v_held.revision,
+        'lines', jsonb_array_length(v_lines), 'unchanged', true);
+    end if;
+  end if;
+  if coalesce(v_held.revision, 0) <> p_expected_revision then
+    return jsonb_build_object('ok', false, 'error', 'stale');
+  end if;
+  if v_held.id is not null and p_as_of < v_held.as_of and not coalesce(p_replace_newer, false) then
+    return jsonb_build_object('ok', false, 'error', 'older_than_held');
+  end if;
+
+  if v_held.id is null then
+    insert into public.tax_statements (household_id, member_id, financial_year, source, as_of)
+    values (v_household, p_member_id, p_financial_year, p_source, p_as_of)
+    returning id into v_id;
+  else
+    v_id := v_held.id;
+    update public.tax_statements set as_of = p_as_of, imported_at = now(), revision = revision + 1 where id = v_id;
+    delete from public.tax_statement_lines where statement_id = v_id;
+  end if;
+  insert into public.tax_statement_lines (household_id, statement_id, symbol, payer, gross, tds)
+  select v_household, v_id, x.value ->> 'symbol', x.value ->> 'payer', (x.value ->> 'gross')::numeric, (x.value ->> 'tds')::numeric
+  from jsonb_array_elements(v_lines) x;
+  return jsonb_build_object('ok', true, 'statement_id', v_id, 'revision', coalesce(v_held.revision, 0) + 1,
+    'lines', jsonb_array_length(v_lines), 'unchanged', false);
+end;
+$$;
+
+revoke execute on function public.import_tax_statement(uuid, integer, text, date, jsonb, integer, boolean) from public, anon, authenticated;
+grant execute on function public.import_tax_statement(uuid, integer, text, date, jsonb, integer, boolean) to service_role;

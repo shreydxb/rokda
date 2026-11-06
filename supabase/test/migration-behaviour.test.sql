@@ -5539,4 +5539,128 @@ begin
   raise notice 'TX-07 ok: a member with tax records stays';
 end $$;
 
+-- Importing a statement (Task 2), as the service role. Two Indian holdings
+-- for the member; her 2025 statements are imported through tx_import.
+select pg_temp.tx_holding('d7b00000-0000-0000-0000-0000000000a1', 'TXA.NS');
+select pg_temp.tx_holding('d7b00000-0000-0000-0000-0000000000b1', 'TXB.NS');
+create or replace function pg_temp.tx_import(p_source text, p_as_of date, p_lines jsonb, p_expected integer, p_replace boolean default false,
+  p_year integer default 2025) returns jsonb language sql as $$
+  select import_tax_statement('22222222-2222-2222-2222-0000000000b7', p_year, p_source, p_as_of, p_lines, p_expected, p_replace);
+$$;
+create or replace function pg_temp.tx_26as() returns jsonb language sql as $$
+  select jsonb_build_array(
+    jsonb_build_object('symbol', 'TXA.NS', 'payer', 'TXA Limited', 'gross', 1000, 'tds', 208),
+    jsonb_build_object('symbol', null, 'payer', 'Old Co Limited', 'gross', 500, 'tds', 104));
+$$;
+create or replace function pg_temp.tx_lines(p_source text) returns jsonb language sql as $$
+  select coalesce(jsonb_agg(jsonb_build_object('symbol', l.symbol, 'payer', l.payer, 'gross', l.gross, 'tds', l.tds) order by l.payer), '[]')
+  from tax_statement_lines l join tax_statements s on s.id = l.statement_id
+  where s.member_id = '22222222-2222-2222-2222-0000000000b7' and s.financial_year = 2025 and s.source = p_source;
+$$;
+
+-- TX-08: a first import stores the statement and its lines.
+do $$
+declare r jsonb;
+begin
+  r := pg_temp.tx_import('26as', '2026-06-15', pg_temp.tx_26as(), 0);
+  if (r ->> 'ok')::boolean is not true or (r ->> 'revision')::int <> 1 or (r ->> 'lines')::int <> 2 or (r ->> 'unchanged')::boolean then
+    raise exception 'TX-08 FAILED: the first import gave %', r;
+  end if;
+  if (select count(*) from tax_statements where member_id = '22222222-2222-2222-2222-0000000000b7' and source = '26as' and as_of = '2026-06-15') <> 1
+     or (select count(*) from tax_statement_lines where symbol is null and payer = 'Old Co Limited') <> 1 then
+    raise exception 'TX-08 FAILED: the statement is %', pg_temp.tx_lines('26as');
+  end if;
+  raise notice 'TX-08 ok: a statement is imported with its lines';
+end $$;
+
+-- TX-09: the same statement again changes nothing, and says so.
+do $$
+declare r jsonb; at timestamptz := (select imported_at from tax_statements where source = '26as' and financial_year = 2025);
+begin
+  r := pg_temp.tx_import('26as', '2026-06-15', pg_temp.tx_26as(), 0);
+  if (r ->> 'ok')::boolean is not true or not (r ->> 'unchanged')::boolean or (r ->> 'revision')::int <> 1 then
+    raise exception 'TX-09 FAILED: importing again gave %', r;
+  end if;
+  if (select imported_at from tax_statements where source = '26as' and financial_year = 2025) <> at then
+    raise exception 'TX-09 FAILED: a no-op touched the statement';
+  end if;
+  raise notice 'TX-09 ok: importing the same statement again is a no-op';
+end $$;
+
+-- TX-10: changed content raises the revision; a save at an old one is stale.
+do $$
+declare r jsonb;
+begin
+  r := pg_temp.tx_import('26as', '2026-06-15', jsonb_set(pg_temp.tx_26as(), '{0,tds}', '210'), 1);
+  if (r ->> 'revision')::int is distinct from 2 or (r ->> 'lines')::int <> 2 then raise exception 'TX-10 FAILED: a change gave %', r; end if;
+  r := pg_temp.tx_import('26as', '2026-06-15', jsonb_set(pg_temp.tx_26as(), '{0,tds}', '212'), 1);
+  if r ->> 'error' is distinct from 'stale' then raise exception 'TX-10 FAILED: a change at an old revision gave %', r; end if;
+  if (select tds from tax_statement_lines where symbol = 'TXA.NS') <> 210 then raise exception 'TX-10 FAILED: a stale import changed a line'; end if;
+  raise notice 'TX-10 ok: a change raises the revision, a stale one is refused';
+end $$;
+
+-- TX-11: an older statement does not replace a newer one unless told to.
+do $$
+declare r jsonb;
+begin
+  r := pg_temp.tx_import('26as', '2026-05-01', jsonb_set(pg_temp.tx_26as(), '{0,tds}', '210'), 2);
+  if r ->> 'error' is distinct from 'older_than_held' then raise exception 'TX-11 FAILED: an older statement gave %', r; end if;
+  if (select as_of from tax_statements where source = '26as' and financial_year = 2025) <> '2026-06-15' then raise exception 'TX-11 FAILED: it was replaced'; end if;
+  r := pg_temp.tx_import('26as', '2026-05-01', jsonb_set(pg_temp.tx_26as(), '{0,tds}', '210'), 2, true);
+  if (r ->> 'revision')::int is distinct from 3 then raise exception 'TX-11 FAILED: replacing on purpose gave %', r; end if;
+  raise notice 'TX-11 ok: an older statement replaces a newer one only on purpose';
+end $$;
+
+-- TX-12: a statement with nothing on it is still imported.
+do $$
+declare r jsonb;
+begin
+  r := pg_temp.tx_import('ais', '2026-06-15', '[]', 0);
+  if (r ->> 'ok')::boolean is not true or (r ->> 'lines')::int <> 0 then raise exception 'TX-12 FAILED: an empty import gave %', r; end if;
+  if (select count(*) from tax_statements where source = 'ais' and financial_year = 2025) <> 1 then raise exception 'TX-12 FAILED: no statement was kept'; end if;
+  raise notice 'TX-12 ok: an empty statement is imported, nothing reported';
+end $$;
+
+-- TX-13: every line is checked before anything is written.
+do $$
+declare r jsonb; held jsonb := pg_temp.tx_lines('26as'); base jsonb := pg_temp.tx_26as();
+  one jsonb := '{"symbol": null, "payer": "XYZ Limited", "gross": 100, "tds": 20}';
+begin
+  -- other household's share
+  insert into holdings (id, household_id, name, asset_class, currency, quantity, avg_price, value_aed, price_symbol)
+  values ('d7b00000-0000-0000-0000-0000000000c1', '99999999-9999-9999-9999-999999999999', 'Theirs', 'india_equity', 'INR', 1, 1, 0, 'TXC.NS');
+  r := pg_temp.tx_import('ais', '2025-06-15', '[{"symbol": "txb.ns", "payer": "TXB Limited", "gross": 100, "tds": null}]', 0, false, 2024);
+  if (r ->> 'ok')::boolean is not true or (select symbol from tax_statement_lines where payer = 'TXB Limited') <> 'TXB.NS' then
+    raise exception 'TX-13 FAILED: a symbol in another case gave % and stored %', r, (select symbol from tax_statement_lines where payer = 'TXB Limited');
+  end if;
+  r := pg_temp.tx_import('26as', '2026-07-01', base || one || jsonb_set(one, '{gross}', '-1') , 3);
+  if r ->> 'error' is distinct from 'bad_figures' or (r ->> 'line')::int is distinct from 3 then raise exception 'TX-13 FAILED: a negative gross gave %', r; end if;
+  r := pg_temp.tx_import('26as', '2026-07-01', jsonb_build_array(jsonb_set(one, '{gross}', '"1,000.50"')), 3);
+  if r ->> 'error' is distinct from 'bad_input' then raise exception 'TX-13 FAILED: a gross in text gave %', r; end if;
+  r := pg_temp.tx_import('26as', '2026-07-01', jsonb_build_array(jsonb_set(one, '{gross}', '10.005')), 3);
+  if r ->> 'error' is distinct from 'bad_figures' then raise exception 'TX-13 FAILED: a third decimal gave %', r; end if;
+  r := pg_temp.tx_import('26as', '2026-07-01', jsonb_build_array(jsonb_set(one, '{symbol}', '"NOPE.NS"')), 3);
+  if r ->> 'error' is distinct from 'unknown_share' then raise exception 'TX-13 FAILED: an unknown share gave %', r; end if;
+  r := pg_temp.tx_import('26as', '2026-07-01', jsonb_build_array(jsonb_set(one, '{symbol}', '"TXC.NS"')), 3);
+  if r ->> 'error' is distinct from 'unknown_share' then raise exception 'TX-13 FAILED: another household''s share gave %', r; end if;
+  r := pg_temp.tx_import('26as', '2026-07-01', jsonb_build_array(jsonb_set(one, '{payer}', '"ABC Ltd"'), jsonb_set(one, '{payer}', '"abc ltd "')), 3);
+  if r ->> 'error' is distinct from 'duplicate_payer' then raise exception 'TX-13 FAILED: a payer twice gave %', r; end if;
+  r := pg_temp.tx_import('26as', '2026-07-01', jsonb_build_array(jsonb_set(one, '{payer}', '"ABCDE1234F"')), 3);
+  if r ->> 'error' is distinct from 'identifier_in_text' then raise exception 'TX-13 FAILED: a PAN as payer gave %', r; end if;
+  r := pg_temp.tx_import('26as', '2026-07-01', jsonb_build_array(one - 'tds'), 3);
+  if r ->> 'error' is distinct from 'bad_figures' then raise exception 'TX-13 FAILED: a 26AS line without tax gave %', r; end if;
+  r := pg_temp.tx_import('26as', '2026-07-01', jsonb_build_array(jsonb_set(one, '{tds}', '101')), 3);
+  if r ->> 'error' is distinct from 'bad_figures' then raise exception 'TX-13 FAILED: tax over gross gave %', r; end if;
+  r := pg_temp.tx_import('26as', '2026-07-01', jsonb_build_array(one || '{"pan": "x"}'), 3);
+  if r ->> 'error' is distinct from 'bad_input' then raise exception 'TX-13 FAILED: an unknown key gave %', r; end if;
+  r := pg_temp.tx_import('26as', '2026-07-01', jsonb_build_array(one), 3, false, 2099);
+  if r ->> 'error' is distinct from 'bad_input' then raise exception 'TX-13 FAILED: a future year gave %', r; end if;
+  r := pg_temp.tx_import('26as', household_today() + 1, jsonb_build_array(one), 3);
+  if r ->> 'error' is distinct from 'bad_input' then raise exception 'TX-13 FAILED: a future date gave %', r; end if;
+  if pg_temp.tx_lines('26as') <> held or (select revision from tax_statements where source = '26as' and financial_year = 2025) <> 3 then
+    raise exception 'TX-13 FAILED: a refused import changed the statement';
+  end if;
+  raise notice 'TX-13 ok: an import with any bad line saves nothing';
+end $$;
+
 rollback;
