@@ -5399,4 +5399,446 @@ begin
   raise notice 'D3-01 ok: a one-off is answered for any event of a followed share';
 end $$;
 
+-- ---------------------------------------------------------------------------
+-- Dividend tax years (SHR-366), part 1. Member 2222…00b7 of household 1111…
+-- owns every holding below; returns and statements are hers. Each refused
+-- write runs in its own block, so the rest of the file goes on.
+-- ---------------------------------------------------------------------------
+create or replace function pg_temp.tx_holding(p_id uuid, p_symbol text, p_class text default 'india_equity')
+returns void language sql as $$
+  insert into holdings (id, household_id, owner_member_id, is_shared, name, asset_class, currency, quantity, avg_price, value_aed, price_symbol)
+  values (p_id, '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-0000000000b7', false, p_symbol,
+    p_class, case when p_class = 'india_equity' then 'INR' else 'USD' end, 10, 100, 0, p_symbol);
+$$;
+-- Runs one statement and says which error class it raised, or 'ok'.
+create or replace function pg_temp.tx_try(p_sql text) returns text language plpgsql as $$
+begin
+  execute p_sql;
+  return 'ok';
+exception
+  when check_violation then return 'check_violation';
+  when unique_violation then return 'unique_violation';
+  when foreign_key_violation then return 'foreign_key_violation: ' || sqlerrm;
+end $$;
+
+-- TX-01: a day's financial year starts on 1 April.
+do $$
+begin
+  if private.financial_year_of('2026-03-31') <> 2025 or private.financial_year_of('2026-04-01') <> 2026
+     or private.financial_year_of('2025-12-31') <> 2025 then
+    raise exception 'TX-01 FAILED: financial years came out wrong';
+  end if;
+  raise notice 'TX-01 ok: a financial year runs from 1 April';
+end $$;
+
+-- TX-02: a return's figures follow its filing.
+do $$
+declare ins text := 'insert into tax_returns (household_id, member_id, financial_year, revision, filed_on, claim_basis, claim_rate_pct, dividend_tax, dividend_tds_claimed, tds_claimed_total) values (''11111111-1111-1111-1111-111111111111'', ''22222222-2222-2222-2222-0000000000b7'', ';
+  r text;
+begin
+  r := pg_temp.tx_try(ins || '2019, 0, ''2020-07-01'', null, null, null, null, null)');
+  if r <> 'check_violation' then raise exception 'TX-02 FAILED: an unfiled return with a filing date gave %', r; end if;
+  r := pg_temp.tx_try(ins || '2019, 1, null, null, null, null, null, null)');
+  if r <> 'check_violation' then raise exception 'TX-02 FAILED: a filed return without a date gave %', r; end if;
+  r := pg_temp.tx_try(ins || '2019, 0, null, null, null, 100, null, null)');
+  if r <> 'check_violation' then raise exception 'TX-02 FAILED: figures on an unfiled return gave %', r; end if;
+  r := pg_temp.tx_try(ins || '2019, 0, null, ''treaty'', null, null, null, null)');
+  if r <> 'check_violation' then raise exception 'TX-02 FAILED: a basis without a rate gave %', r; end if;
+  r := pg_temp.tx_try(ins || '2019, 1, ''2020-07-01'', null, null, null, 300, 200)');
+  if r <> 'check_violation' then raise exception 'TX-02 FAILED: dividend tax credit over the total gave %', r; end if;
+  r := pg_temp.tx_try(ins || '2019, 1, ''2020-07-01'', ''treaty'', 10, 100, 200, 300)');
+  if r <> 'ok' then raise exception 'TX-02 FAILED: a sound return gave %', r; end if;
+  r := pg_temp.tx_try(ins || '2019, 0, null, null, null, null, null, null)');
+  if r <> 'unique_violation' then raise exception 'TX-02 FAILED: a second return for the year gave %', r; end if;
+  delete from tax_returns where financial_year = 2019;
+  raise notice 'TX-02 ok: a return''s figures follow its filing, one per member and year';
+end $$;
+
+-- TX-03: PAN-shaped text and long numbers are never stored.
+do $$
+declare r text; st uuid;
+begin
+  if not private.has_identifier('ABCDE1234F') or not private.has_identifier('abcde1234f') or not private.has_identifier('ref 123456789012')
+     or private.has_identifier('Paid 1,20,000 on 5 Oct') or private.has_identifier('Filed late') or private.has_identifier(null) then
+    raise exception 'TX-03 FAILED: has_identifier judged wrongly';
+  end if;
+  r := pg_temp.tx_try('insert into tax_returns (household_id, member_id, financial_year, note) values (''11111111-1111-1111-1111-111111111111'', ''22222222-2222-2222-2222-0000000000b7'', 2019, ''PAN ABCDE1234F'')');
+  if r <> 'check_violation' then raise exception 'TX-03 FAILED: a PAN in a note gave %', r; end if;
+  insert into tax_statements (household_id, member_id, financial_year, source, as_of)
+  values ('11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-0000000000b7', 2019, 'ais', '2020-06-01') returning id into st;
+  r := pg_temp.tx_try(format('insert into tax_statement_lines (household_id, statement_id, payer, gross) values (''11111111-1111-1111-1111-111111111111'', %L, ''ABC 123456789'', 1)', st));
+  if r <> 'check_violation' then raise exception 'TX-03 FAILED: a long number in a payer gave %', r; end if;
+  delete from tax_statements where id = st;
+  raise notice 'TX-03 ok: PAN-shaped text and long numbers are refused';
+end $$;
+
+-- TX-04: what happened to a return carries the figures of its kind.
+do $$
+declare ret uuid; ins text; r text;
+begin
+  insert into tax_returns (household_id, member_id, financial_year, revision, filed_on)
+  values ('11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-0000000000b7', 2019, 1, '2020-07-01') returning id into ret;
+  ins := format('insert into tax_return_events (household_id, return_id, revision, kind, happened_on, refund_determined, refund_interest, amount) values (''11111111-1111-1111-1111-111111111111'', %L, 1, ', ret);
+  r := pg_temp.tx_try(ins || '''processed'', ''2020-09-01'', null, 0, null)');
+  if r <> 'check_violation' then raise exception 'TX-04 FAILED: a processing without its refund gave %', r; end if;
+  r := pg_temp.tx_try(ins || '''refund_credited'', ''2020-09-01'', null, null, null)');
+  if r <> 'check_violation' then raise exception 'TX-04 FAILED: a credit without an amount gave %', r; end if;
+  r := pg_temp.tx_try(ins || '''refund_credited'', ''2020-09-01'', null, 10, 100)');
+  if r <> 'check_violation' then raise exception 'TX-04 FAILED: a credit with interest gave %', r; end if;
+  r := pg_temp.tx_try(ins || '''processed'', ''2020-09-01'', -500, 0, null)');
+  if r <> 'ok' then raise exception 'TX-04 FAILED: a demand gave %', r; end if;
+  delete from tax_returns where id = ret;
+  raise notice 'TX-04 ok: each kind of event carries its own figures';
+end $$;
+
+-- TX-05: a statement names each payer once, with sound figures.
+do $$
+declare st uuid; ins text; r text;
+begin
+  insert into tax_statements (household_id, member_id, financial_year, source, as_of)
+  values ('11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-0000000000b7', 2019, '26as', '2020-06-01') returning id into st;
+  ins := format('insert into tax_statement_lines (household_id, statement_id, payer, gross, tds) values (''11111111-1111-1111-1111-111111111111'', %L, ', st);
+  r := pg_temp.tx_try(ins || '''ABC Limited'', 100, 20)');
+  if r <> 'ok' then raise exception 'TX-05 FAILED: a sound line gave %', r; end if;
+  r := pg_temp.tx_try(ins || ''' abc limited '', 100, 20)');
+  if r <> 'unique_violation' then raise exception 'TX-05 FAILED: the same payer twice gave %', r; end if;
+  r := pg_temp.tx_try(ins || '''XYZ Limited'', -1, 0)');
+  if r <> 'check_violation' then raise exception 'TX-05 FAILED: a negative gross gave %', r; end if;
+  r := pg_temp.tx_try(ins || '''XYZ Limited'', 100, 101)');
+  if r <> 'check_violation' then raise exception 'TX-05 FAILED: tax over the gross gave %', r; end if;
+  delete from tax_statements where id = st;
+  raise notice 'TX-05 ok: one line per payer, with sound figures';
+end $$;
+
+-- TX-06: a dividend's own tax year always says why.
+do $$
+declare h uuid := 'd7b00000-0000-0000-0000-000000000006'; d uuid := gen_random_uuid(); r text;
+begin
+  perform pg_temp.tx_holding(h, 'TX06.NS');
+  insert into holding_dividends (id, household_id, holding_id, ex_date, currency, units, units_basis, per_share, tax_pct,
+    expected_gross, expected_tax, expected_fees, expected_net, status, source)
+  values (d, '11111111-1111-1111-1111-111111111111', h, '2026-03-25', 'INR', 10, 'trades', 100, 20.8, 1000, 208, 0, 792, 'earned', 'feed');
+  r := pg_temp.tx_try(format('update holding_dividends set tax_financial_year = 2025 where id = %L', d));
+  if r <> 'check_violation' then raise exception 'TX-06 FAILED: a year without a basis gave %', r; end if;
+  r := pg_temp.tx_try(format('update holding_dividends set tax_financial_year = 2025, tax_year_basis = ''other'' where id = %L', d));
+  if r <> 'check_violation' then raise exception 'TX-06 FAILED: an unknown basis gave %', r; end if;
+  r := pg_temp.tx_try(format('update holding_dividends set tax_financial_year = 2025, tax_year_basis = ''declared'' where id = %L', d));
+  if r <> 'ok' then raise exception 'TX-06 FAILED: a year with its basis gave %', r; end if;
+  raise notice 'TX-06 ok: a dividend''s own tax year comes with its basis';
+end $$;
+
+-- TX-07: a member with tax records cannot be removed from under them.
+do $$
+declare r text;
+begin
+  insert into tax_returns (household_id, member_id, financial_year)
+  values ('11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-0000000000b7', 2019);
+  r := pg_temp.tx_try('delete from household_members where id = ''22222222-2222-2222-2222-0000000000b7''');
+  if r not like 'foreign_key_violation%tax_returns%' then raise exception 'TX-07 FAILED: removing a member with a return gave %', r; end if;
+  delete from tax_returns where financial_year = 2019;
+  raise notice 'TX-07 ok: a member with tax records stays';
+end $$;
+
+-- Importing a statement (Task 2), as the service role. Two Indian holdings
+-- for the member; her 2025 statements are imported through tx_import.
+select pg_temp.tx_holding('d7b00000-0000-0000-0000-0000000000a1', 'TXA.NS');
+select pg_temp.tx_holding('d7b00000-0000-0000-0000-0000000000b1', 'TXB.NS');
+create or replace function pg_temp.tx_import(p_source text, p_as_of date, p_lines jsonb, p_expected integer, p_replace boolean default false,
+  p_year integer default 2025) returns jsonb language sql as $$
+  select import_tax_statement('22222222-2222-2222-2222-0000000000b7', p_year, p_source, p_as_of, p_lines, p_expected, p_replace);
+$$;
+create or replace function pg_temp.tx_26as() returns jsonb language sql as $$
+  select jsonb_build_array(
+    jsonb_build_object('symbol', 'TXA.NS', 'payer', 'TXA Limited', 'gross', 1000, 'tds', 208),
+    jsonb_build_object('symbol', null, 'payer', 'Old Co Limited', 'gross', 500, 'tds', 104));
+$$;
+create or replace function pg_temp.tx_lines(p_source text) returns jsonb language sql as $$
+  select coalesce(jsonb_agg(jsonb_build_object('symbol', l.symbol, 'payer', l.payer, 'gross', l.gross, 'tds', l.tds) order by l.payer), '[]')
+  from tax_statement_lines l join tax_statements s on s.id = l.statement_id
+  where s.member_id = '22222222-2222-2222-2222-0000000000b7' and s.financial_year = 2025 and s.source = p_source;
+$$;
+
+-- TX-08: a first import stores the statement and its lines.
+do $$
+declare r jsonb;
+begin
+  r := pg_temp.tx_import('26as', '2026-06-15', pg_temp.tx_26as(), 0);
+  if (r ->> 'ok')::boolean is not true or (r ->> 'revision')::int <> 1 or (r ->> 'lines')::int <> 2 or (r ->> 'unchanged')::boolean then
+    raise exception 'TX-08 FAILED: the first import gave %', r;
+  end if;
+  if (select count(*) from tax_statements where member_id = '22222222-2222-2222-2222-0000000000b7' and source = '26as' and as_of = '2026-06-15') <> 1
+     or (select count(*) from tax_statement_lines where symbol is null and payer = 'Old Co Limited') <> 1 then
+    raise exception 'TX-08 FAILED: the statement is %', pg_temp.tx_lines('26as');
+  end if;
+  raise notice 'TX-08 ok: a statement is imported with its lines';
+end $$;
+
+-- TX-09: the same statement again changes nothing, and says so.
+do $$
+declare r jsonb; at timestamptz := (select imported_at from tax_statements where source = '26as' and financial_year = 2025);
+begin
+  r := pg_temp.tx_import('26as', '2026-06-15', pg_temp.tx_26as(), 0);
+  if (r ->> 'ok')::boolean is not true or not (r ->> 'unchanged')::boolean or (r ->> 'revision')::int <> 1 then
+    raise exception 'TX-09 FAILED: importing again gave %', r;
+  end if;
+  if (select imported_at from tax_statements where source = '26as' and financial_year = 2025) <> at then
+    raise exception 'TX-09 FAILED: a no-op touched the statement';
+  end if;
+  raise notice 'TX-09 ok: importing the same statement again is a no-op';
+end $$;
+
+-- TX-10: changed content raises the revision; a save at an old one is stale.
+do $$
+declare r jsonb;
+begin
+  r := pg_temp.tx_import('26as', '2026-06-15', jsonb_set(pg_temp.tx_26as(), '{0,tds}', '210'), 1);
+  if (r ->> 'revision')::int is distinct from 2 or (r ->> 'lines')::int <> 2 then raise exception 'TX-10 FAILED: a change gave %', r; end if;
+  r := pg_temp.tx_import('26as', '2026-06-15', jsonb_set(pg_temp.tx_26as(), '{0,tds}', '212'), 1);
+  if r ->> 'error' is distinct from 'stale' then raise exception 'TX-10 FAILED: a change at an old revision gave %', r; end if;
+  if (select tds from tax_statement_lines where symbol = 'TXA.NS') <> 210 then raise exception 'TX-10 FAILED: a stale import changed a line'; end if;
+  raise notice 'TX-10 ok: a change raises the revision, a stale one is refused';
+end $$;
+
+-- TX-11: an older statement does not replace a newer one unless told to.
+do $$
+declare r jsonb;
+begin
+  r := pg_temp.tx_import('26as', '2026-05-01', jsonb_set(pg_temp.tx_26as(), '{0,tds}', '210'), 2);
+  if r ->> 'error' is distinct from 'older_than_held' then raise exception 'TX-11 FAILED: an older statement gave %', r; end if;
+  if (select as_of from tax_statements where source = '26as' and financial_year = 2025) <> '2026-06-15' then raise exception 'TX-11 FAILED: it was replaced'; end if;
+  r := pg_temp.tx_import('26as', '2026-05-01', jsonb_set(pg_temp.tx_26as(), '{0,tds}', '210'), 2, true);
+  if (r ->> 'revision')::int is distinct from 3 then raise exception 'TX-11 FAILED: replacing on purpose gave %', r; end if;
+  raise notice 'TX-11 ok: an older statement replaces a newer one only on purpose';
+end $$;
+
+-- TX-12: a statement with nothing on it is still imported.
+do $$
+declare r jsonb;
+begin
+  r := pg_temp.tx_import('ais', '2026-06-15', '[]', 0);
+  if (r ->> 'ok')::boolean is not true or (r ->> 'lines')::int <> 0 then raise exception 'TX-12 FAILED: an empty import gave %', r; end if;
+  if (select count(*) from tax_statements where source = 'ais' and financial_year = 2025) <> 1 then raise exception 'TX-12 FAILED: no statement was kept'; end if;
+  raise notice 'TX-12 ok: an empty statement is imported, nothing reported';
+end $$;
+
+-- TX-13: every line is checked before anything is written.
+do $$
+declare r jsonb; held jsonb := pg_temp.tx_lines('26as'); base jsonb := pg_temp.tx_26as();
+  one jsonb := '{"symbol": null, "payer": "XYZ Limited", "gross": 100, "tds": 20}';
+begin
+  -- other household's share
+  insert into holdings (id, household_id, name, asset_class, currency, quantity, avg_price, value_aed, price_symbol)
+  values ('d7b00000-0000-0000-0000-0000000000c1', '99999999-9999-9999-9999-999999999999', 'Theirs', 'india_equity', 'INR', 1, 1, 0, 'TXC.NS');
+  r := pg_temp.tx_import('ais', '2025-06-15', '[{"symbol": "txb.ns", "payer": "TXB Limited", "gross": 100, "tds": null}]', 0, false, 2024);
+  if (r ->> 'ok')::boolean is not true or (select symbol from tax_statement_lines where payer = 'TXB Limited') <> 'TXB.NS' then
+    raise exception 'TX-13 FAILED: a symbol in another case gave % and stored %', r, (select symbol from tax_statement_lines where payer = 'TXB Limited');
+  end if;
+  r := pg_temp.tx_import('26as', '2026-07-01', base || one || jsonb_set(one, '{gross}', '-1') , 3);
+  if r ->> 'error' is distinct from 'bad_figures' or (r ->> 'line')::int is distinct from 3 then raise exception 'TX-13 FAILED: a negative gross gave %', r; end if;
+  r := pg_temp.tx_import('26as', '2026-07-01', jsonb_build_array(jsonb_set(one, '{gross}', '"1,000.50"')), 3);
+  if r ->> 'error' is distinct from 'bad_input' then raise exception 'TX-13 FAILED: a gross in text gave %', r; end if;
+  r := pg_temp.tx_import('26as', '2026-07-01', jsonb_build_array(jsonb_set(one, '{gross}', '10.005')), 3);
+  if r ->> 'error' is distinct from 'bad_figures' then raise exception 'TX-13 FAILED: a third decimal gave %', r; end if;
+  r := pg_temp.tx_import('26as', '2026-07-01', jsonb_build_array(jsonb_set(one, '{symbol}', '"NOPE.NS"')), 3);
+  if r ->> 'error' is distinct from 'unknown_share' then raise exception 'TX-13 FAILED: an unknown share gave %', r; end if;
+  r := pg_temp.tx_import('26as', '2026-07-01', jsonb_build_array(jsonb_set(one, '{symbol}', '"TXC.NS"')), 3);
+  if r ->> 'error' is distinct from 'unknown_share' then raise exception 'TX-13 FAILED: another household''s share gave %', r; end if;
+  r := pg_temp.tx_import('26as', '2026-07-01', jsonb_build_array(jsonb_set(one, '{payer}', '"ABC Ltd"'), jsonb_set(one, '{payer}', '"abc ltd "')), 3);
+  if r ->> 'error' is distinct from 'duplicate_payer' then raise exception 'TX-13 FAILED: a payer twice gave %', r; end if;
+  r := pg_temp.tx_import('26as', '2026-07-01', jsonb_build_array(jsonb_set(one, '{payer}', '"ABCDE1234F"')), 3);
+  if r ->> 'error' is distinct from 'identifier_in_text' then raise exception 'TX-13 FAILED: a PAN as payer gave %', r; end if;
+  r := pg_temp.tx_import('26as', '2026-07-01', jsonb_build_array(one - 'tds'), 3);
+  if r ->> 'error' is distinct from 'bad_figures' then raise exception 'TX-13 FAILED: a 26AS line without tax gave %', r; end if;
+  r := pg_temp.tx_import('26as', '2026-07-01', jsonb_build_array(jsonb_set(one, '{tds}', '101')), 3);
+  if r ->> 'error' is distinct from 'bad_figures' then raise exception 'TX-13 FAILED: tax over gross gave %', r; end if;
+  r := pg_temp.tx_import('26as', '2026-07-01', jsonb_build_array(one || '{"pan": "x"}'), 3);
+  if r ->> 'error' is distinct from 'bad_input' then raise exception 'TX-13 FAILED: an unknown key gave %', r; end if;
+  r := pg_temp.tx_import('26as', '2026-07-01', jsonb_build_array(one), 3, false, 2099);
+  if r ->> 'error' is distinct from 'bad_input' then raise exception 'TX-13 FAILED: a future year gave %', r; end if;
+  r := pg_temp.tx_import('26as', household_today() + 1, jsonb_build_array(one), 3);
+  if r ->> 'error' is distinct from 'bad_input' then raise exception 'TX-13 FAILED: a future date gave %', r; end if;
+  if pg_temp.tx_lines('26as') <> held or (select revision from tax_statements where source = '26as' and financial_year = 2025) <> 3 then
+    raise exception 'TX-13 FAILED: a refused import changed the statement';
+  end if;
+  raise notice 'TX-13 ok: an import with any bad line saves nothing';
+end $$;
+
+-- Returns and what happened to them (Task 3), as the service role for the
+-- member, her 2025 return unless a case says otherwise.
+create or replace function pg_temp.tx_save(p_change jsonb, p_version integer, p_year integer default 2025) returns jsonb language sql as $$
+  select save_tax_return('22222222-2222-2222-2222-0000000000b7', p_year, p_change, p_version);
+$$;
+create or replace function pg_temp.tx_event(p_event jsonb, p_id uuid default null, p_year integer default 2025) returns jsonb language sql as $$
+  select save_tax_return_event('22222222-2222-2222-2222-0000000000b7', p_year, p_event, p_id);
+$$;
+create or replace function pg_temp.tx_version() returns integer language sql as $$
+  select version from tax_returns where member_id = '22222222-2222-2222-2222-0000000000b7' and financial_year = 2025;
+$$;
+
+-- TX-14: a return is created on its first save and saved at its version.
+do $$
+declare r jsonb; t tax_returns%rowtype;
+begin
+  r := pg_temp.tx_save('{"claim_basis": "treaty", "claim_rate_pct": 10}', 0);
+  if (r ->> 'ok')::boolean is not true or (r ->> 'version')::int <> 1 then raise exception 'TX-14 FAILED: the first save gave %', r; end if;
+  r := pg_temp.tx_save('{"claim_basis": "domestic", "claim_rate_pct": 20.8}', 0);
+  if r ->> 'error' is distinct from 'stale' then raise exception 'TX-14 FAILED: a second first save gave %', r; end if;
+  r := pg_temp.tx_save('{"revision": 1, "filed_on": "2026-07-20", "dividend_income": 10000, "dividend_tax": 1000, "dividend_tds_claimed": 2080, "tds_claimed_total": 5000}', 1);
+  select * into t from tax_returns where member_id = '22222222-2222-2222-2222-0000000000b7' and financial_year = 2025;
+  if (r ->> 'version')::int is distinct from 2 or t.claim_basis <> 'treaty' or t.claim_rate_pct <> 10 or t.revision <> 1 or t.dividend_tax <> 1000
+     or t.updated_by <> '22222222-2222-2222-2222-0000000000b7' then
+    raise exception 'TX-14 FAILED: filing gave % and %', r, row_to_json(t);
+  end if;
+  raise notice 'TX-14 ok: a return is saved at the version it was changed against';
+end $$;
+
+-- TX-15: a return outside the rules is refused, one reason each, nothing saved.
+do $$
+declare r jsonb; c record;
+begin
+  for c in select * from (values
+    ('{"pan": "x"}', 2025, 'bad_input'),
+    ('{"claim_rate_pct": null}', 2025, 'basis_needs_rate'),
+    ('{"claim_basis": "other"}', 2025, 'bad_input'),
+    ('{"revision": 1}', 2024, 'filed_on_needed'),
+    ('{"dividend_tax": 100}', 2024, 'not_filed'),
+    ('{"filed_on": "2026-03-15"}', 2025, 'filed_before_year_end'),
+    ('{"filed_on": "' || (household_today() + 1) || '"}', 2025, 'in_future'),
+    ('{"revision": 1}', 2099, 'bad_input'),
+    ('{"dividend_tax": -1}', 2025, 'bad_figures'),
+    ('{"dividend_tax": 10.005}', 2025, 'bad_figures'),
+    ('{"dividend_tax": "1,000"}', 2025, 'bad_input'),
+    ('{"dividend_tds_claimed": 6000}', 2025, 'bad_figures'),
+    ('{"note": "ack 123456789012345"}', 2025, 'identifier_in_text')) v(change, year, code)
+  loop
+    r := pg_temp.tx_save(c.change::jsonb, case when c.year = 2025 then 2 else 0 end, c.year);
+    if r ->> 'error' is distinct from c.code then raise exception 'TX-15 FAILED: % for % gave %, expected %', c.change, c.year, r, c.code; end if;
+  end loop;
+  if pg_temp.tx_version() <> 2 or exists (select 1 from tax_returns where financial_year in (2024, 2099)) then
+    raise exception 'TX-15 FAILED: a refused save changed something';
+  end if;
+  raise notice 'TX-15 ok: each figure outside the rules is refused with its reason';
+end $$;
+
+-- TX-16: what happened to a filed return, added, replaced and removed.
+do $$
+declare r jsonb; credit uuid; processed uuid;
+begin
+  r := pg_temp.tx_event('{"kind": "processed", "happened_on": "2025-09-01", "refund_determined": 1, "refund_interest": 0}', null, 2024);
+  if r ->> 'error' is distinct from 'not_filed' then raise exception 'TX-16 FAILED: an event on an unfiled year gave %', r; end if;
+  r := pg_temp.tx_event('{"kind": "processed", "happened_on": "2026-09-01", "refund_determined": 5000, "refund_interest": 150, "tds_allowed_total": 5000}');
+  processed := (r ->> 'id')::uuid;
+  if (r ->> 'ok')::boolean is not true or (select revision from tax_return_events where id = processed) <> 1 then raise exception 'TX-16 FAILED: processing gave %', r; end if;
+  r := pg_temp.tx_event('{"kind": "refund_credited", "happened_on": "2026-09-20", "amount": 5150}');
+  credit := (r ->> 'id')::uuid;
+  if (r ->> 'ok')::boolean is not true then raise exception 'TX-16 FAILED: a credit gave %', r; end if;
+  r := pg_temp.tx_event('{"kind": "refund_credited", "happened_on": "2026-09-20"}');
+  if r ->> 'error' is distinct from 'bad_figures' then raise exception 'TX-16 FAILED: a credit without an amount gave %', r; end if;
+  r := pg_temp.tx_event('{"kind": "refund_credited", "happened_on": "2026-09-20", "amount": 1, "revision": 3}');
+  if r ->> 'error' is distinct from 'bad_input' then raise exception 'TX-16 FAILED: a later revision gave %', r; end if;
+  r := pg_temp.tx_event(jsonb_build_object('kind', 'refund_credited', 'happened_on', household_today() + 1, 'amount', 1));
+  if r ->> 'error' is distinct from 'in_future' then raise exception 'TX-16 FAILED: a future date gave %', r; end if;
+  r := pg_temp.tx_event('{"kind": "processed", "happened_on": "2026-03-01", "refund_determined": 1, "refund_interest": 0}');
+  if r ->> 'error' is distinct from 'bad_input' then raise exception 'TX-16 FAILED: a date before the year ended gave %', r; end if;
+  r := pg_temp.tx_event('{"kind": "refund_credited", "happened_on": "2026-09-20", "amount": 5100}', credit);
+  if (r ->> 'ok')::boolean is not true or (select string_agg(amount::text, ',') from tax_return_events where kind = 'refund_credited'
+      and return_id = (select id from tax_returns where member_id = '22222222-2222-2222-2222-0000000000b7' and financial_year = 2025)) <> '5100.00' then
+    raise exception 'TX-16 FAILED: replacing the credit gave %', r;
+  end if;
+  r := remove_tax_return_event('22222222-2222-2222-2222-0000000000b7', credit);
+  if (r ->> 'ok')::boolean is not true then raise exception 'TX-16 FAILED: removing gave %', r; end if;
+  r := remove_tax_return_event('22222222-2222-2222-2222-0000000000b7', credit);
+  if r ->> 'error' is distinct from 'event_not_found' then raise exception 'TX-16 FAILED: removing again gave %', r; end if;
+  r := remove_tax_return_event('99999999-9999-9999-9999-99999999000a', processed);
+  if r ->> 'error' is distinct from 'event_not_found' then raise exception 'TX-16 FAILED: another household''s member gave %', r; end if;
+  r := remove_tax_return_event('22222222-2222-2222-2222-222222222222', processed);
+  if r ->> 'error' is distinct from 'event_not_found' or not exists (select 1 from tax_return_events where id = processed) then
+    raise exception 'TX-16 FAILED: another member of the household gave %', r;
+  end if;
+  raise notice 'TX-16 ok: what happened to a return is added, replaced and removed';
+end $$;
+
+-- TX-17: a revised return keeps what happened to the earlier one, and
+-- cannot go back past what is recorded against it.
+do $$
+declare r jsonb;
+begin
+  r := pg_temp.tx_save('{"revision": 2}', pg_temp.tx_version());
+  if (r ->> 'ok')::boolean is not true or (select revision from tax_return_events where kind = 'processed' and refund_determined = 5000) <> 1 then
+    raise exception 'TX-17 FAILED: revising gave %', r;
+  end if;
+  r := pg_temp.tx_event('{"kind": "refund_credited", "happened_on": "2026-10-20", "amount": 100}');
+  if (select revision from tax_return_events where id = (r ->> 'id')::uuid) <> 2 then raise exception 'TX-17 FAILED: a new event is not on revision 2'; end if;
+  r := pg_temp.tx_save('{"revision": 1}', pg_temp.tx_version());
+  if r ->> 'error' is distinct from 'events_on_later_revision' then raise exception 'TX-17 FAILED: going back gave %', r; end if;
+  raise notice 'TX-17 ok: a revised return keeps the earlier one''s events';
+end $$;
+
+-- TX-18: a call naming nobody is refused.
+do $$
+declare r jsonb;
+begin
+  r := save_tax_return(null, 2025, '{}', 0);
+  if r ->> 'error' is distinct from 'not_member' then raise exception 'TX-18 FAILED: naming nobody gave %', r; end if;
+  raise notice 'TX-18 ok: a call naming nobody is refused';
+end $$;
+
+-- A dividend's own tax year (Task 4): a final declared in March and paid in
+-- April, and a US dividend, which has no Indian tax year.
+select pg_temp.tx_holding('d7b00000-0000-0000-0000-0000000000d1', 'TXD.NS');
+select pg_temp.tx_holding('d7b00000-0000-0000-0000-0000000000e1', 'TXE', 'us_equity');
+insert into holding_dividends (id, household_id, holding_id, ex_date, currency, units, units_basis, per_share, tax_pct,
+  expected_gross, expected_tax, expected_fees, expected_net, received_gross, received_tax, received_fees, received_net,
+  status, evidence, credited_on, source) values
+  ('d7d00000-0000-0000-0000-0000000000d1', '11111111-1111-1111-1111-111111111111', 'd7b00000-0000-0000-0000-0000000000d1', '2026-03-25', 'INR',
+   10, 'trades', 100, 20.8, 1000, 208, 0, 792, 1000, 208, 0, 792, 'received', 'intimation', '2026-04-10', 'import');
+insert into holding_dividends (id, household_id, holding_id, ex_date, currency, units, units_basis, per_share, tax_pct,
+  expected_gross, expected_tax, expected_fees, expected_net, status, source) values
+  ('d7d00000-0000-0000-0000-0000000000e1', '11111111-1111-1111-1111-111111111111', 'd7b00000-0000-0000-0000-0000000000e1', '2026-03-25', 'USD',
+   10, 'trades', 1, 30, 10, 3, 0, 7, 'earned', 'feed');
+create or replace function pg_temp.tx_year(p_dividend uuid, p_year integer, p_basis text, p_version integer default null) returns jsonb language sql as $$
+  select set_dividend_tax_year(p_dividend, p_year, p_basis,
+    coalesce(p_version, (select version from holding_dividends where id = p_dividend)), '22222222-2222-2222-2222-0000000000b7');
+$$;
+
+-- TX-19: a dividend takes the year it was declared in, keeps it through a
+-- sync, and can go back to its credit date's.
+do $$
+declare d uuid := 'd7d00000-0000-0000-0000-0000000000d1'; v integer := (select version from holding_dividends where id = d); r jsonb; row holding_dividends%rowtype;
+begin
+  r := pg_temp.tx_year(d, 2025, 'declared');
+  select * into row from holding_dividends where id = d;
+  if (r ->> 'ok')::boolean is not true or (r ->> 'version')::int <> v + 1 or row.version <> v + 1
+     or row.tax_financial_year <> 2025 or row.tax_year_basis <> 'declared' then
+    raise exception 'TX-19 FAILED: setting the year gave % and %', r, row_to_json(row);
+  end if;
+  perform private.sync_holding_dividends('d7b00000-0000-0000-0000-0000000000d1', null);
+  if (select tax_financial_year from holding_dividends where id = d) is distinct from 2025 then raise exception 'TX-19 FAILED: a sync undid the year'; end if;
+  r := pg_temp.tx_year(d, null, null);
+  if (r ->> 'ok')::boolean is not true or (select tax_financial_year is not null or tax_year_basis is not null from holding_dividends where id = d) then
+    raise exception 'TX-19 FAILED: clearing gave %', r;
+  end if;
+  raise notice 'TX-19 ok: a dividend''s own tax year is set, kept and cleared';
+end $$;
+
+-- TX-20: only an Indian dividend, only to a neighbouring year, with its basis.
+do $$
+declare d uuid := 'd7d00000-0000-0000-0000-0000000000d1'; r jsonb;
+begin
+  r := pg_temp.tx_year('d7d00000-0000-0000-0000-0000000000e1', 2025, 'declared');
+  if r ->> 'error' is distinct from 'not_indian' then raise exception 'TX-20 FAILED: a US dividend gave %', r; end if;
+  r := pg_temp.tx_year(d, 2023, 'declared');
+  if r ->> 'error' is distinct from 'year_too_far' then raise exception 'TX-20 FAILED: two years back gave %', r; end if;
+  r := pg_temp.tx_year(d, 2025, null);
+  if r ->> 'error' is distinct from 'bad_input' then raise exception 'TX-20 FAILED: a year without a basis gave %', r; end if;
+  r := pg_temp.tx_year(d, 2025, 'other');
+  if r ->> 'error' is distinct from 'bad_input' then raise exception 'TX-20 FAILED: an unknown basis gave %', r; end if;
+  r := pg_temp.tx_year(d, 2025, 'declared', 1);
+  if r ->> 'error' is distinct from 'stale' then raise exception 'TX-20 FAILED: an old version gave %', r; end if;
+  r := pg_temp.tx_year(gen_random_uuid(), 2025, 'declared', 1);
+  if r ->> 'error' is distinct from 'dividend_not_found' then raise exception 'TX-20 FAILED: an unknown dividend gave %', r; end if;
+  if (select tax_financial_year from holding_dividends where id = d) is not null then raise exception 'TX-20 FAILED: a refusal saved a year'; end if;
+  raise notice 'TX-20 ok: a tax year is refused outside the rules';
+end $$;
+
 rollback;

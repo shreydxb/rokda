@@ -1613,6 +1613,111 @@ begin
 end $$;
 reset role;
 
+-- Dividend tax years (SHR-366): a household's returns, what happened to them
+-- and the department's statements are read by its own members only, and
+-- written by nobody directly. The household deletion below proves a household
+-- with tax records can still be deleted.
+reset role;
+insert into tax_returns (id, household_id, member_id, financial_year, revision, filed_on) values
+  ('fe100000-0000-0000-0000-000000000001', 'd1000000-0000-0000-0000-000000000001', 'e1000000-0000-0000-0000-00000000000b', 2025, 1, '2026-07-20'),
+  ('fe100000-0000-0000-0000-000000000002', 'd2000000-0000-0000-0000-000000000002', 'e2000000-0000-0000-0000-00000000000a', 2025, 1, '2026-07-20');
+insert into tax_return_events (household_id, return_id, revision, kind, happened_on, refund_determined, refund_interest) values
+  ('d1000000-0000-0000-0000-000000000001', 'fe100000-0000-0000-0000-000000000001', 1, 'processed', '2026-09-01', 1000, 0),
+  ('d2000000-0000-0000-0000-000000000002', 'fe100000-0000-0000-0000-000000000002', 1, 'processed', '2026-09-01', 1000, 0);
+insert into tax_statements (id, household_id, member_id, financial_year, source, as_of) values
+  ('fe200000-0000-0000-0000-000000000001', 'd1000000-0000-0000-0000-000000000001', 'e1000000-0000-0000-0000-00000000000b', 2025, '26as', '2026-06-15'),
+  ('fe200000-0000-0000-0000-000000000002', 'd2000000-0000-0000-0000-000000000002', 'e2000000-0000-0000-0000-00000000000a', 2025, '26as', '2026-06-15');
+insert into tax_statement_lines (household_id, statement_id, symbol, payer, gross, tds) values
+  ('d1000000-0000-0000-0000-000000000001', 'fe200000-0000-0000-0000-000000000001', null, 'ABC Limited', 1000, 208),
+  ('d2000000-0000-0000-0000-000000000002', 'fe200000-0000-0000-0000-000000000002', null, 'ABC Limited', 1000, 208);
+set role authenticated;
+set request.jwt.claim.sub = '0b000000-0000-0000-0000-00000000000b';
+do $$
+begin
+  if (select count(*) from tax_returns) <> 1 or (select count(*) from tax_return_events) <> 1
+     or (select count(*) from tax_statements) <> 1 or (select count(*) from tax_statement_lines) <> 1 then
+    raise exception 'tax years RLS FAILED: a member does not see exactly their household''s rows';
+  end if;
+  begin
+    insert into tax_returns (household_id, member_id, financial_year)
+    values ('d1000000-0000-0000-0000-000000000001', 'e1000000-0000-0000-0000-00000000000b', 2024);
+    raise exception 'tax years RLS FAILED: a member inserted a return directly';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    update tax_statement_lines set tds = 0;
+    raise exception 'tax years RLS FAILED: a member edited a statement line directly';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    delete from tax_return_events;
+    raise exception 'tax years RLS FAILED: a member deleted an event directly';
+  exception when insufficient_privilege then null;
+  end;
+  raise notice 'tax years RLS ok: a household''s tax records for its own members, no direct writes';
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '0b000000-0000-0000-0000-00000000000b';
+do $$
+begin
+  begin
+    perform import_tax_statement('e1000000-0000-0000-0000-00000000000b', 2025, '26as', '2026-06-15', '[]', 1);
+    raise exception 'tax years RLS FAILED: a signed-in member imported a statement';
+  exception when insufficient_privilege then null;
+  end;
+  raise notice 'tax import RLS ok: only the service role imports statements';
+end $$;
+reset role;
+set role authenticated;
+set request.jwt.claim.sub = '0b000000-0000-0000-0000-00000000000b';
+do $$
+declare r jsonb;
+begin
+  r := save_tax_return('e1000000-0000-0000-0000-00000000000b', 2024, '{"claim_basis": "treaty", "claim_rate_pct": 10}', 0);
+  if (r ->> 'ok')::boolean is not true then raise exception 'tax returns RLS FAILED: a member could not save their own: %', r; end if;
+  r := save_tax_return('e1000000-0000-0000-0000-00000000000a', 2024, '{"claim_basis": "treaty", "claim_rate_pct": 10}', 0);
+  if (r ->> 'ok')::boolean is not true then raise exception 'tax returns RLS FAILED: a member could not save their partner''s: %', r; end if;
+  r := save_tax_return('e2000000-0000-0000-0000-00000000000a', 2024, '{"claim_basis": "treaty", "claim_rate_pct": 10}', 0);
+  if r ->> 'error' is distinct from 'not_member' then raise exception 'tax returns RLS FAILED: another household''s member gave %', r; end if;
+  r := save_tax_return_event('e1000000-0000-0000-0000-00000000000b', 2025, '{"kind": "refund_credited", "happened_on": "2026-09-20", "amount": 1000}');
+  if (r ->> 'ok')::boolean is not true then raise exception 'tax returns RLS FAILED: a member could not record a refund: %', r; end if;
+end $$;
+reset role;
+set role anon;
+do $$
+begin
+  begin
+    perform save_tax_return('e1000000-0000-0000-0000-00000000000b', 2024, '{}', 1);
+    raise exception 'tax returns RLS FAILED: signed out, a return was saved';
+  exception when insufficient_privilege then null;
+  end;
+  raise notice 'tax returns RLS ok: members save their household''s returns, nobody else''s';
+end $$;
+reset role;
+insert into holdings (id, household_id, name, asset_class, currency, quantity, avg_price, value_aed, price_symbol) values
+  ('fe300000-0000-0000-0000-000000000001', 'd1000000-0000-0000-0000-000000000001', 'Our Indian payer', 'india_equity', 'INR', 10, 100, 0, 'OURS.NS'),
+  ('fe300000-0000-0000-0000-000000000002', 'd2000000-0000-0000-0000-000000000002', 'Their Indian payer', 'india_equity', 'INR', 10, 100, 0, 'THEIRS.NS');
+insert into holding_dividends (id, household_id, holding_id, ex_date, currency, units, units_basis, per_share, tax_pct,
+  expected_gross, expected_tax, expected_fees, expected_net, received_gross, received_tax, received_fees, received_net,
+  status, evidence, credited_on, source)
+select ('fe400000-0000-0000-0000-00000000000' || n)::uuid, hh::uuid, h::uuid, '2026-03-25', 'INR', 10, 'trades', 100, 20.8,
+  1000, 208, 0, 792, 1000, 208, 0, 792, 'received', 'intimation', '2026-04-10', 'import'
+from (values (1, 'd1000000-0000-0000-0000-000000000001', 'fe300000-0000-0000-0000-000000000001'),
+             (2, 'd2000000-0000-0000-0000-000000000002', 'fe300000-0000-0000-0000-000000000002')) v(n, hh, h);
+set role authenticated;
+set request.jwt.claim.sub = '0b000000-0000-0000-0000-00000000000b';
+do $$
+declare r jsonb;
+begin
+  r := set_dividend_tax_year('fe400000-0000-0000-0000-000000000001', 2025, 'declared', 1);
+  if (r ->> 'ok')::boolean is not true then raise exception 'dividend tax year RLS FAILED: a member could not set their own: %', r; end if;
+  r := set_dividend_tax_year('fe400000-0000-0000-0000-000000000002', 2025, 'declared', 1);
+  if r ->> 'error' is distinct from 'not_member' then raise exception 'dividend tax year RLS FAILED: another household''s gave %', r; end if;
+  raise notice 'dividend tax year RLS ok: a member sets their own household''s, nobody else''s';
+end $$;
+reset role;
+
 -- A household can still be deleted outright: the cascade takes the roster with
 -- it, and that is not "a household left without an owner".
 reset role;

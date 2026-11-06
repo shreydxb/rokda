@@ -3201,3 +3201,52 @@ bot's question, the third the Dividends tab.
   basis, one-offs, frequency), `dividendForecast.js` projects one holding,
   and `dividendSummary.js` turns them into the tab's figures in dirhams and
   scope. Each is pure and tested alone, and the screen only lays them out.
+
+## Dividend tax years
+
+Indian dividends paid to a member living abroad have tax withheld, and the
+member claims some of it back in an Indian return each year (SHR-366's tax
+years; `docs/superpowers/specs/2026-11-04-dividend-tax-years-design.md`).
+The first part stores each member's returns, what became of their refunds
+and the department's statements, and works out each year's figures in
+`src/lib/dividendTax.js`. The screen comes in the second part.
+
+- **The AIS for income, Form 26AS for tax credit.** The department's
+  guidance is to rely on 26AS for tax credit where the two differ. Each is
+  imported as its own statement, the AIS's dividend income from its annual
+  dividend stream only, so the same dividend is never counted twice. A
+  dividend or tax missing from a statement is "not reflected", never
+  "cannot be claimed": income is reported from the household's own records.
+- **The claim basis is set per year.** Domestic, treaty or manual, with its
+  rate. A year without its own basis shows facts and last year's basis as
+  reference, never an estimate made on it: the residence and documents a
+  treaty rate needs are a fact of each year.
+- **A surplus or shortfall, not "the dividend part of the refund".** The
+  26AS tax credit on the year's dividends less the tax the return computes
+  on them, signed, shown apart from the whole return's refund, which
+  capital gains and other income also make up.
+- **The refund stays in this panel.** Its principal is tax coming back, not
+  income; its interest is income of the year it arrives. Neither becomes a
+  transaction; the bank balance takes the credit at its next check-in.
+- **What happened to a return is dated events.** A processing records the
+  return's totals to date; credits and offsets are money that moved, added
+  up across revisions; a failed refund moved nothing. A revised return keeps
+  the earlier one's events, and cannot go back past a revision with events.
+- **Shares, not holdings, are compared,** and every difference is shown to
+  the paisa. Up to ₹1 per dividend is "within rounding", since companies
+  round withholding differently. Anything more is offered possible causes
+  (the neighbouring year, an extra deduction, presumed figures), else called
+  unexplained: the check reports, it doesn't decide which side is right.
+- **A tax year is the credit date's unless set.** A final dividend declared
+  in March and paid in April is income of the March year; a member can move
+  one dividend to the neighbouring year, saying why. A presumed dividend's
+  year is provisional while its credit date is an estimate.
+- **One person's return.** A shared Indian holding's dividends are listed
+  apart, asking whose they are. A holding's owner is today's, so its past
+  dividends move with it. A member with tax records cannot be removed from
+  the household; deleting the household still deletes them.
+- **No identifiers, no documents.** Notes and payer names with PAN-shaped
+  text or nine or more digits in a row are refused. The AIS, 26AS, return
+  and intimation are read in a working session, shown as a worksheet, saved
+  through the functions on the household's go, and deleted. Only the
+  service role imports a statement.

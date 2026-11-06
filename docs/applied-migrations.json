@@ -674,5 +674,12 @@
   "fingerprint": "df4d76441e01738d2cf66b0e38077eff",
   "framingFingerprint": "ac5ebe0b5eeed2ad38b81b1486b22a61",
   "fingerprintVersion": 2
+ },
+ {
+  "version": "20261106121123",
+  "name": "dividend_tax_years",
+  "fingerprint": "5be0156fb3e021cba8af7953558eccb6",
+  "framingFingerprint": "7752cfc8bd13ec02f9a72da678e4ac33",
+  "fingerprintVersion": 2
  }
 ]
