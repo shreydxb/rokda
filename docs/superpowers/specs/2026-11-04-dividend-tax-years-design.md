@@ -134,8 +134,8 @@ A "Tax years" section at the end of Wealth → Dividends, in rupees, shown whene
 
 | Step | What | Done when |
 |---|---|---|
-| **PR 1** | the tables, column and functions, with RLS and SQL tests; `dividendTax.js` with its tests | the database and sum cases in section 8 pass |
-| **PR 2** | the section, its forms, `docs/decisions.md`, `docs/features.md` | the screen and browser cases in section 8 pass |
+| **PR 1** | the tables, column and functions, with RLS and SQL tests; `dividendTax.js` with its tests; the decisions in `docs/decisions.md` | the database and sum cases in section 8 pass |
+| **PR 2** | the section and its forms; `docs/features.md`, and the screen's lines in `docs/decisions.md` | the screen and browser cases in section 8 pass |
 | **Data task** | the household's AIS and 26AS for FY 2024-25 and 2025-26, and the FY 2025-26 return with its intimation | the worksheet is approved, the saved figures reconcile with it, the copies are deleted, and importing again reports a no-op |
 | **Later** | a yearly nudge when the statements are out; capital-gains tax; ownership history | each its own issue |
 
