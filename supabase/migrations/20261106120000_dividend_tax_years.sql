@@ -313,3 +313,307 @@ $$;
 
 revoke execute on function public.import_tax_statement(uuid, integer, text, date, jsonb, integer, boolean) from public, anon, authenticated;
 grant execute on function public.import_tax_statement(uuid, integer, text, date, jsonb, integer, boolean) to service_role;
+
+-- ---------------------------------------------------------------------------
+-- 3. Returns and what happened to them
+-- ---------------------------------------------------------------------------
+
+-- Whose return a call is about, and who is making it: a signed-in member of
+-- that member's household, or the service role acting as the member named.
+-- Any member of the household may keep any member's return.
+create or replace function private.tax_caller(p_member_id uuid)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+declare
+  v_household uuid;
+  v_actor uuid;
+begin
+  select m.household_id into v_household from public.household_members m where m.id = p_member_id;
+  if v_household is not null then
+    v_actor := private.trade_caller(v_household, p_member_id);
+  end if;
+  if v_actor is null then
+    return jsonb_build_object('error', 'not_member');
+  end if;
+  return jsonb_build_object('household', v_household, 'member', p_member_id, 'actor', v_actor);
+end;
+$$;
+
+-- An amount as these tables keep it: rupees, not below zero, to the paisa.
+create or replace function private.tax_amount_ok(p_amount numeric)
+returns boolean
+language sql
+immutable
+set search_path = ''
+as $$
+  select p_amount is null or (p_amount >= 0 and p_amount = round(p_amount, 2) and p_amount < 1e14);
+$$;
+
+-- A JSON value of the type a field takes: a number, a string, or null.
+create or replace function private.tax_json_is(p_value jsonb, p_type text)
+returns boolean
+language sql
+immutable
+set search_path = ''
+as $$
+  select p_value is null or jsonb_typeof(p_value) in (p_type, 'null');
+$$;
+
+-- Saves a member's return for a year at the version it was changed against
+-- (0 when it has none yet). Only the listed fields can change; a field given
+-- as null clears it. Nothing is saved when any rule is broken, and the
+-- refusal names the first.
+create or replace function public.save_tax_return(p_member_id uuid, p_financial_year integer, p_change jsonb, p_expected_version integer)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_caller jsonb := private.tax_caller(p_member_id);
+  v_today date := public.household_today();
+  r public.tax_returns%rowtype;
+  v_found boolean;
+  v_key text;
+  v_figure numeric;
+begin
+  if v_caller ? 'error' then
+    return jsonb_build_object('ok', false, 'error', 'not_member');
+  end if;
+  if jsonb_typeof(p_change) is distinct from 'object' or p_expected_version is null
+     or p_financial_year is null or p_financial_year < 2000 or p_financial_year > private.financial_year_of(v_today)
+     or exists (select 1 from jsonb_object_keys(p_change) k where k not in (
+       'claim_basis', 'claim_rate_pct', 'revision', 'filed_on', 'dividend_income', 'dividend_tax', 'dividend_tds_claimed', 'tds_claimed_total', 'note'))
+     or not private.tax_json_is(p_change -> 'claim_basis', 'string') or not private.tax_json_is(p_change -> 'note', 'string')
+     or not private.tax_json_is(p_change -> 'filed_on', 'string')
+     or jsonb_typeof(p_change -> 'revision') = 'null' or not private.tax_json_is(p_change -> 'revision', 'number')
+     or exists (select 1 from unnest(array['claim_rate_pct', 'dividend_income', 'dividend_tax', 'dividend_tds_claimed', 'tds_claimed_total']) k
+       where not private.tax_json_is(p_change -> k, 'number')) then
+    return jsonb_build_object('ok', false, 'error', 'bad_input');
+  end if;
+
+  -- Checked as given: a row variable would round 10.005 to 10.01 unseen.
+  if exists (select 1 from unnest(array['dividend_income', 'dividend_tax', 'dividend_tds_claimed', 'tds_claimed_total']) k
+             where not private.tax_amount_ok((p_change ->> k)::numeric)) then
+    return jsonb_build_object('ok', false, 'error', 'bad_figures');
+  end if;
+  if (p_change ->> 'claim_rate_pct')::numeric <> round((p_change ->> 'claim_rate_pct')::numeric, 2) then
+    return jsonb_build_object('ok', false, 'error', 'bad_input');
+  end if;
+
+  select * into r from public.tax_returns t where t.member_id = p_member_id and t.financial_year = p_financial_year for update;
+  v_found := found;
+  if coalesce(r.version, 0) <> p_expected_version then
+    return jsonb_build_object('ok', false, 'error', 'stale');
+  end if;
+  if not v_found then
+    r.revision := 0;
+  end if;
+
+  begin
+    if p_change ? 'claim_basis' then r.claim_basis := p_change ->> 'claim_basis'; end if;
+    if p_change ? 'claim_rate_pct' then r.claim_rate_pct := (p_change ->> 'claim_rate_pct')::numeric; end if;
+    if p_change ? 'revision' then r.revision := (p_change ->> 'revision')::numeric; end if;
+    if p_change ? 'filed_on' then r.filed_on := (p_change ->> 'filed_on')::date; end if;
+    if p_change ? 'dividend_income' then r.dividend_income := (p_change ->> 'dividend_income')::numeric; end if;
+    if p_change ? 'dividend_tax' then r.dividend_tax := (p_change ->> 'dividend_tax')::numeric; end if;
+    if p_change ? 'dividend_tds_claimed' then r.dividend_tds_claimed := (p_change ->> 'dividend_tds_claimed')::numeric; end if;
+    if p_change ? 'tds_claimed_total' then r.tds_claimed_total := (p_change ->> 'tds_claimed_total')::numeric; end if;
+    if p_change ? 'note' then r.note := nullif(btrim(p_change ->> 'note'), ''); end if;
+  exception when others then
+    return jsonb_build_object('ok', false, 'error', 'bad_input');
+  end;
+  if p_change ? 'revision' and (p_change ->> 'revision')::numeric <> r.revision then
+    return jsonb_build_object('ok', false, 'error', 'bad_input');
+  end if;
+
+  if (r.claim_basis is null) <> (r.claim_rate_pct is null) then
+    return jsonb_build_object('ok', false, 'error', 'basis_needs_rate');
+  end if;
+  if r.claim_basis not in ('domestic', 'treaty', 'manual') or r.claim_rate_pct not between 0 and 100
+     or r.claim_rate_pct <> round(r.claim_rate_pct, 2) or r.revision < 0 then
+    return jsonb_build_object('ok', false, 'error', 'bad_input');
+  end if;
+  if r.revision >= 1 and r.filed_on is null then
+    return jsonb_build_object('ok', false, 'error', 'filed_on_needed');
+  end if;
+  if r.revision = 0 and (r.filed_on is not null or r.dividend_income is not null or r.dividend_tax is not null
+     or r.dividend_tds_claimed is not null or r.tds_claimed_total is not null) then
+    return jsonb_build_object('ok', false, 'error', 'not_filed');
+  end if;
+  if r.filed_on < make_date(p_financial_year + 1, 4, 1) then
+    return jsonb_build_object('ok', false, 'error', 'filed_before_year_end');
+  end if;
+  if r.filed_on > v_today then
+    return jsonb_build_object('ok', false, 'error', 'in_future');
+  end if;
+  foreach v_figure in array array[r.dividend_income, r.dividend_tax, r.dividend_tds_claimed, r.tds_claimed_total] loop
+    if not private.tax_amount_ok(v_figure) then
+      return jsonb_build_object('ok', false, 'error', 'bad_figures');
+    end if;
+  end loop;
+  if r.dividend_tds_claimed > r.tds_claimed_total then
+    return jsonb_build_object('ok', false, 'error', 'bad_figures');
+  end if;
+  if private.has_identifier(r.note) then
+    return jsonb_build_object('ok', false, 'error', 'identifier_in_text');
+  end if;
+  if length(r.note) > 500 then
+    return jsonb_build_object('ok', false, 'error', 'bad_input');
+  end if;
+  if v_found and r.revision < (select coalesce(max(e.revision), 0) from public.tax_return_events e where e.return_id = r.id) then
+    return jsonb_build_object('ok', false, 'error', 'events_on_later_revision');
+  end if;
+
+  if not v_found then
+    begin
+      insert into public.tax_returns (household_id, member_id, financial_year, claim_basis, claim_rate_pct, revision, filed_on,
+        dividend_income, dividend_tax, dividend_tds_claimed, tds_claimed_total, note, updated_by)
+      values ((v_caller ->> 'household')::uuid, p_member_id, p_financial_year, r.claim_basis, r.claim_rate_pct, r.revision, r.filed_on,
+        r.dividend_income, r.dividend_tax, r.dividend_tds_claimed, r.tds_claimed_total, r.note, (v_caller ->> 'actor')::uuid)
+      returning id into r.id;
+    exception when unique_violation then
+      -- Another first save of the same year committed while this one checked.
+      return jsonb_build_object('ok', false, 'error', 'stale');
+    end;
+    return jsonb_build_object('ok', true, 'id', r.id, 'version', 1);
+  end if;
+  update public.tax_returns
+  set claim_basis = r.claim_basis, claim_rate_pct = r.claim_rate_pct, revision = r.revision, filed_on = r.filed_on,
+      dividend_income = r.dividend_income, dividend_tax = r.dividend_tax, dividend_tds_claimed = r.dividend_tds_claimed,
+      tds_claimed_total = r.tds_claimed_total, note = r.note, version = version + 1, updated_by = (v_caller ->> 'actor')::uuid
+  where id = r.id;
+  return jsonb_build_object('ok', true, 'id', r.id, 'version', r.version + 1);
+end;
+$$;
+
+-- Adds what happened to a filed return, or with an id replaces it: a
+-- processing (the return's totals to date; a negative refund is a demand),
+-- a refund credited, an amount set against a demand, or a failed refund.
+-- It is tied to the return's current revision unless it names an earlier one.
+create or replace function public.save_tax_return_event(p_member_id uuid, p_financial_year integer, p_event jsonb, p_event_id uuid default null)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_caller jsonb := private.tax_caller(p_member_id);
+  v_today date := public.household_today();
+  r public.tax_returns%rowtype;
+  e public.tax_return_events%rowtype;
+  v_kind text;
+begin
+  if v_caller ? 'error' then
+    return jsonb_build_object('ok', false, 'error', 'not_member');
+  end if;
+  if jsonb_typeof(p_event) is distinct from 'object' or p_financial_year is null
+     or exists (select 1 from jsonb_object_keys(p_event) k where k not in (
+       'kind', 'revision', 'happened_on', 'refund_determined', 'refund_interest', 'tds_allowed_total', 'amount', 'note'))
+     or jsonb_typeof(p_event -> 'kind') is distinct from 'string' or jsonb_typeof(p_event -> 'happened_on') is distinct from 'string'
+     or not private.tax_json_is(p_event -> 'revision', 'number') or not private.tax_json_is(p_event -> 'note', 'string')
+     or exists (select 1 from unnest(array['refund_determined', 'refund_interest', 'tds_allowed_total', 'amount']) k
+       where not private.tax_json_is(p_event -> k, 'number')) then
+    return jsonb_build_object('ok', false, 'error', 'bad_input');
+  end if;
+  select * into r from public.tax_returns t where t.member_id = p_member_id and t.financial_year = p_financial_year for update;
+  if not found or r.revision = 0 then
+    return jsonb_build_object('ok', false, 'error', 'not_filed');
+  end if;
+  if p_event_id is not null and not exists (select 1 from public.tax_return_events x where x.id = p_event_id and x.return_id = r.id) then
+    return jsonb_build_object('ok', false, 'error', 'event_not_found');
+  end if;
+
+  if exists (select 1 from unnest(array['refund_determined', 'refund_interest', 'tds_allowed_total', 'amount']) k
+             where not private.tax_amount_ok(abs((p_event ->> k)::numeric))) then
+    return jsonb_build_object('ok', false, 'error', 'bad_figures');
+  end if;
+  begin
+    v_kind := p_event ->> 'kind';
+    e.revision := coalesce((p_event ->> 'revision')::numeric, r.revision);
+    e.happened_on := (p_event ->> 'happened_on')::date;
+    e.refund_determined := (p_event ->> 'refund_determined')::numeric;
+    e.refund_interest := (p_event ->> 'refund_interest')::numeric;
+    e.tds_allowed_total := (p_event ->> 'tds_allowed_total')::numeric;
+    e.amount := (p_event ->> 'amount')::numeric;
+    e.note := nullif(btrim(p_event ->> 'note'), '');
+  exception when others then
+    return jsonb_build_object('ok', false, 'error', 'bad_input');
+  end;
+  if v_kind not in ('processed', 'refund_credited', 'offset_against_demand', 'refund_failed')
+     or (p_event ? 'revision' and (p_event ->> 'revision')::numeric <> e.revision) or e.revision not between 1 and r.revision
+     or e.happened_on < make_date(p_financial_year + 1, 4, 1) or length(e.note) > 500 then
+    return jsonb_build_object('ok', false, 'error', 'bad_input');
+  end if;
+  if e.happened_on > v_today then
+    return jsonb_build_object('ok', false, 'error', 'in_future');
+  end if;
+  -- A demand is the one figure below zero.
+  if not (private.tax_amount_ok(abs(e.refund_determined)) and private.tax_amount_ok(e.refund_interest)
+          and private.tax_amount_ok(e.tds_allowed_total) and private.tax_amount_ok(e.amount))
+     or not coalesce(case v_kind
+       when 'processed' then e.refund_determined is not null and e.refund_interest is not null and e.amount is null
+       when 'refund_failed' then e.refund_determined is null and e.refund_interest is null and e.tds_allowed_total is null
+         and (e.amount is null or e.amount > 0)
+       else e.refund_determined is null and e.refund_interest is null and e.tds_allowed_total is null and e.amount > 0
+     end, false) then
+    return jsonb_build_object('ok', false, 'error', 'bad_figures');
+  end if;
+  if private.has_identifier(e.note) then
+    return jsonb_build_object('ok', false, 'error', 'identifier_in_text');
+  end if;
+
+  if p_event_id is null then
+    insert into public.tax_return_events (household_id, return_id, revision, kind, happened_on, refund_determined, refund_interest,
+      tds_allowed_total, amount, note, updated_by)
+    values (r.household_id, r.id, e.revision, v_kind, e.happened_on, e.refund_determined, e.refund_interest,
+      e.tds_allowed_total, e.amount, e.note, (v_caller ->> 'actor')::uuid)
+    returning id into e.id;
+  else
+    e.id := p_event_id;
+    update public.tax_return_events
+    set revision = e.revision, kind = v_kind, happened_on = e.happened_on, refund_determined = e.refund_determined,
+        refund_interest = e.refund_interest, tds_allowed_total = e.tds_allowed_total, amount = e.amount, note = e.note,
+        updated_by = (v_caller ->> 'actor')::uuid
+    where id = e.id;
+  end if;
+  return jsonb_build_object('ok', true, 'id', e.id);
+end;
+$$;
+
+-- Removes something recorded against a member's return.
+create or replace function public.remove_tax_return_event(p_member_id uuid, p_event_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_caller jsonb := private.tax_caller(p_member_id);
+begin
+  if v_caller ? 'error' then
+    return jsonb_build_object('ok', false, 'error', 'not_member');
+  end if;
+  delete from public.tax_return_events e
+  using public.tax_returns t
+  where e.id = p_event_id and t.id = e.return_id and t.member_id = p_member_id;
+  if not found then
+    return jsonb_build_object('ok', false, 'error', 'event_not_found');
+  end if;
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+revoke execute on function private.tax_caller(uuid) from public, anon, authenticated;
+revoke execute on function private.tax_amount_ok(numeric) from public, anon, authenticated;
+revoke execute on function private.tax_json_is(jsonb, text) from public, anon, authenticated;
+revoke execute on function public.save_tax_return(uuid, integer, jsonb, integer) from public, anon;
+revoke execute on function public.save_tax_return_event(uuid, integer, jsonb, uuid) from public, anon;
+revoke execute on function public.remove_tax_return_event(uuid, uuid) from public, anon;
+grant execute on function public.save_tax_return(uuid, integer, jsonb, integer) to authenticated, service_role;
+grant execute on function public.save_tax_return_event(uuid, integer, jsonb, uuid) to authenticated, service_role;
+grant execute on function public.remove_tax_return_event(uuid, uuid) to authenticated, service_role;

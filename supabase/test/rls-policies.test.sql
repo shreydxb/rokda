@@ -1669,6 +1669,32 @@ begin
   raise notice 'tax import RLS ok: only the service role imports statements';
 end $$;
 reset role;
+set role authenticated;
+set request.jwt.claim.sub = '0b000000-0000-0000-0000-00000000000b';
+do $$
+declare r jsonb;
+begin
+  r := save_tax_return('e1000000-0000-0000-0000-00000000000b', 2024, '{"claim_basis": "treaty", "claim_rate_pct": 10}', 0);
+  if (r ->> 'ok')::boolean is not true then raise exception 'tax returns RLS FAILED: a member could not save their own: %', r; end if;
+  r := save_tax_return('e1000000-0000-0000-0000-00000000000a', 2024, '{"claim_basis": "treaty", "claim_rate_pct": 10}', 0);
+  if (r ->> 'ok')::boolean is not true then raise exception 'tax returns RLS FAILED: a member could not save their partner''s: %', r; end if;
+  r := save_tax_return('e2000000-0000-0000-0000-00000000000a', 2024, '{"claim_basis": "treaty", "claim_rate_pct": 10}', 0);
+  if r ->> 'error' is distinct from 'not_member' then raise exception 'tax returns RLS FAILED: another household''s member gave %', r; end if;
+  r := save_tax_return_event('e1000000-0000-0000-0000-00000000000b', 2025, '{"kind": "refund_credited", "happened_on": "2026-09-20", "amount": 1000}');
+  if (r ->> 'ok')::boolean is not true then raise exception 'tax returns RLS FAILED: a member could not record a refund: %', r; end if;
+end $$;
+reset role;
+set role anon;
+do $$
+begin
+  begin
+    perform save_tax_return('e1000000-0000-0000-0000-00000000000b', 2024, '{}', 1);
+    raise exception 'tax returns RLS FAILED: signed out, a return was saved';
+  exception when insufficient_privilege then null;
+  end;
+  raise notice 'tax returns RLS ok: members save their household''s returns, nobody else''s';
+end $$;
+reset role;
 
 -- A household can still be deleted outright: the cascade takes the roster with
 -- it, and that is not "a household left without an owner".

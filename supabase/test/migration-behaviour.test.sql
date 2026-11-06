@@ -5663,4 +5663,124 @@ begin
   raise notice 'TX-13 ok: an import with any bad line saves nothing';
 end $$;
 
+-- Returns and what happened to them (Task 3), as the service role for the
+-- member, her 2025 return unless a case says otherwise.
+create or replace function pg_temp.tx_save(p_change jsonb, p_version integer, p_year integer default 2025) returns jsonb language sql as $$
+  select save_tax_return('22222222-2222-2222-2222-0000000000b7', p_year, p_change, p_version);
+$$;
+create or replace function pg_temp.tx_event(p_event jsonb, p_id uuid default null, p_year integer default 2025) returns jsonb language sql as $$
+  select save_tax_return_event('22222222-2222-2222-2222-0000000000b7', p_year, p_event, p_id);
+$$;
+create or replace function pg_temp.tx_version() returns integer language sql as $$
+  select version from tax_returns where member_id = '22222222-2222-2222-2222-0000000000b7' and financial_year = 2025;
+$$;
+
+-- TX-14: a return is created on its first save and saved at its version.
+do $$
+declare r jsonb; t tax_returns%rowtype;
+begin
+  r := pg_temp.tx_save('{"claim_basis": "treaty", "claim_rate_pct": 10}', 0);
+  if (r ->> 'ok')::boolean is not true or (r ->> 'version')::int <> 1 then raise exception 'TX-14 FAILED: the first save gave %', r; end if;
+  r := pg_temp.tx_save('{"claim_basis": "domestic", "claim_rate_pct": 20.8}', 0);
+  if r ->> 'error' is distinct from 'stale' then raise exception 'TX-14 FAILED: a second first save gave %', r; end if;
+  r := pg_temp.tx_save('{"revision": 1, "filed_on": "2026-07-20", "dividend_income": 10000, "dividend_tax": 1000, "dividend_tds_claimed": 2080, "tds_claimed_total": 5000}', 1);
+  select * into t from tax_returns where member_id = '22222222-2222-2222-2222-0000000000b7' and financial_year = 2025;
+  if (r ->> 'version')::int is distinct from 2 or t.claim_basis <> 'treaty' or t.claim_rate_pct <> 10 or t.revision <> 1 or t.dividend_tax <> 1000
+     or t.updated_by <> '22222222-2222-2222-2222-0000000000b7' then
+    raise exception 'TX-14 FAILED: filing gave % and %', r, row_to_json(t);
+  end if;
+  raise notice 'TX-14 ok: a return is saved at the version it was changed against';
+end $$;
+
+-- TX-15: a return outside the rules is refused, one reason each, nothing saved.
+do $$
+declare r jsonb; c record;
+begin
+  for c in select * from (values
+    ('{"pan": "x"}', 2025, 'bad_input'),
+    ('{"claim_rate_pct": null}', 2025, 'basis_needs_rate'),
+    ('{"claim_basis": "other"}', 2025, 'bad_input'),
+    ('{"revision": 1}', 2024, 'filed_on_needed'),
+    ('{"dividend_tax": 100}', 2024, 'not_filed'),
+    ('{"filed_on": "2026-03-15"}', 2025, 'filed_before_year_end'),
+    ('{"filed_on": "' || (household_today() + 1) || '"}', 2025, 'in_future'),
+    ('{"revision": 1}', 2099, 'bad_input'),
+    ('{"dividend_tax": -1}', 2025, 'bad_figures'),
+    ('{"dividend_tax": 10.005}', 2025, 'bad_figures'),
+    ('{"dividend_tax": "1,000"}', 2025, 'bad_input'),
+    ('{"dividend_tds_claimed": 6000}', 2025, 'bad_figures'),
+    ('{"note": "ack 123456789012345"}', 2025, 'identifier_in_text')) v(change, year, code)
+  loop
+    r := pg_temp.tx_save(c.change::jsonb, case when c.year = 2025 then 2 else 0 end, c.year);
+    if r ->> 'error' is distinct from c.code then raise exception 'TX-15 FAILED: % for % gave %, expected %', c.change, c.year, r, c.code; end if;
+  end loop;
+  if pg_temp.tx_version() <> 2 or exists (select 1 from tax_returns where financial_year in (2024, 2099)) then
+    raise exception 'TX-15 FAILED: a refused save changed something';
+  end if;
+  raise notice 'TX-15 ok: each figure outside the rules is refused with its reason';
+end $$;
+
+-- TX-16: what happened to a filed return, added, replaced and removed.
+do $$
+declare r jsonb; credit uuid; processed uuid;
+begin
+  r := pg_temp.tx_event('{"kind": "processed", "happened_on": "2025-09-01", "refund_determined": 1, "refund_interest": 0}', null, 2024);
+  if r ->> 'error' is distinct from 'not_filed' then raise exception 'TX-16 FAILED: an event on an unfiled year gave %', r; end if;
+  r := pg_temp.tx_event('{"kind": "processed", "happened_on": "2026-09-01", "refund_determined": 5000, "refund_interest": 150, "tds_allowed_total": 5000}');
+  processed := (r ->> 'id')::uuid;
+  if (r ->> 'ok')::boolean is not true or (select revision from tax_return_events where id = processed) <> 1 then raise exception 'TX-16 FAILED: processing gave %', r; end if;
+  r := pg_temp.tx_event('{"kind": "refund_credited", "happened_on": "2026-09-20", "amount": 5150}');
+  credit := (r ->> 'id')::uuid;
+  if (r ->> 'ok')::boolean is not true then raise exception 'TX-16 FAILED: a credit gave %', r; end if;
+  r := pg_temp.tx_event('{"kind": "refund_credited", "happened_on": "2026-09-20"}');
+  if r ->> 'error' is distinct from 'bad_figures' then raise exception 'TX-16 FAILED: a credit without an amount gave %', r; end if;
+  r := pg_temp.tx_event('{"kind": "refund_credited", "happened_on": "2026-09-20", "amount": 1, "revision": 3}');
+  if r ->> 'error' is distinct from 'bad_input' then raise exception 'TX-16 FAILED: a later revision gave %', r; end if;
+  r := pg_temp.tx_event(jsonb_build_object('kind', 'refund_credited', 'happened_on', household_today() + 1, 'amount', 1));
+  if r ->> 'error' is distinct from 'in_future' then raise exception 'TX-16 FAILED: a future date gave %', r; end if;
+  r := pg_temp.tx_event('{"kind": "processed", "happened_on": "2026-03-01", "refund_determined": 1, "refund_interest": 0}');
+  if r ->> 'error' is distinct from 'bad_input' then raise exception 'TX-16 FAILED: a date before the year ended gave %', r; end if;
+  r := pg_temp.tx_event('{"kind": "refund_credited", "happened_on": "2026-09-20", "amount": 5100}', credit);
+  if (r ->> 'ok')::boolean is not true or (select string_agg(amount::text, ',') from tax_return_events where kind = 'refund_credited'
+      and return_id = (select id from tax_returns where member_id = '22222222-2222-2222-2222-0000000000b7' and financial_year = 2025)) <> '5100.00' then
+    raise exception 'TX-16 FAILED: replacing the credit gave %', r;
+  end if;
+  r := remove_tax_return_event('22222222-2222-2222-2222-0000000000b7', credit);
+  if (r ->> 'ok')::boolean is not true then raise exception 'TX-16 FAILED: removing gave %', r; end if;
+  r := remove_tax_return_event('22222222-2222-2222-2222-0000000000b7', credit);
+  if r ->> 'error' is distinct from 'event_not_found' then raise exception 'TX-16 FAILED: removing again gave %', r; end if;
+  r := remove_tax_return_event('99999999-9999-9999-9999-99999999000a', processed);
+  if r ->> 'error' is distinct from 'event_not_found' then raise exception 'TX-16 FAILED: another household''s member gave %', r; end if;
+  r := remove_tax_return_event('22222222-2222-2222-2222-222222222222', processed);
+  if r ->> 'error' is distinct from 'event_not_found' or not exists (select 1 from tax_return_events where id = processed) then
+    raise exception 'TX-16 FAILED: another member of the household gave %', r;
+  end if;
+  raise notice 'TX-16 ok: what happened to a return is added, replaced and removed';
+end $$;
+
+-- TX-17: a revised return keeps what happened to the earlier one, and
+-- cannot go back past what is recorded against it.
+do $$
+declare r jsonb;
+begin
+  r := pg_temp.tx_save('{"revision": 2}', pg_temp.tx_version());
+  if (r ->> 'ok')::boolean is not true or (select revision from tax_return_events where kind = 'processed' and refund_determined = 5000) <> 1 then
+    raise exception 'TX-17 FAILED: revising gave %', r;
+  end if;
+  r := pg_temp.tx_event('{"kind": "refund_credited", "happened_on": "2026-10-20", "amount": 100}');
+  if (select revision from tax_return_events where id = (r ->> 'id')::uuid) <> 2 then raise exception 'TX-17 FAILED: a new event is not on revision 2'; end if;
+  r := pg_temp.tx_save('{"revision": 1}', pg_temp.tx_version());
+  if r ->> 'error' is distinct from 'events_on_later_revision' then raise exception 'TX-17 FAILED: going back gave %', r; end if;
+  raise notice 'TX-17 ok: a revised return keeps the earlier one''s events';
+end $$;
+
+-- TX-18: a call naming nobody is refused.
+do $$
+declare r jsonb;
+begin
+  r := save_tax_return(null, 2025, '{}', 0);
+  if r ->> 'error' is distinct from 'not_member' then raise exception 'TX-18 FAILED: naming nobody gave %', r; end if;
+  raise notice 'TX-18 ok: a call naming nobody is refused';
+end $$;
+
 rollback;
