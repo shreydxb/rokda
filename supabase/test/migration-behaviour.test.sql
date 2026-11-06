@@ -5399,4 +5399,144 @@ begin
   raise notice 'D3-01 ok: a one-off is answered for any event of a followed share';
 end $$;
 
+-- ---------------------------------------------------------------------------
+-- Dividend tax years (SHR-366), part 1. Member 2222…00b7 of household 1111…
+-- owns every holding below; returns and statements are hers. Each refused
+-- write runs in its own block, so the rest of the file goes on.
+-- ---------------------------------------------------------------------------
+create or replace function pg_temp.tx_holding(p_id uuid, p_symbol text, p_class text default 'india_equity')
+returns void language sql as $$
+  insert into holdings (id, household_id, owner_member_id, is_shared, name, asset_class, currency, quantity, avg_price, value_aed, price_symbol)
+  values (p_id, '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-0000000000b7', false, p_symbol,
+    p_class, case when p_class = 'india_equity' then 'INR' else 'USD' end, 10, 100, 0, p_symbol);
+$$;
+-- Runs one statement and says which error class it raised, or 'ok'.
+create or replace function pg_temp.tx_try(p_sql text) returns text language plpgsql as $$
+begin
+  execute p_sql;
+  return 'ok';
+exception
+  when check_violation then return 'check_violation';
+  when unique_violation then return 'unique_violation';
+  when foreign_key_violation then return 'foreign_key_violation: ' || sqlerrm;
+end $$;
+
+-- TX-01: a day's financial year starts on 1 April.
+do $$
+begin
+  if private.financial_year_of('2026-03-31') <> 2025 or private.financial_year_of('2026-04-01') <> 2026
+     or private.financial_year_of('2025-12-31') <> 2025 then
+    raise exception 'TX-01 FAILED: financial years came out wrong';
+  end if;
+  raise notice 'TX-01 ok: a financial year runs from 1 April';
+end $$;
+
+-- TX-02: a return's figures follow its filing.
+do $$
+declare ins text := 'insert into tax_returns (household_id, member_id, financial_year, revision, filed_on, claim_basis, claim_rate_pct, dividend_tax, dividend_tds_claimed, tds_claimed_total) values (''11111111-1111-1111-1111-111111111111'', ''22222222-2222-2222-2222-0000000000b7'', ';
+  r text;
+begin
+  r := pg_temp.tx_try(ins || '2019, 0, ''2020-07-01'', null, null, null, null, null)');
+  if r <> 'check_violation' then raise exception 'TX-02 FAILED: an unfiled return with a filing date gave %', r; end if;
+  r := pg_temp.tx_try(ins || '2019, 1, null, null, null, null, null, null)');
+  if r <> 'check_violation' then raise exception 'TX-02 FAILED: a filed return without a date gave %', r; end if;
+  r := pg_temp.tx_try(ins || '2019, 0, null, null, null, 100, null, null)');
+  if r <> 'check_violation' then raise exception 'TX-02 FAILED: figures on an unfiled return gave %', r; end if;
+  r := pg_temp.tx_try(ins || '2019, 0, null, ''treaty'', null, null, null, null)');
+  if r <> 'check_violation' then raise exception 'TX-02 FAILED: a basis without a rate gave %', r; end if;
+  r := pg_temp.tx_try(ins || '2019, 1, ''2020-07-01'', null, null, null, 300, 200)');
+  if r <> 'check_violation' then raise exception 'TX-02 FAILED: dividend tax credit over the total gave %', r; end if;
+  r := pg_temp.tx_try(ins || '2019, 1, ''2020-07-01'', ''treaty'', 10, 100, 200, 300)');
+  if r <> 'ok' then raise exception 'TX-02 FAILED: a sound return gave %', r; end if;
+  r := pg_temp.tx_try(ins || '2019, 0, null, null, null, null, null, null)');
+  if r <> 'unique_violation' then raise exception 'TX-02 FAILED: a second return for the year gave %', r; end if;
+  delete from tax_returns where financial_year = 2019;
+  raise notice 'TX-02 ok: a return''s figures follow its filing, one per member and year';
+end $$;
+
+-- TX-03: PAN-shaped text and long numbers are never stored.
+do $$
+declare r text; st uuid;
+begin
+  if not private.has_identifier('ABCDE1234F') or not private.has_identifier('abcde1234f') or not private.has_identifier('ref 123456789012')
+     or private.has_identifier('Paid 1,20,000 on 5 Oct') or private.has_identifier('Filed late') or private.has_identifier(null) then
+    raise exception 'TX-03 FAILED: has_identifier judged wrongly';
+  end if;
+  r := pg_temp.tx_try('insert into tax_returns (household_id, member_id, financial_year, note) values (''11111111-1111-1111-1111-111111111111'', ''22222222-2222-2222-2222-0000000000b7'', 2019, ''PAN ABCDE1234F'')');
+  if r <> 'check_violation' then raise exception 'TX-03 FAILED: a PAN in a note gave %', r; end if;
+  insert into tax_statements (household_id, member_id, financial_year, source, as_of)
+  values ('11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-0000000000b7', 2019, 'ais', '2020-06-01') returning id into st;
+  r := pg_temp.tx_try(format('insert into tax_statement_lines (household_id, statement_id, payer, gross) values (''11111111-1111-1111-1111-111111111111'', %L, ''ABC 123456789'', 1)', st));
+  if r <> 'check_violation' then raise exception 'TX-03 FAILED: a long number in a payer gave %', r; end if;
+  delete from tax_statements where id = st;
+  raise notice 'TX-03 ok: PAN-shaped text and long numbers are refused';
+end $$;
+
+-- TX-04: what happened to a return carries the figures of its kind.
+do $$
+declare ret uuid; ins text; r text;
+begin
+  insert into tax_returns (household_id, member_id, financial_year, revision, filed_on)
+  values ('11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-0000000000b7', 2019, 1, '2020-07-01') returning id into ret;
+  ins := format('insert into tax_return_events (household_id, return_id, revision, kind, happened_on, refund_determined, refund_interest, amount) values (''11111111-1111-1111-1111-111111111111'', %L, 1, ', ret);
+  r := pg_temp.tx_try(ins || '''processed'', ''2020-09-01'', null, 0, null)');
+  if r <> 'check_violation' then raise exception 'TX-04 FAILED: a processing without its refund gave %', r; end if;
+  r := pg_temp.tx_try(ins || '''refund_credited'', ''2020-09-01'', null, null, null)');
+  if r <> 'check_violation' then raise exception 'TX-04 FAILED: a credit without an amount gave %', r; end if;
+  r := pg_temp.tx_try(ins || '''refund_credited'', ''2020-09-01'', null, 10, 100)');
+  if r <> 'check_violation' then raise exception 'TX-04 FAILED: a credit with interest gave %', r; end if;
+  r := pg_temp.tx_try(ins || '''processed'', ''2020-09-01'', -500, 0, null)');
+  if r <> 'ok' then raise exception 'TX-04 FAILED: a demand gave %', r; end if;
+  delete from tax_returns where id = ret;
+  raise notice 'TX-04 ok: each kind of event carries its own figures';
+end $$;
+
+-- TX-05: a statement names each payer once, with sound figures.
+do $$
+declare st uuid; ins text; r text;
+begin
+  insert into tax_statements (household_id, member_id, financial_year, source, as_of)
+  values ('11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-0000000000b7', 2019, '26as', '2020-06-01') returning id into st;
+  ins := format('insert into tax_statement_lines (household_id, statement_id, payer, gross, tds) values (''11111111-1111-1111-1111-111111111111'', %L, ', st);
+  r := pg_temp.tx_try(ins || '''ABC Limited'', 100, 20)');
+  if r <> 'ok' then raise exception 'TX-05 FAILED: a sound line gave %', r; end if;
+  r := pg_temp.tx_try(ins || ''' abc limited '', 100, 20)');
+  if r <> 'unique_violation' then raise exception 'TX-05 FAILED: the same payer twice gave %', r; end if;
+  r := pg_temp.tx_try(ins || '''XYZ Limited'', -1, 0)');
+  if r <> 'check_violation' then raise exception 'TX-05 FAILED: a negative gross gave %', r; end if;
+  r := pg_temp.tx_try(ins || '''XYZ Limited'', 100, 101)');
+  if r <> 'check_violation' then raise exception 'TX-05 FAILED: tax over the gross gave %', r; end if;
+  delete from tax_statements where id = st;
+  raise notice 'TX-05 ok: one line per payer, with sound figures';
+end $$;
+
+-- TX-06: a dividend's own tax year always says why.
+do $$
+declare h uuid := 'd7b00000-0000-0000-0000-000000000006'; d uuid := gen_random_uuid(); r text;
+begin
+  perform pg_temp.tx_holding(h, 'TX06.NS');
+  insert into holding_dividends (id, household_id, holding_id, ex_date, currency, units, units_basis, per_share, tax_pct,
+    expected_gross, expected_tax, expected_fees, expected_net, status, source)
+  values (d, '11111111-1111-1111-1111-111111111111', h, '2026-03-25', 'INR', 10, 'trades', 100, 20.8, 1000, 208, 0, 792, 'earned', 'feed');
+  r := pg_temp.tx_try(format('update holding_dividends set tax_financial_year = 2025 where id = %L', d));
+  if r <> 'check_violation' then raise exception 'TX-06 FAILED: a year without a basis gave %', r; end if;
+  r := pg_temp.tx_try(format('update holding_dividends set tax_financial_year = 2025, tax_year_basis = ''other'' where id = %L', d));
+  if r <> 'check_violation' then raise exception 'TX-06 FAILED: an unknown basis gave %', r; end if;
+  r := pg_temp.tx_try(format('update holding_dividends set tax_financial_year = 2025, tax_year_basis = ''declared'' where id = %L', d));
+  if r <> 'ok' then raise exception 'TX-06 FAILED: a year with its basis gave %', r; end if;
+  raise notice 'TX-06 ok: a dividend''s own tax year comes with its basis';
+end $$;
+
+-- TX-07: a member with tax records cannot be removed from under them.
+do $$
+declare r text;
+begin
+  insert into tax_returns (household_id, member_id, financial_year)
+  values ('11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-0000000000b7', 2019);
+  r := pg_temp.tx_try('delete from household_members where id = ''22222222-2222-2222-2222-0000000000b7''');
+  if r not like 'foreign_key_violation%tax_returns%' then raise exception 'TX-07 FAILED: removing a member with a return gave %', r; end if;
+  delete from tax_returns where financial_year = 2019;
+  raise notice 'TX-07 ok: a member with tax records stays';
+end $$;
+
 rollback;
