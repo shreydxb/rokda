@@ -617,3 +617,55 @@ revoke execute on function public.remove_tax_return_event(uuid, uuid) from publi
 grant execute on function public.save_tax_return(uuid, integer, jsonb, integer) to authenticated, service_role;
 grant execute on function public.save_tax_return_event(uuid, integer, jsonb, uuid) to authenticated, service_role;
 grant execute on function public.remove_tax_return_event(uuid, uuid) to authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+-- 4. A dividend's own tax year
+-- ---------------------------------------------------------------------------
+
+-- Puts an Indian dividend in a tax year other than its credit date's, with
+-- why: a final dividend is income of the year it was declared, an interim
+-- one of the year it was paid, and a statement or the household may say
+-- otherwise. Only the neighbouring year can be chosen. Null and null clear
+-- it. Saved at the dividend's version, locking as the other dividend
+-- functions do (the holding first).
+create or replace function public.set_dividend_tax_year(
+  p_dividend_id uuid, p_financial_year integer, p_basis text, p_expected_version integer, p_member_id uuid default null)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_caller jsonb := private.dividend_caller(p_dividend_id, '{}'::jsonb, p_member_id);
+  r public.holding_dividends%rowtype;
+  v_day date;
+begin
+  if v_caller ? 'error' then
+    return jsonb_build_object('ok', false, 'error', v_caller ->> 'error');
+  end if;
+  select * into r from public.holding_dividends where id = p_dividend_id;
+  perform 1 from public.holdings where id = r.holding_id for update;
+  select * into r from public.holding_dividends where id = p_dividend_id for update;
+  if r.version is distinct from p_expected_version then
+    return jsonb_build_object('ok', false, 'error', 'stale');
+  end if;
+  if (select h.asset_class from public.holdings h where h.id = r.holding_id) is distinct from 'india_equity' then
+    return jsonb_build_object('ok', false, 'error', 'not_indian');
+  end if;
+  if (p_financial_year is null) <> (p_basis is null) or p_basis not in ('declared', 'paid', 'statement', 'household')
+     or p_financial_year < 2000 or p_financial_year > private.financial_year_of(public.household_today()) then
+    return jsonb_build_object('ok', false, 'error', 'bad_input');
+  end if;
+  v_day := coalesce(r.credited_on, r.pay_date, r.ex_date);
+  if p_financial_year is not null and v_day is not null and abs(p_financial_year - private.financial_year_of(v_day)) > 1 then
+    return jsonb_build_object('ok', false, 'error', 'year_too_far');
+  end if;
+  update public.holding_dividends
+  set tax_financial_year = p_financial_year, tax_year_basis = p_basis, version = version + 1, updated_by = (v_caller ->> 'member')::uuid
+  where id = r.id;
+  return jsonb_build_object('ok', true, 'version', r.version + 1);
+end;
+$$;
+
+revoke execute on function public.set_dividend_tax_year(uuid, integer, text, integer, uuid) from public, anon;
+grant execute on function public.set_dividend_tax_year(uuid, integer, text, integer, uuid) to authenticated, service_role;

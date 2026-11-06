@@ -5783,4 +5783,62 @@ begin
   raise notice 'TX-18 ok: a call naming nobody is refused';
 end $$;
 
+-- A dividend's own tax year (Task 4): a final declared in March and paid in
+-- April, and a US dividend, which has no Indian tax year.
+select pg_temp.tx_holding('d7b00000-0000-0000-0000-0000000000d1', 'TXD.NS');
+select pg_temp.tx_holding('d7b00000-0000-0000-0000-0000000000e1', 'TXE', 'us_equity');
+insert into holding_dividends (id, household_id, holding_id, ex_date, currency, units, units_basis, per_share, tax_pct,
+  expected_gross, expected_tax, expected_fees, expected_net, received_gross, received_tax, received_fees, received_net,
+  status, evidence, credited_on, source) values
+  ('d7d00000-0000-0000-0000-0000000000d1', '11111111-1111-1111-1111-111111111111', 'd7b00000-0000-0000-0000-0000000000d1', '2026-03-25', 'INR',
+   10, 'trades', 100, 20.8, 1000, 208, 0, 792, 1000, 208, 0, 792, 'received', 'intimation', '2026-04-10', 'import');
+insert into holding_dividends (id, household_id, holding_id, ex_date, currency, units, units_basis, per_share, tax_pct,
+  expected_gross, expected_tax, expected_fees, expected_net, status, source) values
+  ('d7d00000-0000-0000-0000-0000000000e1', '11111111-1111-1111-1111-111111111111', 'd7b00000-0000-0000-0000-0000000000e1', '2026-03-25', 'USD',
+   10, 'trades', 1, 30, 10, 3, 0, 7, 'earned', 'feed');
+create or replace function pg_temp.tx_year(p_dividend uuid, p_year integer, p_basis text, p_version integer default null) returns jsonb language sql as $$
+  select set_dividend_tax_year(p_dividend, p_year, p_basis,
+    coalesce(p_version, (select version from holding_dividends where id = p_dividend)), '22222222-2222-2222-2222-0000000000b7');
+$$;
+
+-- TX-19: a dividend takes the year it was declared in, keeps it through a
+-- sync, and can go back to its credit date's.
+do $$
+declare d uuid := 'd7d00000-0000-0000-0000-0000000000d1'; v integer := (select version from holding_dividends where id = d); r jsonb; row holding_dividends%rowtype;
+begin
+  r := pg_temp.tx_year(d, 2025, 'declared');
+  select * into row from holding_dividends where id = d;
+  if (r ->> 'ok')::boolean is not true or (r ->> 'version')::int <> v + 1 or row.version <> v + 1
+     or row.tax_financial_year <> 2025 or row.tax_year_basis <> 'declared' then
+    raise exception 'TX-19 FAILED: setting the year gave % and %', r, row_to_json(row);
+  end if;
+  perform private.sync_holding_dividends('d7b00000-0000-0000-0000-0000000000d1', null);
+  if (select tax_financial_year from holding_dividends where id = d) is distinct from 2025 then raise exception 'TX-19 FAILED: a sync undid the year'; end if;
+  r := pg_temp.tx_year(d, null, null);
+  if (r ->> 'ok')::boolean is not true or (select tax_financial_year is not null or tax_year_basis is not null from holding_dividends where id = d) then
+    raise exception 'TX-19 FAILED: clearing gave %', r;
+  end if;
+  raise notice 'TX-19 ok: a dividend''s own tax year is set, kept and cleared';
+end $$;
+
+-- TX-20: only an Indian dividend, only to a neighbouring year, with its basis.
+do $$
+declare d uuid := 'd7d00000-0000-0000-0000-0000000000d1'; r jsonb;
+begin
+  r := pg_temp.tx_year('d7d00000-0000-0000-0000-0000000000e1', 2025, 'declared');
+  if r ->> 'error' is distinct from 'not_indian' then raise exception 'TX-20 FAILED: a US dividend gave %', r; end if;
+  r := pg_temp.tx_year(d, 2023, 'declared');
+  if r ->> 'error' is distinct from 'year_too_far' then raise exception 'TX-20 FAILED: two years back gave %', r; end if;
+  r := pg_temp.tx_year(d, 2025, null);
+  if r ->> 'error' is distinct from 'bad_input' then raise exception 'TX-20 FAILED: a year without a basis gave %', r; end if;
+  r := pg_temp.tx_year(d, 2025, 'other');
+  if r ->> 'error' is distinct from 'bad_input' then raise exception 'TX-20 FAILED: an unknown basis gave %', r; end if;
+  r := pg_temp.tx_year(d, 2025, 'declared', 1);
+  if r ->> 'error' is distinct from 'stale' then raise exception 'TX-20 FAILED: an old version gave %', r; end if;
+  r := pg_temp.tx_year(gen_random_uuid(), 2025, 'declared', 1);
+  if r ->> 'error' is distinct from 'dividend_not_found' then raise exception 'TX-20 FAILED: an unknown dividend gave %', r; end if;
+  if (select tax_financial_year from holding_dividends where id = d) is not null then raise exception 'TX-20 FAILED: a refusal saved a year'; end if;
+  raise notice 'TX-20 ok: a tax year is refused outside the rules';
+end $$;
+
 rollback;

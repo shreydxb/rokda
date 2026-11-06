@@ -1695,6 +1695,28 @@ begin
   raise notice 'tax returns RLS ok: members save their household''s returns, nobody else''s';
 end $$;
 reset role;
+insert into holdings (id, household_id, name, asset_class, currency, quantity, avg_price, value_aed, price_symbol) values
+  ('fe300000-0000-0000-0000-000000000001', 'd1000000-0000-0000-0000-000000000001', 'Our Indian payer', 'india_equity', 'INR', 10, 100, 0, 'OURS.NS'),
+  ('fe300000-0000-0000-0000-000000000002', 'd2000000-0000-0000-0000-000000000002', 'Their Indian payer', 'india_equity', 'INR', 10, 100, 0, 'THEIRS.NS');
+insert into holding_dividends (id, household_id, holding_id, ex_date, currency, units, units_basis, per_share, tax_pct,
+  expected_gross, expected_tax, expected_fees, expected_net, received_gross, received_tax, received_fees, received_net,
+  status, evidence, credited_on, source)
+select ('fe400000-0000-0000-0000-00000000000' || n)::uuid, hh::uuid, h::uuid, '2026-03-25', 'INR', 10, 'trades', 100, 20.8,
+  1000, 208, 0, 792, 1000, 208, 0, 792, 'received', 'intimation', '2026-04-10', 'import'
+from (values (1, 'd1000000-0000-0000-0000-000000000001', 'fe300000-0000-0000-0000-000000000001'),
+             (2, 'd2000000-0000-0000-0000-000000000002', 'fe300000-0000-0000-0000-000000000002')) v(n, hh, h);
+set role authenticated;
+set request.jwt.claim.sub = '0b000000-0000-0000-0000-00000000000b';
+do $$
+declare r jsonb;
+begin
+  r := set_dividend_tax_year('fe400000-0000-0000-0000-000000000001', 2025, 'declared', 1);
+  if (r ->> 'ok')::boolean is not true then raise exception 'dividend tax year RLS FAILED: a member could not set their own: %', r; end if;
+  r := set_dividend_tax_year('fe400000-0000-0000-0000-000000000002', 2025, 'declared', 1);
+  if r ->> 'error' is distinct from 'not_member' then raise exception 'dividend tax year RLS FAILED: another household''s gave %', r; end if;
+  raise notice 'dividend tax year RLS ok: a member sets their own household''s, nobody else''s';
+end $$;
+reset role;
 
 -- A household can still be deleted outright: the cascade takes the roster with
 -- it, and that is not "a household left without an owner".
