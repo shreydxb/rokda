@@ -143,3 +143,16 @@
   font-size: 12.5px;
   margin: 0;
 }
+/* An opened tax year: its shares, return and refund records, each under a
+   small heading, with the tab's own row and form styles inside. */
+.tx-detail {
+  margin-top: 8px;
+}
+.tx-subtitle {
+  margin: 14px 0 6px;
+}
+.tx-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
