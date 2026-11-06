@@ -178,3 +178,12 @@ export function unassignedWords(unassigned) {
     ? `${names} is shared, so its dividends aren't in anyone's tax year. Give it an owner under Investments to count them.`
     : `${names} are shared, so their dividends aren't in anyone's tax year. Give them owners under Investments to count them.`;
 }
+
+// An amount as typed: spaces and commas dropped, so "1,20,000.50" is read as
+// 120000.5. Empty is null; anything else that isn't a number is NaN.
+export function parseAmount(text) {
+  const t = String(text ?? '').replace(/[\s,]/g, '');
+  if (t === '') return null;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : NaN;
+}

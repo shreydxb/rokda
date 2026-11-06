@@ -137,3 +137,9 @@
   flex-direction: column;
   gap: 4px;
 }
+/* Tax years (dividend tax years, part 2): a form's hint or refusal, at the
+   size of the tab's other notes. */
+.tx-hint {
+  font-size: 12.5px;
+  margin: 0;
+}
