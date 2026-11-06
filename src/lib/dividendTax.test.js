@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { dividendTaxYear, financialYearOf, lineKey, rokdaShareYears, shareKey, statementCheck, taxYearLabel } from './dividendTax';
+import {
+  dividendTaxSurplus, dividendTaxYear, financialYearOf, lineKey, refundEstimate, refundState, rokdaShareYears, shareKey, statementCheck, taxRefusalMessage,
+  taxYearLabel, taxYears,
+} from './dividendTax';
 
 const IN_A = { id: 'h-a', name: 'ABC', asset_class: 'india_equity', price_symbol: 'ABC.NS', owner_member_id: 'm1', is_shared: false, quantity: 10 };
 const IN_A2 = { ...IN_A, id: 'h-a2', name: 'ABC (second account)' };
@@ -175,5 +178,144 @@ describe('the statement check', () => {
     });
     expect(checks.find((c) => c.memberId === 'm1').tax.label).toBe('not_imported');
     expect(checks.find((c) => c.memberId === 'm2').tax.label).toBe('only_in_statement');
+  });
+});
+
+const filed = (extra) => ({ id: 'r-25', member_id: 'm1', financial_year: 2025, revision: 1, filed_on: '2026-07-20', claim_basis: null, claim_rate_pct: null,
+  dividend_income: 10000, dividend_tax: 1000, dividend_tds_claimed: 2080, tds_claimed_total: 5000, ...extra });
+let e = 0;
+const event = (kind, extra) => ({ id: `e${++e}`, return_id: 'r-25', revision: 1, kind, happened_on: '2026-09-01', created_at: `2026-09-01T00:00:0${e % 10}Z`,
+  refund_determined: null, refund_interest: null, tds_allowed_total: null, amount: null, ...extra });
+const processed = (determined, interest = 0, extra) => event('processed', { refund_determined: determined, refund_interest: interest, ...extra });
+
+describe('surplus or shortfall', () => {
+  it('is signed and needs both sides', () => {
+    expect(dividendTaxSurplus({ taxReturn: filed(), f26asTds: 2080 })).toEqual({ amount: 1080, missing: [] });
+    expect(dividendTaxSurplus({ taxReturn: filed(), f26asTds: 800 })).toEqual({ amount: -200, missing: [] });
+    expect(dividendTaxSurplus({ taxReturn: filed(), f26asTds: null })).toEqual({ amount: null, missing: ['26as'] });
+    expect(dividendTaxSurplus({ taxReturn: filed({ revision: 0, filed_on: null, dividend_tax: null }), f26asTds: 2080 })).toEqual({ amount: null, missing: ['return'] });
+    expect(dividendTaxSurplus({ taxReturn: null, f26asTds: null })).toEqual({ amount: null, missing: ['return', '26as'] });
+  });
+
+  it('a surplus larger than the whole refund stays whole', () => {
+    const { years } = taxYears({
+      holdings: [], dividends: [], returns: [filed()], events: [processed(3000), event('refund_credited', { amount: 3000 })],
+      statements: [statement('s-26', '26as', 2025)], lines: [line('s-26', null, 30000, 6000, 'ABC Limited')],
+    });
+    expect(years[0].surplus.amount).toBe(5000);
+    expect(years[0].refund).toMatchObject({ stage: 'settled', determined: 3000, unexplained: 0 });
+  });
+});
+
+describe("what happened to a return's refund", () => {
+  it('a zero refund is no refund', () => {
+    expect(refundState(filed(), [processed(0)])).toMatchObject({ stage: 'no_refund', unexplained: null });
+  });
+
+  it('before processing', () => {
+    expect(refundState(null, []).stage).toBe('not_filed');
+    expect(refundState(filed({ revision: 0, filed_on: null }), []).stage).toBe('not_filed');
+    expect(refundState(filed(), []).stage).toBe('filed');
+  });
+
+  it('interest and an offset', () => {
+    const due = [processed(10000, 300), event('offset_against_demand', { amount: 2000 })];
+    expect(refundState(filed(), [...due, event('refund_credited', { amount: 8000 })])).toEqual(
+      { stage: 'partly_settled', determined: 10000, interest: 300, credited: 8000, offset: 2000, unexplained: 300 });
+    expect(refundState(filed(), [...due, event('refund_credited', { amount: 8300 })])).toMatchObject({ stage: 'settled', unexplained: 0 });
+    expect(refundState(filed(), [processed(10000, 300)]).stage).toBe('refund_due');
+  });
+
+  it('a revised return keeps the earlier credit', () => {
+    const state = refundState(filed({ revision: 2 }), [
+      processed(5000), event('refund_credited', { amount: 5000, happened_on: '2026-09-20' }),
+      processed(5500, 0, { revision: 2, happened_on: '2026-10-15' }),
+    ]);
+    expect(state).toMatchObject({ stage: 'partly_settled', determined: 5500, credited: 5000, unexplained: 500 });
+  });
+
+  it('a failed refund counts as nothing', () => {
+    expect(refundState(filed(), [processed(5000), event('refund_failed', { happened_on: '2026-09-10' }), event('refund_credited', { amount: 5000 })]))
+      .toMatchObject({ stage: 'settled', credited: 5000, unexplained: 0 });
+  });
+
+  it('a demand', () => {
+    expect(refundState(filed(), [processed(-500)])).toMatchObject({ stage: 'demand', determined: -500, unexplained: null });
+  });
+});
+
+describe('the estimate before filing', () => {
+  const rokda = { confirmed: { gross: 8000, tax: 1664 }, presumed: { gross: 2000, tax: 416 } };
+  const planned = { revision: 0, filed_on: null, claim_basis: 'treaty', claim_rate_pct: 10 };
+
+  it('from Rokda shows the presumed part; from 26AS it needs none', () => {
+    expect(refundEstimate({ taxReturn: planned, f26as: null, rokda })).toEqual({ amount: 1080, presumedPart: 216, claimBasis: 'treaty', ratePct: 10, from: 'rokda' });
+    expect(refundEstimate({ taxReturn: planned, f26as: { gross: 10000, tds: 2080 }, rokda }))
+      .toEqual({ amount: 1080, presumedPart: null, claimBasis: 'treaty', ratePct: 10, from: '26as' });
+  });
+
+  it("needs this year's own basis, and stops once filed", () => {
+    expect(refundEstimate({ taxReturn: null, f26as: null, rokda })).toBeNull();
+    expect(refundEstimate({ taxReturn: { ...planned, claim_basis: null, claim_rate_pct: null }, f26as: null, rokda })).toBeNull();
+    expect(refundEstimate({ taxReturn: { ...planned, revision: 1, filed_on: '2026-07-20' }, f26as: null, rokda })).toBeNull();
+  });
+
+  it("no estimate without this year's basis; last year's is shown as reference", () => {
+    const { years } = taxYears({
+      holdings: [IN_A], dividends: [rec(IN_A, 1000, 208, { credited_on: '2026-05-01' })],
+      returns: [filed({ claim_basis: 'treaty', claim_rate_pct: 10 })], events: [], statements: [], lines: [],
+    });
+    const y2026 = years.find((y) => y.year === 2026);
+    expect(y2026.estimate).toBeNull();
+    expect(y2026.basisReference).toEqual({ year: 2025, claimBasis: 'treaty', ratePct: 10 });
+    expect(years.find((y) => y.year === 2025).basisReference).toBeNull();
+  });
+});
+
+describe("each member's tax years", () => {
+  it('a year appears for a return alone', () => {
+    const { years } = taxYears({ holdings: [], dividends: [], returns: [filed({ id: 'r-24', financial_year: 2024 })], events: [], statements: [], lines: [] });
+    expect(years).toHaveLength(1);
+    expect(years[0]).toMatchObject({ memberId: 'm1', year: 2024, label: 'FY 2024-25 (AY 2025-26)', shares: [], statements: { ais: null, f26as: null } });
+  });
+
+  it('years are newest first, and say they are provisional', () => {
+    const { years } = taxYears({
+      holdings: [IN_A], dividends: [pre(IN_A, 1000, 208, { credited_on: '2026-03-30' }), rec(IN_A, 1000, 208, { credited_on: '2026-06-01' })],
+      returns: [], events: [], statements: [], lines: [],
+    });
+    expect(years.map((y) => y.year)).toEqual([2026, 2025]);
+    expect(years[1].provisional).toBe(true);
+    expect(years[0].provisional).toBe(false);
+    expect(years[1].rokda.presumed).toEqual({ count: 1, gross: 1000, tax: 208 });
+  });
+
+  it('a statement is summed, and an empty one is imported', () => {
+    const { years } = taxYears({
+      holdings: [IN_A], dividends: [rec(IN_A, 1000, 208)], returns: [], events: [],
+      statements: [statement('s-ais', 'ais', 2025), statement('s-26', '26as', 2025)],
+      lines: [line('s-26', 'ABC.NS', 1000, 208), line('s-26', null, 500, 104, 'Old Co Limited')],
+    });
+    expect(years[0].statements.f26as).toEqual({ revision: 1, asOf: '2026-06-15', importedAt: '2026-11-01T00:00:00Z', lineCount: 2, gross: 1500, tds: 312 });
+    expect(years[0].statements.ais).toMatchObject({ lineCount: 0, gross: 0, tds: 0 });
+    expect(years[0].shares.map((c) => c.name)).toEqual(['ABC', 'Old Co Limited']);
+  });
+
+  it('shared holdings are listed apart', () => {
+    expect(taxYears({ holdings: [IN_S], dividends: [rec(IN_S, 1000, 208)], returns: [], events: [], statements: [], lines: [] }))
+      .toEqual({ years: [], unassigned: [{ holdingId: 'h-s', name: 'Shared Co', count: 1 }] });
+  });
+});
+
+describe('refusals', () => {
+  it('every error code has a sentence', () => {
+    const fallback = taxRefusalMessage('nope');
+    expect(fallback).toBe('That could not be saved. Nothing was changed.');
+    for (const code of ['not_member', 'bad_input', 'bad_figures', 'stale', 'basis_needs_rate', 'filed_on_needed', 'not_filed', 'filed_before_year_end',
+      'in_future', 'identifier_in_text', 'events_on_later_revision', 'event_not_found', 'dividend_not_found', 'not_indian', 'year_too_far',
+      'unknown_share', 'duplicate_payer', 'older_than_held']) {
+      expect(taxRefusalMessage(code)).not.toBe(fallback);
+    }
+    expect(taxRefusalMessage('identifier_in_text')).toBe('Leave out PAN, account and acknowledgement numbers.');
   });
 });

@@ -174,3 +174,136 @@ export function statementCheck({ shareYears, statements, lines }) {
   }
   return checks.sort((a, b) => (a.memberId < b.memberId ? -1 : a.memberId > b.memberId ? 1 : a.year - b.year || a.name.localeCompare(b.name)));
 }
+
+const isFiled = (taxReturn) => Boolean(taxReturn && taxReturn.revision >= 1);
+
+// The dividend tax surplus (or, negative, shortfall): the tax credit on the
+// year's dividends in 26AS less the tax the return computes on them. It is
+// not a part of the refund: other income can absorb or add to that.
+export function dividendTaxSurplus({ taxReturn, f26asTds }) {
+  const missing = [];
+  if (!isFiled(taxReturn) || taxReturn.dividend_tax == null) missing.push('return');
+  if (f26asTds == null) missing.push('26as');
+  if (missing.length) return { amount: null, missing };
+  return { amount: rupees(paise(f26asTds) - paise(taxReturn.dividend_tax)), missing };
+}
+
+const latestFirst = (a, b) =>
+  b.revision - a.revision || (a.happened_on < b.happened_on ? 1 : a.happened_on > b.happened_on ? -1 : 0)
+  || (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0);
+
+// What became of a return's refund. The latest processing records the
+// return's totals to date; credits and offsets are money that moved, under
+// any revision; a failed refund moved nothing. "Unexplained" is what was
+// determined, with interest, that neither arrived nor was set off.
+export function refundState(taxReturn, events) {
+  const mine = taxReturn ? (events ?? []).filter((e) => e.return_id === taxReturn.id) : [];
+  const sum = (kind) => mine.filter((e) => e.kind === kind).reduce((total, e) => total + paise(e.amount), 0);
+  const credited = sum('refund_credited');
+  const offset = sum('offset_against_demand');
+  const state = (stage, determined = null, interest = null, unexplained = null) =>
+    ({ stage, determined: determined == null ? null : rupees(determined), interest: interest == null ? null : rupees(interest),
+      credited: rupees(credited), offset: rupees(offset), unexplained: unexplained == null ? null : rupees(unexplained) });
+  if (!isFiled(taxReturn)) return state('not_filed');
+  const processing = mine.filter((e) => e.kind === 'processed').sort(latestFirst)[0];
+  if (!processing) return state('filed');
+  const determined = paise(processing.refund_determined);
+  const interest = paise(processing.refund_interest ?? 0);
+  if (determined < 0) return state('demand', determined, interest);
+  const due = determined + interest;
+  if (due === 0) return state('no_refund', determined, interest);
+  const settled = credited + offset;
+  const stage = settled === 0 ? 'refund_due' : settled < due ? 'partly_settled' : 'settled';
+  return state(stage, determined, interest, due - settled);
+}
+
+// What could come back on this year's dividends before filing, at the
+// basis set for this year (never another year's): tax withheld less the
+// rate on gross. From 26AS once imported, else from Rokda, whose presumed
+// part is shown apart.
+export function refundEstimate({ taxReturn, f26as, rokda }) {
+  if (!taxReturn?.claim_basis || taxReturn.claim_rate_pct == null || isFiled(taxReturn)) return null;
+  const ratePct = Number(taxReturn.claim_rate_pct);
+  const owed = (grossPaise) => Math.round((grossPaise * ratePct) / 100);
+  const basis = { claimBasis: taxReturn.claim_basis, ratePct };
+  if (f26as) return { amount: rupees(paise(f26as.tds) - owed(paise(f26as.gross))), presumedPart: null, ...basis, from: '26as' };
+  const gross = paise(rokda.confirmed.gross) + paise(rokda.presumed.gross);
+  const tax = paise(rokda.confirmed.tax) + paise(rokda.presumed.tax);
+  return {
+    amount: rupees(tax - owed(gross)), presumedPart: rupees(paise(rokda.presumed.tax) - owed(paise(rokda.presumed.gross))), ...basis, from: 'rokda',
+  };
+}
+
+const REFUSALS = {
+  not_member: "This isn't someone in your household.",
+  bad_input: "Something in this form isn't a valid year, date, choice or number.",
+  bad_figures: 'An amount is below zero, has more than two decimals, or is more than its total.',
+  stale: 'This changed since you opened it. Check it again.',
+  basis_needs_rate: 'Give the rate with the basis, or clear both.',
+  filed_on_needed: 'A filed return needs the date it was filed.',
+  not_filed: 'Mark the return filed before adding its figures or what happened to it.',
+  filed_before_year_end: 'A return can only be filed after its tax year has ended.',
+  in_future: 'That date is after today.',
+  identifier_in_text: 'Leave out PAN, account and acknowledgement numbers.',
+  events_on_later_revision: 'Something is recorded against a later revision. Remove it first.',
+  event_not_found: 'This is no longer there.',
+  dividend_not_found: 'This dividend is no longer there.',
+  not_indian: 'Only Indian dividends have a tax year here.',
+  year_too_far: 'A dividend can only move to the year next to the one it was credited in.',
+  unknown_share: "That share isn't one of the household's Indian holdings.",
+  duplicate_payer: 'The same company is listed twice.',
+  older_than_held: 'A newer statement is already saved.',
+};
+
+// One sentence for a refusal from the tax functions, keeping what was typed.
+export function taxRefusalMessage(code) {
+  return REFUSALS[code] ?? 'That could not be saved. Nothing was changed.';
+}
+
+function statementInfo(statement, lines) {
+  if (!statement) return null;
+  const own = (lines ?? []).filter((l) => l.statement_id === statement.id);
+  return {
+    revision: statement.revision, asOf: statement.as_of, importedAt: statement.imported_at, lineCount: own.length,
+    gross: rupees(own.reduce((t, l) => t + paise(l.gross), 0)), tds: rupees(own.reduce((t, l) => t + paise(l.tds ?? 0), 0)),
+  };
+}
+
+// Each member's tax years, newest first: every year with Indian dividends, a
+// statement or a return, held or not. Shared holdings' dividends are apart.
+export function taxYears({ holdings, dividends, statements, lines, returns, events }) {
+  const { rows, unassigned } = rokdaShareYears(holdings, dividends);
+  const checks = statementCheck({ shareYears: rows, statements, lines });
+  const keys = new Map();
+  const add = (memberId, year) => keys.set(`${memberId}|${year}`, { memberId, year });
+  rows.forEach((r) => add(r.memberId, r.year));
+  (statements ?? []).forEach((s) => add(s.member_id, s.financial_year));
+  (returns ?? []).forEach((r) => add(r.member_id, r.financial_year));
+  const returnOf = (memberId, year) => (returns ?? []).find((r) => r.member_id === memberId && r.financial_year === year) ?? null;
+  const statementOf = (memberId, year, source) =>
+    (statements ?? []).find((s) => s.member_id === memberId && s.financial_year === year && s.source === source);
+
+  const years = [...keys.values()].map(({ memberId, year }) => {
+    const own = rows.filter((r) => r.memberId === memberId && r.year === year);
+    const total = (part) => figuresInRupees(own.reduce((t, r) => ({
+      count: t.count + r[part].count, gross: t.gross + paise(r[part].gross), tax: t.tax + paise(r[part].tax),
+    }), emptyFigures()));
+    const rokda = { confirmed: total('confirmed'), presumed: total('presumed') };
+    const f26as = statementInfo(statementOf(memberId, year, '26as'), lines);
+    const taxReturn = returnOf(memberId, year);
+    const previous = taxReturn?.claim_basis ? null : returnOf(memberId, year - 1);
+    return {
+      memberId, year, label: taxYearLabel(year), provisional: own.some((r) => r.provisional), rokda,
+      statements: { ais: statementInfo(statementOf(memberId, year, 'ais'), lines), f26as },
+      shares: checks.filter((c) => c.memberId === memberId && c.year === year).sort((a, b) => a.name.localeCompare(b.name)),
+      taxReturn,
+      surplus: dividendTaxSurplus({ taxReturn, f26asTds: f26as?.tds ?? null }),
+      refund: refundState(taxReturn, (events ?? []).filter((e) => e.return_id === taxReturn?.id)),
+      estimate: refundEstimate({ taxReturn, f26as: f26as ? { gross: f26as.gross, tds: f26as.tds } : null, rokda }),
+      basisReference: previous?.claim_basis
+        ? { year: year - 1, claimBasis: previous.claim_basis, ratePct: Number(previous.claim_rate_pct) } : null,
+    };
+  });
+  years.sort((a, b) => b.year - a.year || (a.memberId < b.memberId ? -1 : a.memberId > b.memberId ? 1 : 0));
+  return { years, unassigned };
+}
