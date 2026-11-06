@@ -98,3 +98,25 @@ describe('what happened to the refund', () => {
     expect(onSaved).not.toHaveBeenCalled();
   });
 });
+
+describe('missing figures are named before sending', () => {
+  it('a processing needs its refund, a credit its amount, and the date comes after the year', async () => {
+    open();
+    type('What happened', 'processed');
+    type('Date', '2026-09-01');
+    type('Refund determined', '');
+    await save();
+    expect(screen.getByText('Give the refund determined.')).toBeTruthy();
+    type('What happened', 'refund_credited');
+    type('Amount', '0');
+    await save();
+    expect(screen.getByText('Give the amount.')).toBeTruthy();
+    type('Amount', '100');
+    type('Date', '2026-03-01');
+    await save();
+    expect(screen.getByText('A date after the tax year ended, from 1 Apr 2026.')).toBeTruthy();
+    expect(screen.getByLabelText('Date').getAttribute('min')).toBe('2026-04-01');
+    expect(calls).toEqual([]);
+  });
+});
+

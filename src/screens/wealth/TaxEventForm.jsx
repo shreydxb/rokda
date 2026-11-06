@@ -24,6 +24,7 @@ const FIGURES = {
 };
 const AMOUNT_HINT = 'Enter an amount, like 1000.50';
 const asText = (v) => (v == null ? '' : String(Number(v)));
+const longDate = (day) => new Date(`${day}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
 
 // What happened to a filed return (dividend tax years): a processing, a
 // refund credited, an amount set against a demand, or a failed refund, tied
@@ -42,6 +43,8 @@ export default function TaxEventForm({ memberId, year, taxReturn, event, onSaved
   const [busy, setBusy] = useState(false);
   const field = (key) => `${uid}-${key}`;
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
+  // Nothing happens to a return before its tax year has ended.
+  const yearEnded = `${year + 1}-04-01`;
 
   useEffect(() => {
     firstRef.current?.focus();
@@ -56,7 +59,12 @@ export default function TaxEventForm({ memberId, year, taxReturn, event, onSaved
       if (Number.isNaN(value) || (value < 0 && key !== 'refund_determined')) found[key] = AMOUNT_HINT;
       else if (value != null) sent[key] = value;
     }
+    // The database would refuse these with a sentence about amounts or
+    // input in general; said here, they name what is missing.
+    if (form.kind === 'processed' && !found.refund_determined && sent.refund_determined == null) found.refund_determined = 'Give the refund determined.';
+    if ((form.kind === 'refund_credited' || form.kind === 'offset_against_demand') && !found.amount && !sent.amount) found.amount = 'Give the amount.';
     if (!form.happened_on) found.happened_on = 'Give the date it happened.';
+    else if (form.happened_on < yearEnded) found.happened_on = `A date after the tax year ended, from ${longDate(yearEnded)}.`;
     sent.revision = Number(form.revision);
     if (form.note.trim()) sent.note = form.note.trim();
     setErrors(found);
@@ -93,6 +101,7 @@ export default function TaxEventForm({ memberId, year, taxReturn, event, onSaved
           className="te-fieldvalue"
           type={type}
           inputMode={type === 'text' && key !== 'note' ? 'decimal' : undefined}
+          min={type === 'date' ? yearEnded : undefined}
           max={type === 'date' ? householdToday() : undefined}
           value={form[key]}
           aria-invalid={errors[key] ? true : undefined}

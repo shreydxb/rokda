@@ -60,14 +60,18 @@ function buildChange(form, initial) {
 export default function TaxReturnForm({ memberId, year, taxReturn, onSaved, onCancel }) {
   const uid = useId();
   const firstRef = useRef(null);
-  const initial = formOf(taxReturn);
+  // What the form was opened on, kept while the screen's data refreshes
+  // underneath it: the save is checked against this version, so another
+  // member's change since is refused as stale, never silently undone.
+  const [opened] = useState(() => ({ initial: formOf(taxReturn), version: taxReturn?.version ?? 0, revision: Number(taxReturn?.revision ?? 0) }));
+  const { initial } = opened;
   const [form, setForm] = useState(initial);
   const [errors, setErrors] = useState({});
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const field = (key) => `${uid}-${key}`;
   const filed = Number(form.revision) > 0;
-  const revisions = Array.from({ length: Math.max(2, Number(taxReturn?.revision ?? 0) + 1) + 1 }, (_, n) => n);
+  const revisions = Array.from({ length: Math.max(2, opened.revision + 1) + 1 }, (_, n) => n);
 
   useEffect(() => {
     firstRef.current?.focus();
@@ -83,7 +87,7 @@ export default function TaxReturnForm({ memberId, year, taxReturn, onSaved, onCa
     if (!change) return;
     setBusy(true);
     const { data, error } = await supabase.rpc('save_tax_return', {
-      p_member_id: memberId, p_financial_year: year, p_change: change, p_expected_version: taxReturn?.version ?? 0,
+      p_member_id: memberId, p_financial_year: year, p_change: change, p_expected_version: opened.version,
     });
     if (error || !data?.ok) {
       setBusy(false);

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, fireEvent, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import { act } from 'react';
 import { renderScreen } from '../../test/renderScreen';
 
@@ -103,3 +103,19 @@ describe('the return form', () => {
     expect(onCancel).toHaveBeenCalled();
   });
 });
+
+describe('the return form while the data refreshes', () => {
+  it('keeps the version and values it was opened on', async () => {
+    const onSaved = vi.fn().mockResolvedValue(undefined);
+    const ui = (taxReturn) => <TaxReturnForm memberId="m1" year={2025} taxReturn={taxReturn} onSaved={onSaved} onCancel={vi.fn()} />;
+    // Rendered plainly so the rerender updates this form rather than mounting a new one.
+    const view = render(ui(FILED));
+    type('Note', 'mine');
+    // Another member saved meanwhile; the five-minute refresh brings it in.
+    view.rerender(ui({ ...FILED, dividend_tax: 150, version: 5 }));
+    await save();
+    expect(calls[0].args.p_change).toEqual({ note: 'mine' });
+    expect(calls[0].args.p_expected_version).toBe(4);
+  });
+});
+

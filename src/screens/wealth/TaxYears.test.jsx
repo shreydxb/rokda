@@ -142,3 +142,30 @@ describe('Tax years', () => {
     expect(screen.queryByRole('region', { name: 'Tax years' })).toBeNull();
   });
 });
+
+describe('focus after a form', () => {
+  it('returns to the button that opened it', async () => {
+    open();
+    fireEvent.click(row('FY 2025-26 (AY 2026-27)'));
+    fireEvent.click(within(region()).getByRole('button', { name: 'Edit' }));
+    await act(async () => fireEvent.click(within(region()).getByRole('button', { name: 'Cancel' })));
+    expect(document.activeElement).toBe(within(region()).getByRole('button', { name: 'Edit' }));
+
+    fireEvent.click(within(region()).getByRole('button', { name: 'Add' }));
+    await act(async () => fireEvent.click(within(region()).getByRole('button', { name: 'Cancel' })));
+    expect(document.activeElement).toBe(within(region()).getByRole('button', { name: 'Add' }));
+
+    const credit = within(region()).getByText(`${shortDate('2026-10-05')} · Refund credited INR 5,000.00`).closest('li');
+    fireEvent.click(within(credit).getByRole('button', { name: 'Remove' }));
+    expect(document.activeElement).toBe(within(credit).getByRole('button', { name: 'Keep it' }));
+    await act(async () => fireEvent.click(within(credit).getByRole('button', { name: 'Keep it' })));
+    expect(document.activeElement).toBe(within(credit).getByRole('button', { name: 'Remove' }));
+
+    fireEvent.click(within(region()).getByText('Dividends (1)'));
+    fireEvent.click(within(region()).getByRole('button', { name: 'Set tax year' }));
+    expect(document.activeElement).toBe(within(region()).getByLabelText('Tax year'));
+    await act(async () => fireEvent.click(within(region()).getByRole('button', { name: 'Cancel' })));
+    expect(document.activeElement).toBe(within(region()).getByRole('button', { name: 'Set tax year' }));
+  });
+});
+

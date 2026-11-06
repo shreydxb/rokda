@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { householdToday } from '../../lib/day';
 import { formatMoney } from '../../lib/money';
@@ -92,20 +92,23 @@ function YearDetail({ year, data }) {
   const [editing, setEditing] = useState(null);
   const [removing, setRemoving] = useState(null);
   const [refusal, setRefusal] = useState(null);
-  const openerRef = useRef(null);
+  // Focus goes back where it came from: to the button that opened a form,
+  // or, from the remove question, to "Keep it" and then back to Remove.
+  const buttonsRef = useRef({});
+  const returnToRef = useRef(null);
+  const focusNextRef = useFocusAfterRender(buttonsRef);
   const taxReturn = year.taxReturn;
   const filed = Number(taxReturn?.revision ?? 0) >= 1;
   const events = (data.taxReturnEvents ?? []).filter((e) => e.return_id === taxReturn?.id);
   const interest = events.some((e) => e.kind === 'processed' && Number(e.refund_interest) > 0);
 
-  const open = (value, e) => {
-    openerRef.current = e.currentTarget;
+  const open = (value, key) => {
+    returnToRef.current = key;
     setEditing(value);
   };
-  // Back from a form, focus returns to the button that opened it.
   const close = () => {
+    focusNextRef.current = returnToRef.current;
     setEditing(null);
-    requestAnimationFrame(() => openerRef.current?.focus?.());
   };
   async function saved() {
     await data.reload();
@@ -116,6 +119,7 @@ function YearDetail({ year, data }) {
     setRefusal(null);
     const { data: result, error } = await supabase.rpc('remove_tax_return_event', { p_member_id: year.memberId, p_event_id: event.id });
     setRemoving(null);
+    focusNextRef.current = 'add';
     if (error || !result?.ok) {
       setRefusal({ id: event.id, message: error ? `Couldn't remove that: ${error.message}. Nothing was changed.` : taxRefusalMessage(result?.error) });
       return;
@@ -167,7 +171,7 @@ function YearDetail({ year, data }) {
             </div>
           ))}
           <div className="ht-actions hd-actions">
-            <button type="button" className="om-btn" onClick={(e) => open('return', e)}>
+            <button type="button" className="om-btn" ref={(el) => (buttonsRef.current.return = el)} onClick={() => open('return', 'return')}>
               {taxReturn ? 'Edit' : 'Set claim basis'}
             </button>
           </div>
@@ -194,7 +198,15 @@ function YearDetail({ year, data }) {
                       {removing === ev.id ? (
                         <div className="ht-actions hd-actions">
                           <span className="tx-hint">Remove this record?</span>
-                          <button type="button" className="om-btn" onClick={() => setRemoving(null)}>
+                          <button
+                            type="button"
+                            className="om-btn"
+                            ref={(el) => (buttonsRef.current[`keep-${ev.id}`] = el)}
+                            onClick={() => {
+                              focusNextRef.current = `remove-${ev.id}`;
+                              setRemoving(null);
+                            }}
+                          >
                             Keep it
                           </button>
                           <button type="button" className="om-btn te-delete" onClick={() => remove(ev)}>
@@ -203,10 +215,18 @@ function YearDetail({ year, data }) {
                         </div>
                       ) : (
                         <div className="ht-actions hd-actions">
-                          <button type="button" className="om-btn" onClick={(e) => open(ev.id, e)}>
+                          <button type="button" className="om-btn" ref={(el) => (buttonsRef.current[`fix-${ev.id}`] = el)} onClick={() => open(ev.id, `fix-${ev.id}`)}>
                             Fix
                           </button>
-                          <button type="button" className="om-btn" onClick={() => setRemoving(ev.id)}>
+                          <button
+                            type="button"
+                            className="om-btn"
+                            ref={(el) => (buttonsRef.current[`remove-${ev.id}`] = el)}
+                            onClick={() => {
+                              focusNextRef.current = `keep-${ev.id}`;
+                              setRemoving(ev.id);
+                            }}
+                          >
                             Remove
                           </button>
                         </div>
@@ -221,7 +241,7 @@ function YearDetail({ year, data }) {
             <TaxEventForm memberId={year.memberId} year={year.year} taxReturn={taxReturn} event={null} onSaved={saved} onCancel={close} />
           ) : (
             <div className="ht-actions hd-actions">
-              <button type="button" className="om-btn" onClick={(e) => open('add', e)}>
+              <button type="button" className="om-btn" ref={(el) => (buttonsRef.current.add = el)} onClick={() => open('add', 'add')}>
                 Add
               </button>
             </div>
@@ -242,7 +262,13 @@ function DividendYearRow({ dividend, onSaved }) {
   const [form, setForm] = useState(null);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  const buttonsRef = useRef({});
+  const focusNextRef = useFocusAfterRender(buttonsRef);
   const own = dividend.tax_financial_year;
+  const close = () => {
+    focusNextRef.current = 'set';
+    setForm(null);
+  };
   let line = `${shortDate(dividend.credited_on)} · ${fmt(received ? dividend.received_gross : dividend.expected_gross)}, tax ${fmt(received ? dividend.received_tax : dividend.expected_tax)} · ${received ? 'Received' : 'Presumed'}`;
   if (own != null) line += ` · counted in ${taxYearLabel(own)}`;
 
@@ -257,7 +283,7 @@ function DividendYearRow({ dividend, onSaved }) {
       setMessage(error ? `Couldn't save that: ${error.message}. Nothing was changed.` : taxRefusalMessage(data?.error));
       return;
     }
-    setForm(null);
+    close();
     await onSaved();
   }
 
@@ -271,7 +297,7 @@ function DividendYearRow({ dividend, onSaved }) {
               <label className="te-fieldlabel" htmlFor={`${dividend.id}-year`}>
                 Tax year
               </label>
-              <select id={`${dividend.id}-year`} className="te-fieldvalue" value={form.year} onChange={(e) => setForm({ ...form, year: e.target.value })}>
+              <select id={`${dividend.id}-year`} ref={(el) => (buttonsRef.current.year = el)} className="te-fieldvalue" value={form.year} onChange={(e) => setForm({ ...form, year: e.target.value })}>
                 {[creditYear - 1, creditYear, creditYear + 1].filter((y) => y <= latest).map((y) => (
                   <option key={y} value={String(y)}>
                     {taxYearLabel(y)}
@@ -298,7 +324,7 @@ function DividendYearRow({ dividend, onSaved }) {
             </p>
           )}
           <div className="ht-form-actions">
-            <button type="button" className="om-btn" onClick={() => setForm(null)} disabled={busy}>
+            <button type="button" className="om-btn" onClick={close} disabled={busy}>
               Cancel
             </button>
             {own != null && (
@@ -313,11 +339,34 @@ function DividendYearRow({ dividend, onSaved }) {
         </div>
       ) : (
         <div className="ht-actions hd-actions">
-          <button type="button" className="om-btn" onClick={() => setForm({ year: String(own ?? creditYear), basis: dividend.tax_year_basis ?? 'declared' })}>
+          <button
+            type="button"
+            className="om-btn"
+            ref={(el) => (buttonsRef.current.set = el)}
+            onClick={() => {
+              focusNextRef.current = 'year';
+              setForm({ year: String(own ?? creditYear), basis: dividend.tax_year_basis ?? 'declared' });
+            }}
+          >
             Set tax year
           </button>
         </div>
       )}
     </li>
   );
+}
+
+// Moves focus, after the next render, to the control named in the returned
+// ref (one of buttonsRef.current's keys): a control that was just mounted, so it
+// can't be focused before React has drawn it.
+function useFocusAfterRender(buttonsRef) {
+  const focusNextRef = useRef(null);
+  useLayoutEffect(() => {
+    const key = focusNextRef.current;
+    if (key && buttonsRef.current[key]) {
+      buttonsRef.current[key].focus();
+      focusNextRef.current = null;
+    }
+  });
+  return focusNextRef;
 }
