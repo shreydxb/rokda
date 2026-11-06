@@ -211,6 +211,19 @@ here, because this repository is public.
   from", expected by market (with its withholding) and by sector; and "How
   fresh this is", when each market's feed last checked, how far back its
   history goes, any failing checks, and what the figures leave out.
+  Last, "Tax years": each member's Indian dividends by tax year, in rupees,
+  one row per member and year saying the dividends and tax withheld (the
+  presumed part and a provisional year said), how they stand against the
+  AIS and Form 26AS ("agrees with AIS and 26AS", "1 difference", "26AS not
+  added"), and where the year stands: before filing, what could come back
+  at that year's claim basis; after, the dividend tax surplus or shortfall
+  and the refund ("refund … credited 5 Oct", "… unexplained"). Opened, each
+  share is shown against both statements with any possible cause, its
+  dividends with "Set tax year" (a final dividend declared in March counts
+  in the March year), the return with "Edit" (claim basis, filed or
+  revised, the dividend figures), and what happened to the refund with
+  "Add", "Fix" and "Remove". Shared holdings are named apart, since a
+  return is one person's.
 - **Statements**: one section per card (when it closes and is due), with the
   statements still to check first and the settled ones folded under
   "Checked". Each statement shows its period and status, then three figures
