@@ -250,6 +250,9 @@ describe('goalStatuses', () => {
     expect(byName(goalStatuses(args)).Villa).toMatchObject({ kind: 'later', state: 'unchecked' });
     expect(byName(goalStatuses({ ...args, timeline: [{ year: 2035, short: 5000 }] })).Villa).toMatchObject({ state: 'short', year: 2035, short: 5000 });
     expect(byName(goalStatuses({ ...args, timeline: [{ year: 2035, short: 0 }] })).Villa).toMatchObject({ state: 'covered' });
+    // The outside review, B-07: a year the Life plan does not reach is not
+    // paid; it is beyond the plan.
+    expect(byName(goalStatuses({ ...args, timeline: [{ year: 2033, short: 0 }, { year: 2034, short: 0 }] })).Villa).toMatchObject({ state: 'beyond', year: 2035 });
   });
 
   it('gives the cash a month as it really falls: down once the first date passes', () => {

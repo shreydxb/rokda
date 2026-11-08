@@ -17,6 +17,7 @@ function chip(row) {
   if (row.kind === 'undated') return { label: 'No date', tone: 'ov-chip-mute' };
   if (row.kind === 'later') {
     if (row.state === 'unchecked') return { label: 'Not checked', tone: 'ov-chip-mute' };
+    if (row.state === 'beyond') return { label: 'Beyond the plan', tone: 'ov-chip-mute' };
     return row.state === 'short' ? { label: `Short in ${row.year}`, tone: 'ov-chip-warn' } : { label: `Paid in ${row.year}`, tone: 'ov-chip-ok' };
   }
   if (row.state === 'covered') return { label: 'Covered', tone: 'ov-chip-ok' };
@@ -66,6 +67,7 @@ function why(row) {
   if (row.kind === 'later') {
     if (row.state === 'unchecked') return `The Life plan can\u2019t check it yet: it needs ages, an account valuation and three months of records or a budget.${planned}`;
     if (row.state === 'short') return `The Life plan runs short by ${formatMoney(row.short)} in ${row.year}, the year it is due.${planned}`;
+    if (row.state === 'beyond') return `The Life plan ends before ${row.year}, so it does not plan for it. Move its date, or the ages it plans to.${planned}`;
     return `The Life plan pays it from your savings and investments in ${row.year}.${planned}`;
   }
   const held = row.kind === 'kept' ? 'Kept, not spent, so held in cash' : 'Due within 3 years, so paid from cash';

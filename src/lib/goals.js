@@ -458,7 +458,9 @@ export function goalStatuses({ timeline = null, balanceEvents = null, ...args })
     if (kind === 'later') {
       const year = Math.max(now.getFullYear(), parseDay(goal.target_date).getFullYear());
       const inYear = timeline?.find((r) => r.year === year);
-      const state = !timeline ? 'unchecked' : inYear?.short > 0 ? 'short' : 'covered';
+      // A year the Life plan does not reach is beyond it, not paid: with no
+      // row for it there was no shortfall to find (outside review, B-07).
+      const state = !timeline ? 'unchecked' : !inYear ? 'beyond' : inYear.short > 0 ? 'short' : 'covered';
       return { ...row, kind, state, cost, year, short: inYear?.short ?? 0, byLabel, planned };
     }
     return { ...row, kind, state: 'undated', cost, planned };

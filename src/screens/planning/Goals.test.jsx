@@ -176,6 +176,15 @@ describe('Goals: later goals, from the Life plan', () => {
     expect(within(row('Villa')).getByText(/^The Life plan runs short by [\d,]+ in 2044, the year it is due\.$/)).toBeTruthy();
   });
 
+  // The outside review, B-07: past the plan's last year is not paid.
+  it('says a goal dated after the Life plan ends is beyond it, not paid', () => {
+    const far = { ...CAR, id: 'g9', name: 'Far', target_date: '2081-01-01' };
+    renderGoals({ ...LIFE, goals: [far] }, { transactions: history() });
+    expect(within(row('Far')).getByText('Beyond the plan')).toBeTruthy();
+    expect(within(row('Far')).getByText('The Life plan ends before 2081, so it does not plan for it. Move its date, or the ages it plans to.')).toBeTruthy();
+    expect(within(row('Far')).queryByText(/^Paid in/)).toBeNull();
+  });
+
   it('says it is not checked without a Life plan to check it', () => {
     renderGoals({ goals: [CAR] });
     expect(within(row('Car')).getByText('Not checked')).toBeTruthy();
