@@ -3258,3 +3258,19 @@ and the department's statements, and works out each year's figures in
   year's shown beside as reference. A failed read of the tax records is
   said in the section and never hides the rest of the tab, and tax history
   still shows once no dividend-paying holding is left.
+
+## Desktop first; phones tested later
+
+The household uses Rokda on a desktop and through Telegram, and has not used
+the phone layout (8 Nov 2026). Building every feature twice, desktop and
+phone, cost a share of each feature's time and doubled the browser checks
+for screens nobody opened on a phone.
+
+- **Built for desktop, checked on desktop.** New work is planned, tested and
+  screenshotted at desktop width only. Playwright's phone project is off by
+  default; `PLAYWRIGHT_PHONE=1` runs it.
+- **The phone layouts stay.** The screen-width rules (about 1% of the code)
+  also keep the site usable in a narrow desktop window, and removing them
+  would touch every screen for little gain. A change near them keeps them
+  working, but nothing checks the phone until the product is built and phones
+  are tested again, as one pass.

@@ -17,9 +17,13 @@ plan lives in the app (Planning → Notes).
   identical (`scripts/applib-parity.test.mjs`).
 - Every product decision gets a short section in `docs/decisions.md`.
 - Layout work: use the `design-taste-frontend` skill's app-screen rules
-  (`references/app-screens.md`) as a checklist for placement, tables, forms,
-  states and the phone. `design/` stays the authority on look: keep Rokda's
-  palette and type, and don't take a style or palette from the skill.
+  (`references/app-screens.md`) as a checklist for placement, tables, forms
+  and states. `design/` stays the authority on look: keep Rokda's palette
+  and type, and don't take a style or palette from the skill.
+- Desktop first: new work is built and checked on desktop only. Keep the
+  existing phone layouts working where a change touches them, but don't plan,
+  test or screenshot for the phone; Playwright runs the desktop project
+  (`PLAYWRIGHT_PHONE=1` adds the phone one, for when phones are tested again).
 
 ## Checks before pushing
 

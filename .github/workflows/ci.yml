@@ -55,8 +55,9 @@ jobs:
           echo "commit: ${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
           echo "ref: ${{ github.ref }}" >> "$GITHUB_STEP_SUMMARY"
 
-  # The browser checks: every route and tabbed view on a desktop and a phone
-  # viewport, for console errors, raw values leaking into the page and
+  # The browser checks: every route and tabbed view on a desktop viewport
+  # (the phone run is off until phones are tested again; PLAYWRIGHT_PHONE=1
+  # turns it on), for console errors, raw values leaking into the page and
   # sideways scrolling, plus focus, theme, CSP and the receipt viewer. They
   # existed and passed locally, but nothing ran them, so a layout fault could
   # merge unseen (QA, 15 Oct). Supabase is stubbed at the network layer
