@@ -80,6 +80,8 @@ type Backend = {
   phrasePrompts: string[];
   applyCalls: number;
   approveCalls: number;
+  // Database functions that answer with an error, as a failed call would.
+  failRpc?: Set<string>;
 };
 
 let backend: Backend;
@@ -531,7 +533,20 @@ async function rpc(req: Request, fn: string): Promise<Response> {
       new_holding: true,
     });
   }
+  if (backend.failRpc?.has(fn)) return json({ code: "57014", message: "canceling statement due to statement timeout" }, 500);
   if (fn === "get_telegram_webhook_secret") return json(SECRET);
+  // As the real function: cancels the question and clears its dividends'
+  // asked marks together, or neither.
+  if (fn === "postpone_dividends_proposal") {
+    const p = backend.tables.bot_proposals.find((r) => r.id === args.p_proposal_id);
+    if (!p) return json({ ok: false, status: "not_found" });
+    if (p.member_id !== args.p_member_id) return json({ ok: false, status: "not_yours" });
+    if (p.status !== "proposed") return json({ ok: false, status: p.status, result: p.result });
+    Object.assign(p, { status: "cancelled", decided_at: new Date().toISOString(), result: { kind: "dividends_received", not_yet: true } });
+    const ids = ((p.payload as Row).lines as Row[]).map((l) => String(l.dividend_id));
+    for (const d of backend.tables.holding_dividends ?? []) if (ids.includes(String(d.id))) d.asked_at = null;
+    return json({ ok: true });
+  }
   if (fn === "apply_bot_proposal") {
     backend.applyCalls += 1;
     return json(applyProposal(String(args.p_proposal_id), String(args.p_member_id)));
@@ -2792,6 +2807,20 @@ freshTest("\"not yet\" puts the question off until tomorrow morning", async () =
   // Not again the same morning.
   await morningCheck();
   assertEquals(dividendQuestions().length, 1);
+});
+
+// D-08: putting a question off and clearing its dividends' asked marks
+// happen together, so a failure leaves the question as it was rather than
+// promising a reminder that will never come.
+freshTest("a \"not yet\" that cannot be saved changes nothing and promises nothing", async () => {
+  seedDividends();
+  await morningCheck();
+  const proposal = backend.tables.bot_proposals.find((p) => p.kind === "dividends_received")!;
+  backend.failRpc = new Set(["postpone_dividends_proposal"]);
+  await handler(replyUpdate(9611, "not yet", Number(proposal.prompt_message_id)));
+  assertEquals(proposal.status, "proposed");
+  assert(backend.tables.holding_dividends.every((d) => d.asked_at != null), "asked marks cleared without the question being put off");
+  assertEquals(lastReply(), "I couldn't put that off just now. Nothing has been changed; try again in a moment.");
 });
 
 freshTest("a 👎 on the question means not yet", async () => {

@@ -3551,24 +3551,19 @@ async function decideDividends(chatId: number, memberId: string, proposal: Propo
 // "Not yet" (or 👎): it has not arrived. Nothing is recorded, and the
 // dividends are asked about again the next morning.
 async function dividendsNotYet(chatId: number, memberId: string, proposal: ProposalRow): Promise<void> {
-  const payload = proposal.payload as DividendsPayload;
-  const { data, error } = await supabase
-    .from("bot_proposals")
-    .update({ status: "cancelled", decided_at: new Date().toISOString(), result: { kind: "dividends_received", not_yet: true } })
-    .eq("id", proposal.id)
-    .eq("member_id", memberId)
-    .eq("status", "proposed")
-    .select(PROPOSAL_COLUMNS);
-  if (error) {
+  // One call puts off the question and clears its dividends' asked marks, or
+  // neither: the promise to ask tomorrow is only made once both are done.
+  const { data, error } = await supabase.rpc("postpone_dividends_proposal", { p_proposal_id: proposal.id, p_member_id: memberId });
+  const result = data as { ok?: boolean } | null;
+  if (error || !result) {
     await reply(chatId, "I couldn't put that off just now. Nothing has been changed; try again in a moment.");
     return;
   }
-  if (!data?.length) {
+  if (!result.ok) {
     const { data: fresh } = await supabase.from("bot_proposals").select(PROPOSAL_COLUMNS).eq("id", proposal.id).maybeSingle();
     await reply(chatId, decidedProposalMessage((fresh as ProposalRow | null) ?? proposal));
     return;
   }
-  await supabase.rpc("mark_dividends_asked", { p_ids: payload.lines.map((l) => l.dividend_id), p_asked: false });
   await reply(chatId, DIVIDENDS_NOT_YET_REPLY);
 }
 

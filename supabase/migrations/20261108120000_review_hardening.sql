@@ -570,3 +570,45 @@ $$;
 
 revoke execute on function apply_bot_proposal(uuid, uuid) from public, anon, authenticated;
 grant execute on function apply_bot_proposal(uuid, uuid) to service_role;
+
+-- ---------------------------------------------------------------------------
+-- 5. "Not yet" puts off the question and its dividends together
+-- ---------------------------------------------------------------------------
+
+-- The bot cancelled the question and then, in a separate call it never
+-- checked, cleared the dividends' asked marks. If that second call failed,
+-- the bot still promised to ask tomorrow, but the morning check skips a
+-- dividend still marked asked, so it never did (the outside review, D-08).
+-- Both now happen in one transaction, or neither.
+create or replace function public.postpone_dividends_proposal(p_proposal_id uuid, p_member_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_proposal public.bot_proposals%rowtype;
+begin
+  select * into v_proposal from public.bot_proposals where id = p_proposal_id and kind = 'dividends_received' for update;
+  if not found then
+    return jsonb_build_object('ok', false, 'status', 'not_found');
+  end if;
+  if v_proposal.member_id is distinct from p_member_id then
+    return jsonb_build_object('ok', false, 'status', 'not_yours');
+  end if;
+  if v_proposal.status <> 'proposed' then
+    return jsonb_build_object('ok', false, 'status', v_proposal.status, 'result', v_proposal.result);
+  end if;
+  update public.bot_proposals
+  set status = 'cancelled', decided_at = now(), result = jsonb_build_object('kind', 'dividends_received', 'not_yet', true)
+  where id = v_proposal.id;
+  update public.holding_dividends d
+  set asked_at = null
+  where d.household_id = v_proposal.household_id
+    and d.id in (select (l ->> 'dividend_id')::uuid from jsonb_array_elements(v_proposal.payload -> 'lines') l);
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+revoke execute on function public.postpone_dividends_proposal(uuid, uuid) from public, anon, authenticated;
+grant execute on function public.postpone_dividends_proposal(uuid, uuid) to service_role;

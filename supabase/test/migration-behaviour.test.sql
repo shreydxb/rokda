@@ -5924,4 +5924,26 @@ begin
   raise notice 'RH-05 ok: an autopay "yes" records only on the account and category it named';
 end $$;
 
+-- RH-08: "not yet" cancels the question and clears its dividends' asked
+-- marks together, so the morning check asks again; a question already
+-- answered, or someone else's, is left as it is.
+do $$
+declare hh uuid := '11111111-1111-1111-1111-111111111111'; m uuid := '22222222-2222-2222-2222-0000000000b7';
+  d uuid := 'd7d00000-0000-0000-0000-0000000000d1'; p uuid := 'a8000000-0000-4000-8000-0000000000f1'; r jsonb;
+begin
+  update holding_dividends set asked_at = now() where id = d;
+  insert into bot_proposals (id, household_id, member_id, kind, payload, chat_id) values
+    (p, hh, m, 'dividends_received', jsonb_build_object('lines', jsonb_build_array(jsonb_build_object('dividend_id', d))), 1);
+  r := postpone_dividends_proposal(p, '22222222-2222-2222-2222-222222222222');
+  if r ->> 'status' is distinct from 'not_yours' then raise exception 'RH-08 FAILED: another member''s "not yet" gave %', r; end if;
+  r := postpone_dividends_proposal(p, m);
+  if (r ->> 'ok')::boolean is not true or (select status from bot_proposals where id = p) <> 'cancelled'
+     or (select asked_at from holding_dividends where id = d) is not null then
+    raise exception 'RH-08 FAILED: "not yet" gave % and left %', r, (select row_to_json(x) from (select status, result from bot_proposals where id = p) x);
+  end if;
+  r := postpone_dividends_proposal(p, m);
+  if (r ->> 'ok')::boolean or r ->> 'status' is distinct from 'cancelled' then raise exception 'RH-08 FAILED: a second "not yet" gave %', r; end if;
+  raise notice 'RH-08 ok: "not yet" puts off the question and its dividends together';
+end $$;
+
 rollback;
