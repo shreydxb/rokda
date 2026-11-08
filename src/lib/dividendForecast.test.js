@@ -70,6 +70,22 @@ describe('the next twelve months', () => {
     expect(first).toMatchObject({ gross: 0.8638, withheld: 0.2591, fees: 0, net: 0.6047 });
   });
 
+  // The outside review, B-11: only what is paid within the twelve months.
+  it('a declared dividend paid after the twelve months is not counted in them', () => {
+    const f = forecast(monthly(24), { declared: [event('ABC', '2027-11-20', 3, { pay_date: '2027-12-05' })] });
+    expect(f.items.filter((i) => i.kind === 'declared')).toEqual([]);
+    expect(f.ordinaryPerShareNextYear).toBe(11);
+  });
+
+  // The outside review, B-13: the next payment is the earliest one, dated or not.
+  it('the next payment is a projected month when it comes before a declared day', () => {
+    const quarterly = ['2025-12-01', '2026-03-01', '2026-06-01', '2026-09-01'].map((d) => event('ABC', d, 1));
+    const f = forecast(quarterly, { declared: [event('ABC', '2027-02-01', 1, { pay_date: '2027-02-20' })] });
+    // December's repeat is paid in December 2026 (ex-date plus 30 days), before February.
+    expect(f.items[0]).toMatchObject({ kind: 'projected', month: '2026-12' });
+    expect(f.next).toEqual({ month: '2026-12' });
+  });
+
   it('a declared dividend counts in full, on its pay date', () => {
     const f = forecast(monthly(24), { declared: [event('ABC', '2026-11-17', 3, { pay_date: '2026-12-01' })] });
     expect(f.items.find((i) => i.kind === 'declared')).toMatchObject({ day: '2026-12-01', gross: 30, net: 21 });

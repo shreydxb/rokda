@@ -43,11 +43,16 @@ export function forecastHolding({ holding, payments = [], frequency, gapDays = 3
   let perShareYear = (earnedUnpaid ?? []).reduce((sum, d) => sum + (Number(d.per_share) || 0) / factorOn(d.ex_date), 0);
   let status;
 
+  // Only what is paid within the twelve months counts in them: a declared
+  // dividend paid after them was counted too (outside review, B-11). It still
+  // says the share is paying.
+  const end = addMonths(today, 12);
+  const declaredInYear = (declared ?? []).filter((e) => (e.pay_date ?? addDays(e.ex_date, gapDays)) <= end);
   if (units <= 0) {
     status = 'not_held';
   } else {
     // Declared: counted in full, special part and all, since it is declared.
-    for (const e of declared ?? []) {
+    for (const e of declaredInYear) {
       items.push(item('declared', Number(e.amount), { eventId: e.id, exDate: e.ex_date, day: e.pay_date ?? addDays(e.ex_date, gapDays) }));
       perShareYear += Number(e.amount);
     }
@@ -72,7 +77,7 @@ export function forecastHolding({ holding, payments = [], frequency, gapDays = 3
       const since = addMonths(today, -12);
       const projected = ordinaries.filter((p) => p.exDate > since).map((p) => ({ exDate: addMonths(p.exDate, 12), perShare: p.ordinaryToday }));
       const halfInterval = (frequency.intervalMonths * DAYS_A_MONTH) / 2;
-      for (const e of declared ?? []) {
+      for (const e of declaredInYear) {
         let best = -1;
         let bestGap = Infinity;
         projected.forEach((p, i) => {
@@ -87,7 +92,6 @@ export function forecastHolding({ holding, payments = [], frequency, gapDays = 3
       // Only what is paid within the twelve months: the payment earned and not
       // yet paid is counted as earned above, and its repeat a year on is paid
       // after them.
-      const end = addMonths(today, 12);
       for (const p of projected) {
         const payDay = addDays(p.exDate, gapDays);
         if (payDay > end) continue;
@@ -99,9 +103,10 @@ export function forecastHolding({ holding, payments = [], frequency, gapDays = 3
   }
 
   items.sort((a, b) => (when(a) < when(b) ? -1 : when(a) > when(b) ? 1 : 0));
-  const dated = items.find((i) => i.day && (i.kind === 'earned' || i.kind === 'declared'));
-  const monthly = items.find((i) => i.month);
-  const next = dated ? { day: dated.day } : monthly ? { month: monthly.month } : null;
+  // The earliest payment, dated or by month: a dated one was always preferred,
+  // so a projected month before it was skipped (outside review, B-13).
+  const first = items.find((i) => i.day || i.month);
+  const next = first ? (first.day ? { day: first.day } : { month: first.month }) : null;
   return { items, status, next, ordinaryPerShareNextYear: round6(perShareYear) };
 }
 
