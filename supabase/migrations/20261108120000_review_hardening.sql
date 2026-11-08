@@ -440,7 +440,12 @@ begin
       -- longer on autopay. The "yes" was to the question as shown, so nothing
       -- is recorded (the outside review, D-05). A question saved before the
       -- account was kept with it (no account_id) is checked as before.
-      v_skipped := v_skipped || jsonb_build_object('recurring_id', v_recurring.id, 'name', v_recurring.name, 'reason', 'changed');
+      -- Left open rather than decided: the morning check asks again about
+      -- the bill as it is now, and that question's "yes" records it. Deciding
+      -- it here left the cycle unasked, and the payment unrecorded, after the
+      -- likeliest reason for the change: the question named the wrong account.
+      return jsonb_build_object('outcome', 'changed', 'kind', v_proposal.kind, 'applied', '[]'::jsonb,
+        'skipped', jsonb_build_array(jsonb_build_object('recurring_id', v_recurring.id, 'name', v_recurring.name, 'reason', 'changed')));
     else
       -- Recorded already: confirmed by someone else, or logged another way
       -- (a pasted bank SMS, the app). Same match as the bot's own check: the

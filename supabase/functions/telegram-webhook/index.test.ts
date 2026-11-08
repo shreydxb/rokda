@@ -476,7 +476,8 @@ function applyProposal(id: string, memberId: string): Row {
       skipped.push({ reason: "unavailable" });
     } else if (("account_id" in payload && (bill.account_id !== payload.account_id || (bill.category_id ?? null) !== (payload.category_id ?? null)))
       || bill.active === false || bill.autopay !== true) {
-      skipped.push({ name: bill.name, reason: "changed" });
+      // Left open, unrecorded: asked again about the bill as it is now.
+      return { outcome: "changed", kind: p.kind, applied: [], skipped: [{ recurring_id: bill.id, name: bill.name, reason: "changed" }] };
     } else {
       const already = backend.tables.transactions.some((t) => t.account_id === bill.account_id && t.occurred_at === payload.due_date);
       if (!already) {
@@ -1777,6 +1778,38 @@ freshTest("an autopay question keeps the bill's account, and a changed bill reco
   await handler(reactionUpdate(9201, Number(proposal.prompt_message_id), "👍"));
   assertEquals(backend.tables.transactions.length, 0);
   assert(/^Car EMI has changed in Rokda since I asked/.test(lastReply()), lastReply());
+  // Not a dead end: the question stays open, and the morning check asks
+  // again about the bill as it is now.
+  assert(lastReply().includes("I'll ask again tomorrow"), lastReply());
+  assertEquals(proposal.status, "proposed");
+  (proposal.payload as Row).last_asked_on = "2000-01-01";
+  const res = await handler(dailyCheck());
+  await res.body?.cancel();
+  assertEquals(autopayQuestions().length, 2, "the bill was not asked about again");
+});
+
+// The outside review's own review: the morning reminder names the bill's
+// account as it is that day, so the question it answers must be that one.
+freshTest("a reminder after the bill moved account asks about the new one, and its yes records there", async () => {
+  const proposal = await askedEmi();
+  const first = Number(proposal.prompt_message_id);
+  const bill = backend.tables.recurring.find((r) => r.id === EMI)!;
+  bill.account_id = "a7000000-0000-4000-8000-0000000000b2";
+  bill.accounts = { name: "Other bank" };
+  (proposal.payload as Row).last_asked_on = "2000-01-01";
+  const res = await handler(dailyCheck());
+  await res.body?.cancel();
+  const reminder = autopayQuestions()[1];
+  assert(String(reminder.body.text).includes("Other bank"), String(reminder.body.text));
+  assertEquals((proposal.payload as Row).account_id, "a7000000-0000-4000-8000-0000000000b2");
+  assertEquals((proposal.payload as Row).account_name, "Other bank");
+  // A 👍 on the question that named the old account no longer answers it.
+  assertEquals(((proposal.payload as Row).asked_message_ids as number[]).includes(first), false);
+
+  await handler(reactionUpdate(9202, Number(proposal.prompt_message_id), "👍"));
+  assertEquals(backend.tables.transactions.length, 1);
+  assertEquals(backend.tables.transactions[0].account_id, "a7000000-0000-4000-8000-0000000000b2");
+  assert(/^Recorded: Car EMI/.test(lastReply()), lastReply());
 });
 
 freshTest("the next morning's reminder can be answered, and so can the first question", async () => {

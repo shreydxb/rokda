@@ -1321,6 +1321,12 @@ export function proposalOutcomeMessage(data: Record<string, unknown>): string {
   const outcome = String(data.outcome ?? "");
   if (outcome === "cancelled") return "You dropped that one, so nothing was changed.";
   if (outcome === "expired") return "That was more than a day ago, so I've let it lapse and changed nothing. Send it again if it still holds.";
+  // An autopay bill changed since it was asked: nothing recorded, and the
+  // question left open to be asked again about the bill as it is now.
+  if (outcome === "changed") {
+    const bill = ((data.skipped as Array<{ name?: string }> | undefined) ?? [])[0];
+    return `${bill?.name ?? "That bill"} has changed in Rokda since I asked (its account or category, or it's no longer on autopay), so nothing was recorded. If it's still on autopay, I'll ask again tomorrow about it as it is now.`;
+  }
   if (outcome !== "applied") return "I can't find that change any more, so nothing was changed. Send it again if it still holds.";
 
   // A second "yes" gets the first answer again, marked as such.
@@ -1332,10 +1338,6 @@ export function proposalOutcomeMessage(data: Record<string, unknown>): string {
 
   if (result.kind === "autopay_payment") {
     const b = applied[0] as (ProposalItem & { next_due?: string | null }) | undefined;
-    const changed = (skipped[0] as { reason?: string; name?: string } | undefined);
-    if (!b && changed?.reason === "changed") {
-      return `${changed.name ?? "That bill"} has changed in Rokda since I asked (its account or category, or it's no longer on autopay), so nothing was recorded. Check it under Money → Recurring.`;
-    }
     if (!b) return "That bill is no longer set up in Rokda, so nothing was recorded.";
     const line = `${b.name}, AED ${Number(b.amount).toFixed(2)}, dated ${shortDay(String(b.occurred_at))}.`;
     if (repeat) return `Already recorded: ${line}`;
@@ -3367,10 +3369,20 @@ async function askAutopay(
     if (!reminder) await discardUnaskedProposal(row.id);
     return false;
   }
-  const askedIds = [...((row.payload?.asked_message_ids as number[] | undefined) ?? []), messageId];
+  // The reminder names the bill's account as it is today, so the question
+  // its answer is checked against is that one. When the bill moved account
+  // or category since the last question, the earlier messages, which named
+  // the old one, stop answering it: only this message does.
+  const moved = row.payload?.account_id != null &&
+    (row.payload.account_id !== bill.accountId || (row.payload.category_id ?? null) !== bill.categoryId);
+  const askedIds = [...(moved ? [] : ((row.payload?.asked_message_ids as number[] | undefined) ?? [])), messageId];
+  const payload = {
+    ...row.payload, account_id: bill.accountId, category_id: bill.categoryId, account_name: bill.accountName,
+    asked_message_ids: askedIds, last_asked_on: todayStr,
+  };
   await supabase
     .from("bot_proposals")
-    .update({ prompt_message_id: messageId, payload: { ...row.payload, asked_message_ids: askedIds, last_asked_on: todayStr } })
+    .update({ prompt_message_id: messageId, payload })
     .eq("id", row.id)
     .eq("status", "proposed");
   return true;

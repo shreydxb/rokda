@@ -5886,7 +5886,8 @@ end $$;
 
 -- RH-05: an autopay question records on the account and category it named.
 -- If the bill moved to another account or category, or came off autopay,
--- since it was asked, the "yes" records nothing and says so.
+-- since it was asked, the "yes" records nothing and says so, and the question
+-- stays open for the morning check to ask again about the bill as it is now.
 do $$
 declare hh uuid := '11111111-1111-1111-1111-111111111111'; m uuid := '22222222-2222-2222-2222-0000000000b7';
   bank_a uuid := 'a5000000-0000-4000-8000-0000000000a1'; bank_b uuid := 'a5000000-0000-4000-8000-0000000000b1';
@@ -5906,8 +5907,11 @@ begin
   -- The bill moved to Bank B after the October question was asked.
   update recurring set account_id = bank_b where id = bill;
   r := apply_bot_proposal('a5000000-0000-4000-8000-0000000000f1', m);
-  if jsonb_array_length(r -> 'applied') <> 0 or r -> 'skipped' -> 0 ->> 'reason' is distinct from 'changed' then
+  if r ->> 'outcome' is distinct from 'changed' or jsonb_array_length(r -> 'applied') <> 0 or r -> 'skipped' -> 0 ->> 'reason' is distinct from 'changed' then
     raise exception 'RH-05 FAILED: a bill moved to another account gave %', r;
+  end if;
+  if (select status from bot_proposals where id = 'a5000000-0000-4000-8000-0000000000f1') <> 'proposed' then
+    raise exception 'RH-05 FAILED: a question refused as changed was closed (%)', (select status from bot_proposals where id = 'a5000000-0000-4000-8000-0000000000f1');
   end if;
   -- Back on Bank A but off autopay: still not what was asked.
   update recurring set account_id = bank_a, autopay = false where id = bill;
