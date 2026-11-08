@@ -1321,11 +1321,18 @@ export function proposalOutcomeMessage(data: Record<string, unknown>): string {
   const outcome = String(data.outcome ?? "");
   if (outcome === "cancelled") return "You dropped that one, so nothing was changed.";
   if (outcome === "expired") return "That was more than a day ago, so I've let it lapse and changed nothing. Send it again if it still holds.";
-  // An autopay bill changed since it was asked: nothing recorded, and the
-  // question left open to be asked again about the bill as it is now.
+  // An autopay bill no longer on autopay, or stopped: nothing recorded, and
+  // the question closed, since the morning check will not ask about it again.
+  if (outcome === "not_autopay") {
+    const bill = ((data.skipped as Array<{ name?: string }> | undefined) ?? [])[0];
+    return `${bill?.name ?? "That bill"} is no longer on autopay in Rokda, so nothing was recorded and I won't ask about it again. If you paid it yourself, record it with Mark paid under Money → Recurring.`;
+  }
+  // An autopay bill moved account or category since it was asked: nothing
+  // recorded, and the question left open to be asked again about the bill as
+  // it is now.
   if (outcome === "changed") {
     const bill = ((data.skipped as Array<{ name?: string }> | undefined) ?? [])[0];
-    return `${bill?.name ?? "That bill"} has changed in Rokda since I asked (its account or category, or it's no longer on autopay), so nothing was recorded. If it's still on autopay, I'll ask again tomorrow about it as it is now.`;
+    return `${bill?.name ?? "That bill"} has moved to another account or category in Rokda since I asked, so nothing was recorded. I'll ask again tomorrow about it as it is now.`;
   }
   if (outcome !== "applied") return "I can't find that change any more, so nothing was changed. Send it again if it still holds.";
 
@@ -2503,11 +2510,13 @@ async function askTradeQuestion(
   askingId: string | null = null,
   askedBefore: number[] = [],
 ): Promise<void> {
-  // The message that made the draft counts as used, as an answer does: if
-  // the question below never reaches the member and Telegram delivers the
+  // This update counts as having used the draft, as an answer does: if the
+  // question below never reaches the member and Telegram delivers the
   // message again, it is read as a redelivery and the question is asked
-  // afresh, not taken for an answer to a question nobody saw.
-  const lastUpdateId = draft.lastUpdateId ?? (typeof updateId === "number" ? updateId : null);
+  // afresh, not taken for an answer to a question nobody saw. This update,
+  // not an earlier one the draft remembers: a stale "yes" asks again about
+  // an older draft (the fresh review of the second group, R1).
+  const lastUpdateId = typeof updateId === "number" ? updateId : draft.lastUpdateId ?? null;
   const payload = { draft: { ...draft, awaiting: question.field, lastUpdateId }, asked_at: new Date().toISOString(), asked_message_ids: askedBefore };
   let id = askingId;
   if (id) {

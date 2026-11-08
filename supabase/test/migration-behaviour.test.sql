@@ -5913,10 +5913,19 @@ begin
   if (select status from bot_proposals where id = 'a5000000-0000-4000-8000-0000000000f1') <> 'proposed' then
     raise exception 'RH-05 FAILED: a question refused as changed was closed (%)', (select status from bot_proposals where id = 'a5000000-0000-4000-8000-0000000000f1');
   end if;
-  -- Back on Bank A but off autopay: still not what was asked.
+  -- Back on Bank A but off autopay: nothing recorded, and nothing will ask
+  -- about it again, so the question and the other member's copy are closed.
+  insert into bot_proposals (id, household_id, member_id, kind, payload, chat_id) values
+    ('a5000000-0000-4000-8000-0000000000f4', hh, '22222222-2222-2222-2222-222222222222', 'autopay_payment',
+     jsonb_build_object('recurring_id', bill, 'name', 'RH EMI', 'amount', 2000, 'due_date', '2026-11-03', 'account_id', bank_a, 'category_id', cat), 2);
   update recurring set account_id = bank_a, autopay = false where id = bill;
   r := apply_bot_proposal('a5000000-0000-4000-8000-0000000000f2', m);
-  if r -> 'skipped' -> 0 ->> 'reason' is distinct from 'changed' then raise exception 'RH-05 FAILED: a bill off autopay gave %', r; end if;
+  if r ->> 'outcome' is distinct from 'not_autopay' or r -> 'skipped' -> 0 ->> 'reason' is distinct from 'not_autopay' then
+    raise exception 'RH-05 FAILED: a bill off autopay gave %', r;
+  end if;
+  if (select count(*) from bot_proposals where id in ('a5000000-0000-4000-8000-0000000000f2', 'a5000000-0000-4000-8000-0000000000f4') and status = 'expired') <> 2 then
+    raise exception 'RH-05 FAILED: a bill off autopay left its questions open';
+  end if;
   select count(*) into n from transactions where account_id in (bank_a, bank_b);
   if n <> 0 then raise exception 'RH-05 FAILED: % payments recorded for a changed bill', n; end if;
   -- As asked: recorded on the account the question named.

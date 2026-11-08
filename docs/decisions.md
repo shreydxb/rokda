@@ -3302,10 +3302,12 @@ test that failed first. The first group, security and the database:
 - **A "yes" is to the question as it was shown.** An autopay question keeps
   the account and category it named, and each morning's reminder updates
   them to the bill as it is that day; only a message that named the current
-  account answers it. If the bill has moved since the question that was
-  answered, or come off autopay, nothing is recorded, the bot says why, and
-  the question stays open to be asked again the next morning, so a payment
-  is never left unasked about because the bill was corrected.
+  account answers it. If the bill has moved to another account or category
+  since the question that was answered, nothing is recorded, the bot says
+  why, and the question stays open to be asked again the next morning, so a
+  payment is never left unasked about because the bill was corrected. If it
+  has come off autopay, nothing will ask about it again, so the question is
+  closed, every member's copy with it, and the bot points to Mark paid.
 - **Rules hold in the table, not only in the functions.** A received
   dividend needs all four of its figures, since the data imports write
   through privileged SQL.
@@ -3330,7 +3332,8 @@ retry, and a retry repeats nothing and decides nothing afresh.
 - **A correction unbinds the old question.** Correcting an expense clears
   the question that showed the old figures in the same write, so a "yes" to
   it records nothing; only the question about the corrected figures can.
-- **A bare "yes" delivered again answers what it first meant.** What a bare
-  "yes" or "no" resolved to is recorded with the update before anything is
-  done, so a retry answers that, never a question asked or an entry captured
-  in between.
+- **A bare "yes" delivered again answers what it first meant.** When a bare
+  "yes" or "no" is about one question or entry, that target is recorded with
+  the update before anything is done, so a retry answers it, never a
+  question asked or an entry captured in between. (One that was about
+  nothing is not recorded yet, so its retry is read afresh.)

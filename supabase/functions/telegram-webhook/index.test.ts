@@ -474,8 +474,16 @@ function applyProposal(id: string, memberId: string): Row {
     const bill = backend.tables.recurring.find((r) => r.id === payload.recurring_id && r.household_id === p.household_id);
     if (!bill) {
       skipped.push({ reason: "unavailable" });
-    } else if (("account_id" in payload && (bill.account_id !== payload.account_id || (bill.category_id ?? null) !== (payload.category_id ?? null)))
-      || bill.active === false || bill.autopay !== true) {
+    } else if (bill.active === false || bill.autopay !== true) {
+      // Closed, with every copy of it: nothing will ask about it again.
+      const skippedNow = [{ recurring_id: bill.id, name: bill.name, reason: "not_autopay" }];
+      for (const q of backend.tables.bot_proposals) {
+        if (q.kind === "autopay_payment" && q.status === "proposed" && (q.payload as Row).recurring_id === bill.id && (q.payload as Row).due_date === payload.due_date) {
+          Object.assign(q, { status: "expired", decided_at: new Date().toISOString(), result: { kind: p.kind, applied: [], skipped: skippedNow } });
+        }
+      }
+      return { outcome: "not_autopay", kind: p.kind, applied: [], skipped: skippedNow };
+    } else if ("account_id" in payload && (bill.account_id !== payload.account_id || (bill.category_id ?? null) !== (payload.category_id ?? null))) {
       // Left open, unrecorded: asked again about the bill as it is now.
       return { outcome: "changed", kind: p.kind, applied: [], skipped: [{ recurring_id: bill.id, name: bill.name, reason: "changed" }] };
     } else {
@@ -1777,7 +1785,7 @@ freshTest("an autopay question keeps the bill's account, and a changed bill reco
   bill.account_id = "a7000000-0000-4000-8000-0000000000b2";
   await handler(reactionUpdate(9201, Number(proposal.prompt_message_id), "👍"));
   assertEquals(backend.tables.transactions.length, 0);
-  assert(/^Car EMI has changed in Rokda since I asked/.test(lastReply()), lastReply());
+  assert(/^Car EMI has moved to another account or category in Rokda since I asked/.test(lastReply()), lastReply());
   // Not a dead end: the question stays open, and the morning check asks
   // again about the bill as it is now.
   assert(lastReply().includes("I'll ask again tomorrow"), lastReply());
@@ -1786,6 +1794,22 @@ freshTest("an autopay question keeps the bill's account, and a changed bill reco
   const res = await handler(dailyCheck());
   await res.body?.cancel();
   assertEquals(autopayQuestions().length, 2, "the bill was not asked about again");
+});
+
+// The fresh review of the second group: a bill taken off autopay, or
+// stopped, is never asked about again, so a question left open for it would
+// stay open all cycle and make every bare "yes" ambiguous. It is closed.
+freshTest("a yes after the bill came off autopay closes its question and says it won't ask again", async () => {
+  const proposal = await askedEmi();
+  const bill = backend.tables.recurring.find((r) => r.id === EMI)!;
+  bill.autopay = false;
+  await handler(textUpdate(9301, "paid"));
+  assertEquals(backend.tables.transactions.length, 0);
+  assert(/^Car EMI is no longer on autopay in Rokda/.test(lastReply()), lastReply());
+  assertEquals(proposal.status, "expired");
+  // Nothing is left waiting for a bare answer.
+  await handler(textUpdate(9302, "yes"));
+  assert(!lastReply().includes("More than one thing is waiting"), lastReply());
 });
 
 // The outside review's own review: the morning reminder names the bill's
@@ -2418,11 +2442,36 @@ freshTest("a trade question Telegram refuses is retried, and the retry asks it",
   const first = await handler(textUpdate(7421, "bought ABC at 120"));
   assertEquals(first.status, 500);
   assertEquals(backend.log.get(7421)?.status, "failed");
+  // The retry finds the draft and asks again: the message is not read afresh.
+  const aiBefore = backend.aiCalls;
   const retried = await handler(textUpdate(7421, "bought ABC at 120"));
+  assertEquals(backend.aiCalls, aiBefore, "the retry read the message again instead of asking the draft's question");
   assertEquals(retried.status, 200);
   assertEquals(lastReply(), "How many ABC did you buy?");
   assertEquals(backend.tables.bot_proposals.filter((r) => r.status === "asking").length, 1);
   assert(askingRow()?.prompt_message_id, "the question asked on the retry was not bound");
+});
+
+// The fresh review of the second group (R1): the draft remembers the update
+// that last used it, so a question asked again for an older draft (a stale
+// "yes") is remembered against this update, not the draft's earlier one.
+freshTest("a stale trade's question, lost, is asked again on the retry", async () => {
+  tradeFixtures();
+  backend.route = { tool: "log_trade", args: { side: "sell", stock: "ABC", price: 150 } };
+  await handler(textUpdate(7601, "sold ABC at 150"));
+  assertEquals(lastReply(), "How many ABC did you sell?");
+  await handler(replyUpdate(7602, "6", Number(askingRow()!.prompt_message_id)));
+  assertEquals(tradeProposals().map((r) => r.status), ["proposed"]);
+  // The holding became two of the same name in between.
+  const h = backend.tables.holdings[0];
+  backend.tables.holdings = [{ ...h, id: "a1000000-0000-4000-8000-0000000000a2" }, { ...h, id: "a1000000-0000-4000-8000-0000000000a3" }];
+  backend.tradeOutcome = { outcome: "stale" };
+  // The lead and the "Which ABC?" question are both refused.
+  backend.faults.refuseFirstSends = sendCount + 2;
+  assertEquals((await handler(textUpdate(7603, "yes"))).status, 500);
+  backend.tradeOutcome = undefined;
+  assertEquals((await handler(textUpdate(7603, "yes"))).status, 200);
+  assert(lastReply().startsWith("Which ABC?"), lastReply());
 });
 
 freshTest("a trade question whose message cannot be recorded is retried until it is", async () => {

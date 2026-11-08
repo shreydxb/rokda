@@ -433,17 +433,32 @@ begin
     for update;
     if not found or v_recurring.account_id is null or v_amount is null or v_amount <= 0 or v_due is null then
       v_skipped := v_skipped || jsonb_build_object('recurring_id', v_proposal.payload -> 'recurring_id', 'name', v_proposal.payload -> 'name', 'reason', 'unavailable');
+    elsif v_recurring.active is false or v_recurring.autopay is not true then
+      -- No longer on autopay, or stopped, since it was asked: nothing is
+      -- recorded (the outside review, D-05), and the morning check will not
+      -- ask about it again, so this question and every other member's copy
+      -- of it are closed. Left open, they would wait all cycle and make every
+      -- bare "yes" ambiguous (the fresh review of the second group).
+      v_result := jsonb_build_object('kind', v_proposal.kind, 'applied', '[]'::jsonb,
+        'skipped', jsonb_build_array(jsonb_build_object('recurring_id', v_recurring.id, 'name', v_recurring.name, 'reason', 'not_autopay')));
+      update public.bot_proposals p
+      set status = 'expired', decided_at = v_now, result = v_result
+      where p.household_id = v_proposal.household_id
+        and p.kind = 'autopay_payment'
+        and p.status = 'proposed'
+        and p.payload ->> 'recurring_id' = v_recurring.id::text
+        and p.payload ->> 'due_date' = v_due::text;
+      return jsonb_build_object('outcome', 'not_autopay') || v_result;
     elsif (v_proposal.payload ? 'account_id' and v_recurring.account_id::text is distinct from v_proposal.payload ->> 'account_id')
-       or (v_proposal.payload ? 'account_id' and v_recurring.category_id::text is distinct from v_proposal.payload ->> 'category_id')
-       or v_recurring.active is false or v_recurring.autopay is not true then
-      -- Changed since it was asked: another account or category, or no
-      -- longer on autopay. The "yes" was to the question as shown, so nothing
-      -- is recorded (the outside review, D-05). A question saved before the
-      -- account was kept with it (no account_id) is checked as before.
-      -- Left open rather than decided: the morning check asks again about
-      -- the bill as it is now, and that question's "yes" records it. Deciding
-      -- it here left the cycle unasked, and the payment unrecorded, after the
-      -- likeliest reason for the change: the question named the wrong account.
+       or (v_proposal.payload ? 'account_id' and v_recurring.category_id::text is distinct from v_proposal.payload ->> 'category_id') then
+      -- Moved to another account or category since it was asked. The "yes"
+      -- was to the question as shown, so nothing is recorded (D-05). A
+      -- question saved before the account was kept with it (no account_id)
+      -- is checked as before. Left open rather than decided: the morning
+      -- check asks again about the bill as it is now, and that question's
+      -- "yes" records it. Deciding it here left the cycle unasked, and the
+      -- payment unrecorded, after the likeliest reason for the change: the
+      -- question named the wrong account.
       return jsonb_build_object('outcome', 'changed', 'kind', v_proposal.kind, 'applied', '[]'::jsonb,
         'skipped', jsonb_build_array(jsonb_build_object('recurring_id', v_recurring.id, 'name', v_recurring.name, 'reason', 'changed')));
     else
