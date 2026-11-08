@@ -308,9 +308,14 @@ export function monthsUntil(targetDate, now = new Date()) {
 // What is set aside for a goal in cash, from its one source: the current,
 // savings and cash accounts linked to it at their share, or, with nothing
 // linked, the contributions logged to it.
+// Summed in fils: 2,500.70 + 2,500.10 in floating point is 5,000.7999…, which
+// left a goal paid in full short by a crumb and read "Plan short" (outside
+// review, B-09).
+const fils = (aed) => Math.round(Number(aed) * 100);
+
 export function cashSetAside(goalId, contributions = [], allocations = [], accounts = []) {
-  if (!goalIsLinked(goalId, allocations)) return contributions.filter((c) => c.goal_id === goalId).reduce((s, c) => s + Number(c.amount), 0);
-  return linkedCashAccounts(goalId, allocations, accounts).reduce((sum, { allocation, account }) => sum + ((accountValueAed(account) ?? 0) * Number(allocation.share_pct)) / 100, 0);
+  if (!goalIsLinked(goalId, allocations)) return contributions.filter((c) => c.goal_id === goalId).reduce((s, c) => s + fils(c.amount), 0) / 100;
+  return linkedCashAccounts(goalId, allocations, accounts).reduce((sum, { allocation, account }) => sum + fils(((accountValueAed(account) ?? 0) * Number(allocation.share_pct)) / 100), 0) / 100;
 }
 
 function linkedCashAccounts(goalId, allocations, accounts) {
@@ -442,7 +447,7 @@ export function goalStatuses({ timeline = null, balanceEvents = null, ...args })
     const byLabel = dated ? row.need?.byLabel ?? monthLabel(parseDay(goal.target_date)) : null;
     if (kind === 'near' || kind === 'kept') {
       const cash = cashSetAside(goal.id, contributions, allocations, accounts) * factor;
-      const remaining = Math.max(0, cost - cash);
+      const remaining = Math.max(0, (fils(cost) - fils(cash)) / 100);
       const monthsLeft = dated ? Math.max(0, months) : null;
       const state = remaining <= 0 ? 'covered' : dated && monthsLeft <= 0 ? 'due' : 'saving';
       const perMonth = state === 'saving' && dated ? remaining / monthsLeft : null;

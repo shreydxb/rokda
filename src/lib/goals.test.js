@@ -230,6 +230,16 @@ describe('goalStatuses', () => {
     expect(rows.Car).toMatchObject({ kind: 'near', state: 'due', remaining: 5000, perMonth: null });
   });
 
+  // The outside review, B-09: money is summed in fils, so a goal paid in
+  // full is covered, not short by a floating-point crumb.
+  it('a goal funded to the fils is covered', () => {
+    const bike = goal('Bike', { target_amount: 5000.8, target_date: '2027-04-01', planned_monthly: 0 });
+    const contributions = [{ goal_id: 'Bike', amount: 2500.7, occurred_at: '2026-09-01' }, { goal_id: 'Bike', amount: 2500.1, occurred_at: '2026-10-01' }];
+    const rows = byName(goalStatuses({ ...args, goals: [bike], contributions, allocations: [] }));
+    expect(rows.Bike).toMatchObject({ state: 'covered', cash: 5000.8, remaining: 0 });
+    expect(rows.Bike.plan.enough).toBe(true);
+  });
+
   it('holds kept money in cash, and leaves an undated goal out of every plan', () => {
     const rows = byName(goalStatuses(args));
     expect(rows.Emergency).toMatchObject({ kind: 'kept', state: 'covered', cash: 20000, remaining: 0 });
