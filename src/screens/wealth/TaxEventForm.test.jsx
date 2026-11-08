@@ -41,7 +41,7 @@ describe('what happened to the refund', () => {
     type('Amount', '5,150');
     await save();
     expect(calls).toEqual([{ name: 'save_tax_return_event', args: { p_member_id: 'm1', p_financial_year: 2025,
-      p_event: { kind: 'refund_credited', happened_on: '2026-09-20', amount: 5150, revision: 1 }, p_event_id: null } }]);
+      p_event: { kind: 'refund_credited', happened_on: '2026-09-20', amount: 5150, revision: 1 }, p_event_id: null, p_expected_version: null } }]);
     expect(onSaved).toHaveBeenCalled();
     expect(screen.queryByLabelText('For')).toBeNull();
   });
@@ -79,11 +79,11 @@ describe('what happened to the refund', () => {
   });
 
   it("fixing sends the event's id and all of it", async () => {
-    open({ event: { id: 'e1', kind: 'refund_credited', happened_on: '2026-09-20', amount: 5150, revision: 1, note: 'first credit' } });
+    open({ event: { id: 'e1', kind: 'refund_credited', happened_on: '2026-09-20', amount: 5150, revision: 1, note: 'first credit', version: 3 } });
     type('Amount', '5100');
     await save();
     expect(calls[0].args).toEqual({ p_member_id: 'm1', p_financial_year: 2025,
-      p_event: { kind: 'refund_credited', happened_on: '2026-09-20', amount: 5100, revision: 1, note: 'first credit' }, p_event_id: 'e1' });
+      p_event: { kind: 'refund_credited', happened_on: '2026-09-20', amount: 5100, revision: 1, note: 'first credit' }, p_event_id: 'e1', p_expected_version: 3 });
   });
 
   it('a refusal keeps the form', async () => {

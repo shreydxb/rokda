@@ -5669,8 +5669,12 @@ end $$;
 create or replace function pg_temp.tx_save(p_change jsonb, p_version integer, p_year integer default 2025) returns jsonb language sql as $$
   select save_tax_return('22222222-2222-2222-2222-0000000000b7', p_year, p_change, p_version);
 $$;
-create or replace function pg_temp.tx_event(p_event jsonb, p_id uuid default null, p_year integer default 2025) returns jsonb language sql as $$
-  select save_tax_return_event('22222222-2222-2222-2222-0000000000b7', p_year, p_event, p_id);
+create or replace function pg_temp.tx_event(p_event jsonb, p_id uuid default null, p_year integer default 2025, p_version integer default null) returns jsonb language sql as $$
+  select save_tax_return_event('22222222-2222-2222-2222-0000000000b7', p_year, p_event, p_id, p_version);
+$$;
+-- A refund record's version now, for the calls that change or remove it.
+create or replace function pg_temp.tx_event_version(p_id uuid) returns integer language sql as $$
+  select version from tax_return_events where id = p_id;
 $$;
 create or replace function pg_temp.tx_version() returns integer language sql as $$
   select version from tax_returns where member_id = '22222222-2222-2222-2222-0000000000b7' and financial_year = 2025;
@@ -5741,18 +5745,18 @@ begin
   if r ->> 'error' is distinct from 'in_future' then raise exception 'TX-16 FAILED: a future date gave %', r; end if;
   r := pg_temp.tx_event('{"kind": "processed", "happened_on": "2026-03-01", "refund_determined": 1, "refund_interest": 0}');
   if r ->> 'error' is distinct from 'bad_input' then raise exception 'TX-16 FAILED: a date before the year ended gave %', r; end if;
-  r := pg_temp.tx_event('{"kind": "refund_credited", "happened_on": "2026-09-20", "amount": 5100}', credit);
+  r := pg_temp.tx_event('{"kind": "refund_credited", "happened_on": "2026-09-20", "amount": 5100}', credit, 2025, pg_temp.tx_event_version(credit));
   if (r ->> 'ok')::boolean is not true or (select string_agg(amount::text, ',') from tax_return_events where kind = 'refund_credited'
       and return_id = (select id from tax_returns where member_id = '22222222-2222-2222-2222-0000000000b7' and financial_year = 2025)) <> '5100.00' then
     raise exception 'TX-16 FAILED: replacing the credit gave %', r;
   end if;
-  r := remove_tax_return_event('22222222-2222-2222-2222-0000000000b7', credit);
+  r := remove_tax_return_event('22222222-2222-2222-2222-0000000000b7', credit, pg_temp.tx_event_version(credit));
   if (r ->> 'ok')::boolean is not true then raise exception 'TX-16 FAILED: removing gave %', r; end if;
-  r := remove_tax_return_event('22222222-2222-2222-2222-0000000000b7', credit);
+  r := remove_tax_return_event('22222222-2222-2222-2222-0000000000b7', credit, 2);
   if r ->> 'error' is distinct from 'event_not_found' then raise exception 'TX-16 FAILED: removing again gave %', r; end if;
-  r := remove_tax_return_event('99999999-9999-9999-9999-99999999000a', processed);
+  r := remove_tax_return_event('99999999-9999-9999-9999-99999999000a', processed, 1);
   if r ->> 'error' is distinct from 'event_not_found' then raise exception 'TX-16 FAILED: another household''s member gave %', r; end if;
-  r := remove_tax_return_event('22222222-2222-2222-2222-222222222222', processed);
+  r := remove_tax_return_event('22222222-2222-2222-2222-222222222222', processed, 1);
   if r ->> 'error' is distinct from 'event_not_found' or not exists (select 1 from tax_return_events where id = processed) then
     raise exception 'TX-16 FAILED: another member of the household gave %', r;
   end if;
@@ -5858,6 +5862,26 @@ begin
   r := pg_temp.tx_try(format('update holding_dividends set received_tax = null, received_net = 999 where id = %L', d));
   if r <> 'check_violation' then raise exception 'RH-03 FAILED: a made-up net beside a missing tax gave %', r; end if;
   raise notice 'RH-03 ok: a receipt has all its figures or none';
+end $$;
+
+-- RH-01: a refund record is changed or removed only at the version it was
+-- opened on, so a correction saved meanwhile is never silently undone.
+do $$
+declare r jsonb; e uuid;
+begin
+  r := pg_temp.tx_event('{"kind": "offset_against_demand", "happened_on": "2026-10-01", "amount": 1000}');
+  e := (r ->> 'id')::uuid;
+  if (r ->> 'version')::int is distinct from 1 then raise exception 'RH-01 FAILED: a new record gave %', r; end if;
+  r := pg_temp.tx_event('{"kind": "offset_against_demand", "happened_on": "2026-10-01", "amount": 1200}', e, 2025, 1);
+  if (r ->> 'version')::int is distinct from 2 then raise exception 'RH-01 FAILED: a correction gave %', r; end if;
+  r := pg_temp.tx_event('{"kind": "offset_against_demand", "happened_on": "2026-10-01", "amount": 1000, "note": "late"}', e, 2025, 1);
+  if r ->> 'error' is distinct from 'stale' then raise exception 'RH-01 FAILED: an edit opened before the correction gave %', r; end if;
+  r := pg_temp.tx_event('{"kind": "offset_against_demand", "happened_on": "2026-10-01", "amount": 1000}', e, 2025, null);
+  if r ->> 'error' is distinct from 'bad_input' then raise exception 'RH-01 FAILED: a change without its version gave %', r; end if;
+  r := remove_tax_return_event('22222222-2222-2222-2222-0000000000b7', e, 1);
+  if r ->> 'error' is distinct from 'stale' then raise exception 'RH-01 FAILED: a removal opened before the correction gave %', r; end if;
+  if (select amount from tax_return_events where id = e) <> 1200 then raise exception 'RH-01 FAILED: the correction was undone'; end if;
+  raise notice 'RH-01 ok: a refund record changes only at the version it was opened on';
 end $$;
 
 rollback;

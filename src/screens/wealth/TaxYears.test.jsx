@@ -31,7 +31,7 @@ const EVENTS = [
   { id: 'e1', return_id: 'r-25', revision: 1, kind: 'processed', happened_on: '2026-09-01', refund_determined: 5000, refund_interest: 0, tds_allowed_total: 5000,
     amount: null, created_at: '2026-09-01T00:00:00Z' },
   { id: 'e2', return_id: 'r-25', revision: 1, kind: 'refund_credited', happened_on: '2026-10-05', refund_determined: null, refund_interest: null, tds_allowed_total: null,
-    amount: 5000, created_at: '2026-10-05T00:00:00Z' },
+    amount: 5000, created_at: '2026-10-05T00:00:00Z', version: 2 },
 ];
 
 function data(over = {}) {
@@ -128,7 +128,7 @@ describe('Tax years', () => {
     expect(calls).toEqual([]);
     fireEvent.click(within(credit).getByRole('button', { name: 'Remove' }));
     await act(async () => fireEvent.click(within(credit).getByRole('button', { name: 'Remove' })));
-    expect(calls).toEqual([{ name: 'remove_tax_return_event', args: { p_member_id: 'm1', p_event_id: 'e2' } }]);
+    expect(calls).toEqual([{ name: 'remove_tax_return_event', args: { p_member_id: 'm1', p_event_id: 'e2', p_expected_version: 2 } }]);
     expect(d.reload).toHaveBeenCalled();
   });
 

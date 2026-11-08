@@ -117,7 +117,7 @@ function YearDetail({ year, data }) {
 
   async function remove(event) {
     setRefusal(null);
-    const { data: result, error } = await supabase.rpc('remove_tax_return_event', { p_member_id: year.memberId, p_event_id: event.id });
+    const { data: result, error } = await supabase.rpc('remove_tax_return_event', { p_member_id: year.memberId, p_event_id: event.id, p_expected_version: event.version });
     setRemoving(null);
     focusNextRef.current = 'add';
     if (error || !result?.ok) {
