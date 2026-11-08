@@ -2330,6 +2330,11 @@ async function householdMembers(householdId: string): Promise<Array<{ id: string
 
 const TRADE_READ_FAILED = "I couldn't read your holdings just now, so nothing was saved. Please send it again in a minute.";
 
+// Telegram lets a bot download files up to 20 MB; a bigger one cannot be
+// fetched however often the update is retried.
+const FILE_TOO_BIG = "That file is too big for me to fetch: Telegram lets bots download files up to 20 MB. Send a smaller photo or a screenshot, or type it.";
+const FILE_TOO_BIG_CAPTION_KEPT = "That file is too big for me to fetch: Telegram lets bots download files up to 20 MB. I've kept its caption; send a smaller photo or a screenshot to add the receipt.";
+
 // Why a trade message could not even be drafted.
 function tradeDraftError(error: string, args: Record<string, unknown>): string {
   switch (error) {
@@ -2471,7 +2476,12 @@ async function askTradeQuestion(
   askingId: string | null = null,
   askedBefore: number[] = [],
 ): Promise<void> {
-  const payload = { draft: { ...draft, awaiting: question.field }, asked_at: new Date().toISOString(), asked_message_ids: askedBefore };
+  // The message that made the draft counts as used, as an answer does: if
+  // the question below never reaches the member and Telegram delivers the
+  // message again, it is read as a redelivery and the question is asked
+  // afresh, not taken for an answer to a question nobody saw.
+  const lastUpdateId = draft.lastUpdateId ?? (typeof updateId === "number" ? updateId : null);
+  const payload = { draft: { ...draft, awaiting: question.field, lastUpdateId }, asked_at: new Date().toISOString(), asked_message_ids: askedBefore };
   let id = askingId;
   if (id) {
     const updated = await supabase.from("bot_proposals").update({ payload }).eq("id", id).eq("status", "asking").select("id");
@@ -2492,13 +2502,21 @@ async function askTradeQuestion(
     if (inserted.error || !inserted.data) throw new Error(`saving a trade question failed (${inserted.error?.code ?? "no row"})`);
     id = (inserted.data as { id: string }).id;
   }
+  // A question Telegram refused, or whose id could not be recorded, is not
+  // an asked question: the update is thrown back so Telegram delivers the
+  // message again, and the redelivery asks it afresh (see lastUpdateId
+  // above). Without its id, a reply to the question would reach nothing.
   // Every question of the draft is kept, so a reply to an earlier one still
   // reaches it once the next has been asked.
   const messageId = await reply(chatId, question.text);
-  if (messageId != null) {
-    await supabase.from("bot_proposals")
-      .update({ prompt_message_id: messageId, payload: { ...payload, asked_message_ids: [...askedBefore, messageId] } })
-      .eq("id", id);
+  if (messageId == null) throw new Error("the trade question was not delivered");
+  const bound = { prompt_message_id: messageId, payload: { ...payload, asked_message_ids: [...askedBefore, messageId] } };
+  let recorded = await supabase.from("bot_proposals").update(bound).eq("id", id);
+  if (recorded.error) recorded = await supabase.from("bot_proposals").update(bound).eq("id", id);
+  if (recorded.error) {
+    // Withdrawn, so the member does not answer a question nothing can match.
+    await tgCall("deleteMessage", { chat_id: chatId, message_id: messageId }).catch(() => {});
+    throw new Error(`recording the trade question failed (${recorded.error.code ?? "no code"})`);
   }
 }
 
@@ -5160,30 +5178,36 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
   }
 
   if (fileId) {
-    try {
-      const fileInfo = await tgCall("getFile", { file_id: fileId });
-      const filePath = fileInfo?.result?.file_path as string | undefined;
-      if (filePath) {
-        const fileRes = await telegramFetch(`https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${filePath}`, undefined, "getFile download");
-        const bytes = new Uint8Array(await fileRes.arrayBuffer());
-        const contentType = fileRes.headers.get("content-type") ?? "image/jpeg";
-        const ext = filePath.split(".").pop() || "jpg";
-        const storagePath = `${member.household_id}/${crypto.randomUUID()}.${ext}`;
-        const { error: uploadError } = await supabase.storage
-          .from("telegram-receipts")
-          .upload(storagePath, bytes, { contentType });
-        if (!uploadError) {
-          photoPath = storagePath;
-          // Only images go to the vision model -- a forwarded PDF or other
-          // document still gets stored and reviewed, just without parsing.
-          if (contentType.startsWith("image/") && bytes.length < 15_000_000) {
-            photoBase64 = bytesToBase64(bytes);
-            photoMime = contentType;
-          }
-        }
+    // The receipt is kept, or the update is thrown back for Telegram to
+    // deliver again: a failure here used to fall through, so a photo with no
+    // caption ended the update as handled with nothing saved, and a captioned
+    // one lost its receipt (outside review D-06). Nothing has been written
+    // yet at this point, so a retry repeats nothing. The one failure a retry
+    // cannot fix is a file over the size a bot may download, which is said.
+    const fileInfo = await tgCall("getFile", { file_id: fileId }) as { ok?: boolean; description?: string; result?: { file_path?: string } };
+    if (fileInfo?.ok === false && /file is too big/i.test(fileInfo.description ?? "")) {
+      await reply(chatId, rawText ? FILE_TOO_BIG_CAPTION_KEPT : FILE_TOO_BIG);
+      if (!rawText) return new Response("ok");
+    } else {
+      const filePath = fileInfo?.result?.file_path;
+      if (!filePath) throw new Error(`telegram getFile gave no file (${fileInfo?.ok === false ? "refused" : "no path"})`);
+      const fileRes = await telegramFetch(`https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${filePath}`, undefined, "getFile download");
+      if (!fileRes.ok) throw new Error(`telegram getFile download failed (${fileRes.status})`);
+      const bytes = new Uint8Array(await fileRes.arrayBuffer());
+      const contentType = fileRes.headers.get("content-type") ?? "image/jpeg";
+      const ext = filePath.split(".").pop() || "jpg";
+      const storagePath = `${member.household_id}/${crypto.randomUUID()}.${ext}`;
+      const { error: uploadError } = await supabase.storage
+        .from("telegram-receipts")
+        .upload(storagePath, bytes, { contentType });
+      if (uploadError) throw new Error("storing the receipt failed");
+      photoPath = storagePath;
+      // Only images go to the vision model -- a forwarded PDF or other
+      // document still gets stored and reviewed, just without parsing.
+      if (contentType.startsWith("image/") && bytes.length < 15_000_000) {
+        photoBase64 = bytesToBase64(bytes);
+        photoMime = contentType;
       }
-    } catch {
-      // Photo storage failed -- fall through with whatever text/caption exists.
     }
   }
 

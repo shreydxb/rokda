@@ -59,6 +59,11 @@ type Backend = {
     failWrites?: string[];
     // OpenRouter answers 429 (too many requests) to its first N calls.
     aiBusyFirst?: number;
+    // Telegram's getFile refuses (a 429) or says the file is too big for a bot.
+    getFile?: "refuse" | "too_big";
+    // Downloading the file, or storing it, fails.
+    downloadFails?: boolean;
+    storageFails?: boolean;
   };
   // Calls OpenRouter has received.
   aiCalls: number;
@@ -589,6 +594,16 @@ function denoStyleFetchError(url: string): TypeError {
 async function telegram(req: Request, url: URL): Promise<Response> {
   const method = url.pathname.split("/").pop() ?? "";
   if (backend.faults.telegramDns) throw denoStyleFetchError(url.toString());
+  // A file's bytes, from Telegram's file server.
+  if (url.pathname.startsWith("/file/")) {
+    if (backend.faults.downloadFails) return new Response("bad gateway", { status: 502 });
+    return new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xd9]), { headers: { "Content-Type": "image/jpeg" } });
+  }
+  if (method === "getFile") {
+    if (backend.faults.getFile === "refuse") return json({ ok: false, error_code: 429, description: "Too Many Requests: retry after 5" });
+    if (backend.faults.getFile === "too_big") return json({ ok: false, error_code: 400, description: "Bad Request: file is too big" });
+    return json({ ok: true, result: { file_id: "F1", file_path: "photos/file_1.jpg" } });
+  }
   const body = await req.json().catch(() => ({}));
   if (method === "sendMessage") {
     sendCount += 1;
@@ -646,7 +661,10 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   if (url.origin === SUPABASE_URL) {
     if (url.pathname.startsWith("/rest/v1/rpc/")) return await rpc(req, url.pathname.split("/").pop()!);
     if (url.pathname.startsWith("/rest/v1/")) return await postgrest(req, url);
-    if (url.pathname.startsWith("/storage/")) return json({ Key: "ok" });
+    if (url.pathname.startsWith("/storage/")) {
+      if (backend.faults.storageFails) return json({ statusCode: "500", error: "internal", message: "storage unavailable" }, 500);
+      return json({ Key: "ok" });
+    }
   }
   if (url.hostname === "api.telegram.org") return await telegram(req, url);
   if (url.hostname === "openrouter.ai") return await openrouter(req);
@@ -691,6 +709,21 @@ function textUpdate(updateId: number, text: string): Request {
         text,
         chat: { id: TELEGRAM_USER, type: "private" },
         from: { id: TELEGRAM_USER, is_bot: false, first_name: "T" },
+      },
+    }),
+  });
+}
+
+// A photo, with or without a caption.
+function photoUpdate(updateId: number, caption?: string): Request {
+  return new Request("http://edge.test/telegram-webhook", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Telegram-Bot-Api-Secret-Token": SECRET },
+    body: JSON.stringify({
+      update_id: updateId,
+      message: {
+        message_id: 2, date: 1, ...(caption ? { caption } : {}), photo: [{ file_id: "F0" }, { file_id: "F1" }],
+        chat: { id: TELEGRAM_USER, type: "private" }, from: { id: TELEGRAM_USER, is_bot: false, first_name: "T" },
       },
     }),
   });
@@ -791,6 +824,41 @@ freshTest("an ordinary expense is captured once and its claim completed", async 
   assertEquals(capturedIntake().length, 1);
   assertEquals(capturedIntake()[0].source_ref, "7001");
   assertEquals(backend.log.get(7001)?.status, "completed");
+});
+
+// D-06: a receipt is kept, or Telegram is asked to send it again. A failure
+// to fetch or store it must never end the update with nothing saved.
+freshTest("a receipt photo is stored and captured", async () => {
+  const res = await handler(photoUpdate(7011));
+  assertEquals(res.status, 200);
+  assertEquals(capturedIntake().length, 1);
+  assert(String(capturedIntake()[0].photo_path ?? "").endsWith(".jpg"), JSON.stringify(capturedIntake()[0]));
+});
+
+for (const [name, fault] of [
+  ["Telegram refuses to give the file", { getFile: "refuse" }],
+  ["the download fails", { downloadFails: true }],
+  ["storing it fails", { storageFails: true }],
+] as const) {
+  freshTest(`a receipt photo is retried when ${name}, and captured once it works`, async () => {
+    Object.assign(backend.faults, fault);
+    const first = await handler(photoUpdate(7012));
+    assertEquals(first.status, 500);
+    assertEquals(capturedIntake().length, 0);
+    assertEquals(backend.log.get(7012)?.status, "failed");
+    backend.faults = {};
+    const retried = await handler(photoUpdate(7012));
+    assertEquals(retried.status, 200);
+    assertEquals(capturedIntake().length, 1);
+  });
+}
+
+freshTest("a file too big for a bot to fetch is said so, not retried for ever", async () => {
+  backend.faults.getFile = "too_big";
+  const res = await handler(photoUpdate(7013));
+  assertEquals(res.status, 200);
+  assertEquals(capturedIntake().length, 0);
+  assert(lastReply().startsWith("That file is too big for me to fetch"), lastReply());
 });
 
 freshTest("a database error on the claim processes nothing and asks Telegram to retry", async () => {
@@ -2199,6 +2267,38 @@ freshTest("a trade with no units asks how many, and the answer completes it", as
   assertEquals(tradeProposals().map((r) => r.status), ["proposed"]);
   assertEquals(askingRow(), undefined);
   assert(lastReply().startsWith("Buy 10 ABC at $120"), lastReply());
+});
+
+// D-07: a clarifying question that never reached the member, or whose
+// message could not be recorded, is not a finished update: Telegram is asked
+// to deliver the message again, and the retry asks the question afresh.
+freshTest("a trade question Telegram refuses is retried, and the retry asks it", async () => {
+  tradeFixtures();
+  backend.route = { tool: "log_trade", args: { side: "buy", stock: "ABC", price: 120 } };
+  backend.faults.refuseFirstSends = 1;
+  const first = await handler(textUpdate(7421, "bought ABC at 120"));
+  assertEquals(first.status, 500);
+  assertEquals(backend.log.get(7421)?.status, "failed");
+  const retried = await handler(textUpdate(7421, "bought ABC at 120"));
+  assertEquals(retried.status, 200);
+  assertEquals(lastReply(), "How many ABC did you buy?");
+  assertEquals(backend.tables.bot_proposals.filter((r) => r.status === "asking").length, 1);
+  assert(askingRow()?.prompt_message_id, "the question asked on the retry was not bound");
+});
+
+freshTest("a trade question whose message cannot be recorded is retried until it is", async () => {
+  tradeFixtures();
+  backend.route = { tool: "log_trade", args: { side: "buy", stock: "ABC", price: 120 } };
+  backend.faults.failPromptRecord = 2;
+  const first = await handler(textUpdate(7422, "bought ABC at 120"));
+  assertEquals(first.status, 500);
+  const retried = await handler(textUpdate(7422, "bought ABC at 120"));
+  assertEquals(retried.status, 200);
+  const asked = askingRow();
+  assert(asked?.prompt_message_id, "the question was not bound");
+  // A reply to the question that was recorded reaches the draft.
+  await handler(replyUpdate(7423, "10", Number(asked!.prompt_message_id)));
+  assertEquals(tradeProposals().map((r) => r.status), ["proposed"]);
 });
 
 freshTest("a trade with no price asks for it, and the next message answers it", async () => {
