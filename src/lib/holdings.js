@@ -308,19 +308,29 @@ export function portfolioValueChange(holdings, history, range, scopeMemberId, no
   return { available: true, nowTotal, startTotal, absolute, pct, includesContributions: true };
 }
 
-// Chart series: portfolio total at each historical date any holding has a
-// point for, plus the live "now" total.
+// Chart series: portfolio total at each historical date every holding has a
+// value for, plus the live "now" total. A date before some holding's first
+// recorded value used to be drawn as the sum of the others, a dip that was
+// never the portfolio's value (outside review, B-06). Two values cannot tell
+// a holding bought later from one whose history is missing, so such a date is
+// left out, as portfolioValueChange refuses a range it cannot cover.
 export function portfolioSeries(holdings, history, scopeMemberId, now = new Date()) {
   const dates = [...new Set(history.map((p) => p.as_of))].sort();
-  const series = dates.map((d) => {
+  const series = [];
+  for (const d of dates) {
     const dateObj = new Date(d);
     let total = 0;
+    let covered = true;
     for (const h of holdings) {
       const raw = valueAsOf(history, h.id, dateObj);
-      if (raw !== null) total += scopedValue(raw, h, scopeMemberId);
+      if (raw === null) {
+        covered = false;
+        break;
+      }
+      total += scopedValue(raw, h, scopeMemberId);
     }
-    return { date: dateObj, total };
-  });
+    if (covered) series.push({ date: dateObj, total });
+  }
   series.push({
     date: now,
     total: holdings.reduce((s, h) => s + scopedHoldingValue(h, scopeMemberId), 0),

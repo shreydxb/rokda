@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { costFromUnits, holdingGain, isClosedHolding, largestConcentration, portfolioDayChange, portfolioInvestedAndGain, portfolioValueChange } from './holdings';
+import { costFromUnits, holdingGain, isClosedHolding, largestConcentration, portfolioDayChange, portfolioInvestedAndGain, portfolioSeries, portfolioValueChange } from './holdings';
 
 describe('portfolioDayChange', () => {
   it('weights each holding change by its value, not a flat average', () => {
@@ -290,5 +290,28 @@ describe('paysDividends', () => {
     const { paysDividends } = await import('./holdings');
     expect(['us_equity', 'intl_equity', 'india_equity'].every(paysDividends)).toBe(true);
     expect(['commodity', 'india_mf', 'crypto', 'cash', 'uae_equity', 'sukuk'].some(paysDividends)).toBe(false);
+  });
+});
+
+// The outside review, B-06: a past total that leaves out a holding with no
+// value recorded by then is not the portfolio's value, so it is not drawn.
+describe('portfolioSeries', () => {
+  const a = { id: 'a', is_shared: true, value_aed: 1200 };
+  const b = { id: 'b', is_shared: true, value_aed: 800 };
+  const history = [
+    { holding_id: 'a', as_of: '2026-09-01', value_aed: 1000 },
+    { holding_id: 'a', as_of: '2026-10-01', value_aed: 1100 },
+    { holding_id: 'b', as_of: '2026-10-01', value_aed: 700 },
+  ];
+  const now = new Date(2026, 10, 8, 12);
+
+  it('draws only the days every holding has a value for, then today', () => {
+    const series = portfolioSeries([a, b], history, null, now);
+    expect(series.map((p) => p.total)).toEqual([1800, 2000]);
+    expect(series[series.length - 1].isLive).toBe(true);
+  });
+
+  it('draws every day when every holding is covered', () => {
+    expect(portfolioSeries([a], history, null, now).map((p) => p.total)).toEqual([1000, 1100, 1200]);
   });
 });
