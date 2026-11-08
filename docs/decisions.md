@@ -3274,3 +3274,36 @@ for screens nobody opened on a phone.
   would touch every screen for little gain. A change near them keeps them
   working, but nothing checks the phone until the product is built and phones
   are tested again, as one pass.
+
+## What the outside review changed
+
+In November 2026 the household had the whole codebase reviewed by a second
+AI model (Codex), in six passes: security, money sums, the database's money
+functions, the bot, the screens, and the tests and CI. Each finding was
+checked against the code before anything changed, and each fix comes with a
+test that failed first. The first group, security and the database:
+
+- **The Telegram link code is stored as its digest.** Every member can read
+  the household's roster, so a live code kept there could be sent to the bot
+  by another member to link Telegram as its owner. The roster holds the
+  code's SHA-256; the bot hashes what it is sent. The code is random, so the
+  digest gives nothing away.
+- **A password alone refreshes nothing.** The price refresh looked members
+  up with the service role, which skips the database's second-step check, so
+  it now asks for a session that passed the second step itself.
+- **Edits are made at the version they were opened on.** A refund record now
+  carries a version, like the return it belongs to, so an edit opened before
+  a correction is refused instead of writing its older figures back.
+- **Simultaneous "yes" answers do one thing.** Two first buys of one stock
+  take turns on the household, owner and name, so only one holding is made;
+  the same transfer confirmed by both members locks its two accounts first,
+  so it is recorded once.
+- **A "yes" is to the question as it was shown.** An autopay question keeps
+  the account and category it named; if the bill has moved since, or come
+  off autopay, nothing is recorded and the bot says why.
+- **Rules hold in the table, not only in the functions.** A received
+  dividend needs all four of its figures, since the data imports write
+  through privileged SQL.
+- **A step and its follow-up happen together.** "Not yet" cancels the
+  question and clears its dividends' asked marks in one call, so the promised
+  reminder is never lost to a half-done change.
