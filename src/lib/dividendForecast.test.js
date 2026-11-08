@@ -121,6 +121,17 @@ describe('earned and projected', () => {
     // The yield reads the same either side of the ex-date: four payments a share.
     expect(f.ordinaryPerShareNextYear).toBe(4);
   });
+
+  // The outside review, B-04: an earned dividend's amount a share is on the
+  // basis of its ex-date; after a split it is put on today's, like the rest.
+  it('an earned dividend from before a split counts on today\'s basis in the yield', () => {
+    const quarterly = ['2024-11-01', '2025-02-01', '2025-05-01', '2025-08-01', '2025-11-01', '2026-02-01', '2026-05-01', '2026-08-01', '2026-11-01']
+      .map((d) => event('ABC', d, 2, { pay_date: `${d.slice(0, 8)}28` }));
+    const earnedUnpaid = [{ id: 'd-nov', ex_date: '2026-11-01', pay_date: '2026-11-28', per_share: 2, expected_gross: 20, expected_tax: 6, expected_fees: 0, expected_net: 14 }];
+    const f = forecast(quarterly, { earnedUnpaid, h: holding({ quantity: 20 }), splits: [{ symbol: 'ABC', effective_date: '2026-11-02', ratio: 2 }] });
+    // Two a share before the split is one a share now: four a year, not five.
+    expect(f.ordinaryPerShareNextYear).toBe(4);
+  });
 });
 
 describe('yields', () => {

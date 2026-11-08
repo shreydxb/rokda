@@ -37,7 +37,10 @@ export function forecastHolding({ holding, payments = [], frequency, gapDays = 3
   }));
   // What a share pays in the next twelve months, for its yield: an earned one
   // pays in them too, so the yield reads the same either side of its ex-date.
-  let perShareYear = (earnedUnpaid ?? []).reduce((sum, d) => sum + (Number(d.per_share) || 0), 0);
+  // Its amount a share is on the basis of its ex-date; a split since puts it
+  // on today's, the way the share's payments are (outside review, B-04).
+  const factorOn = (exDate) => (payments ?? []).find((p) => p.exDate === exDate)?.factor ?? 1;
+  let perShareYear = (earnedUnpaid ?? []).reduce((sum, d) => sum + (Number(d.per_share) || 0) / factorOn(d.ex_date), 0);
   let status;
 
   if (units <= 0) {
