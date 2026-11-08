@@ -32,17 +32,20 @@ export default defineConfig({
     // binary; unset, Playwright uses its own, which is what a laptop does.
     launchOptions: process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {},
   },
+  // Desktop only by default: the household uses Rokda on a desktop and
+  // through Telegram, so new work is checked there, once. The phone layouts
+  // stay as they are, and the phone run (the narrowest phone worth
+  // supporting, where most layout faults show first) comes back with
+  // PLAYWRIGHT_PHONE=1, for when the product is built and phones are tested
+  // again (docs/decisions.md, "Desktop first; phones tested later").
   projects: [
     {
       name: 'desktop',
       use: { viewport: { width: 1280, height: 800 } },
     },
-    {
-      // The narrowest phone worth supporting. Most layout faults show here
-      // first, and none of them show at 1280px.
-      name: 'mobile',
-      use: { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 },
-    },
+    ...(process.env.PLAYWRIGHT_PHONE
+      ? [{ name: 'mobile', use: { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 } }]
+      : []),
   ],
   webServer: {
     command: `npx vite preview --port ${PORT} --strictPort`,
