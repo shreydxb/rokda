@@ -36,7 +36,7 @@ type Row = Record<string, unknown>;
 type Backend = {
   now: number;
   tables: Record<string, Row[]>;
-  log: Map<number, { status: string; claimed_at: number; attempts: number }>;
+  log: Map<number, { status: string; claimed_at: number; attempts: number; answer_target?: Row | null }>;
   telegramSent: Array<{ method: string; body: Row }>;
   telegramDeleted: number[];
   requests: Array<{ method: string; path: string }>;
@@ -284,6 +284,14 @@ async function postgrest(req: Request, url: URL): Promise<Response> {
     if (backend.faults.failReads?.includes(table)) {
       return json({ code: "57014", message: "canceling statement due to statement timeout" }, 500);
     }
+    // Claims live in backend.log (see PATCH below).
+    if (table === "telegram_update_log") {
+      const id = Number((url.searchParams.get("update_id") ?? "").replace(/^eq\./, ""));
+      const entry = backend.log.get(id);
+      const found = entry ? [{ update_id: id, status: entry.status, answer_target: entry.answer_target ?? null }] : [];
+      if (wantsObject) return found.length === 1 ? json(found[0]) : json({ code: "PGRST116", message: "not one row" }, 406);
+      return json(found);
+    }
     let found = rows.filter((r) => matches(r, url.searchParams));
     // order=col.asc, as the paged reads end every query with a unique column.
     const order = url.searchParams.get("order");
@@ -334,6 +342,11 @@ async function postgrest(req: Request, url: URL): Promise<Response> {
       const id = Number((url.searchParams.get("update_id") ?? "").replace(/^eq\./, ""));
       const entry = backend.log.get(id);
       if (entry && typeof patch.status === "string") entry.status = patch.status;
+      // What a bare answer resolved to, recorded once (answer_target=is.null).
+      if (entry && "answer_target" in patch) {
+        if (backend.faults.failWrites?.includes(table)) return json({ code: "57014", message: "canceling statement due to statement timeout" }, 500);
+        if (url.searchParams.get("answer_target") !== "is.null" || entry.answer_target == null) entry.answer_target = patch.answer_target;
+      }
       return new Response(null, { status: 204 });
     }
     if (table === "statement_reconciliations" && "asked_prompts" in patch && backend.faults.failStatementBinding) {
@@ -558,7 +571,11 @@ async function rpc(req: Request, fn: string): Promise<Response> {
     backend.applyCalls += 1;
     return json(applyProposal(String(args.p_proposal_id), String(args.p_member_id)));
   }
-  if (fn === "approve_intake") backend.approveCalls += 1;
+  if (fn === "approve_intake") {
+    backend.approveCalls += 1;
+    const row = backend.tables.intake.find((r) => r.id === args.p_intake_id);
+    if (row) row.status = "approved";
+  }
   if (fn === "mark_dividends_asked") {
     for (const d of backend.tables.holding_dividends ?? []) {
       if ((args.p_ids as string[]).includes(String(d.id))) d.asked_at = args.p_asked === false ? null : new Date().toISOString();
@@ -1572,6 +1589,50 @@ freshTest("a second bare yes, or the first delivered twice, says what was saved 
   assert(lastReply().startsWith("Already saved"), lastReply());
   assertEquals(capturedIntake().length, 0, "a repeated yes was captured as an expense");
   assertEquals(backend.applyCalls, 1);
+});
+
+// D-02: a bare answer is recorded with the update before it acts, so
+// Telegram delivering it again answers what it first meant, never a question
+// asked or an entry captured in between.
+freshTest("a bare yes delivered again answers what it first meant, not a question asked since", async () => {
+  seedCheckinHousehold();
+  backend.route = { tool: "update_account_balances", args: { balances: [{ account: "Bank", balance: 10000 }] } };
+  await handler(textUpdate(7361, "Bank 10,000"));
+  backend.route = { tool: "log_expense", args: {} };
+  backend.faults.failFirstSends = sendCount + 1;
+  assertEquals((await handler(textUpdate(7362, "yes"))).status, 500);
+  assertEquals(balancesOf().get(MY_BANK.id), 10000);
+  // Before Telegram delivers the "yes" again, another question is asked.
+  const later = "b0000000-0000-4000-8000-000000000362";
+  backend.tables.bot_proposals.push({
+    id: later, household_id: HOUSEHOLD, member_id: MEMBER, kind: "goal_contribution",
+    payload: { goal_id: GOAL, goal_name: "House", amount: 500 }, chat_id: TELEGRAM_USER, source_ref: "7363", status: "proposed",
+    prompt_message_id: 999, created_at: new Date().toISOString(), expires_at: new Date(Date.now() + 86400000).toISOString(), decided_at: null, result: null,
+  });
+  assertEquals((await handler(textUpdate(7362, "yes"))).status, 200);
+  assertEquals(backend.applyCalls, 1, "the yes delivered again applied the question asked since");
+  assertEquals(backend.tables.bot_proposals.find((r) => r.id === later)?.status, "proposed");
+  assert(lastReply().startsWith("Already saved"), lastReply());
+});
+
+freshTest("a bare yes to an expense delivered again does not record one captured since", async () => {
+  backend.tables.accounts.push(MARRIOTT, NOON);
+  const entry = (id: string, merchant: string) => ({
+    id, household_id: HOUSEHOLD, member_id: MEMBER, status: "pending", raw_text: `${merchant} 40`,
+    created_at: new Date().toISOString(), parsed_merchant: merchant, parsed_amount: 40, parsed_date: "2026-09-24", parsed_category_id: "cat-dining",
+    parsed_account_id: NOON.id, parsed_currency: "AED", parsed_kind: "expense", confidence: 1, date_guessed: false,
+    confirm_chat_id: null, confirm_message_id: null,
+  });
+  backend.tables.intake.push(entry("99990000-0000-4000-8000-000000000371", "Cafe"));
+  // The "Recorded" reply and the apology after it both fail.
+  backend.faults.failFirstSends = sendCount + 2;
+  assertEquals((await handler(textUpdate(7371, "yes"))).status, 500);
+  assertEquals(backend.approveCalls, 1);
+  backend.tables.intake.push(entry("99990000-0000-4000-8000-000000000372", "Bakery"));
+  assertEquals((await handler(textUpdate(7371, "yes"))).status, 200);
+  assertEquals(backend.approveCalls, 1, "the yes delivered again recorded the entry captured since");
+  assertEquals(backend.tables.intake.find((r) => r.id === "99990000-0000-4000-8000-000000000372")?.status, "pending");
+  assert(lastReply().startsWith("That one is already recorded"), lastReply());
 });
 
 freshTest("a question whose id could not be recorded is withdrawn and asked again, and that one is answerable", async () => {

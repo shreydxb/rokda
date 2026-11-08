@@ -5946,4 +5946,20 @@ begin
   raise notice 'RH-08 ok: "not yet" puts off the question and its dividends together';
 end $$;
 
+
+-- RH-09: what a bare answer resolved to is a proposal or an entry, by id, or
+-- nothing; anything else is refused rather than read as no target.
+do $$
+declare r text;
+begin
+  insert into telegram_update_log (update_id, status) values (9000909, 'processing');
+  update telegram_update_log set answer_target = '{"kind": "proposal", "id": "a8000000-0000-4000-8000-0000000000f1"}' where update_id = 9000909;
+  update telegram_update_log set answer_target = '{"kind": "intake", "id": "a8000000-0000-4000-8000-0000000000f1"}' where update_id = 9000909;
+  foreach r in array array['{"kind": "proposal"}', '{"id": "a8000000-0000-4000-8000-0000000000f1"}', '{"kind": "goal", "id": "a8000000-0000-4000-8000-0000000000f1"}', '{"kind": "intake", "id": "7"}', '["proposal"]', '"proposal"'] loop
+    if pg_temp.tx_try(format('update telegram_update_log set answer_target = %L where update_id = 9000909', r)) <> 'check_violation' then
+      raise exception 'RH-09 FAILED: the target % was accepted', r;
+    end if;
+  end loop;
+  raise notice 'RH-09 ok: a recorded answer names a proposal or an entry by id';
+end $$;
 rollback;

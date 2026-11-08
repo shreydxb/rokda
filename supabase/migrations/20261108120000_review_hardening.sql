@@ -612,3 +612,26 @@ $$;
 
 revoke execute on function public.postpone_dividends_proposal(uuid, uuid) from public, anon, authenticated;
 grant execute on function public.postpone_dividends_proposal(uuid, uuid) to service_role;
+
+-- ---------------------------------------------------------------------------
+-- 6. A bare answer delivered again answers what it first meant
+-- ---------------------------------------------------------------------------
+-- A bare "yes" or "no" names nothing, so the bot resolves it against whatever
+-- is waiting. If the reply after acting failed, Telegram delivered the answer
+-- again, and by then a question asked or an entry captured in the meantime
+-- could be what it resolved to, saved without the member answering it. The
+-- bot now records the target with the update before acting, and a redelivery
+-- answers that target. A reply or a reaction names its message, so only bare
+-- answers are recorded.
+alter table public.telegram_update_log
+  add column answer_target jsonb,
+  add constraint telegram_update_log_answer_target_shape check (
+    answer_target is null or coalesce(
+      jsonb_typeof(answer_target) = 'object'
+      and answer_target ->> 'kind' in ('proposal', 'intake')
+      and (answer_target ->> 'id') ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+      false)
+  );
+
+comment on column public.telegram_update_log.answer_target is
+  'What a bare "yes" or "no" in this update resolved to, recorded before the bot acted on it: {"kind": "proposal" | "intake", "id": uuid}. A redelivery of the update answers this, not whatever is waiting by then. Null for every other update.';

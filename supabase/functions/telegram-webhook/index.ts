@@ -211,6 +211,31 @@ async function settleUpdate(updateId: unknown, status: "completed" | "failed"): 
   }
 }
 
+// What a bare "yes" or "no" resolved to, recorded with the update before it
+// acts (outside review D-02). A bare answer names nothing, so it is resolved
+// against whatever is waiting; if the reply after acting fails and Telegram
+// delivers the answer again, a question asked or an entry captured in the
+// meantime would otherwise be what it resolves to, and be saved without the
+// member ever answering it. A reply or a reaction names its message, so only
+// bare answers need this.
+type AnswerTarget = { kind: "proposal" | "intake"; id: string };
+
+async function recordedAnswerTarget(updateId: unknown): Promise<AnswerTarget | null> {
+  if (typeof updateId !== "number") return null;
+  const { data, error } = await supabase.from("telegram_update_log").select("answer_target").eq("update_id", updateId).maybeSingle();
+  // Not knowing what the first delivery answered is not the same as it
+  // having answered nothing: thrown back, so Telegram tries again.
+  if (error) throw new Error(`reading what an answer was about failed (${error.code ?? "no code"})`);
+  const target = (data as { answer_target?: AnswerTarget | null } | null)?.answer_target ?? null;
+  return target && (target.kind === "proposal" || target.kind === "intake") && typeof target.id === "string" ? target : null;
+}
+
+async function recordAnswerTarget(updateId: unknown, target: AnswerTarget): Promise<void> {
+  if (typeof updateId !== "number") return;
+  const { error } = await supabase.from("telegram_update_log").update({ answer_target: target }).eq("update_id", updateId).is("answer_target", null);
+  if (error) throw new Error(`recording what an answer was about failed (${error.code ?? "no code"})`);
+}
+
 // The handler's only log line. Operational metadata only: where it failed,
 // which update, and the error's class name. Never the message -- a message
 // can quote a URL, a row, or the text a member sent -- and never the stack.
@@ -4827,24 +4852,40 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
     const autopay = autopayAnswer(trimmedText);
     const confirming = strictYes || autopay.decision === "paid";
     const cancelling = !confirming && (strictNo || autopay.decision === "not_yet");
+    // Set when this is Telegram delivering again a bare answer that already
+    // resolved to something: it answers that, whatever is waiting now.
+    let replay: AnswerTarget | null = null;
     if (confirming || cancelling) {
       const unaddressed = repliedTo == null;
-      const [proposalLookup, open, recent] = await Promise.all([
-        proposalForPrompt(member.household_id, member.id, chatId, repliedTo),
-        unaddressed ? openProposals(member.household_id, member.id) : Promise.resolve({ rows: [] as ProposalRow[], failed: false }),
-        unaddressed ? recentlyDecidedProposal(member.household_id, member.id) : Promise.resolve({ row: null, failed: false }),
-      ]);
-      // An expense waiting for its own "yes" makes a bare "no" as ambiguous
-      // as a bare "yes": either could be about it.
-      const target = resolveProposalTarget({
-        lookup: proposalLookup.kind,
-        row: proposalLookup.row,
-        open: open.rows,
-        openFailed: open.failed || recent.failed,
-        recentlyDecided: recent.row,
-        readyIntakes: candidates.rows.filter(isConfirmable),
-        truncated: candidates.truncated,
-      });
+      if (unaddressed) replay = await recordedAnswerTarget(updateId);
+      let target: { kind: "one" | "decided"; row: ProposalRow } | { kind: "ambiguous" | "unavailable" | "none" };
+      if (replay?.kind === "proposal") {
+        const { data, error } = await supabase.from("bot_proposals").select(PROPOSAL_COLUMNS)
+          .eq("id", replay.id).eq("member_id", member.id).maybeSingle();
+        if (error) throw new Error(`reading the proposal an answer was about failed (${error.code ?? "no code"})`);
+        const row = data as ProposalRow | null;
+        target = !row ? { kind: "none" } : row.status === "proposed" ? { kind: "one", row } : { kind: "decided", row };
+      } else if (replay?.kind === "intake") {
+        target = { kind: "none" };
+      } else {
+        const [proposalLookup, open, recent] = await Promise.all([
+          proposalForPrompt(member.household_id, member.id, chatId, repliedTo),
+          unaddressed ? openProposals(member.household_id, member.id) : Promise.resolve({ rows: [] as ProposalRow[], failed: false }),
+          unaddressed ? recentlyDecidedProposal(member.household_id, member.id) : Promise.resolve({ row: null, failed: false }),
+        ]);
+        // An expense waiting for its own "yes" makes a bare "no" as ambiguous
+        // as a bare "yes": either could be about it.
+        target = resolveProposalTarget({
+          lookup: proposalLookup.kind,
+          row: proposalLookup.row,
+          open: open.rows,
+          openFailed: open.failed || recent.failed,
+          recentlyDecided: recent.row,
+          readyIntakes: candidates.rows.filter(isConfirmable),
+          truncated: candidates.truncated,
+        });
+        if (unaddressed && target.kind === "one") await recordAnswerTarget(updateId, { kind: "proposal", id: target.row.id });
+      }
       if (target.kind === "one" && target.row.kind === "autopay_payment") {
         await decideAutopay(chatId, member.id, target.row, confirming ? "paid" : "not_yet", confirming ? autopay.amount : null);
         return new Response("ok");
@@ -4874,6 +4915,16 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
     }
 
     if (strictYes) {
+      if (replay?.kind === "intake") {
+        const { data, error } = await supabase.from("intake").select(RECENT_INTAKE_COLUMNS)
+          .eq("id", replay.id).eq("member_id", member.id).maybeSingle();
+        if (error) throw new Error(`reading the entry an answer was about failed (${error.code ?? "no code"})`);
+        const row = data as PendingIntakeRow | null;
+        if (row && isConfirmable(row)) await confirmPendingIntake(chatId, member.household_id, row);
+        else if (row?.status === "approved") await reply(chatId, "That one is already recorded. Anything else waiting needs its own yes.");
+        else await reply(chatId, "That entry changed after your yes, so nothing was recorded. Check it in the Inbox.");
+        return new Response("ok");
+      }
       const target = resolveConfirmTarget({
         lookup: promptLookup.kind,
         row: promptLookup.row,
@@ -4881,6 +4932,7 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
         truncated: candidates.truncated,
       });
       if (target.kind === "one") {
+        if (repliedTo == null) await recordAnswerTarget(updateId, { kind: "intake", id: target.row.id });
         await confirmPendingIntake(chatId, member.household_id, target.row);
         return new Response("ok");
       }
