@@ -274,25 +274,37 @@ describe('payMonthTransactions: a salary counts in the month it is for', () => {
   const salary = { id: 'r', amount: 24000, cadence: 'monthly', next_due_date: '2026-09-30', account_id: 'fab', category_id: 'sal', active: true };
   const tx = (id, day, over = {}) => ({ id, amount: 24000, kind: 'income', account_id: 'fab', category_id: 'sal', occurred_at: day, is_shared: true, ...over });
 
+  // Every record below has landed by then.
+  const LATER = new Date(2027, 5, 1);
+
   it('moves a salary that landed early in the next month back to its month', () => {
-    const [t] = payMonthTransactions([tx('a', '2026-11-01')], [salary]);
+    const [t] = payMonthTransactions([tx('a', '2026-11-01')], [salary], LATER);
     expect(t.pay_month_date).toBe('2026-10-30');
     // October gets it, November does not.
-    const months = closedMonths(payMonthTransactions([tx('a', '2026-11-01')], [salary]), new Date(2026, 11, 15));
+    const months = closedMonths(payMonthTransactions([tx('a', '2026-11-01')], [salary], LATER), new Date(2026, 11, 15));
     expect([...months.keys()]).toEqual(['2026-10']);
   });
 
   it('moves a salary paid early into the previous month forward to its own', () => {
     // Due 31 Jan (clamped from the 30th anchor), paid on the 24th: January either way.
-    expect(payMonthTransactions([tx('a', '2027-01-24')], [salary])[0].pay_month_date).toBeUndefined();
+    expect(payMonthTransactions([tx('a', '2027-01-24')], [salary], LATER)[0].pay_month_date).toBeUndefined();
     // Due 1 Mar from a 1st-of-month schedule, paid 26 Feb: counted in March.
     const firstOfMonth = { ...salary, next_due_date: '2026-10-01' };
-    expect(payMonthTransactions([tx('b', '2027-02-26')], [firstOfMonth])[0].pay_month_date).toBe('2027-03-01');
+    expect(payMonthTransactions([tx('b', '2027-02-26')], [firstOfMonth], LATER)[0].pay_month_date).toBe('2027-03-01');
+  });
+
+  // The outside review, B-01: only posted records are history.
+  it('leaves a salary dated after today where it is: planned, not October\'s pay', () => {
+    const now = new Date(2026, 10, 3);
+    const txns = [tx('p', '2026-11-05')];
+    expect(payMonthTransactions(txns, [salary], now)[0].pay_month_date).toBeUndefined();
+    expect([...closedMonths(payMonthTransactions(txns, [salary], now), now).keys()]).toEqual([]);
+    expect([...planningMonths(txns, [salary], now).keys()]).toEqual([]);
   });
 
   it('leaves alone income that matches no reminder, and spending', () => {
     const other = [tx('c', '2026-11-01', { account_id: 'wio' }), tx('d', '2026-11-01', { amount: 9000 }), { ...tx('e', '2026-11-01'), kind: 'expense', amount: -24000 }];
-    expect(payMonthTransactions(other, [salary]).map((t) => t.pay_month_date)).toEqual([undefined, undefined, undefined]);
+    expect(payMonthTransactions(other, [salary], LATER).map((t) => t.pay_month_date)).toEqual([undefined, undefined, undefined]);
     expect(payMonthTransactions(other, [])).toBe(other);
   });
 

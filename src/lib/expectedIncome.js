@@ -1,6 +1,5 @@
 import { addMonthsClamped, parseDay, startOfDay } from './day';
-import { matchWindowDays, occurrenceAt } from './recurring';
-import { isIncomeRow } from './transactionKind';
+import { matchWindowDays, occurrenceAt, settlesReminder } from './recurring';
 import { scopedValue } from './scope';
 
 // Pay that is due in the period but has not been recorded yet.
@@ -9,9 +8,8 @@ import { scopedValue } from './scope';
 // year. Pay lands late in the month, so for most of every month Income read 0
 // with nothing to say that a salary was on its way. Each expected-income
 // reminder (a recurring row with a positive amount) contributes its dates
-// inside the whole calendar period that have no matching income recorded:
-// a positive income row within the reminder's window (matchWindowDays) and
-// within 20% of its amount, the same rule billStatus uses. A date whose window
+// inside the whole calendar period that nothing recorded settles yet (the
+// rule every reminder uses: settlesReminder). A date whose window
 // has already passed is late rather than expected, and Needs attention says
 // so, so it is left out here.
 //
@@ -30,17 +28,10 @@ export function expectedIncome(recurring = [], transactions = [], { kind, start,
       const due = occurrenceAt(r.next_due_date, r.cadence, n, r.interval_count);
       if (due >= end || (r.ends_on && due > parseDay(r.ends_on))) break;
       if (due < start) continue;
-      const windowStart = new Date(due);
-      windowStart.setDate(windowStart.getDate() - days);
       const windowEnd = new Date(due);
       windowEnd.setDate(windowEnd.getDate() + days);
       if (windowEnd < today) continue;
-      const recorded = transactions.some((t) => {
-        const v = Number(t.amount);
-        if (!isIncomeRow(t, v)) return false;
-        const d = parseDay(t.occurred_at);
-        return d >= windowStart && d <= windowEnd && Math.abs(v - amount) <= amount * 0.2;
-      });
+      const recorded = transactions.some((t) => settlesReminder(r, t, due, now));
       if (!recorded) items.push({ id: r.id, name: r.name, due, amount: scopedValue(amount, r, scopeMemberId) });
     }
   }

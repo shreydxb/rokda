@@ -28,6 +28,15 @@ describe('expectedIncome: pay due this period and not yet recorded', () => {
     expect(items.map((i) => i.name)).toEqual(['Salary A']);
   });
 
+  it("keeps pay expected when what is recorded for it is only planned, or another member's own", () => {
+    // Dated on its pay day, five days from now: planned, not received.
+    const planned = expectedIncome([SALARY_A], [income(10000, '2026-10-25')], { kind: 'mtd', start: OCT_1, now: at(2026, 9, 20) });
+    expect(planned.items.map((i) => i.name)).toEqual(['Salary A']);
+    const theirs = { ...income(8000, '2026-10-30'), is_shared: false, owner_member_id: 'm1' };
+    const other = expectedIncome([SALARY_B], [theirs], { kind: 'mtd', start: OCT_1, now: at(2026, 9, 31) });
+    expect(other.items.map((i) => i.name)).toEqual(['Salary B']);
+  });
+
   it('stops calling it expected once its window has passed: it is late then', () => {
     const { items } = expectedIncome([{ ...SALARY_A, next_due_date: '2026-10-05' }], [], { kind: 'mtd', start: OCT_1, now: at(2026, 9, 20) });
     expect(items).toEqual([]);

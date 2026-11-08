@@ -1,4 +1,5 @@
-import { addMonthsClamped, parseDay, startOfDay } from './day';
+import { addMonthsClamped, isPosted, parseDay, startOfDay } from './day';
+import { isTransfer } from './transactionKind';
 
 const CADENCES = ['weekly', 'monthly', 'quarterly', 'yearly'];
 
@@ -61,6 +62,32 @@ export function matchWindowDays(row) {
   return Number(row.amount) > 0 ? 10 : 5;
 }
 
+// Whether a transaction settles one occurrence of a reminder (a bill or an
+// expected income). The one rule every screen uses, the same as the bot's
+// own check (outside review, B-02): it settles only if it
+//   - has landed: a record dated after today is planned, not paid;
+//   - moves money the reminder's way: out for a bill, in (and not a refund
+//     or a transfer) for an income;
+//   - is on the reminder's account, and in its category, when it names them;
+//   - is the reminder's owner's, or shared, when the reminder is personal;
+//   - falls within the reminder's window of the occurrence's date, at an
+//     amount within 20% of the reminder's.
+// Each copy of this used to drop a different condition, so a planned
+// salary, a refund or another member's payment could tick a bill off.
+export function settlesReminder(row, t, due, now = new Date()) {
+  if (!t?.occurred_at || !isPosted(t, now)) return false;
+  const expected = Number(row.amount);
+  const amount = Number(t.amount);
+  const rightWay = expected < 0 ? amount < 0 : amount > 0 && t.kind !== 'refund' && !isTransfer(t);
+  if (!rightWay) return false;
+  if (row.account_id && t.account_id !== row.account_id) return false;
+  if (row.category_id && t.category_id !== row.category_id) return false;
+  if (!row.is_shared && row.owner_member_id && !t.is_shared && t.owner_member_id != null && t.owner_member_id !== row.owner_member_id) return false;
+  const days = Math.abs(Math.round((startOfDay(parseDay(t.occurred_at)) - startOfDay(due)) / 86400000));
+  if (days > matchWindowDays(row)) return false;
+  return Math.abs(Math.abs(amount) - Math.abs(expected)) <= Math.abs(expected) * 0.2;
+}
+
 export function upcomingItems(rows, days, now = new Date()) {
   return rows
     .filter((r) => r.active !== false)
@@ -80,12 +107,10 @@ export function upcomingItems(rows, days, now = new Date()) {
     .sort((a, b) => a.dueDate - b.dueDate);
 }
 
-// Whether a posted transaction already matches this bill/income's current
-// due occurrence -- the same matching rule the daily Telegram nudge check
-// uses server-side (amount within 20% tolerance, posted within 5 days
-// either side of the due date). Merchant text isn't checked: it's too
-// inconsistent between a bank SMS and a manual entry to be a reliable
-// signal here, and amount + timing is already a fair bar.
+// Whether a posted transaction already settles this bill/income's current
+// due occurrence (settlesReminder above). Merchant text isn't checked: it's
+// too inconsistent between a bank SMS and a manual entry to be a reliable
+// signal here.
 //
 // rollForward always lands on a FUTURE-or-today occurrence (it assumes
 // every earlier cycle was already paid, which is exactly the display-only
@@ -108,17 +133,9 @@ export function billStatus(row, transactions, now = new Date()) {
   // Past its last date, a schedule has nothing left to pay.
   if (row.ends_on && due > parseDay(row.ends_on)) return { label: 'Ended', tone: 'mute', needsAction: false, posted: false, due: null };
 
-  const amount = Math.abs(Number(row.amount));
-  const windowDays = matchWindowDays(row);
-  const windowStart = new Date(due);
-  windowStart.setDate(windowStart.getDate() - windowDays);
   const windowEnd = new Date(due);
-  windowEnd.setDate(windowEnd.getDate() + windowDays);
-  const posted = transactions.some((t) => {
-    const d = parseDay(t.occurred_at);
-    if (d < windowStart || d > windowEnd) return false;
-    return Math.abs(Math.abs(Number(t.amount)) - amount) <= amount * 0.2;
-  });
+  windowEnd.setDate(windowEnd.getDate() + matchWindowDays(row));
+  const posted = transactions.some((t) => settlesReminder(row, t, due, now));
   if (posted) return { label: 'Posted', tone: 'pos', needsAction: false, posted: true, due };
   // Income can still arrive a few days after its date without anything being
   // wrong: it is only late once its window has passed.

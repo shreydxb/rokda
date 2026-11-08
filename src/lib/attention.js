@@ -1,5 +1,5 @@
 import { scopedValue } from './scope';
-import { matchWindowDays, rollForward, CADENCES } from './recurring';
+import { matchWindowDays, rollForward, settlesReminder, CADENCES } from './recurring';
 import { trailingAverageByCategory } from './insights';
 import { monthActualsByCategory } from './budget';
 import { scopedHoldingValue, visibleHoldings } from './holdings';
@@ -31,7 +31,6 @@ function stepBack(date, cadence) {
 
 const RECURRING_GRACE_DAYS = 3; // how many days late before we call it missing
 const RECURRING_LOOKBACK_DAYS = 35; // stop flagging an occurrence this old
-const MATCH_AMOUNT_TOLERANCE = 0.15; // 15%
 
 // A recurring item whose most recently expected occurrence has passed with
 // no transaction that looks like it, on the account it's tied to.
@@ -51,16 +50,9 @@ function missingRecurringItems(recurring, transactions, scopeMemberId, now) {
     const windowDays = matchWindowDays(r);
     if (daysLate < Math.max(RECURRING_GRACE_DAYS, windowDays > 5 ? windowDays : 0) || daysLate > RECURRING_LOOKBACK_DAYS) continue;
 
-    const expectedAmount = Math.abs(Number(r.amount));
-    const windowStart = new Date(prevDue.getTime() - windowDays * 86400000);
-    const windowEnd = new Date(prevDue.getTime() + windowDays * 86400000);
-    const matched = transactions.some((t) => {
-      if (r.account_id && t.account_id !== r.account_id) return false;
-      const d = parseDay(t.occurred_at);
-      if (d < windowStart || d > windowEnd) return false;
-      const amt = Math.abs(Number(t.amount));
-      return Math.abs(amt - expectedAmount) <= expectedAmount * MATCH_AMOUNT_TOLERANCE;
-    });
+    // Settled by the same rule as everywhere else (settlesReminder), which
+    // also counts only posted records moving money the reminder's way.
+    const matched = transactions.some((t) => settlesReminder(r, t, prevDue, now));
     if (matched) continue;
 
     const expected = prevDue.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
