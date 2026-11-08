@@ -496,6 +496,78 @@ else
 fi
 rm -f /tmp/rokda_race_edit_1200.$$ /tmp/rokda_race_edit_1000.$$
 
+echo "verify-concurrency: two first buys of one stock confirmed at once (the outside review, C-02/D-04)"
+# Each member was asked about a first buy of RACECO, which neither holds. Both
+# say yes at the same instant. One holding is made; the other confirmation is
+# stale, so the bot asks again on the holding that now exists.
+seed_trades
+psql -d "$DB" -v ON_ERROR_STOP=1 -q <<'SQL' >/dev/null
+set client_min_messages = warning;
+insert into bot_proposals (id, household_id, member_id, kind, payload, chat_id)
+select ('b5000000-0000-4000-8000-00000000000' || n)::uuid, 'd1000000-0000-4000-8000-000000000001', m::uuid, 'trade', jsonb_build_object(
+  'new_holding', jsonb_build_object('owner_member_id', 'e1000000-0000-4000-8000-00000000000a', 'name', 'RACECO', 'asset_class', 'us_equity', 'currency', 'USD',
+    'funds_account_id', 'f1000000-0000-4000-8000-000000000003'),
+  'kind', 'buy', 'trade_date', '2026-10-20', 'units', 1, 'price', 10, 'fees', 0), 1
+from (values (1, 'e1000000-0000-4000-8000-00000000000a'), (2, 'e1000000-0000-4000-8000-00000000000b')) v(n, m);
+SQL
+for pair in "1 e1000000-0000-4000-8000-00000000000a" "2 e1000000-0000-4000-8000-00000000000b"; do
+  set -- $pair
+  psql -d "$DB" -At > /tmp/rokda_race_firstbuy_$1.$$ 2>&1 <<SQL &
+begin;
+select set_config('request.jwt.claim.role', 'service_role', true);
+select pg_sleep(0.4);
+select apply_bot_proposal('b5000000-0000-4000-8000-00000000000$1', '$2') ->> 'outcome';
+select pg_sleep(0.6);
+commit;
+SQL
+done
+wait
+outcomes=$(cat /tmp/rokda_race_firstbuy_1.$$ /tmp/rokda_race_firstbuy_2.$$ | grep -E '^(applied|stale)$' | sort | tr '\n' ',')
+holdings=$(psql -At -d "$DB" -c "select count(*) from holdings where lower(name) = 'raceco'")
+if [ "$outcomes$holdings" = "applied,stale,1" ]; then
+  echo "  ok   two first buys of one stock at once: one holding, the other stale"
+else
+  echo "  FAIL two first buys of one stock at once gave outcomes=$outcomes holdings=$holdings, expected applied,stale, and 1" >&2
+  fail=1
+fi
+rm -f /tmp/rokda_race_firstbuy_1.$$ /tmp/rokda_race_firstbuy_2.$$
+
+echo "verify-concurrency: the same transfer confirmed by both members at once (the outside review, D-03)"
+# Each member told the bot about the same card payment and says yes at the
+# same instant. One transfer is recorded; the other finds it.
+seed
+psql -d "$DB" -v ON_ERROR_STOP=1 -q <<'SQL' >/dev/null
+set client_min_messages = warning;
+insert into accounts (id, household_id, name, type, balance) values
+  ('f1000000-0000-4000-8000-000000000011', 'd1000000-0000-4000-8000-000000000001', 'Current', 'checking', 0),
+  ('f1000000-0000-4000-8000-000000000012', 'd1000000-0000-4000-8000-000000000001', 'Card', 'credit_card', 0);
+insert into bot_proposals (id, household_id, member_id, kind, payload, chat_id)
+select ('b6000000-0000-4000-8000-00000000000' || n)::uuid, 'd1000000-0000-4000-8000-000000000001', m::uuid, 'transfer', jsonb_build_object(
+  'from_account_id', 'f1000000-0000-4000-8000-000000000011', 'to_account_id', 'f1000000-0000-4000-8000-000000000012',
+  'amount', 1000, 'occurred_at', '2026-10-20'), 1
+from (values (1, 'e1000000-0000-4000-8000-00000000000a'), (2, 'e1000000-0000-4000-8000-00000000000b')) v(n, m);
+SQL
+for pair in "1 e1000000-0000-4000-8000-00000000000a" "2 e1000000-0000-4000-8000-00000000000b"; do
+  set -- $pair
+  psql -d "$DB" -At > /tmp/rokda_race_transfer_$1.$$ 2>&1 <<SQL &
+begin;
+select set_config('request.jwt.claim.role', 'service_role', true);
+select pg_sleep(0.4);
+select apply_bot_proposal('b6000000-0000-4000-8000-00000000000$1', '$2') ->> 'outcome';
+select pg_sleep(0.6);
+commit;
+SQL
+done
+wait
+links=$(psql -At -d "$DB" -c "select count(*) || ',' || (select count(*) from transactions where account_id in ('f1000000-0000-4000-8000-000000000011', 'f1000000-0000-4000-8000-000000000012')) from transaction_links")
+if [ "$links" = "1,2" ]; then
+  echo "  ok   the same transfer confirmed twice at once is recorded once (links,transactions=$links)"
+else
+  echo "  FAIL the same transfer confirmed twice at once gave links,transactions=$links, expected 1,2" >&2
+  fail=1
+fi
+rm -f /tmp/rokda_race_transfer_1.$$ /tmp/rokda_race_transfer_2.$$
+
 if [ "$fail" -ne 0 ]; then
   echo "verify-concurrency: FAILED" >&2
   exit 1

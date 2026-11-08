@@ -5884,4 +5884,44 @@ begin
   raise notice 'RH-01 ok: a refund record changes only at the version it was opened on';
 end $$;
 
+-- RH-05: an autopay question records on the account and category it named.
+-- If the bill moved to another account or category, or came off autopay,
+-- since it was asked, the "yes" records nothing and says so.
+do $$
+declare hh uuid := '11111111-1111-1111-1111-111111111111'; m uuid := '22222222-2222-2222-2222-0000000000b7';
+  bank_a uuid := 'a5000000-0000-4000-8000-0000000000a1'; bank_b uuid := 'a5000000-0000-4000-8000-0000000000b1';
+  cat uuid := 'a5000000-0000-4000-8000-0000000000c1'; bill uuid := 'a5000000-0000-4000-8000-0000000000e1'; r jsonb; n int;
+begin
+  insert into accounts (id, household_id, name, type, balance, is_shared) values (bank_a, hh, 'RH Bank A', 'checking', 0, true), (bank_b, hh, 'RH Bank B', 'checking', 0, true);
+  insert into categories (id, household_id, name, kind) values (cat, hh, 'RH EMI', 'expense');
+  insert into recurring (id, household_id, name, account_id, category_id, is_shared, amount, cadence, next_due_date, autopay)
+  values (bill, hh, 'RH EMI', bank_a, cat, true, -2000, 'monthly', '2026-10-03', true);
+  insert into bot_proposals (id, household_id, member_id, kind, payload, chat_id) values
+    ('a5000000-0000-4000-8000-0000000000f1', hh, m, 'autopay_payment',
+     jsonb_build_object('recurring_id', bill, 'name', 'RH EMI', 'amount', 2000, 'due_date', '2026-10-03', 'account_id', bank_a, 'category_id', cat), 1),
+    ('a5000000-0000-4000-8000-0000000000f2', hh, m, 'autopay_payment',
+     jsonb_build_object('recurring_id', bill, 'name', 'RH EMI', 'amount', 2000, 'due_date', '2026-11-03', 'account_id', bank_a, 'category_id', cat), 1),
+    ('a5000000-0000-4000-8000-0000000000f3', hh, m, 'autopay_payment',
+     jsonb_build_object('recurring_id', bill, 'name', 'RH EMI', 'amount', 2000, 'due_date', '2026-12-03', 'account_id', bank_a, 'category_id', cat), 1);
+  -- The bill moved to Bank B after the October question was asked.
+  update recurring set account_id = bank_b where id = bill;
+  r := apply_bot_proposal('a5000000-0000-4000-8000-0000000000f1', m);
+  if jsonb_array_length(r -> 'applied') <> 0 or r -> 'skipped' -> 0 ->> 'reason' is distinct from 'changed' then
+    raise exception 'RH-05 FAILED: a bill moved to another account gave %', r;
+  end if;
+  -- Back on Bank A but off autopay: still not what was asked.
+  update recurring set account_id = bank_a, autopay = false where id = bill;
+  r := apply_bot_proposal('a5000000-0000-4000-8000-0000000000f2', m);
+  if r -> 'skipped' -> 0 ->> 'reason' is distinct from 'changed' then raise exception 'RH-05 FAILED: a bill off autopay gave %', r; end if;
+  select count(*) into n from transactions where account_id in (bank_a, bank_b);
+  if n <> 0 then raise exception 'RH-05 FAILED: % payments recorded for a changed bill', n; end if;
+  -- As asked: recorded on the account the question named.
+  update recurring set autopay = true where id = bill;
+  r := apply_bot_proposal('a5000000-0000-4000-8000-0000000000f3', m);
+  if (select account_id from transactions where id = (r -> 'applied' -> 0 ->> 'transaction_id')::uuid) is distinct from bank_a then
+    raise exception 'RH-05 FAILED: an unchanged bill gave %', r;
+  end if;
+  raise notice 'RH-05 ok: an autopay "yes" records only on the account and category it named';
+end $$;
+
 rollback;

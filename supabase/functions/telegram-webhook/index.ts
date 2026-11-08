@@ -1307,6 +1307,10 @@ export function proposalOutcomeMessage(data: Record<string, unknown>): string {
 
   if (result.kind === "autopay_payment") {
     const b = applied[0] as (ProposalItem & { next_due?: string | null }) | undefined;
+    const changed = (skipped[0] as { reason?: string; name?: string } | undefined);
+    if (!b && changed?.reason === "changed") {
+      return `${changed.name ?? "That bill"} has changed in Rokda since I asked (its account or category, or it's no longer on autopay), so nothing was recorded. Check it under Money → Recurring.`;
+    }
     if (!b) return "That bill is no longer set up in Rokda, so nothing was recorded.";
     const line = `${b.name}, AED ${Number(b.amount).toFixed(2)}, dated ${shortDay(String(b.occurred_at))}.`;
     if (repeat) return `Already recorded: ${line}`;
@@ -3248,7 +3252,10 @@ async function runAutopayCheck(): Promise<{ checked: number; asked: number }> {
         .filter((m) => m.telegram_user_id != null && (r.is_shared || m.id === r.owner_member_id));
       const accountName = (r.accounts as { name?: string } | null)?.name ?? null;
       for (const m of recipients) {
-        if (await askAutopay({ id: String(r.id), householdId, name: String(r.name), amount, accountName }, m, cycle, todayStr)) asked++;
+        if (await askAutopay({
+          id: String(r.id), householdId, name: String(r.name), amount, accountName,
+          accountId: String(r.account_id), categoryId: r.category_id ? String(r.category_id) : null,
+        }, m, cycle, todayStr)) asked++;
       }
     } catch {
       // One bill failing must never block the rest.
@@ -3260,7 +3267,7 @@ async function runAutopayCheck(): Promise<{ checked: number; asked: number }> {
 // Asks one member about one bill's cycle, once a day. True when a message
 // went out.
 async function askAutopay(
-  bill: { id: string; householdId: string; name: string; amount: number; accountName: string | null },
+  bill: { id: string; householdId: string; name: string; amount: number; accountName: string | null; accountId: string; categoryId: string | null },
   member: { id: string; telegram_user_id: number | null },
   cycle: { due: string; next: string },
   todayStr: string,
@@ -3286,7 +3293,13 @@ async function askAutopay(
         household_id: bill.householdId,
         member_id: member.id,
         kind: "autopay_payment",
-        payload: { recurring_id: bill.id, name: bill.name, amount: bill.amount, account_name: bill.accountName, due_date: cycle.due, next_due: cycle.next, asked_message_ids: [] },
+        // The account and category the question names go with it: a "yes"
+        // after the bill moved to another account records nothing
+        // (apply_bot_proposal; the outside review, D-05).
+        payload: {
+          recurring_id: bill.id, name: bill.name, amount: bill.amount, account_name: bill.accountName,
+          account_id: bill.accountId, category_id: bill.categoryId, due_date: cycle.due, next_due: cycle.next, asked_message_ids: [],
+        },
         chat_id: chatId,
         source_ref: sourceRef,
         expires_at: `${cycle.next}T00:00:00+04:00`,

@@ -452,6 +452,9 @@ function applyProposal(id: string, memberId: string): Row {
     const bill = backend.tables.recurring.find((r) => r.id === payload.recurring_id && r.household_id === p.household_id);
     if (!bill) {
       skipped.push({ reason: "unavailable" });
+    } else if (("account_id" in payload && (bill.account_id !== payload.account_id || (bill.category_id ?? null) !== (payload.category_id ?? null)))
+      || bill.active === false || bill.autopay !== true) {
+      skipped.push({ name: bill.name, reason: "changed" });
     } else {
       const already = backend.tables.transactions.some((t) => t.account_id === bill.account_id && t.occurred_at === payload.due_date);
       if (!already) {
@@ -1572,6 +1575,19 @@ freshTest("an autopay bill is asked about on its due date, once a day", async ()
   await again.body?.cancel();
   assertEquals(autopayQuestions().length, 1);
   assertEquals(backend.tables.bot_proposals.filter((p) => p.kind === "autopay_payment").length, 1);
+});
+
+// D-05: the question keeps the account and category it named, so a "yes"
+// after the bill changed records nothing and says why.
+freshTest("an autopay question keeps the bill's account, and a changed bill records nothing", async () => {
+  const proposal = await askedEmi();
+  assertEquals((proposal.payload as Row).account_id, BANK);
+  assertEquals((proposal.payload as Row).category_id, null);
+  const bill = backend.tables.recurring.find((r) => r.id === EMI)!;
+  bill.account_id = "a7000000-0000-4000-8000-0000000000b2";
+  await handler(reactionUpdate(9201, Number(proposal.prompt_message_id), "👍"));
+  assertEquals(backend.tables.transactions.length, 0);
+  assert(/^Car EMI has changed in Rokda since I asked/.test(lastReply()), lastReply());
 });
 
 freshTest("the next morning's reminder can be answered, and so can the first question", async () => {
