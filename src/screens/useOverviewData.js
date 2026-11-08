@@ -60,6 +60,22 @@ const SOURCES = [
   { key: 'dividendSplits', query: () => supabase.from('dividend_splits').select('*').order('symbol').order('effective_date') },
   // When the feed last checked the household's shares (never its errors).
   { key: 'dividendFeedStatus', query: () => supabase.rpc('dividend_feed_status').order('symbol').order('provider').order('kind') },
+  // Each member's tax returns, what became of their refunds, and the AIS and
+  // Form 26AS read from the department (dividend tax years). Members read
+  // them; only the tax functions write them.
+  { key: 'taxReturns', query: (id) => supabase.from('tax_returns').select('*').eq('household_id', id).order('financial_year').order('id') },
+  {
+    key: 'taxReturnEvents',
+    query: (id) => supabase.from('tax_return_events').select('*').eq('household_id', id).order('happened_on').order('created_at').order('id'),
+  },
+  {
+    key: 'taxStatements',
+    query: (id) => supabase.from('tax_statements').select('*').eq('household_id', id).order('financial_year').order('source').order('id'),
+  },
+  {
+    key: 'taxStatementLines',
+    query: (id) => supabase.from('tax_statement_lines').select('*').eq('household_id', id).order('statement_id').order('payer'),
+  },
   { key: 'categoryRules', query: (id) => supabase.from('category_rules').select('*').eq('household_id', id).order('created_at').order('id') },
   {
     key: 'statementReconciliations',
