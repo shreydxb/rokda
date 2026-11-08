@@ -1,4 +1,5 @@
 import { scopedValue } from './scope';
+import { parseDay } from './day';
 import { isAwaitingFirstValuation } from './valuation';
 
 export const ASSET_CLASS_LABELS = {
@@ -262,10 +263,13 @@ export function rangeStartDate(range, now = new Date()) {
 
 // Value of one holding as of the closest history point at/before `date`.
 // Returns null if no history point exists that early (range not covered).
+// A stored day is a calendar day (parseDay): read as a UTC instant it began
+// at 04:00 in Dubai, so a range's starting value changed at 04:00 (outside
+// review, B-05).
 function valueAsOf(history, holdingId, date) {
-  const points = history.filter((p) => p.holding_id === holdingId && new Date(p.as_of) <= date);
+  const points = history.filter((p) => p.holding_id === holdingId && parseDay(p.as_of) <= date);
   if (points.length === 0) return null;
-  return points.reduce((latest, p) => (new Date(p.as_of) > new Date(latest.as_of) ? p : latest)).value_aed;
+  return points.reduce((latest, p) => (parseDay(p.as_of) > parseDay(latest.as_of) ? p : latest)).value_aed;
 }
 
 // How much the portfolio's VALUE moved over a range: sums each visible
@@ -318,7 +322,7 @@ export function portfolioSeries(holdings, history, scopeMemberId, now = new Date
   const dates = [...new Set(history.map((p) => p.as_of))].sort();
   const series = [];
   for (const d of dates) {
-    const dateObj = new Date(d);
+    const dateObj = parseDay(d);
     let total = 0;
     let covered = true;
     for (const h of holdings) {

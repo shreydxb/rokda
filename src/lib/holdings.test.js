@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { afterAll, beforeAll, describe, it, expect } from 'vitest';
 import { costFromUnits, holdingGain, isClosedHolding, largestConcentration, portfolioDayChange, portfolioInvestedAndGain, portfolioSeries, portfolioValueChange } from './holdings';
 
 describe('portfolioDayChange', () => {
@@ -313,5 +313,32 @@ describe('portfolioSeries', () => {
 
   it('draws every day when every holding is covered', () => {
     expect(portfolioSeries([a], history, null, now).map((p) => p.total)).toEqual([1000, 1100, 1200]);
+  });
+});
+
+// The outside review, B-05: a stored history day is a calendar day. Read as a
+// UTC instant it began at 04:00 in Dubai, so a range's starting value changed
+// at 04:00.
+describe('a range read in Dubai time', () => {
+  let saved;
+  beforeAll(() => {
+    saved = process.env.TZ;
+    process.env.TZ = 'Asia/Dubai';
+  });
+  afterAll(() => {
+    if (saved === undefined) delete process.env.TZ;
+    else process.env.TZ = saved;
+  });
+
+  it('starts from the same value at 02:00 as at 05:00', () => {
+    const h = { id: 'a', is_shared: true, value_aed: 1200 };
+    const history = [
+      { holding_id: 'a', as_of: '2026-10-31', value_aed: 1000 },
+      { holding_id: 'a', as_of: '2026-11-01', value_aed: 1100 },
+    ];
+    const early = portfolioValueChange([h], history, '1W', null, new Date(2026, 10, 8, 2));
+    const later = portfolioValueChange([h], history, '1W', null, new Date(2026, 10, 8, 5));
+    expect(early.startTotal).toBe(1100);
+    expect(later.startTotal).toBe(1100);
   });
 });
