@@ -4983,11 +4983,22 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
           confidence: parsed?.confidence ?? 0,
           date_guessed: parsed?.dateGuessed ?? false,
         };
-        await supabase
+        // The question that showed the old figures is unbound in the same
+        // write: a "yes" to it must not record figures it never showed
+        // (outside review D-01). Only the question about the corrected
+        // figures, sent below, binds the entry again. An entry recorded or
+        // changed since it was read is left alone and said so.
+        const amended = await supabase
           .from("intake")
-          .update({ raw_text: combinedText, ...updatedRow })
+          .update({ raw_text: combinedText, ...updatedRow, confirm_chat_id: null, confirm_message_id: null })
           .eq("id", recentPending.id)
-          .eq("status", "pending");
+          .eq("status", "pending")
+          .select("id");
+        if (amended.error) throw new Error(`saving a correction failed (${amended.error.code ?? "no code"})`);
+        if (!amended.data?.length) {
+          await reply(chatId, "That entry has already been recorded or changed in Rokda, so the correction wasn't applied. Check it in the Inbox.");
+          return new Response("ok");
+        }
 
         const correctionDuplicate = isReadyForFastConfirm(updatedRow)
           // A check that could not run is not a clean check: the entry waits

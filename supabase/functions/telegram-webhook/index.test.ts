@@ -87,6 +87,8 @@ type Backend = {
   approveCalls: number;
   // Database functions that answer with an error, as a failed call would.
   failRpc?: Set<string>;
+  // Runs on each AI call: something changing in Rokda while a message is read.
+  onAiCall?: () => void;
 };
 
 let backend: Backend;
@@ -623,6 +625,7 @@ async function telegram(req: Request, url: URL): Promise<Response> {
 async function openrouter(req: Request): Promise<Response> {
   const body = await req.json();
   backend.aiCalls += 1;
+  backend.onAiCall?.();
   if (backend.faults.aiBusyFirst && backend.aiCalls <= backend.faults.aiBusyFirst) {
     return json({ error: { code: 429, message: "Rate limit exceeded" } }, 429);
   }
@@ -1217,6 +1220,48 @@ freshTest("a pasted SMS with no date waits in the Inbox instead of being offered
   assert(replies.some((t) => t.includes("It had no date")), `the reply did not say the date was missing: ${replies.join(" | ")}`);
   // The parser is told not to invent a date.
   assert(backend.parsePrompts[0].includes("never fill in today's date yourself"), "the parser was not told to leave a missing date empty");
+});
+
+// D-01: a correction changes the figures, so the question that showed the
+// old ones must stop resolving to the entry, even when no new question about
+// the corrected figures could be asked.
+freshTest("a correction unbinds the question it replaced, so a yes to that question records nothing", async () => {
+  backend.tables.accounts.push(MARRIOTT, NOON);
+  backend.tables.categories.push({ id: "cat-dining", household_id: HOUSEHOLD, name: "Dining Out", archived: false, is_savings: false });
+  backend.tables.intake.push({
+    id: "99990000-0000-4000-8000-000000000011", household_id: HOUSEHOLD, member_id: MEMBER, status: "pending", raw_text: "Noon 40",
+    created_at: new Date().toISOString(), parsed_merchant: "Noon", parsed_amount: 40, parsed_date: "2026-09-24", parsed_category_id: "cat-dining",
+    parsed_account_id: NOON.id, parsed_currency: "AED", parsed_kind: "expense", confidence: 1, date_guessed: false,
+    confirm_chat_id: TELEGRAM_USER, confirm_message_id: 555,
+  });
+  backend.route = { tool: "update_last_expense", args: {} };
+  backend.parse = [{ merchant: "Noon", amount: 45, currency: "AED", occurred_at: "2026-09-24", date_stated: true, source: "typed", category: "Dining Out", card_last4: null, account_hint: "ENBD Noon", confidence: 1, kind: "expense" }];
+  // The question about the corrected figures never reaches the member.
+  backend.faults.refuseFirstSends = 1;
+  await handler(replyUpdate(7111, "actually 45", 555));
+  const corrected = backend.tables.intake.find((r) => r.id === "99990000-0000-4000-8000-000000000011")!;
+  assertEquals(corrected.parsed_amount, 45);
+  assertEquals(corrected.confirm_message_id, null, "the question about 40 still points at the entry");
+
+  await handler(replyUpdate(7112, "yes", 555));
+  assertEquals(backend.approveCalls, 0, "a yes to the question about 40 recorded 45");
+  assert(lastReply().includes("I can't tell which entry that reply is about"), lastReply());
+});
+
+freshTest("a correction to an entry recorded in the meantime says so, not that it was updated", async () => {
+  backend.tables.intake.push({
+    id: "99990000-0000-4000-8000-000000000012", household_id: HOUSEHOLD, member_id: MEMBER, status: "pending", raw_text: "Noon 40",
+    created_at: new Date().toISOString(), parsed_merchant: "Noon", parsed_amount: 40, parsed_date: "2026-09-24", parsed_category_id: null,
+    parsed_account_id: null, parsed_currency: "AED", parsed_kind: "expense", confidence: 1, date_guessed: false,
+    confirm_chat_id: TELEGRAM_USER, confirm_message_id: 556,
+  });
+  backend.route = { tool: "update_last_expense", args: {} };
+  backend.parse = [{ merchant: "Noon", amount: 45, currency: "AED", occurred_at: "2026-09-24", date_stated: true, source: "typed", category: null, card_last4: null, account_hint: null, confidence: 1, kind: "expense" }];
+  // Approved in the Inbox while the correction was being read.
+  backend.onAiCall = () => { backend.tables.intake.find((r) => r.id === "99990000-0000-4000-8000-000000000012")!.status = "approved"; };
+  await handler(replyUpdate(7113, "actually 45", 556));
+  assertEquals(backend.tables.intake.find((r) => r.id === "99990000-0000-4000-8000-000000000012")!.parsed_amount, 40);
+  assert(lastReply().includes("already been recorded or changed"), lastReply());
 });
 
 Deno.test("a brand does not inherit the category of its own sub-service", () => {
