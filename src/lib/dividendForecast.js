@@ -5,7 +5,11 @@
 // fees, and that a share keeps paying what it paid.
 import { addDays, addMonths, daysBetween } from './dividendHistory';
 
-const round2 = (n) => Math.round(n * 100) / 100;
+// Four places in the holding's own currency, as the database keeps them
+// (private.dividend_expected): rounding to two here and again after the
+// conversion to dirhams moved a total by a fils or more (outside review,
+// B-12). The screen rounds once, in what it shows.
+const round4 = (n) => Math.round(n * 1e4) / 1e4;
 const round6 = (n) => Math.round(n * 1e6) / 1e6;
 const DAYS_A_MONTH = 30.4375;
 
@@ -18,12 +22,12 @@ export function forecastHolding({ holding, payments = [], frequency, gapDays = 3
   const taxPct = Number(holding.dividend_tax_pct ?? 0);
   const feePerShare = Number(holding.dividend_fee_per_share ?? 0);
   const item = (kind, perShare, extra) => {
-    const gross = round2(units * perShare);
-    const withheld = round2((gross * taxPct) / 100);
+    const gross = round4(units * perShare);
+    const withheld = round4((gross * taxPct) / 100);
     // Never more than is left after withholding, as the database caps them
     // (private.dividend_expected): a forecast is not a negative receipt.
-    const fees = Math.min(round2(units * feePerShare), round2(gross - withheld));
-    return { kind, day: null, month: null, gross, withheld, fees, net: round2(gross - withheld - fees), currency, ...extra };
+    const fees = Math.min(round4(units * feePerShare), round4(gross - withheld));
+    return { kind, day: null, month: null, gross, withheld, fees, net: round4(gross - withheld - fees), currency, ...extra };
   };
 
   // Earned and not yet received: what is owed, whatever is held now.

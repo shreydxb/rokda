@@ -62,6 +62,14 @@ describe('the next twelve months', () => {
     expect(first).toMatchObject({ gross: 0.5, withheld: 0.15, fees: 0.35, net: 0 });
   });
 
+  // The outside review, B-12: figures in the holding's currency keep four
+  // places, as the database keeps them, and are rounded once, in dirhams.
+  it('keeps four places in the holding\'s currency, as the database does', () => {
+    const f = forecast(monthly(24, 0.1234), { h: holding({ quantity: 7 }) });
+    const first = f.items.find((i) => i.kind === 'projected');
+    expect(first).toMatchObject({ gross: 0.8638, withheld: 0.2591, fees: 0, net: 0.6047 });
+  });
+
   it('a declared dividend counts in full, on its pay date', () => {
     const f = forecast(monthly(24), { declared: [event('ABC', '2026-11-17', 3, { pay_date: '2026-12-01' })] });
     expect(f.items.find((i) => i.kind === 'declared')).toMatchObject({ day: '2026-12-01', gross: 30, net: 21 });
