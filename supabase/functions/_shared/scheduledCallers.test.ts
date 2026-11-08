@@ -23,10 +23,14 @@ const STRANGER_USER = "44444444-4444-4444-8444-444444444444";
 // service_role, but no handler reads claims any more.
 const SERVICE = fakeJwt({ role: "service_role", iss: "supabase" });
 const ANON = fakeJwt({ role: "anon", iss: "supabase" });
-const MEMBER = fakeJwt({ role: "authenticated", sub: MEMBER_USER, aud: "authenticated" });
+// A member's session after the second sign-in step (aal2), and the same
+// member after the password alone (aal1), which may do nothing for the
+// household (docs/decisions.md, "Signing in takes a password and a code").
+const MEMBER = fakeJwt({ role: "authenticated", sub: MEMBER_USER, aud: "authenticated", aal: "aal2" });
+const MEMBER_PASSWORD_ONLY = fakeJwt({ role: "authenticated", sub: MEMBER_USER, aud: "authenticated", aal: "aal1" });
 const STRANGER = fakeJwt({ role: "authenticated", sub: STRANGER_USER, aud: "authenticated" });
 // Tokens the Auth server recognises as signed-in users.
-const USERS: Record<string, string> = { [MEMBER]: MEMBER_USER, [STRANGER]: STRANGER_USER };
+const USERS: Record<string, string> = { [MEMBER]: MEMBER_USER, [MEMBER_PASSWORD_ONLY]: MEMBER_USER, [STRANGER]: STRANGER_USER };
 
 // What the vault's scheduler_secret holds for the current test, as the
 // get_scheduler_secret RPC returns it: a string, null when unset, or a
@@ -253,6 +257,13 @@ test("price-refresh refuses no token, the old service-role token, the anonymous 
     assert(!requests.some((r) => r.includes("open.er-api.com") || r.includes("fx_rates") || r.includes("holdings")), `${token} started a refresh`);
     await res.body?.cancel();
   }
+});
+
+test("price-refresh refuses a member who has signed in with the password alone", async () => {
+  const res = await call(priceRefresh, "POST", MEMBER_PASSWORD_ONLY);
+  assertEquals(res.status, 403);
+  assert(!requests.some((r) => r.includes("open.er-api.com") || r.includes("fx_rates") || r.includes("holdings")), "a password-only session started a refresh");
+  await res.body?.cancel();
 });
 
 test("price-refresh refuses a wrong scheduler secret, even beside a member's login", async () => {

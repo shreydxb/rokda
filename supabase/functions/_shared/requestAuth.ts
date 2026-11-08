@@ -70,3 +70,19 @@ export function secretsMatch(provided: string | null, expected: string | null): 
   for (let i = 0; i < wanted.length; i++) difference |= given[i % given.length] ^ wanted[i];
   return difference === 0;
 }
+
+// Whether a user token's session has passed the second sign-in step (aal2).
+// Read only from a token the Auth server has just accepted (auth.getUser):
+// it checked the signature, so the claims are the server's own. A password
+// alone (aal1) may do nothing for the household, as the database's own
+// membership check already insists (private.is_household_member).
+export function sessionPassedSecondStep(token: string): boolean {
+  const payload = token.split(".")[1];
+  if (!payload) return false;
+  try {
+    const json = atob(payload.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(payload.length / 4) * 4, "="));
+    return (JSON.parse(json) as { aal?: unknown }).aal === "aal2";
+  } catch {
+    return false;
+  }
+}
