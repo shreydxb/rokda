@@ -20,7 +20,9 @@ export function forecastHolding({ holding, payments = [], frequency, gapDays = 3
   const item = (kind, perShare, extra) => {
     const gross = round2(units * perShare);
     const withheld = round2((gross * taxPct) / 100);
-    const fees = round2(units * feePerShare);
+    // Never more than is left after withholding, as the database caps them
+    // (private.dividend_expected): a forecast is not a negative receipt.
+    const fees = Math.min(round2(units * feePerShare), round2(gross - withheld));
     return { kind, day: null, month: null, gross, withheld, fees, net: round2(gross - withheld - fees), currency, ...extra };
   };
 

@@ -54,6 +54,14 @@ describe('the next twelve months', () => {
     expect(f.ordinaryPerShareNextYear).toBe(11);
   });
 
+  // The outside review, B-03: fees never take more than is left after
+  // withholding, as the database caps them.
+  it('a fee per share bigger than the dividend takes what is left, never more', () => {
+    const f = forecast(monthly(24, 0.05), { h: holding({ dividend_fee_per_share: 0.1 }) });
+    const first = f.items.find((i) => i.kind === 'projected');
+    expect(first).toMatchObject({ gross: 0.5, withheld: 0.15, fees: 0.35, net: 0 });
+  });
+
   it('a declared dividend counts in full, on its pay date', () => {
     const f = forecast(monthly(24), { declared: [event('ABC', '2026-11-17', 3, { pay_date: '2026-12-01' })] });
     expect(f.items.find((i) => i.kind === 'declared')).toMatchObject({ day: '2026-12-01', gross: 30, net: 21 });
