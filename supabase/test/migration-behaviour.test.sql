@@ -5842,4 +5842,22 @@ begin
   raise notice 'TX-20 ok: a tax year is refused outside the rules';
 end $$;
 
+-- ---------------------------------------------------------------------------
+-- The outside review (8 Nov 2026): hardening.
+-- ---------------------------------------------------------------------------
+
+-- RH-03: a received dividend has all four received figures or none. A null
+-- among them made the arithmetic check null, which a CHECK accepts.
+do $$
+declare d uuid := 'd7d00000-0000-0000-0000-0000000000d1'; r text; f text;
+begin
+  foreach f in array array['received_tax', 'received_fees', 'received_net'] loop
+    r := pg_temp.tx_try(format('update holding_dividends set %I = null where id = %L', f, d));
+    if r <> 'check_violation' then raise exception 'RH-03 FAILED: a received dividend without % gave %', f, r; end if;
+  end loop;
+  r := pg_temp.tx_try(format('update holding_dividends set received_tax = null, received_net = 999 where id = %L', d));
+  if r <> 'check_violation' then raise exception 'RH-03 FAILED: a made-up net beside a missing tax gave %', r; end if;
+  raise notice 'RH-03 ok: a receipt has all its figures or none';
+end $$;
+
 rollback;

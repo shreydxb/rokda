@@ -60,3 +60,19 @@ update public.household_members
   set telegram_link_code = null, telegram_link_code_expires_at = null
   where telegram_link_code is not null;
 select set_config('app.bypass_telegram_link_guard', 'off', true);
+
+-- ---------------------------------------------------------------------------
+-- 2. A receipt has all its figures or none
+-- ---------------------------------------------------------------------------
+
+-- The arithmetic branch evaluated to null when one received figure was null,
+-- and a CHECK accepts null, so a "received" row could hold a missing tax or a
+-- made-up net. The data imports write through privileged SQL, so the rule
+-- has to hold in the table itself, not only in the functions.
+alter table public.holding_dividends drop constraint holding_dividends_received_adds_up;
+alter table public.holding_dividends add constraint holding_dividends_received_adds_up check (
+  (received_gross is null and received_tax is null and received_fees is null and received_net is null)
+  or (received_gross is not null and received_tax is not null and received_fees is not null and received_net is not null
+      and received_gross >= 0 and received_tax >= 0 and received_fees >= 0
+      and received_tax + received_fees <= received_gross
+      and received_net = received_gross - received_tax - received_fees));
