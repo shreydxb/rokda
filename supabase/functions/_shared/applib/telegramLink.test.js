@@ -4,6 +4,7 @@ import {
   LINK_ATTEMPTS_PER_SENDER,
   LINK_ATTEMPT_WINDOW_MS,
   linkAttemptRefusal,
+  linkTokenDigest,
   linkTokenFromMessage,
   looksLikeLinkToken,
 } from './telegramLink.js';
@@ -105,3 +106,13 @@ describe('what counts as a guess at all', () => {
     expect(looksLikeLinkToken(guess)).toBe(true);
   });
 });
+
+describe('the link code is stored as its digest', () => {
+  // The roster is readable by every member of the household, so it holds the
+  // code's SHA-256, never the code: Postgres's encode(sha256(...), 'hex').
+  it('is the lowercase hex SHA-256 of the code', async () => {
+    expect(await linkTokenDigest('abc')).toBe('ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+    expect(await linkTokenDigest('0f8cb1e4a2d94f6b8c1e2a3b4c5d6e7f')).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+

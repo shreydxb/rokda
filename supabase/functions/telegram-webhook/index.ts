@@ -30,7 +30,7 @@ import "jsr:@supabase/functions-js@2.117.2/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2.117.2";
 import { resolveScopeMemberId, scopedValue } from "../_shared/applib/scope.js";
 import { isPrivateChat } from "../_shared/applib/telegramChat.js";
-import { LINK_ATTEMPT_WINDOW_MS, linkAttemptRefusal, linkTokenFromMessage, looksLikeLinkToken } from "../_shared/applib/telegramLink.js";
+import { LINK_ATTEMPT_WINDOW_MS, linkAttemptRefusal, linkTokenDigest, linkTokenFromMessage, looksLikeLinkToken } from "../_shared/applib/telegramLink.js";
 import {
   ambiguousConfirmMessage,
   ambiguousProposalMessage,
@@ -4661,10 +4661,13 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
         }
       }
 
+      // The roster holds the code's digest, never the code (any member can
+      // read the roster), so the digest of what was sent is what matches.
+      const candidateDigest = await linkTokenDigest(candidate);
       const { data: pending } = await supabase
         .from("household_members")
         .select("id, display_name")
-        .eq("telegram_link_code", candidate)
+        .eq("telegram_link_code", candidateDigest)
         .gt("telegram_link_code_expires_at", new Date().toISOString())
         .maybeSingle();
 
@@ -4682,7 +4685,7 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
           .from("household_members")
           .update({ telegram_user_id: fromId, telegram_link_code: null, telegram_link_code_expires_at: null })
           .eq("id", pending.id)
-          .eq("telegram_link_code", candidate)
+          .eq("telegram_link_code", candidateDigest)
           .select("id")
           .maybeSingle();
 

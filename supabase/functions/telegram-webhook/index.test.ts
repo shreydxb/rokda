@@ -15,6 +15,7 @@
 // This file proves the handler reacts correctly to what the database says.
 
 import { assert, assertEquals } from "jsr:@std/assert@1";
+import { linkTokenDigest } from "../_shared/applib/telegramLink.js";
 
 const SUPABASE_URL = "http://supabase.test";
 const TOKEN = "123456:SYNTHETIC-TEST-TOKEN-not-real";
@@ -748,6 +749,23 @@ function freshTest(name: string, fn: () => Promise<void>): void {
 // ---------------------------------------------------------------------------
 // The acceptance cases
 // ---------------------------------------------------------------------------
+
+// A-01: the roster holds only the code's digest, so a member who reads
+// another's row learns nothing that links Telegram as them.
+freshTest("a link code is matched by its digest, and the stored digest links nobody", async () => {
+  const CODE = "0f8cb1e4a2d94f6b8c1e2a3b4c5d6e7f";
+  const digest = await linkTokenDigest(CODE);
+  Object.assign(backend.tables.household_members[0], {
+    telegram_user_id: null, telegram_link_code: digest, telegram_link_code_expires_at: "2099-01-01T00:00:00Z",
+  });
+  await handler(textUpdate(7101, digest));
+  assertEquals(backend.tables.household_members[0].telegram_user_id, null, "the stored digest linked Telegram");
+  const res = await handler(textUpdate(7102, CODE));
+  assertEquals(res.status, 200);
+  assertEquals(backend.tables.household_members[0].telegram_user_id, TELEGRAM_USER, "the code did not link Telegram");
+  assertEquals(backend.tables.household_members[0].telegram_link_code, null);
+  assert(lastReply().startsWith("Linked as Tester."), lastReply());
+});
 
 freshTest("an ordinary expense is captured once and its claim completed", async () => {
   const res = await handler(textUpdate(7001, "spent 40 on lunch"));

@@ -651,19 +651,20 @@ begin
     v_codes := v_codes || v_code;
   end loop;
 
-  -- The token is stored on the row and expires; both are what the webhook
-  -- checks before redeeming.
+  -- The token's digest is stored on the row and expires; both are what the
+  -- webhook checks before redeeming. The roster never holds the token itself
+  -- (the outside review, 8 Nov 2026): every member can read it.
   select telegram_link_code, telegram_link_code_expires_at into v_code, v_expires
   from household_members where id = v_member;
-  if v_code <> v_codes[array_length(v_codes, 1)] then
-    raise exception 'QA-#8 FAILED: the latest token was not stored on the member row';
+  if v_code is distinct from encode(sha256(convert_to(v_codes[array_length(v_codes, 1)], 'UTF8')), 'hex') then
+    raise exception 'QA-#8 FAILED: the member row holds %, not the latest token''s digest', v_code;
   end if;
   if v_expires is null or v_expires <= now() or v_expires > now() + interval '16 minutes' then
     raise exception 'QA-#8 FAILED: token expiry is %, expected within the next 15 minutes', v_expires;
   end if;
 
   perform set_config('request.jwt.claim.sub', '', true);
-  raise notice 'QA-#8 ok: link tokens are 32 hex characters from a cryptographic source, stored with a 15-minute expiry';
+  raise notice 'QA-#8 ok: link tokens are 32 hex characters from a cryptographic source, stored as their digest with a 15-minute expiry';
 end $$;
 
 -- QA #8: failed attempts have somewhere to be counted, and it is not readable

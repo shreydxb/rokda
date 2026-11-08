@@ -67,3 +67,14 @@ export function linkTokenFromMessage(text) {
   if (trimmed.startsWith('/start')) return trimmed.slice('/start'.length).trim();
   return trimmed;
 }
+
+// What the roster stores for a link code: its SHA-256, as lowercase hex, the
+// same as Postgres's encode(sha256(convert_to(code, 'UTF8')), 'hex'). Every
+// member can read the roster, so a live code kept there could be sent to the
+// bot by another member to link Telegram as its owner. The code is random
+// (122 bits), so its digest gives nothing away.
+export async function linkTokenDigest(token) {
+  const bytes = new TextEncoder().encode(String(token ?? ''));
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+}
