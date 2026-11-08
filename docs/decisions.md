@@ -3295,15 +3295,42 @@ test that failed first. The first group, security and the database:
   carries a version, like the return it belongs to, so an edit opened before
   a correction is refused instead of writing its older figures back.
 - **Simultaneous "yes" answers do one thing.** Two first buys of one stock
-  take turns on the household, owner and name, so only one holding is made;
-  the same transfer confirmed by both members locks its two accounts first,
-  so it is recorded once.
+  confirmed on Telegram take turns on the household, owner and name, so only
+  one holding is made; the same transfer confirmed by both members locks its
+  two accounts first, so it is recorded once. (A first buy in the app racing
+  one on Telegram is not covered yet.)
 - **A "yes" is to the question as it was shown.** An autopay question keeps
-  the account and category it named; if the bill has moved since, or come
-  off autopay, nothing is recorded and the bot says why.
+  the account and category it named, and each morning's reminder updates
+  them to the bill as it is that day; only a message that named the current
+  account answers it. If the bill has moved since the question that was
+  answered, or come off autopay, nothing is recorded, the bot says why, and
+  the question stays open to be asked again the next morning, so a payment
+  is never left unasked about because the bill was corrected.
 - **Rules hold in the table, not only in the functions.** A received
   dividend needs all four of its figures, since the data imports write
   through privileged SQL.
 - **A step and its follow-up happen together.** "Not yet" cancels the
   question and clears its dividends' asked marks in one call, so the promised
   reminder is never lost to a half-done change.
+
+The second group, the bot's own retries. Telegram delivers a message again
+whenever the bot does not finish it, so each of these comes down to the same
+rule: an update either does its whole job or is handed back for Telegram to
+retry, and a retry repeats nothing and decides nothing afresh.
+
+- **A receipt is kept, or tried again.** A photo whose download or storage
+  failed used to be captured without it, so a photo with no caption ended
+  with nothing saved. Now the update is handed back; nothing has been
+  written by then. A file over the 20 MB a bot may download is said instead.
+- **A trade question nobody received is asked again.** One Telegram
+  refused, or whose message could not be recorded, left a draft no reply
+  could reach. Now the update is handed back, and the draft remembers the
+  message that made it, so the retry asks again rather than reading that
+  message as the answer.
+- **A correction unbinds the old question.** Correcting an expense clears
+  the question that showed the old figures in the same write, so a "yes" to
+  it records nothing; only the question about the corrected figures can.
+- **A bare "yes" delivered again answers what it first meant.** What a bare
+  "yes" or "no" resolved to is recorded with the update before anything is
+  done, so a retry answers that, never a question asked or an entry captured
+  in between.
