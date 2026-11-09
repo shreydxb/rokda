@@ -3,7 +3,7 @@ import { screen, fireEvent, waitFor } from '@testing-library/dom';
 import { renderScreen } from '../../test/renderScreen';
 import AccountEditor from './AccountEditor';
 
-const calls = vi.hoisted(() => ({ inserts: [], updates: [], deletes: [], deleteResult: { error: null } }));
+const calls = vi.hoisted(() => ({ inserts: [], updates: [], deletes: [], deleteResult: { error: null }, updateMissing: false }));
 vi.mock('../../lib/supabaseClient', () => ({
   supabase: {
     from: (table) => ({
@@ -12,9 +12,13 @@ vi.mock('../../lib/supabaseClient', () => ({
         return { error: null };
       },
       update: (row) => ({
-        eq: async () => {
+        eq: () => {
           calls.updates.push({ table, row });
-          return { error: null };
+          // The rows the update changed, read back: none when the account was
+          // deleted elsewhere.
+          return Object.assign(Promise.resolve({ error: null }), {
+            select: async () => ({ data: calls.updateMissing ? [] : [{ id: 'a1' }], error: null }),
+          });
         },
       }),
       delete: () => ({
@@ -41,6 +45,7 @@ beforeEach(() => {
   calls.updates.length = 0;
   calls.deletes.length = 0;
   calls.deleteResult = { error: null };
+  calls.updateMissing = false;
 });
 
 // A loan typed below zero was stored that way, and net worth read it as money
@@ -77,6 +82,16 @@ describe('AccountEditor: an existing fund', () => {
     renderScreen(<AccountEditor account={fund} householdId="h" members={[]} transactions={[]} onClose={vi.fn()} onSaved={onSaved} />);
     return { onSaved };
   }
+
+  // The outside review, E-10: an update that changed no row did not save.
+  it('saving an account deleted elsewhere says it was not saved, and stays open', async () => {
+    const { onSaved } = renderFund();
+    calls.updateMissing = true;
+    fireEvent.change(name(), { target: { value: 'Dollar broker funds (main)' } });
+    fireEvent.click(screen.getByText('Save changes'));
+    await waitFor(() => expect(screen.getByText("This account wasn't saved: it may have been deleted elsewhere. Close it and refresh.")).toBeTruthy());
+    expect(onSaved).not.toHaveBeenCalled();
+  });
 
   it('renaming an account does not send its balance', async () => {
     const { onSaved } = renderFund();

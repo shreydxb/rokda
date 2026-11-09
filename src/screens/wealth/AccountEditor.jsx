@@ -144,14 +144,21 @@ export default function AccountEditor({ account, defaultType, householdId, membe
       payload.balance = isLoan ? Math.abs(Number(form.balance) || 0) : Number(form.balance) || 0;
     }
 
+    // An update reads back the row it changed: none means the account was
+    // deleted elsewhere, and closing as if saved hid that (outside review,
+    // E-10).
     const query = account
-      ? supabase.from('accounts').update(payload).eq('id', account.id)
+      ? supabase.from('accounts').update(payload).eq('id', account.id).select('id')
       : supabase.from('accounts').insert(payload);
 
-    const { error: saveError } = await query;
+    const { data: changed, error: saveError } = await query;
     setSaving(false);
     if (saveError) {
       setError(saveError.message);
+      return;
+    }
+    if (account && (changed?.length ?? 0) !== 1) {
+      setError("This account wasn't saved: it may have been deleted elsewhere. Close it and refresh.");
       return;
     }
     await onSaved();
