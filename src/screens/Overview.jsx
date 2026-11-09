@@ -30,7 +30,7 @@ import {
   isRunningBucket,
 } from './overviewMath';
 import { parseDay } from '../lib/day';
-import { anyFailed } from '../lib/loadState';
+import { anyFailed, couldntLoad, neverLoaded } from '../lib/loadState';
 import { balanceStatus, unconfirmedAccounts } from '../lib/balance';
 import { accountValueAed } from '../lib/accounts';
 import LoadFailure from './LoadFailure';
@@ -57,6 +57,7 @@ export default function Overview() {
     backupRecords,
     yearlyChecks,
     errors,
+    loaded,
     loadedAt,
     refreshing,
     reload,
@@ -69,7 +70,10 @@ export default function Overview() {
 
   const now = useNow(loadedAt);
   const loading = householdLoading || dataLoading;
-  const isEmpty = !loading && accounts.length === 0 && transactions.length === 0 && holdings.length === 0;
+  // A household with nothing recorded, not one whose records did not
+  // arrive: a failed read is not "Day one" (outside review, E-03).
+  const unread = neverLoaded({ errors, loaded }, ['accounts', 'transactions', 'holdings']);
+  const isEmpty = !loading && unread.length === 0 && accounts.length === 0 && transactions.length === 0 && holdings.length === 0;
 
   const accountRows = useMemo(() => visibleAccounts(accounts, scopeMemberId), [accounts, scopeMemberId]);
   const nw = useMemo(() => netWorthSummary(accounts, scopeMemberId, holdings), [accounts, scopeMemberId, holdings]);
@@ -650,7 +654,11 @@ export default function Overview() {
                 </div>
               </div>
               <div className="ov-list">
-                {accountRows.length === 0 ? (
+                {unread.includes('accounts') ? (
+                  <div className="ov-muted" role="alert" style={{ padding: '11px 0' }}>
+                    {couldntLoad(['accounts'])}
+                  </div>
+                ) : accountRows.length === 0 ? (
                   <div className="ov-muted" style={{ padding: '11px 0' }}>
                     No accounts yet.
                   </div>

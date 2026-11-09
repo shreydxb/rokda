@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { neverLoaded } from '../../lib/loadState';
+import Withheld from '../planning/Withheld';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
 import { formatPct } from '../../lib/money';
@@ -21,6 +23,16 @@ export default function Accounts({ household, members, me, data, loading }) {
   const [groupBy, setGroupBy] = useState('type'); // 'type' | 'owner'
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
+  // Accounts that never loaded are not "no accounts", which reads as a fact
+  // and invites adding them a second time (outside review, E-03).
+  const missing = neverLoaded(data, ['accounts']);
+  if (missing.length > 0) {
+    return (
+      <Withheld missing={missing} onRetry={data.reload}>
+        Your accounts aren&rsquo;t shown, rather than shown as none.
+      </Withheld>
+    );
+  }
 
   const visible = accounts.filter((a) => scopeMemberId === null || a.is_shared || a.owner_member_id === scopeMemberId);
   const open = activeAccounts(visible);
