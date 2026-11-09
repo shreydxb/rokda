@@ -40,11 +40,11 @@ do $$
 declare founded uuid; n int;
 begin
   founded := create_household('First household', 'Founder');
-  if not is_household_owner(founded) then
+  if (not is_household_owner(founded)) is not false then
     raise exception 'one-household FAILED: the founder does not own the household they founded';
   end if;
   select count(*) into n from household_members where household_id = founded;
-  if n <> 1 then raise exception 'one-household FAILED: a new household started with % members, expected 1', n; end if;
+  if (n <> 1) is not false then raise exception 'one-household FAILED: a new household started with % members, expected 1', n; end if;
 
   -- useHousehold() resolves one membership per user; a second would make
   -- which household you see arbitrary.
@@ -86,8 +86,8 @@ do $$
 declare n int;
 begin
   select count(*) into n from households;
-  if n <> 1 then raise exception 'one-household FAILED: % households exist, expected the founder''s 1', n; end if;
-  if exists (select 1 from household_members where user_id = '0e000000-0000-0000-0000-00000000000e') then
+  if (n <> 1) is not false then raise exception 'one-household FAILED: % households exist, expected the founder''s 1', n; end if;
+  if (exists (select 1 from household_members where user_id = '0e000000-0000-0000-0000-00000000000e')) is not false then
     raise exception 'one-household FAILED: a refused founding left a roster row behind';
   end if;
 end $$;
@@ -196,10 +196,10 @@ begin
   insert into holdings (id, household_id, name, asset_class, currency, quantity, avg_price, value_aed)
   values ('f6000000-0000-0000-0000-000000000001', 'd1000000-0000-0000-0000-000000000001', 'Rupee share', 'india_equity', 'INR', 10, 1000, 0);
   select invested_value_aed into inv from holdings where id = 'f6000000-0000-0000-0000-000000000001';
-  if inv is distinct from 400.00 then raise exception 'holding cost FAILED: as a member the rupee cost is %, expected 400.00', inv; end if;
+  if (inv is distinct from 400.00) is not false then raise exception 'holding cost FAILED: as a member the rupee cost is %, expected 400.00', inv; end if;
   update households set inr_per_aed = 20 where id = 'd1000000-0000-0000-0000-000000000001';
   select invested_value_aed into inv from holdings where id = 'f6000000-0000-0000-0000-000000000001';
-  if inv is distinct from 500.00 then raise exception 'holding cost FAILED: as a member the cost did not follow the rate (got %)', inv; end if;
+  if (inv is distinct from 500.00) is not false then raise exception 'holding cost FAILED: as a member the cost did not follow the rate (got %)', inv; end if;
   delete from holdings where id = 'f6000000-0000-0000-0000-000000000001';
   raise notice 'holding cost ok: worked out and re-valued as a signed-in member';
 end $$;
@@ -213,7 +213,7 @@ begin
   insert into independence_income (household_id, name, kind, amount, starts_after_years, lasts_years)
   values ('d1000000-0000-0000-0000-000000000001', 'Flat rent', 'yearly', 48000, 0, null);
   select count(*) into n from independence_income;
-  if n <> 1 then raise exception 'independence_income FAILED: a member sees % rows, expected only their own 1', n; end if;
+  if (n <> 1) is not false then raise exception 'independence_income FAILED: a member sees % rows, expected only their own 1', n; end if;
 
   begin
     insert into independence_income (household_id, name, kind, amount)
@@ -232,11 +232,11 @@ begin
 
   update independence_income set amount = 1 where id = 'f2000000-0000-0000-0000-000000000001';
   get diagnostics n = row_count;
-  if n <> 0 then raise exception 'independence_income FAILED: a member updated another household''s row'; end if;
+  if (n <> 0) is not false then raise exception 'independence_income FAILED: a member updated another household''s row'; end if;
 
   delete from independence_income where name = 'Flat rent';
   get diagnostics n = row_count;
-  if n <> 1 then raise exception 'independence_income FAILED: a member could not delete their own row'; end if;
+  if (n <> 1) is not false then raise exception 'independence_income FAILED: a member could not delete their own row'; end if;
   raise notice 'independence_income ok: own household only, in every direction';
 end $$;
 
@@ -247,7 +247,7 @@ begin
   insert into after_work_costs (household_id, name, amount, per_person, rise_pct)
   values ('d1000000-0000-0000-0000-000000000001', 'Health cover', 12000, true, 3);
   select count(*) into n from after_work_costs;
-  if n <> 1 then raise exception 'after_work_costs FAILED: a member sees % rows, expected only their own 1', n; end if;
+  if (n <> 1) is not false then raise exception 'after_work_costs FAILED: a member sees % rows, expected only their own 1', n; end if;
 
   begin
     insert into after_work_costs (household_id, name, amount)
@@ -266,11 +266,11 @@ begin
 
   update after_work_costs set amount = 1 where id = 'f2000000-0000-0000-0000-000000000002';
   get diagnostics n = row_count;
-  if n <> 0 then raise exception 'after_work_costs FAILED: a member updated another household''s row'; end if;
+  if (n <> 0) is not false then raise exception 'after_work_costs FAILED: a member updated another household''s row'; end if;
 
   delete from after_work_costs where name = 'Health cover';
   get diagnostics n = row_count;
-  if n <> 1 then raise exception 'after_work_costs FAILED: a member could not delete their own row'; end if;
+  if (n <> 1) is not false then raise exception 'after_work_costs FAILED: a member could not delete their own row'; end if;
   raise notice 'after_work_costs ok: own household only, in every direction';
 end $$;
 
@@ -284,7 +284,7 @@ begin
     ('e1000000-0000-0000-0000-00000000000b', 'd1000000-0000-0000-0000-000000000001', 1994, 80),
     ('e1000000-0000-0000-0000-00000000000c', 'd1000000-0000-0000-0000-000000000001', 1994, 85);
   select count(*) into n from member_life;
-  if n <> 2 then raise exception 'member_life FAILED: a member sees % rows, expected their own household''s 2', n; end if;
+  if (n <> 2) is not false then raise exception 'member_life FAILED: a member sees % rows, expected their own household''s 2', n; end if;
 
   begin
     insert into member_life (member_id, household_id, birth_year, life_expectancy)
@@ -296,11 +296,11 @@ begin
 
   update member_life set life_expectancy = 99 where member_id = 'e2000000-0000-0000-0000-00000000000a';
   get diagnostics n = row_count;
-  if n <> 0 then raise exception 'member_life FAILED: a member updated another household''s row'; end if;
+  if (n <> 0) is not false then raise exception 'member_life FAILED: a member updated another household''s row'; end if;
 
   update member_life set life_expectancy = 82 where member_id = 'e1000000-0000-0000-0000-00000000000c';
   get diagnostics n = row_count;
-  if n <> 1 then raise exception 'member_life FAILED: a member could not update their household''s placeholder'; end if;
+  if (n <> 1) is not false then raise exception 'member_life FAILED: a member could not update their household''s placeholder'; end if;
   raise notice 'member_life ok: own household only, placeholders included';
 end $$;
 
@@ -313,7 +313,7 @@ declare n int; ours uuid;
 begin
   insert into goals (household_id, name, target_amount) values ('d1000000-0000-0000-0000-000000000001', 'Our goal', 5000) returning id into ours;
   select count(*) into n from goals;
-  if n <> 1 then raise exception 'goals FAILED: a member sees % goals, expected only their own 1', n; end if;
+  if (n <> 1) is not false then raise exception 'goals FAILED: a member sees % goals, expected only their own 1', n; end if;
   begin
     insert into goals (household_id, name, target_amount) values ('d2000000-0000-0000-0000-000000000002', 'Planted', 1);
     raise exception 'goals FAILED: a member wrote into another household';
@@ -326,11 +326,11 @@ begin
   end;
   update goals set target_amount = 1 where id = 'f9000000-0000-0000-0000-000000000001';
   get diagnostics n = row_count;
-  if n <> 0 then raise exception 'goals FAILED: a member edited another household''s goal'; end if;
+  if (n <> 0) is not false then raise exception 'goals FAILED: a member edited another household''s goal'; end if;
 
   insert into goal_contributions (goal_id, amount, occurred_at) values (ours, 250, '2026-10-02');
   select count(*) into n from goal_contributions;
-  if n <> 1 then raise exception 'goal_contributions FAILED: a member sees % contributions, expected only their own 1', n; end if;
+  if (n <> 1) is not false then raise exception 'goal_contributions FAILED: a member sees % contributions, expected only their own 1', n; end if;
   begin
     insert into goal_contributions (goal_id, amount, occurred_at) values ('f9000000-0000-0000-0000-000000000001', 1, '2026-10-02');
     raise exception 'goal_contributions FAILED: a member logged a contribution to another household''s goal';
@@ -343,11 +343,11 @@ begin
   end;
   delete from goal_contributions where id = 'f9000000-0000-0000-0000-000000000002';
   get diagnostics n = row_count;
-  if n <> 0 then raise exception 'goal_contributions FAILED: a member deleted another household''s contribution'; end if;
+  if (n <> 0) is not false then raise exception 'goal_contributions FAILED: a member deleted another household''s contribution'; end if;
 
   insert into goal_allocations (household_id, goal_id, account_id, share_pct) values ('d1000000-0000-0000-0000-000000000001', ours, 'f4000000-0000-0000-0000-000000000001', 40);
   select count(*) into n from goal_allocations;
-  if n <> 1 then raise exception 'goal_allocations FAILED: a member sees % links, expected only their own 1', n; end if;
+  if (n <> 1) is not false then raise exception 'goal_allocations FAILED: a member sees % links, expected only their own 1', n; end if;
   begin
     -- Our goal, their account: refused by the policy or by the guard.
     insert into goal_allocations (household_id, goal_id, account_id, share_pct) values ('d1000000-0000-0000-0000-000000000001', ours, 'f4000000-0000-0000-0000-000000000002', 10);
@@ -362,11 +362,11 @@ begin
   end;
   update goal_allocations set share_pct = 100 where id = 'f9000000-0000-0000-0000-000000000003';
   get diagnostics n = row_count;
-  if n <> 0 then raise exception 'goal_allocations FAILED: a member edited another household''s link'; end if;
+  if (n <> 0) is not false then raise exception 'goal_allocations FAILED: a member edited another household''s link'; end if;
 
   insert into debts (household_id, name, balance, apr_pct, minimum_payment) values ('d1000000-0000-0000-0000-000000000001', 'Our card', 2000, 30, 100);
   select count(*) into n from debts;
-  if n <> 1 then raise exception 'debts FAILED: a member sees % debts, expected only their own 1', n; end if;
+  if (n <> 1) is not false then raise exception 'debts FAILED: a member sees % debts, expected only their own 1', n; end if;
   begin
     insert into debts (household_id, name, balance, apr_pct, minimum_payment) values ('d2000000-0000-0000-0000-000000000002', 'Planted', 1, 1, 1);
     raise exception 'debts FAILED: a member wrote into another household';
@@ -379,14 +379,14 @@ begin
   end;
   update debts set apr_pct = 1 where id = 'f9000000-0000-0000-0000-000000000004';
   get diagnostics n = row_count;
-  if n <> 0 then raise exception 'debts FAILED: a member edited another household''s debt'; end if;
+  if (n <> 0) is not false then raise exception 'debts FAILED: a member edited another household''s debt'; end if;
   delete from debts where id = 'f9000000-0000-0000-0000-000000000004';
   get diagnostics n = row_count;
-  if n <> 0 then raise exception 'debts FAILED: a member deleted another household''s debt'; end if;
+  if (n <> 0) is not false then raise exception 'debts FAILED: a member deleted another household''s debt'; end if;
 
   insert into planning_assumptions (household_id, debt_extra_payment) values ('d1000000-0000-0000-0000-000000000001', 500);
   select count(*) into n from planning_assumptions;
-  if n <> 1 then raise exception 'planning_assumptions FAILED: a member sees % rows, expected only their own 1', n; end if;
+  if (n <> 1) is not false then raise exception 'planning_assumptions FAILED: a member sees % rows, expected only their own 1', n; end if;
   begin
     -- The drawer's save is an upsert: on their household's row it must not
     -- become an update of it.
@@ -397,11 +397,11 @@ begin
   end;
   update planning_assumptions set debt_extra_payment = 0 where household_id = 'd2000000-0000-0000-0000-000000000002';
   get diagnostics n = row_count;
-  if n <> 0 then raise exception 'planning_assumptions FAILED: a member edited another household''s assumptions'; end if;
+  if (n <> 0) is not false then raise exception 'planning_assumptions FAILED: a member edited another household''s assumptions'; end if;
 
   insert into budgets (household_id, category_id, year, month, amount) values ('d1000000-0000-0000-0000-000000000001', 'f9000000-0000-0000-0000-000000000006', 2026, 10, 2000);
   select count(*) into n from budgets;
-  if n <> 1 then raise exception 'budgets FAILED: a member sees % budgets, expected only their own 1', n; end if;
+  if (n <> 1) is not false then raise exception 'budgets FAILED: a member sees % budgets, expected only their own 1', n; end if;
   begin
     insert into budgets (household_id, category_id, year, month, amount) values ('d2000000-0000-0000-0000-000000000002', 'f9000000-0000-0000-0000-000000000005', 2026, 11, 1);
     raise exception 'budgets FAILED: a member wrote into another household';
@@ -409,7 +409,7 @@ begin
   end;
   update budgets set amount = 1 where id = 'f9000000-0000-0000-0000-000000000007';
   get diagnostics n = row_count;
-  if n <> 0 then raise exception 'budgets FAILED: a member edited another household''s budget'; end if;
+  if (n <> 0) is not false then raise exception 'budgets FAILED: a member edited another household''s budget'; end if;
 
   delete from goals where id = ours;
   delete from debts where name = 'Our card';
@@ -424,7 +424,7 @@ declare n int;
 begin
   insert into household_notes (household_id, title, body) values ('d1000000-0000-0000-0000-000000000001', 'Our plan', 'Rent is shared');
   select count(*) into n from household_notes;
-  if n <> 1 then raise exception 'household_notes FAILED: a member sees % notes, expected only their own 1', n; end if;
+  if (n <> 1) is not false then raise exception 'household_notes FAILED: a member sees % notes, expected only their own 1', n; end if;
   begin
     insert into household_notes (household_id, title) values ('d2000000-0000-0000-0000-000000000002', 'Planted');
     raise exception 'household_notes FAILED: a member wrote into another household';
@@ -439,10 +439,10 @@ begin
   end;
   update household_notes set body = 'x' where id = 'f3000000-0000-0000-0000-000000000001';
   get diagnostics n = row_count;
-  if n <> 0 then raise exception 'household_notes FAILED: a member edited another household''s note'; end if;
+  if (n <> 0) is not false then raise exception 'household_notes FAILED: a member edited another household''s note'; end if;
   delete from household_notes where title = 'Our plan';
   get diagnostics n = row_count;
-  if n <> 1 then raise exception 'household_notes FAILED: a member could not delete their own note'; end if;
+  if (n <> 1) is not false then raise exception 'household_notes FAILED: a member could not delete their own note'; end if;
   raise notice 'household_notes ok: own household only, in every direction';
 end $$;
 
@@ -453,12 +453,12 @@ do $$
 declare n int; e record;
 begin
   select count(*) into n from account_balance_events;
-  if n <> 1 then raise exception 'balance history FAILED: a member sees % events, expected their household''s 1', n; end if;
+  if (n <> 1) is not false then raise exception 'balance history FAILED: a member sees % events, expected their household''s 1', n; end if;
 
   update accounts set balance = 150 where id = 'f4000000-0000-0000-0000-000000000001';
   select * into e from account_balance_events where account_id = 'f4000000-0000-0000-0000-000000000001' order by id desc limit 1;
-  if e.source <> 'app' or e.member_id is distinct from 'e1000000-0000-0000-0000-00000000000b'
-     or e.old_balance <> 100 or e.new_balance <> 150 then
+  if (e.source <> 'app' or e.member_id is distinct from 'e1000000-0000-0000-0000-00000000000b'
+     or e.old_balance <> 100 or e.new_balance <> 150) is not false then
     raise exception 'balance history FAILED: a member''s change was recorded as %', row_to_json(e);
   end if;
 
@@ -471,10 +471,10 @@ begin
   end;
   update account_balance_events set new_balance = 1;
   get diagnostics n = row_count;
-  if n <> 0 then raise exception 'balance history FAILED: a member edited % history rows', n; end if;
+  if (n <> 0) is not false then raise exception 'balance history FAILED: a member edited % history rows', n; end if;
   delete from account_balance_events;
   get diagnostics n = row_count;
-  if n <> 0 then raise exception 'balance history FAILED: a member deleted % history rows', n; end if;
+  if (n <> 0) is not false then raise exception 'balance history FAILED: a member deleted % history rows', n; end if;
   raise notice 'balance history ok: own household only, read-only, and a member''s change is theirs';
 end $$;
 
@@ -484,7 +484,7 @@ do $$
 declare n int;
 begin
   select count(*) into n from bot_proposals;
-  if n <> 1 then raise exception 'bot proposals FAILED: a member sees % proposals, expected their household''s 1', n; end if;
+  if (n <> 1) is not false then raise exception 'bot proposals FAILED: a member sees % proposals, expected their household''s 1', n; end if;
 
   begin
     insert into bot_proposals (household_id, member_id, kind, payload, chat_id)
@@ -495,7 +495,7 @@ begin
   end;
   update bot_proposals set status = 'applied', decided_at = now();
   get diagnostics n = row_count;
-  if n <> 0 then raise exception 'bot proposals FAILED: a member decided % proposals', n; end if;
+  if (n <> 0) is not false then raise exception 'bot proposals FAILED: a member decided % proposals', n; end if;
 
   begin
     perform apply_bot_proposal('f5000000-0000-0000-0000-000000000001', 'e1000000-0000-0000-0000-00000000000a');
@@ -513,14 +513,14 @@ do $$
 declare n int;
 begin
   select count(*) into n from statement_reconciliations;
-  if n <> 1 then raise exception 'statements FAILED: a member sees % statements, expected their household''s 1', n; end if;
+  if (n <> 1) is not false then raise exception 'statements FAILED: a member sees % statements, expected their household''s 1', n; end if;
 
   update statement_reconciliations set status = 'confirmed', closed_at = now(), closed_by_member_id = 'e1000000-0000-0000-0000-00000000000b';
   get diagnostics n = row_count;
-  if n <> 1 then raise exception 'statements FAILED: a member marked % of their statements done, expected 1', n; end if;
+  if (n <> 1) is not false then raise exception 'statements FAILED: a member marked % of their statements done, expected 1', n; end if;
   update statement_reconciliations set status = 'confirmed', closed_at = now() where id = 'f6000000-0000-0000-0000-000000000002';
   get diagnostics n = row_count;
-  if n <> 0 then raise exception 'statements FAILED: a member marked another household''s statement done'; end if;
+  if (n <> 0) is not false then raise exception 'statements FAILED: a member marked another household''s statement done'; end if;
 
   insert into statement_reconciliations (household_id, account_id, statement_date, period_start, status, closed_at)
   values ('d1000000-0000-0000-0000-000000000001', 'f4000000-0000-0000-0000-000000000001', '2026-08-28', '2026-07-29', 'confirmed', now());
@@ -534,7 +534,7 @@ begin
 
   delete from statement_reconciliations;
   get diagnostics n = row_count;
-  if n <> 0 then raise exception 'statements FAILED: a member deleted % statements', n; end if;
+  if (n <> 0) is not false then raise exception 'statements FAILED: a member deleted % statements', n; end if;
 
   begin
     perform merchant_category_counts('d1000000-0000-0000-0000-000000000001');
@@ -551,12 +551,12 @@ do $$
 declare n int; who uuid;
 begin
   select count(*) into n from backup_records;
-  if n <> 1 then raise exception 'backups FAILED: a member sees % backup records, expected their household''s 1', n; end if;
+  if (n <> 1) is not false then raise exception 'backups FAILED: a member sees % backup records, expected their household''s 1', n; end if;
 
   insert into backup_records (id, household_id, kind, result, done_on, recorded_by)
   values ('f7000000-0000-0000-0000-000000000003', 'd1000000-0000-0000-0000-000000000001', 'restore_drill', 'passed', '2026-10-01', 'e1000000-0000-0000-0000-00000000000a');
   select recorded_by into who from backup_records where id = 'f7000000-0000-0000-0000-000000000003';
-  if who is distinct from 'e1000000-0000-0000-0000-00000000000b' then
+  if (who is distinct from 'e1000000-0000-0000-0000-00000000000b') is not false then
     raise exception 'backups FAILED: a record was attributed to % rather than the member who made it', who;
   end if;
 
@@ -569,10 +569,10 @@ begin
 
   update backup_records set result = 'failed';
   get diagnostics n = row_count;
-  if n <> 0 then raise exception 'backups FAILED: a member changed % backup records', n; end if;
+  if (n <> 0) is not false then raise exception 'backups FAILED: a member changed % backup records', n; end if;
   delete from backup_records;
   get diagnostics n = row_count;
-  if n <> 0 then raise exception 'backups FAILED: a member deleted % backup records', n; end if;
+  if (n <> 0) is not false then raise exception 'backups FAILED: a member deleted % backup records', n; end if;
   raise notice 'backups ok: own household only, recorded as the caller, never changed or removed';
 end $$;
 
@@ -587,14 +587,14 @@ declare
   who uuid;
 begin
   select count(*) into n from transaction_links;
-  if n <> 0 then raise exception 'transfers FAILED: a member sees % of another household''s transfer links', n; end if;
+  if (n <> 0) is not false then raise exception 'transfers FAILED: a member sees % of another household''s transfer links', n; end if;
   select id, from_transaction_id into theirs, their_tx from transaction_links limit 1;
 
   made := record_transfer('d1000000-0000-0000-0000-000000000001', 'f4000000-0000-0000-0000-000000000001', 'f4000000-0000-0000-0000-000000000003', 120, '2026-10-02');
   select count(*) into n from transaction_links;
-  if n <> 1 then raise exception 'transfers FAILED: a member''s own transfer is not visible to them'; end if;
+  if (n <> 1) is not false then raise exception 'transfers FAILED: a member''s own transfer is not visible to them'; end if;
   select created_by into who from transaction_links where id = (made ->> 'link_id')::uuid;
-  if who is distinct from 'e1000000-0000-0000-0000-00000000000b' then
+  if (who is distinct from 'e1000000-0000-0000-0000-00000000000b') is not false then
     raise exception 'transfers FAILED: the link was attributed to % rather than the member who made it', who;
   end if;
   perform update_transfer((made ->> 'link_id')::uuid, 130, '2026-10-02');
@@ -619,12 +619,12 @@ begin
   end;
 
   select id into theirs from transaction_links where household_id = 'd2000000-0000-0000-0000-000000000002';
-  if theirs is not null then raise exception 'transfers FAILED: another household''s link was readable'; end if;
+  if (theirs is not null) is not false then raise exception 'transfers FAILED: another household''s link was readable'; end if;
 
   select id into theirs from transaction_links where from_transaction_id = (made ->> 'from_transaction_id')::uuid;
   perform delete_transfer(theirs);
   select count(*) into n from transactions where id in ((made ->> 'from_transaction_id')::uuid, (made ->> 'to_transaction_id')::uuid);
-  if n <> 0 then raise exception 'transfers FAILED: deleting a transfer left % of its sides', n; end if;
+  if (n <> 0) is not false then raise exception 'transfers FAILED: deleting a transfer left % of its sides', n; end if;
   raise notice 'transfers ok: own household only; record, edit, unlink, link and delete as a member';
 end $$;
 
@@ -639,7 +639,7 @@ declare
   their_cat uuid;
 begin
   select count(*) into n from transaction_splits;
-  if n <> 0 then raise exception 'splits FAILED: a member sees % of another household''s split lines', n; end if;
+  if (n <> 0) is not false then raise exception 'splits FAILED: a member sees % of another household''s split lines', n; end if;
 
   insert into categories (household_id, name, kind) values ('d1000000-0000-0000-0000-000000000001', 'Our split A', 'expense') returning id into cat_a;
   insert into categories (household_id, name, kind) values ('d1000000-0000-0000-0000-000000000001', 'Our split B', 'expense') returning id into cat_b;
@@ -649,10 +649,10 @@ begin
 
   perform split_transaction(ours, jsonb_build_array(jsonb_build_object('category_id', cat_a, 'amount', 60), jsonb_build_object('category_id', cat_b, 'amount', 30)));
   select count(*) into n from transaction_splits where transaction_id = ours;
-  if n <> 2 then raise exception 'splits FAILED: a member could not split their own transaction'; end if;
+  if (n <> 2) is not false then raise exception 'splits FAILED: a member could not split their own transaction'; end if;
 
   select id into their_cat from categories where household_id = 'd2000000-0000-0000-0000-000000000002' limit 1;
-  if their_cat is not null then raise exception 'splits FAILED: another household''s category was readable'; end if;
+  if (their_cat is not null) is not false then raise exception 'splits FAILED: another household''s category was readable'; end if;
   begin
     perform split_transaction(ours, jsonb_build_array(jsonb_build_object('category_id', cat_a, 'amount', 60), jsonb_build_object('category_id', 'c9000000-0000-0000-0000-000000000009', 'amount', 30)));
     raise exception 'splits FAILED: a line was filed under a category outside the household';
@@ -689,7 +689,7 @@ begin
 
   made := link_refund(purchase, refund);
   select count(*) into n from transaction_links where kind = 'refund';
-  if n <> 1 then raise exception 'refund links FAILED: a member could not link their own refund'; end if;
+  if (n <> 1) is not false then raise exception 'refund links FAILED: a member could not link their own refund'; end if;
   perform unlink_refund((made ->> 'link_id')::uuid);
 
   begin
@@ -714,7 +714,7 @@ do $$
 declare n int;
 begin
   select count(*) into n from fx_rate_history;
-  if n <> 1 then raise exception 'fx history FAILED: a member sees % rows, expected the 1 on record', n; end if;
+  if (n <> 1) is not false then raise exception 'fx history FAILED: a member sees % rows, expected the 1 on record', n; end if;
   begin
     insert into fx_rate_history (base, quote, day, rate, source) values ('AED', 'INR', '2026-01-01', 1, 'test');
     raise exception 'fx history FAILED: a member wrote an exchange rate';
@@ -759,17 +759,17 @@ begin
   with x as (update household_members set role = 'member'
              where id = 'e1000000-0000-0000-0000-00000000000a' returning 1)
   select count(*) into n from x;
-  if n <> 0 then raise exception 'QA-§8 FAILED: a member demoted the owner'; end if;
+  if (n <> 0) is not false then raise exception 'QA-§8 FAILED: a member demoted the owner'; end if;
 
   with x as (delete from household_members
              where id = 'e1000000-0000-0000-0000-00000000000a' returning 1)
   select count(*) into n from x;
-  if n <> 0 then raise exception 'QA-§8 FAILED: a member deleted the owner'; end if;
+  if (n <> 0) is not false then raise exception 'QA-§8 FAILED: a member deleted the owner'; end if;
 
   with x as (update household_members set display_name = 'hijacked'
              where id = 'e1000000-0000-0000-0000-00000000000c' returning 1)
   select count(*) into n from x;
-  if n <> 0 then raise exception 'QA-§8 FAILED: a member edited a placeholder member'; end if;
+  if (n <> 0) is not false then raise exception 'QA-§8 FAILED: a member edited a placeholder member'; end if;
 
   raise notice 'QA-§8 ok: a member cannot demote, delete or edit anyone else';
 end $$;
@@ -783,7 +783,7 @@ begin
   where id = 'e1000000-0000-0000-0000-00000000000b';
   select count(*) into n from household_members
   where id = 'e1000000-0000-0000-0000-00000000000b' and display_name = 'Renamed by self';
-  if n <> 1 then raise exception 'QA-§8 FAILED: a member could not rename themselves'; end if;
+  if (n <> 1) is not false then raise exception 'QA-§8 FAILED: a member could not rename themselves'; end if;
   raise notice 'QA-§8 ok: a member can still edit their own row';
 end $$;
 
@@ -809,7 +809,7 @@ begin
 
   select count(*) into n from household_members
   where id = 'e1000000-0000-0000-0000-00000000000b' and role = 'member';
-  if n <> 1 then raise exception 'QA-P1 FAILED: the delete/re-insert attempt did not roll back cleanly'; end if;
+  if (n <> 1) is not false then raise exception 'QA-P1 FAILED: the delete/re-insert attempt did not roll back cleanly'; end if;
 
   -- Walk into a household they were never in, as its owner. This one is a
   -- cross-tenant read, not merely a wrong role: the roster row is what makes
@@ -832,9 +832,9 @@ begin
     when insufficient_privilege then null;
   end;
 
-  if exists (select 1 from household_members
+  if (exists (select 1 from household_members
              where household_id = 'd2000000-0000-0000-0000-000000000002'
-               and user_id = '0b000000-0000-0000-0000-00000000000b') then
+               and user_id = '0b000000-0000-0000-0000-00000000000b')) is not false then
     raise exception 'QA-P1 FAILED: an intruder row survived';
   end if;
   raise notice 'QA-P1 ok: INSERT cannot mint an owner, join a household, or add a member';
@@ -851,7 +851,7 @@ begin
   values ('f1000000-0000-0000-0000-0000000000c1', 'd1000000-0000-0000-0000-000000000001', 'Owner rupee account', 'savings', 'INR', 50000, false, 'e1000000-0000-0000-0000-00000000000a');
   update households set inr_per_aed = 20 where id = 'd1000000-0000-0000-0000-000000000001';
   select balance_aed into aed from accounts where id = 'f1000000-0000-0000-0000-0000000000c1';
-  if aed is distinct from 2500 then
+  if (aed is distinct from 2500) is not false then
     raise exception 'rupee rate FAILED: a member''s new rate left the owner''s rupee account at %', aed;
   end if;
   raise notice 'rupee rate ok: a member''s new rate re-values every rupee account in the household';
@@ -870,7 +870,7 @@ begin
   values ('e1000000-0000-0000-0000-00000000000d', 'd1000000-0000-0000-0000-000000000001',
           'Added by owner', 'member', null);
   select count(*) into n from household_members where id = 'e1000000-0000-0000-0000-00000000000d';
-  if n <> 1 then raise exception 'QA-P1 FAILED: an owner could not add a placeholder member'; end if;
+  if (n <> 1) is not false then raise exception 'QA-P1 FAILED: an owner could not add a placeholder member'; end if;
 
   begin
     insert into household_members (household_id, display_name, role, user_id)
@@ -889,12 +889,12 @@ begin
   where id = 'e1000000-0000-0000-0000-00000000000c';
   select count(*) into n from household_members
   where id = 'e1000000-0000-0000-0000-00000000000c' and display_name = 'Renamed by owner';
-  if n <> 1 then raise exception 'QA-§8 FAILED: an owner could not edit a placeholder member'; end if;
+  if (n <> 1) is not false then raise exception 'QA-§8 FAILED: an owner could not edit a placeholder member'; end if;
 
   update household_members set role = 'owner' where id = 'e1000000-0000-0000-0000-00000000000b';
   select count(*) into n from household_members
   where household_id = 'd1000000-0000-0000-0000-000000000001' and role = 'owner';
-  if n <> 2 then raise exception 'QA-§8 FAILED: an owner could not promote a member'; end if;
+  if (n <> 2) is not false then raise exception 'QA-§8 FAILED: an owner could not promote a member'; end if;
 
   -- Stepping down is allowed while somebody else still has the keys.
   update household_members set role = 'member' where id = 'e1000000-0000-0000-0000-00000000000a';
@@ -933,7 +933,7 @@ begin
 
   select count(*) into n from household_members
   where household_id = 'd1000000-0000-0000-0000-000000000001' and role = 'owner';
-  if n <> 1 then raise exception 'QA-§8 FAILED: the household ended with % owners, expected 1', n; end if;
+  if (n <> 1) is not false then raise exception 'QA-§8 FAILED: the household ended with % owners, expected 1', n; end if;
   raise notice 'QA-§8 ok: the last owner cannot be demoted, deleted, or demoted en masse';
 end $$;
 
@@ -972,7 +972,7 @@ begin
   select count(*) into n from household_members
   where household_id = 'd1000000-0000-0000-0000-000000000001'
     and role = 'owner' and user_id is not null;
-  if n <> 1 then
+  if (n <> 1) is not false then
     raise exception 'QA-#3 FAILED: the household has % owners who can sign in, expected 1', n;
   end if;
 
@@ -986,7 +986,7 @@ begin
   select count(*) into n from household_members
   where household_id = 'd1000000-0000-0000-0000-000000000001'
     and role = 'owner' and user_id is not null;
-  if n <> 1 then
+  if (n <> 1) is not false then
     raise exception 'QA-#3 FAILED: handing over ownership left % signed-in owners, expected 1', n;
   end if;
   raise notice 'QA-#3 ok: a placeholder cannot be made owner, and handover between logins still works';
@@ -1055,7 +1055,7 @@ begin
     when insufficient_privilege then null;
   end;
 
-  if is_household_member('d1000000-0000-0000-0000-000000000001') then
+  if (is_household_member('d1000000-0000-0000-0000-000000000001')) is not false then
     raise exception 'QA-P1 FAILED: a refused stranger became a member of an existing household';
   end if;
 
@@ -1104,21 +1104,21 @@ do $$
 declare n int;
 begin
   select count(*) into n from households;
-  if n <> 1 then raise exception 'helpers FAILED: a member sees % households, expected their own 1', n; end if;
+  if (n <> 1) is not false then raise exception 'helpers FAILED: a member sees % households, expected their own 1', n; end if;
 
   select count(*) into n from household_members where household_id = 'd2000000-0000-0000-0000-000000000002';
-  if n <> 0 then raise exception 'helpers FAILED: a member sees % rows of another household''s roster', n; end if;
+  if (n <> 0) is not false then raise exception 'helpers FAILED: a member sees % rows of another household''s roster', n; end if;
 
-  if not private.is_household_member('d1000000-0000-0000-0000-000000000001')
+  if (not private.is_household_member('d1000000-0000-0000-0000-000000000001')
      or private.is_household_member('d2000000-0000-0000-0000-000000000002')
-     or private.is_household_owner('d1000000-0000-0000-0000-000000000001') then
+     or private.is_household_owner('d1000000-0000-0000-0000-000000000001')) is not false then
     raise exception 'helpers FAILED: the private helpers answer wrongly for a plain member';
   end if;
 
-  if is_household_member('d1000000-0000-0000-0000-000000000001')
+  if (is_household_member('d1000000-0000-0000-0000-000000000001')
        is distinct from private.is_household_member('d1000000-0000-0000-0000-000000000001')
      or is_household_owner('d1000000-0000-0000-0000-000000000001')
-       is distinct from private.is_household_owner('d1000000-0000-0000-0000-000000000001') then
+       is distinct from private.is_household_owner('d1000000-0000-0000-0000-000000000001')) is not false then
     raise exception 'helpers FAILED: the public wrappers disagree with the functions they wrap';
   end if;
 
@@ -1145,12 +1145,12 @@ set request.jwt.claim.sub = '0a000000-0000-0000-0000-00000000000a';
 do $$
 declare code text;
 begin
-  if not (is_household_owner('d1000000-0000-0000-0000-000000000001')
-          and private.is_household_owner('d1000000-0000-0000-0000-000000000001')) then
+  if (not (is_household_owner('d1000000-0000-0000-0000-000000000001')
+          and private.is_household_owner('d1000000-0000-0000-0000-000000000001'))) is not false then
     raise exception 'helpers FAILED: the owner is not an owner through the helpers';
   end if;
   code := generate_telegram_link_code('e1000000-0000-0000-0000-00000000000a');
-  if code is null or length(code) <> 32 then
+  if (code is null or length(code) <> 32) is not false then
     raise exception 'helpers FAILED: generate_telegram_link_code() did not issue a code (%)', code;
   end if;
   begin
@@ -1162,7 +1162,7 @@ begin
   -- An owner links another member too: a partner with no login of their own
   -- is linked to Telegram this way.
   code := generate_telegram_link_code('e1000000-0000-0000-0000-00000000000b');
-  if code is null then
+  if (code is null) is not false then
     raise exception 'link code FAILED: an owner could not issue a code for another member';
   end if;
   raise notice 'helpers ok: the owner check and the link code still resolve the helpers by name';
@@ -1175,7 +1175,7 @@ do $$
 declare code text;
 begin
   code := generate_telegram_link_code('e1000000-0000-0000-0000-00000000000b');
-  if code is null or length(code) <> 32 then
+  if (code is null or length(code) <> 32) is not false then
     raise exception 'link code FAILED: a member could not issue a code for themselves (%)', code;
   end if;
   begin
@@ -1200,7 +1200,7 @@ do $$
 declare code text := current_setting('rokda.test_owner_code'); stored text;
 begin
   select telegram_link_code into stored from household_members where id = 'e1000000-0000-0000-0000-00000000000a';
-  if stored is null or stored = code or stored <> encode(sha256(convert_to(code, 'UTF8')), 'hex') then
+  if (stored is null or stored = code or stored <> encode(sha256(convert_to(code, 'UTF8')), 'hex')) is not false then
     raise exception 'link code FAILED: another member read % for the owner''s code %', stored, code;
   end if;
   raise notice 'link code ok: the roster holds only the code''s digest';
@@ -1269,11 +1269,11 @@ do $$
 declare n int;
 begin
   select count(*) into n from household_members;
-  if n <> 0 then raise exception 'two-step FAILED: a password-only session read % roster rows', n; end if;
+  if (n <> 0) is not false then raise exception 'two-step FAILED: a password-only session read % roster rows', n; end if;
   select count(*) into n from accounts;
-  if n <> 0 then raise exception 'two-step FAILED: a password-only session read % accounts', n; end if;
+  if (n <> 0) is not false then raise exception 'two-step FAILED: a password-only session read % accounts', n; end if;
   select count(*) into n from household_notes;
-  if n <> 0 then raise exception 'two-step FAILED: a password-only session read % notes', n; end if;
+  if (n <> 0) is not false then raise exception 'two-step FAILED: a password-only session read % notes', n; end if;
   begin
     insert into household_notes (household_id, title) values ('d1000000-0000-0000-0000-000000000001', 'Written without a code');
     raise exception 'two-step FAILED: a password-only session wrote a note';
@@ -1282,15 +1282,15 @@ begin
   end;
   update accounts set name = 'Renamed without a code';
   get diagnostics n = row_count;
-  if n <> 0 then raise exception 'two-step FAILED: a password-only session renamed % accounts', n; end if;
+  if (n <> 0) is not false then raise exception 'two-step FAILED: a password-only session renamed % accounts', n; end if;
   -- Their own roster row too: "edit yourself" waits for the code as well.
   update household_members set display_name = 'Renamed without a code' where user_id = '0b000000-0000-0000-0000-00000000000b';
   get diagnostics n = row_count;
-  if n <> 0 then raise exception 'two-step FAILED: a password-only session renamed its own roster row'; end if;
+  if (n <> 0) is not false then raise exception 'two-step FAILED: a password-only session renamed its own roster row'; end if;
 
   perform set_config('request.jwt.claim.aal', 'aal2', true);
   select count(*) into n from accounts;
-  if n = 0 then raise exception 'two-step FAILED: a session that passed its code read no accounts'; end if;
+  if (n = 0) is not false then raise exception 'two-step FAILED: a session that passed its code read no accounts'; end if;
   insert into household_notes (household_id, title) values ('d1000000-0000-0000-0000-000000000001', 'Written with a code');
   raise notice 'two-step ok: a member with an authenticator needs a code for every read and write';
 end $$;
@@ -1302,7 +1302,7 @@ begin
   -- No authenticator added yet: still nothing on a password alone. Adding one
   -- goes through Supabase Auth, which reads no household table.
   select count(*) into n from accounts;
-  if n <> 0 then raise exception 'two-step FAILED: a member with no authenticator yet read % accounts on a password alone', n; end if;
+  if (n <> 0) is not false then raise exception 'two-step FAILED: a member with no authenticator yet read % accounts on a password alone', n; end if;
   raise notice 'two-step ok: a member with no authenticator yet reads nothing on a password alone';
 end $$;
 set request.jwt.claim.aal = 'aal2';
@@ -1318,10 +1318,10 @@ declare n int;
 begin
   delete from household_members where id = 'e1000000-0000-0000-0000-00000000000b';
   get diagnostics n = row_count;
-  if n <> 0 then raise exception 'owner removal FAILED: a member who is not an owner removed themselves'; end if;
+  if (n <> 0) is not false then raise exception 'owner removal FAILED: a member who is not an owner removed themselves'; end if;
   update household_members set display_name = 'Member' where id = 'e1000000-0000-0000-0000-00000000000b';
   get diagnostics n = row_count;
-  if n <> 1 then raise exception 'owner removal FAILED: a member could not rename themselves with their code'; end if;
+  if (n <> 1) is not false then raise exception 'owner removal FAILED: a member could not rename themselves with their code'; end if;
   raise notice 'owner removal ok: a member renames themselves but only an owner removes anyone';
 end $$;
 reset role;
@@ -1341,7 +1341,7 @@ do $$
 declare n int;
 begin
   select count(*) into n from holding_trades;
-  if n <> 1 then raise exception 'trades RLS FAILED: a member sees % trades, expected their household''s 1', n; end if;
+  if (n <> 1) is not false then raise exception 'trades RLS FAILED: a member sees % trades, expected their household''s 1', n; end if;
   begin
     insert into holding_trades (household_id, holding_id, kind, trade_date, units, price, source)
     values ('d1000000-0000-0000-0000-000000000001', 'fb000000-0000-0000-0000-000000000001', 'split', '2026-10-02', 2, null, 'app');
@@ -1378,18 +1378,18 @@ declare r jsonb;
 begin
   r := record_trade('fb000000-0000-0000-0000-000000000001', 'buy', '2026-10-02', 1, 100, 0,
     p_funds_account_id => 'fb200000-0000-0000-0000-000000000001');
-  if (r ->> 'ok')::boolean is not true then raise exception 'trade functions FAILED: a member could not record on their own holding: %', r; end if;
+  if ((r ->> 'ok')::boolean is not true) is not false then raise exception 'trade functions FAILED: a member could not record on their own holding: %', r; end if;
   r := record_trade('fb000000-0000-0000-0000-000000000002', 'buy', '2026-10-02', 1, 100, 0,
     p_funds_account_id => 'fb200000-0000-0000-0000-000000000002');
-  if r ->> 'error' is distinct from 'not_member' then raise exception 'trade functions FAILED: another household''s holding gave %', r; end if;
+  if (r ->> 'error' is distinct from 'not_member') is not false then raise exception 'trade functions FAILED: another household''s holding gave %', r; end if;
   -- Only the bot marks a trade as the bot's, or ties it to a bot proposal
   -- (M5): a member's own call is an app trade.
   r := record_trade('fb000000-0000-0000-0000-000000000001', 'buy', '2026-10-02', 1, 100, 0,
     p_funds_account_id => 'fb200000-0000-0000-0000-000000000001', p_source => 'bot');
-  if r ->> 'error' is distinct from 'not_allowed' then raise exception 'trade functions FAILED: a member marked a trade as the bot''s: %', r; end if;
+  if (r ->> 'error' is distinct from 'not_allowed') is not false then raise exception 'trade functions FAILED: a member marked a trade as the bot''s: %', r; end if;
   r := record_trade('fb000000-0000-0000-0000-000000000001', 'buy', '2026-10-02', 1, 100, 0,
     p_funds_account_id => 'fb200000-0000-0000-0000-000000000001', p_proposal_id => gen_random_uuid());
-  if r ->> 'error' is distinct from 'not_allowed' then raise exception 'trade functions FAILED: a member tied a trade to a proposal: %', r; end if;
+  if (r ->> 'error' is distinct from 'not_allowed') is not false then raise exception 'trade functions FAILED: a member tied a trade to a proposal: %', r; end if;
   raise notice 'trade functions ok: a member records on their household''s holding and no one else''s';
 end $$;
 -- The bot-trade functions (SHR-370): a member works only in their own
@@ -1399,17 +1399,17 @@ declare r jsonb;
 begin
   r := preview_new_holding_trade(jsonb_build_object('owner_member_id', 'e2000000-0000-0000-0000-00000000000a', 'name', 'XYZ',
     'asset_class', 'us_equity', 'currency', 'USD'), '2026-10-02', 1, 10, p_funds_account_id => 'fb200000-0000-0000-0000-000000000002');
-  if r ->> 'error' is distinct from 'not_member' then raise exception 'bot trades FAILED: previewing in another household gave %', r; end if;
+  if (r ->> 'error' is distinct from 'not_member') is not false then raise exception 'bot trades FAILED: previewing in another household gave %', r; end if;
   r := record_new_holding_trade(jsonb_build_object('owner_member_id', 'e2000000-0000-0000-0000-00000000000a', 'name', 'XYZ',
     'asset_class', 'us_equity', 'currency', 'USD'), '2026-10-02', 1, 10, p_funds_account_id => 'fb200000-0000-0000-0000-000000000002');
-  if r ->> 'error' is distinct from 'not_member' then raise exception 'bot trades FAILED: recording in another household gave %', r; end if;
+  if (r ->> 'error' is distinct from 'not_member') is not false then raise exception 'bot trades FAILED: recording in another household gave %', r; end if;
   r := preview_delete_trade('fb100000-0000-0000-0000-000000000002');
-  if r ->> 'error' is distinct from 'not_member' then raise exception 'bot trades FAILED: previewing another household''s undo gave %', r; end if;
+  if (r ->> 'error' is distinct from 'not_member') is not false then raise exception 'bot trades FAILED: previewing another household''s undo gave %', r; end if;
   r := record_new_holding_trade(jsonb_build_object('owner_member_id', 'e1000000-0000-0000-0000-00000000000b', 'name', 'XYZ',
     'asset_class', 'us_equity', 'currency', 'USD'), '2026-10-02', 1, 10, p_funds_account_id => 'fb200000-0000-0000-0000-000000000001',
     p_source => 'bot');
-  if r ->> 'error' is distinct from 'not_allowed' then raise exception 'bot trades FAILED: a member marked a new holding''s buy as the bot''s: %', r; end if;
-  if exists (select 1 from holdings where name = 'XYZ') then raise exception 'bot trades FAILED: a refused buy left a holding'; end if;
+  if (r ->> 'error' is distinct from 'not_allowed') is not false then raise exception 'bot trades FAILED: a member marked a new holding''s buy as the bot''s: %', r; end if;
+  if (exists (select 1 from holdings where name = 'XYZ')) is not false then raise exception 'bot trades FAILED: a refused buy left a holding'; end if;
   raise notice 'bot trades ok: a member previews and records only in their household, and never as the bot';
 end $$;
 set role anon;
@@ -1469,16 +1469,16 @@ do $$
 declare n int;
 begin
   select count(*) into n from dividend_events;
-  if n <> 1 then raise exception 'dividends RLS FAILED: a member sees % dividend events, expected 1', n; end if;
+  if (n <> 1) is not false then raise exception 'dividends RLS FAILED: a member sees % dividend events, expected 1', n; end if;
   select count(*) into n from dividend_splits;
-  if n <> 1 then raise exception 'dividends RLS FAILED: a member sees % splits, expected 1', n; end if;
+  if (n <> 1) is not false then raise exception 'dividends RLS FAILED: a member sees % splits, expected 1', n; end if;
   select count(*) into n from holding_dividends;
-  if n <> 1 then raise exception 'dividends RLS FAILED: a member sees % dividends, expected their household''s 1', n; end if;
+  if (n <> 1) is not false then raise exception 'dividends RLS FAILED: a member sees % dividends, expected their household''s 1', n; end if;
   select count(*) into n from dividend_special_parts;
-  if n <> 1 then raise exception 'dividends RLS FAILED: a member sees % one-off answers, expected their household''s 1', n; end if;
+  if (n <> 1) is not false then raise exception 'dividends RLS FAILED: a member sees % one-off answers, expected their household''s 1', n; end if;
   begin
     select count(*) into n from dividend_feed_state;
-    if n <> 0 then raise exception 'dividends RLS FAILED: a member reads the feed''s bookkeeping'; end if;
+    if (n <> 0) is not false then raise exception 'dividends RLS FAILED: a member reads the feed''s bookkeeping'; end if;
   exception when insufficient_privilege then null;
   end;
   begin
@@ -1520,33 +1520,33 @@ do $$
 declare p jsonb; r jsonb;
 begin
   p := preview_dividend('fd100000-0000-0000-0000-000000000001', '{"action": "record", "credited_on": "2026-10-20"}');
-  if (p ->> 'ok')::boolean is not true then raise exception 'dividend receipts RLS FAILED: a member could not preview their own: %', p; end if;
+  if ((p ->> 'ok')::boolean is not true) is not false then raise exception 'dividend receipts RLS FAILED: a member could not preview their own: %', p; end if;
   r := save_dividend('fd100000-0000-0000-0000-000000000001', '{"action": "record", "credited_on": "2026-10-20"}', (p ->> 'version')::int, p -> 'confirmations');
-  if (r ->> 'ok')::boolean is not true then raise exception 'dividend receipts RLS FAILED: a member could not save their own: %', r; end if;
+  if ((r ->> 'ok')::boolean is not true) is not false then raise exception 'dividend receipts RLS FAILED: a member could not save their own: %', r; end if;
   p := preview_dividend('fd100000-0000-0000-0000-000000000002', '{"action": "record"}');
-  if p ->> 'error' is distinct from 'not_member' then raise exception 'dividend receipts RLS FAILED: another household''s dividend gave %', p; end if;
+  if (p ->> 'error' is distinct from 'not_member') is not false then raise exception 'dividend receipts RLS FAILED: another household''s dividend gave %', p; end if;
   r := save_dividend('fd100000-0000-0000-0000-000000000002', '{"action": "record"}', 1, '{}'::jsonb);
-  if r ->> 'error' is distinct from 'not_member' then raise exception 'dividend receipts RLS FAILED: saving another household''s gave %', r; end if;
+  if (r ->> 'error' is distinct from 'not_member') is not false then raise exception 'dividend receipts RLS FAILED: saving another household''s gave %', r; end if;
   -- Adding to another household's holding, whether or not the call also
   -- names one of our own dividends, is refused before anything is read.
   p := preview_dividend('fd100000-0000-0000-0000-000000000001',
     '{"action": "add", "holding_id": "fd200000-0000-0000-0000-000000000002", "ex_date": "2026-09-01", "units": 1000, "per_share": 5}');
-  if (p ->> 'ok')::boolean is not false then raise exception 'dividend receipts RLS FAILED: an add to another household''s holding, named with our dividend, previewed: %', p; end if;
+  if ((p ->> 'ok')::boolean is not false) is not false then raise exception 'dividend receipts RLS FAILED: an add to another household''s holding, named with our dividend, previewed: %', p; end if;
   r := save_dividend('fd100000-0000-0000-0000-000000000001',
     '{"action": "add", "holding_id": "fd200000-0000-0000-0000-000000000002", "ex_date": "2026-09-01", "units": 1000, "per_share": 5}', 0, '{}'::jsonb);
-  if (r ->> 'ok')::boolean is not false then raise exception 'dividend receipts RLS FAILED: an add to another household''s holding, named with our dividend, saved: %', r; end if;
+  if ((r ->> 'ok')::boolean is not false) is not false then raise exception 'dividend receipts RLS FAILED: an add to another household''s holding, named with our dividend, saved: %', r; end if;
   p := preview_dividend(null, '{"action": "add", "holding_id": "fd200000-0000-0000-0000-000000000002", "ex_date": "2026-09-01", "units": 1000, "per_share": 5}');
-  if p ->> 'error' is distinct from 'not_member' then raise exception 'dividend receipts RLS FAILED: an add to another household''s holding previewed: %', p; end if;
+  if (p ->> 'error' is distinct from 'not_member') is not false then raise exception 'dividend receipts RLS FAILED: an add to another household''s holding previewed: %', p; end if;
   r := save_dividend(null, '{"action": "add", "holding_id": "fd200000-0000-0000-0000-000000000002", "ex_date": "2026-09-01", "units": 1000, "per_share": 5}', 0, '{}'::jsonb);
-  if r ->> 'error' is distinct from 'not_member' then raise exception 'dividend receipts RLS FAILED: an add to another household''s holding saved: %', r; end if;
+  if (r ->> 'error' is distinct from 'not_member') is not false then raise exception 'dividend receipts RLS FAILED: an add to another household''s holding saved: %', r; end if;
 end $$;
 reset role;
 do $$
 begin
-  if (select source from account_balance_events where account_id = 'fb200000-0000-0000-0000-000000000001' order by id desc limit 1) <> 'app' then
+  if ((select source from account_balance_events where account_id = 'fb200000-0000-0000-0000-000000000001' order by id desc limit 1) <> 'app') is not false then
     raise exception 'dividend receipts RLS FAILED: a member''s receipt was not recorded as the app''s';
   end if;
-  if (select count(*) from holding_dividends where holding_id = 'fd200000-0000-0000-0000-000000000002') <> 1 then
+  if ((select count(*) from holding_dividends where holding_id = 'fd200000-0000-0000-0000-000000000002') <> 1) is not false then
     raise exception 'dividend receipts RLS FAILED: a dividend was added to another household''s holding';
   end if;
 end $$;
@@ -1575,13 +1575,13 @@ do $$
 declare r jsonb;
 begin
   r := keep_dividend('fd100000-0000-0000-0000-000000000001', (select version from holding_dividends where id = 'fd100000-0000-0000-0000-000000000001'));
-  if (r ->> 'ok')::boolean is not true then raise exception 'dividend review RLS FAILED: a member could not keep their own: %', r; end if;
+  if ((r ->> 'ok')::boolean is not true) is not false then raise exception 'dividend review RLS FAILED: a member could not keep their own: %', r; end if;
   r := keep_dividend('fd100000-0000-0000-0000-000000000002', 1);
-  if r ->> 'error' is distinct from 'not_member' then raise exception 'dividend review RLS FAILED: keeping another household''s gave %', r; end if;
+  if (r ->> 'error' is distinct from 'not_member') is not false then raise exception 'dividend review RLS FAILED: keeping another household''s gave %', r; end if;
   r := link_dividend('fd100000-0000-0000-0000-000000000002', 'fd000000-0000-0000-0000-000000000001', 1);
-  if r ->> 'error' is distinct from 'not_member' then raise exception 'dividend review RLS FAILED: linking another household''s gave %', r; end if;
+  if (r ->> 'error' is distinct from 'not_member') is not false then raise exception 'dividend review RLS FAILED: linking another household''s gave %', r; end if;
   r := set_special_part('fd000000-0000-0000-0000-000000000001', 0.3);
-  if (r ->> 'ok')::boolean is not true then raise exception 'dividend review RLS FAILED: a member could not answer for their own: %', r; end if;
+  if ((r ->> 'ok')::boolean is not true) is not false then raise exception 'dividend review RLS FAILED: a member could not answer for their own: %', r; end if;
   raise notice 'dividend review RLS ok: members keep, link and answer for their own household only';
 end $$;
 reset role;
@@ -1609,13 +1609,13 @@ set role authenticated;
 set request.jwt.claim.sub = '0b000000-0000-0000-0000-00000000000b';
 do $$
 begin
-  if (select count(*) from dividend_feed_status() where symbol = 'ABC') <> 1 then
+  if ((select count(*) from dividend_feed_status() where symbol = 'ABC') <> 1) is not false then
     raise exception 'dividend freshness RLS FAILED: a member could not read their own share''s feed state';
   end if;
-  if exists (select 1 from dividend_feed_status() where symbol = 'XYZ') then
+  if (exists (select 1 from dividend_feed_status() where symbol = 'XYZ')) is not false then
     raise exception 'dividend freshness RLS FAILED: a member read another household''s share';
   end if;
-  if exists (select 1 from dividend_feed_status() s where to_jsonb(s) ? 'last_error') then
+  if (exists (select 1 from dividend_feed_status() s where to_jsonb(s) ? 'last_error')) is not false then
     raise exception 'dividend freshness RLS FAILED: the feed''s raw error reached a member';
   end if;
 end $$;
@@ -1653,8 +1653,8 @@ set role authenticated;
 set request.jwt.claim.sub = '0b000000-0000-0000-0000-00000000000b';
 do $$
 begin
-  if (select count(*) from tax_returns) <> 1 or (select count(*) from tax_return_events) <> 1
-     or (select count(*) from tax_statements) <> 1 or (select count(*) from tax_statement_lines) <> 1 then
+  if ((select count(*) from tax_returns) <> 1 or (select count(*) from tax_return_events) <> 1
+     or (select count(*) from tax_statements) <> 1 or (select count(*) from tax_statement_lines) <> 1) is not false then
     raise exception 'tax years RLS FAILED: a member does not see exactly their household''s rows';
   end if;
   begin
@@ -1694,13 +1694,13 @@ do $$
 declare r jsonb;
 begin
   r := save_tax_return('e1000000-0000-0000-0000-00000000000b', 2024, '{"claim_basis": "treaty", "claim_rate_pct": 10}', 0);
-  if (r ->> 'ok')::boolean is not true then raise exception 'tax returns RLS FAILED: a member could not save their own: %', r; end if;
+  if ((r ->> 'ok')::boolean is not true) is not false then raise exception 'tax returns RLS FAILED: a member could not save their own: %', r; end if;
   r := save_tax_return('e1000000-0000-0000-0000-00000000000a', 2024, '{"claim_basis": "treaty", "claim_rate_pct": 10}', 0);
-  if (r ->> 'ok')::boolean is not true then raise exception 'tax returns RLS FAILED: a member could not save their partner''s: %', r; end if;
+  if ((r ->> 'ok')::boolean is not true) is not false then raise exception 'tax returns RLS FAILED: a member could not save their partner''s: %', r; end if;
   r := save_tax_return('e2000000-0000-0000-0000-00000000000a', 2024, '{"claim_basis": "treaty", "claim_rate_pct": 10}', 0);
-  if r ->> 'error' is distinct from 'not_member' then raise exception 'tax returns RLS FAILED: another household''s member gave %', r; end if;
+  if (r ->> 'error' is distinct from 'not_member') is not false then raise exception 'tax returns RLS FAILED: another household''s member gave %', r; end if;
   r := save_tax_return_event('e1000000-0000-0000-0000-00000000000b', 2025, '{"kind": "refund_credited", "happened_on": "2026-09-20", "amount": 1000}');
-  if (r ->> 'ok')::boolean is not true then raise exception 'tax returns RLS FAILED: a member could not record a refund: %', r; end if;
+  if ((r ->> 'ok')::boolean is not true) is not false then raise exception 'tax returns RLS FAILED: a member could not record a refund: %', r; end if;
 end $$;
 reset role;
 set role anon;
@@ -1730,9 +1730,9 @@ do $$
 declare r jsonb;
 begin
   r := set_dividend_tax_year('fe400000-0000-0000-0000-000000000001', 2025, 'declared', 1);
-  if (r ->> 'ok')::boolean is not true then raise exception 'dividend tax year RLS FAILED: a member could not set their own: %', r; end if;
+  if ((r ->> 'ok')::boolean is not true) is not false then raise exception 'dividend tax year RLS FAILED: a member could not set their own: %', r; end if;
   r := set_dividend_tax_year('fe400000-0000-0000-0000-000000000002', 2025, 'declared', 1);
-  if r ->> 'error' is distinct from 'not_member' then raise exception 'dividend tax year RLS FAILED: another household''s gave %', r; end if;
+  if (r ->> 'error' is distinct from 'not_member') is not false then raise exception 'dividend tax year RLS FAILED: another household''s gave %', r; end if;
   raise notice 'dividend tax year RLS ok: a member sets their own household''s, nobody else''s';
 end $$;
 reset role;
@@ -1745,7 +1745,7 @@ declare n int;
 begin
   delete from households where id = 'd1000000-0000-0000-0000-000000000001';
   select count(*) into n from household_members where household_id = 'd1000000-0000-0000-0000-000000000001';
-  if n <> 0 then raise exception 'QA-§8 FAILED: deleting a household left % roster rows', n; end if;
+  if (n <> 0) is not false then raise exception 'QA-§8 FAILED: deleting a household left % roster rows', n; end if;
   raise notice 'QA-§8 ok: deleting a household still cascades its roster away';
 end $$;
 
