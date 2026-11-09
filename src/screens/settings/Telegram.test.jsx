@@ -69,3 +69,22 @@ describe('Telegram: the dividend question', () => {
     expect(within(row).getByText('Off')).toBeTruthy();
   });
 });
+
+// The outside review, E-08: each switch saves only its own column, so two
+// switched in quick succession cannot undo each other.
+describe('Telegram: two switches flipped together', () => {
+  it('saves each switch on its own, never the other one\'s old value', async () => {
+    await act(async () => {
+      renderScreen(<Telegram household={{ id: 'h1' }} loading={false} />);
+    });
+    upserts.length = 0;
+    await act(async () => {
+      fireEvent.click(screen.getByText('Dividends').closest('button'));
+      fireEvent.click(screen.getByText('Card statements').closest('button'));
+    });
+    expect(upserts.map((u) => u.row)).toEqual([
+      { household_id: 'h1', dividends_enabled: false },
+      { household_id: 'h1', statement_enabled: false },
+    ]);
+  });
+});
