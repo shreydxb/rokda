@@ -35,6 +35,25 @@ describe('estimateAed', () => {
   });
 });
 
+// The outside review, B-08: rounded to the fil as the database rounds
+// numerics, half away from zero, the same for a loss as for a gain.
+describe('estimateAed rounding', () => {
+  it('rounds a half fil up, which floating point used to round down', () => {
+    expect(estimateAed(1.005, 'AED', '2026-11-01').aed).toBe(1.01);
+    expect(estimateAed(2.675, 'AED', '2026-11-01').aed).toBe(2.68);
+  });
+
+  it('rounds a loss the same way as a gain', () => {
+    expect(estimateAed(-1.005, 'AED', '2026-11-01').aed).toBe(-1.01);
+    expect(estimateAed(-0.125, 'AED', '2026-11-01').aed).toBe(-0.13);
+    expect(estimateAed(0.125, 'AED', '2026-11-01').aed).toBe(0.13);
+  });
+
+  it('never gives a negative zero', () => {
+    expect(Object.is(estimateAed(-0.001, 'AED', '2026-11-01').aed, 0)).toBe(true);
+  });
+});
+
 describe('historyRowsFromEcb', () => {
   it('turns rupees per dollar into rupees per dirham through the peg, skipping unusable days', () => {
     const rows = historyRowsFromEcb({ rates: { '2026-09-02': { INR: 88.1 }, '2026-09-01': { INR: 73.45 }, bad: { INR: 1 }, '2026-09-03': {} } });
