@@ -8,6 +8,9 @@ export default function EditHistory({ records, members }) {
   const ids = records.map((r) => r.id).join(',');
   const [edits, setEdits] = useState([]);
   const [loading, setLoading] = useState(records.length > 0);
+  // A read that failed is said, not shown as a history with nothing in it
+  // (outside review, E-14).
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     if (!ids) return;
@@ -18,6 +21,7 @@ export default function EditHistory({ records, members }) {
       ids.split(',').map((id) => supabase.from('transaction_edits').select('*').eq('transaction_id', id).order('edited_at', { ascending: false })),
     ).then((results) => {
       if (!cancelled) {
+        setFailed(results.some((r) => r.error));
         setEdits(results.flatMap((r) => r.data ?? []));
         setLoading(false);
       }
@@ -35,6 +39,10 @@ export default function EditHistory({ records, members }) {
         {loading ? (
           <div className="ov-muted" style={{ fontSize: 12 }}>
             Loading…
+          </div>
+        ) : failed ? (
+          <div className="ov-muted" role="alert" style={{ fontSize: 12 }}>
+            {"Couldn't load this record's history. Close it and open it again to retry."}
           </div>
         ) : events.length === 0 ? (
           <div className="ov-muted" style={{ fontSize: 12 }}>

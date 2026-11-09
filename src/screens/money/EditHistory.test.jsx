@@ -8,17 +8,22 @@ const EDITS = [
   { id: 'e1', transaction_id: 'p', field: 'category', old_value: 'Groceries', new_value: 'Dining out', edited_at: '2026-10-15T10:00:00Z', edited_by: 'm1' },
   { id: 'e2', transaction_id: 'r', field: 'category', old_value: 'Groceries', new_value: 'Dining out (follows the purchase it refunds)', edited_at: '2026-10-15T10:00:01Z', edited_by: 'm1' },
 ];
+// Set by a test to make the history read fail, as a dropped connection would.
+const read = vi.hoisted(() => ({ fail: false }));
 vi.mock('../../lib/supabaseClient', () => ({
   supabase: {
     from: () => ({
       select: () => ({
-        eq: (column, id) => ({ order: () => Promise.resolve({ data: EDITS.filter((e) => e[column] === id) }) }),
+        eq: (column, id) => ({
+          order: () => Promise.resolve(read.fail ? { data: null, error: { message: 'the connection dropped' } } : { data: EDITS.filter((e) => e[column] === id) }),
+        }),
       }),
     }),
   },
 }));
 
 const { default: TransactionEditor } = await import('./TransactionEditor');
+const { default: EditHistory } = await import('./EditHistory');
 
 const MEMBERS = [{ id: 'm1', display_name: 'Partner A' }];
 const purchase = { id: 'p', kind: 'expense', amount: -200, merchant: 'Corner Shop', occurred_at: '2026-10-03', account_id: 'a1', is_shared: true };
@@ -48,5 +53,20 @@ describe('A refund\'s history, with its purchase', () => {
       'The purchase · Corner Shop · 3 Oct: Category Groceries → Dining out',
     ]);
     expect(document.querySelector('.te-history .mn-row').textContent).toMatch(/^15 Oct · Partner A/);
+  });
+});
+
+// The outside review, E-14: a history that could not be read is not a
+// history with nothing in it.
+describe('a history that could not be read', () => {
+  it('says so, rather than that there are no edits', async () => {
+    read.fail = true;
+    try {
+      renderScreen(<EditHistory records={[{ id: 'p', label: 'This record' }]} members={MEMBERS} />);
+      await waitFor(() => expect(screen.getByText("Couldn't load this record's history. Close it and open it again to retry.")).toBeTruthy());
+      expect(screen.queryByText('No edits yet.')).toBeNull();
+    } finally {
+      read.fail = false;
+    }
   });
 });
