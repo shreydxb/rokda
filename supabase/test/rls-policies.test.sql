@@ -1187,6 +1187,25 @@ begin
   raise notice 'link code ok: a member links only themselves; an owner links anyone in the household';
 end $$;
 
+-- The roster is readable by every member, so it never holds a live code,
+-- only the code's SHA-256: a member who reads the owner's row cannot send
+-- the owner's code to the bot.
+set request.jwt.claim.sub = '0a000000-0000-0000-0000-00000000000a';
+do $$
+begin
+  perform set_config('rokda.test_owner_code', generate_telegram_link_code('e1000000-0000-0000-0000-00000000000a'), false);
+end $$;
+set request.jwt.claim.sub = '0b000000-0000-0000-0000-00000000000b';
+do $$
+declare code text := current_setting('rokda.test_owner_code'); stored text;
+begin
+  select telegram_link_code into stored from household_members where id = 'e1000000-0000-0000-0000-00000000000a';
+  if stored is null or stored = code or stored <> encode(sha256(convert_to(code, 'UTF8')), 'hex') then
+    raise exception 'link code FAILED: another member read % for the owner''s code %', stored, code;
+  end if;
+  raise notice 'link code ok: the roster holds only the code''s digest';
+end $$;
+
 reset role;
 set role anon;
 do $$

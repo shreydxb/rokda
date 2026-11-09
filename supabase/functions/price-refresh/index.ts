@@ -12,7 +12,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2.117.2";
 import { householdToday } from "../_shared/applib/day.js";
 import { historyRowsFromEcb } from "../_shared/applib/fxHistory.js";
 import { navQuoteTime, quoteTime } from "../_shared/quoteTime.ts";
-import { bearerToken, presentedSchedulerSecret, schedulerSecretMatches } from "../_shared/requestAuth.ts";
+import { bearerToken, presentedSchedulerSecret, schedulerSecretMatches, sessionPassedSecondStep } from "../_shared/requestAuth.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -363,6 +363,10 @@ async function callerMayRefresh(req: Request): Promise<boolean> {
   if (!token) return false;
   const { data: auth, error } = await supabase.auth.getUser(token);
   if (error || !auth?.user) return false;
+  // The membership lookup below uses the service role, which skips the
+  // database's own second-step check, so it is made here: a password alone
+  // refreshes nothing.
+  if (!sessionPassedSecondStep(token)) return false;
   const { data: member, error: memberError } = await supabase
     .from("household_members")
     .select("id")

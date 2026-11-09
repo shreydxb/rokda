@@ -30,7 +30,7 @@ import "jsr:@supabase/functions-js@2.117.2/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2.117.2";
 import { resolveScopeMemberId, scopedValue } from "../_shared/applib/scope.js";
 import { isPrivateChat } from "../_shared/applib/telegramChat.js";
-import { LINK_ATTEMPT_WINDOW_MS, linkAttemptRefusal, linkTokenFromMessage, looksLikeLinkToken } from "../_shared/applib/telegramLink.js";
+import { LINK_ATTEMPT_WINDOW_MS, linkAttemptRefusal, linkTokenDigest, linkTokenFromMessage, looksLikeLinkToken } from "../_shared/applib/telegramLink.js";
 import {
   ambiguousConfirmMessage,
   ambiguousProposalMessage,
@@ -209,6 +209,31 @@ async function settleUpdate(updateId: unknown, status: "completed" | "failed"): 
   } catch {
     // See above.
   }
+}
+
+// What a bare "yes" or "no" resolved to, recorded with the update before it
+// acts (outside review D-02). A bare answer names nothing, so it is resolved
+// against whatever is waiting; if the reply after acting fails and Telegram
+// delivers the answer again, a question asked or an entry captured in the
+// meantime would otherwise be what it resolves to, and be saved without the
+// member ever answering it. A reply or a reaction names its message, so only
+// bare answers need this.
+type AnswerTarget = { kind: "proposal" | "intake"; id: string };
+
+async function recordedAnswerTarget(updateId: unknown): Promise<AnswerTarget | null> {
+  if (typeof updateId !== "number") return null;
+  const { data, error } = await supabase.from("telegram_update_log").select("answer_target").eq("update_id", updateId).maybeSingle();
+  // Not knowing what the first delivery answered is not the same as it
+  // having answered nothing: thrown back, so Telegram tries again.
+  if (error) throw new Error(`reading what an answer was about failed (${error.code ?? "no code"})`);
+  const target = (data as { answer_target?: AnswerTarget | null } | null)?.answer_target ?? null;
+  return target && (target.kind === "proposal" || target.kind === "intake") && typeof target.id === "string" ? target : null;
+}
+
+async function recordAnswerTarget(updateId: unknown, target: AnswerTarget): Promise<void> {
+  if (typeof updateId !== "number") return;
+  const { error } = await supabase.from("telegram_update_log").update({ answer_target: target }).eq("update_id", updateId).is("answer_target", null);
+  if (error) throw new Error(`recording what an answer was about failed (${error.code ?? "no code"})`);
 }
 
 // The handler's only log line. Operational metadata only: where it failed,
@@ -1296,6 +1321,19 @@ export function proposalOutcomeMessage(data: Record<string, unknown>): string {
   const outcome = String(data.outcome ?? "");
   if (outcome === "cancelled") return "You dropped that one, so nothing was changed.";
   if (outcome === "expired") return "That was more than a day ago, so I've let it lapse and changed nothing. Send it again if it still holds.";
+  // An autopay bill no longer on autopay, or stopped: nothing recorded, and
+  // the question closed, since the morning check will not ask about it again.
+  if (outcome === "not_autopay") {
+    const bill = ((data.skipped as Array<{ name?: string }> | undefined) ?? [])[0];
+    return `${bill?.name ?? "That bill"} is no longer on autopay in Rokda, so nothing was recorded and I won't ask about it again. If you paid it yourself, record it with Mark paid under Money → Recurring.`;
+  }
+  // An autopay bill moved account or category since it was asked: nothing
+  // recorded, and the question left open to be asked again about the bill as
+  // it is now.
+  if (outcome === "changed") {
+    const bill = ((data.skipped as Array<{ name?: string }> | undefined) ?? [])[0];
+    return `${bill?.name ?? "That bill"} has moved to another account or category in Rokda since I asked, so nothing was recorded. I'll ask again tomorrow about it as it is now.`;
+  }
   if (outcome !== "applied") return "I can't find that change any more, so nothing was changed. Send it again if it still holds.";
 
   // A second "yes" gets the first answer again, marked as such.
@@ -2326,6 +2364,11 @@ async function householdMembers(householdId: string): Promise<Array<{ id: string
 
 const TRADE_READ_FAILED = "I couldn't read your holdings just now, so nothing was saved. Please send it again in a minute.";
 
+// Telegram lets a bot download files up to 20 MB; a bigger one cannot be
+// fetched however often the update is retried.
+const FILE_TOO_BIG = "That file is too big for me to fetch: Telegram lets bots download files up to 20 MB. Send a smaller photo or a screenshot, or type it.";
+const FILE_TOO_BIG_CAPTION_KEPT = "That file is too big for me to fetch: Telegram lets bots download files up to 20 MB. I've kept its caption; send a smaller photo or a screenshot to add the receipt.";
+
 // Why a trade message could not even be drafted.
 function tradeDraftError(error: string, args: Record<string, unknown>): string {
   switch (error) {
@@ -2467,7 +2510,14 @@ async function askTradeQuestion(
   askingId: string | null = null,
   askedBefore: number[] = [],
 ): Promise<void> {
-  const payload = { draft: { ...draft, awaiting: question.field }, asked_at: new Date().toISOString(), asked_message_ids: askedBefore };
+  // This update counts as having used the draft, as an answer does: if the
+  // question below never reaches the member and Telegram delivers the
+  // message again, it is read as a redelivery and the question is asked
+  // afresh, not taken for an answer to a question nobody saw. This update,
+  // not an earlier one the draft remembers: a stale "yes" asks again about
+  // an older draft (the fresh review of the second group, R1).
+  const lastUpdateId = typeof updateId === "number" ? updateId : draft.lastUpdateId ?? null;
+  const payload = { draft: { ...draft, awaiting: question.field, lastUpdateId }, asked_at: new Date().toISOString(), asked_message_ids: askedBefore };
   let id = askingId;
   if (id) {
     const updated = await supabase.from("bot_proposals").update({ payload }).eq("id", id).eq("status", "asking").select("id");
@@ -2488,13 +2538,21 @@ async function askTradeQuestion(
     if (inserted.error || !inserted.data) throw new Error(`saving a trade question failed (${inserted.error?.code ?? "no row"})`);
     id = (inserted.data as { id: string }).id;
   }
+  // A question Telegram refused, or whose id could not be recorded, is not
+  // an asked question: the update is thrown back so Telegram delivers the
+  // message again, and the redelivery asks it afresh (see lastUpdateId
+  // above). Without its id, a reply to the question would reach nothing.
   // Every question of the draft is kept, so a reply to an earlier one still
   // reaches it once the next has been asked.
   const messageId = await reply(chatId, question.text);
-  if (messageId != null) {
-    await supabase.from("bot_proposals")
-      .update({ prompt_message_id: messageId, payload: { ...payload, asked_message_ids: [...askedBefore, messageId] } })
-      .eq("id", id);
+  if (messageId == null) throw new Error("the trade question was not delivered");
+  const bound = { prompt_message_id: messageId, payload: { ...payload, asked_message_ids: [...askedBefore, messageId] } };
+  let recorded = await supabase.from("bot_proposals").update(bound).eq("id", id);
+  if (recorded.error) recorded = await supabase.from("bot_proposals").update(bound).eq("id", id);
+  if (recorded.error) {
+    // Withdrawn, so the member does not answer a question nothing can match.
+    await tgCall("deleteMessage", { chat_id: chatId, message_id: messageId }).catch(() => {});
+    throw new Error(`recording the trade question failed (${recorded.error.code ?? "no code"})`);
   }
 }
 
@@ -3248,7 +3306,10 @@ async function runAutopayCheck(): Promise<{ checked: number; asked: number }> {
         .filter((m) => m.telegram_user_id != null && (r.is_shared || m.id === r.owner_member_id));
       const accountName = (r.accounts as { name?: string } | null)?.name ?? null;
       for (const m of recipients) {
-        if (await askAutopay({ id: String(r.id), householdId, name: String(r.name), amount, accountName }, m, cycle, todayStr)) asked++;
+        if (await askAutopay({
+          id: String(r.id), householdId, name: String(r.name), amount, accountName,
+          accountId: String(r.account_id), categoryId: r.category_id ? String(r.category_id) : null,
+        }, m, cycle, todayStr)) asked++;
       }
     } catch {
       // One bill failing must never block the rest.
@@ -3260,7 +3321,7 @@ async function runAutopayCheck(): Promise<{ checked: number; asked: number }> {
 // Asks one member about one bill's cycle, once a day. True when a message
 // went out.
 async function askAutopay(
-  bill: { id: string; householdId: string; name: string; amount: number; accountName: string | null },
+  bill: { id: string; householdId: string; name: string; amount: number; accountName: string | null; accountId: string; categoryId: string | null },
   member: { id: string; telegram_user_id: number | null },
   cycle: { due: string; next: string },
   todayStr: string,
@@ -3286,7 +3347,13 @@ async function askAutopay(
         household_id: bill.householdId,
         member_id: member.id,
         kind: "autopay_payment",
-        payload: { recurring_id: bill.id, name: bill.name, amount: bill.amount, account_name: bill.accountName, due_date: cycle.due, next_due: cycle.next, asked_message_ids: [] },
+        // The account and category the question names go with it: a "yes"
+        // after the bill moved to another account records nothing
+        // (apply_bot_proposal; the outside review, D-05).
+        payload: {
+          recurring_id: bill.id, name: bill.name, amount: bill.amount, account_name: bill.accountName,
+          account_id: bill.accountId, category_id: bill.categoryId, due_date: cycle.due, next_due: cycle.next, asked_message_ids: [],
+        },
         chat_id: chatId,
         source_ref: sourceRef,
         expires_at: `${cycle.next}T00:00:00+04:00`,
@@ -3311,10 +3378,20 @@ async function askAutopay(
     if (!reminder) await discardUnaskedProposal(row.id);
     return false;
   }
-  const askedIds = [...((row.payload?.asked_message_ids as number[] | undefined) ?? []), messageId];
+  // The reminder names the bill's account as it is today, so the question
+  // its answer is checked against is that one. When the bill moved account
+  // or category since the last question, the earlier messages, which named
+  // the old one, stop answering it: only this message does.
+  const moved = row.payload?.account_id != null &&
+    (row.payload.account_id !== bill.accountId || (row.payload.category_id ?? null) !== bill.categoryId);
+  const askedIds = [...(moved ? [] : ((row.payload?.asked_message_ids as number[] | undefined) ?? [])), messageId];
+  const payload = {
+    ...row.payload, account_id: bill.accountId, category_id: bill.categoryId, account_name: bill.accountName,
+    asked_message_ids: askedIds, last_asked_on: todayStr,
+  };
   await supabase
     .from("bot_proposals")
-    .update({ prompt_message_id: messageId, payload: { ...row.payload, asked_message_ids: askedIds, last_asked_on: todayStr } })
+    .update({ prompt_message_id: messageId, payload })
     .eq("id", row.id)
     .eq("status", "proposed");
   return true;
@@ -3538,24 +3615,19 @@ async function decideDividends(chatId: number, memberId: string, proposal: Propo
 // "Not yet" (or 👎): it has not arrived. Nothing is recorded, and the
 // dividends are asked about again the next morning.
 async function dividendsNotYet(chatId: number, memberId: string, proposal: ProposalRow): Promise<void> {
-  const payload = proposal.payload as DividendsPayload;
-  const { data, error } = await supabase
-    .from("bot_proposals")
-    .update({ status: "cancelled", decided_at: new Date().toISOString(), result: { kind: "dividends_received", not_yet: true } })
-    .eq("id", proposal.id)
-    .eq("member_id", memberId)
-    .eq("status", "proposed")
-    .select(PROPOSAL_COLUMNS);
-  if (error) {
+  // One call puts off the question and clears its dividends' asked marks, or
+  // neither: the promise to ask tomorrow is only made once both are done.
+  const { data, error } = await supabase.rpc("postpone_dividends_proposal", { p_proposal_id: proposal.id, p_member_id: memberId });
+  const result = data as { ok?: boolean } | null;
+  if (error || !result) {
     await reply(chatId, "I couldn't put that off just now. Nothing has been changed; try again in a moment.");
     return;
   }
-  if (!data?.length) {
+  if (!result.ok) {
     const { data: fresh } = await supabase.from("bot_proposals").select(PROPOSAL_COLUMNS).eq("id", proposal.id).maybeSingle();
     await reply(chatId, decidedProposalMessage((fresh as ProposalRow | null) ?? proposal));
     return;
   }
-  await supabase.rpc("mark_dividends_asked", { p_ids: payload.lines.map((l) => l.dividend_id), p_asked: false });
   await reply(chatId, DIVIDENDS_NOT_YET_REPLY);
 }
 
@@ -4661,10 +4733,13 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
         }
       }
 
+      // The roster holds the code's digest, never the code (any member can
+      // read the roster), so the digest of what was sent is what matches.
+      const candidateDigest = await linkTokenDigest(candidate);
       const { data: pending } = await supabase
         .from("household_members")
         .select("id, display_name")
-        .eq("telegram_link_code", candidate)
+        .eq("telegram_link_code", candidateDigest)
         .gt("telegram_link_code_expires_at", new Date().toISOString())
         .maybeSingle();
 
@@ -4682,7 +4757,7 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
           .from("household_members")
           .update({ telegram_user_id: fromId, telegram_link_code: null, telegram_link_code_expires_at: null })
           .eq("id", pending.id)
-          .eq("telegram_link_code", candidate)
+          .eq("telegram_link_code", candidateDigest)
           .select("id")
           .maybeSingle();
 
@@ -4798,24 +4873,40 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
     const autopay = autopayAnswer(trimmedText);
     const confirming = strictYes || autopay.decision === "paid";
     const cancelling = !confirming && (strictNo || autopay.decision === "not_yet");
+    // Set when this is Telegram delivering again a bare answer that already
+    // resolved to something: it answers that, whatever is waiting now.
+    let replay: AnswerTarget | null = null;
     if (confirming || cancelling) {
       const unaddressed = repliedTo == null;
-      const [proposalLookup, open, recent] = await Promise.all([
-        proposalForPrompt(member.household_id, member.id, chatId, repliedTo),
-        unaddressed ? openProposals(member.household_id, member.id) : Promise.resolve({ rows: [] as ProposalRow[], failed: false }),
-        unaddressed ? recentlyDecidedProposal(member.household_id, member.id) : Promise.resolve({ row: null, failed: false }),
-      ]);
-      // An expense waiting for its own "yes" makes a bare "no" as ambiguous
-      // as a bare "yes": either could be about it.
-      const target = resolveProposalTarget({
-        lookup: proposalLookup.kind,
-        row: proposalLookup.row,
-        open: open.rows,
-        openFailed: open.failed || recent.failed,
-        recentlyDecided: recent.row,
-        readyIntakes: candidates.rows.filter(isConfirmable),
-        truncated: candidates.truncated,
-      });
+      if (unaddressed) replay = await recordedAnswerTarget(updateId);
+      let target: { kind: "one" | "decided"; row: ProposalRow } | { kind: "ambiguous" | "unavailable" | "none" };
+      if (replay?.kind === "proposal") {
+        const { data, error } = await supabase.from("bot_proposals").select(PROPOSAL_COLUMNS)
+          .eq("id", replay.id).eq("member_id", member.id).maybeSingle();
+        if (error) throw new Error(`reading the proposal an answer was about failed (${error.code ?? "no code"})`);
+        const row = data as ProposalRow | null;
+        target = !row ? { kind: "none" } : row.status === "proposed" ? { kind: "one", row } : { kind: "decided", row };
+      } else if (replay?.kind === "intake") {
+        target = { kind: "none" };
+      } else {
+        const [proposalLookup, open, recent] = await Promise.all([
+          proposalForPrompt(member.household_id, member.id, chatId, repliedTo),
+          unaddressed ? openProposals(member.household_id, member.id) : Promise.resolve({ rows: [] as ProposalRow[], failed: false }),
+          unaddressed ? recentlyDecidedProposal(member.household_id, member.id) : Promise.resolve({ row: null, failed: false }),
+        ]);
+        // An expense waiting for its own "yes" makes a bare "no" as ambiguous
+        // as a bare "yes": either could be about it.
+        target = resolveProposalTarget({
+          lookup: proposalLookup.kind,
+          row: proposalLookup.row,
+          open: open.rows,
+          openFailed: open.failed || recent.failed,
+          recentlyDecided: recent.row,
+          readyIntakes: candidates.rows.filter(isConfirmable),
+          truncated: candidates.truncated,
+        });
+        if (unaddressed && target.kind === "one") await recordAnswerTarget(updateId, { kind: "proposal", id: target.row.id });
+      }
       if (target.kind === "one" && target.row.kind === "autopay_payment") {
         await decideAutopay(chatId, member.id, target.row, confirming ? "paid" : "not_yet", confirming ? autopay.amount : null);
         return new Response("ok");
@@ -4845,6 +4936,16 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
     }
 
     if (strictYes) {
+      if (replay?.kind === "intake") {
+        const { data, error } = await supabase.from("intake").select(RECENT_INTAKE_COLUMNS)
+          .eq("id", replay.id).eq("member_id", member.id).maybeSingle();
+        if (error) throw new Error(`reading the entry an answer was about failed (${error.code ?? "no code"})`);
+        const row = data as PendingIntakeRow | null;
+        if (row && isConfirmable(row)) await confirmPendingIntake(chatId, member.household_id, row);
+        else if (row?.status === "approved") await reply(chatId, "That one is already recorded. Anything else waiting needs its own yes.");
+        else await reply(chatId, "That entry changed after your yes, so nothing was recorded. Check it in the Inbox.");
+        return new Response("ok");
+      }
       const target = resolveConfirmTarget({
         lookup: promptLookup.kind,
         row: promptLookup.row,
@@ -4852,6 +4953,7 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
         truncated: candidates.truncated,
       });
       if (target.kind === "one") {
+        if (repliedTo == null) await recordAnswerTarget(updateId, { kind: "intake", id: target.row.id });
         await confirmPendingIntake(chatId, member.household_id, target.row);
         return new Response("ok");
       }
@@ -4954,11 +5056,22 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
           confidence: parsed?.confidence ?? 0,
           date_guessed: parsed?.dateGuessed ?? false,
         };
-        await supabase
+        // The question that showed the old figures is unbound in the same
+        // write: a "yes" to it must not record figures it never showed
+        // (outside review D-01). Only the question about the corrected
+        // figures, sent below, binds the entry again. An entry recorded or
+        // changed since it was read is left alone and said so.
+        const amended = await supabase
           .from("intake")
-          .update({ raw_text: combinedText, ...updatedRow })
+          .update({ raw_text: combinedText, ...updatedRow, confirm_chat_id: null, confirm_message_id: null })
           .eq("id", recentPending.id)
-          .eq("status", "pending");
+          .eq("status", "pending")
+          .select("id");
+        if (amended.error) throw new Error(`saving a correction failed (${amended.error.code ?? "no code"})`);
+        if (!amended.data?.length) {
+          await reply(chatId, "That entry has already been recorded or changed in Rokda, so the correction wasn't applied. Check it in the Inbox.");
+          return new Response("ok");
+        }
 
         const correctionDuplicate = isReadyForFastConfirm(updatedRow)
           // A check that could not run is not a clean check: the entry waits
@@ -5149,30 +5262,36 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
   }
 
   if (fileId) {
-    try {
-      const fileInfo = await tgCall("getFile", { file_id: fileId });
-      const filePath = fileInfo?.result?.file_path as string | undefined;
-      if (filePath) {
-        const fileRes = await telegramFetch(`https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${filePath}`, undefined, "getFile download");
-        const bytes = new Uint8Array(await fileRes.arrayBuffer());
-        const contentType = fileRes.headers.get("content-type") ?? "image/jpeg";
-        const ext = filePath.split(".").pop() || "jpg";
-        const storagePath = `${member.household_id}/${crypto.randomUUID()}.${ext}`;
-        const { error: uploadError } = await supabase.storage
-          .from("telegram-receipts")
-          .upload(storagePath, bytes, { contentType });
-        if (!uploadError) {
-          photoPath = storagePath;
-          // Only images go to the vision model -- a forwarded PDF or other
-          // document still gets stored and reviewed, just without parsing.
-          if (contentType.startsWith("image/") && bytes.length < 15_000_000) {
-            photoBase64 = bytesToBase64(bytes);
-            photoMime = contentType;
-          }
-        }
+    // The receipt is kept, or the update is thrown back for Telegram to
+    // deliver again: a failure here used to fall through, so a photo with no
+    // caption ended the update as handled with nothing saved, and a captioned
+    // one lost its receipt (outside review D-06). Nothing has been written
+    // yet at this point, so a retry repeats nothing. The one failure a retry
+    // cannot fix is a file over the size a bot may download, which is said.
+    const fileInfo = await tgCall("getFile", { file_id: fileId }) as { ok?: boolean; description?: string; result?: { file_path?: string } };
+    if (fileInfo?.ok === false && /file is too big/i.test(fileInfo.description ?? "")) {
+      await reply(chatId, rawText ? FILE_TOO_BIG_CAPTION_KEPT : FILE_TOO_BIG);
+      if (!rawText) return new Response("ok");
+    } else {
+      const filePath = fileInfo?.result?.file_path;
+      if (!filePath) throw new Error(`telegram getFile gave no file (${fileInfo?.ok === false ? "refused" : "no path"})`);
+      const fileRes = await telegramFetch(`https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${filePath}`, undefined, "getFile download");
+      if (!fileRes.ok) throw new Error(`telegram getFile download failed (${fileRes.status})`);
+      const bytes = new Uint8Array(await fileRes.arrayBuffer());
+      const contentType = fileRes.headers.get("content-type") ?? "image/jpeg";
+      const ext = filePath.split(".").pop() || "jpg";
+      const storagePath = `${member.household_id}/${crypto.randomUUID()}.${ext}`;
+      const { error: uploadError } = await supabase.storage
+        .from("telegram-receipts")
+        .upload(storagePath, bytes, { contentType });
+      if (uploadError) throw new Error("storing the receipt failed");
+      photoPath = storagePath;
+      // Only images go to the vision model -- a forwarded PDF or other
+      // document still gets stored and reviewed, just without parsing.
+      if (contentType.startsWith("image/") && bytes.length < 15_000_000) {
+        photoBase64 = bytesToBase64(bytes);
+        photoMime = contentType;
       }
-    } catch {
-      // Photo storage failed -- fall through with whatever text/caption exists.
     }
   }
 

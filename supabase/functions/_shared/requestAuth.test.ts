@@ -3,7 +3,7 @@
 // scheduledCallers.test.ts.
 
 import { assert, assertEquals } from "jsr:@std/assert@1";
-import { bearerToken, MIN_SCHEDULER_SECRET_LENGTH, presentedSchedulerSecret, SCHEDULER_SECRET_HEADER, schedulerSecretMatches, secretsMatch } from "./requestAuth.ts";
+import { bearerToken, MIN_SCHEDULER_SECRET_LENGTH, presentedSchedulerSecret, SCHEDULER_SECRET_HEADER, schedulerSecretMatches, secretsMatch, sessionPassedSecondStep } from "./requestAuth.ts";
 
 function withAuthorization(value: string | null): Request {
   return new Request("http://edge.test/fn", { method: "POST", headers: value === null ? {} : { Authorization: value } });
@@ -92,3 +92,14 @@ Deno.test("a secret matches only itself, and an unset secret matches nothing", (
   assert(!(secretsMatch(secret.slice(0, 16), secret)));
   assert(!(secretsMatch(secret.slice(0, 8).repeat(4), secret)));
 });
+
+Deno.test("a session has passed the second step only when its token says aal2", () => {
+  const token = (claims: Record<string, unknown>) =>
+    `e30.${btoa(JSON.stringify(claims)).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_")}.sig`;
+  assertEquals(sessionPassedSecondStep(token({ aal: "aal2", sub: "x" })), true);
+  assertEquals(sessionPassedSecondStep(token({ aal: "aal1", sub: "x" })), false);
+  assertEquals(sessionPassedSecondStep(token({ sub: "x" })), false);
+  assertEquals(sessionPassedSecondStep("not-a-jwt"), false);
+  assertEquals(sessionPassedSecondStep("a.%%%.c"), false);
+});
+

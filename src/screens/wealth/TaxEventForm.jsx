@@ -72,7 +72,7 @@ export default function TaxEventForm({ memberId, year, taxReturn, event, onSaved
     if (Object.keys(found).length) return;
     setBusy(true);
     const { data, error } = await supabase.rpc('save_tax_return_event', {
-      p_member_id: memberId, p_financial_year: year, p_event: sent, p_event_id: event?.id ?? null,
+      p_member_id: memberId, p_financial_year: year, p_event: sent, p_event_id: event?.id ?? null, p_expected_version: event?.version ?? null,
     });
     if (error || !data?.ok) {
       setBusy(false);

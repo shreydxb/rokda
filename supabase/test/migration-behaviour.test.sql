@@ -651,19 +651,20 @@ begin
     v_codes := v_codes || v_code;
   end loop;
 
-  -- The token is stored on the row and expires; both are what the webhook
-  -- checks before redeeming.
+  -- The token's digest is stored on the row and expires; both are what the
+  -- webhook checks before redeeming. The roster never holds the token itself
+  -- (the outside review, 8 Nov 2026): every member can read it.
   select telegram_link_code, telegram_link_code_expires_at into v_code, v_expires
   from household_members where id = v_member;
-  if v_code <> v_codes[array_length(v_codes, 1)] then
-    raise exception 'QA-#8 FAILED: the latest token was not stored on the member row';
+  if v_code is distinct from encode(sha256(convert_to(v_codes[array_length(v_codes, 1)], 'UTF8')), 'hex') then
+    raise exception 'QA-#8 FAILED: the member row holds %, not the latest token''s digest', v_code;
   end if;
   if v_expires is null or v_expires <= now() or v_expires > now() + interval '16 minutes' then
     raise exception 'QA-#8 FAILED: token expiry is %, expected within the next 15 minutes', v_expires;
   end if;
 
   perform set_config('request.jwt.claim.sub', '', true);
-  raise notice 'QA-#8 ok: link tokens are 32 hex characters from a cryptographic source, stored with a 15-minute expiry';
+  raise notice 'QA-#8 ok: link tokens are 32 hex characters from a cryptographic source, stored as their digest with a 15-minute expiry';
 end $$;
 
 -- QA #8: failed attempts have somewhere to be counted, and it is not readable
@@ -5668,8 +5669,12 @@ end $$;
 create or replace function pg_temp.tx_save(p_change jsonb, p_version integer, p_year integer default 2025) returns jsonb language sql as $$
   select save_tax_return('22222222-2222-2222-2222-0000000000b7', p_year, p_change, p_version);
 $$;
-create or replace function pg_temp.tx_event(p_event jsonb, p_id uuid default null, p_year integer default 2025) returns jsonb language sql as $$
-  select save_tax_return_event('22222222-2222-2222-2222-0000000000b7', p_year, p_event, p_id);
+create or replace function pg_temp.tx_event(p_event jsonb, p_id uuid default null, p_year integer default 2025, p_version integer default null) returns jsonb language sql as $$
+  select save_tax_return_event('22222222-2222-2222-2222-0000000000b7', p_year, p_event, p_id, p_version);
+$$;
+-- A refund record's version now, for the calls that change or remove it.
+create or replace function pg_temp.tx_event_version(p_id uuid) returns integer language sql as $$
+  select version from tax_return_events where id = p_id;
 $$;
 create or replace function pg_temp.tx_version() returns integer language sql as $$
   select version from tax_returns where member_id = '22222222-2222-2222-2222-0000000000b7' and financial_year = 2025;
@@ -5740,18 +5745,18 @@ begin
   if r ->> 'error' is distinct from 'in_future' then raise exception 'TX-16 FAILED: a future date gave %', r; end if;
   r := pg_temp.tx_event('{"kind": "processed", "happened_on": "2026-03-01", "refund_determined": 1, "refund_interest": 0}');
   if r ->> 'error' is distinct from 'bad_input' then raise exception 'TX-16 FAILED: a date before the year ended gave %', r; end if;
-  r := pg_temp.tx_event('{"kind": "refund_credited", "happened_on": "2026-09-20", "amount": 5100}', credit);
+  r := pg_temp.tx_event('{"kind": "refund_credited", "happened_on": "2026-09-20", "amount": 5100}', credit, 2025, pg_temp.tx_event_version(credit));
   if (r ->> 'ok')::boolean is not true or (select string_agg(amount::text, ',') from tax_return_events where kind = 'refund_credited'
       and return_id = (select id from tax_returns where member_id = '22222222-2222-2222-2222-0000000000b7' and financial_year = 2025)) <> '5100.00' then
     raise exception 'TX-16 FAILED: replacing the credit gave %', r;
   end if;
-  r := remove_tax_return_event('22222222-2222-2222-2222-0000000000b7', credit);
+  r := remove_tax_return_event('22222222-2222-2222-2222-0000000000b7', credit, pg_temp.tx_event_version(credit));
   if (r ->> 'ok')::boolean is not true then raise exception 'TX-16 FAILED: removing gave %', r; end if;
-  r := remove_tax_return_event('22222222-2222-2222-2222-0000000000b7', credit);
+  r := remove_tax_return_event('22222222-2222-2222-2222-0000000000b7', credit, 2);
   if r ->> 'error' is distinct from 'event_not_found' then raise exception 'TX-16 FAILED: removing again gave %', r; end if;
-  r := remove_tax_return_event('99999999-9999-9999-9999-99999999000a', processed);
+  r := remove_tax_return_event('99999999-9999-9999-9999-99999999000a', processed, 1);
   if r ->> 'error' is distinct from 'event_not_found' then raise exception 'TX-16 FAILED: another household''s member gave %', r; end if;
-  r := remove_tax_return_event('22222222-2222-2222-2222-222222222222', processed);
+  r := remove_tax_return_event('22222222-2222-2222-2222-222222222222', processed, 1);
   if r ->> 'error' is distinct from 'event_not_found' or not exists (select 1 from tax_return_events where id = processed) then
     raise exception 'TX-16 FAILED: another member of the household gave %', r;
   end if;
@@ -5841,4 +5846,133 @@ begin
   raise notice 'TX-20 ok: a tax year is refused outside the rules';
 end $$;
 
+-- ---------------------------------------------------------------------------
+-- The outside review (8 Nov 2026): hardening.
+-- ---------------------------------------------------------------------------
+
+-- RH-03: a received dividend has all four received figures or none. A null
+-- among them made the arithmetic check null, which a CHECK accepts.
+do $$
+declare d uuid := 'd7d00000-0000-0000-0000-0000000000d1'; r text; f text;
+begin
+  foreach f in array array['received_tax', 'received_fees', 'received_net'] loop
+    r := pg_temp.tx_try(format('update holding_dividends set %I = null where id = %L', f, d));
+    if r <> 'check_violation' then raise exception 'RH-03 FAILED: a received dividend without % gave %', f, r; end if;
+  end loop;
+  r := pg_temp.tx_try(format('update holding_dividends set received_tax = null, received_net = 999 where id = %L', d));
+  if r <> 'check_violation' then raise exception 'RH-03 FAILED: a made-up net beside a missing tax gave %', r; end if;
+  raise notice 'RH-03 ok: a receipt has all its figures or none';
+end $$;
+
+-- RH-01: a refund record is changed or removed only at the version it was
+-- opened on, so a correction saved meanwhile is never silently undone.
+do $$
+declare r jsonb; e uuid;
+begin
+  r := pg_temp.tx_event('{"kind": "offset_against_demand", "happened_on": "2026-10-01", "amount": 1000}');
+  e := (r ->> 'id')::uuid;
+  if (r ->> 'version')::int is distinct from 1 then raise exception 'RH-01 FAILED: a new record gave %', r; end if;
+  r := pg_temp.tx_event('{"kind": "offset_against_demand", "happened_on": "2026-10-01", "amount": 1200}', e, 2025, 1);
+  if (r ->> 'version')::int is distinct from 2 then raise exception 'RH-01 FAILED: a correction gave %', r; end if;
+  r := pg_temp.tx_event('{"kind": "offset_against_demand", "happened_on": "2026-10-01", "amount": 1000, "note": "late"}', e, 2025, 1);
+  if r ->> 'error' is distinct from 'stale' then raise exception 'RH-01 FAILED: an edit opened before the correction gave %', r; end if;
+  r := pg_temp.tx_event('{"kind": "offset_against_demand", "happened_on": "2026-10-01", "amount": 1000}', e, 2025, null);
+  if r ->> 'error' is distinct from 'bad_input' then raise exception 'RH-01 FAILED: a change without its version gave %', r; end if;
+  r := remove_tax_return_event('22222222-2222-2222-2222-0000000000b7', e, 1);
+  if r ->> 'error' is distinct from 'stale' then raise exception 'RH-01 FAILED: a removal opened before the correction gave %', r; end if;
+  if (select amount from tax_return_events where id = e) <> 1200 then raise exception 'RH-01 FAILED: the correction was undone'; end if;
+  raise notice 'RH-01 ok: a refund record changes only at the version it was opened on';
+end $$;
+
+-- RH-05: an autopay question records on the account and category it named.
+-- If the bill moved to another account or category, or came off autopay,
+-- since it was asked, the "yes" records nothing and says so, and the question
+-- stays open for the morning check to ask again about the bill as it is now.
+do $$
+declare hh uuid := '11111111-1111-1111-1111-111111111111'; m uuid := '22222222-2222-2222-2222-0000000000b7';
+  bank_a uuid := 'a5000000-0000-4000-8000-0000000000a1'; bank_b uuid := 'a5000000-0000-4000-8000-0000000000b1';
+  cat uuid := 'a5000000-0000-4000-8000-0000000000c1'; bill uuid := 'a5000000-0000-4000-8000-0000000000e1'; r jsonb; n int;
+begin
+  insert into accounts (id, household_id, name, type, balance, is_shared) values (bank_a, hh, 'RH Bank A', 'checking', 0, true), (bank_b, hh, 'RH Bank B', 'checking', 0, true);
+  insert into categories (id, household_id, name, kind) values (cat, hh, 'RH EMI', 'expense');
+  insert into recurring (id, household_id, name, account_id, category_id, is_shared, amount, cadence, next_due_date, autopay)
+  values (bill, hh, 'RH EMI', bank_a, cat, true, -2000, 'monthly', '2026-10-03', true);
+  insert into bot_proposals (id, household_id, member_id, kind, payload, chat_id) values
+    ('a5000000-0000-4000-8000-0000000000f1', hh, m, 'autopay_payment',
+     jsonb_build_object('recurring_id', bill, 'name', 'RH EMI', 'amount', 2000, 'due_date', '2026-10-03', 'account_id', bank_a, 'category_id', cat), 1),
+    ('a5000000-0000-4000-8000-0000000000f2', hh, m, 'autopay_payment',
+     jsonb_build_object('recurring_id', bill, 'name', 'RH EMI', 'amount', 2000, 'due_date', '2026-11-03', 'account_id', bank_a, 'category_id', cat), 1),
+    ('a5000000-0000-4000-8000-0000000000f3', hh, m, 'autopay_payment',
+     jsonb_build_object('recurring_id', bill, 'name', 'RH EMI', 'amount', 2000, 'due_date', '2026-12-03', 'account_id', bank_a, 'category_id', cat), 1);
+  -- The bill moved to Bank B after the October question was asked.
+  update recurring set account_id = bank_b where id = bill;
+  r := apply_bot_proposal('a5000000-0000-4000-8000-0000000000f1', m);
+  if r ->> 'outcome' is distinct from 'changed' or jsonb_array_length(r -> 'applied') <> 0 or r -> 'skipped' -> 0 ->> 'reason' is distinct from 'changed' then
+    raise exception 'RH-05 FAILED: a bill moved to another account gave %', r;
+  end if;
+  if (select status from bot_proposals where id = 'a5000000-0000-4000-8000-0000000000f1') <> 'proposed' then
+    raise exception 'RH-05 FAILED: a question refused as changed was closed (%)', (select status from bot_proposals where id = 'a5000000-0000-4000-8000-0000000000f1');
+  end if;
+  -- Back on Bank A but off autopay: nothing recorded, and nothing will ask
+  -- about it again, so the question and the other member's copy are closed.
+  insert into bot_proposals (id, household_id, member_id, kind, payload, chat_id) values
+    ('a5000000-0000-4000-8000-0000000000f4', hh, '22222222-2222-2222-2222-222222222222', 'autopay_payment',
+     jsonb_build_object('recurring_id', bill, 'name', 'RH EMI', 'amount', 2000, 'due_date', '2026-11-03', 'account_id', bank_a, 'category_id', cat), 2);
+  update recurring set account_id = bank_a, autopay = false where id = bill;
+  r := apply_bot_proposal('a5000000-0000-4000-8000-0000000000f2', m);
+  if r ->> 'outcome' is distinct from 'not_autopay' or r -> 'skipped' -> 0 ->> 'reason' is distinct from 'not_autopay' then
+    raise exception 'RH-05 FAILED: a bill off autopay gave %', r;
+  end if;
+  if (select count(*) from bot_proposals where id in ('a5000000-0000-4000-8000-0000000000f2', 'a5000000-0000-4000-8000-0000000000f4') and status = 'expired') <> 2 then
+    raise exception 'RH-05 FAILED: a bill off autopay left its questions open';
+  end if;
+  select count(*) into n from transactions where account_id in (bank_a, bank_b);
+  if n <> 0 then raise exception 'RH-05 FAILED: % payments recorded for a changed bill', n; end if;
+  -- As asked: recorded on the account the question named.
+  update recurring set autopay = true where id = bill;
+  r := apply_bot_proposal('a5000000-0000-4000-8000-0000000000f3', m);
+  if (select account_id from transactions where id = (r -> 'applied' -> 0 ->> 'transaction_id')::uuid) is distinct from bank_a then
+    raise exception 'RH-05 FAILED: an unchanged bill gave %', r;
+  end if;
+  raise notice 'RH-05 ok: an autopay "yes" records only on the account and category it named';
+end $$;
+
+-- RH-08: "not yet" cancels the question and clears its dividends' asked
+-- marks together, so the morning check asks again; a question already
+-- answered, or someone else's, is left as it is.
+do $$
+declare hh uuid := '11111111-1111-1111-1111-111111111111'; m uuid := '22222222-2222-2222-2222-0000000000b7';
+  d uuid := 'd7d00000-0000-0000-0000-0000000000d1'; p uuid := 'a8000000-0000-4000-8000-0000000000f1'; r jsonb;
+begin
+  update holding_dividends set asked_at = now() where id = d;
+  insert into bot_proposals (id, household_id, member_id, kind, payload, chat_id) values
+    (p, hh, m, 'dividends_received', jsonb_build_object('lines', jsonb_build_array(jsonb_build_object('dividend_id', d))), 1);
+  r := postpone_dividends_proposal(p, '22222222-2222-2222-2222-222222222222');
+  if r ->> 'status' is distinct from 'not_yours' then raise exception 'RH-08 FAILED: another member''s "not yet" gave %', r; end if;
+  r := postpone_dividends_proposal(p, m);
+  if (r ->> 'ok')::boolean is not true or (select status from bot_proposals where id = p) <> 'cancelled'
+     or (select asked_at from holding_dividends where id = d) is not null then
+    raise exception 'RH-08 FAILED: "not yet" gave % and left %', r, (select row_to_json(x) from (select status, result from bot_proposals where id = p) x);
+  end if;
+  r := postpone_dividends_proposal(p, m);
+  if (r ->> 'ok')::boolean or r ->> 'status' is distinct from 'cancelled' then raise exception 'RH-08 FAILED: a second "not yet" gave %', r; end if;
+  raise notice 'RH-08 ok: "not yet" puts off the question and its dividends together';
+end $$;
+
+
+-- RH-09: what a bare answer resolved to is a proposal or an entry, by id, or
+-- nothing; anything else is refused rather than read as no target.
+do $$
+declare r text;
+begin
+  insert into telegram_update_log (update_id, status) values (9000909, 'processing');
+  update telegram_update_log set answer_target = '{"kind": "proposal", "id": "a8000000-0000-4000-8000-0000000000f1"}' where update_id = 9000909;
+  update telegram_update_log set answer_target = '{"kind": "intake", "id": "a8000000-0000-4000-8000-0000000000f1"}' where update_id = 9000909;
+  foreach r in array array['{"kind": "proposal"}', '{"id": "a8000000-0000-4000-8000-0000000000f1"}', '{"kind": "goal", "id": "a8000000-0000-4000-8000-0000000000f1"}', '{"kind": "intake", "id": "7"}', '["proposal"]', '"proposal"'] loop
+    if pg_temp.tx_try(format('update telegram_update_log set answer_target = %L where update_id = 9000909', r)) <> 'check_violation' then
+      raise exception 'RH-09 FAILED: the target % was accepted', r;
+    end if;
+  end loop;
+  raise notice 'RH-09 ok: a recorded answer names a proposal or an entry by id';
+end $$;
 rollback;

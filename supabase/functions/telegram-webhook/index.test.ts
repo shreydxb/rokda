@@ -15,6 +15,7 @@
 // This file proves the handler reacts correctly to what the database says.
 
 import { assert, assertEquals } from "jsr:@std/assert@1";
+import { linkTokenDigest } from "../_shared/applib/telegramLink.js";
 
 const SUPABASE_URL = "http://supabase.test";
 const TOKEN = "123456:SYNTHETIC-TEST-TOKEN-not-real";
@@ -35,7 +36,7 @@ type Row = Record<string, unknown>;
 type Backend = {
   now: number;
   tables: Record<string, Row[]>;
-  log: Map<number, { status: string; claimed_at: number; attempts: number }>;
+  log: Map<number, { status: string; claimed_at: number; attempts: number; answer_target?: Row | null }>;
   telegramSent: Array<{ method: string; body: Row }>;
   telegramDeleted: number[];
   requests: Array<{ method: string; path: string }>;
@@ -58,6 +59,11 @@ type Backend = {
     failWrites?: string[];
     // OpenRouter answers 429 (too many requests) to its first N calls.
     aiBusyFirst?: number;
+    // Telegram's getFile refuses (a 429) or says the file is too big for a bot.
+    getFile?: "refuse" | "too_big";
+    // Downloading the file, or storing it, fails.
+    downloadFails?: boolean;
+    storageFails?: boolean;
   };
   // Calls OpenRouter has received.
   aiCalls: number;
@@ -79,6 +85,10 @@ type Backend = {
   phrasePrompts: string[];
   applyCalls: number;
   approveCalls: number;
+  // Database functions that answer with an error, as a failed call would.
+  failRpc?: Set<string>;
+  // Runs on each AI call: something changing in Rokda while a message is read.
+  onAiCall?: () => void;
 };
 
 let backend: Backend;
@@ -274,6 +284,14 @@ async function postgrest(req: Request, url: URL): Promise<Response> {
     if (backend.faults.failReads?.includes(table)) {
       return json({ code: "57014", message: "canceling statement due to statement timeout" }, 500);
     }
+    // Claims live in backend.log (see PATCH below).
+    if (table === "telegram_update_log") {
+      const id = Number((url.searchParams.get("update_id") ?? "").replace(/^eq\./, ""));
+      const entry = backend.log.get(id);
+      const found = entry ? [{ update_id: id, status: entry.status, answer_target: entry.answer_target ?? null }] : [];
+      if (wantsObject) return found.length === 1 ? json(found[0]) : json({ code: "PGRST116", message: "not one row" }, 406);
+      return json(found);
+    }
     let found = rows.filter((r) => matches(r, url.searchParams));
     // order=col.asc, as the paged reads end every query with a unique column.
     const order = url.searchParams.get("order");
@@ -324,6 +342,11 @@ async function postgrest(req: Request, url: URL): Promise<Response> {
       const id = Number((url.searchParams.get("update_id") ?? "").replace(/^eq\./, ""));
       const entry = backend.log.get(id);
       if (entry && typeof patch.status === "string") entry.status = patch.status;
+      // What a bare answer resolved to, recorded once (answer_target=is.null).
+      if (entry && "answer_target" in patch) {
+        if (backend.faults.failWrites?.includes(table)) return json({ code: "57014", message: "canceling statement due to statement timeout" }, 500);
+        if (url.searchParams.get("answer_target") !== "is.null" || entry.answer_target == null) entry.answer_target = patch.answer_target;
+      }
       return new Response(null, { status: 204 });
     }
     if (table === "statement_reconciliations" && "asked_prompts" in patch && backend.faults.failStatementBinding) {
@@ -451,6 +474,18 @@ function applyProposal(id: string, memberId: string): Row {
     const bill = backend.tables.recurring.find((r) => r.id === payload.recurring_id && r.household_id === p.household_id);
     if (!bill) {
       skipped.push({ reason: "unavailable" });
+    } else if (bill.active === false || bill.autopay !== true) {
+      // Closed, with every copy of it: nothing will ask about it again.
+      const skippedNow = [{ recurring_id: bill.id, name: bill.name, reason: "not_autopay" }];
+      for (const q of backend.tables.bot_proposals) {
+        if (q.kind === "autopay_payment" && q.status === "proposed" && (q.payload as Row).recurring_id === bill.id && (q.payload as Row).due_date === payload.due_date) {
+          Object.assign(q, { status: "expired", decided_at: new Date().toISOString(), result: { kind: p.kind, applied: [], skipped: skippedNow } });
+        }
+      }
+      return { outcome: "not_autopay", kind: p.kind, applied: [], skipped: skippedNow };
+    } else if ("account_id" in payload && (bill.account_id !== payload.account_id || (bill.category_id ?? null) !== (payload.category_id ?? null))) {
+      // Left open, unrecorded: asked again about the bill as it is now.
+      return { outcome: "changed", kind: p.kind, applied: [], skipped: [{ recurring_id: bill.id, name: bill.name, reason: "changed" }] };
     } else {
       const already = backend.tables.transactions.some((t) => t.account_id === bill.account_id && t.occurred_at === payload.due_date);
       if (!already) {
@@ -527,12 +562,29 @@ async function rpc(req: Request, fn: string): Promise<Response> {
       new_holding: true,
     });
   }
+  if (backend.failRpc?.has(fn)) return json({ code: "57014", message: "canceling statement due to statement timeout" }, 500);
   if (fn === "get_telegram_webhook_secret") return json(SECRET);
+  // As the real function: cancels the question and clears its dividends'
+  // asked marks together, or neither.
+  if (fn === "postpone_dividends_proposal") {
+    const p = backend.tables.bot_proposals.find((r) => r.id === args.p_proposal_id);
+    if (!p) return json({ ok: false, status: "not_found" });
+    if (p.member_id !== args.p_member_id) return json({ ok: false, status: "not_yours" });
+    if (p.status !== "proposed") return json({ ok: false, status: p.status, result: p.result });
+    Object.assign(p, { status: "cancelled", decided_at: new Date().toISOString(), result: { kind: "dividends_received", not_yet: true } });
+    const ids = ((p.payload as Row).lines as Row[]).map((l) => String(l.dividend_id));
+    for (const d of backend.tables.holding_dividends ?? []) if (ids.includes(String(d.id))) d.asked_at = null;
+    return json({ ok: true });
+  }
   if (fn === "apply_bot_proposal") {
     backend.applyCalls += 1;
     return json(applyProposal(String(args.p_proposal_id), String(args.p_member_id)));
   }
-  if (fn === "approve_intake") backend.approveCalls += 1;
+  if (fn === "approve_intake") {
+    backend.approveCalls += 1;
+    const row = backend.tables.intake.find((r) => r.id === args.p_intake_id);
+    if (row) row.status = "approved";
+  }
   if (fn === "mark_dividends_asked") {
     for (const d of backend.tables.holding_dividends ?? []) {
       if ((args.p_ids as string[]).includes(String(d.id))) d.asked_at = args.p_asked === false ? null : new Date().toISOString();
@@ -570,6 +622,16 @@ function denoStyleFetchError(url: string): TypeError {
 async function telegram(req: Request, url: URL): Promise<Response> {
   const method = url.pathname.split("/").pop() ?? "";
   if (backend.faults.telegramDns) throw denoStyleFetchError(url.toString());
+  // A file's bytes, from Telegram's file server.
+  if (url.pathname.startsWith("/file/")) {
+    if (backend.faults.downloadFails) return new Response("bad gateway", { status: 502 });
+    return new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xd9]), { headers: { "Content-Type": "image/jpeg" } });
+  }
+  if (method === "getFile") {
+    if (backend.faults.getFile === "refuse") return json({ ok: false, error_code: 429, description: "Too Many Requests: retry after 5" });
+    if (backend.faults.getFile === "too_big") return json({ ok: false, error_code: 400, description: "Bad Request: file is too big" });
+    return json({ ok: true, result: { file_id: "F1", file_path: "photos/file_1.jpg" } });
+  }
   const body = await req.json().catch(() => ({}));
   if (method === "sendMessage") {
     sendCount += 1;
@@ -589,6 +651,7 @@ async function telegram(req: Request, url: URL): Promise<Response> {
 async function openrouter(req: Request): Promise<Response> {
   const body = await req.json();
   backend.aiCalls += 1;
+  backend.onAiCall?.();
   if (backend.faults.aiBusyFirst && backend.aiCalls <= backend.faults.aiBusyFirst) {
     return json({ error: { code: 429, message: "Rate limit exceeded" } }, 429);
   }
@@ -627,7 +690,10 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   if (url.origin === SUPABASE_URL) {
     if (url.pathname.startsWith("/rest/v1/rpc/")) return await rpc(req, url.pathname.split("/").pop()!);
     if (url.pathname.startsWith("/rest/v1/")) return await postgrest(req, url);
-    if (url.pathname.startsWith("/storage/")) return json({ Key: "ok" });
+    if (url.pathname.startsWith("/storage/")) {
+      if (backend.faults.storageFails) return json({ statusCode: "500", error: "internal", message: "storage unavailable" }, 500);
+      return json({ Key: "ok" });
+    }
   }
   if (url.hostname === "api.telegram.org") return await telegram(req, url);
   if (url.hostname === "openrouter.ai") return await openrouter(req);
@@ -672,6 +738,21 @@ function textUpdate(updateId: number, text: string): Request {
         text,
         chat: { id: TELEGRAM_USER, type: "private" },
         from: { id: TELEGRAM_USER, is_bot: false, first_name: "T" },
+      },
+    }),
+  });
+}
+
+// A photo, with or without a caption.
+function photoUpdate(updateId: number, caption?: string): Request {
+  return new Request("http://edge.test/telegram-webhook", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Telegram-Bot-Api-Secret-Token": SECRET },
+    body: JSON.stringify({
+      update_id: updateId,
+      message: {
+        message_id: 2, date: 1, ...(caption ? { caption } : {}), photo: [{ file_id: "F0" }, { file_id: "F1" }],
+        chat: { id: TELEGRAM_USER, type: "private" }, from: { id: TELEGRAM_USER, is_bot: false, first_name: "T" },
       },
     }),
   });
@@ -749,12 +830,64 @@ function freshTest(name: string, fn: () => Promise<void>): void {
 // The acceptance cases
 // ---------------------------------------------------------------------------
 
+// A-01: the roster holds only the code's digest, so a member who reads
+// another's row learns nothing that links Telegram as them.
+freshTest("a link code is matched by its digest, and the stored digest links nobody", async () => {
+  const CODE = "0f8cb1e4a2d94f6b8c1e2a3b4c5d6e7f";
+  const digest = await linkTokenDigest(CODE);
+  Object.assign(backend.tables.household_members[0], {
+    telegram_user_id: null, telegram_link_code: digest, telegram_link_code_expires_at: "2099-01-01T00:00:00Z",
+  });
+  await handler(textUpdate(7101, digest));
+  assertEquals(backend.tables.household_members[0].telegram_user_id, null, "the stored digest linked Telegram");
+  const res = await handler(textUpdate(7102, CODE));
+  assertEquals(res.status, 200);
+  assertEquals(backend.tables.household_members[0].telegram_user_id, TELEGRAM_USER, "the code did not link Telegram");
+  assertEquals(backend.tables.household_members[0].telegram_link_code, null);
+  assert(lastReply().startsWith("Linked as Tester."), lastReply());
+});
+
 freshTest("an ordinary expense is captured once and its claim completed", async () => {
   const res = await handler(textUpdate(7001, "spent 40 on lunch"));
   assertEquals(res.status, 200);
   assertEquals(capturedIntake().length, 1);
   assertEquals(capturedIntake()[0].source_ref, "7001");
   assertEquals(backend.log.get(7001)?.status, "completed");
+});
+
+// D-06: a receipt is kept, or Telegram is asked to send it again. A failure
+// to fetch or store it must never end the update with nothing saved.
+freshTest("a receipt photo is stored and captured", async () => {
+  const res = await handler(photoUpdate(7011));
+  assertEquals(res.status, 200);
+  assertEquals(capturedIntake().length, 1);
+  assert(String(capturedIntake()[0].photo_path ?? "").endsWith(".jpg"), JSON.stringify(capturedIntake()[0]));
+});
+
+for (const [name, fault] of [
+  ["Telegram refuses to give the file", { getFile: "refuse" }],
+  ["the download fails", { downloadFails: true }],
+  ["storing it fails", { storageFails: true }],
+] as const) {
+  freshTest(`a receipt photo is retried when ${name}, and captured once it works`, async () => {
+    Object.assign(backend.faults, fault);
+    const first = await handler(photoUpdate(7012));
+    assertEquals(first.status, 500);
+    assertEquals(capturedIntake().length, 0);
+    assertEquals(backend.log.get(7012)?.status, "failed");
+    backend.faults = {};
+    const retried = await handler(photoUpdate(7012));
+    assertEquals(retried.status, 200);
+    assertEquals(capturedIntake().length, 1);
+  });
+}
+
+freshTest("a file too big for a bot to fetch is said so, not retried for ever", async () => {
+  backend.faults.getFile = "too_big";
+  const res = await handler(photoUpdate(7013));
+  assertEquals(res.status, 200);
+  assertEquals(capturedIntake().length, 0);
+  assert(lastReply().startsWith("That file is too big for me to fetch"), lastReply());
 });
 
 freshTest("a database error on the claim processes nothing and asks Telegram to retry", async () => {
@@ -1115,6 +1248,48 @@ freshTest("a pasted SMS with no date waits in the Inbox instead of being offered
   assert(backend.parsePrompts[0].includes("never fill in today's date yourself"), "the parser was not told to leave a missing date empty");
 });
 
+// D-01: a correction changes the figures, so the question that showed the
+// old ones must stop resolving to the entry, even when no new question about
+// the corrected figures could be asked.
+freshTest("a correction unbinds the question it replaced, so a yes to that question records nothing", async () => {
+  backend.tables.accounts.push(MARRIOTT, NOON);
+  backend.tables.categories.push({ id: "cat-dining", household_id: HOUSEHOLD, name: "Dining Out", archived: false, is_savings: false });
+  backend.tables.intake.push({
+    id: "99990000-0000-4000-8000-000000000011", household_id: HOUSEHOLD, member_id: MEMBER, status: "pending", raw_text: "Noon 40",
+    created_at: new Date().toISOString(), parsed_merchant: "Noon", parsed_amount: 40, parsed_date: "2026-09-24", parsed_category_id: "cat-dining",
+    parsed_account_id: NOON.id, parsed_currency: "AED", parsed_kind: "expense", confidence: 1, date_guessed: false,
+    confirm_chat_id: TELEGRAM_USER, confirm_message_id: 555,
+  });
+  backend.route = { tool: "update_last_expense", args: {} };
+  backend.parse = [{ merchant: "Noon", amount: 45, currency: "AED", occurred_at: "2026-09-24", date_stated: true, source: "typed", category: "Dining Out", card_last4: null, account_hint: "ENBD Noon", confidence: 1, kind: "expense" }];
+  // The question about the corrected figures never reaches the member.
+  backend.faults.refuseFirstSends = 1;
+  await handler(replyUpdate(7111, "actually 45", 555));
+  const corrected = backend.tables.intake.find((r) => r.id === "99990000-0000-4000-8000-000000000011")!;
+  assertEquals(corrected.parsed_amount, 45);
+  assertEquals(corrected.confirm_message_id, null, "the question about 40 still points at the entry");
+
+  await handler(replyUpdate(7112, "yes", 555));
+  assertEquals(backend.approveCalls, 0, "a yes to the question about 40 recorded 45");
+  assert(lastReply().includes("I can't tell which entry that reply is about"), lastReply());
+});
+
+freshTest("a correction to an entry recorded in the meantime says so, not that it was updated", async () => {
+  backend.tables.intake.push({
+    id: "99990000-0000-4000-8000-000000000012", household_id: HOUSEHOLD, member_id: MEMBER, status: "pending", raw_text: "Noon 40",
+    created_at: new Date().toISOString(), parsed_merchant: "Noon", parsed_amount: 40, parsed_date: "2026-09-24", parsed_category_id: null,
+    parsed_account_id: null, parsed_currency: "AED", parsed_kind: "expense", confidence: 1, date_guessed: false,
+    confirm_chat_id: TELEGRAM_USER, confirm_message_id: 556,
+  });
+  backend.route = { tool: "update_last_expense", args: {} };
+  backend.parse = [{ merchant: "Noon", amount: 45, currency: "AED", occurred_at: "2026-09-24", date_stated: true, source: "typed", category: null, card_last4: null, account_hint: null, confidence: 1, kind: "expense" }];
+  // Approved in the Inbox while the correction was being read.
+  backend.onAiCall = () => { backend.tables.intake.find((r) => r.id === "99990000-0000-4000-8000-000000000012")!.status = "approved"; };
+  await handler(replyUpdate(7113, "actually 45", 556));
+  assertEquals(backend.tables.intake.find((r) => r.id === "99990000-0000-4000-8000-000000000012")!.parsed_amount, 40);
+  assert(lastReply().includes("already been recorded or changed"), lastReply());
+});
+
 Deno.test("a brand does not inherit the category of its own sub-service", () => {
   // Plain "Noon" is the marketplace; "Noon Minutes" is grocery delivery.
   assertEquals(merchantHistoryMatches("Noon", "Noon Minutes"), false);
@@ -1425,6 +1600,50 @@ freshTest("a second bare yes, or the first delivered twice, says what was saved 
   assertEquals(backend.applyCalls, 1);
 });
 
+// D-02: a bare answer is recorded with the update before it acts, so
+// Telegram delivering it again answers what it first meant, never a question
+// asked or an entry captured in between.
+freshTest("a bare yes delivered again answers what it first meant, not a question asked since", async () => {
+  seedCheckinHousehold();
+  backend.route = { tool: "update_account_balances", args: { balances: [{ account: "Bank", balance: 10000 }] } };
+  await handler(textUpdate(7361, "Bank 10,000"));
+  backend.route = { tool: "log_expense", args: {} };
+  backend.faults.failFirstSends = sendCount + 1;
+  assertEquals((await handler(textUpdate(7362, "yes"))).status, 500);
+  assertEquals(balancesOf().get(MY_BANK.id), 10000);
+  // Before Telegram delivers the "yes" again, another question is asked.
+  const later = "b0000000-0000-4000-8000-000000000362";
+  backend.tables.bot_proposals.push({
+    id: later, household_id: HOUSEHOLD, member_id: MEMBER, kind: "goal_contribution",
+    payload: { goal_id: GOAL, goal_name: "House", amount: 500 }, chat_id: TELEGRAM_USER, source_ref: "7363", status: "proposed",
+    prompt_message_id: 999, created_at: new Date().toISOString(), expires_at: new Date(Date.now() + 86400000).toISOString(), decided_at: null, result: null,
+  });
+  assertEquals((await handler(textUpdate(7362, "yes"))).status, 200);
+  assertEquals(backend.applyCalls, 1, "the yes delivered again applied the question asked since");
+  assertEquals(backend.tables.bot_proposals.find((r) => r.id === later)?.status, "proposed");
+  assert(lastReply().startsWith("Already saved"), lastReply());
+});
+
+freshTest("a bare yes to an expense delivered again does not record one captured since", async () => {
+  backend.tables.accounts.push(MARRIOTT, NOON);
+  const entry = (id: string, merchant: string) => ({
+    id, household_id: HOUSEHOLD, member_id: MEMBER, status: "pending", raw_text: `${merchant} 40`,
+    created_at: new Date().toISOString(), parsed_merchant: merchant, parsed_amount: 40, parsed_date: "2026-09-24", parsed_category_id: "cat-dining",
+    parsed_account_id: NOON.id, parsed_currency: "AED", parsed_kind: "expense", confidence: 1, date_guessed: false,
+    confirm_chat_id: null, confirm_message_id: null,
+  });
+  backend.tables.intake.push(entry("99990000-0000-4000-8000-000000000371", "Cafe"));
+  // The "Recorded" reply and the apology after it both fail.
+  backend.faults.failFirstSends = sendCount + 2;
+  assertEquals((await handler(textUpdate(7371, "yes"))).status, 500);
+  assertEquals(backend.approveCalls, 1);
+  backend.tables.intake.push(entry("99990000-0000-4000-8000-000000000372", "Bakery"));
+  assertEquals((await handler(textUpdate(7371, "yes"))).status, 200);
+  assertEquals(backend.approveCalls, 1, "the yes delivered again recorded the entry captured since");
+  assertEquals(backend.tables.intake.find((r) => r.id === "99990000-0000-4000-8000-000000000372")?.status, "pending");
+  assert(lastReply().startsWith("That one is already recorded"), lastReply());
+});
+
 freshTest("a question whose id could not be recorded is withdrawn and asked again, and that one is answerable", async () => {
   seedCheckinHousehold();
   backend.route = { tool: "update_account_balances", args: { balances: [{ account: "Bank", balance: 10000 }] } };
@@ -1554,6 +1773,67 @@ freshTest("an autopay bill is asked about on its due date, once a day", async ()
   await again.body?.cancel();
   assertEquals(autopayQuestions().length, 1);
   assertEquals(backend.tables.bot_proposals.filter((p) => p.kind === "autopay_payment").length, 1);
+});
+
+// D-05: the question keeps the account and category it named, so a "yes"
+// after the bill changed records nothing and says why.
+freshTest("an autopay question keeps the bill's account, and a changed bill records nothing", async () => {
+  const proposal = await askedEmi();
+  assertEquals((proposal.payload as Row).account_id, BANK);
+  assertEquals((proposal.payload as Row).category_id, null);
+  const bill = backend.tables.recurring.find((r) => r.id === EMI)!;
+  bill.account_id = "a7000000-0000-4000-8000-0000000000b2";
+  await handler(reactionUpdate(9201, Number(proposal.prompt_message_id), "👍"));
+  assertEquals(backend.tables.transactions.length, 0);
+  assert(/^Car EMI has moved to another account or category in Rokda since I asked/.test(lastReply()), lastReply());
+  // Not a dead end: the question stays open, and the morning check asks
+  // again about the bill as it is now.
+  assert(lastReply().includes("I'll ask again tomorrow"), lastReply());
+  assertEquals(proposal.status, "proposed");
+  (proposal.payload as Row).last_asked_on = "2000-01-01";
+  const res = await handler(dailyCheck());
+  await res.body?.cancel();
+  assertEquals(autopayQuestions().length, 2, "the bill was not asked about again");
+});
+
+// The fresh review of the second group: a bill taken off autopay, or
+// stopped, is never asked about again, so a question left open for it would
+// stay open all cycle and make every bare "yes" ambiguous. It is closed.
+freshTest("a yes after the bill came off autopay closes its question and says it won't ask again", async () => {
+  const proposal = await askedEmi();
+  const bill = backend.tables.recurring.find((r) => r.id === EMI)!;
+  bill.autopay = false;
+  await handler(textUpdate(9301, "paid"));
+  assertEquals(backend.tables.transactions.length, 0);
+  assert(/^Car EMI is no longer on autopay in Rokda/.test(lastReply()), lastReply());
+  assertEquals(proposal.status, "expired");
+  // Nothing is left waiting for a bare answer.
+  await handler(textUpdate(9302, "yes"));
+  assert(!lastReply().includes("More than one thing is waiting"), lastReply());
+});
+
+// The outside review's own review: the morning reminder names the bill's
+// account as it is that day, so the question it answers must be that one.
+freshTest("a reminder after the bill moved account asks about the new one, and its yes records there", async () => {
+  const proposal = await askedEmi();
+  const first = Number(proposal.prompt_message_id);
+  const bill = backend.tables.recurring.find((r) => r.id === EMI)!;
+  bill.account_id = "a7000000-0000-4000-8000-0000000000b2";
+  bill.accounts = { name: "Other bank" };
+  (proposal.payload as Row).last_asked_on = "2000-01-01";
+  const res = await handler(dailyCheck());
+  await res.body?.cancel();
+  const reminder = autopayQuestions()[1];
+  assert(String(reminder.body.text).includes("Other bank"), String(reminder.body.text));
+  assertEquals((proposal.payload as Row).account_id, "a7000000-0000-4000-8000-0000000000b2");
+  assertEquals((proposal.payload as Row).account_name, "Other bank");
+  // A 👍 on the question that named the old account no longer answers it.
+  assertEquals(((proposal.payload as Row).asked_message_ids as number[]).includes(first), false);
+
+  await handler(reactionUpdate(9202, Number(proposal.prompt_message_id), "👍"));
+  assertEquals(backend.tables.transactions.length, 1);
+  assertEquals(backend.tables.transactions[0].account_id, "a7000000-0000-4000-8000-0000000000b2");
+  assert(/^Recorded: Car EMI/.test(lastReply()), lastReply());
 });
 
 freshTest("the next morning's reminder can be answered, and so can the first question", async () => {
@@ -2150,6 +2430,63 @@ freshTest("a trade with no units asks how many, and the answer completes it", as
   assertEquals(tradeProposals().map((r) => r.status), ["proposed"]);
   assertEquals(askingRow(), undefined);
   assert(lastReply().startsWith("Buy 10 ABC at $120"), lastReply());
+});
+
+// D-07: a clarifying question that never reached the member, or whose
+// message could not be recorded, is not a finished update: Telegram is asked
+// to deliver the message again, and the retry asks the question afresh.
+freshTest("a trade question Telegram refuses is retried, and the retry asks it", async () => {
+  tradeFixtures();
+  backend.route = { tool: "log_trade", args: { side: "buy", stock: "ABC", price: 120 } };
+  backend.faults.refuseFirstSends = 1;
+  const first = await handler(textUpdate(7421, "bought ABC at 120"));
+  assertEquals(first.status, 500);
+  assertEquals(backend.log.get(7421)?.status, "failed");
+  // The retry finds the draft and asks again: the message is not read afresh.
+  const aiBefore = backend.aiCalls;
+  const retried = await handler(textUpdate(7421, "bought ABC at 120"));
+  assertEquals(backend.aiCalls, aiBefore, "the retry read the message again instead of asking the draft's question");
+  assertEquals(retried.status, 200);
+  assertEquals(lastReply(), "How many ABC did you buy?");
+  assertEquals(backend.tables.bot_proposals.filter((r) => r.status === "asking").length, 1);
+  assert(askingRow()?.prompt_message_id, "the question asked on the retry was not bound");
+});
+
+// The fresh review of the second group (R1): the draft remembers the update
+// that last used it, so a question asked again for an older draft (a stale
+// "yes") is remembered against this update, not the draft's earlier one.
+freshTest("a stale trade's question, lost, is asked again on the retry", async () => {
+  tradeFixtures();
+  backend.route = { tool: "log_trade", args: { side: "sell", stock: "ABC", price: 150 } };
+  await handler(textUpdate(7601, "sold ABC at 150"));
+  assertEquals(lastReply(), "How many ABC did you sell?");
+  await handler(replyUpdate(7602, "6", Number(askingRow()!.prompt_message_id)));
+  assertEquals(tradeProposals().map((r) => r.status), ["proposed"]);
+  // The holding became two of the same name in between.
+  const h = backend.tables.holdings[0];
+  backend.tables.holdings = [{ ...h, id: "a1000000-0000-4000-8000-0000000000a2" }, { ...h, id: "a1000000-0000-4000-8000-0000000000a3" }];
+  backend.tradeOutcome = { outcome: "stale" };
+  // The lead and the "Which ABC?" question are both refused.
+  backend.faults.refuseFirstSends = sendCount + 2;
+  assertEquals((await handler(textUpdate(7603, "yes"))).status, 500);
+  backend.tradeOutcome = undefined;
+  assertEquals((await handler(textUpdate(7603, "yes"))).status, 200);
+  assert(lastReply().startsWith("Which ABC?"), lastReply());
+});
+
+freshTest("a trade question whose message cannot be recorded is retried until it is", async () => {
+  tradeFixtures();
+  backend.route = { tool: "log_trade", args: { side: "buy", stock: "ABC", price: 120 } };
+  backend.faults.failPromptRecord = 2;
+  const first = await handler(textUpdate(7422, "bought ABC at 120"));
+  assertEquals(first.status, 500);
+  const retried = await handler(textUpdate(7422, "bought ABC at 120"));
+  assertEquals(retried.status, 200);
+  const asked = askingRow();
+  assert(asked?.prompt_message_id, "the question was not bound");
+  // A reply to the question that was recorded reaches the draft.
+  await handler(replyUpdate(7423, "10", Number(asked!.prompt_message_id)));
+  assertEquals(tradeProposals().map((r) => r.status), ["proposed"]);
 });
 
 freshTest("a trade with no price asks for it, and the next message answers it", async () => {
@@ -2758,6 +3095,20 @@ freshTest("\"not yet\" puts the question off until tomorrow morning", async () =
   // Not again the same morning.
   await morningCheck();
   assertEquals(dividendQuestions().length, 1);
+});
+
+// D-08: putting a question off and clearing its dividends' asked marks
+// happen together, so a failure leaves the question as it was rather than
+// promising a reminder that will never come.
+freshTest("a \"not yet\" that cannot be saved changes nothing and promises nothing", async () => {
+  seedDividends();
+  await morningCheck();
+  const proposal = backend.tables.bot_proposals.find((p) => p.kind === "dividends_received")!;
+  backend.failRpc = new Set(["postpone_dividends_proposal"]);
+  await handler(replyUpdate(9611, "not yet", Number(proposal.prompt_message_id)));
+  assertEquals(proposal.status, "proposed");
+  assert(backend.tables.holding_dividends.every((d) => d.asked_at != null), "asked marks cleared without the question being put off");
+  assertEquals(lastReply(), "I couldn't put that off just now. Nothing has been changed; try again in a moment.");
 });
 
 freshTest("a 👎 on the question means not yet", async () => {
