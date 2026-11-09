@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
 import { accountOptionLabel, selectableAccounts } from '../../lib/accounts';
@@ -164,6 +164,8 @@ export default function TransactionEditor({ tx, household, householdId, accounts
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  // The id of a new record already saved, when a step after the save failed.
+  const savedNewIdRef = useRef(null);
   // The categories one record is split across (lib/splits.js): null when it
   // has one category, otherwise its lines as typed, amounts positive and AED.
   const [split, setSplit] = useState(() =>
@@ -370,17 +372,28 @@ export default function TransactionEditor({ tx, household, householdId, accounts
     if (followsPurchase) delete payload.category_id;
 
     const linking = form.type === 'refund' && !refundLink && refundFor;
-    const query = tx
-      ? supabase.from('transactions').update(payload).eq('id', tx.id).select('id')
-      : splitting || linking || keptAlongside
-        ? supabase.from('transactions').insert(payload).select('id').single()
-        : supabase.from('transactions').insert(payload);
-
-    const { data: inserted, error: saveError } = await query;
-    if (saveError) {
-      setSaving(false);
-      setError(saveError.message);
-      return;
+    // A new record saved before a step after it failed (its split, its link
+    // to the purchase, "both are real") is not saved again: a retry runs
+    // only the unfinished step on it. It used to insert it a second time
+    // (outside review, E-02).
+    const savedBefore = !tx ? savedNewIdRef.current : null;
+    let inserted;
+    if (savedBefore) {
+      inserted = { id: savedBefore };
+    } else {
+      const query = tx
+        ? supabase.from('transactions').update(payload).eq('id', tx.id).select('id')
+        : splitting || linking || keptAlongside
+          ? supabase.from('transactions').insert(payload).select('id').single()
+          : supabase.from('transactions').insert(payload);
+      const { data, error: saveError } = await query;
+      if (saveError) {
+        setSaving(false);
+        setError(saveError.message);
+        return;
+      }
+      inserted = data;
+      if (!tx && inserted?.id) savedNewIdRef.current = inserted.id;
     }
     // An update that changed no row was not a save: the record was deleted
     // elsewhere, or the change wasn't allowed. Nothing after it (the split,
@@ -399,7 +412,7 @@ export default function TransactionEditor({ tx, household, householdId, accounts
       });
       if (splitError) {
         setSaving(false);
-        setError(tx ? splitError.message : `Saved, but not split: ${splitError.message}. Open it again to split it.`);
+        setError(tx ? splitError.message : `Saved, but not split: ${splitError.message}. Press Add transaction to try the split again; the record itself is saved.`);
         return;
       }
     }
@@ -408,7 +421,7 @@ export default function TransactionEditor({ tx, household, householdId, accounts
       const { error: linkError } = await supabase.rpc('link_refund', { p_purchase_id: refundFor, p_refund_id: tx ? tx.id : inserted.id });
       if (linkError) {
         setSaving(false);
-        setError(tx ? linkError.message : `Saved, but not linked to the purchase: ${linkError.message}. Open it again to link it.`);
+        setError(tx ? linkError.message : `Saved, but not linked to the purchase: ${linkError.message}. Press Add transaction to try linking it again; the record itself is saved.`);
         return;
       }
     }
