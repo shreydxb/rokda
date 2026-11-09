@@ -3337,3 +3337,29 @@ retry, and a retry repeats nothing and decides nothing afresh.
   the update before anything is done, so a retry answers it, never a
   question asked or an entry captured in between. (One that was about
   nothing is not recorded yet, so its retry is read afresh.)
+
+The third group, the app's money sums: figures that read wrong.
+
+- **One rule settles a reminder.** Four copies of the rule for what pays a
+  bill or brings in an expected income each dropped a different condition.
+  There is one now, the bot's: a posted record (not a planned one), moving
+  money the reminder's way, on its account and in its category when it
+  names them, its owner's or shared, within its window and within 20% of
+  its amount. A planned salary is no longer moved into a closed month and
+  counted as that month's pay.
+- **Only what is known is drawn.** The portfolio chart leaves out a day
+  some holding has no value for, rather than drawing the others' sum as the
+  portfolio's; and a stored day is read as a calendar day everywhere, so
+  nothing changes at 04:00.
+- **The dividend forecast holds only the next twelve months.** A
+  declaration paid after them is not counted in them; fees never make a
+  receipt negative; an earned dividend from before a split counts on
+  today's basis; "next" is the earliest payment; figures keep four places
+  until they are shown; and a member's withholding rate comes from their
+  own figures.
+- **Money is summed in fils and rounded as the database rounds.** A goal
+  paid in full is covered, not short by a floating-point crumb, and a loss
+  rounds the same way as a gain. A goal dated after the Life plan ends is
+  beyond the plan, not paid.
+- **Tests test what their names say.** The time-zone test runs in each
+  zone, and the others are named for what they check.
