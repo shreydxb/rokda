@@ -1,7 +1,20 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import { act } from 'react';
 
-vi.mock('../../lib/supabaseClient', () => ({ supabase: {} }));
+const updates = vi.hoisted(() => []);
+vi.mock('../../lib/supabaseClient', () => ({
+  supabase: {
+    from: () => ({
+      update: (row) => ({
+        eq: async () => {
+          updates.push(row);
+          return { error: null };
+        },
+      }),
+    }),
+  },
+}));
 
 const { default: Household } = await import('./Household');
 
@@ -30,5 +43,21 @@ describe('Household: a refresh while typing', () => {
     rerender(view({ id: 'h1', name: 'Home (renamed elsewhere)', inr_per_aed: 25.4 }));
     expect(screen.getByLabelText('Rupees per dirham').value).toBe('25.4');
     expect(screen.getByLabelText('Household name').value).toBe('Home (renamed elsewhere)');
+  });
+});
+
+// The fresh review of group 4: a rate saved as typed ("25.80") comes back
+// as stored ("25.8"); the field takes the stored form when it saves, so it
+// goes on following the household, and Save does not offer to write the
+// old rate back over the next day's.
+describe('Household: after a save', () => {
+  it('keeps following the household when the rate was typed with a trailing zero', async () => {
+    const { rerender } = render(view({ id: 'h1', name: 'Home', inr_per_aed: 25 }));
+    fireEvent.change(screen.getByLabelText('Rupees per dirham'), { target: { value: '25.80' } });
+    await act(async () => fireEvent.click(screen.getAllByRole('button', { name: 'Save' })[1]));
+    expect(updates.at(-1).inr_per_aed).toBe(25.8);
+    rerender(view({ id: 'h1', name: 'Home', inr_per_aed: 25.8 }));
+    rerender(view({ id: 'h1', name: 'Home', inr_per_aed: 26.1 }));
+    expect(screen.getByLabelText('Rupees per dirham').value).toBe('26.1');
   });
 });

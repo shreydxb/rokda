@@ -62,6 +62,10 @@ export default function Household({ household, members, me, loading, reload }) {
       setNameError(error.message);
       return;
     }
+    // The field takes the name as stored, so it goes on following the
+    // household after this save (the fresh review of group 4).
+    syncedNameRef.current = name.trim();
+    setName(name.trim());
     await reload();
   }
 
@@ -83,6 +87,11 @@ export default function Household({ household, members, me, loading, reload }) {
       setRateError(error.message);
       return;
     }
+    // As stored: "25.80" comes back as 25.8, and a field still reading
+    // "25.80" would stop following the household and offer to write this
+    // rate back over the next day's (the fresh review of group 4).
+    syncedRateRef.current = String(rate);
+    setInrRate(String(rate));
     await reload();
   }
 
