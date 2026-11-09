@@ -89,7 +89,7 @@ export default function CategoryEditor({ category, householdId, members = [], on
         <form className="te-form" onSubmit={handleSave}>
           <div className="te-fieldcell">
             <span className="te-fieldlabel">Name</span>
-            <input
+            <input aria-label="Name"
               className="te-fieldvalue"
               type="text"
               value={name}

@@ -331,7 +331,7 @@ export default function HoldingEditor({
               <div className="te-hero-label">Value</div>
               <div className="te-hero-row">
                 <span className="te-hero-currency">AED</span>
-                <input
+                <input aria-label="Value"
                   type="number"
                   step="0.01"
                   className="te-hero-input"
@@ -395,11 +395,11 @@ export default function HoldingEditor({
             <div className="te-fieldgrid">
               <div className="te-fieldcell te-span2">
                 <span className="te-fieldlabel">Ticker or fund</span>
-                <input className="te-fieldvalue" type="text" value={form.name} onChange={(e) => set('name', e.target.value)} aria-invalid={!!nameError} placeholder="e.g. VWRA" />
+                <input aria-label="Ticker or fund" className="te-fieldvalue" type="text" value={form.name} onChange={(e) => set('name', e.target.value)} aria-invalid={!!nameError} placeholder="e.g. VWRA" />
               </div>
               <div className="te-fieldcell">
                 <span className="te-fieldlabel">Asset class</span>
-                <select className="te-fieldvalue" value={form.asset_class} onChange={(e) => set('asset_class', e.target.value)}>
+                <select aria-label="Asset class" className="te-fieldvalue" value={form.asset_class} onChange={(e) => set('asset_class', e.target.value)}>
                   {Object.entries(ASSET_CLASS_LABELS).map(([id, label]) => (
                     <option key={id} value={id}>
                       {label}
@@ -409,7 +409,7 @@ export default function HoldingEditor({
               </div>
               <div className="te-fieldcell">
                 <span className="te-fieldlabel">Native currency</span>
-                <input className="te-fieldvalue" type="text" value={form.currency} onChange={(e) => set('currency', e.target.value.toUpperCase())} maxLength={3} />
+                <input aria-label="Native currency" className="te-fieldvalue" type="text" value={form.currency} onChange={(e) => set('currency', e.target.value.toUpperCase())} maxLength={3} />
               </div>
               {/* Tagged once, so Wealth can say how much sits in one sector
                   (Planning audit, 4.17). Only shares and share funds have one. */}
@@ -492,7 +492,7 @@ export default function HoldingEditor({
                 </div>
                 <div className="te-fieldcell">
                   <span className="te-fieldlabel">Day change (%)</span>
-                  <input className="te-fieldvalue" type="number" step="any" value={form.day_change_pct} onChange={(e) => set('day_change_pct', e.target.value)} disabled={!!form.price_provider} placeholder="—" />
+                  <input aria-label="Day change (%)" className="te-fieldvalue" type="number" step="any" value={form.day_change_pct} onChange={(e) => set('day_change_pct', e.target.value)} disabled={!!form.price_provider} placeholder="—" />
                 </div>
               </div>
             </div>
@@ -506,7 +506,7 @@ export default function HoldingEditor({
               <div className="te-fieldgrid">
                 <div className="te-fieldcell te-span2">
                   <span className="te-fieldlabel">Provider</span>
-                  <select className="te-fieldvalue" value={form.price_provider} onChange={(e) => set('price_provider', e.target.value)}>
+                  <select aria-label="Provider" className="te-fieldvalue" value={form.price_provider} onChange={(e) => set('price_provider', e.target.value)}>
                     <option value="">None — manual</option>
                     <option value="twelvedata">Twelve Data (global equities, commodities)</option>
                     <option value="yahoo">Yahoo Finance (NSE, DFM; unofficial)</option>

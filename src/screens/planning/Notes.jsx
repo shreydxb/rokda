@@ -253,11 +253,11 @@ function NoteEditor({ note, gone = false, householdId, me, position = 0, onCance
       )}
       <label className="te-fieldcell">
         <span className="te-fieldlabel">Title</span>
-        <input className="te-fieldvalue" type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Who pays what" />
+        <input aria-label="Title" className="te-fieldvalue" type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Who pays what" />
       </label>
       <label className="te-fieldcell" style={{ marginTop: 14 }}>
         <span className="te-fieldlabel">Note</span>
-        <textarea className="nt-textarea" value={body} onChange={(e) => setBody(e.target.value)} rows={14} />
+        <textarea aria-label="Note" className="nt-textarea" value={body} onChange={(e) => setBody(e.target.value)} rows={14} />
       </label>
       <div className="ov-muted" style={{ marginTop: 6 }}>
         “# ” for a heading, “- ” for a bullet, **bold**, a blank line between paragraphs.

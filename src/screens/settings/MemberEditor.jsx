@@ -122,7 +122,7 @@ export default function MemberEditor({ member, householdId, isSelf, isLastOwner,
         <form className="te-form" onSubmit={handleSave}>
           <div className="te-fieldcell">
             <span className="te-fieldlabel">Name</span>
-            <input
+            <input aria-label="Name"
               className="te-fieldvalue"
               type="text"
               readOnly={!canEdit}

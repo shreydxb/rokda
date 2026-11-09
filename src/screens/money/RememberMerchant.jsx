@@ -17,7 +17,7 @@ export default function RememberMerchant({ merchant, categoryName, categories, p
       <div className="te-fieldgrid">
         <label className="te-fieldcell te-span2">
           <span className="te-fieldlabel">Merchant pattern</span>
-          <input
+          <input aria-label="Merchant pattern"
             className="te-fieldvalue"
             type="text"
             value={pattern}

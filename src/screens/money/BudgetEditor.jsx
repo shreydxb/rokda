@@ -104,7 +104,7 @@ export default function BudgetEditor({ item, householdId, categories, year, mont
             <div className="te-hero-label">Monthly limit</div>
             <div className="te-hero-row">
               <span className="te-hero-currency">AED</span>
-              <input
+              <input aria-label="Monthly limit"
                 type="number"
                 inputMode="decimal"
                 min="0"

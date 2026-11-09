@@ -348,7 +348,7 @@ export default function NetWorth({ household, me, members, data, loading }) {
             <div className="te-fieldgrid">
               <div className="te-fieldcell">
                 <span className="te-fieldlabel">Assets (AED)</span>
-                <input
+                <input aria-label="Assets (AED)"
                   className="te-fieldvalue"
                   type="number"
                   step="0.01"
@@ -364,7 +364,7 @@ export default function NetWorth({ household, me, members, data, loading }) {
               </div>
               <div className="te-fieldcell">
                 <span className="te-fieldlabel">Liabilities (AED)</span>
-                <input
+                <input aria-label="Liabilities (AED)"
                   className="te-fieldvalue"
                   type="number"
                   step="0.01"

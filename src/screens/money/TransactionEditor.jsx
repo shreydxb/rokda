@@ -668,6 +668,7 @@ export default function TransactionEditor({ tx, household, householdId, accounts
             <div className="te-hero-row">
               <select
                 className="te-hero-currency te-hero-currency-select"
+                aria-label="Currency"
                 value={form.entry_currency}
                 onChange={(e) => set('entry_currency', e.target.value)}
               >
@@ -677,7 +678,7 @@ export default function TransactionEditor({ tx, household, householdId, accounts
                   </option>
                 ))}
               </select>
-              <input
+              <input aria-label="Amount"
                 type="number"
                 inputMode="decimal"
                 min="0"
@@ -747,15 +748,15 @@ export default function TransactionEditor({ tx, household, householdId, accounts
           <div className="te-fieldgrid">
             <div className="te-fieldcell te-span2">
               <span className="te-fieldlabel">Merchant</span>
-              <input className="te-fieldvalue" type="text" value={form.merchant} onChange={(e) => set('merchant', e.target.value)} placeholder="Type a merchant name" />
+              <input aria-label="Merchant" className="te-fieldvalue" type="text" value={form.merchant} onChange={(e) => set('merchant', e.target.value)} placeholder="Type a merchant name" />
             </div>
             <div className="te-fieldcell">
               <span className="te-fieldlabel">Date</span>
-              <input className="te-fieldvalue" type="date" value={form.occurred_at} onChange={(e) => set('occurred_at', e.target.value)} />
+              <input aria-label="Date" className="te-fieldvalue" type="date" value={form.occurred_at} onChange={(e) => set('occurred_at', e.target.value)} />
             </div>
             <div className="te-fieldcell">
               <span className="te-fieldlabel">Account</span>
-              <select className="te-fieldvalue" value={form.account_id} onChange={(e) => set('account_id', e.target.value)} aria-invalid={!!accountError}>
+              <select aria-label="Account" className="te-fieldvalue" value={form.account_id} onChange={(e) => set('account_id', e.target.value)} aria-invalid={!!accountError}>
                 <option value="" disabled>
                   Choose…
                 </option>
@@ -904,7 +905,7 @@ export default function TransactionEditor({ tx, household, householdId, accounts
             <div className="te-fieldgrid">
               <div className="te-fieldcell">
                 <span className="te-fieldlabel">Category</span>
-                <select
+                <select aria-label="Category"
                   className="te-fieldvalue"
                   value={selectedMainId}
                   onChange={(e) => set('category_id', e.target.value)}
@@ -920,7 +921,7 @@ export default function TransactionEditor({ tx, household, householdId, accounts
               {subcategories.length > 0 && (
                 <div className="te-fieldcell">
                   <span className="te-fieldlabel">Subcategory</span>
-                  <select
+                  <select aria-label="Subcategory"
                     className="te-fieldvalue"
                     value={selectedCategory?.parent_id ? form.category_id : ''}
                     onChange={(e) => set('category_id', e.target.value || selectedMainId)}
@@ -995,7 +996,7 @@ export default function TransactionEditor({ tx, household, householdId, accounts
 
           <div className="te-fieldcell">
             <span className="te-fieldlabel">Note</span>
-            <textarea className="te-fieldvalue" rows={2} value={form.note} onChange={(e) => set('note', e.target.value)} />
+            <textarea aria-label="Note" className="te-fieldvalue" rows={2} value={form.note} onChange={(e) => set('note', e.target.value)} />
           </div>
 
           <button type="button" className="te-togglerow" onClick={() => set('needs_review', !form.needs_review)}>

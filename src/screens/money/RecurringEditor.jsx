@@ -209,11 +209,11 @@ export default function RecurringEditor({ item, household = null, householdId, a
           <div className="te-fieldgrid">
             <div className="te-fieldcell te-span2">
               <span className="te-fieldlabel">Name</span>
-              <input className="te-fieldvalue" type="text" value={form.name} onChange={(e) => set('name', e.target.value)} aria-invalid={!!nameError} placeholder="e.g. Salik top-up" />
+              <input aria-label="Name" className="te-fieldvalue" type="text" value={form.name} onChange={(e) => set('name', e.target.value)} aria-invalid={!!nameError} placeholder="e.g. Salik top-up" />
             </div>
             <div className="te-fieldcell">
               <span className="te-fieldlabel">Every</span>
-              <input
+              <input aria-label="Every"
                 className="te-fieldvalue"
                 type="number"
                 min="1"
@@ -226,7 +226,7 @@ export default function RecurringEditor({ item, household = null, householdId, a
             </div>
             <div className="te-fieldcell">
               <span className="te-fieldlabel">Cadence</span>
-              <select className="te-fieldvalue" value={form.cadence} onChange={(e) => set('cadence', e.target.value)}>
+              <select aria-label="Cadence" className="te-fieldvalue" value={form.cadence} onChange={(e) => set('cadence', e.target.value)}>
                 {CADENCES.map((c) => (
                   <option key={c} value={c}>
                     {(Number(form.interval_count) || 1) > 1 ? `${c.replace('ly', '')}s` : c[0].toUpperCase() + c.slice(1)}
@@ -236,7 +236,7 @@ export default function RecurringEditor({ item, household = null, householdId, a
             </div>
             <div className="te-fieldcell">
               <span className="te-fieldlabel">Next due date</span>
-              <input className="te-fieldvalue" type="date" value={form.next_due_date} onChange={(e) => set('next_due_date', e.target.value)} />
+              <input aria-label="Next due date" className="te-fieldvalue" type="date" value={form.next_due_date} onChange={(e) => set('next_due_date', e.target.value)} />
             </div>
             <div className="te-fieldcell">
               <label className="te-fieldlabel" htmlFor="recurring-ends-on">
@@ -246,7 +246,7 @@ export default function RecurringEditor({ item, household = null, householdId, a
             </div>
             <div className="te-fieldcell te-span2">
               <span className="te-fieldlabel">Account</span>
-              <select className="te-fieldvalue" value={form.account_id} onChange={(e) => set('account_id', e.target.value)}>
+              <select aria-label="Account" className="te-fieldvalue" value={form.account_id} onChange={(e) => set('account_id', e.target.value)}>
                 <option value="">Not linked</option>
                 {selectable.map((a) => (
                   <option key={a.id} value={a.id}>

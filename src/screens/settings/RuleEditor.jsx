@@ -103,7 +103,7 @@ export default function RuleEditor({ rule, householdId, categories, onClose, onS
           <div className="te-fieldgrid">
             <div className="te-fieldcell te-span2">
               <span className="te-fieldlabel">Merchant pattern</span>
-              <input
+              <input aria-label="Merchant pattern"
                 className="te-fieldvalue"
                 type="text"
                 value={pattern}
@@ -117,7 +117,7 @@ export default function RuleEditor({ rule, householdId, categories, onClose, onS
             </div>
             <div className="te-fieldcell te-span2">
               <span className="te-fieldlabel">Category</span>
-              <select
+              <select aria-label="Category"
                 className="te-fieldvalue"
                 value={categoryId}
                 onChange={(e) => {
