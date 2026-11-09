@@ -1,4 +1,5 @@
 import { scopedValue } from './scope';
+import { endOfDayExclusive, parseDay } from './day';
 import { isAwaitingFirstValuation } from './valuation';
 
 export const ASSET_CLASS_LABELS = {
@@ -262,10 +263,13 @@ export function rangeStartDate(range, now = new Date()) {
 
 // Value of one holding as of the closest history point at/before `date`.
 // Returns null if no history point exists that early (range not covered).
+// A stored day is a calendar day (parseDay): read as a UTC instant it began
+// at 04:00 in Dubai, so a range's starting value changed at 04:00 (outside
+// review, B-05).
 function valueAsOf(history, holdingId, date) {
-  const points = history.filter((p) => p.holding_id === holdingId && new Date(p.as_of) <= date);
+  const points = history.filter((p) => p.holding_id === holdingId && parseDay(p.as_of) <= date);
   if (points.length === 0) return null;
-  return points.reduce((latest, p) => (new Date(p.as_of) > new Date(latest.as_of) ? p : latest)).value_aed;
+  return points.reduce((latest, p) => (parseDay(p.as_of) > parseDay(latest.as_of) ? p : latest)).value_aed;
 }
 
 // How much the portfolio's VALUE moved over a range: sums each visible
@@ -308,23 +312,33 @@ export function portfolioValueChange(holdings, history, range, scopeMemberId, no
   return { available: true, nowTotal, startTotal, absolute, pct, includesContributions: true };
 }
 
-// Chart series: portfolio total at each historical date any holding has a
-// point for, plus the live "now" total.
+// Chart series: the portfolio total at each historical date any holding has
+// a point for, plus the live "now" total. A day sums the holdings held then:
+// one added later was worth nothing to the household before it, so the line
+// steps up when it was bought, as the portfolio did. One held that day with
+// no value recorded is left out of the sum and named in `missing`, so the
+// chart can say the day is short (outside review, B-06). Leaving such days
+// out altogether, as this did at first, cut the history at every purchase
+// and blanked the chart while any holding had no price (the fresh review).
 export function portfolioSeries(holdings, history, scopeMemberId, now = new Date()) {
   const dates = [...new Set(history.map((p) => p.as_of))].sort();
   const series = dates.map((d) => {
-    const dateObj = new Date(d);
+    const dateObj = parseDay(d);
+    const dayEnd = endOfDayExclusive(dateObj);
     let total = 0;
+    const missing = [];
     for (const h of holdings) {
       const raw = valueAsOf(history, h.id, dateObj);
       if (raw !== null) total += scopedValue(raw, h, scopeMemberId);
+      else if (!h.created_at || new Date(h.created_at) < dayEnd) missing.push(h.name);
     }
-    return { date: dateObj, total };
+    return { date: dateObj, total, missing };
   });
   series.push({
     date: now,
     total: holdings.reduce((s, h) => s + scopedHoldingValue(h, scopeMemberId), 0),
     isLive: true,
+    missing: [],
   });
   return series;
 }

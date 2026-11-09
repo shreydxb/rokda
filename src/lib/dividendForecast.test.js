@@ -54,6 +54,55 @@ describe('the next twelve months', () => {
     expect(f.ordinaryPerShareNextYear).toBe(11);
   });
 
+  // The outside review, B-03: fees never take more than is left after
+  // withholding, as the database caps them.
+  it('a fee per share bigger than the dividend takes what is left, never more', () => {
+    const f = forecast(monthly(24, 0.05), { h: holding({ dividend_fee_per_share: 0.1 }) });
+    const first = f.items.find((i) => i.kind === 'projected');
+    expect(first).toMatchObject({ gross: 0.5, withheld: 0.15, fees: 0.35, net: 0 });
+  });
+
+  // The outside review, B-12: figures in the holding's currency keep four
+  // places, as the database keeps them, and are rounded once, in dirhams.
+  it('keeps four places in the holding\'s currency, as the database does', () => {
+    const f = forecast(monthly(24, 0.1234), { h: holding({ quantity: 7 }) });
+    const first = f.items.find((i) => i.kind === 'projected');
+    expect(first).toMatchObject({ gross: 0.8638, withheld: 0.2591, fees: 0, net: 0.6047 });
+  });
+
+  // The outside review, B-11: only what is paid within the twelve months.
+  it('a declared dividend paid after the twelve months is not counted in them', () => {
+    const f = forecast(monthly(24), { declared: [event('ABC', '2027-11-20', 3, { pay_date: '2027-12-05' })] });
+    expect(f.items.filter((i) => i.kind === 'declared')).toEqual([]);
+    expect(f.ordinaryPerShareNextYear).toBe(11);
+  });
+
+  // The fresh review of B-11: a declaration paid after the twelve months
+  // still replaces its projected twin, or that payment would count in them.
+  it('a declaration paid after the twelve months still replaces its projection', () => {
+    const today = '2026-11-09';
+    const monthly10 = Array.from({ length: 24 }, (_, i) => {
+      const d = new Date(Date.UTC(2024, 10 + i, 10));
+      return event('ABC', d.toISOString().slice(0, 10), 1);
+    });
+    const payments = sharePayments(monthly10, 'ABC', { splits: [], specialParts: [], today });
+    // Declared for ex-date 10 Oct 2027, paid 15 Nov 2027: after the window
+    // ends on 9 Nov 2027. Its projection (10 Oct + 25 days) falls inside it.
+    const declared = [event('ABC', '2027-10-10', 1, { pay_date: '2027-11-15' })];
+    const f = forecastHolding({ holding: holding(), payments, frequency: shareFrequency(payments, '2010-01-01', today), gapDays: 25, declared, earnedUnpaid: [], today });
+    expect(f.items.filter((i) => i.kind === 'declared')).toEqual([]);
+    expect(f.items.some((i) => i.kind === 'projected' && i.month === '2027-11')).toBe(false);
+  });
+
+  // The outside review, B-13: the next payment is the earliest one, dated or not.
+  it('the next payment is a projected month when it comes before a declared day', () => {
+    const quarterly = ['2025-12-01', '2026-03-01', '2026-06-01', '2026-09-01'].map((d) => event('ABC', d, 1));
+    const f = forecast(quarterly, { declared: [event('ABC', '2027-02-01', 1, { pay_date: '2027-02-20' })] });
+    // December's repeat is paid in December 2026 (ex-date plus 30 days), before February.
+    expect(f.items[0]).toMatchObject({ kind: 'projected', month: '2026-12' });
+    expect(f.next).toEqual({ month: '2026-12' });
+  });
+
   it('a declared dividend counts in full, on its pay date', () => {
     const f = forecast(monthly(24), { declared: [event('ABC', '2026-11-17', 3, { pay_date: '2026-12-01' })] });
     expect(f.items.find((i) => i.kind === 'declared')).toMatchObject({ day: '2026-12-01', gross: 30, net: 21 });
@@ -103,6 +152,17 @@ describe('earned and projected', () => {
     expect(f.items.map((i) => i.kind)).toEqual(['earned', 'projected', 'projected', 'projected']);
     expect(f.items.filter((i) => i.kind === 'projected').map((i) => i.month)).toEqual(['2027-02', '2027-05', '2027-08']);
     // The yield reads the same either side of the ex-date: four payments a share.
+    expect(f.ordinaryPerShareNextYear).toBe(4);
+  });
+
+  // The outside review, B-04: an earned dividend's amount a share is on the
+  // basis of its ex-date; after a split it is put on today's, like the rest.
+  it('an earned dividend from before a split counts on today\'s basis in the yield', () => {
+    const quarterly = ['2024-11-01', '2025-02-01', '2025-05-01', '2025-08-01', '2025-11-01', '2026-02-01', '2026-05-01', '2026-08-01', '2026-11-01']
+      .map((d) => event('ABC', d, 2, { pay_date: `${d.slice(0, 8)}28` }));
+    const earnedUnpaid = [{ id: 'd-nov', ex_date: '2026-11-01', pay_date: '2026-11-28', per_share: 2, expected_gross: 20, expected_tax: 6, expected_fees: 0, expected_net: 14 }];
+    const f = forecast(quarterly, { earnedUnpaid, h: holding({ quantity: 20 }), splits: [{ symbol: 'ABC', effective_date: '2026-11-02', ratio: 2 }] });
+    // Two a share before the split is one a share now: four a year, not five.
     expect(f.ordinaryPerShareNextYear).toBe(4);
   });
 });

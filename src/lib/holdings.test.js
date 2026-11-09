@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { costFromUnits, holdingGain, isClosedHolding, largestConcentration, portfolioDayChange, portfolioInvestedAndGain, portfolioValueChange } from './holdings';
+import { afterAll, beforeAll, describe, it, expect } from 'vitest';
+import { costFromUnits, holdingGain, isClosedHolding, largestConcentration, portfolioDayChange, portfolioInvestedAndGain, portfolioSeries, portfolioValueChange } from './holdings';
 
 describe('portfolioDayChange', () => {
   it('weights each holding change by its value, not a flat average', () => {
@@ -290,5 +290,70 @@ describe('paysDividends', () => {
     const { paysDividends } = await import('./holdings');
     expect(['us_equity', 'intl_equity', 'india_equity'].every(paysDividends)).toBe(true);
     expect(['commodity', 'india_mf', 'crypto', 'cash', 'uae_equity', 'sukuk'].some(paysDividends)).toBe(false);
+  });
+});
+
+// The outside review, B-06, and the fresh review of it: a past day sums the
+// holdings held then. One bought later was worth nothing to the household
+// before it was added, so the line steps up when it was bought, as it did.
+// One that was held but has no value recorded for the day is left out of
+// that day's sum, and the day names it, so the chart can say so.
+describe('portfolioSeries', () => {
+  const a = { id: 'a', name: 'AAA', is_shared: true, value_aed: 1200, created_at: '2026-08-01T08:00:00Z' };
+  const b = { id: 'b', name: 'BBB', is_shared: true, value_aed: 800, created_at: '2026-10-01T08:00:00Z' };
+  const history = [
+    { holding_id: 'a', as_of: '2026-09-01', value_aed: 1000 },
+    { holding_id: 'a', as_of: '2026-10-01', value_aed: 1100 },
+    { holding_id: 'b', as_of: '2026-10-01', value_aed: 700 },
+  ];
+  const now = new Date(2026, 10, 8, 12);
+
+  it('steps up when a holding is bought, and keeps the history before it', () => {
+    const series = portfolioSeries([a, b], history, null, now);
+    expect(series.map((p) => p.total)).toEqual([1000, 1800, 2000]);
+    expect(series.map((p) => p.missing)).toEqual([[], [], []]);
+    expect(series[series.length - 1].isLive).toBe(true);
+  });
+
+  it('names a holding held on a day with no value recorded for it', () => {
+    // Held since August, but its first recorded value is in October.
+    const early = { ...b, created_at: '2026-08-01T08:00:00Z' };
+    const series = portfolioSeries([a, early], history, null, now);
+    expect(series.map((p) => p.total)).toEqual([1000, 1800, 2000]);
+    expect(series.map((p) => p.missing)).toEqual([['BBB'], [], []]);
+  });
+
+  it('still draws the others when one holding has no value at all', () => {
+    const unpriced = { id: 'c', name: 'CCC', is_shared: true, value_aed: 0, created_at: '2026-08-01T08:00:00Z' };
+    const series = portfolioSeries([a, unpriced], history, null, now);
+    expect(series.map((p) => p.total)).toEqual([1000, 1100, 1200]);
+    expect(series[0].missing).toEqual(['CCC']);
+  });
+});
+
+// The outside review, B-05: a stored history day is a calendar day. Read as a
+// UTC instant it began at 04:00 in Dubai, so a range's starting value changed
+// at 04:00.
+describe('a range read in Dubai time', () => {
+  let saved;
+  beforeAll(() => {
+    saved = process.env.TZ;
+    process.env.TZ = 'Asia/Dubai';
+  });
+  afterAll(() => {
+    if (saved === undefined) delete process.env.TZ;
+    else process.env.TZ = saved;
+  });
+
+  it('starts from the same value at 02:00 as at 05:00', () => {
+    const h = { id: 'a', is_shared: true, value_aed: 1200 };
+    const history = [
+      { holding_id: 'a', as_of: '2026-10-31', value_aed: 1000 },
+      { holding_id: 'a', as_of: '2026-11-01', value_aed: 1100 },
+    ];
+    const early = portfolioValueChange([h], history, '1W', null, new Date(2026, 10, 8, 2));
+    const later = portfolioValueChange([h], history, '1W', null, new Date(2026, 10, 8, 5));
+    expect(early.startTotal).toBe(1100);
+    expect(later.startTotal).toBe(1100);
   });
 });

@@ -110,8 +110,63 @@ describe('billStatus', () => {
   const now = new Date(2026, 8, 10);
 
   it('reads Posted when a matching transaction landed within the tolerance window', () => {
+    // Landed: dated on or before today. (This test used to date it four days
+    // after "now", a planned record, and expect it to settle the bill.)
     const transactions = [{ occurred_at: '2026-09-14', amount: -510 }];
-    expect(billStatus(bill, transactions, now)).toMatchObject({ label: 'Posted', needsAction: false, posted: true });
+    expect(billStatus(bill, transactions, new Date(2026, 8, 16))).toMatchObject({ label: 'Posted', needsAction: false, posted: true });
+  });
+
+  // The outside review, B-02: one rule for what settles a reminder.
+  describe('what can settle a reminder', () => {
+    const after = new Date(2026, 8, 17);
+    const billOn = { ...bill, account_id: 'acct-a', category_id: 'cat-util', is_shared: false, owner_member_id: 'm1' };
+    const paid = { occurred_at: '2026-09-15', amount: -500, account_id: 'acct-a', category_id: 'cat-util', is_shared: false, owner_member_id: 'm1' };
+
+    it('settles with a posted payment on its account, in its category, by its owner', () => {
+      expect(billStatus(billOn, [paid], after).posted).toBe(true);
+    });
+
+    it('is not settled by a planned record dated after today', () => {
+      expect(billStatus(bill, [{ occurred_at: '2026-09-14', amount: -500 }], now).posted).toBe(false);
+    });
+
+    it('is not settled by money coming in when a bill is going out, or the reverse', () => {
+      expect(billStatus(bill, [{ occurred_at: '2026-09-15', amount: 500 }], after).posted).toBe(false);
+      const salary = { next_due_date: '2026-09-15', cadence: 'monthly', amount: 5000 };
+      expect(billStatus(salary, [{ occurred_at: '2026-09-15', amount: -5000 }], after).posted).toBe(false);
+      expect(billStatus(salary, [{ occurred_at: '2026-09-15', amount: 5000 }], after).posted).toBe(true);
+    });
+
+    it('is not settled from another account, or in another category, when the reminder names one', () => {
+      expect(billStatus(billOn, [{ ...paid, account_id: 'acct-b' }], after).posted).toBe(false);
+      expect(billStatus(billOn, [{ ...paid, category_id: 'cat-food' }], after).posted).toBe(false);
+      // A reminder that names neither matches on amount and timing alone.
+      expect(billStatus(bill, [{ ...paid, account_id: 'acct-b', category_id: 'cat-food' }], after).posted).toBe(true);
+    });
+
+    // The fresh review of group 3: a card bill is paid by a transfer, which
+    // has no category, and a bill can be paid by a record split across
+    // categories, whose own category is empty.
+    it('is settled by a transfer out, or a split record with a line in its category', () => {
+      const transfer = { ...paid, kind: 'transfer', category_id: null };
+      expect(billStatus(billOn, [transfer], after).posted).toBe(true);
+      const split = { ...paid, category_id: null, is_split: true, transaction_splits: [{ category_id: 'cat-util', amount: -300 }, { category_id: 'cat-food', amount: -200 }] };
+      expect(billStatus(billOn, [split], after).posted).toBe(true);
+      const elsewhere = { ...split, transaction_splits: [{ category_id: 'cat-food', amount: -500 }] };
+      expect(billStatus(billOn, [elsewhere], after).posted).toBe(false);
+    });
+
+    it('is never settled, as an income, by a transfer in', () => {
+      const salary = { next_due_date: '2026-09-15', cadence: 'monthly', amount: 5000 };
+      expect(billStatus(salary, [{ occurred_at: '2026-09-15', amount: 5000, kind: 'transfer' }], after).posted).toBe(false);
+    });
+
+    it("is not settled by another member's own payment; a shared one counts", () => {
+      expect(billStatus(billOn, [{ ...paid, owner_member_id: 'm2' }], after).posted).toBe(false);
+      expect(billStatus(billOn, [{ ...paid, is_shared: true, owner_member_id: null }], after).posted).toBe(true);
+      // A shared reminder is settled by whoever paid it.
+      expect(billStatus({ ...billOn, is_shared: true, owner_member_id: null }, [{ ...paid, owner_member_id: 'm2' }], after).posted).toBe(true);
+    });
   });
 
   it('does not match a transaction outside the 5-day window even at the right amount', () => {
@@ -217,6 +272,14 @@ describe('salary on a moving date', () => {
     expect(billStatus(salary, [], new Date(2026, 9, 6))).toMatchObject({ label: 'Expected', needsAction: false });
     expect(billStatus(salary, paid('2026-10-08'), new Date(2026, 9, 9))).toMatchObject({ label: 'Posted' });
     expect(billStatus(salary, [], new Date(2026, 9, 11))).toMatchObject({ label: 'Late', needsAction: true });
+  });
+
+  it('is missing on Overview when what landed is a refund, or in another category', () => {
+    const bill = { id: 'b', name: 'Phone', amount: -300, cadence: 'monthly', next_due_date: '2026-09-10', category_id: 'cat-phone', is_shared: true, active: true };
+    const missing = (transactions) => buildAttentionItems({ transactions, recurring: [bill], accounts: [], holdings: [], categories: [], scopeMemberId: null, now: new Date(2026, 8, 20) }).filter((i) => i.kind === 'missing_recurring');
+    expect(missing([{ amount: 300, kind: 'refund', occurred_at: '2026-09-10', category_id: 'cat-phone' }])).toHaveLength(1);
+    expect(missing([{ amount: -300, occurred_at: '2026-09-10', category_id: 'cat-food' }])).toHaveLength(1);
+    expect(missing([{ amount: -300, occurred_at: '2026-09-10', category_id: 'cat-phone' }])).toHaveLength(0);
   });
 
   it('is only missing on Overview once the window has passed', () => {

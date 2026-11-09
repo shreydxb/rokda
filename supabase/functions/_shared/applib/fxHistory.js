@@ -8,7 +8,15 @@
 // The dirham is pegged to the dollar, so a dollar amount converts exactly.
 export const AED_PER_USD = 3.6725;
 
-const round = (n, places) => Math.round(n * 10 ** places) / 10 ** places;
+// Half away from zero, as Postgres rounds a numeric, and the same for a loss
+// as for a gain. Math.round alone rounded 1.005 down (it is 1.00499… in
+// floating point) and -0.125 towards zero (outside review, B-08), so the
+// scaled value is first read back to 15 significant digits.
+const round = (n, places) => {
+  const scale = 10 ** places;
+  const whole = Math.round(Number((Math.abs(n) * scale).toPrecision(15)));
+  return whole === 0 ? 0 : (Math.sign(n) * whole) / scale;
+};
 
 // The rupees per dirham on a day: that day's rate, or the latest one before
 // it (no rate is published at a weekend, and a refresh can miss a day). Null

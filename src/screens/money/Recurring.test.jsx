@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { screen, within } from '@testing-library/react';
+import { screen, within, fireEvent } from '@testing-library/react';
 import { renderScreen } from '../../test/renderScreen';
 
 vi.mock('../../lib/supabaseClient', () => ({ supabase: {} }));
@@ -42,5 +42,24 @@ describe('Recurring: what needs marking comes first', () => {
   it('says when a late bill was due, not only when the next one is', () => {
     renderRecurring([bill({ name: 'School fees', next_due_date: '2026-09-05' })]);
     expect(document.querySelector('.rc-meta').textContent).toMatch(/Late monthly · was due 5 Oct, next 5 Nov/);
+  });
+});
+
+// The fresh review of B-02: a bill is settled only by a payment on its own
+// account, so "Mark paid" starts the payment on that account, not the first
+// one listed.
+describe('Recurring: Mark paid', () => {
+  it('starts the payment on the bill\'s own account', () => {
+    const accounts = [
+      { id: 'a-first', name: 'First bank', type: 'checking', currency: 'AED', is_shared: true, archived_at: null },
+      { id: 'a-bill', name: 'Bill bank', type: 'checking', currency: 'AED', is_shared: true, archived_at: null },
+    ];
+    renderScreen(
+      <Recurring household={{ id: 'hh' }} members={[]} loading={false}
+        data={{ recurring: [bill({ name: 'Phone', next_due_date: '2026-10-23', account_id: 'a-bill' })], accounts, categories: [], transactions: [], reload: vi.fn() }} />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Mark paid' }));
+    const account = [...document.querySelectorAll('select')].find((el) => [...el.options].some((o) => o.value === 'a-bill'));
+    expect(account.value).toBe('a-bill');
   });
 });

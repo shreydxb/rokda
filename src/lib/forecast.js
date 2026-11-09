@@ -3,7 +3,7 @@ import { monthKey, parseDay } from './day';
 import { applyToIncomeSpend } from './transactionKind';
 import { categoryParts } from './splits';
 import { convertToAed } from './currency';
-import { matchWindowDays, occurrenceAt } from './recurring';
+import { occurrenceAt, settlesReminder } from './recurring';
 import { PLANNING_DEFAULTS, assumptionsSaved } from './planningDefaults';
 
 // The current, still-open month is excluded — its spend is partial and would
@@ -58,8 +58,10 @@ function nearestOccurrence(row, date) {
 }
 
 // Each income row an expected-income reminder claims, with the occurrence it
-// is for. Rows nothing claims are left out.
-function payMatches(transactions, recurring) {
+// is for. Rows nothing claims are left out, and so is a row dated after
+// today: a planned salary is not history, in its own month or an earlier one
+// (outside review, B-01).
+function payMatches(transactions, recurring, now) {
   const expected = recurring.filter((r) => Number(r.amount) > 0 && r.active !== false && r.next_due_date && r.cadence);
   const matches = new Map();
   if (!expected.length) return matches;
@@ -67,12 +69,8 @@ function payMatches(transactions, recurring) {
     if (t.kind !== 'income' || !(Number(t.amount) > 0)) continue;
     const landed = parseDay(t.occurred_at);
     for (const r of expected) {
-      if (r.account_id && t.account_id !== r.account_id) continue;
-      if (r.category_id && t.category_id !== r.category_id) continue;
-      const amount = Number(r.amount);
-      if (Math.abs(Number(t.amount) - amount) > amount * 0.2) continue;
       const due = nearestOccurrence(r, landed);
-      if (Math.abs(due - landed) > matchWindowDays(r) * 86400000) continue;
+      if (!settlesReminder(r, t, due, now)) continue;
       matches.set(t, { reminder: r, due });
       break;
     }
@@ -80,8 +78,8 @@ function payMatches(transactions, recurring) {
   return matches;
 }
 
-export function payMonthTransactions(transactions = [], recurring = []) {
-  const matches = payMatches(transactions, recurring);
+export function payMonthTransactions(transactions = [], recurring = [], now = new Date()) {
+  const matches = payMatches(transactions, recurring, now);
   if (!matches.size) return transactions;
   return transactions.map((t) => {
     const match = matches.get(t);
@@ -104,7 +102,7 @@ export function payMonthTransactions(transactions = [], recurring = []) {
 // The first is not a month of records, so it is never counted. The second is
 // left out, rather than counted as a month of spending with nothing earned.
 export function planningMonths(transactions = [], recurring = [], now = new Date()) {
-  const months = closedMonths(payMonthTransactions(transactions, recurring), now);
+  const months = closedMonths(payMonthTransactions(transactions, recurring, now), now);
   if (!transactions.length) return months;
   const first = transactions.reduce((min, t) => {
     const key = monthKey(parseDay(t.occurred_at));

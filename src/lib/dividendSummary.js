@@ -315,8 +315,10 @@ export function dividendSources(input) {
       if (value === null) continue;
       const m = markets.get(market) ?? { market, expectedAed: 0, gross: 0, withheld: 0 };
       m.expectedAed += value;
-      m.gross += Number(item.gross);
-      m.withheld += Number(item.withheld);
+      // In one member's scope the rate is weighted by what is theirs, a
+      // shared holding at half (outside review, B-10).
+      m.gross += scopedValue(item.gross, h, input.scopeMemberId);
+      m.withheld += scopedValue(item.withheld, h, input.scopeMemberId);
       markets.set(market, m);
       sectors.set(sector, (sectors.get(sector) ?? 0) + value);
     }

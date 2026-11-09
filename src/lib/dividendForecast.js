@@ -5,7 +5,11 @@
 // fees, and that a share keeps paying what it paid.
 import { addDays, addMonths, daysBetween } from './dividendHistory';
 
-const round2 = (n) => Math.round(n * 100) / 100;
+// Four places in the holding's own currency, as the database keeps them
+// (private.dividend_expected): rounding to two here and again after the
+// conversion to dirhams moved a total by a fils or more (outside review,
+// B-12). The screen rounds once, in what it shows.
+const round4 = (n) => Math.round(n * 1e4) / 1e4;
 const round6 = (n) => Math.round(n * 1e6) / 1e6;
 const DAYS_A_MONTH = 30.4375;
 
@@ -18,10 +22,12 @@ export function forecastHolding({ holding, payments = [], frequency, gapDays = 3
   const taxPct = Number(holding.dividend_tax_pct ?? 0);
   const feePerShare = Number(holding.dividend_fee_per_share ?? 0);
   const item = (kind, perShare, extra) => {
-    const gross = round2(units * perShare);
-    const withheld = round2((gross * taxPct) / 100);
-    const fees = round2(units * feePerShare);
-    return { kind, day: null, month: null, gross, withheld, fees, net: round2(gross - withheld - fees), currency, ...extra };
+    const gross = round4(units * perShare);
+    const withheld = round4((gross * taxPct) / 100);
+    // Never more than is left after withholding, as the database caps them
+    // (private.dividend_expected): a forecast is not a negative receipt.
+    const fees = Math.min(round4(units * feePerShare), round4(gross - withheld));
+    return { kind, day: null, month: null, gross, withheld, fees, net: round4(gross - withheld - fees), currency, ...extra };
   };
 
   // Earned and not yet received: what is owed, whatever is held now.
@@ -31,14 +37,22 @@ export function forecastHolding({ holding, payments = [], frequency, gapDays = 3
   }));
   // What a share pays in the next twelve months, for its yield: an earned one
   // pays in them too, so the yield reads the same either side of its ex-date.
-  let perShareYear = (earnedUnpaid ?? []).reduce((sum, d) => sum + (Number(d.per_share) || 0), 0);
+  // Its amount a share is on the basis of its ex-date; a split since puts it
+  // on today's, the way the share's payments are (outside review, B-04).
+  const factorOn = (exDate) => (payments ?? []).find((p) => p.exDate === exDate)?.factor ?? 1;
+  let perShareYear = (earnedUnpaid ?? []).reduce((sum, d) => sum + (Number(d.per_share) || 0) / factorOn(d.ex_date), 0);
   let status;
 
+  // Only what is paid within the twelve months counts in them: a declared
+  // dividend paid after them was counted too (outside review, B-11). It still
+  // says the share is paying.
+  const end = addMonths(today, 12);
+  const declaredInYear = (declared ?? []).filter((e) => (e.pay_date ?? addDays(e.ex_date, gapDays)) <= end);
   if (units <= 0) {
     status = 'not_held';
   } else {
     // Declared: counted in full, special part and all, since it is declared.
-    for (const e of declared ?? []) {
+    for (const e of declaredInYear) {
       items.push(item('declared', Number(e.amount), { eventId: e.id, exDate: e.ex_date, day: e.pay_date ?? addDays(e.ex_date, gapDays) }));
       perShareYear += Number(e.amount);
     }
@@ -63,6 +77,9 @@ export function forecastHolding({ holding, payments = [], frequency, gapDays = 3
       const since = addMonths(today, -12);
       const projected = ordinaries.filter((p) => p.exDate > since).map((p) => ({ exDate: addMonths(p.exDate, 12), perShare: p.ordinaryToday }));
       const halfInterval = (frequency.intervalMonths * DAYS_A_MONTH) / 2;
+      // Every declaration, paid within the twelve months or not: one paid
+      // after them still says when its payment comes, so its projected twin
+      // must not count in them (the fresh review of B-11).
       for (const e of declared ?? []) {
         let best = -1;
         let bestGap = Infinity;
@@ -78,7 +95,6 @@ export function forecastHolding({ holding, payments = [], frequency, gapDays = 3
       // Only what is paid within the twelve months: the payment earned and not
       // yet paid is counted as earned above, and its repeat a year on is paid
       // after them.
-      const end = addMonths(today, 12);
       for (const p of projected) {
         const payDay = addDays(p.exDate, gapDays);
         if (payDay > end) continue;
@@ -90,9 +106,10 @@ export function forecastHolding({ holding, payments = [], frequency, gapDays = 3
   }
 
   items.sort((a, b) => (when(a) < when(b) ? -1 : when(a) > when(b) ? 1 : 0));
-  const dated = items.find((i) => i.day && (i.kind === 'earned' || i.kind === 'declared'));
-  const monthly = items.find((i) => i.month);
-  const next = dated ? { day: dated.day } : monthly ? { month: monthly.month } : null;
+  // The earliest payment, dated or by month: a dated one was always preferred,
+  // so a projected month before it was skipped (outside review, B-13).
+  const first = items.find((i) => i.day || i.month);
+  const next = first ? (first.day ? { day: first.day } : { month: first.month }) : null;
   return { items, status, next, ordinaryPerShareNextYear: round6(perShareYear) };
 }
 

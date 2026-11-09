@@ -184,6 +184,22 @@ describe('where it comes from', () => {
   });
 });
 
+// The outside review, B-10: in one member's scope, the withholding rate is
+// weighted by what is theirs, a shared holding at half.
+describe('where it comes from, in one member\'s scope', () => {
+  it('weights the withholding rate by the member\'s own figures', () => {
+    const mine = { ...US, id: 'h-mine', owner_member_id: 'm1', is_shared: false };
+    const shared = { ...US, id: 'h-shared', owner_member_id: null, is_shared: true };
+    const forecasts = {
+      'h-mine': { status: 'ok', items: [item('projected', { month: '2027-01', gross: 100, withheld: 30, net: 70, currency: 'USD' })] },
+      'h-shared': { status: 'ok', items: [item('projected', { month: '2027-01', gross: 1000, withheld: 100, net: 900, currency: 'USD' })] },
+    };
+    const s = dividendSources(input({ holdings: [mine, shared], forecasts, scopeMemberId: 'm1' }));
+    // 30 + 50 withheld of 100 + 500: 13.3%, not the household's 130 of 1,100.
+    expect(s.markets).toEqual([expect.objectContaining({ market: 'US', withholdingPct: 13.3 })]);
+  });
+});
+
 describe('spending equivalent', () => {
   // A closed month of shared spending of 1,000, for each of the last n months.
   const spending = (n) => Array.from({ length: n }, (_, i) => {

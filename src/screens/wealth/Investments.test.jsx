@@ -352,3 +352,23 @@ describe('Investments: the holding editor after a trade', () => {
     rpcAnswers = {};
   });
 });
+
+// The fresh review of B-06: a day that leaves out a holding held then, for
+// want of a recorded value, says which, rather than drawing a dip unexplained.
+describe('Investments: a day short of a holding\'s value', () => {
+  it('names the holdings the chart leaves out on some days', () => {
+    const vwra = { ...STALE_HOLDING, created_at: '2026-01-01T00:00:00Z' };
+    const aapl = { ...PRICED_HOLDING, created_at: '2026-01-01T00:00:00Z' };
+    const today = householdToday();
+    const history = [
+      { holding_id: 'h1', as_of: '2026-01-10', value_aed: 9000 },
+      { holding_id: 'h1', as_of: today, value_aed: 10000 },
+      { holding_id: 'h2', as_of: today, value_aed: 20000 },
+    ];
+    renderScreen(
+      <Investments household={{ id: 'h' }} members={MEMBERS} me={MEMBERS[0]} loading={false} data={{ holdings: [vwra, aapl], holdingHistory: history, reload: vi.fn() }} />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '5Y' }));
+    expect(screen.getByText('Some days leave out AAPL, which had no value recorded then.')).toBeTruthy();
+  });
+});

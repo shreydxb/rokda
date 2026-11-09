@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { HOUSEHOLD_TIME_ZONE, householdDay, householdToday, householdYearMonth, isPosted } from './day';
+import { execFileSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
+import { householdDay, householdToday, householdYearMonth, isPosted } from './day';
 
 // QA: "financial timezone handling — not revalidated end-to-end".
 //
@@ -49,12 +51,21 @@ describe('household calendar day', () => {
   });
 
   it('does not depend on the zone the process runs in', () => {
-    // The whole point: two runtimes, one answer. Passing the instant and the
-    // zone explicitly is what makes the browser and a UTC Edge Function agree.
+    // The whole point: two runtimes, one answer. Each zone runs in a child
+    // process of its own, since a zone cannot be changed inside one. This
+    // test used to loop over zone names without ever running in them
+    // (outside review, B-14). The child also reports its own local day, so
+    // the test can see the zone took effect: New York is still on the 15th.
+    const day = pathToFileURL(`${process.cwd()}/src/lib/day.js`).href;
+    const script = `import { householdToday } from ${JSON.stringify(day)};
+      const at = new Date(${JSON.stringify(AFTER_MIDNIGHT_DUBAI.toISOString())});
+      console.log(householdToday(at), at.getDate());`;
+    const run = (zone) => execFileSync(process.execPath, ['--input-type=module', '-e', script], { env: { ...process.env, TZ: zone }, encoding: 'utf8' }).trim().split(' ');
     for (const zone of ['UTC', 'America/New_York', 'Asia/Tokyo', 'Asia/Dubai']) {
-      expect(householdToday(AFTER_MIDNIGHT_DUBAI, HOUSEHOLD_TIME_ZONE)).toBe('2026-09-16');
-      expect(householdToday(AFTER_MIDNIGHT_DUBAI, zone)).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(run(zone)[0]).toBe('2026-09-16');
     }
+    expect(run('America/New_York')[1]).toBe('15');
+    expect(run('Asia/Dubai')[1]).toBe('16');
   });
 
   it('always produces a storable YYYY-MM-DD', () => {
