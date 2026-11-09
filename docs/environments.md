@@ -210,7 +210,11 @@ same pre-merge/release split the migration comparison uses.
   Function is permanently red and the check cannot serve as a merge gate. On
   `main` it blocks again — that is where the 8 September drift showed up.
 - `--require-deployed`, passed by `npm run verify:release` after a deploy: a
-  function `supabase/config.toml` declares must actually be live.
+  function `supabase/config.toml` declares must actually be live, and the
+  platform must say how it is served. If its list leaves out a declared
+  function's `verify_jwt` or `status`, the check fails rather than passing on
+  the source alone; the row reads `verify_jwt=? (not reported)` or
+  `status=? (not reported)`, and the summary counts them.
 
 Neither flag softens the rest. An orphan deployment, a function the platform is
 not serving, an unreadable one, and `verify_jwt` disagreeing with
@@ -236,9 +240,10 @@ else. The rules that keep this from hiding real problems:
 - A commit that changed no function gets no wait. With nothing on its way, a
   stale deployment is the 8 September drift, and it fails at once.
 - Drift that is still there when the time runs out is a failure, not a delay.
-- An orphan, an unreadable or unserved function, `verify_jwt` drift, or a
-  required function that isn't deployed is never waited out, even when a
-  stale function shows up alongside it.
+- An orphan, an unreadable or unserved function, `verify_jwt` drift, a
+  required function that isn't deployed, or one whose `verify_jwt` or
+  `status` the platform did not report in release mode is never waited out,
+  even when a stale function shows up alongside it.
 - Without `HEAD~1` (a depth-1 checkout) the script can't tell whether the
   commit changed a function, so it doesn't wait. Both CI jobs check out with
   `fetch-depth: 2`.

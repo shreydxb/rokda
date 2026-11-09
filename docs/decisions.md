@@ -3391,3 +3391,19 @@ The fourth group, the screens: what a member sees and does.
 - **The keyboard reaches everything.** A holding opens from a button in its
   name, Overview's links are real links, and every editor field has an
   accessible name.
+
+The fifth group, the tests and CI: checks that could pass without checking.
+
+- **A database test fails on an unknown.** In SQL a condition that comes out
+  null is not true, so an assertion written `if x <> y then raise` passed
+  whenever `x` was missing. Every assertion in the two database suites is
+  written `if (...) is not false then raise`, and a test of the suites
+  refuses the old form.
+- **The FD accrual's loop is tested.** A stand-in for the database lets the
+  test run the job over several deposits, so dropping one, stopping at the
+  first failure or miscounting fails it.
+- **The release check fails on what it could not see.** In release mode, a
+  declared Edge Function whose `verify_jwt` or serving status the platform
+  did not report fails the check instead of passing on its source, the row
+  says which field is missing, and the check does not wait for a deploy to
+  fix it.

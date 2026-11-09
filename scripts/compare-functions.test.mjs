@@ -11,6 +11,8 @@ import {
   manifest,
   onlyAwaitingDeploy,
   repoFunctionSlugs,
+  rowLine,
+  unreported,
 } from './compare-functions.mjs';
 
 // QA re-run (10 Sep): telegram-webhook ran a 8 Sep build for five days while
@@ -242,6 +244,21 @@ describe('deployment configuration, which no source hash can see', () => {
     expect(isBlocking(noStatus)).toBe(true);
     const [known] = rowsFor([{ slug: 'telegram-webhook', status: 'ACTIVE', verify_jwt: false }], { requireDeployed: true });
     expect(isBlocking(known)).toBe(false);
+  });
+
+  // The group 5 review: a release turned red by the rule above printed every
+  // row as ok and every tally as 0, with no reason. The row now says which
+  // field the platform left out.
+  it('says which field the platform did not report, so a red release explains itself', () => {
+    const [noJwt] = rowsFor([{ slug: 'telegram-webhook', status: 'ACTIVE' }], { requireDeployed: true });
+    expect(unreported(noJwt)).toEqual(['verify_jwt']);
+    expect(rowLine(noJwt)).toContain('verify_jwt=? (not reported)');
+    const [noStatus] = rowsFor([{ slug: 'telegram-webhook', verify_jwt: false }], { requireDeployed: true });
+    expect(unreported(noStatus)).toEqual(['status']);
+    expect(rowLine(noStatus)).toContain('status=? (not reported)');
+    const [known] = rowsFor([{ slug: 'telegram-webhook', status: 'ACTIVE', verify_jwt: false }], { requireDeployed: true });
+    expect(unreported(known)).toEqual([]);
+    expect(rowLine(known)).not.toContain('not reported');
   });
 
   it('leaves a function config.toml says nothing about undeclared', () => {
@@ -527,5 +544,14 @@ describe('onlyAwaitingDeploy: which failures are worth waiting out', () => {
 
   it('ignores an advisory difference on a branch, which is not blocking at all', () => {
     expect(onlyAwaitingDeploy([{ ...stale, sourceParityAdvisory: true }])).toBe(false);
+  });
+
+  // The group 5 review: waiting cannot make the platform report a field it
+  // left out, so a release row missing one fails at once rather than after the
+  // wait.
+  it('is false when a release row also lacks a verify_jwt or status the platform did not report', () => {
+    expect(onlyAwaitingDeploy([{ ...stale, required: true, platformStatus: null }])).toBe(false);
+    expect(onlyAwaitingDeploy([{ ...stale, required: true, configState: 'unknown' }])).toBe(false);
+    expect(onlyAwaitingDeploy([{ ...stale, required: true }])).toBe(true);
   });
 });
