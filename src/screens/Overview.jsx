@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useHousehold } from '../lib/useHousehold';
 import { useScope } from '../lib/ScopeContext';
 import { resolveScopeMemberId } from '../lib/scope';
@@ -234,9 +234,10 @@ export default function Overview() {
               <div className="ov-muted">
                 {p.count} record{p.count === 1 ? '' : 's'} · {money.code}
                 {money.rateNote ? ` · ${money.rateNote}` : ''} ·{' '}
-                <span className="ov-link" role="link" tabIndex={0} onClick={() => navigate(activityHref({ from: isoDay(p.start), to: isoDay(now) }))}>
+                {/* A real link, so Enter follows it (outside review, E-13). */}
+                <Link className="ov-link" to={activityHref({ from: isoDay(p.start), to: isoDay(now) })}>
                   Records →
-                </span>
+                </Link>
               </div>
             </div>
             {/* Each figure with the same stretch of the period before, so a
@@ -323,9 +324,9 @@ export default function Overview() {
                   </span>
                   {/* The bar's own records: its dates, up to today for the
                       bucket still running. */}
-                  <span className="ov-link" role="link" tabIndex={0} onClick={() => navigate(activityHref(bucketRange(selected, now)))}>
+                  <Link className="ov-link" to={activityHref(bucketRange(selected, now))}>
                     Records →
-                  </span>
+                  </Link>
                 </div>
               )}
               <div className="ov-legend">
@@ -417,9 +418,9 @@ export default function Overview() {
                 {recurring.length === 0
                   ? 'No recurring bills or income set up yet.'
                   : 'Nothing due in the next 30 days.'}{' '}
-                <span className="ov-link" onClick={() => navigate(tabHref('/money', 'recurring'))}>
+                <Link className="ov-link" to={tabHref('/money', 'recurring')}>
                   Recurring →
-                </span>
+                </Link>
               </div>
             ) : (
               <>
@@ -441,9 +442,9 @@ export default function Overview() {
                     Committed {money.fmt(committedTotal)}
                     {withoutAutopay > 0 ? ` · ${withoutAutopay} without autopay` : ''}
                   </span>
-                  <span className="ov-link" onClick={() => navigate(tabHref('/money', 'recurring'))}>
+                  <Link className="ov-link" to={tabHref('/money', 'recurring')}>
                     Recurring →
-                  </span>
+                  </Link>
                 </div>
               </>
             )}

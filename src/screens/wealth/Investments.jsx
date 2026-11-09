@@ -387,7 +387,14 @@ export default function Investments({ household, members, me, data, loading, rel
                     return (
                       <tr key={h.id} className="wl-holdrow" onClick={() => setEditingId(h.id)}>
                         <td>
-                          <div>{h.name}</div>
+                          {/* The row opens on a click; the name is the button
+                              that opens it from the keyboard (outside review,
+                              E-09). */}
+                          <div>
+                            <button type="button" className="wl-holdname" onClick={(e) => { e.stopPropagation(); setEditingId(h.id); }}>
+                              {h.name}
+                            </button>
+                          </div>
                           <div className="ov-muted">{ASSET_CLASS_LABELS[h.asset_class]}</div>
                         </td>
                         <td>{h.is_shared ? 'Shared' : (members.find((m) => m.id === h.owner_member_id)?.display_name ?? '—')}</td>

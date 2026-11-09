@@ -45,6 +45,11 @@ button.ov-link {
   border: none;
   font-family: inherit;
 }
+/* As a link (Records →, Recurring →) it reads the same, without the
+   browser's underline. */
+a.ov-link {
+  text-decoration: none;
+}
 
 /* head */
 .ov-error {
