@@ -77,6 +77,23 @@ describe('the next twelve months', () => {
     expect(f.ordinaryPerShareNextYear).toBe(11);
   });
 
+  // The fresh review of B-11: a declaration paid after the twelve months
+  // still replaces its projected twin, or that payment would count in them.
+  it('a declaration paid after the twelve months still replaces its projection', () => {
+    const today = '2026-11-09';
+    const monthly10 = Array.from({ length: 24 }, (_, i) => {
+      const d = new Date(Date.UTC(2024, 10 + i, 10));
+      return event('ABC', d.toISOString().slice(0, 10), 1);
+    });
+    const payments = sharePayments(monthly10, 'ABC', { splits: [], specialParts: [], today });
+    // Declared for ex-date 10 Oct 2027, paid 15 Nov 2027: after the window
+    // ends on 9 Nov 2027. Its projection (10 Oct + 25 days) falls inside it.
+    const declared = [event('ABC', '2027-10-10', 1, { pay_date: '2027-11-15' })];
+    const f = forecastHolding({ holding: holding(), payments, frequency: shareFrequency(payments, '2010-01-01', today), gapDays: 25, declared, earnedUnpaid: [], today });
+    expect(f.items.filter((i) => i.kind === 'declared')).toEqual([]);
+    expect(f.items.some((i) => i.kind === 'projected' && i.month === '2027-11')).toBe(false);
+  });
+
   // The outside review, B-13: the next payment is the earliest one, dated or not.
   it('the next payment is a projected month when it comes before a declared day', () => {
     const quarterly = ['2025-12-01', '2026-03-01', '2026-06-01', '2026-09-01'].map((d) => event('ABC', d, 1));

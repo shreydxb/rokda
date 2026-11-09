@@ -77,7 +77,10 @@ export function forecastHolding({ holding, payments = [], frequency, gapDays = 3
       const since = addMonths(today, -12);
       const projected = ordinaries.filter((p) => p.exDate > since).map((p) => ({ exDate: addMonths(p.exDate, 12), perShare: p.ordinaryToday }));
       const halfInterval = (frequency.intervalMonths * DAYS_A_MONTH) / 2;
-      for (const e of declaredInYear) {
+      // Every declaration, paid within the twelve months or not: one paid
+      // after them still says when its payment comes, so its projected twin
+      // must not count in them (the fresh review of B-11).
+      for (const e of declared ?? []) {
         let best = -1;
         let bestGap = Infinity;
         projected.forEach((p, i) => {
