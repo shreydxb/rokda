@@ -1,5 +1,5 @@
 import { scopedValue } from './scope';
-import { parseDay } from './day';
+import { endOfDayExclusive, parseDay } from './day';
 import { isAwaitingFirstValuation } from './valuation';
 
 export const ASSET_CLASS_LABELS = {
@@ -312,33 +312,33 @@ export function portfolioValueChange(holdings, history, range, scopeMemberId, no
   return { available: true, nowTotal, startTotal, absolute, pct, includesContributions: true };
 }
 
-// Chart series: portfolio total at each historical date every holding has a
-// value for, plus the live "now" total. A date before some holding's first
-// recorded value used to be drawn as the sum of the others, a dip that was
-// never the portfolio's value (outside review, B-06). Two values cannot tell
-// a holding bought later from one whose history is missing, so such a date is
-// left out, as portfolioValueChange refuses a range it cannot cover.
+// Chart series: the portfolio total at each historical date any holding has
+// a point for, plus the live "now" total. A day sums the holdings held then:
+// one added later was worth nothing to the household before it, so the line
+// steps up when it was bought, as the portfolio did. One held that day with
+// no value recorded is left out of the sum and named in `missing`, so the
+// chart can say the day is short (outside review, B-06). Leaving such days
+// out altogether, as this did at first, cut the history at every purchase
+// and blanked the chart while any holding had no price (the fresh review).
 export function portfolioSeries(holdings, history, scopeMemberId, now = new Date()) {
   const dates = [...new Set(history.map((p) => p.as_of))].sort();
-  const series = [];
-  for (const d of dates) {
+  const series = dates.map((d) => {
     const dateObj = parseDay(d);
+    const dayEnd = endOfDayExclusive(dateObj);
     let total = 0;
-    let covered = true;
+    const missing = [];
     for (const h of holdings) {
       const raw = valueAsOf(history, h.id, dateObj);
-      if (raw === null) {
-        covered = false;
-        break;
-      }
-      total += scopedValue(raw, h, scopeMemberId);
+      if (raw !== null) total += scopedValue(raw, h, scopeMemberId);
+      else if (!h.created_at || new Date(h.created_at) < dayEnd) missing.push(h.name);
     }
-    if (covered) series.push({ date: dateObj, total });
-  }
+    return { date: dateObj, total, missing };
+  });
   series.push({
     date: now,
     total: holdings.reduce((s, h) => s + scopedHoldingValue(h, scopeMemberId), 0),
     isLive: true,
+    missing: [],
   });
   return series;
 }

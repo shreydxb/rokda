@@ -251,6 +251,18 @@ export default function Investments({ household, members, me, data, loading, rel
                 ))}
               </div>
               <PortfolioTrendChart series={rangedSeries} money={money} selectedIdx={selectedIdx} onSelect={setSelectedIdx} />
+              {/* A day short of a holding held then is drawn without it, and
+                  said (outside review, B-06). */}
+              {(() => {
+                const short = [...new Set(rangedSeries.flatMap((p) => p.missing ?? []))];
+                if (short.length === 0) return null;
+                const names = short.length === 1 ? short[0] : `${short.slice(0, -1).join(', ')} and ${short.at(-1)}`;
+                return (
+                  <p className="ov-muted" style={{ fontSize: 12, margin: '6px 0 0' }}>
+                    {`Some days leave out ${names}, which had no value recorded then.`}
+                  </p>
+                );
+              })()}
               {selected && (
                 <div className="ov-chart-readout">
                   <span className="fig">{selected.date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span>

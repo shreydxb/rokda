@@ -293,11 +293,14 @@ describe('paysDividends', () => {
   });
 });
 
-// The outside review, B-06: a past total that leaves out a holding with no
-// value recorded by then is not the portfolio's value, so it is not drawn.
+// The outside review, B-06, and the fresh review of it: a past day sums the
+// holdings held then. One bought later was worth nothing to the household
+// before it was added, so the line steps up when it was bought, as it did.
+// One that was held but has no value recorded for the day is left out of
+// that day's sum, and the day names it, so the chart can say so.
 describe('portfolioSeries', () => {
-  const a = { id: 'a', is_shared: true, value_aed: 1200 };
-  const b = { id: 'b', is_shared: true, value_aed: 800 };
+  const a = { id: 'a', name: 'AAA', is_shared: true, value_aed: 1200, created_at: '2026-08-01T08:00:00Z' };
+  const b = { id: 'b', name: 'BBB', is_shared: true, value_aed: 800, created_at: '2026-10-01T08:00:00Z' };
   const history = [
     { holding_id: 'a', as_of: '2026-09-01', value_aed: 1000 },
     { holding_id: 'a', as_of: '2026-10-01', value_aed: 1100 },
@@ -305,14 +308,26 @@ describe('portfolioSeries', () => {
   ];
   const now = new Date(2026, 10, 8, 12);
 
-  it('draws only the days every holding has a value for, then today', () => {
+  it('steps up when a holding is bought, and keeps the history before it', () => {
     const series = portfolioSeries([a, b], history, null, now);
-    expect(series.map((p) => p.total)).toEqual([1800, 2000]);
+    expect(series.map((p) => p.total)).toEqual([1000, 1800, 2000]);
+    expect(series.map((p) => p.missing)).toEqual([[], [], []]);
     expect(series[series.length - 1].isLive).toBe(true);
   });
 
-  it('draws every day when every holding is covered', () => {
-    expect(portfolioSeries([a], history, null, now).map((p) => p.total)).toEqual([1000, 1100, 1200]);
+  it('names a holding held on a day with no value recorded for it', () => {
+    // Held since August, but its first recorded value is in October.
+    const early = { ...b, created_at: '2026-08-01T08:00:00Z' };
+    const series = portfolioSeries([a, early], history, null, now);
+    expect(series.map((p) => p.total)).toEqual([1000, 1800, 2000]);
+    expect(series.map((p) => p.missing)).toEqual([['BBB'], [], []]);
+  });
+
+  it('still draws the others when one holding has no value at all', () => {
+    const unpriced = { id: 'c', name: 'CCC', is_shared: true, value_aed: 0, created_at: '2026-08-01T08:00:00Z' };
+    const series = portfolioSeries([a, unpriced], history, null, now);
+    expect(series.map((p) => p.total)).toEqual([1000, 1100, 1200]);
+    expect(series[0].missing).toEqual(['CCC']);
   });
 });
 
