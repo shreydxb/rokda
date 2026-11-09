@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useNow } from '../../lib/useNow';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
@@ -86,7 +87,7 @@ export default function Activity({ household, members, me, data, loading }) {
   );
   const [shown, setShown] = useState({ key: '', count: PAGE });
 
-  const now = useMemo(() => new Date(), []);
+  const now = useNow(data?.loadedAt);
   // The date select: its presets, plus the current range by name when a link
   // set one that isn't a preset ("September 2026"), plus Custom, which shows
   // two date fields.

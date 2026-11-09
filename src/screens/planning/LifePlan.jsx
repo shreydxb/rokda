@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useNow } from '../../lib/useNow';
 import { Link } from 'react-router-dom';
 import { tabHref } from '../../lib/activityLink';
 import { supabase } from '../../lib/supabaseClient';
@@ -56,7 +57,7 @@ export default function LifePlan({
 }) {
   const { assumptions } = data;
   const money = useMoneyDisplay(household);
-  const now = useMemo(() => new Date(), []);
+  const now = useNow(data?.loadedAt);
   const startYear = now.getFullYear();
   // The plan's drawer, open at one of its sections, or null.
   const [editing, setEditing] = useState(null);

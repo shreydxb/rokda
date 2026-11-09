@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
+import { useNow } from '../lib/useNow';
 import { Link, useNavigate } from 'react-router-dom';
 import { useHousehold } from '../lib/useHousehold';
 import { useScope } from '../lib/ScopeContext';
@@ -66,7 +67,7 @@ export default function Overview() {
   const [toast, setToast] = useState(null);
   const toastTimer = useRef(null);
 
-  const now = useMemo(() => new Date(), []);
+  const now = useNow(loadedAt);
   const loading = householdLoading || dataLoading;
   const isEmpty = !loading && accounts.length === 0 && transactions.length === 0 && holdings.length === 0;
 

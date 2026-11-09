@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useNow } from '../../lib/useNow';
 import { LineChart } from '../../charts/Charts';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId, scopedValue } from '../../lib/scope';
@@ -64,7 +65,7 @@ export default function NetWorth({ household, me, members, data, loading }) {
   // instead of silently becoming zero.
   const [closeDraft, setCloseDraft] = useState(null);
 
-  const now = useMemo(() => new Date(), []);
+  const now = useNow(data?.loadedAt);
   const [selectedIdx, setSelectedIdx] = useState(null);
 
   // Closed accounts leave today's position but keep their transactions (QA-01).

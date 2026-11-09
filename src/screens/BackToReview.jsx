@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useNow } from '../lib/useNow';
 import { Link, useSearchParams } from 'react-router-dom';
 import { reviewReturn } from '../lib/monthlyReview';
 import './BackToReview.css';
@@ -10,7 +10,7 @@ import './BackToReview.css';
 // which starts the page afresh.
 export default function BackToReview() {
   const [params] = useSearchParams();
-  const now = useMemo(() => new Date(), []);
+  const now = useNow();
   const back = reviewReturn(params, now);
   if (!back) return null;
   return (

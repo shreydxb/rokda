@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useNow } from '../../lib/useNow';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
 import { formatMoney, formatPct } from '../../lib/money';
@@ -54,7 +55,7 @@ export default function Investments({ household, members, me, data, loading, rel
   const [selectedIdx, setSelectedIdx] = useState(null);
   const [showSold, setShowSold] = useState(false);
 
-  const now = useMemo(() => new Date(), []);
+  const now = useNow(data?.loadedAt);
   // A holding sold down to nothing is kept with its trades, but it is not
   // one of the holdings the household has: the table and every figure above
   // it are the open ones, and the sold ones have their own fold (SHR-371).

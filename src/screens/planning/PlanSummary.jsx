@@ -1,4 +1,5 @@
 import { useId, useMemo } from 'react';
+import { useNow } from '../../lib/useNow';
 import { Link } from 'react-router-dom';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
@@ -43,7 +44,7 @@ export default function PlanSummary({ household = null, members, me, accounts, t
   const debts = useMemo(() => debtsWithAccounts(data.debts, accounts ?? []), [data.debts, accounts]);
   const { scope } = useScope();
   const scopeMemberId = resolveScopeMemberId(scope, me, members);
-  const now = useMemo(() => new Date(), []);
+  const now = useNow(data?.loadedAt);
 
   // Same rows the Goals tab shows, linked accounts and holdings included.
   // This card used to leave them out, so for a goal funded from an account it

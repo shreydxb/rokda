@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useNow } from '../../lib/useNow';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
 import { formatMoney } from '../../lib/money';
@@ -102,7 +103,7 @@ export default function Goals({
   const { scope } = useScope();
   const scopeMemberId = resolveScopeMemberId(scope, me, members);
   const [editing, setEditing] = useState(null);
-  const now = useMemo(() => new Date(), []);
+  const now = useNow(data?.loadedAt);
 
   // The Life plan's timeline, which later goals take their state from: the
   // household's saved plan, from the one planning model (Planning audit, 3.12).
