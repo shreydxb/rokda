@@ -96,6 +96,29 @@ describe('splitting a record across categories', () => {
     expect(onSaved).toHaveBeenCalled();
   });
 
+  // The fresh review of group 4: what the member changed before pressing
+  // again is saved too, not dropped while the editor closes as saved.
+  it('a retry after a failed split saves what was changed since, then splits', async () => {
+    const onSaved = renderEditor();
+    fireEvent.change(screen.getByPlaceholderText('0'), { target: { value: '500' } });
+    fireEvent.change(screen.getByLabelText('Merchant'), { target: { value: 'Corner Shpo' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Split across categories' }));
+    fireEvent.change(screen.getByLabelText('Category 1'), { target: { value: 'groceries' } });
+    fireEvent.change(screen.getByLabelText('Amount 1'), { target: { value: '400' } });
+    fireEvent.change(screen.getByLabelText('Category 2'), { target: { value: 'household' } });
+    fireEvent.change(screen.getByLabelText('Amount 2'), { target: { value: '100' } });
+    failing.add('split_transaction');
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Add transaction' })));
+    expect(screen.getByText(/^Saved, but not split/)).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText('Merchant'), { target: { value: 'Corner Shop' } });
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Add transaction' })));
+    expect(calls.filter((c) => c.insert === 'transactions')).toHaveLength(1);
+    expect(calls.filter((c) => c.update === 'transactions').map((c) => c.payload.merchant)).toEqual(['Corner Shop']);
+    expect(calls.filter((c) => c.rpc === 'split_transaction')).toHaveLength(2);
+    expect(onSaved).toHaveBeenCalled();
+  });
+
   it('refuses lines that do not add up, before saving anything', async () => {
     renderEditor();
     fireEvent.change(screen.getByPlaceholderText('0'), { target: { value: '500' } });

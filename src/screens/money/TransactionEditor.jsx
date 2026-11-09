@@ -164,8 +164,12 @@ export default function TransactionEditor({ tx, household, householdId, accounts
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
-  // The id of a new record already saved, when a step after the save failed.
+  // The id of a new record already saved, when a step after the save failed,
+  // and which of those steps have been done. The split replaces its lines, so
+  // it is safe to run again; linking the refund and remembering "both are
+  // real" are not, and run once.
   const savedNewIdRef = useRef(null);
+  const stepsDoneRef = useRef(new Set());
   // The categories one record is split across (lib/splits.js): null when it
   // has one category, otherwise its lines as typed, amounts positive and AED.
   const [split, setSplit] = useState(() =>
@@ -373,12 +377,24 @@ export default function TransactionEditor({ tx, household, householdId, accounts
 
     const linking = form.type === 'refund' && !refundLink && refundFor;
     // A new record saved before a step after it failed (its split, its link
-    // to the purchase, "both are real") is not saved again: a retry runs
-    // only the unfinished step on it. It used to insert it a second time
-    // (outside review, E-02).
+    // to the purchase, "both are real") is not inserted again: it used to be
+    // inserted a second time (outside review, E-02). A retry writes the form
+    // as it now stands to that record, so what was changed since is saved
+    // (the fresh review of group 4), then runs the steps not yet done.
     const savedBefore = !tx ? savedNewIdRef.current : null;
     let inserted;
     if (savedBefore) {
+      const { data: rewritten, error: rewriteError } = await supabase.from('transactions').update(payload).eq('id', savedBefore).select('id');
+      if (rewriteError) {
+        setSaving(false);
+        setError(rewriteError.message);
+        return;
+      }
+      if ((rewritten?.length ?? 0) !== 1) {
+        setSaving(false);
+        setError("This record wasn't saved: it may have been deleted elsewhere. Close it, refresh, and open it again.");
+        return;
+      }
       inserted = { id: savedBefore };
     } else {
       const query = tx
@@ -417,7 +433,7 @@ export default function TransactionEditor({ tx, household, householdId, accounts
       }
     }
 
-    if (linking) {
+    if (linking && !stepsDoneRef.current.has('link')) {
       const { error: linkError } = await supabase.rpc('link_refund', { p_purchase_id: refundFor, p_refund_id: tx ? tx.id : inserted.id });
       if (linkError) {
         setSaving(false);
@@ -426,7 +442,9 @@ export default function TransactionEditor({ tx, household, householdId, accounts
       }
     }
 
-    if (!tx && keptAlongside) {
+    if (linking && !tx) stepsDoneRef.current.add('link');
+
+    if (!tx && keptAlongside && !stepsDoneRef.current.has('pair')) {
       const { error: pairError } = await supabase.from('transaction_links').insert(confirmedPairRow(householdId, { id: inserted.id }, keptAlongside));
       if (pairError) {
         setSaving(false);
