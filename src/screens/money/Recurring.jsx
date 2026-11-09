@@ -112,6 +112,11 @@ export default function Recurring({ household, members, data, loading }) {
               : { amount: String(Math.abs(Number(paying.amount))) }),
             merchant: paying.name,
             occurred_at: householdToday(),
+            // On the bill's own account while it is open: a payment settles a
+            // bill only on its account, and the editor's default (the first
+            // account) left a bill marked paid still due (fresh review of
+            // B-02).
+            ...(paying.account_id && accounts.some((a) => a.id === paying.account_id && !a.archived_at) ? { account_id: paying.account_id } : {}),
             category_id: paying.category_id ?? '',
             owner: paying.is_shared ? 'shared' : (paying.owner_member_id ?? ''),
           }}
