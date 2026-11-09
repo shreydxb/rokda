@@ -370,6 +370,8 @@ describe('Investments: a day short of a holding\'s value', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: '5Y' }));
     expect(screen.getByText('Some days leave out AAPL, which had no value recorded then.')).toBeTruthy();
+  });
+});
 
 // The outside review, E-09: a holding opens from the keyboard too, by a real
 // button in its name cell, not only by clicking the row.
