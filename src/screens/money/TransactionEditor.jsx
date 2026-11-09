@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
 import { accountOptionLabel, selectableAccounts } from '../../lib/accounts';
@@ -164,6 +164,12 @@ export default function TransactionEditor({ tx, household, householdId, accounts
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  // The id of a new record already saved, when a step after the save failed,
+  // and which of those steps have been done. The split replaces its lines, so
+  // it is safe to run again; linking the refund and remembering "both are
+  // real" are not, and run once.
+  const savedNewIdRef = useRef(null);
+  const stepsDoneRef = useRef(new Set());
   // The categories one record is split across (lib/splits.js): null when it
   // has one category, otherwise its lines as typed, amounts positive and AED.
   const [split, setSplit] = useState(() =>
@@ -370,17 +376,40 @@ export default function TransactionEditor({ tx, household, householdId, accounts
     if (followsPurchase) delete payload.category_id;
 
     const linking = form.type === 'refund' && !refundLink && refundFor;
-    const query = tx
-      ? supabase.from('transactions').update(payload).eq('id', tx.id).select('id')
-      : splitting || linking || keptAlongside
-        ? supabase.from('transactions').insert(payload).select('id').single()
-        : supabase.from('transactions').insert(payload);
-
-    const { data: inserted, error: saveError } = await query;
-    if (saveError) {
-      setSaving(false);
-      setError(saveError.message);
-      return;
+    // A new record saved before a step after it failed (its split, its link
+    // to the purchase, "both are real") is not inserted again: it used to be
+    // inserted a second time (outside review, E-02). A retry writes the form
+    // as it now stands to that record, so what was changed since is saved
+    // (the fresh review of group 4), then runs the steps not yet done.
+    const savedBefore = !tx ? savedNewIdRef.current : null;
+    let inserted;
+    if (savedBefore) {
+      const { data: rewritten, error: rewriteError } = await supabase.from('transactions').update(payload).eq('id', savedBefore).select('id');
+      if (rewriteError) {
+        setSaving(false);
+        setError(rewriteError.message);
+        return;
+      }
+      if ((rewritten?.length ?? 0) !== 1) {
+        setSaving(false);
+        setError("This record wasn't saved: it may have been deleted elsewhere. Close it, refresh, and open it again.");
+        return;
+      }
+      inserted = { id: savedBefore };
+    } else {
+      const query = tx
+        ? supabase.from('transactions').update(payload).eq('id', tx.id).select('id')
+        : splitting || linking || keptAlongside
+          ? supabase.from('transactions').insert(payload).select('id').single()
+          : supabase.from('transactions').insert(payload);
+      const { data, error: saveError } = await query;
+      if (saveError) {
+        setSaving(false);
+        setError(saveError.message);
+        return;
+      }
+      inserted = data;
+      if (!tx && inserted?.id) savedNewIdRef.current = inserted.id;
     }
     // An update that changed no row was not a save: the record was deleted
     // elsewhere, or the change wasn't allowed. Nothing after it (the split,
@@ -399,21 +428,23 @@ export default function TransactionEditor({ tx, household, householdId, accounts
       });
       if (splitError) {
         setSaving(false);
-        setError(tx ? splitError.message : `Saved, but not split: ${splitError.message}. Open it again to split it.`);
+        setError(tx ? splitError.message : `Saved, but not split: ${splitError.message}. Press Add transaction to try the split again; the record itself is saved.`);
         return;
       }
     }
 
-    if (linking) {
+    if (linking && !stepsDoneRef.current.has('link')) {
       const { error: linkError } = await supabase.rpc('link_refund', { p_purchase_id: refundFor, p_refund_id: tx ? tx.id : inserted.id });
       if (linkError) {
         setSaving(false);
-        setError(tx ? linkError.message : `Saved, but not linked to the purchase: ${linkError.message}. Open it again to link it.`);
+        setError(tx ? linkError.message : `Saved, but not linked to the purchase: ${linkError.message}. Press Add transaction to try linking it again; the record itself is saved.`);
         return;
       }
     }
 
-    if (!tx && keptAlongside) {
+    if (linking && !tx) stepsDoneRef.current.add('link');
+
+    if (!tx && keptAlongside && !stepsDoneRef.current.has('pair')) {
       const { error: pairError } = await supabase.from('transaction_links').insert(confirmedPairRow(householdId, { id: inserted.id }, keptAlongside));
       if (pairError) {
         setSaving(false);
@@ -655,6 +686,7 @@ export default function TransactionEditor({ tx, household, householdId, accounts
             <div className="te-hero-row">
               <select
                 className="te-hero-currency te-hero-currency-select"
+                aria-label="Currency"
                 value={form.entry_currency}
                 onChange={(e) => set('entry_currency', e.target.value)}
               >
@@ -664,7 +696,7 @@ export default function TransactionEditor({ tx, household, householdId, accounts
                   </option>
                 ))}
               </select>
-              <input
+              <input aria-label="Amount"
                 type="number"
                 inputMode="decimal"
                 min="0"
@@ -734,15 +766,15 @@ export default function TransactionEditor({ tx, household, householdId, accounts
           <div className="te-fieldgrid">
             <div className="te-fieldcell te-span2">
               <span className="te-fieldlabel">Merchant</span>
-              <input className="te-fieldvalue" type="text" value={form.merchant} onChange={(e) => set('merchant', e.target.value)} placeholder="Type a merchant name" />
+              <input aria-label="Merchant" className="te-fieldvalue" type="text" value={form.merchant} onChange={(e) => set('merchant', e.target.value)} placeholder="Type a merchant name" />
             </div>
             <div className="te-fieldcell">
               <span className="te-fieldlabel">Date</span>
-              <input className="te-fieldvalue" type="date" value={form.occurred_at} onChange={(e) => set('occurred_at', e.target.value)} />
+              <input aria-label="Date" className="te-fieldvalue" type="date" value={form.occurred_at} onChange={(e) => set('occurred_at', e.target.value)} />
             </div>
             <div className="te-fieldcell">
               <span className="te-fieldlabel">Account</span>
-              <select className="te-fieldvalue" value={form.account_id} onChange={(e) => set('account_id', e.target.value)} aria-invalid={!!accountError}>
+              <select aria-label="Account" className="te-fieldvalue" value={form.account_id} onChange={(e) => set('account_id', e.target.value)} aria-invalid={!!accountError}>
                 <option value="" disabled>
                   Choose…
                 </option>
@@ -891,7 +923,7 @@ export default function TransactionEditor({ tx, household, householdId, accounts
             <div className="te-fieldgrid">
               <div className="te-fieldcell">
                 <span className="te-fieldlabel">Category</span>
-                <select
+                <select aria-label="Category"
                   className="te-fieldvalue"
                   value={selectedMainId}
                   onChange={(e) => set('category_id', e.target.value)}
@@ -907,7 +939,7 @@ export default function TransactionEditor({ tx, household, householdId, accounts
               {subcategories.length > 0 && (
                 <div className="te-fieldcell">
                   <span className="te-fieldlabel">Subcategory</span>
-                  <select
+                  <select aria-label="Subcategory"
                     className="te-fieldvalue"
                     value={selectedCategory?.parent_id ? form.category_id : ''}
                     onChange={(e) => set('category_id', e.target.value || selectedMainId)}
@@ -982,7 +1014,7 @@ export default function TransactionEditor({ tx, household, householdId, accounts
 
           <div className="te-fieldcell">
             <span className="te-fieldlabel">Note</span>
-            <textarea className="te-fieldvalue" rows={2} value={form.note} onChange={(e) => set('note', e.target.value)} />
+            <textarea aria-label="Note" className="te-fieldvalue" rows={2} value={form.note} onChange={(e) => set('note', e.target.value)} />
           </div>
 
           <button type="button" className="te-togglerow" onClick={() => set('needs_review', !form.needs_review)}>

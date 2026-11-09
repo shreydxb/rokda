@@ -160,17 +160,22 @@ export default function Telegram({ household, loading }) {
     };
   }, [household?.id]);
 
+  // Each switch saves only its own column, and a failure puts back only
+  // that switch. Sending the whole row let two switches flipped together
+  // undo each other, whichever save landed last (outside review, E-08). A
+  // row inserted here takes the table's defaults (on) for the others, as
+  // DEFAULTS shows them.
   async function toggle(key) {
-    const next = { ...prefs, [key]: !prefs[key] };
-    setPrefs(next);
+    const value = !prefs[key];
+    setPrefs((p) => ({ ...p, [key]: value }));
     setSaving(key);
     setError('');
     const { error: saveError } = await supabase
       .from('telegram_notification_prefs')
-      .upsert({ household_id: household.id, ...next }, { onConflict: 'household_id' });
+      .upsert({ household_id: household.id, [key]: value }, { onConflict: 'household_id' });
     setSaving(null);
     if (saveError) {
-      setPrefs(prefs); // revert the optimistic flip
+      setPrefs((p) => ({ ...p, [key]: !value }));
       setError(saveError.message);
     }
   }

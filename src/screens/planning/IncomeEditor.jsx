@@ -247,7 +247,7 @@ export default function IncomeEditor({ row, householdId, household = null, stack
             )}
             <div className="te-fieldcell te-span2">
               <span className="te-fieldlabel">Note</span>
-              <input className="te-fieldvalue" type="text" value={form.note} onChange={(e) => set('note', e.target.value)} placeholder="optional" />
+              <input aria-label="Note" className="te-fieldvalue" type="text" value={form.note} onChange={(e) => set('note', e.target.value)} placeholder="optional" />
             </div>
           </div>
 

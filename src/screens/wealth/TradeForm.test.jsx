@@ -13,7 +13,7 @@ vi.mock('../../lib/supabaseClient', () => ({
     rpc: async (name, args) => {
       calls.push({ name, args });
       const answer = answers[name];
-      const data = typeof answer === 'function' ? answer(args, calls.filter((c) => c.name === name).length) : answer;
+      const data = await (typeof answer === 'function' ? answer(args, calls.filter((c) => c.name === name).length) : answer);
       return { data: data ?? null, error: null };
     },
   },
@@ -65,6 +65,27 @@ function fillSale() {
   type('Price (USD)', '150');
   type('Brokerage (USD)', '1');
 }
+
+// The outside review, E-01: a check that comes back after the figures were
+// changed is about figures no longer on screen, so it is dropped, and Save
+// stays off until the figures shown are checked.
+describe('a check answered after the figures changed', () => {
+  it('does not offer to save the figures it checked', async () => {
+    let release;
+    answers.preview_trade = () => new Promise((resolve) => {
+      release = () => resolve(SALE_EFFECT);
+    });
+    open();
+    fillSale();
+    fireEvent.click(screen.getByRole('button', { name: 'Check' }));
+    type('Units traded', '7');
+    await act(async () => {
+      release();
+    });
+    expect(screen.getByRole('button', { name: 'Save trade' }).disabled).toBe(true);
+    expect(screen.getByRole('button', { name: 'Check' }).disabled).toBe(false);
+  });
+});
 
 describe('TradeForm: recording a trade', () => {
   it('checks a sale with the database and shows what it would do', async () => {

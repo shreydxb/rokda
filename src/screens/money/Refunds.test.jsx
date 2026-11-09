@@ -8,15 +8,20 @@ import { renderScreen } from '../../test/renderScreen';
 // offers the right purchases and calls each with the right records.
 const rpcs = [];
 const updates = [];
+let inserts = 0;
+// Database functions that fail once, as a dropped connection would.
+const failing = new Set();
 vi.mock('../../lib/supabaseClient', () => ({
   supabase: {
     rpc: (name, args) => {
       rpcs.push({ name, args });
+      if (failing.delete(name)) return Promise.resolve({ error: { message: 'the connection dropped' } });
       return Promise.resolve({ error: null });
     },
     from: () => ({
       select: () => ({ eq: () => ({ order: () => Promise.resolve({ data: [] }) }) }),
       insert: () => {
+        inserts += 1;
         const done = Promise.resolve({ error: null });
         done.select = () => ({ single: () => Promise.resolve({ data: { id: 'new-refund' }, error: null }) });
         return done;
@@ -56,6 +61,8 @@ function editor(props) {
 beforeEach(() => {
   rpcs.length = 0;
   updates.length = 0;
+  inserts = 0;
+  failing.clear();
 });
 
 describe('refund linking in the editor', () => {
@@ -69,6 +76,23 @@ describe('refund linking in the editor', () => {
     expect(within(group).getByRole('button', { name: /Shop/ }).getAttribute('aria-pressed')).toBe('true');
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Add transaction' })));
     expect(rpcs).toEqual([{ name: 'link_refund', args: { p_purchase_id: 'p', p_refund_id: 'new-refund' } }]);
+  });
+
+  // The outside review, E-02, and the fresh review of it: a link that fails
+  // after the refund is saved is tried again on its own record, which takes
+  // what the form says now; the refund is never added twice.
+  it('a link that failed after the refund was saved is tried again on that refund', async () => {
+    editor({ tx: null, initial: { type: 'refund' } });
+    fireEvent.change(screen.getByPlaceholderText('0'), { target: { value: '50' } });
+    fireEvent.change(screen.getByPlaceholderText('Type a merchant name'), { target: { value: 'SHOP' } });
+    fireEvent.click(within(screen.getByRole('group', { name: 'Refund for' })).getByRole('button', { name: /Shop/ }));
+    failing.add('link_refund');
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Add transaction' })));
+    expect(screen.getByText(/^Saved, but not linked to the purchase/)).toBeTruthy();
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Add transaction' })));
+    expect(inserts).toBe(1);
+    expect(updates).toHaveLength(1);
+    expect(rpcs.filter((r) => r.name === 'link_refund').map((r) => r.args.p_refund_id)).toEqual(['new-refund', 'new-refund']);
   });
 
   it('saves a refund without a purchase when none is chosen', async () => {

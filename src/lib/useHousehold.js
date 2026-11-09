@@ -54,7 +54,7 @@ export function useHouseholdLoader(enabled = true) {
 
     const { data: myRows, error } = await supabase
       .from('household_members')
-      .select('id, household_id, display_name, role, user_id, households(id, name, inr_per_aed, inr_rate_set_at, inr_rate_source)')
+      .select('id, household_id, display_name, role, user_id, households(id, name, inr_per_aed, inr_rate_set_at, inr_rate_source, concentration_cap_pct)')
       .eq('user_id', userId)
       .limit(1);
     if (ticket !== latest.current) return;
@@ -92,6 +92,9 @@ export function useHouseholdLoader(enabled = true) {
         inr_per_aed: me.households?.inr_per_aed ?? null,
         inr_rate_set_at: me.households?.inr_rate_set_at ?? null,
         inr_rate_source: me.households?.inr_rate_source ?? 'manual',
+        // Saved on Investments; read back here, or it was forgotten on the
+        // next load (outside review, E-04).
+        concentration_cap_pct: me.households?.concentration_cap_pct ?? null,
       },
       // Falling back to just yourself would quietly hide a partner. Say the
       // roster failed instead.

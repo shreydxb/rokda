@@ -1,4 +1,7 @@
 import { useMemo, useState } from 'react';
+import { neverLoaded } from '../../lib/loadState';
+import Withheld from '../planning/Withheld';
+import { useNow } from '../../lib/useNow';
 import { LineChart } from '../../charts/Charts';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId, scopedValue } from '../../lib/scope';
@@ -64,7 +67,7 @@ export default function NetWorth({ household, me, members, data, loading }) {
   // instead of silently becoming zero.
   const [closeDraft, setCloseDraft] = useState(null);
 
-  const now = useMemo(() => new Date(), []);
+  const now = useNow(data?.loadedAt);
   const [selectedIdx, setSelectedIdx] = useState(null);
 
   // Closed accounts leave today's position but keep their transactions (QA-01).
@@ -176,6 +179,17 @@ export default function NetWorth({ household, me, members, data, loading }) {
   const selected = selectedIdx !== null ? series[selectedIdx] : series[series.length - 1];
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
+  // A total worked out without the accounts or holdings that failed to load
+  // is not the household's, and a month must not be closed on it: no figure
+  // and no close until they load (outside review, E-03).
+  const missing = neverLoaded(data, ['accounts', 'holdings']);
+  if (missing.length > 0) {
+    return (
+      <Withheld missing={missing} onRetry={reload}>
+        Net worth isn&rsquo;t shown, rather than worked out without them, and no month can be closed until they load.
+      </Withheld>
+    );
+  }
 
   const investmentsTotal = visibleHoldingRows.reduce((s, h) => s + scopedHoldingValue(h, scopeMemberId), 0);
   // Same last-6-closed-months delta the history table's Change column shows,
@@ -347,7 +361,7 @@ export default function NetWorth({ household, me, members, data, loading }) {
             <div className="te-fieldgrid">
               <div className="te-fieldcell">
                 <span className="te-fieldlabel">Assets (AED)</span>
-                <input
+                <input aria-label="Assets (AED)"
                   className="te-fieldvalue"
                   type="number"
                   step="0.01"
@@ -363,7 +377,7 @@ export default function NetWorth({ household, me, members, data, loading }) {
               </div>
               <div className="te-fieldcell">
                 <span className="te-fieldlabel">Liabilities (AED)</span>
-                <input
+                <input aria-label="Liabilities (AED)"
                   className="te-fieldvalue"
                   type="number"
                   step="0.01"

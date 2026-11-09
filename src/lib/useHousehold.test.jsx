@@ -9,7 +9,7 @@ const auth = vi.hoisted(() => ({ user: { id: 'u1' }, lookups: 0, fail: false }))
 vi.mock('./AuthContext', () => ({ useAuth: () => ({ user: auth.user }) }));
 
 vi.mock('./supabaseClient', () => {
-  const rows = (table) => (table === 'household_members' ? [{ id: 'm1', household_id: 'h1', display_name: 'Alex', role: 'owner', user_id: 'u1', households: { id: 'h1', name: 'Home' } }] : []);
+  const rows = (table) => (table === 'household_members' ? [{ id: 'm1', household_id: 'h1', display_name: 'Alex', role: 'owner', user_id: 'u1', households: { id: 'h1', name: 'Home', concentration_cap_pct: 25 } }] : []);
   const query = (table) => {
     const chain = {
       select: () => chain,
@@ -129,5 +129,20 @@ describe('useHousehold: refreshing, and one lookup for the app', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+// The outside review, E-04: the cap a member saved on Investments is read
+// back with the household, so it is not forgotten on the next load.
+describe('useHousehold: what it reads', () => {
+  it('reads the household\'s concentration cap', async () => {
+    function Cap() {
+      const { household } = useHousehold();
+      return <span data-testid="cap">{String(household?.concentration_cap_pct ?? 'none')}</span>;
+    }
+    auth.user = { id: 'u-cap' };
+    render(<Cap />);
+    await act(async () => {});
+    expect(screen.getByTestId('cap').textContent).toBe('25');
   });
 });

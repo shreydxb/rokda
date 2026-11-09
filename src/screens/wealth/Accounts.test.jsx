@@ -201,3 +201,17 @@ describe('Credit card usage line leads with the real AED amount, not just a roun
     }
   });
 });
+
+// The outside review, E-03: accounts that never loaded are not "no
+// accounts": that reads as a fact and invites adding them a second time.
+describe('Accounts: a read that failed', () => {
+  it('says the accounts could not be loaded, not that there are none', () => {
+    renderScreen(
+      <Accounts household={{ id: 'h1' }} members={MEMBERS} me={MEMBERS[0]} loading={false}
+        data={{ accounts: [], transactions: [], errors: { accounts: 'timeout' }, loaded: {}, reload: vi.fn() }} />,
+    );
+    expect(screen.queryByText('No accounts')).toBeNull();
+    expect(screen.getByText('Couldn’t load accounts.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy();
+  });
+});

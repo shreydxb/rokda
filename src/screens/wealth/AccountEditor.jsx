@@ -144,14 +144,21 @@ export default function AccountEditor({ account, defaultType, householdId, membe
       payload.balance = isLoan ? Math.abs(Number(form.balance) || 0) : Number(form.balance) || 0;
     }
 
+    // An update reads back the row it changed: none means the account was
+    // deleted elsewhere, and closing as if saved hid that (outside review,
+    // E-10).
     const query = account
-      ? supabase.from('accounts').update(payload).eq('id', account.id)
+      ? supabase.from('accounts').update(payload).eq('id', account.id).select('id')
       : supabase.from('accounts').insert(payload);
 
-    const { error: saveError } = await query;
+    const { data: changed, error: saveError } = await query;
     setSaving(false);
     if (saveError) {
       setError(saveError.message);
+      return;
+    }
+    if (account && (changed?.length ?? 0) !== 1) {
+      setError("This account wasn't saved: it may have been deleted elsewhere. Close it and refresh.");
       return;
     }
     await onSaved();
@@ -242,7 +249,7 @@ export default function AccountEditor({ account, defaultType, householdId, membe
                   {account ? Number(account.balance).toLocaleString('en-AE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
                 </span>
               ) : (
-                <input
+                <input aria-label={isCard ? 'Balance owed' : isLoan ? 'Amount owed' : isFd ? 'Current value (auto-calculated)' : 'Current balance'}
                   type="number"
                   step="0.01"
                   className="te-hero-input"
@@ -313,11 +320,11 @@ export default function AccountEditor({ account, defaultType, householdId, membe
           <div className="te-fieldgrid">
             <div className="te-fieldcell te-span2">
               <span className="te-fieldlabel">Name</span>
-              <input className="te-fieldvalue" type="text" value={form.name} onChange={(e) => set('name', e.target.value)} aria-invalid={!!nameError} placeholder="e.g. ADCB Savings" />
+              <input aria-label="Name" className="te-fieldvalue" type="text" value={form.name} onChange={(e) => set('name', e.target.value)} aria-invalid={!!nameError} placeholder="e.g. ADCB Savings" />
             </div>
             <div className="te-fieldcell">
               <span className="te-fieldlabel">Type</span>
-              <select className="te-fieldvalue" value={form.type} onChange={(e) => set('type', e.target.value)}>
+              <select aria-label="Type" className="te-fieldvalue" value={form.type} onChange={(e) => set('type', e.target.value)}>
                 {Object.entries(ACCOUNT_TYPE_LABELS).map(([id, label]) => (
                   <option key={id} value={id}>
                     {label}
@@ -327,7 +334,7 @@ export default function AccountEditor({ account, defaultType, householdId, membe
             </div>
             <div className="te-fieldcell">
               <span className="te-fieldlabel">Currency</span>
-              <input className="te-fieldvalue" type="text" value={form.currency} onChange={(e) => set('currency', e.target.value.toUpperCase())} maxLength={3} />
+              <input aria-label="Currency" className="te-fieldvalue" type="text" value={form.currency} onChange={(e) => set('currency', e.target.value.toUpperCase())} maxLength={3} />
             </div>
             {form.type === 'broker_funds' && (
               <div className="te-fieldcell te-span2">
@@ -353,15 +360,15 @@ export default function AccountEditor({ account, defaultType, householdId, membe
               <>
                 <div className="te-fieldcell">
                   <span className="te-fieldlabel">Credit limit</span>
-                  <input className="te-fieldvalue" type="number" step="0.01" value={form.credit_limit} onChange={(e) => set('credit_limit', e.target.value)} />
+                  <input aria-label="Credit limit" className="te-fieldvalue" type="number" step="0.01" value={form.credit_limit} onChange={(e) => set('credit_limit', e.target.value)} />
                 </div>
                 <div className="te-fieldcell">
                   <span className="te-fieldlabel">Statement day</span>
-                  <input className="te-fieldvalue" type="number" min="1" max="31" value={form.statement_day} onChange={(e) => set('statement_day', e.target.value)} />
+                  <input aria-label="Statement day" className="te-fieldvalue" type="number" min="1" max="31" value={form.statement_day} onChange={(e) => set('statement_day', e.target.value)} />
                 </div>
                 <div className="te-fieldcell">
                   <span className="te-fieldlabel">Due day</span>
-                  <input className="te-fieldvalue" type="number" min="1" max="31" value={form.due_day} onChange={(e) => set('due_day', e.target.value)} />
+                  <input aria-label="Due day" className="te-fieldvalue" type="number" min="1" max="31" value={form.due_day} onChange={(e) => set('due_day', e.target.value)} />
                 </div>
               </>
             )}
@@ -369,15 +376,15 @@ export default function AccountEditor({ account, defaultType, householdId, membe
               <>
                 <div className="te-fieldcell">
                   <span className="te-fieldlabel">Principal</span>
-                  <input className="te-fieldvalue" type="number" step="0.01" value={form.principal} onChange={(e) => set('principal', e.target.value)} placeholder="e.g. 100000" />
+                  <input aria-label="Principal" className="te-fieldvalue" type="number" step="0.01" value={form.principal} onChange={(e) => set('principal', e.target.value)} placeholder="e.g. 100000" />
                 </div>
                 <div className="te-fieldcell">
                   <span className="te-fieldlabel">Interest rate (annual %)</span>
-                  <input className="te-fieldvalue" type="number" step="0.01" value={form.interest_rate_pct} onChange={(e) => set('interest_rate_pct', e.target.value)} placeholder="e.g. 4.5" />
+                  <input aria-label="Interest rate (annual %)" className="te-fieldvalue" type="number" step="0.01" value={form.interest_rate_pct} onChange={(e) => set('interest_rate_pct', e.target.value)} placeholder="e.g. 4.5" />
                 </div>
                 <div className="te-fieldcell te-span2">
                   <span className="te-fieldlabel">Compounding</span>
-                  <select className="te-fieldvalue" value={form.compounding} onChange={(e) => set('compounding', e.target.value)}>
+                  <select aria-label="Compounding" className="te-fieldvalue" value={form.compounding} onChange={(e) => set('compounding', e.target.value)}>
                     {Object.entries(COMPOUNDING_LABELS).map(([id, label]) => (
                       <option key={id} value={id}>
                         {label}
@@ -387,11 +394,11 @@ export default function AccountEditor({ account, defaultType, householdId, membe
                 </div>
                 <div className="te-fieldcell">
                   <span className="te-fieldlabel">Opened</span>
-                  <input className="te-fieldvalue" type="date" value={form.opened_date} onChange={(e) => set('opened_date', e.target.value)} />
+                  <input aria-label="Opened" className="te-fieldvalue" type="date" value={form.opened_date} onChange={(e) => set('opened_date', e.target.value)} />
                 </div>
                 <div className="te-fieldcell">
                   <span className="te-fieldlabel">Maturity date</span>
-                  <input className="te-fieldvalue" type="date" value={form.maturity_date} onChange={(e) => set('maturity_date', e.target.value)} />
+                  <input aria-label="Maturity date" className="te-fieldvalue" type="date" value={form.maturity_date} onChange={(e) => set('maturity_date', e.target.value)} />
                 </div>
               </>
             )}

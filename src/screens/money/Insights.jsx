@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useNow } from '../../lib/useNow';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
 import { formatMoney, formatPct } from '../../lib/money';
@@ -15,7 +16,7 @@ export default function Insights({ me, members, data, loading, onDrillIntoActivi
   const scopeMemberId = resolveScopeMemberId(scope, me, members);
   const { transactions, categories } = data;
 
-  const now = useMemo(() => new Date(), []);
+  const now = useNow(data?.loadedAt);
   // In the address, so Back from the records a figure opened returns to
   // this month rather than the current one.
   const [cursor, setCursor] = useMonthParam(now);

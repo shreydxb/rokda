@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useNow } from '../../lib/useNow';
 import { Link, useSearchParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabaseClient';
 import { formatBalance, formatMoney } from '../../lib/money';
@@ -22,7 +23,7 @@ const SETTLED_HERE = new Set(['duplicates', 'transfers']);
 
 export default function Review({ household, data, planning = {}, loading }) {
   const [params, setParams] = useSearchParams();
-  const now = useMemo(() => new Date(), []);
+  const now = useNow(data?.loadedAt);
   const monthParam = params.get('month');
   const selected = useMemo(() => reviewMonth(monthParam, now), [monthParam, now]);
   const { prev, next } = adjacentReviewMonths(selected, now);

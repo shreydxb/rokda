@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useNow } from '../../lib/useNow';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
 import { formatMoney } from '../../lib/money';
@@ -32,7 +33,7 @@ function clearsText(row, now) {
 
 export default function DebtPayoff({ household, members, me, accounts = [], data, sources, onRetry, loading, onReload }) {
   const { assumptions, reload } = data;
-  const now = useMemo(() => new Date(), []);
+  const now = useNow(data?.loadedAt);
   // Each debt at its linked account's balance: the one figure net worth uses too.
   const debts = useMemo(() => debtsWithAccounts(data.debts, accounts), [data.debts, accounts]);
   const unlinked = debts.filter((d) => !d.inNetWorth);

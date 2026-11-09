@@ -400,6 +400,22 @@
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
+/* The holding's name, the button that opens it from the keyboard: it reads
+   as the name, with the row's own hover, and shows its focus. */
+.wl-holdname {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.wl-holdname:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
 .wl-holdrow {
   cursor: pointer;
 }

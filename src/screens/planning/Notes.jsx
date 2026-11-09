@@ -13,6 +13,11 @@ import Withheld from './Withheld';
 export default function Notes({ household, me, members = [], data, sources, onRetry, loading }) {
   const notes = data?.notes ?? [];
   const [editing, setEditing] = useState(null); // null | 'new' | note id
+  // The note as it was opened. Deleted elsewhere while open, it drops out of
+  // a refresh, and with it went the editor and its draft, while `editing`
+  // kept every button disabled (outside review, E-06). It stays listed, with
+  // the draft, until the member cancels.
+  const [editingNote, setEditingNote] = useState(null);
   // Until the read after a save lands, a note on screen is the version from
   // before it: opened again then, it would show the old text.
   const [reloading, setReloading] = useState(false);
@@ -27,6 +32,12 @@ export default function Notes({ household, me, members = [], data, sources, onRe
     );
   }
 
+  const editingGone = editing !== null && editing !== 'new' && !notes.some((n) => n.id === editing);
+  const listed = editingGone && editingNote ? [...notes, editingNote].sort((a, b) => (a.position ?? 0) - (b.position ?? 0)) : notes;
+  const startEditing = (note) => {
+    setEditing(note.id);
+    setEditingNote(note);
+  };
   const nameOf = (id) => members.find((m) => m.id === id)?.display_name;
   const nextPosition = notes.reduce((max, n) => Math.max(max, n.position ?? 0), 0) + 1;
   const done = async () => {
@@ -56,20 +67,20 @@ export default function Notes({ household, me, members = [], data, sources, onRe
         <NoteEditor householdId={household?.id} me={me} position={nextPosition} onCancel={() => setEditing(null)} onSaved={done} />
       )}
 
-      {notes.length === 0 && editing !== 'new' ? (
+      {listed.length === 0 && editing !== 'new' ? (
         <div className="ov-empty">
           <div className="ov-empty-kicker">No notes</div>
           <div className="ov-empty-body">Write down why the plan is what it is: who pays what, which goal comes first, what is still to decide.</div>
         </div>
       ) : (
-        notes.map((note) =>
+        listed.map((note) =>
           editing === note.id ? (
-            <NoteEditor key={note.id} note={note} householdId={household?.id} me={me} onCancel={() => setEditing(null)} onSaved={done} />
+            <NoteEditor key={note.id} note={note} gone={editingGone} householdId={household?.id} me={me} onCancel={() => setEditing(null)} onSaved={done} />
           ) : (
             <article key={note.id} className="nt-card" aria-label={note.title}>
               <div className="nt-head">
                 <h2 className="nt-title">{note.title}</h2>
-                <button type="button" className="om-link nt-edit" onClick={() => setEditing(note.id)} disabled={editing !== null || reloading}>
+                <button type="button" className="om-link nt-edit" onClick={() => startEditing(note)} disabled={editing !== null || reloading}>
                   Edit
                 </button>
               </div>
@@ -161,7 +172,7 @@ function YearlyCheck({ note, me, disabled, onChecked }) {
   );
 }
 
-function NoteEditor({ note, householdId, me, position = 0, onCancel, onSaved }) {
+function NoteEditor({ note, gone = false, householdId, me, position = 0, onCancel, onSaved }) {
   const [title, setTitle] = useState(note?.title ?? '');
   const [body, setBody] = useState(note?.body ?? '');
   const [yearly, setYearly] = useState(note?.check_yearly ?? false);
@@ -235,13 +246,18 @@ function NoteEditor({ note, householdId, me, position = 0, onCancel, onSaved }) 
 
   return (
     <form className="nt-card nt-editing" onSubmit={save} aria-label={note ? `Edit ${note.title}` : 'New note'}>
+      {gone && (
+        <p className="ov-warn" role="alert" style={{ marginTop: 0 }}>
+          This note was deleted elsewhere. Copy what you need from your draft, then Cancel.
+        </p>
+      )}
       <label className="te-fieldcell">
         <span className="te-fieldlabel">Title</span>
-        <input className="te-fieldvalue" type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Who pays what" />
+        <input aria-label="Title" className="te-fieldvalue" type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Who pays what" />
       </label>
       <label className="te-fieldcell" style={{ marginTop: 14 }}>
         <span className="te-fieldlabel">Note</span>
-        <textarea className="nt-textarea" value={body} onChange={(e) => setBody(e.target.value)} rows={14} />
+        <textarea aria-label="Note" className="nt-textarea" value={body} onChange={(e) => setBody(e.target.value)} rows={14} />
       </label>
       <div className="ov-muted" style={{ marginTop: 6 }}>
         “# ” for a heading, “- ” for a bullet, **bold**, a blank line between paragraphs.

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import MemberEditor from './MemberEditor';
 
@@ -15,14 +15,26 @@ export default function Household({ household, members, me, loading, reload }) {
   // so the useState initializer above only ever sees household as it was on
   // the very first render — often still null, before the fetch resolves.
   // Re-sync whenever the real name arrives or changes.
+  //
+  // A field follows the household only while it still shows the value last
+  // synced into it: what a member is typing is theirs until they save it.
+  // The household is read again in the background, and the rupee rate moves
+  // every day, so syncing unconditionally replaced what was being typed
+  // (outside review, E-07).
+  const syncedNameRef = useRef(household?.name ?? '');
+  const syncedRateRef = useRef(household?.inr_per_aed != null ? String(household.inr_per_aed) : '');
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing local edit-buffer state from a prop that loads asynchronously
-    setName(household?.name ?? '');
+    const incoming = household?.name ?? '';
+    const before = syncedNameRef.current;
+    syncedNameRef.current = incoming;
+    setName((current) => (current === before ? incoming : current));
   }, [household?.name]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- same as above, for the INR rate field
-    setInrRate(household?.inr_per_aed != null ? String(household.inr_per_aed) : '');
+    const incoming = household?.inr_per_aed != null ? String(household.inr_per_aed) : '';
+    const before = syncedRateRef.current;
+    syncedRateRef.current = incoming;
+    setInrRate((current) => (current === before ? incoming : current));
   }, [household?.inr_per_aed]);
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
@@ -50,6 +62,10 @@ export default function Household({ household, members, me, loading, reload }) {
       setNameError(error.message);
       return;
     }
+    // The field takes the name as stored, so it goes on following the
+    // household after this save (the fresh review of group 4).
+    syncedNameRef.current = name.trim();
+    setName(name.trim());
     await reload();
   }
 
@@ -71,6 +87,11 @@ export default function Household({ household, members, me, loading, reload }) {
       setRateError(error.message);
       return;
     }
+    // As stored: "25.80" comes back as 25.8, and a field still reading
+    // "25.80" would stop following the household and offer to write this
+    // rate back over the next day's (the fresh review of group 4).
+    syncedRateRef.current = String(rate);
+    setInrRate(String(rate));
     await reload();
   }
 
@@ -83,6 +104,7 @@ export default function Household({ household, members, me, loading, reload }) {
         <form onSubmit={saveName} style={{ display: 'flex', gap: 8 }}>
           <input
             type="text"
+            aria-label="Household name"
             value={name}
             onChange={(e) => setName(e.target.value)}
             style={{
@@ -125,6 +147,7 @@ export default function Household({ household, members, me, loading, reload }) {
             type="number"
             step="0.01"
             min="0"
+            aria-label="Rupees per dirham"
             value={inrRate}
             onChange={(e) => setInrRate(e.target.value)}
             placeholder="e.g. 25.80"

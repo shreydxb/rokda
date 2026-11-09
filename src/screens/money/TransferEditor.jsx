@@ -231,7 +231,7 @@ export default function TransferEditor({ transfer, householdId, accounts, member
             </label>
             <label className="te-fieldcell">
               <span className="te-fieldlabel">Date</span>
-              <input className="te-fieldvalue" type="date" value={form.occurred_at} onChange={(e) => set('occurred_at', e.target.value)} />
+              <input aria-label="Date" className="te-fieldvalue" type="date" value={form.occurred_at} onChange={(e) => set('occurred_at', e.target.value)} />
             </label>
           </div>
 
@@ -253,7 +253,7 @@ export default function TransferEditor({ transfer, householdId, accounts, member
 
           <label className="te-fieldcell">
             <span className="te-fieldlabel">Note</span>
-            <textarea className="te-fieldvalue" rows={2} value={form.note} onChange={(e) => set('note', e.target.value)} />
+            <textarea aria-label="Note" className="te-fieldvalue" rows={2} value={form.note} onChange={(e) => set('note', e.target.value)} />
           </label>
 
           {existing && (

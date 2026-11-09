@@ -285,7 +285,7 @@ export default function DebtEditor({ debt, householdId, members, accounts = [], 
             </div>
             <div className="te-fieldcell te-span2">
               <span className="te-fieldlabel">Note</span>
-              <input className="te-fieldvalue" type="text" value={form.note} onChange={(e) => set('note', e.target.value)} placeholder="e.g. fixed term to Jan 2030" />
+              <input aria-label="Note" className="te-fieldvalue" type="text" value={form.note} onChange={(e) => set('note', e.target.value)} placeholder="e.g. fixed term to Jan 2030" />
             </div>
             <div className="te-fieldcell">
               <label className="te-fieldlabel" htmlFor={`${uid}-apr`}>
@@ -324,7 +324,7 @@ export default function DebtEditor({ debt, householdId, members, accounts = [], 
             </div>
             <div className="te-fieldcell te-span2">
               <span className="te-fieldlabel">Original amount</span>
-              <input className="te-fieldvalue" type="number" step="0.01" value={form.original_amount} onChange={(e) => set('original_amount', e.target.value)} placeholder="optional — for a paid-down bar" />
+              <input aria-label="Original amount" className="te-fieldvalue" type="number" step="0.01" value={form.original_amount} onChange={(e) => set('original_amount', e.target.value)} placeholder="optional — for a paid-down bar" />
             </div>
           </div>
 

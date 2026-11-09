@@ -1,6 +1,6 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { useState } from 'react';
-import { act } from '@testing-library/react';
+import { act, render as plainRender } from '@testing-library/react';
 import { screen, fireEvent, waitFor } from '@testing-library/dom';
 import { renderScreen } from '../../test/renderScreen';
 import Notes from './Notes';
@@ -210,3 +210,28 @@ describe('a yearly check', () => {
   });
 });
 
+
+// The outside review, E-06: a note deleted elsewhere while it is open keeps
+// its draft on screen, says what happened, and Cancel unlocks the page.
+// Plain render: a rerender must update this tree, not mount a new one.
+describe('Notes: the open note deleted elsewhere', () => {
+  it('keeps the draft, says it was deleted, and unlocks on Cancel', () => {
+    const props = { household: { id: 'h' }, me: { id: 'm1' }, members: MEMBERS, onRetry: vi.fn(), loading: false };
+    const reload = vi.fn();
+    const other = { ...NOTE, id: 'n2', title: 'What is still open', position: 2 };
+    const { rerender } = plainRender(<Notes {...props} data={{ notes: [NOTE, other], reload }} />);
+    fireEvent.click(screen.getAllByText('Edit')[0]);
+    fireEvent.change(screen.getByLabelText('Note'), { target: { value: 'My long draft' } });
+
+    // A refresh: the other partner deleted it meanwhile.
+    rerender(<Notes {...props} data={{ notes: [other], reload }} />);
+    expect(screen.getByLabelText('Note').value).toBe('My long draft');
+    expect(screen.getByText('This note was deleted elsewhere. Copy what you need from your draft, then Cancel.')).toBeTruthy();
+
+    fireEvent.click(screen.getByText('Cancel'));
+    fireEvent.click(screen.getByText('Discard'));
+    expect(screen.queryByLabelText('Note')).toBeNull();
+    expect(screen.getByText('Edit').disabled).toBe(false);
+    expect(screen.getByRole('button', { name: '+ Add note' }).disabled).toBe(false);
+  });
+});

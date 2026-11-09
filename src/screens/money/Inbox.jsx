@@ -591,7 +591,7 @@ function IntakeEditForm({ item, sender, accounts, members, categories, categoryR
         <div className="te-fieldgrid">
           <div className="te-fieldcell te-span2">
             <span className="te-fieldlabel">Merchant</span>
-            <input className="te-fieldvalue" type="text" value={merchant} onChange={(e) => setMerchant(e.target.value)} />
+            <input aria-label="Merchant" className="te-fieldvalue" type="text" value={merchant} onChange={(e) => setMerchant(e.target.value)} />
           </div>
           <div className="te-fieldcell">
             <span className="te-fieldlabel">Date</span>
@@ -623,7 +623,7 @@ function IntakeEditForm({ item, sender, accounts, members, categories, categoryR
           </div>
           <div className="te-fieldcell">
             <span className="te-fieldlabel">Account</span>
-            <select className="te-fieldvalue" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+            <select aria-label="Account" className="te-fieldvalue" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
               {selectable.map((a) => (
                 <option key={a.id} value={a.id}>
                   {accountOptionLabel(a, { accounts: selectable, members })}
@@ -638,7 +638,7 @@ function IntakeEditForm({ item, sender, accounts, members, categories, categoryR
           </div>
           <div className="te-fieldcell">
             <span className="te-fieldlabel">Currency</span>
-            <input className="te-fieldvalue" type="text" value={currency} disabled />
+            <input aria-label="Currency" className="te-fieldvalue" type="text" value={currency} disabled />
           </div>
         </div>
 

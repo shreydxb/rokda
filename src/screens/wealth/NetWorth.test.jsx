@@ -409,3 +409,18 @@ describe('NetWorth: Monthly change section', () => {
     expect(screen.queryByText('Monthly change')).toBeNull();
   });
 });
+
+// The outside review, E-03: a net worth worked out without the holdings (or
+// accounts) that failed to load is not the household's, and a month must
+// not be closed on it.
+describe('NetWorth: a read that failed', () => {
+  it('shows no total and offers no close without its accounts and holdings', () => {
+    renderScreen(
+      <NetWorth household={{ id: 'hh' }} me={MEMBERS[0]} members={MEMBERS} loading={false}
+        data={{ accounts: [{ id: 'a1', name: 'Bank', type: 'checking', currency: 'AED', balance: 1000, balance_aed: 1000, is_shared: true, archived_at: null }],
+          netWorthSnapshots: [], holdings: [], errors: { holdings: 'timeout' }, loaded: { accounts: true }, reload: vi.fn() }} />,
+    );
+    expect(screen.getByText('Couldn’t load investments.')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^Close / })).toBeNull();
+  });
+});

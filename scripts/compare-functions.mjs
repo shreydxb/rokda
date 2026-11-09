@@ -329,6 +329,18 @@ function differingFiles(local, live) {
     }));
 }
 
+// What the platform's list left out for a deployed function: 'verify_jwt'
+// when config.toml declares one and the list did not say, 'status' when the
+// list gave none. Release mode fails on either (isBlocking), and the printed
+// row names them, so a red release says why.
+export function unreported(row) {
+  if (row.state === 'not-deployed') return [];
+  const missing = [];
+  if (row.configState === 'unknown') missing.push('verify_jwt');
+  if (row.platformStatus == null) missing.push('status');
+  return missing;
+}
+
 // stale-deployment and orphan-deployment fail: production is not running this
 // commit, or is running something that is in no commit. not-deployed does not
 // by default -- a function committed but not yet released is a deployment
@@ -361,6 +373,10 @@ export function isBlocking(row) {
   // that have nothing to do with branches.
   if (row.configState === 'drift') return true;
   if (row.platformStatus != null && row.platformStatus !== 'ACTIVE') return true;
+  // A release check cannot pass what it could not see: in release mode a
+  // declared function whose verify_jwt or status the platform did not report
+  // fails, rather than passing on the source alone (outside review, F-05).
+  if (row.required && unreported(row).length > 0) return true;
 
   // verify_jwt as the base declares it, while this commit changes it. On a
   // branch that is the proposed change, exactly as a source difference is. On
@@ -404,7 +420,10 @@ export function onlyAwaitingDeploy(rows) {
       (r) =>
         (r.state === 'stale-deployment' || (r.state === 'in-sync' && r.configState === 'pending')) &&
         r.configState !== 'drift' &&
-        (r.platformStatus == null || r.platformStatus === 'ACTIVE'),
+        (r.platformStatus == null || r.platformStatus === 'ACTIVE') &&
+        // A field the platform left out stays left out however long the
+        // check waits for the deploy.
+        !(r.required && unreported(r).length > 0),
     )
   );
 }
@@ -421,6 +440,29 @@ const LABELS = {
   'orphan-deployment': 'ORPHAN   ',
   unreadable: 'UNKNOWN  ',
 };
+
+// One printed line per function. A field the platform did not report is
+// marked, since release mode fails on it and nothing else on the line would
+// say so.
+export function rowLine(row) {
+  const missing = unreported(row);
+  const jwt =
+    row.configState === 'drift'
+      ? ` verify_jwt=${row.deployedVerifyJwt} EXPECTED ${row.expectedVerifyJwt}`
+      : row.configState === 'pending'
+        ? ` verify_jwt=${row.deployedVerifyJwt} -> ${row.expectedVerifyJwt} when this commit deploys`
+        : row.configState === 'ok'
+          ? ` verify_jwt=${row.deployedVerifyJwt}`
+          : missing.includes('verify_jwt')
+            ? ' verify_jwt=? (not reported)'
+            : '';
+  const status = missing.includes('status')
+    ? ' status=? (not reported)'
+    : row.platformStatus && row.platformStatus !== 'ACTIVE'
+      ? ` status=${row.platformStatus}`
+      : '';
+  return `${LABELS[row.state]}${row.slug.padEnd(24)} repo=${(row.repoDigest ?? '—').slice(0, 12)} deployed=${(row.deployedDigest ?? '—').slice(0, 12)} ${row.state}${jwt}${status}`;
+}
 
 const isMainModule = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 
@@ -459,21 +501,12 @@ if (isMainModule) {
   let configDrift = 0;
   let configPending = 0;
   let notActive = 0;
+  let notReported = 0;
 
   for (const row of rows) {
     tally[row.state]++;
-    const jwt =
-      row.configState === 'drift'
-        ? ` verify_jwt=${row.deployedVerifyJwt} EXPECTED ${row.expectedVerifyJwt}`
-        : row.configState === 'pending'
-          ? ` verify_jwt=${row.deployedVerifyJwt} -> ${row.expectedVerifyJwt} when this commit deploys`
-          : row.configState === 'ok'
-            ? ` verify_jwt=${row.deployedVerifyJwt}`
-            : '';
-    const status = row.platformStatus && row.platformStatus !== 'ACTIVE' ? ` status=${row.platformStatus}` : '';
-    console.log(
-      `${LABELS[row.state]}${row.slug.padEnd(24)} repo=${(row.repoDigest ?? '—').slice(0, 12)} deployed=${(row.deployedDigest ?? '—').slice(0, 12)} ${row.state}${jwt}${status}`,
-    );
+    console.log(rowLine(row));
+    if (row.required && unreported(row).length > 0) notReported++;
     if (row.configState === 'drift') configDrift++;
     if (row.configState === 'pending') configPending++;
     if (row.platformStatus != null && row.platformStatus !== 'ACTIVE') notActive++;
@@ -500,6 +533,7 @@ if (isMainModule) {
   console.log(`  ${configDrift} with verify_jwt DIFFERENT from supabase/config.toml`);
   console.log(`  ${configPending} with verify_jwt this commit changes, not yet deployed`);
   console.log(`  ${notActive} deployed but not ACTIVE`);
+  if (requireDeployed) console.log(`  ${notReported} declared, with verify_jwt or status the platform did not report (release mode fails on these)`);
 
   if (tally['stale-deployment'] > 0) {
     console.log(

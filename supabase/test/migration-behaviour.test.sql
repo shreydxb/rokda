@@ -38,7 +38,7 @@ do $$
 declare n int;
 begin
   select count(*) into n from transactions where account_id = '33333333-3333-3333-3333-333333333333';
-  if n <> 3 then raise exception 'QA-01 FAILED: % transactions survived closure, expected 3', n; end if;
+  if (n <> 3) is not false then raise exception 'QA-01 FAILED: % transactions survived closure, expected 3', n; end if;
   raise notice 'QA-01 ok: all 3 transactions survive closure';
 end $$;
 update accounts set archived_at = null where id = '33333333-3333-3333-3333-333333333333';
@@ -60,21 +60,21 @@ begin
     '55555555-5555-5555-5555-555555555555', '33333333-3333-3333-3333-333333333333',
     120, date '2026-09-05', 'expense');
 
-  if (first ->> 'already_approved')::boolean then
+  if ((first ->> 'already_approved')::boolean) is not false then
     raise exception 'QA-11 FAILED: the first approval reported itself as a repeat';
   end if;
-  if not (second ->> 'already_approved')::boolean then
+  if (not (second ->> 'already_approved')::boolean) is not false then
     raise exception 'QA-11 FAILED: the retry was not recognised as already approved';
   end if;
-  if (first ->> 'transaction_id') is distinct from (second ->> 'transaction_id') then
+  if ((first ->> 'transaction_id') is distinct from (second ->> 'transaction_id')) is not false then
     raise exception 'QA-11 FAILED: the retry returned a different transaction';
   end if;
 
   select count(*) into n from transactions where id = (first ->> 'transaction_id')::uuid;
-  if n <> 1 then raise exception 'QA-11 FAILED: % transactions written, expected 1', n; end if;
+  if (n <> 1) is not false then raise exception 'QA-11 FAILED: % transactions written, expected 1', n; end if;
 
   select count(*) into n from transactions where merchant is null and amount = -120;
-  if n <> 1 then raise exception 'QA-11 FAILED: % transactions of -120 exist, expected 1', n; end if;
+  if (n <> 1) is not false then raise exception 'QA-11 FAILED: % transactions of -120 exist, expected 1', n; end if;
 
   raise notice 'QA-11 ok: retry yields exactly one transaction';
 end $$;
@@ -89,7 +89,7 @@ begin
     '55555555-5555-5555-5555-555555555556', '33333333-3333-3333-3333-333333333333',
     500, date '2026-09-05', 'income');
   select t.amount into amount from transactions t where t.id = (result ->> 'transaction_id')::uuid;
-  if amount <> 500 then raise exception 'QA-11 FAILED: income recorded as %', amount; end if;
+  if (amount <> 500) is not false then raise exception 'QA-11 FAILED: income recorded as %', amount; end if;
   raise notice 'QA-11 ok: kind decides the sign';
 end $$;
 
@@ -137,7 +137,7 @@ begin
 
   select count(*) into n from net_worth_snapshots
    where household_id = '11111111-1111-1111-1111-111111111111' and snapshot_date = date '2026-08-01';
-  if n <> 1 then raise exception 'QA-05 FAILED: % snapshots for one month, expected 1', n; end if;
+  if (n <> 1) is not false then raise exception 'QA-05 FAILED: % snapshots for one month, expected 1', n; end if;
   raise notice 'QA-05 ok: closing a month twice leaves one point';
 end $$;
 
@@ -159,7 +159,7 @@ begin
   on conflict (holding_id, as_of) do update set value_aed = excluded.value_aed;
 
   select count(*) into n from holding_value_history where holding_id = '66666666-6666-6666-6666-666666666666';
-  if n <> 2 then raise exception 'QA-05 FAILED: % history points, expected 2', n; end if;
+  if (n <> 2) is not false then raise exception 'QA-05 FAILED: % history points, expected 2', n; end if;
   raise notice 'QA-05 ok: two valuations, two dated points; same day twice stays one';
 end $$;
 
@@ -174,8 +174,8 @@ begin
     '55555555-5555-5555-5555-555555555558', '33333333-3333-3333-3333-333333333333',
     75, date '2026-09-05', 'refund');
   select t.amount, t.kind into amount, txn_kind from transactions t where t.id = (result ->> 'transaction_id')::uuid;
-  if amount <> 75 then raise exception 'SHR-252 FAILED: refund recorded as %, expected 75', amount; end if;
-  if txn_kind <> 'refund' then raise exception 'SHR-252 FAILED: kind recorded as %, expected refund', txn_kind; end if;
+  if (amount <> 75) is not false then raise exception 'SHR-252 FAILED: refund recorded as %, expected 75', amount; end if;
+  if (txn_kind <> 'refund') is not false then raise exception 'SHR-252 FAILED: kind recorded as %, expected refund', txn_kind; end if;
   raise notice 'SHR-252 ok: a refund is signed positive and its kind is persisted';
 end $$;
 
@@ -207,8 +207,8 @@ begin
   result := approve_intake(
     '55555555-5555-5555-5555-555555555559', '33333333-3333-3333-3333-333333333333',
     146.9, date '2026-09-05', 'expense', null, 'USD', p_native_amount => 40, p_aed_estimated => true);
-  if not exists (select 1 from transactions where id = (result ->> 'transaction_id')::uuid
-                 and amount = -146.9 and currency = 'USD' and native_amount = -40 and aed_estimated) then
+  if (not exists (select 1 from transactions where id = (result ->> 'transaction_id')::uuid
+                 and amount = -146.9 and currency = 'USD' and native_amount = -40 and aed_estimated)) is not false then
     raise exception 'SHR-321 FAILED: a USD approval did not keep the AED, the USD amount and the estimate flag';
   end if;
   raise notice 'SHR-252 ok: a payment in another currency is approved only with both its amounts';
@@ -266,10 +266,10 @@ begin
   -- as it was — a legacy touch is not a confirmed valuation.
   update holdings set last_refreshed = '2026-09-06T00:00:00Z' where id = '77777777-7777-7777-7777-777777777777';
   select priced_at, last_refreshed into priced, refreshed from holdings where id = '77777777-7777-7777-7777-777777777777';
-  if priced is distinct from '2026-06-01T00:00:00Z'::timestamptz then
+  if (priced is distinct from '2026-06-01T00:00:00Z'::timestamptz) is not false then
     raise exception 'SHR-254 FAILED: a legacy last_refreshed write moved priced_at to %', priced;
   end if;
-  if refreshed is distinct from '2026-09-06T00:00:00Z'::timestamptz then
+  if (refreshed is distinct from '2026-09-06T00:00:00Z'::timestamptz) is not false then
     raise exception 'SHR-254 FAILED: the legacy client''s own write to last_refreshed did not stick (got %)', refreshed;
   end if;
 
@@ -278,7 +278,7 @@ begin
   -- offer to a legacy reader via last_refreshed.
   update holdings set priced_at = '2026-09-06T12:00:00Z' where id = '77777777-7777-7777-7777-777777777777';
   select priced_at, last_refreshed into priced, refreshed from holdings where id = '77777777-7777-7777-7777-777777777777';
-  if refreshed is distinct from priced then
+  if (refreshed is distinct from priced) is not false then
     raise exception 'SHR-254 FAILED: last_refreshed (%) did not follow a genuine priced_at write (%)', refreshed, priced;
   end if;
 
@@ -290,9 +290,9 @@ do $$
 declare priced timestamptz; confirmed timestamptz;
 begin
   select h.priced_at into priced from holdings h where h.id = '66666666-6666-6666-6666-666666666666';
-  if priced is not null then raise exception 'QA-04 FAILED: a new holding claims a valuation date'; end if;
+  if (priced is not null) is not false then raise exception 'QA-04 FAILED: a new holding claims a valuation date'; end if;
   select a.balance_as_of into confirmed from accounts a where a.id = '33333333-3333-3333-3333-333333333333';
-  if confirmed is not null then raise exception 'QA-02 FAILED: a new account claims a confirmed balance'; end if;
+  if (confirmed is not null) is not false then raise exception 'QA-02 FAILED: a new account claims a confirmed balance'; end if;
   raise notice 'QA-04/QA-02 ok: valuations and balances start unconfirmed';
 end $$;
 
@@ -339,7 +339,7 @@ begin
       when foreign_key_violation then null;  -- the tenant-qualified key did its job
     end;
   end loop;
-  if allowed > 0 then
+  if (allowed > 0) is not false then
     raise exception 'QA-§7 FAILED: % cross-household write(s) accepted', allowed;
   end if;
   raise notice 'QA-§7 ok: all % cross-household writes refused', array_length(attempts, 1);
@@ -354,7 +354,7 @@ begin
   values ('11111111-1111-1111-1111-111111111111', '33333333-3333-3333-3333-333333333333',
           '88888888-8888-8888-8888-88888888000c', '22222222-2222-2222-2222-222222222222', -42, '2026-09-02')
   returning id into txn;
-  if txn is null then raise exception 'QA-§7 FAILED: a legitimate same-household insert was refused'; end if;
+  if (txn is null) is not false then raise exception 'QA-§7 FAILED: a legitimate same-household insert was refused'; end if;
 
   -- MATCH SIMPLE: an unset optional reference is still unset, not a violation.
   insert into transactions (household_id, account_id, amount, occurred_at)
@@ -382,7 +382,7 @@ begin
   where id = '88888888-8888-8888-8888-88888888000d'
     and owner_member_id is null
     and household_id = '11111111-1111-1111-1111-111111111111';
-  if n <> 1 then raise exception 'QA-§7 FAILED: removing a member did not cleanly null the owner'; end if;
+  if (n <> 1) is not false then raise exception 'QA-§7 FAILED: removing a member did not cleanly null the owner'; end if;
   raise notice 'QA-§7 ok: removing a member nulls the owner and keeps household_id';
 end $$;
 
@@ -411,13 +411,13 @@ begin
   delete from auth.users where id = 'aaaaaaaa-1111-0000-0000-00000000000d';
 
   select role into role_now from household_members where id = 'aaaaaaaa-2222-0000-0000-00000000000d';
-  if role_now <> 'member' then
+  if (role_now <> 'member') is not false then
     raise exception 'QA-#3 FAILED: an owner whose login was deleted is still role %', role_now;
   end if;
 
   select count(*) into owners_with_login from household_members
   where household_id = 'aaaaaaaa-0000-0000-0000-00000000000b' and role = 'owner' and user_id is not null;
-  if owners_with_login <> 1 then
+  if (owners_with_login <> 1) is not false then
     raise exception 'QA-#3 FAILED: % owners can sign in, expected 1', owners_with_login;
   end if;
 
@@ -433,7 +433,7 @@ begin
 
   select count(*) into owners_with_login from household_members
   where household_id = 'aaaaaaaa-0000-0000-0000-00000000000b' and role = 'owner' and user_id is not null;
-  if owners_with_login <> 1 then
+  if (owners_with_login <> 1) is not false then
     raise exception 'QA-#3 FAILED: the household ended with % signed-in owners, expected 1', owners_with_login;
   end if;
   raise notice 'QA-#3 ok: losing a login demotes the row; losing the last owner''s login is refused';
@@ -462,12 +462,12 @@ begin
   where tgrelid = 'public.household_members'::regclass
     and not tgisinternal and tgname = 'household_members_unlinked_owner_demotes';
 
-  if guard_name is null or demote_name is null then
+  if (guard_name is null or demote_name is null) is not false then
     raise exception 'QA-#3 FAILED: expected both the role guard and the demote trigger, found guard=% demote=%',
       guard_name, demote_name;
   end if;
 
-  if demote_name <= guard_name then
+  if (demote_name <= guard_name) is not false then
     raise exception 'QA-#3 FAILED: % must sort AFTER % so it fires second; renaming either one breaks deleting an auth account',
       demote_name, guard_name;
   end if;
@@ -514,20 +514,20 @@ do $$
 declare cmd text; sched text;
 begin
   select command, schedule into cmd, sched from cron.job where jobname = 'weekday-price-refresh';
-  if cmd is null then raise exception 'QA-#7 FAILED: the migrations do not create weekday-price-refresh'; end if;
-  if sched <> '0 23 * * 0,1,2,3,4' then
+  if (cmd is null) is not false then raise exception 'QA-#7 FAILED: the migrations do not create weekday-price-refresh'; end if;
+  if (sched <> '0 23 * * 0,1,2,3,4') is not false then
     raise exception 'QA-#7 FAILED: weekday-price-refresh runs on %, expected weekdays at 23:00', sched;
   end if;
-  if position('/functions/v1/price-refresh' in cmd) = 0 then
+  if (position('/functions/v1/price-refresh' in cmd) = 0) is not false then
     raise exception 'QA-#7 FAILED: weekday-price-refresh does not call the price-refresh function';
   end if;
   -- price-refresh accepts the job only with the vault's scheduler secret,
   -- read when the job runs rather than pasted into the migration. The legacy
   -- service-role JWT is gone: Supabase is deleting legacy keys.
-  if position('X-Rokda-Scheduler-Secret' in cmd) = 0 or position('get_scheduler_secret()' in cmd) = 0 then
+  if (position('X-Rokda-Scheduler-Secret' in cmd) = 0 or position('get_scheduler_secret()' in cmd) = 0) is not false then
     raise exception 'scheduler secret FAILED: weekday-price-refresh does not send the scheduler secret from the vault';
   end if;
-  if position('service_role_key' in cmd) > 0 or position('Authorization' in cmd) > 0 then
+  if (position('service_role_key' in cmd) > 0 or position('Authorization' in cmd) > 0) is not false then
     raise exception 'scheduler secret FAILED: weekday-price-refresh still sends the legacy service-role key';
   end if;
 
@@ -536,31 +536,31 @@ begin
   -- interest -- silently, because the app keeps working and the numbers just
   -- stop moving.
   select command, schedule into cmd, sched from cron.job where jobname = 'daily-fd-accrual';
-  if cmd is null then raise exception 'QA-#1 FAILED: the migrations do not create daily-fd-accrual'; end if;
-  if sched <> '0 23 * * *' then
+  if (cmd is null) is not false then raise exception 'QA-#1 FAILED: the migrations do not create daily-fd-accrual'; end if;
+  if (sched <> '0 23 * * *') is not false then
     raise exception 'QA-#1 FAILED: daily-fd-accrual runs on %, expected daily at 23:00', sched;
   end if;
-  if position('/functions/v1/fd-accrual' in cmd) = 0 then
+  if (position('/functions/v1/fd-accrual' in cmd) = 0) is not false then
     raise exception 'QA-#1 FAILED: daily-fd-accrual does not call the fd-accrual function';
   end if;
-  if position('X-Rokda-Scheduler-Secret' in cmd) = 0 or position('get_scheduler_secret()' in cmd) = 0 then
+  if (position('X-Rokda-Scheduler-Secret' in cmd) = 0 or position('get_scheduler_secret()' in cmd) = 0) is not false then
     raise exception 'scheduler secret FAILED: daily-fd-accrual does not send the scheduler secret from the vault';
   end if;
-  if position('service_role_key' in cmd) > 0 or position('Authorization' in cmd) > 0 then
+  if (position('service_role_key' in cmd) > 0 or position('Authorization' in cmd) > 0) is not false then
     raise exception 'scheduler secret FAILED: daily-fd-accrual still sends the legacy service-role key';
   end if;
 
   select command, schedule into cmd, sched from cron.job where jobname = 'daily-recurring-nudge-check';
-  if cmd is null then raise exception 'QA-#7 FAILED: the migrations do not create daily-recurring-nudge-check'; end if;
-  if sched <> '0 5 * * *' then
+  if (cmd is null) is not false then raise exception 'QA-#7 FAILED: the migrations do not create daily-recurring-nudge-check'; end if;
+  if (sched <> '0 5 * * *') is not false then
     raise exception 'QA-#7 FAILED: daily-recurring-nudge-check runs on %, expected daily at 05:00', sched;
   end if;
-  if position('run_recurring_check=1' in cmd) = 0 then
+  if (position('run_recurring_check=1' in cmd) = 0) is not false then
     raise exception 'QA-#7 FAILED: daily-recurring-nudge-check does not call the recurring-check route';
   end if;
   -- The webhook checks this header before parsing anything; without it every
   -- nightly run is rejected and nothing says so.
-  if position('X-Telegram-Bot-Api-Secret-Token' in cmd) = 0 then
+  if (position('X-Telegram-Bot-Api-Secret-Token' in cmd) = 0) is not false then
     raise exception 'QA-#7 FAILED: daily-recurring-nudge-check sends no shared secret';
   end if;
 
@@ -572,23 +572,23 @@ end $$;
 do $$
 declare v text;
 begin
-  if not exists (
+  if (not exists (
     select 1 from pg_proc
     where oid = 'public.get_scheduler_secret()'::regprocedure
       and prosecdef
       and proconfig @> array['search_path=""']
-  ) then
+  )) is not false then
     raise exception 'scheduler secret FAILED: get_scheduler_secret() is not SECURITY DEFINER with an empty search_path';
   end if;
-  if has_function_privilege('anon', 'public.get_scheduler_secret()', 'execute')
+  if (has_function_privilege('anon', 'public.get_scheduler_secret()', 'execute')
      or has_function_privilege('authenticated', 'public.get_scheduler_secret()', 'execute')
-     or not has_function_privilege('service_role', 'public.get_scheduler_secret()', 'execute') then
+     or not has_function_privilege('service_role', 'public.get_scheduler_secret()', 'execute')) is not false then
     raise exception 'scheduler secret FAILED: get_scheduler_secret() is callable by someone other than the service role';
   end if;
 
   -- Unset reads as null, which the functions refuse and the jobs send as an
   -- empty header.
-  if get_scheduler_secret() is not null then
+  if (get_scheduler_secret() is not null) is not false then
     raise exception 'scheduler secret FAILED: an unset secret read as %', get_scheduler_secret();
   end if;
 
@@ -597,7 +597,7 @@ begin
     ('service_role_key', 'legacy-jwt'),
     ('scheduler_secret', repeat('ab', 32));
   v := get_scheduler_secret();
-  if v is distinct from repeat('ab', 32) then
+  if (v is distinct from repeat('ab', 32)) is not false then
     raise exception 'scheduler secret FAILED: read % instead of the vault''s scheduler_secret', v;
   end if;
   delete from vault.decrypted_secrets where name in ('service_role_key', 'scheduler_secret');
@@ -637,15 +637,15 @@ begin
 
     -- Six digits was the whole problem. Anything that short is guessable
     -- inside the token's own lifetime whatever the source.
-    if length(v_code) <> 32 then
+    if (length(v_code) <> 32) is not false then
       raise exception 'QA-#8 FAILED: link token is % characters, expected 32', length(v_code);
     end if;
-    if v_code !~ '^[0-9a-f]{32}$' then
+    if (v_code !~ '^[0-9a-f]{32}$') is not false then
       raise exception 'QA-#8 FAILED: link token % is not lowercase hex', v_code;
     end if;
     -- A generator that can repeat inside one session is not drawing from what
     -- it claims to be drawing from.
-    if v_code = any(v_codes) then
+    if (v_code = any(v_codes)) is not false then
       raise exception 'QA-#8 FAILED: generate_telegram_link_code repeated a token within % calls', i;
     end if;
     v_codes := v_codes || v_code;
@@ -656,10 +656,10 @@ begin
   -- (the outside review, 8 Nov 2026): every member can read it.
   select telegram_link_code, telegram_link_code_expires_at into v_code, v_expires
   from household_members where id = v_member;
-  if v_code is distinct from encode(sha256(convert_to(v_codes[array_length(v_codes, 1)], 'UTF8')), 'hex') then
+  if (v_code is distinct from encode(sha256(convert_to(v_codes[array_length(v_codes, 1)], 'UTF8')), 'hex')) is not false then
     raise exception 'QA-#8 FAILED: the member row holds %, not the latest token''s digest', v_code;
   end if;
-  if v_expires is null or v_expires <= now() or v_expires > now() + interval '16 minutes' then
+  if (v_expires is null or v_expires <= now() or v_expires > now() + interval '16 minutes') is not false then
     raise exception 'QA-#8 FAILED: token expiry is %, expected within the next 15 minutes', v_expires;
   end if;
 
@@ -671,17 +671,17 @@ end $$;
 -- by a household.
 do $$
 begin
-  if to_regclass('public.telegram_link_attempts') is null then
+  if (to_regclass('public.telegram_link_attempts') is null) is not false then
     raise exception 'QA-#8 FAILED: telegram_link_attempts does not exist, so nothing can rate-limit guessing';
   end if;
-  if not exists (
+  if (not exists (
     select 1 from pg_tables where schemaname = 'public' and tablename = 'telegram_link_attempts' and rowsecurity
-  ) then
+  )) is not false then
     raise exception 'QA-#8 FAILED: telegram_link_attempts has RLS disabled';
   end if;
   -- No policies is the intent, not an oversight: the sender is by definition
   -- not in a household, so there is no household to scope these rows to.
-  if exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'telegram_link_attempts') then
+  if (exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'telegram_link_attempts')) is not false then
     raise exception 'QA-#8 FAILED: telegram_link_attempts has a policy; it should be service-role only';
   end if;
   raise notice 'QA-#8 ok: failed link attempts are recorded service-role-only, invisible to every client';
@@ -726,7 +726,7 @@ begin
   end;
 
   select count(*) into after_count from transactions;
-  if after_count <> before_count then
+  if (after_count <> before_count) is not false then
     raise exception 'QA-§7 FAILED: a refused approval still wrote % transaction(s)', after_count - before_count;
   end if;
 
@@ -734,7 +734,7 @@ begin
   perform approve_intake('77777777-7777-7777-7777-77777777000a',
                          '33333333-3333-3333-3333-333333333333', 50, date '2026-09-04',
                          'expense', '88888888-8888-8888-8888-88888888000c');
-  if (select status from intake where id = '77777777-7777-7777-7777-77777777000a') <> 'approved' then
+  if ((select status from intake where id = '77777777-7777-7777-7777-77777777000a') <> 'approved') is not false then
     raise exception 'QA-§7 FAILED: a legitimate approval did not go through';
   end if;
   raise notice 'QA-§7 ok: approve_intake refuses foreign ids, writes nothing, still approves its own';
@@ -752,16 +752,16 @@ declare
 begin
   -- One approve_intake only: a leftover ten-argument overload would make
   -- PostgREST calls ambiguous and would still approve a guess.
-  if (select count(*) from pg_proc where proname = 'approve_intake' and pronamespace = 'public'::regnamespace) <> 1 then
+  if ((select count(*) from pg_proc where proname = 'approve_intake' and pronamespace = 'public'::regnamespace) <> 1) is not false then
     raise exception 'guessed date FAILED: approve_intake has more than one definition';
   end if;
   -- Granted by name, not left to default privileges: the Inbox calls it as
   -- authenticated and the bot as service_role.
-  if (select count(distinct a.grantee)
+  if ((select count(distinct a.grantee)
         from pg_proc p, aclexplode(p.proacl) a
        where p.oid = 'approve_intake(uuid, uuid, numeric, date, text, uuid, text, text, boolean, uuid, boolean, numeric, boolean)'::regprocedure
          and a.privilege_type = 'EXECUTE'
-         and a.grantee in ('authenticated'::regrole, 'service_role'::regrole)) <> 2 then
+         and a.grantee in ('authenticated'::regrole, 'service_role'::regrole)) <> 2) is not false then
     raise exception 'guessed date FAILED: approve_intake is not granted to authenticated and service_role';
   end if;
 
@@ -783,33 +783,33 @@ begin
   exception
     when invalid_parameter_value then null;
   end;
-  if (select count(*) from transactions) <> before_count
-     or (select status from intake where id = '55555555-5555-5555-5555-55555555d001') <> 'pending' then
+  if ((select count(*) from transactions) <> before_count
+     or (select status from intake where id = '55555555-5555-5555-5555-55555555d001') <> 'pending') is not false then
     raise exception 'guessed date FAILED: a refused approval wrote something';
   end if;
 
   result := approve_intake('55555555-5555-5555-5555-55555555d001', '33333333-3333-3333-3333-333333333333', 40, date '2026-09-21', 'expense',
                            p_date_confirmed => true);
   select t.occurred_at into occurred from transactions t where t.id = (result ->> 'transaction_id')::uuid;
-  if occurred is distinct from date '2026-09-21' then
+  if (occurred is distinct from date '2026-09-21') is not false then
     raise exception 'guessed date FAILED: the confirmed day was not recorded (got %)', occurred;
   end if;
   -- The entry keeps what the bot wrote, as the record of its guess.
-  if (select date_guessed and parsed_date = date '2026-09-29' from intake where id = '55555555-5555-5555-5555-55555555d001') is not true then
+  if ((select date_guessed and parsed_date = date '2026-09-29' from intake where id = '55555555-5555-5555-5555-55555555d001') is not true) is not false then
     raise exception 'guessed date FAILED: the record of the guess was overwritten';
   end if;
 
   -- A retry of the approved entry still returns its transaction: the
   -- approved check comes before the date check.
   result := approve_intake('55555555-5555-5555-5555-55555555d001', '33333333-3333-3333-3333-333333333333', 40, date '2026-09-21', 'expense');
-  if not (result ->> 'already_approved')::boolean then
+  if (not (result ->> 'already_approved')::boolean) is not false then
     raise exception 'guessed date FAILED: a retry of the approved entry was not recognised';
   end if;
 
   insert into intake (id, household_id, source, raw_text, parsed_amount, parsed_date, status)
   values ('55555555-5555-5555-5555-55555555d002', '11111111-1111-1111-1111-111111111111', 'telegram', 'AED 15 at Cafe on 20 Sep', 15, '2026-09-20', 'pending');
   result := approve_intake('55555555-5555-5555-5555-55555555d002', '33333333-3333-3333-3333-333333333333', 15, date '2026-09-20', 'expense');
-  if (result ->> 'already_approved')::boolean then
+  if ((result ->> 'already_approved')::boolean) is not false then
     raise exception 'guessed date FAILED: a dated entry was not approved';
   end if;
 
@@ -822,36 +822,36 @@ do $$
 declare r text;
 begin
   -- A fresh update is claimed, and a second claim while it is live is not.
-  if claim_telegram_update(9000001) <> 'claimed' then
+  if (claim_telegram_update(9000001) <> 'claimed') is not false then
     raise exception 'SHR-303 FAILED: a fresh update was not claimed';
   end if;
   -- A live claim is 'busy', not 'completed': the caller must answer non-200
   -- so Telegram retries, rather than 200, which would end the retries.
-  if claim_telegram_update(9000001) <> 'busy' then
+  if (claim_telegram_update(9000001) <> 'busy') is not false then
     raise exception 'SHR-303 FAILED: a live claim was not reported busy';
   end if;
 
   -- A handler that caught an error releases the claim; the next redelivery
   -- must reclaim it rather than drop it. This is the silent-loss case.
   update telegram_update_log set status = 'failed' where update_id = 9000001;
-  if claim_telegram_update(9000001) <> 'claimed' then
+  if (claim_telegram_update(9000001) <> 'claimed') is not false then
     raise exception 'SHR-303 FAILED: a failed update was not reclaimed on redelivery';
   end if;
-  if (select attempts from telegram_update_log where update_id = 9000001) <> 2 then
+  if ((select attempts from telegram_update_log where update_id = 9000001) <> 2) is not false then
     raise exception 'SHR-303 FAILED: reclaiming did not count the attempt';
   end if;
 
   -- A crash that ran no handler at all leaves 'processing' behind. Within the
   -- lease it is still someone else's; past it, it is reclaimable.
   update telegram_update_log set claimed_at = now() - interval '10 minutes' where update_id = 9000001;
-  if claim_telegram_update(9000001) <> 'claimed' then
+  if (claim_telegram_update(9000001) <> 'claimed') is not false then
     raise exception 'SHR-303 FAILED: a claim abandoned past its lease was not reclaimable';
   end if;
 
   -- A completed update is never processed again, however old.
   update telegram_update_log set status = 'completed', claimed_at = now() - interval '10 minutes'
    where update_id = 9000001;
-  if claim_telegram_update(9000001) <> 'completed' then
+  if (claim_telegram_update(9000001) <> 'completed') is not false then
     raise exception 'SHR-303 FAILED: a completed update was not reported completed';
   end if;
   raise notice 'SHR-303 ok: fresh, busy, failed, abandoned and completed claims each behave';
@@ -860,8 +860,8 @@ end $$;
 -- SHR-303: the ordinary app roles cannot claim updates.
 do $$
 begin
-  if has_function_privilege('authenticated', 'claim_telegram_update(bigint, interval)', 'execute')
-     or has_function_privilege('anon', 'claim_telegram_update(bigint, interval)', 'execute') then
+  if (has_function_privilege('authenticated', 'claim_telegram_update(bigint, interval)', 'execute')
+     or has_function_privilege('anon', 'claim_telegram_update(bigint, interval)', 'execute')) is not false then
     raise exception 'SHR-303 FAILED: claim_telegram_update is executable by an app role';
   end if;
   raise notice 'SHR-303 ok: only service_role can claim updates';
@@ -989,12 +989,12 @@ begin
   insert into goals (id, household_id, name, target_amount, target_date)
   values ('abababab-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'Second car', 45000, date '2027-06-01');
   select count(*) into n from goals where id = 'abababab-0000-0000-0000-000000000002' and counts_in_life_plan;
-  if n <> 1 then raise exception 'life plan FAILED: a new goal was left off the timeline'; end if;
+  if (n <> 1) is not false then raise exception 'life plan FAILED: a new goal was left off the timeline'; end if;
 
   -- Removing the member removes their ages with them.
   delete from household_members where id = 'abababab-0000-0000-0000-000000000001';
   select count(*) into n from member_life where member_id = 'abababab-0000-0000-0000-000000000001';
-  if n <> 0 then raise exception 'life plan FAILED: ages outlived the member they belong to'; end if;
+  if (n <> 0) is not false then raise exception 'life plan FAILED: ages outlived the member they belong to'; end if;
   raise notice 'life plan ok: ages stay in their household and range; retirement settings are checked';
 end $$;
 
@@ -1058,7 +1058,7 @@ begin
   end;
   delete from accounts where id = 'cdcdcdcd-0000-0000-0000-000000000001';
   select account_id into linked from debts where id = 'cdcdcdcd-0000-0000-0000-000000000002';
-  if linked is not null then
+  if (linked is not null) is not false then
     raise exception 'debt accounts FAILED: the debt kept a deleted account';
   end if;
   raise notice 'debt accounts ok: one loan or card account per debt, in its own household';
@@ -1089,37 +1089,37 @@ begin
 
   -- A typed-in cost is replaced where units and an average price exist.
   select invested_value_aed into inv from holdings where id = h1;
-  if inv <> 400.00 then raise exception 'holding cost FAILED: rupee cost is %, expected 400.00 (10 x 1000 / 25)', inv; end if;
+  if (inv <> 400.00) is not false then raise exception 'holding cost FAILED: rupee cost is %, expected 400.00 (10 x 1000 / 25)', inv; end if;
   select invested_value_aed into inv from holdings where id = h2;
-  if inv <> 734.50 then raise exception 'holding cost FAILED: dollar cost is %, expected 734.50 (2 x 100 x 3.6725)', inv; end if;
+  if (inv <> 734.50) is not false then raise exception 'holding cost FAILED: dollar cost is %, expected 734.50 (2 x 100 x 3.6725)', inv; end if;
   select invested_value_aed into inv from holdings where id = h3;
-  if inv <> 150.00 then raise exception 'holding cost FAILED: dirham cost is %, expected 150.00', inv; end if;
+  if (inv <> 150.00) is not false then raise exception 'holding cost FAILED: dirham cost is %, expected 150.00', inv; end if;
   select invested_value_aed into inv from holdings where id = h4;
-  if inv <> 450 then raise exception 'holding cost FAILED: a cost entered without units was overwritten (got %)', inv; end if;
+  if (inv <> 450) is not false then raise exception 'holding cost FAILED: a cost entered without units was overwritten (got %)', inv; end if;
 
   -- Buying more moves the cost with the units.
   update holdings set quantity = 12, avg_price = 1050 where id = h1;
   select invested_value_aed into inv from holdings where id = h1;
-  if inv <> 504.00 then raise exception 'holding cost FAILED: after a purchase the cost is %, expected 504.00', inv; end if;
+  if (inv <> 504.00) is not false then raise exception 'holding cost FAILED: after a purchase the cost is %, expected 504.00', inv; end if;
 
   -- The rate moves: cost and value follow it; priced_at does not.
   update households set inr_per_aed = 28 where id = hh;
   select invested_value_aed, value_aed, priced_at into inv, val, priced from holdings where id = h1;
-  if inv <> 450.00 then raise exception 'holding cost FAILED: cost did not follow the rate (got %, expected 450.00)', inv; end if;
-  if val <> 471.43 then raise exception 'holding cost FAILED: value did not follow the rate (got %, expected 471.43 = 12 x 1100 / 28)', val; end if;
-  if priced is distinct from '2026-10-01T10:00:00Z'::timestamptz then
+  if (inv <> 450.00) is not false then raise exception 'holding cost FAILED: cost did not follow the rate (got %, expected 450.00)', inv; end if;
+  if (val <> 471.43) is not false then raise exception 'holding cost FAILED: value did not follow the rate (got %, expected 471.43 = 12 x 1100 / 28)', val; end if;
+  if (priced is distinct from '2026-10-01T10:00:00Z'::timestamptz) is not false then
     raise exception 'holding cost FAILED: a rate change moved priced_at to %', priced;
   end if;
   select invested_value_aed into inv from holdings where id = h4;
-  if inv <> 450 then raise exception 'holding cost FAILED: a rate change rewrote an entered cost (got %)', inv; end if;
+  if (inv <> 450) is not false then raise exception 'holding cost FAILED: a rate change rewrote an entered cost (got %)', inv; end if;
   select invested_value_aed into inv from holdings where id = h2;
-  if inv <> 734.50 then raise exception 'holding cost FAILED: a rupee rate change touched a dollar holding (got %)', inv; end if;
+  if (inv <> 734.50) is not false then raise exception 'holding cost FAILED: a rupee rate change touched a dollar holding (got %)', inv; end if;
 
   -- No rate: the rupee cost is unknown, never 1:1, and the value is kept.
   update households set inr_per_aed = null where id = hh;
   select invested_value_aed, value_aed into inv, val from holdings where id = h1;
-  if inv is not null then raise exception 'holding cost FAILED: with no rate the rupee cost is % instead of unknown', inv; end if;
-  if val <> 471.43 then raise exception 'holding cost FAILED: clearing the rate changed the value to %', val; end if;
+  if (inv is not null) is not false then raise exception 'holding cost FAILED: with no rate the rupee cost is % instead of unknown', inv; end if;
+  if (val <> 471.43) is not false then raise exception 'holding cost FAILED: clearing the rate changed the value to %', val; end if;
 
   update households set inr_per_aed = 26 where id = hh;
   delete from holdings where id in (h1, h2, h3, h4);
@@ -1145,17 +1145,17 @@ begin
   insert into recurring (id, household_id, name, amount, currency, native_amount, cadence, next_due_date, ends_on)
   values ('efefefef-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'LIC', 0, 'INR', -89554, 'yearly', '2026-11-11', '2034-11-11');
   select amount into aed from recurring where id = 'efefefef-0000-0000-0000-000000000001';
-  if aed <> -3444.38 then
+  if (aed <> -3444.38) is not false then
     raise exception 'policies FAILED: ₹89,554 at 26 became % AED', aed;
   end if;
   update households set inr_per_aed = 25 where id = '11111111-1111-1111-1111-111111111111';
   select amount into aed from recurring where id = 'efefefef-0000-0000-0000-000000000001';
-  if aed <> -3582.16 then
+  if (aed <> -3582.16) is not false then
     raise exception 'policies FAILED: the AED amount did not follow the new rate (got %)', aed;
   end if;
   update recurring set amount = -1 where id = 'efefefef-0000-0000-0000-000000000001';
   select amount into aed from recurring where id = 'efefefef-0000-0000-0000-000000000001';
-  if aed <> -3582.16 then
+  if (aed <> -3582.16) is not false then
     raise exception 'policies FAILED: an AED amount written over a rupee reminder stuck (got %)', aed;
   end if;
   begin
@@ -1202,7 +1202,7 @@ begin
   insert into telegram_notification_prefs (household_id) values ('11111111-1111-1111-1111-111111111111')
   on conflict (household_id) do nothing;
   select balance_checkin_enabled into enabled from telegram_notification_prefs where household_id = '11111111-1111-1111-1111-111111111111';
-  if enabled is not true then
+  if (enabled is not true) is not false then
     raise exception 'balance check-in FAILED: the check-in is not on by default';
   end if;
   raise notice 'balance check-in ok: once a month, on by default';
@@ -1224,7 +1224,7 @@ begin
     raise exception 'category owner FAILED: a member of another household owned a category';
   exception when foreign_key_violation then null;
   end;
-  if (select owner_member_id from categories where id = cat) is distinct from '22222222-2222-2222-2222-222222222222' then
+  if ((select owner_member_id from categories where id = cat) is distinct from '22222222-2222-2222-2222-222222222222') is not false then
     raise exception 'category owner FAILED: the owner was not kept';
   end if;
   raise notice 'category owner ok: same-household members only';
@@ -1239,13 +1239,13 @@ begin
   insert into intake (household_id, source, raw_text, parsed_date)
   values ('11111111-1111-1111-1111-111111111111', 'telegram', 'AED 20 at Cafe', '2026-09-29')
   returning date_guessed into guessed;
-  if guessed is distinct from false then
+  if (guessed is distinct from false) is not false then
     raise exception 'intake date FAILED: a new entry was taken as undated (got %)', guessed;
   end if;
   insert into intake (household_id, source, raw_text, parsed_date, date_guessed)
   values ('11111111-1111-1111-1111-111111111111', 'telegram', 'AED 30 at Shop', '2026-09-29', true)
   returning date_guessed into guessed;
-  if guessed is not true then
+  if (guessed is not true) is not false then
     raise exception 'intake date FAILED: the guess was not kept';
   end if;
   raise notice 'intake date ok: dated unless marked a guess';
@@ -1278,10 +1278,10 @@ declare
   fd_state text;
   dated date;
 begin
-  if household_today('2026-09-15 21:30:00+00') <> date '2026-09-16' then
+  if (household_today('2026-09-15 21:30:00+00') <> date '2026-09-16') is not false then
     raise exception 'household day FAILED: 01:30 in Dubai on the 16th was dated %', household_today('2026-09-15 21:30:00+00');
   end if;
-  if household_today('2026-09-15 19:30:00+00') <> date '2026-09-15' then
+  if (household_today('2026-09-15 19:30:00+00') <> date '2026-09-15') is not false then
     raise exception 'household day FAILED: 23:30 in Dubai on the 15th was dated %', household_today('2026-09-15 19:30:00+00');
   end if;
 
@@ -1295,17 +1295,17 @@ begin
     -- What fd-accrual does every night: a no-op write the trigger re-values.
     update accounts set fd_status = 'active' where id in (growing, maturing);
     select balance into bal from accounts where id = growing;
-    if bal <> 10100 then
+    if (bal <> 10100) is not false then
       raise exception 'household day FAILED: 100 days of 10,000 at 3.65%% came to % with the session in %', bal, session_zone;
     end if;
     select balance, fd_status into bal, fd_state from accounts where id = maturing;
-    if fd_state <> 'matured' or bal <> 10365 then
+    if (fd_state <> 'matured' or bal <> 10365) is not false then
       raise exception 'household day FAILED: a deposit maturing today was % at % with the session in %', fd_state, bal, session_zone;
     end if;
     insert into transactions (household_id, account_id, amount, is_shared)
     values (hh, '33333333-3333-3333-3333-333333333333', -1, true)
     returning occurred_at into dated;
-    if dated <> household_today() then
+    if (dated <> household_today()) is not false then
       raise exception 'household day FAILED: a transaction with no date was dated % with the session in %', dated, session_zone;
     end if;
   end loop;
@@ -1321,7 +1321,7 @@ begin
     (rupee, hh, 'Rupee savings', 'savings', 'INR', 100000, true),
     (dollar, hh, 'Dollar account', 'checking', 'USD', 1000, true);
   select balance_aed into aed from accounts where id = rupee;
-  if aed <> 5000 then
+  if (aed <> 5000) is not false then
     raise exception 'rupee rate FAILED: 100,000 rupees at 20 became % AED', aed;
   end if;
 
@@ -1333,27 +1333,27 @@ begin
 
   update households set inr_per_aed = 25 where id = hh;
   select balance_aed, updated_at into aed, touched from accounts where id = rupee;
-  if aed <> 4000 then
+  if (aed <> 4000) is not false then
     raise exception 'rupee rate FAILED: the AED value did not follow the new rate (got %)', aed;
   end if;
-  if touched <> backdated then
+  if (touched <> backdated) is not false then
     raise exception 'rupee rate FAILED: a new rate counted as an edit (updated_at %)', touched;
   end if;
-  if (select balance_aed from accounts where id = dollar) <> 3672.50 then
+  if ((select balance_aed from accounts where id = dollar) <> 3672.50) is not false then
     raise exception 'rupee rate FAILED: a dollar account moved off the peg';
   end if;
-  if (select balance_aed from accounts where id = theirs) <> 1000 then
+  if ((select balance_aed from accounts where id = theirs) <> 1000) is not false then
     raise exception 'rupee rate FAILED: another household''s rupee account followed this household''s rate';
   end if;
 
   update households set inr_per_aed = null where id = hh;
   select balance_aed into aed from accounts where id = rupee;
-  if aed is not null then
+  if (aed is not null) is not false then
     raise exception 'rupee rate FAILED: with no rate, a rupee balance was valued at % AED', aed;
   end if;
 
   update accounts set name = 'Rupee savings, renamed' where id = rupee;
-  if (select updated_at from accounts where id = rupee) = backdated then
+  if ((select updated_at from accounts where id = rupee) = backdated) is not false then
     raise exception 'rupee rate FAILED: renaming an account no longer counts as an edit';
   end if;
 
@@ -1378,14 +1378,14 @@ begin
     and p.proname in ('is_household_member', 'is_household_owner')
     and p.prosecdef
     and p.proconfig @> array['search_path=""'];
-  if n <> 2 then
+  if (n <> 2) is not false then
     raise exception 'helpers FAILED: % of 2 membership helpers are SECURITY DEFINER in private with an empty search_path', n;
   end if;
 
-  if exists (
+  if (exists (
     select 1 from pg_proc p join pg_namespace s on s.oid = p.pronamespace
     where s.nspname = 'public' and p.proname in ('is_household_member', 'is_household_owner') and p.prosecdef
-  ) then
+  )) is not false then
     raise exception 'helpers FAILED: a SECURITY DEFINER membership helper is still in the API schema';
   end if;
 
@@ -1395,35 +1395,35 @@ begin
   -- bound to a wrapper reads the bare name.
   select count(*) into n from pg_policies
   where concat_ws(' ', qual, with_check) ~ '(^|[^.[:alnum:]_])is_household_(member|owner)\(';
-  if n <> 0 then
+  if (n <> 0) is not false then
     raise exception 'helpers FAILED: % policies call the public wrappers rather than private.*', n;
   end if;
 
   select count(*) into n from pg_policies
   where concat_ws(' ', qual, with_check) ~ 'private\.is_household_(member|owner)\(';
-  if n < 50 then
+  if (n < 50) is not false then
     raise exception 'helpers FAILED: only % policies call the private helpers; the move lost some', n;
   end if;
 
   select qual into receipts from pg_policies
   where schemaname = 'storage' and policyname = 'household members can read their receipt photos';
-  if receipts is null or receipts not like '%private.is_household_member(%' then
+  if (receipts is null or receipts not like '%private.is_household_member(%') is not false then
     raise exception 'helpers FAILED: the receipt bucket policy does not call private.is_household_member() (%)', receipts;
   end if;
 
-  if has_schema_privilege('anon', 'private', 'usage')
+  if (has_schema_privilege('anon', 'private', 'usage')
      or has_function_privilege('anon', 'private.is_household_member(uuid)', 'execute')
      or has_function_privilege('anon', 'private.is_household_owner(uuid)', 'execute')
      or has_function_privilege('anon', 'public.is_household_member(uuid)', 'execute')
-     or has_function_privilege('anon', 'public.is_household_owner(uuid)', 'execute') then
+     or has_function_privilege('anon', 'public.is_household_owner(uuid)', 'execute')) is not false then
     raise exception 'helpers FAILED: anon can reach a membership helper';
   end if;
 
-  if not (has_schema_privilege('authenticated', 'private', 'usage')
+  if (not (has_schema_privilege('authenticated', 'private', 'usage')
       and has_function_privilege('authenticated', 'private.is_household_member(uuid)', 'execute')
       and has_function_privilege('authenticated', 'private.is_household_owner(uuid)', 'execute')
       and has_function_privilege('service_role', 'private.is_household_member(uuid)', 'execute')
-      and has_function_privilege('service_role', 'private.is_household_owner(uuid)', 'execute')) then
+      and has_function_privilege('service_role', 'private.is_household_owner(uuid)', 'execute'))) is not false then
     raise exception 'helpers FAILED: authenticated or service_role lost EXECUTE on a helper every policy calls';
   end if;
 
@@ -1434,16 +1434,16 @@ end $$;
 -- have (definer rights, nothing on its path) and stays out of anon's reach.
 do $$
 begin
-  if not exists (
+  if (not exists (
     select 1 from pg_proc
     where oid = 'public.create_household(text, text)'::regprocedure
       and prosecdef
       and proconfig @> array['search_path=""']
-  ) then
+  )) is not false then
     raise exception 'one-household FAILED: create_household() is not SECURITY DEFINER with an empty search_path';
   end if;
-  if has_function_privilege('anon', 'public.create_household(text, text)', 'execute')
-     or not has_function_privilege('authenticated', 'public.create_household(text, text)', 'execute') then
+  if (has_function_privilege('anon', 'public.create_household(text, text)', 'execute')
+     or not has_function_privilege('authenticated', 'public.create_household(text, text)', 'execute')) is not false then
     raise exception 'one-household FAILED: create_household() grants changed';
   end if;
   raise notice 'one-household ok: create_household() is a definer function with an empty path, for signed-in callers only';
@@ -1461,7 +1461,7 @@ do $$
 declare n int; e record;
 begin
   select * into e from account_balance_events where account_id = 'abcd0000-0000-4000-8000-000000000001';
-  if e.old_balance is not null or e.new_balance <> 1000 or e.source <> 'system' or e.member_id is not null then
+  if (e.old_balance is not null or e.new_balance <> 1000 or e.source <> 'system' or e.member_id is not null) is not false then
     raise exception 'balance history FAILED: opening an account recorded %', row_to_json(e);
   end if;
 
@@ -1470,16 +1470,16 @@ begin
   update accounts set name = 'History bank (renamed)' where id = 'abcd0000-0000-4000-8000-000000000001';
   update accounts set balance = 1250.50 where id = 'abcd0000-0000-4000-8000-000000000001';
   select count(*) into n from account_balance_events where account_id = 'abcd0000-0000-4000-8000-000000000001';
-  if n <> 2 then raise exception 'balance history FAILED: % events for one opening and one change, expected 2', n; end if;
+  if (n <> 2) is not false then raise exception 'balance history FAILED: % events for one opening and one change, expected 2', n; end if;
   select * into e from account_balance_events where account_id = 'abcd0000-0000-4000-8000-000000000001' order by id desc limit 1;
-  if e.old_balance <> 1000 or e.new_balance <> 1250.50 or e.old_balance_as_of is not null
-     or e.new_balance_as_of <> '2026-10-01T08:00:00Z'::timestamptz or e.source <> 'system' then
+  if (e.old_balance <> 1000 or e.new_balance <> 1250.50 or e.old_balance_as_of is not null
+     or e.new_balance_as_of <> '2026-10-01T08:00:00Z'::timestamptz or e.source <> 'system') is not false then
     raise exception 'balance history FAILED: a change was recorded as %', row_to_json(e);
   end if;
 
   update accounts set fd_status = 'active' where id = 'abcd0000-0000-4000-8000-000000000003';
   select count(*) into n from account_balance_events where account_id = 'abcd0000-0000-4000-8000-000000000003';
-  if n <> 0 then raise exception 'balance history FAILED: a fixed deposit''s computed balance was recorded % times', n; end if;
+  if (n <> 0) is not false then raise exception 'balance history FAILED: a fixed deposit''s computed balance was recorded % times', n; end if;
 
   -- A signed-in member is the app, and is named.
   perform set_config('request.jwt.claim.sub', '0c000000-0000-4000-8000-00000000000c', true);
@@ -1487,7 +1487,7 @@ begin
   update household_members set user_id = '0c000000-0000-4000-8000-00000000000c' where id = '22222222-2222-2222-2222-222222222222';
   update accounts set balance = 1300 where id = 'abcd0000-0000-4000-8000-000000000001';
   select * into e from account_balance_events where account_id = 'abcd0000-0000-4000-8000-000000000001' order by id desc limit 1;
-  if e.source <> 'app' or e.member_id is distinct from '22222222-2222-2222-2222-222222222222' then
+  if (e.source <> 'app' or e.member_id is distinct from '22222222-2222-2222-2222-222222222222') is not false then
     raise exception 'balance history FAILED: a member''s change was recorded as %', row_to_json(e);
   end if;
   update household_members set user_id = null where id = '22222222-2222-2222-2222-222222222222';
@@ -1500,10 +1500,10 @@ begin
   values ('abcd0000-0000-4000-8000-000000000004', '11111111-1111-1111-1111-111111111111', 'Short-lived', 'checking', 10, true);
   update accounts set balance = 20 where id = 'abcd0000-0000-4000-8000-000000000004';
   select count(*) into n from account_balance_events where account_id = 'abcd0000-0000-4000-8000-000000000004';
-  if n <> 2 then raise exception 'balance history FAILED: % events before the delete, expected 2', n; end if;
+  if (n <> 2) is not false then raise exception 'balance history FAILED: % events before the delete, expected 2', n; end if;
   delete from accounts where id = 'abcd0000-0000-4000-8000-000000000004';
   select count(*) into n from account_balance_events where account_id = 'abcd0000-0000-4000-8000-000000000004';
-  if n <> 0 then raise exception 'balance history FAILED: % events outlived their account', n; end if;
+  if (n <> 0) is not false then raise exception 'balance history FAILED: % events outlived their account', n; end if;
   raise notice 'balance history ok: openings and changes recorded with their source, renames and deposits not';
 end $$;
 
@@ -1538,63 +1538,63 @@ do $$
 declare r jsonb; again jsonb; n int; e record; bal numeric;
 begin
   r := apply_bot_proposal('abcd0000-0000-4000-8000-0000000000a1', '99999999-9999-9999-9999-99999999000a');
-  if r ->> 'outcome' <> 'not_yours' then raise exception 'bot proposal FAILED: another member applied a proposal (%)', r; end if;
-  if (select status from bot_proposals where id = 'abcd0000-0000-4000-8000-0000000000a1') <> 'proposed' then
+  if (r ->> 'outcome' <> 'not_yours') is not false then raise exception 'bot proposal FAILED: another member applied a proposal (%)', r; end if;
+  if ((select status from bot_proposals where id = 'abcd0000-0000-4000-8000-0000000000a1') <> 'proposed') is not false then
     raise exception 'bot proposal FAILED: a refused confirmation changed the proposal';
   end if;
 
   r := apply_bot_proposal('abcd0000-0000-4000-8000-0000000000a1', '22222222-2222-2222-2222-222222222222');
-  if r ->> 'outcome' <> 'applied' or jsonb_array_length(r -> 'applied') <> 1 or jsonb_array_length(r -> 'skipped') <> 2 then
+  if (r ->> 'outcome' <> 'applied' or jsonb_array_length(r -> 'applied') <> 1 or jsonb_array_length(r -> 'skipped') <> 2) is not false then
     raise exception 'bot proposal FAILED: applying gave %', r;
   end if;
   select balance into bal from accounts where id = 'abcd0000-0000-4000-8000-000000000001';
-  if bal <> 1400 then raise exception 'bot proposal FAILED: the balance is %, expected 1400', bal; end if;
+  if (bal <> 1400) is not false then raise exception 'bot proposal FAILED: the balance is %, expected 1400', bal; end if;
   select balance into bal from accounts where id = 'abcd0000-0000-4000-8000-000000000002';
-  if bal <> 200 then raise exception 'bot proposal FAILED: a balance changed since it was shown was overwritten (%)', bal; end if;
+  if (bal <> 200) is not false then raise exception 'bot proposal FAILED: a balance changed since it was shown was overwritten (%)', bal; end if;
   select balance into bal from accounts where id = '99999999-9999-9999-9999-99999999000b';
-  if bal <> 0 then raise exception 'bot proposal FAILED: another household''s account was changed (%)', bal; end if;
-  if not exists (select 1 from jsonb_array_elements(r -> 'skipped') x where x ->> 'reason' = 'changed' and (x ->> 'balance')::numeric = 200) then
+  if (bal <> 0) is not false then raise exception 'bot proposal FAILED: another household''s account was changed (%)', bal; end if;
+  if (not exists (select 1 from jsonb_array_elements(r -> 'skipped') x where x ->> 'reason' = 'changed' and (x ->> 'balance')::numeric = 200)) is not false then
     raise exception 'bot proposal FAILED: the skipped item does not say what the balance is now (%)', r;
   end if;
   select * into e from account_balance_events where account_id = 'abcd0000-0000-4000-8000-000000000001' order by id desc limit 1;
-  if e.source <> 'bot' or e.member_id is distinct from '22222222-2222-2222-2222-222222222222' or e.old_balance <> 1300 or e.new_balance <> 1400 then
+  if (e.source <> 'bot' or e.member_id is distinct from '22222222-2222-2222-2222-222222222222' or e.old_balance <> 1300 or e.new_balance <> 1400) is not false then
     raise exception 'bot proposal FAILED: the change was recorded as %', row_to_json(e);
   end if;
 
   again := apply_bot_proposal('abcd0000-0000-4000-8000-0000000000a1', '22222222-2222-2222-2222-222222222222');
-  if again ->> 'outcome' <> 'applied' or again -> 'result' -> 'applied' <> r -> 'applied' then
+  if (again ->> 'outcome' <> 'applied' or again -> 'result' -> 'applied' <> r -> 'applied') is not false then
     raise exception 'bot proposal FAILED: a second yes did not repeat the first answer (%)', again;
   end if;
   select count(*) into n from account_balance_events where account_id = 'abcd0000-0000-4000-8000-000000000001' and source = 'bot';
-  if n <> 1 then raise exception 'bot proposal FAILED: a second yes changed the balance again (% bot events)', n; end if;
+  if (n <> 1) is not false then raise exception 'bot proposal FAILED: a second yes changed the balance again (% bot events)', n; end if;
 
   r := apply_bot_proposal('abcd0000-0000-4000-8000-0000000000a2', '22222222-2222-2222-2222-222222222222');
   select count(*) into n from goal_contributions where source_ref = '9100002' and amount = 750 and occurred_at = date '2026-10-02';
-  if r ->> 'outcome' <> 'applied' or n <> 1 then raise exception 'bot proposal FAILED: a goal contribution gave % (% rows)', r, n; end if;
+  if (r ->> 'outcome' <> 'applied' or n <> 1) is not false then raise exception 'bot proposal FAILED: a goal contribution gave % (% rows)', r, n; end if;
   perform apply_bot_proposal('abcd0000-0000-4000-8000-0000000000a2', '22222222-2222-2222-2222-222222222222');
   select count(*) into n from goal_contributions where source_ref = '9100002';
-  if n <> 1 then raise exception 'bot proposal FAILED: a second yes recorded the contribution again'; end if;
+  if (n <> 1) is not false then raise exception 'bot proposal FAILED: a second yes recorded the contribution again'; end if;
 
   r := apply_bot_proposal('abcd0000-0000-4000-8000-0000000000a3', '22222222-2222-2222-2222-222222222222');
   select count(*) into n from goal_contributions where goal_id = '55555555-5555-5555-5555-555555550001' and source_ref = '9000002';
-  if n <> 1 or (r -> 'applied' -> 0 ->> 'already_recorded')::boolean is not true then
+  if (n <> 1 or (r -> 'applied' -> 0 ->> 'already_recorded')::boolean is not true) is not false then
     raise exception 'bot proposal FAILED: a message the bot had already recorded was recorded again (% rows, %)', n, r;
   end if;
 
   r := apply_bot_proposal('abcd0000-0000-4000-8000-0000000000a4', '22222222-2222-2222-2222-222222222222');
-  if jsonb_array_length(r -> 'applied') <> 0 or jsonb_array_length(r -> 'skipped') <> 1 then
+  if (jsonb_array_length(r -> 'applied') <> 0 or jsonb_array_length(r -> 'skipped') <> 1) is not false then
     raise exception 'bot proposal FAILED: a contribution to another household''s goal gave %', r;
   end if;
 
   r := apply_bot_proposal('abcd0000-0000-4000-8000-0000000000a5', '22222222-2222-2222-2222-222222222222');
   select balance into bal from accounts where id = 'abcd0000-0000-4000-8000-000000000001';
-  if r ->> 'outcome' <> 'expired' or bal <> 1400
-     or (select status from bot_proposals where id = 'abcd0000-0000-4000-8000-0000000000a5') <> 'expired' then
+  if (r ->> 'outcome' <> 'expired' or bal <> 1400
+     or (select status from bot_proposals where id = 'abcd0000-0000-4000-8000-0000000000a5') <> 'expired') is not false then
     raise exception 'bot proposal FAILED: an expired proposal gave % and left the balance at %', r, bal;
   end if;
 
   r := apply_bot_proposal('abcd0000-0000-4000-8000-0000000000ff', '22222222-2222-2222-2222-222222222222');
-  if r ->> 'outcome' <> 'not_found' then raise exception 'bot proposal FAILED: an unknown proposal gave %', r; end if;
+  if (r ->> 'outcome' <> 'not_found') is not false then raise exception 'bot proposal FAILED: an unknown proposal gave %', r; end if;
 
   -- A decided proposal records when; an open one does not.
   begin
@@ -1617,17 +1617,17 @@ end $$;
 
 do $$
 begin
-  if not exists (
+  if (not exists (
     select 1 from pg_proc
     where oid = 'public.apply_bot_proposal(uuid, uuid)'::regprocedure
       and prosecdef
       and proconfig @> array['search_path=""']
-  ) then
+  )) is not false then
     raise exception 'bot proposal FAILED: apply_bot_proposal() is not SECURITY DEFINER with an empty search_path';
   end if;
-  if has_function_privilege('anon', 'public.apply_bot_proposal(uuid, uuid)', 'execute')
+  if (has_function_privilege('anon', 'public.apply_bot_proposal(uuid, uuid)', 'execute')
      or has_function_privilege('authenticated', 'public.apply_bot_proposal(uuid, uuid)', 'execute')
-     or not has_function_privilege('service_role', 'public.apply_bot_proposal(uuid, uuid)', 'execute') then
+     or not has_function_privilege('service_role', 'public.apply_bot_proposal(uuid, uuid)', 'execute')) is not false then
     raise exception 'bot proposal FAILED: apply_bot_proposal() is callable by someone other than the bot';
   end if;
   raise notice 'bot proposal ok: only service_role can apply a proposal';
@@ -1671,25 +1671,25 @@ begin
      1002, 'autopay:emi:2026-10-03:m2');
 
   r := apply_bot_proposal('a7000000-0000-4000-8000-0000000000f1', m1);
-  if r ->> 'outcome' <> 'applied' or (r -> 'applied' -> 0 ->> 'already_recorded')::boolean then
+  if (r ->> 'outcome' <> 'applied' or (r -> 'applied' -> 0 ->> 'already_recorded')::boolean) is not false then
     raise exception 'autopay FAILED: confirming gave %', r;
   end if;
   select * into t from transactions where id = (r -> 'applied' -> 0 ->> 'transaction_id')::uuid;
-  if t.amount <> -2000 or t.account_id <> bank or t.category_id <> cat or t.occurred_at <> '2026-10-03' or t.kind <> 'expense'
-     or t.merchant <> 'Car EMI' or t.needs_review or not t.is_shared then
+  if (t.amount <> -2000 or t.account_id <> bank or t.category_id <> cat or t.occurred_at <> '2026-10-03' or t.kind <> 'expense'
+     or t.merchant <> 'Car EMI' or t.needs_review or not t.is_shared) is not false then
     raise exception 'autopay FAILED: recorded as %', row_to_json(t);
   end if;
 
   -- A second "yes" repeats the answer; the other member's question is closed.
   r := apply_bot_proposal('a7000000-0000-4000-8000-0000000000f1', m1);
-  if r ->> 'outcome' <> 'applied' or r -> 'result' is null then raise exception 'autopay FAILED: a second yes gave %', r; end if;
-  if (select status from bot_proposals where id = 'a7000000-0000-4000-8000-0000000000f2') <> 'expired' then
+  if (r ->> 'outcome' <> 'applied' or r -> 'result' is null) is not false then raise exception 'autopay FAILED: a second yes gave %', r; end if;
+  if ((select status from bot_proposals where id = 'a7000000-0000-4000-8000-0000000000f2') <> 'expired') is not false then
     raise exception 'autopay FAILED: the other member''s question stayed open';
   end if;
   r := apply_bot_proposal('a7000000-0000-4000-8000-0000000000f2', m2);
-  if r ->> 'outcome' <> 'expired' then raise exception 'autopay FAILED: answering the closed question gave %', r; end if;
+  if (r ->> 'outcome' <> 'expired') is not false then raise exception 'autopay FAILED: answering the closed question gave %', r; end if;
   select count(*) into n from transactions where account_id = bank and category_id = cat;
-  if n <> 1 then raise exception 'autopay FAILED: % transactions for one bill', n; end if;
+  if (n <> 1) is not false then raise exception 'autopay FAILED: % transactions for one bill', n; end if;
 
   -- Logged by hand for November (a pasted SMS): a "yes" records nothing more.
   insert into transactions (household_id, account_id, category_id, amount, occurred_at, is_shared, merchant)
@@ -1698,16 +1698,16 @@ begin
     ('a7000000-0000-4000-8000-0000000000f3', hh, m1, 'autopay_payment',
      jsonb_build_object('recurring_id', emi, 'name', 'Car EMI', 'amount', 2000, 'due_date', '2026-11-03'), 1001, 'autopay:emi:2026-11-03:m1');
   r := apply_bot_proposal('a7000000-0000-4000-8000-0000000000f3', m1);
-  if not (r -> 'applied' -> 0 ->> 'already_recorded')::boolean then raise exception 'autopay FAILED: a logged bill was recorded again (%)', r; end if;
+  if (not (r -> 'applied' -> 0 ->> 'already_recorded')::boolean) is not false then raise exception 'autopay FAILED: a logged bill was recorded again (%)', r; end if;
   select count(*) into n from transactions where account_id = bank and category_id = cat;
-  if n <> 2 then raise exception 'autopay FAILED: % transactions after a logged month, expected 2', n; end if;
+  if (n <> 2) is not false then raise exception 'autopay FAILED: % transactions after a logged month, expected 2', n; end if;
 
   -- An amount the member gave is the amount recorded.
   insert into bot_proposals (id, household_id, member_id, kind, payload, chat_id, source_ref) values
     ('a7000000-0000-4000-8000-0000000000f4', hh, m1, 'autopay_payment',
      jsonb_build_object('recurring_id', emi, 'name', 'Car EMI', 'amount', 2050, 'due_date', '2026-12-03'), 1001, 'autopay:emi:2026-12-03:m1');
   r := apply_bot_proposal('a7000000-0000-4000-8000-0000000000f4', m1);
-  if (select amount from transactions where occurred_at = '2026-12-03' and account_id = bank) <> -2050 then
+  if ((select amount from transactions where occurred_at = '2026-12-03' and account_id = bank) <> -2050) is not false then
     raise exception 'autopay FAILED: the amount given was not the amount recorded (%)', r;
   end if;
 
@@ -1717,11 +1717,11 @@ begin
     ('a7000000-0000-4000-8000-0000000000f5', hh, m1, 'autopay_payment', jsonb_build_object('recurring_id', emi, 'amount', 2000, 'due_date', '2027-01-03'), 1001),
     ('a7000000-0000-4000-8000-0000000000f6', hh, m1, 'autopay_payment', jsonb_build_object('recurring_id', gen_random_uuid(), 'amount', 2000, 'due_date', '2027-01-03'), 1001);
   r := apply_bot_proposal('a7000000-0000-4000-8000-0000000000f5', m1);
-  if jsonb_array_length(r -> 'applied') <> 0 or r -> 'skipped' -> 0 ->> 'reason' <> 'unavailable' then raise exception 'autopay FAILED: a bill with no account gave %', r; end if;
+  if (jsonb_array_length(r -> 'applied') <> 0 or r -> 'skipped' -> 0 ->> 'reason' <> 'unavailable') is not false then raise exception 'autopay FAILED: a bill with no account gave %', r; end if;
   r := apply_bot_proposal('a7000000-0000-4000-8000-0000000000f6', m1);
-  if jsonb_array_length(r -> 'applied') <> 0 then raise exception 'autopay FAILED: an unknown bill gave %', r; end if;
+  if (jsonb_array_length(r -> 'applied') <> 0) is not false then raise exception 'autopay FAILED: an unknown bill gave %', r; end if;
   select count(*) into n from transactions where category_id = cat;
-  if n <> 3 then raise exception 'autopay FAILED: % transactions, expected 3', n; end if;
+  if (n <> 3) is not false then raise exception 'autopay FAILED: % transactions, expected 3', n; end if;
 
   delete from bot_proposals where id::text like 'a7000000-%';
   delete from transactions where category_id = cat;
@@ -1752,7 +1752,7 @@ begin
 
   insert into statement_reconciliations (household_id, account_id, statement_date, period_start, due_date)
   values (hh, card, '2026-09-28', '2026-08-29', '2026-10-22');
-  if (select status from statement_reconciliations where account_id = card) <> 'waiting' then
+  if ((select status from statement_reconciliations where account_id = card) <> 'waiting') is not false then
     raise exception 'statements FAILED: a new statement is not waiting';
   end if;
   begin
@@ -1781,16 +1781,16 @@ begin
   exception when check_violation then null;
   end;
   update statement_reconciliations set status = 'confirmed', closed_at = now(), closed_by_member_id = m1, asked_message_ids = '{11,12}' where account_id = card;
-  if not exists (select 1 from statement_reconciliations where account_id = card and asked_message_ids @> '{12}') then
+  if (not exists (select 1 from statement_reconciliations where account_id = card and asked_message_ids @> '{12}')) is not false then
     raise exception 'statements FAILED: a question''s message id is not found by containment';
   end if;
   -- A question is found by its chat and message together, never by the
   -- message id alone: each chat numbers its own messages.
   update statement_reconciliations set asked_prompts = '[{"chat_id": 501, "message_id": 42, "member_id": "x"}]' where account_id = card;
-  if not exists (select 1 from statement_reconciliations where account_id = card and asked_prompts @> '[{"chat_id": 501, "message_id": 42}]') then
+  if (not exists (select 1 from statement_reconciliations where account_id = card and asked_prompts @> '[{"chat_id": 501, "message_id": 42}]')) is not false then
     raise exception 'statements FAILED: a question is not found by its chat and message';
   end if;
-  if exists (select 1 from statement_reconciliations where account_id = card and asked_prompts @> '[{"chat_id": 502, "message_id": 42}]') then
+  if (exists (select 1 from statement_reconciliations where account_id = card and asked_prompts @> '[{"chat_id": 502, "message_id": 42}]')) is not false then
     raise exception 'statements FAILED: the same message id in another chat was taken for the question';
   end if;
   begin
@@ -1807,7 +1807,7 @@ begin
 
   insert into telegram_notification_prefs (household_id) values (hh) on conflict (household_id) do nothing;
   select statement_enabled into enabled from telegram_notification_prefs where household_id = hh;
-  if enabled is not true then raise exception 'statements FAILED: the statement question is not on by default'; end if;
+  if (enabled is not true) is not false then raise exception 'statements FAILED: the statement question is not on by default'; end if;
 
   insert into categories (id, household_id, name, kind) values (fuel, hh, 'Fuel', 'expense'), (wash, hh, 'Car Wash', 'expense');
   insert into transactions (household_id, account_id, category_id, amount, occurred_at, is_shared, merchant, kind) values
@@ -1817,11 +1817,11 @@ begin
     (hh, card, fuel, 20, '2026-03-02', true, 'EPPCO SITE 1077', 'refund'),
     (hh, card, null, -10, '2026-03-03', true, 'EPPCO SITE 1077', 'expense');
   select count(*) into n from merchant_category_counts(hh) where merchant = 'EPPCO SITE 1077';
-  if n <> 2 then raise exception 'statements FAILED: % merchant/category pairs, expected 2', n; end if;
+  if (n <> 2) is not false then raise exception 'statements FAILED: % merchant/category pairs, expected 2', n; end if;
   select * into r from merchant_category_counts(hh) where category_id = fuel;
-  if r.uses <> 2 or r.last_used <> '2026-02-01' then raise exception 'statements FAILED: fuel counted as % uses, last %', r.uses, r.last_used; end if;
-  if has_function_privilege('authenticated', 'merchant_category_counts(uuid)', 'execute')
-     or has_function_privilege('anon', 'merchant_category_counts(uuid)', 'execute') then
+  if (r.uses <> 2 or r.last_used <> '2026-02-01') is not false then raise exception 'statements FAILED: fuel counted as % uses, last %', r.uses, r.last_used; end if;
+  if (has_function_privilege('authenticated', 'merchant_category_counts(uuid)', 'execute')
+     or has_function_privilege('anon', 'merchant_category_counts(uuid)', 'execute')) is not false then
     raise exception 'statements FAILED: merchant_category_counts() is callable by someone other than the bot';
   end if;
 
@@ -1853,7 +1853,7 @@ begin
       where t.event_object_schema = 'public' and t.event_object_table = c.table_name
         and t.action_statement = 'EXECUTE FUNCTION touch_updated_at()' and t.event_manipulation = 'UPDATE'
     );
-  if missing is not null then
+  if (missing is not null) is not false then
     raise exception 'updated_at FAILED: no touch_updated_at trigger on %', missing;
   end if;
 
@@ -1871,19 +1871,19 @@ begin
 
   update transactions set note = 'edited' where id = tx;
   select updated_at into touched from transactions where id = tx;
-  if touched <> now() then raise exception 'updated_at FAILED: an edit left a transaction at %', touched; end if;
+  if (touched <> now()) is not false then raise exception 'updated_at FAILED: an edit left a transaction at %', touched; end if;
 
   -- A writer that sends its own time is overruled: the database's clock decides.
   update transactions set updated_at = backdated, note = 'again' where id = tx;
   select updated_at into touched from transactions where id = tx;
-  if touched <> now() then raise exception 'updated_at FAILED: a sent updated_at of % was kept', touched; end if;
+  if (touched <> now()) is not false then raise exception 'updated_at FAILED: a sent updated_at of % was kept', touched; end if;
 
   update households set inr_per_aed = 31 where id = hh;
   select updated_at into touched from recurring where id = bill;
-  if touched <> backdated then raise exception 'updated_at FAILED: following the rupee rate moved a bill to %', touched; end if;
+  if (touched <> backdated) is not false then raise exception 'updated_at FAILED: following the rupee rate moved a bill to %', touched; end if;
   update recurring set name = 'Rupee bill renamed' where id = bill;
   select updated_at into touched from recurring where id = bill;
-  if touched <> now() then raise exception 'updated_at FAILED: renaming a bill left it at %', touched; end if;
+  if (touched <> now()) is not false then raise exception 'updated_at FAILED: renaming a bill left it at %', touched; end if;
 
   delete from recurring where id = bill;
   delete from transactions where id = tx;
@@ -1909,7 +1909,7 @@ begin
         and i.indpred is null
         and (i.indkey::int2[])[0:cardinality(c.conkey) - 1] = c.conkey
     );
-  if missing is not null then
+  if (missing is not null) is not false then
     raise exception 'fk indexes FAILED: no covering index for %', missing;
   end if;
   raise notice 'fk indexes ok: every public foreign key has a covering index';
@@ -1941,7 +1941,7 @@ begin
     raise exception 'backups FAILED: a record without a day was accepted';
   exception when not_null_violation then null;
   end;
-  if has_function_privilege('authenticated', 'set_backup_record_author()', 'execute') then
+  if (has_function_privilege('authenticated', 'set_backup_record_author()', 'execute')) is not false then
     raise exception 'backups FAILED: the author trigger function is callable through the API';
   end if;
   delete from backup_records where household_id = hh;
@@ -1953,14 +1953,14 @@ end $$;
 -- definer's rights (to read auth.mfa_factors), and is closed to anon.
 do $$
 begin
-  if pg_get_functiondef('private.is_household_member(uuid)'::regprocedure) not like '%private.mfa_satisfied()%'
-     or pg_get_functiondef('private.is_household_owner(uuid)'::regprocedure) not like '%private.mfa_satisfied()%' then
+  if (pg_get_functiondef('private.is_household_member(uuid)'::regprocedure) not like '%private.mfa_satisfied()%'
+     or pg_get_functiondef('private.is_household_owner(uuid)'::regprocedure) not like '%private.mfa_satisfied()%') is not false then
     raise exception 'two-step FAILED: a membership helper does not check the second step';
   end if;
-  if not (select prosecdef from pg_proc where oid = 'private.mfa_satisfied()'::regprocedure) then
+  if (not (select prosecdef from pg_proc where oid = 'private.mfa_satisfied()'::regprocedure)) is not false then
     raise exception 'two-step FAILED: mfa_satisfied() cannot read auth.mfa_factors as its caller';
   end if;
-  if has_function_privilege('anon', 'private.mfa_satisfied()', 'execute') then
+  if (has_function_privilege('anon', 'private.mfa_satisfied()', 'execute')) is not false then
     raise exception 'two-step FAILED: anon can call mfa_satisfied()';
   end if;
   raise notice 'two-step ok: both membership helpers check the second step';
@@ -1989,7 +1989,7 @@ begin
   set constraints all immediate;
   set constraints all deferred;
   select count(*) into n from transactions where id in (out_id, in_id) and kind = 'transfer';
-  if n <> 2 or (select amount from transactions where id = out_id) <> -250 or (select amount from transactions where id = in_id) <> 250 then
+  if (n <> 2 or (select amount from transactions where id = out_id) <> -250 or (select amount from transactions where id = in_id) <> 250) is not false then
     raise exception 'transfers FAILED: record_transfer did not write -250 out and +250 in';
   end if;
 
@@ -2020,7 +2020,7 @@ begin
   perform update_transfer(link, 300, date '2026-10-02', 'Card payment, corrected');
   set constraints all immediate;
   set constraints all deferred;
-  if (select amount from transactions where id = in_id) <> 300 or (select occurred_at from transactions where id = out_id) <> date '2026-10-02' then
+  if ((select amount from transactions where id = in_id) <> 300 or (select occurred_at from transactions where id = out_id) <> date '2026-10-02') is not false then
     raise exception 'transfers FAILED: update_transfer did not change both sides';
   end if;
 
@@ -2028,12 +2028,12 @@ begin
   perform unlink_transfer(link);
   set constraints all immediate;
   set constraints all deferred;
-  if (select kind from transactions where id = out_id) <> 'expense' or (select kind from transactions where id = in_id) <> 'income'
-     or exists (select 1 from transaction_links where id = link) then
+  if ((select kind from transactions where id = out_id) <> 'expense' or (select kind from transactions where id = in_id) <> 'income'
+     or exists (select 1 from transaction_links where id = link)) is not false then
     raise exception 'transfers FAILED: unlink_transfer did not leave an expense and an income';
   end if;
   select count(*) into n from transaction_edits where transaction_id in (out_id, in_id) and field = 'kind' and old_value = 'Transfer';
-  if n <> 2 then raise exception 'transfers FAILED: unlinking was not recorded in the edit history'; end if;
+  if (n <> 2) is not false then raise exception 'transfers FAILED: unlinking was not recorded in the edit history'; end if;
 
   -- And linked again.
   link := (link_transfer(out_id, in_id) ->> 'link_id')::uuid;
@@ -2069,13 +2069,13 @@ begin
   perform delete_transfer(link);
   set constraints all immediate;
   set constraints all deferred;
-  if exists (select 1 from transactions where id in (out_id, in_id)) or exists (select 1 from transaction_links where id = link) then
+  if (exists (select 1 from transactions where id in (out_id, in_id)) or exists (select 1 from transaction_links where id = link)) is not false then
     raise exception 'transfers FAILED: delete_transfer left something behind';
   end if;
 
-  if has_function_privilege('authenticated', 'check_transfer(uuid)', 'execute')
+  if (has_function_privilege('authenticated', 'check_transfer(uuid)', 'execute')
      or has_function_privilege('authenticated', 'set_transaction_link_author()', 'execute')
-     or has_function_privilege('anon', 'record_transfer(uuid, uuid, uuid, numeric, date, text, boolean, uuid)', 'execute') then
+     or has_function_privilege('anon', 'record_transfer(uuid, uuid, uuid, numeric, date, text, boolean, uuid)', 'execute')) is not false then
     raise exception 'transfers FAILED: an internal function is callable through the API';
   end if;
 
@@ -2106,7 +2106,7 @@ begin
   set constraints all immediate;
   set constraints all deferred;
   select count(*), sum(amount) into n, total from transaction_splits where transaction_id = tx;
-  if n <> 2 or total <> -500 or (select category_id from transactions where id = tx) is not null or not (select is_split from transactions where id = tx) then
+  if (n <> 2 or total <> -500 or (select category_id from transactions where id = tx) is not null or not (select is_split from transactions where id = tx)) is not false then
     raise exception 'splits FAILED: split_transaction did not leave two lines of -400 and -100 on an uncategorised split';
   end if;
 
@@ -2142,18 +2142,18 @@ begin
   perform split_transaction(tx, jsonb_build_array(jsonb_build_object('category_id', groceries, 'amount', 420), jsonb_build_object('category_id', household, 'amount', 100)), 520);
   set constraints all immediate;
   set constraints all deferred;
-  if (select amount from transactions where id = tx) <> -520 then raise exception 'splits FAILED: the new total was not saved'; end if;
+  if ((select amount from transactions where id = tx) <> -520) is not false then raise exception 'splits FAILED: the new total was not saved'; end if;
 
   -- And back to one category, with the change in the history.
   perform unsplit_transaction(tx, household);
   set constraints all immediate;
   set constraints all deferred;
-  if exists (select 1 from transaction_splits where transaction_id = tx) or (select is_split from transactions where id = tx)
-     or (select category_id from transactions where id = tx) <> household then
+  if (exists (select 1 from transaction_splits where transaction_id = tx) or (select is_split from transactions where id = tx)
+     or (select category_id from transactions where id = tx) <> household) is not false then
     raise exception 'splits FAILED: unsplit_transaction did not leave one category';
   end if;
   select count(*) into n from transaction_edits where transaction_id = tx and field = 'category' and (new_value like 'Split:%' or old_value like 'Split:%');
-  if n < 2 then raise exception 'splits FAILED: splitting and unsplitting were not in the edit history (% rows)', n; end if;
+  if (n < 2) is not false then raise exception 'splits FAILED: splitting and unsplitting were not in the edit history (% rows)', n; end if;
 
   -- A transfer has no category, so it is never split.
   insert into accounts (id, household_id, name, type, balance, is_shared) values ('33333333-3333-3333-3333-33333333bbbb', hh, 'Split test savings', 'savings', 0, true);
@@ -2168,8 +2168,8 @@ begin
   set constraints all deferred;
   delete from accounts where id = '33333333-3333-3333-3333-33333333bbbb';
 
-  if has_function_privilege('authenticated', 'check_split(uuid)', 'execute')
-     or has_function_privilege('anon', 'split_transaction(uuid, jsonb, numeric)', 'execute') then
+  if (has_function_privilege('authenticated', 'check_split(uuid)', 'execute')
+     or has_function_privilege('anon', 'split_transaction(uuid, jsonb, numeric)', 'execute')) is not false then
     raise exception 'splits FAILED: an internal function is callable through the API';
   end if;
 
@@ -2206,11 +2206,11 @@ begin
   link := (link_refund(purchase, refund) ->> 'link_id')::uuid;
   set constraints all immediate;
   set constraints all deferred;
-  if (select category_id from transactions where id = refund) is distinct from groceries then
+  if ((select category_id from transactions where id = refund) is distinct from groceries) is not false then
     raise exception 'refund links FAILED: the refund did not take the purchase''s category';
   end if;
   select count(*) into n from transaction_edits where transaction_id = refund and field in ('refund_for', 'category');
-  if n <> 2 then raise exception 'refund links FAILED: linking was not in the refund''s history (% rows)', n; end if;
+  if (n <> 2) is not false then raise exception 'refund links FAILED: linking was not in the refund''s history (% rows)', n; end if;
 
   -- More back than was paid (beyond 5% for exchange rates) is refused.
   begin
@@ -2264,13 +2264,13 @@ begin
   perform unlink_refund(link);
   set constraints all immediate;
   set constraints all deferred;
-  if exists (select 1 from transaction_links where id = link) or (select category_id from transactions where id = refund) is distinct from groceries then
+  if (exists (select 1 from transaction_links where id = link) or (select category_id from transactions where id = refund) is distinct from groceries) is not false then
     raise exception 'refund links FAILED: unlinking did not leave the refund as it was';
   end if;
   delete from transactions where id = purchase;
   set constraints all immediate;
   set constraints all deferred;
-  if exists (select 1 from transaction_links where to_transaction_id = second) then
+  if (exists (select 1 from transaction_links where to_transaction_id = second)) is not false then
     raise exception 'refund links FAILED: a deleted purchase left its link';
   end if;
 
@@ -2282,14 +2282,14 @@ begin
   perform link_refund(receipt, back);
   set constraints all immediate;
   set constraints all deferred;
-  if not (select is_split from transactions where id = back)
+  if (not (select is_split from transactions where id = back)
      or (select amount from transaction_splits where transaction_id = back and category_id = groceries) <> 66.67
-     or (select amount from transaction_splits where transaction_id = back and category_id = household) <> 33.33 then
+     or (select amount from transaction_splits where transaction_id = back and category_id = household) <> 33.33) is not false then
     raise exception 'refund links FAILED: a refund of a split purchase was not shared out 66.67 / 33.33';
   end if;
 
-  if has_function_privilege('authenticated', 'check_refund(uuid)', 'execute')
-     or has_function_privilege('anon', 'link_refund(uuid, uuid)', 'execute') then
+  if (has_function_privilege('authenticated', 'check_refund(uuid)', 'execute')
+     or has_function_privilege('anon', 'link_refund(uuid, uuid)', 'execute')) is not false then
     raise exception 'refund links FAILED: an internal function is callable through the API';
   end if;
 
@@ -2329,16 +2329,16 @@ begin
   set constraints all immediate;
   set constraints all deferred;
   select count(*) into n from transactions where account_id in (bank, card) and kind = 'transfer' and abs(amount) = 300;
-  if r ->> 'outcome' <> 'applied' or n <> 2 or not exists (
+  if (r ->> 'outcome' <> 'applied' or n <> 2 or not exists (
        select 1 from transaction_links l join transactions o on o.id = l.from_transaction_id
-       where l.kind = 'transfer' and o.account_id = bank and o.amount = -300) then
+       where l.kind = 'transfer' and o.account_id = bank and o.amount = -300)) is not false then
     raise exception 'bot transfers FAILED: a confirmed transfer was not recorded as two sides and a link (%)', r;
   end if;
 
   -- The same transfer again, a day later, is recognised rather than doubled.
   r := apply_bot_proposal('abcd0000-0000-4000-8000-0000000000d2', member);
   select count(*) into n from transactions where account_id in (bank, card) and abs(amount) = 300;
-  if n <> 2 or not (r -> 'applied' -> 0 ->> 'already_recorded')::boolean then
+  if (n <> 2 or not (r -> 'applied' -> 0 ->> 'already_recorded')::boolean) is not false then
     raise exception 'bot transfers FAILED: a transfer already recorded was recorded again (%)', r;
   end if;
 
@@ -2349,16 +2349,16 @@ begin
   set constraints all immediate;
   set constraints all deferred;
   select count(*) into n from transactions where account_id = bank and abs(amount) = 450;
-  if (select kind from transactions where id = paid) <> 'transfer' or n <> 1
+  if ((select kind from transactions where id = paid) <> 'transfer' or n <> 1
      or not (r -> 'applied' -> 0 ->> 'joined_out')::boolean
      or not exists (select 1 from transaction_links where kind = 'transfer' and from_transaction_id = paid)
-     or not exists (select 1 from transaction_edits where transaction_id = paid and field = 'kind' and new_value = 'Transfer') then
+     or not exists (select 1 from transaction_edits where transaction_id = paid and field = 'kind' and new_value = 'Transfer')) is not false then
     raise exception 'bot transfers FAILED: the expense already recorded was not joined as the money-out side (%)', r;
   end if;
 
   -- Another household's account, planted in the payload, records nothing.
   r := apply_bot_proposal('abcd0000-0000-4000-8000-0000000000d4', member);
-  if jsonb_array_length(r -> 'skipped') <> 1 or exists (select 1 from transactions where account_id = bank and amount = -10) then
+  if (jsonb_array_length(r -> 'skipped') <> 1 or exists (select 1 from transactions where account_id = bank and amount = -10)) is not false then
     raise exception 'bot transfers FAILED: a transfer to another household''s account was recorded (%)', r;
   end if;
 
@@ -2413,10 +2413,10 @@ begin
   update transactions set category_id = second_cat where id = purchase;
   set constraints all immediate;
   set constraints all deferred;
-  if (select category_id from transactions where id = refund) is distinct from second_cat then
+  if ((select category_id from transactions where id = refund) is distinct from second_cat) is not false then
     raise exception 'refund integrity FAILED: the refund did not follow its purchase to the new category';
   end if;
-  if not exists (select 1 from transaction_edits where transaction_id = refund and field = 'category' and new_value like '%follows the purchase%') then
+  if (not exists (select 1 from transaction_edits where transaction_id = refund and field = 'category' and new_value like '%follows the purchase%')) is not false then
     raise exception 'refund integrity FAILED: following the purchase was not in the refund''s history';
   end if;
 
@@ -2425,16 +2425,16 @@ begin
   perform split_transaction(purchase, jsonb_build_array(jsonb_build_object('category_id', first_cat, 'amount', 75), jsonb_build_object('category_id', second_cat, 'amount', 25)));
   set constraints all immediate;
   set constraints all deferred;
-  if not (select is_split from transactions where id = refund)
+  if (not (select is_split from transactions where id = refund)
      or (select amount from transaction_splits where transaction_id = refund and category_id = first_cat) <> 15
-     or (select amount from transaction_splits where transaction_id = refund and category_id = second_cat) <> 5 then
+     or (select amount from transaction_splits where transaction_id = refund and category_id = second_cat) <> 5) is not false then
     raise exception 'refund integrity FAILED: the refund of a split purchase was not shared out 15 / 5';
   end if;
   update transactions set amount = 30 where id = refund;
   set constraints all immediate;
   set constraints all deferred;
-  if (select sum(amount) from transaction_splits where transaction_id = refund) <> 30
-     or (select amount from transaction_splits where transaction_id = refund and category_id = first_cat) <> 22.5 then
+  if ((select sum(amount) from transaction_splits where transaction_id = refund) <> 30
+     or (select amount from transaction_splits where transaction_id = refund and category_id = first_cat) <> 22.5) is not false then
     raise exception 'refund integrity FAILED: a changed refund amount was not shared out again';
   end if;
 
@@ -2442,7 +2442,7 @@ begin
   perform unsplit_transaction(purchase, first_cat);
   set constraints all immediate;
   set constraints all deferred;
-  if (select is_split from transactions where id = refund) or (select category_id from transactions where id = refund) is distinct from first_cat then
+  if ((select is_split from transactions where id = refund) or (select category_id from transactions where id = refund) is distinct from first_cat) is not false then
     raise exception 'refund integrity FAILED: the refund did not follow its purchase back to one category';
   end if;
 
@@ -2505,8 +2505,8 @@ begin
   perform split_transaction(purchase, jsonb_build_array(jsonb_build_object('category_id', first_cat, 'amount', 50), jsonb_build_object('category_id', second_cat, 'amount', 50)));
   set constraints all immediate;
   set constraints all deferred;
-  if (select amount from transaction_splits where transaction_id = refund and category_id = first_cat) <> 10
-     or (select amount from transaction_splits where transaction_id = refund and category_id = second_cat) <> 10 then
+  if ((select amount from transaction_splits where transaction_id = refund and category_id = first_cat) <> 10
+     or (select amount from transaction_splits where transaction_id = refund and category_id = second_cat) <> 10) is not false then
     raise exception 'refund allocation FAILED: the refund did not follow its purchase to 50 / 50';
   end if;
 
@@ -2584,7 +2584,7 @@ begin
   end;
 
   -- 0% return and inflation, a 0 extra payment and a blank Custom figure stand.
-  if not exists (select 1 from planning_assumptions where household_id = hh and nominal_return_pct = 0 and inflation_pct = 0 and debt_extra_payment = 0 and custom_inflation_pct is null) then
+  if (not exists (select 1 from planning_assumptions where household_id = hh and nominal_return_pct = 0 and inflation_pct = 0 and debt_extra_payment = 0 and custom_inflation_pct is null)) is not false then
     raise exception 'planning ranges FAILED: a 0%% figure or a blank Custom figure was refused';
   end if;
 
@@ -2624,14 +2624,14 @@ begin
   delete from planning_assumptions where household_id = hh;
   insert into planning_assumptions (household_id, retirement_year) values (hh, 2050);
   select * into r from planning_assumptions where household_id = hh;
-  if r.nominal_return_pct <> 6 or r.inflation_pct <> 2.5 or r.safe_withdrawal_pct <> 4 then
+  if (r.nominal_return_pct <> 6 or r.inflation_pct <> 2.5 or r.safe_withdrawal_pct <> 4) is not false then
     raise exception 'saved marker FAILED: a new row did not hold the defaults the app shows (%, %, %)', r.nominal_return_pct, r.inflation_pct, r.safe_withdrawal_pct;
   end if;
-  if r.assumptions_saved_at is not null then
+  if (r.assumptions_saved_at is not null) is not false then
     raise exception 'saved marker FAILED: a row the life plan created reads as saved assumptions';
   end if;
   update planning_assumptions set nominal_return_pct = 7, assumptions_saved_at = now() where household_id = hh;
-  if (select assumptions_saved_at from planning_assumptions where household_id = hh) is null then
+  if ((select assumptions_saved_at from planning_assumptions where household_id = hh) is null) is not false then
     raise exception 'saved marker FAILED: the marker did not keep';
   end if;
   raise notice 'saved marker ok: a row another editor creates holds the defaults and is not saved until the drawer saves';
@@ -2660,7 +2660,7 @@ declare hh constant uuid := '11111111-1111-1111-1111-111111111111';
 declare g uuid;
 begin
   insert into goals (household_id, name, target_amount) values (hh, 'Trip', 1000) returning id into g;
-  if (select done_at from goals where id = g) is not null or (select planned_monthly from goals where id = g) is not null then
+  if ((select done_at from goals where id = g) is not null or (select planned_monthly from goals where id = g) is not null) is not false then
     raise exception 'goal done and planned FAILED: a new goal reads as done or planned';
   end if;
   update goals set planned_monthly = 0 where id = g;
@@ -2680,7 +2680,7 @@ do $$
 declare hh constant uuid := '11111111-1111-1111-1111-111111111111';
 begin
   insert into planning_assumptions (household_id) values (hh) on conflict (household_id) do nothing;
-  if (select planning_basis from planning_assumptions where household_id = hh) is not null then
+  if ((select planning_basis from planning_assumptions where household_id = hh) is not null) is not false then
     raise exception 'planning basis FAILED: a row reads as having chosen a basis';
   end if;
   update planning_assumptions set planning_basis = 'budget', records_from = '2026-10-01' where household_id = hh;
@@ -2707,8 +2707,8 @@ declare
   c uuid;
 begin
   insert into after_work_costs (household_id, name, amount) values (hh, 'Visa fees', 2000) returning id into c;
-  if (select (per_person, rise_pct, starts_after_years, lasts_years, currency) from after_work_costs where id = c)
-     is distinct from row(false, 0.00::numeric(5, 2), 0, null::int, 'AED'::text) then
+  if ((select (per_person, rise_pct, starts_after_years, lasts_years, currency) from after_work_costs where id = c)
+     is distinct from row(false, 0.00::numeric(5, 2), 0, null::int, 'AED'::text)) is not false then
     raise exception 'after_work_costs FAILED: a new cost is not for the household, level, from the stop, for good, in AED';
   end if;
   insert into after_work_costs (household_id, name, amount, currency, per_person, rise_pct, starts_after_years, lasts_years)
@@ -2760,7 +2760,7 @@ declare
   h uuid;
 begin
   insert into holdings (household_id, name, asset_class, value_aed) values (hh, 'Sector test', 'us_equity', 1000) returning id into h;
-  if (select sector from holdings where id = h) is not null then
+  if ((select sector from holdings where id = h) is not null) is not false then
     raise exception 'holding sector FAILED: a new holding was given a sector';
   end if;
   update holdings set sector = 'technology' where id = h;
@@ -2776,7 +2776,7 @@ begin
     raise exception 'holding sector FAILED: a blank sector was accepted';
   exception when check_violation then null;
   end;
-  if (select concentration_cap_pct from households where id = hh) is not null then
+  if ((select concentration_cap_pct from households where id = hh) is not null) is not false then
     raise exception 'concentration cap FAILED: a household starts with a cap';
   end if;
   update households set concentration_cap_pct = 25 where id = hh;
@@ -2803,11 +2803,11 @@ declare
   n uuid;
 begin
   insert into household_notes (household_id, title) values (hh, 'Protection') returning id into n;
-  if (select (check_yearly, checked_on) from household_notes where id = n) is distinct from row(false, null::date) then
+  if ((select (check_yearly, checked_on) from household_notes where id = n) is distinct from row(false, null::date)) is not false then
     raise exception 'yearly check FAILED: a new note is a yearly check, or already checked';
   end if;
   update household_notes set check_yearly = true, checked_on = '2026-10-26' where id = n;
-  if (select checked_on from household_notes where id = n) <> date '2026-10-26' then
+  if ((select checked_on from household_notes where id = n) <> date '2026-10-26') is not false then
     raise exception 'yearly check FAILED: the day it was checked was not kept';
   end if;
   begin
@@ -2825,7 +2825,7 @@ declare
   hh constant uuid := '11111111-1111-1111-1111-111111111111';
 begin
   insert into planning_assumptions (household_id) values (hh) on conflict (household_id) do nothing;
-  if (select cash_return_pct from planning_assumptions where household_id = hh) is not null then
+  if ((select cash_return_pct from planning_assumptions where household_id = hh) is not null) is not false then
     raise exception 'cash return FAILED: a household starts with a cash rate of its own';
   end if;
   update planning_assumptions set cash_return_pct = 3.5 where household_id = hh;
@@ -2883,7 +2883,7 @@ begin
   insert into holdings (id, household_id, owner_member_id, is_shared, name, asset_class, currency, quantity, avg_price, value_aed)
   values ('b2000000-0000-0000-0000-000000000101', '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', false, 'ABC', 'us_equity', 'USD', 1.23456789, 100.123456, 0);
   select quantity into q from holdings where id = 'b2000000-0000-0000-0000-000000000101';
-  if q <> 1.23456789 then raise exception 'B2-02 FAILED: units stored as %', q; end if;
+  if (q <> 1.23456789) is not false then raise exception 'B2-02 FAILED: units stored as %', q; end if;
   raise notice 'B2-02 ok: 1.23456789 units kept exactly';
 end $$;
 
@@ -2983,7 +2983,7 @@ begin
   end;
   delete from holdings where id = 'b2000000-0000-0000-0000-000000000101';
   select count(*) into n from holding_trades where holding_id = 'b2000000-0000-0000-0000-000000000101';
-  if n <> 0 then raise exception 'B2-07 FAILED: % entries outlived their holding', n; end if;
+  if (n <> 0) is not false then raise exception 'B2-07 FAILED: % entries outlived their holding', n; end if;
   delete from holding_trades where holding_id = 'b2000000-0000-0000-0000-000000000102';
   delete from holdings where id = 'b2000000-0000-0000-0000-000000000102';
   raise notice 'B2-07 ok: a holding with buys or sells is kept, one with only its opening is deleted with it';
@@ -3002,8 +3002,8 @@ begin
   ]'::jsonb, false);
   select x into buy from jsonb_array_elements(r -> 'entries') x where x ->> 'id' = 'b';
   select x into sell from jsonb_array_elements(r -> 'entries') x where x ->> 'id' = 's';
-  if (r ->> 'ok')::boolean is not true or (r ->> 'units')::numeric <> 9 or (r ->> 'avg')::numeric <> 110
-     or (sell ->> 'realised')::numeric <> 239 or (buy ->> 'avg_after')::numeric <> 110 or (buy ->> 'units_after')::numeric <> 15 then
+  if ((r ->> 'ok')::boolean is not true or (r ->> 'units')::numeric <> 9 or (r ->> 'avg')::numeric <> 110
+     or (sell ->> 'realised')::numeric <> 239 or (buy ->> 'avg_after')::numeric <> 110 or (buy ->> 'units_after')::numeric <> 15) is not false then
     raise exception 'B2-10 FAILED: %', r;
   end if;
   raise notice 'B2-10 ok: 10 at 100, buy 5 at 130, sell 6 at 150 leaves 9 at 110 and a profit of 239';
@@ -3013,7 +3013,7 @@ begin
     {"id":"o","kind":"opening","trade_date":"2026-10-01","created_at":"2026-10-01T08:00:00Z","units":10,"price":100,"fees":0},
     {"id":"b","kind":"buy","trade_date":"2026-10-02","created_at":"2026-10-02T08:00:00Z","units":5,"price":130,"fees":1}
   ]'::jsonb, true);
-  if (r ->> 'avg')::numeric <> 110.066667 then raise exception 'B2-11 FAILED: average %', r ->> 'avg'; end if;
+  if ((r ->> 'avg')::numeric <> 110.066667) is not false then raise exception 'B2-11 FAILED: average %', r ->> 'avg'; end if;
   raise notice 'B2-11 ok: brokerage in the average gives 110.066667';
 
   -- B2-12: a split multiplies units and divides the average; no profit.
@@ -3022,7 +3022,7 @@ begin
     {"id":"x","kind":"split","trade_date":"2026-10-05","created_at":"2026-10-05T08:00:00Z","units":10,"price":null,"fees":0}
   ]'::jsonb, false);
   select x into sell from jsonb_array_elements(r -> 'entries') x where x ->> 'id' = 'x';
-  if (r ->> 'units')::numeric <> 90 or (r ->> 'avg')::numeric <> 11 or sell -> 'realised' <> 'null'::jsonb then
+  if ((r ->> 'units')::numeric <> 90 or (r ->> 'avg')::numeric <> 11 or sell -> 'realised' <> 'null'::jsonb) is not false then
     raise exception 'B2-12 FAILED: %', r;
   end if;
   raise notice 'B2-12 ok: a 10-for-1 split of 9 at 110 gives 90 at 11';
@@ -3033,7 +3033,7 @@ begin
     {"id":"b","kind":"buy","trade_date":"2026-10-10","created_at":"2026-10-10T08:00:00Z","units":5,"price":100,"fees":0},
     {"id":"s","kind":"sell","trade_date":"2026-10-05","created_at":"2026-10-11T08:00:00Z","units":12,"price":100,"fees":0}
   ]'::jsonb, false);
-  if (r ->> 'ok')::boolean is not false or r ->> 'error' <> 'exceeds_units' or r ->> 'entry_id' <> 's' then
+  if ((r ->> 'ok')::boolean is not false or r ->> 'error' <> 'exceeds_units' or r ->> 'entry_id' <> 's') is not false then
     raise exception 'B2-13 FAILED: %', r;
   end if;
   raise notice 'B2-13 ok: a sale before the buy it needed is refused';
@@ -3043,11 +3043,11 @@ begin
     {"id":"o","kind":"opening","trade_date":"2026-10-05","created_at":"2026-10-05T08:00:00Z","units":10,"price":100,"fees":0},
     {"id":"b","kind":"buy","trade_date":"2026-10-01","created_at":"2026-10-06T08:00:00Z","units":5,"price":100,"fees":0}
   ]'::jsonb, false);
-  if r ->> 'error' is distinct from 'before_opening' then raise exception 'B2-14 FAILED: %', r; end if;
+  if (r ->> 'error' is distinct from 'before_opening') is not false then raise exception 'B2-14 FAILED: %', r; end if;
   r := private.replay_entries('[
     {"id":"b","kind":"buy","trade_date":"2026-10-01","created_at":"2026-10-01T08:00:00Z","units":5,"price":100,"fees":0}
   ]'::jsonb, false);
-  if r ->> 'error' is distinct from 'no_opening' then raise exception 'B2-14 FAILED: %', r; end if;
+  if (r ->> 'error' is distinct from 'no_opening') is not false then raise exception 'B2-14 FAILED: %', r; end if;
   raise notice 'B2-14 ok: a trade before the opening entry, or with none, is refused';
 
   -- B2-15 (Review Focus 4): two trades on one day with no time replay in the
@@ -3057,13 +3057,13 @@ begin
     {"id":"s","kind":"sell","trade_date":"2026-10-02","created_at":"2026-10-02T08:00:00Z","units":12,"price":100,"fees":0},
     {"id":"b","kind":"buy","trade_date":"2026-10-02","created_at":"2026-10-02T09:00:00Z","units":5,"price":100,"fees":0}
   ]'::jsonb, false);
-  if r ->> 'error' is distinct from 'exceeds_units' then raise exception 'B2-15 FAILED: sell first was %', r; end if;
+  if (r ->> 'error' is distinct from 'exceeds_units') is not false then raise exception 'B2-15 FAILED: sell first was %', r; end if;
   r := private.replay_entries('[
     {"id":"o","kind":"opening","trade_date":"2026-10-01","created_at":"2026-10-01T08:00:00Z","units":10,"price":100,"fees":0},
     {"id":"s","kind":"sell","trade_date":"2026-10-02","created_at":"2026-10-02T09:00:00Z","units":12,"price":100,"fees":0},
     {"id":"b","kind":"buy","trade_date":"2026-10-02","created_at":"2026-10-02T08:00:00Z","units":5,"price":100,"fees":0}
   ]'::jsonb, false);
-  if (r ->> 'ok')::boolean is not true or (r ->> 'units')::numeric <> 3 then raise exception 'B2-15 FAILED: buy first was %', r; end if;
+  if ((r ->> 'ok')::boolean is not true or (r ->> 'units')::numeric <> 3) is not false then raise exception 'B2-15 FAILED: buy first was %', r; end if;
   raise notice 'B2-15 ok: same-day trades with no time replay in the order recorded';
 end $$;
 
@@ -3092,12 +3092,12 @@ begin
   select * into f from accounts where id = 'b2000000-0000-0000-0000-0000000000f1';
   select value_aed into hist from holding_value_history where holding_id = h.id and as_of = household_today();
   select * into ev from account_balance_events where account_id = f.id order by id desc limit 1;
-  if (r ->> 'ok')::boolean is not true or r ->> 'trade_id' is null then raise exception 'B2-20 FAILED: %', r; end if;
-  if h.quantity <> 15 or h.avg_price <> 110 or h.trades_version <> 2 then raise exception 'B2-20 FAILED: holding % at %, version %', h.quantity, h.avg_price, h.trades_version; end if;
-  if f.balance <> 349 then raise exception 'B2-20 FAILED: fund %, expected 349', f.balance; end if;
-  if f.balance_as_of is not null then raise exception 'B2-20 FAILED: a trade set the fund''s confirmed date'; end if;
-  if h.value_aed <> 8263.13 or hist is distinct from 8263.13 then raise exception 'B2-20 FAILED: value %, history %', h.value_aed, hist; end if;
-  if ev.source <> 'bot' or ev.new_balance <> 349 or ev.member_id <> '22222222-2222-2222-2222-222222222222' then raise exception 'B2-20 FAILED: balance event %', row_to_json(ev); end if;
+  if ((r ->> 'ok')::boolean is not true or r ->> 'trade_id' is null) is not false then raise exception 'B2-20 FAILED: %', r; end if;
+  if (h.quantity <> 15 or h.avg_price <> 110 or h.trades_version <> 2) is not false then raise exception 'B2-20 FAILED: holding % at %, version %', h.quantity, h.avg_price, h.trades_version; end if;
+  if (f.balance <> 349) is not false then raise exception 'B2-20 FAILED: fund %, expected 349', f.balance; end if;
+  if (f.balance_as_of is not null) is not false then raise exception 'B2-20 FAILED: a trade set the fund''s confirmed date'; end if;
+  if (h.value_aed <> 8263.13 or hist is distinct from 8263.13) is not false then raise exception 'B2-20 FAILED: value %, history %', h.value_aed, hist; end if;
+  if (ev.source <> 'bot' or ev.new_balance <> 349 or ev.member_id <> '22222222-2222-2222-2222-222222222222') is not false then raise exception 'B2-20 FAILED: balance event %', row_to_json(ev); end if;
   raise notice 'B2-20 ok: holding, fund, value and its history moved together; the fund''s history names the bot';
 end $$;
 
@@ -3111,12 +3111,12 @@ begin
     p_source => 'bot', p_member_id => '22222222-2222-2222-2222-222222222222');
   select * into t from holding_trades where id = (r ->> 'trade_id')::uuid;
   select * into f from accounts where id = 'b2000000-0000-0000-0000-0000000000f1';
-  if (p ->> 'units_after')::numeric <> t.units_after or (p ->> 'avg_after')::numeric <> t.avg_after
-     or (p ->> 'realised')::numeric <> t.realised or (p ->> 'cash_amount')::numeric <> t.cash_amount then
+  if ((p ->> 'units_after')::numeric <> t.units_after or (p ->> 'avg_after')::numeric <> t.avg_after
+     or (p ->> 'realised')::numeric <> t.realised or (p ->> 'cash_amount')::numeric <> t.cash_amount) is not false then
     raise exception 'B2-22 FAILED: preview % against saved %', p, row_to_json(t);
   end if;
   raise notice 'B2-22 ok: the preview''s figures are exactly what was saved';
-  if t.realised <> 239 or t.cash_amount <> 899 or f.balance <> 1248 then raise exception 'B2-21 FAILED: profit %, cash %, fund %', t.realised, t.cash_amount, f.balance; end if;
+  if (t.realised <> 239 or t.cash_amount <> 899 or f.balance <> 1248) is not false then raise exception 'B2-21 FAILED: profit %, cash %, fund %', t.realised, t.cash_amount, f.balance; end if;
   raise notice 'B2-21 ok: the sale made 239 and the fund is 1000 - 651 + 899 = 1248';
 end $$;
 
@@ -3128,7 +3128,7 @@ begin
   select count(*) into n from holding_trades where holding_id = 'b2000000-0000-0000-0000-000000000201';
   select * into h from holdings where id = 'b2000000-0000-0000-0000-000000000201';
   select * into f from accounts where id = 'b2000000-0000-0000-0000-0000000000f1';
-  if r ->> 'error' is distinct from 'exceeds_units' or n <> 3 or h.quantity <> 9 or f.balance <> 1248 then
+  if (r ->> 'error' is distinct from 'exceeds_units' or n <> 3 or h.quantity <> 9 or f.balance <> 1248) is not false then
     raise exception 'B2-23 FAILED: %, % entries, % units, fund %', r, n, h.quantity, f.balance;
   end if;
   raise notice 'B2-23 ok: selling more than held is refused and changes nothing';
@@ -3140,7 +3140,7 @@ declare r jsonb;
 begin
   r := record_trade('b2000000-0000-0000-0000-000000000201', 'buy', '2026-10-04', 1, 150, 0, p_source => 'bot',
     p_member_id => '22222222-2222-2222-2222-222222222222', p_expected_version => 2);
-  if r ->> 'error' is distinct from 'stale' then raise exception 'B2-24 FAILED: %', r; end if;
+  if (r ->> 'error' is distinct from 'stale') is not false then raise exception 'B2-24 FAILED: %', r; end if;
   raise notice 'B2-24 ok: a stale confirmation is refused';
 end $$;
 
@@ -3154,7 +3154,7 @@ begin
   r1 := record_trade('b2000000-0000-0000-0000-000000000201', 'buy', '2026-10-04', 1, 150, 0, p_source => 'bot', p_proposal_id => prop, p_member_id => '22222222-2222-2222-2222-222222222222');
   r2 := record_trade('b2000000-0000-0000-0000-000000000201', 'buy', '2026-10-04', 1, 150, 0, p_source => 'bot', p_proposal_id => prop, p_member_id => '22222222-2222-2222-2222-222222222222');
   select count(*) into n from holding_trades where proposal_id = prop;
-  if (r1 ->> 'ok')::boolean is not true or r2 ->> 'error' is distinct from 'already_recorded' or r2 ->> 'trade_id' <> r1 ->> 'trade_id' or n <> 1 then
+  if ((r1 ->> 'ok')::boolean is not true or r2 ->> 'error' is distinct from 'already_recorded' or r2 ->> 'trade_id' <> r1 ->> 'trade_id' or n <> 1) is not false then
     raise exception 'B2-25 FAILED: % then %, % trades', r1, r2, n;
   end if;
   raise notice 'B2-25 ok: the same proposal records one trade';
@@ -3170,7 +3170,7 @@ begin
   p := preview_trade('b2000000-0000-0000-0000-000000000201', 'buy', '2026-10-10', 1, 150, 0, p_member_id => '22222222-2222-2222-2222-222222222222');
   r := record_trade('b2000000-0000-0000-0000-000000000201', 'buy', '2026-10-10', 1, 150, 0, p_source => 'bot', p_member_id => '22222222-2222-2222-2222-222222222222');
   select balance into after from accounts where id = 'b2000000-0000-0000-0000-0000000000f1';
-  if (p ->> 'funds_moves')::boolean is not false or not (p -> 'warnings') ? 'fund_confirmed_after' or (r ->> 'ok')::boolean is not true or after <> before then
+  if ((p ->> 'funds_moves')::boolean is not false or not (p -> 'warnings') ? 'fund_confirmed_after' or (r ->> 'ok')::boolean is not true or after <> before) is not false then
     raise exception 'B2-26 FAILED: preview %, record %, fund % -> %', p, r, before, after;
   end if;
   update accounts set balance_as_of = null where id = 'b2000000-0000-0000-0000-0000000000f1';
@@ -3182,14 +3182,14 @@ do $$
 declare p jsonb;
 begin
   p := preview_trade('b2000000-0000-0000-0000-000000000201', 'buy', '2026-10-25', 1, 200, 0, p_member_id => '22222222-2222-2222-2222-222222222222');
-  if not (p -> 'warnings') ? 'price_off_market' then raise exception 'B2-27 FAILED: 200 against a price of 150 gave %', p; end if;
+  if (not (p -> 'warnings') ? 'price_off_market') is not false then raise exception 'B2-27 FAILED: 200 against a price of 150 gave %', p; end if;
   update accounts set balance = 100 where id = 'b2000000-0000-0000-0000-0000000000f1';
   p := preview_trade('b2000000-0000-0000-0000-000000000201', 'buy', '2026-10-25', 5, 130, 0, p_member_id => '22222222-2222-2222-2222-222222222222');
-  if not (p -> 'warnings') ? 'fund_below_zero' or (p ->> 'funds_balance_after')::numeric <> -550 then raise exception 'B2-27 FAILED: a fund of 100 paying 650 gave %', p; end if;
+  if (not (p -> 'warnings') ? 'fund_below_zero' or (p ->> 'funds_balance_after')::numeric <> -550) is not false then raise exception 'B2-27 FAILED: a fund of 100 paying 650 gave %', p; end if;
   update accounts set balance = 1000 where id = 'b2000000-0000-0000-0000-0000000000f1';
   perform record_trade('b2000000-0000-0000-0000-000000000201', 'buy', '2026-10-25', 1, 151, 0, p_source => 'bot', p_member_id => '22222222-2222-2222-2222-222222222222');
   p := preview_trade('b2000000-0000-0000-0000-000000000201', 'buy', '2026-10-26', 1, 151, 0, p_member_id => '22222222-2222-2222-2222-222222222222');
-  if not (p -> 'warnings') ? 'possible_duplicate' then raise exception 'B2-27 FAILED: the same buy a day later gave %', p; end if;
+  if (not (p -> 'warnings') ? 'possible_duplicate') is not false then raise exception 'B2-27 FAILED: the same buy a day later gave %', p; end if;
   raise notice 'B2-27 ok: price far from the market, fund below zero and a possible duplicate are flagged';
 end $$;
 
@@ -3206,7 +3206,7 @@ begin
   values ('11111111-1111-1111-1111-111111111111', 'b2000000-0000-0000-0000-000000000202', '22222222-2222-2222-2222-222222222222', 'opening', '2026-10-01', 10, 100, 'opening');
   perform record_trade('b2000000-0000-0000-0000-000000000202', 'buy', '2026-10-02', 1, 100, 0, p_source => 'bot', p_member_id => '22222222-2222-2222-2222-222222222222');
   select value_aed into v from holdings where id = 'b2000000-0000-0000-0000-000000000202';
-  if v <> 500 then raise exception 'B2-28 FAILED: an unpriced holding''s value became %', v; end if;
+  if (v <> 500) is not false then raise exception 'B2-28 FAILED: an unpriced holding''s value became %', v; end if;
 
   update households set inr_per_aed = null where id = '11111111-1111-1111-1111-111111111111';
   perform set_config('rokda.trade_replay', 'on', true);
@@ -3217,7 +3217,7 @@ begin
   values ('11111111-1111-1111-1111-111111111111', 'b2000000-0000-0000-0000-000000000203', '22222222-2222-2222-2222-222222222222', 'opening', '2026-10-01', 10, 1000, 'opening');
   perform record_trade('b2000000-0000-0000-0000-000000000203', 'buy', '2026-10-02', 1, 1000, 0, p_source => 'bot', p_member_id => '22222222-2222-2222-2222-222222222222');
   select value_aed into v from holdings where id = 'b2000000-0000-0000-0000-000000000203';
-  if v <> 777 then raise exception 'B2-28 FAILED: a rupee holding with no rate was valued at %', v; end if;
+  if (v <> 777) is not false then raise exception 'B2-28 FAILED: a rupee holding with no rate was valued at %', v; end if;
   raise notice 'B2-28 ok: no price or no rupee rate keeps the value as it was';
 end $$;
 
@@ -3226,10 +3226,10 @@ do $$
 declare r jsonb;
 begin
   r := record_trade('b2000000-0000-0000-0000-000000000203', 'buy', '2026-10-03', 1.5, 1000, 0, p_source => 'bot', p_member_id => '22222222-2222-2222-2222-222222222222');
-  if r ->> 'error' is distinct from 'whole_units_only' then raise exception 'B2-29 FAILED: half a share gave %', r; end if;
+  if (r ->> 'error' is distinct from 'whole_units_only') is not false then raise exception 'B2-29 FAILED: half a share gave %', r; end if;
   r := record_trade('b2000000-0000-0000-0000-000000000203', 'buy', '2026-10-03', 1, 1000, 0, p_funds_account_id => 'b2000000-0000-0000-0000-0000000000f1',
     p_source => 'bot', p_member_id => '22222222-2222-2222-2222-222222222222');
-  if r ->> 'error' is distinct from 'currency_mismatch' then raise exception 'B2-29 FAILED: a rupee share through a dollar fund gave %', r; end if;
+  if (r ->> 'error' is distinct from 'currency_mismatch') is not false then raise exception 'B2-29 FAILED: a rupee share through a dollar fund gave %', r; end if;
   raise notice 'B2-29 ok: Indian shares in whole units, through a rupee fund';
 end $$;
 
@@ -3259,7 +3259,7 @@ begin
   select * into t from holding_trades where id = (sl ->> 'trade_id')::uuid;
   select * into h from holdings where id = 'b2000000-0000-0000-0000-000000000301';
   select balance into f from accounts where id = 'b2000000-0000-0000-0000-0000000000f1';
-  if (r ->> 'ok')::boolean is not true or t.realised <> 259 or h.avg_price <> 106.666667 or h.quantity <> 9 or f <> 1298 then
+  if ((r ->> 'ok')::boolean is not true or t.realised <> 259 or h.avg_price <> 106.666667 or h.quantity <> 9 or f <> 1298) is not false then
     raise exception 'B2-30 FAILED: %, sale profit %, holding % at %, fund %', r, t.realised, h.quantity, h.avg_price, f;
   end if;
   raise notice 'B2-30 ok: a fixed buy price replays the sale''s profit (259) and moves the fund by the difference only (1298)';
@@ -3272,7 +3272,7 @@ begin
   r := delete_trade((select id from b2_ids where name = 'sell'), null, p_member_id => '22222222-2222-2222-2222-222222222222');
   select * into h from holdings where id = 'b2000000-0000-0000-0000-000000000301';
   select balance into f from accounts where id = 'b2000000-0000-0000-0000-0000000000f1';
-  if (r ->> 'ok')::boolean is not true or h.quantity <> 15 or f <> 399 or exists (select 1 from holding_trades where id = (select id from b2_ids where name = 'sell')) then
+  if ((r ->> 'ok')::boolean is not true or h.quantity <> 15 or f <> 399 or exists (select 1 from holding_trades where id = (select id from b2_ids where name = 'sell'))) is not false then
     raise exception 'B2-31 FAILED: %, % units, fund %', r, h.quantity, f;
   end if;
   raise notice 'B2-31 ok: deleting the sale gives back 15 units and takes its 899 out of the fund';
@@ -3289,8 +3289,8 @@ begin
     p_member_id => '22222222-2222-2222-2222-222222222222');
   select * into h from holdings where id = 'b2000000-0000-0000-0000-000000000301';
   select units into u from holding_trades where id = (select id from b2_ids where name = 'buy');
-  if r ->> 'error' is distinct from 'exceeds_units' or h.quantity <> 3 or u <> 5
-     or (select balance from accounts where id = 'b2000000-0000-0000-0000-0000000000f1') <> f then
+  if (r ->> 'error' is distinct from 'exceeds_units' or h.quantity <> 3 or u <> 5
+     or (select balance from accounts where id = 'b2000000-0000-0000-0000-0000000000f1') <> f) is not false then
     raise exception 'B2-32 FAILED: %, holding %, buy units %', r, h.quantity, u;
   end if;
   perform delete_trade((s2 ->> 'trade_id')::uuid, null, p_member_id => '22222222-2222-2222-2222-222222222222');
@@ -3306,7 +3306,7 @@ begin
     p_member_id => '22222222-2222-2222-2222-222222222222');
   select balance into f1 from accounts where id = 'b2000000-0000-0000-0000-0000000000f1';
   select balance into f3 from accounts where id = 'b2000000-0000-0000-0000-0000000000f3';
-  if (r ->> 'ok')::boolean is not true or f1 <> 1000 or f3 <> 399 then
+  if ((r ->> 'ok')::boolean is not true or f1 <> 1000 or f3 <> 399) is not false then
     raise exception 'B2-33 FAILED: %, first fund %, second fund %', r, f1, f3;
   end if;
   raise notice 'B2-33 ok: the first fund gets its 601 back and the second pays it';
@@ -3321,11 +3321,11 @@ begin
   r := fix_trade((select id from b2_ids where name = 'buy'), '2026-10-02', 5, 110, 1, 0, null, 'b2000000-0000-0000-0000-0000000000f3', false, null, null,
     p_member_id => '22222222-2222-2222-2222-222222222222');
   select balance into f3 from accounts where id = 'b2000000-0000-0000-0000-0000000000f3';
-  if (r ->> 'ok')::boolean is not true or f3 <> 399 then raise exception 'B2-34 FAILED: a fix moved a confirmed fund to %', f3; end if;
+  if ((r ->> 'ok')::boolean is not true or f3 <> 399) is not false then raise exception 'B2-34 FAILED: a fix moved a confirmed fund to %', f3; end if;
   r := delete_trade((select id from b2_ids where name = 'buy'), null, p_member_id => '22222222-2222-2222-2222-222222222222');
   select balance into f3 from accounts where id = 'b2000000-0000-0000-0000-0000000000f3';
   select * into h from holdings where id = 'b2000000-0000-0000-0000-000000000301';
-  if (r ->> 'ok')::boolean is not true or f3 <> 399 or h.quantity <> 10 then raise exception 'B2-34 FAILED: delete gave %, fund %, units %', r, f3, h.quantity; end if;
+  if ((r ->> 'ok')::boolean is not true or f3 <> 399 or h.quantity <> 10) is not false then raise exception 'B2-34 FAILED: delete gave %, fund %, units %', r, f3, h.quantity; end if;
   update accounts set balance_as_of = null where id = 'b2000000-0000-0000-0000-0000000000f3';
   raise notice 'B2-34 ok: a trade from before the confirmed balance is fixed and deleted without moving the fund';
 end $$;
@@ -3337,12 +3337,12 @@ declare r jsonb; h holdings;
 begin
   perform record_trade('b2000000-0000-0000-0000-000000000301', 'sell', '2026-10-05', 10, 150, 0, p_source => 'app', p_member_id => '22222222-2222-2222-2222-222222222222');
   select * into h from holdings where id = 'b2000000-0000-0000-0000-000000000301';
-  if h.quantity <> 0 or h.value_aed <> 0 then raise exception 'B2-35 FAILED: sold out left % units worth %', h.quantity, h.value_aed; end if;
+  if (h.quantity <> 0 or h.value_aed <> 0) is not false then raise exception 'B2-35 FAILED: sold out left % units worth %', h.quantity, h.value_aed; end if;
   perform record_trade('b2000000-0000-0000-0000-000000000301', 'buy', '2026-10-06', 3, 100, 0, p_source => 'app', p_member_id => '22222222-2222-2222-2222-222222222222');
   select * into h from holdings where id = 'b2000000-0000-0000-0000-000000000301';
-  if h.quantity <> 3 or h.avg_price <> 100 then raise exception 'B2-35 FAILED: bought again gives % at %', h.quantity, h.avg_price; end if;
+  if (h.quantity <> 3 or h.avg_price <> 100) is not false then raise exception 'B2-35 FAILED: bought again gives % at %', h.quantity, h.avg_price; end if;
   r := delete_trade('b2000000-0000-0000-0000-000000000310', null, p_member_id => '22222222-2222-2222-2222-222222222222');
-  if r ->> 'error' is distinct from 'opening_has_trades' then raise exception 'B2-35 FAILED: deleting the opening gave %', r; end if;
+  if (r ->> 'error' is distinct from 'opening_has_trades') is not false then raise exception 'B2-35 FAILED: deleting the opening gave %', r; end if;
   raise notice 'B2-35 ok: sold out is worth 0, buying again reopens it, and the opening entry stays';
 end $$;
 
@@ -3369,17 +3369,17 @@ declare r jsonb; n int; h holdings;
 begin
   r := open_trade_history('22222222-2222-2222-2222-0000000000b2', '2026-10-27');
   n := (r ->> 'opened')::int;
-  if n <> 2 or (r ->> 'shared_left')::int <> 1 then raise exception 'B2-40 FAILED: %, expected 2 opened and the 1 shared holding reported', r; end if;
+  if (n <> 2 or (r ->> 'shared_left')::int <> 1) is not false then raise exception 'B2-40 FAILED: %, expected 2 opened and the 1 shared holding reported', r; end if;
   select * into h from holdings where id = 'b2000000-0000-0000-0000-000000000401';
-  if h.trades_version <> 1 or h.quantity <> 4.12345678 or h.avg_price <> 50 or h.value_aed <> 908.64 then
+  if (h.trades_version <> 1 or h.quantity <> 4.12345678 or h.avg_price <> 50 or h.value_aed <> 908.64) is not false then
     raise exception 'B2-40 FAILED: the dollar holding is now % at %, worth %, version %', h.quantity, h.avg_price, h.value_aed, h.trades_version;
   end if;
-  if not exists (select 1 from holding_trades where holding_id = h.id and kind = 'opening' and units = 4.12345678 and price = 50 and trade_date = '2026-10-27' and units_after = 4.12345678) then
+  if (not exists (select 1 from holding_trades where holding_id = h.id and kind = 'opening' and units = 4.12345678 and price = 50 and trade_date = '2026-10-27' and units_after = 4.12345678)) is not false then
     raise exception 'B2-40 FAILED: the opening entry does not match the holding';
   end if;
-  if (select trades_version from holdings where id = 'b2000000-0000-0000-0000-000000000403') <> 0
+  if ((select trades_version from holdings where id = 'b2000000-0000-0000-0000-000000000403') <> 0
      or (select trades_version from holdings where id = 'b2000000-0000-0000-0000-000000000404') <> 0
-     or exists (select 1 from holding_trades where holding_id in ('b2000000-0000-0000-0000-000000000403', 'b2000000-0000-0000-0000-000000000404')) then
+     or exists (select 1 from holding_trades where holding_id in ('b2000000-0000-0000-0000-000000000403', 'b2000000-0000-0000-0000-000000000404'))) is not false then
     raise exception 'B2-40 FAILED: a holding without an average, or another member''s, was opened';
   end if;
   raise notice 'B2-40 ok: two opening entries, the holdings unchanged, the rest untouched';
@@ -3390,7 +3390,7 @@ do $$
 declare n int;
 begin
   n := (open_trade_history('22222222-2222-2222-2222-0000000000b2', '2026-10-28') ->> 'opened')::int;
-  if n <> 0 or (select count(*) from holding_trades where holding_id = 'b2000000-0000-0000-0000-000000000401') <> 1 then
+  if (n <> 0 or (select count(*) from holding_trades where holding_id = 'b2000000-0000-0000-0000-000000000401') <> 1) is not false then
     raise exception 'B2-41 FAILED: a second run made % entries', n;
   end if;
   raise notice 'B2-41 ok: the fresh start happens once';
@@ -3400,10 +3400,10 @@ end $$;
 -- two, it waits for the member to choose.
 do $$
 begin
-  if (select funds_account_id from holdings where id = 'b2000000-0000-0000-0000-000000000401') is distinct from 'b2000000-0000-0000-0000-0000000004f1' then
+  if ((select funds_account_id from holdings where id = 'b2000000-0000-0000-0000-000000000401') is distinct from 'b2000000-0000-0000-0000-0000000004f1') is not false then
     raise exception 'B2-42 FAILED: the dollar holding was not linked to the one dollar fund';
   end if;
-  if (select funds_account_id from holdings where id = 'b2000000-0000-0000-0000-000000000402') is not null then
+  if ((select funds_account_id from holdings where id = 'b2000000-0000-0000-0000-000000000402') is not null) is not false then
     raise exception 'B2-42 FAILED: a rupee holding was linked although there are two rupee funds';
   end if;
   raise notice 'B2-42 ok: linked to the one fund in its currency, left alone with two';
@@ -3424,14 +3424,14 @@ begin
   v := set_holding_price('b2000000-0000-0000-0000-000000000501', 150, 1.5, '2026-10-26 20:00+00', now());
   select * into h from holdings where id = 'b2000000-0000-0000-0000-000000000501';
   select value_aed into hist from holding_value_history where holding_id = h.id and as_of = household_today();
-  if v <> 5508.75 or h.value_aed <> 5508.75 or hist <> 5508.75 or h.current_price <> 150 or h.day_change_pct <> 1.5
-     or h.priced_at <> '2026-10-26 20:00+00' or h.price_fetch_error is not null or h.price_fetch_fail_count <> 0 then
+  if (v <> 5508.75 or h.value_aed <> 5508.75 or hist <> 5508.75 or h.current_price <> 150 or h.day_change_pct <> 1.5
+     or h.priced_at <> '2026-10-26 20:00+00' or h.price_fetch_error is not null or h.price_fetch_fail_count <> 0) is not false then
     raise exception 'B2-50 FAILED: value %, holding %', v, row_to_json(h);
   end if;
   perform record_trade('b2000000-0000-0000-0000-000000000501', 'buy', '2026-10-02', 5, 150, 0, p_source => 'app', p_member_id => '22222222-2222-2222-2222-222222222222');
   v := set_holding_price('b2000000-0000-0000-0000-000000000501', 160, null, null, now());
   select * into h from holdings where id = 'b2000000-0000-0000-0000-000000000501';
-  if v <> 8814.00 or h.value_aed <> 8814.00 or h.priced_at <> '2026-10-26 20:00+00' then
+  if (v <> 8814.00 or h.value_aed <> 8814.00 or h.priced_at <> '2026-10-26 20:00+00') is not false then
     raise exception 'B2-50 FAILED: after the trade the value is % (priced at %)', v, h.priced_at;
   end if;
   raise notice 'B2-50 ok: the price update values the units as they are now, and keeps the quote time when none is given';
@@ -3448,7 +3448,7 @@ begin
     {"id":"x","kind":"split","trade_date":"2026-10-02","created_at":"2026-10-02T08:00:00Z","units":0.1,"price":null,"fees":0},
     {"id":"s","kind":"sell","trade_date":"2026-10-03","created_at":"2026-10-03T08:00:00Z","units":0.31234568,"price":100,"fees":0}
   ]'::jsonb, false);
-  if (r ->> 'ok')::boolean is not true or (r ->> 'units')::numeric <> 0 then raise exception 'B2-16 FAILED: %', r; end if;
+  if ((r ->> 'ok')::boolean is not true or (r ->> 'units')::numeric <> 0) is not false then raise exception 'B2-16 FAILED: %', r; end if;
   raise notice 'B2-16 ok: after a reverse split the units shown can all be sold';
 end $$;
 
@@ -3461,7 +3461,7 @@ begin
     {"id":"o","kind":"opening","trade_date":"2026-10-01","created_at":"2026-10-01T08:00:00Z","units":10,"price":100,"fees":0},
     {"id":"b","kind":"buy","trade_date":"2026-10-02","created_at":"2026-10-02T08:00:00Z","units":5,"price":130,"fees":1,"brokerage_in_average":true}
   ]'::jsonb, false);
-  if (r ->> 'avg')::numeric <> 110.066667 then raise exception 'B2-17 FAILED: average %', r ->> 'avg'; end if;
+  if ((r ->> 'avg')::numeric <> 110.066667) is not false then raise exception 'B2-17 FAILED: average %', r ->> 'avg'; end if;
   raise notice 'B2-17 ok: a buy through a fund that averages brokerage includes it';
 end $$;
 
@@ -3480,17 +3480,17 @@ begin
   values ('11111111-1111-1111-1111-111111111111', 'b2000000-0000-0000-0000-000000000601', '22222222-2222-2222-2222-222222222222', 'opening', '2026-10-01', 3.12345678, 10, 'opening');
   r := record_trade('b2000000-0000-0000-0000-000000000601', 'split', '2026-10-02', 0.1, null, p_source => 'bot', p_member_id => '22222222-2222-2222-2222-222222222222');
   select * into h from holdings where id = 'b2000000-0000-0000-0000-000000000601';
-  if h.quantity <> 0.31234568 then raise exception 'B2-36 FAILED: after the split the holding shows %', h.quantity; end if;
+  if (h.quantity <> 0.31234568) is not false then raise exception 'B2-36 FAILED: after the split the holding shows %', h.quantity; end if;
   p := preview_trade('b2000000-0000-0000-0000-000000000601', 'sell', '2026-10-03', 0.312345678, 100.0000001, 0.00001, p_member_id => '22222222-2222-2222-2222-222222222222');
-  if (p ->> 'funds_balance_after')::numeric <> round((p ->> 'funds_balance_after')::numeric, 2) then raise exception 'B2-36 FAILED: fund preview in more than fils: %', p; end if;
+  if ((p ->> 'funds_balance_after')::numeric <> round((p ->> 'funds_balance_after')::numeric, 2)) is not false then raise exception 'B2-36 FAILED: fund preview in more than fils: %', p; end if;
   r := record_trade('b2000000-0000-0000-0000-000000000601', 'sell', '2026-10-03', 0.312345678, 100.0000001, 0.00001, p_source => 'bot', p_member_id => '22222222-2222-2222-2222-222222222222');
   select * into h from holdings where id = 'b2000000-0000-0000-0000-000000000601';
-  if (r ->> 'ok')::boolean is not true or h.quantity <> 0 or h.avg_price is null or h.value_aed <> 0
-     or (select balance from accounts where id = 'b2000000-0000-0000-0000-0000000000f1') <> (p ->> 'funds_balance_after')::numeric then
+  if ((r ->> 'ok')::boolean is not true or h.quantity <> 0 or h.avg_price is null or h.value_aed <> 0
+     or (select balance from accounts where id = 'b2000000-0000-0000-0000-0000000000f1') <> (p ->> 'funds_balance_after')::numeric) is not false then
     raise exception 'B2-36 FAILED: %, holding % at %, worth %', r, h.quantity, h.avg_price, h.value_aed;
   end if;
   r := record_trade('b2000000-0000-0000-0000-000000000601', 'buy', '2026-10-04', 0.000000001, 100, 0, p_source => 'bot', p_member_id => '22222222-2222-2222-2222-222222222222');
-  if r ->> 'error' is distinct from 'bad_input' then raise exception 'B2-36 FAILED: a buy of less than a hundred-millionth of a unit gave %', r; end if;
+  if (r ->> 'error' is distinct from 'bad_input') is not false then raise exception 'B2-36 FAILED: a buy of less than a hundred-millionth of a unit gave %', r; end if;
   raise notice 'B2-36 ok: a reverse split then selling the units shown closes the holding, with the preview''s fund figure stored';
 end $$;
 
@@ -3501,7 +3501,7 @@ begin
   b := record_trade('b2000000-0000-0000-0000-000000000201', 'buy', '2026-10-27', 1, 150, 0, p_funds_account_id => 'b2000000-0000-0000-0000-0000000000f3',
     p_source => 'app', p_member_id => '22222222-2222-2222-2222-222222222222');
   r := fix_trade((b ->> 'trade_id')::uuid, '2026-10-27', 1, 150, 2, 0, null, null, false, null, null, p_member_id => '22222222-2222-2222-2222-222222222222');
-  if (r ->> 'ok')::boolean is not true or (select funds_account_id from holding_trades where id = (b ->> 'trade_id')::uuid) <> 'b2000000-0000-0000-0000-0000000000f3' then
+  if ((r ->> 'ok')::boolean is not true or (select funds_account_id from holding_trades where id = (b ->> 'trade_id')::uuid) <> 'b2000000-0000-0000-0000-0000000000f3') is not false then
     raise exception 'B2-37 FAILED: %, fund now %', r, (select funds_account_id from holding_trades where id = (b ->> 'trade_id')::uuid);
   end if;
   raise notice 'B2-37 ok: a fix that names no fund keeps the trade''s fund';
@@ -3523,7 +3523,7 @@ begin
   perform record_trade('b2000000-0000-0000-0000-000000000602', 'buy', '2026-10-02', 5, 130, 1, p_funds_account_id => 'b2000000-0000-0000-0000-0000000000f5',
     p_source => 'app', p_member_id => '22222222-2222-2222-2222-222222222222');
   select * into h from holdings where id = 'b2000000-0000-0000-0000-000000000602';
-  if h.avg_price <> 110.066667 then raise exception 'B2-38 FAILED: average %', h.avg_price; end if;
+  if (h.avg_price <> 110.066667) is not false then raise exception 'B2-38 FAILED: average %', h.avg_price; end if;
   raise notice 'B2-38 ok: brokerage in the average follows the fund the buy went through';
 end $$;
 
@@ -3535,7 +3535,7 @@ begin
   values ('b2000000-0000-0000-0000-0000000000c1', '11111111-1111-1111-1111-111111111111', 'Dollar card', 'credit_card', 'USD', 0, false);
   r := record_trade('b2000000-0000-0000-0000-000000000201', 'buy', '2026-10-27', 1, 150, 0, p_funds_account_id => 'b2000000-0000-0000-0000-0000000000c1',
     p_source => 'app', p_member_id => '22222222-2222-2222-2222-222222222222');
-  if r ->> 'error' is distinct from 'not_broker_funds' then raise exception 'B2-39 FAILED: a card as the fund gave %', r; end if;
+  if (r ->> 'error' is distinct from 'not_broker_funds') is not false then raise exception 'B2-39 FAILED: a card as the fund gave %', r; end if;
   begin
     insert into holding_trades (household_id, holding_id, member_id, kind, trade_date, units, price, funds_account_id, source)
     values ('11111111-1111-1111-1111-111111111111', 'b2000000-0000-0000-0000-000000000201', '22222222-2222-2222-2222-222222222222', 'buy', '2026-10-27', 1, 150, 'b2000000-0000-0000-0000-0000000000c1', 'app');
@@ -3587,13 +3587,13 @@ begin
   select id into opening from holding_trades where holding_id = 'b2000000-0000-0000-0000-000000000801' and kind = 'opening';
   r := delete_trade(opening, null, '22222222-2222-2222-2222-0000000000b6');
   select trades_version into v from holdings where id = 'b2000000-0000-0000-0000-000000000801';
-  if (r ->> 'ok')::boolean is not true or v <> -1 then raise exception 'B2-60 FAILED: undoing the fresh start gave %, version %', r, v; end if;
+  if ((r ->> 'ok')::boolean is not true or v <> -1) is not false then raise exception 'B2-60 FAILED: undoing the fresh start gave %, version %', r, v; end if;
   update holdings set quantity = 6 where id = 'b2000000-0000-0000-0000-000000000801';
   perform open_trade_history('22222222-2222-2222-2222-0000000000b6', '2026-10-21');
   select trades_version into v from holdings where id = 'b2000000-0000-0000-0000-000000000801';
-  if v <> 2 then raise exception 'B2-60 FAILED: going live again gave version %, expected 2', v; end if;
+  if (v <> 2) is not false then raise exception 'B2-60 FAILED: going live again gave version %, expected 2', v; end if;
   r := record_trade('b2000000-0000-0000-0000-000000000801', 'buy', '2026-10-22', 1, 10, p_member_id => '22222222-2222-2222-2222-0000000000b6', p_expected_version => 1);
-  if r ->> 'error' is distinct from 'stale' then raise exception 'B2-60 FAILED: a confirmation from before the undo gave %', r; end if;
+  if (r ->> 'error' is distinct from 'stale') is not false then raise exception 'B2-60 FAILED: a confirmation from before the undo gave %', r; end if;
   raise notice 'B2-60 ok: a version is never reused after a fresh start is undone';
 end $$;
 
@@ -3606,7 +3606,7 @@ values ('b2000000-0000-0000-0000-000000000802', '11111111-1111-1111-1111-1111111
 do $$
 begin
   delete from accounts where id = 'b2000000-0000-0000-0000-0000000000f6';
-  if (select funds_account_id from holdings where id = 'b2000000-0000-0000-0000-000000000802') is not null then
+  if ((select funds_account_id from holdings where id = 'b2000000-0000-0000-0000-000000000802') is not null) is not false then
     raise exception 'B2-61 FAILED: the holding still points at the deleted fund';
   end if;
   begin
@@ -3660,15 +3660,15 @@ begin
       'currency', 'USD', 'price_symbol', 'NEWCO', 'price_provider', 'twelvedata', 'sector', null,
       'funds_account_id', 'b3000000-0000-0000-0000-0000000000f1'),
     '2026-10-25', 10, 50, 1, p_member_id => '22222222-2222-2222-2222-0000000000b7');
-  if (r ->> 'ok')::boolean is not true or (r ->> 'holding_units_after')::numeric <> 10
+  if ((r ->> 'ok')::boolean is not true or (r ->> 'holding_units_after')::numeric <> 10
      or (r ->> 'holding_avg_after')::numeric <> 50 or (r ->> 'funds_delta')::numeric <> -501
-     or (r ->> 'new_holding')::boolean is not true then
+     or (r ->> 'new_holding')::boolean is not true) is not false then
     raise exception 'B3-02 FAILED: the preview gave %', r;
   end if;
-  if exists (select 1 from holdings where name = 'NEWCO') then
+  if (exists (select 1 from holdings where name = 'NEWCO')) is not false then
     raise exception 'B3-02 FAILED: the preview left a holding behind';
   end if;
-  if (select balance from accounts where id = 'b3000000-0000-0000-0000-0000000000f1') <> 1000 then
+  if ((select balance from accounts where id = 'b3000000-0000-0000-0000-0000000000f1') <> 1000) is not false then
     raise exception 'B3-02 FAILED: the preview moved the fund';
   end if;
   raise notice 'B3-02 ok: a new holding''s buy is previewed and nothing is saved';
@@ -3684,22 +3684,22 @@ begin
       'funds_account_id', 'b3000000-0000-0000-0000-0000000000f1'),
     '2026-10-25', 10, 50, 1, p_source => 'bot', p_member_id => '22222222-2222-2222-2222-0000000000b7');
   select * into h from holdings where name = 'NEWCO';
-  if (r ->> 'ok')::boolean is not true or (r ->> 'holding_id')::uuid is distinct from h.id then
+  if ((r ->> 'ok')::boolean is not true or (r ->> 'holding_id')::uuid is distinct from h.id) is not false then
     raise exception 'B3-03 FAILED: recording gave %', r;
   end if;
-  if h.quantity <> 10 or h.avg_price <> 50 or h.trades_version <> 2 or h.owner_member_id <> '22222222-2222-2222-2222-0000000000b7' then
+  if (h.quantity <> 10 or h.avg_price <> 50 or h.trades_version <> 2 or h.owner_member_id <> '22222222-2222-2222-2222-0000000000b7') is not false then
     raise exception 'B3-03 FAILED: the holding is % at %, version %', h.quantity, h.avg_price, h.trades_version;
   end if;
   -- Priced at the buy, and dated, so net worth counts it until the feed
   -- prices it: a holding with no price date is left out of net worth.
-  if h.current_price <> 50 or h.priced_at is null then
+  if (h.current_price <> 50 or h.priced_at is null) is not false then
     raise exception 'B3-03 FAILED: the new holding is priced at %, dated %', h.current_price, h.priced_at;
   end if;
   select count(*) into n from holding_trades where holding_id = h.id;
-  if n <> 2 or not exists (select 1 from holding_trades where holding_id = h.id and kind = 'opening' and units = 0) then
+  if (n <> 2 or not exists (select 1 from holding_trades where holding_id = h.id and kind = 'opening' and units = 0)) is not false then
     raise exception 'B3-03 FAILED: % entries, or no empty opening entry', n;
   end if;
-  if (select balance from accounts where id = 'b3000000-0000-0000-0000-0000000000f1') <> 499 then
+  if ((select balance from accounts where id = 'b3000000-0000-0000-0000-0000000000f1') <> 499) is not false then
     raise exception 'B3-03 FAILED: the fund is %, expected 499', (select balance from accounts where id = 'b3000000-0000-0000-0000-0000000000f1');
   end if;
   raise notice 'B3-03 ok: a new holding at 10 / 50, two entries, and the fund down 501';
@@ -3714,8 +3714,8 @@ begin
       'currency', 'USD', 'price_symbol', 'MISMATCH', 'price_provider', 'twelvedata', 'sector', null,
       'funds_account_id', 'b3000000-0000-0000-0000-0000000000f2'),
     '2026-10-25', 1, 10, p_member_id => '22222222-2222-2222-2222-0000000000b7');
-  if r ->> 'error' is distinct from 'currency_mismatch' then raise exception 'B3-04 FAILED: a dollar buy through a rupee fund gave %', r; end if;
-  if exists (select 1 from holdings where name = 'MISMATCH') then
+  if (r ->> 'error' is distinct from 'currency_mismatch') is not false then raise exception 'B3-04 FAILED: a dollar buy through a rupee fund gave %', r; end if;
+  if (exists (select 1 from holdings where name = 'MISMATCH')) is not false then
     raise exception 'B3-04 FAILED: a refused buy left its holding behind';
   end if;
   raise notice 'B3-04 ok: a refused buy leaves nothing';
@@ -3731,13 +3731,13 @@ begin
   sale := (r ->> 'trade_id')::uuid;
   select balance into bal from accounts where id = 'b3000000-0000-0000-0000-0000000000f1';
   r := preview_delete_trade(sale, '22222222-2222-2222-2222-0000000000b7');
-  if (r ->> 'ok')::boolean is not true or (r ->> 'units_before')::numeric <> 9 or (r ->> 'holding_units_after')::numeric <> 15
-     or (r ->> 'avg_before')::numeric <> 110 or (r ->> 'funds_delta')::numeric <> -899 then
+  if ((r ->> 'ok')::boolean is not true or (r ->> 'units_before')::numeric <> 9 or (r ->> 'holding_units_after')::numeric <> 15
+     or (r ->> 'avg_before')::numeric <> 110 or (r ->> 'funds_delta')::numeric <> -899) is not false then
     raise exception 'B3-05 FAILED: the undo preview gave %', r;
   end if;
-  if not exists (select 1 from holding_trades where id = sale)
+  if (not exists (select 1 from holding_trades where id = sale)
      or (select balance from accounts where id = 'b3000000-0000-0000-0000-0000000000f1') <> bal
-     or (select quantity from holdings where id = 'b3000000-0000-0000-0000-000000000001') <> 9 then
+     or (select quantity from holdings where id = 'b3000000-0000-0000-0000-000000000001') <> 9) is not false then
     raise exception 'B3-05 FAILED: the undo preview changed the sale, the fund or the holding';
   end if;
   raise notice 'B3-05 ok: undoing the sale would take ABC from 9 back to 15, and nothing changed';
@@ -3763,11 +3763,11 @@ begin
   r := apply_bot_proposal('b3a00000-0000-4000-8000-000000000006', m);
   again := apply_bot_proposal('b3a00000-0000-4000-8000-000000000006', m);
   select count(*) into n from holding_trades where proposal_id = 'b3a00000-0000-4000-8000-000000000006';
-  if r ->> 'outcome' <> 'applied' or n <> 1 or again ->> 'outcome' <> 'applied' or again -> 'result' -> 'effect' is null then
+  if (r ->> 'outcome' <> 'applied' or n <> 1 or again ->> 'outcome' <> 'applied' or again -> 'result' -> 'effect' is null) is not false then
     raise exception 'B3-06 FAILED: applying gave % then % (% trades)', r, again, n;
   end if;
   select id into buy from holding_trades where proposal_id = 'b3a00000-0000-4000-8000-000000000006';
-  if (select source from holding_trades where id = buy) <> 'bot' or (select balance from accounts where id = 'b3000000-0000-0000-0000-0000000000f1') <> bal - 150 then
+  if ((select source from holding_trades where id = buy) <> 'bot' or (select balance from accounts where id = 'b3000000-0000-0000-0000-0000000000f1') <> bal - 150) is not false then
     raise exception 'B3-06 FAILED: the trade is not the bot''s, or the fund moved by other than 150';
   end if;
   raise notice 'B3-06 ok: a trade proposal applied twice records one trade and repeats its answer';
@@ -3778,8 +3778,8 @@ begin
       'holding_id', abc, 'kind', 'buy', 'trade_date', '2026-10-28', 'units', 2, 'price', 150, 'fees', 0,
       'expected_version', v), 1);
   r := apply_bot_proposal('b3a00000-0000-4000-8000-000000000007', m);
-  if r ->> 'outcome' <> 'stale' or exists (select 1 from holding_trades where proposal_id = 'b3a00000-0000-4000-8000-000000000007')
-     or (select status from bot_proposals where id = 'b3a00000-0000-4000-8000-000000000007') <> 'expired' then
+  if (r ->> 'outcome' <> 'stale' or exists (select 1 from holding_trades where proposal_id = 'b3a00000-0000-4000-8000-000000000007')
+     or (select status from bot_proposals where id = 'b3a00000-0000-4000-8000-000000000007') <> 'expired') is not false then
     raise exception 'B3-07 FAILED: a stale confirmation gave %', r;
   end if;
   raise notice 'B3-07 ok: a confirmation on an older version records nothing and expires';
@@ -3792,7 +3792,7 @@ begin
         'price_symbol', 'NEWCO', 'price_provider', 'twelvedata', 'funds_account_id', 'b3000000-0000-0000-0000-0000000000f1'),
       'kind', 'buy', 'trade_date', '2026-10-28', 'units', 1, 'price', 50, 'fees', 0), 1);
   r := apply_bot_proposal('b3a00000-0000-4000-8000-000000000017', m);
-  if r ->> 'outcome' <> 'stale' or (select count(*) from holdings where lower(name) = 'newco') <> 1 then
+  if (r ->> 'outcome' <> 'stale' or (select count(*) from holdings where lower(name) = 'newco') <> 1) is not false then
     raise exception 'B3-07 FAILED: a second first buy of NEWCO gave %', r;
   end if;
   raise notice 'B3-07 ok: a first buy of a stock already held since is stale, and makes no second holding';
@@ -3803,7 +3803,7 @@ begin
       'holding_id', abc, 'kind', 'sell', 'trade_date', '2026-10-28', 'units', 500, 'price', 150, 'fees', 0,
       'expected_version', v + 1), 1);
   r := apply_bot_proposal('b3a00000-0000-4000-8000-000000000008', m);
-  if r ->> 'outcome' <> 'refused' or r ->> 'error' <> 'exceeds_units' then
+  if (r ->> 'outcome' <> 'refused' or r ->> 'error' <> 'exceeds_units') is not false then
     raise exception 'B3-08 FAILED: selling more than is held gave %', r;
   end if;
   raise notice 'B3-08 ok: a sale of more than is held is refused as exceeds_units';
@@ -3813,8 +3813,8 @@ begin
     ('b3a00000-0000-4000-8000-000000000009', hh, m, 'trade_undo', jsonb_build_object('trade_id', buy, 'expected_version', v + 1), 1);
   r := apply_bot_proposal('b3a00000-0000-4000-8000-000000000009', m);
   perform apply_bot_proposal('b3a00000-0000-4000-8000-000000000009', m);
-  if r ->> 'outcome' <> 'applied' or exists (select 1 from holding_trades where id = buy)
-     or (select balance from accounts where id = 'b3000000-0000-0000-0000-0000000000f1') <> bal then
+  if (r ->> 'outcome' <> 'applied' or exists (select 1 from holding_trades where id = buy)
+     or (select balance from accounts where id = 'b3000000-0000-0000-0000-0000000000f1') <> bal) is not false then
     raise exception 'B3-09 FAILED: undoing gave %, fund %', r, (select balance from accounts where id = 'b3000000-0000-0000-0000-0000000000f1');
   end if;
   raise notice 'B3-09 ok: an undo deletes the trade and gives its money back once';
@@ -3823,7 +3823,7 @@ begin
   insert into bot_proposals (id, household_id, member_id, kind, payload, chat_id, status) values
     ('b3a00000-0000-4000-8000-000000000010', hh, m, 'trade', jsonb_build_object('draft', jsonb_build_object('stock', 'ABC')), 1, 'asking');
   r := apply_bot_proposal('b3a00000-0000-4000-8000-000000000010', m);
-  if r ->> 'outcome' <> 'asking' or (select status from bot_proposals where id = 'b3a00000-0000-4000-8000-000000000010') <> 'asking' then
+  if (r ->> 'outcome' <> 'asking' or (select status from bot_proposals where id = 'b3a00000-0000-4000-8000-000000000010') <> 'asking') is not false then
     raise exception 'B3-10 FAILED: an asking proposal gave %', r;
   end if;
   raise notice 'B3-10 ok: an asking proposal cannot be applied';
@@ -3833,7 +3833,7 @@ begin
     ('b3a00000-0000-4000-8000-000000000011', hh, m, 'trade', jsonb_build_object(
       'holding_id', abc, 'kind', 'buy', 'trade_date', '2026-10-28', 'units', 1, 'price', 150, 'expected_version', v + 2), 1);
   r := apply_bot_proposal('b3a00000-0000-4000-8000-000000000011', '22222222-2222-2222-2222-222222222222');
-  if r ->> 'outcome' <> 'not_yours' then raise exception 'B3-11 FAILED: another member confirming gave %', r; end if;
+  if (r ->> 'outcome' <> 'not_yours') is not false then raise exception 'B3-11 FAILED: another member confirming gave %', r; end if;
   raise notice 'B3-11 ok: another member cannot confirm a trade';
 
   -- B3-12: the new kinds and status are accepted; an unknown kind is not.
@@ -3852,8 +3852,8 @@ declare v int;
 begin
   select trades_version into v from holdings where id = 'b3000000-0000-0000-0000-000000000001';
   update holdings set split_asked_for = '2026-10-29' where id = 'b3000000-0000-0000-0000-000000000001';
-  if (select split_asked_for from holdings where id = 'b3000000-0000-0000-0000-000000000001') <> '2026-10-29'
-     or (select trades_version from holdings where id = 'b3000000-0000-0000-0000-000000000001') <> v then
+  if ((select split_asked_for from holdings where id = 'b3000000-0000-0000-0000-000000000001') <> '2026-10-29'
+     or (select trades_version from holdings where id = 'b3000000-0000-0000-0000-000000000001') <> v) is not false then
     raise exception 'B3-13 FAILED: the split question''s day was not kept, or the version moved';
   end if;
   raise notice 'B3-13 ok: a split question''s day is kept without touching the trade guards';
@@ -3885,12 +3885,12 @@ begin
   insert into holdings (id, household_id, name, asset_class, currency, quantity, value_aed, dividend_tax_pct) values
     ('d1b10000-0000-0000-0000-000000000005', '11111111-1111-1111-1111-111111111111', 'D1-01 set', 'us_equity', 'USD', 1, 0, 15);
   for r in select name, dividend_tax_pct as pct from holdings where id::text like 'd1b10000%' loop
-    if (r.name = 'D1-01 in' and r.pct is distinct from 20.8) or (r.name in ('D1-01 us', 'D1-01 intl') and r.pct is distinct from 30)
-       or (r.name = 'D1-01 gold' and r.pct is not null) or (r.name = 'D1-01 set' and r.pct is distinct from 15) then
+    if ((r.name = 'D1-01 in' and r.pct is distinct from 20.8) or (r.name in ('D1-01 us', 'D1-01 intl') and r.pct is distinct from 30)
+       or (r.name = 'D1-01 gold' and r.pct is not null) or (r.name = 'D1-01 set' and r.pct is distinct from 15)) is not false then
       raise exception 'D1-01 FAILED: % got withholding %', r.name, r.pct;
     end if;
   end loop;
-  if (select dividend_fee_per_share from holdings where id = 'd1b10000-0000-0000-0000-000000000002') <> 0 then
+  if ((select dividend_fee_per_share from holdings where id = 'd1b10000-0000-0000-0000-000000000002') <> 0) is not false then
     raise exception 'D1-01 FAILED: a new holding''s fee per share is not 0';
   end if;
   raise notice 'D1-01 ok: withholding defaults by class, and a given rate is kept';
@@ -3978,7 +3978,7 @@ begin
   exception when check_violation then null;
   end;
   update accounts set dividends_into_account_id = 'd1a00000-0000-0000-0000-000000000003' where id = 'd1a00000-0000-0000-0000-000000000002';
-  if (select dividends_into_account_id from accounts where id = 'd1a00000-0000-0000-0000-000000000002') is distinct from 'd1a00000-0000-0000-0000-000000000003' then
+  if ((select dividends_into_account_id from accounts where id = 'd1a00000-0000-0000-0000-000000000002') is distinct from 'd1a00000-0000-0000-0000-000000000003') is not false then
     raise exception 'D1-04 FAILED: a rupee fund could not point at the rupee bank account';
   end if;
   raise notice 'D1-04 ok: a broker fund names a destination of its own household and currency';
@@ -4009,17 +4009,17 @@ begin
     '2026-07-01 10:00+04');
   r := record_dividend_fetch('D6', 'alphavantage', 'dividends', '{"ok": false, "error": "limit reached"}', '2026-07-02 10:00+04');
   select * into s from dividend_feed_state where symbol = 'D6' and kind = 'dividends';
-  if s.fail_count <> 1 or s.last_success_at <> '2026-07-01 10:00+04' or s.last_failure_at <> '2026-07-02 10:00+04' or s.last_error <> 'limit reached' then
+  if (s.fail_count <> 1 or s.last_success_at <> '2026-07-01 10:00+04' or s.last_failure_at <> '2026-07-02 10:00+04' or s.last_error <> 'limit reached') is not false then
     raise exception 'D1-06 FAILED: the failure was recorded as %', row_to_json(s);
   end if;
-  if (select count(*) from dividend_events where symbol = 'D6' and last_seen_at = s.last_success_at) <> 2 then
+  if ((select count(*) from dividend_events where symbol = 'D6' and last_seen_at = s.last_success_at) <> 2) is not false then
     raise exception 'D1-06 FAILED: a failed check unlisted an event';
   end if;
   -- A response with one unreadable item is a failure too, not a shorter list.
   r := record_dividend_fetch('D6', 'alphavantage', 'dividends',
     '{"ok": true, "items": [{"ex_date": "2025-03-01", "amount": 1}, {"ex_date": "None", "amount": 1}]}', '2026-07-03 10:00+04');
-  if (r ->> 'failed')::boolean is not true
-     or (select count(*) from dividend_events where symbol = 'D6' and last_seen_at = '2026-07-01 10:00+04') <> 2 then
+  if ((r ->> 'failed')::boolean is not true
+     or (select count(*) from dividend_events where symbol = 'D6' and last_seen_at = '2026-07-01 10:00+04') <> 2) is not false then
     raise exception 'D1-06 FAILED: an unreadable item was taken as a shorter list: %', r;
   end if;
   raise notice 'D1-06 ok: a failed check changes no event and keeps them listed';
@@ -4035,12 +4035,12 @@ begin
   select first_seen_at into first_seen from dividend_events where symbol = 'D7' and ex_date = '2025-03-01';
   r := record_dividend_fetch('D7', 'alphavantage', 'dividends',
     '{"ok": true, "items": [{"ex_date": "2025-03-01", "amount": 1}]}', '2026-07-02 10:00+04');
-  if (r ->> 'listed')::int <> 1 then raise exception 'D1-07 FAILED: the check reported %', r; end if;
-  if (select count(*) from dividend_events where symbol = 'D7') <> 2 then raise exception 'D1-07 FAILED: an unlisted event was deleted'; end if;
-  if (select last_seen_at from dividend_events where symbol = 'D7' and ex_date = '2025-06-01') <> '2026-07-01 10:00+04' then
+  if ((r ->> 'listed')::int <> 1) is not false then raise exception 'D1-07 FAILED: the check reported %', r; end if;
+  if ((select count(*) from dividend_events where symbol = 'D7') <> 2) is not false then raise exception 'D1-07 FAILED: an unlisted event was deleted'; end if;
+  if ((select last_seen_at from dividend_events where symbol = 'D7' and ex_date = '2025-06-01') <> '2026-07-01 10:00+04') is not false then
     raise exception 'D1-07 FAILED: the unlisted event looks listed';
   end if;
-  if (select first_seen_at from dividend_events where symbol = 'D7' and ex_date = '2025-03-01') <> first_seen then
+  if ((select first_seen_at from dividend_events where symbol = 'D7' and ex_date = '2025-03-01') <> first_seen) is not false then
     raise exception 'D1-07 FAILED: a listed event''s first sighting moved';
   end if;
   raise notice 'D1-07 ok: an event the source drops is unlisted, not deleted';
@@ -4055,24 +4055,24 @@ begin
   r := record_dividend_fetch('D8.NS', 'yahoo', 'dividends',
     '{"ok": true, "items": [{"ex_date": "2026-03-05", "amount": 0.004, "currency": "INR"}, {"ex_date": "2026-06-20", "amount": 0.01, "currency": "INR"}]}',
     '2026-07-01 10:00+04');
-  if (select amount from dividend_events where symbol = 'D8.NS' and ex_date = '2026-03-05') <> 0.04
+  if ((select amount from dividend_events where symbol = 'D8.NS' and ex_date = '2026-03-05') <> 0.04
      or (select source_factor from dividend_events where symbol = 'D8.NS' and ex_date = '2026-03-05') <> 10
-     or (select amount from dividend_events where symbol = 'D8.NS' and ex_date = '2026-06-20') <> 0.01 then
+     or (select amount from dividend_events where symbol = 'D8.NS' and ex_date = '2026-06-20') <> 0.01) is not false then
     raise exception 'D1-08 FAILED: amounts after the first split are %',
       (select jsonb_agg(jsonb_build_object('ex', ex_date, 'amount', amount, 'factor', source_factor)) from dividend_events where symbol = 'D8.NS');
   end if;
   -- A later split the source had not applied when it gave the amount is not applied to it.
   r := record_dividend_fetch('D8.NS', 'yahoo', 'splits',
     '{"ok": true, "items": [{"effective_date": "2026-06-10", "ratio": 10}, {"effective_date": "2026-08-01", "ratio": 2}]}', '2026-08-05 10:00+04');
-  if (select amount from dividend_events where symbol = 'D8.NS' and ex_date = '2026-03-05') <> 0.04 then
+  if ((select amount from dividend_events where symbol = 'D8.NS' and ex_date = '2026-03-05') <> 0.04) is not false then
     raise exception 'D1-08 FAILED: a split applied twice made %', (select amount from dividend_events where symbol = 'D8.NS' and ex_date = '2026-03-05');
   end if;
   -- Once the source re-adjusts, the amount on the ex-date's basis is the same.
   r := record_dividend_fetch('D8.NS', 'yahoo', 'dividends',
     '{"ok": true, "items": [{"ex_date": "2026-03-05", "amount": 0.002, "currency": "INR"}, {"ex_date": "2026-06-20", "amount": 0.005, "currency": "INR"}]}',
     '2026-08-05 10:00+04');
-  if (select amount from dividend_events where symbol = 'D8.NS' and ex_date = '2026-03-05') <> 0.04
-     or (select amount from dividend_events where symbol = 'D8.NS' and ex_date = '2026-06-20') <> 0.01 then
+  if ((select amount from dividend_events where symbol = 'D8.NS' and ex_date = '2026-03-05') <> 0.04
+     or (select amount from dividend_events where symbol = 'D8.NS' and ex_date = '2026-06-20') <> 0.01) is not false then
     raise exception 'D1-08 FAILED: after the source re-adjusted, amounts are %',
       (select jsonb_agg(jsonb_build_object('ex', ex_date, 'amount', amount)) from dividend_events where symbol = 'D8.NS');
   end if;
@@ -4086,12 +4086,12 @@ declare r jsonb;
 begin
   r := record_dividend_fetch('D8B.NS', 'yahoo', 'splits', '{"ok": true, "items": [{"effective_date": "2026-06-10", "ratio": 10}]}', '2026-08-05 10:00+04');
   r := record_dividend_fetch('D8B.NS', 'yahoo', 'dividends', '{"ok": true, "items": [{"ex_date": "2026-03-05", "amount": 0.002}]}', '2026-08-05 10:00+04');
-  if (select amount from dividend_events where symbol = 'D8B.NS') <> 0.02 then
+  if ((select amount from dividend_events where symbol = 'D8B.NS') <> 0.02) is not false then
     raise exception 'D1-08b FAILED: before the second split was known the amount is %', (select amount from dividend_events where symbol = 'D8B.NS');
   end if;
   r := record_dividend_fetch('D8B.NS', 'yahoo', 'splits',
     '{"ok": true, "items": [{"effective_date": "2026-06-10", "ratio": 10}, {"effective_date": "2026-08-01", "ratio": 2}]}', '2026-08-06 10:00+04');
-  if (select amount from dividend_events where symbol = 'D8B.NS') <> 0.04 then
+  if ((select amount from dividend_events where symbol = 'D8B.NS') <> 0.04) is not false then
     raise exception 'D1-08b FAILED: once the split was known the amount is %', (select amount from dividend_events where symbol = 'D8B.NS');
   end if;
   raise notice 'D1-08b ok: a split learnt of late is applied once known';
@@ -4103,13 +4103,13 @@ do $$
 declare r jsonb;
 begin
   r := record_dividend_fetch('D9', 'alphavantage', 'dividends', '{"ok": true, "items": [{"ex_date": "2025-03-01", "amount": 0.5}]}', '2026-07-01 10:00+04');
-  if (select amount from dividend_events where symbol = 'D9') <> 0.5 then raise exception 'D1-09 FAILED: an Alpha Vantage amount was adjusted'; end if;
+  if ((select amount from dividend_events where symbol = 'D9') <> 0.5) is not false then raise exception 'D1-09 FAILED: an Alpha Vantage amount was adjusted'; end if;
   r := record_dividend_fetch('D9', 'alphavantage', 'dividends', '{"ok": true, "items": [{"ex_date": "2025-03-01", "amount": 0.25}]}', '2026-07-02 10:00+04');
-  if (r ->> 'changed_past')::int <> 1 or not (select needs_splits from dividend_feed_state where symbol = 'D9' and kind = 'dividends') then
+  if ((r ->> 'changed_past')::int <> 1 or not (select needs_splits from dividend_feed_state where symbol = 'D9' and kind = 'dividends')) is not false then
     raise exception 'D1-09 FAILED: a changed past amount did not ask for splits: %', r;
   end if;
   r := record_dividend_fetch('D9', 'alphavantage', 'splits', '{"ok": true, "items": []}', '2026-07-03 10:00+04');
-  if (select needs_splits from dividend_feed_state where symbol = 'D9' and kind = 'dividends') then
+  if ((select needs_splits from dividend_feed_state where symbol = 'D9' and kind = 'dividends')) is not false then
     raise exception 'D1-09 FAILED: a splits check left the question open';
   end if;
   raise notice 'D1-09 ok: a changed past amount asks for splits, and a splits check answers it';
@@ -4138,12 +4138,12 @@ begin
     jsonb_build_object('ok', true, 'items', jsonb_build_array(jsonb_build_object('ex_date', household_today() - 1, 'amount', 0.1))),
     (household_today() - 2)::timestamp at time zone 'Asia/Dubai' + interval '6 hours');
   select count(*) into n from dividend_symbols() s where s.symbol like 'D10%';
-  if n <> 3 then raise exception 'D1-10 FAILED: the feed follows % D10 symbols, expected 3: %', n,
+  if (n <> 3) is not false then raise exception 'D1-10 FAILED: the feed follows % D10 symbols, expected 3: %', n,
     (select jsonb_agg(s.symbol) from dividend_symbols() s where s.symbol like 'D10%'); end if;
   for row in select * from dividend_symbols() s where s.symbol like 'D10%' loop
-    if (row.symbol = 'D10IN.NS' and (row.provider <> 'yahoo' or not row.held))
+    if ((row.symbol = 'D10IN.NS' and (row.provider <> 'yahoo' or not row.held))
        or (row.symbol = 'D10US' and (row.provider <> 'alphavantage' or not row.held or not row.ex_passed_since_success))
-       or (row.symbol = 'D10SOLD' and (row.provider <> 'alphavantage' or row.held)) then
+       or (row.symbol = 'D10SOLD' and (row.provider <> 'alphavantage' or row.held))) is not false then
       raise exception 'D1-10 FAILED: % came back as %', row.symbol, row_to_json(row);
     end if;
   end loop;
@@ -4185,16 +4185,16 @@ begin
   perform pg_temp.d1_trade(h, 'buy', '2026-10-10', 7);
   -- Confirmed in Dubai just after midnight: the 9th in New York.
   perform pg_temp.d1_trade(h, 'buy', '2026-10-10', 5, '2026-10-10 00:30+04');
-  if private.units_on_ex_date(h, '2026-10-10') <> 115 then
+  if (private.units_on_ex_date(h, '2026-10-10') <> 115) is not false then
     raise exception 'D1-11 FAILED: units on 10 Oct are %, expected 115', private.units_on_ex_date(h, '2026-10-10');
   end if;
-  if private.units_on_ex_date(h, '2026-10-11') <> 122 then
+  if (private.units_on_ex_date(h, '2026-10-11') <> 122) is not false then
     raise exception 'D1-11 FAILED: units on 11 Oct are %, expected 122', private.units_on_ex_date(h, '2026-10-11');
   end if;
-  if private.units_on_ex_date(h, '2026-10-01') <> 100 then
+  if (private.units_on_ex_date(h, '2026-10-01') <> 100) is not false then
     raise exception 'D1-11 FAILED: an ex-date on the opening day gave %', private.units_on_ex_date(h, '2026-10-01');
   end if;
-  if private.units_on_ex_date(h, '2026-09-30') is not null then
+  if (private.units_on_ex_date(h, '2026-09-30') is not null) is not false then
     raise exception 'D1-11 FAILED: an ex-date before the opening gave units';
   end if;
   raise notice 'D1-11 ok: units on an ex-date count the market days before it';
@@ -4215,18 +4215,18 @@ begin
   perform pg_temp.d1_events('D12GOLD', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 20, 'amount', 1)));
   perform earn_dividends();
   select count(*) into n from holding_dividends where holding_id = 'd1b30000-0000-0000-0000-000000000012';
-  if n <> 2 then raise exception 'D1-12 FAILED: the holding earned % dividends, expected 2', n; end if;
+  if (n <> 2) is not false then raise exception 'D1-12 FAILED: the holding earned % dividends, expected 2', n; end if;
   select * into d from holding_dividends where holding_id = 'd1b30000-0000-0000-0000-000000000012' and ex_date = t - 20;
-  if d.status <> 'earned' or d.units <> 100 or d.per_share <> 0.5 or d.tax_pct <> 30 or d.expected_gross <> 50 or d.expected_tax <> 15
+  if (d.status <> 'earned' or d.units <> 100 or d.per_share <> 0.5 or d.tax_pct <> 30 or d.expected_gross <> 50 or d.expected_tax <> 15
      or d.expected_fees <> 0 or d.expected_net <> 35 or d.paid_into_account_id <> 'd1a00000-0000-0000-0000-000000000001'
-     or d.units_basis <> 'trades' or d.source <> 'feed' or d.pay_date <> t - 5 or d.currency <> 'USD' then
+     or d.units_basis <> 'trades' or d.source <> 'feed' or d.pay_date <> t - 5 or d.currency <> 'USD') is not false then
     raise exception 'D1-12 FAILED: the dividend was recorded as %', row_to_json(d);
   end if;
-  if (select count(*) from holding_dividends where holding_id = 'd1b30000-0000-0000-0000-000000000112') <> 1
-     or (select ex_date from holding_dividends where holding_id = 'd1b30000-0000-0000-0000-000000000112') <> t - 10 then
+  if ((select count(*) from holding_dividends where holding_id = 'd1b30000-0000-0000-0000-000000000112') <> 1
+     or (select ex_date from holding_dividends where holding_id = 'd1b30000-0000-0000-0000-000000000112') <> t - 10) is not false then
     raise exception 'D1-12 FAILED: a holding opened after an ex-date earned it';
   end if;
-  if exists (select 1 from holding_dividends where holding_id in ('d1b30000-0000-0000-0000-000000000212', 'd1b30000-0000-0000-0000-000000000312')) then
+  if (exists (select 1 from holding_dividends where holding_id in ('d1b30000-0000-0000-0000-000000000212', 'd1b30000-0000-0000-0000-000000000312'))) is not false then
     raise exception 'D1-12 FAILED: a holding without an opening, or a commodity, earned a dividend';
   end if;
   raise notice 'D1-12 ok: each holding earns each listed event after its opening, at its own units';
@@ -4244,8 +4244,8 @@ begin
     jsonb_build_object('ex_date', t - 10, 'amount', 0.5),
     jsonb_build_object('ex_date', t - 5, 'amount', 0.5)));
   perform earn_dividends();
-  if (select count(*) from holding_dividends where holding_id = 'd1b30000-0000-0000-0000-000000000013') <> 1
-     or (select ex_date from holding_dividends where holding_id = 'd1b30000-0000-0000-0000-000000000013') <> t - 5 then
+  if ((select count(*) from holding_dividends where holding_id = 'd1b30000-0000-0000-0000-000000000013') <> 1
+     or (select ex_date from holding_dividends where holding_id = 'd1b30000-0000-0000-0000-000000000013') <> t - 5) is not false then
     raise exception 'D1-13 FAILED: earned %', (select jsonb_agg(ex_date) from holding_dividends where holding_id = 'd1b30000-0000-0000-0000-000000000013');
   end if;
   raise notice 'D1-13 ok: a pay date before the ex-date, or a split on it, is not earned automatically';
@@ -4265,16 +4265,16 @@ begin
     jsonb_build_object('ex_date', t - 20, 'amount', 0.5),
     jsonb_build_object('ex_date', t - 10, 'amount', 0.5)));
   perform earn_dividends();
-  if (select count(*) from holding_dividends where holding_id = h) <> 2 then
+  if ((select count(*) from holding_dividends where holding_id = h) <> 2) is not false then
     raise exception 'D1-14 FAILED: % rows after linking, expected 2', (select count(*) from holding_dividends where holding_id = h);
   end if;
   select * into d from holding_dividends where holding_id = h and ex_date = t - 20;
-  if d.event_id is null or d.per_share <> 0.6 or d.review_reason is distinct from 'feed_changed' then
+  if (d.event_id is null or d.per_share <> 0.6 or d.review_reason is distinct from 'feed_changed') is not false then
     raise exception 'D1-14 FAILED: the same-day row became %', row_to_json(d);
   end if;
   select * into d from holding_dividends where holding_id = h and ex_date = t - 2;
-  if d.event_id is not null or d.review_reason is distinct from 'possible_duplicate'
-     or d.review_event_id is distinct from (select id from dividend_events where symbol = 'D14' and ex_date = t - 10) then
+  if (d.event_id is not null or d.review_reason is distinct from 'possible_duplicate'
+     or d.review_event_id is distinct from (select id from dividend_events where symbol = 'D14' and ex_date = t - 10)) is not false then
     raise exception 'D1-14 FAILED: the near row became %', row_to_json(d);
   end if;
   raise notice 'D1-14 ok: a hand-added dividend is linked on its ex-date and asked about when near';
@@ -4298,17 +4298,17 @@ begin
     jsonb_build_object('ex_date', t - 12, 'amount', 0.7)));
   perform earn_dividends();
   select * into d from holding_dividends where holding_id = h and ex_date = t - 20;
-  if d.per_share <> 0.6 or d.expected_gross <> 60 or d.expected_net <> 42 or d.pay_date <> t - 4 or d.review_reason is not null then
+  if (d.per_share <> 0.6 or d.expected_gross <> 60 or d.expected_net <> 42 or d.pay_date <> t - 4 or d.review_reason is not null) is not false then
     raise exception 'D1-15 FAILED: the earned row became %', row_to_json(d);
   end if;
   select * into d from holding_dividends where holding_id = h and ex_date = t - 12;
-  if d.per_share <> 0.5 or d.received_net <> 35 or d.review_reason is distinct from 'feed_changed' then
+  if (d.per_share <> 0.5 or d.received_net <> 35 or d.review_reason is distinct from 'feed_changed') is not false then
     raise exception 'D1-15 FAILED: the received row became %', row_to_json(d);
   end if;
   update holding_dividends set review_reason = null, review_baseline = jsonb_build_object('per_share', 0.7, 'units', 100, 'ex_date', t - 12)
   where id = d.id;
   perform earn_dividends();
-  if (select review_reason from holding_dividends where id = d.id) is not null then
+  if ((select review_reason from holding_dividends where id = d.id) is not null) is not false then
     raise exception 'D1-15 FAILED: a kept figure was flagged again';
   end if;
   raise notice 'D1-15 ok: corrections reach earned rows, and are flagged once on received ones';
@@ -4327,14 +4327,14 @@ begin
   perform pg_temp.d1_events('D16US', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 40, 'amount', 0.5)));
   perform earn_dividends();
   select * into d from holding_dividends where holding_id = 'd1b30000-0000-0000-0000-000000000016' and ex_date = t - 40;
-  if d.status <> 'presumed' or d.credited_on <> t - 10 or not d.credited_on_estimated
-     or d.paid_into_account_id <> 'd1a00000-0000-0000-0000-000000000003' or d.expected_net <> 396 or d.received_net is not null then
+  if (d.status <> 'presumed' or d.credited_on <> t - 10 or not d.credited_on_estimated
+     or d.paid_into_account_id <> 'd1a00000-0000-0000-0000-000000000003' or d.expected_net <> 396 or d.received_net is not null) is not false then
     raise exception 'D1-16 FAILED: the older rupee dividend is %', row_to_json(d);
   end if;
-  if (select status from holding_dividends where holding_id = 'd1b30000-0000-0000-0000-000000000016' and ex_date = t - 10) <> 'earned' then
+  if ((select status from holding_dividends where holding_id = 'd1b30000-0000-0000-0000-000000000016' and ex_date = t - 10) <> 'earned') is not false then
     raise exception 'D1-16 FAILED: a rupee dividend was presumed before 30 days';
   end if;
-  if (select status from holding_dividends where holding_id = 'd1b30000-0000-0000-0000-000000000116') <> 'earned' then
+  if ((select status from holding_dividends where holding_id = 'd1b30000-0000-0000-0000-000000000116') <> 'earned') is not false then
     raise exception 'D1-16 FAILED: a broker-fund dividend was presumed received';
   end if;
   raise notice 'D1-16 ok: a bank dividend is presumed after 30 days; a fund''s waits for a member';
@@ -4348,7 +4348,7 @@ begin
   perform pg_temp.d1_trade(h, 'sell', t - 19, 100);
   perform pg_temp.d1_events('D17', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 20, 'amount', 0.5)));
   perform earn_dividends();
-  if (select units from holding_dividends where holding_id = h) is distinct from 100 then
+  if ((select units from holding_dividends where holding_id = h) is distinct from 100) is not false then
     raise exception 'D1-17 FAILED: a holding sold after the ex-date earned %', (select units from holding_dividends where holding_id = h);
   end if;
   raise notice 'D1-17 ok: a holding sold after the ex-date keeps its dividend';
@@ -4364,7 +4364,7 @@ begin
     jsonb_build_object('ex_date', t - 90, 'amount', 0.5), jsonb_build_object('ex_date', t - 60, 'amount', 0.5),
     jsonb_build_object('ex_date', t - 30, 'amount', 0.5)));
   perform earn_dividends();
-  if (select count(*) from holding_dividends where holding_id = h) <> 5 then
+  if ((select count(*) from holding_dividends where holding_id = h) <> 5) is not false then
     raise exception 'D1-18 FAILED: % of 5 dividends earned after the gap', (select count(*) from holding_dividends where holding_id = h);
   end if;
   raise notice 'D1-18 ok: one check after a gap earns every dividend in it';
@@ -4377,8 +4377,8 @@ begin
   perform earn_dividends();
   select sum(version), max(updated_at) into v_versions, v_touched from holding_dividends;
   r := earn_dividends();
-  if (r ->> 'made')::int + (r ->> 'updated')::int + (r ->> 'removed')::int + (r ->> 'flagged')::int + (r ->> 'presumed')::int <> 0
-     or (select sum(version) from holding_dividends) <> v_versions or (select max(updated_at) from holding_dividends) <> v_touched then
+  if ((r ->> 'made')::int + (r ->> 'updated')::int + (r ->> 'removed')::int + (r ->> 'flagged')::int + (r ->> 'presumed')::int <> 0
+     or (select sum(version) from holding_dividends) <> v_versions or (select max(updated_at) from holding_dividends) <> v_touched) is not false then
     raise exception 'D1-19 FAILED: a second run reported % and moved rows', r;
   end if;
   raise notice 'D1-19 ok: earning again changes nothing';
@@ -4395,7 +4395,7 @@ begin
   r := record_dividend_fetch('D20', 'alphavantage', 'dividends', jsonb_build_object('ok', true, 'items', jsonb_build_array(
     jsonb_build_object('ex_date', t - 8, 'amount', 0.5))), (t - 7)::timestamp at time zone 'Asia/Dubai' + interval '6 hours');
   perform earn_dividends();
-  if (select count(*) from holding_dividends where holding_id = h) <> 1 or (select ex_date from holding_dividends where holding_id = h) <> t - 8 then
+  if ((select count(*) from holding_dividends where holding_id = h) <> 1 or (select ex_date from holding_dividends where holding_id = h) <> t - 8) is not false then
     raise exception 'D1-20 FAILED: earned %', (select jsonb_agg(ex_date) from holding_dividends where holding_id = h);
   end if;
   raise notice 'D1-20 ok: a date moved before its first check is earned once, on the new date';
@@ -4416,17 +4416,17 @@ begin
   perform earn_dividends();
   select id into a from dividend_events where symbol = 'D21' and ex_date = t - 10;
   select id into b from dividend_events where symbol = 'D21' and ex_date = t - 7;
-  if (select count(*) from holding_dividends where holding_id = h) <> 1 then
+  if ((select count(*) from holding_dividends where holding_id = h) <> 1) is not false then
     raise exception 'D1-21 FAILED: % dividends after the date moved, expected 1', (select count(*) from holding_dividends where holding_id = h);
   end if;
   select * into d from holding_dividends where holding_id = h;
-  if d.event_id <> b or d.ex_date <> t - 7 or d.units <> 150 or d.expected_gross <> 75
-     or (select superseded_by from dividend_events where id = a) is distinct from b then
+  if (d.event_id <> b or d.ex_date <> t - 7 or d.units <> 150 or d.expected_gross <> 75
+     or (select superseded_by from dividend_events where id = a) is distinct from b) is not false then
     raise exception 'D1-21 FAILED: the moved dividend is %', row_to_json(d);
   end if;
   v := d.version;
   perform earn_dividends();
-  if (select version from holding_dividends where id = d.id) <> v then raise exception 'D1-21 FAILED: a further run moved it again'; end if;
+  if ((select version from holding_dividends where id = d.id) <> v) is not false then raise exception 'D1-21 FAILED: a further run moved it again'; end if;
   raise notice 'D1-21 ok: an earned dividend moves with its ex-date, never doubled';
 end $$;
 
@@ -4445,11 +4445,11 @@ begin
   perform pg_temp.d1_events('D22', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 7, 'amount', 0.5)));
   perform pg_temp.d1_events('D22', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 7, 'amount', 0.5)));
   perform earn_dividends();
-  if (select count(*) from holding_dividends where holding_id = h) <> 1 then
+  if ((select count(*) from holding_dividends where holding_id = h) <> 1) is not false then
     raise exception 'D1-22 FAILED: the new date earned a second dividend';
   end if;
   select * into d from holding_dividends where holding_id = h;
-  if d.ex_date <> t - 10 or d.review_reason is distinct from 'moved_ex_date' or d.received_net <> 35 then
+  if (d.ex_date <> t - 10 or d.review_reason is distinct from 'moved_ex_date' or d.received_net <> 35) is not false then
     raise exception 'D1-22 FAILED: the received dividend became %', row_to_json(d);
   end if;
   raise notice 'D1-22 ok: a received dividend keeps its date and is asked about';
@@ -4468,14 +4468,14 @@ begin
   perform pg_temp.d1_events('D23', 'alphavantage', jsonb_build_array(
     jsonb_build_object('ex_date', t - 7, 'amount', 0.5), jsonb_build_object('ex_date', t - 4, 'amount', 0.5)));
   perform earn_dividends();
-  if (select count(*) from holding_dividends where holding_id = h) <> 1 then
+  if ((select count(*) from holding_dividends where holding_id = h) <> 1) is not false then
     raise exception 'D1-23 FAILED: % dividends with an unclear move, expected 1', (select count(*) from holding_dividends where holding_id = h);
   end if;
   select * into d from holding_dividends where holding_id = h;
-  if d.ex_date <> t - 10 or d.review_reason is distinct from 'moved_ex_date' then
+  if (d.ex_date <> t - 10 or d.review_reason is distinct from 'moved_ex_date') is not false then
     raise exception 'D1-23 FAILED: the dividend became %', row_to_json(d);
   end if;
-  if (select superseded_by from dividend_events where symbol = 'D23' and ex_date = t - 10) is not null then
+  if ((select superseded_by from dividend_events where symbol = 'D23' and ex_date = t - 10) is not null) is not false then
     raise exception 'D1-23 FAILED: an unclear move was recorded as a replacement';
   end if;
   raise notice 'D1-23 ok: an unclear move changes nothing and is asked about';
@@ -4494,19 +4494,19 @@ begin
     received_gross = 50, received_tax = 15, received_fees = 0, received_net = 35
   where holding_id = h and ex_date = t - 12;
   r := record_trade(h, 'buy', t - 25, 10, 10, 0, p_member_id => '22222222-2222-2222-2222-0000000000b7');
-  if (r ->> 'ok')::boolean is not true then raise exception 'D1-24 FAILED: the buy was refused: %', r; end if;
+  if ((r ->> 'ok')::boolean is not true) is not false then raise exception 'D1-24 FAILED: the buy was refused: %', r; end if;
   select * into d from holding_dividends where holding_id = h and ex_date = t - 20;
-  if d.units <> 110 or d.expected_gross <> 55 or d.expected_net <> 38.5 then
+  if (d.units <> 110 or d.expected_gross <> 55 or d.expected_net <> 38.5) is not false then
     raise exception 'D1-24 FAILED: the earned dividend after the buy is %', row_to_json(d);
   end if;
   select * into d from holding_dividends where holding_id = h and ex_date = t - 12;
-  if d.units <> 100 or d.received_net <> 35 or d.review_reason is distinct from 'trades_changed' then
+  if (d.units <> 100 or d.received_net <> 35 or d.review_reason is distinct from 'trades_changed') is not false then
     raise exception 'D1-24 FAILED: the received dividend after the buy is %', row_to_json(d);
   end if;
   update holding_dividends set review_reason = null, review_baseline = jsonb_build_object('units', 110, 'per_share', 0.5, 'ex_date', t - 12)
   where id = d.id;
   perform earn_dividends();
-  if (select review_reason from holding_dividends where id = d.id) is not null then
+  if ((select review_reason from holding_dividends where id = d.id) is not null) is not false then
     raise exception 'D1-24 FAILED: units a member kept were flagged again';
   end if;
   raise notice 'D1-24 ok: a trade re-works earned dividends and flags received ones once';
@@ -4520,8 +4520,8 @@ begin
   select id into v_buy from holding_trades where holding_id = h and kind = 'buy';
   r := fix_trade(v_buy, t - 15, 10, 10, 0, 0, null, 'd1a00000-0000-0000-0000-000000000001', false, null,
     (select trades_version from holdings where id = h), p_member_id => '22222222-2222-2222-2222-0000000000b7');
-  if (r ->> 'ok')::boolean is not true then raise exception 'D1-25 FAILED: the fix was refused: %', r; end if;
-  if (select units from holding_dividends where holding_id = h and ex_date = t - 20) <> 100 then
+  if ((r ->> 'ok')::boolean is not true) is not false then raise exception 'D1-25 FAILED: the fix was refused: %', r; end if;
+  if ((select units from holding_dividends where holding_id = h and ex_date = t - 20) <> 100) is not false then
     raise exception 'D1-25 FAILED: moving the buy after the ex-date left %', (select units from holding_dividends where holding_id = h and ex_date = t - 20);
   end if;
 
@@ -4530,10 +4530,10 @@ begin
   v_sell := (r ->> 'trade_id')::uuid;
   perform pg_temp.d1_events('D25', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 20, 'amount', 0.5)));
   perform earn_dividends();
-  if exists (select 1 from holding_dividends where holding_id = h2) then raise exception 'D1-25 FAILED: an emptied holding earned'; end if;
+  if (exists (select 1 from holding_dividends where holding_id = h2)) is not false then raise exception 'D1-25 FAILED: an emptied holding earned'; end if;
   r := delete_trade(v_sell, (select trades_version from holdings where id = h2), p_member_id => '22222222-2222-2222-2222-0000000000b7');
-  if (r ->> 'ok')::boolean is not true then raise exception 'D1-25 FAILED: the delete was refused: %', r; end if;
-  if (select units from holding_dividends where holding_id = h2) is distinct from 100 then
+  if ((r ->> 'ok')::boolean is not true) is not false then raise exception 'D1-25 FAILED: the delete was refused: %', r; end if;
+  if ((select units from holding_dividends where holding_id = h2) is distinct from 100) is not false then
     raise exception 'D1-25 FAILED: deleting the sale did not earn the dividend at once';
   end if;
   raise notice 'D1-25 ok: fixing or deleting a trade re-works its dividends at once';
@@ -4547,8 +4547,8 @@ begin
   perform pg_temp.d1_events('D26', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 20, 'amount', 0.5)));
   perform earn_dividends();
   r := record_trade(h, 'split', t - 25, 2, null, 0, p_member_id => '22222222-2222-2222-2222-0000000000b7');
-  if (r ->> 'ok')::boolean is not true then raise exception 'D1-26 FAILED: the split was refused: %', r; end if;
-  if (select units from holding_dividends where holding_id = h) <> 200 or (select expected_gross from holding_dividends where holding_id = h) <> 100 then
+  if ((r ->> 'ok')::boolean is not true) is not false then raise exception 'D1-26 FAILED: the split was refused: %', r; end if;
+  if ((select units from holding_dividends where holding_id = h) <> 200 or (select expected_gross from holding_dividends where holding_id = h) <> 100) is not false then
     raise exception 'D1-26 FAILED: after the split the dividend is %', (select row_to_json(d) from holding_dividends d where holding_id = h);
   end if;
   raise notice 'D1-26 ok: a split recorded late reaches the dividend';
@@ -4560,11 +4560,11 @@ do $$
 declare t date := household_today(); h uuid := 'd1b30000-0000-0000-0000-000000000024';
 begin
   update holdings set dividend_tax_pct = 15 where id = h;
-  if (select tax_pct from holding_dividends where holding_id = h and ex_date = t - 20) <> 15
-     or (select expected_tax from holding_dividends where holding_id = h and ex_date = t - 20) <> 7.5 then
+  if ((select tax_pct from holding_dividends where holding_id = h and ex_date = t - 20) <> 15
+     or (select expected_tax from holding_dividends where holding_id = h and ex_date = t - 20) <> 7.5) is not false then
     raise exception 'D1-27 FAILED: the earned dividend kept its old rate';
   end if;
-  if (select tax_pct from holding_dividends where holding_id = h and ex_date = t - 12) <> 30 then
+  if ((select tax_pct from holding_dividends where holding_id = h and ex_date = t - 12) <> 30) is not false then
     raise exception 'D1-27 FAILED: a received dividend took the new rate';
   end if;
   raise notice 'D1-27 ok: a new rate reaches earned dividends only';
@@ -4579,7 +4579,7 @@ begin
   perform pg_temp.d1_events('D28', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 20, 'amount', 0.5)));
   perform earn_dividends();
   delete from holdings where id = h;
-  if exists (select 1 from holding_dividends where holding_id = h) or exists (select 1 from holding_trades where holding_id = h) then
+  if (exists (select 1 from holding_dividends where holding_id = h) or exists (select 1 from holding_trades where holding_id = h)) is not false then
     raise exception 'D1-28 FAILED: the deleted holding left rows behind';
   end if;
   raise notice 'D1-28 ok: deleting a holding with only its opening entry takes its dividends with it';
@@ -4600,10 +4600,10 @@ begin
   update accounts set archived_at = now() where id = 'd1a40000-0000-0000-0000-000000000002';
   update accounts set name = 'D29 rupee funds renamed' where id = 'd1a40000-0000-0000-0000-000000000001';
   r := record_trade(h, 'buy', t - 30, 1, 10, 0, p_member_id => '22222222-2222-2222-2222-0000000000b7');
-  if (r ->> 'ok')::boolean is not true then raise exception 'D1-29 FAILED: a trade on the fund was refused: %', r; end if;
+  if ((r ->> 'ok')::boolean is not true) is not false then raise exception 'D1-29 FAILED: a trade on the fund was refused: %', r; end if;
   perform pg_temp.d1_events('D29.NS', 'yahoo', jsonb_build_array(jsonb_build_object('ex_date', t - 20, 'amount', 5, 'currency', 'INR')));
   perform earn_dividends();
-  if (select paid_into_account_id from holding_dividends where holding_id = h) is distinct from 'd1a40000-0000-0000-0000-000000000001' then
+  if ((select paid_into_account_id from holding_dividends where holding_id = h) is distinct from 'd1a40000-0000-0000-0000-000000000001') is not false then
     raise exception 'D1-29 FAILED: a dividend was paid into an archived account';
   end if;
   raise notice 'D1-29 ok: an archived destination leaves the fund working and dividends land in the fund';
@@ -4625,8 +4625,8 @@ begin
   perform pg_temp.d1_events('D30', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 14, 'amount', 0.5)));
   perform pg_temp.d1_events('D30', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 14, 'amount', 0.5)));
   r := earn_dividends();
-  if (select count(*) from holding_dividends where holding_id = h2) <> 2
-     or (select review_reason from holding_dividends where holding_id = h2 and ex_date = t - 20) is distinct from 'moved_ex_date' then
+  if ((select count(*) from holding_dividends where holding_id = h2) <> 2
+     or (select review_reason from holding_dividends where holding_id = h2 and ex_date = t - 20) is distinct from 'moved_ex_date') is not false then
     raise exception 'D1-30 FAILED: the second holding''s dividends are %',
       (select jsonb_agg(jsonb_build_object('ex', ex_date, 'reason', review_reason)) from holding_dividends where holding_id = h2);
   end if;
@@ -4643,16 +4643,16 @@ begin
   perform earn_dividends();
   perform pg_temp.d1_events('D31', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 12, 'amount', 3)));
   perform earn_dividends();
-  if (select count(*) from holding_dividends where holding_id = h) <> 1
+  if ((select count(*) from holding_dividends where holding_id = h) <> 1
      or (select ex_date from holding_dividends where holding_id = h) <> t - 20
-     or (select review_reason from holding_dividends where holding_id = h) is not null then
+     or (select review_reason from holding_dividends where holding_id = h) is not null) is not false then
     raise exception 'D1-31 FAILED: one incomplete answer changed the dividends to %',
       (select jsonb_agg(jsonb_build_object('ex', ex_date, 'reason', review_reason)) from holding_dividends where holding_id = h);
   end if;
   perform pg_temp.d1_events('D31', 'alphavantage', jsonb_build_array(
     jsonb_build_object('ex_date', t - 20, 'amount', 0.5), jsonb_build_object('ex_date', t - 12, 'amount', 3)));
   perform earn_dividends();
-  if (select count(*) from holding_dividends where holding_id = h) <> 2 then
+  if ((select count(*) from holding_dividends where holding_id = h) <> 2) is not false then
     raise exception 'D1-31 FAILED: after both were listed again, % dividends', (select count(*) from holding_dividends where holding_id = h);
   end if;
   raise notice 'D1-31 ok: one incomplete answer changes nothing';
@@ -4668,18 +4668,18 @@ begin
   perform pg_temp.d1_events('D32.NS', 'yahoo', jsonb_build_array(jsonb_build_object('ex_date', t - 20, 'amount', 5, 'currency', 'INR')));
   perform earn_dividends();
   r := pg_temp.d1_events('D32.NS', 'yahoo', '[]'::jsonb);
-  if (r ->> 'failed')::boolean is not true then raise exception 'D1-32 FAILED: an empty answer for a paying share was a success: %', r; end if;
+  if ((r ->> 'failed')::boolean is not true) is not false then raise exception 'D1-32 FAILED: an empty answer for a paying share was a success: %', r; end if;
   -- Two answers that list something else unlist it; the row is asked about.
   perform pg_temp.d1_events('D32.NS', 'yahoo', jsonb_build_array(jsonb_build_object('ex_date', t - 100, 'amount', 5, 'currency', 'INR')));
   perform pg_temp.d1_events('D32.NS', 'yahoo', jsonb_build_array(jsonb_build_object('ex_date', t - 100, 'amount', 5, 'currency', 'INR')));
   perform earn_dividends();
-  if (select review_reason from holding_dividends where holding_id = h) is distinct from 'moved_ex_date' then
+  if ((select review_reason from holding_dividends where holding_id = h) is distinct from 'moved_ex_date') is not false then
     raise exception 'D1-32 FAILED: a dividend gone from the source was not asked about';
   end if;
   perform pg_temp.d1_events('D32.NS', 'yahoo', jsonb_build_array(
     jsonb_build_object('ex_date', t - 100, 'amount', 5, 'currency', 'INR'), jsonb_build_object('ex_date', t - 20, 'amount', 5, 'currency', 'INR')));
   perform earn_dividends();
-  if (select review_reason from holding_dividends where holding_id = h) is not null then
+  if ((select review_reason from holding_dividends where holding_id = h) is not null) is not false then
     raise exception 'D1-32 FAILED: the flag stayed after the dividend was listed again';
   end if;
   raise notice 'D1-32 ok: an empty answer is a failure, and a missing-dividend flag clears when it returns';
@@ -4692,17 +4692,17 @@ declare r jsonb;
 begin
   r := record_dividend_fetch('D33', 'alphavantage', 'dividends',
     '{"ok": true, "items": [{"ex_date": "2025-03-01", "amount": 0.5}, {"ex_date": "2025-03-01", "amount": 10}]}', '2026-07-01 10:00+04');
-  if (select amount from dividend_events where symbol = 'D33') <> 10.5 or (r ->> 'listed')::int <> 1 then
+  if ((select amount from dividend_events where symbol = 'D33') <> 10.5 or (r ->> 'listed')::int <> 1) is not false then
     raise exception 'D1-33 FAILED: two same-day dividends became % (%)', (select amount from dividend_events where symbol = 'D33'), r;
   end if;
   r := record_dividend_fetch('D33', 'alphavantage', 'dividends',
     '{"ok": true, "items": [{"ex_date": "2025-03-01", "amount": 0.5}, {"ex_date": "2025-03-01", "amount": 10}]}', '2026-07-02 10:00+04');
-  if (r ->> 'changed_past')::int <> 0 or (select needs_splits from dividend_feed_state where symbol = 'D33' and kind = 'dividends') then
+  if ((r ->> 'changed_past')::int <> 0 or (select needs_splits from dividend_feed_state where symbol = 'D33' and kind = 'dividends')) is not false then
     raise exception 'D1-33 FAILED: the same answer again read as a changed amount: %', r;
   end if;
   r := record_dividend_fetch('D33', 'alphavantage', 'splits',
     '{"ok": true, "items": [{"effective_date": "2025-06-01", "ratio": 2}, {"effective_date": "2025-06-01", "ratio": 3}]}', '2026-07-03 10:00+04');
-  if (select ratio from dividend_splits where symbol = 'D33') <> 6 then
+  if ((select ratio from dividend_splits where symbol = 'D33') <> 6) is not false then
     raise exception 'D1-33 FAILED: two same-day splits became %', (select ratio from dividend_splits where symbol = 'D33');
   end if;
   raise notice 'D1-33 ok: same-day dividends add up and same-day splits multiply';
@@ -4721,11 +4721,11 @@ begin
   perform pg_temp.d1_events('D34.NS', 'yahoo', jsonb_build_array(jsonb_build_object('ex_date', t - 20, 'amount', 5, 'currency', 'INR')));
   perform pg_temp.d1_events('D34US', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 20, 'amount', 0.5)));
   r := earn_dividends();
-  if (select count(*) from holding_dividends where holding_id = good) <> 1 then
+  if ((select count(*) from holding_dividends where holding_id = good) <> 1) is not false then
     raise exception 'D1-34 FAILED: one holding''s error stopped another''s dividends';
   end if;
-  if coalesce(jsonb_array_length(r -> 'failures'), 0) < 1
-     or not exists (select 1 from jsonb_array_elements(r -> 'failures') f where f ->> 'holding_id' = bad::text) then
+  if (coalesce(jsonb_array_length(r -> 'failures'), 0) < 1
+     or not exists (select 1 from jsonb_array_elements(r -> 'failures') f where f ->> 'holding_id' = bad::text)) is not false then
     raise exception 'D1-34 FAILED: the run did not report the holding it could not do: %', r;
   end if;
   update holdings set currency = 'INR' where id = bad;
@@ -4743,7 +4743,7 @@ begin
   r := record_dividend_fetch('D35', 'alphavantage', 'splits', jsonb_build_object('ok', true, 'items', jsonb_build_array(
     jsonb_build_object('effective_date', t - 20, 'ratio', 2))));
   perform earn_dividends();
-  if (select review_reason from holding_dividends where holding_id = h) is distinct from 'split_on_ex_date' then
+  if ((select review_reason from holding_dividends where holding_id = h) is distinct from 'split_on_ex_date') is not false then
     raise exception 'D1-35 FAILED: a split on an earned dividend''s ex-date was not asked about';
   end if;
   perform pg_temp.d1_holding(h2, 'D35B.NS', 'india_equity', 'INR', 'd1a00000-0000-0000-0000-000000000002', t - 60, 100, 'yahoo');
@@ -4757,7 +4757,7 @@ begin
   values ('11111111-1111-1111-1111-111111111111', h2, (select id from dividend_events where symbol = 'D35B.NS' and ex_date = t - 40), t - 40, 'INR', 100, 'trades', 5, 20.8,
     500, 104, 0, 396, 'earned', 'feed', 'd1a00000-0000-0000-0000-000000000003', 'moved_ex_date');
   perform earn_dividends();
-  if (select status from holding_dividends where holding_id = h2 and ex_date = t - 40) <> 'earned' then
+  if ((select status from holding_dividends where holding_id = h2 and ex_date = t - 40) <> 'earned') is not false then
     raise exception 'D1-35 FAILED: a dividend gone from the source was presumed received';
   end if;
   raise notice 'D1-35 ok: a split on the ex-date is asked about, and a missing dividend is not presumed';
@@ -4778,7 +4778,7 @@ begin
   select version into v from holding_dividends where holding_id = h and event_id is null;
   perform earn_dividends();
   perform earn_dividends();
-  if (select version from holding_dividends where holding_id = h and event_id is null) <> v then
+  if ((select version from holding_dividends where holding_id = h and event_id is null) <> v) is not false then
     raise exception 'D1-36 FAILED: the possible-duplicate question moved on every run';
   end if;
   raise notice 'D1-36 ok: a possible duplicate is asked about once';
@@ -4791,7 +4791,7 @@ begin
   insert into holdings (id, household_id, name, asset_class, currency, quantity, value_aed)
   values ('d1b40000-0000-0000-0000-000000000037', '11111111-1111-1111-1111-111111111111', 'D37', 'commodity', 'USD', 1, 0);
   update holdings set asset_class = 'us_equity' where id = 'd1b40000-0000-0000-0000-000000000037';
-  if (select dividend_tax_pct from holdings where id = 'd1b40000-0000-0000-0000-000000000037') is distinct from 30 then
+  if ((select dividend_tax_pct from holdings where id = 'd1b40000-0000-0000-0000-000000000037') is distinct from 30) is not false then
     raise exception 'D1-37 FAILED: the new share class left withholding at %', (select dividend_tax_pct from holdings where id = 'd1b40000-0000-0000-0000-000000000037');
   end if;
   raise notice 'D1-37 ok: a holding becoming a share takes its class''s withholding';
@@ -4810,7 +4810,7 @@ begin
   perform pg_temp.d1_events('D38.NS', 'yahoo', jsonb_build_array(jsonb_build_object('ex_date', t - 30, 'amount', 0.5, 'currency', 'INR')));
   perform earn_dividends();
   select * into d from holding_dividends where holding_id = h;
-  if d.units <> 100 or d.per_share <> 5 or d.expected_gross <> 500 then
+  if (d.units <> 100 or d.per_share <> 5 or d.expected_gross <> 500) is not false then
     raise exception 'D1-38 FAILED: the dividend before the split is %', row_to_json(d);
   end if;
   raise notice 'D1-38 ok: a dividend fetched after a split is earned on its ex-date''s basis';
@@ -4856,13 +4856,13 @@ do $$
 declare c jsonb := pg_temp.d2_case(); r jsonb; d holding_dividends%rowtype;
 begin
   r := pg_temp.d2_save((c ->> 'dividend')::uuid, '{"action": "record"}');
-  if (r ->> 'ok')::boolean is not true then raise exception 'D2-01 FAILED: record refused: %', r; end if;
+  if ((r ->> 'ok')::boolean is not true) is not false then raise exception 'D2-01 FAILED: record refused: %', r; end if;
   select * into d from holding_dividends where id = (c ->> 'dividend')::uuid;
-  if d.status <> 'received' or d.received_net <> 7 or d.evidence <> 'member' or d.credited_on <> pg_temp.d2_m1() + 4 then
+  if (d.status <> 'received' or d.received_net <> 7 or d.evidence <> 'member' or d.credited_on <> pg_temp.d2_m1() + 4) is not false then
     raise exception 'D2-01 FAILED: the dividend is %', row_to_json(d);
   end if;
-  if pg_temp.d2_bal((c ->> 'fund')::uuid) <> 107 then raise exception 'D2-01 FAILED: the fund is %', pg_temp.d2_bal((c ->> 'fund')::uuid); end if;
-  if (select count(*) from account_balance_events where account_id = (c ->> 'fund')::uuid and new_balance = 107) <> 1 then
+  if (pg_temp.d2_bal((c ->> 'fund')::uuid) <> 107) is not false then raise exception 'D2-01 FAILED: the fund is %', pg_temp.d2_bal((c ->> 'fund')::uuid); end if;
+  if ((select count(*) from account_balance_events where account_id = (c ->> 'fund')::uuid and new_balance = 107) <> 1) is not false then
     raise exception 'D2-01 FAILED: the movement was not recorded as a balance change';
   end if;
   raise notice 'D2-01 ok: a receipt moves its fund once';
@@ -4876,11 +4876,11 @@ begin
   c := pg_temp.d2_case(); f := (c ->> 'fund')::uuid; dv := (c ->> 'dividend')::uuid;
   r := pg_temp.d2_save(dv, '{"action": "record"}');
   r := pg_temp.d2_save(dv, '{"action": "fix", "received_gross": 10, "received_tax": 3, "received_fees": 0.2}');
-  if pg_temp.d2_bal(f) <> 106.8 then raise exception 'D2-02 FAILED: fixed to 6.80 the fund is %', pg_temp.d2_bal(f); end if;
+  if (pg_temp.d2_bal(f) <> 106.8) is not false then raise exception 'D2-02 FAILED: fixed to 6.80 the fund is %', pg_temp.d2_bal(f); end if;
   -- Then confirmed at 106.80 on the 10th and fixed to 6.60: the confirmation holds the real figure.
   perform pg_temp.d2_fix_confirmation(f, 106.8, m1 + 9);
   r := pg_temp.d2_save(dv, '{"action": "fix", "received_gross": 10, "received_tax": 3, "received_fees": 0.4}');
-  if (r ->> 'ok')::boolean is not true or pg_temp.d2_bal(f) <> 106.8 then
+  if ((r ->> 'ok')::boolean is not true or pg_temp.d2_bal(f) <> 106.8) is not false then
     raise exception 'D2-02 FAILED: a fix after a later confirmation moved the fund to % (%)', pg_temp.d2_bal(f), r;
   end if;
 
@@ -4888,14 +4888,14 @@ begin
   c := pg_temp.d2_case(); f := (c ->> 'fund')::uuid; dv := (c ->> 'dividend')::uuid;
   r := pg_temp.d2_save(dv, '{"action": "record"}');
   r := pg_temp.d2_save(dv, jsonb_build_object('action', 'fix', 'credited_on', m1 - 1));
-  if pg_temp.d2_bal(f) <> 100 then raise exception 'D2-02 FAILED: moved before the confirmation the fund is % (%)', pg_temp.d2_bal(f), r; end if;
+  if (pg_temp.d2_bal(f) <> 100) is not false then raise exception 'D2-02 FAILED: moved before the confirmation the fund is % (%)', pg_temp.d2_bal(f), r; end if;
 
   -- Moved to fund B, confirmed on the 6th: A -7, B unchanged.
   c := pg_temp.d2_case(); f := (c ->> 'fund')::uuid; dv := (c ->> 'dividend')::uuid;
   b := pg_temp.d2_case(m1 + 5);
   r := pg_temp.d2_save(dv, '{"action": "record"}');
   r := pg_temp.d2_save(dv, jsonb_build_object('action', 'fix', 'paid_into_account_id', b ->> 'fund'));
-  if pg_temp.d2_bal(f) <> 100 or pg_temp.d2_bal((b ->> 'fund')::uuid) <> 100 then
+  if (pg_temp.d2_bal(f) <> 100 or pg_temp.d2_bal((b ->> 'fund')::uuid) <> 100) is not false then
     raise exception 'D2-02 FAILED: moving funds left A at %, B at % (%)', pg_temp.d2_bal(f), pg_temp.d2_bal((b ->> 'fund')::uuid), r;
   end if;
 
@@ -4903,9 +4903,9 @@ begin
   c := pg_temp.d2_case(); f := (c ->> 'fund')::uuid; dv := (c ->> 'dividend')::uuid;
   r := pg_temp.d2_save(dv, '{"action": "record"}');
   r := pg_temp.d2_save(dv, '{"action": "skip"}');
-  if pg_temp.d2_bal(f) <> 100 then raise exception 'D2-02 FAILED: skipping left the fund at %', pg_temp.d2_bal(f); end if;
+  if (pg_temp.d2_bal(f) <> 100) is not false then raise exception 'D2-02 FAILED: skipping left the fund at %', pg_temp.d2_bal(f); end if;
   r := pg_temp.d2_save(dv, '{"action": "restore"}');
-  if pg_temp.d2_bal(f) <> 100 or (select status from holding_dividends where id = dv) <> 'earned' then
+  if (pg_temp.d2_bal(f) <> 100 or (select status from holding_dividends where id = dv) <> 'earned') is not false then
     raise exception 'D2-02 FAILED: restoring moved the fund to % or left it %', pg_temp.d2_bal(f), (select status from holding_dividends where id = dv);
   end if;
 
@@ -4914,7 +4914,7 @@ begin
   r := pg_temp.d2_save(dv, '{"action": "record"}');
   perform pg_temp.d2_fix_confirmation(f, 107, m1 + 6);
   r := pg_temp.d2_save(dv, '{"action": "skip"}');
-  if pg_temp.d2_bal(f) <> 107 then raise exception 'D2-02 FAILED: a skip before the confirmation moved the fund to %', pg_temp.d2_bal(f); end if;
+  if (pg_temp.d2_bal(f) <> 107) is not false then raise exception 'D2-02 FAILED: a skip before the confirmation moved the fund to %', pg_temp.d2_bal(f); end if;
   raise notice 'D2-02 ok: fixes, moves, skips and restores follow the balance rule';
 end $$;
 
@@ -4923,9 +4923,9 @@ do $$
 declare c jsonb := pg_temp.d2_case(null); p jsonb; r jsonb;
 begin
   p := preview_dividend((c ->> 'dividend')::uuid, '{"action": "record"}', p_member_id => '22222222-2222-2222-2222-0000000000b7');
-  if p ->> 'asks' is not null then raise exception 'D2-03 FAILED: an unconfirmed fund asked %', p ->> 'asks'; end if;
+  if (p ->> 'asks' is not null) is not false then raise exception 'D2-03 FAILED: an unconfirmed fund asked %', p ->> 'asks'; end if;
   r := pg_temp.d2_save((c ->> 'dividend')::uuid, '{"action": "record"}');
-  if pg_temp.d2_bal((c ->> 'fund')::uuid) <> 107 then raise exception 'D2-03 FAILED: the fund is %', pg_temp.d2_bal((c ->> 'fund')::uuid); end if;
+  if (pg_temp.d2_bal((c ->> 'fund')::uuid) <> 107) is not false then raise exception 'D2-03 FAILED: the fund is %', pg_temp.d2_bal((c ->> 'fund')::uuid); end if;
   raise notice 'D2-03 ok: an unconfirmed fund is moved, with no question';
 end $$;
 
@@ -4936,18 +4936,18 @@ declare m1 date := pg_temp.d2_m1(); c jsonb; p jsonb; r jsonb;
 begin
   c := pg_temp.d2_case((m1 + 4)::timestamp at time zone 'Asia/Dubai');
   p := preview_dividend((c ->> 'dividend')::uuid, '{"action": "record"}', p_member_id => '22222222-2222-2222-2222-0000000000b7');
-  if p ->> 'asks' is distinct from 'already_included' or (p ->> 'asks_confirmed_on')::date is distinct from m1 + 4 then
+  if (p ->> 'asks' is distinct from 'already_included' or (p ->> 'asks_confirmed_on')::date is distinct from m1 + 4) is not false then
     raise exception 'D2-04 FAILED: the preview asked %', p;
   end if;
   r := save_dividend((c ->> 'dividend')::uuid, '{"action": "record"}', (p ->> 'version')::int, p -> 'confirmations', p_member_id => '22222222-2222-2222-2222-0000000000b7');
-  if r ->> 'error' is distinct from 'needs_answer' then raise exception 'D2-04 FAILED: a save without the answer gave %', r; end if;
+  if (r ->> 'error' is distinct from 'needs_answer') is not false then raise exception 'D2-04 FAILED: a save without the answer gave %', r; end if;
   r := pg_temp.d2_save((c ->> 'dividend')::uuid, '{"action": "record", "already_included": true}');
-  if pg_temp.d2_bal((c ->> 'fund')::uuid) <> 100 or (select credited_on from holding_dividends where id = (c ->> 'dividend')::uuid) <> m1 + 4 then
+  if (pg_temp.d2_bal((c ->> 'fund')::uuid) <> 100 or (select credited_on from holding_dividends where id = (c ->> 'dividend')::uuid) <> m1 + 4) is not false then
     raise exception 'D2-04 FAILED: already included moved the fund to % (%)', pg_temp.d2_bal((c ->> 'fund')::uuid), r;
   end if;
   c := pg_temp.d2_case((m1 + 4)::timestamp at time zone 'Asia/Dubai');
   r := pg_temp.d2_save((c ->> 'dividend')::uuid, '{"action": "record", "already_included": false}');
-  if pg_temp.d2_bal((c ->> 'fund')::uuid) <> 107 or (select credited_on from holding_dividends where id = (c ->> 'dividend')::uuid) <> household_today() then
+  if (pg_temp.d2_bal((c ->> 'fund')::uuid) <> 107 or (select credited_on from holding_dividends where id = (c ->> 'dividend')::uuid) <> household_today()) is not false then
     raise exception 'D2-04 FAILED: arrived after left the fund at % (%)', pg_temp.d2_bal((c ->> 'fund')::uuid), r;
   end if;
   raise notice 'D2-04 ok: a same-day confirmation is asked about, and the answer decides';
@@ -4961,11 +4961,11 @@ begin
   dv := (c ->> 'dividend')::uuid;
   p := preview_dividend(dv, '{"action": "record"}', p_member_id => '22222222-2222-2222-2222-0000000000b7');
   r := save_dividend(dv, '{"action": "record"}', (p ->> 'version')::int - 1, p -> 'confirmations', p_member_id => '22222222-2222-2222-2222-0000000000b7');
-  if r ->> 'error' is distinct from 'stale' then raise exception 'D2-05 FAILED: an old version gave %', r; end if;
+  if (r ->> 'error' is distinct from 'stale') is not false then raise exception 'D2-05 FAILED: an old version gave %', r; end if;
   perform pg_temp.d2_fix_confirmation((c ->> 'fund')::uuid, 100, pg_temp.d2_m1() + 2);
   r := save_dividend(dv, '{"action": "record"}', (p ->> 'version')::int, p -> 'confirmations', p_member_id => '22222222-2222-2222-2222-0000000000b7');
-  if r ->> 'error' is distinct from 'fund_confirmed_since' then raise exception 'D2-05 FAILED: a changed confirmation gave %', r; end if;
-  if (select status from holding_dividends where id = dv) <> 'earned' or pg_temp.d2_bal((c ->> 'fund')::uuid) <> 100 then
+  if (r ->> 'error' is distinct from 'fund_confirmed_since') is not false then raise exception 'D2-05 FAILED: a changed confirmation gave %', r; end if;
+  if ((select status from holding_dividends where id = dv) <> 'earned' or pg_temp.d2_bal((c ->> 'fund')::uuid) <> 100) is not false then
     raise exception 'D2-05 FAILED: a refused save changed something';
   end if;
   raise notice 'D2-05 ok: a stale version or confirmation saves nothing';
@@ -4976,11 +4976,11 @@ do $$
 declare c jsonb := pg_temp.d2_case(); r jsonb;
 begin
   r := pg_temp.d2_save((c ->> 'dividend')::uuid, '{"action": "record", "received_gross": 10, "received_tax": 3, "received_fees": 0.5, "received_net": 99}');
-  if (select received_net from holding_dividends where id = (c ->> 'dividend')::uuid) <> 6.5 then
+  if ((select received_net from holding_dividends where id = (c ->> 'dividend')::uuid) <> 6.5) is not false then
     raise exception 'D2-06 FAILED: net is % (%)', (select received_net from holding_dividends where id = (c ->> 'dividend')::uuid), r;
   end if;
   r := pg_temp.d2_save((c ->> 'dividend')::uuid, '{"action": "fix", "received_gross": 10, "received_tax": 11}');
-  if r ->> 'error' is distinct from 'bad_figures' then raise exception 'D2-06 FAILED: withholding above gross gave %', r; end if;
+  if (r ->> 'error' is distinct from 'bad_figures') is not false then raise exception 'D2-06 FAILED: withholding above gross gave %', r; end if;
   raise notice 'D2-06 ok: net is gross less withholding and fees, and impossible figures are refused';
 end $$;
 
@@ -5001,13 +5001,13 @@ begin
     'presumed', m1, true, 'feed', bank);
   r := pg_temp.d2_save(dv, '{"action": "fix", "received_gross": 10, "received_tax": 2.08, "received_fees": 0}');
   select * into d from holding_dividends where id = dv;
-  if d.status <> 'received' or d.evidence <> 'member' or d.received_net <> 7.92 or pg_temp.d2_bal(bank) <> 500 then
+  if (d.status <> 'received' or d.evidence <> 'member' or d.received_net <> 7.92 or pg_temp.d2_bal(bank) <> 500) is not false then
     raise exception 'D2-07 FAILED: the presumed dividend became % and the bank %', row_to_json(d), pg_temp.d2_bal(bank);
   end if;
   c := pg_temp.d2_case(); dv := (c ->> 'dividend')::uuid;
   update holding_dividends set paid_into_account_id = null where id = dv;
   r := pg_temp.d2_save(dv, '{"action": "record"}');
-  if (select status from holding_dividends where id = dv) <> 'received' or pg_temp.d2_bal((c ->> 'fund')::uuid) <> 100 then
+  if ((select status from holding_dividends where id = dv) <> 'received' or pg_temp.d2_bal((c ->> 'fund')::uuid) <> 100) is not false then
     raise exception 'D2-07 FAILED: a dividend with no destination moved a fund (%)', r;
   end if;
   raise notice 'D2-07 ok: a bank or no destination moves nothing; a presumed dividend fixed is received';
@@ -5019,10 +5019,10 @@ declare c jsonb := pg_temp.d2_case(); p jsonb; r jsonb;
 begin
   p := preview_dividend((c ->> 'dividend')::uuid, jsonb_build_object('action', 'fix', 'paid_into_account_id', 'd1a00000-0000-0000-0000-000000000002'),
     p_member_id => '22222222-2222-2222-2222-0000000000b7');
-  if p ->> 'error' is distinct from 'currency_mismatch' then raise exception 'D2-08 FAILED: a rupee destination gave %', p; end if;
+  if (p ->> 'error' is distinct from 'currency_mismatch') is not false then raise exception 'D2-08 FAILED: a rupee destination gave %', p; end if;
   r := save_dividend((c ->> 'dividend')::uuid, jsonb_build_object('action', 'fix', 'paid_into_account_id', 'd1a00000-0000-0000-0000-000000000002'), 1, '{}'::jsonb,
     p_member_id => '22222222-2222-2222-2222-0000000000b7');
-  if r ->> 'error' is distinct from 'currency_mismatch' then raise exception 'D2-08 FAILED: the save gave %', r; end if;
+  if (r ->> 'error' is distinct from 'currency_mismatch') is not false then raise exception 'D2-08 FAILED: the save gave %', r; end if;
   raise notice 'D2-08 ok: a destination in another currency is refused';
 end $$;
 
@@ -5033,7 +5033,7 @@ begin
   r := pg_temp.d2_save((c ->> 'dividend')::uuid, '{"action": "record"}');
   update accounts set archived_at = now() where id = (c ->> 'fund')::uuid;
   r := pg_temp.d2_save((c ->> 'dividend')::uuid, '{"action": "skip"}');
-  if r ->> 'error' is distinct from 'fund_archived' or pg_temp.d2_bal((c ->> 'fund')::uuid) <> 107 then
+  if (r ->> 'error' is distinct from 'fund_archived' or pg_temp.d2_bal((c ->> 'fund')::uuid) <> 107) is not false then
     raise exception 'D2-09 FAILED: skipping in a closed fund gave % (fund %)', r, pg_temp.d2_bal((c ->> 'fund')::uuid);
   end if;
   raise notice 'D2-09 ok: a closed fund is not moved';
@@ -5045,17 +5045,17 @@ declare c jsonb := pg_temp.d2_case(); r jsonb; m1 date := pg_temp.d2_m1(); n int
 begin
   r := pg_temp.d2_save(null, jsonb_build_object('action', 'add', 'holding_id', c ->> 'holding', 'ex_date', m1 + 15, 'units', 10, 'per_share', 0.5,
     'credited_on', m1 + 20, 'received_gross', 5, 'received_tax', 1.5, 'received_fees', 0));
-  if (r ->> 'ok')::boolean is not true or pg_temp.d2_bal((c ->> 'fund')::uuid) <> 103.5
-     or not exists (select 1 from holding_dividends where holding_id = (c ->> 'holding')::uuid and source = 'app' and units_basis = 'stated' and status = 'received') then
+  if ((r ->> 'ok')::boolean is not true or pg_temp.d2_bal((c ->> 'fund')::uuid) <> 103.5
+     or not exists (select 1 from holding_dividends where holding_id = (c ->> 'holding')::uuid and source = 'app' and units_basis = 'stated' and status = 'received')) is not false then
     raise exception 'D2-10 FAILED: the added dividend gave % (fund %)', r, pg_temp.d2_bal((c ->> 'fund')::uuid);
   end if;
   r := pg_temp.d2_save(null, jsonb_build_object('action', 'add', 'holding_id', c ->> 'holding', 'units', 10, 'per_share', 0.5));
-  if r ->> 'error' is distinct from 'bad_input' then raise exception 'D2-10 FAILED: an add with no dates gave %', r; end if;
+  if (r ->> 'error' is distinct from 'bad_input') is not false then raise exception 'D2-10 FAILED: an add with no dates gave %', r; end if;
   for n in 1..2 loop
     r := pg_temp.d2_save(null, jsonb_build_object('action', 'add', 'holding_id', c ->> 'holding', 'ex_date', m1 + 25, 'units', 10, 'per_share', 0.5,
       'credited_on', m1 + 27, 'received_gross', 5, 'received_tax', 1.5, 'received_fees', 0, 'evidence', 'intimation', 'import_ref', 'X1'));
   end loop;
-  if (select count(*) from holding_dividends where import_ref = 'X1') <> 1 or pg_temp.d2_bal((c ->> 'fund')::uuid) <> 107 then
+  if ((select count(*) from holding_dividends where import_ref = 'X1') <> 1 or pg_temp.d2_bal((c ->> 'fund')::uuid) <> 107) is not false then
     raise exception 'D2-10 FAILED: an import run twice made % rows and left the fund at %',
       (select count(*) from holding_dividends where import_ref = 'X1'), pg_temp.d2_bal((c ->> 'fund')::uuid);
   end if;
@@ -5074,15 +5074,15 @@ begin
   r := pg_temp.d2_save(dv, jsonb_build_object('action', 'record', 'credited_on', t - 5));
   perform pg_temp.d1_events('D211', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 20, 'amount', 0.6)));
   perform earn_dividends();
-  if (select review_reason from holding_dividends where id = dv) is distinct from 'feed_changed' then raise exception 'D2-11 FAILED: the feed change was not flagged'; end if;
+  if ((select review_reason from holding_dividends where id = dv) is distinct from 'feed_changed') is not false then raise exception 'D2-11 FAILED: the feed change was not flagged'; end if;
   r := keep_dividend(dv, (select version from holding_dividends where id = dv), p_member_id => '22222222-2222-2222-2222-0000000000b7');
   perform earn_dividends();
-  if (select review_reason from holding_dividends where id = dv) is not null then raise exception 'D2-11 FAILED: a kept feed figure was flagged again (%)', r; end if;
+  if ((select review_reason from holding_dividends where id = dv) is not null) is not false then raise exception 'D2-11 FAILED: a kept feed figure was flagged again (%)', r; end if;
   r := record_trade(h, 'buy', t - 30, 10, 10, 0, p_member_id => '22222222-2222-2222-2222-0000000000b7');
-  if (select review_reason from holding_dividends where id = dv) is distinct from 'trades_changed' then raise exception 'D2-11 FAILED: the trade change was not flagged'; end if;
+  if ((select review_reason from holding_dividends where id = dv) is distinct from 'trades_changed') is not false then raise exception 'D2-11 FAILED: the trade change was not flagged'; end if;
   r := keep_dividend(dv, (select version from holding_dividends where id = dv), p_member_id => '22222222-2222-2222-2222-0000000000b7');
   perform earn_dividends();
-  if (select review_reason from holding_dividends where id = dv) is not null then raise exception 'D2-11 FAILED: kept units were flagged again'; end if;
+  if ((select review_reason from holding_dividends where id = dv) is not null) is not false then raise exception 'D2-11 FAILED: kept units were flagged again'; end if;
   raise notice 'D2-11 ok: what a member keeps is not asked about again';
 end $$;
 
@@ -5097,12 +5097,12 @@ begin
   returning id into dv;
   perform pg_temp.d1_events('D212', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 20, 'amount', 0.5)));
   perform earn_dividends();
-  if (select review_reason from holding_dividends where id = dv) is distinct from 'possible_duplicate' then raise exception 'D2-12 FAILED: not asked about'; end if;
+  if ((select review_reason from holding_dividends where id = dv) is distinct from 'possible_duplicate') is not false then raise exception 'D2-12 FAILED: not asked about'; end if;
   r := keep_dividend(dv, (select version from holding_dividends where id = dv), p_member_id => '22222222-2222-2222-2222-0000000000b7');
   perform earn_dividends();
-  if (select review_reason from holding_dividends where id = dv) is not null then raise exception 'D2-12 FAILED: a kept duplicate question came back'; end if;
+  if ((select review_reason from holding_dividends where id = dv) is not null) is not false then raise exception 'D2-12 FAILED: a kept duplicate question came back'; end if;
   -- Kept apart, the feed's dividend is another one, so it is earned beside it.
-  if (select count(*) from holding_dividends where holding_id = h and event_id is not null and units = 100) <> 1 then
+  if ((select count(*) from holding_dividends where holding_id = h and event_id is not null and units = 100) <> 1) is not false then
     raise exception 'D2-12 FAILED: the feed''s dividend was never earned beside the one kept apart';
   end if;
   raise notice 'D2-12 ok: a possible duplicate kept apart stays answered, and the feed''s own is earned';
@@ -5121,14 +5121,14 @@ begin
   perform earn_dividends();
   select id into ev from dividend_events where symbol = 'D213';
   r := link_dividend(dv, ev, (select version from holding_dividends where id = dv), p_member_id => '22222222-2222-2222-2222-0000000000b7');
-  if (r ->> 'ok')::boolean is not true then raise exception 'D2-13 FAILED: link refused: %', r; end if;
+  if ((r ->> 'ok')::boolean is not true) is not false then raise exception 'D2-13 FAILED: link refused: %', r; end if;
   perform earn_dividends();
-  if (select count(*) from holding_dividends where holding_id = h) <> 1 or (select event_id from holding_dividends where holding_id = h) <> ev
-     or (select review_reason from holding_dividends where holding_id = h) is not null then
+  if ((select count(*) from holding_dividends where holding_id = h) <> 1 or (select event_id from holding_dividends where holding_id = h) <> ev
+     or (select review_reason from holding_dividends where holding_id = h) is not null) is not false then
     raise exception 'D2-13 FAILED: after linking, %', (select jsonb_agg(to_jsonb(d)) from holding_dividends d where holding_id = h);
   end if;
   r := link_dividend(dv, ev, (select version from holding_dividends where id = dv), p_member_id => '22222222-2222-2222-2222-0000000000b7');
-  if r ->> 'error' is distinct from 'already_linked' then raise exception 'D2-13 FAILED: a second link gave %', r; end if;
+  if (r ->> 'error' is distinct from 'already_linked') is not false then raise exception 'D2-13 FAILED: a second link gave %', r; end if;
   raise notice 'D2-13 ok: a linked duplicate is one dividend';
 end $$;
 
@@ -5141,13 +5141,13 @@ begin
   perform earn_dividends();
   select id into ev from dividend_events where symbol = 'D214.NS';
   r := set_special_part(ev, 66, p_member_id => '22222222-2222-2222-2222-0000000000b7');
-  if (select special_per_share from dividend_special_parts where event_id = ev) is distinct from 66 then raise exception 'D2-14 FAILED: 66 not stored (%)', r; end if;
+  if ((select special_per_share from dividend_special_parts where event_id = ev) is distinct from 66) is not false then raise exception 'D2-14 FAILED: 66 not stored (%)', r; end if;
   r := set_special_part(ev, 80, p_member_id => '22222222-2222-2222-2222-0000000000b7');
-  if r ->> 'error' is distinct from 'bad_figures' then raise exception 'D2-14 FAILED: 80 gave %', r; end if;
+  if (r ->> 'error' is distinct from 'bad_figures') is not false then raise exception 'D2-14 FAILED: 80 gave %', r; end if;
   r := set_special_part(ev, null, p_member_id => '22222222-2222-2222-2222-0000000000b7');
-  if exists (select 1 from dividend_special_parts where event_id = ev) then raise exception 'D2-14 FAILED: clearing left the answer'; end if;
+  if (exists (select 1 from dividend_special_parts where event_id = ev)) is not false then raise exception 'D2-14 FAILED: clearing left the answer'; end if;
   r := set_special_part((select id from dividend_events where symbol = 'D6' limit 1), 0, p_member_id => '22222222-2222-2222-2222-0000000000b7');
-  if r ->> 'error' is distinct from 'not_member' then raise exception 'D2-14 FAILED: an event the household has nothing on gave %', r; end if;
+  if (r ->> 'error' is distinct from 'not_member') is not false then raise exception 'D2-14 FAILED: an event the household has nothing on gave %', r; end if;
   raise notice 'D2-14 ok: a one-off answer is stored, bounded and cleared';
 end $$;
 
@@ -5185,14 +5185,14 @@ begin
   f := (c ->> 'fund')::uuid; d1 := (c ->> 'dividend')::uuid; d2 := pg_temp.d2_more(f);
   p := pg_temp.d2_proposal(f, array[d1, d2]);
   r := apply_bot_proposal(p, '22222222-2222-2222-2222-0000000000b7');
-  if r ->> 'outcome' <> 'applied' or (select count(*) from holding_dividends where id in (d1, d2) and status = 'received' and proposal_id = p) <> 2
+  if (r ->> 'outcome' <> 'applied' or (select count(*) from holding_dividends where id in (d1, d2) and status = 'received' and proposal_id = p) <> 2
      or pg_temp.d2_bal(f) <> 110.5 or (r ->> 'moved')::numeric <> 10.5 or (r ->> 'total')::numeric <> 10.5
      or (select count(*) from jsonb_array_elements(r -> 'lines') l where (l ->> 'moved')::numeric = (l ->> 'net')::numeric
-           and (l ->> 'gross')::numeric > 0 and (l ->> 'tax')::numeric > 0 and l ? 'per_share' and l ? 'units' and l ? 'pay_date') <> 2 then
+           and (l ->> 'gross')::numeric > 0 and (l ->> 'tax')::numeric > 0 and l ? 'per_share' and l ? 'units' and l ? 'pay_date') <> 2) is not false then
     raise exception 'D2-15 FAILED: applying gave % and the fund %', r, pg_temp.d2_bal(f);
   end if;
   r := apply_bot_proposal(p, '22222222-2222-2222-2222-0000000000b7');
-  if r ->> 'outcome' <> 'applied' or pg_temp.d2_bal(f) <> 110.5 then raise exception 'D2-15 FAILED: a second yes gave % and the fund %', r, pg_temp.d2_bal(f); end if;
+  if (r ->> 'outcome' <> 'applied' or pg_temp.d2_bal(f) <> 110.5) is not false then raise exception 'D2-15 FAILED: a second yes gave % and the fund %', r, pg_temp.d2_bal(f); end if;
   raise notice 'D2-15 ok: one yes receives every line, once';
 end $$;
 
@@ -5204,7 +5204,7 @@ begin
   p := pg_temp.d2_proposal(f, array[d1, d2]);
   r := pg_temp.d2_save(d2, '{"action": "fix", "note": "changed"}');
   r := apply_bot_proposal(p, '22222222-2222-2222-2222-0000000000b7');
-  if r ->> 'outcome' <> 'stale' or exists (select 1 from holding_dividends where id in (d1, d2) and status = 'received') or pg_temp.d2_bal(f) <> 100 then
+  if (r ->> 'outcome' <> 'stale' or exists (select 1 from holding_dividends where id in (d1, d2) and status = 'received') or pg_temp.d2_bal(f) <> 100) is not false then
     raise exception 'D2-16 FAILED: a changed line gave % and the fund %', r, pg_temp.d2_bal(f);
   end if;
   raise notice 'D2-16 ok: a line changed since the question saves nothing';
@@ -5218,7 +5218,7 @@ begin
   p := pg_temp.d2_proposal(f, array[(c ->> 'dividend')::uuid]);
   perform pg_temp.d2_fix_confirmation(f, 100, pg_temp.d2_m1() + 2);
   r := apply_bot_proposal(p, '22222222-2222-2222-2222-0000000000b7');
-  if r ->> 'outcome' <> 'stale' or pg_temp.d2_bal(f) <> 100 then raise exception 'D2-17 FAILED: gave % and the fund %', r, pg_temp.d2_bal(f); end if;
+  if (r ->> 'outcome' <> 'stale' or pg_temp.d2_bal(f) <> 100) is not false then raise exception 'D2-17 FAILED: gave % and the fund %', r, pg_temp.d2_bal(f); end if;
   raise notice 'D2-17 ok: a fund confirmed since the question saves nothing';
 end $$;
 
@@ -5230,14 +5230,14 @@ begin
   c := pg_temp.d2_case((m1 + 4)::timestamp at time zone 'Asia/Dubai'); f := (c ->> 'fund')::uuid; dv := (c ->> 'dividend')::uuid;
   p := pg_temp.d2_proposal(f, array[dv], 'already_included', 'included');
   r := apply_bot_proposal(p, '22222222-2222-2222-2222-0000000000b7');
-  if r ->> 'outcome' <> 'applied' or pg_temp.d2_bal(f) <> 100 or (select credited_on from holding_dividends where id = dv) <> m1 + 4
-     or (r ->> 'moved')::numeric <> 0 or (r -> 'lines' -> 0 ->> 'moved')::numeric <> 0 then
+  if (r ->> 'outcome' <> 'applied' or pg_temp.d2_bal(f) <> 100 or (select credited_on from holding_dividends where id = dv) <> m1 + 4
+     or (r ->> 'moved')::numeric <> 0 or (r -> 'lines' -> 0 ->> 'moved')::numeric <> 0) is not false then
     raise exception 'D2-18 FAILED: "included" gave % and the fund %', r, pg_temp.d2_bal(f);
   end if;
   c := pg_temp.d2_case((m1 + 4)::timestamp at time zone 'Asia/Dubai'); f := (c ->> 'fund')::uuid; dv := (c ->> 'dividend')::uuid;
   p := pg_temp.d2_proposal(f, array[dv], 'already_included', 'not_included');
   r := apply_bot_proposal(p, '22222222-2222-2222-2222-0000000000b7');
-  if r ->> 'outcome' <> 'applied' or pg_temp.d2_bal(f) <> 107 or (select credited_on from holding_dividends where id = dv) <> household_today() then
+  if (r ->> 'outcome' <> 'applied' or pg_temp.d2_bal(f) <> 107 or (select credited_on from holding_dividends where id = dv) <> household_today()) is not false then
     raise exception 'D2-18 FAILED: "not included" gave % and the fund %', r, pg_temp.d2_bal(f);
   end if;
   raise notice 'D2-18 ok: the answer about the confirmed balance decides';
@@ -5250,9 +5250,9 @@ declare c jsonb := pg_temp.d2_case(); dv uuid;
 begin
   dv := (c ->> 'dividend')::uuid;
   perform mark_dividends_asked(array[dv]);
-  if (select asked_at from holding_dividends where id = dv) is null then raise exception 'D2-19 FAILED: not marked asked'; end if;
+  if ((select asked_at from holding_dividends where id = dv) is null) is not false then raise exception 'D2-19 FAILED: not marked asked'; end if;
   perform mark_dividends_asked(array[dv], false);
-  if (select asked_at from holding_dividends where id = dv) is not null then raise exception 'D2-19 FAILED: not cleared'; end if;
+  if ((select asked_at from holding_dividends where id = dv) is not null) is not false then raise exception 'D2-19 FAILED: not cleared'; end if;
   raise notice 'D2-19 ok: asked is marked and cleared';
 end $$;
 
@@ -5268,7 +5268,7 @@ begin
   update holding_dividends set pay_date = m1 + 6 where id = least(d1, d2);
   p := pg_temp.d2_proposal(f, array[d1, d2]);
   r := apply_bot_proposal(p, '22222222-2222-2222-2222-0000000000b7');
-  if r ->> 'outcome' <> 'stale' or exists (select 1 from holding_dividends where id in (d1, d2) and status = 'received') or pg_temp.d2_bal(f) <> 100 then
+  if (r ->> 'outcome' <> 'stale' or exists (select 1 from holding_dividends where id in (d1, d2) and status = 'received') or pg_temp.d2_bal(f) <> 100) is not false then
     raise exception 'D2-20 FAILED: gave % and the fund %', r, pg_temp.d2_bal(f);
   end if;
   raise notice 'D2-20 ok: a refused line rolls back the lines saved before it';
@@ -5283,7 +5283,7 @@ begin
   pv := preview_dividend(dv, '{"action": "record"}', '22222222-2222-2222-2222-0000000000b7');
   r := pg_temp.d2_save(dv, '{"action": "record"}');
   r := save_dividend(dv, '{"action": "record"}', (pv ->> 'version')::integer, pv -> 'confirmations', '22222222-2222-2222-2222-0000000000b7');
-  if r ->> 'error' is distinct from 'stale' or pg_temp.d2_bal((c ->> 'fund')::uuid) <> 107 then
+  if (r ->> 'error' is distinct from 'stale' or pg_temp.d2_bal((c ->> 'fund')::uuid) <> 107) is not false then
     raise exception 'D2-21 FAILED: the second save gave % and the fund %', r, pg_temp.d2_bal((c ->> 'fund')::uuid);
   end if;
   raise notice 'D2-21 ok: a save on a version since moved on is stale';
@@ -5299,7 +5299,7 @@ begin
   pv := preview_dividend(dv, '{"action": "record"}', '22222222-2222-2222-2222-0000000000b7');
   perform pg_temp.d2_fix_confirmation(f, 107, pg_temp.d2_m1() + 5);
   r := save_dividend(dv, '{"action": "record"}', (pv ->> 'version')::integer, pv -> 'confirmations', '22222222-2222-2222-2222-0000000000b7');
-  if pv ->> 'asks' is not null or r ->> 'error' is distinct from 'fund_confirmed_since' or pg_temp.d2_bal(f) <> 107 then
+  if (pv ->> 'asks' is not null or r ->> 'error' is distinct from 'fund_confirmed_since' or pg_temp.d2_bal(f) <> 107) is not false then
     raise exception 'D2-22 FAILED: the preview asked % and the save gave % with the fund %', pv ->> 'asks', r, pg_temp.d2_bal(f);
   end if;
   raise notice 'D2-22 ok: a fund confirmed since the preview is reported before a new question';
@@ -5315,18 +5315,18 @@ begin
   dv := (c ->> 'dividend')::uuid; f := (c ->> 'fund')::uuid; h := (c ->> 'holding')::uuid;
   update holding_dividends set pay_date = household_today() + 10 where id = dv;
   pv := preview_dividend(dv, '{"action": "record"}', '22222222-2222-2222-2222-0000000000b7');
-  if (pv -> 'dividend' ->> 'credited_on')::date is distinct from household_today() then
+  if ((pv -> 'dividend' ->> 'credited_on')::date is distinct from household_today()) is not false then
     raise exception 'D2-23 FAILED: recorded before its pay date, it was credited on %', pv -> 'dividend' ->> 'credited_on';
   end if;
   r := preview_dividend(dv, jsonb_build_object('action', 'record', 'credited_on', household_today() + 1), '22222222-2222-2222-2222-0000000000b7');
-  if r ->> 'error' is distinct from 'credited_in_future' then raise exception 'D2-23 FAILED: a record dated tomorrow gave %', r; end if;
+  if (r ->> 'error' is distinct from 'credited_in_future') is not false then raise exception 'D2-23 FAILED: a record dated tomorrow gave %', r; end if;
   r := pg_temp.d2_save(dv, '{"action": "record"}');
   r := preview_dividend(dv, jsonb_build_object('action', 'fix', 'credited_on', household_today() + 30), '22222222-2222-2222-2222-0000000000b7');
-  if r ->> 'error' is distinct from 'credited_in_future' then raise exception 'D2-23 FAILED: a fix dated next month gave %', r; end if;
+  if (r ->> 'error' is distinct from 'credited_in_future') is not false then raise exception 'D2-23 FAILED: a fix dated next month gave %', r; end if;
   r := preview_dividend(null, jsonb_build_object('action', 'add', 'holding_id', h, 'credited_on', household_today() + 1, 'units', 5, 'per_share', 1),
     '22222222-2222-2222-2222-0000000000b7');
-  if r ->> 'error' is distinct from 'credited_in_future' then raise exception 'D2-23 FAILED: an add dated tomorrow gave %', r; end if;
-  if pg_temp.d2_bal(f) <> 107 then raise exception 'D2-23 FAILED: the fund is %', pg_temp.d2_bal(f); end if;
+  if (r ->> 'error' is distinct from 'credited_in_future') is not false then raise exception 'D2-23 FAILED: an add dated tomorrow gave %', r; end if;
+  if (pg_temp.d2_bal(f) <> 107) is not false then raise exception 'D2-23 FAILED: the fund is %', pg_temp.d2_bal(f); end if;
   raise notice 'D2-23 ok: a receipt is never dated after today';
 end $$;
 
@@ -5346,11 +5346,11 @@ begin
   r := record_dividend_fetch('D224', 'alphavantage', 'splits', jsonb_build_object('ok', true, 'items', jsonb_build_array(
     jsonb_build_object('effective_date', t - 20, 'ratio', 2))));
   perform earn_dividends();
-  if (select review_reason from holding_dividends where id = dv) is distinct from 'split_on_ex_date' then raise exception 'D2-24 FAILED: the split was not asked about'; end if;
+  if ((select review_reason from holding_dividends where id = dv) is distinct from 'split_on_ex_date') is not false then raise exception 'D2-24 FAILED: the split was not asked about'; end if;
   r := keep_dividend(dv, (select version from holding_dividends where id = dv), p_member_id => '22222222-2222-2222-2222-0000000000b7');
   perform earn_dividends();
   perform earn_dividends();
-  if (select review_reason from holding_dividends where id = dv) is not null then
+  if ((select review_reason from holding_dividends where id = dv) is not null) is not false then
     raise exception 'D2-24 FAILED: a kept split came back as %', (select review_reason from holding_dividends where id = dv);
   end if;
   raise notice 'D2-24 ok: a kept split stays answered, with what was kept before it';
@@ -5367,15 +5367,15 @@ begin
   p2 := pg_temp.d2_proposal(f, array[d1, d2]);
   update holding_dividends set asked_at = now() where id in (d1, d2);
   r := apply_bot_proposal(p1, '22222222-2222-2222-2222-0000000000b7');
-  if r ->> 'outcome' <> 'applied' then raise exception 'D2-25 FAILED: the first yes gave %', r; end if;
-  if (select status from bot_proposals where id = p2) <> 'expired' or (select result ->> 'error' from bot_proposals where id = p2) is distinct from 'answered' then
+  if (r ->> 'outcome' <> 'applied') is not false then raise exception 'D2-25 FAILED: the first yes gave %', r; end if;
+  if ((select status from bot_proposals where id = p2) <> 'expired' or (select result ->> 'error' from bot_proposals where id = p2) is distinct from 'answered') is not false then
     raise exception 'D2-25 FAILED: the other question was left %', (select row_to_json(b) from bot_proposals b where b.id = p2);
   end if;
-  if (select asked_at from holding_dividends where id = d2) is not null or (select asked_at from holding_dividends where id = d1) is null then
+  if ((select asked_at from holding_dividends where id = d2) is not null or (select asked_at from holding_dividends where id = d1) is null) is not false then
     raise exception 'D2-25 FAILED: what is asked again is wrong';
   end if;
   r := apply_bot_proposal(p2, '22222222-2222-2222-2222-0000000000b7');
-  if r ->> 'outcome' <> 'expired' or r -> 'result' ->> 'error' <> 'answered' or pg_temp.d2_bal(f) <> 107 then
+  if (r ->> 'outcome' <> 'expired' or r -> 'result' ->> 'error' <> 'answered' or pg_temp.d2_bal(f) <> 107) is not false then
     raise exception 'D2-25 FAILED: a yes to the answered question gave % and the fund %', r, pg_temp.d2_bal(f);
   end if;
   raise notice 'D2-25 ok: one yes answers every question about the same dividends';
@@ -5390,13 +5390,13 @@ begin
   perform pg_temp.d1_holding(h, 'D301', 'us_equity', 'USD', 'd1a00000-0000-0000-0000-000000000001', t - 40, 100);
   perform pg_temp.d1_events('D301', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 200, 'amount', 2)));
   perform pg_temp.d1_events('D301X', 'alphavantage', jsonb_build_array(jsonb_build_object('ex_date', t - 200, 'amount', 2)));
-  if exists (select 1 from holding_dividends where holding_id = h) then raise exception 'D3-01 FAILED: the fixture earned a dividend'; end if;
+  if (exists (select 1 from holding_dividends where holding_id = h)) is not false then raise exception 'D3-01 FAILED: the fixture earned a dividend'; end if;
   r := set_special_part((select id from dividend_events where symbol = 'D301'), 1.5, '22222222-2222-2222-2222-0000000000b7');
-  if (r ->> 'ok')::boolean is not true or (select special_per_share from dividend_special_parts where event_id = (select id from dividend_events where symbol = 'D301')) <> 1.5 then
+  if ((r ->> 'ok')::boolean is not true or (select special_per_share from dividend_special_parts where event_id = (select id from dividend_events where symbol = 'D301')) <> 1.5) is not false then
     raise exception 'D3-01 FAILED: an answer on a followed share gave %', r;
   end if;
   r := set_special_part((select id from dividend_events where symbol = 'D301X'), 1, '22222222-2222-2222-2222-0000000000b7');
-  if r ->> 'error' is distinct from 'not_member' then raise exception 'D3-01 FAILED: an answer on a share nobody follows gave %', r; end if;
+  if (r ->> 'error' is distinct from 'not_member') is not false then raise exception 'D3-01 FAILED: an answer on a share nobody follows gave %', r; end if;
   raise notice 'D3-01 ok: a one-off is answered for any event of a followed share';
 end $$;
 
@@ -5425,8 +5425,8 @@ end $$;
 -- TX-01: a day's financial year starts on 1 April.
 do $$
 begin
-  if private.financial_year_of('2026-03-31') <> 2025 or private.financial_year_of('2026-04-01') <> 2026
-     or private.financial_year_of('2025-12-31') <> 2025 then
+  if (private.financial_year_of('2026-03-31') <> 2025 or private.financial_year_of('2026-04-01') <> 2026
+     or private.financial_year_of('2025-12-31') <> 2025) is not false then
     raise exception 'TX-01 FAILED: financial years came out wrong';
   end if;
   raise notice 'TX-01 ok: a financial year runs from 1 April';
@@ -5438,19 +5438,19 @@ declare ins text := 'insert into tax_returns (household_id, member_id, financial
   r text;
 begin
   r := pg_temp.tx_try(ins || '2019, 0, ''2020-07-01'', null, null, null, null, null)');
-  if r <> 'check_violation' then raise exception 'TX-02 FAILED: an unfiled return with a filing date gave %', r; end if;
+  if (r <> 'check_violation') is not false then raise exception 'TX-02 FAILED: an unfiled return with a filing date gave %', r; end if;
   r := pg_temp.tx_try(ins || '2019, 1, null, null, null, null, null, null)');
-  if r <> 'check_violation' then raise exception 'TX-02 FAILED: a filed return without a date gave %', r; end if;
+  if (r <> 'check_violation') is not false then raise exception 'TX-02 FAILED: a filed return without a date gave %', r; end if;
   r := pg_temp.tx_try(ins || '2019, 0, null, null, null, 100, null, null)');
-  if r <> 'check_violation' then raise exception 'TX-02 FAILED: figures on an unfiled return gave %', r; end if;
+  if (r <> 'check_violation') is not false then raise exception 'TX-02 FAILED: figures on an unfiled return gave %', r; end if;
   r := pg_temp.tx_try(ins || '2019, 0, null, ''treaty'', null, null, null, null)');
-  if r <> 'check_violation' then raise exception 'TX-02 FAILED: a basis without a rate gave %', r; end if;
+  if (r <> 'check_violation') is not false then raise exception 'TX-02 FAILED: a basis without a rate gave %', r; end if;
   r := pg_temp.tx_try(ins || '2019, 1, ''2020-07-01'', null, null, null, 300, 200)');
-  if r <> 'check_violation' then raise exception 'TX-02 FAILED: dividend tax credit over the total gave %', r; end if;
+  if (r <> 'check_violation') is not false then raise exception 'TX-02 FAILED: dividend tax credit over the total gave %', r; end if;
   r := pg_temp.tx_try(ins || '2019, 1, ''2020-07-01'', ''treaty'', 10, 100, 200, 300)');
-  if r <> 'ok' then raise exception 'TX-02 FAILED: a sound return gave %', r; end if;
+  if (r <> 'ok') is not false then raise exception 'TX-02 FAILED: a sound return gave %', r; end if;
   r := pg_temp.tx_try(ins || '2019, 0, null, null, null, null, null, null)');
-  if r <> 'unique_violation' then raise exception 'TX-02 FAILED: a second return for the year gave %', r; end if;
+  if (r <> 'unique_violation') is not false then raise exception 'TX-02 FAILED: a second return for the year gave %', r; end if;
   delete from tax_returns where financial_year = 2019;
   raise notice 'TX-02 ok: a return''s figures follow its filing, one per member and year';
 end $$;
@@ -5459,16 +5459,16 @@ end $$;
 do $$
 declare r text; st uuid;
 begin
-  if not private.has_identifier('ABCDE1234F') or not private.has_identifier('abcde1234f') or not private.has_identifier('ref 123456789012')
-     or private.has_identifier('Paid 1,20,000 on 5 Oct') or private.has_identifier('Filed late') or private.has_identifier(null) then
+  if (not private.has_identifier('ABCDE1234F') or not private.has_identifier('abcde1234f') or not private.has_identifier('ref 123456789012')
+     or private.has_identifier('Paid 1,20,000 on 5 Oct') or private.has_identifier('Filed late') or private.has_identifier(null)) is not false then
     raise exception 'TX-03 FAILED: has_identifier judged wrongly';
   end if;
   r := pg_temp.tx_try('insert into tax_returns (household_id, member_id, financial_year, note) values (''11111111-1111-1111-1111-111111111111'', ''22222222-2222-2222-2222-0000000000b7'', 2019, ''PAN ABCDE1234F'')');
-  if r <> 'check_violation' then raise exception 'TX-03 FAILED: a PAN in a note gave %', r; end if;
+  if (r <> 'check_violation') is not false then raise exception 'TX-03 FAILED: a PAN in a note gave %', r; end if;
   insert into tax_statements (household_id, member_id, financial_year, source, as_of)
   values ('11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-0000000000b7', 2019, 'ais', '2020-06-01') returning id into st;
   r := pg_temp.tx_try(format('insert into tax_statement_lines (household_id, statement_id, payer, gross) values (''11111111-1111-1111-1111-111111111111'', %L, ''ABC 123456789'', 1)', st));
-  if r <> 'check_violation' then raise exception 'TX-03 FAILED: a long number in a payer gave %', r; end if;
+  if (r <> 'check_violation') is not false then raise exception 'TX-03 FAILED: a long number in a payer gave %', r; end if;
   delete from tax_statements where id = st;
   raise notice 'TX-03 ok: PAN-shaped text and long numbers are refused';
 end $$;
@@ -5481,13 +5481,13 @@ begin
   values ('11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-0000000000b7', 2019, 1, '2020-07-01') returning id into ret;
   ins := format('insert into tax_return_events (household_id, return_id, revision, kind, happened_on, refund_determined, refund_interest, amount) values (''11111111-1111-1111-1111-111111111111'', %L, 1, ', ret);
   r := pg_temp.tx_try(ins || '''processed'', ''2020-09-01'', null, 0, null)');
-  if r <> 'check_violation' then raise exception 'TX-04 FAILED: a processing without its refund gave %', r; end if;
+  if (r <> 'check_violation') is not false then raise exception 'TX-04 FAILED: a processing without its refund gave %', r; end if;
   r := pg_temp.tx_try(ins || '''refund_credited'', ''2020-09-01'', null, null, null)');
-  if r <> 'check_violation' then raise exception 'TX-04 FAILED: a credit without an amount gave %', r; end if;
+  if (r <> 'check_violation') is not false then raise exception 'TX-04 FAILED: a credit without an amount gave %', r; end if;
   r := pg_temp.tx_try(ins || '''refund_credited'', ''2020-09-01'', null, 10, 100)');
-  if r <> 'check_violation' then raise exception 'TX-04 FAILED: a credit with interest gave %', r; end if;
+  if (r <> 'check_violation') is not false then raise exception 'TX-04 FAILED: a credit with interest gave %', r; end if;
   r := pg_temp.tx_try(ins || '''processed'', ''2020-09-01'', -500, 0, null)');
-  if r <> 'ok' then raise exception 'TX-04 FAILED: a demand gave %', r; end if;
+  if (r <> 'ok') is not false then raise exception 'TX-04 FAILED: a demand gave %', r; end if;
   delete from tax_returns where id = ret;
   raise notice 'TX-04 ok: each kind of event carries its own figures';
 end $$;
@@ -5500,13 +5500,13 @@ begin
   values ('11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-0000000000b7', 2019, '26as', '2020-06-01') returning id into st;
   ins := format('insert into tax_statement_lines (household_id, statement_id, payer, gross, tds) values (''11111111-1111-1111-1111-111111111111'', %L, ', st);
   r := pg_temp.tx_try(ins || '''ABC Limited'', 100, 20)');
-  if r <> 'ok' then raise exception 'TX-05 FAILED: a sound line gave %', r; end if;
+  if (r <> 'ok') is not false then raise exception 'TX-05 FAILED: a sound line gave %', r; end if;
   r := pg_temp.tx_try(ins || ''' abc limited '', 100, 20)');
-  if r <> 'unique_violation' then raise exception 'TX-05 FAILED: the same payer twice gave %', r; end if;
+  if (r <> 'unique_violation') is not false then raise exception 'TX-05 FAILED: the same payer twice gave %', r; end if;
   r := pg_temp.tx_try(ins || '''XYZ Limited'', -1, 0)');
-  if r <> 'check_violation' then raise exception 'TX-05 FAILED: a negative gross gave %', r; end if;
+  if (r <> 'check_violation') is not false then raise exception 'TX-05 FAILED: a negative gross gave %', r; end if;
   r := pg_temp.tx_try(ins || '''XYZ Limited'', 100, 101)');
-  if r <> 'check_violation' then raise exception 'TX-05 FAILED: tax over the gross gave %', r; end if;
+  if (r <> 'check_violation') is not false then raise exception 'TX-05 FAILED: tax over the gross gave %', r; end if;
   delete from tax_statements where id = st;
   raise notice 'TX-05 ok: one line per payer, with sound figures';
 end $$;
@@ -5520,11 +5520,11 @@ begin
     expected_gross, expected_tax, expected_fees, expected_net, status, source)
   values (d, '11111111-1111-1111-1111-111111111111', h, '2026-03-25', 'INR', 10, 'trades', 100, 20.8, 1000, 208, 0, 792, 'earned', 'feed');
   r := pg_temp.tx_try(format('update holding_dividends set tax_financial_year = 2025 where id = %L', d));
-  if r <> 'check_violation' then raise exception 'TX-06 FAILED: a year without a basis gave %', r; end if;
+  if (r <> 'check_violation') is not false then raise exception 'TX-06 FAILED: a year without a basis gave %', r; end if;
   r := pg_temp.tx_try(format('update holding_dividends set tax_financial_year = 2025, tax_year_basis = ''other'' where id = %L', d));
-  if r <> 'check_violation' then raise exception 'TX-06 FAILED: an unknown basis gave %', r; end if;
+  if (r <> 'check_violation') is not false then raise exception 'TX-06 FAILED: an unknown basis gave %', r; end if;
   r := pg_temp.tx_try(format('update holding_dividends set tax_financial_year = 2025, tax_year_basis = ''declared'' where id = %L', d));
-  if r <> 'ok' then raise exception 'TX-06 FAILED: a year with its basis gave %', r; end if;
+  if (r <> 'ok') is not false then raise exception 'TX-06 FAILED: a year with its basis gave %', r; end if;
   raise notice 'TX-06 ok: a dividend''s own tax year comes with its basis';
 end $$;
 
@@ -5535,7 +5535,7 @@ begin
   insert into tax_returns (household_id, member_id, financial_year)
   values ('11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-0000000000b7', 2019);
   r := pg_temp.tx_try('delete from household_members where id = ''22222222-2222-2222-2222-0000000000b7''');
-  if r not like 'foreign_key_violation%tax_returns%' then raise exception 'TX-07 FAILED: removing a member with a return gave %', r; end if;
+  if (r not like 'foreign_key_violation%tax_returns%') is not false then raise exception 'TX-07 FAILED: removing a member with a return gave %', r; end if;
   delete from tax_returns where financial_year = 2019;
   raise notice 'TX-07 ok: a member with tax records stays';
 end $$;
@@ -5564,11 +5564,11 @@ do $$
 declare r jsonb;
 begin
   r := pg_temp.tx_import('26as', '2026-06-15', pg_temp.tx_26as(), 0);
-  if (r ->> 'ok')::boolean is not true or (r ->> 'revision')::int <> 1 or (r ->> 'lines')::int <> 2 or (r ->> 'unchanged')::boolean then
+  if ((r ->> 'ok')::boolean is not true or (r ->> 'revision')::int <> 1 or (r ->> 'lines')::int <> 2 or (r ->> 'unchanged')::boolean) is not false then
     raise exception 'TX-08 FAILED: the first import gave %', r;
   end if;
-  if (select count(*) from tax_statements where member_id = '22222222-2222-2222-2222-0000000000b7' and source = '26as' and as_of = '2026-06-15') <> 1
-     or (select count(*) from tax_statement_lines where symbol is null and payer = 'Old Co Limited') <> 1 then
+  if ((select count(*) from tax_statements where member_id = '22222222-2222-2222-2222-0000000000b7' and source = '26as' and as_of = '2026-06-15') <> 1
+     or (select count(*) from tax_statement_lines where symbol is null and payer = 'Old Co Limited') <> 1) is not false then
     raise exception 'TX-08 FAILED: the statement is %', pg_temp.tx_lines('26as');
   end if;
   raise notice 'TX-08 ok: a statement is imported with its lines';
@@ -5579,10 +5579,10 @@ do $$
 declare r jsonb; at timestamptz := (select imported_at from tax_statements where source = '26as' and financial_year = 2025);
 begin
   r := pg_temp.tx_import('26as', '2026-06-15', pg_temp.tx_26as(), 0);
-  if (r ->> 'ok')::boolean is not true or not (r ->> 'unchanged')::boolean or (r ->> 'revision')::int <> 1 then
+  if ((r ->> 'ok')::boolean is not true or not (r ->> 'unchanged')::boolean or (r ->> 'revision')::int <> 1) is not false then
     raise exception 'TX-09 FAILED: importing again gave %', r;
   end if;
-  if (select imported_at from tax_statements where source = '26as' and financial_year = 2025) <> at then
+  if ((select imported_at from tax_statements where source = '26as' and financial_year = 2025) <> at) is not false then
     raise exception 'TX-09 FAILED: a no-op touched the statement';
   end if;
   raise notice 'TX-09 ok: importing the same statement again is a no-op';
@@ -5593,10 +5593,10 @@ do $$
 declare r jsonb;
 begin
   r := pg_temp.tx_import('26as', '2026-06-15', jsonb_set(pg_temp.tx_26as(), '{0,tds}', '210'), 1);
-  if (r ->> 'revision')::int is distinct from 2 or (r ->> 'lines')::int <> 2 then raise exception 'TX-10 FAILED: a change gave %', r; end if;
+  if ((r ->> 'revision')::int is distinct from 2 or (r ->> 'lines')::int <> 2) is not false then raise exception 'TX-10 FAILED: a change gave %', r; end if;
   r := pg_temp.tx_import('26as', '2026-06-15', jsonb_set(pg_temp.tx_26as(), '{0,tds}', '212'), 1);
-  if r ->> 'error' is distinct from 'stale' then raise exception 'TX-10 FAILED: a change at an old revision gave %', r; end if;
-  if (select tds from tax_statement_lines where symbol = 'TXA.NS') <> 210 then raise exception 'TX-10 FAILED: a stale import changed a line'; end if;
+  if (r ->> 'error' is distinct from 'stale') is not false then raise exception 'TX-10 FAILED: a change at an old revision gave %', r; end if;
+  if ((select tds from tax_statement_lines where symbol = 'TXA.NS') <> 210) is not false then raise exception 'TX-10 FAILED: a stale import changed a line'; end if;
   raise notice 'TX-10 ok: a change raises the revision, a stale one is refused';
 end $$;
 
@@ -5605,10 +5605,10 @@ do $$
 declare r jsonb;
 begin
   r := pg_temp.tx_import('26as', '2026-05-01', jsonb_set(pg_temp.tx_26as(), '{0,tds}', '210'), 2);
-  if r ->> 'error' is distinct from 'older_than_held' then raise exception 'TX-11 FAILED: an older statement gave %', r; end if;
-  if (select as_of from tax_statements where source = '26as' and financial_year = 2025) <> '2026-06-15' then raise exception 'TX-11 FAILED: it was replaced'; end if;
+  if (r ->> 'error' is distinct from 'older_than_held') is not false then raise exception 'TX-11 FAILED: an older statement gave %', r; end if;
+  if ((select as_of from tax_statements where source = '26as' and financial_year = 2025) <> '2026-06-15') is not false then raise exception 'TX-11 FAILED: it was replaced'; end if;
   r := pg_temp.tx_import('26as', '2026-05-01', jsonb_set(pg_temp.tx_26as(), '{0,tds}', '210'), 2, true);
-  if (r ->> 'revision')::int is distinct from 3 then raise exception 'TX-11 FAILED: replacing on purpose gave %', r; end if;
+  if ((r ->> 'revision')::int is distinct from 3) is not false then raise exception 'TX-11 FAILED: replacing on purpose gave %', r; end if;
   raise notice 'TX-11 ok: an older statement replaces a newer one only on purpose';
 end $$;
 
@@ -5617,8 +5617,8 @@ do $$
 declare r jsonb;
 begin
   r := pg_temp.tx_import('ais', '2026-06-15', '[]', 0);
-  if (r ->> 'ok')::boolean is not true or (r ->> 'lines')::int <> 0 then raise exception 'TX-12 FAILED: an empty import gave %', r; end if;
-  if (select count(*) from tax_statements where source = 'ais' and financial_year = 2025) <> 1 then raise exception 'TX-12 FAILED: no statement was kept'; end if;
+  if ((r ->> 'ok')::boolean is not true or (r ->> 'lines')::int <> 0) is not false then raise exception 'TX-12 FAILED: an empty import gave %', r; end if;
+  if ((select count(*) from tax_statements where source = 'ais' and financial_year = 2025) <> 1) is not false then raise exception 'TX-12 FAILED: no statement was kept'; end if;
   raise notice 'TX-12 ok: an empty statement is imported, nothing reported';
 end $$;
 
@@ -5631,34 +5631,34 @@ begin
   insert into holdings (id, household_id, name, asset_class, currency, quantity, avg_price, value_aed, price_symbol)
   values ('d7b00000-0000-0000-0000-0000000000c1', '99999999-9999-9999-9999-999999999999', 'Theirs', 'india_equity', 'INR', 1, 1, 0, 'TXC.NS');
   r := pg_temp.tx_import('ais', '2025-06-15', '[{"symbol": "txb.ns", "payer": "TXB Limited", "gross": 100, "tds": null}]', 0, false, 2024);
-  if (r ->> 'ok')::boolean is not true or (select symbol from tax_statement_lines where payer = 'TXB Limited') <> 'TXB.NS' then
+  if ((r ->> 'ok')::boolean is not true or (select symbol from tax_statement_lines where payer = 'TXB Limited') <> 'TXB.NS') is not false then
     raise exception 'TX-13 FAILED: a symbol in another case gave % and stored %', r, (select symbol from tax_statement_lines where payer = 'TXB Limited');
   end if;
   r := pg_temp.tx_import('26as', '2026-07-01', base || one || jsonb_set(one, '{gross}', '-1') , 3);
-  if r ->> 'error' is distinct from 'bad_figures' or (r ->> 'line')::int is distinct from 3 then raise exception 'TX-13 FAILED: a negative gross gave %', r; end if;
+  if (r ->> 'error' is distinct from 'bad_figures' or (r ->> 'line')::int is distinct from 3) is not false then raise exception 'TX-13 FAILED: a negative gross gave %', r; end if;
   r := pg_temp.tx_import('26as', '2026-07-01', jsonb_build_array(jsonb_set(one, '{gross}', '"1,000.50"')), 3);
-  if r ->> 'error' is distinct from 'bad_input' then raise exception 'TX-13 FAILED: a gross in text gave %', r; end if;
+  if (r ->> 'error' is distinct from 'bad_input') is not false then raise exception 'TX-13 FAILED: a gross in text gave %', r; end if;
   r := pg_temp.tx_import('26as', '2026-07-01', jsonb_build_array(jsonb_set(one, '{gross}', '10.005')), 3);
-  if r ->> 'error' is distinct from 'bad_figures' then raise exception 'TX-13 FAILED: a third decimal gave %', r; end if;
+  if (r ->> 'error' is distinct from 'bad_figures') is not false then raise exception 'TX-13 FAILED: a third decimal gave %', r; end if;
   r := pg_temp.tx_import('26as', '2026-07-01', jsonb_build_array(jsonb_set(one, '{symbol}', '"NOPE.NS"')), 3);
-  if r ->> 'error' is distinct from 'unknown_share' then raise exception 'TX-13 FAILED: an unknown share gave %', r; end if;
+  if (r ->> 'error' is distinct from 'unknown_share') is not false then raise exception 'TX-13 FAILED: an unknown share gave %', r; end if;
   r := pg_temp.tx_import('26as', '2026-07-01', jsonb_build_array(jsonb_set(one, '{symbol}', '"TXC.NS"')), 3);
-  if r ->> 'error' is distinct from 'unknown_share' then raise exception 'TX-13 FAILED: another household''s share gave %', r; end if;
+  if (r ->> 'error' is distinct from 'unknown_share') is not false then raise exception 'TX-13 FAILED: another household''s share gave %', r; end if;
   r := pg_temp.tx_import('26as', '2026-07-01', jsonb_build_array(jsonb_set(one, '{payer}', '"ABC Ltd"'), jsonb_set(one, '{payer}', '"abc ltd "')), 3);
-  if r ->> 'error' is distinct from 'duplicate_payer' then raise exception 'TX-13 FAILED: a payer twice gave %', r; end if;
+  if (r ->> 'error' is distinct from 'duplicate_payer') is not false then raise exception 'TX-13 FAILED: a payer twice gave %', r; end if;
   r := pg_temp.tx_import('26as', '2026-07-01', jsonb_build_array(jsonb_set(one, '{payer}', '"ABCDE1234F"')), 3);
-  if r ->> 'error' is distinct from 'identifier_in_text' then raise exception 'TX-13 FAILED: a PAN as payer gave %', r; end if;
+  if (r ->> 'error' is distinct from 'identifier_in_text') is not false then raise exception 'TX-13 FAILED: a PAN as payer gave %', r; end if;
   r := pg_temp.tx_import('26as', '2026-07-01', jsonb_build_array(one - 'tds'), 3);
-  if r ->> 'error' is distinct from 'bad_figures' then raise exception 'TX-13 FAILED: a 26AS line without tax gave %', r; end if;
+  if (r ->> 'error' is distinct from 'bad_figures') is not false then raise exception 'TX-13 FAILED: a 26AS line without tax gave %', r; end if;
   r := pg_temp.tx_import('26as', '2026-07-01', jsonb_build_array(jsonb_set(one, '{tds}', '101')), 3);
-  if r ->> 'error' is distinct from 'bad_figures' then raise exception 'TX-13 FAILED: tax over gross gave %', r; end if;
+  if (r ->> 'error' is distinct from 'bad_figures') is not false then raise exception 'TX-13 FAILED: tax over gross gave %', r; end if;
   r := pg_temp.tx_import('26as', '2026-07-01', jsonb_build_array(one || '{"pan": "x"}'), 3);
-  if r ->> 'error' is distinct from 'bad_input' then raise exception 'TX-13 FAILED: an unknown key gave %', r; end if;
+  if (r ->> 'error' is distinct from 'bad_input') is not false then raise exception 'TX-13 FAILED: an unknown key gave %', r; end if;
   r := pg_temp.tx_import('26as', '2026-07-01', jsonb_build_array(one), 3, false, 2099);
-  if r ->> 'error' is distinct from 'bad_input' then raise exception 'TX-13 FAILED: a future year gave %', r; end if;
+  if (r ->> 'error' is distinct from 'bad_input') is not false then raise exception 'TX-13 FAILED: a future year gave %', r; end if;
   r := pg_temp.tx_import('26as', household_today() + 1, jsonb_build_array(one), 3);
-  if r ->> 'error' is distinct from 'bad_input' then raise exception 'TX-13 FAILED: a future date gave %', r; end if;
-  if pg_temp.tx_lines('26as') <> held or (select revision from tax_statements where source = '26as' and financial_year = 2025) <> 3 then
+  if (r ->> 'error' is distinct from 'bad_input') is not false then raise exception 'TX-13 FAILED: a future date gave %', r; end if;
+  if (pg_temp.tx_lines('26as') <> held or (select revision from tax_statements where source = '26as' and financial_year = 2025) <> 3) is not false then
     raise exception 'TX-13 FAILED: a refused import changed the statement';
   end if;
   raise notice 'TX-13 ok: an import with any bad line saves nothing';
@@ -5685,13 +5685,13 @@ do $$
 declare r jsonb; t tax_returns%rowtype;
 begin
   r := pg_temp.tx_save('{"claim_basis": "treaty", "claim_rate_pct": 10}', 0);
-  if (r ->> 'ok')::boolean is not true or (r ->> 'version')::int <> 1 then raise exception 'TX-14 FAILED: the first save gave %', r; end if;
+  if ((r ->> 'ok')::boolean is not true or (r ->> 'version')::int <> 1) is not false then raise exception 'TX-14 FAILED: the first save gave %', r; end if;
   r := pg_temp.tx_save('{"claim_basis": "domestic", "claim_rate_pct": 20.8}', 0);
-  if r ->> 'error' is distinct from 'stale' then raise exception 'TX-14 FAILED: a second first save gave %', r; end if;
+  if (r ->> 'error' is distinct from 'stale') is not false then raise exception 'TX-14 FAILED: a second first save gave %', r; end if;
   r := pg_temp.tx_save('{"revision": 1, "filed_on": "2026-07-20", "dividend_income": 10000, "dividend_tax": 1000, "dividend_tds_claimed": 2080, "tds_claimed_total": 5000}', 1);
   select * into t from tax_returns where member_id = '22222222-2222-2222-2222-0000000000b7' and financial_year = 2025;
-  if (r ->> 'version')::int is distinct from 2 or t.claim_basis <> 'treaty' or t.claim_rate_pct <> 10 or t.revision <> 1 or t.dividend_tax <> 1000
-     or t.updated_by <> '22222222-2222-2222-2222-0000000000b7' then
+  if ((r ->> 'version')::int is distinct from 2 or t.claim_basis <> 'treaty' or t.claim_rate_pct <> 10 or t.revision <> 1 or t.dividend_tax <> 1000
+     or t.updated_by <> '22222222-2222-2222-2222-0000000000b7') is not false then
     raise exception 'TX-14 FAILED: filing gave % and %', r, row_to_json(t);
   end if;
   raise notice 'TX-14 ok: a return is saved at the version it was changed against';
@@ -5717,9 +5717,9 @@ begin
     ('{"note": "ack 123456789012345"}', 2025, 'identifier_in_text')) v(change, year, code)
   loop
     r := pg_temp.tx_save(c.change::jsonb, case when c.year = 2025 then 2 else 0 end, c.year);
-    if r ->> 'error' is distinct from c.code then raise exception 'TX-15 FAILED: % for % gave %, expected %', c.change, c.year, r, c.code; end if;
+    if (r ->> 'error' is distinct from c.code) is not false then raise exception 'TX-15 FAILED: % for % gave %, expected %', c.change, c.year, r, c.code; end if;
   end loop;
-  if pg_temp.tx_version() <> 2 or exists (select 1 from tax_returns where financial_year in (2024, 2099)) then
+  if (pg_temp.tx_version() <> 2 or exists (select 1 from tax_returns where financial_year in (2024, 2099))) is not false then
     raise exception 'TX-15 FAILED: a refused save changed something';
   end if;
   raise notice 'TX-15 ok: each figure outside the rules is refused with its reason';
@@ -5730,34 +5730,34 @@ do $$
 declare r jsonb; credit uuid; processed uuid;
 begin
   r := pg_temp.tx_event('{"kind": "processed", "happened_on": "2025-09-01", "refund_determined": 1, "refund_interest": 0}', null, 2024);
-  if r ->> 'error' is distinct from 'not_filed' then raise exception 'TX-16 FAILED: an event on an unfiled year gave %', r; end if;
+  if (r ->> 'error' is distinct from 'not_filed') is not false then raise exception 'TX-16 FAILED: an event on an unfiled year gave %', r; end if;
   r := pg_temp.tx_event('{"kind": "processed", "happened_on": "2026-09-01", "refund_determined": 5000, "refund_interest": 150, "tds_allowed_total": 5000}');
   processed := (r ->> 'id')::uuid;
-  if (r ->> 'ok')::boolean is not true or (select revision from tax_return_events where id = processed) <> 1 then raise exception 'TX-16 FAILED: processing gave %', r; end if;
+  if ((r ->> 'ok')::boolean is not true or (select revision from tax_return_events where id = processed) <> 1) is not false then raise exception 'TX-16 FAILED: processing gave %', r; end if;
   r := pg_temp.tx_event('{"kind": "refund_credited", "happened_on": "2026-09-20", "amount": 5150}');
   credit := (r ->> 'id')::uuid;
-  if (r ->> 'ok')::boolean is not true then raise exception 'TX-16 FAILED: a credit gave %', r; end if;
+  if ((r ->> 'ok')::boolean is not true) is not false then raise exception 'TX-16 FAILED: a credit gave %', r; end if;
   r := pg_temp.tx_event('{"kind": "refund_credited", "happened_on": "2026-09-20"}');
-  if r ->> 'error' is distinct from 'bad_figures' then raise exception 'TX-16 FAILED: a credit without an amount gave %', r; end if;
+  if (r ->> 'error' is distinct from 'bad_figures') is not false then raise exception 'TX-16 FAILED: a credit without an amount gave %', r; end if;
   r := pg_temp.tx_event('{"kind": "refund_credited", "happened_on": "2026-09-20", "amount": 1, "revision": 3}');
-  if r ->> 'error' is distinct from 'bad_input' then raise exception 'TX-16 FAILED: a later revision gave %', r; end if;
+  if (r ->> 'error' is distinct from 'bad_input') is not false then raise exception 'TX-16 FAILED: a later revision gave %', r; end if;
   r := pg_temp.tx_event(jsonb_build_object('kind', 'refund_credited', 'happened_on', household_today() + 1, 'amount', 1));
-  if r ->> 'error' is distinct from 'in_future' then raise exception 'TX-16 FAILED: a future date gave %', r; end if;
+  if (r ->> 'error' is distinct from 'in_future') is not false then raise exception 'TX-16 FAILED: a future date gave %', r; end if;
   r := pg_temp.tx_event('{"kind": "processed", "happened_on": "2026-03-01", "refund_determined": 1, "refund_interest": 0}');
-  if r ->> 'error' is distinct from 'bad_input' then raise exception 'TX-16 FAILED: a date before the year ended gave %', r; end if;
+  if (r ->> 'error' is distinct from 'bad_input') is not false then raise exception 'TX-16 FAILED: a date before the year ended gave %', r; end if;
   r := pg_temp.tx_event('{"kind": "refund_credited", "happened_on": "2026-09-20", "amount": 5100}', credit, 2025, pg_temp.tx_event_version(credit));
-  if (r ->> 'ok')::boolean is not true or (select string_agg(amount::text, ',') from tax_return_events where kind = 'refund_credited'
-      and return_id = (select id from tax_returns where member_id = '22222222-2222-2222-2222-0000000000b7' and financial_year = 2025)) <> '5100.00' then
+  if ((r ->> 'ok')::boolean is not true or (select string_agg(amount::text, ',') from tax_return_events where kind = 'refund_credited'
+      and return_id = (select id from tax_returns where member_id = '22222222-2222-2222-2222-0000000000b7' and financial_year = 2025)) <> '5100.00') is not false then
     raise exception 'TX-16 FAILED: replacing the credit gave %', r;
   end if;
   r := remove_tax_return_event('22222222-2222-2222-2222-0000000000b7', credit, pg_temp.tx_event_version(credit));
-  if (r ->> 'ok')::boolean is not true then raise exception 'TX-16 FAILED: removing gave %', r; end if;
+  if ((r ->> 'ok')::boolean is not true) is not false then raise exception 'TX-16 FAILED: removing gave %', r; end if;
   r := remove_tax_return_event('22222222-2222-2222-2222-0000000000b7', credit, 2);
-  if r ->> 'error' is distinct from 'event_not_found' then raise exception 'TX-16 FAILED: removing again gave %', r; end if;
+  if (r ->> 'error' is distinct from 'event_not_found') is not false then raise exception 'TX-16 FAILED: removing again gave %', r; end if;
   r := remove_tax_return_event('99999999-9999-9999-9999-99999999000a', processed, 1);
-  if r ->> 'error' is distinct from 'event_not_found' then raise exception 'TX-16 FAILED: another household''s member gave %', r; end if;
+  if (r ->> 'error' is distinct from 'event_not_found') is not false then raise exception 'TX-16 FAILED: another household''s member gave %', r; end if;
   r := remove_tax_return_event('22222222-2222-2222-2222-222222222222', processed, 1);
-  if r ->> 'error' is distinct from 'event_not_found' or not exists (select 1 from tax_return_events where id = processed) then
+  if (r ->> 'error' is distinct from 'event_not_found' or not exists (select 1 from tax_return_events where id = processed)) is not false then
     raise exception 'TX-16 FAILED: another member of the household gave %', r;
   end if;
   raise notice 'TX-16 ok: what happened to a return is added, replaced and removed';
@@ -5769,13 +5769,13 @@ do $$
 declare r jsonb;
 begin
   r := pg_temp.tx_save('{"revision": 2}', pg_temp.tx_version());
-  if (r ->> 'ok')::boolean is not true or (select revision from tax_return_events where kind = 'processed' and refund_determined = 5000) <> 1 then
+  if ((r ->> 'ok')::boolean is not true or (select revision from tax_return_events where kind = 'processed' and refund_determined = 5000) <> 1) is not false then
     raise exception 'TX-17 FAILED: revising gave %', r;
   end if;
   r := pg_temp.tx_event('{"kind": "refund_credited", "happened_on": "2026-10-20", "amount": 100}');
-  if (select revision from tax_return_events where id = (r ->> 'id')::uuid) <> 2 then raise exception 'TX-17 FAILED: a new event is not on revision 2'; end if;
+  if ((select revision from tax_return_events where id = (r ->> 'id')::uuid) <> 2) is not false then raise exception 'TX-17 FAILED: a new event is not on revision 2'; end if;
   r := pg_temp.tx_save('{"revision": 1}', pg_temp.tx_version());
-  if r ->> 'error' is distinct from 'events_on_later_revision' then raise exception 'TX-17 FAILED: going back gave %', r; end if;
+  if (r ->> 'error' is distinct from 'events_on_later_revision') is not false then raise exception 'TX-17 FAILED: going back gave %', r; end if;
   raise notice 'TX-17 ok: a revised return keeps the earlier one''s events';
 end $$;
 
@@ -5784,7 +5784,7 @@ do $$
 declare r jsonb;
 begin
   r := save_tax_return(null, 2025, '{}', 0);
-  if r ->> 'error' is distinct from 'not_member' then raise exception 'TX-18 FAILED: naming nobody gave %', r; end if;
+  if (r ->> 'error' is distinct from 'not_member') is not false then raise exception 'TX-18 FAILED: naming nobody gave %', r; end if;
   raise notice 'TX-18 ok: a call naming nobody is refused';
 end $$;
 
@@ -5813,14 +5813,14 @@ declare d uuid := 'd7d00000-0000-0000-0000-0000000000d1'; v integer := (select v
 begin
   r := pg_temp.tx_year(d, 2025, 'declared');
   select * into row from holding_dividends where id = d;
-  if (r ->> 'ok')::boolean is not true or (r ->> 'version')::int <> v + 1 or row.version <> v + 1
-     or row.tax_financial_year <> 2025 or row.tax_year_basis <> 'declared' then
+  if ((r ->> 'ok')::boolean is not true or (r ->> 'version')::int <> v + 1 or row.version <> v + 1
+     or row.tax_financial_year <> 2025 or row.tax_year_basis <> 'declared') is not false then
     raise exception 'TX-19 FAILED: setting the year gave % and %', r, row_to_json(row);
   end if;
   perform private.sync_holding_dividends('d7b00000-0000-0000-0000-0000000000d1', null);
-  if (select tax_financial_year from holding_dividends where id = d) is distinct from 2025 then raise exception 'TX-19 FAILED: a sync undid the year'; end if;
+  if ((select tax_financial_year from holding_dividends where id = d) is distinct from 2025) is not false then raise exception 'TX-19 FAILED: a sync undid the year'; end if;
   r := pg_temp.tx_year(d, null, null);
-  if (r ->> 'ok')::boolean is not true or (select tax_financial_year is not null or tax_year_basis is not null from holding_dividends where id = d) then
+  if ((r ->> 'ok')::boolean is not true or (select tax_financial_year is not null or tax_year_basis is not null from holding_dividends where id = d)) is not false then
     raise exception 'TX-19 FAILED: clearing gave %', r;
   end if;
   raise notice 'TX-19 ok: a dividend''s own tax year is set, kept and cleared';
@@ -5831,18 +5831,18 @@ do $$
 declare d uuid := 'd7d00000-0000-0000-0000-0000000000d1'; r jsonb;
 begin
   r := pg_temp.tx_year('d7d00000-0000-0000-0000-0000000000e1', 2025, 'declared');
-  if r ->> 'error' is distinct from 'not_indian' then raise exception 'TX-20 FAILED: a US dividend gave %', r; end if;
+  if (r ->> 'error' is distinct from 'not_indian') is not false then raise exception 'TX-20 FAILED: a US dividend gave %', r; end if;
   r := pg_temp.tx_year(d, 2023, 'declared');
-  if r ->> 'error' is distinct from 'year_too_far' then raise exception 'TX-20 FAILED: two years back gave %', r; end if;
+  if (r ->> 'error' is distinct from 'year_too_far') is not false then raise exception 'TX-20 FAILED: two years back gave %', r; end if;
   r := pg_temp.tx_year(d, 2025, null);
-  if r ->> 'error' is distinct from 'bad_input' then raise exception 'TX-20 FAILED: a year without a basis gave %', r; end if;
+  if (r ->> 'error' is distinct from 'bad_input') is not false then raise exception 'TX-20 FAILED: a year without a basis gave %', r; end if;
   r := pg_temp.tx_year(d, 2025, 'other');
-  if r ->> 'error' is distinct from 'bad_input' then raise exception 'TX-20 FAILED: an unknown basis gave %', r; end if;
+  if (r ->> 'error' is distinct from 'bad_input') is not false then raise exception 'TX-20 FAILED: an unknown basis gave %', r; end if;
   r := pg_temp.tx_year(d, 2025, 'declared', 1);
-  if r ->> 'error' is distinct from 'stale' then raise exception 'TX-20 FAILED: an old version gave %', r; end if;
+  if (r ->> 'error' is distinct from 'stale') is not false then raise exception 'TX-20 FAILED: an old version gave %', r; end if;
   r := pg_temp.tx_year(gen_random_uuid(), 2025, 'declared', 1);
-  if r ->> 'error' is distinct from 'dividend_not_found' then raise exception 'TX-20 FAILED: an unknown dividend gave %', r; end if;
-  if (select tax_financial_year from holding_dividends where id = d) is not null then raise exception 'TX-20 FAILED: a refusal saved a year'; end if;
+  if (r ->> 'error' is distinct from 'dividend_not_found') is not false then raise exception 'TX-20 FAILED: an unknown dividend gave %', r; end if;
+  if ((select tax_financial_year from holding_dividends where id = d) is not null) is not false then raise exception 'TX-20 FAILED: a refusal saved a year'; end if;
   raise notice 'TX-20 ok: a tax year is refused outside the rules';
 end $$;
 
@@ -5857,10 +5857,10 @@ declare d uuid := 'd7d00000-0000-0000-0000-0000000000d1'; r text; f text;
 begin
   foreach f in array array['received_tax', 'received_fees', 'received_net'] loop
     r := pg_temp.tx_try(format('update holding_dividends set %I = null where id = %L', f, d));
-    if r <> 'check_violation' then raise exception 'RH-03 FAILED: a received dividend without % gave %', f, r; end if;
+    if (r <> 'check_violation') is not false then raise exception 'RH-03 FAILED: a received dividend without % gave %', f, r; end if;
   end loop;
   r := pg_temp.tx_try(format('update holding_dividends set received_tax = null, received_net = 999 where id = %L', d));
-  if r <> 'check_violation' then raise exception 'RH-03 FAILED: a made-up net beside a missing tax gave %', r; end if;
+  if (r <> 'check_violation') is not false then raise exception 'RH-03 FAILED: a made-up net beside a missing tax gave %', r; end if;
   raise notice 'RH-03 ok: a receipt has all its figures or none';
 end $$;
 
@@ -5871,16 +5871,16 @@ declare r jsonb; e uuid;
 begin
   r := pg_temp.tx_event('{"kind": "offset_against_demand", "happened_on": "2026-10-01", "amount": 1000}');
   e := (r ->> 'id')::uuid;
-  if (r ->> 'version')::int is distinct from 1 then raise exception 'RH-01 FAILED: a new record gave %', r; end if;
+  if ((r ->> 'version')::int is distinct from 1) is not false then raise exception 'RH-01 FAILED: a new record gave %', r; end if;
   r := pg_temp.tx_event('{"kind": "offset_against_demand", "happened_on": "2026-10-01", "amount": 1200}', e, 2025, 1);
-  if (r ->> 'version')::int is distinct from 2 then raise exception 'RH-01 FAILED: a correction gave %', r; end if;
+  if ((r ->> 'version')::int is distinct from 2) is not false then raise exception 'RH-01 FAILED: a correction gave %', r; end if;
   r := pg_temp.tx_event('{"kind": "offset_against_demand", "happened_on": "2026-10-01", "amount": 1000, "note": "late"}', e, 2025, 1);
-  if r ->> 'error' is distinct from 'stale' then raise exception 'RH-01 FAILED: an edit opened before the correction gave %', r; end if;
+  if (r ->> 'error' is distinct from 'stale') is not false then raise exception 'RH-01 FAILED: an edit opened before the correction gave %', r; end if;
   r := pg_temp.tx_event('{"kind": "offset_against_demand", "happened_on": "2026-10-01", "amount": 1000}', e, 2025, null);
-  if r ->> 'error' is distinct from 'bad_input' then raise exception 'RH-01 FAILED: a change without its version gave %', r; end if;
+  if (r ->> 'error' is distinct from 'bad_input') is not false then raise exception 'RH-01 FAILED: a change without its version gave %', r; end if;
   r := remove_tax_return_event('22222222-2222-2222-2222-0000000000b7', e, 1);
-  if r ->> 'error' is distinct from 'stale' then raise exception 'RH-01 FAILED: a removal opened before the correction gave %', r; end if;
-  if (select amount from tax_return_events where id = e) <> 1200 then raise exception 'RH-01 FAILED: the correction was undone'; end if;
+  if (r ->> 'error' is distinct from 'stale') is not false then raise exception 'RH-01 FAILED: a removal opened before the correction gave %', r; end if;
+  if ((select amount from tax_return_events where id = e) <> 1200) is not false then raise exception 'RH-01 FAILED: the correction was undone'; end if;
   raise notice 'RH-01 ok: a refund record changes only at the version it was opened on';
 end $$;
 
@@ -5907,10 +5907,10 @@ begin
   -- The bill moved to Bank B after the October question was asked.
   update recurring set account_id = bank_b where id = bill;
   r := apply_bot_proposal('a5000000-0000-4000-8000-0000000000f1', m);
-  if r ->> 'outcome' is distinct from 'changed' or jsonb_array_length(r -> 'applied') <> 0 or r -> 'skipped' -> 0 ->> 'reason' is distinct from 'changed' then
+  if (r ->> 'outcome' is distinct from 'changed' or jsonb_array_length(r -> 'applied') <> 0 or r -> 'skipped' -> 0 ->> 'reason' is distinct from 'changed') is not false then
     raise exception 'RH-05 FAILED: a bill moved to another account gave %', r;
   end if;
-  if (select status from bot_proposals where id = 'a5000000-0000-4000-8000-0000000000f1') <> 'proposed' then
+  if ((select status from bot_proposals where id = 'a5000000-0000-4000-8000-0000000000f1') <> 'proposed') is not false then
     raise exception 'RH-05 FAILED: a question refused as changed was closed (%)', (select status from bot_proposals where id = 'a5000000-0000-4000-8000-0000000000f1');
   end if;
   -- Back on Bank A but off autopay: nothing recorded, and nothing will ask
@@ -5920,18 +5920,18 @@ begin
      jsonb_build_object('recurring_id', bill, 'name', 'RH EMI', 'amount', 2000, 'due_date', '2026-11-03', 'account_id', bank_a, 'category_id', cat), 2);
   update recurring set account_id = bank_a, autopay = false where id = bill;
   r := apply_bot_proposal('a5000000-0000-4000-8000-0000000000f2', m);
-  if r ->> 'outcome' is distinct from 'not_autopay' or r -> 'skipped' -> 0 ->> 'reason' is distinct from 'not_autopay' then
+  if (r ->> 'outcome' is distinct from 'not_autopay' or r -> 'skipped' -> 0 ->> 'reason' is distinct from 'not_autopay') is not false then
     raise exception 'RH-05 FAILED: a bill off autopay gave %', r;
   end if;
-  if (select count(*) from bot_proposals where id in ('a5000000-0000-4000-8000-0000000000f2', 'a5000000-0000-4000-8000-0000000000f4') and status = 'expired') <> 2 then
+  if ((select count(*) from bot_proposals where id in ('a5000000-0000-4000-8000-0000000000f2', 'a5000000-0000-4000-8000-0000000000f4') and status = 'expired') <> 2) is not false then
     raise exception 'RH-05 FAILED: a bill off autopay left its questions open';
   end if;
   select count(*) into n from transactions where account_id in (bank_a, bank_b);
-  if n <> 0 then raise exception 'RH-05 FAILED: % payments recorded for a changed bill', n; end if;
+  if (n <> 0) is not false then raise exception 'RH-05 FAILED: % payments recorded for a changed bill', n; end if;
   -- As asked: recorded on the account the question named.
   update recurring set autopay = true where id = bill;
   r := apply_bot_proposal('a5000000-0000-4000-8000-0000000000f3', m);
-  if (select account_id from transactions where id = (r -> 'applied' -> 0 ->> 'transaction_id')::uuid) is distinct from bank_a then
+  if ((select account_id from transactions where id = (r -> 'applied' -> 0 ->> 'transaction_id')::uuid) is distinct from bank_a) is not false then
     raise exception 'RH-05 FAILED: an unchanged bill gave %', r;
   end if;
   raise notice 'RH-05 ok: an autopay "yes" records only on the account and category it named';
@@ -5948,14 +5948,14 @@ begin
   insert into bot_proposals (id, household_id, member_id, kind, payload, chat_id) values
     (p, hh, m, 'dividends_received', jsonb_build_object('lines', jsonb_build_array(jsonb_build_object('dividend_id', d))), 1);
   r := postpone_dividends_proposal(p, '22222222-2222-2222-2222-222222222222');
-  if r ->> 'status' is distinct from 'not_yours' then raise exception 'RH-08 FAILED: another member''s "not yet" gave %', r; end if;
+  if (r ->> 'status' is distinct from 'not_yours') is not false then raise exception 'RH-08 FAILED: another member''s "not yet" gave %', r; end if;
   r := postpone_dividends_proposal(p, m);
-  if (r ->> 'ok')::boolean is not true or (select status from bot_proposals where id = p) <> 'cancelled'
-     or (select asked_at from holding_dividends where id = d) is not null then
+  if ((r ->> 'ok')::boolean is not true or (select status from bot_proposals where id = p) <> 'cancelled'
+     or (select asked_at from holding_dividends where id = d) is not null) is not false then
     raise exception 'RH-08 FAILED: "not yet" gave % and left %', r, (select row_to_json(x) from (select status, result from bot_proposals where id = p) x);
   end if;
   r := postpone_dividends_proposal(p, m);
-  if (r ->> 'ok')::boolean or r ->> 'status' is distinct from 'cancelled' then raise exception 'RH-08 FAILED: a second "not yet" gave %', r; end if;
+  if ((r ->> 'ok')::boolean or r ->> 'status' is distinct from 'cancelled') is not false then raise exception 'RH-08 FAILED: a second "not yet" gave %', r; end if;
   raise notice 'RH-08 ok: "not yet" puts off the question and its dividends together';
 end $$;
 
@@ -5969,7 +5969,7 @@ begin
   update telegram_update_log set answer_target = '{"kind": "proposal", "id": "a8000000-0000-4000-8000-0000000000f1"}' where update_id = 9000909;
   update telegram_update_log set answer_target = '{"kind": "intake", "id": "a8000000-0000-4000-8000-0000000000f1"}' where update_id = 9000909;
   foreach r in array array['{"kind": "proposal"}', '{"id": "a8000000-0000-4000-8000-0000000000f1"}', '{"kind": "goal", "id": "a8000000-0000-4000-8000-0000000000f1"}', '{"kind": "intake", "id": "7"}', '["proposal"]', '"proposal"'] loop
-    if pg_temp.tx_try(format('update telegram_update_log set answer_target = %L where update_id = 9000909', r)) <> 'check_violation' then
+    if (pg_temp.tx_try(format('update telegram_update_log set answer_target = %L where update_id = 9000909', r)) <> 'check_violation') is not false then
       raise exception 'RH-09 FAILED: the target % was accepted', r;
     end if;
   end loop;

@@ -65,3 +65,24 @@ describe('Overview: recent activity', () => {
     expect(screen.getByText('Activity page')).toBeTruthy();
   });
 });
+
+// The outside review, E-13: "Records →" is a real link, so Enter follows it
+// and it can be opened in a new tab; it was a span that only a click moved.
+describe('Overview: Records links', () => {
+  it('are links with somewhere to go', async () => {
+    const { default: Overview } = await import('./Overview');
+    renderScreen(
+      <MemoryRouter initialEntries={['/']}>
+        <Routes>
+          <Route path="/" element={<Overview />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    const links = screen.getAllByRole('link', { name: 'Records →' });
+    expect(links.length).toBeGreaterThan(0);
+    for (const link of links) {
+      expect(link.tagName).toBe('A');
+      expect(link.getAttribute('href')).toMatch(/^\/money\?/);
+    }
+  });
+});

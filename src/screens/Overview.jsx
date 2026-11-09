@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNow } from '../lib/useNow';
+import { Link, useNavigate } from 'react-router-dom';
 import { useHousehold } from '../lib/useHousehold';
 import { useScope } from '../lib/ScopeContext';
 import { resolveScopeMemberId } from '../lib/scope';
@@ -29,7 +30,7 @@ import {
   isRunningBucket,
 } from './overviewMath';
 import { parseDay } from '../lib/day';
-import { anyFailed } from '../lib/loadState';
+import { anyFailed, couldntLoad, neverLoaded } from '../lib/loadState';
 import { balanceStatus, unconfirmedAccounts } from '../lib/balance';
 import { accountValueAed } from '../lib/accounts';
 import LoadFailure from './LoadFailure';
@@ -56,6 +57,7 @@ export default function Overview() {
     backupRecords,
     yearlyChecks,
     errors,
+    loaded,
     loadedAt,
     refreshing,
     reload,
@@ -66,9 +68,12 @@ export default function Overview() {
   const [toast, setToast] = useState(null);
   const toastTimer = useRef(null);
 
-  const now = useMemo(() => new Date(), []);
+  const now = useNow(loadedAt);
   const loading = householdLoading || dataLoading;
-  const isEmpty = !loading && accounts.length === 0 && transactions.length === 0 && holdings.length === 0;
+  // A household with nothing recorded, not one whose records did not
+  // arrive: a failed read is not "Day one" (outside review, E-03).
+  const unread = neverLoaded({ errors, loaded }, ['accounts', 'transactions', 'holdings']);
+  const isEmpty = !loading && unread.length === 0 && accounts.length === 0 && transactions.length === 0 && holdings.length === 0;
 
   const accountRows = useMemo(() => visibleAccounts(accounts, scopeMemberId), [accounts, scopeMemberId]);
   const nw = useMemo(() => netWorthSummary(accounts, scopeMemberId, holdings), [accounts, scopeMemberId, holdings]);
@@ -155,24 +160,36 @@ export default function Overview() {
     toastTimer.current = setTimeout(() => setToast(null), 6000);
   }
 
-  async function markReviewed(tx) {
-    const prev = { needs_review: tx.needs_review };
-    await supabase.from('transactions').update({ needs_review: false }).eq('id', tx.id);
+  // A quick action worked only if it changed the one record: a failed
+  // write, or a record deleted elsewhere, used to be told it had worked,
+  // with an undo for a change never made (outside review, E-11).
+  async function changeRecord(tx, change) {
+    const { data, error } = await supabase.from('transactions').update(change).eq('id', tx.id).select('id');
+    return !error && (data?.length ?? 0) === 1;
+  }
+
+  async function quickAction(tx, change, { done, failed }) {
+    const name = `"${tx.merchant ?? 'transaction'}"`;
+    const prev = Object.fromEntries(Object.keys(change).map((k) => [k, tx[k]]));
+    const ok = await changeRecord(tx, change);
     await reload();
-    showToast(`Marked "${tx.merchant ?? 'transaction'}" reviewed`, async () => {
-      await supabase.from('transactions').update(prev).eq('id', tx.id);
+    if (!ok) {
+      showToast(`Couldn't ${failed(name)}: it may have changed or been deleted elsewhere. Nothing was changed.`, null);
+      return;
+    }
+    showToast(done(name), async () => {
+      const undone = await changeRecord(tx, prev);
       await reload();
+      if (!undone) showToast(`Couldn't undo that: ${name} may have changed elsewhere.`, null);
     });
   }
 
-  async function categorise(tx, categoryId) {
-    const prev = { needs_review: tx.needs_review, category_id: tx.category_id };
-    await supabase.from('transactions').update({ category_id: categoryId, needs_review: false }).eq('id', tx.id);
-    await reload();
-    showToast(`Categorised "${tx.merchant ?? 'transaction'}"`, async () => {
-      await supabase.from('transactions').update(prev).eq('id', tx.id);
-      await reload();
-    });
+  function markReviewed(tx) {
+    return quickAction(tx, { needs_review: false }, { done: (name) => `Marked ${name} reviewed`, failed: (name) => `mark ${name} reviewed` });
+  }
+
+  function categorise(tx, categoryId) {
+    return quickAction(tx, { category_id: categoryId, needs_review: false }, { done: (name) => `Categorised ${name}`, failed: (name) => `categorise ${name}` });
   }
 
   if (loading) {
@@ -222,9 +239,10 @@ export default function Overview() {
               <div className="ov-muted">
                 {p.count} record{p.count === 1 ? '' : 's'} · {money.code}
                 {money.rateNote ? ` · ${money.rateNote}` : ''} ·{' '}
-                <span className="ov-link" role="link" tabIndex={0} onClick={() => navigate(activityHref({ from: isoDay(p.start), to: isoDay(now) }))}>
+                {/* A real link, so Enter follows it (outside review, E-13). */}
+                <Link className="ov-link" to={activityHref({ from: isoDay(p.start), to: isoDay(now) })}>
                   Records →
-                </span>
+                </Link>
               </div>
             </div>
             {/* Each figure with the same stretch of the period before, so a
@@ -311,9 +329,9 @@ export default function Overview() {
                   </span>
                   {/* The bar's own records: its dates, up to today for the
                       bucket still running. */}
-                  <span className="ov-link" role="link" tabIndex={0} onClick={() => navigate(activityHref(bucketRange(selected, now)))}>
+                  <Link className="ov-link" to={activityHref(bucketRange(selected, now))}>
                     Records →
-                  </span>
+                  </Link>
                 </div>
               )}
               <div className="ov-legend">
@@ -405,9 +423,9 @@ export default function Overview() {
                 {recurring.length === 0
                   ? 'No recurring bills or income set up yet.'
                   : 'Nothing due in the next 30 days.'}{' '}
-                <span className="ov-link" onClick={() => navigate(tabHref('/money', 'recurring'))}>
+                <Link className="ov-link" to={tabHref('/money', 'recurring')}>
                   Recurring →
-                </span>
+                </Link>
               </div>
             ) : (
               <>
@@ -429,9 +447,9 @@ export default function Overview() {
                     Committed {money.fmt(committedTotal)}
                     {withoutAutopay > 0 ? ` · ${withoutAutopay} without autopay` : ''}
                   </span>
-                  <span className="ov-link" onClick={() => navigate(tabHref('/money', 'recurring'))}>
+                  <Link className="ov-link" to={tabHref('/money', 'recurring')}>
                     Recurring →
-                  </span>
+                  </Link>
                 </div>
               </>
             )}
@@ -636,7 +654,11 @@ export default function Overview() {
                 </div>
               </div>
               <div className="ov-list">
-                {accountRows.length === 0 ? (
+                {unread.includes('accounts') ? (
+                  <div className="ov-muted" role="alert" style={{ padding: '11px 0' }}>
+                    {couldntLoad(['accounts'])}
+                  </div>
+                ) : accountRows.length === 0 ? (
                   <div className="ov-muted" style={{ padding: '11px 0' }}>
                     No accounts yet.
                   </div>
@@ -678,15 +700,17 @@ export default function Overview() {
       {toast && (
         <div className="ov-toast" role="status">
           <span>{toast.message}</span>
-          <button
-            type="button"
-            onClick={() => {
-              toast.undo();
-              setToast(null);
-            }}
-          >
-            Undo
-          </button>
+          {toast.undo && (
+            <button
+              type="button"
+              onClick={() => {
+                toast.undo();
+                setToast(null);
+              }}
+            >
+              Undo
+            </button>
+          )}
         </div>
       )}
     </div>

@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
+import { useNow } from '../../lib/useNow';
 import { formatMoney, formatSigned } from '../../lib/money';
 import { billStatus, hasEnded, nativeAmountLabel, rollForward } from '../../lib/recurring';
 import RecurringEditor from './RecurringEditor';
@@ -19,7 +20,7 @@ export default function Recurring({ household, members, data, loading }) {
   const { recurring, accounts, categories, transactions, reload } = data;
   const [editing, setEditing] = useState(null);
   const [paying, setPaying] = useState(null); // a recurring row being marked paid
-  const now = useMemo(() => new Date(), []);
+  const now = useNow(data?.loadedAt);
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
 

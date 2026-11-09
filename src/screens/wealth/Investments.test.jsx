@@ -372,3 +372,17 @@ describe('Investments: a day short of a holding\'s value', () => {
     expect(screen.getByText('Some days leave out AAPL, which had no value recorded then.')).toBeTruthy();
   });
 });
+
+// The outside review, E-09: a holding opens from the keyboard too, by a real
+// button in its name cell, not only by clicking the row.
+describe('Investments: a holding opens from the keyboard', () => {
+  it('names each holding with a button that opens it', () => {
+    renderScreen(
+      <Investments household={{ id: 'h' }} members={MEMBERS} me={MEMBERS[0]} loading={false} data={{ holdings: [PRICED_HOLDING], holdingHistory: [], reload: vi.fn() }} />,
+    );
+    const open = screen.getByRole('button', { name: 'AAPL' });
+    expect(open.tagName).toBe('BUTTON');
+    fireEvent.click(open);
+    expect(screen.getByRole('dialog')).toBeTruthy();
+  });
+});
