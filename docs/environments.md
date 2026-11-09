@@ -293,6 +293,42 @@ itself (`scripts/compare-functions.mjs`) is pure and unit-tested; the fetching
 lives in `scripts/verify-function-parity.sh`, the same split as
 `compare-migrations.mjs` and `verify-migrations.sh`.
 
+## Production's live definitions and scheduled jobs
+
+The outside review (F-02) found the release check one step short again. A
+matching migration history proves the right scripts ran on production, not
+that production still defines what they made: a function replaced in the
+dashboard, or a policy dropped in the SQL editor, leaves the history as it
+was. So `npm run verify:release` does two more things after the functions.
+
+- **The live catalog.** `scripts/fresh-catalog.sh` builds a database from this
+  commit (the platform shim, then every migration) and
+  `scripts/catalog-fingerprint.sql` lists what it defines in `public` and
+  `private`: every function, column, constraint, index, policy, trigger,
+  view and row-security switch, each with an md5 of its definition as
+  Postgres reads it back. The same query runs on production, and
+  `scripts/compare-catalog.mjs` names each object missing, extra or defined
+  differently. Only names are printed, because CI logs here are public.
+  Owners and grants are left out, since the platform sets them differently
+  from a plain Postgres; anything an extension made is left out too.
+  Line endings are read as `\n`: 53 of production's functions were applied
+  from an editor that saved `\r\n`, and with that rule all 1,420 objects
+  matched when this was written. `scripts/catalog-fingerprint.test.sh`, in
+  the migrations job, proves the fingerprint ignores line endings and still
+  names a function whose body changed.
+- **The scheduled jobs.** `scripts/verify-cron-targets.sql`, the recovery
+  runbook's check, runs against production with this project's URL: all four
+  jobs exist, are active, call this project and carry their authentication,
+  the vault's scheduler secret is long enough, and there are no others.
+
+Both read production over `SUPABASE_DB_URL` through
+`scripts/production-psql.mjs`, which passes the password to psql in
+`PGPASSWORD`, redacts it from anything printed, and refuses a connection to
+another project than `SUPABASE_PROJECT_REF`. The release job installs a local
+Postgres with the pg_cron/pg_net stand-ins for the fresh build
+(`scripts/ci-postgres.sh`, shared with the migrations job), and the script
+fails if it has none rather than skipping the comparison.
+
 ## Reading the live migration ledger
 
 `npm run export:migrations` and `npm run verify:release` both need to read

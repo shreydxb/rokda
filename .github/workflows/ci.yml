@@ -238,26 +238,10 @@ jobs:
           node-version: 22
           cache: npm
 
-      # A stock postgres:17 service image has neither pg_cron nor pg_net,
-      # both of which the repository's own migrations create extensions for
-      # and call directly (cron.schedule/cron.unschedule -- everything else,
-      # including every net.http_get/http_post call, only ever appears as
-      # text inside a pg_cron job body, never executed at migration-apply
-      # time). The real pg_cron also requires shared_preload_libraries and
-      # restricts scheduling to one fixed database via cron.database_name --
-      # structurally incompatible with this job's per-run throwaway
-      # database. Installing Postgres natively (rather than as a Docker
-      # service) lets this job drop in supabase/test/fake-extensions'
-      # minimal stand-ins before the server ever starts, with no
-      # preload/restart dance and no database-name restriction.
+      # Native Postgres, so the pg_cron/pg_net stand-ins can go in before it
+      # starts; scripts/ci-postgres.sh says why.
       - name: Install PostgreSQL and the pg_cron/pg_net test stubs
-        run: |
-          sudo systemctl start postgresql.service
-          PGVER=$(ls /usr/share/postgresql/)
-          sudo cp supabase/test/fake-extensions/*.control supabase/test/fake-extensions/*.sql "/usr/share/postgresql/$PGVER/extension/"
-          sudo systemctl restart postgresql.service
-          sudo -u postgres psql -c "alter user postgres password 'postgres';"
-          pg_isready -h localhost -p 5432 -U postgres
+        run: bash scripts/ci-postgres.sh
 
       # Matching table names never proved the applied SQL matched the
       # repository's. This compares normalised SQL, per migration.
@@ -267,6 +251,13 @@ jobs:
       # Proves a fresh database is buildable from the repository alone.
       - name: Build a fresh database from the migrations
         run: bash scripts/verify-migrations.sh
+
+      # The release job compares production's live definitions with a fresh
+      # build's (F-02). This proves the fingerprint it compares ignores line
+      # endings, which 53 of production's functions were saved with, and
+      # still names a function whose body changed.
+      - name: Check the catalog fingerprint
+        run: bash scripts/catalog-fingerprint.test.sh
 
       - name: Check the behaviour the migrations guarantee
         run: |
@@ -333,6 +324,14 @@ jobs:
       # (SHR-304). It has never lost it, but nothing guarantees the deploy is
       # faster than the jobs this one waits on.
       AWAIT_DEPLOY_SECONDS: '300'
+      # A local Postgres, to build this commit's catalog and compare
+      # production's with it (F-02). The production connection is
+      # SUPABASE_DB_URL; libpq takes host, user and password from that URL
+      # over these.
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
     steps:
       # Depth 2 so verify-function-parity.sh can see what this commit changed.
       - uses: actions/checkout@v4
@@ -346,6 +345,9 @@ jobs:
 
       - name: Install (locked)
         run: npm ci
+
+      - name: Install PostgreSQL and the pg_cron/pg_net test stubs
+        run: bash scripts/ci-postgres.sh
 
       # No credential fallback here, unlike the functions job: that one runs on
       # every ref including forks, where a missing token is a fact about the

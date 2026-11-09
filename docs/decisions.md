@@ -3407,3 +3407,11 @@ The fifth group, the tests and CI: checks that could pass without checking.
   did not report fails the check instead of passing on its source, the row
   says which field is missing, and the check does not wait for a deploy to
   fix it.
+- **Production is compared with what the migrations build.** After a
+  release, every function, column, constraint, index, policy, trigger and
+  view on production is compared with a database built fresh from the same
+  commit, so a change made by hand in the dashboard fails the check even
+  though the migration history still matches. Line endings are not counted:
+  53 functions were applied from an editor that saved Windows line endings,
+  and the code is the same. The scheduled jobs are checked against this
+  project on every release too, not only after a recovery.
