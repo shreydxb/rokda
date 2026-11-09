@@ -12,7 +12,7 @@ vi.mock('../../lib/supabaseClient', () => ({
     rpc: async (name, args) => {
       calls.push({ name, args });
       const answer = answers[name];
-      const data = typeof answer === 'function' ? answer(args, calls.filter((c) => c.name === name).length) : answer;
+      const data = await (typeof answer === 'function' ? answer(args, calls.filter((c) => c.name === name).length) : answer);
       return { data: data ?? null, error: null };
     },
   },
@@ -55,6 +55,26 @@ const press = async (name) => {
   });
 };
 const saveButton = () => screen.getByRole('button', { name: 'Save dividend' });
+
+// The outside review, E-01: a check that comes back after the figures were
+// changed is about figures no longer on screen, so it is dropped, and Save
+// stays off until the figures shown are checked.
+describe('a check answered after the figures changed', () => {
+  it('does not offer to save the figures it checked', async () => {
+    let release;
+    answers.preview_dividend = () => new Promise((resolve) => {
+      release = () => resolve(preview());
+    });
+    open();
+    fireEvent.click(screen.getByRole('button', { name: 'Check' }));
+    type('Fees (USD)', '0.2');
+    await act(async () => {
+      release();
+    });
+    expect(screen.getByRole('button', { name: 'Save dividend' }).disabled).toBe(true);
+    expect(screen.getByRole('button', { name: 'Check' }).disabled).toBe(false);
+  });
+});
 
 describe('DividendForm: recording one that arrived', () => {
   it('checks the change with the database and says what it does to the fund', async () => {

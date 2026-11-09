@@ -66,7 +66,13 @@ export default function TradeForm({ holding, trade = null, trades = [], accounts
   const noFund = moneyMoves && funds.length === 0;
   const refusalContext = { holdingName: holding.name, currency, trades, formDate: form.trade_date };
 
+  // Counts the form's changes and checks: a check that comes back after the
+  // figures changed is about figures no longer on screen, so it is dropped.
+  // It used to turn Save on for them (outside review, E-01).
+  const checkSeqRef = useRef(0);
+
   function set(key, value) {
+    checkSeqRef.current += 1;
     setForm((f) => ({ ...f, [key]: value }));
     setErrors((e) => ({ ...e, [key]: undefined }));
     setChecked(null);
@@ -83,6 +89,7 @@ export default function TradeForm({ holding, trade = null, trades = [], accounts
     // eslint-disable-next-line no-unused-vars -- the preview takes no tax-to-confirm flag; the save does
     const { p_tax_to_confirm, ...previewArgs } = args;
     setBusy(true);
+    const mine = (checkSeqRef.current += 1);
     const { data, error } = await supabase.rpc('preview_trade', {
       p_holding_id: holding.id,
       ...previewArgs,
@@ -90,6 +97,7 @@ export default function TradeForm({ holding, trade = null, trades = [], accounts
       p_replace_trade_id: trade?.id ?? null,
     });
     setBusy(false);
+    if (mine !== checkSeqRef.current) return;
     if (error) {
       setMessage(`Couldn't check this trade: ${error.message}. Nothing was saved.`);
       return;

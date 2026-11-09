@@ -136,7 +136,13 @@ export default function DividendForm({ holding, dividend = null, action, account
     rootRef.current?.querySelector('input, select, button')?.focus();
   }, []);
 
+  // Counts the form's changes and checks: a check that comes back after the
+  // figures changed is about figures no longer on screen, so it is dropped.
+  // It used to turn Save on for them (outside review, E-01).
+  const checkSeqRef = useRef(0);
+
   function set(key, value) {
+    checkSeqRef.current += 1;
     setForm((f) => ({ ...f, [key]: value }));
     setErrors((e) => ({ ...e, [key]: undefined }));
     setChecked(null);
@@ -154,8 +160,10 @@ export default function DividendForm({ holding, dividend = null, action, account
     if (!change) return;
     const sent = given === null ? change : { ...change, already_included: given };
     setBusy(true);
+    const mine = (checkSeqRef.current += 1);
     const { data, error } = await supabase.rpc('preview_dividend', { p_dividend_id: dividend?.id ?? null, p_change: sent });
     setBusy(false);
+    if (mine !== checkSeqRef.current) return;
     if (error) {
       setMessage(`Couldn't check this dividend: ${error.message}. Nothing was saved.`);
       return;
