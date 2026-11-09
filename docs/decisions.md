@@ -3368,3 +3368,26 @@ The third group, the app's money sums: figures that read wrong.
   beyond the plan, not paid.
 - **Tests test what their names say.** The time-zone test runs in each
   zone, and the others are named for what they check.
+
+The fourth group, the screens: what a member sees and does.
+
+- **What is saved is what is shown.** A Check that comes back after the
+  figures changed is dropped, so Save never records figures no longer on
+  screen; a retry after a failed split or link runs only that step, never
+  adding the record twice; and a quick action, a deleted account or a
+  failed history read says what happened, instead of reading as done or as
+  empty.
+- **A failed read is not "none".** Accounts, Net worth and Overview say
+  what could not be loaded, with Try again, as Planning and Dividends do;
+  no month is closed on a total missing what failed, and "Day one" is only
+  for a household with nothing recorded.
+- **What a member is doing is theirs.** A background refresh no longer
+  replaces a name or rate being typed, a note deleted elsewhere keeps the
+  open draft, two Telegram switches flipped together each save only
+  themselves, and the concentration cap saved is read back.
+- **"Today" moves.** Every screen shares one clock that moves at midnight in
+  Dubai and with each refresh, so a page left open does not count from the
+  day it was opened.
+- **The keyboard reaches everything.** A holding opens from a button in its
+  name, Overview's links are real links, and every editor field has an
+  accessible name.
