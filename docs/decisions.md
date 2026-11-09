@@ -3342,14 +3342,19 @@ The third group, the app's money sums: figures that read wrong.
 
 - **One rule settles a reminder.** Four copies of the rule for what pays a
   bill or brings in an expected income each dropped a different condition.
-  There is one now, the bot's: a posted record (not a planned one), moving
-  money the reminder's way, on its account and in its category when it
-  names them, its owner's or shared, within its window and within 20% of
-  its amount. A planned salary is no longer moved into a closed month and
-  counted as that month's pay.
-- **Only what is known is drawn.** The portfolio chart leaves out a day
-  some holding has no value for, rather than drawing the others' sum as the
-  portfolio's; and a stored day is read as a calendar day everywhere, so
+  There is one now: a posted record (not a planned one), moving money the
+  reminder's way, on its account and in its category when it names them (a
+  transfer, or a split record with a line in it, counts as in it), its
+  owner's or shared, within its window and within 20% of its amount. It is
+  stricter than the bot's own check, which ignores direction, owner and
+  whether a record has posted. Mark paid starts the payment on the bill's
+  own account, so it settles the bill. A planned salary is no longer moved
+  into a closed month and counted as that month's pay.
+- **The chart says what it leaves out.** A day on the portfolio chart sums
+  the holdings held then: one bought later counts from when it was added,
+  so the line steps up on the purchase day, as the portfolio did. A holding
+  held but with no value recorded for a day is left out of it, and the
+  chart names it. A stored day is read as a calendar day everywhere, so
   nothing changes at 04:00.
 - **The dividend forecast holds only the next twelve months.** A
   declaration paid after them is not counted in them; fees never make a

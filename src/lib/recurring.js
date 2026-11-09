@@ -1,5 +1,6 @@
 import { addMonthsClamped, isPosted, parseDay, startOfDay } from './day';
 import { isTransfer } from './transactionKind';
+import { inCategory } from './splits';
 
 const CADENCES = ['weekly', 'monthly', 'quarterly', 'yearly'];
 
@@ -63,12 +64,14 @@ export function matchWindowDays(row) {
 }
 
 // Whether a transaction settles one occurrence of a reminder (a bill or an
-// expected income). The one rule every screen uses, the same as the bot's
-// own check (outside review, B-02): it settles only if it
+// expected income). The one rule every screen uses (outside review, B-02).
+// It is stricter than the bot's own check, which ignores direction, owner
+// and whether a record has posted. It settles only if it
 //   - has landed: a record dated after today is planned, not paid;
 //   - moves money the reminder's way: out for a bill, in (and not a refund
 //     or a transfer) for an income;
-//   - is on the reminder's account, and in its category, when it names them;
+//   - is on the reminder's account, and in its category, when it names them
+//     (a transfer, or a split record with a line in it, counts as in it);
 //   - is the reminder's owner's, or shared, when the reminder is personal;
 //   - falls within the reminder's window of the occurrence's date, at an
 //     amount within 20% of the reminder's.
@@ -81,7 +84,10 @@ export function settlesReminder(row, t, due, now = new Date()) {
   const rightWay = expected < 0 ? amount < 0 : amount > 0 && t.kind !== 'refund' && !isTransfer(t);
   if (!rightWay) return false;
   if (row.account_id && t.account_id !== row.account_id) return false;
-  if (row.category_id && t.category_id !== row.category_id) return false;
+  // A transfer has no category (a card bill is paid by one), and a split
+  // record's categories are on its lines: either counts when a line is in
+  // the reminder's category (the fresh review of group 3).
+  if (row.category_id && !isTransfer(t) && !inCategory(t, row.category_id)) return false;
   if (!row.is_shared && row.owner_member_id && !t.is_shared && t.owner_member_id != null && t.owner_member_id !== row.owner_member_id) return false;
   const days = Math.abs(Math.round((startOfDay(parseDay(t.occurred_at)) - startOfDay(due)) / 86400000));
   if (days > matchWindowDays(row)) return false;

@@ -144,6 +144,23 @@ describe('billStatus', () => {
       expect(billStatus(bill, [{ ...paid, account_id: 'acct-b', category_id: 'cat-food' }], after).posted).toBe(true);
     });
 
+    // The fresh review of group 3: a card bill is paid by a transfer, which
+    // has no category, and a bill can be paid by a record split across
+    // categories, whose own category is empty.
+    it('is settled by a transfer out, or a split record with a line in its category', () => {
+      const transfer = { ...paid, kind: 'transfer', category_id: null };
+      expect(billStatus(billOn, [transfer], after).posted).toBe(true);
+      const split = { ...paid, category_id: null, is_split: true, transaction_splits: [{ category_id: 'cat-util', amount: -300 }, { category_id: 'cat-food', amount: -200 }] };
+      expect(billStatus(billOn, [split], after).posted).toBe(true);
+      const elsewhere = { ...split, transaction_splits: [{ category_id: 'cat-food', amount: -500 }] };
+      expect(billStatus(billOn, [elsewhere], after).posted).toBe(false);
+    });
+
+    it('is never settled, as an income, by a transfer in', () => {
+      const salary = { next_due_date: '2026-09-15', cadence: 'monthly', amount: 5000 };
+      expect(billStatus(salary, [{ occurred_at: '2026-09-15', amount: 5000, kind: 'transfer' }], after).posted).toBe(false);
+    });
+
     it("is not settled by another member's own payment; a shared one counts", () => {
       expect(billStatus(billOn, [{ ...paid, owner_member_id: 'm2' }], after).posted).toBe(false);
       expect(billStatus(billOn, [{ ...paid, is_shared: true, owner_member_id: null }], after).posted).toBe(true);
