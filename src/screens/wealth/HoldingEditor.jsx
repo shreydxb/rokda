@@ -478,7 +478,7 @@ export default function HoldingEditor({
                 </div>
                 <div className="te-fieldcell">
                   <span className="te-fieldlabel">Price now ({form.currency || '—'})</span>
-                  <input className="te-fieldvalue" type="number" step="any" value={form.current_price} onChange={(e) => set('current_price', e.target.value)} disabled={!!form.price_provider} placeholder="—" />
+                  <input className="te-fieldvalue" aria-label={`Price now (${form.currency || '—'})`} type="number" step="any" value={form.current_price} onChange={(e) => set('current_price', e.target.value)} disabled={!!form.price_provider} placeholder="—" />
                 </div>
                 <div className="te-fieldcell">
                   <span className="te-fieldlabel">Invested (AED)</span>
@@ -487,7 +487,7 @@ export default function HoldingEditor({
                       Units × avg price, at today&rsquo;s rate
                     </span>
                   ) : (
-                    <input className="te-fieldvalue" type="number" step="0.01" value={form.invested_value_aed} onChange={(e) => set('invested_value_aed', e.target.value)} placeholder="—" />
+                    <input className="te-fieldvalue" aria-label="Invested (AED)" type="number" step="0.01" value={form.invested_value_aed} onChange={(e) => set('invested_value_aed', e.target.value)} placeholder="—" />
                   )}
                 </div>
                 <div className="te-fieldcell">
@@ -520,6 +520,7 @@ export default function HoldingEditor({
                   </span>
                   <input
                     className="te-fieldvalue"
+                    aria-label={form.price_provider === 'mfapi' ? 'AMFI scheme code' : form.price_provider === 'coingecko' ? 'CoinGecko coin id' : 'Symbol'}
                     type="text"
                     value={form.price_symbol}
                     onChange={(e) => set('price_symbol', e.target.value)}

@@ -20,7 +20,12 @@ vi.mock('../lib/supabaseClient', () => {
 
 const ROLES = ['textbox', 'combobox', 'spinbutton', 'checkbox', 'radio', 'listbox', 'searchbox', 'switch'];
 function unnamedFields() {
-  return ROLES.flatMap((role) => screen.queryAllByRole(role, { name: '' }).map((el) => `${role}: ${el.outerHTML.slice(0, 140)}`));
+  const byRole = ROLES.flatMap((role) => screen.queryAllByRole(role, { name: '' }).map((el) => `${role}: ${el.outerHTML.slice(0, 140)}`));
+  // A date input has no ARIA role, so the role queries never see it.
+  const dates = [...document.querySelectorAll('input[type="date"]')]
+    .filter((el) => !el.getAttribute('aria-label') && !el.getAttribute('aria-labelledby') && !el.closest('label') && !(el.id && document.querySelector(`label[for="${el.id}"]`)))
+    .map((el) => `date: ${el.outerHTML.slice(0, 140)}`);
+  return [...byRole, ...dates];
 }
 
 const MEMBERS = [{ id: 'm1', display_name: 'Partner A', role: 'owner', user_id: 'u1' }];
@@ -80,6 +85,16 @@ const EDITORS = {
   MemberEditor: async () => {
     const { default: C } = await import('./settings/MemberEditor');
     return <C member={null} householdId="h" isSelf={false} isLastOwner={false} onClose={noop} onSaved={noop} />;
+  },
+  HoldingEditor: async () => {
+    const { default: C } = await import('./wealth/HoldingEditor');
+    return <C holding={null} householdId="h" members={MEMBERS} accounts={ACCOUNTS} onClose={noop} onSaved={noop} />;
+  },
+  DividendForm: async () => {
+    const { default: C } = await import('./wealth/DividendForm');
+    const earned = { id: 'd1', holding_id: 'h1', currency: 'USD', status: 'earned', ex_date: '2026-10-15', pay_date: '2026-10-20', credited_on: null, units: 10, per_share: 1,
+      tax_pct: 30, expected_gross: 10, expected_tax: 3, expected_fees: 0, expected_net: 7, version: 1, paid_into_account_id: 'f1', event_id: 'e1' };
+    return <C holding={HOLDING} dividend={earned} action="record" accounts={ACCOUNTS} onCancel={noop} onSaved={noop} />;
   },
   RuleEditor: async () => {
     const { default: C } = await import('./settings/RuleEditor');
