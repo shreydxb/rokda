@@ -361,6 +361,10 @@ export function isBlocking(row) {
   // that have nothing to do with branches.
   if (row.configState === 'drift') return true;
   if (row.platformStatus != null && row.platformStatus !== 'ACTIVE') return true;
+  // A release check cannot pass what it could not see: in release mode a
+  // declared function whose verify_jwt or status the platform did not report
+  // fails, rather than passing on the source alone (outside review, F-05).
+  if (row.required && row.state !== 'not-deployed' && (row.configState === 'unknown' || row.platformStatus == null)) return true;
 
   // verify_jwt as the base declares it, while this commit changes it. On a
   // branch that is the proposed change, exactly as a source difference is. On

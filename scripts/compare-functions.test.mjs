@@ -232,6 +232,18 @@ describe('deployment configuration, which no source hash can see', () => {
     expect(isBlocking(row)).toBe(false);
   });
 
+  // The outside review, F-05: a release check cannot pass what it could not
+  // see. In release mode a declared function whose verify_jwt or status the
+  // platform did not report is a failure, not a pass.
+  it('fails closed in release mode on an unknown verify_jwt or status', () => {
+    const [noJwt] = rowsFor([{ slug: 'telegram-webhook', status: 'ACTIVE' }], { requireDeployed: true });
+    expect(isBlocking(noJwt)).toBe(true);
+    const [noStatus] = rowsFor([{ slug: 'telegram-webhook', verify_jwt: false }], { requireDeployed: true });
+    expect(isBlocking(noStatus)).toBe(true);
+    const [known] = rowsFor([{ slug: 'telegram-webhook', status: 'ACTIVE', verify_jwt: false }], { requireDeployed: true });
+    expect(isBlocking(known)).toBe(false);
+  });
+
   it('leaves a function config.toml says nothing about undeclared', () => {
     const rows = rowsFor([{ slug: 'scratch', status: 'ACTIVE', verify_jwt: true }], { repoSlugs: ['scratch'] });
     expect(rows[0].configState).toBe('undeclared');
