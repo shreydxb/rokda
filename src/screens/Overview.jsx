@@ -155,24 +155,36 @@ export default function Overview() {
     toastTimer.current = setTimeout(() => setToast(null), 6000);
   }
 
-  async function markReviewed(tx) {
-    const prev = { needs_review: tx.needs_review };
-    await supabase.from('transactions').update({ needs_review: false }).eq('id', tx.id);
+  // A quick action worked only if it changed the one record: a failed
+  // write, or a record deleted elsewhere, used to be told it had worked,
+  // with an undo for a change never made (outside review, E-11).
+  async function changeRecord(tx, change) {
+    const { data, error } = await supabase.from('transactions').update(change).eq('id', tx.id).select('id');
+    return !error && (data?.length ?? 0) === 1;
+  }
+
+  async function quickAction(tx, change, { done, failed }) {
+    const name = `"${tx.merchant ?? 'transaction'}"`;
+    const prev = Object.fromEntries(Object.keys(change).map((k) => [k, tx[k]]));
+    const ok = await changeRecord(tx, change);
     await reload();
-    showToast(`Marked "${tx.merchant ?? 'transaction'}" reviewed`, async () => {
-      await supabase.from('transactions').update(prev).eq('id', tx.id);
+    if (!ok) {
+      showToast(`Couldn't ${failed(name)}: it may have changed or been deleted elsewhere. Nothing was changed.`, null);
+      return;
+    }
+    showToast(done(name), async () => {
+      const undone = await changeRecord(tx, prev);
       await reload();
+      if (!undone) showToast(`Couldn't undo that: ${name} may have changed elsewhere.`, null);
     });
   }
 
-  async function categorise(tx, categoryId) {
-    const prev = { needs_review: tx.needs_review, category_id: tx.category_id };
-    await supabase.from('transactions').update({ category_id: categoryId, needs_review: false }).eq('id', tx.id);
-    await reload();
-    showToast(`Categorised "${tx.merchant ?? 'transaction'}"`, async () => {
-      await supabase.from('transactions').update(prev).eq('id', tx.id);
-      await reload();
-    });
+  function markReviewed(tx) {
+    return quickAction(tx, { needs_review: false }, { done: (name) => `Marked ${name} reviewed`, failed: (name) => `mark ${name} reviewed` });
+  }
+
+  function categorise(tx, categoryId) {
+    return quickAction(tx, { category_id: categoryId, needs_review: false }, { done: (name) => `Categorised ${name}`, failed: (name) => `categorise ${name}` });
   }
 
   if (loading) {
@@ -678,15 +690,17 @@ export default function Overview() {
       {toast && (
         <div className="ov-toast" role="status">
           <span>{toast.message}</span>
-          <button
-            type="button"
-            onClick={() => {
-              toast.undo();
-              setToast(null);
-            }}
-          >
-            Undo
-          </button>
+          {toast.undo && (
+            <button
+              type="button"
+              onClick={() => {
+                toast.undo();
+                setToast(null);
+              }}
+            >
+              Undo
+            </button>
+          )}
         </div>
       )}
     </div>
