@@ -137,7 +137,7 @@ describe('lifePlan: the timeline', () => {
     expect(potNeededAt({ ...base, firstYearShare: 0.25 })).toBe(potNeededAt(base));
   });
 
-  it('reproduces the adviser\'s retirement corpus to the rupee', () => {
+  it('reproduces the adviser\'s retirement corpus to within five rupees in 13.5 crore', () => {
     // Rs 15 lakh a year today, 7% inflation, 8.5% after retirement, retiring
     // in 2044 and funding Partner B to 2079, spending halved from 2074: the
     // adviser's sheet asks for Rs 13,48,76,610 in 2044 rupees. The sheet halves
@@ -152,6 +152,8 @@ describe('lifePlan: the timeline', () => {
       retireSpend: 1_500_000,
       survivorPct: 50,
     };
+    // Within five rupees, not to the rupee: the sheet rounds each year's
+    // figure and this does not (outside review, B-14, named honestly).
     const inToday = potNeededAt(adviser);
     expect(Math.abs(inToday * 1.07 ** 18 - 134_876_610)).toBeLessThan(5);
   });

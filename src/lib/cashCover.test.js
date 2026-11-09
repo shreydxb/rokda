@@ -81,6 +81,15 @@ describe('cashCoverStatus', () => {
     expect(status).toEqual({ liquidAed: 5000, dueAed: 4000, days: 7, covered: true, certain: true, shortfallAed: 0, unvalued: 0, unvaluedDue: 0 });
   });
 
+  // The boundary the test above names: exactly what is due is covered, with
+  // nothing short (outside review, B-14).
+  it('reports covered when liquid exactly meets what is due', () => {
+    const accounts = [CHECKING, SAVINGS]; // 5000 liquid
+    const bills = { recurring: [{ amount_aed: 3000, due_date: '2026-09-16' }, { amount_aed: 2000, due_date: '2026-09-21' }], credit_cards: [] };
+    const status = cashCoverStatus(accounts, bills, { days: 7, today });
+    expect(status).toMatchObject({ liquidAed: 5000, dueAed: 5000, covered: true, shortfallAed: 0 });
+  });
+
   it('reports the exact shortfall when liquid falls short', () => {
     const accounts = [CASH]; // 500 liquid
     const bills = { recurring: [{ amount_aed: 4000, due_date: '2026-09-16' }], credit_cards: [] };
