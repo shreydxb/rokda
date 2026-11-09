@@ -54,6 +54,11 @@ let holdingFilters: (string | null)[] = [];
 let dividendSymbols: Record<string, unknown>[] | null = [];
 let dividendRecords: Record<string, unknown>[] = [];
 let earnCalls = 0;
+// The FDs fd-accrual finds, what it wrote to each, and one whose write fails.
+let fdAccounts: Record<string, unknown>[] = [];
+let fdFilters: string[] = [];
+let fdPatches: { id: string | null; body: Record<string, unknown> }[] = [];
+let failFdUpdate: string | null = null;
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -88,6 +93,16 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       return json(feedHoldings);
     }
     holdingPatches.push(await req.json());
+    return new Response(null, { status: 204 });
+  }
+  if (url.origin === SUPABASE_URL && url.pathname === "/rest/v1/accounts") {
+    if (req.method === "GET") {
+      fdFilters.push(`type=${url.searchParams.get("type")}&fd_status=${url.searchParams.get("fd_status")}`);
+      return json(fdAccounts);
+    }
+    const id = (url.searchParams.get("id") ?? "").replace(/^eq\./, "") || null;
+    if (id === failFdUpdate) return json({ code: "57014", message: "canceling statement due to statement timeout" }, 500);
+    fdPatches.push({ id, body: await req.json() });
     return new Response(null, { status: 204 });
   }
   if (url.origin === SUPABASE_URL && url.pathname === "/rest/v1/rpc/dividend_symbols") {
@@ -166,6 +181,10 @@ function test(name: string, fn: () => Promise<void>): void {
       dividendSymbols = [];
       dividendRecords = [];
       earnCalls = 0;
+      fdAccounts = [];
+      fdFilters = [];
+      fdPatches = [];
+      failFdUpdate = null;
       Deno.env.delete("ALPHAVANTAGE_API_KEY");
       await fn();
     },
@@ -190,6 +209,19 @@ test("fd-accrual runs for the daily job's scheduler secret", async () => {
   assertEquals(requests[0], LOOKUP);
   assert(requests.some((r) => r.includes("/rest/v1/accounts")), "it never looked for FDs");
   assert(!requests.some((r) => r.includes("/auth/v1/user")));
+});
+
+// The outside review, F-04: the accrual itself, not only who may run it.
+// Every active FD is touched once (its trigger recomputes it against today),
+// and one whose write fails is counted, not lost, while the rest go on.
+test("fd-accrual touches every active FD once, and counts one it could not", async () => {
+  fdAccounts = [{ id: "fd1" }, { id: "fd2" }, { id: "fd3" }];
+  failFdUpdate = "fd2";
+  const res = await call(fdAccrual, "POST", null, SCHEDULER_SECRET);
+  assertEquals(res.status, 200);
+  assertEquals(await res.json(), { touched: 2, failed: 1 });
+  assertEquals(fdFilters, ["type=eq.fd&fd_status=eq.active"]);
+  assertEquals(fdPatches, [{ id: "fd1", body: { fd_status: "active" } }, { id: "fd3", body: { fd_status: "active" } }]);
 });
 
 test("fd-accrual refuses every caller without the secret, and touches nothing", async () => {
