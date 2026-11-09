@@ -27,8 +27,22 @@ describe('runProductionPsql', () => {
     expect(calls[0].command).toBe('psql');
     expect(calls[0].args.join(' ')).not.toContain(PASSWORD);
     expect(calls[0].args[0]).toContain('pooler.supabase.com');
-    expect(calls[0].args.slice(1)).toEqual(['-v', 'ON_ERROR_STOP=1', '-At', '-c', 'select 1']);
+    expect(calls[0].args.slice(1)).toEqual(['-w', '-v', 'ON_ERROR_STOP=1', '-At', '-c', 'select 1']);
     expect(calls[0].env.PGPASSWORD).toBe(PASSWORD);
+  });
+
+  // The release job sets PGHOST, PGUSER and PGPASSWORD for its local build.
+  // The URL's own host, user and password must win, and a URL with no
+  // password must not send the local one, or wait at a prompt for one.
+  it("never sends the release job's local password to production", () => {
+    const local = { PGHOST: 'localhost', PGUSER: 'postgres', PGPASSWORD: 'postgres' };
+    const withPassword = fakePsql();
+    runProductionPsql({ dbUrl: DB_URL, projectRef: 'abcdefghijklmnopqrst', args: [], spawn: withPassword.spawn, env: local });
+    expect(withPassword.calls[0].env.PGPASSWORD).toBe(PASSWORD);
+    const without = fakePsql();
+    runProductionPsql({ dbUrl: 'postgresql://postgres.abcdefghijklmnopqrst@aws-0-region.pooler.supabase.com:5432/postgres', projectRef: 'abcdefghijklmnopqrst', args: [], spawn: without.spawn, env: local });
+    expect(without.calls[0].env).not.toHaveProperty('PGPASSWORD');
+    expect(without.calls[0].args).toContain('-w');
   });
 
   it('redacts the password from anything psql prints, and keeps its exit status', () => {

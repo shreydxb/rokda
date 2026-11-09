@@ -308,7 +308,12 @@ jobs:
     name: production matches main
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     needs: [verify, edge, migrations]
-    runs-on: ubuntu-latest
+    # Pinned, not ubuntu-latest: this job builds the catalog production is
+    # compared with, and Postgres prints definitions in its own major's words.
+    # 24.04 ships 16; production runs 17, and the two print this schema
+    # identically. Move it deliberately, and compare a fresh build with
+    # production when doing so (docs/environments.md).
+    runs-on: ubuntu-24.04
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}

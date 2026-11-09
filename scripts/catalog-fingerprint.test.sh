@@ -1,47 +1,85 @@
 #!/usr/bin/env bash
 # Does the catalog fingerprint see what it should, and only that? (F-02)
 #
-# Builds a fresh database, then changes it the two ways that matter:
+# Builds a fresh database once, then for each case changes a copy of it and
+# fingerprints the copy:
 #
-#   * A function rewritten with Windows line endings must read the same.
-#     Production holds 53 functions that were applied that way, and a check
-#     that reported them would be red on main for nothing.
-#   * A function whose body changed must read differently, and be named.
+#   * same: a difference that is not one. Functions rewritten with Windows
+#     line endings (53 of production's were applied that way), and a caller
+#     whose search_path differs, must read exactly as the build does, or the
+#     release check is red on main for nothing.
+#   * named: a change made by hand in the dashboard must be reported, as
+#     the one object it touched.
 #
-# Connection as for fresh-catalog.sh. The database is dropped again.
+# Connection as for fresh-catalog.sh. Every database is dropped again.
 set -euo pipefail
 
 ADMIN_DB="${PGDATABASE:-postgres}"
 DB="rokda_fingerprint_test_$$"
+COPY="${DB}_case"
 WORK="$(mktemp -d)"
-trap 'psql -d "$ADMIN_DB" -q -c "drop database if exists \"$DB\";" >/dev/null 2>&1 || true; rm -rf "$WORK"' EXIT
+drop() { PGOPTIONS='-c client_min_messages=warning' psql -d "$ADMIN_DB" -q -c "drop database if exists \"$1\";" > /dev/null 2>&1 || true; }
+trap 'drop "$COPY"; drop "$DB"; rm -rf "$WORK"' EXIT
 
 bash scripts/fresh-catalog.sh "$WORK/built.txt" "$DB" > /dev/null
+failures=0
+
+# check <label> <expected: same | a line compare-catalog must print> <sql> [PGOPTIONS for the fingerprint]
+# A named change must be the only difference, unless EXPECT_COUNT says how many.
+check() {
+  local label="$1" expected="$2" sql="$3" options="${4:-}"
+  drop "$COPY"
+  psql -d "$ADMIN_DB" -v ON_ERROR_STOP=1 -q -c "create database \"$COPY\" template \"$DB\";"
+  if [ -n "$sql" ]; then psql -d "$COPY" -v ON_ERROR_STOP=1 -q -c "$sql" > /dev/null; fi
+  if ! PGOPTIONS="$options" psql -d "$COPY" -v ON_ERROR_STOP=1 -At -F '|' -f scripts/catalog-fingerprint.sql > "$WORK/case.txt" 2> "$WORK/case.err"; then
+    echo "FAILED  $label: the fingerprint query itself failed: $(head -c 300 "$WORK/case.err")"
+    failures=$((failures + 1))
+    return
+  fi
+  local status=0
+  node scripts/compare-catalog.mjs "$WORK/built.txt" "$WORK/case.txt" > "$WORK/case.out" 2>&1 || status=$?
+  local found
+  found=$(grep -cE '^(MISSING|EXTRA|DIFFERENT) ' "$WORK/case.out" || true)
+  if [ "$expected" = same ]; then
+    if [ "$status" -ne 0 ]; then
+      echo "FAILED  $label: expected no difference, got:"; { grep -E '^(MISSING|EXTRA|DIFFERENT) ' "$WORK/case.out" || echo '(nothing)'; } | head -5
+      failures=$((failures + 1))
+      return
+    fi
+  elif [ "$status" -eq 0 ] || ! grep -qxF "$expected" <(sed -E 's/  \(.*\)$//' "$WORK/case.out") || [ "$found" != "${EXPECT_COUNT:-1}" ]; then
+    echo "FAILED  $label: expected '$expected' and ${EXPECT_COUNT:-1} difference(s) in all, got:"; { grep -E '^(MISSING|EXTRA|DIFFERENT) ' "$WORK/case.out" || echo '(nothing)'; } | head -5
+    failures=$((failures + 1))
+    return
+  fi
+  echo "ok      $label"
+}
+
 FN="public.touch_updated_at()"
+CRLF="do \$\$ begin execute replace(pg_get_functiondef('$FN'::regprocedure), E'\n', E'\r\n'); end \$\$;"
 
-# Every line ending in the definition becomes \r\n, as an editor on Windows
-# would have saved it. Postgres keeps the body exactly as given.
-psql -d "$DB" -v ON_ERROR_STOP=1 -q -c "do \$\$ begin execute replace(pg_get_functiondef('$FN'::regprocedure), E'\n', E'\r\n'); end \$\$;"
-crs=$(psql -d "$DB" -At -c "select position(E'\r' in prosrc) > 0 from pg_proc where oid = '$FN'::regprocedure")
-if [ "$crs" != "t" ]; then echo "catalog-fingerprint test: could not give $FN Windows line endings" >&2; exit 1; fi
-psql -d "$DB" -v ON_ERROR_STOP=1 -At -F '|' -f scripts/catalog-fingerprint.sql > "$WORK/crlf.txt"
-if ! node scripts/compare-catalog.mjs "$WORK/built.txt" "$WORK/crlf.txt" > "$WORK/crlf.out"; then
-  cat "$WORK/crlf.out"
-  echo "catalog-fingerprint test: FAILED — line endings alone made $FN read as different" >&2
+check 'Windows line endings in a function body' same "$CRLF"
+check "a caller whose search_path is pg_catalog" same '' '-c search_path=pg_catalog'
+check "a caller whose search_path is public, private" same '' '-c search_path=public,private'
+check 'an edited function body' "DIFFERENT  function $FN" \
+  "do \$\$ begin execute regexp_replace(pg_get_functiondef('$FN'::regprocedure), '\\\$function\\\$\\s*\$', E'-- edited\n\$function\$'); end \$\$;"
+# Two rows: the aggregate, and who may execute it.
+EXPECT_COUNT=2 check 'an aggregate added by hand, named rather than breaking the query' 'EXTRA      function public.rokda_test_sum(numeric)' \
+  'create aggregate public.rokda_test_sum(numeric) (sfunc = numeric_add, stype = numeric);'
+check 'a trigger switched off' 'DIFFERENT  trigger public.household_members.household_members_guard_role' \
+  'alter table public.household_members disable trigger household_members_guard_role;'
+check 'a function opened to signed-out callers' 'DIFFERENT  access public.get_scheduler_secret()' \
+  'grant execute on function public.get_scheduler_secret() to anon;'
+check 'a table opened to signed-out writes' 'DIFFERENT  access public.dividend_feed_state' \
+  'grant insert on public.dividend_feed_state to anon;'
+check 'the receipt photos policy dropped' 'MISSING    policy storage.objects.household members can read their receipt photos' \
+  'drop policy "household members can read their receipt photos" on storage.objects;'
+check 'the receipt bucket made public' 'DIFFERENT  bucket telegram-receipts' \
+  "update storage.buckets set public = true where id = 'telegram-receipts';"
+check 'an identity column loosened to BY DEFAULT' 'DIFFERENT  column public.telegram_call_log.id' \
+  'alter table public.telegram_call_log alter column id set generated by default;'
+
+if [ "$failures" -gt 0 ]; then
+  echo "catalog-fingerprint test: $failures case(s) FAILED" >&2
   exit 1
 fi
-
-# A real edit: one line added to the body.
-psql -d "$DB" -v ON_ERROR_STOP=1 -q -c "do \$\$ begin execute regexp_replace(pg_get_functiondef('$FN'::regprocedure), '\\\$function\\\$\\s*\$', E'-- edited\n\$function\$'); end \$\$;"
-psql -d "$DB" -v ON_ERROR_STOP=1 -At -F '|' -f scripts/catalog-fingerprint.sql > "$WORK/edited.txt"
-if node scripts/compare-catalog.mjs "$WORK/built.txt" "$WORK/edited.txt" > "$WORK/edited.out"; then
-  echo "catalog-fingerprint test: FAILED — an edited body of $FN read as the same" >&2
-  exit 1
-fi
-if ! grep -qF "DIFFERENT  function $FN" "$WORK/edited.out" || [ "$(grep -c '^DIFFERENT\|^MISSING\|^EXTRA' "$WORK/edited.out")" != 1 ]; then
-  cat "$WORK/edited.out"
-  echo "catalog-fingerprint test: FAILED — expected exactly $FN to differ" >&2
-  exit 1
-fi
-
-echo "catalog-fingerprint test: ok — line endings ignored, an edited body named"
+echo "catalog-fingerprint test: ok"

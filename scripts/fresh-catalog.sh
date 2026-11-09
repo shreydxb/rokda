@@ -17,6 +17,17 @@ OUT="${1:?usage: scripts/fresh-catalog.sh <out-file> [database-name]}"
 ADMIN_DB="${PGDATABASE:-postgres}"
 DB="${2:-rokda_catalog_$$}"
 
+# Only on a test server. A recovery shell can hold PGHOST and PGPASSWORD for
+# the new project, and this creates a database and runs every migration in
+# it. The pg_cron stub (supabase/test/fake-extensions, version 0.1) exists
+# nowhere else, so its presence is what marks a server as safe to build on.
+stub=$(psql -d "$ADMIN_DB" -v ON_ERROR_STOP=1 -At -c "select coalesce((select default_version from pg_available_extensions where name = 'pg_cron'), 'none')")
+if [ "$stub" != "0.1" ]; then
+  echo "fresh-catalog: refusing to build on $(psql -d "$ADMIN_DB" -At -c "select coalesce(inet_server_addr()::text, 'a local socket')") — its pg_cron is '$stub', not the 0.1 test stub." >&2
+  echo "  Point PGHOST at a test Postgres with supabase/test/fake-extensions installed (scripts/ci-postgres.sh)." >&2
+  exit 1
+fi
+
 PGOPTIONS='-c client_min_messages=warning' psql -d "$ADMIN_DB" -v ON_ERROR_STOP=1 -q -c "drop database if exists \"$DB\";" -c "create database \"$DB\";"
 if [ -z "${2:-}" ]; then
   trap 'psql -d "$ADMIN_DB" -q -c "drop database if exists \"$DB\";" >/dev/null 2>&1 || true' EXIT

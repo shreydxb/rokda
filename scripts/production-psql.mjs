@@ -21,10 +21,14 @@ export function runProductionPsql({ dbUrl, projectRef, args, spawn = spawnSync, 
   }
   assertSameProject({ dbUrl, projectRef });
   const { safeUrl, password } = splitDbUrl(dbUrl);
-  const result = spawn('psql', [safeUrl, '-v', 'ON_ERROR_STOP=1', ...args], {
+  // The release job exports PGPASSWORD for its local build. A URL without a
+  // password must not send that one to production instead; -w stops psql
+  // waiting at a prompt for one.
+  const { PGPASSWORD: _local, ...rest } = env;
+  const result = spawn('psql', [safeUrl, '-w', '-v', 'ON_ERROR_STOP=1', ...args], {
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024,
-    env: password ? { ...env, PGPASSWORD: password } : env,
+    env: password ? { ...rest, PGPASSWORD: password } : rest,
   });
   if (result.error) {
     return { status: 1, stdout: '', stderr: `psql could not run: ${redact(result.error.message, password)}\n` };

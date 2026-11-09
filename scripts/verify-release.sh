@@ -43,7 +43,7 @@ if [ -z "${SUPABASE_ACCESS_TOKEN:-}" ] || [ -z "${SUPABASE_PROJECT_REF:-}" ] || 
   echo "  is not a passing one -- so this fails rather than skipping." >&2
   exit 1
 fi
-if ! psql -d "${PGDATABASE:-postgres}" -q -c 'select 1' > /dev/null 2>&1; then
+if ! psql -d "${PGDATABASE:-postgres}" -q -c 'select 1' > /dev/null; then
   echo "verify-release: no local Postgres to build this commit's catalog in (PGHOST, PGUSER, PGPASSWORD)." >&2
   echo "  It needs the pg_cron/pg_net stubs from supabase/test/fake-extensions; scripts/ci-postgres.sh" >&2
   echo "  installs them. Without it production's definitions cannot be checked, so this fails." >&2
@@ -67,6 +67,9 @@ bash scripts/verify-function-parity.sh --require-deployed
 
 echo
 echo "verify-release: comparing production's live definitions with a fresh build of this commit"
+# Definitions are read back as each server prints them, so a new Postgres
+# major on either side is the first thing to suspect when this fails.
+echo "  built on Postgres $(psql -d "${PGDATABASE:-postgres}" -At -c 'show server_version'), production runs $(node scripts/production-psql.mjs -At -c 'show server_version')"
 bash scripts/fresh-catalog.sh "$WORKDIR/catalog-built.txt"
 node scripts/production-psql.mjs -At -F '|' -f scripts/catalog-fingerprint.sql > "$WORKDIR/catalog-production.txt"
 node scripts/compare-catalog.mjs "$WORKDIR/catalog-built.txt" "$WORKDIR/catalog-production.txt"
