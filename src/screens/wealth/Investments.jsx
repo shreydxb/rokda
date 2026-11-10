@@ -46,7 +46,17 @@ export default function Investments({ household, members, me, data, loading, rel
   // The id being edited, not the row: after a trade the screen reloads, and
   // the editor must show the holding as it is now, not as it was opened.
   const [editingId, setEditingId] = useState(null);
-  const editing = editingId === 'new' ? 'new' : (holdings.find((h) => h.id === editingId) ?? null);
+  // The row as it was opened. Deleted elsewhere while open, the holding drops
+  // out of the next refresh, and with it went the editor and its draft; it
+  // stays open on this row and says so (round 2 of the outside review, E2-5).
+  const [editingOpened, setEditingOpened] = useState(null);
+  const openHolding = (h) => {
+    setEditingId(h.id);
+    setEditingOpened(h);
+  };
+  const current = editingId && editingId !== 'new' ? (holdings.find((h) => h.id === editingId) ?? null) : null;
+  const editingGone = Boolean(editingId && editingId !== 'new' && !current);
+  const editing = editingId === 'new' ? 'new' : (current ?? (editingGone ? editingOpened : null));
   // Raised after a trade made in the editor has been re-read: the editor is
   // then opened afresh on the holding's new figures. A refresh from anywhere
   // else leaves an open editor, and whatever is typed in it, alone.
@@ -401,13 +411,13 @@ export default function Investments({ household, members, me, data, loading, rel
                     const value = scopedHoldingValue(h, scopeMemberId);
                     const pctOfTotal = totalValue > 0 ? value / totalValue : null;
                     return (
-                      <tr key={h.id} className="wl-holdrow" onClick={() => setEditingId(h.id)}>
+                      <tr key={h.id} className="wl-holdrow" onClick={() => openHolding(h)}>
                         <td>
                           {/* The row opens on a click; the name is the button
                               that opens it from the keyboard (outside review,
                               E-09). */}
                           <div>
-                            <button type="button" className="wl-holdname" onClick={(e) => { e.stopPropagation(); setEditingId(h.id); }}>
+                            <button type="button" className="wl-holdname" onClick={(e) => { e.stopPropagation(); openHolding(h); }}>
                               {h.name}
                             </button>
                           </div>
@@ -468,7 +478,7 @@ export default function Investments({ household, members, me, data, loading, rel
           {showSold && (
             <div className="mn-list" style={{ marginTop: 10 }}>
               {sold.map((h) => (
-                <SoldRow key={h.id} holding={h} trades={holdingTrades} members={members} money={money} scopeMemberId={scopeMemberId} fx={fx} onOpen={() => setEditingId(h.id)} />
+                <SoldRow key={h.id} holding={h} trades={holdingTrades} members={members} money={money} scopeMemberId={scopeMemberId} fx={fx} onOpen={() => openHolding(h)} />
               ))}
             </div>
           )}
@@ -479,6 +489,7 @@ export default function Investments({ household, members, me, data, loading, rel
         <HoldingEditor
           key={editing === 'new' ? 'new' : `${editing.id}:${editorGeneration}`}
           holding={editing === 'new' ? null : editing}
+          gone={editingGone}
           householdId={household?.id}
           members={members}
           trades={holdingTrades}

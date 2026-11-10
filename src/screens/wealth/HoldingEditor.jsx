@@ -39,6 +39,8 @@ const NO_TRADES = [];
 
 export default function HoldingEditor({
   holding: holdingAsOpened,
+  // Deleted elsewhere since it was opened: the draft stays, and says so.
+  gone = false,
   householdId,
   members,
   trades = NO_TRADES,
@@ -328,6 +330,11 @@ export default function HoldingEditor({
         </div>
 
         <form className="te-form" onSubmit={handleSave}>
+          {gone && (
+            <p className="ov-warn" role="alert" style={{ marginTop: 0, fontSize: 12.5 }}>
+              This holding was deleted elsewhere. Copy what you need from your draft, then close.
+            </p>
+          )}
           {/* The holding's own fields lock while a trade is recorded or fixed:
               saving the trade reloads the holding, and an edit made meanwhile
               would be lost. */}

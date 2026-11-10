@@ -423,3 +423,27 @@ describe('Investments: holdings that never loaded', () => {
     expect(reload).toHaveBeenCalled();
   });
 });
+
+// Round 2 of the outside review, E2-5: a holding deleted elsewhere while it
+// is open dropped out of the refresh, and with it went the editor and every
+// change typed into it. It stays open with the draft and says why.
+describe('Investments: a holding deleted elsewhere while it is open', () => {
+  const screenFor = (holdings) => (
+    <Investments household={{ id: 'h' }} members={MEMBERS} me={MEMBERS[0]} loading={false} data={{ holdings, holdingHistory: [], holdingTrades: [], accounts: [], reload: vi.fn() }} />
+  );
+
+  it('keeps the editor and its draft, and says the holding was deleted', () => {
+    const { rerender } = renderScreen(screenFor([PRICED_HOLDING]));
+    fireEvent.click(screen.getByRole('button', { name: 'AAPL' }));
+    fireEvent.change(screen.getByPlaceholderText('e.g. VWRA'), { target: { value: 'AAPL renamed' } });
+    // The partner deleted it; the next refresh no longer has it.
+    rerender(
+      <ScopeProvider>
+        <CurrencyProvider>{screenFor([])}</CurrencyProvider>
+      </ScopeProvider>,
+    );
+    expect(screen.getByRole('dialog', { name: 'Edit holding' })).toBeTruthy();
+    expect(screen.getByPlaceholderText('e.g. VWRA').value).toBe('AAPL renamed');
+    expect(screen.getByRole('alert').textContent).toMatch(/deleted elsewhere/);
+  });
+});
