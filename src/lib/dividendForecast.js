@@ -30,8 +30,15 @@ export function forecastHolding({ holding, payments = [], frequency, gapDays = 3
     return { kind, day: null, month: null, gross, withheld, fees, net: round4(gross - withheld - fees), currency, ...extra };
   };
 
+  // Only what is paid within the twelve months counts in them (outside
+  // review, B-11): a declared dividend, a projected one, and an earned one,
+  // which round 2 found was counted wherever its payment fell. One paid after
+  // them is still owed, and Coming up lists it from the record itself.
+  const end = addMonths(today, 12);
+  const earnedInYear = (earnedUnpaid ?? []).filter((d) => (d.pay_date ?? addDays(d.ex_date, gapDays)) <= end);
+
   // Earned and not yet received: what is owed, whatever is held now.
-  const items = (earnedUnpaid ?? []).map((d) => ({
+  const items = earnedInYear.map((d) => ({
     kind: 'earned', dividendId: d.id, day: d.pay_date ?? null, month: d.pay_date ? null : addDays(d.ex_date, gapDays).slice(0, 7),
     gross: Number(d.expected_gross), withheld: Number(d.expected_tax), fees: Number(d.expected_fees), net: Number(d.expected_net), currency,
   }));
@@ -40,13 +47,10 @@ export function forecastHolding({ holding, payments = [], frequency, gapDays = 3
   // Its amount a share is on the basis of its ex-date; a split since puts it
   // on today's, the way the share's payments are (outside review, B-04).
   const factorOn = (exDate) => (payments ?? []).find((p) => p.exDate === exDate)?.factor ?? 1;
-  let perShareYear = (earnedUnpaid ?? []).reduce((sum, d) => sum + (Number(d.per_share) || 0) / factorOn(d.ex_date), 0);
+  let perShareYear = earnedInYear.reduce((sum, d) => sum + (Number(d.per_share) || 0) / factorOn(d.ex_date), 0);
   let status;
 
-  // Only what is paid within the twelve months counts in them: a declared
-  // dividend paid after them was counted too (outside review, B-11). It still
-  // says the share is paying.
-  const end = addMonths(today, 12);
+  // A declared dividend paid after them still says the share is paying.
   const declaredInYear = (declared ?? []).filter((e) => (e.pay_date ?? addDays(e.ex_date, gapDays)) <= end);
   if (units <= 0) {
     status = 'not_held';

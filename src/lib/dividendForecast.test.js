@@ -167,6 +167,22 @@ describe('earned and projected', () => {
   });
 });
 
+// Round 2 of the outside review (B2-2): an earned dividend paid after the
+// twelve months was counted in them, and in the yield. It is still owed, and
+// Coming up lists it from the record itself.
+describe('earned and paid after the twelve months', () => {
+  it('is not counted in the next twelve months, and one paid just inside them is', () => {
+    const quarterly = ['2025-11-01', '2026-02-01', '2026-05-01', '2026-08-01'].map((d) => event('ABC', d, 1, { pay_date: `${d.slice(0, 8)}28` }));
+    const late = { id: 'd-late', ex_date: '2026-11-01', pay_date: '2027-11-04', per_share: 1, expected_gross: 10, expected_tax: 3, expected_fees: 0, expected_net: 7 };
+    const without = forecast(quarterly);
+    const withLate = forecast(quarterly, { earnedUnpaid: [late] });
+    expect(withLate.items.map((i) => i.dividendId).filter(Boolean)).toEqual([]);
+    expect(withLate.ordinaryPerShareNextYear).toBe(without.ordinaryPerShareNextYear);
+    const inside = forecast(quarterly, { earnedUnpaid: [{ ...late, id: 'd-inside', pay_date: '2027-11-03' }] });
+    expect(inside.items.map((i) => i.dividendId).filter(Boolean)).toEqual(['d-inside']);
+  });
+});
+
 describe('yields', () => {
   it('yields on value and on cost, and none without a price or an average', () => {
     expect(nextYearYields(holding(), 2)).toEqual({ onValue: 0.04, onCost: 0.05 });
