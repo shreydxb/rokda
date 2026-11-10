@@ -144,7 +144,7 @@ Several things live outside the `public` schema and are missed by the obvious
 Edge Functions and the schema itself are in git and are not part of this
 problem. `npm run compare:migrations` and `npm run verify:functions` prove that
 half before a deploy; `npm run verify:release` proves it against live state
-after one.
+after one, down to each live definition and scheduled job.
 
 ## 2. What the platform gives you
 
@@ -506,6 +506,11 @@ cannot, because none of those four is a row in `public`.
     This exports the new project's migration ledger fresh and requires every
     migration in this commit to be applied, every function declared in
     `config.toml` to be live and serving, and each one's `verify_jwt` to match.
+    It then compares the new project's definitions with a database built
+    fresh from this commit, and re-runs step 7's check of the scheduled jobs.
+    The fresh build needs a local Postgres with the pg_cron/pg_net stand-ins
+    (`PGHOST`, `PGUSER`, `PGPASSWORD`; `scripts/ci-postgres.sh` shows the
+    install), and the check fails without one.
     It replaces the old step 6, which re-ran `compare:migrations` against the
     *committed* snapshot file and so could not see the new project at all.
 

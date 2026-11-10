@@ -19,18 +19,34 @@
 # commit has is applied, every function config.toml declares is live, serving,
 # running this commit's source, and configured the way this commit says.
 #
+# Two more since the outside review (F-02). A matching migration history
+# proves the right scripts ran, not that production still defines what they
+# made: a function replaced in the dashboard keeps its history row. So
+# production's live catalog -- every function, column, constraint, index,
+# policy, trigger and view -- is compared with one built fresh from this
+# commit, which needs a local Postgres with the pg_cron/pg_net stubs (CI's
+# scripts/ci-postgres.sh). And the scheduled jobs are checked against this
+# project, as the recovery runbook does by hand.
+#
 # The applied side is exported fresh every run into a temp file. It
 # deliberately does NOT read docs/applied-migrations.json -- a release decision
 # should not rest on a checked-in description of production, which is the
 # failure this exists to prevent.
 #
-#   SUPABASE_ACCESS_TOKEN=... SUPABASE_PROJECT_REF=... scripts/verify-release.sh
+#   SUPABASE_ACCESS_TOKEN=... SUPABASE_PROJECT_REF=... SUPABASE_DB_URL=... \
+#   PGHOST=localhost PGUSER=postgres PGPASSWORD=postgres scripts/verify-release.sh
 set -euo pipefail
 
-if [ -z "${SUPABASE_ACCESS_TOKEN:-}" ] || [ -z "${SUPABASE_PROJECT_REF:-}" ]; then
-  echo "verify-release: SUPABASE_ACCESS_TOKEN and SUPABASE_PROJECT_REF are required." >&2
+if [ -z "${SUPABASE_ACCESS_TOKEN:-}" ] || [ -z "${SUPABASE_PROJECT_REF:-}" ] || [ -z "${SUPABASE_DB_URL:-}" ]; then
+  echo "verify-release: SUPABASE_ACCESS_TOKEN, SUPABASE_PROJECT_REF and SUPABASE_DB_URL are required." >&2
   echo "  Production state cannot be read without them, and an unverified release claim" >&2
   echo "  is not a passing one -- so this fails rather than skipping." >&2
+  exit 1
+fi
+if ! psql -d "${PGDATABASE:-postgres}" -q -c 'select 1' > /dev/null; then
+  echo "verify-release: no local Postgres to build this commit's catalog in (PGHOST, PGUSER, PGPASSWORD)." >&2
+  echo "  It needs the pg_cron/pg_net stubs from supabase/test/fake-extensions; scripts/ci-postgres.sh" >&2
+  echo "  installs them. Without it production's definitions cannot be checked, so this fails." >&2
   exit 1
 fi
 
@@ -50,4 +66,17 @@ echo "verify-release: comparing Edge Functions, their configuration and their st
 bash scripts/verify-function-parity.sh --require-deployed
 
 echo
-echo "verify-release: ok — production is running this commit's migrations and functions"
+echo "verify-release: comparing production's live definitions with a fresh build of this commit"
+# Definitions are read back as each server prints them, so a new Postgres
+# major on either side is the first thing to suspect when this fails.
+echo "  built on Postgres $(psql -d "${PGDATABASE:-postgres}" -At -c 'show server_version'), production runs $(node scripts/production-psql.mjs -At -c 'show server_version')"
+bash scripts/fresh-catalog.sh "$WORKDIR/catalog-built.txt"
+node scripts/production-psql.mjs -At -F '|' -f scripts/catalog-fingerprint.sql > "$WORKDIR/catalog-production.txt"
+node scripts/compare-catalog.mjs "$WORKDIR/catalog-built.txt" "$WORKDIR/catalog-production.txt"
+
+echo
+echo "verify-release: checking the scheduled jobs are aimed at this project"
+node scripts/production-psql.mjs -q -v base_url="https://$SUPABASE_PROJECT_REF.supabase.co" -f scripts/verify-cron-targets.sql
+
+echo
+echo "verify-release: ok — production is running this commit's migrations, functions, definitions and scheduled jobs"

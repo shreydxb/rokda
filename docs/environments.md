@@ -293,6 +293,68 @@ itself (`scripts/compare-functions.mjs`) is pure and unit-tested; the fetching
 lives in `scripts/verify-function-parity.sh`, the same split as
 `compare-migrations.mjs` and `verify-migrations.sh`.
 
+## Production's live definitions and scheduled jobs
+
+The outside review (F-02) found the release check one step short again. A
+matching migration history proves the right scripts ran on production, not
+that production still defines what they made: a function replaced in the
+dashboard, or a policy dropped in the SQL editor, leaves the history as it
+was. So `npm run verify:release` does two more things after the functions.
+
+- **The live catalog.** `scripts/fresh-catalog.sh` builds a database from this
+  commit (the platform shim, then every migration) and
+  `scripts/catalog-fingerprint.sql` lists what it defines in `public` and
+  `private`: every function, column (type, default, not null, generated,
+  identity), constraint, index, policy, trigger (with whether it is switched
+  on), view and row-security switch, each with an md5 of its definition as
+  Postgres reads it back. From `storage` it takes the receipt photos' policy
+  and bucket, which a migration makes. It also lists what signed-out
+  (`anon`) and signed-in (`authenticated`) callers may do: execute each
+  function; select, insert, update and delete on each table; use each
+  schema. The same query runs on production, and
+  `scripts/compare-catalog.mjs` names each object missing, extra or defined
+  differently. Only names are printed, because CI logs here are public.
+
+  Three rules keep it from differing for nothing. Line endings are read as
+  `\n`: 53 of production's functions were applied from an editor that saved
+  `\r\n`. The query fixes its own `search_path`, inside a transaction so a
+  pooled connection keeps it, because Postgres qualifies names in a
+  definition by what the caller's path can see. And NOT NULL is read from
+  the column only, since Postgres 18 also lists it as a constraint. With
+  these, production and a fresh build matched on all 1,598 objects when this
+  was written. `scripts/catalog-fingerprint.test.sh`, in the migrations job,
+  changes a copy of a fresh build in eleven ways and checks each is either
+  ignored or named: line endings, two callers' search paths, an edited body,
+  an aggregate, a trigger switched off, a function and a table opened to
+  `anon`, the receipt policy dropped, the bucket made public, and an
+  identity column loosened.
+
+  Not compared, so not proved: owners and raw grants (the platform sets them
+  differently from a plain Postgres; what they allow is compared above),
+  TRUNCATE, REFERENCES and TRIGGER privileges (Supabase grants all three to
+  `anon` and `authenticated` on every table, which the shim does not copy),
+  sequences, table storage options, index validity, comments, publication
+  membership, and anything in other schemas, such as triggers on `auth`.
+
+  Postgres prints definitions in its own major's words, so the release job
+  runs on `ubuntu-24.04` (Postgres 16) rather than `ubuntu-latest`, and logs
+  both servers' versions; 16 and production's 17 print this schema
+  identically. Moving either is a change to compare first. The fresh build
+  refuses any server whose pg_cron is not the 0.1 test stub, so a recovery
+  shell pointed at a real project cannot build a database there.
+- **The scheduled jobs.** `scripts/verify-cron-targets.sql`, the recovery
+  runbook's check, runs against production with this project's URL: all four
+  jobs exist, are active, call this project and carry their authentication,
+  the vault's scheduler secret is long enough, and there are no others.
+
+Both read production over `SUPABASE_DB_URL` through
+`scripts/production-psql.mjs`, which passes the password to psql in
+`PGPASSWORD`, redacts it from anything printed, and refuses a connection to
+another project than `SUPABASE_PROJECT_REF`. The release job installs a local
+Postgres with the pg_cron/pg_net stand-ins for the fresh build
+(`scripts/ci-postgres.sh`, shared with the migrations job), and the script
+fails if it has none rather than skipping the comparison.
+
 ## Reading the live migration ledger
 
 `npm run export:migrations` and `npm run verify:release` both need to read
