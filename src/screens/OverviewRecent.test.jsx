@@ -86,3 +86,28 @@ describe('Overview: Records links', () => {
     }
   });
 });
+
+// Round 2 of the outside review, E2-7: "History", "Activity", "All records in
+// Activity" and "Wealth" moved only on a click; the last was a div with a
+// link's role and no way to follow it from the keyboard. Each is a link.
+describe('Overview: the section links', () => {
+  it('are links with somewhere to go', async () => {
+    const { default: Overview } = await import('./Overview');
+    renderScreen(
+      <MemoryRouter initialEntries={['/']}>
+        <Routes>
+          <Route path="/" element={<Overview />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    const href = (name) => {
+      const link = screen.getByRole('link', { name });
+      expect(link.tagName).toBe('A');
+      return link.getAttribute('href');
+    };
+    expect(href('History →')).toBe('/wealth');
+    expect(href('Activity →')).toBe('/money');
+    expect(href('All records in Activity →')).toBe('/money');
+    expect(href('Wealth →')).toMatch(/^\/wealth\?.*accounts/);
+  });
+});

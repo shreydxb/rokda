@@ -518,9 +518,9 @@ export default function Overview() {
               ) : (
                 <span className="ov-muted">Runway needs {2 - runway.monthsOfHistory} more closed month(s) of spending</span>
               )}
-              <span className="ov-link" onClick={() => navigate('/wealth')}>
+              <Link className="ov-link" to="/wealth">
                 History →
-              </span>
+              </Link>
             </div>
           </section>
 
@@ -612,9 +612,9 @@ export default function Overview() {
             <div>
               <div className="ov-section-head">
                 <div className="ov-kicker">Recent activity</div>
-                <div className="ov-link" onClick={() => navigate('/money')}>
+                <Link className="ov-link" to="/money">
                   Activity →
-                </div>
+                </Link>
               </div>
               <div className="ov-list">
                 {recent.length === 0 ? (
@@ -639,19 +639,22 @@ export default function Overview() {
                   ))
                 )}
               </div>
+              {/* Real links, so Enter follows them and they open in a new
+                  tab; these moved only on a click (round 2 of the outside
+                  review, E2-7). */}
               {recent.length > 0 && (
-                <div className="ov-link ov-list-more" role="link" tabIndex={0} onClick={() => navigate('/money')}>
+                <Link className="ov-link ov-list-more" to="/money">
                   All records in Activity →
-                </div>
+                </Link>
               )}
             </div>
 
             <div>
               <div className="ov-section-head">
                 <div className="ov-kicker">Accounts</div>
-                <div className="ov-link" onClick={() => navigate(tabHref('/wealth', 'accounts'))}>
+                <Link className="ov-link" to={tabHref('/wealth', 'accounts')}>
                   Wealth →
-                </div>
+                </Link>
               </div>
               <div className="ov-list">
                 {unread.includes('accounts') ? (
