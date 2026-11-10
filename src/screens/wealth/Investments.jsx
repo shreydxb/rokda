@@ -145,7 +145,11 @@ export default function Investments({ household, members, me, data, loading, rel
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
 
-  const selected = selectedIdx !== null ? rangedSeries[selectedIdx] : rangedSeries[rangedSeries.length - 1];
+  // A point picked on a longer range, or before a refresh shortened the
+  // series, is past its end: today's point is shown instead of nothing, which
+  // took the tab down (round 2 of the outside review, E2-4).
+  const pickedIdx = selectedIdx !== null && selectedIdx < rangedSeries.length ? selectedIdx : null;
+  const selected = pickedIdx !== null ? rangedSeries[pickedIdx] : rangedSeries[rangedSeries.length - 1];
 
   return (
     <div>
@@ -251,7 +255,7 @@ export default function Investments({ household, members, me, data, loading, rel
                   </button>
                 ))}
               </div>
-              <PortfolioTrendChart series={rangedSeries} money={money} selectedIdx={selectedIdx} onSelect={setSelectedIdx} />
+              <PortfolioTrendChart series={rangedSeries} money={money} selectedIdx={pickedIdx} onSelect={setSelectedIdx} />
               {/* A day short of a holding held then is drawn without it, and
                   said (outside review, B-06). */}
               {(() => {
@@ -595,6 +599,8 @@ function PortfolioTrendChart({ series, selectedIdx, onSelect }) {
   const y = (v) => H - ((v - lo) / (hi - lo || 1)) * H;
 
   const points = series.map((p, i) => `${x(i).toFixed(1)},${y(p.total).toFixed(1)}`);
+  // The point picked, if it is in this series; else today's.
+  const dot = selectedIdx !== null && selectedIdx < series.length ? selectedIdx : series.length - 1;
   const areaPath = `M${x(0).toFixed(1)},${H} L${points.join(' L')} L${x(series.length - 1).toFixed(1)},${H} Z`;
 
   return (
@@ -608,15 +614,13 @@ function PortfolioTrendChart({ series, selectedIdx, onSelect }) {
           <div key={i} className="wl-invchart-col" onMouseEnter={() => onSelect(i)} onClick={() => onSelect(i)} />
         ))}
       </div>
-      {(selectedIdx !== null ? selectedIdx : series.length - 1) !== null && (
-        <div
-          className="wl-invchart-dot"
-          style={{
-            left: `${(x(selectedIdx !== null ? selectedIdx : series.length - 1) / W) * 100}%`,
-            top: `${(y(series[selectedIdx !== null ? selectedIdx : series.length - 1].total) / H) * 100}%`,
-          }}
-        />
-      )}
+      <div
+        className="wl-invchart-dot"
+        style={{
+          left: `${(x(dot) / W) * 100}%`,
+          top: `${(y(series[dot].total) / H) * 100}%`,
+        }}
+      />
     </div>
   );
 }
