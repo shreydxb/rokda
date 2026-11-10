@@ -3426,7 +3426,11 @@ the fixes held and find what they missed. Its money-sums pass found six more:
 
 - **A split receipt settles a bill by its line in the bill's category.** It
   was measured whole, so a 1-dirham rent line on a 1,000 receipt paid a
-  1,000 rent bill. A transfer, which has no lines, still counts whole.
+  1,000 rent bill. A transfer, which has no lines, still counts whole. A
+  bill paid by one record split across categories (rent and a service
+  charge, say) is measured by its own category's line, so its reminder's
+  amount should be that line. (The bot's own "was it paid?" check still
+  reads a split record's category only, not its lines.)
 - **"The next twelve months" holds only what is paid in them,** earned
   dividends included. One paid later is still owed, and Coming up lists it.
 - **Cash cover gives no verdict when both sides are unknown.** With a bill
@@ -3434,7 +3438,9 @@ the fixes held and find what they missed. Its money-sums pass found six more:
   tell, with both reasons, instead of "short by at least".
 - **A month of only transfers is not a month of records.** Nor, in one
   member's view, is a month of only the other member's own records. Either
-  read as a month of nothing earned or spent, which cut the plan's averages.
-- **Money is rounded once, at the end, as the database rounds.** A goal's
-  linked accounts are added before rounding to fils, and tax figures are
-  rounded to paise half away from zero.
+  read as a month of nothing earned or spent, which cut the averages built
+  on the months: the Life plan's, Insights' "vs average" and the bot's
+  unusual-spend nudge, and the Dividends tab's spending equivalent.
+- **Money is rounded as the database rounds.** Half a fils or a paisa
+  rounds away from zero, and a goal's linked accounts are added before the
+  total is rounded, so two halves of 5,000.01 are not 5,000.02.

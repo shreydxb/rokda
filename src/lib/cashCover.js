@@ -114,7 +114,8 @@ export function formatCashCoverLine(status) {
   // An unknown amount among what is due means the due total is a floor, not
   // the figure. "Covered" would be a clean verdict on an incomplete sum, so
   // it is not stated. A shortfall still is -- an understated total already
-  // exceeding the liquid money only understates the problem.
+  // exceeding the liquid money only understates the problem -- unless the
+  // liquid money is understated too (below).
   if (missing > 0) {
     const noun = missing === 1 ? 'One bill' : `${missing} bills`;
     const verb = missing === 1 ? 'has' : 'have';

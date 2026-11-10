@@ -75,6 +75,21 @@ describe('a month with nothing earned or spent in view is not a recorded month',
     expect([...planningMonths(rows, [], now).keys()]).toEqual(['2026-10']);
   });
 
+  // The records begin at the first that earns or spends: a transfer in July
+  // made August, whose pay landed before it was recorded, read as the second
+  // month of records and stay in as a month of spending with nothing earned.
+  it('starts the records at the first that earns or spends, not at a transfer', () => {
+    const rows = [
+      { amount: -500, kind: 'transfer', occurred_at: '2026-07-05', is_shared: true },
+      ...['08', '09', '10'].flatMap((m) => [
+        { amount: -3000, kind: 'expense', occurred_at: `2026-${m}-05`, is_shared: true, category_id: 'c' },
+        { amount: 10000, kind: 'income', occurred_at: `2026-${m}-28`, is_shared: true, category_id: 'pay' },
+      ]),
+    ];
+    const salary = { id: 'r', next_due_date: '2026-09-01', cadence: 'monthly', amount: 10000, active: true, is_shared: true };
+    expect([...planningMonths(rows, [salary], now).keys()]).toEqual(['2026-09', '2026-10']);
+  });
+
   it("leaves out, in one member's view, a month of the other member's own records only", () => {
     const rows = [
       { amount: -30, kind: 'expense', occurred_at: '2026-09-07', is_shared: false, owner_member_id: 'm2', category_id: 'c' },

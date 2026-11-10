@@ -248,6 +248,9 @@ describe('goalStatuses', () => {
     const account = (id) => ({ id, type: 'checking', currency: 'AED', balance: 5000.01, balance_aed: 5000.01, archived_at: null });
     const allocations = [{ goal_id: 'Bike', account_id: 'a1', share_pct: 50 }, { goal_id: 'Bike', account_id: 'a2', share_pct: 50 }];
     expect(cashSetAside('Bike', [], allocations, [account('a1'), account('a2')])).toBe(5000.01);
+    // Half a fils rounds away from zero, as the database rounds: 2.01 at 50%
+    // is 1.005, which Math.round alone made 1.00.
+    expect(cashSetAside('Bike', [], [allocations[0]], [{ ...account('a1'), balance: 2.01, balance_aed: 2.01 }])).toBe(1.01);
   });
 
   it('holds kept money in cash, and leaves an undated goal out of every plan', () => {

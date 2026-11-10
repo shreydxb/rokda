@@ -163,8 +163,8 @@ describe('billStatus', () => {
     it("measures a split record by its line in the bill's category", () => {
       const tiny = { ...paid, category_id: null, is_split: true, transaction_splits: [{ category_id: 'cat-util', amount: -1 }, { category_id: 'cat-food', amount: -499 }] };
       expect(billStatus(billOn, [tiny], after).posted).toBe(false);
-      const twoLines = { ...paid, amount: -700, category_id: null, is_split: true, transaction_splits: [{ category_id: 'cat-util', amount: -250 }, { category_id: 'cat-util', amount: -250 }, { category_id: 'cat-food', amount: -200 }] };
-      expect(billStatus(billOn, [twoLines], after).posted).toBe(true);
+      const near = { ...paid, amount: -700, category_id: null, is_split: true, transaction_splits: [{ category_id: 'cat-util', amount: -480 }, { category_id: 'cat-food', amount: -220 }] };
+      expect(billStatus(billOn, [near], after).posted).toBe(true);
       // A transfer has no lines and no category: its whole amount counts.
       expect(billStatus(billOn, [{ ...paid, kind: 'transfer', category_id: null }], after).posted).toBe(true);
     });
