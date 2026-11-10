@@ -62,6 +62,8 @@ type Backend = {
     // A link code expires the moment it has been looked up, as one can
     // between the lookup and the redemption.
     expireLinkCodeAfterLookup?: boolean;
+    // Inserting a message's second and later items into intake fails.
+    failIntakeItems?: boolean;
     // Telegram's getFile refuses (a 429) or says the file is too big for a bot.
     getFile?: "refuse" | "too_big";
     // Downloading the file, or storing it, fails.
@@ -331,6 +333,9 @@ async function postgrest(req: Request, url: URL): Promise<Response> {
     const incoming: Row[] = Array.isArray(body) ? body : [body];
     const written: Row[] = [];
     for (const r of incoming) {
+      if (table === "intake" && backend.faults.failIntakeItems && String(r.source_ref ?? "").includes("#")) {
+        return json({ code: "57014", message: "canceling statement due to statement timeout" }, 500);
+      }
       const row = { id: crypto.randomUUID(), created_at: new Date(backend.now).toISOString(), ...(DEFAULTS[table]?.() ?? {}), ...r };
       if (violatesUnique(table, row)) {
         return json({ code: "23505", message: "duplicate key value violates unique constraint" }, 409);
@@ -895,6 +900,23 @@ freshTest("an ordinary expense is captured once and its claim completed", async 
   assertEquals(capturedIntake().length, 1);
   assertEquals(capturedIntake()[0].source_ref, "7001");
   assertEquals(backend.log.get(7001)?.status, "completed");
+});
+
+// Round 2 of the outside review (D2-5): "Noon 40, Bakery 70" whose second
+// item failed to save was answered "2 expenses captured". Only what was
+// saved is counted, and what was not is named so it can be sent again.
+freshTest("a message's item that fails to save is named, not counted as captured", async () => {
+  backend.parse = [
+    { merchant: "Noon", amount: 40, currency: "AED", occurred_at: "2026-09-24", date_stated: true, source: "typed", category: null, card_last4: null, account_hint: null, confidence: 1, kind: "expense" },
+    { merchant: "Bakery", amount: 70, currency: "AED", occurred_at: "2026-09-24", date_stated: true, source: "typed", category: null, card_last4: null, account_hint: null, confidence: 1, kind: "expense" },
+  ];
+  backend.faults.failIntakeItems = true;
+  const res = await handler(textUpdate(7021, "Noon 40, Bakery 70"));
+  assertEquals(res.status, 200);
+  assertEquals(capturedIntake().length, 1);
+  assert(!lastReply().includes("2 expenses captured"), lastReply());
+  assert(lastReply().includes("1 expense captured"), lastReply());
+  assert(lastReply().includes("couldn't save AED 70.00 at Bakery"), lastReply());
 });
 
 // D-06: a receipt is kept, or Telegram is asked to send it again. A failure

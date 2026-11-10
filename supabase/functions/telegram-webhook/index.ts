@@ -5367,6 +5367,9 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
   let fastConfirmSummary: string | null = null;
   let singleInboxReason: string | null = null;
   const multiItemSummaries: string[] = [];
+  // Items of a message of several that could not be saved: named in the
+  // reply, so they can be sent again, rather than counted as captured.
+  const unsavedItems: string[] = [];
   const guessedDates: string[] = [];
   let itemsRead = false;
   let dividendsLeftOut = 0;
@@ -5450,7 +5453,11 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
         if (i === 0) {
           await supabase.from("intake").update(updatedRow).eq("id", inserted.id);
         } else {
-          await supabase.from("intake").insert({
+          // The write's own error, not only a thrown one: a refused insert
+          // used to be counted as captured, so "2 expenses captured" was said
+          // of one (round 2 of the outside review). A duplicate source_ref is
+          // this item saved by an earlier attempt.
+          const { error: itemError } = await supabase.from("intake").insert({
             household_id: member.household_id,
             member_id: member.id,
             source: "telegram",
@@ -5460,6 +5467,10 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
             status: "pending",
             ...updatedRow,
           });
+          if (itemError && itemError.code !== "23505") {
+            unsavedItems.push(`AED ${Number(item.amount ?? 0).toFixed(2)}${item.merchant ? ` at ${item.merchant}` : ""}`);
+            continue;
+          }
         }
 
         if (kept.length === 1) {
@@ -5509,11 +5520,15 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
   } else if (routingFailed && !itemsRead) {
     await reply(chatId, AI_BUSY_REPLY);
   } else {
+    const n = multiItemSummaries.length;
+    const unsavedNote = unsavedItems.length
+      ? ` I couldn't save ${unsavedItems.join(", ")}: send ${unsavedItems.length === 1 ? "it" : "them"} again.`
+      : "";
     await reply(
       chatId,
-      (multiItemSummaries.length > 1
-        ? `Got it — ${multiItemSummaries.length} expenses captured (${multiItemSummaries.join(", ")}). Check the Inbox to review each.`
-        : singleInboxReason ?? "Got it — check the Inbox to review.") + undatedNote(guessedDates, multiItemSummaries.length > 1 ? multiItemSummaries.length : 1) + dividendNote
+      (n > 1 || (n === 1 && unsavedItems.length)
+        ? `Got it — ${n} ${n === 1 ? "expense" : "expenses"} captured (${multiItemSummaries.join(", ")}). Check the Inbox to review ${n === 1 ? "it" : "each"}.`
+        : singleInboxReason ?? "Got it — check the Inbox to review.") + unsavedNote + undatedNote(guessedDates, n > 1 ? n : 1) + dividendNote
     );
   }
   return new Response("ok");
