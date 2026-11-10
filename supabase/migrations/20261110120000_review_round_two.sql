@@ -1,6 +1,6 @@
 -- Round 2 of the outside review (November 2026; docs/decisions.md, "What the
 -- outside review changed", Round 2). Each section fixes one finding; the
--- behaviour it guarantees is tested in supabase/test (R2-01 to R2-05).
+-- behaviour it guarantees is tested in supabase/test (R2-01 to R2-06).
 
 -- ---------------------------------------------------------------------------
 -- A number, not NaN or infinity
