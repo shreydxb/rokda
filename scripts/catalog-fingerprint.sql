@@ -7,12 +7,16 @@
 --
 -- The schemas the repository owns (public, private), minus anything an
 -- extension created, which follows the extension's version rather than this
--- repository; and from storage, the receipt photos' policy and bucket, which
--- a migration makes. Owners and raw grants are left out, since the platform
--- sets them differently from a plain Postgres. What signed-out (anon) and
--- signed-in (authenticated) callers may actually do is compared instead, as
--- 'access' rows: execute on each function, select, insert, update and delete
--- on each table, usage on each schema.
+-- repository; from storage, the receipt photos' policy and bucket, which a
+-- migration makes, and whether storage.objects enforces row-level security;
+-- and every scheduled job, its schedule and its command with the project's
+-- address set aside (the address is checked by verify-cron-targets.sql).
+-- Owners and raw grants are left out, since the platform sets them
+-- differently from a plain Postgres. What signed-out (anon) and signed-in
+-- (authenticated) callers, and the service role the bot and the jobs use,
+-- may actually do is compared instead, as 'access' rows: execute on each
+-- function, select, insert, update and delete on each table and on
+-- storage.objects, usage on each schema.
 --
 -- Three rules keep it from differing for nothing:
 --
@@ -39,7 +43,7 @@ rels as (
   where n.nspname in ('public', 'private')
     and not exists (select 1 from pg_depend d where d.classid = 'pg_class'::regclass and d.objid = c.oid and d.deptype = 'e')
 ),
-callers(role) as (values ('anon'), ('authenticated'))
+callers(role) as (values ('anon'), ('authenticated'), ('service_role'))
 select kind, name, md5(replace(def, E'\r\n', E'\n')) as hash from (
   -- pg_get_functiondef refuses an aggregate; one is named, not described.
   select 'function' as kind, f.nspname || '.' || f.proname || '(' || pg_get_function_identity_arguments(f.oid) || ')' as name,
@@ -83,7 +87,16 @@ select kind, name, md5(replace(def, E'\r\n', E'\n')) as hash from (
   select 'row security', r.nspname || '.' || r.relname, r.relrowsecurity::text || ' ' || r.relforcerowsecurity::text
   from rels r where r.relkind in ('r', 'p')
   union all
+  select 'row security', n.nspname || '.' || c.relname, c.relrowsecurity::text || ' ' || c.relforcerowsecurity::text
+  from pg_class c join pg_namespace n on n.oid = c.relnamespace
+  where c.oid in (to_regclass('storage.objects'), to_regclass('storage.buckets'))
+  union all
   select 'bucket', b.id, 'public ' || b.public::text from storage.buckets b
+  union all
+  select 'cron job', j.jobname,
+         j.schedule || ' active ' || j.active::text || ' '
+           || regexp_replace(j.command, 'https://[a-z0-9]+\.supabase\.co', 'https://<project>.supabase.co', 'g')
+  from cron.job j
   union all
   select 'access', f.nspname || '.' || f.proname || '(' || pg_get_function_identity_arguments(f.oid) || ')',
          (select string_agg(c.role || ' ' || has_function_privilege(c.role, f.oid, 'execute')::text, ', ' order by c.role) from callers c)
@@ -98,9 +111,17 @@ select kind, name, md5(replace(def, E'\r\n', E'\n')) as hash from (
           from callers c)
   from rels r where r.relkind in ('r', 'p', 'v', 'm')
   union all
+  select 'access', 'storage.objects',
+         (select string_agg(c.role || ' ' || concat_ws(',',
+                    case when has_table_privilege(c.role, 'storage.objects', 'select') then 'select' end,
+                    case when has_table_privilege(c.role, 'storage.objects', 'insert') then 'insert' end,
+                    case when has_table_privilege(c.role, 'storage.objects', 'update') then 'update' end,
+                    case when has_table_privilege(c.role, 'storage.objects', 'delete') then 'delete' end), ', ' order by c.role)
+          from callers c)
+  union all
   select 'access', 'schema ' || s.nspname,
          (select string_agg(c.role || ' ' || has_schema_privilege(c.role, s.nspname, 'usage')::text, ', ' order by c.role) from callers c)
-  from (values ('public'), ('private')) s(nspname)
+  from (values ('public'), ('private'), ('storage')) s(nspname)
 ) objects
 order by kind, name;
 
