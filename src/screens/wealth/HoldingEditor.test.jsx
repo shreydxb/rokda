@@ -593,6 +593,31 @@ describe('a holding\'s trades', () => {
     expect(screen.getByRole('button', { name: 'Delete' })).toBeTruthy();
     cleanup();
   });
+
+  // Round 2 of the outside review (C2-2): the database refuses to delete a
+  // holding with received or presumed dividends, which are tax records, so
+  // the editor says so instead of offering a Delete that fails.
+  it('replaces Delete with the reason on a holding with received dividends', () => {
+    const received = { id: 'd-1', holding_id: abc.id, status: 'presumed', ex_date: '2026-06-01', expected_net: 7 };
+    renderScreen(<HoldingEditor holding={abc} trades={[trades[0]]} dividends={[received]} accounts={ACCOUNTS} householdId="hh" members={[]} onClose={() => {}} onSaved={async () => {}} />);
+    expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
+    expect(screen.getByText('A holding with received dividends can’t be deleted: they are tax records. Keep it: sold to zero, it moves to Sold.')).toBeTruthy();
+    cleanup();
+  });
+
+  it('offers no Delete when its dividends could not be loaded', () => {
+    renderScreen(<HoldingEditor holding={abc} trades={[trades[0]]} dividendsFailed accounts={ACCOUNTS} householdId="hh" members={[]} onClose={() => {}} onSaved={async () => {}} />);
+    expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
+    cleanup();
+  });
+
+  it("keeps Delete when the only dividends were never received, or are another holding's", () => {
+    const earned = { id: 'd-2', holding_id: abc.id, status: 'earned', ex_date: '2026-06-01', expected_net: 7 };
+    const other = { id: 'd-3', holding_id: 'h-other', status: 'received', ex_date: '2026-06-01', received_net: 7 };
+    renderScreen(<HoldingEditor holding={abc} trades={[trades[0]]} dividends={[earned, other]} accounts={ACCOUNTS} householdId="hh" members={[]} onClose={() => {}} onSaved={async () => {}} />);
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeTruthy();
+    cleanup();
+  });
 });
 
 // Dividends (SHR-366): a share's withholding is a default the household can

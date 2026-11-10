@@ -5975,4 +5975,147 @@ begin
   end loop;
   raise notice 'RH-09 ok: a recorded answer names a proposal or an entry by id';
 end $$;
+-- ---------------------------------------------------------------------------
+-- Round 2 of the outside review (20261110_review_round_two)
+-- ---------------------------------------------------------------------------
+
+-- R2-01 (C2-1): a dividend added with the app's own id, saved twice (a retry
+-- after a lost response), is recorded once and moves its fund once. It was
+-- given a new id on every save, so with no ex-date nothing stopped a repeat.
+do $$
+declare c jsonb := pg_temp.d2_case(); r jsonb; m1 date := pg_temp.d2_m1(); n int;
+  v_id uuid := 'a2000000-0000-0000-0000-000000000001'; v_change jsonb;
+begin
+  v_change := jsonb_build_object('action', 'add', 'id', v_id, 'holding_id', c ->> 'holding', 'units', 10, 'per_share', 0.5,
+    'credited_on', m1 + 5, 'received_gross', 5, 'received_tax', 1.5, 'received_fees', 0);
+  for n in 1..2 loop
+    r := pg_temp.d2_save(null, v_change);
+    if (coalesce((r ->> 'ok')::boolean, false) is not true) is not false then raise exception 'R2-01 FAILED: save % gave %', n, r; end if;
+  end loop;
+  if ((select count(*) from holding_dividends where holding_id = (c ->> 'holding')::uuid and source = 'app') <> 1
+      or (select id from holding_dividends where holding_id = (c ->> 'holding')::uuid and source = 'app') <> v_id
+      or pg_temp.d2_bal((c ->> 'fund')::uuid) <> 103.5) is not false then
+    raise exception 'R2-01 FAILED: a retried add made % rows and left the fund at %',
+      (select count(*) from holding_dividends where holding_id = (c ->> 'holding')::uuid and source = 'app'), pg_temp.d2_bal((c ->> 'fund')::uuid);
+  end if;
+  if ((r ->> 'existing')::boolean is not true) is not false then raise exception 'R2-01 FAILED: the retry did not say it found the first save: %', r; end if;
+  raise notice 'R2-01 ok: a retried add is recorded once';
+end $$;
+
+-- R2-02 (C2-2): a holding with a received dividend cannot be deleted. Its
+-- receipts cascaded away with it, though they moved money and are tax
+-- records. One with only an earned dividend still can be.
+do $$
+declare c jsonb := pg_temp.d2_case(); d jsonb := pg_temp.d2_case(); r jsonb; refused boolean := false;
+begin
+  r := pg_temp.d2_save((c ->> 'dividend')::uuid, '{"action": "record"}');
+  begin
+    delete from holdings where id = (c ->> 'holding')::uuid;
+  exception when check_violation then refused := true;
+  end;
+  if (refused is not true or not exists (select 1 from holding_dividends where id = (c ->> 'dividend')::uuid)) is not false then
+    raise exception 'R2-02 FAILED: a holding with a received dividend was deleted';
+  end if;
+  delete from holdings where id = (d ->> 'holding')::uuid;
+  if (exists (select 1 from holdings where id = (d ->> 'holding')::uuid)) is not false then
+    raise exception 'R2-02 FAILED: a holding with only an earned dividend could not be deleted';
+  end if;
+  raise notice 'R2-02 ok: received dividends keep their holding';
+end $$;
+
+-- R2-03 (C2-3): NaN and infinity are refused wherever money comes in. 'NaN'
+-- is a valid numeric in Postgres, greater than every number and equal to
+-- itself, so it passed every "not negative" check and poisoned a balance.
+do $$
+declare c jsonb := pg_temp.d2_case(); r jsonb; refused boolean := false;
+  h uuid := 'a2000000-0000-0000-0000-000000000003'; fund uuid := gen_random_uuid();
+begin
+  insert into accounts (id, household_id, name, type, currency, balance, balance_as_of, is_shared)
+  values (fund, '11111111-1111-1111-1111-111111111111', 'R2 fund', 'broker_funds', 'USD', 100, now() - interval '60 days', true);
+  perform pg_temp.d1_holding(h, 'R2NAN', 'us_equity', 'USD', fund, household_today() - 30, 10);
+  r := record_trade(h, 'buy', household_today(), 1, 'NaN'::numeric, 0, p_source => 'bot', p_member_id => '22222222-2222-2222-2222-222222222222');
+  if (r ->> 'error' is distinct from 'bad_input' or pg_temp.d2_bal(fund) <> 100) is not false then raise exception 'R2-03 FAILED: a NaN price gave % (fund %)', r, pg_temp.d2_bal(fund); end if;
+  r := record_trade(h, 'buy', household_today(), 'Infinity'::numeric, 1, 0, p_source => 'bot', p_member_id => '22222222-2222-2222-2222-222222222222');
+  if (r ->> 'error' is distinct from 'bad_input') is not false then raise exception 'R2-03 FAILED: infinite units gave %', r; end if;
+  r := pg_temp.d2_save((c ->> 'dividend')::uuid, '{"action": "record", "received_gross": "NaN"}');
+  if (r ->> 'error' is distinct from 'bad_input' or pg_temp.d2_bal((c ->> 'fund')::uuid) <> 100) is not false then
+    raise exception 'R2-03 FAILED: a NaN dividend gave % (fund %)', r, pg_temp.d2_bal((c ->> 'fund')::uuid);
+  end if;
+  begin
+    perform private.move_fund(fund, 'NaN'::numeric, 'app', null);
+  exception when others then refused := true;
+  end;
+  if (refused is not true or pg_temp.d2_bal(fund) <> 100) is not false then raise exception 'R2-03 FAILED: a fund moved by NaN'; end if;
+  raise notice 'R2-03 ok: NaN and infinity move no money';
+end $$;
+
+-- R2-04 (C2-4): a correction leaves no stray fils. A dividend's cash was the
+-- difference of four-place figures rounded once, so 1.0049 corrected to
+-- 1.0051 moved nothing and skipping it then took 1.01 back; and a deleted
+-- sale gave back its four-place cash, not the cents it moved.
+do $$
+declare c jsonb := pg_temp.d2_case(); r jsonb;
+  h uuid := 'a2000000-0000-0000-0000-000000000004'; fund uuid := gen_random_uuid();
+begin
+  r := pg_temp.d2_save((c ->> 'dividend')::uuid, '{"action": "record", "received_gross": 1.0049, "received_tax": 0, "received_fees": 0}');
+  if (pg_temp.d2_bal((c ->> 'fund')::uuid) <> 101) is not false then raise exception 'R2-04 FAILED: recording 1.0049 left the fund at %', pg_temp.d2_bal((c ->> 'fund')::uuid); end if;
+  r := pg_temp.d2_save((c ->> 'dividend')::uuid, '{"action": "fix", "received_gross": 1.0051, "received_tax": 0, "received_fees": 0}');
+  if (pg_temp.d2_bal((c ->> 'fund')::uuid) <> 101.01) is not false then raise exception 'R2-04 FAILED: fixing it to 1.0051 left the fund at %', pg_temp.d2_bal((c ->> 'fund')::uuid); end if;
+  r := pg_temp.d2_save((c ->> 'dividend')::uuid, '{"action": "skip"}');
+  if (pg_temp.d2_bal((c ->> 'fund')::uuid) <> 100) is not false then raise exception 'R2-04 FAILED: skipping it left the fund at %', pg_temp.d2_bal((c ->> 'fund')::uuid); end if;
+
+  insert into accounts (id, household_id, name, type, currency, balance, balance_as_of, is_shared)
+  values (fund, '11111111-1111-1111-1111-111111111111', 'R2 sale fund', 'broker_funds', 'USD', 100, now() - interval '60 days', true);
+  perform pg_temp.d1_holding(h, 'R2SALE', 'us_equity', 'USD', fund, household_today() - 30, 10);
+  r := record_trade(h, 'sell', household_today(), 1, 1.005, 0, p_source => 'bot', p_member_id => '22222222-2222-2222-2222-222222222222');
+  if (pg_temp.d2_bal(fund) <> 101.01) is not false then raise exception 'R2-04 FAILED: the sale left the fund at % (%)', pg_temp.d2_bal(fund), r; end if;
+  perform delete_trade((r ->> 'trade_id')::uuid, null, p_member_id => '22222222-2222-2222-2222-222222222222');
+  if (pg_temp.d2_bal(fund) <> 100) is not false then raise exception 'R2-04 FAILED: deleting the sale left the fund at %', pg_temp.d2_bal(fund); end if;
+  -- A sale fixed, then deleted: the fix moves the cents between the two, and
+  -- the deletion gives back the cents the fixed sale moved (the fresh review).
+  r := record_trade(h, 'sell', household_today(), 1, 1.005, 0, p_source => 'bot', p_member_id => '22222222-2222-2222-2222-222222222222');
+  perform fix_trade((r ->> 'trade_id')::uuid, household_today(), 1, 1.0149, 0, 0, null, fund, false, null, null, p_member_id => '22222222-2222-2222-2222-222222222222');
+  if (pg_temp.d2_bal(fund) <> 101.01) is not false then raise exception 'R2-04 FAILED: fixing the sale to 1.0149 left the fund at %', pg_temp.d2_bal(fund); end if;
+  perform delete_trade((r ->> 'trade_id')::uuid, null, p_member_id => '22222222-2222-2222-2222-222222222222');
+  if (pg_temp.d2_bal(fund) <> 100) is not false then raise exception 'R2-04 FAILED: deleting the fixed sale left the fund at %', pg_temp.d2_bal(fund); end if;
+  raise notice 'R2-04 ok: corrections and deletions leave no stray fils';
+end $$;
+
+-- R2-06 (C2-3, the fresh review): a balance and a record's amount, which
+-- every total is built on, refuse NaN however they are written, not only
+-- through the functions that check their inputs.
+do $$
+declare refused int := 0; acc uuid := gen_random_uuid();
+begin
+  insert into accounts (id, household_id, name, type, currency, balance, is_shared)
+  values (acc, '11111111-1111-1111-1111-111111111111', 'R2 NaN', 'checking', 'AED', 10, true);
+  begin
+    update accounts set balance = 'NaN' where id = acc;
+  exception when check_violation then refused := refused + 1;
+  end;
+  begin
+    insert into transactions (household_id, account_id, amount, occurred_at, kind, is_shared)
+    values ('11111111-1111-1111-1111-111111111111', acc, 'NaN', household_today(), 'expense', true);
+  exception when check_violation then refused := refused + 1;
+  end;
+  if (refused <> 2 or (select balance from accounts where id = acc) <> 10) is not false then
+    raise exception 'R2-06 FAILED: % of 2 NaN writes refused', refused;
+  end if;
+  raise notice 'R2-06 ok: a balance and an amount are numbers';
+end $$;
+
+-- R2-05 (A2-2): the bot reads its webhook secret by an explicit grant, not
+-- only by the platform's default privileges, so a rebuild keeps it working.
+do $$
+begin
+  if (has_function_privilege('service_role', 'public.get_telegram_webhook_secret()', 'execute') is not true) is not false then
+    raise exception 'R2-05 FAILED: the service role cannot read the webhook secret';
+  end if;
+  if (has_function_privilege('authenticated', 'public.get_telegram_webhook_secret()', 'execute')
+      or has_function_privilege('anon', 'public.get_telegram_webhook_secret()', 'execute')) is not false then
+    raise exception 'R2-05 FAILED: a client role can read the webhook secret';
+  end if;
+  raise notice 'R2-05 ok: only the service role reads the webhook secret';
+end $$;
+
 rollback;

@@ -59,6 +59,9 @@ type Backend = {
     failWrites?: string[];
     // OpenRouter answers 429 (too many requests) to its first N calls.
     aiBusyFirst?: number;
+    // A link code expires the moment it has been looked up, as one can
+    // between the lookup and the redemption.
+    expireLinkCodeAfterLookup?: boolean;
     // Telegram's getFile refuses (a 429) or says the file is too big for a bot.
     getFile?: "refuse" | "too_big";
     // Downloading the file, or storing it, fails.
@@ -293,6 +296,11 @@ async function postgrest(req: Request, url: URL): Promise<Response> {
       return json(found);
     }
     let found = rows.filter((r) => matches(r, url.searchParams));
+    if (table === "household_members" && backend.faults.expireLinkCodeAfterLookup && url.searchParams.has("telegram_link_code")) {
+      const result = found.map((r) => ({ ...r }));
+      for (const r of found) r.telegram_link_code_expires_at = "2000-01-01T00:00:00Z";
+      found = result;
+    }
     // order=col.asc, as the paged reads end every query with a unique column.
     const order = url.searchParams.get("order");
     if (order) {
@@ -845,6 +853,40 @@ freshTest("a link code is matched by its digest, and the stored digest links nob
   assertEquals(backend.tables.household_members[0].telegram_user_id, TELEGRAM_USER, "the code did not link Telegram");
   assertEquals(backend.tables.household_members[0].telegram_link_code, null);
   assert(lastReply().startsWith("Linked as Tester."), lastReply());
+});
+
+// Round 2 of the outside review (A2-1): a code sent from a Telegram account
+// that is already linked skipped the link handling, went to the AI service
+// and, with that down, was saved verbatim in intake, which every member reads.
+freshTest("a link code from an already-linked account is neither stored nor sent to the AI", async () => {
+  const CODE = "0f8cb1e4a2d94f6b8c1e2a3b4c5d6e7f";
+  const aiBefore = backend.aiCalls;
+  const res = await handler(textUpdate(7103, CODE));
+  assertEquals(res.status, 200);
+  assertEquals(capturedIntake().length, 0, "the code was saved in intake");
+  assertEquals(backend.aiCalls, aiBefore, "the code was sent to the AI service");
+  assert(lastReply().includes("already linked"), lastReply());
+  await handler(textUpdate(7104, `/start ${CODE}`));
+  assertEquals(capturedIntake().length, 0, "the deep-link form was saved in intake");
+  // Inside a sentence too (the fresh review of round 2).
+  await handler(textUpdate(7106, `here is my code ${CODE} thanks`));
+  assertEquals(capturedIntake().length, 0, "a code inside a sentence was saved in intake");
+  assertEquals(backend.aiCalls, aiBefore, "a code inside a sentence was sent to the AI service");
+});
+
+// Round 2 (A2-3): the code's expiry was checked when it was looked up, not
+// when it was redeemed, so a code that expired in between still linked.
+freshTest("a link code that expires between lookup and redemption links nobody", async () => {
+  const CODE = "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d";
+  const digest = await linkTokenDigest(CODE);
+  Object.assign(backend.tables.household_members[0], {
+    telegram_user_id: null, telegram_link_code: digest, telegram_link_code_expires_at: "2099-01-01T00:00:00Z",
+  });
+  // The redemption sees the code as expired: the lookup has just happened.
+  backend.faults.expireLinkCodeAfterLookup = true;
+  await handler(textUpdate(7105, CODE));
+  assertEquals(backend.tables.household_members[0].telegram_user_id, null, "an expired code linked Telegram");
+  assert(lastReply().includes("just used or has expired"), lastReply());
 });
 
 freshTest("an ordinary expense is captured once and its claim completed", async () => {

@@ -3444,3 +3444,29 @@ the fixes held and find what they missed. Its money-sums pass found six more:
 - **Money is rounded as the database rounds.** Half a fils or a paisa
   rounds away from zero, and a goal's linked accounts are added before the
   total is rounded, so two halves of 5,000.01 are not 5,000.02.
+
+Its security and database passes found no way into another household's
+data, and these:
+
+- **A link code is never kept, even from a linked account.** Sent from
+  Telegram that is already linked, it is answered there and then, and never
+  reaches the AI service or the inbox, where the other member could read it.
+  A code is checked for expiry when it is redeemed, not only when it is
+  looked up.
+- **A dividend added twice is recorded once.** The app names a dividend it
+  adds when the form opens, so a save sent again after a lost answer finds
+  the first; a check that finds it says it was saved already.
+- **A holding with received dividends cannot be deleted.** Received and
+  presumed dividends are tax records, and received ones moved money; keep
+  the holding (sold to zero, it moves to Sold). The editor offers no Delete
+  for one, as for a holding with buys or sales.
+- **Money is a number.** Postgres accepts NaN and infinity as numerics, and
+  NaN passes every "not negative" check; trades, dividends and every fund
+  move refuse them, and a balance or a record's amount cannot hold NaN.
+- **A correction moves whole cents.** A dividend's cash, and a trade's, is
+  rounded to cents on its own, and a fix moves the difference of the two
+  in cents, so a fix then a skip, or a sale fixed then deleted, leaves no
+  stray fils.
+- **The bot's access is granted, not assumed.** It reads its webhook secret
+  by an explicit grant, as the scheduler's, rather than by the platform's
+  defaults.
