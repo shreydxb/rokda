@@ -4758,6 +4758,9 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
           .update({ telegram_user_id: fromId, telegram_link_code: null, telegram_link_code_expires_at: null })
           .eq("id", pending.id)
           .eq("telegram_link_code", candidateDigest)
+          // Unexpired when redeemed, not only when looked up (round 2 of the
+          // outside review).
+          .gt("telegram_link_code_expires_at", new Date().toISOString())
           .select("id")
           .maybeSingle();
 
@@ -4785,6 +4788,19 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
   }
 
   // Linked member from here on.
+
+  // A link code from an account that is already linked: answered here, before
+  // anything else reads the message. It used to fall through to the AI
+  // service and, with that down, into intake, which every member can read, so
+  // the other member could redeem a live code (round 2 of the outside review).
+  if (typeof message.text === "string" && looksLikeLinkToken(linkTokenFromMessage(message.text))) {
+    await reply(
+      chatId,
+      `This Telegram account is already linked, as ${member.display_name}. A link code is for an account that isn't linked yet: send it from that one. I haven't kept this one.`
+    );
+    return new Response("ok");
+  }
+
   const rawText = (typeof message.text === "string" ? message.text : typeof message.caption === "string" ? message.caption : null);
   let photoPath: string | null = null;
   let photoBase64: string | null = null;
