@@ -165,6 +165,20 @@ async function reply(chatId: number, text: string): Promise<number | null> {
   return res?.result?.message_id ?? null;
 }
 
+// Sends one message to each chat, and says whether every one was delivered.
+// A scheduled reminder is recorded as sent only when it was: Telegram can
+// refuse a send (ok:false, a 429 say) without anything throwing, and a
+// reminder recorded as sent after that was never sent again (round 2 of the
+// outside review). One that reached one member and not the other goes again
+// to both on the next run: a repeat beats a reminder nobody got.
+async function sendToAll(chatIds: number[], text: string): Promise<boolean> {
+  let all = true;
+  for (const chatId of chatIds) {
+    if ((await reply(chatId, text)) == null) all = false;
+  }
+  return all;
+}
+
 // QA #2, half two, revised in SHR-303. Telegram redelivers an update whenever
 // the webhook does not answer 200 in time, so every update is claimed before
 // it is handled and settled after.
@@ -3207,12 +3221,11 @@ async function runRecurringCheck(): Promise<{ checked: number; nudged: number }>
           : (members ?? []).filter((m: { id: string }) => m.id === r.owner_member_id)
       ).filter((m: { telegram_user_id: number | null }) => m.telegram_user_id != null) as Array<{ telegram_user_id: number }>;
 
-      for (const m of recipients) {
-        await reply(
-          m.telegram_user_id,
-          `I don't see a transaction for "${r.name}" yet (usually around AED ${amount.toFixed(2)}, due ${r.dueDate}) -- forgot to log it, or paid another way?`
-        );
-      }
+      const delivered = await sendToAll(
+        recipients.map((m) => m.telegram_user_id),
+        `I don't see a transaction for "${r.name}" yet (usually around AED ${amount.toFixed(2)}, due ${r.dueDate}) -- forgot to log it, or paid another way?`
+      );
+      if (!delivered) continue;
       await supabase.from("recurring_nudges").insert({ recurring_id: r.id, due_date: r.dueDate });
       nudged++;
     } catch {
@@ -3969,7 +3982,7 @@ async function runCreditCardCheck(): Promise<{ checked: number; nudged: number }
         kind === "due_soon"
           ? `${a.name} is due ${dueDateStr} -- outstanding balance ${owedLabel}.`
           : `${a.name} was due ${dueDateStr} and still shows ${owedLabel} owing -- paid it another way, or forgot?`;
-      for (const m of recipients) await reply(m.telegram_user_id, message);
+      if (!(await sendToAll(recipients.map((m) => m.telegram_user_id), message))) continue;
 
       await supabase.from("credit_card_nudges").insert({ account_id: a.id, due_date: dueDateStr, kind });
       nudged++;
@@ -4040,7 +4053,7 @@ async function runBudgetAlertCheck(): Promise<{ checked: number; nudged: number 
           threshold >= 100
             ? `Budget alert: ${category.name} is over budget this month -- AED ${actual.toFixed(2)} spent of AED ${budgeted.toFixed(2)}.`
             : `Budget alert: ${category.name} has hit ${threshold}% of this month's budget (AED ${actual.toFixed(2)} of AED ${budgeted.toFixed(2)}).`;
-        for (const m of recipients) await reply(m.telegram_user_id, message);
+        if (!(await sendToAll(recipients.map((m) => m.telegram_user_id), message))) break;
 
         await supabase.from("budget_alert_nudges").insert({ household_id: b.household_id, category_id: b.category_id, year, month, threshold });
         nudged++;
@@ -4134,7 +4147,7 @@ async function runWeeklyBriefCheck(): Promise<{ sent: number }> {
       if (!recipients.length) continue;
 
       const brief = await buildBriefMessage(householdId);
-      for (const chatId of recipients) await reply(chatId, `This week:\n${brief}`);
+      if (!(await sendToAll(recipients, `This week:\n${brief}`))) continue;
       await supabase.from("brief_sends").insert({ household_id: householdId, kind: "weekly", period_key: periodKey });
       sent++;
     } catch {
@@ -4179,7 +4192,7 @@ async function runMonthlyBriefCheck(): Promise<{ sent: number }> {
       if (!recipients.length) continue;
 
       const review = await buildMonthlyReviewMessage(householdId, prevYear, prevMonth);
-      for (const chatId of recipients) await reply(chatId, review);
+      if (!(await sendToAll(recipients, review))) continue;
       await supabase.from("brief_sends").insert({ household_id: householdId, kind: "monthly", period_key: periodKey });
       sent++;
     } catch {
@@ -4288,13 +4301,14 @@ async function runBalanceCheckin(): Promise<{ sent: number }> {
       ]);
       const roster = (members ?? []) as BalanceMember[];
       let any = false;
+      let undelivered = false;
       for (const m of roster.filter((r) => r.telegram_user_id != null)) {
         const mine = accountsForCheckin((accounts ?? []) as BalanceAccount[], roster, m.id);
         if (!mine.length) continue;
-        await reply(m.telegram_user_id!, buildBalanceCheckinMessage(mine, roster, monthLabel));
+        if ((await reply(m.telegram_user_id!, buildBalanceCheckinMessage(mine, roster, monthLabel))) == null) undelivered = true;
         any = true;
       }
-      if (!any) continue;
+      if (!any || undelivered) continue;
       await supabase.from("brief_sends").insert({ household_id: householdId, kind: "balance_checkin", period_key: periodKey });
       sent++;
     } catch {
@@ -4418,7 +4432,7 @@ async function runCashCoverCheck(): Promise<{ checked: number; nudged: number }>
       if (!recipients.length) continue;
 
       const message = `${formatCashCoverLine(status)} Might be worth checking before those bills land.`;
-      for (const chatId of recipients) await reply(chatId, message);
+      if (!(await sendToAll(recipients, message))) continue;
       await supabase.from("cash_cover_nudges").insert({ household_id: householdId, period_key: periodKey });
       nudged++;
     } catch {
@@ -4539,7 +4553,7 @@ async function runUnusualSpendCheck(): Promise<{ checked: number; nudged: number
         const biggest = move.evidence[0];
         const evidenceNote = biggest ? ` The biggest single hit was AED ${biggest.amount.toFixed(2)} at ${biggest.merchant}.` : "";
         const message = `Unusual spend: ${move.categoryName} is at AED ${move.actual.toFixed(2)} this month, well above its usual AED ${move.avg.toFixed(2)}.${evidenceNote}`;
-        for (const chatId of recipients) await reply(chatId, message);
+        if (!(await sendToAll(recipients, message))) continue;
 
         await supabase.from("unusual_spend_nudges").insert({ household_id: householdId, category_id: move.categoryId, year, month });
         nudged++;

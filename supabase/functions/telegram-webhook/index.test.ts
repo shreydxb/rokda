@@ -1779,6 +1779,27 @@ freshTest("a bill paid after the first thousand records of its window still coun
   assert(!backend.telegramSent.some((m) => String(m.body.text).startsWith("I don't see a transaction")), "a paid bill was asked about");
 });
 
+// Round 2 of the outside review (D2-4): a reminder Telegram refused (an
+// ok:false, a 429 say) was recorded as sent, so it was never sent again.
+freshTest("a reminder Telegram refuses is not recorded as sent, and goes out on the next run", async () => {
+  backend.tables.recurring_nudges = [];
+  backend.tables.recurring.push({
+    id: "a9000000-0000-4000-8000-0000000000e2", household_id: HOUSEHOLD, name: "Rent", owner_member_id: null, is_shared: true, amount: -500,
+    next_due_date: dubaiDaysAgo(4), ends_on: null, cadence: "monthly", interval_count: 1, account_id: BANK, category_id: null, active: true, autopay: false,
+  });
+  backend.faults.refuseFirstSends = 1000;
+  const refused = await handler(dailyCheck());
+  await refused.body?.cancel();
+  assertEquals(backend.tables.recurring_nudges.length, 0, "a refused reminder was recorded as sent");
+
+  backend.faults.refuseFirstSends = 0;
+  backend.telegramSent.length = 0;
+  const next = await handler(dailyCheck());
+  await next.body?.cancel();
+  assert(backend.telegramSent.some((m) => String(m.body.text).startsWith('I don\'t see a transaction for "Rent"')), "the reminder was not sent again");
+  assertEquals(backend.tables.recurring_nudges.length, 1);
+});
+
 // A bill on autopay from a bank account, due today.
 function seedAutopayBill(): void {
   backend.tables.recurring.push({
