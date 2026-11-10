@@ -1,6 +1,6 @@
 import { scopedValue } from './scope';
 import { monthKey, parseDay } from './day';
-import { applyToIncomeSpend } from './transactionKind';
+import { applyToIncomeSpend, isTransfer } from './transactionKind';
 import { categoryParts } from './splits';
 import { convertToAed } from './currency';
 import { occurrenceAt, settlesReminder } from './recurring';
@@ -21,11 +21,18 @@ export function closedMonths(transactions, now = new Date(), scopeMemberId = nul
     // the current month let future-dated records become forecast history
     // (QA-06).
     if (key >= currentMonth) continue;
+    // Only a record that earns or spends in view makes its month a recorded
+    // one. A transfer does neither, and in one member's view neither does the
+    // other member's own record; a month of only those became a month of
+    // nothing earned or spent, which cut every average and switched off the
+    // budget fallback (round 2 of the outside review).
+    const value = scopedValue(t.amount, t, scopeMemberId);
+    if (isTransfer(t) || value === 0) continue;
     if (!byMonth.has(key)) byMonth.set(key, { income: 0, spend: 0 });
     const bucket = byMonth.get(key);
     // A refund nets against spend rather than inflating income, the same as
     // every other consumer of transaction amounts (SHR-252).
-    applyToIncomeSpend(t, scopedValue(t.amount, t, scopeMemberId), bucket);
+    applyToIncomeSpend(t, value, bucket);
   }
   // Chronological, so "the last 12 closed months" means the newest twelve
   // rather than whichever twelve happened to be inserted last.
@@ -103,8 +110,11 @@ export function payMonthTransactions(transactions = [], recurring = [], now = ne
 // left out, rather than counted as a month of spending with nothing earned.
 export function planningMonths(transactions = [], recurring = [], now = new Date()) {
   const months = closedMonths(payMonthTransactions(transactions, recurring, now), now);
-  if (!transactions.length) return months;
-  const first = transactions.reduce((min, t) => {
+  // Where the records begin: the first record that earns or spends, for the
+  // same reason closedMonths skips transfers.
+  const earning = transactions.filter((t) => !isTransfer(t));
+  if (!earning.length) return months;
+  const first = earning.reduce((min, t) => {
     const key = monthKey(parseDay(t.occurred_at));
     return key < min ? key : min;
   }, '9999-99');
