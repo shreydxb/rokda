@@ -3503,3 +3503,23 @@ Its tests and CI pass found the release check itself short in places:
   on a pull request as on a release: no deploy can supply it.
 - **A test checks what its name says.** The theme test passed with no theme
   button on the page.
+
+Its screens pass found these:
+
+- **A form saves what it was opened on.** A refund record's version, a
+  budget's month and a holding's row are fixed when the form opens. A
+  background refresh used to hand a refund record the partner's newer
+  version, so a note change overwrote their correction; a budget editor left
+  open past midnight at a month's end saved into the next month; and a
+  holding deleted by the partner while open took the editor and its draft
+  with it, where now the draft stays and says why.
+- **A first read that failed is not none,** on four more tabs: Budget,
+  Investments, Statements and the Inbox say what couldn't load and offer
+  Try again, rather than "0 spent", "No holdings", every statement not
+  matching, or "Inbox zero".
+- **Typing during a save is kept.** The household's name and rupee rate are
+  set to what was saved only if the field still holds what was sent.
+- **Smaller ones.** The Investments chart no longer goes blank when its
+  range shortens under a picked point. Overview's section links are real
+  links. The scope and currency choices say which is pressed. On Money's
+  review tab, Try again and Refresh read the goals and plan again too.
