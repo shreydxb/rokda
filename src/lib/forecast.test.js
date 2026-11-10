@@ -58,6 +58,48 @@ describe('scenarioSets', () => {
   });
 });
 
+// Round 2 of the outside review (B2-4): a month with only transfers, or in
+// one member's view only the other member's own records, became a recorded
+// month of nothing earned and nothing spent. It cut every average built on
+// the months and switched off the budget fallback.
+describe('a month with nothing earned or spent in view is not a recorded month', () => {
+  const now = new Date(2026, 10, 10);
+  it('leaves out a month of transfers only', () => {
+    const rows = [
+      { amount: -500, kind: 'transfer', occurred_at: '2026-08-05', is_shared: true },
+      { amount: -500, kind: 'transfer', occurred_at: '2026-09-05', is_shared: true },
+      { amount: 20000, kind: 'income', occurred_at: '2026-10-01', is_shared: true, category_id: 'c' },
+      { amount: -10000, kind: 'expense', occurred_at: '2026-10-05', is_shared: true, category_id: 'c' },
+    ];
+    expect([...closedMonths(rows, now).keys()]).toEqual(['2026-10']);
+    expect([...planningMonths(rows, [], now).keys()]).toEqual(['2026-10']);
+  });
+
+  // The records begin at the first that earns or spends: a transfer in July
+  // made August, whose pay landed before it was recorded, read as the second
+  // month of records and stay in as a month of spending with nothing earned.
+  it('starts the records at the first that earns or spends, not at a transfer', () => {
+    const rows = [
+      { amount: -500, kind: 'transfer', occurred_at: '2026-07-05', is_shared: true },
+      ...['08', '09', '10'].flatMap((m) => [
+        { amount: -3000, kind: 'expense', occurred_at: `2026-${m}-05`, is_shared: true, category_id: 'c' },
+        { amount: 10000, kind: 'income', occurred_at: `2026-${m}-28`, is_shared: true, category_id: 'pay' },
+      ]),
+    ];
+    const salary = { id: 'r', next_due_date: '2026-09-01', cadence: 'monthly', amount: 10000, active: true, is_shared: true };
+    expect([...planningMonths(rows, [salary], now).keys()]).toEqual(['2026-09', '2026-10']);
+  });
+
+  it("leaves out, in one member's view, a month of the other member's own records only", () => {
+    const rows = [
+      { amount: -30, kind: 'expense', occurred_at: '2026-09-07', is_shared: false, owner_member_id: 'm2', category_id: 'c' },
+      { amount: -40, kind: 'expense', occurred_at: '2026-10-06', is_shared: false, owner_member_id: 'm1', category_id: 'c' },
+    ];
+    expect([...closedMonths(rows, now, 'm1').keys()]).toEqual(['2026-10']);
+    expect([...closedMonths(rows, now).keys()]).toEqual(['2026-09', '2026-10']);
+  });
+});
+
 // SHR-252 (762a6c4 recheck): closedMonths had its own income/spend split that
 // still classified purely by sign, so the plan disagreed with Overview about
 // the same expense+refund pair. Ported from the QA document.

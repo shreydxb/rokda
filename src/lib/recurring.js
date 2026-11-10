@@ -1,6 +1,6 @@
 import { addMonthsClamped, isPosted, parseDay, startOfDay } from './day';
 import { isTransfer } from './transactionKind';
-import { inCategory } from './splits';
+import { amountInCategory, inCategory } from './splits';
 
 const CADENCES = ['weekly', 'monthly', 'quarterly', 'yearly'];
 
@@ -74,7 +74,9 @@ export function matchWindowDays(row) {
 //     (a transfer, or a split record with a line in it, counts as in it);
 //   - is the reminder's owner's, or shared, when the reminder is personal;
 //   - falls within the reminder's window of the occurrence's date, at an
-//     amount within 20% of the reminder's.
+//     amount within 20% of the reminder's: for a split record, its lines in
+//     the reminder's category, not the whole record (round 2 of the outside
+//     review).
 // Each copy of this used to drop a different condition, so a planned
 // salary, a refund or another member's payment could tick a bill off.
 export function settlesReminder(row, t, due, now = new Date()) {
@@ -88,10 +90,11 @@ export function settlesReminder(row, t, due, now = new Date()) {
   // record's categories are on its lines: either counts when a line is in
   // the reminder's category (the fresh review of group 3).
   if (row.category_id && !isTransfer(t) && !inCategory(t, row.category_id)) return false;
+  const paidAmount = row.category_id && !isTransfer(t) ? amountInCategory(t, row.category_id) : amount;
   if (!row.is_shared && row.owner_member_id && !t.is_shared && t.owner_member_id != null && t.owner_member_id !== row.owner_member_id) return false;
   const days = Math.abs(Math.round((startOfDay(parseDay(t.occurred_at)) - startOfDay(due)) / 86400000));
   if (days > matchWindowDays(row)) return false;
-  return Math.abs(Math.abs(amount) - Math.abs(expected)) <= Math.abs(expected) * 0.2;
+  return Math.abs(Math.abs(paidAmount) - Math.abs(expected)) <= Math.abs(expected) * 0.2;
 }
 
 export function upcomingItems(rows, days, now = new Date()) {

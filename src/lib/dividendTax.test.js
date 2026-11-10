@@ -62,6 +62,15 @@ describe("Rokda's side of a year", () => {
     expect(rows[0]).toMatchObject({ memberId: 'm1', year: 2025, key: 'ABC.NS', name: 'ABC', confirmed: { count: 2, gross: 1000, tax: 208 } });
   });
 
+  // Round 2 of the outside review (B2-6): a dividend's figures keep four
+  // places, and Math.round turned 1.005 rupees into one rupee (it is
+  // 1.00499… in floating point). Paise round half away from zero, as the
+  // database rounds.
+  it('rounds a figure to paise as the database does, at, just below and just above half a paisa', () => {
+    const { rows } = rokdaShareYears([IN_A], [rec(IN_A, 1.005, 1.0049), rec(IN_A, 2.0051, 0)]);
+    expect(rows[0].confirmed).toEqual({ count: 2, gross: 3.02, tax: 1 });
+  });
+
   it('presumed figures are kept apart', () => {
     const { rows } = rokdaShareYears([IN_A], [rec(IN_A, 1000, 208), pre(IN_A, 500, 104)]);
     expect(rows[0].confirmed).toEqual({ count: 1, gross: 1000, tax: 208 });

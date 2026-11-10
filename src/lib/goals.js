@@ -311,11 +311,20 @@ export function monthsUntil(targetDate, now = new Date()) {
 // Summed in fils: 2,500.70 + 2,500.10 in floating point is 5,000.7999…, which
 // left a goal paid in full short by a crumb and read "Plan short" (outside
 // review, B-09).
-const fils = (aed) => Math.round(Number(aed) * 100);
+// Half away from zero, as the database rounds (and fxHistory.js): Math.round
+// alone made half a fils, 1.005, into 1.00 (round 2 of the outside review).
+const fils = (aed) => {
+  const v = Number(aed) || 0;
+  const whole = Math.round(Number((Math.abs(v) * 100).toPrecision(15)));
+  return whole === 0 ? 0 : Math.sign(v) * whole;
+};
 
 export function cashSetAside(goalId, contributions = [], allocations = [], accounts = []) {
   if (!goalIsLinked(goalId, allocations)) return contributions.filter((c) => c.goal_id === goalId).reduce((s, c) => s + fils(c.amount), 0) / 100;
-  return linkedCashAccounts(goalId, allocations, accounts).reduce((sum, { allocation, account }) => sum + fils(((accountValueAed(account) ?? 0) * Number(allocation.share_pct)) / 100), 0) / 100;
+  // A share is rarely whole fils: the shares are added first and the total
+  // rounded once, or two halves of 5,000.01 made 5,000.02 (round 2 of the
+  // outside review).
+  return fils(linkedCashAccounts(goalId, allocations, accounts).reduce((sum, { allocation, account }) => sum + ((accountValueAed(account) ?? 0) * Number(allocation.share_pct)) / 100, 0)) / 100;
 }
 
 function linkedCashAccounts(goalId, allocations, accounts) {

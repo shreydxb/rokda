@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { notableMoves, topMerchants } from './insights';
+import { notableMoves, topMerchants, trailingAverageByCategory } from './insights';
 
 const NOW = new Date(2026, 8, 30, 12); // 30 September 2026
 const catById = new Map([
@@ -66,6 +66,31 @@ describe('notableMoves', () => {
     const moves = notableMoves(transactions, 2026, 9, null, catById, NOW, { limit: 1 });
     expect(moves).toHaveLength(1);
     expect(moves[0].categoryId).toBe('groceries');
+  });
+});
+
+// Round 2 of the outside review (the fresh review of B2-4): a month of only
+// transfers, or in one member's view only the other member's own records,
+// counted as a month of data, so it halved the average and a below-average
+// month read as running high.
+describe('the trailing average', () => {
+  it('leaves out a month of transfers only', () => {
+    const transactions = [
+      { id: 't', occurred_at: '2026-07-10', amount: -2000, kind: 'transfer', is_shared: true },
+      { id: 'a', occurred_at: '2026-08-10', amount: -600, category_id: 'groceries', is_shared: true },
+    ];
+    const { averages, monthsWithData } = trailingAverageByCategory(transactions, 2026, 9, 3, null);
+    expect(monthsWithData).toBe(1);
+    expect(averages.get('groceries')).toBe(600);
+  });
+
+  it("leaves out, in one member's view, a month of the other member's own records only", () => {
+    const transactions = [
+      { id: 'o', occurred_at: '2026-07-10', amount: -80, category_id: 'fuel', is_shared: false, owner_member_id: 'm2' },
+      { id: 'a', occurred_at: '2026-08-10', amount: -600, category_id: 'groceries', is_shared: false, owner_member_id: 'm1' },
+    ];
+    expect(trailingAverageByCategory(transactions, 2026, 9, 3, 'm1').monthsWithData).toBe(1);
+    expect(trailingAverageByCategory(transactions, 2026, 9, 3, null).monthsWithData).toBe(2);
   });
 });
 

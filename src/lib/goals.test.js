@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { allocatedValue, cashPerMonth, doneMonth, fundInPriority, goalCostAtDate, goalPace, goalProgress, goalStatuses, isDone, monthlyNeed, scopedGoalRows } from './goals';
+import { allocatedValue, cashPerMonth, cashSetAside, doneMonth, fundInPriority, goalCostAtDate, goalPace, goalProgress, goalStatuses, isDone, monthlyNeed, scopedGoalRows } from './goals';
 
 const NOW = new Date(2026, 8, 24, 12); // 24 September 2026
 
@@ -238,6 +238,19 @@ describe('goalStatuses', () => {
     const rows = byName(goalStatuses({ ...args, goals: [bike], contributions, allocations: [] }));
     expect(rows.Bike).toMatchObject({ state: 'covered', cash: 5000.8, remaining: 0 });
     expect(rows.Bike.plan.enough).toBe(true);
+  });
+
+  // Round 2 of the outside review (B2-5): a linked account's share is rarely
+  // whole fils, and rounding each share before adding them made two halves
+  // of AED 5,000.01 into 5,000.02, so a 5,000.02 goal read covered. The
+  // shares are added first and the total rounded once.
+  it('rounds the linked accounts\' shares once, after adding them', () => {
+    const account = (id) => ({ id, type: 'checking', currency: 'AED', balance: 5000.01, balance_aed: 5000.01, archived_at: null });
+    const allocations = [{ goal_id: 'Bike', account_id: 'a1', share_pct: 50 }, { goal_id: 'Bike', account_id: 'a2', share_pct: 50 }];
+    expect(cashSetAside('Bike', [], allocations, [account('a1'), account('a2')])).toBe(5000.01);
+    // Half a fils rounds away from zero, as the database rounds: 2.01 at 50%
+    // is 1.005, which Math.round alone made 1.00.
+    expect(cashSetAside('Bike', [], [allocations[0]], [{ ...account('a1'), balance: 2.01, balance_aed: 2.01 }])).toBe(1.01);
   });
 
   it('holds kept money in cash, and leaves an undated goal out of every plan', () => {

@@ -3418,3 +3418,29 @@ The fifth group, the tests and CI: checks that could pass without checking.
   from an editor that saved Windows line endings, and the code is the same.
   The scheduled jobs are checked against this project on every release too,
   not only after a recovery.
+
+### Round 2
+
+In November 2026 the same review ran again on the fixed code, to check that
+the fixes held and find what they missed. Its money-sums pass found six more:
+
+- **A split receipt settles a bill by its line in the bill's category.** It
+  was measured whole, so a 1-dirham rent line on a 1,000 receipt paid a
+  1,000 rent bill. A transfer, which has no lines, still counts whole. A
+  bill paid by one record split across categories (rent and a service
+  charge, say) is measured by its own category's line, so its reminder's
+  amount should be that line. (The bot's own "was it paid?" check still
+  reads a split record's category only, not its lines.)
+- **"The next twelve months" holds only what is paid in them,** earned
+  dividends included. One paid later is still owed, and Coming up lists it.
+- **Cash cover gives no verdict when both sides are unknown.** With a bill
+  that has no AED amount and an account with no conversion, it says it can't
+  tell, with both reasons, instead of "short by at least".
+- **A month of only transfers is not a month of records.** Nor, in one
+  member's view, is a month of only the other member's own records. Either
+  read as a month of nothing earned or spent, which cut the averages built
+  on the months: the Life plan's, Insights' "vs average" and the bot's
+  unusual-spend nudge, and the Dividends tab's spending equivalent.
+- **Money is rounded as the database rounds.** Half a fils or a paisa
+  rounds away from zero, and a goal's linked accounts are added before the
+  total is rounded, so two halves of 5,000.01 are not 5,000.02.

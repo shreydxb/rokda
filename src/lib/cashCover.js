@@ -114,11 +114,16 @@ export function formatCashCoverLine(status) {
   // An unknown amount among what is due means the due total is a floor, not
   // the figure. "Covered" would be a clean verdict on an incomplete sum, so
   // it is not stated. A shortfall still is -- an understated total already
-  // exceeding the liquid money only understates the problem.
+  // exceeding the liquid money only understates the problem -- unless the
+  // liquid money is understated too (below).
   if (missing > 0) {
     const noun = missing === 1 ? 'One bill' : `${missing} bills`;
     const verb = missing === 1 ? 'has' : 'have';
     const note = `${noun} due in this window ${verb} no AED amount, so what's due is higher than this.`;
+    // With an unconverted account too, the liquid figure is low as well, so a
+    // shortfall can't be stated even as a floor: no verdict, and both caveats
+    // (round 2 of the outside review).
+    if (status?.unvalued) return `${base} -- can't say whether that is covered. ${note} ${unvaluedNote(status.unvalued)}`;
     return status?.covered
       ? `${base} -- can't say whether that is covered. ${note}`
       : `${base} -- short by at least AED ${Number(status?.shortfallAed ?? 0).toLocaleString()}. ${note}`;

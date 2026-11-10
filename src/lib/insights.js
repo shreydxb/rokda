@@ -1,13 +1,15 @@
 import { scopedValue } from './scope';
 import { monthActualsByCategory } from './budget';
 import { isPosted, parseDay } from './day';
-import { isSpendRow, spendDelta } from './transactionKind';
+import { isSpendRow, isTransfer, spendDelta } from './transactionKind';
 import { amountInCategory, inCategory } from './splits';
 
 // Average of a category's actual spend over the `monthsBack` calendar
-// months strictly before (year, month) that have at least one transaction
-// in the household at all (so a brand-new household with 1 month of
-// history doesn't get diluted by phantom zero months).
+// months strictly before (year, month) that have at least one record that
+// earns or spends in view (so a brand-new household with 1 month of history
+// doesn't get diluted by phantom zero months). A transfer does neither, and
+// in one member's view neither does the other member's own record; a month
+// of only those halved the average (round 2 of the outside review).
 export function trailingAverageByCategory(transactions, year, month, monthsBack, scopeMemberId) {
   const totals = new Map();
   let monthsWithData = 0;
@@ -16,6 +18,7 @@ export function trailingAverageByCategory(transactions, year, month, monthsBack,
     const y = d.getFullYear();
     const m = d.getMonth() + 1;
     const hasAny = transactions.some((t) => {
+      if (isTransfer(t) || scopedValue(t.amount, t, scopeMemberId) === 0) return false;
       const td = parseDay(t.occurred_at);
       return td.getFullYear() === y && td.getMonth() + 1 === m;
     });

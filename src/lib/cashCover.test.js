@@ -206,6 +206,19 @@ describe('the sentence the bot says', () => {
     expect(formatCashCoverLine(cashCoverStatus([CASH], bills, { days: 7, today }))).toMatch(/-- covered\./);
   });
 
+  // Round 2 of the outside review (B2-3): with an unknown bill AND an
+  // unconverted account, "short by at least" dropped the account's caveat,
+  // though the account could cover everything. Both sides are incomplete,
+  // so no verdict is given and both caveats are said.
+  it('gives no verdict when both what is due and what is liquid are incomplete', () => {
+    const bills = { recurring: [{ amount_aed: 1000, due_date: '2026-09-16' }], credit_cards: [UNCONVERTED_CARD] };
+    const line = formatCashCoverLine(cashCoverStatus([CASH, UNCONVERTED_INR_SAVINGS], bills, { days: 7, today }));
+    expect(line).not.toMatch(/short by/);
+    expect(line).toMatch(/can't say whether that is covered/);
+    expect(line).toMatch(/no AED amount/);
+    expect(line).toMatch(/Excludes 1 account in another currency/);
+  });
+
   it('still states a shortfall, as a floor, when an amount is unknown', () => {
     const bills = { recurring: [{ amount_aed: 4000, due_date: '2026-09-16' }], credit_cards: [UNCONVERTED_CARD] };
     const line = formatCashCoverLine(cashCoverStatus([CASH], bills, { days: 7, today }));
