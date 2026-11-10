@@ -6,7 +6,15 @@
 // Every sum and difference is worked in whole paise, so a statement that
 // agrees to the paisa reads "agrees", never a floating-point residue.
 
-const paise = (n) => Math.round(Number(n) * 100);
+// Half away from zero, as the database rounds, the same way fxHistory.js
+// rounds: Math.round alone turned 1.005 rupees into one rupee (it is 1.00499…
+// in floating point), so the scaled value is read back to 15 significant
+// digits first (round 2 of the outside review).
+const paise = (n) => {
+  const v = Number(n) || 0;
+  const whole = Math.round(Number((Math.abs(v) * 100).toPrecision(15)));
+  return whole === 0 ? 0 : Math.sign(v) * whole;
+};
 const rupees = (p) => (p === 0 ? 0 : p / 100);
 const ROUNDING_PAISE_PER_DIVIDEND = 100;
 
