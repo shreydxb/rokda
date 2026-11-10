@@ -295,6 +295,16 @@ export function compare({
     }
   }
 
+  // Declared in config.toml with neither source nor a deployment: in no row
+  // above, so a release passed without naming it (round 2 of the outside
+  // review). Reported always; blocking in release mode, where every declared
+  // function must be live.
+  for (const slug of Object.keys(declared).sort()) {
+    if (!repoBySlug.has(slug) && !deployedSlugs.includes(slug)) {
+      rows.push({ slug, state: 'declared-only', required: requireDeployed, configState: 'n/a' });
+    }
+  }
+
   return rows;
 }
 
@@ -334,7 +344,7 @@ function differingFiles(local, live) {
 // list gave none. Release mode fails on either (isBlocking), and the printed
 // row names them, so a red release says why.
 export function unreported(row) {
-  if (row.state === 'not-deployed') return [];
+  if (row.state === 'not-deployed' || row.state === 'declared-only') return [];
   const missing = [];
   if (row.configState === 'unknown') missing.push('verify_jwt');
   if (row.platformStatus == null) missing.push('status');
@@ -385,7 +395,7 @@ export function isBlocking(row) {
   if (row.configState === 'pending' && !row.configChangeAdvisory) return true;
 
   if (row.state === 'orphan-deployment' || row.state === 'unreadable') return true;
-  if (row.state === 'not-deployed') return !!row.required;
+  if (row.state === 'not-deployed' || row.state === 'declared-only') return !!row.required;
 
   // The one state whose meaning depends on which ref is being checked. On main
   // it is the finding this whole check exists for -- telegram-webhook ran an
@@ -439,6 +449,7 @@ const LABELS = {
   'not-deployed': 'pending  ',
   'orphan-deployment': 'ORPHAN   ',
   unreadable: 'UNKNOWN  ',
+  'declared-only': 'MISSING  ',
 };
 
 // One printed line per function. A field the platform did not report is
@@ -497,7 +508,7 @@ if (isMainModule) {
   const deployedManifests = deployedSlugs.map((slug) => manifest(deployedDir, slug)).filter(Boolean);
 
   const rows = compare({ repo, deployedManifests, deployedSlugs, declared, deployedState, requireDeployed, branch, baseDeclared });
-  const tally = { 'in-sync': 0, 'stale-deployment': 0, 'not-deployed': 0, 'orphan-deployment': 0, unreadable: 0 };
+  const tally = { 'in-sync': 0, 'stale-deployment': 0, 'not-deployed': 0, 'orphan-deployment': 0, unreadable: 0, 'declared-only': 0 };
   let configDrift = 0;
   let configPending = 0;
   let notActive = 0;
@@ -530,6 +541,7 @@ if (isMainModule) {
   console.log(`  ${tally['orphan-deployment']} deployed with NO source in this repository`);
   console.log(`  ${tally['not-deployed']} in this repository, not deployed${requiredMissing > 0 ? ` (${requiredMissing} of them REQUIRED)` : ''}`);
   console.log(`  ${tally.unreadable} deployed but unreadable`);
+  console.log(`  ${tally['declared-only']} declared in supabase/config.toml with no source and no deployment${requireDeployed && tally['declared-only'] ? ' (release mode fails on these)' : ''}`);
   console.log(`  ${configDrift} with verify_jwt DIFFERENT from supabase/config.toml`);
   console.log(`  ${configPending} with verify_jwt this commit changes, not yet deployed`);
   console.log(`  ${notActive} deployed but not ACTIVE`);

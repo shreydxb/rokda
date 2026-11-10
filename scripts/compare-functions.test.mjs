@@ -378,6 +378,34 @@ describe('release mode: a declared function must actually be live', () => {
   });
 });
 
+// Round 2 of the outside review (F2-5): a function config.toml declares but
+// that has neither source nor a deployment was in no row at all, so the
+// release check passed without mentioning it.
+describe('a declared function with no source and no deployment', () => {
+  const live = [{ slug: 'telegram-webhook', status: 'ACTIVE', verify_jwt: false }];
+  const base = {
+    repo: [{ slug: 'telegram-webhook', digest: 'd', files: {} }],
+    deployedManifests: [{ slug: 'telegram-webhook', digest: 'd', files: {} }],
+    deployedSlugs: ['telegram-webhook'],
+    declared: { 'telegram-webhook': { verifyJwt: false }, missing: { verifyJwt: false } },
+    deployedState: deployedStateFromList(live),
+  };
+
+  it('is a row, and blocks a release', () => {
+    const rows = compare({ ...base, requireDeployed: true });
+    const row = rows.find((r) => r.slug === 'missing');
+    expect(row).toMatchObject({ state: 'declared-only', required: true });
+    expect(isBlocking(row)).toBe(true);
+    expect(onlyAwaitingDeploy(rows)).toBe(false);
+  });
+
+  it('is reported but does not block outside a release', () => {
+    const row = compare(base).find((r) => r.slug === 'missing');
+    expect(row?.state).toBe('declared-only');
+    expect(isBlocking(row)).toBe(false);
+  });
+});
+
 describe('reading verify_jwt out of supabase/config.toml', () => {
   it('reads the real file, so the expectation cannot drift from the deploy', () => {
     // config.toml is what `supabase functions deploy` applies. Keeping a
