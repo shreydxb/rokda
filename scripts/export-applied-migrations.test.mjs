@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { assertSameProject, fetchLedger, fetchLedgerViaPsql, LEDGER_QUERY, parsePsqlLedger, projectRefFromDbUrl, snapshotFromRows } from './export-applied-migrations.mjs';
+import { assertSameProject, fetchLedger, fetchLedgerViaPsql, LEDGER_QUERY, parsePsqlLedger, projectRefFromDbUrl, snapshotFromRows, splitDbUrl } from './export-applied-migrations.mjs';
 import { classify, compare, fingerprint, FINGERPRINT_VERSION } from './compare-migrations.mjs';
 
 // QA #7: the committed snapshot covered 43 of 49 migrations, so six deployed
@@ -155,7 +155,7 @@ describe('reading the ledger over a direct connection', () => {
   });
 
   it('refuses an empty ledger, same as the API transport', () => {
-    expect(() => fetchLedgerViaPsql({ dbUrl: 'x', exec: () => '' })).toThrow(/empty/i);
+    expect(() => fetchLedgerViaPsql({ dbUrl: 'postgresql://example', exec: () => '' })).toThrow(/empty/i);
   });
 });
 
@@ -229,5 +229,48 @@ describe('the database password stays out of argv and out of errors', () => {
     expect(thrown.message).not.toContain(SECRET);
     expect(thrown.message).toContain('***');
     expect(String(thrown.stack)).not.toContain(SECRET);
+  });
+});
+
+// Round 2 of the outside review (F2-1): a connection string this could not
+// read (an unescaped % in the password, say) was passed to psql whole, so the
+// password went into argv and into psql's own parse error, which CI prints
+// and nothing redacted. A password given as a query parameter was never
+// taken out at all.
+describe('a connection string it cannot take the password out of is refused', () => {
+  const SECRET = 'synthetic%GGpass';
+
+  it('refuses one whose password is not valid percent-encoding, without repeating it', () => {
+    const bad = `postgresql://postgres:${SECRET}@db.aaaaaaaaaaaaaaaa.supabase.co:5432/postgres`;
+    expect(() => splitDbUrl(bad)).toThrow(/SUPABASE_DB_URL/);
+    try {
+      splitDbUrl(bad);
+    } catch (err) {
+      expect(err.message).not.toContain('GGpass');
+    }
+    let called = false;
+    expect(() => fetchLedgerViaPsql({ dbUrl: bad, env: {}, exec: () => { called = true; return ''; } })).toThrow(/SUPABASE_DB_URL/);
+    expect(called).toBe(false);
+  });
+
+  it('refuses a keyword string or anything that is not a postgres URL', () => {
+    for (const bad of ['host=db.example password=synthetic-secret', 'https://user:synthetic-secret@example.com/db', 'not a url']) {
+      let thrown;
+      try {
+        splitDbUrl(bad);
+      } catch (err) {
+        thrown = err;
+      }
+      expect(thrown?.message).toMatch(/SUPABASE_DB_URL/);
+      expect(thrown.message).not.toContain('synthetic-secret');
+    }
+  });
+
+  it('decodes an encoded password, and takes one given as a query parameter out of the URL', () => {
+    expect(splitDbUrl('postgresql://postgres:p%40ss@db.example:5432/postgres')).toEqual({ safeUrl: 'postgresql://postgres@db.example:5432/postgres', password: 'p@ss' });
+    const query = splitDbUrl('postgresql://postgres@db.example:5432/postgres?sslmode=require&password=synthetic-secret');
+    expect(query.password).toBe('synthetic-secret');
+    expect(query.safeUrl).not.toContain('synthetic-secret');
+    expect(query.safeUrl).toContain('sslmode=require');
   });
 });

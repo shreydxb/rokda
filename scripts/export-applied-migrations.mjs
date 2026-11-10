@@ -182,16 +182,32 @@ export function assertSameProject({ dbUrl, projectRef }) {
 // with a synthetic password and a refused connection put it in both. The
 // password travels in the environment instead, where libpq expects it, and
 // anything that still escapes is redacted before it can reach a log.
+//
+// A string this cannot take the password out of is refused, not passed
+// through: one with an unescaped % in its password, a keyword string, or
+// anything but a postgres URL went to psql whole, putting the password in
+// argv and in psql's own parse error, which CI prints and nothing redacted.
+// The refusal names no part of it. A password given as a query parameter is
+// taken out too (round 2 of the outside review).
+const MALFORMED = 'SUPABASE_DB_URL is not a postgres:// connection URL this can read; check its form (a % in the password must be written %25).';
+
 export function splitDbUrl(dbUrl) {
+  let url;
+  let password;
   try {
-    const url = new URL(dbUrl);
-    const password = decodeURIComponent(url.password);
-    if (!password) return { safeUrl: dbUrl, password: null };
-    url.password = '';
-    return { safeUrl: url.toString(), password };
+    url = new URL(dbUrl);
+    password = decodeURIComponent(url.password);
   } catch {
-    return { safeUrl: dbUrl, password: null };
+    throw new Error(MALFORMED);
   }
+  if (url.protocol !== 'postgres:' && url.protocol !== 'postgresql:') throw new Error(MALFORMED);
+  url.password = '';
+  const queryPassword = url.searchParams.get('password');
+  if (queryPassword != null) {
+    url.searchParams.delete('password');
+    if (!password) password = queryPassword;
+  }
+  return { safeUrl: url.toString(), password: password || null };
 }
 
 const redact = (text, secret) =>
