@@ -3418,3 +3418,23 @@ The fifth group, the tests and CI: checks that could pass without checking.
   from an editor that saved Windows line endings, and the code is the same.
   The scheduled jobs are checked against this project on every release too,
   not only after a recovery.
+
+### Round 2
+
+In November 2026 the same review ran again on the fixed code, to check that
+the fixes held and find what they missed. Its money-sums pass found six more:
+
+- **A split receipt settles a bill by its line in the bill's category.** It
+  was measured whole, so a 1-dirham rent line on a 1,000 receipt paid a
+  1,000 rent bill. A transfer, which has no lines, still counts whole.
+- **"The next twelve months" holds only what is paid in them,** earned
+  dividends included. One paid later is still owed, and Coming up lists it.
+- **Cash cover gives no verdict when both sides are unknown.** With a bill
+  that has no AED amount and an account with no conversion, it says it can't
+  tell, with both reasons, instead of "short by at least".
+- **A month of only transfers is not a month of records.** Nor, in one
+  member's view, is a month of only the other member's own records. Either
+  read as a month of nothing earned or spent, which cut the plan's averages.
+- **Money is rounded once, at the end, as the database rounds.** A goal's
+  linked accounts are added before rounding to fils, and tax figures are
+  rounded to paise half away from zero.
