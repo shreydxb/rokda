@@ -187,10 +187,31 @@ describe('DividendForm: fixing, skipping and adding', () => {
     await press('Check');
     expect(calls[0].args).toEqual({
       p_dividend_id: null,
-      p_change: { action: 'add', holding_id: 'h-abc', ex_date: '2026-06-12', units: 40, per_share: 0.25, tax_pct: 30, paid_into_account_id: 'f-usd' },
+      p_change: { action: 'add', id: expect.any(String), holding_id: 'h-abc', ex_date: '2026-06-12', units: 40, per_share: 0.25, tax_pct: 30, paid_into_account_id: 'f-usd' },
     });
     await press('Save dividend');
     expect(calls.at(-1).args.p_dividend_id).toBeNull();
+  });
+
+  // Round 2 of the outside review (C2-1): the form names the dividend it
+  // adds once, when it opens, so a save sent again after a lost answer finds
+  // the first instead of recording it twice.
+  it('sends the same id for the dividend it adds, check after check and save after save', async () => {
+    answers.preview_dividend = preview({ version: 0 });
+    // The first save's answer is lost; the member saves again.
+    answers.save_dividend = (_args, n) => (n === 1 ? { ok: false, error: 'timeout' } : { ok: true, existing: true });
+    open({ dividend: null, action: 'add' });
+    type('Credited on (blank if not yet)', '2026-10-20');
+    type('Units held on the ex-date', '40');
+    type('Amount per share (USD)', '0.25');
+    await press('Check');
+    await press('Save dividend');
+    await press('Check');
+    await press('Save dividend');
+    const ids = calls.map((c) => c.args.p_change.id);
+    expect(ids.length).toBeGreaterThanOrEqual(3);
+    expect(new Set(ids).size).toBe(1);
+    expect(ids[0]).toMatch(/^[0-9a-f-]{36}$/);
   });
 
   it('asks for the figures an added dividend needs before checking', async () => {

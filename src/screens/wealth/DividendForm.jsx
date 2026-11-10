@@ -65,10 +65,16 @@ const NUMBER_FIELDS = ['units', 'per_share', 'tax_pct', 'received_gross', 'recei
 
 // The change to send, from what differs from how the dividend was opened (or,
 // adding one, from every field given), with what is missing or not a number.
-function buildChange(action, form, initial, shown, holding) {
+function buildChange(action, form, initial, shown, holding, addId) {
   const errors = {};
   const change = { action };
-  if (action === 'add') change.holding_id = holding.id;
+  // The dividend being added is named once, when the form opens, so a save
+  // sent again after a lost answer finds the first rather than recording it
+  // twice (round 2 of the outside review).
+  if (action === 'add') {
+    change.id = addId;
+    change.holding_id = holding.id;
+  }
   const given = (key) => form[key].trim() !== '' && (action === 'add' || form[key] !== initial[key]);
   const keys = [
     ...(shown.exDate ? ['ex_date'] : []),
@@ -118,6 +124,7 @@ export default function DividendForm({ holding, dividend = null, action, account
   const currency = dividend?.currency ?? holding.currency;
   const destinations = useMemo(() => destinationsFor(accounts, currency), [accounts, currency]);
   const [initial] = useState(() => initialForm(dividend, holding, accounts, destinations));
+  const [addId] = useState(() => (action === 'add' ? crypto.randomUUID() : null));
   const [form, setForm] = useState(initial);
   const [errors, setErrors] = useState({});
   const [checked, setChecked] = useState(null);
@@ -153,7 +160,7 @@ export default function DividendForm({ holding, dividend = null, action, account
 
   async function check(given = null) {
     if (busy) return;
-    const { errors: found, change } = buildChange(action, form, initial, shown, holding);
+    const { errors: found, change } = buildChange(action, form, initial, shown, holding, addId);
     setErrors(found);
     setMessage('');
     setChecked(null);
