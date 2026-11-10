@@ -3470,3 +3470,17 @@ data, and these:
 - **The bot's access is granted, not assumed.** It reads its webhook secret
   by an explicit grant, as the scheduler's, rather than by the platform's
   defaults.
+
+Its bot pass found three more about what the bot says happened:
+
+- **A reminder is "sent" only when it arrived.** Telegram can refuse a
+  message without an error (too many at once, say), and every scheduled
+  reminder was recorded as sent regardless, so it never went again. Now it
+  is recorded only when every member it was for got it; otherwise the next
+  run sends it again, to both, since a repeat beats a reminder nobody got.
+- **"Captured" counts only what was saved.** A message of several expenses
+  whose second failed to save was answered "2 expenses captured". Now the
+  reply counts what was saved and names what wasn't, to be sent again.
+- **An amount is read however it is grouped.** "Paid 1,00,000" and "paid
+  1,000,000" answer an autopay question; a grouping that is neither is not
+  guessed at.
