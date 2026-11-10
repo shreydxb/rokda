@@ -247,3 +247,31 @@ describe('Budget: a savings category is a target, not spending', () => {
     expect(screen.queryByText('Savings & Investments', { selector: 'td' })).toBeNull();
   });
 });
+
+// Round 2 of the outside review, E2-3: spending that never loaded is not
+// spending of nothing. The month read "0 spent" against every budget.
+describe('Budget: records that never loaded', () => {
+  it('says they could not load instead of showing nothing spent, and offers to try again', () => {
+    const reload = vi.fn().mockResolvedValue(undefined);
+    renderScreen(
+      <Budget
+        household={{ id: 'h' }}
+        me={{ id: 'm1' }}
+        members={[{ id: 'm1', display_name: 'Alex' }]}
+        loading={false}
+        data={{
+          categories: [{ id: 'rent', name: 'Rent', kind: 'expense', parent_id: null }],
+          budgets: [{ id: 'b1', category_id: 'rent', year: 2026, month: 9, amount: 6000 }],
+          transactions: [],
+          errors: { transactions: 'network' },
+          loaded: {},
+          reload,
+        }}
+      />,
+    );
+    expect(screen.getByText('Couldn’t load transactions.')).toBeTruthy();
+    expect(screen.queryByText('Rent')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(reload).toHaveBeenCalled();
+  });
+});

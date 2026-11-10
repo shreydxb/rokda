@@ -408,3 +408,18 @@ describe('Investments: a holding opens from the keyboard', () => {
     expect(screen.getByRole('dialog')).toBeTruthy();
   });
 });
+
+// Round 2 of the outside review, E2-3: holdings that never loaded are not
+// "No holdings", which invited adding them a second time.
+describe('Investments: holdings that never loaded', () => {
+  it('says they could not load instead of "No holdings", and offers to try again', () => {
+    const reload = vi.fn().mockResolvedValue(undefined);
+    renderScreen(
+      <Investments household={{ id: 'h' }} members={MEMBERS} me={MEMBERS[0]} loading={false} data={{ holdings: [], holdingHistory: [], errors: { holdings: 'network' }, loaded: {}, reload }} />,
+    );
+    expect(screen.getByText('Couldn’t load investments.')).toBeTruthy();
+    expect(screen.queryByText('No holdings')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(reload).toHaveBeenCalled();
+  });
+});

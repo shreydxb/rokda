@@ -313,3 +313,18 @@ describe('Inbox: what it offers and where an entry came from', () => {
     expect(screen.getByText('5 Sept 2026')).toBeTruthy();
   });
 });
+
+// Round 2 of the outside review, E2-3: an inbox that never loaded is not an
+// empty one. It read "Inbox zero", so captures waiting on review were missed.
+describe('Inbox: an inbox that never loaded', () => {
+  it('says it could not load instead of "Inbox zero", and offers to try again', () => {
+    const reload = vi.fn().mockResolvedValue(undefined);
+    renderScreen(
+      <Inbox members={MEMBERS} accounts={ACCOUNTS} categories={[]} loading={false} data={{ intake: [], categoryRules: [], transactions: [], errors: { intake: 'network' }, loaded: {}, reload }} />,
+    );
+    expect(screen.getByText('Couldn’t load the inbox.')).toBeTruthy();
+    expect(screen.queryByText('Inbox zero')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(reload).toHaveBeenCalled();
+  });
+});

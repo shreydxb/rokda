@@ -7,6 +7,8 @@ import { INTAKE_KINDS, INTAKE_SOURCE_LABELS, approvalArgs, validateApproval } fr
 import { confirmedPairRow, findDuplicate } from '../../lib/duplicates';
 import { householdToday, parseDay } from '../../lib/day';
 import { estimateAed } from '../../lib/fxHistory';
+import { neverLoaded } from '../../lib/loadState';
+import Withheld from '../planning/Withheld';
 import './TransactionEditor.css';
 
 function senderName(item, members) {
@@ -70,6 +72,16 @@ export default function Inbox({ household = null, members = [], accounts, catego
   const [bulkSaving, setBulkSaving] = useState(false);
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
+  // An inbox that never loaded is not an empty one: it read "Inbox zero" with
+  // captures waiting (round 2 of the outside review, E2-3).
+  const missing = neverLoaded(data, ['intake']);
+  if (missing.length > 0) {
+    return (
+      <Withheld missing={missing} onRetry={reload}>
+        What&rsquo;s waiting for review isn&rsquo;t shown, rather than shown as nothing.
+      </Withheld>
+    );
+  }
 
   // Sorted oldest last, so the newest arrival leads and the queue reads the
   // same direction top-to-bottom as everywhere else in the app.

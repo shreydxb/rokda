@@ -26,6 +26,7 @@ import { couldntLoad, neverLoaded } from '../../lib/loadState';
 import { householdToday } from '../../lib/day';
 import { supabase } from '../../lib/supabaseClient';
 import HoldingEditor from './HoldingEditor';
+import Withheld from '../planning/Withheld';
 import ConcentrationLine from './ConcentrationLine';
 
 // One empty list for a source a caller did not pass, so the figures worked
@@ -144,6 +145,16 @@ export default function Investments({ household, members, me, data, loading, rel
   }
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
+  // Holdings that never loaded are not "No holdings", which invited adding
+  // them a second time (round 2 of the outside review, E2-3).
+  const holdingsMissing = neverLoaded(data, ['holdings']);
+  if (holdingsMissing.length > 0) {
+    return (
+      <Withheld missing={holdingsMissing} onRetry={reload}>
+        Your holdings aren&rsquo;t shown, rather than shown as none.
+      </Withheld>
+    );
+  }
 
   // A point picked on a longer range, or before a refresh shortened the
   // series, is past its end: today's point is shown instead of nothing, which

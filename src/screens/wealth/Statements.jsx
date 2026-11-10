@@ -6,6 +6,8 @@ import { formatBalance } from '../../lib/money';
 import { spendDelta } from '../../lib/transactionKind';
 import { supabase } from '../../lib/supabaseClient';
 import { ordinal } from '../../lib/creditCard';
+import { neverLoaded } from '../../lib/loadState';
+import Withheld from '../planning/Withheld';
 
 // Wealth -> Statements: every card's recent statements and whether each was
 // reconciled against Rokda (docs/decisions.md, "A statement is reconciled,
@@ -56,6 +58,17 @@ export default function Statements({ household, me, members = [], data, loading 
   const forMonth = monthFromParam(params.get('month'));
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
+  // A statement checked against records that never loaded reads as not
+  // matching Rokda's spending of nothing (round 2 of the outside review,
+  // E2-3), and one marked done could not be told from one never checked.
+  const missing = neverLoaded(data, ['accounts', 'transactions', 'statementReconciliations']);
+  if (missing.length > 0) {
+    return (
+      <Withheld missing={missing} onRetry={reload}>
+        Card statements aren&rsquo;t shown, rather than checked against records that aren&rsquo;t here.
+      </Withheld>
+    );
+  }
 
   const rows = forMonth
     ? statementRowsForMonth({ accounts, reconciliations: statementReconciliations, transactions, year: forMonth.getFullYear(), month: forMonth.getMonth() + 1 })

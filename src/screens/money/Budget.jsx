@@ -8,6 +8,8 @@ import { budgetGroupSpend, monthIncome, monthPace } from '../../lib/budget';
 import { ChartLegend, ColumnChart, LineChart } from '../../charts/Charts';
 import BudgetEditor from './BudgetEditor';
 import { categoryOwner, householdShare } from '../../lib/share';
+import { neverLoaded } from '../../lib/loadState';
+import Withheld from '../planning/Withheld';
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -31,6 +33,16 @@ export default function Budget({ household, me, members, data, loading, onOpenRe
   const [editing, setEditing] = useState(null); // null | 'new' | a budget row
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
+  // Spending, budgets or categories that never loaded are not none: the month
+  // read "0 spent" against every budget (round 2 of the outside review, E2-3).
+  const missing = neverLoaded(data, ['transactions', 'budgets', 'categories']);
+  if (missing.length > 0) {
+    return (
+      <Withheld missing={missing} onRetry={reload}>
+        Budgets aren&rsquo;t shown, rather than shown against spending of nothing.
+      </Withheld>
+    );
+  }
 
   const catById = new Map(categories.map((c) => [c.id, c]));
 
