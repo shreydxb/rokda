@@ -308,10 +308,17 @@ was. So `npm run verify:release` does two more things after the functions.
   identity), constraint, index, policy, trigger (with whether it is switched
   on), view and row-security switch, each with an md5 of its definition as
   Postgres reads it back. From `storage` it takes the receipt photos' policy
-  and bucket, which a migration makes. It also lists what signed-out
-  (`anon`) and signed-in (`authenticated`) callers may do: execute each
-  function; select, insert, update and delete on each table; use each
-  schema. The same query runs on production, and
+  and bucket, which a migration makes, and whether `storage.objects` and
+  `storage.buckets` enforce row-level security. It lists every scheduled
+  job: its schedule, whether it is active, and its command with the
+  project's address set aside (the next check reads the address). And it
+  lists what signed-out (`anon`) and signed-in (`authenticated`) callers,
+  and the `service_role` the bot and the jobs use, may do: execute each
+  function; select, insert, update and delete on each table and on
+  `storage.objects`; use each schema. The shim grants what Supabase grants by
+  default (execute on `public`'s functions to all three; the storage tables
+  with RLS on), so a fresh build and production agree. The same query runs
+  on production, and
   `scripts/compare-catalog.mjs` names each object missing, extra or defined
   differently. Only names are printed, because CI logs here are public.
 
@@ -323,11 +330,13 @@ was. So `npm run verify:release` does two more things after the functions.
   the column only, since Postgres 18 also lists it as a constraint. With
   these, production and a fresh build matched on all 1,598 objects when this
   was written. `scripts/catalog-fingerprint.test.sh`, in the migrations job,
-  changes a copy of a fresh build in eleven ways and checks each is either
+  changes a copy of a fresh build in eighteen ways and checks each is either
   ignored or named: line endings, two callers' search paths, an edited body,
   an aggregate, a trigger switched off, a function and a table opened to
-  `anon`, the receipt policy dropped, the bucket made public, and an
-  identity column loosened.
+  `anon`, the receipt policy dropped, the bucket made public, an identity
+  column loosened, the service role refused the scheduler secret, RLS
+  switched off on receipt storage, and a scheduled job pointed elsewhere,
+  rescheduled, stripped of its query, switched off, or added by hand.
 
   Not compared, so not proved: owners and raw grants (the platform sets them
   differently from a plain Postgres; what they allow is compared above),
@@ -342,15 +351,19 @@ was. So `npm run verify:release` does two more things after the functions.
   identically. Moving either is a change to compare first. The fresh build
   refuses any server whose pg_cron is not the 0.1 test stub, so a recovery
   shell pointed at a real project cannot build a database there.
-- **The scheduled jobs.** `scripts/verify-cron-targets.sql`, the recovery
-  runbook's check, runs against production with this project's URL: all four
-  jobs exist, are active, call this project and carry their authentication,
-  the vault's scheduler secret is long enough, and there are no others.
+- **The scheduled jobs' address and secret.** `scripts/verify-cron-targets.sql`,
+  the recovery runbook's check, runs against production with this project's
+  URL: all four jobs call this project and carry their authentication, and
+  the vault's scheduler secret is long enough. What each job runs and when
+  is compared with the fresh build above.
 
 Both read production over `SUPABASE_DB_URL` through
 `scripts/production-psql.mjs`, which passes the password to psql in
 `PGPASSWORD`, redacts it from anything printed, and refuses a connection to
-another project than `SUPABASE_PROJECT_REF`. The release job installs a local
+another project than `SUPABASE_PROJECT_REF`. A connection string it cannot
+take the password out of (an unescaped `%` in it, a keyword string, anything
+but a `postgres://` URL) is refused with a message that repeats none of it;
+write a `%` in the password as `%25`. The release job installs a local
 Postgres with the pg_cron/pg_net stand-ins for the fresh build
 (`scripts/ci-postgres.sh`, shared with the migrations job), and the script
 fails if it has none rather than skipping the comparison.
