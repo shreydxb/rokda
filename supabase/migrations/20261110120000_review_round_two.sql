@@ -20,6 +20,13 @@ $$;
 
 revoke all on function private.is_finite_number(numeric) from public, anon, authenticated;
 
+-- The two figures every total is built on refuse NaN however they are
+-- written: the functions check their own inputs, but a member's own request
+-- can write a balance or a record directly. (Both are numeric(14,2), which
+-- refuses infinity already.)
+alter table public.accounts add constraint accounts_balance_is_a_number check (balance <> 'NaN'::numeric);
+alter table public.transactions add constraint transactions_amount_is_a_number check (amount <> 'NaN'::numeric);
+
 -- ---------------------------------------------------------------------------
 -- Dividends: a retried add is recorded once; figures are numbers
 -- ---------------------------------------------------------------------------
@@ -503,16 +510,19 @@ begin
 
   -- The money: the new trade's, less the replaced trade's where that had
   -- moved its fund. A different fund is reversed on its own. A balance is
-  -- kept in fils, so the movement is too.
-  if v_moves then v_delta := v_cash; end if;
+  -- kept in fils, so each trade moves its cash in fils: a fix moves the
+  -- difference of the two in fils, not the rounded difference of their
+  -- four-place cash, so a fix then a delete gives back what was moved
+  -- (round 2 of the outside review).
+  if v_moves then v_delta := round(v_cash, 2); end if;
   if v_old.funds_account_id is not null then
     select * into v_old_fund from public.accounts where id = v_old.funds_account_id;
     v_old_moves := private.trade_moves_fund(v_old_fund.balance_as_of, v_old.trade_date, v_old.traded_at);
     if v_old_moves then
       if v_old.funds_account_id = v_fund_id then
-        v_delta := v_delta - v_old.cash_amount;
+        v_delta := v_delta - round(v_old.cash_amount, 2);
       else
-        v_old_delta := -v_old.cash_amount;
+        v_old_delta := -round(v_old.cash_amount, 2);
       end if;
     end if;
   end if;
@@ -680,11 +690,12 @@ begin
     raise exception 'a holding with buys or sales cannot be deleted; delete its trades first'
       using errcode = 'check_violation';
   end if;
-  -- A received dividend moved money and is a tax record; deleting the holding
-  -- cascaded it away, and recording it again moved the money twice (round 2
-  -- of the outside review).
+  -- A received or presumed dividend is a tax record, and a received one
+  -- moved money; deleting the holding cascaded them away, and recording one
+  -- again moved the money twice (round 2 of the outside review). Skipping
+  -- them would lose the same records, so the advice is to keep the holding.
   if exists (select 1 from public.holding_dividends d where d.holding_id = old.id and d.status in ('received', 'presumed')) then
-    raise exception 'a holding with received dividends cannot be deleted; skip them first'
+    raise exception 'a holding with received dividends cannot be deleted: they are tax records. Keep it: sold to zero, it moves to Sold'
       using errcode = 'check_violation';
   end if;
   return old;

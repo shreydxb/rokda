@@ -179,6 +179,15 @@ export default function DividendForm({ holding, dividend = null, action, account
       setMessage(dividendRefusalMessage(data?.error));
       return;
     }
+    // The dividend this form adds was saved already: a save whose answer was
+    // lost went through. Saving again would change nothing and close the form
+    // as if any figures changed since were saved (round 2 of the outside
+    // review).
+    if (data.existing) {
+      setChecked(null);
+      setMessage('This dividend was already saved. Close this form; to change its figures, open it from the list and choose Fix.');
+      return;
+    }
     if (given === null) {
       setAsked(data.asks === 'already_included' ? (data.asks_confirmed_on ?? '') : null);
       setAnswer(null);

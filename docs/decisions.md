@@ -3455,15 +3455,18 @@ data, and these:
   looked up.
 - **A dividend added twice is recorded once.** The app names a dividend it
   adds when the form opens, so a save sent again after a lost answer finds
-  the first.
-- **A holding with received dividends cannot be deleted.** Those receipts
-  moved money and are tax records; skip them first.
+  the first; a check that finds it says it was saved already.
+- **A holding with received dividends cannot be deleted.** Received and
+  presumed dividends are tax records, and received ones moved money; keep
+  the holding (sold to zero, it moves to Sold). The editor offers no Delete
+  for one, as for a holding with buys or sales.
 - **Money is a number.** Postgres accepts NaN and infinity as numerics, and
   NaN passes every "not negative" check; trades, dividends and every fund
-  move refuse them.
-- **A correction moves whole cents.** A dividend's cash is its net rounded
-  to cents, and a deleted trade gives back the cents it moved, so a fix then
-  a skip, or a sale then its deletion, leaves no stray fils.
+  move refuse them, and a balance or a record's amount cannot hold NaN.
+- **A correction moves whole cents.** A dividend's cash, and a trade's, is
+  rounded to cents on its own, and a fix moves the difference of the two
+  in cents, so a fix then a skip, or a sale fixed then deleted, leaves no
+  stray fils.
 - **The bot's access is granted, not assumed.** It reads its webhook secret
   by an explicit grant, as the scheduler's, rather than by the platform's
   defaults.

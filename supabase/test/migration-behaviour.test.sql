@@ -6071,7 +6071,37 @@ begin
   if (pg_temp.d2_bal(fund) <> 101.01) is not false then raise exception 'R2-04 FAILED: the sale left the fund at % (%)', pg_temp.d2_bal(fund), r; end if;
   perform delete_trade((r ->> 'trade_id')::uuid, null, p_member_id => '22222222-2222-2222-2222-222222222222');
   if (pg_temp.d2_bal(fund) <> 100) is not false then raise exception 'R2-04 FAILED: deleting the sale left the fund at %', pg_temp.d2_bal(fund); end if;
+  -- A sale fixed, then deleted: the fix moves the cents between the two, and
+  -- the deletion gives back the cents the fixed sale moved (the fresh review).
+  r := record_trade(h, 'sell', household_today(), 1, 1.005, 0, p_source => 'bot', p_member_id => '22222222-2222-2222-2222-222222222222');
+  perform fix_trade((r ->> 'trade_id')::uuid, household_today(), 1, 1.0149, 0, 0, null, fund, false, null, null, p_member_id => '22222222-2222-2222-2222-222222222222');
+  if (pg_temp.d2_bal(fund) <> 101.01) is not false then raise exception 'R2-04 FAILED: fixing the sale to 1.0149 left the fund at %', pg_temp.d2_bal(fund); end if;
+  perform delete_trade((r ->> 'trade_id')::uuid, null, p_member_id => '22222222-2222-2222-2222-222222222222');
+  if (pg_temp.d2_bal(fund) <> 100) is not false then raise exception 'R2-04 FAILED: deleting the fixed sale left the fund at %', pg_temp.d2_bal(fund); end if;
   raise notice 'R2-04 ok: corrections and deletions leave no stray fils';
+end $$;
+
+-- R2-06 (C2-3, the fresh review): a balance and a record's amount, which
+-- every total is built on, refuse NaN however they are written, not only
+-- through the functions that check their inputs.
+do $$
+declare refused int := 0; acc uuid := gen_random_uuid();
+begin
+  insert into accounts (id, household_id, name, type, currency, balance, is_shared)
+  values (acc, '11111111-1111-1111-1111-111111111111', 'R2 NaN', 'checking', 'AED', 10, true);
+  begin
+    update accounts set balance = 'NaN' where id = acc;
+  exception when check_violation then refused := refused + 1;
+  end;
+  begin
+    insert into transactions (household_id, account_id, amount, occurred_at, kind, is_shared)
+    values ('11111111-1111-1111-1111-111111111111', acc, 'NaN', household_today(), 'expense', true);
+  exception when check_violation then refused := refused + 1;
+  end;
+  if (refused <> 2 or (select balance from accounts where id = acc) <> 10) is not false then
+    raise exception 'R2-06 FAILED: % of 2 NaN writes refused', refused;
+  end if;
+  raise notice 'R2-06 ok: a balance and an amount are numbers';
 end $$;
 
 -- R2-05 (A2-2): the bot reads its webhook secret by an explicit grant, not

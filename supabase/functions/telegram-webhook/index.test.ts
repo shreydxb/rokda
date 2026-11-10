@@ -868,6 +868,10 @@ freshTest("a link code from an already-linked account is neither stored nor sent
   assert(lastReply().includes("already linked"), lastReply());
   await handler(textUpdate(7104, `/start ${CODE}`));
   assertEquals(capturedIntake().length, 0, "the deep-link form was saved in intake");
+  // Inside a sentence too (the fresh review of round 2).
+  await handler(textUpdate(7106, `here is my code ${CODE} thanks`));
+  assertEquals(capturedIntake().length, 0, "a code inside a sentence was saved in intake");
+  assertEquals(backend.aiCalls, aiBefore, "a code inside a sentence was sent to the AI service");
 });
 
 // Round 2 (A2-3): the code's expiry was checked when it was looked up, not

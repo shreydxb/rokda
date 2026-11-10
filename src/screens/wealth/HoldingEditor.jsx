@@ -148,7 +148,12 @@ export default function HoldingEditor({
   // moved through a fund); saying so beats offering a button that fails.
   // Trades that never loaded can't show whether there are any, so a traded
   // holding then offers no Delete either.
-  const deletable = holding && !(traded && tradesFailed) && !hasBuysOrSales(trades, holding.id);
+  const buysOrSales = holding && hasBuysOrSales(trades, holding.id);
+  // Nor one with received or presumed dividends: they are tax records, and
+  // received ones moved money (round 2 of the outside review). Dividends that
+  // never loaded can't show whether there are any, so no Delete then either.
+  const receivedDividends = holding && dividends.some((d) => d.holding_id === holding.id && (d.status === 'received' || d.status === 'presumed'));
+  const deletable = holding && !(traded && tradesFailed) && !buysOrSales && !dividendsFailed && !receivedDividends;
   const daysOld = holding ? daysSincePriced(holding) : null;
   const lastValuedLabel =
     daysOld === null ? 'No valuation confirmed yet.' : `Unchanged numbers keep the existing valuation date (${daysOld}d ago).`;
@@ -604,9 +609,14 @@ export default function HoldingEditor({
                     {confirmingDelete ? 'Confirm delete?' : 'Delete'}
                   </button>
                 )}
-                {!subFormOpen && holding && !deletable && !(traded && tradesFailed) && (
+                {!subFormOpen && holding && !(traded && tradesFailed) && buysOrSales && (
                   <span className="ov-muted" style={{ fontSize: 11.5, maxWidth: 260 }}>
                     A holding with buys or sales can&rsquo;t be deleted. Delete its trades first, or keep it: sold to zero, it moves to Sold.
+                  </span>
+                )}
+                {!subFormOpen && holding && !buysOrSales && receivedDividends && (
+                  <span className="ov-muted" style={{ fontSize: 11.5, maxWidth: 260 }}>
+                    A holding with received dividends can&rsquo;t be deleted: they are tax records. Keep it: sold to zero, it moves to Sold.
                   </span>
                 )}
                 <div className="te-actions-right">

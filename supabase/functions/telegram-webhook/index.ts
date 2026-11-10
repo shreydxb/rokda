@@ -4793,7 +4793,10 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
   // anything else reads the message. It used to fall through to the AI
   // service and, with that down, into intake, which every member can read, so
   // the other member could redeem a live code (round 2 of the outside review).
-  if (typeof message.text === "string" && looksLikeLinkToken(linkTokenFromMessage(message.text))) {
+  // Anywhere in the text or a caption, not only alone: "my code is …" is the
+  // same code (the fresh review of round 2).
+  const said = typeof message.text === "string" ? message.text : typeof message.caption === "string" ? message.caption : "";
+  if (looksLikeLinkToken(linkTokenFromMessage(said)) || /\b[0-9a-f]{32}\b/i.test(said)) {
     await reply(
       chatId,
       `This Telegram account is already linked, as ${member.display_name}. A link code is for an account that isn't linked yet: send it from that one. I haven't kept this one.`

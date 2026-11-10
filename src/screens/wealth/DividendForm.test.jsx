@@ -214,6 +214,20 @@ describe('DividendForm: fixing, skipping and adding', () => {
     expect(ids[0]).toMatch(/^[0-9a-f-]{36}$/);
   });
 
+  // The fresh review of round 2: a check sent after a save whose answer was
+  // lost finds the dividend already saved. Offering Save then would close the
+  // form as saved and drop any figures changed since, without a word.
+  it('says when the dividend it adds was saved already, and offers no Save', async () => {
+    answers.preview_dividend = preview({ version: 1, existing: true, movements: [] });
+    open({ dividend: null, action: 'add' });
+    type('Credited on (blank if not yet)', '2026-10-20');
+    type('Units held on the ex-date', '40');
+    type('Amount per share (USD)', '0.25');
+    await press('Check');
+    expect(screen.getByText(/already saved/)).toBeTruthy();
+    expect(saveButton().disabled).toBe(true);
+  });
+
   it('asks for the figures an added dividend needs before checking', async () => {
     open({ dividend: null, action: 'add' });
     await press('Check');
