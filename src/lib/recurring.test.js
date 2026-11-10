@@ -150,10 +150,23 @@ describe('billStatus', () => {
     it('is settled by a transfer out, or a split record with a line in its category', () => {
       const transfer = { ...paid, kind: 'transfer', category_id: null };
       expect(billStatus(billOn, [transfer], after).posted).toBe(true);
-      const split = { ...paid, category_id: null, is_split: true, transaction_splits: [{ category_id: 'cat-util', amount: -300 }, { category_id: 'cat-food', amount: -200 }] };
+      const split = { ...paid, amount: -700, category_id: null, is_split: true, transaction_splits: [{ category_id: 'cat-util', amount: -500 }, { category_id: 'cat-food', amount: -200 }] };
       expect(billStatus(billOn, [split], after).posted).toBe(true);
-      const elsewhere = { ...split, transaction_splits: [{ category_id: 'cat-food', amount: -500 }] };
+      const elsewhere = { ...split, amount: -500, transaction_splits: [{ category_id: 'cat-food', amount: -500 }] };
       expect(billStatus(billOn, [elsewhere], after).posted).toBe(false);
+    });
+
+    // Round 2 of the outside review: a split record is measured by its line
+    // in the bill's category, not by its whole amount. A 500 receipt with a
+    // 1 utilities line paid no 500 utilities bill; a 700 one with a 500
+    // utilities line did.
+    it("measures a split record by its line in the bill's category", () => {
+      const tiny = { ...paid, category_id: null, is_split: true, transaction_splits: [{ category_id: 'cat-util', amount: -1 }, { category_id: 'cat-food', amount: -499 }] };
+      expect(billStatus(billOn, [tiny], after).posted).toBe(false);
+      const twoLines = { ...paid, amount: -700, category_id: null, is_split: true, transaction_splits: [{ category_id: 'cat-util', amount: -250 }, { category_id: 'cat-util', amount: -250 }, { category_id: 'cat-food', amount: -200 }] };
+      expect(billStatus(billOn, [twoLines], after).posted).toBe(true);
+      // A transfer has no lines and no category: its whole amount counts.
+      expect(billStatus(billOn, [{ ...paid, kind: 'transfer', category_id: null }], after).posted).toBe(true);
     });
 
     it('is never settled, as an income, by a transfer in', () => {
