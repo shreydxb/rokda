@@ -11,7 +11,7 @@ import { andList } from '../../lib/words';
 import { tabHref } from '../../lib/activityLink';
 import { reviewMonth, reviewMonthParam } from '../../lib/monthlyReview';
 import { cashReserve, savingCheck } from '../../lib/monthlyCheck';
-import { agesLabel, DEFAULT_STOP_AGE, leftOutText, rangeText, spendAfterText } from '../../lib/lifePlan';
+import { agesLabel, DEFAULT_STOP_AGE, leftOutText, rangeText, spendAfterText } from '../../lib/lifePlanBasis';
 import { planningModel } from '../../lib/planningModel';
 import { couldntLoad, neverLoaded } from '../../lib/loadState';
 import { DEBT_INPUTS, DEBT_PLAN_INPUTS, GOALS_INPUTS, projectionInputs } from './planningSources';

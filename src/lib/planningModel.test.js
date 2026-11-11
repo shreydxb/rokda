@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { planStart, planningModel } from './planningModel';
 import { forecastInputs, budgetPlan } from './forecast';
-import { lifePlanStop, loansInSpending } from './lifePlan';
+import { lifePlanStop, loansInSpending } from './lifePlanBasis';
 
 // Planning audit, 3.12: one place every Planning tab's figures come from.
 describe('planningModel', () => {
