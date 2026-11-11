@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { dataQuality, buildChartColumns, isRunningBucket, liquidAssets, netWorthSummary, periodChange, periodSummary, previousPeriodSummary, runwaySummary, startingNetWorth } from './overviewMath';
+import { dataQuality, buildChartColumns, isRunningBucket, liquidAssets, netWorthSummary, ownerName, periodChange, periodSummary, previousPeriodSummary, runwaySummary, scopeLabel, startingNetWorth, visibleRows } from './overviewMath';
 import { unvaluedAccounts, unvaluedNote } from '../lib/accounts';
 import { unconfirmedAccounts } from '../lib/balance';
 import { closedMonths, forecastInputs } from '../lib/forecast';
@@ -349,5 +349,28 @@ describe('isRunningBucket', () => {
     const now = new Date(2026, 9, 15);
     expect(isRunningBucket({ start: new Date(2026, 9, 1), end: new Date(2026, 10, 1) }, now)).toBe(true);
     expect(isRunningBucket({ start: new Date(2026, 8, 1), end: new Date(2026, 9, 1) }, now)).toBe(false);
+  });
+});
+
+describe('scope labels and rows', () => {
+  const ME = { id: 'm1', display_name: 'Alex' };
+  const MEMBERS = [ME, { id: 'm2', display_name: 'Sam' }];
+
+  it('shows the household all rows, and a member the shared ones and their own', () => {
+    const rows = [{ id: 1, is_shared: true }, { id: 2, is_shared: false, owner_member_id: 'm1' }, { id: 3, is_shared: false, owner_member_id: 'm2' }];
+    expect(visibleRows(rows, null).map((r) => r.id)).toEqual([1, 2, 3]);
+    expect(visibleRows(rows, 'm1').map((r) => r.id)).toEqual([1, 2]);
+  });
+
+  it('names an owner, Shared for none, and Member for one no longer in the roster', () => {
+    expect(ownerName(null, MEMBERS)).toBe('Shared');
+    expect(ownerName('m2', MEMBERS)).toBe('Sam');
+    expect(ownerName('gone', MEMBERS)).toBe('Member');
+  });
+
+  it('names the scope shown: me, or the partner', () => {
+    expect(scopeLabel('me', ME, MEMBERS)).toBe('Alex');
+    expect(scopeLabel('partner', ME, MEMBERS)).toBe('Sam');
+    expect(scopeLabel('partner', ME, [ME])).toBe('Partner');
   });
 });
