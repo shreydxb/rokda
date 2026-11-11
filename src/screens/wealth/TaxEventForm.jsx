@@ -38,6 +38,10 @@ export default function TaxEventForm({ memberId, year, taxReturn, event, onSaved
     refund_determined: asText(event?.refund_determined), refund_interest: event ? asText(event.refund_interest) : '0',
     tds_allowed_total: asText(event?.tds_allowed_total), amount: asText(event?.amount), note: event?.note ?? '',
   });
+  // The event as it was opened: a background refresh can bring a newer
+  // version of it, and saving the opening figures at that version would
+  // overwrite the partner's change (round 2 of the outside review).
+  const [opened] = useState(() => ({ id: event?.id ?? null, version: event?.version ?? null }));
   const [errors, setErrors] = useState({});
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
@@ -72,7 +76,7 @@ export default function TaxEventForm({ memberId, year, taxReturn, event, onSaved
     if (Object.keys(found).length) return;
     setBusy(true);
     const { data, error } = await supabase.rpc('save_tax_return_event', {
-      p_member_id: memberId, p_financial_year: year, p_event: sent, p_event_id: event?.id ?? null, p_expected_version: event?.version ?? null,
+      p_member_id: memberId, p_financial_year: year, p_event: sent, p_event_id: opened.id, p_expected_version: opened.version,
     });
     if (error || !data?.ok) {
       setBusy(false);

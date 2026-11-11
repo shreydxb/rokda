@@ -206,3 +206,19 @@ describe('Wealth -> Statements', () => {
     expect(settled.contains(within(card).getByText('29 Aug – 28 Sept'))).toBe(false);
   });
 });
+
+// Round 2 of the outside review, E2-3: a statement is not checked against
+// records that never loaded. Every card's statement read as not matching
+// Rokda's spending of nothing.
+describe('Statements: records that never loaded', () => {
+  it('says they could not load instead of comparing statements to nothing, and offers to try again', () => {
+    const reload = vi.fn().mockResolvedValue(undefined);
+    renderScreen(
+      <Statements household={{ id: 'h1' }} me={ME} members={[ME]} loading={false} data={{ accounts: [CARD], transactions: [], statementReconciliations: [], errors: { transactions: 'network' }, loaded: {}, reload }} />,
+    );
+    expect(screen.getByText('Couldn’t load transactions.')).toBeTruthy();
+    expect(screen.queryByText('Bank card')).toBeNull();
+    screen.getByRole('button', { name: 'Try again' }).click();
+    expect(reload).toHaveBeenCalled();
+  });
+});

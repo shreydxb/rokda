@@ -39,6 +39,12 @@ export default function Money() {
   const planning = usePlanningData(tab === 'review' ? household?.id : null);
   const loading = householdLoading || data.loading || (tab === 'review' && planning.loading);
   const pendingIntake = data.intake?.filter((i) => i.status === 'pending').length ?? 0;
+  // Refresh and Try again read everything this tab shows, the review's goals
+  // and plan included: those were reported as failed and never read again
+  // (round 2 of the outside review, E2-9).
+  const reloadAll = async () => {
+    await Promise.all([reloadHousehold(), data.reload(), ...(tab === 'review' ? [planning.reload()] : [])]);
+  };
 
   return (
     <div className="mn">
@@ -46,17 +52,13 @@ export default function Money() {
         title="Money"
         loadedAt={data.loadedAt}
         refreshing={data.refreshing}
-        onRefresh={async () => {
-          await Promise.all([reloadHousehold(), data.reload()]);
-        }}
+        onRefresh={reloadAll}
       />
       <AedNote household={household} />
       <LoadFailure
         errors={{ ...data.errors, ...(tab === 'review' ? planning.errors : {}), ...(householdError ? { household: householdError } : {}) }}
         loadedAt={data.loadedAt}
-        onRetry={async () => {
-          await Promise.all([reloadHousehold(), data.reload()]);
-        }}
+        onRetry={reloadAll}
       />
       <BackToReview />
       <TabRow

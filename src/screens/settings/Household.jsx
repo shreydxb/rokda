@@ -56,16 +56,19 @@ export default function Household({ household, members, me, loading, reload }) {
     if (!nameDirty) return;
     setSavingName(true);
     setNameError('');
-    const { error } = await supabase.from('households').update({ name: name.trim() }).eq('id', household.id);
+    const sent = name;
+    const { error } = await supabase.from('households').update({ name: sent.trim() }).eq('id', household.id);
     setSavingName(false);
     if (error) {
       setNameError(error.message);
       return;
     }
     // The field takes the name as stored, so it goes on following the
-    // household after this save (the fresh review of group 4).
-    syncedNameRef.current = name.trim();
-    setName(name.trim());
+    // household after this save (the fresh review of group 4) -- if it still
+    // holds what was sent: what was typed while the save was under way is
+    // the member's (round 2 of the outside review, E2-6).
+    syncedNameRef.current = sent.trim();
+    setName((current) => (current === sent ? sent.trim() : current));
     await reload();
   }
 
@@ -78,6 +81,7 @@ export default function Household({ household, members, me, loading, reload }) {
     }
     setSavingRate(true);
     setRateError('');
+    const sent = inrRate;
     const { error } = await supabase
       .from('households')
       .update({ inr_per_aed: rate, inr_rate_set_at: new Date().toISOString(), inr_rate_source: 'manual' })
@@ -90,8 +94,9 @@ export default function Household({ household, members, me, loading, reload }) {
     // As stored: "25.80" comes back as 25.8, and a field still reading
     // "25.80" would stop following the household and offer to write this
     // rate back over the next day's (the fresh review of group 4).
+    // Likewise only if it still holds what was sent (E2-6).
     syncedRateRef.current = String(rate);
-    setInrRate(String(rate));
+    setInrRate((current) => (current === sent ? String(rate) : current));
     await reload();
   }
 

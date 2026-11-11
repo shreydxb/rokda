@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { screen, fireEvent } from '@testing-library/dom';
+import { screen, fireEvent, within } from '@testing-library/dom';
+import { act } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { renderScreen as renderBare } from '../../test/renderScreen';
 
@@ -7,7 +8,18 @@ import { renderScreen as renderBare } from '../../test/renderScreen';
 const renderScreen = (ui) => renderBare(<MemoryRouter>{ui}</MemoryRouter>);
 import Budget from './Budget';
 
-vi.mock('../../lib/supabaseClient', () => ({ supabase: {} }));
+// What a save sends, for the editor's month (E2-2).
+const { upserts } = vi.hoisted(() => ({ upserts: [] }));
+vi.mock('../../lib/supabaseClient', () => ({
+  supabase: {
+    from: () => ({
+      upsert: (rows) => {
+        upserts.push(rows);
+        return Promise.resolve({ error: null });
+      },
+    }),
+  },
+}));
 
 describe('Budget: household share', () => {
   const TWO = [
@@ -245,5 +257,100 @@ describe('Budget: a savings category is a target, not spending', () => {
     expect(cells('Savings target')[10]).toBe('3,000');
     expect(cells('Budgeted subtotal')[10]).toBe('0');
     expect(screen.queryByText('Savings & Investments', { selector: 'td' })).toBeNull();
+  });
+});
+
+// Round 2 of the outside review, E2-3: spending that never loaded is not
+// spending of nothing. The month read "0 spent" against every budget.
+describe('Budget: records that never loaded', () => {
+  it('says they could not load instead of showing nothing spent, and offers to try again', () => {
+    const reload = vi.fn().mockResolvedValue(undefined);
+    renderScreen(
+      <Budget
+        household={{ id: 'h' }}
+        me={{ id: 'm1' }}
+        members={[{ id: 'm1', display_name: 'Alex' }]}
+        loading={false}
+        data={{
+          categories: [{ id: 'rent', name: 'Rent', kind: 'expense', parent_id: null }],
+          budgets: [{ id: 'b1', category_id: 'rent', year: 2026, month: 9, amount: 6000 }],
+          transactions: [],
+          errors: { transactions: 'network' },
+          loaded: {},
+          reload,
+        }}
+      />,
+    );
+    expect(screen.getByText('Couldn’t load transactions.')).toBeTruthy();
+    expect(screen.queryByText('Rent')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(reload).toHaveBeenCalled();
+  });
+
+  // Records that loaded once and failed on a refresh are still the
+  // household's: they are kept on screen, not withheld.
+  it('keeps showing records that loaded before a refresh failed', () => {
+    renderScreen(
+      <Budget
+        household={{ id: 'h' }}
+        me={{ id: 'm1' }}
+        members={[{ id: 'm1', display_name: 'Alex' }]}
+        loading={false}
+        data={{
+          categories: [{ id: 'rent', name: 'Rent', kind: 'expense', parent_id: null }],
+          budgets: [{ id: 'b1', category_id: 'rent', year: 2026, month: 9, amount: 6000 }],
+          transactions: [],
+          errors: { transactions: 'network' },
+          loaded: { transactions: true, budgets: true, categories: true },
+          reload: vi.fn(),
+        }}
+      />,
+    );
+    expect(screen.queryByText('Couldn’t load transactions.')).toBeNull();
+    expect(screen.getByRole('button', { name: '+ Set budget' })).toBeTruthy();
+  });
+});
+
+// Round 2 of the outside review, E2-2: an editor opened on this month, with no
+// month in the address, followed the page's "today". Left open past midnight
+// at a month's end, it saved into the next month.
+describe('Budget: an open editor keeps its month', () => {
+  beforeEach(() => {
+    upserts.length = 0;
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 8, 30, 12));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('saves into the month it was opened on after the month turns', async () => {
+    renderScreen(
+      <Budget
+        household={{ id: 'h' }}
+        me={{ id: 'm1' }}
+        members={[{ id: 'm1', display_name: 'Alex' }]}
+        loading={false}
+        data={{ categories: [{ id: 'rent', name: 'Rent', kind: 'expense', parent_id: null }], budgets: [], transactions: [], reload: vi.fn().mockResolvedValue(undefined) }}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '+ Set budget' }));
+    const editor = within(screen.getByRole('dialog', { name: 'Set budget' }));
+    fireEvent.change(editor.getByLabelText('Monthly limit'), { target: { value: '500' } });
+    fireEvent.click(editor.getByRole('button', { name: 'Rent' }));
+    // A day at a time: the page sets its clock for each midnight only once
+    // the one before has rendered.
+    for (let day = 0; day < 2; day += 1) {
+      act(() => {
+        vi.advanceTimersByTime(24 * 3600 * 1000);
+      });
+    }
+    // The page has moved on to October; the open editor has not.
+    expect(screen.getByText('Nothing budgeted for Oct 2026 yet.')).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(editor.getByRole('button', { name: 'Save' }));
+    });
+    expect(upserts).toHaveLength(1);
+    expect(upserts[0]).toEqual([expect.objectContaining({ category_id: 'rent', year: 2026, month: 9, amount: 500 })]);
   });
 });

@@ -8,6 +8,8 @@ import { budgetGroupSpend, monthIncome, monthPace } from '../../lib/budget';
 import { ChartLegend, ColumnChart, LineChart } from '../../charts/Charts';
 import BudgetEditor from './BudgetEditor';
 import { categoryOwner, householdShare } from '../../lib/share';
+import { neverLoaded } from '../../lib/loadState';
+import Withheld from '../planning/Withheld';
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -28,9 +30,24 @@ export default function Budget({ household, me, members, data, loading, onOpenRe
   // its records returns to it.
   const [cursor, setCursor] = useMonthParam(now);
   const [yearCursor, setYearCursor] = useState(now.getFullYear());
-  const [editing, setEditing] = useState(null); // null | 'new' | a budget row
+  // The editor's budget and the month it saves into, fixed when it opens. A
+  // page with no month in its address follows today, so an editor left open
+  // past midnight at a month's end saved into the next month (round 2 of the
+  // outside review, E2-2).
+  const [editing, setEditing] = useState(null); // null | { item, year, month }
+  const openEditor = (item) => setEditing({ item, year: view === 'year' ? yearCursor : cursor.getFullYear(), month: cursor.getMonth() + 1 });
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
+  // Spending, budgets or categories that never loaded are not none: the month
+  // read "0 spent" against every budget (round 2 of the outside review, E2-3).
+  const missing = neverLoaded(data, ['transactions', 'budgets', 'categories']);
+  if (missing.length > 0) {
+    return (
+      <Withheld missing={missing} onRetry={reload}>
+        Budgets aren&rsquo;t shown, rather than shown against spending of nothing.
+      </Withheld>
+    );
+  }
 
   const catById = new Map(categories.map((c) => [c.id, c]));
 
@@ -46,7 +63,7 @@ export default function Budget({ household, me, members, data, loading, onOpenRe
           </button>
         </div>
         <div className="mn-toolbar-end">
-          <button type="button" className="om-btn mn-add" onClick={() => setEditing('new')}>
+          <button type="button" className="om-btn mn-add" onClick={() => openEditor(null)}>
             + Set budget
           </button>
         </div>
@@ -62,7 +79,7 @@ export default function Budget({ household, me, members, data, loading, onOpenRe
           catById={catById}
           scopeMemberId={scopeMemberId}
           now={now}
-          onEdit={setEditing}
+          onEdit={openEditor}
           share={{ members, categories, budgets, transactions, accounts, recurring }}
         />
       ) : (
@@ -80,11 +97,11 @@ export default function Budget({ household, me, members, data, loading, onOpenRe
 
       {editing && (
         <BudgetEditor
-          item={editing === 'new' ? null : editing}
+          item={editing.item}
           householdId={household?.id}
           categories={categories}
-          year={view === 'year' ? yearCursor : cursor.getFullYear()}
-          month={cursor.getMonth() + 1}
+          year={editing.year}
+          month={editing.month}
           onOpenRecords={onOpenRecords}
           onClose={() => setEditing(null)}
           onSaved={async () => {

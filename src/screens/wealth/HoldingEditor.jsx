@@ -39,6 +39,8 @@ const NO_TRADES = [];
 
 export default function HoldingEditor({
   holding: holdingAsOpened,
+  // Deleted elsewhere since it was opened: the draft stays, and says so.
+  gone = false,
   householdId,
   members,
   trades = NO_TRADES,
@@ -153,13 +155,17 @@ export default function HoldingEditor({
   // received ones moved money (round 2 of the outside review). Dividends that
   // never loaded can't show whether there are any, so no Delete then either.
   const receivedDividends = holding && dividends.some((d) => d.holding_id === holding.id && (d.status === 'received' || d.status === 'presumed'));
-  const deletable = holding && !(traded && tradesFailed) && !buysOrSales && !dividendsFailed && !receivedDividends;
+  const deletable = holding && !gone && !(traded && tradesFailed) && !buysOrSales && !dividendsFailed && !receivedDividends;
+  // A holding deleted elsewhere is only shown, to copy from: a save, a
+  // trade or a dividend would act on nothing (the fresh review of PR 5).
+  const goneReason = gone ? 'This holding was deleted elsewhere.' : null;
   const daysOld = holding ? daysSincePriced(holding) : null;
   const lastValuedLabel =
     daysOld === null ? 'No valuation confirmed yet.' : `Unchanged numbers keep the existing valuation date (${daysOld}d ago).`;
 
   async function handleSave(e) {
     e.preventDefault();
+    if (gone) return;
     if (nameError || symbolError || rateError || feeError) {
       setError(nameError || symbolError || rateError || feeError);
       return;
@@ -328,6 +334,11 @@ export default function HoldingEditor({
         </div>
 
         <form className="te-form" onSubmit={handleSave}>
+          {gone && (
+            <p className="ov-warn" role="alert" style={{ marginTop: 0, fontSize: 12.5 }}>
+              This holding was deleted elsewhere. Copy what you need from your draft, then close.
+            </p>
+          )}
           {/* The holding's own fields lock while a trade is recorded or fixed:
               saving the trade reloads the holding, and an edit made meanwhile
               would be lost. */}
@@ -572,7 +583,7 @@ export default function HoldingEditor({
               trades={trades}
               failed={tradesFailed}
               accounts={accounts}
-              disabledReason={dirty ? 'Save or discard your changes to the holding first.' : dividendFormOpen ? 'Finish the dividend first.' : null}
+              disabledReason={goneReason ?? (dirty ? 'Save or discard your changes to the holding first.' : dividendFormOpen ? 'Finish the dividend first.' : null)}
               onChanged={onTradesChanged}
               onFormOpen={setTradeFormOpen}
             />
@@ -587,7 +598,7 @@ export default function HoldingEditor({
               specialParts={specialParts}
               failed={dividendsFailed}
               accounts={accounts}
-              disabledReason={dirty ? 'Save or discard your changes to the holding first.' : tradeFormOpen ? 'Finish the trade first.' : null}
+              disabledReason={goneReason ?? (dirty ? 'Save or discard your changes to the holding first.' : tradeFormOpen ? 'Finish the trade first.' : null)}
               onChanged={onTradesChanged}
               onFormOpen={setDividendFormOpen}
             />
@@ -609,12 +620,12 @@ export default function HoldingEditor({
                     {confirmingDelete ? 'Confirm delete?' : 'Delete'}
                   </button>
                 )}
-                {!subFormOpen && holding && !(traded && tradesFailed) && buysOrSales && (
+                {!subFormOpen && holding && !gone && !(traded && tradesFailed) && buysOrSales && (
                   <span className="ov-muted" style={{ fontSize: 11.5, maxWidth: 260 }}>
                     A holding with buys or sales can&rsquo;t be deleted. Delete its trades first, or keep it: sold to zero, it moves to Sold.
                   </span>
                 )}
-                {!subFormOpen && holding && !buysOrSales && receivedDividends && (
+                {!subFormOpen && holding && !gone && !buysOrSales && receivedDividends && (
                   <span className="ov-muted" style={{ fontSize: 11.5, maxWidth: 260 }}>
                     A holding with received dividends can&rsquo;t be deleted: they are tax records. Keep it: sold to zero, it moves to Sold.
                   </span>
@@ -637,9 +648,11 @@ export default function HoldingEditor({
                       <button type="button" className="om-btn" onClick={requestClose}>
                         Cancel
                       </button>
-                      <button type="submit" className="om-btn ov-btn-primary" disabled={saving}>
-                        {saving ? 'Saving…' : holding ? 'Save changes' : 'Add holding'}
-                      </button>
+                      {!gone && (
+                        <button type="submit" className="om-btn ov-btn-primary" disabled={saving}>
+                          {saving ? 'Saving…' : holding ? 'Save changes' : 'Add holding'}
+                        </button>
+                      )}
                     </>
                   )}
                 </div>

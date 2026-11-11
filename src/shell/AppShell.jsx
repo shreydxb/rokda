@@ -79,6 +79,10 @@ export default function AppShell() {
                     type="button"
                     className="om-scope"
                     data-active={scope === s.id}
+                    // Said, not only shown: data-active is the look, and a
+                    // screen reader announces aria-pressed (round 2 of the
+                    // outside review, E2-8).
+                    aria-pressed={scope === s.id}
                     onClick={() => setScope(s.id)}
                   >
                     {s.label}
@@ -98,6 +102,7 @@ export default function AppShell() {
                       type="button"
                       className="om-scope"
                       data-active={currency === c}
+                      aria-pressed={currency === c}
                       disabled={!enabled}
                       title={enabled ? undefined : 'Set an INR rate in Settings → Household first'}
                       onClick={() => setCurrency(c)}

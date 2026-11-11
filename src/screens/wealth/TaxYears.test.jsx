@@ -3,6 +3,8 @@ import { screen, fireEvent, cleanup, within } from '@testing-library/react';
 import { act } from 'react';
 import { renderScreen } from '../../test/renderScreen';
 import { shortDate } from '../../lib/dividends';
+import { ScopeProvider } from '../../lib/ScopeContext';
+import { CurrencyProvider } from '../../lib/CurrencyContext';
 
 const calls = [];
 let answers = {};
@@ -169,3 +171,27 @@ describe('focus after a form', () => {
   });
 });
 
+
+// The fresh review of round 2: a dividend's tax year saved with the version
+// in the latest refresh, not the one its form opened on, so a partner's
+// change made meanwhile was overwritten (as E2-1 was for refund records).
+describe("Tax years: a dividend's tax year after a refresh", () => {
+  it('saves at the version it was opened on', async () => {
+    const { rerender } = renderScreen(<TaxYears members={MEMBERS} scopeMemberId={null} data={data()} />);
+    fireEvent.click(row('FY 2025-26 (AY 2026-27)'));
+    fireEvent.click(within(region()).getByText('Dividends (1)'));
+    fireEvent.click(within(region()).getByRole('button', { name: 'Set tax year' }));
+    // The partner set it meanwhile; a refresh brings their version.
+    const refreshed = data({ holdingDividends: [rec('d1', IN_A, '2025-08-01', { version: 2 })] });
+    rerender(
+      <ScopeProvider>
+        <CurrencyProvider>
+          <TaxYears members={MEMBERS} scopeMemberId={null} data={refreshed} />
+        </CurrencyProvider>
+      </ScopeProvider>,
+    );
+    fireEvent.change(within(region()).getByLabelText('Tax year'), { target: { value: '2024' } });
+    await act(async () => fireEvent.click(within(region()).getByRole('button', { name: 'Save tax year' })));
+    expect(calls.map((c) => c.args.p_expected_version)).toEqual([1]);
+  });
+});

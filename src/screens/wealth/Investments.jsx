@@ -26,6 +26,7 @@ import { couldntLoad, neverLoaded } from '../../lib/loadState';
 import { householdToday } from '../../lib/day';
 import { supabase } from '../../lib/supabaseClient';
 import HoldingEditor from './HoldingEditor';
+import Withheld from '../planning/Withheld';
 import ConcentrationLine from './ConcentrationLine';
 
 // One empty list for a source a caller did not pass, so the figures worked
@@ -45,7 +46,17 @@ export default function Investments({ household, members, me, data, loading, rel
   // The id being edited, not the row: after a trade the screen reloads, and
   // the editor must show the holding as it is now, not as it was opened.
   const [editingId, setEditingId] = useState(null);
-  const editing = editingId === 'new' ? 'new' : (holdings.find((h) => h.id === editingId) ?? null);
+  // The row as it was opened. Deleted elsewhere while open, the holding drops
+  // out of the next refresh, and with it went the editor and its draft; it
+  // stays open on this row and says so (round 2 of the outside review, E2-5).
+  const [editingOpened, setEditingOpened] = useState(null);
+  const openHolding = (h) => {
+    setEditingId(h.id);
+    setEditingOpened(h);
+  };
+  const current = editingId && editingId !== 'new' ? (holdings.find((h) => h.id === editingId) ?? null) : null;
+  const editingGone = Boolean(editingId && editingId !== 'new' && !current);
+  const editing = editingId === 'new' ? 'new' : (current ?? (editingGone ? editingOpened : null));
   // Raised after a trade made in the editor has been re-read: the editor is
   // then opened afresh on the holding's new figures. A refresh from anywhere
   // else leaves an open editor, and whatever is typed in it, alone.
@@ -144,8 +155,22 @@ export default function Investments({ household, members, me, data, loading, rel
   }
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
+  // Holdings that never loaded are not "No holdings", which invited adding
+  // them a second time (round 2 of the outside review, E2-3).
+  const holdingsMissing = neverLoaded(data, ['holdings']);
+  if (holdingsMissing.length > 0) {
+    return (
+      <Withheld missing={holdingsMissing} onRetry={reload}>
+        Your holdings aren&rsquo;t shown, rather than shown as none.
+      </Withheld>
+    );
+  }
 
-  const selected = selectedIdx !== null ? rangedSeries[selectedIdx] : rangedSeries[rangedSeries.length - 1];
+  // A point picked on a longer range, or before a refresh shortened the
+  // series, is past its end: today's point is shown instead of nothing, which
+  // took the tab down (round 2 of the outside review, E2-4).
+  const pickedIdx = selectedIdx !== null && selectedIdx < rangedSeries.length ? selectedIdx : null;
+  const selected = pickedIdx !== null ? rangedSeries[pickedIdx] : rangedSeries[rangedSeries.length - 1];
 
   return (
     <div>
@@ -246,12 +271,23 @@ export default function Investments({ household, members, me, data, loading, rel
             <div style={{ flex: 1, minWidth: 320 }}>
               <div className="ov-seg-row wl-ranges">
                 {RANGES.map((r) => (
-                  <button key={r} type="button" className="om-seg" data-active={range === r} onClick={() => setRange(r)}>
+                  <button
+                    key={r}
+                    type="button"
+                    className="om-seg"
+                    data-active={range === r}
+                    // A pick is a position in this range's points: in another
+                    // range it would be another day (the fresh review of PR 5).
+                    onClick={() => {
+                      setRange(r);
+                      setSelectedIdx(null);
+                    }}
+                  >
                     {r}
                   </button>
                 ))}
               </div>
-              <PortfolioTrendChart series={rangedSeries} money={money} selectedIdx={selectedIdx} onSelect={setSelectedIdx} />
+              <PortfolioTrendChart series={rangedSeries} money={money} selectedIdx={pickedIdx} onSelect={setSelectedIdx} />
               {/* A day short of a holding held then is drawn without it, and
                   said (outside review, B-06). */}
               {(() => {
@@ -386,13 +422,13 @@ export default function Investments({ household, members, me, data, loading, rel
                     const value = scopedHoldingValue(h, scopeMemberId);
                     const pctOfTotal = totalValue > 0 ? value / totalValue : null;
                     return (
-                      <tr key={h.id} className="wl-holdrow" onClick={() => setEditingId(h.id)}>
+                      <tr key={h.id} className="wl-holdrow" onClick={() => openHolding(h)}>
                         <td>
                           {/* The row opens on a click; the name is the button
                               that opens it from the keyboard (outside review,
                               E-09). */}
                           <div>
-                            <button type="button" className="wl-holdname" onClick={(e) => { e.stopPropagation(); setEditingId(h.id); }}>
+                            <button type="button" className="wl-holdname" onClick={(e) => { e.stopPropagation(); openHolding(h); }}>
                               {h.name}
                             </button>
                           </div>
@@ -453,7 +489,7 @@ export default function Investments({ household, members, me, data, loading, rel
           {showSold && (
             <div className="mn-list" style={{ marginTop: 10 }}>
               {sold.map((h) => (
-                <SoldRow key={h.id} holding={h} trades={holdingTrades} members={members} money={money} scopeMemberId={scopeMemberId} fx={fx} onOpen={() => setEditingId(h.id)} />
+                <SoldRow key={h.id} holding={h} trades={holdingTrades} members={members} money={money} scopeMemberId={scopeMemberId} fx={fx} onOpen={() => openHolding(h)} />
               ))}
             </div>
           )}
@@ -464,6 +500,7 @@ export default function Investments({ household, members, me, data, loading, rel
         <HoldingEditor
           key={editing === 'new' ? 'new' : `${editing.id}:${editorGeneration}`}
           holding={editing === 'new' ? null : editing}
+          gone={editingGone}
           householdId={household?.id}
           members={members}
           trades={holdingTrades}
@@ -595,6 +632,8 @@ function PortfolioTrendChart({ series, selectedIdx, onSelect }) {
   const y = (v) => H - ((v - lo) / (hi - lo || 1)) * H;
 
   const points = series.map((p, i) => `${x(i).toFixed(1)},${y(p.total).toFixed(1)}`);
+  // The point picked, if it is in this series; else today's.
+  const dot = selectedIdx !== null && selectedIdx < series.length ? selectedIdx : series.length - 1;
   const areaPath = `M${x(0).toFixed(1)},${H} L${points.join(' L')} L${x(series.length - 1).toFixed(1)},${H} Z`;
 
   return (
@@ -608,15 +647,13 @@ function PortfolioTrendChart({ series, selectedIdx, onSelect }) {
           <div key={i} className="wl-invchart-col" onMouseEnter={() => onSelect(i)} onClick={() => onSelect(i)} />
         ))}
       </div>
-      {(selectedIdx !== null ? selectedIdx : series.length - 1) !== null && (
-        <div
-          className="wl-invchart-dot"
-          style={{
-            left: `${(x(selectedIdx !== null ? selectedIdx : series.length - 1) / W) * 100}%`,
-            top: `${(y(series[selectedIdx !== null ? selectedIdx : series.length - 1].total) / H) * 100}%`,
-          }}
-        />
-      )}
+      <div
+        className="wl-invchart-dot"
+        style={{
+          left: `${(x(dot) / W) * 100}%`,
+          top: `${(y(series[dot].total) / H) * 100}%`,
+        }}
+      />
     </div>
   );
 }

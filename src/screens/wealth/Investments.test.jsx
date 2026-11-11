@@ -373,6 +373,47 @@ describe('Investments: a day short of a holding\'s value', () => {
   });
 });
 
+// Round 2 of the outside review, E2-4: a point picked on a long range is past
+// the end of a shorter one. Switching from 5Y to 1W with a late point picked
+// read series[index] of nothing and took the tab down.
+describe('Investments: the chart after its range shortens', () => {
+  it('still draws, at today\'s point, when the picked point is not in the new range', () => {
+    const vwra = { ...STALE_HOLDING, created_at: '2020-01-01T00:00:00Z' };
+    const dayAgo = (n) => new Date(Date.parse(`${householdToday()}T00:00:00Z`) - n * 86400000).toISOString().slice(0, 10);
+    const history = [1500, 1200, 900, 600, 300, 120, 60, 30, 3, 1].map((n, i) => ({ holding_id: 'h1', as_of: dayAgo(n), value_aed: 9000 + i * 100 }));
+    const { container } = renderScreen(
+      <Investments household={{ id: 'h' }} members={MEMBERS} me={MEMBERS[0]} loading={false} data={{ holdings: [vwra], holdingHistory: history, reload: vi.fn() }} />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '5Y' }));
+    const columns = container.querySelectorAll('.wl-invchart-col');
+    expect(columns.length).toBe(11);
+    fireEvent.click(columns[8]);
+    fireEvent.click(screen.getByRole('button', { name: '1W' }));
+    expect(container.querySelectorAll('.wl-invchart-col').length).toBe(3);
+    expect(container.querySelector('.wl-invchart-dot')).toBeTruthy();
+    expect(container.querySelector('.ov-chart-readout')).toBeTruthy();
+  });
+
+  // The fresh review of PR 5: a pick still inside the shorter range kept its
+  // position, so another day read as the one picked. A new range starts at
+  // today's point.
+  it('goes back to today\'s point when the range changes', () => {
+    const vwra = { ...STALE_HOLDING, created_at: '2020-01-01T00:00:00Z' };
+    const dayAgo = (n) => new Date(Date.parse(`${householdToday()}T00:00:00Z`) - n * 86400000).toISOString().slice(0, 10);
+    const history = [1500, 1200, 900, 600, 300, 120, 60, 30, 3, 1].map((n, i) => ({ holding_id: 'h1', as_of: dayAgo(n), value_aed: 9000 + i * 100 }));
+    const { container } = renderScreen(
+      <Investments household={{ id: 'h' }} members={MEMBERS} me={MEMBERS[0]} loading={false} data={{ holdings: [vwra], holdingHistory: history, reload: vi.fn() }} />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '5Y' }));
+    const readout = () => container.querySelector('.ov-chart-readout .fig').textContent;
+    const today = readout();
+    fireEvent.click(container.querySelectorAll('.wl-invchart-col')[1]);
+    expect(readout()).not.toBe(today);
+    fireEvent.click(screen.getByRole('button', { name: '1W' }));
+    expect(readout()).toBe(today);
+  });
+});
+
 // The outside review, E-09: a holding opens from the keyboard too, by a real
 // button in its name cell, not only by clicking the row.
 describe('Investments: a holding opens from the keyboard', () => {
@@ -384,5 +425,54 @@ describe('Investments: a holding opens from the keyboard', () => {
     expect(open.tagName).toBe('BUTTON');
     fireEvent.click(open);
     expect(screen.getByRole('dialog')).toBeTruthy();
+  });
+});
+
+// Round 2 of the outside review, E2-3: holdings that never loaded are not
+// "No holdings", which invited adding them a second time.
+describe('Investments: holdings that never loaded', () => {
+  it('says they could not load instead of "No holdings", and offers to try again', () => {
+    const reload = vi.fn().mockResolvedValue(undefined);
+    renderScreen(
+      <Investments household={{ id: 'h' }} members={MEMBERS} me={MEMBERS[0]} loading={false} data={{ holdings: [], holdingHistory: [], errors: { holdings: 'network' }, loaded: {}, reload }} />,
+    );
+    expect(screen.getByText('Couldn’t load investments.')).toBeTruthy();
+    expect(screen.queryByText('No holdings')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(reload).toHaveBeenCalled();
+  });
+});
+
+// Round 2 of the outside review, E2-5: a holding deleted elsewhere while it
+// is open dropped out of the refresh, and with it went the editor and every
+// change typed into it. It stays open with the draft and says why.
+describe('Investments: a holding deleted elsewhere while it is open', () => {
+  const screenFor = (holdings) => (
+    <Investments household={{ id: 'h' }} members={MEMBERS} me={MEMBERS[0]} loading={false} data={{ holdings, holdingHistory: [], holdingTrades: [], accounts: [], reload: vi.fn() }} />
+  );
+
+  it('keeps the editor and its draft, and says the holding was deleted', () => {
+    const { rerender } = renderScreen(screenFor([PRICED_HOLDING]));
+    fireEvent.click(screen.getByRole('button', { name: 'AAPL' }));
+    fireEvent.change(screen.getByPlaceholderText('e.g. VWRA'), { target: { value: 'AAPL renamed' } });
+    // The partner deleted it; the next refresh no longer has it.
+    rerender(
+      <ScopeProvider>
+        <CurrencyProvider>{screenFor([])}</CurrencyProvider>
+      </ScopeProvider>,
+    );
+    expect(screen.getByRole('dialog', { name: 'Edit holding' })).toBeTruthy();
+    expect(screen.getByPlaceholderText('e.g. VWRA').value).toBe('AAPL renamed');
+    expect(screen.getAllByRole('alert').some((a) => /deleted elsewhere/.test(a.textContent))).toBe(true);
+    // Nothing is offered that would act on a holding that is gone: only
+    // closing (the fresh review of PR 5).
+    expect(screen.queryByRole('button', { name: 'Save changes' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Add a dividend' }).disabled).toBe(true);
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeTruthy();
+    // Enter in a field submits the form even with no Save button to press.
+    const before = writes.length;
+    fireEvent.submit(document.querySelector('form.te-form'));
+    expect(writes.length).toBe(before);
   });
 });

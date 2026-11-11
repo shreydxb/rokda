@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, fireEvent, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import { act } from 'react';
 import { renderScreen } from '../../test/renderScreen';
 
@@ -120,3 +120,21 @@ describe('missing figures are named before sending', () => {
   });
 });
 
+
+// Round 2 of the outside review (E2-1): the form kept the figures it opened
+// with but saved with the version of whatever the last refresh brought, so a
+// note changed after the partner's correction wrote the old figures back at
+// the new version.
+describe('the event form while the data refreshes', () => {
+  it('saves at the version it was opened on', async () => {
+    const event = { id: 'e-1', kind: 'refund_credited', happened_on: '2026-09-20', amount: 1000, revision: 1, version: 1, note: '' };
+    const ui = (e) => <TaxEventForm memberId="m1" year={2025} taxReturn={FILED} event={e} onSaved={vi.fn().mockResolvedValue(undefined)} onCancel={vi.fn()} />;
+    // Rendered plainly so the rerender updates this form rather than mounting a new one.
+    const view = render(ui(event));
+    type('Note', 'checked');
+    view.rerender(ui({ ...event, amount: 2000, version: 2 }));
+    await save();
+    expect(calls[0].args.p_event_id).toBe('e-1');
+    expect(calls[0].args.p_expected_version).toBe(1);
+  });
+});
