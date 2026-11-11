@@ -1,4 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useCloseGuard } from '../../lib/useCloseGuard';
+import DiscardPrompt from '../DiscardPrompt';
 import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
 import '../money/TransactionEditor.css';
@@ -11,26 +13,9 @@ export default function DebtPlanEditor({ householdId, assumptions, onClose, onSa
   const drawerRef = useDrawerFocus();
   const [extraPayment, setExtraPayment] = useState(assumptions?.debt_extra_payment != null ? String(assumptions.debt_extra_payment) : '');
   const [dirty, setDirty] = useState(false);
-  const [confirmingClose, setConfirmingClose] = useState(false);
+  const { confirmingClose, requestClose, keepEditing } = useCloseGuard({ dirty, onClose });
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    const onKey = (e) => {
-      if (e.key === 'Escape') requestClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dirty, confirmingClose]);
-
-  function requestClose() {
-    if (dirty && !confirmingClose) {
-      setConfirmingClose(true);
-      return;
-    }
-    onClose();
-  }
 
   // Blank is none; a negative payment is no payment at all, and the database
   // refuses it too.
@@ -49,7 +34,6 @@ export default function DebtPlanEditor({ householdId, assumptions, onClose, onSa
     const payload = {
       household_id: householdId,
       debt_extra_payment: extraPayment.trim() === '' ? null : Number(extraPayment),
-      updated_at: new Date().toISOString(),
     };
 
     const { error: saveError } = await supabase.from('planning_assumptions').upsert(payload, { onConflict: 'household_id' });
@@ -114,15 +98,7 @@ export default function DebtPlanEditor({ householdId, assumptions, onClose, onSa
               <div className="te-actions-right" style={{ marginLeft: 'auto' }}>
                 {confirmingClose ? (
                   <>
-                    <span className="ov-muted" style={{ marginRight: 8 }}>
-                      Discard changes?
-                    </span>
-                    <button type="button" className="om-btn" onClick={onClose}>
-                      Discard
-                    </button>
-                    <button type="button" className="om-btn" onClick={() => setConfirmingClose(false)}>
-                      Keep editing
-                    </button>
+                    <DiscardPrompt onDiscard={onClose} onKeepEditing={keepEditing} />
                   </>
                 ) : (
                   <>

@@ -1,4 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useCloseGuard } from '../../lib/useCloseGuard';
+import DiscardPrompt from '../DiscardPrompt';
 import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
 import { incomesWithoutRate } from '../../lib/forecast';
@@ -37,31 +39,14 @@ export default function IncomeEditor({ row, householdId, household = null, stack
   const drawerRef = useDrawerFocus();
   const [form, setForm] = useState(() => initialForm(row));
   const [dirty, setDirty] = useState(false);
-  const [confirmingClose, setConfirmingClose] = useState(false);
+  const { confirmingClose, requestClose, keepEditing } = useCloseGuard({ dirty, onClose });
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    const onKey = (e) => {
-      if (e.key === 'Escape') requestClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dirty, confirmingClose]);
-
   function set(key, value) {
     setForm((f) => ({ ...f, [key]: value }));
     setDirty(true);
-  }
-
-  function requestClose() {
-    if (dirty && !confirmingClose) {
-      setConfirmingClose(true);
-      return;
-    }
-    onClose();
   }
 
   const yearly = form.kind === 'yearly';
@@ -99,7 +84,6 @@ export default function IncomeEditor({ row, householdId, household = null, stack
       in_year: dated ? Number(form.in_year) : null,
       starts_after_years: dated ? 0 : Number(form.starts_after_years),
       lasts_years: yearly && form.lasts === 'years' ? Number(form.lasts_years) : null,
-      updated_at: new Date().toISOString(),
     };
     const query = row
       ? supabase.from('independence_income').update(payload).eq('id', row.id)
@@ -276,15 +260,7 @@ export default function IncomeEditor({ row, householdId, household = null, stack
               <div className="te-actions-right">
                 {confirmingClose ? (
                   <>
-                    <span className="ov-muted" style={{ marginRight: 8 }}>
-                      Discard changes?
-                    </span>
-                    <button type="button" className="om-btn" onClick={onClose}>
-                      Discard
-                    </button>
-                    <button type="button" className="om-btn" onClick={() => setConfirmingClose(false)}>
-                      Keep editing
-                    </button>
+                    <DiscardPrompt onDiscard={onClose} onKeepEditing={keepEditing} />
                   </>
                 ) : (
                   <>

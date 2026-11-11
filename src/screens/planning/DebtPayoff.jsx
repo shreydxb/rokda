@@ -92,7 +92,7 @@ export default function DebtPayoff({ household, members, me, accounts = [], data
     setOrderError('');
     const { error } = await supabase
       .from('planning_assumptions')
-      .upsert({ household_id: household?.id, debt_order: id, updated_at: new Date().toISOString() }, { onConflict: 'household_id' });
+      .upsert({ household_id: household?.id, debt_order: id }, { onConflict: 'household_id' });
     if (error) {
       setChosenOrder(null);
       setOrderError(`The order wasn't saved: ${error.message}`);

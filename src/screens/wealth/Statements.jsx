@@ -87,8 +87,8 @@ export default function Statements({ household, me, members = [], data, loading 
     const now = new Date().toISOString();
     const payload =
       next === 'waiting'
-        ? { status: 'waiting', closed_at: null, closed_by_member_id: null, updated_at: now }
-        : { status: 'confirmed', closed_at: now, closed_by_member_id: me?.id ?? null, updated_at: now };
+        ? { status: 'waiting', closed_at: null, closed_by_member_id: null }
+        : { status: 'confirmed', closed_at: now, closed_by_member_id: me?.id ?? null };
     if (why.trim()) payload.note = why.trim();
     let writeError;
     if (row.record) {

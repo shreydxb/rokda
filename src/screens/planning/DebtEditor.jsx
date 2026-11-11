@@ -1,10 +1,13 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useId, useState } from 'react';
+import { useCloseGuard } from '../../lib/useCloseGuard';
+import DiscardPrompt from '../DiscardPrompt';
 import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
 import { amountOwed, isArchived } from '../../lib/accounts';
 import { accountOwner } from '../../lib/debt';
 import { formatMoney } from '../../lib/money';
 import '../money/TransactionEditor.css';
+import OwnerPicker from '../OwnerPicker';
 
 // Where a debt's balance lives: a loan or card account, so net worth counts it.
 // NEW makes the account along with the debt; '' leaves the debt unlinked.
@@ -49,22 +52,12 @@ export default function DebtEditor({ debt, householdId, members, accounts = [], 
   // A balance in another currency is kept in Wealth, where its currency is.
   const foreign = linked && String(linked.currency ?? 'AED').toUpperCase() !== 'AED';
   const [dirty, setDirty] = useState(false);
-  const [confirmingClose, setConfirmingClose] = useState(false);
+  const { confirmingClose, requestClose, keepEditing } = useCloseGuard({ dirty, onClose });
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [triedSave, setTriedSave] = useState(false);
   const uid = useId();
-  const fieldRefs = useRef({});
-
-  useEffect(() => {
-    const onKey = (e) => {
-      if (e.key === 'Escape') requestClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dirty, confirmingClose]);
 
   function set(key, value) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -81,14 +74,6 @@ export default function DebtEditor({ debt, householdId, members, accounts = [], 
       ...(account ? { balance: String(amountOwed(account)), owner: account.is_shared ? 'shared' : (account.owner_member_id ?? 'shared') } : {}),
     }));
     setDirty(true);
-  }
-
-  function requestClose() {
-    if (dirty && !confirmingClose) {
-      setConfirmingClose(true);
-      return;
-    }
-    onClose();
   }
 
   // The rate and the minimum drive the payoff order and every date on Debt
@@ -112,10 +97,6 @@ export default function DebtEditor({ debt, householdId, members, accounts = [], 
         {fieldProblems[key]}
       </span>
     );
-  const fieldRef = (key) => (el) => {
-    fieldRefs.current[key] = el;
-  };
-
   async function handleSave(e) {
     e.preventDefault();
     if (saving) return;
@@ -123,7 +104,8 @@ export default function DebtEditor({ debt, householdId, members, accounts = [], 
     if (firstProblem) {
       setTriedSave(true);
       setError('Fix the marked field to save.');
-      fieldRefs.current[firstProblem]?.focus();
+      // Each field's id is the form's own plus its key.
+      document.getElementById(`${uid}-${firstProblem}`)?.focus();
       return;
     }
     setSaving(true);
@@ -234,7 +216,7 @@ export default function DebtEditor({ debt, householdId, members, accounts = [], 
                 <span className="te-hero-input fig">{linked.balance_aed != null ? formatMoney(amountOwed(linked, linked.balance_aed)) : '—'}</span>
               ) : (
                 <input
-                  ref={fieldRef('balance')}
+                  id={`${uid}-balance`}
                   type="number"
                   min="0"
                   step="0.01"
@@ -280,7 +262,7 @@ export default function DebtEditor({ debt, householdId, members, accounts = [], 
               <label className="te-fieldlabel" htmlFor={`${uid}-name`}>
                 Name
               </label>
-              <input id={`${uid}-name`} ref={fieldRef('name')} className="te-fieldvalue" type="text" value={form.name} onChange={(e) => set('name', e.target.value)} {...invalid('name')} />
+              <input id={`${uid}-name`} className="te-fieldvalue" type="text" value={form.name} onChange={(e) => set('name', e.target.value)} {...invalid('name')} />
               {problemText('name')}
             </div>
             <div className="te-fieldcell te-span2">
@@ -293,7 +275,6 @@ export default function DebtEditor({ debt, householdId, members, accounts = [], 
               </label>
               <input
                 id={`${uid}-apr`}
-                ref={fieldRef('apr')}
                 className="te-fieldvalue"
                 type="number"
                 min="0"
@@ -311,7 +292,6 @@ export default function DebtEditor({ debt, householdId, members, accounts = [], 
               </label>
               <input
                 id={`${uid}-minimum`}
-                ref={fieldRef('minimum')}
                 className="te-fieldvalue"
                 type="number"
                 min="0"
@@ -335,16 +315,7 @@ export default function DebtEditor({ debt, householdId, members, accounts = [], 
                 {linkedOwnerName}, as {linked.name} is in Wealth, where its owner is changed.
               </div>
             ) : (
-              <div className="om-scope-list" style={{ marginTop: 10 }}>
-                <button type="button" className="om-scope" data-active={form.owner === 'shared'} aria-pressed={form.owner === 'shared'} onClick={() => set('owner', 'shared')}>
-                  Shared
-                </button>
-                {members.map((m) => (
-                  <button key={m.id} type="button" className="om-scope" data-active={form.owner === m.id} aria-pressed={form.owner === m.id} onClick={() => set('owner', m.id)}>
-                    {m.display_name}
-                  </button>
-                ))}
-              </div>
+              <OwnerPicker value={form.owner} members={members} onChange={(id) => set('owner', id)} />
             )}
           </div>
 
@@ -364,15 +335,7 @@ export default function DebtEditor({ debt, householdId, members, accounts = [], 
               <div className="te-actions-right">
                 {confirmingClose ? (
                   <>
-                    <span className="ov-muted" style={{ marginRight: 8 }}>
-                      Discard changes?
-                    </span>
-                    <button type="button" className="om-btn" onClick={onClose}>
-                      Discard
-                    </button>
-                    <button type="button" className="om-btn" onClick={() => setConfirmingClose(false)}>
-                      Keep editing
-                    </button>
+                    <DiscardPrompt onDiscard={onClose} onKeepEditing={keepEditing} />
                   </>
                 ) : (
                   <>

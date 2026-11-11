@@ -1,4 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useCloseGuard } from '../../lib/useCloseGuard';
+import DiscardPrompt from '../DiscardPrompt';
 import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
 import { ASSET_CLASS_LABELS, SECTOR_GROUPS, SECTOR_LABELS, costFromUnits, hasSector, paysDividends } from '../../lib/holdings';
@@ -7,6 +9,7 @@ import { hasBuysOrSales } from '../../lib/trades';
 import HoldingTrades from './HoldingTrades';
 import HoldingDividends from './HoldingDividends';
 import '../money/TransactionEditor.css';
+import OwnerPicker from '../OwnerPicker';
 
 function initialForm(holding) {
   if (holding) {
@@ -67,7 +70,6 @@ export default function HoldingEditor({
   // silently certify the stored price as current (QA-04).
   const [asOf, setAsOf] = useState(() => todayISODate());
   const [dirty, setDirty] = useState(false);
-  const [confirmingClose, setConfirmingClose] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -83,29 +85,13 @@ export default function HoldingEditor({
   // So has a dividend being recorded, fixed or added (SHR-366).
   const [dividendFormOpen, setDividendFormOpen] = useState(false);
   const subFormOpen = tradeFormOpen || dividendFormOpen;
-
-  useEffect(() => {
-    const onKey = (e) => {
-      if (e.key === 'Escape') requestClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dirty, confirmingClose, subFormOpen]);
+  // A trade or a dividend being typed is as much unsaved work as an edited
+  // field.
+  const { confirmingClose, requestClose, keepEditing } = useCloseGuard({ dirty: dirty || subFormOpen, onClose });
 
   function set(key, value) {
     setForm((f) => ({ ...f, [key]: value }));
     setDirty(true);
-  }
-
-  function requestClose() {
-    // A trade or a dividend being typed is as much unsaved work as an edited
-    // field.
-    if ((dirty || subFormOpen) && !confirmingClose) {
-      setConfirmingClose(true);
-      return;
-    }
-    onClose();
   }
 
   const nameError = form.name.trim() === '' ? 'Name it.' : '';
@@ -216,7 +202,6 @@ export default function HoldingEditor({
       currency: form.currency || 'AED',
       is_shared: form.owner === 'shared',
       owner_member_id: form.owner === 'shared' ? null : form.owner,
-      updated_at: new Date().toISOString(),
       ...valuation,
       ...(nextPriced ? { priced_at: nextPriced } : {}),
       ...(dividendFields && taxRate !== null ? { dividend_tax_pct: taxRate } : {}),
@@ -564,16 +549,7 @@ export default function HoldingEditor({
 
             <div>
               <span className="te-fieldlabel">Held by</span>
-              <div className="om-scope-list" style={{ marginTop: 10 }}>
-                <button type="button" className="om-scope" data-active={form.owner === 'shared'} onClick={() => set('owner', 'shared')}>
-                  Shared
-                </button>
-                {members.map((m) => (
-                  <button key={m.id} type="button" className="om-scope" data-active={form.owner === m.id} onClick={() => set('owner', m.id)}>
-                    {m.display_name}
-                  </button>
-                ))}
-              </div>
+              <OwnerPicker value={form.owner} members={members} onChange={(id) => set('owner', id)} />
             </div>
           </fieldset>
 
@@ -632,17 +608,11 @@ export default function HoldingEditor({
                 )}
                 <div className="te-actions-right">
                   {confirmingClose ? (
-                    <>
-                      <span className="ov-muted" style={{ marginRight: 8 }}>
-                        {tradeFormOpen ? 'Discard this trade?' : dividendFormOpen ? 'Discard this dividend?' : 'Discard changes?'}
-                      </span>
-                      <button type="button" className="om-btn" onClick={onClose}>
-                        Discard
-                      </button>
-                      <button type="button" className="om-btn" onClick={() => setConfirmingClose(false)}>
-                        Keep editing
-                      </button>
-                    </>
+                    <DiscardPrompt
+                      question={tradeFormOpen ? 'Discard this trade?' : dividendFormOpen ? 'Discard this dividend?' : 'Discard changes?'}
+                      onDiscard={onClose}
+                      onKeepEditing={keepEditing}
+                    />
                   ) : (
                     <>
                       <button type="button" className="om-btn" onClick={requestClose}>

@@ -82,7 +82,7 @@ const TX = {
 const keys = () => db.log.map((e) => e.key).filter((k) => k !== 'transaction_edits.select');
 const writes = (key) => db.log.filter((e) => e.key === key);
 
-function open({ tx = TX, rules = [], links = [], onSaved = vi.fn().mockResolvedValue(undefined) } = {}) {
+function open({ tx = TX, rules = [], links = [], onSaved = vi.fn().mockResolvedValue(undefined), onClose = vi.fn() } = {}) {
   db.rules = rules.map((r) => ({ ...r }));
   renderScreen(
     <TransactionEditor
@@ -94,12 +94,12 @@ function open({ tx = TX, rules = [], links = [], onSaved = vi.fn().mockResolvedV
       allTransactions={[tx]}
       links={links}
       categoryRules={rules}
-      onClose={() => {}}
+      onClose={onClose}
       onSaved={onSaved}
       onOpenOther={null}
     />,
   );
-  return { onSaved };
+  return { onSaved, onClose };
 }
 
 const categorySelect = () => screen.getByDisplayValue('Dining out');
@@ -346,6 +346,19 @@ describe('Failures', () => {
     fireEvent.click(screen.getByText('Close', { selector: 'button' }));
     expect(onSaved).toHaveBeenCalledWith({ notice: { text: expect.stringContaining('Transaction saved; merchant rule wasn’t saved.') } });
     expect(writes('transactions.update')).toHaveLength(1);
+  });
+
+  // Escape takes the same way out as Close: the record is saved, so there is
+  // nothing to discard (the fresh review of PR #168).
+  it('closes the same way on Escape after a failed rule', async () => {
+    db.failures['category_rules.insert'] = { message: 'network down' };
+    const { onSaved, onClose } = open();
+    chooseGroceries();
+    fireEvent.click(rememberBox());
+    await save();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onSaved).toHaveBeenCalledWith({ notice: { text: expect.stringContaining('Transaction saved; merchant rule wasn’t saved.') } });
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it('turns to retrying the rule when the edit history fails, without saving the record again', async () => {

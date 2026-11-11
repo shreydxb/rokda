@@ -1,4 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useCloseGuard } from '../../lib/useCloseGuard';
+import DiscardPrompt from '../DiscardPrompt';
 import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
 import { incomesWithoutRate } from '../../lib/forecast';
@@ -34,31 +36,14 @@ export default function CostEditor({ row, householdId, household = null, stacked
   const drawerRef = useDrawerFocus();
   const [form, setForm] = useState(() => initialForm(row));
   const [dirty, setDirty] = useState(false);
-  const [confirmingClose, setConfirmingClose] = useState(false);
+  const { confirmingClose, requestClose, keepEditing } = useCloseGuard({ dirty, onClose });
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    const onKey = (e) => {
-      if (e.key === 'Escape') requestClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dirty, confirmingClose]);
-
   function set(key, value) {
     setForm((f) => ({ ...f, [key]: value }));
     setDirty(true);
-  }
-
-  function requestClose() {
-    if (dirty && !confirmingClose) {
-      setConfirmingClose(true);
-      return;
-    }
-    onClose();
   }
 
   // The same limits the database enforces, said here in words first.
@@ -94,7 +79,6 @@ export default function CostEditor({ row, householdId, household = null, stacked
       rise_pct: blank(form.rise) ? 0 : rise,
       starts_after_years: Number(form.starts_after_years),
       lasts_years: form.lasts === 'years' ? Number(form.lasts_years) : null,
-      updated_at: new Date().toISOString(),
     };
     const query = row ? supabase.from('after_work_costs').update(payload).eq('id', row.id) : supabase.from('after_work_costs').insert(payload);
     const { error: saveError } = await query;
@@ -240,15 +224,7 @@ export default function CostEditor({ row, householdId, household = null, stacked
               <div className="te-actions-right">
                 {confirmingClose ? (
                   <>
-                    <span className="ov-muted" style={{ marginRight: 8 }}>
-                      Discard changes?
-                    </span>
-                    <button type="button" className="om-btn" onClick={onClose}>
-                      Discard
-                    </button>
-                    <button type="button" className="om-btn" onClick={() => setConfirmingClose(false)}>
-                      Keep editing
-                    </button>
+                    <DiscardPrompt onDiscard={onClose} onKeepEditing={keepEditing} />
                   </>
                 ) : (
                   <>

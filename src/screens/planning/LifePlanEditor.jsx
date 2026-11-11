@@ -1,4 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
+import { useCloseGuard } from '../../lib/useCloseGuard';
+import DiscardPrompt from '../DiscardPrompt';
 import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
 import { formatMoney } from '../../lib/money';
@@ -93,11 +95,18 @@ export default function LifePlanEditor({
   const [growthChanged, setGrowthChanged] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [triedSave, setTriedSave] = useState(false);
-  const [confirmingClose, setConfirmingClose] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   // An income or cost open in a drawer over this one: { kind, row }.
   const [sub, setSub] = useState(null);
+  // Escape closes the drawer on top, not both.
+  const { confirmingClose, requestClose, keepEditing } = useCloseGuard({
+    dirty,
+    onClose,
+    onEscape: () => {
+      if (!sub) requestClose();
+    },
+  });
   const fieldRefs = useRef({});
   const sectionRefs = useRef({});
   const thisYear = new Date().getFullYear();
@@ -108,16 +117,6 @@ export default function LifePlanEditor({
   useEffect(() => {
     if (section !== 'people') sectionRefs.current[section]?.scrollIntoView?.({ block: 'start' });
   }, [section]);
-
-  useEffect(() => {
-    const onKey = (e) => {
-      // Escape closes the drawer on top, not both.
-      if (e.key === 'Escape' && !sub) requestClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dirty, confirmingClose, sub]);
 
   function set(key, value) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -138,14 +137,6 @@ export default function LifePlanEditor({
   function setPerson(id, key, value) {
     setForm((f) => ({ ...f, people: f.people.map((p) => (p.id === id ? { ...p, [key]: value } : p)) }));
     setDirty(true);
-  }
-
-  function requestClose() {
-    if (dirty && !confirmingClose) {
-      setConfirmingClose(true);
-      return;
-    }
-    onClose();
   }
 
   const planned = form.people.filter((p) => !blank(p.birthYear) || !blank(p.lifeExpectancy));
@@ -210,7 +201,6 @@ export default function LifePlanEditor({
       household_id: householdId,
       birth_year: Number(p.birthYear),
       life_expectancy: Number(p.lifeExpectancy),
-      updated_at: now,
     }));
     const cleared = form.people.filter((p) => p.had && blank(p.birthYear) && blank(p.lifeExpectancy)).map((p) => p.id);
     const changedStops = categories.filter((c) => !!c.stops_after_work !== stops.has(c.id));
@@ -225,7 +215,6 @@ export default function LifePlanEditor({
       retirement_return_pct: blank(form.returnPct) ? null : Number(form.returnPct),
       cash_return_pct: blank(form.cashPct) ? null : Number(form.cashPct),
       survivor_spend_pct: blank(form.survivorPct) ? null : Number(form.survivorPct),
-      updated_at: now,
     };
     if (growthChanged && isCustom) {
       Object.assign(plan, {
@@ -500,15 +489,7 @@ export default function LifePlanEditor({
                 <div className="te-actions-right">
                   {confirmingClose ? (
                     <>
-                      <span className="ov-muted" style={{ marginRight: 8 }}>
-                        Discard changes?
-                      </span>
-                      <button type="button" className="om-btn" onClick={onClose}>
-                        Discard
-                      </button>
-                      <button type="button" className="om-btn" onClick={() => setConfirmingClose(false)}>
-                        Keep editing
-                      </button>
+                      <DiscardPrompt onDiscard={onClose} onKeepEditing={keepEditing} />
                     </>
                   ) : (
                     <>

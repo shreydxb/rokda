@@ -265,7 +265,7 @@ export default function LifePlan({
     setSaveError('');
     const { error } = await supabase
       .from('planning_assumptions')
-      .upsert({ household_id: household.id, retirement_year: stopYear, updated_at: new Date().toISOString() }, { onConflict: 'household_id' });
+      .upsert({ household_id: household.id, retirement_year: stopYear }, { onConflict: 'household_id' });
     setSaving(false);
     if (error) {
       setSaveError(error.message);

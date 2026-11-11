@@ -1,4 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useCloseGuard } from '../../lib/useCloseGuard';
+import DiscardPrompt from '../DiscardPrompt';
 import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
 import '../money/TransactionEditor.css';
@@ -9,27 +11,10 @@ export default function RuleEditor({ rule, householdId, categories, onClose, onS
   const [matchType, setMatchType] = useState(rule?.match_type ?? 'contains');
   const [categoryId, setCategoryId] = useState(rule?.category_id ?? categories[0]?.id ?? '');
   const [dirty, setDirty] = useState(false);
-  const [confirmingClose, setConfirmingClose] = useState(false);
+  const { confirmingClose, requestClose, keepEditing } = useCloseGuard({ dirty, onClose });
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    const onKey = (e) => {
-      if (e.key === 'Escape') requestClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dirty, confirmingClose]);
-
-  function requestClose() {
-    if (dirty && !confirmingClose) {
-      setConfirmingClose(true);
-      return;
-    }
-    onClose();
-  }
 
   const patternError = pattern.trim() === '' ? 'Enter a merchant pattern.' : '';
   const categoryName = categories.find((c) => c.id === categoryId)?.name;
@@ -43,7 +28,7 @@ export default function RuleEditor({ rule, householdId, categories, onClose, onS
     setSaving(true);
     setError('');
 
-    const payload = { pattern: pattern.trim(), match_type: matchType, category_id: categoryId, updated_at: new Date().toISOString() };
+    const payload = { pattern: pattern.trim(), match_type: matchType, category_id: categoryId };
     const query = rule
       ? supabase.from('category_rules').update(payload).eq('id', rule.id)
       : supabase.from('category_rules').insert({ ...payload, household_id: householdId });
@@ -189,15 +174,7 @@ export default function RuleEditor({ rule, householdId, categories, onClose, onS
               <div className="te-actions-right">
                 {confirmingClose ? (
                   <>
-                    <span className="ov-muted" style={{ marginRight: 8 }}>
-                      Discard changes?
-                    </span>
-                    <button type="button" className="om-btn" onClick={onClose}>
-                      Discard
-                    </button>
-                    <button type="button" className="om-btn" onClick={() => setConfirmingClose(false)}>
-                      Keep editing
-                    </button>
+                    <DiscardPrompt onDiscard={onClose} onKeepEditing={keepEditing} />
                   </>
                 ) : (
                   <>

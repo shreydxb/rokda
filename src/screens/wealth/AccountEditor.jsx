@@ -1,4 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useCloseGuard } from '../../lib/useCloseGuard';
+import DiscardPrompt from '../DiscardPrompt';
 import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
 import { ACCOUNT_TYPE_LABELS, COMPOUNDING_LABELS, closurePlan, isArchived } from '../../lib/accounts';
@@ -6,6 +8,7 @@ import { isBalanceConfirmed } from '../../lib/balance';
 import { todayISODate } from '../../lib/valuation';
 import { householdToday } from '../../lib/day';
 import '../money/TransactionEditor.css';
+import OwnerPicker from '../OwnerPicker';
 
 
 function initialForm(account, defaultType) {
@@ -53,7 +56,7 @@ export default function AccountEditor({ account, defaultType, householdId, membe
   const [confirmBalance, setConfirmBalance] = useState(() => !account || !isBalanceConfirmed(account));
   const [balanceAsOf, setBalanceAsOf] = useState(() => todayISODate());
   const [dirty, setDirty] = useState(false);
-  const [confirmingClose, setConfirmingClose] = useState(false);
+  const { confirmingClose, requestClose, keepEditing } = useCloseGuard({ dirty, onClose });
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -61,26 +64,9 @@ export default function AccountEditor({ account, defaultType, householdId, membe
   // it; from then on the only way to remove it is to close it.
   const [deleteRefused, setDeleteRefused] = useState(false);
 
-  useEffect(() => {
-    const onKey = (e) => {
-      if (e.key === 'Escape') requestClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dirty, confirmingClose]);
-
   function set(key, value) {
     setForm((f) => ({ ...f, [key]: value }));
     setDirty(true);
-  }
-
-  function requestClose() {
-    if (dirty && !confirmingClose) {
-      setConfirmingClose(true);
-      return;
-    }
-    onClose();
   }
 
   const nameError = form.name.trim() === '' ? 'Name it.' : '';
@@ -406,16 +392,7 @@ export default function AccountEditor({ account, defaultType, householdId, membe
 
           <div>
             <span className="te-fieldlabel">Owner</span>
-            <div className="om-scope-list" style={{ marginTop: 10 }}>
-              <button type="button" className="om-scope" data-active={form.owner === 'shared'} onClick={() => set('owner', 'shared')}>
-                Shared
-              </button>
-              {members.map((m) => (
-                <button key={m.id} type="button" className="om-scope" data-active={form.owner === m.id} onClick={() => set('owner', m.id)}>
-                  {m.display_name}
-                </button>
-              ))}
-            </div>
+            <OwnerPicker value={form.owner} members={members} onChange={(id) => set('owner', id)} />
           </div>
 
           {account && confirmingDelete && (
@@ -451,15 +428,7 @@ export default function AccountEditor({ account, defaultType, householdId, membe
               <div className="te-actions-right">
                 {confirmingClose ? (
                   <>
-                    <span className="ov-muted" style={{ marginRight: 8 }}>
-                      Discard changes?
-                    </span>
-                    <button type="button" className="om-btn" onClick={onClose}>
-                      Discard
-                    </button>
-                    <button type="button" className="om-btn" onClick={() => setConfirmingClose(false)}>
-                      Keep editing
-                    </button>
+                    <DiscardPrompt onDiscard={onClose} onKeepEditing={keepEditing} />
                   </>
                 ) : (
                   <>

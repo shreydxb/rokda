@@ -327,6 +327,29 @@ describe('LifePlanEditor: other income and costs after work', () => {
     expect(screen.getByRole('dialog', { name: 'Life plan' })).toBeTruthy();
   });
 
+  // The fresh review of PR #168: with changes in both drawers, each Escape
+  // speaks for the drawer on top. The cost drawer asks, then closes alone;
+  // only then does the plan ask about its own changes.
+  it('asks for the drawer on top first when both have changes', () => {
+    const onClose = vi.fn();
+    renderEditor({ costs: [], incomes, onClose });
+    type('Essentials-only annual spend', '60000');
+    fireEvent.click(screen.getByText('+ Cost'));
+    type('Amount a year', '2000');
+    const escape = () => fireEvent.keyDown(window, { key: 'Escape' });
+    escape();
+    expect(screen.getByRole('dialog', { name: 'Add cost' })).toBeTruthy();
+    expect(screen.getAllByText('Discard changes?')).toHaveLength(1);
+    escape();
+    expect(screen.queryByRole('dialog', { name: 'Add cost' })).toBeNull();
+    expect(screen.queryByText('Discard changes?')).toBeNull();
+    escape();
+    expect(screen.getByText('Discard changes?')).toBeTruthy();
+    expect(onClose).not.toHaveBeenCalled();
+    escape();
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it('opens an income to edit it', () => {
     renderEditor({ incomes });
     fireEvent.click(screen.getByText('Flat rent'));

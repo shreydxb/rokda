@@ -1,4 +1,6 @@
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
+import { useCloseGuard } from '../../lib/useCloseGuard';
+import DiscardPrompt from '../DiscardPrompt';
 import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
 import { basisChoice, monthKeyLabel, recordsFromOptions } from '../../lib/forecast';
@@ -14,7 +16,7 @@ export default function BasisEditor({ householdId, assumptions, recordedMonths =
   const [basis, setBasis] = useState(saved.basis);
   const [from, setFrom] = useState(saved.recordsFrom ?? '');
   const [dirty, setDirty] = useState(false);
-  const [confirmingClose, setConfirmingClose] = useState(false);
+  const { confirmingClose, requestClose, keepEditing } = useCloseGuard({ dirty, onClose });
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   // A month saved before the first record still shows as itself.
@@ -22,23 +24,6 @@ export default function BasisEditor({ householdId, assumptions, recordedMonths =
     const months = recordsFromOptions(recordedMonths);
     return saved.recordsFrom && !months.includes(saved.recordsFrom) ? [...months, saved.recordsFrom].sort().reverse() : months;
   }, [recordedMonths, saved.recordsFrom]);
-
-  useEffect(() => {
-    const onKey = (e) => {
-      if (e.key === 'Escape') requestClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dirty, confirmingClose]);
-
-  function requestClose() {
-    if (dirty && !confirmingClose) {
-      setConfirmingClose(true);
-      return;
-    }
-    onClose();
-  }
 
   function choose(next) {
     setBasis(next);
@@ -55,7 +40,6 @@ export default function BasisEditor({ householdId, assumptions, recordedMonths =
         household_id: householdId,
         planning_basis: basis,
         records_from: from ? `${from}-01` : null,
-        updated_at: new Date().toISOString(),
       },
       { onConflict: 'household_id' }
     );
@@ -138,15 +122,7 @@ export default function BasisEditor({ householdId, assumptions, recordedMonths =
               <div className="te-actions-right" style={{ marginLeft: 'auto' }}>
                 {confirmingClose ? (
                   <>
-                    <span className="ov-muted" style={{ marginRight: 8 }}>
-                      Discard changes?
-                    </span>
-                    <button type="button" className="om-btn" onClick={onClose}>
-                      Discard
-                    </button>
-                    <button type="button" className="om-btn" onClick={() => setConfirmingClose(false)}>
-                      Keep editing
-                    </button>
+                    <DiscardPrompt onDiscard={onClose} onKeepEditing={keepEditing} />
                   </>
                 ) : (
                   <>

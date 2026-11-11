@@ -7,6 +7,7 @@ import { transferEdits } from '../../lib/editHistory';
 import { ENTRY_TYPES } from '../../lib/entryTypes';
 import EditHistory from './EditHistory';
 import './TransactionEditor.css';
+import OwnerPicker from '../OwnerPicker';
 
 // Money moved between two of the household's own accounts (docs/decisions.md,
 // "Transfers are neither income nor spending"; SHR-234): paying the card from
@@ -238,16 +239,7 @@ export default function TransferEditor({ transfer, householdId, accounts, member
           {!existing && (
             <div>
               <span className="te-fieldlabel">Whose money</span>
-              <div className="om-scope-list" style={{ marginTop: 10 }}>
-                <button type="button" className="om-scope" data-active={form.owner === 'shared'} onClick={() => set('owner', 'shared')}>
-                  Shared
-                </button>
-                {members.map((m) => (
-                  <button key={m.id} type="button" className="om-scope" data-active={form.owner === m.id} onClick={() => set('owner', m.id)}>
-                    {m.display_name}
-                  </button>
-                ))}
-              </div>
+              <OwnerPicker value={form.owner} members={members} onChange={(id) => set('owner', id)} />
             </div>
           )}
 
