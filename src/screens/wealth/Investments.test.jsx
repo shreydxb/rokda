@@ -393,6 +393,25 @@ describe('Investments: the chart after its range shortens', () => {
     expect(container.querySelector('.wl-invchart-dot')).toBeTruthy();
     expect(container.querySelector('.ov-chart-readout')).toBeTruthy();
   });
+
+  // The fresh review of PR 5: a pick still inside the shorter range kept its
+  // position, so another day read as the one picked. A new range starts at
+  // today's point.
+  it('goes back to today\'s point when the range changes', () => {
+    const vwra = { ...STALE_HOLDING, created_at: '2020-01-01T00:00:00Z' };
+    const dayAgo = (n) => new Date(Date.parse(`${householdToday()}T00:00:00Z`) - n * 86400000).toISOString().slice(0, 10);
+    const history = [1500, 1200, 900, 600, 300, 120, 60, 30, 3, 1].map((n, i) => ({ holding_id: 'h1', as_of: dayAgo(n), value_aed: 9000 + i * 100 }));
+    const { container } = renderScreen(
+      <Investments household={{ id: 'h' }} members={MEMBERS} me={MEMBERS[0]} loading={false} data={{ holdings: [vwra], holdingHistory: history, reload: vi.fn() }} />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '5Y' }));
+    const readout = () => container.querySelector('.ov-chart-readout .fig').textContent;
+    const today = readout();
+    fireEvent.click(container.querySelectorAll('.wl-invchart-col')[1]);
+    expect(readout()).not.toBe(today);
+    fireEvent.click(screen.getByRole('button', { name: '1W' }));
+    expect(readout()).toBe(today);
+  });
 });
 
 // The outside review, E-09: a holding opens from the keyboard too, by a real

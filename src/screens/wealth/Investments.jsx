@@ -271,7 +271,18 @@ export default function Investments({ household, members, me, data, loading, rel
             <div style={{ flex: 1, minWidth: 320 }}>
               <div className="ov-seg-row wl-ranges">
                 {RANGES.map((r) => (
-                  <button key={r} type="button" className="om-seg" data-active={range === r} onClick={() => setRange(r)}>
+                  <button
+                    key={r}
+                    type="button"
+                    className="om-seg"
+                    data-active={range === r}
+                    // A pick is a position in this range's points: in another
+                    // range it would be another day (the fresh review of PR 5).
+                    onClick={() => {
+                      setRange(r);
+                      setSelectedIdx(null);
+                    }}
+                  >
                     {r}
                   </button>
                 ))}
