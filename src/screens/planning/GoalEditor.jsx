@@ -5,58 +5,16 @@ import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
 import { formatMoney } from '../../lib/money';
 import { DEFAULT_INFLATION_PCT, accountCanBackGoal, goalCostAtDate } from '../../lib/goals';
-import { isArchived } from '../../lib/accounts';
+import { goalPayload, goalProblems, initialForm, linkErrorMessage, shareProblem } from '../../lib/goalForm';
 import { householdToday, parseDay } from '../../lib/day';
 import '../money/TransactionEditor.css';
 import OwnerPicker from '../OwnerPicker';
-
-function initialForm(goal) {
-  if (goal) {
-    return {
-      name: goal.name,
-      note: goal.note ?? '',
-      target_amount: String(goal.target_amount ?? ''),
-      target_date: goal.target_date ?? '',
-      funding_source: goal.funding_source ?? '',
-      owner: goal.is_shared ? 'shared' : (goal.owner_member_id ?? ''),
-      cost_today: !!goal.cost_today,
-      inflation_pct: goal.inflation_pct != null ? String(Number(goal.inflation_pct)) : '',
-      priority: goal.priority != null ? String(goal.priority) : '',
-      kept: goal.counts_in_life_plan === false,
-      planned_monthly: goal.planned_monthly != null ? String(Number(goal.planned_monthly)) : '',
-    };
-  }
-  return { name: '', note: '', target_amount: '', target_date: '', funding_source: '', owner: 'shared', cost_today: false, inflation_pct: '', priority: '', kept: false, planned_monthly: '' };
-}
+import GoalContributions from './GoalContributions';
+import GoalLinks from './GoalLinks';
 
 const dayLabel = (day) => parseDay(day).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 // done_at is a moment, not a day: read in the browser's own time.
 const doneLabel = (at) => new Date(at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-
-// The database's own wording for a link it refuses names neither the account
-// nor what to do instead.
-function linkErrorMessage(err) {
-  if (err?.code === '23514' && /exceed 100%/.test(err.message ?? '')) {
-    const already = /already ([\d.]+)/.exec(err.message)?.[1];
-    return `That would link more than 100% of it to goals${already ? `: ${Number(already)}% is already linked to other goals` : ''}. Lower the share.`;
-  }
-  if (err?.code === '23505') return 'This goal already links it. Change the share on its row instead.';
-  return err?.message ?? 'That did not save.';
-}
-
-// The database takes any share above 0 and up to 100, fractions included.
-const shareProblem = (text) => {
-  const pct = Number(text);
-  return String(text ?? '').trim() !== '' && Number.isFinite(pct) && pct > 0 && pct <= 100 ? '' : 'A share above 0 and up to 100%.';
-};
-
-// Why a link made before loans, cards and closed accounts were refused now counts for nothing.
-function linkCountsAsNothing(account) {
-  if (!account) return 'the account is gone';
-  if (isArchived(account)) return 'the account is closed';
-  if (account.type === 'loan') return 'a loan is owed, not saved';
-  return 'a card is owed, not saved';
-}
 
 // The goal's own fields are one form. Logging a contribution and linking an
 // account are forms of their own beside it, so Enter in their fields does
@@ -139,17 +97,10 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
     setDirty(true);
   }
 
-  const nameError = form.name.trim() === '' ? 'Name it.' : '';
-  const targetError = !form.target_amount || Number(form.target_amount) <= 0 ? 'Set a target above zero.' : '';
-  const rateText = String(form.inflation_pct).trim();
-  const priorityText = String(form.priority).trim();
-  const rateError = form.cost_today && rateText !== '' && !(Number.isFinite(Number(rateText)) && Number(rateText) >= -10 && Number(rateText) <= 30) ? 'A yearly rise between −10% and 30%.' : '';
-  const priorityError = priorityText !== '' && !(/^\d+$/.test(priorityText) && Number(priorityText) >= 1 && Number(priorityText) <= 999) ? 'Priority is a whole number from 1.' : '';
-  const plannedText = String(form.planned_monthly).trim();
-  const plannedError = plannedText !== '' && !(Number.isFinite(Number(plannedText)) && Number(plannedText) >= 0) ? 'A monthly amount of 0 or more, or blank for no plan.' : '';
   // Each field carries its own message once a save has been tried, and the
-  // message follows the field as it is corrected.
-  const fieldProblems = { target: targetError, rate: rateError, name: nameError, priority: priorityError, planned: plannedError };
+  // message follows the field as it is corrected (lib/goalForm.js).
+  const fieldProblems = goalProblems(form);
+  const rateText = String(form.inflation_pct).trim();
   const invalid = (key) => (triedSave && fieldProblems[key] ? { 'aria-invalid': true, 'aria-describedby': `${uid}-${key}-problem` } : { 'aria-invalid': false });
   const problemText = (key) =>
     triedSave &&
@@ -160,7 +111,7 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
     );
   // What a today's cost comes to on the date, shown while it is being typed.
   const costOnDate =
-    form.cost_today && form.target_date && Number(form.target_amount) > 0 && !rateError
+    form.cost_today && form.target_date && Number(form.target_amount) > 0 && !fieldProblems.rate
       ? goalCostAtDate({ target_amount: form.target_amount, target_date: form.target_date, cost_today: true, inflation_pct: rateText === '' ? null : rateText }, new Date(), inflationPct)
       : null;
 
@@ -182,25 +133,7 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
     setSaving(true);
     setFormError('');
 
-    const payload = {
-      household_id: householdId,
-      name: form.name.trim(),
-      note: form.note.trim(),
-      target_amount: Number(form.target_amount),
-      target_date: form.target_date || null,
-      funding_source: form.funding_source.trim(),
-      is_shared: form.owner === 'shared',
-      owner_member_id: form.owner === 'shared' ? null : form.owner,
-      cost_today: form.cost_today,
-      inflation_pct: form.cost_today && rateText !== '' ? Number(rateText) : null,
-      priority: priorityText === '' ? null : Number(priorityText),
-      // Kept money, an emergency fund, is never paid out of the Life plan's
-      // pot. Only the Life plan could set this (Planning audit, 1.6).
-      counts_in_life_plan: !form.kept,
-      // What the household means to put towards it a month; blank is no
-      // plan, and 0 is a plan of nothing (Planning audit, 2.7).
-      planned_monthly: plannedText === '' ? null : Number(plannedText),
-    };
+    const payload = goalPayload(form, householdId);
 
     const query = goal ? supabase.from('goals').update(payload).eq('id', goal.id) : supabase.from('goals').insert(payload);
     const { error: saveError } = await query;
@@ -597,179 +530,57 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
           )}
 
           {goal && (
-            <section className="te-section" aria-labelledby={`${uid}-contributions-head`}>
-              {sectionHeading('contributions', 'Contributions')}
-              {linked.length > 0 && (
-                <div className="ov-muted" style={{ fontSize: 11.5, marginBottom: 12, lineHeight: 1.5 }}>
-                  Its linked accounts and holdings are what count as saved, so what is logged here is a record and is not added on top.
-                </div>
-              )}
-              <form onSubmit={handleLogContribution} noValidate>
-                <div className="te-fieldgrid">
-                  <div className="te-fieldcell">
-                    <label className="te-fieldlabel" htmlFor={ids.contribAmount}>
-                      Amount (AED)
-                    </label>
-                    <input
-                      id={ids.contribAmount}
-                      className="te-fieldvalue"
-                      type="number"
-                      step="0.01"
-                      value={contribAmount}
-                      onChange={(e) => {
-                        setContribAmount(e.target.value);
-                        setNotice(null);
-                      }}
-                    />
-                  </div>
-                  <div className="te-fieldcell">
-                    <label className="te-fieldlabel" htmlFor={ids.contribDate}>
-                      Date
-                    </label>
-                    <input id={ids.contribDate} className="te-fieldvalue" type="date" value={contribDate} onChange={(e) => setContribDate(e.target.value)} />
-                  </div>
-                </div>
-                <div className="te-subactions">
-                  <button type="submit" className="om-btn" aria-disabled={saving}>
-                    Log contribution
-                  </button>
-                </div>
-              </form>
-              {sectionMessages('contributions')}
-
-              {contributions.length === 0 ? (
-                <div className="ov-muted" style={{ fontSize: 12.5, marginTop: 14 }}>
-                  No contributions logged yet.
-                </div>
-              ) : (
-                <div className="mn-list">
-                  {contributions.map((c) => (
-                    <div key={c.id} className="mn-row te-linkrow" style={{ cursor: 'default' }}>
-                      <div className="mn-row-main">{dayLabel(c.occurred_at)}</div>
-                      <div className="te-rowcontrols">
-                        <span className="fig mn-row-amt">{formatMoney(c.amount)}</span>
-                        {removeControls('contribution', c.id, `the contribution of ${formatMoney(c.amount)} on ${dayLabel(c.occurred_at)}`)}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
+            <GoalContributions
+              labelledBy={`${uid}-contributions-head`}
+              heading={sectionHeading('contributions', 'Contributions')}
+              messages={sectionMessages('contributions')}
+              hasLinks={linked.length > 0}
+              ids={{ amount: ids.contribAmount, date: ids.contribDate }}
+              amount={contribAmount}
+              onAmount={(value) => {
+                setContribAmount(value);
+                setNotice(null);
+              }}
+              date={contribDate}
+              onDate={setContribDate}
+              onLog={handleLogContribution}
+              saving={saving}
+              contributions={contributions}
+              removeControls={removeControls}
+            />
           )}
 
           {goal && (sourceOptions.length > 0 || linked.length > 0) && (
-            <section className="te-section" aria-labelledby={`${uid}-linked-head`}>
-              {sectionHeading('linked', <>Linked accounts &amp; holdings</>, { marginBottom: 4 })}
-              <div className="ov-muted" style={{ fontSize: 11.5, marginBottom: 12, lineHeight: 1.5 }}>
-                Earmark a share of a real account or holding toward this goal: its current value (interest or growth included) is
-                what counts as saved, in place of logged contributions. One account/holding can be split across several goals as long as its shares
-                never add up past 100%. Loans and cards can&rsquo;t be linked: what they hold is owed.
-              </div>
-              {sourceOptions.length > 0 && (
-                <form onSubmit={handleAddAllocation} noValidate>
-                  <div className="te-fieldgrid">
-                    <div className="te-fieldcell te-span2">
-                      <label className="te-fieldlabel" htmlFor={ids.linkSource}>
-                        Account / holding
-                      </label>
-                      <select id={ids.linkSource} className="te-fieldvalue" value={allocSource} onChange={(e) => setSourceChoice(e.target.value)}>
-                        {linkableAccounts.length > 0 && (
-                          <optgroup label="Accounts">
-                            {linkableAccounts.map((a) => (
-                              <option key={a.id} value={`account:${a.id}`}>
-                                {a.name}
-                              </option>
-                            ))}
-                          </optgroup>
-                        )}
-                        {linkableHoldings.length > 0 && (
-                          <optgroup label="Holdings">
-                            {linkableHoldings.map((h) => (
-                              <option key={h.id} value={`holding:${h.id}`}>
-                                {h.name}
-                              </option>
-                            ))}
-                          </optgroup>
-                        )}
-                      </select>
-                    </div>
-                    <div className="te-fieldcell">
-                      <label className="te-fieldlabel" htmlFor={ids.linkShare}>
-                        Share %
-                      </label>
-                      <input
-                        id={ids.linkShare}
-                        className="te-fieldvalue"
-                        type="number"
-                        step="any"
-                        value={allocSharePct}
-                        onChange={(e) => {
-                          setAllocSharePct(e.target.value);
-                          setNotice(null);
-                        }}
-                      />
-                    </div>
-                  </div>
-                  <div className="te-subactions">
-                    <button type="submit" className="om-btn" aria-disabled={saving}>
-                      Link
-                    </button>
-                  </div>
-                </form>
-              )}
-              {sectionMessages('linked')}
-
-              {linked.length === 0 ? (
-                <div className="ov-muted" style={{ fontSize: 12.5, marginTop: 14 }}>
-                  Nothing linked yet — this goal's progress is only from logged contributions.
-                </div>
-              ) : (
-                <div className="mn-list">
-                  {linked.map((a) => {
-                    const label = allocationLabel(a);
-                    const account = a.account_id ? findAccount(a.account_id) : null;
-                    const nothing = a.account_id && !accountCanBackGoal(account) ? linkCountsAsNothing(account) : null;
-                    const stored = String(Number(a.share_pct));
-                    const shown = shareEdits[a.id] ?? stored;
-                    return (
-                      <form key={a.id} className="mn-row te-linkrow" style={{ cursor: 'default' }} onSubmit={(e) => handleShareChange(e, a)} noValidate>
-                        <div className="mn-row-main">
-                          {label}
-                          {nothing && <div className="ov-muted te-rownote">Counts as nothing: {nothing}.</div>}
-                        </div>
-                        <div className="te-rowcontrols">
-                          {!nothing && (
-                            <>
-                              <input
-                                ref={(el) => {
-                                  shareRefs.current[a.id] = el;
-                                }}
-                                className="te-fieldvalue te-shareinput"
-                                type="number"
-                                step="any"
-                                value={shown}
-                                onChange={(e) => {
-                                  setShareEdits((edits) => ({ ...edits, [a.id]: e.target.value }));
-                                  setNotice(null);
-                                }}
-                                aria-label={`Share of ${label}, percent`}
-                              />
-                              <span className="fig">%</span>
-                              {shown !== stored && (
-                                <button type="submit" className="om-btn" aria-disabled={saving}>
-                                  Update
-                                </button>
-                              )}
-                            </>
-                          )}
-                          {removeControls('allocation', a.id, `the link to ${label}`)}
-                        </div>
-                      </form>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
+            <GoalLinks
+              labelledBy={`${uid}-linked-head`}
+              heading={sectionHeading('linked', <>Linked accounts &amp; holdings</>, { marginBottom: 4 })}
+              messages={sectionMessages('linked')}
+              ids={{ source: ids.linkSource, share: ids.linkShare }}
+              linkableAccounts={linkableAccounts}
+              linkableHoldings={linkableHoldings}
+              allocSource={allocSource}
+              onSource={setSourceChoice}
+              allocSharePct={allocSharePct}
+              onShare={(value) => {
+                setAllocSharePct(value);
+                setNotice(null);
+              }}
+              onAdd={handleAddAllocation}
+              saving={saving}
+              linked={linked}
+              allocationLabel={allocationLabel}
+              findAccount={findAccount}
+              shareEdits={shareEdits}
+              onShareEdit={(id, value) => {
+                setShareEdits((edits) => ({ ...edits, [id]: value }));
+                setNotice(null);
+              }}
+              onShareChange={handleShareChange}
+              shareRef={(id) => (el) => {
+                shareRefs.current[id] = el;
+              }}
+              removeControls={removeControls}
+            />
           )}
 
           <div className="te-sticky-actions">
