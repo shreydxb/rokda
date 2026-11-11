@@ -8,8 +8,9 @@ vi.mock('../lib/supabaseClient', () => ({ supabase: {} }));
 vi.mock('../lib/useHousehold', () => ({
   useHousehold: () => ({ household: { id: 'hh', name: 'Test' }, members: [], me: { id: 'm1' }, loading: false, error: null, reload: async () => {} }),
 }));
-// The review tab's own content is not what is tested here.
+// The tabs' own content is not what is tested here.
 vi.mock('./money/Review', () => ({ default: () => <div>Review</div> }));
+vi.mock('./money/Activity', () => ({ default: () => <div>Activity</div> }));
 
 const overview = { reload: vi.fn(async () => {}) };
 const planning = { reload: vi.fn(async () => {}) };
@@ -48,5 +49,17 @@ describe('Money -> Review: reading again', () => {
     open();
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Refresh' })));
     expect(planning.reload).toHaveBeenCalled();
+  });
+
+  // Only the review tab uses them; elsewhere they are not read at all.
+  it('Refresh on another tab leaves them alone', async () => {
+    renderScreen(
+      <MemoryRouter initialEntries={['/money']}>
+        <Money />
+      </MemoryRouter>,
+    );
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Refresh' })));
+    expect(overview.reload).toHaveBeenCalled();
+    expect(planning.reload).not.toHaveBeenCalled();
   });
 });

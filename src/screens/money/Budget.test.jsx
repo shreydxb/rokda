@@ -286,6 +286,29 @@ describe('Budget: records that never loaded', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(reload).toHaveBeenCalled();
   });
+
+  // Records that loaded once and failed on a refresh are still the
+  // household's: they are kept on screen, not withheld.
+  it('keeps showing records that loaded before a refresh failed', () => {
+    renderScreen(
+      <Budget
+        household={{ id: 'h' }}
+        me={{ id: 'm1' }}
+        members={[{ id: 'm1', display_name: 'Alex' }]}
+        loading={false}
+        data={{
+          categories: [{ id: 'rent', name: 'Rent', kind: 'expense', parent_id: null }],
+          budgets: [{ id: 'b1', category_id: 'rent', year: 2026, month: 9, amount: 6000 }],
+          transactions: [],
+          errors: { transactions: 'network' },
+          loaded: { transactions: true, budgets: true, categories: true },
+          reload: vi.fn(),
+        }}
+      />,
+    );
+    expect(screen.queryByText('Couldn’t load transactions.')).toBeNull();
+    expect(screen.getByRole('button', { name: '+ Set budget' })).toBeTruthy();
+  });
 });
 
 // Round 2 of the outside review, E2-2: an editor opened on this month, with no
@@ -293,6 +316,7 @@ describe('Budget: records that never loaded', () => {
 // at a month's end, it saved into the next month.
 describe('Budget: an open editor keeps its month', () => {
   beforeEach(() => {
+    upserts.length = 0;
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 8, 30, 12));
   });
