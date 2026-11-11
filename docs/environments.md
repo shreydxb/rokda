@@ -328,15 +328,18 @@ was. So `npm run verify:release` does two more things after the functions.
   pooled connection keeps it, because Postgres qualifies names in a
   definition by what the caller's path can see. And NOT NULL is read from
   the column only, since Postgres 18 also lists it as a constraint. With
-  these, production and a fresh build matched on all 1,598 objects when this
-  was written. `scripts/catalog-fingerprint.test.sh`, in the migrations job,
-  changes a copy of a fresh build in eighteen ways and checks each is either
-  ignored or named: line endings, two callers' search paths, an edited body,
-  an aggregate, a trigger switched off, a function and a table opened to
-  `anon`, the receipt policy dropped, the bucket made public, an identity
-  column loosened, the service role refused the scheduler secret, RLS
-  switched off on receipt storage, and a scheduled job pointed elsewhere,
-  rescheduled, stripped of its query, switched off, or added by hand.
+  these, production and a fresh build matched on all 1,610 objects on 11
+  November 2026, the service role's access, receipt storage and the
+  scheduled jobs included. `scripts/catalog-fingerprint.test.sh`, in the
+  migrations job, changes a copy of a fresh build in twenty-one ways and
+  checks each is either ignored or named: line endings, two callers' search
+  paths, an edited body, an aggregate, a trigger switched off, a function and
+  a table opened to `anon`, the receipt policy dropped, the bucket made
+  public, an identity column loosened, the service role refused the scheduler
+  secret, a function it has by default, or saving to receipt storage, RLS
+  switched off on receipt storage, signed-out callers refused the storage
+  schema, and a scheduled job pointed elsewhere, rescheduled, stripped of its
+  query, switched off, or added by hand.
 
   Not compared, so not proved: owners and raw grants (the platform sets them
   differently from a plain Postgres; what they allow is compared above),
