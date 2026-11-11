@@ -46,6 +46,12 @@ alter default privileges in schema public
   grant select, insert, update, delete on tables to anon, authenticated, service_role;
 alter default privileges in schema public
   grant usage, select on sequences to anon, authenticated, service_role;
+-- And every function created in public is executable by them, as Supabase
+-- grants by default (its pg_default_acl): a function a migration does not
+-- revoke is callable there, so here too. The release check compares what each
+-- of these roles may do with production's (round 2 of the outside review).
+alter default privileges in schema public
+  grant execute on functions to anon, authenticated, service_role;
 
 create schema if not exists auth;
 
@@ -125,6 +131,13 @@ create table if not exists storage.objects (
   bucket_id text references storage.buckets(id),
   name text
 );
+
+-- As on Supabase: row-level security on, and the API roles granted the
+-- tables, so the receipt photos' policy is what decides who reads them.
+alter table storage.buckets enable row level security;
+alter table storage.objects enable row level security;
+grant usage on schema storage to anon, authenticated, service_role;
+grant select, insert, update, delete on storage.objects to anon, authenticated, service_role;
 
 create or replace function storage.foldername(name text)
 returns text[]

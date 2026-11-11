@@ -401,15 +401,22 @@ test('theme toggle switches and the page stays readable', async ({ page }) => {
   // On a phone the theme toggle is folded behind the household button.
   const folded = page.locator('.om-sidetoggle');
   if (await folded.isVisible()) await folded.click();
-  const toggle = page.locator('button', { hasText: /dark|light|theme/i }).first();
-  if (await toggle.count()) {
-    await toggle.click();
-    await page.waitForTimeout(300);
-    const after = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-    expect(after, 'theme toggle did not change the background').not.toBe(before);
-    const text = await page.evaluate(() => getComputedStyle(document.body).color);
-    expect(text, 'body text colour unset after theme switch').toBeTruthy();
-  }
+  // The toggle must be there: every check used to sit inside "if there is
+  // one", so the test passed with no toggle at all (round 2 of the outside
+  // review).
+  const toggle = page.getByRole('button', { name: /^(Light|Dark) mode$/ });
+  await expect(toggle).toBeVisible();
+  const label = await toggle.textContent();
+  await toggle.click();
+  await expect(toggle).not.toHaveText(label);
+  const after = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  expect(after, 'theme toggle did not change the background').not.toBe(before);
+  const text = await page.evaluate(() => getComputedStyle(document.body).color);
+  expect(text, 'body text colour unset after theme switch').toBeTruthy();
+  // And back.
+  await toggle.click();
+  await expect(toggle).toHaveText(label);
+  await expect.poll(() => page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe(before);
 });
 
 // The Content-Security-Policy (scripts/csp.mjs) ships in the build this suite
