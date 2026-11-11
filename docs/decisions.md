@@ -36,7 +36,7 @@ stale until someone confirms a valuation, and confirming one writes a dated
 point into `holding_value_history`.
 
 There is no live price or FX feed, and none is a prerequisite for a reliable
-manual ledger. *Superseded in part (October 2026): a price and exchange-rate
+manual ledger. *Superseded in part (September 2026): a price and exchange-rate
 feed now runs (price-refresh, SHR-237; "A price is as old as its quote"). What
 still holds is the rule above: a value is fresh only from a dated valuation,
 by hand or from the feed's own quote time, never from a reload or an edit.*

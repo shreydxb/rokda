@@ -77,6 +77,11 @@ describe('activitySummary', () => {
     ];
     const summary = activitySummary(rows, ME);
     expect(summary).toEqual({ income: 250, purchases: 50, refunds: 10, spend: 40, transfers: 2 });
+    // The calendar's days add up to the summary line, income and transfers
+    // included (dayTotals works each day out as this works out the list).
+    const days = [...dayTotals(rows, ME).values()];
+    expect(days.reduce((sum, d) => sum + d.spend, 0)).toBe(summary.spend);
+    expect(days.reduce((sum, d) => sum + d.income, 0)).toBe(summary.income);
   });
 });
 

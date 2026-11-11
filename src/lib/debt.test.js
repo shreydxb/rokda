@@ -108,6 +108,8 @@ describe('minimumOnlyPayoff: one debt at its minimum', () => {
     const payoff = one(100000, 6, 520);
     expect(payoff.tooLong).toHaveLength(1);
     expect(payoff.never).toEqual([]);
+    // A long debt with interest that does clear within the 50 years.
+    expect(one(100000, 6, 700).months).toBe(252);
   });
 });
 
