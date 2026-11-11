@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 
-// How every editor drawer is left: at once when nothing was changed, and with
+// How an editor drawer is left: at once when nothing was changed, and with
 // "Discard changes?" first when something was. A second Escape, or Discard,
-// then closes it; Keep editing goes back. Fourteen editors each kept their own
+// then closes it; Keep editing goes back. Fifteen editors each kept their own
 // copy of this (the round 2 cleanup, SHR-383); DiscardPrompt is its buttons.
+// The transfer editor keeps its own, which shares one prompt among close,
+// delete and unlink.
 //
 // `dirty` is whatever counts as unsaved work in that editor (a trade being
 // typed counts in the holding editor). `onEscape` is for an editor that has

@@ -552,6 +552,20 @@ describe('a holding\'s trades', () => {
     cleanup();
   });
 
+  // The fresh review of PR #168: Escape asks the same question, about the
+  // dividend being typed, and a second Escape discards it.
+  it('asks on Escape before closing on a dividend being typed', () => {
+    const onClose = vi.fn();
+    renderScreen(<HoldingEditor holding={abc} trades={trades} accounts={ACCOUNTS} householdId="hh" members={[]} onClose={onClose} onSaved={async () => {}} onTradesChanged={async () => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Add a dividend' }));
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByText('Discard this dividend?')).toBeTruthy();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+    cleanup();
+  });
+
   it('says when its trades could not be loaded, and offers no Delete', () => {
     renderScreen(<HoldingEditor holding={abc} trades={[]} tradesFailed accounts={ACCOUNTS} householdId="hh" members={[]} onClose={() => {}} onSaved={async () => {}} onTradesChanged={async () => {}} />);
     expect(screen.getByText('Couldn’t load this holding’s trades. Refresh the page to try again.')).toBeTruthy();
