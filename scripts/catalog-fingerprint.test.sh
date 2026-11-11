@@ -94,6 +94,16 @@ check 'a scheduled job switched off' 'DIFFERENT  cron job weekday-price-refresh'
   "update cron.job set active = false where jobname = 'weekday-price-refresh';"
 check 'a scheduled job that no migration makes' 'EXTRA      cron job someone-elses-job' \
   "insert into cron.job (jobname, schedule, command) values ('someone-elses-job', '* * * * *', 'select 1');"
+# The fresh review of PR 4: storage's own access rows, and the default
+# grant that gives the service role every function in public, each pinned.
+# Without the shim's default grant the build has no service-role execute
+# here to lose, and main would be red against production.
+check 'the service role stopped from saving receipt photos' 'DIFFERENT  access storage.objects' \
+  'revoke insert on storage.objects from service_role;'
+check 'signed-out callers stopped from reaching storage' 'DIFFERENT  access schema storage' \
+  'revoke usage on schema storage from anon;'
+check 'the service role stopped from a function it has by default' 'DIFFERENT  access public.check_refund(p_transaction_id uuid)' \
+  'revoke execute on function public.check_refund(uuid) from service_role;'
 
 if [ "$failures" -gt 0 ]; then
   echo "catalog-fingerprint test: $failures case(s) FAILED" >&2
