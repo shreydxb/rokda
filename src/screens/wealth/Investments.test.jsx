@@ -444,6 +444,16 @@ describe('Investments: a holding deleted elsewhere while it is open', () => {
     );
     expect(screen.getByRole('dialog', { name: 'Edit holding' })).toBeTruthy();
     expect(screen.getByPlaceholderText('e.g. VWRA').value).toBe('AAPL renamed');
-    expect(screen.getByRole('alert').textContent).toMatch(/deleted elsewhere/);
+    expect(screen.getAllByRole('alert').some((a) => /deleted elsewhere/.test(a.textContent))).toBe(true);
+    // Nothing is offered that would act on a holding that is gone: only
+    // closing (the fresh review of PR 5).
+    expect(screen.queryByRole('button', { name: 'Save changes' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Add a dividend' }).disabled).toBe(true);
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeTruthy();
+    // Enter in a field submits the form even with no Save button to press.
+    const before = writes.length;
+    fireEvent.submit(document.querySelector('form.te-form'));
+    expect(writes.length).toBe(before);
   });
 });
