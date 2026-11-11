@@ -276,7 +276,7 @@ function DividendYearRow({ dividend, onSaved }) {
     setBusy(true);
     setMessage('');
     const { data, error } = await supabase.rpc('set_dividend_tax_year', {
-      p_dividend_id: dividend.id, p_financial_year: year, p_basis: basis, p_expected_version: dividend.version,
+      p_dividend_id: dividend.id, p_financial_year: year, p_basis: basis, p_expected_version: form.version,
     });
     setBusy(false);
     if (error || !data?.ok) {
@@ -345,7 +345,10 @@ function DividendYearRow({ dividend, onSaved }) {
             ref={(el) => (buttonsRef.current.set = el)}
             onClick={() => {
               focusNextRef.current = 'year';
-              setForm({ year: String(own ?? creditYear), basis: dividend.tax_year_basis ?? 'declared' });
+              // The version as opened: a refresh while the form is open
+              // brings a partner's change, which a save must not overwrite
+              // (the fresh review of round 2; E2-1 for refund records).
+              setForm({ year: String(own ?? creditYear), basis: dividend.tax_year_basis ?? 'declared', version: dividend.version });
             }}
           >
             Set tax year
