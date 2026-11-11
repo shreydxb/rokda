@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { annualSpendByCategory, basisChoice, budgetInputs, budgetPlan, closedMonths, forecastInputs, incomeInYear, incomesFromStop, incomesWithoutRate, monthKeyLabel, payMonthTransactions, planningMonths, recordsFromOptions, scenarioSets, spendThatStops } from './forecast';
 
-const DEFAULTS = { nominal_return_pct: 6.0, inflation_pct: 2.5, safe_withdrawal_pct: 4.0 };
+const DEFAULTS = { nominal_return_pct: 6.0, inflation_pct: 2.5 };
 
 describe('scenarioSets', () => {
   it('falls back to app defaults with no saved assumptions', () => {
@@ -11,7 +11,7 @@ describe('scenarioSets', () => {
   });
 
   it('derives Conservative and Optimistic as offsets from Baseline', () => {
-    const sets = scenarioSets({ nominal_return_pct: 6, inflation_pct: 2.5, safe_withdrawal_pct: 4 }, DEFAULTS);
+    const sets = scenarioSets({ nominal_return_pct: 6, inflation_pct: 2.5 }, DEFAULTS);
     expect(sets.conservative.nominalPct).toBe(4);
     expect(sets.conservative.inflationPct).toBe(3.5);
     expect(sets.optimistic.nominalPct).toBe(8);
@@ -19,13 +19,13 @@ describe('scenarioSets', () => {
   });
 
   it('never derives a negative Conservative return or Optimistic inflation', () => {
-    const sets = scenarioSets({ nominal_return_pct: 1, inflation_pct: 0.5, safe_withdrawal_pct: 4 }, DEFAULTS);
+    const sets = scenarioSets({ nominal_return_pct: 1, inflation_pct: 0.5 }, DEFAULTS);
     expect(sets.conservative.nominalPct).toBe(0);
     expect(sets.optimistic.inflationPct).toBe(0);
   });
 
   it('Custom mirrors Baseline until it has its own saved values', () => {
-    const sets = scenarioSets({ nominal_return_pct: 6, inflation_pct: 2.5, safe_withdrawal_pct: 4 }, DEFAULTS);
+    const sets = scenarioSets({ nominal_return_pct: 6, inflation_pct: 2.5 }, DEFAULTS);
     expect(sets.custom.nominalPct).toBe(6);
     expect(sets.custom.meta).toMatch(/not set/i);
   });
@@ -35,10 +35,8 @@ describe('scenarioSets', () => {
       {
         nominal_return_pct: 6,
         inflation_pct: 2.5,
-        safe_withdrawal_pct: 4,
         custom_nominal_return_pct: 7.5,
         custom_inflation_pct: 3,
-        custom_safe_withdrawal_pct: 3.5,
         custom_updated_at: '2026-08-01T00:00:00Z',
       },
       DEFAULTS,
@@ -50,7 +48,7 @@ describe('scenarioSets', () => {
 
   it('a Custom figure saved blank follows Baseline, not 0', () => {
     const sets = scenarioSets(
-      { nominal_return_pct: 6, inflation_pct: 2.5, safe_withdrawal_pct: 4, custom_nominal_return_pct: 9, custom_inflation_pct: null, custom_safe_withdrawal_pct: null, custom_updated_at: '2026-08-01T00:00:00Z' },
+      { nominal_return_pct: 6, inflation_pct: 2.5, custom_nominal_return_pct: 9, custom_inflation_pct: null, custom_updated_at: '2026-08-01T00:00:00Z' },
       DEFAULTS,
     );
     expect(sets.custom.nominalPct).toBe(9);
@@ -454,8 +452,8 @@ describe('scenarioSets: saved or defaults', () => {
   it('calls Baseline the defaults until the assumptions drawer has saved', () => {
     expect(scenarioSets(null).baseline).toMatchObject({ saved: false, meta: 'Defaults, nothing saved', nominalPct: 6, inflationPct: 2.5 });
     // A row another editor created holds the same figures, and is not saved.
-    expect(scenarioSets({ nominal_return_pct: 6, inflation_pct: 2.5, safe_withdrawal_pct: 4, retirement_year: 2050 }).baseline.meta).toBe('Defaults, nothing saved');
-    expect(scenarioSets({ nominal_return_pct: 7, inflation_pct: 3, safe_withdrawal_pct: 4, assumptions_saved_at: '2026-10-23T09:00:00Z' }).baseline).toMatchObject({
+    expect(scenarioSets({ nominal_return_pct: 6, inflation_pct: 2.5, retirement_year: 2050 }).baseline.meta).toBe('Defaults, nothing saved');
+    expect(scenarioSets({ nominal_return_pct: 7, inflation_pct: 3, assumptions_saved_at: '2026-10-23T09:00:00Z' }).baseline).toMatchObject({
       saved: true,
       meta: 'Your saved assumptions',
       nominalPct: 7,

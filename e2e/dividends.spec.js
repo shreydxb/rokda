@@ -21,7 +21,7 @@ const FUND = {
   id: F_USD, household_id: ids.HH, owner_member_id: ids.ME, name: 'Dollar broker funds', type: 'broker_funds', currency: 'USD',
   balance: 100, is_shared: false, created_at: at(dayThisMonth(1)), updated_at: at(dayThisMonth(1)), credit_limit: null, statement_day: null,
   due_day: null, principal: null, interest_rate_pct: null, compounding: null, opened_date: null, maturity_date: null, fd_status: 'active',
-  balance_aed: 367.25, archived_at: null, closing_note: null, balance_as_of: at(dayThisMonth(1)), brokerage_in_average: false, dividends_into_account_id: null,
+  balance_aed: 367.25, archived_at: null, balance_as_of: at(dayThisMonth(1)), brokerage_in_average: false, dividends_into_account_id: null,
 };
 const dividend = (n, over) => ({
   id: `d1d1d1d1-0000-4000-8000-00000000000${n}`, household_id: ids.HH, holding_id: H_ABC, event_id: `e1e1e1e1-0000-4000-8000-00000000000${n}`,

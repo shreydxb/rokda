@@ -36,7 +36,7 @@ const acc = (id, name, type, extra = {}) => ({
   balance: 0, is_shared: true, created_at: ts(monthsAgo(6)), updated_at: ts(monthsAgo(1)),
   credit_limit: null, statement_day: null, due_day: null, principal: null,
   interest_rate_pct: null, compounding: null, opened_date: null, maturity_date: null,
-  fd_status: 'active', balance_aed: null, archived_at: null, closing_note: null,
+  fd_status: 'active', balance_aed: null, archived_at: null,
   balance_as_of: ts(dayThisMonth(1)), ...extra,
 });
 
@@ -84,7 +84,7 @@ export const data = {
     acc(A_FD, 'Term deposit', 'fd', { balance: 10600, balance_aed: 10600, principal: 10000, interest_rate_pct: 6, compounding: 'simple', opened_date: monthsAgo(12), maturity_date: upcomingDayThisMonth(28), balance_as_of: null }),
     // An unconfirmed balance and an archived account: both are states the UI
     // is meant to render differently, and both are easy to get wrong.
-    acc(A_ARCHIVED, 'Old account', 'checking', { balance: 0, archived_at: ts(monthsAgo(2)), closing_note: 'Closed' }),
+    acc(A_ARCHIVED, 'Old account', 'checking', { balance: 0, archived_at: ts(monthsAgo(2)) }),
   ],
 
   categories: [cat(C_GROCERIES, 'Groceries', 'expense'), cat(C_RENT, 'Rent', 'expense'), cat(C_SALARY, 'Salary', 'income'), cat(C_DINING, 'Dining out', 'expense')],
@@ -156,7 +156,7 @@ export const data = {
 
   debts: [{ id: 'a1a1a1a1-0000-4000-8000-000000000001', household_id: HH, owner_member_id: null, is_shared: true, name: 'Car loan', note: null, balance: 42000, apr_pct: 4.5, minimum_payment: 1200, custom_rank: null, account_id: null, created_at: ts(monthsAgo(6)), updated_at: ts(monthsAgo(1)), original_amount: 60000 }],
 
-  planning_assumptions: [{ household_id: HH, nominal_return_pct: 6, inflation_pct: 2.5, safe_withdrawal_pct: 4, lean_annual_spend: 90000, debt_extra_payment: 0, debt_assume_no_new_card_spend: true, assumptions_saved_at: ts(monthsAgo(1)), baseline_set_at: ts(monthsAgo(1)), baseline_nominal_return_pct: 6, baseline_inflation_pct: 2.5, baseline_monthly_saving: 4000, updated_at: ts(monthsAgo(1)), custom_nominal_return_pct: null, custom_inflation_pct: null, custom_safe_withdrawal_pct: null, custom_updated_at: null, retirement_year: 2050, retirement_annual_spend: 110000, retirement_return_pct: 5, survivor_spend_pct: 70, planning_basis: null, records_from: null }],
+  planning_assumptions: [{ household_id: HH, nominal_return_pct: 6, inflation_pct: 2.5, lean_annual_spend: 90000, debt_extra_payment: 0, assumptions_saved_at: ts(monthsAgo(1)), baseline_set_at: ts(monthsAgo(1)), baseline_nominal_return_pct: 6, baseline_inflation_pct: 2.5, baseline_monthly_saving: 4000, updated_at: ts(monthsAgo(1)), custom_nominal_return_pct: null, custom_inflation_pct: null, custom_safe_withdrawal_pct: null, custom_updated_at: null, retirement_year: 2050, retirement_annual_spend: 110000, retirement_return_pct: 5, survivor_spend_pct: 70, planning_basis: null, records_from: null }],
 
   // Ages for the life plan, one member planned a little longer than the other.
   member_life: [

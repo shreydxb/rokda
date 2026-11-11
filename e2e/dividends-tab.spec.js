@@ -36,7 +36,7 @@ const QUIET = holding(H_QUIET, { name: 'QUIET', asset_class: 'us_equity', curren
 const account = (id, name, type, currency, extra = {}) => ({
   id, household_id: ids.HH, owner_member_id: null, name, type, currency, balance: 100, is_shared: true, created_at: at(-400), updated_at: at(-1),
   credit_limit: null, statement_day: null, due_day: null, principal: null, interest_rate_pct: null, compounding: null, opened_date: null, maturity_date: null,
-  fd_status: 'active', balance_aed: 367.25, archived_at: null, closing_note: null, balance_as_of: null, brokerage_in_average: false, dividends_into_account_id: null, ...extra,
+  fd_status: 'active', balance_aed: 367.25, archived_at: null, balance_as_of: null, brokerage_in_average: false, dividends_into_account_id: null, ...extra,
 });
 const ACCOUNTS = [
   account(F_USD, 'Dollar broker funds', 'broker_funds', 'USD'),

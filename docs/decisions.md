@@ -1315,7 +1315,7 @@ in the other. A refused write was still answered "marked as reconciled", and
   reply or a reaction is an answer only in the chat the question was sent to.
   A bare "done" counts only for statements this member was asked about.
   `asked_message_ids` is no longer used; it is left in place rather than
-  dropped. Questions asked before the change are not matched to a chat, so a
+  dropped. *(Dropped since: "Retired columns and indexes go".)* Questions asked before the change are not matched to a chat, so a
   reply to one of those is not taken as an answer; the next morning's
   question is.
 - **A question counts once it is tied to its statement.** The daily run saves
@@ -2385,7 +2385,8 @@ it (Planning audit, 1.2).
   basis, and when records start counting, is 2.9.
 - **The baseline is the budget's savings target.** *Superseded by "Five
   Planning tabs": only Forecast compared against this baseline, and it is no
-  longer set; its columns stay, unread.* The first Baseline save
+  longer set; its columns stay, unread, and have since been dropped
+  ("Retired columns and indexes go").* The first Baseline save
   takes the budget's monthly savings target as the saving the plan is
   measured against. With no savings target in the budget, no baseline is
   taken, and the editor says so, so a later save once there is one sets it.
@@ -2431,6 +2432,7 @@ were entered, though every loan clears on its own minimum (Planning audit,
   stays the household's, shown with both partners selected.
 - **The card-usage setting is gone.** Its answer changed nothing the page
   worked out, but a date waited on it. The column is left as it was, unread.
+  *(Dropped since: "Retired columns and indexes go".)*
 - **The order is saved, and only offered when it matters.** Avalanche or
   snowball is kept for the household (migration `debt_order`), so it holds
   for both partners and Plan's projection follows it; it was forgotten on
@@ -2727,6 +2729,7 @@ payoff and Notes.
   set; it asks for the ages now. The withdrawal rate fed only that target, so
   the plan's drawer no longer asks for it, and Forecast's baseline, which
   only Forecast compared against, is no longer set. Their columns stay, unread.
+  *(Dropped since: "Retired columns and indexes go".)*
 - **Old links still land.** `?tab=forecast` and `?tab=drawdown` open the
   Life plan, through an alias in `useTab`. The bot links to neither and reads
   no assumptions.
@@ -3541,3 +3544,26 @@ Its screens pass found these:
   range shortens under a picked point. Overview's section links are real
   links. The scope and currency choices say which is pressed. On Money's
   review tab, Try again and Refresh read the goals and plan again too.
+
+## Retired columns and indexes go
+
+Columns kept "unread" when a feature changed still had to be read past in
+every migration, fixture and review, and the outside review's cleanup pass
+listed them (SHR-383). Nothing in the app, the bot or the database's
+functions used them, so the migration `retired_columns` drops them.
+
+- **The columns:** the withdrawal rate and its Custom copy, Forecast's four
+  baseline columns, and the debt plan's card-usage answer (all superseded by
+  "Five Planning tabs" and the debt payoff page); an account's closing note,
+  which nothing asked for or showed; and a statement's saved Rokda spend and
+  its question message ids, which nothing wrote or read since questions are
+  kept with their chat. Planning had no baseline values worth archiving, and
+  the one closing note said only that the account was closed.
+- **The indexes:** thirteen single-column `household_id` indexes, and the
+  holding history's `holding_id` one, each a copy of the first column of a
+  full index on the same table (a unique key, or the `(household_id, ...)`
+  index every household foreign key has). Their scan counts were small and
+  the planner uses the wider index instead.
+- **One stays.** `holding_trades_proposal_idx` sits beside a unique index on
+  the same column, but that one is partial, and the rule tested in "fk
+  indexes" is that a foreign key has a full index of its own.

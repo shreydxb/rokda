@@ -205,8 +205,8 @@ function cardStatements() {
   const card = data.accounts.find((a) => a.type === 'credit_card').id;
   const row = (n, over) => ({
     household_id: 'hh', account_id: card, statement_date: iso(close(n)), period_start: iso(start(n)), due_date: null,
-    statement_balance: null, statement_spend: null, rokda_spend: null, note: null, closed_by_member_id: null, closed_at: null,
-    asked_message_ids: [], last_asked_on: null, created_at: `${iso(close(n))}T09:00:00Z`, updated_at: `${iso(close(n))}T09:00:00Z`, ...over,
+    statement_balance: null, statement_spend: null, note: null, closed_by_member_id: null, closed_at: null,
+    asked_prompts: [], last_asked_on: null, created_at: `${iso(close(n))}T09:00:00Z`, updated_at: `${iso(close(n))}T09:00:00Z`, ...over,
   });
   return [
     row(0, { id: 'a4a4a4a4-0000-4000-8000-000000000001', status: 'mismatch', statement_spend: 100.02, statement_balance: 3200.75, closed_at: `${iso(today)}T08:00:00Z`, note: 'Checked against the PDF' }),

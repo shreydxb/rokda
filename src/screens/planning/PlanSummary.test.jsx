@@ -153,14 +153,14 @@ describe('PlanSummary: the debt card dates the debt', () => {
   });
 
   it('with the extra payment once one is committed, for the household only', () => {
-    const assumptions = { debt_extra_payment: 1000, debt_assume_no_new_card_spend: true };
+    const assumptions = { debt_extra_payment: 1000 };
     renderSummary({ debts: [LOAN], assumptions });
     expect(within(card('Debt payoff')).getByText(`Clears about ${payoffMonthLabel(6, now)} with the extra payment · not all in net worth`)).toBeTruthy();
   });
 
   it('in one partner\'s view, at the minimums: the extra payment is the household\'s', () => {
     localStorage.setItem('rokda.scope', 'me');
-    renderSummary({ debts: [LOAN], assumptions: { debt_extra_payment: 1000, debt_assume_no_new_card_spend: true } });
+    renderSummary({ debts: [LOAN], assumptions: { debt_extra_payment: 1000 } });
     expect(within(card('Debt payoff')).getByText(`Clears about ${payoffMonthLabel(12, now)} at the minimum payment · not all in net worth`)).toBeTruthy();
   });
 
