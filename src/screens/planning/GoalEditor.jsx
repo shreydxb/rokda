@@ -8,6 +8,7 @@ import { DEFAULT_INFLATION_PCT, accountCanBackGoal, goalCostAtDate } from '../..
 import { isArchived } from '../../lib/accounts';
 import { householdToday, parseDay } from '../../lib/day';
 import '../money/TransactionEditor.css';
+import OwnerPicker from '../OwnerPicker';
 
 function initialForm(goal) {
   if (goal) {
@@ -575,16 +576,7 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
               <span className="te-fieldlabel" id={ids.owner}>
                 Owner
               </span>
-              <div className="om-scope-list" role="group" aria-labelledby={ids.owner} style={{ marginTop: 10 }}>
-                <button type="button" className="om-scope" data-active={form.owner === 'shared'} aria-pressed={form.owner === 'shared'} onClick={() => set('owner', 'shared')}>
-                  Shared
-                </button>
-                {members.map((m) => (
-                  <button key={m.id} type="button" className="om-scope" data-active={form.owner === m.id} aria-pressed={form.owner === m.id} onClick={() => set('owner', m.id)}>
-                    {m.display_name}
-                  </button>
-                ))}
-              </div>
+              <OwnerPicker value={form.owner} members={members} onChange={(id) => set('owner', id)} labelledBy={ids.owner} />
             </div>
           </form>
 

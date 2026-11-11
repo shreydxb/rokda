@@ -8,6 +8,7 @@ import { isBalanceConfirmed } from '../../lib/balance';
 import { todayISODate } from '../../lib/valuation';
 import { householdToday } from '../../lib/day';
 import '../money/TransactionEditor.css';
+import OwnerPicker from '../OwnerPicker';
 
 
 function initialForm(account, defaultType) {
@@ -391,16 +392,7 @@ export default function AccountEditor({ account, defaultType, householdId, membe
 
           <div>
             <span className="te-fieldlabel">Owner</span>
-            <div className="om-scope-list" style={{ marginTop: 10 }}>
-              <button type="button" className="om-scope" data-active={form.owner === 'shared'} onClick={() => set('owner', 'shared')}>
-                Shared
-              </button>
-              {members.map((m) => (
-                <button key={m.id} type="button" className="om-scope" data-active={form.owner === m.id} onClick={() => set('owner', m.id)}>
-                  {m.display_name}
-                </button>
-              ))}
-            </div>
+            <OwnerPicker value={form.owner} members={members} onChange={(id) => set('owner', id)} />
           </div>
 
           {account && confirmingDelete && (

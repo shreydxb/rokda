@@ -9,6 +9,7 @@ import { hasBuysOrSales } from '../../lib/trades';
 import HoldingTrades from './HoldingTrades';
 import HoldingDividends from './HoldingDividends';
 import '../money/TransactionEditor.css';
+import OwnerPicker from '../OwnerPicker';
 
 function initialForm(holding) {
   if (holding) {
@@ -549,16 +550,7 @@ export default function HoldingEditor({
 
             <div>
               <span className="te-fieldlabel">Held by</span>
-              <div className="om-scope-list" style={{ marginTop: 10 }}>
-                <button type="button" className="om-scope" data-active={form.owner === 'shared'} onClick={() => set('owner', 'shared')}>
-                  Shared
-                </button>
-                {members.map((m) => (
-                  <button key={m.id} type="button" className="om-scope" data-active={form.owner === m.id} onClick={() => set('owner', m.id)}>
-                    {m.display_name}
-                  </button>
-                ))}
-              </div>
+              <OwnerPicker value={form.owner} members={members} onChange={(id) => set('owner', id)} />
             </div>
           </fieldset>
 

@@ -19,6 +19,7 @@ import { ENTRY_TYPES } from '../../lib/entryTypes';
 import RememberMerchant from './RememberMerchant';
 import EditHistory from './EditHistory';
 import './TransactionEditor.css';
+import OwnerPicker from '../OwnerPicker';
 
 const KIND_LABELS = { expense: 'Expense', income: 'Income', refund: 'Refund' };
 // Closing a record whose merchant rule failed says so again in Activity.
@@ -1001,16 +1002,7 @@ export default function TransactionEditor({ tx, household, householdId, accounts
 
           <div>
             <span className="te-fieldlabel">Whose spend</span>
-            <div className="om-scope-list" style={{ marginTop: 10 }}>
-              <button type="button" className="om-scope" data-active={form.owner === 'shared'} onClick={() => set('owner', 'shared')}>
-                Shared
-              </button>
-              {members.map((m) => (
-                <button key={m.id} type="button" className="om-scope" data-active={form.owner === m.id} onClick={() => set('owner', m.id)}>
-                  {m.display_name}
-                </button>
-              ))}
-            </div>
+            <OwnerPicker value={form.owner} members={members} onChange={(id) => set('owner', id)} />
           </div>
 
           <div className="te-fieldcell">

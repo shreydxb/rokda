@@ -7,6 +7,7 @@ import { amountOwed, isArchived } from '../../lib/accounts';
 import { accountOwner } from '../../lib/debt';
 import { formatMoney } from '../../lib/money';
 import '../money/TransactionEditor.css';
+import OwnerPicker from '../OwnerPicker';
 
 // Where a debt's balance lives: a loan or card account, so net worth counts it.
 // NEW makes the account along with the debt; '' leaves the debt unlinked.
@@ -314,16 +315,7 @@ export default function DebtEditor({ debt, householdId, members, accounts = [], 
                 {linkedOwnerName}, as {linked.name} is in Wealth, where its owner is changed.
               </div>
             ) : (
-              <div className="om-scope-list" style={{ marginTop: 10 }}>
-                <button type="button" className="om-scope" data-active={form.owner === 'shared'} aria-pressed={form.owner === 'shared'} onClick={() => set('owner', 'shared')}>
-                  Shared
-                </button>
-                {members.map((m) => (
-                  <button key={m.id} type="button" className="om-scope" data-active={form.owner === m.id} aria-pressed={form.owner === m.id} onClick={() => set('owner', m.id)}>
-                    {m.display_name}
-                  </button>
-                ))}
-              </div>
+              <OwnerPicker value={form.owner} members={members} onChange={(id) => set('owner', id)} />
             )}
           </div>
 

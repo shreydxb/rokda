@@ -10,6 +10,7 @@ import { estimateAed } from '../../lib/fxHistory';
 import { neverLoaded } from '../../lib/loadState';
 import Withheld from '../planning/Withheld';
 import './TransactionEditor.css';
+import OwnerPicker from '../OwnerPicker';
 
 function senderName(item, members) {
   if (!item.member_id) return null;
@@ -674,16 +675,7 @@ function IntakeEditForm({ item, sender, accounts, members, categories, categoryR
 
         <div>
           <span className="te-fieldlabel">Whose</span>
-          <div className="om-scope-list" style={{ marginTop: 10 }}>
-            <button type="button" className="om-scope" data-active={owner === 'shared'} onClick={() => setOwner('shared')}>
-              Shared
-            </button>
-            {members.map((m) => (
-              <button key={m.id} type="button" className="om-scope" data-active={owner === m.id} onClick={() => setOwner(m.id)}>
-                {m.display_name}
-              </button>
-            ))}
-          </div>
+          <OwnerPicker value={owner} members={members} onChange={setOwner} />
         </div>
 
         <div>
