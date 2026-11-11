@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useBackgroundRefresh } from './useBackgroundRefresh';
 
 // Loading a screen's records, and keeping them fresh while it is open.
 //
@@ -16,8 +17,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 // Only the first load shows the skeleton. Every later one, including the one
 // after a save, keeps the figures on screen and swaps them when the new ones
 // arrive, so an open editor and its unsaved input are left alone.
-export const STALE_AFTER_MS = 60 * 1000;
-export const REFRESH_EVERY_MS = 5 * 60 * 1000;
+// The schedule is lib/useBackgroundRefresh.js, shared with the household.
+export { REFRESH_EVERY_MS, STALE_AFTER_MS } from './useBackgroundRefresh';
 
 export function useSources(householdId, sources, emptyState) {
   const [state, setState] = useState({ ...emptyState, loading: true, refreshing: false, loaded: {} });
@@ -76,32 +77,7 @@ export function useSources(householdId, sources, emptyState) {
     reload();
   }, [reload]);
 
-  useEffect(() => {
-    const visible = () => typeof document === 'undefined' || document.visibilityState !== 'hidden';
-    // Not while a read is on its way: coming back to a tab fires
-    // visibilitychange and then focus, and the second started a whole second
-    // read that was then thrown away. Staleness counts from the last read that
-    // landed, so one that failed at once, the network still down, is tried
-    // again when the browser comes back online.
-    const refreshIfStale = () => {
-      if (!visible() || inFlightRef.current) return;
-      const at = loadedAtRef.current;
-      if (!at || Date.now() - at.getTime() > STALE_AFTER_MS) reload();
-    };
-    const tick = () => {
-      if (visible()) reload();
-    };
-    document.addEventListener('visibilitychange', refreshIfStale);
-    window.addEventListener('focus', refreshIfStale);
-    window.addEventListener('online', refreshIfStale);
-    const timer = window.setInterval(tick, REFRESH_EVERY_MS);
-    return () => {
-      document.removeEventListener('visibilitychange', refreshIfStale);
-      window.removeEventListener('focus', refreshIfStale);
-      window.removeEventListener('online', refreshIfStale);
-      window.clearInterval(timer);
-    };
-  }, [reload]);
+  useBackgroundRefresh({ reload, loadedAtRef, inFlightRef });
 
   return { ...state, reload };
 }

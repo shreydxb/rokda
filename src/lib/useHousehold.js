@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { supabase } from './supabaseClient';
 import { useAuth } from './AuthContext';
-import { REFRESH_EVERY_MS, STALE_AFTER_MS } from './useSources';
+import { useBackgroundRefresh } from './useBackgroundRefresh';
 
 // `forUser` is whose household this is, so a refresh keeps it on screen only
 // for the same person.
@@ -112,28 +112,7 @@ export function useHouseholdLoader(enabled = true) {
     reload();
   }, [reload, enabled]);
 
-  useEffect(() => {
-    if (!enabled) return undefined;
-    const visible = () => typeof document === 'undefined' || document.visibilityState !== 'hidden';
-    const refreshIfStale = () => {
-      if (!visible() || inFlightRef.current) return;
-      const at = loadedAtRef.current;
-      if (!at || Date.now() - at.getTime() > STALE_AFTER_MS) reload();
-    };
-    const tick = () => {
-      if (visible()) reload();
-    };
-    document.addEventListener('visibilitychange', refreshIfStale);
-    window.addEventListener('focus', refreshIfStale);
-    window.addEventListener('online', refreshIfStale);
-    const timer = window.setInterval(tick, REFRESH_EVERY_MS);
-    return () => {
-      document.removeEventListener('visibilitychange', refreshIfStale);
-      window.removeEventListener('focus', refreshIfStale);
-      window.removeEventListener('online', refreshIfStale);
-      window.clearInterval(timer);
-    };
-  }, [reload, enabled]);
+  useBackgroundRefresh({ reload, enabled, loadedAtRef, inFlightRef });
 
   return { ...state, reload };
 }
