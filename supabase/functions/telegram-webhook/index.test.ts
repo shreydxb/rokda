@@ -737,7 +737,7 @@ Deno.env.set("TELEGRAM_BOT_TOKEN", TOKEN);
 Deno.env.set("OPENROUTER_API_KEY", "openrouter-test");
 
 reset();
-const { accountsForCheckin, buildBalanceCheckinMessage, datedItems, sendablePeriod, figuresUnavailableMessage, forwardedDay, inboxReason, isSpendingAccount, merchantHistoryMatches, pickAccountByHint, pickCheckinAccount, proposalOutcomeMessage, transferDraftFrom, undatedNote } = await import("./index.ts");
+const { accountsForCheckin, buildBalanceCheckinMessage, datedItems, sendablePeriod, figuresUnavailableMessage, forwardedDay, inboxReason, isSpendingAccount, pickAccountByHint, pickCheckinAccount, proposalOutcomeMessage, transferDraftFrom, undatedNote } = await import("./index.ts");
 assert(handler!, "index.ts did not register a handler with Deno.serve");
 
 // ---------------------------------------------------------------------------
@@ -1373,20 +1373,6 @@ freshTest("a correction to an entry recorded in the meantime says so, not that i
   await handler(replyUpdate(7113, "actually 45", 556));
   assertEquals(backend.tables.intake.find((r) => r.id === "99990000-0000-4000-8000-000000000012")!.parsed_amount, 40);
   assert(lastReply().includes("already been recorded or changed"), lastReply());
-});
-
-Deno.test("a brand does not inherit the category of its own sub-service", () => {
-  // Plain "Noon" is the marketplace; "Noon Minutes" is grocery delivery.
-  assertEquals(merchantHistoryMatches("Noon", "Noon Minutes"), false);
-  assertEquals(merchantHistoryMatches("Careem", "Careem Food"), false);
-  // The same merchant, however it was capitalised, still matches.
-  assertEquals(merchantHistoryMatches("noon", "Noon"), true);
-  assertEquals(merchantHistoryMatches("Noon Minutes", "NOON MINUTES"), true);
-  // A shortened name still inherits from the fuller one it came from.
-  assertEquals(merchantHistoryMatches("Alseer", "Moisturiser Alseer"), true);
-  assertEquals(merchantHistoryMatches("Filli", "Filli Cafe LLC"), false);
-  assertEquals(merchantHistoryMatches("Burger King", "Burger King Al Barsha"), false);
-  assertEquals(merchantHistoryMatches("Mall of the Emirates", "BRED Mall of the Emirates"), true);
 });
 
 // ---------------------------------------------------------------------------

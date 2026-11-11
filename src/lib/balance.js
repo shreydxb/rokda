@@ -47,7 +47,3 @@ export function balanceLabel(account, now = new Date()) {
 export function unconfirmedAccounts(accounts = []) {
   return accounts.filter((a) => !isBalanceConfirmed(a));
 }
-
-export function netWorthProvisional(accounts = []) {
-  return unconfirmedAccounts(accounts).length > 0;
-}

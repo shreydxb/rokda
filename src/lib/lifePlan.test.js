@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { CASH_RETURN_DEFAULT, RUPEE_DRIFT, rupeeDrift, marketFall, stressTest, STRESS_FALLS, afterWorkReturn, AFTER_WORK_RETURN_GAP, costInYear, costsAfterWork, costsText, agesIn, loansInSpending, loansText, rangeText, stopRange, agesLabel, datedIncomesOnTimeline, defaultStopPerson, earliestStop, extraSavingNeeded, goalsOnTimeline, lifePlan, lifePlanBasis, lifePlanStop, maxRetirementSpend, membersLeftOut, noStopCause, noStopText, planEndYear, planPeople, potNeededAt, spendAfterText, yearLeft } from './lifePlan';
+import { CASH_RETURN_DEFAULT, RUPEE_DRIFT, rupeeDrift, marketFall, stressTest, STRESS_FALLS, afterWorkReturn, AFTER_WORK_RETURN_GAP, costInYear, costsAfterWork, costsText, agesIn, loansInSpending, loansText, rangeText, stopRange, agesLabel, datedIncomesOnTimeline, defaultStopPerson, earliestStop, extraSavingNeeded, goalsOnTimeline, lifePlan, lifePlanBasis, lifePlanStop, maxRetirementSpend, membersLeftOut, noStopCause, planEndYear, planPeople, potNeededAt, spendAfterText, yearLeft } from './lifePlan';
 import { MARKET_FALL, realReturn, scenarioSets } from './forecast';
 
 const people = [
@@ -175,13 +175,6 @@ describe('noStopCause: why no year lasts', () => {
   it('says when everyone is past the age the plan runs to', () => {
     const outlived = [{ name: 'Partner A', birthYear: 1940, lifeExpectancy: 84 }];
     expect(noStopCause({ ...base, people: outlived })).toEqual({ kind: 'ended' });
-    expect(noStopText({ endYear: 2024, whyNone: { kind: 'ended' } })).toBe('Everyone is past the age the plan runs to: plan to a later age');
-  });
-
-  it('is said in words for the screens that lead with the answer', () => {
-    expect(noStopText({ endYear: 2079, whyNone: { kind: 'goal', goal: 'Villa', year: 2027 } })).toBe('Villa in 2027 falls short, even while still working');
-    expect(noStopText({ endYear: 2079, whyNone: { kind: 'spending' } })).toBe('More is spent than earned, so no stop year lasts');
-    expect(noStopText({ endYear: 2079, whyNone: { kind: 'short' } })).toBe("No stop year lasts to 2079 on today's saving");
   });
 });
 

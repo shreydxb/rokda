@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { screen, fireEvent, waitFor, within } from '@testing-library/dom';
 import { renderScreen } from '../../test/renderScreen';
-import { amortizeMinimumOnly, payoffMonthLabel } from '../../lib/debt';
+import { minimumOnlyPayoff, payoffMonthLabel } from '../../lib/debt';
 import DebtPayoff from './DebtPayoff';
 
 const calls = vi.hoisted(() => ({ upserts: [] }));
@@ -19,7 +19,7 @@ vi.mock('../../lib/supabaseClient', () => ({
 const LOAN = { id: 'loan', name: 'Car loan', type: 'loan', currency: 'AED', balance: 38000, balance_aed: 38000, is_shared: true, archived_at: null };
 const debt = (over) => ({ id: 'd1', name: 'Car loan', note: '', balance: 40000, apr_pct: 3.5, minimum_payment: 2193, is_shared: true, account_id: 'loan', ...over });
 const now = new Date();
-const atMinimum = (balance, apr, minimum) => payoffMonthLabel(amortizeMinimumOnly(balance, apr, minimum), now);
+const atMinimum = (balance, apr, minimum) => payoffMonthLabel(minimumOnlyPayoff([{ balance, apr_pct: apr, minimum_payment: minimum }]).months, now);
 
 function renderPayoff(debts, { assumptions = null, sources, accounts = [LOAN], reload = vi.fn() } = {}) {
   renderScreen(<DebtPayoff household={{ id: 'h' }} members={[{ id: 'm1' }]} me={{ id: 'm1' }} accounts={accounts} data={{ debts, assumptions, reload }} sources={sources} loading={false} />);

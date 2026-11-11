@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { budgetGroupSpend, monthActualsByCategory, monthIncome, monthNetSaved, monthSpendBreakdown, rollupActualsByGroup } from './budget';
+import { budgetGroupSpend, monthActualsByCategory, monthIncome, monthSpendBreakdown, rollupActualsByGroup } from './budget';
 import { periodSummary } from '../screens/overviewMath';
 
 const NOW = new Date(2026, 8, 30, 12); // 30 September 2026
@@ -14,6 +14,11 @@ const TRANSACTIONS = [
   { id: 'u', occurred_at: '2026-09-03', amount: -200, is_shared: true, category_id: UNBUDGETED_CATEGORY },
   { id: 'n', occurred_at: '2026-09-04', amount: -50, is_shared: true, category_id: null },
 ];
+
+// Net saved as the monthly check and the review work it out: income less
+// ALL spending in the month, not just budgeted spending.
+const monthNetSaved = (transactions, budgetedCategoryIds, year, month, scopeMemberId, now) =>
+  monthIncome(transactions, year, month, scopeMemberId, now) - monthSpendBreakdown(transactions, budgetedCategoryIds, year, month, scopeMemberId, now).total;
 
 describe('QA-09: net saved counts all spending', () => {
   it('yields 650 for the published acceptance case', () => {

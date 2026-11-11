@@ -31,11 +31,6 @@ export function monthPace(year, month, now = new Date()) {
   };
 }
 
-export function projectedClose(actual, elapsedFraction) {
-  if (elapsedFraction <= 0) return null;
-  return actual / elapsedFraction;
-}
-
 // Rows that count as this month's actuals: in the month, visible to the scope,
 // and already posted — a record dated later this month is planned, not spent
 // (QA-06). A refund counts here too (SHR-252): it must net against spend,
@@ -130,13 +125,6 @@ export function monthSpendBreakdown(transactions, budgetedCategoryIds, year, mon
     }
   }
   return { budgeted, unbudgeted, uncategorised, total: budgeted + unbudgeted + uncategorised };
-}
-
-// Income minus ALL spending in the month, not just budgeted spending.
-export function monthNetSaved(transactions, budgetedCategoryIds, year, month, scopeMemberId, now = new Date()) {
-  const income = monthIncome(transactions, year, month, scopeMemberId, now);
-  const { total } = monthSpendBreakdown(transactions, budgetedCategoryIds, year, month, scopeMemberId, now);
-  return income - total;
 }
 
 export function monthIncome(transactions, year, month, scopeMemberId, now = new Date()) {

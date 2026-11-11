@@ -753,16 +753,6 @@ export function spendHow(stop) {
   );
 }
 
-// Why no year lasts, in a few words, for the screens that lead with the
-// answer. They used to blame a goal whatever the cause.
-export function noStopText(stop) {
-  const why = stop.whyNone;
-  if (why?.kind === 'goal') return `${why.goal} in ${why.year} falls short, even while still working`;
-  if (why?.kind === 'spending') return 'More is spent than earned, so no stop year lasts';
-  if (why?.kind === 'ended') return 'Everyone is past the age the plan runs to: plan to a later age';
-  return `No stop year lasts to ${stop.endYear} on today's saving`;
-}
-
 // "Partner A 60 · Partner B 60": the ages of everyone still planned for.
 export function agesLabel(ages) {
   return ages

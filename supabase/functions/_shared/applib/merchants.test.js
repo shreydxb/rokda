@@ -30,6 +30,7 @@ describe('merchantMatches', () => {
     expect(merchantMatches('eppco', 'EPPCO SITE 1077')).toBe(true);
     expect(merchantMatches('Noon Minutes', 'NOON MINUTES LLC DUBAI ARE')).toBe(true);
     expect(merchantMatches('careem', 'Careem')).toBe(true);
+    expect(merchantMatches('noon', 'Noon')).toBe(true);
   });
 
   it('lets a shortened name inherit from the fuller one', () => {
@@ -42,6 +43,7 @@ describe('merchantMatches', () => {
     expect(merchantMatches('Careem', 'CAREEM FOOD')).toBe(false);
     expect(merchantMatches('noon', 'NOON.COM DUBAI ARE')).toBe(false);
     expect(merchantMatches('Burger King', 'Burger King Al Barsha')).toBe(false);
+    expect(merchantMatches('Filli', 'Filli Cafe LLC')).toBe(false);
   });
 
   it('matches whole words only', () => {

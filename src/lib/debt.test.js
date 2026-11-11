@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { amortizeMinimumOnly, debtsWithAccounts, interestText, minimumOnlyPayoff, minimumOnlyText, payoffMonthLabel, simulatePayoffPlan } from './debt';
+import { debtsWithAccounts, interestText, minimumOnlyPayoff, minimumOnlyText, payoffMonthLabel, simulatePayoffPlan } from './debt';
 
 // QA / SHR-228: simulatePayoffPlan lost the unused part of a minimum payment
 // in the very month it went unused, instead of carrying it into the same
@@ -86,23 +86,28 @@ describe('debtsWithAccounts', () => {
 
 // A paid-off debt read as clearing in a month, and one clearing after 50
 // years as never clearing (Planning audit, 0b-D).
-describe('amortizeMinimumOnly', () => {
+describe('minimumOnlyPayoff: one debt at its minimum', () => {
+  const one = (balance, apr_pct, minimum_payment) => minimumOnlyPayoff([{ name: 'Debt', balance, apr_pct, minimum_payment }]);
+
   it('counts the months paying only the minimum takes', () => {
-    expect(amortizeMinimumOnly(1200, 0, 100)).toBe(12);
+    expect(one(1200, 0, 100).months).toBe(12);
   });
 
   it('owes nothing for a balance of 0 or a card in credit', () => {
-    expect(amortizeMinimumOnly(0, 30, 500)).toBe(0);
-    expect(amortizeMinimumOnly(-200, 30, 500)).toBe(0);
+    expect(one(0, 30, 500).owed).toBe(0);
+    expect(one(-200, 30, 500).owed).toBe(0);
   });
 
   it('never clears when the minimum does not cover the interest', () => {
-    expect(amortizeMinimumOnly(100000, 24, 1000)).toBeNull();
+    const payoff = one(100000, 24, 1000);
+    expect(payoff.never).toHaveLength(1);
+    expect(payoff.months).toBeNull();
   });
 
   it('tells a very long debt from one that never clears', () => {
-    expect(amortizeMinimumOnly(100000, 6, 520)).toBe(Infinity);
-    expect(amortizeMinimumOnly(100000, 6, 520, 1200)).toBe(654);
+    const payoff = one(100000, 6, 520);
+    expect(payoff.tooLong).toHaveLength(1);
+    expect(payoff.never).toEqual([]);
   });
 });
 

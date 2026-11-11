@@ -69,13 +69,6 @@ export function transactionsForAccount(transactions = [], accountId) {
   return transactions.filter((t) => t.account_id === accountId);
 }
 
-// Only an account with no transactions may be hard-deleted. This mirrors the
-// foreign key, which is the real guarantee — the UI just refuses earlier and
-// with a better explanation.
-export function canDeleteAccount(account, transactions = []) {
-  return transactionsForAccount(transactions, account?.id).length === 0;
-}
-
 // What the "Remove" action should actually do, and what the confirmation has to
 // tell the user before they do it.
 export function closurePlan(account, transactions = []) {

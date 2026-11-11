@@ -127,11 +127,6 @@ export function goalProgress(goal, contributions, now = new Date(), allocatedVal
   };
 }
 
-export function lastContributionLabel(date) {
-  if (!date) return 'never';
-  return `${MONTH_LABELS[date.getMonth()]} ${date.getFullYear()}`;
-}
-
 // Only an open account the household holds money in can back a goal. A loan
 // or card's balance is what is owed, so a linked one counted debt as saved,
 // and a closed account holds nothing. The goal editor offers only these, and

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { balanceLabel, balanceStatus, daysSinceBalanceConfirmed, isBalanceConfirmed, isDerivedBalance, netWorthProvisional, unconfirmedAccounts } from './balance';
+import { balanceLabel, balanceStatus, daysSinceBalanceConfirmed, isBalanceConfirmed, isDerivedBalance, unconfirmedAccounts } from './balance';
 import { buildAttentionItems } from './attention';
 
 const NOW = new Date(2026, 8, 5, 12);
@@ -28,9 +28,8 @@ describe('QA-02: unknown balances are not confirmed zeros', () => {
 
   it('marks net worth provisional while any account is unconfirmed', () => {
     const confirmed = { ...CARD, id: 'c2', balance_as_of: '2026-09-04T00:00:00Z' };
-    expect(netWorthProvisional([CARD, confirmed])).toBe(true);
     expect(unconfirmedAccounts([CARD, confirmed]).map((a) => a.id)).toEqual(['c1']);
-    expect(netWorthProvisional([confirmed])).toBe(false);
+    expect(unconfirmedAccounts([confirmed])).toEqual([]);
   });
 });
 
@@ -94,7 +93,6 @@ describe('O4: fixed deposits are valued without a manual confirmation', () => {
     // The list drives both the attention item and the "provisional" label.
     // An FD in it asked for something nobody can do.
     expect(unconfirmedAccounts([fd()])).toEqual([]);
-    expect(netWorthProvisional([fd()])).toBe(false);
   });
 
   it('still waits for a confirmation on an FD with nothing to compute from', () => {
