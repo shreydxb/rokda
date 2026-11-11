@@ -201,7 +201,6 @@ export default function LifePlanEditor({
       household_id: householdId,
       birth_year: Number(p.birthYear),
       life_expectancy: Number(p.lifeExpectancy),
-      updated_at: now,
     }));
     const cleared = form.people.filter((p) => p.had && blank(p.birthYear) && blank(p.lifeExpectancy)).map((p) => p.id);
     const changedStops = categories.filter((c) => !!c.stops_after_work !== stops.has(c.id));
@@ -216,7 +215,6 @@ export default function LifePlanEditor({
       retirement_return_pct: blank(form.returnPct) ? null : Number(form.returnPct),
       cash_return_pct: blank(form.cashPct) ? null : Number(form.cashPct),
       survivor_spend_pct: blank(form.survivorPct) ? null : Number(form.survivorPct),
-      updated_at: now,
     };
     if (growthChanged && isCustom) {
       Object.assign(plan, {

@@ -40,7 +40,6 @@ export default function BasisEditor({ householdId, assumptions, recordedMonths =
         household_id: householdId,
         planning_basis: basis,
         records_from: from ? `${from}-01` : null,
-        updated_at: new Date().toISOString(),
       },
       { onConflict: 'household_id' }
     );

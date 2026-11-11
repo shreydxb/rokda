@@ -202,7 +202,6 @@ export default function HoldingEditor({
       currency: form.currency || 'AED',
       is_shared: form.owner === 'shared',
       owner_member_id: form.owner === 'shared' ? null : form.owner,
-      updated_at: new Date().toISOString(),
       ...valuation,
       ...(nextPriced ? { priced_at: nextPriced } : {}),
       ...(dividendFields && taxRate !== null ? { dividend_tax_pct: taxRate } : {}),

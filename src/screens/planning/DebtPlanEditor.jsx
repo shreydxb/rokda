@@ -34,7 +34,6 @@ export default function DebtPlanEditor({ householdId, assumptions, onClose, onSa
     const payload = {
       household_id: householdId,
       debt_extra_payment: extraPayment.trim() === '' ? null : Number(extraPayment),
-      updated_at: new Date().toISOString(),
     };
 
     const { error: saveError } = await supabase.from('planning_assumptions').upsert(payload, { onConflict: 'household_id' });

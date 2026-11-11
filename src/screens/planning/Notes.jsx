@@ -214,7 +214,7 @@ function NoteEditor({ note, gone = false, householdId, me, position = 0, onCance
     }
     setSaving(true);
     setError('');
-    const payload = { title: title.trim(), body, check_yearly: yearly, updated_by: me?.id ?? null, updated_at: new Date().toISOString() };
+    const payload = { title: title.trim(), body, check_yearly: yearly, updated_by: me?.id ?? null };
     // An edit saves only over the version it was opened from. Both partners
     // can edit the same note, and the second save used to replace the first
     // without a word.

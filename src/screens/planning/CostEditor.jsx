@@ -79,7 +79,6 @@ export default function CostEditor({ row, householdId, household = null, stacked
       rise_pct: blank(form.rise) ? 0 : rise,
       starts_after_years: Number(form.starts_after_years),
       lasts_years: form.lasts === 'years' ? Number(form.lasts_years) : null,
-      updated_at: new Date().toISOString(),
     };
     const query = row ? supabase.from('after_work_costs').update(payload).eq('id', row.id) : supabase.from('after_work_costs').insert(payload);
     const { error: saveError } = await query;

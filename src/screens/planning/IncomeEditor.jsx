@@ -84,7 +84,6 @@ export default function IncomeEditor({ row, householdId, household = null, stack
       in_year: dated ? Number(form.in_year) : null,
       starts_after_years: dated ? 0 : Number(form.starts_after_years),
       lasts_years: yearly && form.lasts === 'years' ? Number(form.lasts_years) : null,
-      updated_at: new Date().toISOString(),
     };
     const query = row
       ? supabase.from('independence_income').update(payload).eq('id', row.id)

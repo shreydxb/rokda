@@ -28,7 +28,7 @@ export default function RuleEditor({ rule, householdId, categories, onClose, onS
     setSaving(true);
     setError('');
 
-    const payload = { pattern: pattern.trim(), match_type: matchType, category_id: categoryId, updated_at: new Date().toISOString() };
+    const payload = { pattern: pattern.trim(), match_type: matchType, category_id: categoryId };
     const query = rule
       ? supabase.from('category_rules').update(payload).eq('id', rule.id)
       : supabase.from('category_rules').insert({ ...payload, household_id: householdId });
