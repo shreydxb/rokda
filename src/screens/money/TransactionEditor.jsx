@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import { useCloseGuard } from '../../lib/useCloseGuard';
+import DiscardPrompt from '../DiscardPrompt';
 import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
 import { accountOptionLabel, selectableAccounts } from '../../lib/accounts';
@@ -140,7 +142,11 @@ function buildEdits(tx, form, savedAmount, { accounts, categories, members, spli
   return changes;
 }
 
-export default function TransactionEditor({ tx, household, householdId, accounts, categories, members, allTransactions = [], links = [], categoryRules = [], fxHistory = [], initial, onClose, onSaved, onOpenOther, onSwitchToTransfer }) {
+// One empty list for every missing one: a fresh [] each render would undo
+// the memos below that depend on them.
+const NONE = [];
+
+export default function TransactionEditor({ tx, household, householdId, accounts, categories, members, allTransactions = NONE, links = NONE, categoryRules = NONE, fxHistory = NONE, initial, onClose, onSaved, onOpenOther, onSwitchToTransfer }) {
   const drawerRef = useDrawerFocus();
   // Closed accounts aren't offered for new entries, but an existing record that
   // already points at one keeps it so saving doesn't move it (QA-01).
@@ -160,7 +166,6 @@ export default function TransactionEditor({ tx, household, householdId, accounts
   // The record "Both are real" was said about, remembered as a confirmed pair
   // once this one is saved, so the monthly review doesn't ask again.
   const [keptAlongside, setKeptAlongside] = useState(null);
-  const [confirmingClose, setConfirmingClose] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -196,15 +201,8 @@ export default function TransactionEditor({ tx, household, householdId, accounts
   // never written twice.
   const [freshRules, setFreshRules] = useState(null);
   const [savedWithoutRule, setSavedWithoutRule] = useState(null);
-
-  useEffect(() => {
-    const onKey = (e) => {
-      if (e.key === 'Escape') requestClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dirty, confirmingClose, savedWithoutRule]);
+  const guard = useCloseGuard({ dirty, onClose, onEscape: () => requestClose() });
+  const { confirmingClose, keepEditing } = guard;
 
   function set(key, value) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -221,11 +219,7 @@ export default function TransactionEditor({ tx, household, householdId, accounts
       onSaved({ notice: SAVED_WITHOUT_RULE });
       return;
     }
-    if (dirty && !confirmingClose) {
-      setConfirmingClose(true);
-      return;
-    }
-    onClose();
+    guard.requestClose();
   }
 
   // In another currency, `amount` is what was paid in it, and the AED that
@@ -272,6 +266,12 @@ export default function TransactionEditor({ tx, household, householdId, accounts
   const purchaseRefunds = tx && form.type === 'expense' ? refundsOf(tx.id, links, allTransactions) : [];
   // The history shows this record's edits with those of the records linked to
   // it: a refund's purchase, a purchase's refunds (SHR-323).
+  //
+  // The React compiler cannot show these two memos are safe, since it cannot
+  // see that the helpers leave their lists alone, so it skips this component,
+  // as it always has (an older lint suppression here hid that). Splitting
+  // the editor (SHR-383, the large screens) is where they are reworked.
+  /* eslint-disable react-hooks/preserve-manual-memoization */
   const historyRecords = useMemo(() => relatedRecords(tx, links, allTransactions), [tx, links, allTransactions]);
   const refundSuggestions = useMemo(
     () =>
@@ -284,6 +284,7 @@ export default function TransactionEditor({ tx, household, householdId, accounts
         : [],
     [form.type, form.account_id, form.merchant, form.occurred_at, amountAed, refundLink, tx?.id, allTransactions, links],
   );
+  /* eslint-enable react-hooks/preserve-manual-memoization */
   // Remembering a merchant is offered when an ordinary expense already in the
   // ledger is moved to another category. Splits, transfers and refunds keep
   // their own rules for where their money is filed, so it isn't offered for
@@ -1043,15 +1044,7 @@ export default function TransactionEditor({ tx, household, householdId, accounts
               <div className="te-actions-right">
                 {confirmingClose ? (
                   <>
-                    <span className="ov-muted" style={{ marginRight: 8 }}>
-                      Discard changes?
-                    </span>
-                    <button type="button" className="om-btn" onClick={onClose}>
-                      Discard
-                    </button>
-                    <button type="button" className="om-btn" onClick={() => setConfirmingClose(false)}>
-                      Keep editing
-                    </button>
+                    <DiscardPrompt onDiscard={onClose} onKeepEditing={keepEditing} />
                   </>
                 ) : (
                   <>

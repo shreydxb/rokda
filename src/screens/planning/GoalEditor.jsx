@@ -1,4 +1,6 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
+import { useCloseGuard } from '../../lib/useCloseGuard';
+import DiscardPrompt from '../DiscardPrompt';
 import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
 import { formatMoney } from '../../lib/money';
@@ -70,13 +72,13 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
     planned: `${uid}-planned`,
     funding: `${uid}-funding`,
     rate: `${uid}-rate`,
+    target: `${uid}-target`,
     owner: `${uid}-owner`,
     contribAmount: `${uid}-camount`,
     contribDate: `${uid}-cdate`,
     linkSource: `${uid}-lsource`,
     linkShare: `${uid}-lshare`,
   };
-  const fieldRefs = useRef({});
   const removeRefs = useRef({});
   const shareRefs = useRef({});
   const headingRefs = useRef({});
@@ -85,7 +87,6 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
   const [dirty, setDirty] = useState(false);
   // Fields are marked wrong only once a save has been tried, not on opening.
   const [triedSave, setTriedSave] = useState(false);
-  const [confirmingClose, setConfirmingClose] = useState(false);
   const [contribAmount, setContribAmount] = useState('');
   const [contribDate, setContribDate] = useState(() => householdToday());
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -121,31 +122,20 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
   const pendingWork =
     contribAmount.trim() !== '' ? `Log or clear the contribution of ${contribAmount.trim()} first.` : pendingShare ? `Update or undo the share on ${allocationLabel(pendingShare)} first.` : '';
   const unsaved = dirty || pendingWork !== '';
-
-  useEffect(() => {
-    const onKey = (e) => {
-      if (e.key !== 'Escape') return;
-      // Escape steps back out of a pending confirmation before it closes anything.
+  const { confirmingClose, requestClose, keepEditing } = useCloseGuard({
+    dirty: unsaved,
+    onClose,
+    // Escape steps back out of a pending confirmation before it closes anything.
+    onEscape: () => {
       if (confirmingRemove) cancelRemove();
       else if (confirmingDelete) setConfirmingDelete(false);
       else requestClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [unsaved, confirmingClose, confirmingRemove, confirmingDelete]);
+    },
+  });
 
   function set(key, value) {
     setForm((f) => ({ ...f, [key]: value }));
     setDirty(true);
-  }
-
-  function requestClose() {
-    if (unsaved && !confirmingClose) {
-      setConfirmingClose(true);
-      return;
-    }
-    onClose();
   }
 
   const nameError = form.name.trim() === '' ? 'Name it.' : '';
@@ -181,7 +171,7 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
     if (firstProblem) {
       setTriedSave(true);
       setFormError('Fix the marked field to save.');
-      fieldRefs.current[firstProblem]?.focus();
+      document.getElementById(ids[firstProblem])?.focus();
       return;
     }
     if (pendingWork) {
@@ -429,10 +419,6 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
     </h3>
   );
 
-  const fieldRef = (key) => (el) => {
-    fieldRefs.current[key] = el;
-  };
-
   return (
     <div className="te-overlay" onMouseDown={(e) => e.target === e.currentTarget && requestClose()}>
       <div className="te-drawer" role="dialog" aria-modal="true" aria-label={goal ? 'Edit goal' : 'Add goal'} ref={drawerRef} tabIndex={-1}>
@@ -456,7 +442,7 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
               <div className="te-hero-row">
                 <span className="te-hero-currency">AED</span>
                 <input
-                  ref={fieldRef('target')}
+                  id={ids.target}
                   type="number"
                   step="0.01"
                   className="te-hero-input"
@@ -483,7 +469,6 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
                   </label>
                   <input
                     id={ids.rate}
-                    ref={fieldRef('rate')}
                     className="te-fieldvalue"
                     type="number"
                     step="0.1"
@@ -524,7 +509,7 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
                 <label className="te-fieldlabel" htmlFor={ids.name}>
                   Name
                 </label>
-                <input id={ids.name} ref={fieldRef('name')} className="te-fieldvalue" type="text" value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="e.g. Japan trip" {...invalid('name')} />
+                <input id={ids.name} className="te-fieldvalue" type="text" value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="e.g. Japan trip" {...invalid('name')} />
                 {problemText('name')}
               </div>
               <div className="te-fieldcell">
@@ -539,7 +524,6 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
                 </label>
                 <input
                   id={ids.planned}
-                  ref={fieldRef('planned')}
                   className="te-fieldvalue"
                   type="number"
                   step="0.01"
@@ -562,7 +546,6 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
                 </label>
                 <input
                   id={ids.priority}
-                  ref={fieldRef('priority')}
                   className="te-fieldvalue"
                   type="number"
                   step="1"
@@ -812,15 +795,7 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
               <div className="te-actions-right">
                 {confirmingClose ? (
                   <>
-                    <span className="ov-muted" style={{ marginRight: 8 }}>
-                      Discard changes?
-                    </span>
-                    <button type="button" className="om-btn" onClick={onClose}>
-                      Discard
-                    </button>
-                    <button type="button" className="om-btn" onClick={() => setConfirmingClose(false)}>
-                      Keep editing
-                    </button>
+                    <DiscardPrompt onDiscard={onClose} onKeepEditing={keepEditing} />
                   </>
                 ) : (
                   <>
