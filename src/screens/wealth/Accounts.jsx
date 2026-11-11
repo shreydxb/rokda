@@ -10,6 +10,7 @@ import { balanceLabel, balanceStatus } from '../../lib/balance';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { supabase } from '../../lib/supabaseClient';
 import AccountEditor from './AccountEditor';
+import './Accounts.css';
 
 export default function Accounts({ household, members, me, data, loading }) {
   const { scope } = useScope();

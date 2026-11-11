@@ -1,0 +1,282 @@
+/* Split out of ../Money.css with the round 2 cleanup (SHR-383): the rules only
+   this tab uses. What the Money tabs share stays there. */
+
+.mn-search {
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  padding: 7px 12px;
+  font-size: 12.5px;
+  color: var(--ink);
+  background: none;
+  min-width: 220px;
+}
+
+.mn-viewtoggle {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.mn-count {
+  margin-top: 14px;
+  font-size: 12px;
+  color: var(--ink3);
+}
+
+/* "3 scheduled not counted": a link that switches the list to All. */
+.mn-count-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--ink2);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* activity: a real per-column table (date/merchant/category/owner/account/
+   amount), not just a two-line row -- matches design/Our Money - Command
+   Center v3.dc.html's om-tx layout, including its narrow-width collapse
+   (category/owner/account fold into one meta line under the merchant). */
+.om-tx {
+  display: grid;
+  grid-template-columns: 74px 1.5fr 1fr 90px 1fr 120px 14px;
+  gap: 16px;
+  align-items: baseline;
+}
+
+.om-tx-head {
+  padding: 14px 0 10px;
+  margin-top: 12px;
+  border-bottom: 1px solid var(--rule2);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink3);
+}
+
+.om-tx-row {
+  padding: 12px 0;
+  border-top: 1px solid var(--rule);
+  cursor: pointer;
+  background: none;
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+  text-align: left;
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  font-size: 13.5px;
+}
+
+.om-tx-row:hover {
+  background: var(--raise);
+}
+
+.om-tx-date {
+  color: var(--ink3);
+  font-size: 12px;
+}
+
+.om-tx-merchant {
+  min-width: 0;
+}
+
+.om-tx-flag {
+  font-size: 11.5px;
+}
+
+.om-tx-meta {
+  display: none;
+  font-size: 11.5px;
+  color: var(--ink3);
+  margin-top: 3px;
+}
+
+.om-tx-cat {
+  color: var(--ink2);
+}
+
+.om-tx-owner,
+.om-tx-account {
+  color: var(--ink2);
+  font-size: 12px;
+}
+
+.om-tx-amt {
+  text-align: right;
+  font-size: 16px;
+}
+
+.om-tx-head .om-tx-amt {
+  font-size: inherit;
+}
+
+/* A person's share of a shared record, under its full amount. */
+.om-tx-share {
+  display: block;
+  font-size: 11.5px;
+  color: var(--ink3);
+  white-space: nowrap;
+}
+
+.om-tx-chev {
+  color: var(--ink3);
+  font-size: 14px;
+  line-height: 1;
+}
+
+/* On a phone a record is two lines: merchant and amount, then the date,
+   category, account and owner in grey. The date and the chevron gave up a
+   third of the width and left the merchant a word a line. */
+@container (max-width: 720px) {
+  .om-tx {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .om-hide-sm {
+    display: none;
+  }
+  .om-tx-meta {
+    display: block;
+  }
+}
+
+/* calendar */
+.cal {
+  margin-top: 22px;
+}
+
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 1px;
+  background: var(--rule);
+}
+
+.cal-grid-head {
+  background: none;
+  margin-bottom: 4px;
+}
+
+.cal-weekday {
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink3);
+  text-align: center;
+  padding: 4px 0;
+}
+
+.cal-cell {
+  background: var(--canvas);
+  border: none;
+  min-height: 68px;
+  padding: 8px;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cal-cell:hover {
+  background: var(--raise);
+}
+
+.cal-cell-empty {
+  cursor: default;
+  background: var(--canvas);
+}
+
+.cal-cell-empty:hover {
+  background: var(--canvas);
+}
+
+.cal-cell[data-today='true'] .cal-daynum {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.cal-cell[data-active='true'] {
+  background: color-mix(in oklab, var(--accent) 12%, transparent);
+}
+
+.cal-daynum {
+  font-size: 11.5px;
+  color: var(--ink2);
+}
+
+.cal-amounts {
+  font-size: 10.5px;
+}
+
+.cal-spend {
+  color: var(--ink2);
+}
+
+.cal-income {
+  color: var(--pos);
+}
+
+.cal-daylist {
+  margin-top: 28px;
+  padding-top: 16px;
+  border-top: 1px solid var(--rule);
+}
+
+/* The second row of Activity's filters. On a phone it folds away behind
+   "Filters (n)", which only shows there. */
+.mn-more {
+  margin-top: 8px;
+}
+
+.mn-more-toggle {
+  display: none;
+}
+
+.mn-custom-dates {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mn-show-more {
+  margin: 14px auto 0;
+}
+
+@media (max-width: 720px) {
+  .mn-more-toggle {
+    display: inline-flex;
+    align-items: center;
+  }
+  .mn-more[data-open='false'] {
+    display: none;
+  }
+}
+
+/* What a save added besides the record (a merchant rule), above the list. */
+.mn-notice {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  border: 1px solid var(--rule2);
+  border-left: 2px solid var(--accent);
+  border-radius: 3px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ink2);
+}
+
+.mn-notice-close {
+  background: none;
+  border: none;
+  color: var(--ink3);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+}

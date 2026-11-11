@@ -3,6 +3,9 @@ import { useTab } from '../lib/useTab';
 import { activityHref, monthRange } from '../lib/activityLink';
 import { useHousehold } from '../lib/useHousehold';
 import { useOverviewData } from './useOverviewData';
+// The Money tabs' shared styles first, so each tab's own stylesheet, which
+// its screen imports, comes after them as it did inside this one.
+import './Money.css';
 import Activity from './money/Activity';
 import Recurring from './money/Recurring';
 import Budget from './money/Budget';
@@ -15,7 +18,6 @@ import { usePlanningData } from './usePlanningData';
 import BackToReview from './BackToReview';
 import AedNote from './AedNote';
 import TabRow from './TabRow';
-import './Money.css';
 
 const TABS = [
   { id: 'activity', label: 'Activity' },

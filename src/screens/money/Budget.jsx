@@ -10,6 +10,7 @@ import BudgetEditor from './BudgetEditor';
 import { categoryOwner, householdShare } from '../../lib/share';
 import { neverLoaded } from '../../lib/loadState';
 import Withheld from '../planning/Withheld';
+import './Budget.css';
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 

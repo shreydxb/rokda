@@ -16,6 +16,7 @@ import { planningModel } from '../../lib/planningModel';
 import { couldntLoad, neverLoaded } from '../../lib/loadState';
 import { DEBT_INPUTS, DEBT_PLAN_INPUTS, GOALS_INPUTS, projectionInputs } from './planningSources';
 import BasisLine from './BasisLine';
+import './PlanSummary.css';
 
 
 // When the debts in view clear. With a committed extra payment, on the

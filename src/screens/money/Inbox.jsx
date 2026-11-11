@@ -11,6 +11,7 @@ import { neverLoaded } from '../../lib/loadState';
 import Withheld from '../planning/Withheld';
 import './TransactionEditor.css';
 import OwnerPicker from '../OwnerPicker';
+import './Inbox.css';
 
 function senderName(item, members) {
   if (!item.member_id) return null;

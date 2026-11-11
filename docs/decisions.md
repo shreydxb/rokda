@@ -3567,3 +3567,23 @@ functions used them, so the migration `retired_columns` drops them.
 - **One stays.** `holding_trades_proposal_idx` sits beside a unique index on
   the same column, but that one is partial, and the rule tested in "fk
   indexes" is that a foreign key has a full index of its own.
+
+## Large files are split by what they do
+
+The outside review's cleanup pass (SHR-383) split the files every later task
+had to read whole: the bot's webhook and its tests, five large screens or
+modules, and the three tab stylesheets. The splits are moves; what each
+part does is unchanged.
+
+- **A screen keeps its state, its checks and the order things happen in.**
+  Its form as data (what it opens with, what is wrong with it, the row a
+  save writes) is in `src/lib/<thing>Form.js` with tests of its own, a save
+  with several database steps in its own module beside the screen, and each
+  large section in a component of its own.
+- **Each tab's styles are in its own stylesheet,** imported by the tab's
+  screen; what the tabs share stays in `Money.css`, `Wealth.css` or
+  `Planning.css`. The shared one is imported before the tabs' screens, so
+  each tab's rules still come after the shared ones, as they did inside one
+  file. The split was checked by recording every element's computed style
+  on every tab, with a drawer open on three, on a desktop and a phone, before
+  and after: nothing changed.

@@ -1,0 +1,300 @@
+/* Split out of ../Wealth.css with the round 2 cleanup (SHR-383): the rules only
+   this tab uses. What the tabs share stays there. */
+
+/* Investments: a real line+area trend over daily portfolio value, with
+   invisible hover/click columns over each data point and a dot marking the
+   selected one -- same interaction idiom as Net worth's bar chart, just an
+   SVG path instead of bars since a trend over many daily points reads
+   better as a line than as one bar per day. */
+.wl-invchart {
+  position: relative;
+  height: 172px;
+  margin-top: 14px;
+}
+
+.wl-invchart-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.wl-invchart-cols {
+  position: absolute;
+  inset: 0;
+  display: flex;
+}
+
+.wl-invchart-col {
+  flex: 1;
+  height: 100%;
+  cursor: crosshair;
+}
+
+.wl-invchart-dot {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  margin: -3.5px;
+  border-radius: 50%;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+.wl-alloc-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.wl-alloc-box {
+  border: 1px solid var(--rule);
+  padding: 14px 16px;
+}
+
+.wl-alloc-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 12.5px;
+}
+
+.wl-alloc-value {
+  font-size: 20px;
+  margin-top: 4px;
+}
+
+/* The concentration line under Allocation (Planning audit, 4.17): what is
+   most concentrated, against the cap, with the cap set in place. */
+.wl-concentration {
+  margin-top: 14px;
+}
+
+.wl-concentration-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 10px;
+  row-gap: 4px;
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--ink);
+}
+
+.wl-concentration-cap {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.wl-concentration-note {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+  max-width: 80ch;
+}
+
+.wl-cap-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 12px;
+  font-size: 13px;
+}
+
+.wl-cap-form .wl-concentration-note {
+  flex-basis: 100%;
+  margin-top: 0;
+}
+
+.wl-cap-field,
+.wl-cap-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wl-cap-input {
+  width: 72px;
+  background: none;
+  border: 1px solid var(--rule2);
+  border-radius: var(--radius-sm);
+  padding: 9px 10px;
+  font-size: 14px;
+  color: var(--ink);
+  font-family: inherit;
+}
+
+@media (max-width: 640px) {
+  .wl-concentration-cap {
+    min-height: 44px;
+  }
+}
+
+.wl-invstats {
+  display: flex;
+  gap: 26px;
+  flex-wrap: wrap;
+  margin-top: 30px;
+  padding: 15px 0 0;
+  border-top: 1px solid var(--rule2);
+}
+
+.wl-holdwrap {
+  overflow-x: auto;
+}
+
+.wl-holdtable {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 920px;
+  font-size: 12.5px;
+}
+
+.wl-holdtable th,
+.wl-holdtable td {
+  text-align: right;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+}
+
+.wl-holdtable th:first-child,
+.wl-holdtable td:first-child {
+  text-align: left;
+  white-space: normal;
+}
+
+.wl-holdtable th:nth-child(2),
+.wl-holdtable td:nth-child(2) {
+  text-align: left;
+}
+
+.wl-holdtable th {
+  color: var(--ink3);
+  font-weight: 400;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* The holding's name, the button that opens it from the keyboard: it reads
+   as the name, with the row's own hover, and shows its focus. */
+.wl-holdname {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.wl-holdname:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.wl-holdrow {
+  cursor: pointer;
+}
+
+.wl-holdrow:hover td {
+  background: var(--raise);
+}
+
+.wl-ranges {
+  justify-content: flex-end;
+}
+
+@media (max-width: 720px) {
+  .wl-ranges {
+      justify-content: flex-start;
+      gap: 4px;
+    }
+  .wl-holdtable {
+      min-width: 0;
+    }
+  .wl-holdtable thead {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+    }
+  .wl-holdtable tbody,
+    .wl-holdtable tr {
+      display: block;
+    }
+  .wl-holdtable .wl-holdrow {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 4px 14px;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--rule);
+    }
+  .wl-holdrow::after {
+      content: '';
+      order: 2;
+      flex-basis: 100%;
+    }
+  .wl-holdtable td {
+      display: block;
+      padding: 0;
+      border: 0;
+      text-align: left;
+      white-space: nowrap;
+      font-size: 12px;
+      order: 4;
+    }
+  .wl-holdtable td:nth-child(1) {
+      order: 0;
+      flex: 1 1 0;
+      min-width: 0;
+      white-space: normal;
+      font-size: 13.5px;
+    }
+  .wl-holdtable td:nth-child(8) {
+      order: 1;
+      text-align: right;
+      font-size: 13.5px;
+    }
+  .wl-holdtable td:nth-child(9),
+    .wl-holdtable td:nth-child(10) {
+      order: 3;
+    }
+  .wl-holdtable td:nth-child(n + 2):not(:nth-child(8))::before {
+      color: var(--ink3);
+      margin-right: 4px;
+    }
+  .wl-holdtable td:nth-child(4)::before {
+      content: 'Units';
+    }
+  .wl-holdtable td:nth-child(5)::before {
+      content: 'Avg';
+    }
+  .wl-holdtable td:nth-child(6)::before {
+      content: 'Price';
+    }
+  .wl-holdtable td:nth-child(7)::before {
+      content: 'Invested';
+    }
+  .wl-holdtable td:nth-child(9)::before {
+      content: 'P&L';
+    }
+  .wl-holdtable td:nth-child(10)::before {
+      content: 'Today';
+    }
+  .wl-holdrow:hover td {
+      background: none;
+    }
+}

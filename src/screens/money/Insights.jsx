@@ -7,6 +7,7 @@ import { monthActualsByCategory } from '../../lib/budget';
 import { trailingAverageByCategory, topMerchants, notableMoves } from '../../lib/insights';
 import { monthRange } from '../../lib/activityLink';
 import { useMonthParam } from '../../lib/useMonthParam';
+import './Insights.css';
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const TRAILING_MONTHS = 6;

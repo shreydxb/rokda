@@ -1,0 +1,345 @@
+/* Split out of ../Planning.css with the round 2 cleanup (SHR-383): the rules only
+   this tab uses. What the tabs share stays there. */
+
+/* The Life plan: what it would take, and the stop-year stepper. */
+.fc-solve {
+  display: flex;
+  align-items: center;
+  gap: 10px 14px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--rule2);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+}
+
+.fc-solve-year {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fc-solve-step {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--rule2);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--ink2);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.fc-solve-step:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: var(--ink3);
+}
+
+.fc-solve-step:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.fc-solve-answer b {
+  font-weight: 400;
+  font-size: 16px;
+}
+
+/* What a projection still needs (planning/NotEnoughToProject.jsx): one row
+   each, the item and where it stands. */
+.lp-needs {
+  margin: 18px 0 0;
+  max-width: 660px;
+}
+
+.lp-need {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0;
+  border-top: 1px solid var(--rule);
+  font-size: 13.5px;
+}
+
+.lp-need:last-child {
+  border-bottom: 1px solid var(--rule);
+}
+
+.lp-need dd {
+  margin: 0;
+  text-align: right;
+}
+
+/* The Life plan's range: Baseline and Conservative side by side under the
+   stop year (Planning audit, 3.12); stacked on a narrow phone. */
+.lp-range {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 20px;
+  max-width: 640px;
+}
+
+.lp-range-cell {
+  padding: 0 24px;
+  border-right: 1px solid var(--rule);
+}
+
+.lp-range-cell:first-child {
+  padding-left: 0;
+}
+
+.lp-range-cell:last-child {
+  border-right: none;
+}
+
+.lp-range-label {
+  font-size: 12px;
+  color: var(--ink2);
+}
+
+.lp-range-figure {
+  font-size: 26px;
+  margin-top: 6px;
+}
+
+.lp-range-note {
+  font-size: 11.5px;
+  margin-top: 5px;
+}
+
+@media (max-width: 640px) {
+  .lp-range-cell {
+    padding: 0 14px;
+  }
+  .lp-range-figure {
+    font-size: 19px;
+  }
+}
+
+/* The Life plan's headline figures: four across, two by two on a phone (four
+   across overflowed a 390px screen). */
+.fc-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 32px;
+}
+
+.fc-kpi {
+  padding: 0 24px;
+  border-right: 1px solid var(--rule);
+}
+
+.fc-kpi:first-child {
+  padding-left: 0;
+}
+
+.fc-kpi:last-child {
+  border-right: none;
+}
+
+@media (max-width: 820px) {
+  .fc-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: 24px;
+  }
+  .fc-kpi:nth-child(odd) {
+    padding-left: 0;
+  }
+  .fc-kpi:nth-child(even) {
+    border-right: none;
+    padding-right: 0;
+  }
+}
+
+/* The Life plan: the what-if controls under the headline. */
+.dd-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 24px;
+}
+
+.dd-control {
+  display: flex;
+  align-items: center;
+  gap: 8px 12px;
+  flex-wrap: wrap;
+}
+
+.dd-label {
+  min-width: 190px;
+  font-size: 11.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink3);
+}
+
+.dd-segs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 820px) {
+  .dd-label {
+    min-width: 100%;
+  }
+}
+
+/* Life plan: the same market fall early or late (Planning audit, 3.14), each
+   of which picks the path the chart below draws. Three across; stacked on a
+   phone. */
+.lp-falls {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 20px;
+}
+
+.lp-fall {
+  appearance: none;
+  background: none;
+  border: none;
+  border-right: 1px solid var(--rule);
+  border-top: 2px solid transparent;
+  padding-top: 12px;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.lp-fall[data-active='true'] {
+  border-top-color: var(--ink);
+}
+
+.lp-fall:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.lp-fall-figure {
+  font-size: 26px;
+  margin-top: 6px;
+}
+
+@media (max-width: 820px) {
+  .lp-falls {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 12px;
+  }
+  .lp-falls .lp-fall {
+    padding-left: 0;
+    border-right: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .lp-fall-figure {
+    font-size: 21px;
+  }
+}
+
+/* The rupee drift case: the plan as it is beside the rupee weaker, two
+   figures side by side at every width (Planning audit, 4.19). */
+.fc-kpis.lp-drift {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 20px;
+}
+
+.lp-drift .fc-kpi:nth-child(2) {
+  padding-left: 24px;
+}
+
+/* Life plan: the goals the timeline pays out of the pot, each with its own
+   switch, and a kept goal shown as such. */
+.lp-goal {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.lp-goal input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  flex: none;
+}
+
+/* The assumptions every planning view runs on, in the same place on each
+   (planning/AssumptionsBar.jsx). */
+.pl-assumptions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 22px;
+  padding: 16px 18px;
+  border: 1px solid var(--rule2);
+  border-radius: 3px;
+}
+
+.pl-assumptions-value {
+  font-size: 13px;
+}
+
+.pl-assumptions-note {
+  font-size: 11.5px;
+  line-height: 1.6;
+  margin: 0;
+  max-width: 92ch;
+}
+
+.pl-assumptions-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* On a wider screen the bar is always open, and its summary is not needed. */
+.pl-assumptions-toggle {
+  display: none;
+}
+
+/* On a phone it folds to a summary of what the plan is on, and Change opens
+   the rest (Planning audit, 3.16). */
+@media (max-width: 640px) {
+  .pl-assumptions {
+    padding: 0 14px;
+    gap: 0;
+  }
+  .pl-assumptions-toggle {
+    appearance: none;
+    background: none;
+    border: none;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+    min-height: 44px;
+    padding: 0;
+    text-align: left;
+  }
+  .pl-assumptions-line {
+    font-size: 12.5px;
+    color: var(--ink2);
+    min-width: 0;
+  }
+  .pl-assumptions-change {
+    flex: none;
+    font-size: 12.5px;
+    color: var(--accent);
+  }
+  .pl-assumptions[data-open='false'] .pl-assumptions-body {
+    display: none;
+  }
+  .pl-assumptions[data-open='true'] .pl-assumptions-body {
+    padding: 4px 0 16px;
+  }
+}

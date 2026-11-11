@@ -3,6 +3,9 @@ import { useTab } from '../lib/useTab';
 import { useHousehold } from '../lib/useHousehold';
 import { usePlanningInputs } from './useOverviewData';
 import { usePlanningData } from './usePlanningData';
+// The tabs' shared styles first, so each tab's own stylesheet, which its
+// screen imports, comes after them as it did inside this one.
+import './Planning.css';
 import PlanSummary from './planning/PlanSummary';
 import Goals from './planning/Goals';
 import DebtPayoff from './planning/DebtPayoff';
@@ -13,7 +16,6 @@ import Freshness from './Freshness';
 import BackToReview from './BackToReview';
 import AedNote from './AedNote';
 import TabRow from './TabRow';
-import './Planning.css';
 
 const TABS = [
   { id: 'plan', label: 'Plan' },

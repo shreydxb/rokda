@@ -11,6 +11,7 @@ import DebtPlanEditor from './DebtPlanEditor';
 import { couldntLoad, neverLoaded } from '../../lib/loadState';
 import { DEBT_INPUTS, DEBT_PLAN_INPUTS } from './planningSources';
 import Withheld from './Withheld';
+import './DebtPayoff.css';
 
 // A custom order waits until a debt's rank can be set (Planning audit, 1.4).
 const STRATEGIES = [

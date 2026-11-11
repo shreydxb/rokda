@@ -5,6 +5,7 @@ import { billStatus, hasEnded, nativeAmountLabel, rollForward } from '../../lib/
 import RecurringEditor from './RecurringEditor';
 import TransactionEditor from './TransactionEditor';
 import { householdToday } from '../../lib/day';
+import './Recurring.css';
 
 const UNIT_LABEL = { weekly: 'week', monthly: 'month', quarterly: 'quarter', yearly: 'year' };
 

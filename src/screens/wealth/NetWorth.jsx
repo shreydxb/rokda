@@ -16,6 +16,7 @@ import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { isLiabilityAccount, isLiquidAccount } from '../useOverviewData';
 import { incompleteNote, netWorthSummary } from '../overviewMath';
 import { isAwaitingFirstValuation } from '../../lib/valuation';
+import './NetWorth.css';
 
 const COMPOSITION_PALETTE = ['var(--accent)', 'var(--pos)', 'var(--warn)', 'var(--ink2)', 'var(--neg)', 'var(--accent-hover)'];
 

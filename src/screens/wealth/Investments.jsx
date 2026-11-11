@@ -28,6 +28,7 @@ import { supabase } from '../../lib/supabaseClient';
 import HoldingEditor from './HoldingEditor';
 import Withheld from '../planning/Withheld';
 import ConcentrationLine from './ConcentrationLine';
+import './Investments.css';
 
 // One empty list for a source a caller did not pass, so the figures worked
 // from it are not worked out again on every render.

@@ -8,6 +8,7 @@ import { activityHref } from '../../lib/activityLink';
 import { confirmedPairRow } from '../../lib/duplicates';
 import { adjacentReviewMonths, budgetSummary, monthlyReview, reviewMonth, reviewMonthParam, withReviewReturn } from '../../lib/monthlyReview';
 import { historyPreview, monthActions } from '../../lib/monthActions';
+import './Review.css';
 
 // The monthly review (lib/monthlyReview.js): what to settle before a month's
 // totals go into history, worked out from the records, so each check ticks

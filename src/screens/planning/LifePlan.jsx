@@ -20,6 +20,7 @@ import { neverLoaded } from '../../lib/loadState';
 import { isDone } from '../../lib/goals';
 import { projectionInputs } from './planningSources';
 import Withheld from './Withheld';
+import './LifePlan.css';
 
 // Fixed order, so each phase keeps its colour whatever the numbers do.
 const PHASES = [

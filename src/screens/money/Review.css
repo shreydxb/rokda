@@ -1,0 +1,144 @@
+/* Split out of ../Money.css with the round 2 cleanup (SHR-383): the rules only
+   this tab uses. What the Money tabs share stays there. */
+
+/* Monthly review */
+.rv-month {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.rv-progress {
+  margin-top: 14px;
+  font-weight: 600;
+}
+
+.rv-progress[data-complete='true'] {
+  color: var(--pos);
+}
+
+.rv-checks {
+  list-style: none;
+  padding: 0;
+  margin: 16px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Finished checks fold below the open ones (Review.jsx). */
+.rv-done {
+  margin-top: 10px;
+}
+
+.rv-done > .rv-checks {
+  margin-top: 6px;
+}
+
+.rv-check {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-md);
+  background: var(--raise);
+}
+
+.rv-mark {
+  flex: none;
+  width: 20px;
+  text-align: center;
+  font-weight: 700;
+}
+
+.rv-check[data-status='done'] .rv-mark {
+  color: var(--pos);
+}
+
+.rv-check[data-status='todo'] .rv-mark {
+  color: var(--warn);
+}
+
+.rv-body {
+  min-width: 0;
+  flex: 1;
+}
+
+.rv-title {
+  font-weight: 600;
+}
+
+.rv-detail {
+  font-size: 12.5px;
+  margin-top: 2px;
+}
+
+.rv-sublist {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rv-pair {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.rv-open {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 12.5px;
+}
+
+.rv-budget {
+  margin-top: 24px;
+}
+
+.rv-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* The one thing to do next, above the checks. */
+.rv-next {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--rule2);
+  border-left: 2px solid var(--accent);
+  border-radius: var(--radius-md);
+}
+
+.rv-next .rv-title {
+  margin-top: 4px;
+}
+
+.rv-history,
+.rv-todo {
+  margin-top: 24px;
+}
+
+.rv-figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin: 8px 0;
+}
+
+.rv-figures dt {
+  font-size: 12px;
+  color: var(--ink3);
+}
+
+.rv-figures dd {
+  margin: 2px 0 0;
+  font-weight: 600;
+}
