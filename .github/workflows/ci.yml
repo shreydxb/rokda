@@ -138,22 +138,20 @@ jobs:
       # logs. The claim's atomicity itself is proven against real Postgres in
       # the migrations job.
       #
-      # The second file covers the bot's trade helpers on their own: matching,
-      # the questions it asks, and the confirmation's wording. The third covers
-      # its dividend messages and the words that read as a dividend. The fourth
-      # and fifth cover who may call each function: the constant-time secret
-      # compare, and fd-accrual, price-refresh and dividend-refresh refusing
-      # every caller but the scheduler (and, for price-refresh, a signed-in
-      # household member). The last reads recorded Yahoo and Alpha Vantage
-      # answers and plans the dividend run's calls.
+      # The bot's handler tests are one file per part of it, sharing one fake
+      # backend (telegram-webhook/testing/harness.ts); the folder runs them all,
+      # with the trade helpers' and the dividend messages' own tests. The rest
+      # cover who may call each function: the constant-time secret compare,
+      # and fd-accrual, price-refresh and dividend-refresh refusing every
+      # caller but the scheduler (and, for price-refresh, a signed-in household
+      # member); and the last reads recorded Yahoo and Alpha Vantage answers and
+      # plans the dividend run's calls.
       - name: Handler tests
         run: >
           deno test --node-modules-dir=none
           --allow-env --allow-read
           --allow-net=api.telegram.org,openrouter.ai,supabase.test
-          supabase/functions/telegram-webhook/index.test.ts
-          supabase/functions/telegram-webhook/trades.test.ts
-          supabase/functions/telegram-webhook/dividends.test.ts
+          supabase/functions/telegram-webhook/
           supabase/functions/_shared/requestAuth.test.ts
           supabase/functions/_shared/scheduledCallers.test.ts
           supabase/functions/_shared/quoteTime.test.ts

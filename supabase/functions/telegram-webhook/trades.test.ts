@@ -1,8 +1,8 @@
 // The bot's trade helpers (trades.ts): reading a trade message's arguments,
 // matching the stock to a member's holdings, asking for what is missing, and
 // writing the confirmation from the database's own figures. Pure functions,
-// so they are tested here on their own; index.test.ts drives them through the
-// handler.
+// so they are tested here on their own; the handler tests
+// (tradeMessages.test.ts) drive them through the handler.
 import { assert, assertEquals } from "jsr:@std/assert@1";
 import {
   ANSWER_HINT,

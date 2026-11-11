@@ -1,7 +1,8 @@
 // The bot's dividend messages (dividends.ts): the morning question about
 // dividends due in a fund, what a "yes" recorded, what a "no" left, and the
 // guard that keeps a dividend typed as income out of the ledger. Pure
-// functions; index.test.ts drives them through the handler.
+// functions; the handler tests (dividendReceipts.test.ts) drive them through
+// the handler.
 import { assertEquals } from "jsr:@std/assert@1";
 import {
   DIVIDEND_GUARD_REPLY,
