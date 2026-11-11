@@ -36,7 +36,10 @@ stale until someone confirms a valuation, and confirming one writes a dated
 point into `holding_value_history`.
 
 There is no live price or FX feed, and none is a prerequisite for a reliable
-manual ledger.
+manual ledger. *Superseded in part (October 2026): a price and exchange-rate
+feed now runs (price-refresh, SHR-237; "A price is as old as its quote"). What
+still holds is the rule above: a value is fresh only from a dated valuation,
+by hand or from the feed's own quote time, never from a reload or an edit.*
 
 ## Closed accounts, not deleted ones
 
@@ -126,6 +129,9 @@ assumption, and a monthly figure that quietly counted on one would be a promise
 the app cannot keep.
 
 ## Forecast figures follow the display currency
+
+*Superseded by "Five Planning tabs": Forecast is gone. Its figures live on
+the Life plan, which follows the display currency the same way.*
 
 Every figure on Forecast is shown in the selected display currency, not only the
 hero. A USD hero above AED detail lines read as two different targets. Stored
@@ -276,7 +282,8 @@ offers one fall, not a simulation.
 
 ## Edge Functions pin their Supabase imports to an exact version
 
-All three Edge Functions import `jsr:@supabase/supabase-js@2.117.2` and
+All four Edge Functions (telegram-webhook, price-refresh, fd-accrual and
+dividend-refresh) import `jsr:@supabase/supabase-js@2.117.2` and
 `jsr:@supabase/functions-js@2.117.2`, not `@2` or an unversioned
 specifier.
 
@@ -288,8 +295,8 @@ specifier.
   after `supabase-js` 2.117.2 reached JSR and 1m 40s too early for `auth-js`.
   An exact version resolves the same way every time.
 - **What it costs.** A new Supabase release is no longer picked up by the next
-  deploy on its own. To take one, change the version in all three
-  `index.ts` files together. Keep the two packages on the same version, and
+  deploy on its own. To take one, change the version in every function's
+  `index.ts` together. Keep the two packages on the same version, and
   wait until the release is more than a day old.
 - The age check itself stays on. It is a supply-chain guard, and turning it
   off to get green would trade a real protection for a timing race.
@@ -314,6 +321,9 @@ question.
   it on the scenario it has selected; the Plan summary on the baseline.
 
 ## Forecast leads with the stop year
+
+*Superseded by "Five Planning tabs": Forecast is gone, and the Life plan
+leads with the stop year.*
 
 With ages set, Forecast still opened on the lasts-forever target, with the
 Life plan's year in a box below it and a third year, the lean number, beside
@@ -1381,6 +1391,10 @@ income) is recorded too, since its amount and sign can stay the same.
 
 ## The browser checks run in CI
 
+*Superseded in part by "Desktop first; phones tested later" (8 Nov 2026): CI
+runs the desktop viewport only, and the phone one runs with
+`PLAYWRIGHT_PHONE=1`.*
+
 The Playwright suite (`e2e/`) renders every route and tabbed view on a
 desktop and a phone viewport against a stubbed Supabase. It checks for
 console errors, raw values such as "NaN" in the page, and sideways scrolling,
@@ -2369,7 +2383,9 @@ it (Planning audit, 1.2).
   spends and saves a month, and whether the chosen stop year lasts on the
   budget. Everything else still runs on the recorded months; choosing the
   basis, and when records start counting, is 2.9.
-- **The baseline is the budget's savings target.** The first Baseline save
+- **The baseline is the budget's savings target.** *Superseded by "Five
+  Planning tabs": only Forecast compared against this baseline, and it is no
+  longer set; its columns stay, unread.* The first Baseline save
   takes the budget's monthly savings target as the saving the plan is
   measured against. With no savings target in the budget, no baseline is
   taken, and the editor says so, so a later save once there is one sets it.
@@ -2620,7 +2636,8 @@ and growth.
 - **Growth figures are written only when one is changed.** Saving the people
   or the stop year no longer marks the defaults as the household's choice,
   and the baseline Forecast compares against is set the first time they
-  change, as it was set the first time the old drawer saved.
+  change, as it was set the first time the old drawer saved. *(That
+  baseline is superseded by "Five Planning tabs" and no longer set.)*
 - **Custom keeps its own figures:** opened on the Custom scenario, the
   growth section edits Custom's, as Forecast's drawer did.
 
