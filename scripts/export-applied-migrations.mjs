@@ -192,21 +192,40 @@ export function assertSameProject({ dbUrl, projectRef }) {
 const MALFORMED = 'SUPABASE_DB_URL is not a postgres:// connection URL this can read; check its form (a % in the password must be written %25).';
 
 export function splitDbUrl(dbUrl) {
+  const raw = String(dbUrl ?? '');
   let url;
   let password;
   try {
-    url = new URL(dbUrl);
+    url = new URL(raw);
     password = decodeURIComponent(url.password);
   } catch {
     throw new Error(MALFORMED);
   }
   if (url.protocol !== 'postgres:' && url.protocol !== 'postgresql:') throw new Error(MALFORMED);
+  // A password starting with an unescaped /, ? or # (or digits then one of
+  // those) ends the user and password early: the URL reads as a host and a
+  // path, with no password to take out, and went to psql whole (the fresh
+  // review of PR 4). An @ with no user found, or any #, is that.
+  if (raw.includes('#') || (raw.includes('@') && !url.username)) throw new Error(MALFORMED);
   url.password = '';
-  const queryPassword = url.searchParams.get('password');
-  if (queryPassword != null) {
-    url.searchParams.delete('password');
-    if (!password) password = queryPassword;
+  // The query is taken apart by hand: URLSearchParams would read a + as a
+  // space, where libpq reads a plus, and write the rest of the query back
+  // re-encoded.
+  const kept = [];
+  for (const part of url.search.replace(/^\?/, '').split('&').filter(Boolean)) {
+    if (!part.startsWith('password=')) {
+      kept.push(part);
+      continue;
+    }
+    let value;
+    try {
+      value = decodeURIComponent(part.slice('password='.length));
+    } catch {
+      throw new Error(MALFORMED);
+    }
+    if (!password) password = value;
   }
+  url.search = kept.length ? `?${kept.join('&')}` : '';
   return { safeUrl: url.toString(), password: password || null };
 }
 

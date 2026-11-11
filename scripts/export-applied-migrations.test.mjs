@@ -273,4 +273,30 @@ describe('a connection string it cannot take the password out of is refused', ()
     expect(query.safeUrl).not.toContain('synthetic-secret');
     expect(query.safeUrl).toContain('sslmode=require');
   });
+
+  // The fresh review of PR 4: a password starting with an unescaped /, ? or
+  // # (or digits then one of those) ends the URL's user and password early,
+  // so it parsed as a host and a path with no password to take out, and went
+  // to psql whole. One with an @ and no user found, or with a #, is refused.
+  it('refuses one whose password the URL parser would read as a host and a path', () => {
+    for (const tail of ['/SYNTHTAIL', '?SYNTHTAIL', '#SYNTHTAIL', '5432/SYNTHTAIL', '12#SYNTHTAIL']) {
+      const bad = `postgresql://postgres:${tail}@db.example:5432/postgres`;
+      let thrown;
+      try {
+        splitDbUrl(bad);
+      } catch (err) {
+        thrown = err;
+      }
+      expect(thrown?.message, bad).toMatch(/SUPABASE_DB_URL/);
+      expect(thrown.message).not.toContain('SYNTHTAIL');
+    }
+  });
+
+  // Libpq percent-decodes a query value and nothing else: a + is a plus. The
+  // rest of the query is left exactly as written.
+  it('takes a query password out without rewriting the rest of the query', () => {
+    const split = splitDbUrl('postgresql://postgres@db.example:5432/postgres?options=-c%20statement_timeout%3D5s&password=synth+pass%21&sslmode=require');
+    expect(split.password).toBe('synth+pass!');
+    expect(split.safeUrl).toBe('postgresql://postgres@db.example:5432/postgres?options=-c%20statement_timeout%3D5s&sslmode=require');
+  });
 });
