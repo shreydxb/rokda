@@ -137,12 +137,17 @@ export function autopayAnswer(text) {
   let not = 0;
   let amount = null;
   // Thousands separators were split off above: "2,050" arrives as "2" "050".
-  // Put a number back together before reading it.
-  const joined = s.replace(/(\d),(\d{3})\b/g, '$1$2');
-  const numbers = joined.match(/\d+(?:\.\d{1,2})?/g) ?? [];
+  // A number is read whole from the text instead, grouped the international
+  // way (1,000,000) or the Indian way (1,00,000); any other grouping is not
+  // guessed at. Only one group used to be put back together, so 1,00,000
+  // was not read at all (round 2 of the outside review).
+  const numbers = s.match(/\d+(?:,\d+)*(?:\.\d{1,2})?/g) ?? [];
   if (numbers.length > 1) return none;
   if (numbers.length === 1) {
-    amount = Number(numbers[0]);
+    const [whole, cents] = numbers[0].split('.');
+    const grouped = whole.includes(',');
+    if (grouped && !/^\d{1,3}(?:,\d{3})+$/.test(whole) && !/^\d{1,2}(?:,\d{2})*,\d{3}$/.test(whole)) return none;
+    amount = Number(whole.replace(/,/g, '') + (cents ? `.${cents}` : ''));
     if (!(amount > 0)) return none;
   }
   for (const token of tokens) {

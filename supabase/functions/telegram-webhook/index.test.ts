@@ -48,6 +48,8 @@ type Backend = {
     failFirstSends?: number;
     // Telegram answers ok:false (a 429, say): nothing is sent, nothing thrown.
     refuseFirstSends?: number;
+    // Telegram refuses these chats for good (403: the member blocked the bot).
+    blockedChats?: number[];
     // The write recording a proposal question's message id fails this many times.
     failPromptRecord?: number;
     failStatementBinding?: number;
@@ -62,6 +64,8 @@ type Backend = {
     // A link code expires the moment it has been looked up, as one can
     // between the lookup and the redemption.
     expireLinkCodeAfterLookup?: boolean;
+    // Inserting a message's second and later items into intake fails.
+    failIntakeItems?: boolean;
     // Telegram's getFile refuses (a 429) or says the file is too big for a bot.
     getFile?: "refuse" | "too_big";
     // Downloading the file, or storing it, fails.
@@ -331,6 +335,9 @@ async function postgrest(req: Request, url: URL): Promise<Response> {
     const incoming: Row[] = Array.isArray(body) ? body : [body];
     const written: Row[] = [];
     for (const r of incoming) {
+      if (table === "intake" && backend.faults.failIntakeItems && String(r.source_ref ?? "").includes("#")) {
+        return json({ code: "57014", message: "canceling statement due to statement timeout" }, 500);
+      }
       const row = { id: crypto.randomUUID(), created_at: new Date(backend.now).toISOString(), ...(DEFAULTS[table]?.() ?? {}), ...r };
       if (violatesUnique(table, row)) {
         return json({ code: "23505", message: "duplicate key value violates unique constraint" }, 409);
@@ -649,6 +656,9 @@ async function telegram(req: Request, url: URL): Promise<Response> {
     if (backend.faults.refuseFirstSends && sendCount <= backend.faults.refuseFirstSends) {
       return json({ ok: false, error_code: 429, description: "Too Many Requests: retry after 5" });
     }
+    if (backend.faults.blockedChats?.includes(Number(body.chat_id))) {
+      return json({ ok: false, error_code: 403, description: "Forbidden: bot was blocked by the user" });
+    }
     backend.telegramSent.push({ method, body });
     return json({ ok: true, result: { message_id: 1000 + sendCount } });
   }
@@ -727,7 +737,7 @@ Deno.env.set("TELEGRAM_BOT_TOKEN", TOKEN);
 Deno.env.set("OPENROUTER_API_KEY", "openrouter-test");
 
 reset();
-const { accountsForCheckin, buildBalanceCheckinMessage, datedItems, figuresUnavailableMessage, forwardedDay, inboxReason, isSpendingAccount, merchantHistoryMatches, pickAccountByHint, pickCheckinAccount, proposalOutcomeMessage, transferDraftFrom, undatedNote } = await import("./index.ts");
+const { accountsForCheckin, buildBalanceCheckinMessage, datedItems, sendablePeriod, figuresUnavailableMessage, forwardedDay, inboxReason, isSpendingAccount, merchantHistoryMatches, pickAccountByHint, pickCheckinAccount, proposalOutcomeMessage, transferDraftFrom, undatedNote } = await import("./index.ts");
 assert(handler!, "index.ts did not register a handler with Deno.serve");
 
 // ---------------------------------------------------------------------------
@@ -895,6 +905,39 @@ freshTest("an ordinary expense is captured once and its claim completed", async 
   assertEquals(capturedIntake().length, 1);
   assertEquals(capturedIntake()[0].source_ref, "7001");
   assertEquals(backend.log.get(7001)?.status, "completed");
+});
+
+// Round 2 of the outside review (D2-5): "Noon 40, Bakery 70" whose second
+// item failed to save was answered "2 expenses captured". Only what was
+// saved is counted, and what was not is named so it can be sent again.
+freshTest("a message's item that fails to save is named, not counted as captured", async () => {
+  backend.parse = [
+    { merchant: "Noon", amount: 40, currency: "AED", occurred_at: "2026-09-24", date_stated: true, source: "typed", category: null, card_last4: null, account_hint: null, confidence: 1, kind: "expense" },
+    { merchant: "Bakery", amount: 70, currency: "AED", occurred_at: "2026-09-24", date_stated: true, source: "typed", category: null, card_last4: null, account_hint: null, confidence: 1, kind: "expense" },
+  ];
+  backend.faults.failIntakeItems = true;
+  const res = await handler(textUpdate(7021, "Noon 40, Bakery 70"));
+  assertEquals(res.status, 200);
+  assertEquals(capturedIntake().length, 1);
+  assert(!lastReply().includes("2 expenses captured"), lastReply());
+  assert(lastReply().includes("1 expense captured"), lastReply());
+  assert(lastReply().includes("couldn't save AED 70.00 at Bakery"), lastReply());
+});
+
+// The fresh review of round 2: an item that failed to save still counted in
+// the note about dates, so a saved item with its date was told "It had no
+// date" because the unsaved one had none.
+freshTest("an item that fails to save is not counted in the note about dates", async () => {
+  backend.parse = [
+    { merchant: "Noon", amount: 40, currency: "AED", occurred_at: "2026-09-24", date_stated: true, source: "typed", category: null, card_last4: null, account_hint: null, confidence: 1, kind: "expense" },
+    // A bank text with no date of its own: its date is guessed.
+    { merchant: "Bakery", amount: 70, currency: "AED", occurred_at: null, date_stated: false, source: "bank_sms", category: null, card_last4: null, account_hint: null, confidence: 1, kind: "expense" },
+  ];
+  backend.faults.failIntakeItems = true;
+  const res = await handler(textUpdate(7022, "Noon 40, Bakery 70"));
+  assertEquals(res.status, 200);
+  assert(lastReply().includes("couldn't save AED 70.00 at Bakery"), lastReply());
+  assert(!lastReply().includes("had no date"), lastReply());
 });
 
 // D-06: a receipt is kept, or Telegram is asked to send it again. A failure
@@ -1777,6 +1820,63 @@ freshTest("a bill paid after the first thousand records of its window still coun
   const paid = await handler(dailyCheck());
   await paid.body?.cancel();
   assert(!backend.telegramSent.some((m) => String(m.body.text).startsWith("I don't see a transaction")), "a paid bill was asked about");
+});
+
+// Round 2 of the outside review (D2-4): a reminder Telegram refused (an
+// ok:false, a 429 say) was recorded as sent, so it was never sent again.
+freshTest("a reminder Telegram refuses is not recorded as sent, and goes out on the next run", async () => {
+  backend.tables.recurring_nudges = [];
+  backend.tables.recurring.push({
+    id: "a9000000-0000-4000-8000-0000000000e2", household_id: HOUSEHOLD, name: "Rent", owner_member_id: null, is_shared: true, amount: -500,
+    next_due_date: dubaiDaysAgo(4), ends_on: null, cadence: "monthly", interval_count: 1, account_id: BANK, category_id: null, active: true, autopay: false,
+  });
+  backend.faults.refuseFirstSends = 1000;
+  const refused = await handler(dailyCheck());
+  await refused.body?.cancel();
+  assertEquals(backend.tables.recurring_nudges.length, 0, "a refused reminder was recorded as sent");
+
+  backend.faults.refuseFirstSends = 0;
+  backend.telegramSent.length = 0;
+  const next = await handler(dailyCheck());
+  await next.body?.cancel();
+  assert(backend.telegramSent.some((m) => String(m.body.text).startsWith('I don\'t see a transaction for "Rent"')), "the reminder was not sent again");
+  assertEquals(backend.tables.recurring_nudges.length, 1);
+});
+
+// The fresh review of round 2: a member Telegram refuses for good (who
+// blocked the bot) left the reminder unrecorded, so the other member was sent
+// it again on every run. A refusal for good is not tried again.
+freshTest("a member who blocked the bot does not make the other get a reminder every day", async () => {
+  backend.tables.recurring_nudges = [];
+  backend.tables.household_members.push({ id: "a9000000-0000-4000-8000-0000000000f1", household_id: HOUSEHOLD, display_name: "Partner", telegram_user_id: 7700, role: "member" });
+  backend.tables.recurring.push({
+    id: "a9000000-0000-4000-8000-0000000000e3", household_id: HOUSEHOLD, name: "Rent", owner_member_id: null, is_shared: true, amount: -500,
+    next_due_date: dubaiDaysAgo(4), ends_on: null, cadence: "monthly", interval_count: 1, account_id: BANK, category_id: null, active: true, autopay: false,
+  });
+  backend.faults.blockedChats = [7700];
+  for (let run = 0; run < 3; run += 1) {
+    const res = await handler(dailyCheck());
+    await res.body?.cancel();
+  }
+  const toMe = backend.telegramSent.filter((m) => Number(m.body.chat_id) === TELEGRAM_USER && String(m.body.text).startsWith('I don\'t see a transaction for "Rent"'));
+  assertEquals(toMe.length, 1, "the reachable member was sent the reminder again");
+  assertEquals(backend.tables.recurring_nudges.length, 1);
+});
+
+// The fresh review of round 2: the weekly brief, the monthly review and the
+// balance check-in were tried only on their own day, so one refused then
+// (the job runs once a day) was never sent. Each may still go out on the two
+// days after, for the same period, while unsent.
+Deno.test("a weekly or monthly message may still be sent on the two days after its own", () => {
+  // 9 November 2026 is a Monday.
+  assertEquals(sendablePeriod("2026-11-09", "weekly"), "2026-11-09");
+  assertEquals(sendablePeriod("2026-11-11", "weekly"), "2026-11-09");
+  assertEquals(sendablePeriod("2026-11-12", "weekly"), null);
+  assertEquals(sendablePeriod("2026-11-08", "weekly"), null);
+  assertEquals(sendablePeriod("2026-11-01", "monthly"), "2026-10");
+  assertEquals(sendablePeriod("2026-11-03", "monthly"), "2026-10");
+  assertEquals(sendablePeriod("2026-11-04", "monthly"), null);
+  assertEquals(sendablePeriod("2027-01-02", "monthly"), "2026-12");
 });
 
 // A bill on autopay from a bank account, due today.

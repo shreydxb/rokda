@@ -165,6 +165,41 @@ async function reply(chatId: number, text: string): Promise<number | null> {
   return res?.result?.message_id ?? null;
 }
 
+// What became of a scheduled reminder sent to one chat. Telegram can refuse a
+// send (ok:false) without anything throwing, and a reminder recorded as sent
+// after that was never sent again (round 2 of the outside review). A refusal
+// is for now (a 429, a 5xx, the network) or for good: a member who blocked
+// the bot (403), a chat that is gone or a message it will never take (400).
+// Only one for now is worth trying again: trying one refused for good sent
+// the reminder again to everyone else on every run (the fresh review of
+// round 2).
+async function sendReminder(chatId: number, text: string): Promise<"sent" | "retry" | "final"> {
+  let res: { ok?: boolean; error_code?: number } | undefined;
+  try {
+    res = await tgCall("sendMessage", { chat_id: chatId, text });
+  } catch {
+    return "retry";
+  }
+  if (res?.ok) return "sent";
+  if (res?.error_code === 400 || res?.error_code === 403) {
+    console.error(`telegram refused a reminder for good (${res.error_code})`);
+    return "final";
+  }
+  return "retry";
+}
+
+// Sends one message to each chat, and says whether none of them needs
+// trying again: the reminder is recorded as sent only then. One that reached
+// one member and was refused for now to the other goes again to both on the
+// next run: a repeat beats a reminder nobody got.
+async function sendToAll(chatIds: number[], text: string): Promise<boolean> {
+  let done = true;
+  for (const chatId of chatIds) {
+    if ((await sendReminder(chatId, text)) === "retry") done = false;
+  }
+  return done;
+}
+
 // QA #2, half two, revised in SHR-303. Telegram redelivers an update whenever
 // the webhook does not answer 200 in time, so every update is claimed before
 // it is handled and settled after.
@@ -3207,12 +3242,11 @@ async function runRecurringCheck(): Promise<{ checked: number; nudged: number }>
           : (members ?? []).filter((m: { id: string }) => m.id === r.owner_member_id)
       ).filter((m: { telegram_user_id: number | null }) => m.telegram_user_id != null) as Array<{ telegram_user_id: number }>;
 
-      for (const m of recipients) {
-        await reply(
-          m.telegram_user_id,
-          `I don't see a transaction for "${r.name}" yet (usually around AED ${amount.toFixed(2)}, due ${r.dueDate}) -- forgot to log it, or paid another way?`
-        );
-      }
+      const delivered = await sendToAll(
+        recipients.map((m) => m.telegram_user_id),
+        `I don't see a transaction for "${r.name}" yet (usually around AED ${amount.toFixed(2)}, due ${r.dueDate}) -- forgot to log it, or paid another way?`
+      );
+      if (!delivered) continue;
       await supabase.from("recurring_nudges").insert({ recurring_id: r.id, due_date: r.dueDate });
       nudged++;
     } catch {
@@ -3969,7 +4003,7 @@ async function runCreditCardCheck(): Promise<{ checked: number; nudged: number }
         kind === "due_soon"
           ? `${a.name} is due ${dueDateStr} -- outstanding balance ${owedLabel}.`
           : `${a.name} was due ${dueDateStr} and still shows ${owedLabel} owing -- paid it another way, or forgot?`;
-      for (const m of recipients) await reply(m.telegram_user_id, message);
+      if (!(await sendToAll(recipients.map((m) => m.telegram_user_id), message))) continue;
 
       await supabase.from("credit_card_nudges").insert({ account_id: a.id, due_date: dueDateStr, kind });
       nudged++;
@@ -4040,7 +4074,7 @@ async function runBudgetAlertCheck(): Promise<{ checked: number; nudged: number 
           threshold >= 100
             ? `Budget alert: ${category.name} is over budget this month -- AED ${actual.toFixed(2)} spent of AED ${budgeted.toFixed(2)}.`
             : `Budget alert: ${category.name} has hit ${threshold}% of this month's budget (AED ${actual.toFixed(2)} of AED ${budgeted.toFixed(2)}).`;
-        for (const m of recipients) await reply(m.telegram_user_id, message);
+        if (!(await sendToAll(recipients.map((m) => m.telegram_user_id), message))) break;
 
         await supabase.from("budget_alert_nudges").insert({ household_id: b.household_id, category_id: b.category_id, year, month, threshold });
         nudged++;
@@ -4106,21 +4140,39 @@ function mondayOfWeek(dateStr: string): string {
   return d.toISOString().slice(0, 10);
 }
 
+// The period a weekly or monthly message is for, on a day it may still go
+// out: the brief from its Monday, the review and the balance check-in from
+// the 1st, and on the two days after while it is unsent (brief_sends keeps
+// it to once a period). The job runs once a day, so a message tried only on
+// its own day and refused for now then was never sent (the fresh review of
+// round 2). Null on any other day.
+const CATCH_UP_DAYS = 3;
+export function sendablePeriod(today: string, kind: "weekly" | "monthly"): string | null {
+  const day = parseDay(today);
+  if (kind === "weekly") {
+    const weekday = day.getDay(); // 0 = Sunday .. 6 = Saturday
+    return weekday >= 1 && weekday <= CATCH_UP_DAYS ? mondayOfWeek(today) : null;
+  }
+  if (day.getDate() > CATCH_UP_DAYS) return null;
+  const [year, month] = today.split("-").map(Number);
+  return month === 1 ? `${year - 1}-12` : `${year}-${String(month - 1).padStart(2, "0")}`;
+}
+
 // Runs daily alongside the other checks (see the ?run_recurring_check=1
-// handler below) but only actually sends on a Monday -- the brief itself is
-// weekly, the check for whether to send it doesn't need its own schedule.
-// brief_sends dedupes per (household, 'weekly', that Monday's date) so a
-// retry the same day is a no-op.
+// handler below) but only sends from Monday, catching up until Wednesday
+// (sendablePeriod) -- the brief itself is weekly, the check for whether to
+// send it doesn't need its own schedule. brief_sends dedupes per (household,
+// 'weekly', that Monday's date) so a later run the same week is a no-op.
 async function runWeeklyBriefCheck(): Promise<{ sent: number }> {
   const today = householdToday();
-  if (parseDay(today).getDay() !== 1) return { sent: 0 };
+  const periodKey = sendablePeriod(today, "weekly");
+  if (!periodKey) return { sent: 0 };
 
   let sent = 0;
   const prefs = await telegramPrefsMap();
   for (const householdId of await householdsWithLinkedTelegram()) {
     if (!prefEnabled(prefs, householdId, "brief_enabled")) continue;
     try {
-      const periodKey = mondayOfWeek(today);
       const { data: alreadySent } = await supabase
         .from("brief_sends")
         .select("household_id")
@@ -4134,7 +4186,7 @@ async function runWeeklyBriefCheck(): Promise<{ sent: number }> {
       if (!recipients.length) continue;
 
       const brief = await buildBriefMessage(householdId);
-      for (const chatId of recipients) await reply(chatId, `This week:\n${brief}`);
+      if (!(await sendToAll(recipients, `This week:\n${brief}`))) continue;
       await supabase.from("brief_sends").insert({ household_id: householdId, kind: "weekly", period_key: periodKey });
       sent++;
     } catch {
@@ -4144,22 +4196,14 @@ async function runWeeklyBriefCheck(): Promise<{ sent: number }> {
   return { sent };
 }
 
-// Same pattern as the weekly check, but fires on the 1st of the month and
-// summarises the month that just ended (see buildMonthlyReviewMessage) --
-// by the time this runs, "this month" already names the new one.
+// Same pattern as the weekly check, but fires from the 1st of the month
+// (catching up until the 3rd) and summarises the month that just ended (see
+// buildMonthlyReviewMessage) -- by the time this runs, "this month" already
+// names the new one.
 async function runMonthlyBriefCheck(): Promise<{ sent: number }> {
-  const today = householdToday();
-  if (parseDay(today).getDate() !== 1) return { sent: 0 };
-
-  // today is already a resolved 'YYYY-MM-DD' calendar day (see day.js) --
-  // read year/month straight out of it rather than round-tripping back
-  // through a Date and a second timezone-aware format.
-  const [yearStr, monthStr] = today.split("-");
-  const year = Number(yearStr);
-  const month = Number(monthStr);
-  const prevYear = month === 1 ? year - 1 : year;
-  const prevMonth = month === 1 ? 12 : month - 1;
-  const periodKey = `${prevYear}-${String(prevMonth).padStart(2, "0")}`;
+  const periodKey = sendablePeriod(householdToday(), "monthly");
+  if (!periodKey) return { sent: 0 };
+  const [prevYear, prevMonth] = periodKey.split("-").map(Number);
 
   let sent = 0;
   const prefs = await telegramPrefsMap();
@@ -4179,7 +4223,7 @@ async function runMonthlyBriefCheck(): Promise<{ sent: number }> {
       if (!recipients.length) continue;
 
       const review = await buildMonthlyReviewMessage(householdId, prevYear, prevMonth);
-      for (const chatId of recipients) await reply(chatId, review);
+      if (!(await sendToAll(recipients, review))) continue;
       await supabase.from("brief_sends").insert({ household_id: householdId, kind: "monthly", period_key: periodKey });
       sent++;
     } catch {
@@ -4194,7 +4238,7 @@ async function runMonthlyBriefCheck(): Promise<{ sent: number }> {
 // ---------------------------------------------------------------------------
 //
 // Balances are entered by hand and never derived from transactions, so they
-// go stale unless someone is asked. On the 1st the bot sends each linked
+// go stale unless someone is asked. On the 1st (or by the 3rd) the bot sends each linked
 // member the accounts they look after, with what is on record, and asks for
 // the closing figures; any reply stating balances goes to
 // update_account_balances, which works on any day, not only after a
@@ -4258,14 +4302,10 @@ export function buildBalanceCheckinMessage(accounts: BalanceAccount[], members: 
 }
 
 async function runBalanceCheckin(): Promise<{ sent: number }> {
-  const today = householdToday();
-  if (parseDay(today).getDate() !== 1) return { sent: 0 };
-  const [yearStr, monthStr] = today.split("-");
-  const year = Number(yearStr);
-  const month = Number(monthStr);
-  const prevYear = month === 1 ? year - 1 : year;
-  const prevMonth = month === 1 ? 12 : month - 1;
-  const periodKey = `${prevYear}-${String(prevMonth).padStart(2, "0")}`;
+  // From the 1st, catching up until the 3rd while unsent (sendablePeriod).
+  const periodKey = sendablePeriod(householdToday(), "monthly");
+  if (!periodKey) return { sent: 0 };
+  const [prevYear, prevMonth] = periodKey.split("-").map(Number);
   const monthLabel = new Date(Date.UTC(prevYear, prevMonth - 1, 1)).toLocaleString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" });
 
   let sent = 0;
@@ -4288,13 +4328,14 @@ async function runBalanceCheckin(): Promise<{ sent: number }> {
       ]);
       const roster = (members ?? []) as BalanceMember[];
       let any = false;
+      let undelivered = false;
       for (const m of roster.filter((r) => r.telegram_user_id != null)) {
         const mine = accountsForCheckin((accounts ?? []) as BalanceAccount[], roster, m.id);
         if (!mine.length) continue;
-        await reply(m.telegram_user_id!, buildBalanceCheckinMessage(mine, roster, monthLabel));
+        if ((await sendReminder(m.telegram_user_id!, buildBalanceCheckinMessage(mine, roster, monthLabel))) === "retry") undelivered = true;
         any = true;
       }
-      if (!any) continue;
+      if (!any || undelivered) continue;
       await supabase.from("brief_sends").insert({ household_id: householdId, kind: "balance_checkin", period_key: periodKey });
       sent++;
     } catch {
@@ -4418,7 +4459,7 @@ async function runCashCoverCheck(): Promise<{ checked: number; nudged: number }>
       if (!recipients.length) continue;
 
       const message = `${formatCashCoverLine(status)} Might be worth checking before those bills land.`;
-      for (const chatId of recipients) await reply(chatId, message);
+      if (!(await sendToAll(recipients, message))) continue;
       await supabase.from("cash_cover_nudges").insert({ household_id: householdId, period_key: periodKey });
       nudged++;
     } catch {
@@ -4539,7 +4580,7 @@ async function runUnusualSpendCheck(): Promise<{ checked: number; nudged: number
         const biggest = move.evidence[0];
         const evidenceNote = biggest ? ` The biggest single hit was AED ${biggest.amount.toFixed(2)} at ${biggest.merchant}.` : "";
         const message = `Unusual spend: ${move.categoryName} is at AED ${move.actual.toFixed(2)} this month, well above its usual AED ${move.avg.toFixed(2)}.${evidenceNote}`;
-        for (const chatId of recipients) await reply(chatId, message);
+        if (!(await sendToAll(recipients, message))) continue;
 
         await supabase.from("unusual_spend_nudges").insert({ household_id: householdId, category_id: move.categoryId, year, month });
         nudged++;
@@ -5353,6 +5394,9 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
   let fastConfirmSummary: string | null = null;
   let singleInboxReason: string | null = null;
   const multiItemSummaries: string[] = [];
+  // Items of a message of several that could not be saved: named in the
+  // reply, so they can be sent again, rather than counted as captured.
+  const unsavedItems: string[] = [];
   const guessedDates: string[] = [];
   let itemsRead = false;
   let dividendsLeftOut = 0;
@@ -5431,12 +5475,15 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
           confidence: item.confidence,
           date_guessed: item.dateGuessed,
         };
-        if (item.dateGuessed) guessedDates.push(item.occurred_at!);
 
         if (i === 0) {
           await supabase.from("intake").update(updatedRow).eq("id", inserted.id);
         } else {
-          await supabase.from("intake").insert({
+          // The write's own error, not only a thrown one: a refused insert
+          // used to be counted as captured, so "2 expenses captured" was said
+          // of one (round 2 of the outside review). A duplicate source_ref is
+          // this item saved by an earlier attempt.
+          const { error: itemError } = await supabase.from("intake").insert({
             household_id: member.household_id,
             member_id: member.id,
             source: "telegram",
@@ -5446,7 +5493,14 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
             status: "pending",
             ...updatedRow,
           });
+          if (itemError && itemError.code !== "23505") {
+            unsavedItems.push(`AED ${Number(item.amount ?? 0).toFixed(2)}${item.merchant ? ` at ${item.merchant}` : ""}`);
+            continue;
+          }
         }
+        // Only a saved item's date is reported: one that failed to save is
+        // named to be sent again, not told its date was guessed.
+        if (item.dateGuessed) guessedDates.push(item.occurred_at!);
 
         if (kept.length === 1) {
           singleInboxReason = inboxReason(updatedRow);
@@ -5495,11 +5549,15 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
   } else if (routingFailed && !itemsRead) {
     await reply(chatId, AI_BUSY_REPLY);
   } else {
+    const n = multiItemSummaries.length;
+    const unsavedNote = unsavedItems.length
+      ? ` I couldn't save ${unsavedItems.join(", ")}: send ${unsavedItems.length === 1 ? "it" : "them"} again.`
+      : "";
     await reply(
       chatId,
-      (multiItemSummaries.length > 1
-        ? `Got it — ${multiItemSummaries.length} expenses captured (${multiItemSummaries.join(", ")}). Check the Inbox to review each.`
-        : singleInboxReason ?? "Got it — check the Inbox to review.") + undatedNote(guessedDates, multiItemSummaries.length > 1 ? multiItemSummaries.length : 1) + dividendNote
+      (n > 1 || (n === 1 && unsavedItems.length)
+        ? `Got it — ${n} ${n === 1 ? "expense" : "expenses"} captured (${multiItemSummaries.join(", ")}). Check the Inbox to review ${n === 1 ? "it" : "each"}.`
+        : singleInboxReason ?? "Got it — check the Inbox to review.") + unsavedNote + undatedNote(guessedDates, n > 1 ? n : 1) + dividendNote
     );
   }
   return new Response("ok");

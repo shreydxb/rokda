@@ -68,6 +68,17 @@ describe('autopayAnswer', () => {
     expect(autopayAnswer('not yet 2050')).toEqual({ decision: 'not_yet', amount: null });
   });
 
+  // Round 2 of the outside review (D2-6): only one thousands group was put
+  // back together, so "1,00,000" and "1,000,000" were not read at all.
+  it('reads an amount grouped the international or the Indian way', () => {
+    expect(autopayAnswer('paid 1,000,000')).toEqual({ decision: 'paid', amount: 1000000 });
+    expect(autopayAnswer('paid 1,00,000')).toEqual({ decision: 'paid', amount: 100000 });
+    expect(autopayAnswer('paid 12,34,567.50')).toEqual({ decision: 'paid', amount: 1234567.5 });
+    // A grouping that is neither is not guessed at.
+    expect(autopayAnswer('paid 1,0000')).toEqual({ decision: null, amount: null });
+    expect(autopayAnswer('paid 10,00')).toEqual({ decision: null, amount: null });
+  });
+
   const notAnswers = ['', '   ', 'paid 40 for lunch', 'spent 40 on lunch', 'what did we spend', 'yes I know, also bought coffee', 'paid 20 and 30', 'hello', 'ok google', 'paid 0', '🎉', null, undefined];
   for (const text of notAnswers) {
     it(`does not read ${JSON.stringify(text)} as an answer`, () => {
