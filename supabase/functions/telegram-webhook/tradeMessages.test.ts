@@ -1,7 +1,7 @@
 // Trades by message: previews, questions, confirmations, undo, splits and profit.
 // The fake backend these drive the real handler against is testing/harness.ts.
 import { assert, assertEquals } from "jsr:@std/assert@1";
-import { ABC, aiCalls, backend, capturedIntake, dailyCheck, dubaiDaysAgo, dubaiToday, figuresUnavailableMessage, freshTest, handler, HOUSEHOLD, lastReply, MEMBER, replyUpdate, Row, sendCount, textUpdate, tradeFixtures, USD_FUND } from "./testing/harness.ts";
+import { ABC, backend, capturedIntake, dailyCheck, dubaiDaysAgo, dubaiToday, figuresUnavailableMessage, freshTest, handler, HOUSEHOLD, lastReply, MEMBER, replyUpdate, Row, sendCount, textUpdate, tradeFixtures, USD_FUND } from "./testing/harness.ts";
 
 freshTest("a share bought by message goes to the trade preview, never the Inbox", async () => {
   tradeFixtures();
@@ -497,8 +497,3 @@ freshTest("an answer Telegram delivers again long after the question is still re
   assertEquals(lastReply(), "At what price per share, in dollars?");
   assertEquals(capturedIntake().length, 0);
 });
-
-// ---------------------------------------------------------------------------
-// Dividends: asked about once they are due in a fund, received on a "yes"
-// (SHR-366), and never logged as income
-// ---------------------------------------------------------------------------

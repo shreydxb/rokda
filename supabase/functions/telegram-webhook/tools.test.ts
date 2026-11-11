@@ -123,7 +123,3 @@ freshTest("an AI service that answers at once is asked once for each step", asyn
   await handler(textUpdate(7304, "spent 40 at cafe"));
   assertEquals(aiCalls(), [["classify_and_route", null], ["parse_intake", null]]);
 });
-
-// ---------------------------------------------------------------------------
-// Share trades by message (SHR-370)
-// ---------------------------------------------------------------------------

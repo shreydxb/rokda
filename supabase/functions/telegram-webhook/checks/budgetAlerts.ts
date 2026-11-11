@@ -10,7 +10,7 @@ export const BUDGET_THRESHOLDS = [100, 90, 80];
 
 
 // Runs alongside runRecurringCheck (see the ?run_recurring_check=1 handler
-// below), household-wide (budgets are set at the household level, not per
+// in index.ts), household-wide (budgets are set at the household level, not per
 // member) for every category with a budget set this month: alerts the
 // household once a threshold (80/90/100% used) is newly crossed.
 // budget_alert_nudges dedupes per (household, category, month, threshold)

@@ -6,13 +6,13 @@ import { statementLookupFailedMessage, statementReactionDecision } from "../_sha
 import { isPrivateChat } from "../_shared/applib/telegramChat.js";
 import { lookupUnavailableMessage, PROMPT_FAILED, PROMPT_FOUND, PROMPT_UNADDRESSED, PROMPT_UNKNOWN, resolveConfirmTarget, THUMBS_UP_EMOJIS } from "../_shared/applib/telegramConfirm.js";
 import { balanceFigure } from "./checks/balanceCheckin.ts";
-import { decideDividends, dividendsNotYet, DividendsPayload, DividendsResult } from "./checks/dividendReceipts.ts";
+import { decideDividends, dividendsNotYet, type DividendsPayload, type DividendsResult } from "./checks/dividendReceipts.ts";
 import { decideStatement, statementForPrompt } from "./checks/statements.ts";
 import { DIVIDENDS_ANSWERED, dividendsDropSummary, dividendsSavedMessage } from "./dividends.ts";
 import { supabase } from "./env.ts";
-import { findDuplicateTransaction, IntakeKind } from "./intake.ts";
+import { findDuplicateTransaction, type IntakeKind } from "./intake.ts";
 import { proposeTrade } from "./tradeMessages.ts";
-import { TradeDraft, tradeDropSummary, TradePayload, tradeRefusal, tradeSavedMessage } from "./trades.ts";
+import { type TradeDraft, tradeDropSummary, type TradePayload, tradeRefusal, tradeSavedMessage } from "./trades.ts";
 import { reply, tgCall } from "./transport.ts";
 
 export const PENDING_WINDOW_MS = 20 * 60 * 1000;
@@ -20,7 +20,7 @@ export const PENDING_WINDOW_MS = 20 * 60 * 1000;
 
 // CONFIRM_REGEX, isReadyForFastConfirm, resolveConfirmTarget and
 // ambiguousConfirmMessage all live in _shared/applib/telegramConfirm.js --
-// see the import at the top of this file. They are pure, and they decide which
+// imported where they are used, here and in index.ts. They are pure, and they decide which
 // entry a confirmation records, so they are kept where a unit test can reach
 // them (QA #2).
 export type PendingIntakeRow = {

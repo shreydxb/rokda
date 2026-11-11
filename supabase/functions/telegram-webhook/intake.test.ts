@@ -144,7 +144,3 @@ freshTest("a correction to an entry recorded in the meantime says so, not that i
   assertEquals(backend.tables.intake.find((r) => r.id === "99990000-0000-4000-8000-000000000012")!.parsed_amount, 40);
   assert(lastReply().includes("already been recorded or changed"), lastReply());
 });
-
-// ---------------------------------------------------------------------------
-// The monthly balance check-in
-// ---------------------------------------------------------------------------

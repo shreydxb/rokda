@@ -31,12 +31,16 @@
 // is split by responsibility (the round 2 cleanup, SHR-383):
 //   env.ts            settings and the database client
 //   transport.ts      sending to Telegram, update claims, link attempts
-//   ai.ts             the AI service: routing a message, phrasing an answer
+//   ai.ts             calls to the AI service: routing a message, phrasing an
+//                     answer (the tools it may pick are in tools.ts)
 //   intake.ts         reading an expense from a message: items, dates, cards
 //   confirmations.ts  pending entries, reactions, proposals and their answers
-//   tools.ts          the read-only questions, the brief, drafts
+//   tools.ts          the router's tools, the read-only questions, the brief,
+//                     drafts
 //   tradeMessages.ts  trades by message (trades.ts holds their pure helpers)
-//   checks/           the morning checks, one file each
+//   checks/           the scheduled checks, one file each, with the replies
+//                     that answer them (a statement's "done", a balance)
+//                     and the helpers they share (recipients.ts)
 // The handler tests are one file per part, on testing/harness.ts.
 import "jsr:@supabase/functions-js@2.117.2/edge-runtime.d.ts";
 import { autopayAnswer } from "../_shared/applib/autopay.js";
@@ -57,14 +61,14 @@ import { dividendsNotYet, runDividendCheck } from "./checks/dividendReceipts.ts"
 import { runRecurringCheck } from "./checks/recurring.ts";
 import { runSplitCheck, runUnusualSpendCheck } from "./checks/spending.ts";
 import { handleStatementText, runStatementCheck } from "./checks/statements.ts";
-import { confirmCandidates, confirmPendingIntake, decideAutopay, decidedProposalMessage, decideProposal, handleReaction, intakeForPrompt, openProposals, PENDING_WINDOW_MS, PendingIntakeRow, PromptLookup, PROPOSAL_COLUMNS, proposalForPrompt, ProposalRow, RECENT_INTAKE_COLUMNS, recentlyDecidedProposal, sendFastConfirmPrompt, sendProposal } from "./confirmations.ts";
+import { confirmCandidates, confirmPendingIntake, decideAutopay, decidedProposalMessage, decideProposal, handleReaction, intakeForPrompt, openProposals, PENDING_WINDOW_MS, type PendingIntakeRow, type PromptLookup, PROPOSAL_COLUMNS, proposalForPrompt, type ProposalRow, RECENT_INTAKE_COLUMNS, recentlyDecidedProposal, sendFastConfirmPrompt, sendProposal } from "./confirmations.ts";
 import { DIVIDEND_CLASSES, DIVIDEND_GUARD_REPLY, readsAsDividend } from "./dividends.ts";
 import { OPENROUTER_API_KEY, supabase, SUPABASE_URL, TELEGRAM_BOT_TOKEN } from "./env.ts";
 import { datedItems, findDuplicateTransaction, forwardedDay, inboxReason, loadCategoryKnowledge, matchAccountByCardLast4, matchAccountByNameHint, matchCategoryFromMerchantHistory, parseIntakeWithAI, QUESTION_TOOLS, undatedNote } from "./intake.ts";
 import { BRIEF_TRIGGERS, buildBriefMessage, figuresUnavailableMessage, goalContributionDraft, ReadFailed, toolGetAccountBalance, toolGetBudgetStatus, toolGetCategorySpend, toolGetHoldings, toolGetNetWorth, toolGetTradeProfit, toolGetUpcomingBills, transferDraft, transferPrompt } from "./tools.ts";
 import { answerTradeQuestion, FILE_TOO_BIG, FILE_TOO_BIG_CAPTION_KEPT, handleTradeMessage, handleUndoTrade } from "./tradeMessages.ts";
 import { ANSWER_HINT } from "./trades.ts";
-import { AnswerTarget, bytesToBase64, claimUpdate, clearLinkFailures, getTelegramWebhookSecret, linkAttemptBlocked, logFailure, pruneTelegramUpdateLog, recordAnswerTarget, recordedAnswerTarget, recordLinkFailure, reply, settleUpdate, telegramFetch, tgCall } from "./transport.ts";
+import { type AnswerTarget, bytesToBase64, claimUpdate, clearLinkFailures, getTelegramWebhookSecret, linkAttemptBlocked, logFailure, pruneTelegramUpdateLog, recordAnswerTarget, recordedAnswerTarget, recordLinkFailure, reply, settleUpdate, telegramFetch, tgCall } from "./transport.ts";
 
 // Exported for the tests, which import them from here.
 export { accountsForCheckin, balanceFigure, buildBalanceCheckinMessage, pickCheckinAccount } from "./checks/balanceCheckin.ts";

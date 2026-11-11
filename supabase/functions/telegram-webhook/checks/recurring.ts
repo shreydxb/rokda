@@ -6,7 +6,8 @@ import { supabase } from "../env.ts";
 import { sendToAll } from "../transport.ts";
 import { prefEnabled, telegramPrefsMap } from "./recipients.ts";
 
-// Runs once a day via pg_cron (see the ?run_recurring_check=1 handler below)
+// Runs once a day via pg_cron (see the ?run_recurring_check=1 handler in
+// index.ts)
 // across ALL households: an active recurring item whose due date passed a
 // few days ago with nothing resembling it in `transactions` gets a one-time
 // nudge to the member(s) it belongs to. recurring_nudges records that a

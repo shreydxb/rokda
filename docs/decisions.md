@@ -1241,7 +1241,7 @@ as a shorter list.
 
 ## The bot says when an expense is not recorded
 
-"du wifi paid today using marriot card 204.38" went to the Inbox: the parser
+"du wifi paid today using marriot card 200" went to the Inbox: the parser
 named no merchant, and without one the bot does not offer its quick "yes".
 Its reply, "Got it — check the Inbox to review", read as if the payment had
 been recorded, so it was sent again.

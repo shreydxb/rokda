@@ -15,7 +15,6 @@
 // This file proves the handler reacts correctly to what the database says.
 
 import { assert, assertEquals } from "jsr:@std/assert@1";
-import { linkTokenDigest } from "../../_shared/applib/telegramLink.js";
 
 export const SUPABASE_URL = "http://supabase.test";
 export const TOKEN = "123456:SYNTHETIC-TEST-TOKEN-not-real";
@@ -730,6 +729,11 @@ export const realError = console.error;
 console.error = (...args: unknown[]) => {
   logged.push(args.map(String).join(" "));
 };
+// Restore both for anything that runs after the test file in this isolate.
+addEventListener("unload", () => {
+  globalThis.fetch = realFetch;
+  console.error = realError;
+});
 
 Deno.env.set("SUPABASE_URL", SUPABASE_URL);
 Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "service-role-test");

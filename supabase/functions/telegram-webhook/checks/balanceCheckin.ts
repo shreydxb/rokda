@@ -144,7 +144,7 @@ export function pickCheckinAccount<T extends BalanceAccount>(accounts: T[], memb
 
 
 // Proposes the balances a member stated; nothing is written until they say
-// yes (see "Proposals" above). Each name is resolved among the accounts that
+// yes (see "Proposals" in confirmations.ts). Each name is resolved among the accounts that
 // member reports on, exactly as a card is named in an expense
 // (pickAccountByHint), and only when it names exactly one. A card or loan is
 // stored as the amount owed. The question shows every change with its old

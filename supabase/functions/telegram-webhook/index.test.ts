@@ -2,7 +2,7 @@
 // The fake backend these drive the real handler against is testing/harness.ts.
 import { assert, assertEquals } from "jsr:@std/assert@1";
 import { linkTokenDigest } from "../_shared/applib/telegramLink.js";
-import { aiCalls, assertNoTokenLeaked, backend, capturedIntake, claim, freshTest, handler, HOUSEHOLD, json, lastReply, LEASE_MS, logged, matches, photoUpdate, proposalOutcomeMessage, replyUpdate, rpc, SECRET, telegram, TELEGRAM_USER, textUpdate, transferDraftFrom } from "./testing/harness.ts";
+import { assertNoTokenLeaked, backend, capturedIntake, freshTest, handler, HOUSEHOLD, lastReply, LEASE_MS, logged, photoUpdate, proposalOutcomeMessage, replyUpdate, SECRET, TELEGRAM_USER, textUpdate, transferDraftFrom } from "./testing/harness.ts";
 
 // ---------------------------------------------------------------------------
 // The acceptance cases
@@ -383,7 +383,3 @@ freshTest("a request without the exact secret is refused before anything else ha
   const ok = await handler(textUpdate(2, "hello"));
   assertEquals(ok.status, 200);
 });
-
-// ---------------------------------------------------------------------------
-// Naming a card, and a router that names a tool the bot does not have
-// ---------------------------------------------------------------------------

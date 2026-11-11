@@ -562,7 +562,7 @@ export async function toolGetBudgetStatus(householdId: string, scopeMemberId: st
 
 
 // Named-holding lookup uses the same "must resolve to exactly one" bar as
-// account/category matching elsewhere in this file -- a name two holdings
+// account/category matching elsewhere in the bot -- a name two holdings
 // share abstains rather than guessing which one. With no name, this returns
 // a portfolio-level view instead: total value, allocation by asset class,
 // and an invested-value-based gain (only over holdings that actually have a
@@ -740,9 +740,10 @@ export async function toolGetHoldings(householdId: string, scopeMemberId: string
 
 // What a goal contribution in a message would record: the goal it names
 // (which must resolve to exactly one, the same bar as account, category and
-// holding matching elsewhere in this file), the amount and the day. It writes
+// holding matching elsewhere in the bot), the amount and the day. It writes
 // nothing: the contribution is proposed, and recorded only on a "yes" (see
-// "Proposals" above). An error is phrased for the member, as before.
+// "Proposals" in confirmations.ts). An error is phrased for the member, as
+// before.
 //
 // Only open goals take money. A goal marked done is said to be done rather
 // than missing, so the member knows to reopen it (docs/decisions.md, "A goal

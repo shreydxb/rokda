@@ -8,7 +8,7 @@ import { sendToAll } from "../transport.ts";
 import { prefEnabled, telegramPrefsMap } from "./recipients.ts";
 
 // Runs alongside runRecurringCheck (see the ?run_recurring_check=1 handler
-// below) across every credit-card account with a due day set: a reminder
+// in index.ts) across every credit-card account with a due day set: a reminder
 // 1-2 days before (or on) the due date, and, if the balance still shows
 // owing a few days after, an "did you pay this?" nudge. There is no "marked
 // as paid" concept anywhere in this app -- a card's balance is simply

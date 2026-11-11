@@ -1,7 +1,7 @@
 // Proposals and their answers: balances, bare yes and no, questions Telegram refused.
 // The fake backend these drive the real handler against is testing/harness.ts.
 import { assert, assertEquals } from "jsr:@std/assert@1";
-import { accountsForCheckin, acct, backend, buildBalanceCheckinMessage, capturedIntake, CARD, EPF, FD, freshTest, GOAL, handler, HOUSEHOLD, lastReply, MARRIOTT, MEMBER, MY_BANK, MY_CURRENT, NOON, PARTNER, pickCheckinAccount, reactionUpdate, realError, realFetch, replyUpdate, ROSTER, SAM_BANK, sendCount, TELEGRAM_USER, textUpdate } from "./testing/harness.ts";
+import { accountsForCheckin, acct, backend, buildBalanceCheckinMessage, capturedIntake, CARD, EPF, FD, freshTest, GOAL, handler, HOUSEHOLD, lastReply, MARRIOTT, MEMBER, MY_BANK, MY_CURRENT, NOON, PARTNER, pickCheckinAccount, reactionUpdate, replyUpdate, ROSTER, SAM_BANK, sendCount, TELEGRAM_USER, textUpdate } from "./testing/harness.ts";
 
 Deno.test("the check-in covers shared accounts, the member's own, and those of a member with no Telegram, never an FD", () => {
   const theirs = accountsForCheckin([MY_BANK, SAM_BANK, CARD, EPF, FD], ROSTER, MEMBER).map((a) => a.id);
@@ -360,13 +360,3 @@ freshTest("a no whose lookup fails says nothing was dropped, and never to approv
   assert(!/approve|Inbox/i.test(lastReply()), lastReply());
   assertEquals(backend.tables.bot_proposals[0].status, "proposed");
 });
-
-// Restore globals for anything that runs after this module.
-addEventListener("unload", () => {
-  globalThis.fetch = realFetch;
-  console.error = realError;
-});
-
-// ---------------------------------------------------------------------------
-// Autopay bills: asked on the due date, every morning after, until answered
-// ---------------------------------------------------------------------------

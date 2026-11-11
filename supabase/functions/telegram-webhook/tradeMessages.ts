@@ -4,7 +4,7 @@ import { householdToday } from "../_shared/applib/day.js";
 import { PENDING_WINDOW_MS, sendProposal } from "./confirmations.ts";
 import { supabase } from "./env.ts";
 import { allRowsOf, ReadFailed } from "./tools.ts";
-import { applyAnswer, draftFromArgs, HoldingLite, matchHoldings, newHoldingFor, nextQuestion, normaliseSymbol, tradeConfirmation, TradeDraft, tradeRefusal, undoConfirmation } from "./trades.ts";
+import { applyAnswer, draftFromArgs, type HoldingLite, matchHoldings, newHoldingFor, nextQuestion, normaliseSymbol, tradeConfirmation, type TradeDraft, tradeRefusal, undoConfirmation } from "./trades.ts";
 import { reply, tgCall } from "./transport.ts";
 
 // ---------------------------------------------------------------------------

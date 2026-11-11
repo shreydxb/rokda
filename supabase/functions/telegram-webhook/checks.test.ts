@@ -519,7 +519,7 @@ freshTest("\"sent to Claude\" keeps the statement waiting, and the bot keeps ask
 // ---------------------------------------------------------------------------
 
 Deno.test("an expense sent to the Inbox says it is not recorded yet, and what was missing", () => {
-  const ready = { parsed_amount: 204.38, parsed_merchant: "du", parsed_account_id: "a", parsed_category_id: "c", parsed_currency: "AED", confidence: 1 };
+  const ready = { parsed_amount: 200, parsed_merchant: "du", parsed_account_id: "a", parsed_category_id: "c", parsed_currency: "AED", confidence: 1 };
   assert(inboxReason({ ...ready, parsed_merchant: null }).startsWith("Not recorded yet: I couldn't tell who was paid, so it's in the Inbox."));
   assertEquals(
     inboxReason({ ...ready, parsed_merchant: null, parsed_account_id: null, parsed_category_id: null }),
@@ -532,15 +532,11 @@ Deno.test("an expense sent to the Inbox says it is not recorded yet, and what wa
 });
 
 freshTest("a payment typed without a merchant the parser recognised is reported as not recorded", async () => {
-  backend.tables.accounts.push({ id: "a9000000-0000-4000-8000-000000000001", household_id: HOUSEHOLD, name: "ENBD Marriott •8643", type: "credit_card", currency: "AED", archived_at: null });
-  backend.parse = [{ merchant: null, amount: 204.38, currency: "AED", occurred_at: "2026-10-13", date_stated: true, source: "typed", category: null, card_last4: null, account_hint: "ENBD Marriott", confidence: 0.9, kind: "expense" }];
-  await handler(textUpdate(9301, "Du wifi paid today using marriot card 204.38"));
+  backend.tables.accounts.push({ id: "a9000000-0000-4000-8000-000000000001", household_id: HOUSEHOLD, name: "ENBD Marriott •0002", type: "credit_card", currency: "AED", archived_at: null });
+  backend.parse = [{ merchant: null, amount: 200, currency: "AED", occurred_at: "2026-10-13", date_stated: true, source: "typed", category: null, card_last4: null, account_hint: "ENBD Marriott", confidence: 0.9, kind: "expense" }];
+  await handler(textUpdate(9301, "Du wifi paid today using marriot card 200"));
   assertEquals(capturedIntake().length, 1);
   assert(/^Not recorded yet: I couldn't tell who was paid/.test(lastReply()), lastReply());
   // The parser is told that a biller named in passing is the merchant.
   assert(backend.parsePrompts[0].includes("is who was paid"), "the parser was not told what a merchant is");
 });
-
-// ---------------------------------------------------------------------------
-// A figure the bot states is read in full, or not stated
-// ---------------------------------------------------------------------------

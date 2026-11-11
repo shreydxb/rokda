@@ -7,7 +7,7 @@ import { sendToAll } from "../transport.ts";
 import { householdsWithLinkedTelegram, prefEnabled, sendablePeriod, telegramPrefsMap, telegramRecipients } from "./recipients.ts";
 
 // Runs daily alongside the other checks (see the ?run_recurring_check=1
-// handler below) but only sends from Monday, catching up until Wednesday
+// handler in index.ts) but only sends from Monday, catching up until Wednesday
 // (sendablePeriod) -- the brief itself is weekly, the check for whether to
 // send it doesn't need its own schedule. brief_sends dedupes per (household,
 // 'weekly', that Monday's date) so a later run the same week is a no-op.

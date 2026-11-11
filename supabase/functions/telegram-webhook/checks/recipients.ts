@@ -4,8 +4,9 @@ import { parseDay } from "../../_shared/applib/day.js";
 import { supabase } from "../env.ts";
 
 // Every household with at least one member who has ever linked Telegram --
-// the target list for the checks below, same as how the nudge checks above
-// find who to notify, just at the household level instead of per-item.
+// the target list for the household-wide checks (the briefs, cash cover,
+// unusual spend, the balance check-in), where the per-item nudges find who
+// to notify item by item.
 export async function householdsWithLinkedTelegram(): Promise<string[]> {
   const { data } = await supabase.from("household_members").select("household_id").not("telegram_user_id", "is", null);
   return [...new Set((data ?? []).map((m: { household_id: string }) => m.household_id))];
@@ -52,7 +53,7 @@ export function prefEnabled(prefs: Map<string, TelegramPrefRow>, householdId: st
 
 
 // The Monday of the week a given calendar day falls in, as the same
-// 'YYYY-MM-DD' shape used everywhere else in this file -- the dedupe key for
+// 'YYYY-MM-DD' shape used everywhere else in the bot -- the dedupe key for
 // the weekly brief and the cash-cover nudge, so either firing twice in the
 // same week (a cron retry, a slow first run) is a no-op the second time.
 export function mondayOfWeek(dateStr: string): string {

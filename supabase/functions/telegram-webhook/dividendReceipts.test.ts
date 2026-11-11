@@ -1,7 +1,7 @@
 // Dividends paid into a fund: the morning question and its answers, and dividends typed in as income.
 // The fake backend these drive the real handler against is testing/harness.ts.
 import { assert, assertEquals } from "jsr:@std/assert@1";
-import { ABC, backend, capturedIntake, DIV_ABC, DIV_BANK, DIV_FUND, DIV_XYZ, dividendQuestions, dubaiToday, freshTest, handler, HOUSEHOLD, lastReply, logged, MEMBER, morningCheck, PARTNER, PARTNER_TELEGRAM, partnerUpdate, PLAIN_QUESTION, reactionUpdate, replyUpdate, Row, seedDividends, TELEGRAM_USER, textUpdate } from "./testing/harness.ts";
+import { backend, capturedIntake, DIV_ABC, DIV_BANK, DIV_FUND, DIV_XYZ, dividendQuestions, dubaiToday, freshTest, handler, HOUSEHOLD, lastReply, MEMBER, morningCheck, PARTNER, PARTNER_TELEGRAM, partnerUpdate, PLAIN_QUESTION, reactionUpdate, replyUpdate, Row, seedDividends, TELEGRAM_USER, textUpdate } from "./testing/harness.ts";
 
 freshTest("dividends due today in a fund are asked about once, in one message, and marked asked", async () => {
   seedDividends();

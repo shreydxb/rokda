@@ -7,7 +7,7 @@ import { toolGetCashCover } from "../tools.ts";
 import { sendToAll } from "../transport.ts";
 import { householdsWithLinkedTelegram, mondayOfWeek, prefEnabled, telegramPrefsMap, telegramRecipients } from "./recipients.ts";
 
-// Runs daily (unlike the weekly/monthly briefs above) since a shortfall is
+// Runs daily (unlike the weekly/monthly briefs in briefs.ts) since a shortfall is
 // urgent, not a status update -- but only actually nudges once per week
 // while it persists. cash_cover_nudges dedupes per (household, that week's
 // Monday) so a household that's short all week hears about it once, not

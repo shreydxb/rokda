@@ -1,8 +1,8 @@
 // Part of the Telegram webhook (index.ts), split out by responsibility in
 // the round 2 cleanup (SHR-383). Moved, not changed.
 import { householdToday } from "../../_shared/applib/day.js";
-import { decidedProposalMessage, discardUnaskedProposal, PROPOSAL_COLUMNS, ProposalRow } from "../confirmations.ts";
-import { DividendLine, DIVIDENDS_NOT_YET_REPLY, DIVIDENDS_STALE_LEAD, DIVIDENDS_STALE_NONE, dividendsDropSummary, dividendsQuestion, dividendsRefusal, dividendsSavedMessage } from "../dividends.ts";
+import { decidedProposalMessage, discardUnaskedProposal, PROPOSAL_COLUMNS, type ProposalRow } from "../confirmations.ts";
+import { type DividendLine, DIVIDENDS_NOT_YET_REPLY, DIVIDENDS_STALE_LEAD, DIVIDENDS_STALE_NONE, dividendsDropSummary, dividendsQuestion, dividendsRefusal, dividendsSavedMessage } from "../dividends.ts";
 import { supabase } from "../env.ts";
 import { reply, tgCall } from "../transport.ts";
 import { prefEnabled, telegramPrefsMap } from "./recipients.ts";

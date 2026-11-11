@@ -227,7 +227,8 @@ export async function parseIntakeWithAI(params: {
 }
 
 
-// The question tools the router can call, each answered below.
+// The question tools the router can call, each answered by index.ts's
+// routing from the read-only functions in tools.ts.
 export const QUESTION_TOOLS = new Set([
   "get_category_spend",
   "get_net_worth",
