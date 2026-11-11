@@ -297,11 +297,13 @@ export function compare({
 
   // Declared in config.toml with neither source nor a deployment: in no row
   // above, so a release passed without naming it (round 2 of the outside
-  // review). Reported always; blocking in release mode, where every declared
-  // function must be live.
+  // review). Blocking everywhere, not only in release mode: no deploy can
+  // supply a function with no source, so a pull request that deletes one's
+  // directory and keeps its declaration fails there, not on main (the fresh
+  // review of PR 4).
   for (const slug of Object.keys(declared).sort()) {
     if (!repoBySlug.has(slug) && !deployedSlugs.includes(slug)) {
-      rows.push({ slug, state: 'declared-only', required: requireDeployed, configState: 'n/a' });
+      rows.push({ slug, state: 'declared-only', required: true, configState: 'n/a' });
     }
   }
 
@@ -541,7 +543,7 @@ if (isMainModule) {
   console.log(`  ${tally['orphan-deployment']} deployed with NO source in this repository`);
   console.log(`  ${tally['not-deployed']} in this repository, not deployed${requiredMissing > 0 ? ` (${requiredMissing} of them REQUIRED)` : ''}`);
   console.log(`  ${tally.unreadable} deployed but unreadable`);
-  console.log(`  ${tally['declared-only']} declared in supabase/config.toml with no source and no deployment${requireDeployed && tally['declared-only'] ? ' (release mode fails on these)' : ''}`);
+  console.log(`  ${tally['declared-only']} declared in supabase/config.toml with no source and no deployment${tally['declared-only'] ? ' (these fail)' : ''}`);
   console.log(`  ${configDrift} with verify_jwt DIFFERENT from supabase/config.toml`);
   console.log(`  ${configPending} with verify_jwt this commit changes, not yet deployed`);
   console.log(`  ${notActive} deployed but not ACTIVE`);
@@ -569,6 +571,9 @@ if (isMainModule) {
   }
   if (requiredMissing > 0) {
     console.log(`A function declared in supabase/config.toml is not live. Deploy it, or remove its declaration.`);
+  }
+  if (tally['declared-only'] > 0) {
+    console.log(`A function declared in supabase/config.toml has no source here and no deployment. Restore its source, or remove its declaration.`);
   }
 
   process.exitCode = blocking === 0 ? 0 : onlyAwaitingDeploy(rows) ? EXIT_AWAITING_DEPLOY : 1;

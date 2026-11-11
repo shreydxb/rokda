@@ -399,10 +399,15 @@ describe('a declared function with no source and no deployment', () => {
     expect(onlyAwaitingDeploy(rows)).toBe(false);
   });
 
-  it('is reported but does not block outside a release', () => {
-    const row = compare(base).find((r) => r.slug === 'missing');
+  // The fresh review of PR 4: no deploy can supply a function with no
+  // source, so a pull request that deletes one's directory and keeps its
+  // declaration fails there, not on main after it merges.
+  it('blocks outside a release too, and is not a deploy to wait for', () => {
+    const rows = compare(base);
+    const row = rows.find((r) => r.slug === 'missing');
     expect(row?.state).toBe('declared-only');
-    expect(isBlocking(row)).toBe(false);
+    expect(isBlocking(row)).toBe(true);
+    expect(onlyAwaitingDeploy(rows)).toBe(false);
   });
 });
 

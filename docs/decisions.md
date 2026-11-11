@@ -3499,7 +3499,7 @@ Its tests and CI pass found the release check itself short in places:
 - **A database address it can't read safely is refused,** rather than handed
   to psql whole, where a parse error could print the password into the
   public log.
-- **A function declared and never built or deployed is named** and fails a
-  release.
+- **A function declared and never built or deployed is named** and fails,
+  on a pull request as on a release: no deploy can supply it.
 - **A test checks what its name says.** The theme test passed with no theme
   button on the page.
