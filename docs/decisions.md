@@ -3507,12 +3507,13 @@ Its tests and CI pass found the release check itself short in places:
 Its screens pass found these:
 
 - **A form saves what it was opened on.** A refund record's version, a
-  budget's month and a holding's row are fixed when the form opens. A
-  background refresh used to hand a refund record the partner's newer
-  version, so a note change overwrote their correction; a budget editor left
-  open past midnight at a month's end saved into the next month; and a
-  holding deleted by the partner while open took the editor and its draft
-  with it, where now the draft stays and says why.
+  dividend's tax year's version, a budget's month and a holding's row are
+  fixed when the form opens. A background refresh used to hand a refund
+  record the partner's newer version, so a note change overwrote their
+  correction; a budget editor left open past midnight at a month's end saved
+  into the next month; and a holding deleted by the partner while open took
+  the editor and its draft with it, where now the draft stays, says why, and
+  offers only Close.
 - **A first read that failed is not none,** on four more tabs: Budget,
   Investments, Statements and the Inbox say what couldn't load and offer
   Try again, rather than "0 spent", "No holdings", every statement not
