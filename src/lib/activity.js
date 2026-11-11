@@ -35,13 +35,6 @@ export function shareOf(row, scopeMemberId, amount = row.amount) {
 
 const wholeAmount = (row) => row.amount;
 
-// Income and net spend over a set of records, as the selected person's share.
-export function incomeAndSpend(rows, scopeMemberId) {
-  const totals = { income: 0, spend: 0 };
-  for (const row of rows) applyToIncomeSpend(row, shareOf(row, scopeMemberId), totals);
-  return totals;
-}
-
 // A local calendar day as YYYY-MM-DD, the key the calendar groups by.
 export function dayKeyOf(date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;

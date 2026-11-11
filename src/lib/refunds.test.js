@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { refundCandidates, refundedAmount, refundedPurchase, refundLinkOf, refundsOf, sameMerchant } from './refunds';
+import { refundCandidates, refundedPurchase, refundLinkOf, refundsOf, sameMerchant } from './refunds';
 
 const CARD = 'card';
 const CURRENT = 'current';
@@ -57,6 +57,5 @@ describe('a purchase and its refunds', () => {
     expect(refundLinkOf('r3', links)).toBeNull();
     expect(refundedPurchase(refund, links, all)).toBe(purchase);
     expect(refundsOf('p', links, all).map((t) => t.id)).toEqual(['r2', 'r']);
-    expect(refundedAmount('p', links, all)).toBe(75.5);
   });
 });

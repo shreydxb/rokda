@@ -27,13 +27,6 @@
   margin-bottom: 0;
 }
 
-.mn-soon {
-  margin-top: 40px;
-  border-top: 1px solid var(--rule);
-  padding-top: 40px;
-  max-width: 640px;
-}
-
 .mn-filters {
   display: flex;
   flex-wrap: wrap;

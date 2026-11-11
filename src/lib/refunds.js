@@ -33,11 +33,6 @@ export function refundsOf(purchaseId, links = [], transactions = []) {
   return transactions.filter((t) => ids.has(t.id)).sort((a, b) => (a.occurred_at < b.occurred_at ? -1 : a.occurred_at > b.occurred_at ? 1 : 0));
 }
 
-// How much of a purchase has come back, to the cent.
-export function refundedAmount(purchaseId, links = [], transactions = []) {
-  return Math.round(refundsOf(purchaseId, links, transactions).reduce((sum, t) => sum + Number(t.amount), 0) * 100) / 100;
-}
-
 const word = (s) => String(s ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
 // Whether two merchant names are the same shop: one contains the other once

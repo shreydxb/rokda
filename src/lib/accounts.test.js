@@ -6,7 +6,6 @@ import {
   accountOptionLabel,
   activeAccounts,
   archivedAccounts,
-  canDeleteAccount,
   closurePlan,
   isArchived,
   selectableAccounts,
@@ -35,8 +34,9 @@ describe('closing an account with history', () => {
     expect(plan.detail).toContain('history');
   });
 
+  // The foreign key is the real guarantee; the plan refuses earlier and says why.
   it('refuses hard deletion for an account with transactions', () => {
-    expect(canDeleteAccount(CARD, THREE_TX)).toBe(false);
+    expect(closurePlan(CARD, THREE_TX).action).not.toBe('delete');
   });
 
   it('leaves all three transactions untouched by the closure', () => {
@@ -69,7 +69,6 @@ describe('closing an account with history', () => {
 
 describe('deleting an unused account', () => {
   it('is offered only when nothing was ever recorded on it', () => {
-    expect(canDeleteAccount(SAVINGS, THREE_TX)).toBe(true);
     const plan = closurePlan(SAVINGS, THREE_TX);
     expect(plan.action).toBe('delete');
     expect(plan.detail).toContain('nothing is lost');

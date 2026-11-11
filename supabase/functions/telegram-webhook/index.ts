@@ -52,7 +52,7 @@ import {
 } from "../_shared/applib/telegramConfirm.js";
 import { autopayAnswer, autopayCycle, autopayNotYetMessage, autopayQuestion, autopayReactionDecision, shortDay } from "../_shared/applib/autopay.js";
 import { incompleteNote, netWorthSummary } from "../_shared/applib/overviewMath.js";
-import { merchantMatches, pickCategory } from "../_shared/applib/merchants.js";
+import { pickCategory } from "../_shared/applib/merchants.js";
 import { closedStatementDates, isoDay, statementDueDate, statementPeriodStart } from "../_shared/applib/statements.js";
 import {
   ANSWER_HINT,
@@ -785,14 +785,10 @@ async function openAccountNames(householdId: string): Promise<string[]> {
 // most for the same merchant across all of its history, read through
 // merchant_category_counts() so a statement's "EPPCO SITE 1077" and a typed
 // "eppco" are one merchant (applib/merchants.js). It used to read only the
-// latest 200 transactions, and never the rules.
-//
-// Kept as an export for its tests: the match is one-directional, so a
-// shortened name inherits from a fuller one but a brand never inherits from
-// its own sub-service ("Noon" is not "Noon Minutes").
-export function merchantHistoryMatches(newMerchant: string, pastMerchant: string): boolean {
-  return merchantMatches(newMerchant, pastMerchant);
-}
+// latest 200 transactions, and never the rules. The match is one-directional
+// (applib/merchants.js, tested there): a shortened name inherits from a fuller
+// one, but a brand never inherits from its own sub-service ("Noon" is not
+// "Noon Minutes").
 
 type CategoryKnowledge = {
   rules: Array<{ pattern: string; match_type: string; category_id: string; archived?: boolean }>;

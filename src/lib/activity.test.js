@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { activitySummary, dayTotals, incomeAndSpend, matchesDateBasis, rowDateLabel, shareOf, sortRows } from './activity';
+import { activitySummary, dayTotals, matchesDateBasis, rowDateLabel, shareOf, sortRows } from './activity';
 
 const ME = 'm1';
 const PARTNER = 'm2';
@@ -9,18 +9,20 @@ const NOW = new Date(2026, 9, 15);
 const SHARED_EXPENSE = { id: 't1', amount: -100, kind: 'expense', occurred_at: '2026-10-10', is_shared: true };
 const SHARED_REFUND = { id: 't2', amount: 20, kind: 'refund', occurred_at: '2026-10-10', is_shared: true };
 
-describe('incomeAndSpend', () => {
+// Activity's totals, as the summary line works them out (these were
+// incomeAndSpend's, a helper nothing but its tests used).
+describe('activitySummary: income and net spend', () => {
   it('nets a refund against spend instead of counting it as income', () => {
-    expect(incomeAndSpend([SHARED_EXPENSE, SHARED_REFUND], null)).toEqual({ income: 0, spend: 80 });
+    expect(activitySummary([SHARED_EXPENSE, SHARED_REFUND], null)).toMatchObject({ income: 0, spend: 80 });
   });
 
   it('gives each person half of a shared record, so Me and Partner add up to Both', () => {
     const rows = [SHARED_EXPENSE, SHARED_REFUND, { id: 't3', amount: -30, kind: 'expense', occurred_at: '2026-10-11', is_shared: false, owner_member_id: ME }];
-    const both = incomeAndSpend(rows, null);
-    const me = incomeAndSpend(rows, ME);
-    const partner = incomeAndSpend(rows, PARTNER);
-    expect(me).toEqual({ income: 0, spend: 70 });
-    expect(partner).toEqual({ income: 0, spend: 40 });
+    const both = activitySummary(rows, null);
+    const me = activitySummary(rows, ME);
+    const partner = activitySummary(rows, PARTNER);
+    expect(me).toMatchObject({ income: 0, spend: 70 });
+    expect(partner).toMatchObject({ income: 0, spend: 40 });
     expect(me.spend + partner.spend).toBe(both.spend);
   });
 });
@@ -64,7 +66,7 @@ describe('shareOf', () => {
 });
 
 describe('activitySummary', () => {
-  it('splits net spend into purchases less refunds, matching incomeAndSpend', () => {
+  it('splits net spend into purchases less refunds', () => {
     const rows = [
       SHARED_EXPENSE,
       SHARED_REFUND,
@@ -75,7 +77,11 @@ describe('activitySummary', () => {
     ];
     const summary = activitySummary(rows, ME);
     expect(summary).toEqual({ income: 250, purchases: 50, refunds: 10, spend: 40, transfers: 2 });
-    expect(summary.spend).toBe(incomeAndSpend(rows, ME).spend);
+    // The calendar's days add up to the summary line, income and transfers
+    // included (dayTotals works each day out as this works out the list).
+    const days = [...dayTotals(rows, ME).values()];
+    expect(days.reduce((sum, d) => sum + d.spend, 0)).toBe(summary.spend);
+    expect(days.reduce((sum, d) => sum + d.income, 0)).toBe(summary.income);
   });
 });
 

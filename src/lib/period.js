@@ -61,7 +61,3 @@ function yearBuckets(count, now) {
   }
   return buckets;
 }
-
-export function monthsBetween(a, b) {
-  return (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
-}

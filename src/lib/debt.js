@@ -4,16 +4,12 @@ import { andList } from './words';
 
 // Simulates paying a single debt at its minimum only: interest accrues on
 // the balance each month, then the minimum is applied. Returns the months it
-// takes; 0 when nothing is owed; null when the minimum doesn't even cover a
-// month's interest, so the balance never clears; and Infinity when it does
-// clear, but not within maxMonths (50 years). A paid-off debt used to read as
-// clearing in a month, and a very long one as never clearing.
-export function amortizeMinimumOnly(balance, aprPct, minimumPayment, maxMonths = 600) {
-  return atMinimum(balance, aprPct, minimumPayment, maxMonths).months;
-}
-
-// The same, with the interest paid along the way; null when there is no date
-// to add it up to.
+// takes, with the interest paid along the way: 0 months when nothing is owed;
+// null when the minimum doesn't even cover a month's interest, so the balance
+// never clears; and Infinity when it does clear, but not within maxMonths (50
+// years). A paid-off debt used to read as clearing in a month, and a very long
+// one as never clearing. Interest is null when there is no date to add it up
+// to.
 function atMinimum(balance, aprPct, minimumPayment, maxMonths = 600) {
   let bal = Number(balance);
   if (!(bal > 0)) return { months: 0, interest: 0 };
