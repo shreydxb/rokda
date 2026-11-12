@@ -377,9 +377,34 @@ describe('Inbox: remembering a merchant while approving', () => {
     expect(calls.map((c) => c.kind)).toEqual(['rpc']);
   });
 
-  it('is not offered for a merchant a rule already covers, or for income', async () => {
+  it('is not offered for a merchant a rule already covers', async () => {
     await render([{ id: 'r1', pattern: 'carrefour', match_type: 'contains', category_id: 'food', archived: false }]);
     expect(screen.queryByLabelText(/Remember this merchant/)).toBeNull();
+  });
+
+  it('is not offered for income', async () => {
+    await render();
+    fireEvent.click(screen.getByRole('button', { name: 'Groceries' }));
+    expect(screen.getByLabelText(/Remember this merchant/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Income' }));
+    expect(screen.queryByLabelText(/Remember this merchant/)).toBeNull();
+  });
+
+  // The entry is approved by then, so nothing more can be done to it here:
+  // Approve and Reject go, and Done closes it (the fresh review).
+  it('says when the rule could not be added, and leaves only Done on the approved entry', async () => {
+    await render();
+    stored.rules = [{ id: 'r9', pattern: 'carre', match_type: 'contains', category_id: 'other', archived: false }];
+    fireEvent.click(screen.getByRole('button', { name: 'Groceries' }));
+    fireEvent.click(screen.getByLabelText(/Remember this merchant/));
+    await act(async () => {
+      screen.getByRole('button', { name: 'Approve and add rule' }).click();
+    });
+    expect(calls.map((c) => c.kind)).toEqual(['rpc']);
+    expect(screen.getByText(/Approved, but the merchant rule wasn’t added: Contains “carre” already files this merchant/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^Approve/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Reject' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Done' })).toBeTruthy();
   });
 
   it('refuses a pattern that would not match the merchant, before approving anything', async () => {

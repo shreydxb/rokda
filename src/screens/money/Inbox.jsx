@@ -488,6 +488,9 @@ function IntakeEditForm({ item, sender, accounts, members, categories, categoryR
   const [remember, setRemember] = useState(false);
   const [rulePattern, setRulePattern] = useState(null);
   const [ruleMatchType, setRuleMatchType] = useState('contains');
+  // Approved, with a step after it that failed. The entry is in the ledger
+  // by then, so Approve and Reject would act on nothing: only Done is left.
+  const [approvedAlready, setApprovedAlready] = useState(false);
   const merchantName = merchant.trim();
   const canRemember = kind === 'expense' && merchantName !== '' && !!categoryId && !firstMatchingRule(merchantName, categoryRules);
   const remembering = canRemember && remember;
@@ -521,6 +524,8 @@ function IntakeEditForm({ item, sender, accounts, members, categories, categoryR
   // pending row exactly once and returns the existing result on retry (QA-11).
   async function approve(e) {
     e.preventDefault();
+    // Enter in a field of an entry already approved approves nothing again.
+    if (approvedAlready) return;
     if (foreignCurrency && !amount) {
       setError(`No ${foreignCurrency} rate for that date: enter the AED debited.`);
       return;
@@ -548,6 +553,7 @@ function IntakeEditForm({ item, sender, accounts, members, categories, categoryR
       const { error: pairError } = await supabase.from('transaction_links').insert(confirmedPairRow(item.household_id, { id: approved.transaction_id }, keptAlongside));
       if (pairError) {
         setSaving(false);
+        setApprovedAlready(true);
         setError(`Approved, but "both are real" wasn't remembered: ${pairError.message}. The monthly review will ask about the pair again.`);
         return;
       }
@@ -559,6 +565,7 @@ function IntakeEditForm({ item, sender, accounts, members, categories, categoryR
       const added = await addMerchantRule({ householdId: item.household_id, merchant: merchantName, proposal: ruleProposal });
       if (added.status === 'conflict' || added.status === 'failed') {
         setSaving(false);
+        setApprovedAlready(true);
         setError(
           `Approved, but the merchant rule wasn’t added: ${added.status === 'conflict' ? `${ruleLabel(added.rule)} already files this merchant under ${categoryNameOf(added.rule.category_id)}` : added.reason}. Add or change it in Settings → Categories & rules.`,
         );
@@ -794,14 +801,22 @@ function IntakeEditForm({ item, sender, accounts, members, categories, categoryR
           </p>
         )}
 
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button type="button" className="om-btn" onClick={reject} disabled={saving}>
-            Reject
-          </button>
-          <button type="submit" className="om-btn ov-btn-primary" disabled={saving}>
-            {saving ? 'Saving…' : remembering && ruleCheck?.status === 'new' ? 'Approve and add rule' : 'Approve'}
-          </button>
-        </div>
+        {approvedAlready ? (
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button type="button" className="om-btn ov-btn-primary" onClick={onDone}>
+              Done
+            </button>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button type="button" className="om-btn" onClick={reject} disabled={saving}>
+              Reject
+            </button>
+            <button type="submit" className="om-btn ov-btn-primary" disabled={saving}>
+              {saving ? 'Saving…' : remembering && ruleCheck?.status === 'new' ? 'Approve and add rule' : 'Approve'}
+            </button>
+          </div>
+        )}
       </form>
     </div>
   );

@@ -164,12 +164,35 @@ describe('Review', () => {
     expect(d.reload).toHaveBeenCalled();
   });
 
-  it('offers no close for a month already closed, or one too old to close', () => {
+  it('offers no close for a month already closed', () => {
     renderReview(data({ netWorthSnapshots: [{ snapshot_date: lastMonth(1), assets: 1, liabilities: 0 }] }));
     expect(screen.queryByRole('button', { name: /^Close / })).toBeNull();
+  });
+
+  it('offers no close for a month too old to close, with the month just ended still open', () => {
+    renderReview(data({ holdings: [] }));
+    expect(screen.getAllByRole('button', { name: /^Close / }).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole('button', { name: '← Prev' }));
     expect(screen.queryByRole('button', { name: /^Close / })).toBeNull();
     expect(screen.getByTestId('review-close').textContent).toMatch(/can't be now/);
+  });
+
+  // A close is kept for good, and nothing can change it afterwards (the fresh
+  // review of this change).
+  it('offers no close while the accounts or holdings never loaded', () => {
+    renderReview(data({ accounts: [], holdings: [], errors: { accounts: 'network' }, loaded: { holdings: true } }));
+    expect(screen.queryByRole('button', { name: /^Close / })).toBeNull();
+    expect(screen.getByText(/can’t be closed until they load/)).toBeTruthy();
+  });
+
+  it('says a balance not confirmed since the month ended goes into the close as it stands', () => {
+    const stale = account('current', 'Current account', { balance: 5000, currency: 'AED', balance_as_of: null });
+    renderReview(data({ accounts: [stale], holdings: [] }));
+    fireEvent.click(within(screen.getByTestId('review-close')).getByRole('button', { name: 'Close the month' }));
+    const note = screen.getByText(/isn’t confirmed since the month ended/);
+    expect(note.textContent).toMatch(/Current account/);
+    expect(note.textContent).toMatch(/can’t be changed afterwards/);
+    expect(screen.queryByText(/finish (it|them) after/)).toBeNull();
   });
 
   it('steps back a month, and not forward past the month just ended', () => {

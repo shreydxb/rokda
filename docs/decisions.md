@@ -3605,7 +3605,10 @@ were not unwanted, only out of the way:
   the month itself, at any point: the checks still open are named beside the
   figures, not in the way, and can be finished after. That is safe because a
   close records only the balances; the month's income and spending are
-  always worked out from its records. Net worth keeps its own Close, the
+  always worked out from its records. The balances are the exception: an
+  account not confirmed since the month ended goes into the close as it
+  stands, and a closed month can't be changed, so the form says which those
+  are. No close is offered while the accounts or holdings never loaded. Net worth keeps its own Close, the
   same form. This revises "A month is reviewed, then closed": the order is
   advice, no longer a gate.
 - **A merchant is remembered in the Inbox.** With 78 merchants seen three

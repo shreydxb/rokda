@@ -317,7 +317,7 @@ export function monthlyReview({ year, month }, { transactions = [], accounts = [
     detail: closed
       ? `${label} is closed, and its totals are in history.`
       : closable
-        ? `Record ${label}'s net worth under Wealth → Net worth${unconfirmed.length ? ', once the balances are confirmed' : ''}.`
+        ? `Record ${label}'s net worth: here, or under Wealth → Net worth${unconfirmed.length ? '. Best once the balances are confirmed, since a close records them as they stand' : ''}.`
         : `${label} was never closed, and it can't be now: a close records today's totals as the month just ended's.`,
     href: closable && !closed ? '/wealth' : null,
   });
