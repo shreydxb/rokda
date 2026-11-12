@@ -1749,4 +1749,24 @@ begin
   raise notice 'QA-§8 ok: deleting a household still cascades its roster away';
 end $$;
 
+-- Nothing in public or private can be run signed out. Every function's
+-- access is given by name to signed-in members or the service role;
+-- approve_intake kept the access Postgres gives everyone by default, and
+-- only its running as the caller, who can see no Inbox row, made that
+-- harmless (found reading the Data API's settings, SHR-381).
+do $$
+declare open_to_anon text;
+begin
+  select string_agg(p.oid::regprocedure::text, ', ') into open_to_anon
+  from pg_proc p
+  where p.pronamespace in ('public'::regnamespace, 'private'::regnamespace)
+    and has_function_privilege('anon', p.oid, 'execute')
+    -- An extension's own functions (pgcrypto, in public on a bare Postgres).
+    and not exists (select 1 from pg_depend d where d.classid = 'pg_proc'::regclass and d.objid = p.oid and d.deptype = 'e');
+  if (open_to_anon is not null) is not false then
+    raise exception 'signed-out functions FAILED: anon can execute %', open_to_anon;
+  end if;
+  raise notice 'signed-out functions ok: anon can execute nothing in public or private';
+end $$;
+
 rollback;
