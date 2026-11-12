@@ -202,18 +202,25 @@ test -d "rokda-storage-$STAMP" && find "rokda-storage-$STAMP" -type f | wc -l
 # auth columns a sign-in depends on, auth.identities, and the storage objects'
 # metadata — not just public rows and a list of user ids (QA #1).
 psql -At -f scripts/data-fingerprint.sql "$SOURCE_URL" > "rokda-fingerprint-$STAMP.txt"
+
+# Which migration the dump's tables are at. A dump restores only into the
+# schema it was taken from, so the drill builds the schema up to this one
+# (section 4).
+psql -At -c "select max(version) from supabase_migrations.schema_migrations" "$SOURCE_URL" > "rokda-migration-$STAMP.txt"
 ```
 
-Keep the four outputs together: a dump whose fingerprint was taken at a
-different moment proves nothing about that dump, and a database without its
-receipts is not the household's records.
+Keep the five outputs together: a dump whose fingerprint was taken at a
+different moment proves nothing about that dump, a database without its
+receipts is not the household's records, and a dump without its migration
+version cannot be restored safely once a later migration changes a table.
 
 Store them off the platform they came from — a different provider, or local
 disk with its own backup. Treat them as containing the household's complete
 financial history, because they do.
 
 **Cadence.** Weekly is proportionate to this data's rate of change, with an
-extra export before any migration that rewrites rows. A monthly export of a
+extra export before any migration that rewrites rows, and a fresh one after
+any that drops or renames a column. A monthly export of a
 ledger that gains transactions daily is a month of typing at risk.
 
 ## 4. The restore drill
@@ -228,9 +235,12 @@ postgres:17`). Match the major version — see the fingerprint script's caveats.
 ```bash
 createdb rokda_restore_drill            # or create a scratch Supabase project
 
-# Schema first, from the repository, exactly as CI builds it from zero.
+# Schema first, from the repository, exactly as CI builds it from zero, but
+# only up to the migration the dump was taken at.
+DUMP_VERSION=$(cat "rokda-migration-$STAMP.txt")
 psql -d rokda_restore_drill -v ON_ERROR_STOP=1 -q -f supabase/test/platform-shim.sql
 for f in supabase/migrations/*.sql; do
+  [ "$(basename "$f" | cut -d_ -f1)" -le "$DUMP_VERSION" ] || continue
   psql -d rokda_restore_drill -v ON_ERROR_STOP=1 -q -f "$f"
 done
 
@@ -267,6 +277,25 @@ month-old dump with triggers live would overwrite the balance that was
 recorded with one calculated for today. Verified: with the flag, an FD
 recorded at `10123.45 / active` restores as `10123.45 / active`.
 
+**Restore a dump into the schema it was taken from.** A data-only dump names
+every column its tables had. Built from a newer repository, the schema may no
+longer have them, and the tables that changed fail to load. Measured with a
+dump taken before the migration `retired_columns`, restored over every
+migration:
+
+```
+pg_restore: error: could not execute query: ERROR:  column "closing_note" of relation "accounts" does not exist
+pg_restore: error: could not execute query: ERROR:  column "safe_withdrawal_pct" of relation "planning_assumptions" does not exist
+pg_restore: error: could not execute query: ERROR:  column "rokda_spend" of relation "statement_reconciliations" does not exist
+pg_restore: warning: errors ignored on restore: 3
+```
+
+and `accounts=0`, with every transaction loaded against accounts that are not
+there, as `--disable-triggers` lets it. Built only up to the dump's migration,
+the same dump restores whole; the migrations since then are applied after the
+restore is verified (below), and carry the rows forward as they carried
+production's.
+
 Note that the local shim supplies `auth.users`, `auth.uid()` and the API roles
 so the migrations apply to a bare PostgreSQL. It is a test harness, never
 applied to a real environment.
@@ -287,10 +316,12 @@ looks restored and contains no ledger).
 
 There is no schema first-then-`platform-shim` step either when the target is
 a real Supabase project — it already has real `auth`, `storage`, `vault` and
-`cron` schemas; just apply the repository's migrations directly:
+`cron` schemas; just apply the repository's migrations directly, up to the
+dump's:
 
 ```bash
 for f in supabase/migrations/*.sql; do
+  [ "$(basename "$f" | cut -d_ -f1)" -le "$DUMP_VERSION" ] || continue
   psql "$TARGET_URL" -v ON_ERROR_STOP=1 -q -f "$f"
 done
 ```
@@ -324,6 +355,17 @@ actually need the `session_replication_role` route.
 ```bash
 psql -At -f scripts/data-fingerprint.sql "$RESTORED_URL" > /tmp/restored.txt
 diff "rokda-fingerprint-$STAMP.txt" /tmp/restored.txt && echo "restore verified"
+```
+
+Verify before applying the migrations since the dump: the fingerprint
+describes the data as it was dumped, and a migration that drops a column
+changes it. Once it matches, bring the copy up to date:
+
+```bash
+for f in supabase/migrations/*.sql; do
+  [ "$(basename "$f" | cut -d_ -f1)" -gt "$DUMP_VERSION" ] || continue
+  psql "$RESTORED_URL" -v ON_ERROR_STOP=1 -q -f "$f"
+done
 ```
 
 A clean diff means every table has the same rows with the same contents, the
