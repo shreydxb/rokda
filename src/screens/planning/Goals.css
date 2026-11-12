@@ -1,0 +1,49 @@
+/* Split out of ../Planning.css with the round 2 cleanup (SHR-383): the rules only
+   this tab uses. What the tabs share stays there. */
+
+.gl-summary-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px 24px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--ink2);
+}
+
+/* Goals in their kinds: next 3 years, kept, later, no date (Planning audit,
+   1.5). */
+.gl-section {
+  margin-top: 28px;
+}
+
+.gl-priority {
+  margin-top: 22px;
+}
+
+.gl-priority > summary {
+  cursor: pointer;
+  margin-bottom: 0;
+}
+
+.gl-summary-row b {
+  color: var(--ink);
+  font-weight: 400;
+  font-size: 14px;
+}
+
+.gl-need {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--ink2);
+}
+
+.gl-need b {
+  color: var(--ink);
+  font-weight: 400;
+  font-size: 13.5px;
+}
+
+.gl-need[data-behind='true'] b {
+  color: var(--warn);
+}

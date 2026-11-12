@@ -3,40 +3,14 @@ import { useCloseGuard } from '../../lib/useCloseGuard';
 import DiscardPrompt from '../DiscardPrompt';
 import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
-import { ASSET_CLASS_LABELS, SECTOR_GROUPS, SECTOR_LABELS, costFromUnits, hasSector, paysDividends } from '../../lib/holdings';
-import { daysSincePriced, historyPointFor, isPendingValuation, nextPricedAt, todayISODate, valueFieldFor, valuationChanged } from '../../lib/valuation';
+import { paysDividends } from '../../lib/holdings';
+import { daysSincePriced, historyPointFor, isPendingValuation, todayISODate, valuationChanged } from '../../lib/valuation';
+import { formValuation, holdingProblems, holdingSave, initialForm, isAutoValued } from '../../lib/holdingForm';
 import { hasBuysOrSales } from '../../lib/trades';
 import HoldingTrades from './HoldingTrades';
 import HoldingDividends from './HoldingDividends';
+import HoldingFields from './HoldingFields';
 import '../money/TransactionEditor.css';
-import OwnerPicker from '../OwnerPicker';
-
-function initialForm(holding) {
-  if (holding) {
-    return {
-      name: holding.name,
-      asset_class: holding.asset_class,
-      sector: holding.sector ?? '',
-      currency: holding.currency ?? 'AED',
-      value_aed: valueFieldFor(holding),
-      owner: holding.is_shared ? 'shared' : (holding.owner_member_id ?? ''),
-      quantity: holding.quantity != null ? String(holding.quantity) : '',
-      avg_price: holding.avg_price != null ? String(holding.avg_price) : '',
-      current_price: holding.current_price != null ? String(holding.current_price) : '',
-      invested_value_aed: holding.invested_value_aed != null ? String(holding.invested_value_aed) : '',
-      day_change_pct: holding.day_change_pct != null ? String(holding.day_change_pct) : '',
-      price_provider: holding.price_provider ?? '',
-      price_symbol: holding.price_symbol ?? '',
-      dividend_tax_pct: holding.dividend_tax_pct != null ? String(holding.dividend_tax_pct) : '',
-      dividend_fee_per_share: holding.dividend_fee_per_share != null ? String(holding.dividend_fee_per_share) : '',
-    };
-  }
-  return {
-    name: '', asset_class: 'us_equity', sector: '', currency: 'USD', value_aed: '', owner: 'shared',
-    quantity: '', avg_price: '', current_price: '', invested_value_aed: '', day_change_pct: '',
-    price_provider: '', price_symbol: '', dividend_tax_pct: '', dividend_fee_per_share: '',
-  };
-}
 
 const NO_TRADES = [];
 
@@ -94,20 +68,12 @@ export default function HoldingEditor({
     setDirty(true);
   }
 
-  const nameError = form.name.trim() === '' ? 'Name it.' : '';
-  const symbolError = form.price_provider && form.price_symbol.trim() === '' ? 'Enter the symbol this provider expects.' : '';
-  // Withholding is a default per holding, not a fact (SHR-366): a US-listed
-  // share of a foreign company is withheld by its home country. Left empty, a
-  // new holding takes its class's default and an existing one keeps its rate.
+  // What is wrong with the form, and whether the feed values it
+  // (lib/holdingForm.js).
+  const problems = holdingProblems(form);
+  const problem = problems.name || problems.symbol || problems.rate || problems.fee;
   const dividendFields = paysDividends(form.asset_class);
-  const taxRate = form.dividend_tax_pct.trim() === '' ? null : Number(form.dividend_tax_pct);
-  const feePerShare = form.dividend_fee_per_share.trim() === '' ? null : Number(form.dividend_fee_per_share);
-  const rateError = dividendFields && taxRate !== null && !(taxRate >= 0 && taxRate <= 100) ? 'Enter a rate from 0 to 100.' : '';
-  const feeError = dividendFields && feePerShare !== null && !(feePerShare >= 0) ? 'Enter a fee of 0 or more.' : '';
-  // Matches how the database values a priced holding (set_holding_price):
-  // only these currencies have a real conversion path, and units are required
-  // to turn a per-unit price into a total value.
-  const autoValued = !!form.price_provider && form.quantity.trim() !== '' && ['AED', 'USD', 'INR'].includes((form.currency || '').toUpperCase());
+  const autoValued = isAutoValued(form);
 
   // An auto-valued holding whose value field is blank because it is disabled
   // and nothing has priced it yet. `Number('') || 0` turned that into a
@@ -119,16 +85,7 @@ export default function HoldingEditor({
 
   // Whether this edit touches the numbers at all — drives both the copy above
   // and whether priced_at moves on save.
-  const repricing =
-    !holding ||
-    valuationChanged(holding, {
-      value_aed: Number(form.value_aed) || 0,
-      quantity: form.quantity.trim() === '' ? null : Number(form.quantity),
-      avg_price: form.avg_price.trim() === '' ? null : Number(form.avg_price),
-      current_price: form.current_price.trim() === '' ? null : Number(form.current_price),
-      invested_value_aed: form.invested_value_aed.trim() === '' ? null : Number(form.invested_value_aed),
-      day_change_pct: form.day_change_pct.trim() === '' ? null : Number(form.day_change_pct),
-    });
+  const repricing = !holding || valuationChanged(holding, formValuation(form));
   // Once a holding has its opening entry, its units and average price come
   // only from its trades (SHR-367).
   const traded = (holding?.trades_version ?? 0) > 0;
@@ -152,73 +109,16 @@ export default function HoldingEditor({
   async function handleSave(e) {
     e.preventDefault();
     if (gone) return;
-    if (nameError || symbolError || rateError || feeError) {
-      setError(nameError || symbolError || rateError || feeError);
+    if (problem) {
+      setError(problem);
       return;
     }
     setSaving(true);
     setError('');
 
-    const valuation = {
-      value_aed: Number(form.value_aed) || 0,
-      quantity: form.quantity.trim() === '' ? null : Number(form.quantity),
-      avg_price: form.avg_price.trim() === '' ? null : Number(form.avg_price),
-      current_price: form.current_price.trim() === '' ? null : Number(form.current_price),
-      invested_value_aed: form.invested_value_aed.trim() === '' ? null : Number(form.invested_value_aed),
-      day_change_pct: form.day_change_pct.trim() === '' ? null : Number(form.day_change_pct),
-      price_provider: form.price_provider || null,
-      price_symbol: form.price_provider && form.price_symbol.trim() !== '' ? form.price_symbol.trim() : null,
-    };
-    // priced_at moves when the numbers actually change, or when the reviewer
-    // explicitly reconfirms an unchanged value as of the date above. A rename
-    // or a reload does neither, so a stale holding stays stale (QA-04).
-    const repriced = !holding || valuationChanged(holding, valuation);
-    const explicitlyConfirmed = !repriced && holding && confirmUnchanged;
-    // A pending valuation confirms nothing, so it moves no date and records no
-    // history point. priced_at stays null, which every reader already treats
-    // as "never valued" -- the staleness banner, the editor's own copy, and
-    // now holdingGain (QA #6). The price feed sets it on the first successful
-    // refresh, and a failed refresh correctly leaves it unset rather than
-    // leaving a fresh-looking zero behind.
-    const nextPriced = pendingValuation
-      ? null
-      : repriced
-        ? nextPricedAt(holding, valuation, { confirmedAsOf: asOf })
-        : explicitlyConfirmed
-          ? nextPricedAt(holding, holding, { confirmedAsOf: asOf })
-          : (holding?.priced_at ?? null);
-    // A traded holding the feed prices is valued by the database, from its
-    // units under the holding's lock, whenever a trade or a price lands. The
-    // figures this editor loaded may already be older than that, so it sends
-    // none of them and records no value point (SHR-367).
-    const feedValued = traded && autoValued;
-    const writesHistory = !feedValued && !pendingValuation && (repriced || explicitlyConfirmed);
-    const payload = {
-      household_id: householdId,
-      name: form.name.trim(),
-      asset_class: form.asset_class,
-      // Only shares and share funds have a sector.
-      sector: hasSector(form.asset_class) ? form.sector || null : null,
-      currency: form.currency || 'AED',
-      is_shared: form.owner === 'shared',
-      owner_member_id: form.owner === 'shared' ? null : form.owner,
-      ...valuation,
-      ...(nextPriced ? { priced_at: nextPriced } : {}),
-      ...(dividendFields && taxRate !== null ? { dividend_tax_pct: taxRate } : {}),
-      ...(dividendFields && feePerShare !== null ? { dividend_fee_per_share: feePerShare } : {}),
-    };
-    // A traded holding's units and average come only from its trades, and the
-    // database refuses them from anywhere else (SHR-367), so they are never sent.
-    if (traded) {
-      delete payload.quantity;
-      delete payload.avg_price;
-    }
-    if (feedValued) {
-      delete payload.value_aed;
-      delete payload.current_price;
-      delete payload.day_change_pct;
-      delete payload.priced_at;
-    }
+    // The row, its figures, and whether a dated history point goes with them
+    // (lib/holdingForm.js).
+    const { payload, valuation, writesHistory } = holdingSave(form, { holding, householdId, asOf, confirmUnchanged });
 
     // A brand-new holding's id is generated and recorded BEFORE the first
     // write is dispatched — not read back from a successful response — so a
@@ -327,231 +227,25 @@ export default function HoldingEditor({
           {/* The holding's own fields lock while a trade is recorded or fixed:
               saving the trade reloads the holding, and an edit made meanwhile
               would be lost. */}
-          <fieldset className="he-fields" disabled={subFormOpen}>
-            <div>
-              <div className="te-hero-label">Value</div>
-              <div className="te-hero-row">
-                <span className="te-hero-currency">AED</span>
-                <input aria-label="Value"
-                  type="number"
-                  step="0.01"
-                  className="te-hero-input"
-                  value={form.value_aed}
-                  onChange={(e) => set('value_aed', e.target.value)}
-                  disabled={autoValued}
-                  placeholder={autoValued ? 'Awaiting first price' : '0'}
-                />
-              </div>
-            </div>
-            <div className="ov-muted" style={{ fontSize: 11.5, marginTop: -10 }}>
-              {autoValued
-                ? pendingValuation
-                  ? 'Auto-computed daily from units × live price × FX. Saving now records the holding with no value yet — it stays "not valued" until the first price refresh succeeds, rather than being recorded as worth zero.'
-                  : 'Auto-computed daily from units × live price × FX, so this field is not editable here.'
-                : 'Value is entered in AED directly — no live FX conversion.'}
-            </div>
-
-            <div className="te-fieldgrid">
-              <div className="te-fieldcell">
-                <label className="te-fieldlabel" htmlFor="holding-as-of">
-                  Valued as of
-                </label>
-                <input
-                  id="holding-as-of"
-                  className="te-fieldvalue"
-                  type="date"
-                  value={asOf}
-                  max={todayISODate()}
-                  onChange={(e) => {
-                    setAsOf(e.target.value);
-                    setDirty(true);
-                  }}
-                />
-              </div>
-              <div className="te-fieldcell te-span2" style={{ alignSelf: 'end' }}>
-                <span className="ov-muted" style={{ fontSize: 11.5 }}>
-                  {repricing
-                    ? 'Saving records this as a dated valuation point.'
-                    : holding
-                      ? lastValuedLabel
-                      : 'Saving records this as the first valuation point.'}
-                </span>
-              </div>
-            </div>
-
-            {holding && !repricing && (
-              <label className="ov-muted" style={{ fontSize: 11.5, display: 'flex', gap: 8, alignItems: 'center', marginTop: -8 }}>
-                <input
-                  type="checkbox"
-                  checked={confirmUnchanged}
-                  onChange={(e) => {
-                    setConfirmUnchanged(e.target.checked);
-                    setDirty(true);
-                  }}
-                />
-                Still worth the same — confirm it as of the date above, without changing any number.
-              </label>
-            )}
-
-            <div className="te-fieldgrid">
-              <div className="te-fieldcell te-span2">
-                <span className="te-fieldlabel">Ticker or fund</span>
-                <input aria-label="Ticker or fund" className="te-fieldvalue" type="text" value={form.name} onChange={(e) => set('name', e.target.value)} aria-invalid={!!nameError} placeholder="e.g. VWRA" />
-              </div>
-              <div className="te-fieldcell">
-                <span className="te-fieldlabel">Asset class</span>
-                <select aria-label="Asset class" className="te-fieldvalue" value={form.asset_class} onChange={(e) => set('asset_class', e.target.value)}>
-                  {Object.entries(ASSET_CLASS_LABELS).map(([id, label]) => (
-                    <option key={id} value={id}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="te-fieldcell">
-                <span className="te-fieldlabel">Native currency</span>
-                <input aria-label="Native currency" className="te-fieldvalue" type="text" value={form.currency} onChange={(e) => set('currency', e.target.value.toUpperCase())} maxLength={3} />
-              </div>
-              {/* Tagged once, so Wealth can say how much sits in one sector
-                  (Planning audit, 4.17). Only shares and share funds have one. */}
-              {hasSector(form.asset_class) && (
-                <div className="te-fieldcell te-span2">
-                  <label className="te-fieldlabel" htmlFor="holding-sector">
-                    Sector
-                  </label>
-                  <select id="holding-sector" className="te-fieldvalue" value={form.sector} onChange={(e) => set('sector', e.target.value)}>
-                    <option value="">Not tagged</option>
-                    {SECTOR_GROUPS.map((group) => (
-                      <optgroup key={group.label} label={group.label}>
-                        {Object.entries(group.sectors).map(([id, label]) => (
-                          <option key={id} value={id}>
-                            {label}
-                          </option>
-                        ))}
-                      </optgroup>
-                    ))}
-                    <option value="broad">{SECTOR_LABELS.broad}</option>
-                  </select>
-                </div>
-              )}
-              {/* What is withheld from this share's dividends, and any fee per
-                  share a depositary takes (SHR-366). */}
-              {dividendFields && (
-                <>
-                  <div className="te-fieldcell">
-                    <label className="te-fieldlabel" htmlFor="holding-dividend-tax">
-                      Withholding on dividends
-                    </label>
-                    <input id="holding-dividend-tax" className="te-fieldvalue" type="text" inputMode="decimal" value={form.dividend_tax_pct}
-                      onChange={(e) => set('dividend_tax_pct', e.target.value)} aria-invalid={!!rateError} placeholder="Default for its class" />
-                  </div>
-                  <div className="te-fieldcell">
-                    <label className="te-fieldlabel" htmlFor="holding-dividend-fee">
-                      Fees per share
-                    </label>
-                    <input id="holding-dividend-fee" className="te-fieldvalue" type="text" inputMode="decimal" value={form.dividend_fee_per_share}
-                      onChange={(e) => set('dividend_fee_per_share', e.target.value)} aria-invalid={!!feeError} placeholder="0" />
-                  </div>
-                </>
-              )}
-            </div>
-
-            <div>
-              <span className="te-fieldlabel">Pricing detail (optional)</span>
-              <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 4, marginBottom: 10 }}>
-                Fills in the richer holdings table (units, avg price, P&amp;L). "Price now" and "Day change" are
-                overwritten by the daily refresh below when auto-pricing is on; otherwise they're manual. With units
-                and a currency the feed can convert (AED, USD, or INR), the Value field above is overwritten too.
-              </div>
-              {traded && (
-                <div className="ov-muted" style={{ fontSize: 11.5, marginBottom: 10 }}>
-                  Units and average price come from this holding&rsquo;s trades.
-                </div>
-              )}
-              <div className="te-fieldgrid">
-                <div className="te-fieldcell">
-                  <span className="te-fieldlabel">Units</span>
-                  <input className="te-fieldvalue" aria-label="Units" type="number" step="any" value={form.quantity} onChange={(e) => set('quantity', e.target.value)} readOnly={traded} placeholder="—" />
-                </div>
-                <div className="te-fieldcell">
-                  <span className="te-fieldlabel">Avg price ({form.currency || '—'})</span>
-                  <input className="te-fieldvalue" aria-label={`Avg price (${form.currency || '—'})`} type="number" step="any" value={form.avg_price} onChange={(e) => set('avg_price', e.target.value)} readOnly={traded} placeholder="—" />
-                </div>
-                <div className="te-fieldcell">
-                  <span className="te-fieldlabel">Price now ({form.currency || '—'})</span>
-                  <input className="te-fieldvalue" aria-label={`Price now (${form.currency || '—'})`} type="number" step="any" value={form.current_price} onChange={(e) => set('current_price', e.target.value)} disabled={!!form.price_provider} placeholder="—" />
-                </div>
-                <div className="te-fieldcell">
-                  <span className="te-fieldlabel">Invested (AED)</span>
-                  {costFromUnits(form) ? (
-                    <span className="te-fieldvalue ov-muted" data-testid="invested-from-units">
-                      Units × avg price, at today&rsquo;s rate
-                    </span>
-                  ) : (
-                    <input className="te-fieldvalue" aria-label="Invested (AED)" type="number" step="0.01" value={form.invested_value_aed} onChange={(e) => set('invested_value_aed', e.target.value)} placeholder="—" />
-                  )}
-                </div>
-                <div className="te-fieldcell">
-                  <span className="te-fieldlabel">Day change (%)</span>
-                  <input aria-label="Day change (%)" className="te-fieldvalue" type="number" step="any" value={form.day_change_pct} onChange={(e) => set('day_change_pct', e.target.value)} disabled={!!form.price_provider} placeholder="—" />
-                </div>
-              </div>
-            </div>
-
-            <div>
-              <span className="te-fieldlabel">Auto-pricing (optional)</span>
-              <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 4, marginBottom: 10 }}>
-                Opts this holding into the daily price feed. Leave "None" to keep entering price/day-change by hand —
-                most sukuk still have no real option here.
-              </div>
-              <div className="te-fieldgrid">
-                <div className="te-fieldcell te-span2">
-                  <span className="te-fieldlabel">Provider</span>
-                  <select aria-label="Provider" className="te-fieldvalue" value={form.price_provider} onChange={(e) => set('price_provider', e.target.value)}>
-                    <option value="">None — manual</option>
-                    <option value="twelvedata">Twelve Data (global equities, commodities)</option>
-                    <option value="yahoo">Yahoo Finance (NSE, DFM; unofficial)</option>
-                    <option value="coingecko">CoinGecko (crypto)</option>
-                    <option value="mfapi">mfapi.in (India mutual fund NAV)</option>
-                  </select>
-                </div>
-                <div className="te-fieldcell te-span2">
-                  <span className="te-fieldlabel">
-                    {form.price_provider === 'mfapi' ? 'AMFI scheme code' : form.price_provider === 'coingecko' ? 'CoinGecko coin id' : 'Symbol'}
-                  </span>
-                  <input
-                    className="te-fieldvalue"
-                    aria-label={form.price_provider === 'mfapi' ? 'AMFI scheme code' : form.price_provider === 'coingecko' ? 'CoinGecko coin id' : 'Symbol'}
-                    type="text"
-                    value={form.price_symbol}
-                    onChange={(e) => set('price_symbol', e.target.value)}
-                    disabled={!form.price_provider}
-                    aria-invalid={!!symbolError}
-                    placeholder={
-                      form.price_provider === 'mfapi'
-                        ? 'e.g. 120503'
-                        : form.price_provider === 'coingecko'
-                          ? 'e.g. bitcoin'
-                          : form.price_provider === 'yahoo'
-                            ? 'e.g. RELIANCE.NS or EMAAR.AE'
-                            : 'e.g. AAPL'
-                    }
-                  />
-                </div>
-              </div>
-              {holding?.price_fetch_error && (
-                <div className="ov-warn" style={{ fontSize: 11.5, marginTop: 8 }}>
-                  Last refresh failed: {holding.price_fetch_error}
-                  {holding.price_fetch_fail_count > 1 ? ` (${holding.price_fetch_fail_count} attempts since)` : ''}
-                </div>
-              )}
-            </div>
-
-            <div>
-              <span className="te-fieldlabel">Held by</span>
-              <OwnerPicker value={form.owner} members={members} onChange={(id) => set('owner', id)} />
-            </div>
-          </fieldset>
+          <HoldingFields
+            form={form}
+            set={set}
+            holding={holding}
+            members={members}
+            problems={problems}
+            traded={traded}
+            autoValued={autoValued}
+            pendingValuation={pendingValuation}
+            repricing={repricing}
+            dividendFields={dividendFields}
+            lastValuedLabel={lastValuedLabel}
+            asOf={asOf}
+            setAsOf={setAsOf}
+            confirmUnchanged={confirmUnchanged}
+            setConfirmUnchanged={setConfirmUnchanged}
+            setDirty={setDirty}
+            subFormOpen={subFormOpen}
+          />
 
           {traded && (
             <HoldingTrades

@@ -8,6 +8,7 @@ import { supabase } from '../../lib/supabaseClient';
 import { ordinal } from '../../lib/creditCard';
 import { neverLoaded } from '../../lib/loadState';
 import Withheld from '../planning/Withheld';
+import './Statements.css';
 
 // Wealth -> Statements: every card's recent statements and whether each was
 // reconciled against Rokda (docs/decisions.md, "A statement is reconciled,

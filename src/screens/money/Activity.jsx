@@ -24,6 +24,7 @@ import TransferEditor from './TransferEditor';
 import { transferCounterpart, transferDirectionLabel, transferLinkOf } from '../../lib/transfers';
 import { amountInCategory, categoryParts, inCategory } from '../../lib/splits';
 import ActivityCalendar from './ActivityCalendar';
+import './Activity.css';
 
 // A transaction reads as low-confidence once it's below the same bar the
 // Telegram bot uses to decide a record needs a human look (see

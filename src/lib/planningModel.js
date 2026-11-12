@@ -3,7 +3,7 @@ import { accountValueAed, isArchived, isLiabilityAccount } from './accounts';
 import { isAwaitingFirstValuation } from './valuation';
 import { unconfirmedAccounts } from './balance';
 import { basisChoice, budgetInputs, budgetPlan, forecastInputs, spendThatStops } from './forecast';
-import { lifePlanBasis, lifePlanStop, loansInSpending, planPeople } from './lifePlan';
+import { lifePlanBasis, lifePlanStop, loansInSpending, planPeople } from './lifePlanBasis';
 
 // The planning model: the figures every Planning tab rests on, worked out in
 // one place (Planning audit, 3.12). Plan, Goals, the Life plan and the two

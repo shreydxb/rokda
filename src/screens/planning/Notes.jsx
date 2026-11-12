@@ -6,6 +6,7 @@ import { yearlyCheckStatus, yearlyCheckText } from '../../lib/yearlyChecks';
 import { neverLoaded } from '../../lib/loadState';
 import { NOTES_INPUTS } from './planningSources';
 import Withheld from './Withheld';
+import './Notes.css';
 
 // The plan in words: why the goals, budget and split are what they are, and
 // what is still to decide. The figures live on the other tabs; these notes

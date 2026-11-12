@@ -10,6 +10,7 @@ import GoalEditor from './GoalEditor';
 import { neverLoaded } from '../../lib/loadState';
 import { GOALS_INPUTS, projectionInputs } from './planningSources';
 import Withheld from './Withheld';
+import './Goals.css';
 
 const NONE = [];
 

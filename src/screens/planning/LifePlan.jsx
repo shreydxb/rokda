@@ -4,7 +4,8 @@ import { Link } from 'react-router-dom';
 import { tabHref } from '../../lib/activityLink';
 import { supabase } from '../../lib/supabaseClient';
 import { incomesWithoutRate } from '../../lib/forecast';
-import { agesIn, agesLabel, costsText, DEFAULT_STOP_AGE, earliestStop, extraSavingNeeded, leftOutText, lifePlan, loansText, maxRetirementSpend, membersLeftOut, planEndYear, potNeededAt, rupeeDrift, stopRange, stressTest } from '../../lib/lifePlan';
+import { agesIn, earliestStop, extraSavingNeeded, lifePlan, maxRetirementSpend, planEndYear, potNeededAt } from '../../lib/lifePlan';
+import { agesLabel, costsText, DEFAULT_STOP_AGE, leftOutText, loansText, membersLeftOut, rupeeDrift, stopRange, stressTest } from '../../lib/lifePlanBasis';
 import { planningModel } from '../../lib/planningModel';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { ChartLegend, ColumnChart } from '../../charts/Charts';
@@ -19,6 +20,7 @@ import { neverLoaded } from '../../lib/loadState';
 import { isDone } from '../../lib/goals';
 import { projectionInputs } from './planningSources';
 import Withheld from './Withheld';
+import './LifePlan.css';
 
 // Fixed order, so each phase keeps its colour whatever the numbers do.
 const PHASES = [

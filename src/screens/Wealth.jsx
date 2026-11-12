@@ -1,6 +1,9 @@
 import { useTab } from '../lib/useTab';
 import { useHousehold } from '../lib/useHousehold';
 import { useOverviewData } from './useOverviewData';
+// The tabs' shared styles first, so each tab's own stylesheet, which its
+// screen imports, comes after them as it did inside this one.
+import './Wealth.css';
 import NetWorth from './wealth/NetWorth';
 import Accounts from './wealth/Accounts';
 import Investments from './wealth/Investments';
@@ -10,7 +13,6 @@ import LoadFailure from './LoadFailure';
 import Freshness from './Freshness';
 import BackToReview from './BackToReview';
 import TabRow from './TabRow';
-import './Wealth.css';
 
 const TABS = [
   { id: 'networth', label: 'Net worth' },

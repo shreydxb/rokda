@@ -4,7 +4,7 @@ import DiscardPrompt from '../DiscardPrompt';
 import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
 import { formatMoney } from '../../lib/money';
-import { AFTER_WORK_RETURN_GAP, CASH_RETURN_DEFAULT, DEFAULT_STOP_AGE, defaultStopPerson } from '../../lib/lifePlan';
+import { AFTER_WORK_RETURN_GAP, CASH_RETURN_DEFAULT, DEFAULT_STOP_AGE, defaultStopPerson } from '../../lib/lifePlanBasis';
 import { PLANNING_DEFAULTS, assumption } from '../../lib/planningDefaults';
 import { describeCost, describeIncome, nativeAmountLabel } from '../../lib/planRows';
 import IncomeEditor from './IncomeEditor';

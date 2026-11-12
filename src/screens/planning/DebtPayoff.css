@@ -1,0 +1,136 @@
+/* Split out of ../Planning.css with the round 2 cleanup (SHR-383): the rules only
+   this tab uses. What the tabs share stays there. */
+
+.debt-toolbar {
+  margin-top: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.debt-summary {
+  margin-top: 18px;
+  font-size: 15px;
+}
+
+.debt-total {
+  color: var(--ink);
+}
+
+/* The date the debts are on at their minimums, and what that costs: the
+   page's answer, ahead of the list (Planning audit, 1.4). */
+.debt-lead {
+  margin-top: 10px;
+}
+
+.debt-lead-date {
+  font-size: 18px;
+  color: var(--ink);
+}
+
+.debt-note {
+  margin-top: 8px;
+  font-size: 12.5px;
+  line-height: 1.65;
+  max-width: 78ch;
+}
+
+.debt-list {
+  margin-top: 18px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.debt-row {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px 16px;
+  width: 100%;
+  padding: 14px 0;
+  border: 0;
+  border-top: 1px solid var(--rule);
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.debt-row:hover {
+  background: var(--raise);
+}
+
+.debt-rank {
+  font-size: 19px;
+  line-height: 1.1;
+  color: var(--accent);
+}
+
+.debt-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13.5px;
+}
+
+.debt-progress {
+  max-width: 220px;
+  font-size: 11.5px;
+}
+
+.debt-figures {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(80px, auto));
+  gap: 4px 20px;
+  margin: 0;
+  text-align: right;
+}
+
+.debt-figures dt {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink2);
+}
+
+.debt-figures dd {
+  margin: 3px 0 0;
+  font-size: 14px;
+}
+
+.debt-whatif {
+  margin-top: 32px;
+  max-width: 64ch;
+}
+
+.debt-projection {
+  margin-top: 12px;
+  padding: 16px 18px;
+  border: 1px dashed var(--rule2);
+  border-radius: 3px;
+}
+
+.debt-projection-head {
+  font-size: 14px;
+}
+
+.debt-primary {
+  margin-top: 14px;
+  border-color: var(--accent);
+  color: var(--ink);
+}
+
+@media (max-width: 720px) {
+  .debt-row {
+    grid-template-columns: 24px minmax(0, 1fr);
+  }
+  .debt-figures {
+    grid-column: 2;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 12px;
+    text-align: left;
+  }
+}

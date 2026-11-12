@@ -1,38 +1,31 @@
 import { useMemo, useRef, useState } from 'react';
 import { useNow } from '../lib/useNow';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useHousehold } from '../lib/useHousehold';
 import { useScope } from '../lib/ScopeContext';
 import { resolveScopeMemberId } from '../lib/scope';
 import { formatPct } from '../lib/money';
-import { PERIOD_LABELS } from '../lib/period';
-import { nativeAmountLabel, upcomingItems } from '../lib/recurring';
-import { expectedDatesLabel, expectedIncome } from '../lib/expectedIncome';
-import { activityHref, bucketRange, isoDay, tabHref } from '../lib/activityLink';
+import { upcomingItems } from '../lib/recurring';
+import { expectedIncome } from '../lib/expectedIncome';
 import { buildNetWorthSeries, changeOverMonths } from '../lib/netWorth';
-import { ATTENTION_PREVIEW_COUNT as ATTENTION_FOLD, attentionHref, attentionPreview, buildAttentionItems } from '../lib/attention';
+import { attentionPreview, buildAttentionItems } from '../lib/attention';
 import { useMoneyDisplay } from '../lib/CurrencyContext';
 import { supabase } from '../lib/supabaseClient';
 import { useOverviewData } from './useOverviewData';
-import {
-  netWorthSummary,
-  incompleteNote,
-  visibleAccounts,
-  periodSummary,
-  buildChartColumns,
-  spendComposition,
-  runwaySummary,
-  dataQuality,
-  previousPeriodSummary,
-  periodChange,
-  PREVIOUS_PERIOD_LABELS,
-  CHART_TITLES,
-  isRunningBucket,
-} from './overviewMath';
+import { netWorthSummary, visibleAccounts, periodSummary, buildChartColumns, spendComposition, runwaySummary, dataQuality, previousPeriodSummary, PREVIOUS_PERIOD_LABELS, visibleRows } from './overviewMath';
+import OverviewEmpty from './overview/OverviewEmpty';
+import OverviewPeriod from './overview/OverviewPeriod';
+import OverviewFlow from './overview/OverviewFlow';
+import OverviewAttention from './overview/OverviewAttention';
+import OverviewNext30 from './overview/OverviewNext30';
+import OverviewNetWorth from './overview/OverviewNetWorth';
+import OverviewQuality from './overview/OverviewQuality';
+import OverviewSpending from './overview/OverviewSpending';
+import OverviewRecent from './overview/OverviewRecent';
+import OverviewAccounts from './overview/OverviewAccounts';
 import { parseDay } from '../lib/day';
-import { anyFailed, couldntLoad, neverLoaded } from '../lib/loadState';
-import { balanceStatus, unconfirmedAccounts } from '../lib/balance';
-import { accountValueAed } from '../lib/accounts';
+import { anyFailed, neverLoaded } from '../lib/loadState';
+import { unconfirmedAccounts } from '../lib/balance';
 import LoadFailure from './LoadFailure';
 import Freshness from './Freshness';
 import './Overview.css';
@@ -229,473 +222,94 @@ export default function Overview() {
       </div>
 
       {isEmpty ? (
-        <EmptyState navigate={navigate} />
+        <OverviewEmpty navigate={navigate} />
       ) : (
         <>
 
-          <section className="ov-period-section">
-            <div className="ov-section-head">
-              <div className="ov-kicker">{PERIOD_LABELS[period]}</div>
-              <div className="ov-muted">
-                {p.count} record{p.count === 1 ? '' : 's'} · {money.code}
-                {money.rateNote ? ` · ${money.rateNote}` : ''} ·{' '}
-                {/* A real link, so Enter follows it (outside review, E-13). */}
-                <Link className="ov-link" to={activityHref({ from: isoDay(p.start), to: isoDay(now) })}>
-                  Records →
-                </Link>
-              </div>
-            </div>
-            {/* Each figure with the same stretch of the period before, so a
-                month to date is never set against a whole month. */}
-            <div className="ov-kpi-row">
-              <Kpi
-                label="Income"
-                figure={money.fmt(p.income)}
-                change={periodChange(p.income, prev.income)}
-                goodWhenUp
-                prevLabel={prevLabel}
-                fmt={money.fmt}
-                hint={expected.items.length > 0 ? `${p.income > 0 ? 'More pay' : 'Pay'} expected ${expectedDatesLabel(expected.items)} · ${money.fmt(expected.total)}` : null}
-              />
-              <Kpi label="Net spend" figure={money.fmt(p.spend)} change={periodChange(p.spend, prev.spend)} goodWhenUp={false} prevLabel={prevLabel} fmt={money.fmt} />
-              <Kpi label="Income less spending" figure={money.fmtSigned(p.saved)} change={periodChange(p.saved, prev.saved)} goodWhenUp prevLabel={prevLabel} fmt={money.fmt} />
-              {/* Coloured by its sign: a month that spent more than it earned
-                  has a negative rate, and painting that green said the
-                  opposite of the figure. */}
-              <Kpi
-                label="Savings rate"
-                figure={p.rate !== null ? formatPct(p.rate) : '—'}
-                tone={p.rate === null ? '' : p.rate < 0 ? 'ov-neg' : 'ov-pos'}
-                change={periodChange(p.rate, prev.rate, { asPoints: true })}
-                goodWhenUp
-                prevLabel={prevLabel}
-              />
-            </div>
-          </section>
+          <OverviewPeriod
+            period={period}
+            p={p}
+            money={money}
+            now={now}
+            prev={prev}
+            prevLabel={prevLabel}
+            expected={expected}
+          />
 
           <section className="ov-split">
-            <div>
-              <div className="ov-section-head">
-                <div className="ov-kicker">{CHART_TITLES[period]}</div>
-                {/* The scale: the tallest bar's figure, so a bar's height
-                    means an amount. */}
-                <div className="ov-muted">top of chart {money.fmt(maxColValue)} {money.code}</div>
-              </div>
-              <div className="ov-chart">
-                {columns.map((c) => (
-                  <button
-                    key={c.key}
-                    type="button"
-                    className="ov-col"
-                    data-active={selected?.key === c.key}
-                    onClick={() => setSelectedKey(c.key)}
-                    data-running={isRunningBucket(c, now)}
-                    title={c.hasData ? `${c.label}${isRunningBucket(c, now) ? ' so far' : ''}: income ${money.fmt(c.income)}, net spend ${money.fmt(c.spend)}` : `${c.label}: no records`}
-                    aria-label={c.hasData ? `${c.label}${isRunningBucket(c, now) ? ' so far' : ''}: income ${money.fmt(c.income)}, net spend ${money.fmt(c.spend)}` : `${c.label}: no records`}
-                  >
-                    {/* A period with nothing recorded says so, rather than
-                        drawing two empty bars that read as a verified zero. */}
-                    <div className="ov-col-bars">
-                      {c.hasData ? (
-                        <>
-                          <span className="ov-bar-inc" style={{ height: `${(c.income / maxColValue) * 100}%` }} />
-                          <span className="ov-bar-out" style={{ height: `${(Math.max(0, c.spend) / maxColValue) * 100}%` }} />
-                        </>
-                      ) : (
-                        <span className="ov-col-none">no records</span>
-                      )}
-                    </div>
-                    <div className="ov-col-label">
-                      {c.label}
-                      {isRunningBucket(c, now) ? ' · so far' : ''}
-                    </div>
-                  </button>
-                ))}
-              </div>
-              {selected && (
-                <div className="ov-chart-readout">
-                  <span className="fig">
-                    {selected.label}
-                    {isRunningBucket(selected, now) ? ' so far' : ''}
-                  </span>
-                  <span>
-                    Income <b className="fig">{money.fmt(selected.income)}</b>
-                  </span>
-                  <span>
-                    Net spend <b className="fig">{money.fmt(selected.spend)}</b>
-                  </span>
-                  <span>
-                    Rate <b className={`fig ${selected.rate === null ? '' : selected.rate < 0 ? 'ov-neg' : 'ov-pos'}`}>{selected.rate !== null ? formatPct(selected.rate) : '—'}</b>
-                  </span>
-                  {/* The bar's own records: its dates, up to today for the
-                      bucket still running. */}
-                  <Link className="ov-link" to={activityHref(bucketRange(selected, now))}>
-                    Records →
-                  </Link>
-                </div>
-              )}
-              <div className="ov-legend">
-                <span><i className="ov-dot-inc" />Income</span>
-                <span><i className="ov-dot-out" />Net spend</span>
-              </div>
-            </div>
+            <OverviewFlow
+              period={period}
+              money={money}
+              maxColValue={maxColValue}
+              columns={columns}
+              selected={selected}
+              setSelectedKey={setSelectedKey}
+              now={now}
+            />
 
-            <div className="ov-attn-col">
-              <div className="ov-section-head">
-                <div className="ov-kicker">Needs attention</div>
-                <div className="ov-muted">{attention.length ? `${attention.length} open` : 'All clear'}</div>
-              </div>
-              {attention.length === 0 ? (
-                <div className="ov-allclear">
-                  <span className="ov-dot-pos" />
-                  <span>All clear — nothing needs a decision.</span>
-                </div>
-              ) : (
-                <div className="ov-attn-list" id="ov-attn-list">
-                  {attentionShown.map((item) =>
-                    item.kind === 'review' ? (
-                      <div key={item.id} className="ov-attn-row">
-                        <div className="ov-attn-main">
-                          <span>{item.tx.merchant ?? 'Transaction'}</span>
-                          <span className="ov-muted">
-                            {new Date(item.tx.occurred_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} ·{' '}
-                            {money.fmtBalance(item.tx.amount)}
-                          </span>
-                        </div>
-                        {/* A split record's categories are its lines; it is categorised in its editor. */}
-                        {!item.tx.is_split && (
-                          <select
-                            className="ov-attn-select"
-                            defaultValue=""
-                            onChange={(e) => e.target.value && categorise(item.tx, e.target.value)}
-                          >
-                            <option value="" disabled>
-                              Categorise…
-                            </option>
-                            {categories.map((c) => (
-                              <option key={c.id} value={c.id}>
-                                {c.name}
-                              </option>
-                            ))}
-                          </select>
-                        )}
-                        <button type="button" className="om-btn ov-attn-btn" onClick={() => markReviewed(item.tx)}>
-                          Mark reviewed
-                        </button>
-                      </div>
-                    ) : (
-                      <div key={item.id} className="ov-attn-row">
-                        <div className="ov-attn-main">
-                          <span>{item.title}</span>
-                          <span className={item.severity === 'urgent' ? 'ov-warn' : 'ov-muted'}>{item.detail}</span>
-                        </div>
-                        <button
-                          type="button"
-                          className="om-btn ov-attn-btn"
-                          onClick={() => navigate(attentionHref(item, now))}
-                        >
-                          Open
-                        </button>
-                      </div>
-                    )
-                  )}
-                  {(attentionHidden > 0 || attentionExpanded) && attention.length > ATTENTION_FOLD && (
-                    <button
-                      type="button"
-                      className="ov-link ov-attn-more"
-                      aria-expanded={attentionExpanded}
-                      aria-controls="ov-attn-list"
-                      onClick={() => setAttentionExpanded((v) => !v)}
-                    >
-                      {attentionExpanded ? 'Show fewer' : `Show all ${attention.length}`}
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
+            <OverviewAttention
+              attention={attention}
+              attentionShown={attentionShown}
+              money={money}
+              categorise={categorise}
+              categories={categories}
+              markReviewed={markReviewed}
+              navigate={navigate}
+              now={now}
+              attentionHidden={attentionHidden}
+              attentionExpanded={attentionExpanded}
+              setAttentionExpanded={setAttentionExpanded}
+            />
           </section>
 
 
-          <section className="ov-next30">
-            <div className="ov-kicker">Next 30 days</div>
-            {next30.length === 0 ? (
-              <div className="ov-next30-empty">
-                {recurring.length === 0
-                  ? 'No recurring bills or income set up yet.'
-                  : 'Nothing due in the next 30 days.'}{' '}
-                <Link className="ov-link" to={tabHref('/money', 'recurring')}>
-                  Recurring →
-                </Link>
-              </div>
-            ) : (
-              <>
-                <div className="ov-next30-row">
-                  {next30.map((r) => (
-                    <div key={r.occurrenceKey} className="ov-next30-cell">
-                      <div className="ov-muted">{r.dueDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</div>
-                      <div className="ov-next30-name">{r.name}</div>
-                      <div className={`fig ov-next30-amt ${Number(r.amount) > 0 ? 'ov-pos' : ''}`}>{money.fmtSigned(r.amount)}</div>
-                      {nativeAmountLabel(r) && <div className="ov-muted">{nativeAmountLabel(r)}</div>}
-                      <div className={Number(r.amount) < 0 && !r.autopay ? 'ov-warn' : 'ov-muted'}>
-                        {Number(r.amount) > 0 ? 'expected' : r.autopay ? 'autopay' : 'no autopay'}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <div className="ov-next30-foot">
-                  <span>
-                    Committed {money.fmt(committedTotal)}
-                    {withoutAutopay > 0 ? ` · ${withoutAutopay} without autopay` : ''}
-                  </span>
-                  <Link className="ov-link" to={tabHref('/money', 'recurring')}>
-                    Recurring →
-                  </Link>
-                </div>
-              </>
-            )}
-          </section>
+          <OverviewNext30
+            next30={next30}
+            recurring={recurring}
+            money={money}
+            committedTotal={committedTotal}
+            withoutAutopay={withoutAutopay}
+          />
 
-          <section className="ov-hero-section ov-hero-compact">
-            {/* Net worth sits below the month's money and what needs doing:
-                for day-to-day use those come first (product review, 15
-                October). It still says which balances it rests on. */}
-            <div className="ov-kicker">Net worth{scope !== 'both' ? ` · ${scopeLabel(scope, me, members)}` : ''}</div>
-            <div className="ov-hero fig">
-              {netWorthTrustworthy ? (
-                <>
-                  <span className="ov-hero-currency">{money.code}</span> {money.fmtBalance(nw.netWorth)}
-                </>
-              ) : (
-                <span className="ov-hero-unavailable">Not available</span>
-              )}
-            </div>
-            {netWorthTrustworthy && netWorthIsProvisional && (
-              <div className="ov-muted" style={{ marginTop: 6, fontSize: 12 }}>
-                Provisional — {unconfirmed.length} account{unconfirmed.length === 1 ? '' : 's'} without a confirmed balance{' '}
-                {unconfirmed.length === 1 ? 'is' : 'are'} counted as zero.
-              </div>
-            )}
-            {/* Separate from "provisional", and separate on purpose: an
-                account with no AED conversion is not counted as zero, it is
-                not counted at all. netWorthSummary has always returned that
-                count; nothing used to read it, so an unconverted loan simply
-                vanished from a total that still looked complete (QA #4). */}
-            {netWorthTrustworthy && incompleteNote({ accounts: nw.unvalued, holdings: nw.unpricedHoldings }) && (
-              <div className="ov-warn" style={{ marginTop: 6, fontSize: 12 }}>
-                Incomplete — {incompleteNote({ accounts: nw.unvalued, holdings: nw.unpricedHoldings }, { capitalised: false })}
-              </div>
-            )}
-            {scope === 'both' && (nwChange1mo || nwChange12mo) && (
-              <div className="ov-nwchange">
-                {nwChange1mo && (
-                  <span className={nwChange1mo.absolute >= 0 ? 'ov-pos' : 'ov-neg'}>
-                    {nwChange1mo.absolute >= 0 ? '▲' : '▼'} {money.fmtSigned(nwChange1mo.absolute)}
-                  </span>
-                )}
-                {nwChange1mo && <span className="ov-muted"> this month</span>}
-                {nwChange1mo && nwChange12mo && <span className="ov-muted"> · </span>}
-                {nwChange12mo && (
-                  <span className="ov-muted">
-                    12-mo{' '}
-                    <span className={nwChange12mo.absolute >= 0 ? 'ov-pos' : 'ov-neg'}>
-                      {nwChange12mo.pct !== null ? formatPct(nwChange12mo.pct) : money.fmtSigned(nwChange12mo.absolute)}
-                    </span>
-                  </span>
-                )}
-              </div>
-            )}
-            <div className="ov-strip">
-              <span>
-                Assets <b>{money.fmtBalance(nw.assets)}</b>
-              </span>
-              <span>
-                Liabilities <b>{money.fmtBalance(nw.liabilities)}</b>
-              </span>
-              {runway.available ? (
-                <span>
-                  Runway <b>{runway.months.toFixed(1)} months</b>
-                </span>
-              ) : (
-                <span className="ov-muted">Runway needs {2 - runway.monthsOfHistory} more closed month(s) of spending</span>
-              )}
-              <Link className="ov-link" to="/wealth">
-                History →
-              </Link>
-            </div>
-          </section>
+          <OverviewNetWorth
+            scope={scope}
+            me={me}
+            members={members}
+            netWorthTrustworthy={netWorthTrustworthy}
+            money={money}
+            nw={nw}
+            netWorthIsProvisional={netWorthIsProvisional}
+            unconfirmed={unconfirmed}
+            nwChange1mo={nwChange1mo}
+            nwChange12mo={nwChange12mo}
+            runway={runway}
+          />
 
-          <section className="ov-quality-section">
-            {/* One line, with the detail a tap away: it took a screen's
-                height for what is usually "all fine". */}
-            <details className="ov-quality-details">
-              <summary>
-                <span className="ov-kicker">Data quality</span>{' '}
-                <span className={qualityIssues > 0 ? 'ov-warn' : 'ov-muted'}>
-                  {qualityIssues === 0 ? 'All four checks fine' : `${qualityIssues} of 4 checks need a look`}
-                </span>{' '}
-                <span className="ov-muted">· what every figure on this page rests on</span>
-              </summary>
-            <div className="ov-quality-grid">
-              <QualityItem
-                name="Transactions"
-                ok={qualityOk.transactions}
-                label={quality.daysSinceLastTx === null ? 'None yet' : quality.daysSinceLastTx === 0 ? 'Today' : `${quality.daysSinceLastTx}d ago`}
-                note={
-                  (quality.lastTxDate
-                    ? `Most recent posted record ${quality.lastTxDate.toLocaleDateString('en-GB')}.`
-                    : 'Nothing posted yet.') +
-                  (quality.plannedTx > 0
-                    ? ` ${quality.plannedTx} future-dated record(s) are planned, not counted in spend.`
-                    : '')
-                }
-              />
-              <QualityItem
-                name="Categorisation"
-                ok={qualityOk.categorisation}
-                label={quality.categorisedPct !== null ? formatPct(quality.categorisedPct) : '—'}
-                note={`${quality.totalTx} record(s) total, ${quality.openReview} flagged for review.`}
-              />
-              <QualityItem
-                name="Review queue"
-                ok={qualityOk.review}
-                label={quality.openReview === 0 ? 'Clear' : `${quality.openReview} open`}
-                note="Flagged on add or import; resolved above."
-              />
-              <QualityItem
-                name="Accounts"
-                ok={qualityOk.accounts}
-                label={accounts.length ? `${accounts.length} tracked` : 'None yet'}
-                note={quality.lastAccountUpdate ? `Balances entered manually, last touched ${quality.lastAccountUpdate.toLocaleDateString('en-GB')}.` : 'Add an account in Wealth.'}
-              />
-            </div>
-            </details>
-          </section>
+          <OverviewQuality
+            qualityIssues={qualityIssues}
+            qualityOk={qualityOk}
+            quality={quality}
+            accounts={accounts}
+          />
 
           <section className="ov-triple">
-            <div>
-                <div className="ov-kicker">Gross spending by category · {PERIOD_LABELS[period]}</div>
-                <div className="ov-muted" style={{ marginTop: 6 }}>
-                  Before refunds. Spending totals above include refunds.
-                </div>
-              {composition.rows.length === 0 ? (
-                <div className="ov-muted" style={{ marginTop: 12 }}>
-                  No spend recorded this period.
-                </div>
-              ) : (
-                <>
-                  <div className="ov-comp-fig fig">{money.fmt(composition.total)}</div>
-                  <div className="ov-comp-bar">
-                    {composition.rows.map((r, i) => (
-                      <span
-                        key={r.name}
-                        title={r.name}
-                        style={{ width: `${r.share * 100}%`, opacity: 1 - i * 0.16 }}
-                      />
-                    ))}
-                  </div>
-                  <div className="ov-comp-list">
-                    {composition.rows.map((r, i) => (
-                      <div key={r.name} className="ov-comp-row">
-                        <span className="ov-comp-dot" style={{ opacity: 1 - i * 0.16 }} />
-                        <div className="ov-comp-name">{r.name}</div>
-                        <div className="ov-comp-value">
-                          <div className="fig">{money.fmt(r.value)}</div>
-                          <div className="ov-muted">{formatPct(r.share)}</div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
+            <OverviewSpending
+              period={period}
+              composition={composition}
+              money={money}
+            />
 
-            <div>
-              <div className="ov-section-head">
-                <div className="ov-kicker">Recent activity</div>
-                <Link className="ov-link" to="/money">
-                  Activity →
-                </Link>
-              </div>
-              <div className="ov-list">
-                {recent.length === 0 ? (
-                  <div className="ov-muted" style={{ padding: '11px 0' }}>
-                    Nothing yet.
-                  </div>
-                ) : (
-                  recent.map((t) => (
-                    <div key={t.id} className="ov-list-row">
-                      <div className="ov-list-main">
-                        <div>{t.kind === 'transfer' ? 'Transfer between accounts' : (t.merchant ?? 'Transaction')}</div>
-                        <div className="ov-muted">
-                          {new Date(t.occurred_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
-                          {t.categories?.name ? ` · ${t.categories.name}` : ''}
-                          {t.needs_review ? <span className="ov-warn"> · needs review</span> : null}
-                        </div>
-                      </div>
-                      <div className={`fig ov-list-amt ${Number(t.amount) > 0 ? 'ov-pos' : ''}`}>
-                        {money.fmtSigned(t.amount)}
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-              {/* Real links, so Enter follows them and they open in a new
-                  tab; these moved only on a click (round 2 of the outside
-                  review, E2-7). */}
-              {recent.length > 0 && (
-                <Link className="ov-link ov-list-more" to="/money">
-                  All records in Activity →
-                </Link>
-              )}
-            </div>
+            <OverviewRecent
+              recent={recent}
+              money={money}
+            />
 
-            <div>
-              <div className="ov-section-head">
-                <div className="ov-kicker">Accounts</div>
-                <Link className="ov-link" to={tabHref('/wealth', 'accounts')}>
-                  Wealth →
-                </Link>
-              </div>
-              <div className="ov-list">
-                {unread.includes('accounts') ? (
-                  <div className="ov-muted" role="alert" style={{ padding: '11px 0' }}>
-                    {couldntLoad(['accounts'])}
-                  </div>
-                ) : accountRows.length === 0 ? (
-                  <div className="ov-muted" style={{ padding: '11px 0' }}>
-                    No accounts yet.
-                  </div>
-                ) : (
-                  accountRows.map((a) => (
-                    <div key={a.id} className="ov-list-row">
-                      <div className="ov-list-main">
-                        <div>{a.name}</div>
-                        <div className="ov-muted">{a.is_shared ? 'Joint' : ownerName(a.owner_member_id, members)}</div>
-                      </div>
-                      <div className={`fig ov-list-amt ${a.type === 'credit_card' || a.type === 'loan' ? 'ov-neg' : ''}`}>
-                        {balanceStatus(a) === 'unset' ? (
-                          <span className="ov-muted">Not set</span>
-                        ) : accountValueAed(a) === null ? (
-                          // A foreign balance with no conversion. Printing it
-                          // under the AED heading -- which `balance_aed ??
-                          // balance` did -- turned INR 20,000 into "AED
-                          // 20,000" right next to a headline that had excluded
-                          // it entirely (QA #4).
-                          <span className="ov-muted">{a.currency} {Number(a.balance ?? 0).toLocaleString('en-AE')} · not converted</span>
-                        ) : (
-                          // A liability reduces the position, so it is shown
-                          // negative — by negating the value, not by prefixing
-                          // a sign that could double up on an overpaid card.
-                          money.fmtBalance(
-                            a.type === 'credit_card' || a.type === 'loan' ? -accountValueAed(a) : accountValueAed(a),
-                          )
-                        )}
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
+            <OverviewAccounts
+              unread={unread}
+              accountRows={accountRows}
+              members={members}
+              money={money}
+            />
           </section>
         </>
       )}
@@ -720,86 +334,4 @@ export default function Overview() {
   );
 }
 
-function EmptyState({ navigate }) {
-  return (
-    <div className="ov-empty">
-      <div className="ov-empty-kicker">Day one</div>
-      <div className="ov-empty-body">
-        There are no figures to show, so none are shown. Net worth, savings rate and runway all need a first record;
-        until one arrives they stay blank rather than reading as zero.
-      </div>
-      <div className="ov-empty-actions">
-        <button type="button" className="om-btn ov-btn-primary" onClick={() => navigate('/money')}>
-          Add a transaction
-        </button>
-        <button type="button" className="om-btn" onClick={() => navigate(tabHref('/wealth', 'accounts'))}>
-          Add an account
-        </button>
-      </div>
-      <div className="ov-empty-foot">Three records is enough for Activity and Accounts. A savings rate needs one closed month. Runway needs six.</div>
-    </div>
-  );
-}
-
-// One headline figure, and how it moved against the same stretch of the
-// period before. Up is good for income, bad for spending; the arrow says the
-// direction and the colour says whether that is good.
-function Kpi({ label, figure, tone = '', change, goodWhenUp, prevLabel, fmt, hint = null }) {
-  let note = null;
-  if (change) {
-    const up = change.value > 0;
-    const flat = Math.abs(change.value) < 0.5;
-    const text = change.kind === 'points' ? `${Math.abs(change.value).toFixed(0)} pts` : fmt(Math.abs(change.value));
-    note = flat ? (
-      <span className="ov-muted">same as {prevLabel}</span>
-    ) : (
-      <>
-        <span className={up === goodWhenUp ? 'ov-pos' : 'ov-warn'}>
-          {up ? '▲' : '▼'} {text}
-        </span>
-        <span className="ov-muted"> vs {prevLabel}</span>
-      </>
-    );
-  }
-  return (
-    <div>
-      <div className="ov-kpi-label">{label}</div>
-      <div className={`ov-kpi-fig fig ${tone}`}>{figure}</div>
-      {note && <div className="ov-kpi-change">{note}</div>}
-      {hint && <div className="ov-kpi-change ov-muted ov-kpi-hint">{hint}</div>}
-    </div>
-  );
-}
-
-function QualityItem({ name, ok, label, note }) {
-  return (
-    <div className="ov-quality-item">
-      <span className={ok ? 'ov-dot-pos' : 'ov-dot-warn'} />
-      <div>
-        <div className="ov-quality-row">
-          <span>{name}</span>
-          <span className={ok ? 'ov-chip-ok' : 'ov-chip-warn'}>{label}</span>
-        </div>
-        <div className="ov-muted ov-quality-note">{note}</div>
-      </div>
-    </div>
-  );
-}
-
 const RECENT_COUNT = 5;
-
-function visibleRows(rows, scopeMemberId) {
-  if (scopeMemberId === null) return rows;
-  return rows.filter((r) => r.is_shared || r.owner_member_id === scopeMemberId);
-}
-
-function ownerName(ownerMemberId, members) {
-  if (!ownerMemberId) return 'Shared';
-  return members.find((m) => m.id === ownerMemberId)?.display_name ?? 'Member';
-}
-
-function scopeLabel(scope, me, members) {
-  if (scope === 'me') return me?.display_name ?? 'Me';
-  const partner = members.find((m) => m.id !== me?.id);
-  return partner?.display_name ?? 'Partner';
-}

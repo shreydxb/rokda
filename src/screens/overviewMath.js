@@ -263,3 +263,23 @@ export const CHART_TITLES = {
 export function isRunningBucket(bucket, now = new Date()) {
   return bucket.start <= now && now < bucket.end;
 }
+
+// The rows a scope shows: every one for the household, otherwise the shared
+// ones and the member's own (moved out of Overview.jsx, SHR-383).
+export function visibleRows(rows, scopeMemberId) {
+  if (scopeMemberId === null) return rows;
+  return rows.filter((r) => r.is_shared || r.owner_member_id === scopeMemberId);
+}
+
+// Whose a record is, by name.
+export function ownerName(ownerMemberId, members) {
+  if (!ownerMemberId) return 'Shared';
+  return members.find((m) => m.id === ownerMemberId)?.display_name ?? 'Member';
+}
+
+// The name of the scope shown: me, or the partner.
+export function scopeLabel(scope, me, members) {
+  if (scope === 'me') return me?.display_name ?? 'Me';
+  const partner = members.find((m) => m.id !== me?.id);
+  return partner?.display_name ?? 'Partner';
+}

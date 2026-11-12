@@ -1,0 +1,140 @@
+/* Split out of ../Wealth.css with the round 2 cleanup (SHR-383): the rules only
+   this tab uses. What the tabs share stays there. */
+
+.wl-breakdown {
+  margin-top: 30px;
+}
+
+.wl-breakdown-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 44px;
+}
+
+@media (max-width: 720px) {
+  .wl-breakdown-grid {
+    /* Same reason as Overview's .ov-triple: bare `1fr` cannot shrink below its
+       content's min-content width, which is what the two-column rule above
+       uses minmax(0, ...) to avoid. Not currently reproducing here, but it is
+       the same latent fault waiting on wide enough content. */
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.wl-total-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-top: 1px solid var(--rule2);
+  font-size: 13.5px;
+  color: var(--ink2);
+  margin-top: 4px;
+}
+
+.wl-change-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 9px 0;
+  border-top: 1px solid var(--rule);
+  font-size: 12.5px;
+}
+
+.wl-hero-row {
+  display: flex;
+  gap: 48px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.wl-composition {
+  flex: 1;
+  min-width: 260px;
+  padding-bottom: 6px;
+}
+
+.wl-composition-bar {
+  display: flex;
+  height: 10px;
+  gap: 2px;
+  background: var(--rule);
+}
+
+.wl-composition-bar span {
+  display: block;
+  height: 100%;
+}
+
+.wl-composition-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin-top: 10px;
+  font-size: 11.5px;
+  color: var(--ink2);
+}
+
+.wl-composition-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.wl-composition-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  flex: none;
+}
+
+.wl-history-table {
+  margin-top: 18px;
+}
+
+.wl-history-table summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--ink3);
+}
+
+.wl-history-table table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+  font-size: 12.5px;
+}
+
+.wl-history-table th,
+.wl-history-table td {
+  text-align: right;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--rule);
+  font-family: var(--fig);
+}
+
+.wl-history-table th[scope='col'] {
+  font-family: inherit;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink3);
+}
+
+.wl-history-table th[scope='row'] {
+  text-align: left;
+  font-family: inherit;
+}
+
+.wl-history {
+  margin-top: 40px;
+}
+
+/* Month close sits with the history heading: history exists because someone
+   closes a month, so the action belongs next to the thing it fills (QA-05). */
+.wl-history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
