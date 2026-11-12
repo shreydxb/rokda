@@ -127,7 +127,9 @@ here, because this repository is public.
   whatever the display currency, and say so when another one is picked.
 - **Inbox**: transactions the bot was not sure of, to confirm or fix. An entry
   whose message had no date is marked "No date" and is approved only once its
-  date is set or confirmed, never in bulk.
+  date is set or confirmed, never in bulk. Its editor offers "Remember this
+  merchant", unticked, for an expense with a category chosen whose merchant
+  no rule covers: the entry is approved, then the rule is added.
 - **Review**: the month just ended (or an earlier one), as a checklist of
   what to settle before its totals go into history: flagged records,
   records with no category, possible duplicates ("Both are real", remembered
@@ -136,7 +138,9 @@ here, because this repository is public.
   the month, balances confirmed since it ended, and closing it under Net
   worth, plus a note of refunds not yet linked to their purchase. Each check
   is worked out from the records and ticks itself off; the
-  close marks the month reviewed. A "Next" card above the checks names the
+  close marks the month reviewed, and is done here ("Close October 2026"
+  under what goes into history), whatever else is open: the checks still
+  open are named, and can be finished after. A "Next" card above the checks names the
   first one still to do, with its link; each link out of the review offers
   "Back to the review" on the page it opens. Under the checks, the month
   against its budget and the groups that went over; what the close puts into

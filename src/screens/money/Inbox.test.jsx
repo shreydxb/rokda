@@ -4,6 +4,7 @@ import { act } from 'react';
 import { renderScreen } from '../../test/renderScreen';
 
 const calls = [];
+const stored = { rules: [] };
 vi.mock('../../lib/supabaseClient', () => ({
   supabase: {
     rpc: (name, args) => {
@@ -13,8 +14,12 @@ vi.mock('../../lib/supabaseClient', () => ({
     from: (table) => ({
       insert: (payload) => {
         calls.push({ kind: 'insert', table, payload });
-        return Promise.resolve({ error: null });
+        const done = Promise.resolve({ error: null });
+        done.select = () => ({ single: () => Promise.resolve({ data: { id: 'rule-1' }, error: null }) });
+        return done;
       },
+      // The household's rules, read again just before one is added.
+      select: () => ({ eq: () => ({ order: () => ({ order: () => Promise.resolve({ data: stored.rules, error: null }) }) }) }),
       update: (payload) => {
         const chain = {
           eq: () => chain,
@@ -326,5 +331,67 @@ describe('Inbox: an inbox that never loaded', () => {
     expect(screen.queryByText('Inbox zero')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(reload).toHaveBeenCalled();
+  });
+});
+
+// Rules were offered only when a saved record was moved to another category,
+// which nobody did: with 78 merchants seen three times or more, the household
+// had no rule (the feature review, November 2026). The Inbox is where a
+// category is chosen, so it is offered there.
+describe('Inbox: remembering a merchant while approving', () => {
+  const FOOD = { id: 'food', name: 'Groceries', kind: 'expense', archived: false, is_savings: false };
+  const render = (rules = []) => {
+    stored.rules = rules;
+    renderScreen(
+      <Inbox members={MEMBERS} accounts={ACCOUNTS} categories={[FOOD]} loading={false} data={{ intake: [ITEM], categoryRules: rules, transactions: [], reload: vi.fn().mockResolvedValue(undefined) }} />,
+    );
+    return act(async () => {
+      screen.getByRole('button', { name: 'Edit first' }).click();
+    });
+  };
+  beforeEach(() => {
+    calls.length = 0;
+  });
+
+  it('offers it, unticked, once a category is chosen, and adds the rule after the approval', async () => {
+    await render();
+    expect(screen.queryByLabelText(/Remember this merchant/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Groceries' }));
+    const tick = screen.getByLabelText(/Remember this merchant/);
+    expect(tick.checked).toBe(false);
+    fireEvent.click(tick);
+    expect(screen.getByLabelText('Merchant pattern').value).toBe('Carrefour');
+    await act(async () => {
+      screen.getByRole('button', { name: 'Approve and add rule' }).click();
+    });
+    expect(calls.map((c) => c.kind)).toEqual(['rpc', 'insert']);
+    expect(calls[1]).toEqual({ kind: 'insert', table: 'category_rules', payload: { household_id: 'hh', pattern: 'Carrefour', match_type: 'contains', category_id: 'food' } });
+  });
+
+  it('adds nothing unless it is ticked', async () => {
+    await render();
+    fireEvent.click(screen.getByRole('button', { name: 'Groceries' }));
+    await act(async () => {
+      screen.getByRole('button', { name: 'Approve' }).click();
+    });
+    expect(calls.map((c) => c.kind)).toEqual(['rpc']);
+  });
+
+  it('is not offered for a merchant a rule already covers, or for income', async () => {
+    await render([{ id: 'r1', pattern: 'carrefour', match_type: 'contains', category_id: 'food', archived: false }]);
+    expect(screen.queryByLabelText(/Remember this merchant/)).toBeNull();
+  });
+
+  it('refuses a pattern that would not match the merchant, before approving anything', async () => {
+    await render();
+    fireEvent.click(screen.getByRole('button', { name: 'Groceries' }));
+    fireEvent.click(screen.getByLabelText(/Remember this merchant/));
+    fireEvent.change(screen.getByLabelText('Merchant pattern'), { target: { value: 'Lulu' } });
+    await act(async () => {
+      screen.getByRole('button', { name: /^Approve/ }).click();
+    });
+    expect(calls).toEqual([]);
+    // Said beside the pattern, and again by the button that was pressed.
+    expect(screen.getAllByRole('alert').every((el) => /doesn’t contain “Lulu”/.test(el.textContent))).toBe(true);
   });
 });

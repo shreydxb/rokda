@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { formatMoney } from '../../lib/money';
-import { firstMatchingRule } from '../../lib/rules';
+import { firstMatchingRule, rememberMerchantCheck, ruleLabel } from '../../lib/rules';
 import { accountOptionLabel, selectableAccounts } from '../../lib/accounts';
 import { INTAKE_KINDS, INTAKE_SOURCE_LABELS, approvalArgs, validateApproval } from '../../lib/intake';
 import { confirmedPairRow, findDuplicate } from '../../lib/duplicates';
@@ -11,6 +11,8 @@ import { neverLoaded } from '../../lib/loadState';
 import Withheld from '../planning/Withheld';
 import './TransactionEditor.css';
 import OwnerPicker from '../OwnerPicker';
+import RememberMerchant from './RememberMerchant';
+import { addMerchantRule } from './merchantRule';
 import './Inbox.css';
 
 function senderName(item, members) {
@@ -478,6 +480,20 @@ function IntakeEditForm({ item, sender, accounts, members, categories, categoryR
   // database checks its own copy, and a copy this screen holds could be older
   // than a correction that has since made the date a guess.
   const [dateConfirmed, setDateConfirmed] = useState(false);
+  // "Remember this merchant": a household rule added once the entry is
+  // approved, so the next one from this merchant arrives already filed. Off
+  // until ticked, and offered only for an expense with a category chosen
+  // whose merchant no rule covers yet (docs/decisions.md, "A correction can
+  // remember its merchant"). The pattern follows the merchant until edited.
+  const [remember, setRemember] = useState(false);
+  const [rulePattern, setRulePattern] = useState(null);
+  const [ruleMatchType, setRuleMatchType] = useState('contains');
+  const merchantName = merchant.trim();
+  const canRemember = kind === 'expense' && merchantName !== '' && !!categoryId && !firstMatchingRule(merchantName, categoryRules);
+  const remembering = canRemember && remember;
+  const ruleProposal = { pattern: rulePattern ?? merchantName, match_type: ruleMatchType, category_id: categoryId };
+  const ruleCheck = remembering ? rememberMerchantCheck(merchantName, ruleProposal, categoryRules) : null;
+  const categoryNameOf = (id) => categories.find((c) => c.id === id)?.name ?? 'a category that no longer exists';
 
   const duplicateTransaction = duplicateDismissed
     ? null
@@ -509,7 +525,10 @@ function IntakeEditForm({ item, sender, accounts, members, categories, categoryR
       setError(`No ${foreignCurrency} rate for that date: enter the AED debited.`);
       return;
     }
-    const invalid = validateApproval(form);
+    // A rule that wouldn't match this merchant is caught before anything is
+    // written, so the entry is never approved on the way to a rule that
+    // can't be.
+    const invalid = validateApproval(form) || (ruleCheck?.status === 'invalid' ? ruleCheck.reason : '');
     if (invalid) {
       setError(invalid);
       return;
@@ -530,6 +549,19 @@ function IntakeEditForm({ item, sender, accounts, members, categories, categoryR
       if (pairError) {
         setSaving(false);
         setError(`Approved, but "both are real" wasn't remembered: ${pairError.message}. The monthly review will ask about the pair again.`);
+        return;
+      }
+    }
+    // The rule comes only after the entry is approved. One already filing
+    // this merchant there means none is needed; anything else that stops it
+    // is said, with the entry kept approved.
+    if (remembering) {
+      const added = await addMerchantRule({ householdId: item.household_id, merchant: merchantName, proposal: ruleProposal });
+      if (added.status === 'conflict' || added.status === 'failed') {
+        setSaving(false);
+        setError(
+          `Approved, but the merchant rule wasn’t added: ${added.status === 'conflict' ? `${ruleLabel(added.rule)} already files this merchant under ${categoryNameOf(added.rule.category_id)}` : added.reason}. Add or change it in Settings → Categories & rules.`,
+        );
         return;
       }
     }
@@ -699,6 +731,30 @@ function IntakeEditForm({ item, sender, accounts, members, categories, categoryR
             Suggested by a rule matching "{suggestedRule.pattern}".
           </div>
         )}
+        {canRemember && (
+          <>
+            <label className="te-remember">
+              <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+              <span>
+                <span className="te-togglelabel">Remember this merchant</span>
+                <span className="te-togglenote">Add a household rule so future entries from “{merchantName}” go to {categoryNameOf(categoryId)}</span>
+              </span>
+            </label>
+            {remember && (
+              <RememberMerchant
+                merchant={merchantName}
+                categoryName={categoryNameOf(categoryId)}
+                categories={categories}
+                pattern={ruleProposal.pattern}
+                matchType={ruleMatchType}
+                check={ruleCheck}
+                disabled={saving}
+                onPattern={setRulePattern}
+                onMatchType={setRuleMatchType}
+              />
+            )}
+          </>
+        )}
 
         {duplicatePending && (
           <div className="te-duplicate" role="status">
@@ -743,7 +799,7 @@ function IntakeEditForm({ item, sender, accounts, members, categories, categoryR
             Reject
           </button>
           <button type="submit" className="om-btn ov-btn-primary" disabled={saving}>
-            {saving ? 'Saving…' : 'Approve'}
+            {saving ? 'Saving…' : remembering && ruleCheck?.status === 'new' ? 'Approve and add rule' : 'Approve'}
           </button>
         </div>
       </form>

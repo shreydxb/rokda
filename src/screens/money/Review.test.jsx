@@ -20,6 +20,12 @@ vi.mock('../../lib/supabaseClient', () => ({
         writes.push({ table, insert: row });
         return Promise.resolve({ error: null });
       },
+      upsert: (row) => ({
+        select: () => {
+          writes.push({ table, upsert: row });
+          return Promise.resolve({ data: [row], error: null });
+        },
+      }),
       delete: () => ({
         eq: (column, value) => {
           writes.push({ table, delete: value });
@@ -84,7 +90,9 @@ describe('Review', () => {
     expect(within(flagged).getByRole('link', { name: 'Open the records' }).getAttribute('href')).toMatch(/^\/money\?tab=activity&who=both&review=1&from=/);
     expect(within(screen.getByTestId('review-categorise')).getByRole('link').getAttribute('href')).toMatch(/cat=none/);
     expect(within(screen.getByTestId('review-balances')).getByText(/Current account/)).toBeTruthy();
-    expect(within(screen.getByTestId('review-close')).getByRole('link', { name: 'Close the month' }).getAttribute('href')).toBe(`/wealth?reviewing=${lastMonth(1).slice(0, 7)}`);
+    // The close is done here, not on another page.
+    expect(within(screen.getByTestId('review-close')).getByRole('button', { name: 'Close the month' })).toBeTruthy();
+    expect(within(screen.getByTestId('review-close')).queryByRole('link')).toBeNull();
   });
 
   it('says so once the month is reviewed and closed', () => {
@@ -134,6 +142,34 @@ describe('Review', () => {
     expect(writes).toEqual([]);
     await act(async () => fireEvent.click(within(check).getByRole('button', { name: /^Delete the .* one\?$/ })));
     expect(writes).toEqual([{ table: 'transactions', delete: 'b' }]);
+  });
+
+  // The close used to be reached only from Wealth, as the last of the
+  // checks, and no month was ever closed (the feature review, November 2026).
+  it('closes the month here, with checks still open named rather than in the way', async () => {
+    const d = data({
+      accounts: [account('current', 'Current account', { balance: 5000, currency: 'AED' }), account('card', 'Bank card', { type: 'credit_card', balance: 1000, currency: 'AED' })],
+      transactions: [tx('t1', { needs_review: true })],
+      holdings: [],
+    });
+    renderReview(d);
+    fireEvent.click(within(screen.getByTestId('review-close')).getByRole('button', { name: 'Close the month' }));
+    expect(screen.getByText(/1 check is still open \(Flagged records\)\. You can close now and finish it after/)).toBeTruthy();
+    expect(screen.getByLabelText('Assets (AED)').value).toBe('5000');
+    expect(screen.getByLabelText('Liabilities (AED)').value).toBe('1000');
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Confirm & close/ }));
+    });
+    expect(writes).toEqual([{ table: 'net_worth_snapshots', upsert: { household_id: 'hh', snapshot_date: lastMonth(1), assets: 5000, liabilities: 1000 } }]);
+    expect(d.reload).toHaveBeenCalled();
+  });
+
+  it('offers no close for a month already closed, or one too old to close', () => {
+    renderReview(data({ netWorthSnapshots: [{ snapshot_date: lastMonth(1), assets: 1, liabilities: 0 }] }));
+    expect(screen.queryByRole('button', { name: /^Close / })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '← Prev' }));
+    expect(screen.queryByRole('button', { name: /^Close / })).toBeNull();
+    expect(screen.getByTestId('review-close').textContent).toMatch(/can't be now/);
   });
 
   it('steps back a month, and not forward past the month just ended', () => {
