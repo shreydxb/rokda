@@ -14,7 +14,7 @@ describe('planningDefaults', () => {
       expect(Number(match?.[1]), column).toBe(value);
     }
     for (const file of readdirSync(dir)) {
-      expect(readFileSync(join(dir, file), 'utf8'), file).not.toMatch(/alter column (nominal_return_pct|inflation_pct|safe_withdrawal_pct) set default/);
+      expect(readFileSync(join(dir, file), 'utf8'), file).not.toMatch(/alter column (nominal_return_pct|inflation_pct) set default/);
     }
   });
 

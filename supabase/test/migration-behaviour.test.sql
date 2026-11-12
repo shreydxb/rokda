@@ -1780,10 +1780,7 @@ begin
     raise exception 'statements FAILED: an unknown status was accepted';
   exception when check_violation then null;
   end;
-  update statement_reconciliations set status = 'confirmed', closed_at = now(), closed_by_member_id = m1, asked_message_ids = '{11,12}' where account_id = card;
-  if (not exists (select 1 from statement_reconciliations where account_id = card and asked_message_ids @> '{12}')) is not false then
-    raise exception 'statements FAILED: a question''s message id is not found by containment';
-  end if;
+  update statement_reconciliations set status = 'confirmed', closed_at = now(), closed_by_member_id = m1 where account_id = card;
   -- A question is found by its chat and message together, never by the
   -- message id alone: each chat numbers its own messages.
   update statement_reconciliations set asked_prompts = '[{"chat_id": 501, "message_id": 42, "member_id": "x"}]' where account_id = card;
@@ -2528,8 +2525,8 @@ declare hh constant uuid := '11111111-1111-1111-1111-111111111111';
 begin
   insert into planning_assumptions (household_id) values (hh) on conflict (household_id) do nothing;
   update planning_assumptions
-     set nominal_return_pct = 0, inflation_pct = 0, safe_withdrawal_pct = 4, debt_extra_payment = 0,
-         custom_nominal_return_pct = null, custom_inflation_pct = null, custom_safe_withdrawal_pct = null, custom_updated_at = now()
+     set nominal_return_pct = 0, inflation_pct = 0, debt_extra_payment = 0,
+         custom_nominal_return_pct = null, custom_inflation_pct = null, custom_updated_at = now()
    where household_id = hh;
 
   begin
@@ -2543,11 +2540,6 @@ begin
   exception when check_violation then null;
   end;
   begin
-    update planning_assumptions set baseline_nominal_return_pct = 51 where household_id = hh;
-    raise exception 'planning ranges FAILED: a baseline return of 51%% was accepted';
-  exception when check_violation then null;
-  end;
-  begin
     update planning_assumptions set inflation_pct = -100 where household_id = hh;
     raise exception 'planning ranges FAILED: inflation of -100%% was accepted';
   exception when check_violation then null;
@@ -2555,21 +2547,6 @@ begin
   begin
     update planning_assumptions set custom_inflation_pct = 31 where household_id = hh;
     raise exception 'planning ranges FAILED: Custom inflation of 31%% was accepted';
-  exception when check_violation then null;
-  end;
-  begin
-    update planning_assumptions set baseline_inflation_pct = -11 where household_id = hh;
-    raise exception 'planning ranges FAILED: baseline inflation of -11%% was accepted';
-  exception when check_violation then null;
-  end;
-  begin
-    update planning_assumptions set safe_withdrawal_pct = 0 where household_id = hh;
-    raise exception 'planning ranges FAILED: a withdrawal rate of 0%% was accepted';
-  exception when check_violation then null;
-  end;
-  begin
-    update planning_assumptions set custom_safe_withdrawal_pct = 12 where household_id = hh;
-    raise exception 'planning ranges FAILED: a Custom withdrawal rate of 12%% was accepted';
   exception when check_violation then null;
   end;
   begin
@@ -2624,8 +2601,8 @@ begin
   delete from planning_assumptions where household_id = hh;
   insert into planning_assumptions (household_id, retirement_year) values (hh, 2050);
   select * into r from planning_assumptions where household_id = hh;
-  if (r.nominal_return_pct <> 6 or r.inflation_pct <> 2.5 or r.safe_withdrawal_pct <> 4) is not false then
-    raise exception 'saved marker FAILED: a new row did not hold the defaults the app shows (%, %, %)', r.nominal_return_pct, r.inflation_pct, r.safe_withdrawal_pct;
+  if (r.nominal_return_pct <> 6 or r.inflation_pct <> 2.5) is not false then
+    raise exception 'saved marker FAILED: a new row did not hold the defaults the app shows (%, %)', r.nominal_return_pct, r.inflation_pct;
   end if;
   if (r.assumptions_saved_at is not null) is not false then
     raise exception 'saved marker FAILED: a row the life plan created reads as saved assumptions';
@@ -6116,6 +6093,39 @@ begin
     raise exception 'R2-05 FAILED: a client role can read the webhook secret';
   end if;
   raise notice 'R2-05 ok: only the service role reads the webhook secret';
+end $$;
+
+-- Retired columns and indexes (the round 2 cleanup, SHR-383): the columns
+-- nothing reads or writes any more are gone, and so is each single-column
+-- index that another full index on the same table already leads with. That
+-- every foreign key still leads a full index is "fk indexes", above.
+do $$
+declare gone text; still_there text;
+begin
+  select string_agg(format('%s.%s', attrelid::regclass, attname), ', ') into gone
+  from pg_attribute
+  where not attisdropped and attnum > 0
+    and (attrelid, attname) in (
+      ('public.planning_assumptions'::regclass, 'safe_withdrawal_pct'), ('public.planning_assumptions'::regclass, 'custom_safe_withdrawal_pct'),
+      ('public.planning_assumptions'::regclass, 'debt_assume_no_new_card_spend'), ('public.planning_assumptions'::regclass, 'baseline_nominal_return_pct'),
+      ('public.planning_assumptions'::regclass, 'baseline_inflation_pct'), ('public.planning_assumptions'::regclass, 'baseline_monthly_saving'),
+      ('public.planning_assumptions'::regclass, 'baseline_set_at'), ('public.accounts'::regclass, 'closing_note'),
+      ('public.statement_reconciliations'::regclass, 'rokda_spend'), ('public.statement_reconciliations'::regclass, 'asked_message_ids'));
+  if (gone is not null) is not false then
+    raise exception 'retired columns FAILED: still present: %', gone;
+  end if;
+
+  select string_agg(c.relname, ', ') into still_there
+  from pg_class c
+  where c.relnamespace = 'public'::regnamespace and c.relkind = 'i'
+    and c.relname in ('household_members_household_id_idx', 'categories_household_id_idx', 'accounts_household_id_idx',
+      'transactions_household_id_idx', 'recurring_household_id_idx', 'budgets_household_id_idx', 'intake_household_id_idx',
+      'net_worth_snapshots_household_id_idx', 'holdings_household_id_idx', 'goals_household_id_idx', 'debts_household_id_idx',
+      'category_rules_household_id_idx', 'independence_income_household_id_idx', 'holding_value_history_holding_id_idx');
+  if (still_there is not null) is not false then
+    raise exception 'retired indexes FAILED: still present: %', still_there;
+  end if;
+  raise notice 'retired columns and indexes ok: gone';
 end $$;
 
 rollback;

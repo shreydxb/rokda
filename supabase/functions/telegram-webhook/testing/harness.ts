@@ -160,7 +160,7 @@ export const DEFAULTS: Record<string, () => Row> = {
     decided_at: null,
     result: null,
   }),
-  statement_reconciliations: () => ({ status: "waiting", asked_message_ids: [], asked_prompts: [], last_asked_on: null, closed_at: null, closed_by_member_id: null }),
+  statement_reconciliations: () => ({ status: "waiting", asked_prompts: [], last_asked_on: null, closed_at: null, closed_by_member_id: null }),
 };
 
 export function json(body: unknown, status = 200): Response {
@@ -177,11 +177,6 @@ export function cellMatches(cell: unknown, op: string, value: string): boolean {
     case "lt":
       return cell != null && String(cell) < value;
     case "cs": {
-      // Array containment, as asked_message_ids @> {n}.
-      if (Array.isArray(cell) && /^\{[^"{}]*\}$/.test(value)) {
-        const want = value.slice(1, -1).split(",").filter(Boolean).map(Number);
-        return want.every((x) => (cell as unknown[]).includes(x));
-      }
       // JSON array containment, as asked_prompts @> [{"chat_id": c, ...}]:
       // every object given matches some element on every key it gives.
       const wanted = JSON.parse(value) as unknown;

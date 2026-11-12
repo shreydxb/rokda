@@ -695,5 +695,12 @@
   "fingerprint": "b4e731ceca4915e6132be05b3621f5aa",
   "framingFingerprint": "ada4d29eaa31d01347bf8d58caaa670b",
   "fingerprintVersion": 2
+ },
+ {
+  "version": "20261112061012",
+  "name": "retired_columns",
+  "fingerprint": "2ed557e1676eb1ca3b28efb9238f9119",
+  "framingFingerprint": "6988a085168fabceacd44c10b90927d4",
+  "fingerprintVersion": 2
  }
 ]
