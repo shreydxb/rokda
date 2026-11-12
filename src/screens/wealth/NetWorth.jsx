@@ -7,8 +7,9 @@ import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId, scopedValue } from '../../lib/scope';
 import { accountTypeLabel, accountValueAed, isArchived, unvaluedAccounts } from '../../lib/accounts';
 import { balanceStatus, unconfirmedAccounts } from '../../lib/balance';
-import { closeRowFor, historyState, pendingClose } from '../../lib/snapshots';
-import { supabase } from '../../lib/supabaseClient';
+import { historyState } from '../../lib/snapshots';
+import { useMonthClose } from '../../lib/useMonthClose';
+import MonthCloseForm from './MonthCloseForm';
 import { formatPct } from '../../lib/money';
 import { buildNetWorthSeries, changeOverMonths } from '../../lib/netWorth';
 import { ASSET_CLASS_LABELS, scopedHoldingValue, visibleHoldings } from '../../lib/holdings';
@@ -58,16 +59,6 @@ export default function NetWorth({ household, me, members, data, loading }) {
   const scopeMemberId = resolveScopeMemberId(scope, me, members);
   const money = useMoneyDisplay(household);
   const { accounts, netWorthSnapshots, holdings, reload } = data;
-  const [closing, setClosing] = useState(false);
-  const [closeError, setCloseError] = useState(null);
-  // The values a close would write, shown for review before anything is
-  // written. Null means "not confirming right now" (SHR-246): today's live
-  // totals must not become a closed month's history without someone actually
-  // looking at the number first. Kept as raw strings, not coerced numbers, so
-  // a blank field or a stray non-numeric character is a validation error
-  // instead of silently becoming zero.
-  const [closeDraft, setCloseDraft] = useState(null);
-
   const now = useNow(data?.loadedAt);
   const [selectedIdx, setSelectedIdx] = useState(null);
 
@@ -114,69 +105,10 @@ export default function NetWorth({ household, me, members, data, loading }) {
   );
   const change1mo = historyAvailable ? changeOverMonths(series, 1) : null;
   const change12mo = historyAvailable ? changeOverMonths(series, 12) : null;
-  const pending = pendingClose(netWorthSnapshots, now);
+  // Closing the month just ended, shared with the monthly review.
+  const close = useMonthClose({ householdId: household?.id, accounts, holdings, netWorthSnapshots, now, onClosed: reload });
+  const pending = close.pending;
 
-  // Closing is a two-step, explicit act (SHR-246): the button only opens a
-  // review of what would be written — today's live totals, offered as a
-  // starting point, not a fact yet. Nothing is written until "Confirm &
-  // close" is pressed on those (possibly edited) numbers.
-  //
-  // A total with gaps (an account not converted, a holding never valued) is
-  // not offered at all: confirming it as it stands would put a partial
-  // balance sheet into the history for good. The fields start empty, and the
-  // month stays open, saying why, until the gaps are fixed or someone types
-  // what the month actually closed at (docs/decisions.md, "A month closes on
-  // complete totals").
-  function reviewClose() {
-    if (!pending) return;
-    if (incompleteNote(gaps)) {
-      setCloseDraft({ assets: '', liabilities: '' });
-      return;
-    }
-    const household_wide = netWorthSummary(accounts, null, holdings);
-    setCloseDraft({ assets: String(household_wide.assets), liabilities: String(household_wide.liabilities) });
-  }
-
-  const closeDraftAssets = closeDraft ? Number(closeDraft.assets) : null;
-  const closeDraftLiabilities = closeDraft ? Number(closeDraft.liabilities) : null;
-  const closeDraftAssetsError =
-    closeDraft && (closeDraft.assets.trim() === '' || !Number.isFinite(closeDraftAssets)) ? 'Enter a number.' : null;
-  const closeDraftLiabilitiesError =
-    closeDraft && (closeDraft.liabilities.trim() === '' || !Number.isFinite(closeDraftLiabilities)) ? 'Enter a number.' : null;
-  const closeDraftValid = closeDraft && !closeDraftAssetsError && !closeDraftLiabilitiesError;
-
-  // Upserting on (household_id, snapshot_date) with ignoreDuplicates means
-  // closing the same month twice from the same session changes nothing — but
-  // it also means a second, stale session cannot silently overwrite a month
-  // another session already closed with different numbers. Whoever closes it
-  // first wins; a later attempt is a no-op, not a clobber — and .select()
-  // lets that no-op be told apart from a real write, so a stale session is
-  // told plainly rather than reloading as if its numbers had been saved.
-  async function confirmClose() {
-    if (!pending || !household?.id || !closeDraftValid) return;
-    setClosing(true);
-    setCloseError(null);
-    const { data, error } = await supabase
-      .from('net_worth_snapshots')
-      .upsert(closeRowFor(household.id, pending.snapshotDate, { assets: closeDraftAssets, liabilities: closeDraftLiabilities }), {
-        onConflict: 'household_id,snapshot_date',
-        ignoreDuplicates: true,
-      })
-      .select();
-    setClosing(false);
-    if (error) {
-      setCloseError(error.message);
-      return;
-    }
-    if (!data || data.length === 0) {
-      setCloseError(
-        `${pending.month.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })} was already closed by another session. Your values were not saved — reload to see what was recorded.`,
-      );
-      return;
-    }
-    setCloseDraft(null);
-    await reload();
-  }
   const selected = selectedIdx !== null ? series[selectedIdx] : series[series.length - 1];
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
@@ -329,9 +261,9 @@ export default function NetWorth({ household, me, members, data, loading }) {
       <section className="wl-history">
         <div className="wl-history-head">
           <div className="ov-kicker">How it's grown</div>
-          {historyAvailable && pending && !closeDraft && (
-            <button type="button" className="om-btn" disabled={closing} onClick={reviewClose}>
-              {`Close ${pending.month.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}`}
+          {historyAvailable && pending && !close.draft && (
+            <button type="button" className="om-btn" disabled={close.closing} onClick={close.open}>
+              {`Close ${close.monthLabel}`}
             </button>
           )}
         </div>
@@ -340,74 +272,7 @@ export default function NetWorth({ household, me, members, data, loading }) {
             Every completed month is closed. Closing again would change nothing.
           </div>
         )}
-        {historyAvailable && pending && closeDraft && (
-          <div className="ov-card" style={{ marginBottom: 16, padding: 14 }}>
-            <div className="ov-muted" style={{ marginBottom: 10 }}>
-              Confirm what {pending.month.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })} actually closed at.
-              {incompleteNote(gaps)
-                ? 'Stored values are always AED, regardless of the display currency above.'
-                : "These start from today's live totals — edit them if they don't reflect that month's actual position. Stored values are always AED, regardless of the display currency above."}
-            </div>
-            {/* A month-end close is written down and compared against for
-                years. Starting it from a total that silently omits an
-                unconverted account bakes that omission into the history
-                (QA #4), so the gap is named here rather than only on the
-                hero above. */}
-            {incompleteNote(gaps) && (
-              <div className="ov-warn" style={{ marginBottom: 10, fontSize: 12 }} data-testid="close-gaps">
-                Today&rsquo;s totals {incompleteNote(gaps, { capitalised: false })} so they are not filled in. Convert or value{' '}
-                {gapNames} first, or enter what the month actually closed at.
-              </div>
-            )}
-            <div className="te-fieldgrid">
-              <div className="te-fieldcell">
-                <span className="te-fieldlabel">Assets (AED)</span>
-                <input aria-label="Assets (AED)"
-                  className="te-fieldvalue"
-                  type="number"
-                  step="0.01"
-                  value={closeDraft.assets}
-                  aria-invalid={!!closeDraftAssetsError}
-                  onChange={(e) => setCloseDraft((d) => ({ ...d, assets: e.target.value }))}
-                />
-                {closeDraftAssetsError && (
-                  <span className="ov-warn" style={{ fontSize: 11.5 }}>
-                    {closeDraftAssetsError}
-                  </span>
-                )}
-              </div>
-              <div className="te-fieldcell">
-                <span className="te-fieldlabel">Liabilities (AED)</span>
-                <input aria-label="Liabilities (AED)"
-                  className="te-fieldvalue"
-                  type="number"
-                  step="0.01"
-                  value={closeDraft.liabilities}
-                  aria-invalid={!!closeDraftLiabilitiesError}
-                  onChange={(e) => setCloseDraft((d) => ({ ...d, liabilities: e.target.value }))}
-                />
-                {closeDraftLiabilitiesError && (
-                  <span className="ov-warn" style={{ fontSize: 11.5 }}>
-                    {closeDraftLiabilitiesError}
-                  </span>
-                )}
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-              <button type="button" className="om-btn" disabled={closing} onClick={() => setCloseDraft(null)}>
-                Cancel
-              </button>
-              <button type="button" className="om-btn ov-btn-primary" disabled={closing || !closeDraftValid} onClick={confirmClose}>
-                {closing ? 'Closing…' : 'Confirm & close'}
-              </button>
-            </div>
-          </div>
-        )}
-        {closeError && (
-          <div className="ov-error" role="alert" style={{ marginBottom: 12 }}>
-            Couldn’t close the month: {closeError}
-          </div>
-        )}
+        {historyAvailable && <MonthCloseForm close={close} />}
         {!historyAvailable ? (
           <div className="ov-muted">Net worth history is tracked household-wide — switch to "Both" to see the trend.</div>
         ) : series.length < 2 ? (

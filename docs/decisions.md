@@ -3592,3 +3592,30 @@ part does is unchanged.
   file. The split was checked by recording every element's computed style
   on every tab, with a drawer open on three, on a desktop and a phone, before
   and after: nothing changed.
+
+## What the feature review changed
+
+In November 2026 the household looked at which features it had used, by
+counting what each had recorded. Several had recorded nothing. Two of them
+were not unwanted, only out of the way:
+
+- **A month is closed from its review.** No month had been closed, so there
+  was no net worth history. The close was the last of the review's checks
+  and was done on another page (Wealth → Net worth). The review now closes
+  the month itself, at any point: the checks still open are named beside the
+  figures, not in the way, and can be finished after. That is safe because a
+  close records only the balances; the month's income and spending are
+  always worked out from its records. The balances are the exception: an
+  account not confirmed since the month ended goes into the close as it
+  stands, and a closed month can't be changed, so the form says which those
+  are. No close is offered while the accounts or holdings never loaded. Net worth keeps its own Close, the
+  same form. This revises "A month is reviewed, then closed": the order is
+  advice, no longer a gate.
+- **A merchant is remembered in the Inbox.** With 78 merchants seen three
+  times or more the household had no rule, because a rule was offered only
+  when a saved record was moved to another category, which nobody did. The
+  Inbox's editor now offers "Remember this merchant", unticked, for an
+  expense with a category chosen whose merchant no rule covers. The entry is
+  approved first and the rule added after it; a rule that can't be added is
+  said, with the entry kept approved. The transaction editor's offer
+  ("A correction can remember its merchant") stays as it was.

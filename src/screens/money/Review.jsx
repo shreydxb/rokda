@@ -8,6 +8,9 @@ import { activityHref } from '../../lib/activityLink';
 import { confirmedPairRow } from '../../lib/duplicates';
 import { adjacentReviewMonths, budgetSummary, monthlyReview, reviewMonth, reviewMonthParam, withReviewReturn } from '../../lib/monthlyReview';
 import { historyPreview, monthActions } from '../../lib/monthActions';
+import { useMonthClose } from '../../lib/useMonthClose';
+import { couldntLoad, neverLoaded } from '../../lib/loadState';
+import MonthCloseForm from '../wealth/MonthCloseForm';
 import './Review.css';
 
 // The monthly review (lib/monthlyReview.js): what to settle before a month's
@@ -41,6 +44,37 @@ export default function Review({ household, data, planning = {}, loading }) {
   const actions = useMemo(() => monthActions(selected, data, planning, now), [selected, data, planning, now]);
   // The first check still holding the month up is the next thing to do.
   const nextCheck = review.checks.find((c) => c.required && c.status === 'todo');
+  // The month can be closed here, whatever else is open: the other checks
+  // are named, not in the way, and can be finished after (the feature
+  // review, November 2026). Only the month just ended can be closed.
+  const close = useMonthClose({ householdId: household?.id, accounts: data.accounts ?? [], holdings: data.holdings ?? [], netWorthSnapshots: data.netWorthSnapshots ?? [], now, onClosed: data.reload });
+  // A total worked out without the accounts or holdings that never loaded
+  // is not the household's, and a close is kept for good: none is offered
+  // until they load, as on Net worth (outside review, E-03).
+  const unread = neverLoaded(data, ['accounts', 'holdings']);
+  const closeDue = review.checks.some((c) => c.id === 'close' && c.status === 'todo') && !!close.pending;
+  const closable = closeDue && unread.length === 0;
+  // The balances are what a close records, so that check is not one to
+  // finish after: an account not confirmed since the month ended goes in as
+  // it stands, and a closed month can't be changed.
+  const staleBalances = review.checks.find((c) => c.id === 'balances' && c.status === 'todo')?.accounts ?? [];
+  const stillOpen = review.checks.filter((c) => c.required && c.status === 'todo' && c.id !== 'close' && c.id !== 'balances');
+  const closeNote = (
+    <>
+      {staleBalances.length > 0 && (
+        <span className="ov-warn" style={{ display: 'block', marginBottom: stillOpen.length > 0 ? 6 : 0 }}>
+          {`${staleBalances.map((a) => a.name).join(', ')} ${staleBalances.length === 1 ? 'isn’t' : 'aren’t'} confirmed since the month ended. The close records ${staleBalances.length === 1 ? 'it' : 'them'} as ${staleBalances.length === 1 ? 'it stands' : 'they stand'}, and a closed month can’t be changed afterwards: confirm ${staleBalances.length === 1 ? 'it' : 'them'} first, or check the two figures below.`}
+        </span>
+      )}
+      {stillOpen.length > 0 &&
+        `${stillOpen.length} ${stillOpen.length === 1 ? 'check is' : 'checks are'} still open (${stillOpen.map((c) => c.title).join(', ')}). You can close now and finish ${stillOpen.length === 1 ? 'it' : 'them'} after: the close records the balances, and the month's income and spending are always worked out from its records.`}
+    </>
+  );
+  // Opens the figures a close would write, where they are shown below.
+  function startClose() {
+    close.open();
+    document.getElementById('review-close-form')?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+  }
   // A link out of the review carries the month, so the page it opens offers
   // the way back (screens/BackToReview.jsx).
   const out = (href) => withReviewReturn(href, selected);
@@ -158,7 +192,11 @@ export default function Review({ household, data, planning = {}, loading }) {
           </ul>
         )}
 
-        {check.href && check.status !== 'done' && (
+        {check.id === 'close' && closable ? (
+          <button type="button" className="ov-link rv-open" onClick={startClose}>
+            Close the month
+          </button>
+        ) : check.href && check.status !== 'done' && (
           <Link className="ov-link rv-open" to={out(check.href)}>
             {CHECK_CTA[check.id] ?? 'Open the records'}
           </Link>
@@ -197,7 +235,11 @@ export default function Review({ household, data, planning = {}, loading }) {
           <>
             <div className="rv-title">{nextCheck.title}</div>
             <div className="ov-muted rv-detail">{nextCheck.detail}</div>
-            {SETTLED_HERE.has(nextCheck.id) || !nextCheck.href ? (
+            {nextCheck.id === 'close' && closable ? (
+              <button type="button" className="om-btn rv-open" onClick={startClose}>
+                Close the month
+              </button>
+            ) : SETTLED_HERE.has(nextCheck.id) || !nextCheck.href ? (
               <button type="button" className="om-btn rv-open" onClick={() => document.getElementById(`review-${nextCheck.id}`)?.scrollIntoView?.({ behavior: 'smooth', block: 'center' })}>
                 Settle them below
               </button>
@@ -268,7 +310,7 @@ export default function Review({ household, data, planning = {}, loading }) {
         )}
       </section>
 
-      <section className="rv-history" aria-label={history.closed ? 'What went into history' : 'What goes into history'}>
+      <section className="rv-history" id="review-close-form" aria-label={history.closed ? 'What went into history' : 'What goes into history'}>
         <div className="ov-kicker">{history.closed ? 'What went into history' : 'What goes into history'}</div>
         <dl className="rv-figures">
           <div>
@@ -299,6 +341,17 @@ export default function Review({ household, data, planning = {}, loading }) {
           {history.incomplete > 0 && ` ${history.incomplete} account(s) or holding(s) have no value yet, so net worth leaves them out.`}
           {!history.closed && !review.complete && ' Some checks are still open, so these figures may still change.'}
         </div>
+        {closable && !close.draft && (
+          <button type="button" className="om-btn rv-open" style={{ marginTop: 10 }} disabled={close.closing} onClick={close.open}>
+            {`Close ${close.monthLabel}`}
+          </button>
+        )}
+        {closable && <MonthCloseForm close={close} note={staleBalances.length > 0 || stillOpen.length > 0 ? closeNote : null} />}
+        {closeDue && unread.length > 0 && (
+          <div className="ov-warn rv-detail" role="status">
+            {`${couldntLoad(unread)} ${review.label} can’t be closed until they load: its totals would leave them out.`}
+          </div>
+        )}
       </section>
 
       <section className="rv-todo" aria-label="What to do next">
