@@ -702,5 +702,12 @@
   "fingerprint": "2ed557e1676eb1ca3b28efb9238f9119",
   "framingFingerprint": "6988a085168fabceacd44c10b90927d4",
   "fingerprintVersion": 2
+ },
+ {
+  "version": "20261112110451",
+  "name": "approve_intake_signed_in_only",
+  "fingerprint": "5ed7f38f22bd9bcd8eb430cf060bd34c",
+  "framingFingerprint": "f311cf5ba7d550b26aaa7093652cf802",
+  "fingerprintVersion": 2
  }
 ]

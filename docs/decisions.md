@@ -3523,6 +3523,11 @@ Its tests and CI pass found the release check itself short in places:
   on a pull request as on a release: no deploy can supply it.
 - **A test checks what its name says.** The theme test passed with no theme
   button on the page.
+- **Nothing runs signed out.** `approve_intake` kept the access Postgres
+  gives everyone to a new function. It runs as its caller, who signed out
+  can see no Inbox row, so nothing could be approved that way; the access is
+  taken away all the same, and a test now fails if any function in `public`
+  or `private` can be run signed out.
 
 Its screens pass found these:
 
