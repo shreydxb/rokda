@@ -5,6 +5,7 @@ import { householdToday } from "../_shared/applib/day.js";
 import { statementLookupFailedMessage, statementReactionDecision } from "../_shared/applib/statementReminder.js";
 import { isPrivateChat } from "../_shared/applib/telegramChat.js";
 import { lookupUnavailableMessage, PROMPT_FAILED, PROMPT_FOUND, PROMPT_UNADDRESSED, PROMPT_UNKNOWN, resolveConfirmTarget, THUMBS_UP_EMOJIS } from "../_shared/applib/telegramConfirm.js";
+import { BATCH_REPLY_HINT, batchForPrompt } from "./batchReview.ts";
 import { balanceFigure } from "./checks/balanceCheckin.ts";
 import { decideDividends, dividendsNotYet, type DividendsPayload, type DividendsResult } from "./checks/dividendReceipts.ts";
 import { decideStatement, statementForPrompt } from "./checks/statements.ts";
@@ -281,6 +282,17 @@ export async function handleReaction(reaction: Record<string, unknown>, updateId
   // give the resolver nothing to fall back to. The previous code did pass a
   // recent list, and a 👍 on an unrelated message approved the sole pending
   // entry while a comment claimed it confirmed nothing.
+  // A 👍 on a numbered list says how to answer it: a list needs a day for
+  // entries the SMS gave none, which a reaction cannot carry.
+  const batch = await batchForPrompt(member.household_id, member.id, chatId, messageId ?? null);
+  if (batch === "failed") {
+    await reply(chatId, lookupUnavailableMessage());
+    return new Response("ok");
+  }
+  if (batch.length >= 2) {
+    await reply(chatId, BATCH_REPLY_HINT);
+    return new Response("ok");
+  }
   const look = await intakeForPrompt(member.household_id, member.id, chatId, messageId ?? null);
   const target = resolveConfirmTarget({ lookup: look.kind, row: look.row });
   if (target.kind === "one") await confirmPendingIntake(chatId, member.household_id, target.row);

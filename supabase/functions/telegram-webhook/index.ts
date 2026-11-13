@@ -61,6 +61,8 @@ import { dividendsNotYet, runDividendCheck } from "./checks/dividendReceipts.ts"
 import { runRecurringCheck } from "./checks/recurring.ts";
 import { runSplitCheck, runUnusualSpendCheck } from "./checks/spending.ts";
 import { handleStatementText, runStatementCheck } from "./checks/statements.ts";
+import { parseBatchReply } from "./batch.ts";
+import { BATCH_UNADDRESSED_HINT, batchForPrompt, handleBatchReply, hasOpenList, type SavedItem, sendBatchList } from "./batchReview.ts";
 import { confirmCandidates, confirmPendingIntake, decideAutopay, decidedProposalMessage, decideProposal, handleReaction, intakeForPrompt, openProposals, PENDING_WINDOW_MS, type PendingIntakeRow, type PromptLookup, PROPOSAL_COLUMNS, proposalForPrompt, type ProposalRow, RECENT_INTAKE_COLUMNS, recentlyDecidedProposal, sendFastConfirmPrompt, sendProposal } from "./confirmations.ts";
 import { DIVIDEND_CLASSES, DIVIDEND_GUARD_REPLY, readsAsDividend } from "./dividends.ts";
 import { OPENROUTER_API_KEY, supabase, SUPABASE_URL, TELEGRAM_BOT_TOKEN } from "./env.ts";
@@ -369,6 +371,27 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
 
   if (rawText && !fileId) {
     const repliedTo = (message.reply_to_message as { message_id?: number } | undefined)?.message_id ?? null;
+
+    // A reply to the numbered list sent after a paste of several entries
+    // (batchReview.ts). Settled before the single-entry lookup, which expects
+    // one entry per prompt. An unaddressed "all on 2 Oct" or "drop 4" with a
+    // list open is told to reply to the list, so it can never act on the
+    // wrong one.
+    if (repliedTo != null) {
+      const batch = await batchForPrompt(member.household_id, member.id, chatId, repliedTo);
+      if (batch === "failed") {
+        await reply(chatId, lookupUnavailableMessage());
+        return new Response("ok");
+      }
+      if (batch.length >= 2) {
+        await handleBatchReply(chatId, member, batch, rawText.trim(), householdToday());
+        return new Response("ok");
+      }
+    } else if (/^(all|drop)\b/i.test(rawText.trim()) && parseBatchReply(rawText, householdToday()) && (await hasOpenList(member.household_id, member.id))) {
+      await reply(chatId, BATCH_UNADDRESSED_HINT);
+      return new Response("ok");
+    }
+
     [promptLookup, candidates] = await Promise.all([
       intakeForPrompt(member.household_id, member.id, chatId, repliedTo),
       confirmCandidates(member.household_id, member.id),
@@ -415,6 +438,16 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
     if (await handleStatementText(chatId, member, trimmedText, repliedTo)) return new Response("ok");
 
     const strictYes = isConfirmationText(trimmedText);
+    // A bare "yes" while an entry ready for one is on a list: a list is
+    // answered by replying to it, with a day where the SMS had none.
+    if (strictYes && repliedTo == null) {
+      const perPrompt = new Map<number, number>();
+      for (const r of candidates.rows) if (r.confirm_message_id != null) perPrompt.set(r.confirm_message_id, (perPrompt.get(r.confirm_message_id) ?? 0) + 1);
+      if (candidates.rows.some((r) => r.confirm_message_id != null && (perPrompt.get(r.confirm_message_id) ?? 0) >= 2)) {
+        await reply(chatId, BATCH_UNADDRESSED_HINT);
+        return new Response("ok");
+      }
+    }
     const strictNo = isCancellationText(trimmedText);
     const autopay = autopayAnswer(trimmedText);
     const confirming = strictYes || autopay.decision === "paid";
@@ -899,6 +932,8 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
   let fastConfirmSummary: string | null = null;
   let singleInboxReason: string | null = null;
   const multiItemSummaries: string[] = [];
+  // Each saved item of a message of several, for the numbered list.
+  const savedItems: SavedItem[] = [];
   // Items of a message of several that could not be saved: named in the
   // reply, so they can be sent again, rather than counted as captured.
   const unsavedItems: string[] = [];
@@ -993,14 +1028,16 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
           date_guessed: item.dateGuessed,
         };
 
+        let savedId: string | null = null;
         if (i === 0) {
           await supabase.from("intake").update(updatedRow).eq("id", inserted.id);
+          savedId = inserted.id;
         } else {
           // The write's own error, not only a thrown one: a refused insert
           // used to be counted as captured, so "2 expenses captured" was said
           // of one (round 2 of the outside review). A duplicate source_ref is
           // this item saved by an earlier attempt.
-          const { error: itemError } = await supabase.from("intake").insert({
+          const { data: itemRow, error: itemError } = await supabase.from("intake").insert({
             household_id: member.household_id,
             member_id: member.id,
             source: "telegram",
@@ -1009,12 +1046,20 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
             photo_path: photoPath,
             status: "pending",
             ...updatedRow,
-          });
+          }).select("id").single();
           if (itemError && itemError.code !== "23505") {
             unsavedItems.push(`AED ${Number(item.amount ?? 0).toFixed(2)}${item.merchant ? ` at ${item.merchant}` : ""}`);
             continue;
           }
+          if (itemRow) savedId = itemRow.id;
+          else {
+            const { data: earlier } = await supabase.from("intake").select("id").eq("household_id", member.household_id).eq("source_ref", `${updateId}#${i}`).maybeSingle();
+            savedId = earlier?.id ?? null;
+          }
         }
+        // An item whose row cannot be named is left off the list; it waits
+        // in the Inbox all the same.
+        if (savedId) savedItems.push({ id: savedId, row: updatedRow, accountName: matchedAccount?.name ?? null, categoryName: matchedCategory?.name ?? null });
         // Only a saved item's date is reported: one that failed to save is
         // named to be sent again, not told its date was guessed.
         if (item.dateGuessed) {
@@ -1080,6 +1125,12 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
     const unsavedNote = unsavedItems.length
       ? ` I couldn't save ${unsavedItems.join(", ")}: send ${unsavedItems.length === 1 ? "it" : "them"} again.`
       : "";
+    // Several entries read in full: a numbered list to finish them here
+    // (batchReview.ts). Otherwise, or if it cannot be worked out, the Inbox.
+    if (kept.length > 1) {
+      const listed = await sendBatchList(chatId, member.household_id, savedItems, [unsavedNote.trim(), dividendNote.trim()]).catch(() => false);
+      if (listed) return new Response("ok");
+    }
     await reply(
       chatId,
       (n > 1 || (n === 1 && unsavedItems.length)
