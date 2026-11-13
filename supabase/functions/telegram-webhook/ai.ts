@@ -83,6 +83,13 @@ export async function postToAiService(
 // message is kept in the Inbox all the same, so an expense is never lost.
 export const AI_BUSY_REPLY = "I couldn't read that just now, so it's saved in the Inbox. If it was a question, ask again in a minute.";
 
+// For a message with nothing an Inbox entry could be approved on: no amount
+// and no photo. Keeping it would leave an entry nobody can approve.
+export const AI_BUSY_NOTHING_SAVED = "I couldn't read that just now, and nothing was saved. Send it again in a minute.";
+
+// A message read in full that held no expense, income or refund.
+export const NOT_AN_EXPENSE_REPLY = 'I didn\'t find an expense, income or refund in that, so nothing is waiting in the Inbox. To record one, send the amount and who was paid, like "45 at Noon".';
+
 
 export async function classifyAndRoute(
   rawText: string,

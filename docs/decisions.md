@@ -3619,3 +3619,23 @@ were not unwanted, only out of the way:
   approved first and the rule added after it; a rule that can't be added is
   said, with the entry kept approved. The transaction editor's offer
   ("A correction can remember its merchant") stays as it was.
+- **Only an expense waits in the Inbox.** Four of the entries rejected there
+  were never expenses: a question the AI service could not read, a
+  correction with nothing to correct, a note. The Inbox holds entries
+  someone can approve, and each has an amount. So a message the AI service
+  could not read, with no digit and no photo, is answered and not kept
+  ("nothing was saved; send it again in a minute"), and one read in full
+  that holds no expense, income or refund is set aside with a reply saying
+  how to send one. Anything else is kept as before: a message with an amount
+  that could not be read, an answer from the parser that could not be used,
+  and any photo, since a person can read those. A message the router called
+  an expense always reaches the parser, which reads an amount in words.
+- **One date for the undated entries of one message.** Bank SMS pasted a
+  week's worth at a time carry no dates, and 19 of 55 approvals had each
+  waited for its own. The Inbox offers the undated entries of one message
+  that read cleanly otherwise together, for one date. The date field starts
+  empty, because the day the message was sent is only when it was pasted;
+  giving the date is the person's confirmation, and each entry is approved
+  as confirmed. Entries paid on different days are opened one at a time, as
+  before.
+

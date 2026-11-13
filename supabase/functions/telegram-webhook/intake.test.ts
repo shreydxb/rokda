@@ -1,7 +1,7 @@
 // Reading a message: cards named loosely, dates, corrections, and what the capture reply says.
 // The fake backend these drive the real handler against is testing/harness.ts.
 import { assert, assertEquals } from "jsr:@std/assert@1";
-import { backend, capturedIntake, datedItems, FAB, FAB_Z, forwardedDay, freshTest, handler, HOUSEHOLD, lastReply, MARRIOTT, MEMBER, NOON, pickAccountByHint, replyUpdate, TELEGRAM_USER, textUpdate, undatedNote } from "./testing/harness.ts";
+import { backend, capturedIntake, datedItems, FAB, FAB_Z, forwardedDay, freshTest, handler, HOUSEHOLD, lastReply, MARRIOTT, MEMBER, NOON, photoUpdate, pickAccountByHint, replyUpdate, TELEGRAM_USER, textUpdate, undatedNote } from "./testing/harness.ts";
 
 Deno.test("a card named misspelt, shortened or with filler words still resolves to the one card it means", () => {
   const accounts = [MARRIOTT, NOON, FAB_Z, FAB];
@@ -144,3 +144,61 @@ freshTest("a correction to an entry recorded in the meantime says so, not that i
   assertEquals(backend.tables.intake.find((r) => r.id === "99990000-0000-4000-8000-000000000012")!.parsed_amount, 40);
   assert(lastReply().includes("already been recorded or changed"), lastReply());
 });
+
+// What the Inbox is for: entries someone can approve. A message read in full
+// that holds no expense, income or refund is answered, not left there (the
+// feature review, November 2026: a correction with nothing to correct, a
+// note, a question).
+freshTest("a message read in full that holds no expense is not left in the Inbox", async () => {
+  backend.route = { tool: "log_expense", args: {} };
+  backend.parse = [];
+  await handler(textUpdate(7801, "small correction, it was spent on 5th September"));
+  assertEquals(capturedIntake().filter((r) => r.status === "pending").length, 0);
+  assertEquals(lastReply(), 'I didn\'t find an expense, income or refund in that, so nothing is waiting in the Inbox. To record one, send the amount and who was paid, like "45 at Noon".');
+});
+
+// The no-digit rule is for a message nothing could read. One the router
+// called an expense goes to the parser, which reads an amount in words (the
+// fresh review of this change).
+freshTest("an expense with its amount in words is read, not turned away for having no digit", async () => {
+  backend.route = { tool: "log_expense", args: {} };
+  backend.parse = [{ merchant: "Plumber", amount: 50, currency: "AED", occurred_at: "2026-09-24", date_stated: true, source: "typed", category: null, card_last4: null, account_hint: null, confidence: 0.9, kind: "expense" }];
+  await handler(textUpdate(7802, "paid fifty to the plumber today"));
+  assertEquals(capturedIntake().filter((r) => r.status === "pending").map((r) => r.parsed_amount), [50]);
+});
+
+freshTest("a message routed as an expense in which the parser finds none is answered", async () => {
+  backend.route = { tool: "log_expense", args: {} };
+  backend.parse = [];
+  await handler(textUpdate(7804, "bought coffee"));
+  assertEquals(capturedIntake().filter((r) => r.status === "pending").length, 0);
+  assert(lastReply().startsWith("I didn't find an expense, income or refund in that"), lastReply());
+});
+
+// An answer the parser could not use is not an answer of "nothing": the
+// message waits in the Inbox, as it did before.
+freshTest("a bank SMS whose reading came back unusable still waits in the Inbox", async () => {
+  backend.route = { tool: "log_expense", args: {} };
+  backend.parseRaw = { items: null };
+  await handler(textUpdate(7805, "Purchase of AED 40.00 with Credit Card ending 0001 at CAFE"));
+  assertEquals(capturedIntake().filter((r) => r.status === "pending").length, 1);
+  backend.parseRaw = { items: [{ merchant: null, amount: "forty" }] };
+  await handler(textUpdate(7806, "Purchase of AED 40.00 with Credit Card ending 0001 at CAFE"));
+  assertEquals(capturedIntake().filter((r) => r.status === "pending").length, 2);
+});
+
+freshTest("a message set aside is not said to be in the Inbox when Telegram delivers it again", async () => {
+  backend.route = { tool: "log_expense", args: {} };
+  backend.parse = [];
+  await handler(textUpdate(7807, "it was on the 5th"));
+  backend.log.delete(7807);
+  await handler(textUpdate(7807, "it was on the 5th"));
+  assert(lastReply().startsWith("I didn't find an expense, income or refund in that"), lastReply());
+});
+
+freshTest("a photo the parser finds nothing in still waits in the Inbox to be read by a person", async () => {
+  backend.parse = [];
+  await handler(photoUpdate(7803, "my receipt"));
+  assertEquals(capturedIntake().filter((r) => r.status === "pending").length, 1);
+});
+
