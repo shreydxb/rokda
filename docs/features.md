@@ -129,7 +129,10 @@ here, because this repository is public.
   whose message had no date is marked "No date" and is approved only once its
   date is set or confirmed, never in bulk. The undated entries of one
   message that read cleanly otherwise are offered together above the queue:
-  one date, given by hand, approves them all. Its editor offers "Remember this
+  one date, given by hand, approves them all. An undated entry that repeats
+  a record made in the two weeks before it was sent (same card, same amount,
+  same merchant) is marked "Recorded", left out of that, and "Set aside N
+  already recorded" rejects them together. Its editor offers "Remember this
   merchant", unticked, for an expense with a category chosen whose merchant
   no rule covers: the entry is approved, then the rule is added.
 - **Review**: the month just ended (or an earlier one), as a checklist of

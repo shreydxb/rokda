@@ -21,11 +21,16 @@ vi.mock('../../lib/supabaseClient', () => ({
       // The household's rules, read again just before one is added.
       select: () => ({ eq: () => ({ order: () => ({ order: () => Promise.resolve({ data: stored.rules, error: null }) }) }) }),
       update: (payload) => {
+        const call = { kind: 'update', table, payload };
         const chain = {
-          eq: () => chain,
+          // The filters an update is made under, for a test to check.
+          eq: (column, value) => {
+            call.where = { ...call.where, [column]: value };
+            return chain;
+          },
           then: (resolve) => resolve({ error: null }),
         };
-        calls.push({ kind: 'update', table, payload });
+        calls.push(call);
         return chain;
       },
     }),
@@ -460,6 +465,38 @@ describe('Inbox: one date for the undated entries of one message', () => {
   it('is not offered for a single undated entry', () => {
     render([batchItem('i1', '500')]);
     expect(screen.queryByText(/have no date/)).toBeNull();
+  });
+});
+
+// A paste a week after the first repeated 14 entries already recorded, and
+// each was rejected by hand (the feature review, November 2026).
+describe('Inbox: undated entries already recorded', () => {
+  const pasted = (id, ref, merchant, amount) => ({ ...ITEM, id, source: 'telegram', source_ref: ref, parsed_merchant: merchant, parsed_amount: amount, parsed_account_id: 'acc-1', parsed_category_id: 'cat-1', parsed_date: '2026-10-04', date_guessed: true, confidence: 1 });
+  const recorded = { id: 'tx-old', account_id: 'acc-1', merchant: 'CITY TAXI, DUBAI', amount: -20, occurred_at: '2026-09-27', kind: 'expense' };
+  const render = (items) =>
+    renderScreen(
+      <Inbox members={MEMBERS} accounts={ACCOUNTS} categories={[{ id: 'cat-1', name: 'Transport', kind: 'expense' }]} loading={false} data={{ intake: items, categoryRules: [], transactions: [recorded], reload: vi.fn().mockResolvedValue(undefined) }} />,
+    );
+  beforeEach(() => {
+    calls.length = 0;
+  });
+
+  it('marks it, names the record it repeats, and leaves it out of the batch date', () => {
+    render([pasted('dup', '700', 'CITY TAXI', 20), pasted('new1', '700#1', 'Lulu', 50), pasted('new2', '700#2', 'Careem', 30)]);
+    const dupRow = [...document.querySelectorAll('.ib-queue-row')].find((r) => r.textContent.includes('CITY TAXI'));
+    expect(dupRow.textContent).toMatch(/Recorded/);
+    fireEvent.click(dupRow);
+    expect(screen.getByText(/Looks already recorded: CITY TAXI, DUBAI, AED 20.00 on 27 Sep/)).toBeTruthy();
+    expect(screen.getByText(/2 entries from one message, sent 4 Oct, have no date/)).toBeTruthy();
+    expect(screen.getByText(/1 more looks already recorded and is left out/)).toBeTruthy();
+  });
+
+  it('sets them all aside at once, each only if still waiting', async () => {
+    render([pasted('dup', '700', 'CITY TAXI', 20), pasted('new1', '700#1', 'Lulu', 50)]);
+    await act(async () => {
+      screen.getByRole('button', { name: 'Set aside 1 already recorded' }).click();
+    });
+    expect(calls).toEqual([{ kind: 'update', table: 'intake', payload: { status: 'rejected' }, where: { id: 'dup', status: 'pending' } }]);
   });
 });
 

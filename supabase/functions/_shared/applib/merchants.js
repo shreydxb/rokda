@@ -5,7 +5,8 @@
 // categorised the same merchant before, across all of its history. Only when
 // neither knows the merchant does the model's guess stand.
 //
-// Bot-only, like autopay.js: the app applies rules in the Inbox through
+// Bot-only, like autopay.js, apart from normaliseMerchant, a synced copy of
+// src/lib/merchants.js: the app applies rules in the Inbox through
 // src/lib/rules.js, which rules.js here copies.
 import { firstMatchingRule } from './rules.js';
 
