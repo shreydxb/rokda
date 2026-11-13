@@ -364,10 +364,19 @@ freshTest("a card statement is asked about the day after it closes, once a day",
   assertEquals(backend.tables.statement_reconciliations.length, 1);
 });
 
-freshTest("the next morning asks again, and a 👍 on the first question marks it done", async () => {
+// Asked once when it closes and reminded once before it is due, no more
+// (the feature review, November 2026: daily questions were most of what the
+// bot sent).
+freshTest("the next morning asks nothing; three days before it is due, one reminder; a 👍 on the first question marks it done", async () => {
   const row = await askedStatement();
   const first = Number((row.asked_prompts as Row[])[0].message_id);
-  row.last_asked_on = "2000-01-01";
+  row.last_asked_on = dubaiDaysAgo(1);
+  const quiet = await handler(dailyCheck());
+  await quiet.body?.cancel();
+  assertEquals(statementQuestions().length, 1);
+
+  row.last_asked_on = dubaiDaysAgo(10);
+  row.due_date = dubaiDaysAgo(-2);
   const res = await handler(dailyCheck());
   await res.body?.cancel();
   assertEquals(statementQuestions().length, 2);
@@ -379,7 +388,7 @@ freshTest("the next morning asks again, and a 👍 on the first question marks i
   assert(/is marked as done\.$/.test(lastReply()), lastReply());
 
   // Done means no more questions.
-  row.last_asked_on = "2000-01-01";
+  row.last_asked_on = dubaiDaysAgo(10);
   const later = await handler(dailyCheck());
   await later.body?.cancel();
   assertEquals(statementQuestions().length, 2);
@@ -400,7 +409,7 @@ freshTest("\"not yet\" as a reply keeps the statement waiting", async () => {
   const row = await askedStatement();
   await handler(replyUpdate(9214, "not yet", Number((row.asked_prompts as Row[])[0].message_id)));
   assertEquals(row.status, "waiting");
-  assert(/again tomorrow morning/.test(lastReply()), lastReply());
+  assert(/stays open/.test(lastReply()), lastReply());
 });
 
 freshTest("a statement question that can't be tied to its statement is withdrawn, and asked again the next morning", async () => {
@@ -503,15 +512,15 @@ freshTest("an answer to a statement settled in between says what it is now", asy
   assert(/doesn't match Rokda/.test(lastReply()), lastReply());
 });
 
-freshTest("\"sent to Claude\" keeps the statement waiting, and the bot keeps asking", async () => {
+freshTest("\"sent to Claude\" keeps the statement waiting, and asks nothing more the next morning", async () => {
   const row = await askedStatement();
   await handler(replyUpdate(9227, "sent to Claude", firstPrompt(row)));
   assertEquals(row.status, "waiting");
   assert(/until it has been checked/.test(lastReply()), lastReply());
-  row.last_asked_on = "2000-01-01";
+  row.last_asked_on = dubaiDaysAgo(1);
   const later = await handler(dailyCheck());
   await later.body?.cancel();
-  assertEquals(statementQuestions().length, 2);
+  assertEquals(statementQuestions().length, 1);
 });
 
 // ---------------------------------------------------------------------------
