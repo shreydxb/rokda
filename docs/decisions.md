@@ -3725,4 +3725,8 @@ were not unwanted, only out of the way:
   the 1st the monthly review and each member's balance check-in are one
   message, the lines after them, so that morning is still one message. The
   questions (autopay, dividends, statements, a split) stay separate: each
-  answer is tied to its own message.
+  answer is tied to its own message. A morning longer than Telegram takes
+  (4,096 characters, refused for good) goes in parts, broken between lines,
+  and is recorded only if every part arrived; a record the database refuses
+  is not counted, and the lines gathered are sent even if another check
+  fails.

@@ -91,6 +91,17 @@ freshTest("a late bill and a card due soon arrive as one message, and both are r
   assertEquals(backend.tables.credit_card_nudges.length, 1);
 });
 
+freshTest("a personal card's line is in its owner's digest only", async () => {
+  backend.tables.credit_card_nudges = [];
+  backend.tables.household_members.push({ id: "a9000000-0000-4000-8000-0000000000f2", household_id: HOUSEHOLD, display_name: "Partner", telegram_user_id: 7701, role: "member" });
+  const dueDay = Number(dubaiDaysAgo(-1).slice(8));
+  backend.tables.accounts.push({ id: "a9000000-0000-4000-8000-0000000000cb", household_id: HOUSEHOLD, name: "Bank card", type: "credit_card", owner_member_id: MEMBER, is_shared: false, balance: 300, balance_aed: 300, currency: "AED", due_day: dueDay, statement_day: null, archived_at: null });
+  const res = await handler(dailyCheck());
+  await res.body?.cancel();
+  assert(backend.telegramSent.some((m) => Number(m.body.chat_id) === TELEGRAM_USER && String(m.body.text).includes("Bank card is due")));
+  assert(!backend.telegramSent.some((m) => Number(m.body.chat_id) === 7701 && String(m.body.text).includes("Bank card")));
+});
+
 freshTest("a digest Telegram refuses records none of its lines, and all come again the next morning", async () => {
   backend.tables.recurring_nudges = [];
   backend.tables.credit_card_nudges = [];

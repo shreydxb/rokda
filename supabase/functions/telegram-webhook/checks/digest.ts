@@ -26,10 +26,40 @@ export const DIGEST_ORDER = {
   budget: 40,
   cashCover: 50,
   unusualSpend: 60,
+  weeklyBrief: 5,
   monthlyReview: 10,
-  weeklyBrief: 10,
   balanceCheckin: 20,
 } as const;
+
+// Telegram refuses a message over 4,096 characters for good, so a long
+// morning goes in parts, each kept under this, broken only between lines.
+export const DIGEST_PART_LIMIT = 4000;
+
+export function splitMessage(text: string, limit = DIGEST_PART_LIMIT): string[] {
+  const parts: string[] = [];
+  let current = "";
+  for (const line of text.split("\n")) {
+    // A single line longer than a part is cut, which beats losing it.
+    for (let piece = line; ; piece = piece.slice(limit)) {
+      const chunk = piece.slice(0, limit);
+      if (current && current.length + 1 + chunk.length > limit) {
+        parts.push(current);
+        current = chunk;
+      } else {
+        current = current ? `${current}\n${chunk}` : chunk;
+      }
+      if (piece.length <= limit) break;
+    }
+  }
+  if (current) parts.push(current);
+  return parts;
+}
+
+// Whether a record went in: Supabase answers { error } rather than throwing.
+async function recordedOk(record: () => unknown): Promise<boolean> {
+  const result = (await record()) as { error?: unknown } | undefined;
+  return !(result && typeof result === "object" && "error" in result && result.error);
+}
 
 export class Digest {
   private parts: Part[] = [];
@@ -70,18 +100,26 @@ export class Digest {
     for (const chatId of chats) {
       const text = this.messageFor(chatId);
       if (!text) continue;
-      try {
-        outcome.set(chatId, await send(chatId, text));
-      } catch {
-        outcome.set(chatId, "retry");
+      // Every part has to arrive: one not delivered holds the whole morning
+      // for that person for tomorrow, as a lost reminder is worse than a repeat.
+      let worst: Delivery = "sent";
+      for (const part of splitMessage(text)) {
+        let result: Delivery;
+        try {
+          result = await send(chatId, part);
+        } catch {
+          result = "retry";
+        }
+        if (result === "retry") worst = "retry";
+        else if (result === "final" && worst === "sent") worst = "final";
       }
+      outcome.set(chatId, worst);
     }
     let recorded = 0;
     for (const part of this.parts) {
       if (part.chatIds.some((c) => outcome.get(c) === "retry")) continue;
       try {
-        await part.record();
-        recorded++;
+        if (await recordedOk(part.record)) recorded++;
       } catch {
         // Not recorded: the line comes again tomorrow, which beats losing it.
       }

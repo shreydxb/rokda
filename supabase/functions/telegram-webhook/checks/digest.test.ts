@@ -1,7 +1,7 @@
 // The morning digest (checks/digest.ts): one message per person for the
 // reminders that need no answer. Pure apart from the sender, which is passed in.
 import { assert, assertEquals } from "jsr:@std/assert@1";
-import { Digest, type Delivery } from "./digest.ts";
+import { Digest, type Delivery, DIGEST_ORDER } from "./digest.ts";
 
 function fakeSender(outcomes: Record<number, Delivery> = {}) {
   const sent: Array<{ chatId: number; text: string }> = [];
@@ -96,4 +96,45 @@ Deno.test("the balance check-in is recorded for the household only once every me
   assertEquals(first.sent.find((s) => s.chatId === 1)?.text, "Last month: AED 900.00 spent.\n\nBalances for your accounts, please.");
   await digest.send(fakeSender().send);
   assertEquals(recorded, ["checkin"]);
+});
+
+// The fresh review: a message over Telegram's 4,096 characters is refused
+// for good (a 400), which counted as delivered, so every line in it was
+// recorded without reaching anyone.
+Deno.test("a long morning is sent in parts under Telegram's limit, never cut inside a line", async () => {
+  const digest = new Digest();
+  digest.head([1], "R".repeat(3000), 10, () => {});
+  for (let i = 0; i < 40; i++) digest.line([1], `Reminder ${i} ${"x".repeat(80)}.`, 40, () => {});
+  const { sent, send } = fakeSender();
+  const result = await digest.send(send);
+  assert(sent.length > 1, "not split");
+  for (const s of sent) assert(s.text.length <= 4000, `part of ${s.text.length}`);
+  const all = sent.map((s) => s.text).join("\n");
+  for (let i = 0; i < 40; i++) assert(all.includes(`Reminder ${i} `), `line ${i} lost`);
+  assertEquals(result.recorded, 41);
+});
+
+Deno.test("a long morning with one part not delivered records none of it", async () => {
+  const digest = new Digest();
+  const recorded: string[] = [];
+  digest.head([1], "R".repeat(3990), 10, () => void recorded.push("head"));
+  digest.line([1], "A late bill.", 10, () => void recorded.push("line"));
+  let n = 0;
+  await digest.send((_chat, _text) => Promise.resolve(++n === 2 ? "retry" : "sent"));
+  assertEquals(recorded, []);
+});
+
+Deno.test("a record the database refuses is not counted as recorded", async () => {
+  const digest = new Digest();
+  digest.line([1], "A.", 10, () => Promise.resolve({ error: { message: "refused" } }));
+  digest.line([1], "B.", 20, () => Promise.resolve({ error: null }));
+  const result = await digest.send(fakeSender().send);
+  assertEquals(result.recorded, 1);
+});
+
+Deno.test("the weekly brief comes before the monthly review on a Monday the 1st", async () => {
+  const digest = new Digest();
+  digest.head([1], "Last month.", DIGEST_ORDER.monthlyReview, () => {});
+  digest.head([1], "This week.", DIGEST_ORDER.weeklyBrief, () => {});
+  assertEquals(digest.messageFor(1), "This week.\n\nLast month.");
 });

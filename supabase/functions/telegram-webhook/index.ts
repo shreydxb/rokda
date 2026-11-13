@@ -143,21 +143,29 @@ async function handleRequest(req: Request): Promise<Response> {
     // go out together as one message a person (checks/digest.ts); the
     // questions (autopay, statements, splits, dividends) still send their own.
     const digest = new Digest();
-    const [recurring, autopay, creditCards, statements, budgets, weeklyBrief, monthlyBrief, cashCover, unusualSpend, balanceCheckin, splits, dividends] = await Promise.all([
-      runRecurringCheck(digest),
-      runAutopayCheck(),
-      runCreditCardCheck(digest),
-      runStatementCheck(),
-      runBudgetAlertCheck(digest),
-      runWeeklyBriefCheck(digest),
-      runMonthlyBriefCheck(digest),
-      runCashCoverCheck(digest),
-      runUnusualSpendCheck(digest),
-      runBalanceCheckin(digest),
-      runSplitCheck(),
-      runDividendCheck(),
-    ]);
-    const digestSent = await digest.send(sendReminder);
+    let digestSent: { chats: number; recorded: number } = { chats: 0, recorded: 0 };
+    // Whatever the checks gathered is sent even if one of them throws: that
+    // one's lines are simply missing, as its messages were before.
+    let results;
+    try {
+      results = await Promise.all([
+        runRecurringCheck(digest),
+        runAutopayCheck(),
+        runCreditCardCheck(digest),
+        runStatementCheck(),
+        runBudgetAlertCheck(digest),
+        runWeeklyBriefCheck(digest),
+        runMonthlyBriefCheck(digest),
+        runCashCoverCheck(digest),
+        runUnusualSpendCheck(digest),
+        runBalanceCheckin(digest),
+        runSplitCheck(),
+        runDividendCheck(),
+      ]);
+    } finally {
+      digestSent = await digest.send(sendReminder);
+    }
+    const [recurring, autopay, creditCards, statements, budgets, weeklyBrief, monthlyBrief, cashCover, unusualSpend, balanceCheckin, splits, dividends] = results;
     // Housekeeping, not a check: nothing reports on it and nothing depends on
     // it having run today.
     await pruneTelegramUpdateLog();
