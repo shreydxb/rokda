@@ -592,8 +592,16 @@ export async function rpc(req: Request, fn: string): Promise<Response> {
   }
   if (fn === "approve_intake") {
     backend.approveCalls += 1;
+    // As the real function: one transaction per entry, and an entry already
+    // approved answers with the one it made.
     const row = backend.tables.intake.find((r) => r.id === args.p_intake_id);
-    if (row) row.status = "approved";
+    if (!row) return json({ code: "P0002", message: "intake row not found" }, 400);
+    if (row.status === "rejected") return json({ code: "P0001", message: "intake row was already rejected" }, 400);
+    if (row.status === "approved") return json({ transaction_id: row.transaction_id ?? null, already_approved: true });
+    const tx = { id: crypto.randomUUID(), household_id: row.household_id, account_id: args.p_account_id, amount: args.p_amount, kind: args.p_kind, merchant: args.p_merchant, occurred_at: args.p_occurred_at, category_id: args.p_category_id };
+    backend.tables.transactions.push(tx);
+    Object.assign(row, { status: "approved", transaction_id: tx.id });
+    return json({ transaction_id: tx.id, already_approved: false });
   }
   if (fn === "mark_dividends_asked") {
     for (const d of backend.tables.holding_dividends ?? []) {
@@ -782,7 +790,7 @@ export function photoUpdate(updateId: number, caption?: string): Request {
 }
 
 // A message sent as a Telegram reply to one of the bot's messages.
-export function replyUpdate(updateId: number, text: string, replyTo: number): Request {
+export function replyUpdate(updateId: number, text: string, replyTo: number, replyToText?: string): Request {
   return new Request("http://edge.test/telegram-webhook", {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Telegram-Bot-Api-Secret-Token": SECRET },
@@ -792,7 +800,8 @@ export function replyUpdate(updateId: number, text: string, replyTo: number): Re
         message_id: 2,
         date: 1,
         text,
-        reply_to_message: { message_id: replyTo },
+        // Telegram sends the message replied to with the reply, its text included.
+        reply_to_message: { message_id: replyTo, ...(replyToText != null ? { text: replyToText } : {}) },
         chat: { id: TELEGRAM_USER, type: "private" },
         from: { id: TELEGRAM_USER, is_bot: false, first_name: "T" },
       },

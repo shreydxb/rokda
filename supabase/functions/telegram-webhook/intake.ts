@@ -452,7 +452,10 @@ export async function findDuplicateTransaction(
   accountId: string | null,
   merchant: string | null,
   amount: number | string | null,
-  occurredAt: string | null
+  occurredAt: string | null,
+  // Records this run made itself, as a batch records two alike entries one
+  // after the other: the second is not a repeat of the first.
+  excludeIds: string[] = [],
 ): Promise<{ id: string; amount: number; occurred_at: string } | null> {
   const normMerchant = merchant?.trim().toLowerCase();
   const numAmount = amount != null ? Number(amount) : null;
@@ -472,7 +475,8 @@ export async function findDuplicateTransaction(
     .lte("occurred_at", day(4));
   if (error) throw new ReadFailed("transactions");
 
-  const match = (rows ?? []).find((t: { amount: number; merchant: string | null; occurred_at: string }) => {
+  const match = (rows ?? []).find((t: { id: string; amount: number; merchant: string | null; occurred_at: string }) => {
+    if (excludeIds.includes(t.id)) return false;
     if ((t.merchant ?? "").trim().toLowerCase() !== normMerchant) return false;
     if (Math.abs(Math.abs(Number(t.amount)) - numAmount) > 0.01) return false;
     const diffDays = Math.abs(new Date(t.occurred_at).getTime() - occurred) / DAY_MS;
