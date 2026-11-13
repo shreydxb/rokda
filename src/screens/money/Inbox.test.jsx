@@ -451,6 +451,12 @@ describe('Inbox: one date for the undated entries of one message', () => {
     expect(screen.getByRole('button', { name: 'Approve 2 on this date' }).disabled).toBe(true);
   });
 
+  it('takes no day that has not come yet', () => {
+    render([batchItem('i1', '500'), batchItem('i2', '500#1')]);
+    fireEvent.change(screen.getByLabelText('Paid on, for these 2 entries'), { target: { value: '2999-01-01' } });
+    expect(screen.getByRole('button', { name: 'Approve 2 on this date' }).disabled).toBe(true);
+  });
+
   it('is not offered for a single undated entry', () => {
     render([batchItem('i1', '500')]);
     expect(screen.queryByText(/have no date/)).toBeNull();

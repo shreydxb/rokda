@@ -211,10 +211,13 @@ export async function parseIntakeWithAI(params: {
       .map(parseItemFields)
       .filter((item) => item.amount !== null || item.merchant !== null);
 
+    if (items.length > 0) return items;
     // Read, and nothing found: an empty list, which is not the null of a
     // read that failed. The caller keeps a message it could not read and
-    // answers one that held nothing.
-    return items;
+    // answers one that held nothing. Only the model's own empty list says
+    // "nothing": an answer in another shape, or items it gave that could not
+    // be used, is a failed read.
+    return Array.isArray(parsedBody?.items) && parsedBody.items.length === 0 ? [] : null;
   } catch {
     await logTelegramCall({
       callKind: "parse_intake",

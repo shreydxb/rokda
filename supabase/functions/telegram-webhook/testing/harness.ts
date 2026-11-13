@@ -86,6 +86,7 @@ export type Backend = {
   // What the parser extracts from a message; unset, it answers prose, which
   // the handler treats as a failed parse.
   parse?: Row[];
+  parseRaw?: unknown;
   parsePrompts: string[];
   // What the phrasing call was given: the tool's result, among other things.
   phrasePrompts: string[];
@@ -686,6 +687,11 @@ export async function openrouter(req: Request): Promise<Response> {
   const text = JSON.stringify(body.messages ?? []);
   if (text.includes("Extract ALL")) {
     backend.parsePrompts.push(text);
+    // A reading in a shape of the test's own, to stand for an answer the
+    // parser cannot use.
+    if (backend.parseRaw) {
+      return json({ choices: [{ message: { content: JSON.stringify(backend.parseRaw) } }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } });
+    }
     if (backend.parse) {
       return json({ choices: [{ message: { content: JSON.stringify({ items: backend.parse }) } }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } });
     }

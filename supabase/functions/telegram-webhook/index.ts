@@ -844,12 +844,14 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
   if (!rawText && !photoPath) return new Response("ok"); // nothing usable (a sticker, a reaction, ...)
 
   // The Inbox holds entries someone can approve, and each has an amount. A
-  // message with no digit and no photo has none to read or to type in from a
-  // receipt, so it is answered rather than kept: a question the AI service
-  // could not read used to wait there as an entry (the feature review,
-  // November 2026; docs/decisions.md, "Only an expense waits in the Inbox").
-  if (!photoPath && !/\p{Nd}/u.test(rawText ?? "")) {
-    await reply(chatId, routingFailed ? AI_BUSY_NOTHING_SAVED : NOT_AN_EXPENSE_REPLY);
+  // message the AI service could not read, with no digit and no photo, has
+  // none to read later or to type in from a receipt, so it is answered
+  // rather than kept: a question used to wait there as an entry (the feature
+  // review, November 2026; docs/decisions.md, "Only an expense waits in the
+  // Inbox"). One the router did read, and called an expense, goes on to the
+  // parser, which reads an amount in words.
+  if (routingFailed && !fileId && !/\p{Nd}/u.test(rawText ?? "")) {
+    await reply(chatId, AI_BUSY_NOTHING_SAVED);
     return new Response("ok");
   }
 
@@ -872,6 +874,13 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
       // Anything other than 23505 (unique_violation on source_ref, meaning
       // this update was already captured) is a real failure.
       await reply(chatId, "Something went wrong saving that — please try again.");
+      return new Response("ok");
+    }
+    // Captured, read and set aside as holding no expense: say that again,
+    // not that it is in the Inbox.
+    const { data: earlier } = await supabase.from("intake").select("status, parsed_amount, parsed_merchant").eq("household_id", member.household_id).eq("source_ref", String(updateId)).maybeSingle();
+    if (earlier?.status === "rejected" && earlier.parsed_amount == null && earlier.parsed_merchant == null) {
+      await reply(chatId, NOT_AN_EXPENSE_REPLY);
       return new Response("ok");
     }
     // Already captured. This used to stay silent, which was right when a
@@ -920,8 +929,10 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
     const items = parsedItems ? datedItems(parsedItems, householdToday(), forwardedDay(message)) : null;
     itemsRead = (items?.length ?? 0) > 0;
     if (parsedItems && parsedItems.length === 0 && !photoPath) {
-      nothingFound = true;
-      await supabase.from("intake").update({ status: "rejected" }).eq("id", inserted.id);
+      // Said only once the entry is set aside: if that write fails it still
+      // waits in the Inbox, and the ordinary reply says so.
+      const { error: asideError } = await supabase.from("intake").update({ status: "rejected" }).eq("id", inserted.id);
+      nothingFound = !asideError;
     }
 
     // A dividend typed in as income is never captured (docs/decisions.md,

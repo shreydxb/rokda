@@ -57,6 +57,8 @@ function isConfident(item) {
 // pasted, so it is not offered as the answer.
 function UndatedBatch({ batch, disabled, onApprove }) {
   const [date, setDate] = useState('');
+  // The picker stops at today; a day typed past it is not taken either.
+  const usable = date !== '' && date <= householdToday();
   const n = batch.items.length;
   const sent = parseDay(batch.sentOn).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
   return (
@@ -69,7 +71,7 @@ function UndatedBatch({ batch, disabled, onApprove }) {
       </div>
       <div className="ib-batch-actions">
         <input type="date" className="te-fieldvalue" aria-label={`Paid on, for these ${n} entries`} value={date} max={householdToday()} onChange={(e) => setDate(e.target.value)} />
-        <button type="button" className="om-btn" disabled={disabled || !date} onClick={() => onApprove(batch, date)}>
+        <button type="button" className="om-btn" disabled={disabled || !usable} onClick={() => onApprove(batch, date)}>
           {`Approve ${n} on this date`}
         </button>
       </div>

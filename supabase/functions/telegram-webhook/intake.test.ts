@@ -157,10 +157,42 @@ freshTest("a message read in full that holds no expense is not left in the Inbox
   assertEquals(lastReply(), 'I didn\'t find an expense, income or refund in that, so nothing is waiting in the Inbox. To record one, send the amount and who was paid, like "45 at Noon".');
 });
 
-freshTest("a message with no amount routed as an expense is not captured", async () => {
+// The no-digit rule is for a message nothing could read. One the router
+// called an expense goes to the parser, which reads an amount in words (the
+// fresh review of this change).
+freshTest("an expense with its amount in words is read, not turned away for having no digit", async () => {
   backend.route = { tool: "log_expense", args: {} };
-  await handler(textUpdate(7802, "bought coffee"));
-  assertEquals(capturedIntake().length, 0);
+  backend.parse = [{ merchant: "Plumber", amount: 50, currency: "AED", occurred_at: "2026-09-24", date_stated: true, source: "typed", category: null, card_last4: null, account_hint: null, confidence: 0.9, kind: "expense" }];
+  await handler(textUpdate(7802, "paid fifty to the plumber today"));
+  assertEquals(capturedIntake().filter((r) => r.status === "pending").map((r) => r.parsed_amount), [50]);
+});
+
+freshTest("a message routed as an expense in which the parser finds none is answered", async () => {
+  backend.route = { tool: "log_expense", args: {} };
+  backend.parse = [];
+  await handler(textUpdate(7804, "bought coffee"));
+  assertEquals(capturedIntake().filter((r) => r.status === "pending").length, 0);
+  assert(lastReply().startsWith("I didn't find an expense, income or refund in that"), lastReply());
+});
+
+// An answer the parser could not use is not an answer of "nothing": the
+// message waits in the Inbox, as it did before.
+freshTest("a bank SMS whose reading came back unusable still waits in the Inbox", async () => {
+  backend.route = { tool: "log_expense", args: {} };
+  backend.parseRaw = { items: null };
+  await handler(textUpdate(7805, "Purchase of AED 40.00 with Credit Card ending 0001 at CAFE"));
+  assertEquals(capturedIntake().filter((r) => r.status === "pending").length, 1);
+  backend.parseRaw = { items: [{ merchant: null, amount: "forty" }] };
+  await handler(textUpdate(7806, "Purchase of AED 40.00 with Credit Card ending 0001 at CAFE"));
+  assertEquals(capturedIntake().filter((r) => r.status === "pending").length, 2);
+});
+
+freshTest("a message set aside is not said to be in the Inbox when Telegram delivers it again", async () => {
+  backend.route = { tool: "log_expense", args: {} };
+  backend.parse = [];
+  await handler(textUpdate(7807, "it was on the 5th"));
+  backend.log.delete(7807);
+  await handler(textUpdate(7807, "it was on the 5th"));
   assert(lastReply().startsWith("I didn't find an expense, income or refund in that"), lastReply());
 });
 
