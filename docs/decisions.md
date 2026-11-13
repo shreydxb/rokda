@@ -3638,4 +3638,20 @@ were not unwanted, only out of the way:
   giving the date is the person's confirmation, and each entry is approved
   as confirmed. Entries paid on different days are opened one at a time, as
   before.
-
+- **An undated entry already recorded is marked.** One paste a week after
+  the first repeated many entries already recorded, and nothing said so:
+  its undated SMS were dated the day of the paste, a week from the records
+  they repeated, past the 3-day duplicate check. An undated entry is now
+  checked against the two weeks up to the day it was pasted: the same card,
+  the same amount to the fils, the same kind (an expense never matches a
+  refund), and a merchant starting with the same word once the bank's
+  additions are taken off, or the same two words after a generic first one
+  ("Al", "Dubai", a payment service) (lib/alreadyRecorded.js, which the bot
+  shares). Each record answers for one entry at most, and never for a
+  record made from another entry of the same message, so two real fares of
+  the same amount are not both taken for one. The Inbox marks it, names the
+  record, leaves it out of the batch date, and sets the marked entries aside
+  at once; the bot's reply after the paste says how many. Checked read-only
+  against that paste, it marked most of the repeats and none of the entries
+  kept; a repeat whose original was not recorded yet, or which the bank
+  named differently, is left to a person.

@@ -120,8 +120,11 @@ const mirrors = readdirSync(APPLIB)
 // Mirror declarations with no counterpart in src, and therefore nothing to
 // compare against. lastDueOccurrence is genuinely bot-only: the webhook rolls
 // a stored anchor forward to find the last occurrence on or before today,
-// which no screen needs. Anything else appearing here is drift, not a choice.
-const KNOWN_BOT_ONLY = ['recurring.js:lastDueOccurrence'];
+// which no screen needs. merchants.js's category choice is the bot's own: it
+// categorises a captured expense from the household's history, which the app
+// does through rules in the Inbox; only normaliseMerchant is shared (lib/
+// alreadyRecorded.js). Anything else appearing here is drift, not a choice.
+const KNOWN_BOT_ONLY = ['merchants.js:merchantMatches', 'merchants.js:categoryFromHistory', 'merchants.js:pickCategory', 'recurring.js:lastDueOccurrence'];
 
 const comparisons = [];
 const importComparisons = [];

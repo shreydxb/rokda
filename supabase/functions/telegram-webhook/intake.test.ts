@@ -1,7 +1,7 @@
 // Reading a message: cards named loosely, dates, corrections, and what the capture reply says.
 // The fake backend these drive the real handler against is testing/harness.ts.
 import { assert, assertEquals } from "jsr:@std/assert@1";
-import { backend, capturedIntake, datedItems, FAB, FAB_Z, forwardedDay, freshTest, handler, HOUSEHOLD, lastReply, MARRIOTT, MEMBER, NOON, photoUpdate, pickAccountByHint, replyUpdate, TELEGRAM_USER, textUpdate, undatedNote } from "./testing/harness.ts";
+import { backend, capturedIntake, dubaiToday, datedItems, FAB, FAB_Z, forwardedDay, freshTest, handler, HOUSEHOLD, lastReply, MARRIOTT, MEMBER, NOON, photoUpdate, pickAccountByHint, replyUpdate, TELEGRAM_USER, textUpdate, undatedNote } from "./testing/harness.ts";
 
 Deno.test("a card named misspelt, shortened or with filler words still resolves to the one card it means", () => {
   const accounts = [MARRIOTT, NOON, FAB_Z, FAB];
@@ -84,6 +84,20 @@ Deno.test("the capture reply says which entries had no date", () => {
   assert(undatedNote(["2026-09-29"], 1).includes("It had no date, so it's put on 2026-09-29"));
   assert(undatedNote(["2026-09-29", "2026-09-29"], 2).startsWith(" None had a date"));
   assert(undatedNote(["2026-09-29"], 3).startsWith(" 1 had no date, so those are put on 2026-09-29"));
+});
+
+// A paste a week after the first repeated 14 entries already recorded, and
+// nothing said so (the feature review, November 2026).
+freshTest("a paste says which of its undated entries look already recorded", async () => {
+  backend.tables.accounts.push(MARRIOTT, NOON);
+  const today = dubaiToday();
+  const weekAgo = new Date(Date.parse(today) - 7 * 86400000).toISOString().slice(0, 10);
+  backend.tables.transactions.push({ id: "t-old", household_id: HOUSEHOLD, account_id: NOON.id, amount: -20, kind: "expense", merchant: "CITY TAXI, DUBAI", occurred_at: weekAgo });
+  const sms = (merchant: string, amount: number) => ({ merchant, amount, currency: "AED", occurred_at: null, date_stated: false, source: "bank_sms", category: null, card_last4: null, account_hint: "ENBD Noon", confidence: 1, kind: "expense" });
+  backend.parse = [sms("CITY TAXI", 20), sms("Corner Shop", 50)];
+  await handler(textUpdate(7110, "Purchase of AED 20.00 at CITY TAXI. Purchase of AED 50.00 at CORNER SHOP"));
+  assertEquals(capturedIntake().filter((r) => r.status === "pending").length, 2);
+  assert(lastReply().includes("1 looks already recorded (CITY TAXI, AED 20.00): it's marked in the Inbox, to set aside."), lastReply());
 });
 
 freshTest("a pasted SMS with no date waits in the Inbox instead of being offered a yes", async () => {

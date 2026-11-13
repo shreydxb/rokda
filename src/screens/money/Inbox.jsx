@@ -12,6 +12,7 @@ import Withheld from '../planning/Withheld';
 import './TransactionEditor.css';
 import OwnerPicker from '../OwnerPicker';
 import { readsCleanly, undatedBatches } from '../../lib/inboxBatches';
+import { alreadyRecordedAll } from '../../lib/alreadyRecorded';
 import RememberMerchant from './RememberMerchant';
 import { addMerchantRule } from './merchantRule';
 import './Inbox.css';
@@ -55,7 +56,7 @@ function isConfident(item) {
 // The undated entries of one message, and the one date to approve them on.
 // The field starts empty: the day the message was sent is only when it was
 // pasted, so it is not offered as the answer.
-function UndatedBatch({ batch, disabled, onApprove }) {
+function UndatedBatch({ batch, leftOut = 0, disabled, onApprove }) {
   const [date, setDate] = useState('');
   // The picker stops at today; a day typed past it is not taken either.
   const usable = date !== '' && date <= householdToday();
@@ -67,6 +68,7 @@ function UndatedBatch({ batch, disabled, onApprove }) {
         <div>{`${n} entries from one message, sent ${sent}, have no date.`}</div>
         <div className="ov-muted ib-batch-note">
           {`Give the day they were paid to approve them together: ${batch.items.map((i) => i.parsed_merchant).filter((m, k, all) => all.indexOf(m) === k).slice(0, 3).join(', ')}. Paid on different days? Open each one instead.`}
+          {leftOut > 0 && ` ${leftOut} more ${leftOut === 1 ? 'looks' : 'look'} already recorded and ${leftOut === 1 ? 'is' : 'are'} left out.`}
         </div>
       </div>
       <div className="ib-batch-actions">
@@ -115,7 +117,28 @@ export default function Inbox({ household = null, members = [], accounts, catego
   // Dated the day they were sent to the bot; each waits for its real date.
   const undated = pending.filter((i) => i.date_guessed);
   const oldest = pending[pending.length - 1];
-  const batches = undatedBatches(pending);
+  // Undated entries that repeat a record already made (lib/alreadyRecorded.js):
+  // marked, left out of the batch date, and set aside together.
+  // Oldest first, so where two entries could repeat one record, the one sent
+  // first is the copy.
+  const recordedById = alreadyRecordedAll([...pending].reverse(), transactions ?? [], intake);
+  const batches = undatedBatches(pending.filter((i) => !recordedById.has(i.id)));
+  // Only those the batch would otherwise have held.
+  const recordedIn = (batch) => pending.filter((i) => recordedById.has(i.id) && readsCleanly(i) && String(i.source_ref ?? '').split('#')[0] === batch.key).length;
+
+  // Rejected, each only if still waiting, so it cannot undo an approval made
+  // meanwhile. Kept in the Inbox's history as rejected, as "Not a spend" does.
+  async function setAsideRecorded() {
+    setBulkSaving(true);
+    setError('');
+    for (const id of recordedById.keys()) {
+      const { error: updError } = await supabase.from('intake').update({ status: 'rejected' }).eq('id', id).eq('status', 'pending');
+      if (updError) setError(updError.message);
+    }
+    setBulkSaving(false);
+    setSelectedId(null);
+    await reload();
+  }
 
   // The entries of one message, approved on the one date a person gave for
   // them, which is what confirms it (approve_intake refuses a guessed date
@@ -171,6 +194,12 @@ export default function Inbox({ household = null, members = [], accounts, catego
             ? `${pending.length} waiting · ${confident.length} read cleanly${undated.length ? ` · ${undated.length} with no date` : ''}${oldest ? ` · oldest ${ago(oldest.created_at)}` : ''}`
             : 'All filed'}
         </div>
+
+        {recordedById.size > 0 && (
+          <button type="button" className="om-btn" disabled={bulkSaving} onClick={setAsideRecorded}>
+            {`Set aside ${recordedById.size} already recorded`}
+          </button>
+        )}
         {/* Offered only when something read cleanly; otherwise the count
             beside it already says none can be approved in bulk. */}
         {confident.length > 0 && (
@@ -181,7 +210,7 @@ export default function Inbox({ household = null, members = [], accounts, catego
       </div>
 
       {batches.map((batch) => (
-        <UndatedBatch key={batch.key} batch={batch} disabled={bulkSaving} onApprove={approveBatch} />
+        <UndatedBatch key={batch.key} batch={batch} leftOut={recordedIn(batch)} disabled={bulkSaving} onApprove={approveBatch} />
       ))}
 
       {pending.length === 0 ? (
@@ -215,10 +244,16 @@ export default function Inbox({ household = null, members = [], accounts, catego
                         <span className="ov-muted">
                           {senderName(i, members) ?? INTAKE_SOURCE_LABELS[i.source] ?? 'Unknown sender'} · {ago(i.created_at)}
                         </span>
-                        {i.date_guessed && (
-                          <span className="ov-chip-warn" style={{ marginLeft: 'auto' }} title="Not in the message: dated the day it was sent">
-                            No date
+                        {recordedById.has(i.id) ? (
+                          <span className="ov-chip-warn" style={{ marginLeft: 'auto' }} title="The same amount on the same card, recorded in the two weeks before it was sent">
+                            Recorded
                           </span>
+                        ) : (
+                          i.date_guessed && (
+                            <span className="ov-chip-warn" style={{ marginLeft: 'auto' }} title="Not in the message: dated the day it was sent">
+                              No date
+                            </span>
+                          )
                         )}
                       </div>
                     </div>
@@ -243,6 +278,7 @@ export default function Inbox({ household = null, members = [], accounts, catego
               allTransactions={transactions ?? []}
               rates={{ history: data.fxRateHistory ?? [], current: household?.inr_per_aed ?? null }}
               duplicatePending={findDuplicatePending(selected, pending)}
+              recorded={recordedById.get(selected.id) ?? null}
               saving={saving}
               setSaving={setSaving}
               error={error}
@@ -318,7 +354,7 @@ function FieldRow({ label, value, hint, ok, onClick }) {
 
 // household_id is taken from the intake row inside the RPC rather than passed
 // in, so an approval cannot be redirected to another household.
-function IntakeReview({ item, sender, accounts, members, categories, categoryRules, allTransactions, rates, duplicatePending, saving, setSaving, error, setError, onDone }) {
+function IntakeReview({ item, sender, accounts, members, categories, categoryRules, allTransactions, rates, duplicatePending, recorded = null, saving, setSaving, error, setError, onDone }) {
   const [mode, setMode] = useState('review'); // 'review' | 'edit'
 
   const catById = new Map(categories.map((c) => [c.id, c]));
@@ -442,6 +478,17 @@ function IntakeReview({ item, sender, accounts, members, categories, categoryRul
               <FieldRow key={f.label} {...f} onClick={() => setMode('edit')} />
             ))}
           </div>
+
+          {recorded && (
+            <div className="te-duplicate" role="status">
+              <div className="te-duplicate-title">
+                {`Looks already recorded: ${recorded.merchant ?? 'a record'}, AED ${formatMoney(Math.abs(Number(recorded.amount)), { decimals: 2 })} on ${parseDay(recorded.occurred_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`}
+              </div>
+              <div className="te-duplicate-body">
+                The same amount on the same card, recorded in the two weeks before this message. Set it aside with Not a spend, unless it was a second charge.
+              </div>
+            </div>
+          )}
 
           {duplicatePending && (
             <div className="te-duplicate" role="status" style={{ marginTop: 16 }}>

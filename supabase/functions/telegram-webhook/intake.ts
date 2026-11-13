@@ -4,6 +4,7 @@ import { householdToday } from "../_shared/applib/day.js";
 import { pickCategory } from "../_shared/applib/merchants.js";
 import { logTelegramCall, postToAiService } from "./ai.ts";
 import { OPENROUTER_API_KEY, PARSE_MODEL, supabase } from "./env.ts";
+import { ALREADY_RECORDED_DAYS, alreadyRecordedAll } from "../_shared/applib/alreadyRecorded.js";
 import { ReadFailed } from "./tools.ts";
 
 export type IntakeKind = "expense" | "income" | "refund";
@@ -118,6 +119,33 @@ export function inboxReason(
   return `Not recorded yet: I couldn't tell ${list}, so it's in the Inbox. Approve it there, or send it again with that added.${foreignNote}`;
 }
 
+
+// The line added when undated entries repeat records already made
+// (_shared/applib/alreadyRecorded.js). Read in full: a read that fails says
+// nothing, and the Inbox marks them all the same.
+export async function alreadyRecordedNote(householdId: string, items: Array<{ parsed_account_id: string | null; parsed_amount: number | string | null; parsed_merchant: string | null; parsed_kind?: string | null; parsed_date: string | null; date_guessed: boolean }>): Promise<string> {
+  const undated = items.filter((i) => i.date_guessed && i.parsed_account_id && i.parsed_date).map((i, k) => ({ ...i, id: `item-${k}` }));
+  if (undated.length === 0) return "";
+  const days = undated.map((i) => i.parsed_date!).sort();
+  const latest = days.at(-1)!;
+  const from = new Date(Date.parse(days[0]) - ALREADY_RECORDED_DAYS * 86400000).toISOString().slice(0, 10);
+  const { data, error } = await supabase
+    .from("transactions")
+    .select("id, account_id, amount, kind, merchant, occurred_at")
+    .eq("household_id", householdId)
+    .in("account_id", [...new Set(undated.map((i) => i.parsed_account_id!))])
+    .gte("occurred_at", from)
+    .lte("occurred_at", latest);
+  if (error) return "";
+  // The items of one message, none of them recorded yet: nothing to leave out
+  // as a sibling's record.
+  const found = alreadyRecordedAll(undated, data ?? [], []);
+  const repeats = undated.filter((i) => found.has(i.id));
+  if (repeats.length === 0) return "";
+  const named = repeats.slice(0, 3).map((i) => `${i.parsed_merchant}, AED ${Number(i.parsed_amount).toFixed(2)}`).join("; ");
+  const more = repeats.length > 3 ? ` and ${repeats.length - 3} more` : "";
+  return ` ${repeats.length} ${repeats.length === 1 ? "looks" : "look"} already recorded (${named}${more}): ${repeats.length === 1 ? "it's" : "they're"} marked in the Inbox, to set aside.`;
+}
 
 export function undatedNote(guessedDates: string[], total: number): string {
   if (guessedDates.length === 0) return "";

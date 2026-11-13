@@ -64,7 +64,7 @@ import { handleStatementText, runStatementCheck } from "./checks/statements.ts";
 import { confirmCandidates, confirmPendingIntake, decideAutopay, decidedProposalMessage, decideProposal, handleReaction, intakeForPrompt, openProposals, PENDING_WINDOW_MS, type PendingIntakeRow, type PromptLookup, PROPOSAL_COLUMNS, proposalForPrompt, type ProposalRow, RECENT_INTAKE_COLUMNS, recentlyDecidedProposal, sendFastConfirmPrompt, sendProposal } from "./confirmations.ts";
 import { DIVIDEND_CLASSES, DIVIDEND_GUARD_REPLY, readsAsDividend } from "./dividends.ts";
 import { OPENROUTER_API_KEY, supabase, SUPABASE_URL, TELEGRAM_BOT_TOKEN } from "./env.ts";
-import { datedItems, findDuplicateTransaction, forwardedDay, inboxReason, loadCategoryKnowledge, matchAccountByCardLast4, matchAccountByNameHint, matchCategoryFromMerchantHistory, parseIntakeWithAI, QUESTION_TOOLS, undatedNote } from "./intake.ts";
+import { alreadyRecordedNote, datedItems, findDuplicateTransaction, forwardedDay, inboxReason, loadCategoryKnowledge, matchAccountByCardLast4, matchAccountByNameHint, matchCategoryFromMerchantHistory, parseIntakeWithAI, QUESTION_TOOLS, undatedNote } from "./intake.ts";
 import { BRIEF_TRIGGERS, buildBriefMessage, figuresUnavailableMessage, goalContributionDraft, ReadFailed, toolGetAccountBalance, toolGetBudgetStatus, toolGetCategorySpend, toolGetHoldings, toolGetNetWorth, toolGetTradeProfit, toolGetUpcomingBills, transferDraft, transferPrompt } from "./tools.ts";
 import { answerTradeQuestion, FILE_TOO_BIG, FILE_TOO_BIG_CAPTION_KEPT, handleTradeMessage, handleUndoTrade } from "./tradeMessages.ts";
 import { ANSWER_HINT } from "./trades.ts";
@@ -903,6 +903,9 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
   // reply, so they can be sent again, rather than counted as captured.
   const unsavedItems: string[] = [];
   const guessedDates: string[] = [];
+  // What was saved of each undated item, to check against the records
+  // already made (alreadyRecordedNote).
+  const savedUndated: Array<{ parsed_account_id: string | null; parsed_amount: number | string | null; parsed_merchant: string | null; parsed_date: string | null; date_guessed: boolean }> = [];
   let itemsRead = false;
   let dividendsLeftOut = 0;
   // Read in full, with no expense, income or refund in it and no receipt to
@@ -1014,7 +1017,10 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
         }
         // Only a saved item's date is reported: one that failed to save is
         // named to be sent again, not told its date was guessed.
-        if (item.dateGuessed) guessedDates.push(item.occurred_at!);
+        if (item.dateGuessed) {
+          guessedDates.push(item.occurred_at!);
+          savedUndated.push(updatedRow);
+        }
 
         if (kept.length === 1) {
           singleInboxReason = inboxReason(updatedRow);
@@ -1068,6 +1074,9 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
     await reply(chatId, AI_BUSY_REPLY);
   } else {
     const n = multiItemSummaries.length;
+    // Best-effort: a note that cannot be worked out is left off, and the
+    // Inbox marks the repeats all the same.
+    const recordedNote = await alreadyRecordedNote(member.household_id, savedUndated).catch(() => "");
     const unsavedNote = unsavedItems.length
       ? ` I couldn't save ${unsavedItems.join(", ")}: send ${unsavedItems.length === 1 ? "it" : "them"} again.`
       : "";
@@ -1075,7 +1084,7 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
       chatId,
       (n > 1 || (n === 1 && unsavedItems.length)
         ? `Got it — ${n} ${n === 1 ? "expense" : "expenses"} captured (${multiItemSummaries.join(", ")}). Check the Inbox to review ${n === 1 ? "it" : "each"}.`
-        : singleInboxReason ?? "Got it — check the Inbox to review.") + unsavedNote + undatedNote(guessedDates, n > 1 ? n : 1) + dividendNote
+        : singleInboxReason ?? "Got it — check the Inbox to review.") + unsavedNote + undatedNote(guessedDates, n > 1 ? n : 1) + recordedNote + dividendNote
     );
   }
   return new Response("ok");
