@@ -382,6 +382,11 @@ Forecast or Drawdown, which went (Planning audit, 3.15), opens the Life plan.
   uncertain goes to the Inbox. A message read in full that holds no
   expense, income or refund is answered and not kept there, nor is one with
   no amount and no photo that the AI service could not read.
+- A paste of several entries is answered with a numbered list of those read
+  in full (up to 20; repeats of records already made, and entries missing
+  something, are named and left in the Inbox). A reply to the list records
+  them: "all on 2 Oct", "1-3, 5 on 2 Oct", or "all" when every SMS had its
+  date; "drop 4" sets one aside. Only the sender's reply to the list counts.
 - Answers questions: spending by category, net worth, account balances,
   upcoming bills, budget status, holdings. Every figure is read in full; if a
   read fails, it says it could not answer rather than giving a partial figure.

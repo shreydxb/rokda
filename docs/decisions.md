@@ -3655,3 +3655,23 @@ were not unwanted, only out of the way:
   against that paste, it marked most of the repeats and none of the entries
   kept; a repeat whose original was not recorded yet, or which the bank
   named differently, is left to a person.
+- **A pasted batch is finished in Telegram.** Every paste of several
+  entries ended in a trip to the Inbox. Now the bot answers with a numbered
+  list of the entries it read in full (up to 20) and takes a reply to that
+  list: "all on 2 Oct", "1-5, 7 on 2 Oct", "drop 4". A day is required
+  whenever a listed entry had none in the SMS, and never put over a day the
+  SMS gave: "all on 2 Oct" dates only the undated, and a list whose entries
+  all had dates takes "all" alone. A day and month is the latest such day
+  not after today, except one within the coming month, which is refused as
+  a slip rather than read as last year. Entries already recorded, or missing
+  something, are named and left in the Inbox; only the person who pasted can
+  answer, and only by replying to the list (an unaddressed "all on 2 Oct", a
+  bare "yes" or a 👍 is told how), so a second paste can never take the
+  first's reply. Each entry goes through approve_intake as the Inbox's do,
+  marked as confirmed only when the person gave its day, and is checked for
+  a repeat again on that day first, leaving out records the same reply just
+  made. A number not on the list refuses the whole reply. Each listed entry
+  is bound to the list through the confirm_chat_id and confirm_message_id an
+  entry's own "reply yes" prompt uses, so no table changed; a message of one
+  entry keeps that prompt. Changing a category, amount, card or merchant
+  stays in the Inbox.
