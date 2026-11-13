@@ -127,7 +127,9 @@ here, because this repository is public.
   whatever the display currency, and say so when another one is picked.
 - **Inbox**: transactions the bot was not sure of, to confirm or fix. An entry
   whose message had no date is marked "No date" and is approved only once its
-  date is set or confirmed, never in bulk. Its editor offers "Remember this
+  date is set or confirmed, never in bulk. The undated entries of one
+  message that read cleanly otherwise are offered together above the queue:
+  one date, given by hand, approves them all. Its editor offers "Remember this
   merchant", unticked, for an expense with a category chosen whose merchant
   no rule covers: the entry is approved, then the rule is added.
 - **Review**: the month just ended (or an earlier one), as a checklist of
@@ -374,7 +376,9 @@ Forecast or Drawdown, which went (Planning audit, 3.15), opens the Life plan.
   category comes from a household rule first, then the category the household
   used most for the same merchant across all of its history
   (`merchant_category_counts`), and only then the model's guess. Anything
-  uncertain goes to the Inbox.
+  uncertain goes to the Inbox. A message with no amount and no photo, or
+  one read in full that holds no expense, income or refund, is answered and
+  not kept there.
 - Answers questions: spending by category, net worth, account balances,
   upcoming bills, budget status, holdings. Every figure is read in full; if a
   read fails, it says it could not answer rather than giving a partial figure.

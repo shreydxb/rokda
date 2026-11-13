@@ -211,7 +211,10 @@ export async function parseIntakeWithAI(params: {
       .map(parseItemFields)
       .filter((item) => item.amount !== null || item.merchant !== null);
 
-    return items.length > 0 ? items : null;
+    // Read, and nothing found: an empty list, which is not the null of a
+    // read that failed. The caller keeps a message it could not read and
+    // answers one that held nothing.
+    return items;
   } catch {
     await logTelegramCall({
       callKind: "parse_intake",

@@ -50,7 +50,7 @@ import { isPrivateChat } from "../_shared/applib/telegramChat.js";
 import { ambiguousConfirmMessage, ambiguousProposalMessage, dropUnavailableMessage, isCancellationText, isConfirmable, isConfirmationText, isReadyForFastConfirm, lookupUnavailableMessage, PROMPT_UNADDRESSED, resolveConfirmTarget, resolveCorrectionTarget, resolveProposalTarget, unknownPromptMessage } from "../_shared/applib/telegramConfirm.js";
 import { linkTokenDigest, linkTokenFromMessage, looksLikeLinkToken } from "../_shared/applib/telegramLink.js";
 import { secretsMatch } from "../_shared/requestAuth.ts";
-import { AI_BUSY_REPLY, classifyAndRoute, phraseAnswer } from "./ai.ts";
+import { AI_BUSY_NOTHING_SAVED, AI_BUSY_REPLY, classifyAndRoute, NOT_AN_EXPENSE_REPLY, phraseAnswer } from "./ai.ts";
 import { runAutopayCheck } from "./checks/autopay.ts";
 import { proposeAccountBalances, runBalanceCheckin } from "./checks/balanceCheckin.ts";
 import { runMonthlyBriefCheck, runWeeklyBriefCheck } from "./checks/briefs.ts";
@@ -843,6 +843,16 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
 
   if (!rawText && !photoPath) return new Response("ok"); // nothing usable (a sticker, a reaction, ...)
 
+  // The Inbox holds entries someone can approve, and each has an amount. A
+  // message with no digit and no photo has none to read or to type in from a
+  // receipt, so it is answered rather than kept: a question the AI service
+  // could not read used to wait there as an entry (the feature review,
+  // November 2026; docs/decisions.md, "Only an expense waits in the Inbox").
+  if (!photoPath && !/\p{Nd}/u.test(rawText ?? "")) {
+    await reply(chatId, routingFailed ? AI_BUSY_NOTHING_SAVED : NOT_AN_EXPENSE_REPLY);
+    return new Response("ok");
+  }
+
   const { data: inserted, error: insertError } = await supabase
     .from("intake")
     .insert({
@@ -886,6 +896,9 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
   const guessedDates: string[] = [];
   let itemsRead = false;
   let dividendsLeftOut = 0;
+  // Read in full, with no expense, income or refund in it and no receipt to
+  // read by eye: the entry is set aside and the reply says so.
+  let nothingFound = false;
   let kept: NonNullable<ReturnType<typeof datedItems>> = [];
   try {
     const { data: categories } = await supabase
@@ -906,6 +919,10 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
     });
     const items = parsedItems ? datedItems(parsedItems, householdToday(), forwardedDay(message)) : null;
     itemsRead = (items?.length ?? 0) > 0;
+    if (parsedItems && parsedItems.length === 0 && !photoPath) {
+      nothingFound = true;
+      await supabase.from("intake").update({ status: "rejected" }).eq("id", inserted.id);
+    }
 
     // A dividend typed in as income is never captured (docs/decisions.md,
     // "Dividends are their own records"): it is recorded from the holding's
@@ -1019,6 +1036,10 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
 
   if (dividendsLeftOut > 0 && !kept.length) {
     await reply(chatId, DIVIDEND_GUARD_REPLY);
+    return new Response("ok");
+  }
+  if (nothingFound) {
+    await reply(chatId, NOT_AN_EXPENSE_REPLY);
     return new Response("ok");
   }
   const dividendNote = dividendsLeftOut > 0 ? " I left out the dividend: Rokda records dividends from your shares' own records, not as income." : "";

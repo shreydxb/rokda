@@ -101,12 +101,23 @@ freshTest("a question asked while the AI service is briefly busy is still answer
   assertEquals(aiCalls().slice(0, 2), [["classify_and_route", "http_429"], ["classify_and_route", null]]);
 });
 
-freshTest("a message the AI service cannot read even on a second try is kept, and the reply says so", async () => {
+freshTest("a message with an amount that the AI service cannot read even on a second try is kept, and the reply says so", async () => {
   backend.faults.aiBusyFirst = 4;
-  await handler(textUpdate(7302, "whats our networth?"));
+  await handler(textUpdate(7302, "spent 40 at cafe"));
   assertEquals(capturedIntake().length, 1);
   assertEquals(lastReply(), "I couldn't read that just now, so it's saved in the Inbox. If it was a question, ask again in a minute.");
   assertEquals(aiCalls(), [["classify_and_route", "http_429"], ["classify_and_route", "http_429"], ["parse_intake", "http_429"], ["parse_intake", "http_429"]]);
+});
+
+// Only an expense, income or refund belongs in the Inbox, and each has an
+// amount. A question the AI service could not read used to wait there as an
+// entry nobody could approve (the feature review, November 2026).
+freshTest("a message with no amount that the AI service cannot read is not kept, and the reply says so", async () => {
+  backend.faults.aiBusyFirst = 4;
+  await handler(textUpdate(7305, "whats our networth?"));
+  assertEquals(capturedIntake().length, 0);
+  assertEquals(lastReply(), "I couldn't read that just now, and nothing was saved. Send it again in a minute.");
+  assertEquals(aiCalls(), [["classify_and_route", "http_429"], ["classify_and_route", "http_429"]]);
 });
 
 freshTest("an expense read while routing was busy gets the ordinary reply", async () => {

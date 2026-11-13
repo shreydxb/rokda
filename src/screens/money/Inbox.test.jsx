@@ -420,3 +420,40 @@ describe('Inbox: remembering a merchant while approving', () => {
     expect(screen.getAllByRole('alert').every((el) => /doesn’t contain “Lulu”/.test(el.textContent))).toBe(true);
   });
 });
+
+// Bank SMS pasted a week's worth at a time carry no dates, so each entry
+// waited for its own: 19 of 55 approvals (the feature review, November 2026).
+// One date, said once by a person, now covers the entries of one message.
+describe('Inbox: one date for the undated entries of one message', () => {
+  const batchItem = (id, ref, over = {}) => ({ ...ITEM, id, source: 'telegram', source_ref: ref, parsed_account_id: 'acc-1', parsed_category_id: 'cat-1', parsed_date: '2026-10-04', date_guessed: true, confidence: 1, ...over });
+  const render = (items) =>
+    renderScreen(
+      <Inbox members={MEMBERS} accounts={ACCOUNTS} categories={[{ id: 'cat-1', name: 'Groceries', kind: 'expense' }]} loading={false} data={{ intake: items, categoryRules: [], transactions: [], reload: vi.fn().mockResolvedValue(undefined) }} />,
+    );
+  beforeEach(() => {
+    calls.length = 0;
+  });
+
+  it('approves them on the date given, each marked as confirmed by a person', async () => {
+    render([batchItem('i1', '500'), batchItem('i2', '500#1'), batchItem('other', '501')]);
+    expect(screen.getByText(/2 entries from one message, sent 4 Oct, have no date/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Paid on, for these 2 entries'), { target: { value: '2026-10-02' } });
+    await act(async () => {
+      screen.getByRole('button', { name: 'Approve 2 on this date' }).click();
+    });
+    const rpcs = calls.filter((c) => c.kind === 'rpc');
+    expect(rpcs.map((c) => [c.args.p_intake_id, c.args.p_occurred_at, c.args.p_date_confirmed])).toEqual([['i1', '2026-10-02', true], ['i2', '2026-10-02', true]]);
+  });
+
+  it('asks for the date first: nothing is approved on the day the message was sent unless that day is chosen', () => {
+    render([batchItem('i1', '500'), batchItem('i2', '500#1')]);
+    expect(screen.getByLabelText('Paid on, for these 2 entries').value).toBe('');
+    expect(screen.getByRole('button', { name: 'Approve 2 on this date' }).disabled).toBe(true);
+  });
+
+  it('is not offered for a single undated entry', () => {
+    render([batchItem('i1', '500')]);
+    expect(screen.queryByText(/have no date/)).toBeNull();
+  });
+});
+

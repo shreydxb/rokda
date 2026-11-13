@@ -1,7 +1,7 @@
 // Reading a message: cards named loosely, dates, corrections, and what the capture reply says.
 // The fake backend these drive the real handler against is testing/harness.ts.
 import { assert, assertEquals } from "jsr:@std/assert@1";
-import { backend, capturedIntake, datedItems, FAB, FAB_Z, forwardedDay, freshTest, handler, HOUSEHOLD, lastReply, MARRIOTT, MEMBER, NOON, pickAccountByHint, replyUpdate, TELEGRAM_USER, textUpdate, undatedNote } from "./testing/harness.ts";
+import { backend, capturedIntake, datedItems, FAB, FAB_Z, forwardedDay, freshTest, handler, HOUSEHOLD, lastReply, MARRIOTT, MEMBER, NOON, photoUpdate, pickAccountByHint, replyUpdate, TELEGRAM_USER, textUpdate, undatedNote } from "./testing/harness.ts";
 
 Deno.test("a card named misspelt, shortened or with filler words still resolves to the one card it means", () => {
   const accounts = [MARRIOTT, NOON, FAB_Z, FAB];
@@ -144,3 +144,29 @@ freshTest("a correction to an entry recorded in the meantime says so, not that i
   assertEquals(backend.tables.intake.find((r) => r.id === "99990000-0000-4000-8000-000000000012")!.parsed_amount, 40);
   assert(lastReply().includes("already been recorded or changed"), lastReply());
 });
+
+// What the Inbox is for: entries someone can approve. A message read in full
+// that holds no expense, income or refund is answered, not left there (the
+// feature review, November 2026: a correction with nothing to correct, a
+// note, a question).
+freshTest("a message read in full that holds no expense is not left in the Inbox", async () => {
+  backend.route = { tool: "log_expense", args: {} };
+  backend.parse = [];
+  await handler(textUpdate(7801, "small correction, it was spent on 5th September"));
+  assertEquals(capturedIntake().filter((r) => r.status === "pending").length, 0);
+  assertEquals(lastReply(), 'I didn\'t find an expense, income or refund in that, so nothing is waiting in the Inbox. To record one, send the amount and who was paid, like "45 at Noon".');
+});
+
+freshTest("a message with no amount routed as an expense is not captured", async () => {
+  backend.route = { tool: "log_expense", args: {} };
+  await handler(textUpdate(7802, "bought coffee"));
+  assertEquals(capturedIntake().length, 0);
+  assert(lastReply().startsWith("I didn't find an expense, income or refund in that"), lastReply());
+});
+
+freshTest("a photo the parser finds nothing in still waits in the Inbox to be read by a person", async () => {
+  backend.parse = [];
+  await handler(photoUpdate(7803, "my receipt"));
+  assertEquals(capturedIntake().filter((r) => r.status === "pending").length, 1);
+});
+

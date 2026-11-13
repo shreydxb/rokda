@@ -11,6 +11,7 @@ import { neverLoaded } from '../../lib/loadState';
 import Withheld from '../planning/Withheld';
 import './TransactionEditor.css';
 import OwnerPicker from '../OwnerPicker';
+import { readsCleanly, undatedBatches } from '../../lib/inboxBatches';
 import RememberMerchant from './RememberMerchant';
 import { addMerchantRule } from './merchantRule';
 import './Inbox.css';
@@ -48,16 +49,31 @@ function findDuplicatePending(item, otherPending) {
 // parser was confident about it. Only a row meeting this bar is safe to
 // wave through in bulk with nobody looking at it first.
 function isConfident(item) {
+  return readsCleanly(item) && !item.date_guessed;
+}
+
+// The undated entries of one message, and the one date to approve them on.
+// The field starts empty: the day the message was sent is only when it was
+// pasted, so it is not offered as the answer.
+function UndatedBatch({ batch, disabled, onApprove }) {
+  const [date, setDate] = useState('');
+  const n = batch.items.length;
+  const sent = parseDay(batch.sentOn).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
   return (
-    !!item.parsed_merchant &&
-    item.parsed_amount !== null &&
-    Number(item.parsed_amount) > 0 &&
-    !!item.parsed_date &&
-    !item.date_guessed &&
-    !!item.parsed_category_id &&
-    !!item.parsed_account_id &&
-    (item.parsed_currency == null || item.parsed_currency === 'AED') &&
-    Number(item.confidence ?? 0) >= 0.85
+    <div className="ib-batch" role="group" aria-label={`${n} entries with no date`}>
+      <div>
+        <div>{`${n} entries from one message, sent ${sent}, have no date.`}</div>
+        <div className="ov-muted ib-batch-note">
+          {`Give the day they were paid to approve them together: ${batch.items.map((i) => i.parsed_merchant).filter((m, k, all) => all.indexOf(m) === k).slice(0, 3).join(', ')}. Paid on different days? Open each one instead.`}
+        </div>
+      </div>
+      <div className="ib-batch-actions">
+        <input type="date" className="te-fieldvalue" aria-label={`Paid on, for these ${n} entries`} value={date} max={householdToday()} onChange={(e) => setDate(e.target.value)} />
+        <button type="button" className="om-btn" disabled={disabled || !date} onClick={() => onApprove(batch, date)}>
+          {`Approve ${n} on this date`}
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -97,6 +113,23 @@ export default function Inbox({ household = null, members = [], accounts, catego
   // Dated the day they were sent to the bot; each waits for its real date.
   const undated = pending.filter((i) => i.date_guessed);
   const oldest = pending[pending.length - 1];
+  const batches = undatedBatches(pending);
+
+  // The entries of one message, approved on the one date a person gave for
+  // them, which is what confirms it (approve_intake refuses a guessed date
+  // otherwise). One failure never blocks the rest.
+  async function approveBatch(batch, date) {
+    setBulkSaving(true);
+    setError('');
+    for (const item of batch.items) {
+      const form = { accountId: item.parsed_account_id, amount: item.parsed_amount, date, dateGuessed: true, dateConfirmed: true, kind: item.parsed_kind ?? 'expense', categoryId: item.parsed_category_id, currency: 'AED', merchant: item.parsed_merchant, isShared: true, ownerMemberId: null };
+      const { error: rpcError } = await supabase.rpc('approve_intake', approvalArgs(item, form));
+      if (rpcError) setError(`${item.parsed_merchant}: ${rpcError.message}`);
+    }
+    setBulkSaving(false);
+    setSelectedId(null);
+    await reload();
+  }
 
   async function approveConfident() {
     setBulkSaving(true);
@@ -144,6 +177,10 @@ export default function Inbox({ household = null, members = [], accounts, catego
           </button>
         )}
       </div>
+
+      {batches.map((batch) => (
+        <UndatedBatch key={batch.key} batch={batch} disabled={bulkSaving} onApprove={approveBatch} />
+      ))}
 
       {pending.length === 0 ? (
         <div className="ov-empty" style={{ marginTop: 0 }}>
