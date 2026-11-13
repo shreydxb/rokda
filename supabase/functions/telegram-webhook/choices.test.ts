@@ -168,3 +168,52 @@ freshTest("after a pasted list, an entry missing its category is asked about wit
   const prompt = lastPrompt();
   assert(prompt.text.includes("Odd Place") && prompt.text.includes("Which category?"), prompt.text);
 });
+
+// The fresh review.
+freshTest("the question says the entry is saved, and keeps the note about a missing date", async () => {
+  seed();
+  backend.parse = [item({ occurred_at: null, date_stated: false })];
+  await handler(textUpdate(9530, "pasted sms"));
+  const prompt = lastPrompt();
+  assert(prompt.text.startsWith("Saved in the Inbox."), prompt.text);
+  assert(prompt.text.includes("no date"), prompt.text);
+});
+
+freshTest("a question Telegram can't be reached for falls back to the plain reply, never a failed update", async () => {
+  seed();
+  backend.parse = [item()];
+  backend.faults.failFirstSends = 1;
+  const res = await handler(textUpdate(9531, "pasted sms"));
+  assertEquals(res.status, 200);
+  assert(String(backend.telegramSent.at(-1)?.body.text).includes("Inbox"), String(backend.telegramSent.at(-1)?.body.text));
+});
+
+freshTest("an old button does not overwrite a category set in the app since", async () => {
+  seed();
+  backend.parse = [item()];
+  await handler(textUpdate(9532, "pasted sms"));
+  const prompt = lastPrompt();
+  capturedIntake()[0].parsed_category_id = EATING_OUT;
+  await handler(tapUpdate(9533, prompt.id, prompt.buttons.find((b) => b.text === "Groceries")!.callback_data));
+  assertEquals(capturedIntake()[0].parsed_category_id, EATING_OUT);
+});
+
+freshTest("In the Inbox after a choice unbinds the message, so a yes there records nothing", async () => {
+  seed();
+  backend.parse = [item()];
+  await handler(textUpdate(9534, "pasted sms"));
+  const prompt = lastPrompt();
+  await handler(tapUpdate(9535, prompt.id, prompt.buttons.find((b) => b.text === "Groceries")!.callback_data));
+  await handler(tapUpdate(9536, prompt.id, prompt.buttons.find((b) => b.text === "In the Inbox")!.callback_data));
+  assertEquals(capturedIntake()[0].confirm_message_id ?? null, null);
+});
+
+freshTest("a tap from a group chat, or another household's card, changes nothing", async () => {
+  seed();
+  backend.tables.accounts.push({ id: "c2000000-0000-4000-8000-0000000000a9", household_id: "99999999-0000-4000-8000-000000000000", name: "Their card", type: "credit_card", archived_at: null });
+  backend.parse = [item({ card_last4: null, category: "Groceries" })];
+  await handler(textUpdate(9537, "pasted sms"));
+  const row = capturedIntake()[0];
+  await handler(tapUpdate(9538, lastPrompt().id, encodeChoice("a", String(row.id), "c2000000-0000-4000-8000-0000000000a9")));
+  assertEquals(row.parsed_account_id, null);
+});

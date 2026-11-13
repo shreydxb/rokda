@@ -128,12 +128,18 @@ export async function choicePrompt(householdId: string, memberId: string, row: P
 }
 
 // Sends the question for an entry, when it is missing only its category or
-// card. False when there was nothing to ask, so the caller replies as before.
-export async function sendChoicePrompt(chatId: number, householdId: string, memberId: string, row: PromptRow, lead = ""): Promise<boolean> {
-  const prompt = await choicePrompt(householdId, memberId, row).catch(() => null);
-  if (!prompt) return false;
-  const res = (await tgCall("sendMessage", { chat_id: chatId, text: `${lead}${prompt.text}`, reply_markup: prompt.reply_markup })) as { ok?: boolean } | undefined;
-  return !!res?.ok;
+// card. False when there was nothing to ask, or the question could not be
+// sent: the caller then replies as before, and nothing throws, since a failed
+// update would have Telegram deliver the whole message again.
+export async function sendChoicePrompt(chatId: number, householdId: string, memberId: string, row: PromptRow, lead = "", trail = ""): Promise<boolean> {
+  try {
+    const prompt = await choicePrompt(householdId, memberId, row);
+    if (!prompt) return false;
+    const res = (await tgCall("sendMessage", { chat_id: chatId, text: `${lead}${prompt.text}${trail}`, reply_markup: prompt.reply_markup })) as { ok?: boolean } | undefined;
+    return !!res?.ok;
+  } catch {
+    return false;
+  }
 }
 
 const INTAKE_COLUMNS = "id, household_id, member_id, status, parsed_merchant, parsed_amount, parsed_date, date_guessed, parsed_category_id, parsed_account_id, parsed_currency, parsed_kind, confidence";
@@ -192,10 +198,16 @@ export async function handleChoiceTap(callback: Record<string, unknown>): Promis
   }
   if (choice.kind === "i") {
     await answer();
-    await edit(chatId, messageId, "Left in the Inbox to finish there.");
+    // A choice made before may have bound this message to the yes prompt:
+    // the message no longer says that, so a yes to it must record nothing.
+    await supabase.from("intake").update({ confirm_chat_id: null, confirm_message_id: null }).eq("id", row.id).eq("confirm_chat_id", chatId).eq("confirm_message_id", messageId);
+    await edit(chatId, messageId, `Left in the Inbox to finish there.${row.date_guessed ? " It also needs the day it was paid." : ""}`);
     return new Response("ok");
   }
 
+  // Only a field still empty is filled: a choice made in the app since the
+  // question was sent is not overwritten by an old button.
+  const field = choice.kind === "c" ? "parsed_category_id" : "parsed_account_id";
   let patch: Record<string, string> | null = null;
   if (choice.kind === "c") {
     const fileable = await loadFileableCategories(member.household_id, row.parsed_kind === "income" ? "income" : "expense");
@@ -208,9 +220,13 @@ export async function handleChoiceTap(callback: Record<string, unknown>): Promis
     await answer("That choice isn't available any more.");
     return new Response("ok");
   }
-  const { data: updated, error } = await supabase.from("intake").update(patch).eq("id", row.id).eq("status", "pending").select(INTAKE_COLUMNS);
-  if (error || !updated?.length) {
+  const { data: updated, error } = await supabase.from("intake").update(patch).eq("id", row.id).eq("status", "pending").is(field, null).select(INTAKE_COLUMNS);
+  if (error) {
     await answer("Couldn't save that just now. Try again, or use the Inbox.");
+    return new Response("ok");
+  }
+  if (!updated?.length) {
+    await answer("That was already set in the app.");
     return new Response("ok");
   }
   await answer("Saved.");

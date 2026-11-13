@@ -1155,7 +1155,7 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
       }
     }
     // One entry missing only its category or card: asked with buttons.
-    if (kept.length === 1 && savedItems.length === 1 && (await sendChoicePrompt(chatId, member.household_id, member.id, { id: savedItems[0].id, ...savedItems[0].row }))) {
+    if (kept.length === 1 && savedItems.length === 1 && (await sendChoicePrompt(chatId, member.household_id, member.id, { id: savedItems[0].id, ...savedItems[0].row }, "Saved in the Inbox. ", undatedNote(guessedDates, 1) + dividendNote))) {
       return new Response("ok");
     }
     await reply(
