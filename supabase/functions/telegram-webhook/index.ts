@@ -57,6 +57,7 @@ import { runMonthlyBriefCheck, runWeeklyBriefCheck } from "./checks/briefs.ts";
 import { runBudgetAlertCheck } from "./checks/budgetAlerts.ts";
 import { runCashCoverCheck } from "./checks/cashCover.ts";
 import { runCreditCardCheck } from "./checks/creditCards.ts";
+import { Digest } from "./checks/digest.ts";
 import { dividendsNotYet, runDividendCheck } from "./checks/dividendReceipts.ts";
 import { runRecurringCheck } from "./checks/recurring.ts";
 import { runSplitCheck, runUnusualSpendCheck } from "./checks/spending.ts";
@@ -70,7 +71,7 @@ import { alreadyRecordedNote, categoryByName, datedItems, findDuplicateTransacti
 import { BRIEF_TRIGGERS, buildBriefMessage, figuresUnavailableMessage, goalContributionDraft, ReadFailed, toolGetAccountBalance, toolGetBudgetStatus, toolGetCategorySpend, toolGetHoldings, toolGetNetWorth, toolGetTradeProfit, toolGetUpcomingBills, transferDraft, transferPrompt } from "./tools.ts";
 import { answerTradeQuestion, FILE_TOO_BIG, FILE_TOO_BIG_CAPTION_KEPT, handleTradeMessage, handleUndoTrade } from "./tradeMessages.ts";
 import { ANSWER_HINT } from "./trades.ts";
-import { type AnswerTarget, bytesToBase64, claimUpdate, clearLinkFailures, getTelegramWebhookSecret, linkAttemptBlocked, logFailure, pruneTelegramUpdateLog, recordAnswerTarget, recordedAnswerTarget, recordLinkFailure, reply, settleUpdate, telegramFetch, tgCall } from "./transport.ts";
+import { type AnswerTarget, bytesToBase64, claimUpdate, clearLinkFailures, getTelegramWebhookSecret, linkAttemptBlocked, logFailure, pruneTelegramUpdateLog, recordAnswerTarget, recordedAnswerTarget, recordLinkFailure, reply, sendReminder, settleUpdate, telegramFetch, tgCall } from "./transport.ts";
 
 // Exported for the tests, which import them from here.
 export { accountsForCheckin, balanceFigure, buildBalanceCheckinMessage, pickCheckinAccount } from "./checks/balanceCheckin.ts";
@@ -138,20 +139,25 @@ async function handleRequest(req: Request): Promise<Response> {
   // than adding new jobs for each. The weekly/monthly checks no-op on every
   // day but their own, so running them daily costs nothing.
   if (req.method === "GET" && url.searchParams.get("run_recurring_check") === "1") {
+    // The reminders that need no answer, and that morning's brief or review,
+    // go out together as one message a person (checks/digest.ts); the
+    // questions (autopay, statements, splits, dividends) still send their own.
+    const digest = new Digest();
     const [recurring, autopay, creditCards, statements, budgets, weeklyBrief, monthlyBrief, cashCover, unusualSpend, balanceCheckin, splits, dividends] = await Promise.all([
-      runRecurringCheck(),
+      runRecurringCheck(digest),
       runAutopayCheck(),
-      runCreditCardCheck(),
+      runCreditCardCheck(digest),
       runStatementCheck(),
-      runBudgetAlertCheck(),
-      runWeeklyBriefCheck(),
-      runMonthlyBriefCheck(),
-      runCashCoverCheck(),
-      runUnusualSpendCheck(),
-      runBalanceCheckin(),
+      runBudgetAlertCheck(digest),
+      runWeeklyBriefCheck(digest),
+      runMonthlyBriefCheck(digest),
+      runCashCoverCheck(digest),
+      runUnusualSpendCheck(digest),
+      runBalanceCheckin(digest),
       runSplitCheck(),
       runDividendCheck(),
     ]);
+    const digestSent = await digest.send(sendReminder);
     // Housekeeping, not a check: nothing reports on it and nothing depends on
     // it having run today.
     await pruneTelegramUpdateLog();
@@ -169,6 +175,7 @@ async function handleRequest(req: Request): Promise<Response> {
         balance_checkin: balanceCheckin,
         splits,
         dividends,
+        digest: digestSent,
       }),
       { headers: { "Content-Type": "application/json" } }
     );

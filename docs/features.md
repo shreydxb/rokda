@@ -398,10 +398,12 @@ Forecast or Drawdown, which went (Planning audit, 3.15), opens the Life plan.
   first: it shows the change (old → new) and saves it only on a "yes" or a 👍
   to that message; "no" drops it.
 - Nudges and briefs (daily job): bills due and overdue, card payments, budget
-  alerts, cash cover, unusual spending, a weekly and a monthly brief, a
-  balance check-in on the 1st of each month, and each card statement: asked
-  the morning after it closes and reminded once three days before it is due,
-  unless someone says it is reconciled ("done" or 👍).
+  alerts, cash cover and unusual spending go out as one morning message per
+  person, after the weekly brief on Mondays and after the monthly review and
+  balance check-in on the 1st (one message that morning too). Each card
+  statement is asked about on its own: the morning after it closes, and
+  once more three days before it is due, unless someone says it is
+  reconciled ("done" or 👍).
 - Asks each morning about dividends due in a broker's fund, once, one
   message per fund with each line's sum, withholding and net; "yes" or 👍
   records them all, "not yet" or 👎 asks again tomorrow, "no" leaves them

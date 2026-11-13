@@ -5,7 +5,8 @@ import { sendProposal } from "../confirmations.ts";
 import { supabase } from "../env.ts";
 import { pickAccountByHint } from "../intake.ts";
 import { ANSWER_HINT } from "../trades.ts";
-import { reply, sendReminder } from "../transport.ts";
+import { reply } from "../transport.ts";
+import { type Digest, DIGEST_ORDER } from "./digest.ts";
 import { householdsWithLinkedTelegram, prefEnabled, sendablePeriod, telegramPrefsMap } from "./recipients.ts";
 
 // ---------------------------------------------------------------------------
@@ -82,7 +83,7 @@ export function buildBalanceCheckinMessage(accounts: BalanceAccount[], members: 
 }
 
 
-export async function runBalanceCheckin(): Promise<{ sent: number }> {
+export async function runBalanceCheckin(digest: Digest): Promise<{ sent: number }> {
   // From the 1st, catching up until the 3rd while unsent (sendablePeriod).
   const periodKey = sendablePeriod(householdToday(), "monthly");
   if (!periodKey) return { sent: 0 };
@@ -108,16 +109,17 @@ export async function runBalanceCheckin(): Promise<{ sent: number }> {
         supabase.from("household_members").select("id, display_name, telegram_user_id").eq("household_id", householdId),
       ]);
       const roster = (members ?? []) as BalanceMember[];
-      let any = false;
-      let undelivered = false;
+      // Each member's own accounts, in the same message as the monthly
+      // review (digest.ts); recorded for the household once all got theirs.
+      const asked: number[] = [];
       for (const m of roster.filter((r) => r.telegram_user_id != null)) {
         const mine = accountsForCheckin((accounts ?? []) as BalanceAccount[], roster, m.id);
         if (!mine.length) continue;
-        if ((await sendReminder(m.telegram_user_id!, buildBalanceCheckinMessage(mine, roster, monthLabel))) === "retry") undelivered = true;
-        any = true;
+        digest.head([m.telegram_user_id!], buildBalanceCheckinMessage(mine, roster, monthLabel), DIGEST_ORDER.balanceCheckin, () => {});
+        asked.push(m.telegram_user_id!);
       }
-      if (!any || undelivered) continue;
-      await supabase.from("brief_sends").insert({ household_id: householdId, kind: "balance_checkin", period_key: periodKey });
+      if (!asked.length) continue;
+      digest.afterAll(asked, () => supabase.from("brief_sends").insert({ household_id: householdId, kind: "balance_checkin", period_key: periodKey }));
       sent++;
     } catch {
       // One household's check-in failing must never block the rest.

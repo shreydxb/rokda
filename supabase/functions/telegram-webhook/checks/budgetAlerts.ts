@@ -4,7 +4,7 @@ import { monthActualsByCategory } from "../../_shared/applib/budget.js";
 import { householdDay, householdYearMonth } from "../../_shared/applib/day.js";
 import { supabase } from "../env.ts";
 import { monthStartIso, transactionsBetween } from "../tools.ts";
-import { sendToAll } from "../transport.ts";
+import { type Digest, DIGEST_ORDER } from "./digest.ts";
 
 export const BUDGET_THRESHOLDS = [100, 90, 80];
 
@@ -16,7 +16,8 @@ export const BUDGET_THRESHOLDS = [100, 90, 80];
 // budget_alert_nudges dedupes per (household, category, month, threshold)
 // -- a threshold already alerted isn't repeated, but a later, higher
 // threshold crossed the same month still gets its own alert.
-export async function runBudgetAlertCheck(): Promise<{ checked: number; nudged: number }> {
+// Its line goes in the morning digest (digest.ts), recorded once delivered.
+export async function runBudgetAlertCheck(digest: Digest): Promise<{ checked: number; nudged: number }> {
   const now = householdDay();
   const { year, month } = householdYearMonth(now);
 
@@ -67,9 +68,9 @@ export async function runBudgetAlertCheck(): Promise<{ checked: number; nudged: 
           threshold >= 100
             ? `Budget alert: ${category.name} is over budget this month -- AED ${actual.toFixed(2)} spent of AED ${budgeted.toFixed(2)}.`
             : `Budget alert: ${category.name} has hit ${threshold}% of this month's budget (AED ${actual.toFixed(2)} of AED ${budgeted.toFixed(2)}).`;
-        if (!(await sendToAll(recipients.map((m) => m.telegram_user_id), message))) break;
-
-        await supabase.from("budget_alert_nudges").insert({ household_id: b.household_id, category_id: b.category_id, year, month, threshold });
+        digest.line(recipients.map((m) => m.telegram_user_id), message, DIGEST_ORDER.budget, () =>
+          supabase.from("budget_alert_nudges").insert({ household_id: b.household_id, category_id: b.category_id, year, month, threshold })
+        );
         nudged++;
         break;
       }

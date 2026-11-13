@@ -3712,3 +3712,17 @@ were not unwanted, only out of the way:
   kept in a record's note. Categories never used but holding a monthly
   budget stay: they are lines of the plan. Insurance categories stay too,
   for premiums still to start.
+- **One morning message instead of many reminders.** Each reminder that
+  needs no answer was its own message: a bill not seen, a card due, a budget
+  passed, cash cover, unusual spending. The morning check now gathers them
+  into one message per person ("Good morning. 3 things today:"), sent only
+  when there is something to say (checks/digest.ts). Each line keeps its own
+  rule for when it is due and its own record that it was sent, and goes to
+  the people its message went to before, so a personal card stays in its
+  owner's digest. A line is recorded once everyone it was for received
+  their message; one that did not reach someone comes again the next
+  morning, as before. On a Monday the lines follow the weekly brief, and on
+  the 1st the monthly review and each member's balance check-in are one
+  message, the lines after them, so that morning is still one message. The
+  questions (autopay, dividends, statements, a split) stay separate: each
+  answer is tied to its own message.

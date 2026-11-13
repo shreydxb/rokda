@@ -3,7 +3,7 @@
 import { householdToday } from "../../_shared/applib/day.js";
 import { supabase } from "../env.ts";
 import { buildBriefMessage, buildMonthlyReviewMessage } from "../tools.ts";
-import { sendToAll } from "../transport.ts";
+import { type Digest, DIGEST_ORDER } from "./digest.ts";
 import { householdsWithLinkedTelegram, prefEnabled, sendablePeriod, telegramPrefsMap, telegramRecipients } from "./recipients.ts";
 
 // Runs daily alongside the other checks (see the ?run_recurring_check=1
@@ -11,7 +11,8 @@ import { householdsWithLinkedTelegram, prefEnabled, sendablePeriod, telegramPref
 // (sendablePeriod) -- the brief itself is weekly, the check for whether to
 // send it doesn't need its own schedule. brief_sends dedupes per (household,
 // 'weekly', that Monday's date) so a later run the same week is a no-op.
-export async function runWeeklyBriefCheck(): Promise<{ sent: number }> {
+// It heads that morning's digest (digest.ts): the reminder lines follow it.
+export async function runWeeklyBriefCheck(digest: Digest): Promise<{ sent: number }> {
   const today = householdToday();
   const periodKey = sendablePeriod(today, "weekly");
   if (!periodKey) return { sent: 0 };
@@ -34,8 +35,9 @@ export async function runWeeklyBriefCheck(): Promise<{ sent: number }> {
       if (!recipients.length) continue;
 
       const brief = await buildBriefMessage(householdId);
-      if (!(await sendToAll(recipients, `This week:\n${brief}`))) continue;
-      await supabase.from("brief_sends").insert({ household_id: householdId, kind: "weekly", period_key: periodKey });
+      digest.head(recipients, `This week:\n${brief}`, DIGEST_ORDER.weeklyBrief, () =>
+        supabase.from("brief_sends").insert({ household_id: householdId, kind: "weekly", period_key: periodKey })
+      );
       sent++;
     } catch {
       // One household's brief failing must never block the rest.
@@ -49,7 +51,8 @@ export async function runWeeklyBriefCheck(): Promise<{ sent: number }> {
 // (catching up until the 3rd) and summarises the month that just ended (see
 // buildMonthlyReviewMessage) -- by the time this runs, "this month" already
 // names the new one.
-export async function runMonthlyBriefCheck(): Promise<{ sent: number }> {
+// It heads that morning's digest, with the balance check-in after it.
+export async function runMonthlyBriefCheck(digest: Digest): Promise<{ sent: number }> {
   const periodKey = sendablePeriod(householdToday(), "monthly");
   if (!periodKey) return { sent: 0 };
   const [prevYear, prevMonth] = periodKey.split("-").map(Number);
@@ -72,8 +75,9 @@ export async function runMonthlyBriefCheck(): Promise<{ sent: number }> {
       if (!recipients.length) continue;
 
       const review = await buildMonthlyReviewMessage(householdId, prevYear, prevMonth);
-      if (!(await sendToAll(recipients, review))) continue;
-      await supabase.from("brief_sends").insert({ household_id: householdId, kind: "monthly", period_key: periodKey });
+      digest.head(recipients, review, DIGEST_ORDER.monthlyReview, () =>
+        supabase.from("brief_sends").insert({ household_id: householdId, kind: "monthly", period_key: periodKey })
+      );
       sent++;
     } catch {
       // One household's review failing must never block the rest.

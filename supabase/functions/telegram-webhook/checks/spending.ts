@@ -5,7 +5,8 @@ import { notableMoves } from "../../_shared/applib/insights.js";
 import { supabase } from "../env.ts";
 import { allRowsOf, householdRows, monthStartIso, transactionsBetween } from "../tools.ts";
 import { splitQuestion } from "../trades.ts";
-import { reply, sendToAll } from "../transport.ts";
+import { reply } from "../transport.ts";
+import { type Digest, DIGEST_ORDER } from "./digest.ts";
 import { householdsWithLinkedTelegram, prefEnabled, telegramPrefsMap, telegramRecipients } from "./recipients.ts";
 
 // A far more conservative bar than the web Insights screen's own
@@ -81,7 +82,8 @@ export async function runSplitCheck(): Promise<{ checked: number; asked: number 
 }
 
 
-export async function runUnusualSpendCheck(): Promise<{ checked: number; nudged: number }> {
+// Its lines go in the morning digest (digest.ts), recorded once delivered.
+export async function runUnusualSpendCheck(digest: Digest): Promise<{ checked: number; nudged: number }> {
   const now = householdDay();
   const { year, month } = householdYearMonth(now);
   const households = await householdsWithLinkedTelegram();
@@ -124,9 +126,9 @@ export async function runUnusualSpendCheck(): Promise<{ checked: number; nudged:
         const biggest = move.evidence[0];
         const evidenceNote = biggest ? ` The biggest single hit was AED ${biggest.amount.toFixed(2)} at ${biggest.merchant}.` : "";
         const message = `Unusual spend: ${move.categoryName} is at AED ${move.actual.toFixed(2)} this month, well above its usual AED ${move.avg.toFixed(2)}.${evidenceNote}`;
-        if (!(await sendToAll(recipients, message))) continue;
-
-        await supabase.from("unusual_spend_nudges").insert({ household_id: householdId, category_id: move.categoryId, year, month });
+        digest.line(recipients, message, DIGEST_ORDER.unusualSpend, () =>
+          supabase.from("unusual_spend_nudges").insert({ household_id: householdId, category_id: move.categoryId, year, month })
+        );
         nudged++;
       }
     } catch {

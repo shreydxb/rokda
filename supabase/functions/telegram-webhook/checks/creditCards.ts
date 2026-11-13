@@ -4,7 +4,7 @@ import { accountValueAed } from "../../_shared/applib/accounts.js";
 import { daysUntilDue, nextDueDate } from "../../_shared/applib/creditCard.js";
 import { atDayOfMonth, householdDay, startOfDay } from "../../_shared/applib/day.js";
 import { supabase } from "../env.ts";
-import { sendToAll } from "../transport.ts";
+import { type Digest, DIGEST_ORDER } from "./digest.ts";
 import { prefEnabled, telegramPrefsMap } from "./recipients.ts";
 
 // Runs alongside runRecurringCheck (see the ?run_recurring_check=1 handler
@@ -16,7 +16,8 @@ import { prefEnabled, telegramPrefsMap } from "./recipients.ts";
 // the same proxy get_upcoming_bills already uses: balance still positive
 // past the due date. credit_card_nudges dedupes per (account, due date,
 // kind) so the same due date is never re-nagged on the next day's check.
-export async function runCreditCardCheck(): Promise<{ checked: number; nudged: number }> {
+// Its line goes in the morning digest (digest.ts), recorded once delivered.
+export async function runCreditCardCheck(digest: Digest): Promise<{ checked: number; nudged: number }> {
   const today = householdDay();
   const [{ data: cards }, prefs] = await Promise.all([
     supabase
@@ -98,9 +99,9 @@ export async function runCreditCardCheck(): Promise<{ checked: number; nudged: n
         kind === "due_soon"
           ? `${a.name} is due ${dueDateStr} -- outstanding balance ${owedLabel}.`
           : `${a.name} was due ${dueDateStr} and still shows ${owedLabel} owing -- paid it another way, or forgot?`;
-      if (!(await sendToAll(recipients.map((m) => m.telegram_user_id), message))) continue;
-
-      await supabase.from("credit_card_nudges").insert({ account_id: a.id, due_date: dueDateStr, kind });
+      digest.line(recipients.map((m) => m.telegram_user_id), message, kind === "due_soon" ? DIGEST_ORDER.cardDueSoon : DIGEST_ORDER.cardOverdue, () =>
+        supabase.from("credit_card_nudges").insert({ account_id: a.id, due_date: dueDateStr, kind })
+      );
       nudged++;
     } catch {
       // One card's nudge failing must never block the rest.

@@ -3,7 +3,7 @@
 import { householdDay } from "../../_shared/applib/day.js";
 import { lastDueOccurrence, matchWindowDays } from "../../_shared/applib/recurring.js";
 import { supabase } from "../env.ts";
-import { sendToAll } from "../transport.ts";
+import { type Digest, DIGEST_ORDER } from "./digest.ts";
 import { prefEnabled, telegramPrefsMap } from "./recipients.ts";
 
 // Runs once a day via pg_cron (see the ?run_recurring_check=1 handler in
@@ -13,7 +13,8 @@ import { prefEnabled, telegramPrefsMap } from "./recipients.ts";
 // nudge to the member(s) it belongs to. recurring_nudges records that a
 // nudge was already sent for a (recurring row, due date) pair so the same
 // missed bill is never re-nagged on the next day's check.
-export async function runRecurringCheck(): Promise<{ checked: number; nudged: number }> {
+// Its line goes in the morning digest (digest.ts), recorded once delivered.
+export async function runRecurringCheck(digest: Digest): Promise<{ checked: number; nudged: number }> {
   const today = householdDay();
   // A bill is nudged 3 to 10 days after its date. Income moves with bank
   // holidays, so it is only nudged once its whole window (matchWindowDays)
@@ -132,12 +133,12 @@ export async function runRecurringCheck(): Promise<{ checked: number; nudged: nu
           : (members ?? []).filter((m: { id: string }) => m.id === r.owner_member_id)
       ).filter((m: { telegram_user_id: number | null }) => m.telegram_user_id != null) as Array<{ telegram_user_id: number }>;
 
-      const delivered = await sendToAll(
+      digest.line(
         recipients.map((m) => m.telegram_user_id),
-        `I don't see a transaction for "${r.name}" yet (usually around AED ${amount.toFixed(2)}, due ${r.dueDate}) -- forgot to log it, or paid another way?`
+        `I don't see a transaction for "${r.name}" yet (usually around AED ${amount.toFixed(2)}, due ${r.dueDate}) -- forgot to log it, or paid another way?`,
+        DIGEST_ORDER.billNotSeen,
+        () => supabase.from("recurring_nudges").insert({ recurring_id: r.id, due_date: r.dueDate }),
       );
-      if (!delivered) continue;
-      await supabase.from("recurring_nudges").insert({ recurring_id: r.id, due_date: r.dueDate });
       nudged++;
     } catch {
       // One recurring row's nudge failing must never block the rest.
