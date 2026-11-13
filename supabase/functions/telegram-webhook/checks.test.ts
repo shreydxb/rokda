@@ -17,7 +17,7 @@ freshTest("a bill paid after the first thousand records of its window still coun
   // Unpaid: asked about, so the check itself is running.
   const unpaid = await handler(dailyCheck());
   await unpaid.body?.cancel();
-  assert(backend.telegramSent.some((m) => String(m.body.text).startsWith('I don\'t see a transaction for "Rent"')), "an unpaid bill was not asked about");
+  assert(backend.telegramSent.some((m) => String(m.body.text).includes('I don\'t see a transaction for "Rent"')), "an unpaid bill was not asked about");
 
   // Paid, as the 1,001st record of the window: not asked about.
   backend.tables.recurring_nudges = [];
@@ -25,7 +25,7 @@ freshTest("a bill paid after the first thousand records of its window still coun
   backend.tables.transactions.push({ id: "rent-paid", household_id: HOUSEHOLD, account_id: BANK, amount: -500, occurred_at: dubaiDaysAgo(4) });
   const paid = await handler(dailyCheck());
   await paid.body?.cancel();
-  assert(!backend.telegramSent.some((m) => String(m.body.text).startsWith("I don't see a transaction")), "a paid bill was asked about");
+  assert(!backend.telegramSent.some((m) => String(m.body.text).includes("I don't see a transaction")), "a paid bill was asked about");
 });
 
 // Round 2 of the outside review (D2-4): a reminder Telegram refused (an
@@ -45,7 +45,7 @@ freshTest("a reminder Telegram refuses is not recorded as sent, and goes out on 
   backend.telegramSent.length = 0;
   const next = await handler(dailyCheck());
   await next.body?.cancel();
-  assert(backend.telegramSent.some((m) => String(m.body.text).startsWith('I don\'t see a transaction for "Rent"')), "the reminder was not sent again");
+  assert(backend.telegramSent.some((m) => String(m.body.text).includes('I don\'t see a transaction for "Rent"')), "the reminder was not sent again");
   assertEquals(backend.tables.recurring_nudges.length, 1);
 });
 
@@ -64,9 +64,62 @@ freshTest("a member who blocked the bot does not make the other get a reminder e
     const res = await handler(dailyCheck());
     await res.body?.cancel();
   }
-  const toMe = backend.telegramSent.filter((m) => Number(m.body.chat_id) === TELEGRAM_USER && String(m.body.text).startsWith('I don\'t see a transaction for "Rent"'));
+  const toMe = backend.telegramSent.filter((m) => Number(m.body.chat_id) === TELEGRAM_USER && String(m.body.text).includes('I don\'t see a transaction for "Rent"'));
   assertEquals(toMe.length, 1, "the reachable member was sent the reminder again");
   assertEquals(backend.tables.recurring_nudges.length, 1);
+});
+
+// The morning digest (checks/digest.ts): reminders that need no answer go
+// out as one message a person, not one each.
+freshTest("a late bill and a card due soon arrive as one message, and both are recorded", async () => {
+  backend.tables.recurring_nudges = [];
+  backend.tables.credit_card_nudges = [];
+  backend.tables.recurring.push({
+    id: "a9000000-0000-4000-8000-0000000000e4", household_id: HOUSEHOLD, name: "Rent", owner_member_id: null, is_shared: true, amount: -500,
+    next_due_date: dubaiDaysAgo(4), ends_on: null, cadence: "monthly", interval_count: 1, account_id: BANK, category_id: null, active: true, autopay: false,
+  });
+  const dueDay = Number(dubaiDaysAgo(-1).slice(8));
+  backend.tables.accounts.push({ id: "a9000000-0000-4000-8000-0000000000c9", household_id: HOUSEHOLD, name: "Bank card", type: "credit_card", owner_member_id: MEMBER, is_shared: false, balance: 300, balance_aed: 300, currency: "AED", due_day: dueDay, statement_day: null, archived_at: null });
+  const res = await handler(dailyCheck());
+  await res.body?.cancel();
+  const mine = backend.telegramSent.filter((m) => Number(m.body.chat_id) === TELEGRAM_USER);
+  const digest = mine.find((m) => String(m.body.text).includes('"Rent"'));
+  assert(digest, "no digest");
+  assert(String(digest.body.text).includes("Bank card is due"), String(digest.body.text));
+  assertEquals(mine.filter((m) => /"Rent"|Bank card is due/.test(String(m.body.text))).length, 1);
+  assertEquals(backend.tables.recurring_nudges.length, 1);
+  assertEquals(backend.tables.credit_card_nudges.length, 1);
+});
+
+freshTest("a personal card's line is in its owner's digest only", async () => {
+  backend.tables.credit_card_nudges = [];
+  backend.tables.household_members.push({ id: "a9000000-0000-4000-8000-0000000000f2", household_id: HOUSEHOLD, display_name: "Partner", telegram_user_id: 7701, role: "member" });
+  const dueDay = Number(dubaiDaysAgo(-1).slice(8));
+  backend.tables.accounts.push({ id: "a9000000-0000-4000-8000-0000000000cb", household_id: HOUSEHOLD, name: "Bank card", type: "credit_card", owner_member_id: MEMBER, is_shared: false, balance: 300, balance_aed: 300, currency: "AED", due_day: dueDay, statement_day: null, archived_at: null });
+  const res = await handler(dailyCheck());
+  await res.body?.cancel();
+  assert(backend.telegramSent.some((m) => Number(m.body.chat_id) === TELEGRAM_USER && String(m.body.text).includes("Bank card is due")));
+  assert(!backend.telegramSent.some((m) => Number(m.body.chat_id) === 7701 && String(m.body.text).includes("Bank card")));
+});
+
+freshTest("a digest Telegram refuses records none of its lines, and all come again the next morning", async () => {
+  backend.tables.recurring_nudges = [];
+  backend.tables.credit_card_nudges = [];
+  backend.tables.recurring.push({
+    id: "a9000000-0000-4000-8000-0000000000e5", household_id: HOUSEHOLD, name: "Rent", owner_member_id: null, is_shared: true, amount: -500,
+    next_due_date: dubaiDaysAgo(4), ends_on: null, cadence: "monthly", interval_count: 1, account_id: BANK, category_id: null, active: true, autopay: false,
+  });
+  const dueDay = Number(dubaiDaysAgo(-1).slice(8));
+  backend.tables.accounts.push({ id: "a9000000-0000-4000-8000-0000000000ca", household_id: HOUSEHOLD, name: "Bank card", type: "credit_card", owner_member_id: MEMBER, is_shared: false, balance: 300, balance_aed: 300, currency: "AED", due_day: dueDay, statement_day: null, archived_at: null });
+  backend.faults.refuseFirstSends = 1000;
+  const refused = await handler(dailyCheck());
+  await refused.body?.cancel();
+  assertEquals(backend.tables.recurring_nudges.length + backend.tables.credit_card_nudges.length, 0);
+  backend.faults.refuseFirstSends = 0;
+  const next = await handler(dailyCheck());
+  await next.body?.cancel();
+  assertEquals(backend.tables.recurring_nudges.length, 1);
+  assertEquals(backend.tables.credit_card_nudges.length, 1);
 });
 
 // The fresh review of round 2: the weekly brief, the monthly review and the

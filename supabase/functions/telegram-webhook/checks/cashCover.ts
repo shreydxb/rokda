@@ -4,7 +4,7 @@ import { formatCashCoverLine } from "../../_shared/applib/cashCover.js";
 import { householdToday } from "../../_shared/applib/day.js";
 import { supabase } from "../env.ts";
 import { toolGetCashCover } from "../tools.ts";
-import { sendToAll } from "../transport.ts";
+import { type Digest, DIGEST_ORDER } from "./digest.ts";
 import { householdsWithLinkedTelegram, mondayOfWeek, prefEnabled, telegramPrefsMap, telegramRecipients } from "./recipients.ts";
 
 // Runs daily (unlike the weekly/monthly briefs in briefs.ts) since a shortfall is
@@ -14,7 +14,8 @@ import { householdsWithLinkedTelegram, mondayOfWeek, prefEnabled, telegramPrefsM
 // every morning; if the shortfall clears and later reopens the same week,
 // it still stays quiet until the following Monday -- same tradeoff the
 // budget-threshold nudge makes for a threshold that stays crossed.
-export async function runCashCoverCheck(): Promise<{ checked: number; nudged: number }> {
+// Its line goes in the morning digest (digest.ts), recorded once delivered.
+export async function runCashCoverCheck(digest: Digest): Promise<{ checked: number; nudged: number }> {
   const today = householdToday();
   const periodKey = mondayOfWeek(today);
 
@@ -42,8 +43,7 @@ export async function runCashCoverCheck(): Promise<{ checked: number; nudged: nu
       if (!recipients.length) continue;
 
       const message = `${formatCashCoverLine(status)} Might be worth checking before those bills land.`;
-      if (!(await sendToAll(recipients, message))) continue;
-      await supabase.from("cash_cover_nudges").insert({ household_id: householdId, period_key: periodKey });
+      digest.line(recipients, message, DIGEST_ORDER.cashCover, () => supabase.from("cash_cover_nudges").insert({ household_id: householdId, period_key: periodKey }));
       nudged++;
     } catch {
       // One household's cash-cover check failing must never block the rest.

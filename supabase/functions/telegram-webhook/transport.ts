@@ -75,19 +75,6 @@ export async function sendReminder(chatId: number, text: string): Promise<"sent"
 }
 
 
-// Sends one message to each chat, and says whether none of them needs
-// trying again: the reminder is recorded as sent only then. One that reached
-// one member and was refused for now to the other goes again to both on the
-// next run: a repeat beats a reminder nobody got.
-export async function sendToAll(chatIds: number[], text: string): Promise<boolean> {
-  let done = true;
-  for (const chatId of chatIds) {
-    if ((await sendReminder(chatId, text)) === "retry") done = false;
-  }
-  return done;
-}
-
-
 // QA #2, half two, revised in SHR-303. Telegram redelivers an update whenever
 // the webhook does not answer 200 in time, so every update is claimed before
 // it is handled and settled after.
