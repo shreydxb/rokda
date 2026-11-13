@@ -3730,3 +3730,18 @@ were not unwanted, only out of the way:
   and is recorded only if every part arrived; a record the database refuses
   is not counted, and the lines gathered are sent even if another check
   fails.
+- **A missing category or card is chosen in Telegram.** An entry read in
+  full but for its category or card waited in the Inbox for one tap there.
+  The bot now asks with buttons under its reply (choices.ts): six
+  categories, the merchant's own first and then the household's most used,
+  subcategories only; or the cards and accounts that take spending, the
+  sender's first; and "In the Inbox". Category is asked before card. A tap
+  saves the choice and turns the message into the usual "reply yes" prompt,
+  so the person still sees the whole entry before it counts; one with no
+  date in the SMS waits in the Inbox for the day. After a pasted list, up to
+  three such entries are asked about. A button carries the entry's and the
+  choice's ids, written compactly for Telegram's 64 bytes, and nothing in it
+  is trusted: each tap must be the member's own pending entry and a
+  category or account of their household. Telegram sends taps only to a bot
+  registered for them, so the webhook is registered again with
+  "callback_query" after this ships.

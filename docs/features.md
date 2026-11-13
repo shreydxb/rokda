@@ -386,6 +386,9 @@ Forecast or Drawdown, which went (Planning audit, 3.15), opens the Life plan.
   uncertain goes to the Inbox. A message read in full that holds no
   expense, income or refund is answered and not kept there, nor is one with
   no amount and no photo that the AI service could not read.
+- An entry missing only its category or card is asked about with buttons
+  (six categories, or the cards, and "In the Inbox"); a tap fills it in and
+  the message becomes the "reply yes" prompt. A tap never records it.
 - A paste of several entries is answered with a numbered list of those read
   in full (up to 20; repeats of records already made, and entries missing
   something, are named and left in the Inbox). A reply to the list records

@@ -45,8 +45,14 @@ async function paste(items: Row[], updateId = 9101): Promise<number> {
   fixtures();
   backend.parse = items;
   await handler(textUpdate(updateId, "pasted bank texts"));
-  listText = lastReply();
-  return listId();
+  // The list, not a question about an entry that may follow it (choices.ts).
+  const at = backend.telegramSent.findLastIndex((m) => String(m.body.text).includes("Reply to this to record them"));
+  if (at < 0) {
+    listText = lastReply();
+    return listId();
+  }
+  listText = String(backend.telegramSent[at].body.text);
+  return 1001 + at;
 }
 
 const twoDaysAgo = () => dubaiDaysAgo(2);
@@ -68,7 +74,7 @@ freshTest("a paste of several entries is answered with a numbered list, each ent
 freshTest("an entry already recorded, or missing a category, is named and not numbered", async () => {
   backend.tables.transactions.push({ id: "t-1", household_id: HOUSEHOLD, account_id: CARD.id, amount: 20, kind: "expense", merchant: "City Taxi", occurred_at: dubaiDaysAgo(1) });
   await paste([sms("City Taxi", 20), sms("Corner Shop", 45.5), sms("Fresh Market", 120), sms("Odd Place", 30, { category: "Nothing like it" })]);
-  const text = lastReply();
+  const text = listText;
   assert(text.startsWith("Got 4 from that message"), text);
   assert(text.includes("1. AED 45.50 · Corner Shop"), text);
   assert(text.includes("2. AED 120.00 · Fresh Market"), text);
