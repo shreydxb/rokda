@@ -1,3 +1,4 @@
+import { fileableCategories } from '../../lib/fileableCategories';
 import { attentionHref, ATTENTION_PREVIEW_COUNT as ATTENTION_FOLD } from '../../lib/attention';
 
 // Part of Overview (Overview.jsx), split out with the round 2 cleanup
@@ -38,9 +39,9 @@ export default function OverviewAttention({ attention, attentionShown, money, ca
                     <option value="" disabled>
                       Categorise…
                     </option>
-                    {categories.map((c) => (
+                    {fileableCategories(categories).map((c) => (
                       <option key={c.id} value={c.id}>
-                        {c.name}
+                        {c.label}
                       </option>
                     ))}
                   </select>

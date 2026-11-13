@@ -1,3 +1,4 @@
+import { fileableCategories } from '../../lib/fileableCategories';
 import { formatMoney } from '../../lib/money';
 import { unallocated } from '../../lib/splits';
 
@@ -44,9 +45,9 @@ export default function TransactionCategory({ tx, form, set, categories, follows
                 onChange={(e) => setLines(split.map((l, k) => (k === n ? { ...l, category_id: e.target.value } : l)))}
               >
                 <option value="">Choose…</option>
-                {mainCategories.flatMap((c) => [c, ...kindCategories.filter((sub) => sub.parent_id === c.id)]).map((c) => (
+                {fileableCategories(kindCategories, null, line.category_id || null).map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.parent_id ? `– ${c.name}` : c.name}
+                    {c.label}
                   </option>
                 ))}
               </select>
@@ -108,7 +109,9 @@ export default function TransactionCategory({ tx, form, set, categories, follows
                   value={selectedCategory?.parent_id ? form.category_id : ''}
                   onChange={(e) => set('category_id', e.target.value || selectedMainId)}
                 >
-                  <option value="">General</option>
+                  {/* A group is not where a new record goes (lib/fileableCategories.js);
+                      a record already filed under it keeps "General". */}
+                  {tx?.category_id && tx.category_id === selectedMainId ? <option value="">General</option> : <option value="" disabled>Choose…</option>}
                   {subcategories.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name}

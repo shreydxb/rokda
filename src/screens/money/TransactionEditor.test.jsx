@@ -209,7 +209,8 @@ describe('Category picker: two-level dropdown instead of a flat chip wall', () =
     fireEvent.change(categorySelect, { target: { value: 'util' } });
 
     const subSelect = document.querySelectorAll('.te-fieldgrid')[1].querySelectorAll('select')[1];
-    expect([...subSelect.options].map((o) => o.textContent)).toEqual(['General', 'DEWA', 'Du Wifi']);
+    // A group is not somewhere a new record goes: a subcategory is chosen.
+    expect([...subSelect.options].map((o) => o.textContent)).toEqual(['Choose…', 'DEWA', 'Du Wifi']);
     fireEvent.change(subSelect, { target: { value: 'dewa' } });
 
     fireEvent.change(document.querySelector('.te-hero-input'), { target: { value: '250' } });
@@ -218,6 +219,34 @@ describe('Category picker: two-level dropdown instead of a flat chip wall', () =
       fireEvent.submit(document.querySelector('form'));
     });
     expect(calls.inserts[0]).toMatchObject({ category_id: 'dewa' });
+    cleanup();
+  });
+});
+
+describe('Category picker: a group with subcategories needs one of them', () => {
+  it('refuses to save a new record under the group itself', async () => {
+    renderScreen(
+      <TransactionEditor tx={null} householdId="hh" accounts={ACCOUNTS} categories={CATEGORIES} members={[]} allTransactions={[]} onClose={() => {}} onSaved={async () => {}} />,
+    );
+    const fieldgrids = document.querySelectorAll('.te-fieldgrid');
+    fireEvent.change(fieldgrids[1].querySelectorAll('select')[0], { target: { value: 'util' } });
+    fireEvent.change(document.querySelector('.te-hero-input'), { target: { value: '250' } });
+    fireEvent.change(fieldgrids[0].querySelectorAll('select')[0], { target: { value: 'acc-1' } });
+    await act(async () => {
+      fireEvent.submit(document.querySelector('form'));
+    });
+    expect(calls.inserts).toHaveLength(0);
+    expect(screen.getByText(/Choose a subcategory of Utilities/)).toBeTruthy();
+    cleanup();
+  });
+
+  it('keeps a record already filed under the group as it is, offering General for it', () => {
+    const tx = { id: 't1', amount: -50, account_id: 'acc-1', category_id: 'util', occurred_at: '2026-09-01', merchant: 'Bill', kind: 'expense', is_shared: true };
+    renderScreen(
+      <TransactionEditor tx={tx} householdId="hh" accounts={ACCOUNTS} categories={CATEGORIES} members={[]} allTransactions={[tx]} onClose={() => {}} onSaved={async () => {}} />,
+    );
+    const subSelect = document.querySelectorAll('.te-fieldgrid')[1].querySelectorAll('select')[1];
+    expect([...subSelect.options].map((o) => o.textContent)).toEqual(['General', 'DEWA', 'Du Wifi']);
     cleanup();
   });
 });

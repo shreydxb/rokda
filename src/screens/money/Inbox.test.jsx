@@ -500,3 +500,23 @@ describe('Inbox: undated entries already recorded', () => {
   });
 });
 
+
+// The feature review (November 2026): a group picked where a subcategory was
+// meant was half the categories changed on approval.
+describe('the editor offers subcategories, not the groups they are in', () => {
+  const TREE = [
+    { id: 'food', name: 'Food & Dining', kind: 'expense', parent_id: null },
+    { id: 'out', name: 'Eating Out', kind: 'expense', parent_id: 'food' },
+    { id: 'shop', name: 'Shopping', kind: 'expense', parent_id: null },
+  ];
+
+  it('lists Food & Dining › Eating Out and Shopping, never Food & Dining alone', async () => {
+    renderScreen(<Inbox members={MEMBERS} accounts={ACCOUNTS} categories={TREE} loading={false} data={{ intake: [ITEM], categoryRules: [], reload: vi.fn() }} />);
+    await act(async () => {
+      screen.getByRole('button', { name: 'Edit first' }).click();
+    });
+    expect(screen.getByRole('button', { name: 'Food & Dining › Eating Out' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Shopping' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Food & Dining' })).toBeNull();
+  });
+});
