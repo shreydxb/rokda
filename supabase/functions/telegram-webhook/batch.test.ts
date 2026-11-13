@@ -35,6 +35,9 @@ Deno.test("a day and month is the latest such day not after today", () => {
   assertEquals(readBatchDate("28 Dec", "2027-01-05"), "2026-12-28");
   assertEquals(readBatchDate("5 jan", "2027-01-05"), "2027-01-05");
   assertEquals(readBatchDate("20 Oct", TODAY), "future");
+  // Weeks ahead is a slip too, not last year: only a day in the last two months is read back a year.
+  assertEquals(readBatchDate("15 Dec", "2026-11-13"), "future");
+  assertEquals(readBatchDate("1 Sep", "2026-08-01"), "future");
   assertEquals(readBatchDate("29/2", "2026-10-09"), null);
   assertEquals(readBatchDate("someday", TODAY), null);
 });

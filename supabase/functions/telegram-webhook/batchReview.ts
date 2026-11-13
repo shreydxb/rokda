@@ -9,8 +9,9 @@
 // who pasted can answer it: every lookup is scoped to that member.
 import { ALREADY_RECORDED_DAYS, alreadyRecordedAll } from "../_shared/applib/alreadyRecorded.js";
 import { shortDay } from "../_shared/applib/autopay.js";
+import { householdToday } from "../_shared/applib/day.js";
 import { isConfirmationText, isReadyForFastConfirm } from "../_shared/applib/telegramConfirm.js";
-import { BATCH_LIST_CAP, batchListMessage, type ListedEntry, parseBatchReply } from "./batch.ts";
+import { BATCH_LIST_CAP, batchListMessage, type ListedEntry, listedLines, listLine, parseBatchReply } from "./batch.ts";
 import { type PendingIntakeRow, RECENT_INTAKE_COLUMNS } from "./confirmations.ts";
 import { supabase } from "./env.ts";
 import { findDuplicateTransaction, type IntakeKind } from "./intake.ts";
@@ -118,8 +119,7 @@ export async function sendBatchList(chatId: number, householdId: string, saved: 
   const { error } = await supabase
     .from("intake")
     .update({ confirm_chat_id: chatId, confirm_message_id: messageId })
-    .in("id", listed.map((s) => s.id))
-    .eq("status", "pending");
+    .in("id", listed.map((s) => s.id));
   if (error) await reply(chatId, "I couldn't link that list to its entries, so a reply to it won't work. They're all in the Inbox to review.");
   return true;
 }
@@ -170,9 +170,31 @@ function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
 }
 
-// A reply to a list. Nothing is done unless the whole reply can be: a number
-// not on the list, or a day missing for an entry with none, refuses it all.
-export async function handleBatchReply(chatId: number, member: { id: string; household_id: string }, rows: BatchRow[], text: string, today: string): Promise<void> {
+// The line each row would have on the list now, by row id, to compare with
+// the line the list showed. Null when the names cannot be read.
+async function currentLines(rows: BatchRow[]): Promise<Map<string, string> | null> {
+  const accountIds = [...new Set(rows.map((r) => r.parsed_account_id).filter(Boolean))] as string[];
+  const categoryIds = [...new Set(rows.map((r) => r.parsed_category_id).filter(Boolean))] as string[];
+  const [accounts, categories] = await Promise.all([
+    supabase.from("accounts").select("id, name").in("id", accountIds),
+    supabase.from("categories").select("id, name").in("id", categoryIds),
+  ]);
+  if (accounts.error || categories.error) return null;
+  const name = (list: Array<{ id: string; name: string }> | null, id: string | null) => (list ?? []).find((x) => x.id === id)?.name ?? "";
+  return new Map(rows.map((r) => [r.id, listLine({
+    amount: Number(r.parsed_amount),
+    merchant: r.parsed_merchant ?? "",
+    account: name(accounts.data, r.parsed_account_id),
+    category: name(categories.data, r.parsed_category_id),
+  })]));
+}
+
+// A reply to a list. A number not on the list, or a day missing for an entry
+// with none, refuses it all before anything is done. listText is the list as
+// Telegram sends it back with the reply: an entry whose line now reads
+// differently was changed in the Inbox since, and is left there, so a reply
+// never records an amount it was not shown.
+export async function handleBatchReply(chatId: number, member: { id: string; household_id: string }, rows: BatchRow[], text: string, today: string, listText: string | null): Promise<void> {
   const command = parseBatchReply(text, today);
   if (!command) {
     await reply(chatId, isConfirmationText(text) ? `"Yes" alone doesn't say which day they were paid. ${BATCH_REPLY_HINT}` : `${BATCH_REPLY_HINT} To change an entry, open it in the Inbox.`);
@@ -216,8 +238,25 @@ export async function handleBatchReply(chatId: number, member: { id: string; hou
     await reply(chatId, `${plural(undated.length, "has", "have")} no date in the SMS: say the day ${undated.length === 1 ? "it was" : "they were"} paid, like "${command.kind === "all" ? "all" : numbers.join(", ")} on 2 Oct". Nothing recorded yet.`);
     return;
   }
+  // The payments came before the paste: a later day is a slip.
+  const pastedOn = undated.map((r) => householdToday(new Date(r.created_at))).sort()[0];
+  if (command.date && pastedOn && command.date > pastedOn) {
+    await reply(chatId, `They were pasted on ${shortDay(pastedOn)}, so they were paid by then: say that day or an earlier one. Nothing recorded yet.`);
+    return;
+  }
   if (command.date && pending.length && !undated.length) {
     await reply(chatId, `${pending.length === 1 ? "That one has its" : "These have their"} own dates from the SMS, so reply "${command.kind === "all" ? "all" : numbers.join(", ")}" without a day. Nothing recorded yet.`);
+    return;
+  }
+
+  const shown = listedLines(listText ?? "");
+  if (!shown.size) {
+    await reply(chatId, "I can't see the list that replies to, so I won't record from it. They're all in the Inbox to review.");
+    return;
+  }
+  const now = await currentLines(pending);
+  if (!now) {
+    await reply(chatId, "I couldn't check those against the list just now: try again in a minute, or use the Inbox. Nothing recorded yet.");
     return;
   }
 
@@ -229,7 +268,7 @@ export async function handleBatchReply(chatId: number, member: { id: string; hou
   const madeNow: string[] = [];
   for (const row of pending) {
     // Edited in the Inbox since the list was sent: left there.
-    if (!isReadyForFastConfirm({ ...row, date_guessed: false })) {
+    if (!isReadyForFastConfirm({ ...row, date_guessed: false }) || now.get(row.id) !== shown.get(rows.indexOf(row) + 1)) {
       changed.push(row);
       continue;
     }

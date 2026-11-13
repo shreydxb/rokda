@@ -61,7 +61,7 @@ import { dividendsNotYet, runDividendCheck } from "./checks/dividendReceipts.ts"
 import { runRecurringCheck } from "./checks/recurring.ts";
 import { runSplitCheck, runUnusualSpendCheck } from "./checks/spending.ts";
 import { handleStatementText, runStatementCheck } from "./checks/statements.ts";
-import { parseBatchReply } from "./batch.ts";
+import { isBatchCommand } from "./batch.ts";
 import { BATCH_UNADDRESSED_HINT, batchForPrompt, handleBatchReply, hasOpenList, type SavedItem, sendBatchList } from "./batchReview.ts";
 import { confirmCandidates, confirmPendingIntake, decideAutopay, decidedProposalMessage, decideProposal, handleReaction, intakeForPrompt, openProposals, PENDING_WINDOW_MS, type PendingIntakeRow, type PromptLookup, PROPOSAL_COLUMNS, proposalForPrompt, type ProposalRow, RECENT_INTAKE_COLUMNS, recentlyDecidedProposal, sendFastConfirmPrompt, sendProposal } from "./confirmations.ts";
 import { DIVIDEND_CLASSES, DIVIDEND_GUARD_REPLY, readsAsDividend } from "./dividends.ts";
@@ -384,10 +384,11 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
         return new Response("ok");
       }
       if (batch.length >= 2) {
-        await handleBatchReply(chatId, member, batch, rawText.trim(), householdToday());
+        const listText = (message.reply_to_message as { text?: string } | undefined)?.text ?? null;
+        await handleBatchReply(chatId, member, batch, rawText.trim(), householdToday(), listText);
         return new Response("ok");
       }
-    } else if (/^(all|drop)\b/i.test(rawText.trim()) && parseBatchReply(rawText, householdToday()) && (await hasOpenList(member.household_id, member.id))) {
+    } else if (/^(all|drop)\b/i.test(rawText.trim()) && isBatchCommand(rawText, householdToday()) && (await hasOpenList(member.household_id, member.id))) {
       await reply(chatId, BATCH_UNADDRESSED_HINT);
       return new Response("ok");
     }
@@ -443,7 +444,9 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
     if (strictYes && repliedTo == null) {
       const perPrompt = new Map<number, number>();
       for (const r of candidates.rows) if (r.confirm_message_id != null) perPrompt.set(r.confirm_message_id, (perPrompt.get(r.confirm_message_id) ?? 0) + 1);
-      if (candidates.rows.some((r) => r.confirm_message_id != null && (perPrompt.get(r.confirm_message_id) ?? 0) >= 2)) {
+      // Only an entry a "yes" could record: a list of undated entries does
+      // not stand in the way of a single entry's own prompt.
+      if (candidates.rows.some((r) => isConfirmable(r) && r.confirm_message_id != null && (perPrompt.get(r.confirm_message_id) ?? 0) >= 2)) {
         await reply(chatId, BATCH_UNADDRESSED_HINT);
         return new Response("ok");
       }

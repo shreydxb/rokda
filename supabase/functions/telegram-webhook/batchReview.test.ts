@@ -8,6 +8,8 @@ const TRANSPORT = "b5000000-0000-4000-8000-0000000000c1";
 const GROCERY = "b5000000-0000-4000-8000-0000000000c2";
 
 function fixtures(): void {
+  // Pasted now: a day given in a reply is never after the paste.
+  backend.now = Date.now();
   backend.tables.accounts.push({ ...CARD, household_id: HOUSEHOLD });
   backend.tables.categories.push(
     { id: TRANSPORT, household_id: HOUSEHOLD, name: "Transport", archived: false, is_savings: false },
@@ -29,6 +31,12 @@ function listId(): number {
   return 1000 + backend.telegramSent.length;
 }
 
+// The list's text, as Telegram sends it back with a reply to it.
+let listText = "";
+function answer(updateId: number, text: string, list: number) {
+  return replyUpdate(updateId, text, list, listText);
+}
+
 function approvals(): Row[] {
   return backend.rpcCalls.filter((c) => c.fn === "approve_intake").map((c) => c.args);
 }
@@ -37,6 +45,7 @@ async function paste(items: Row[], updateId = 9101): Promise<number> {
   fixtures();
   backend.parse = items;
   await handler(textUpdate(updateId, "pasted bank texts"));
+  listText = lastReply();
   return listId();
 }
 
@@ -89,7 +98,7 @@ freshTest("one entry keeps the yes prompt", async () => {
 freshTest("all on a date records every listed entry on it, each marked as confirmed", async () => {
   const list = await paste([sms("City Taxi", 20), sms("Corner Shop", 45.5)]);
   const day = twoDaysAgo();
-  await handler(replyUpdate(9102, `all on ${dayWords(day)}`, list));
+  await handler(answer(9102, `all on ${dayWords(day)}`, list));
   const calls = approvals();
   assertEquals(calls.length, 2);
   for (const c of calls) {
@@ -102,7 +111,7 @@ freshTest("all on a date records every listed entry on it, each marked as confir
 
 freshTest("some on a date records those, and the rest wait", async () => {
   const list = await paste([sms("City Taxi", 20), sms("Corner Shop", 45.5)]);
-  await handler(replyUpdate(9102, `1 on ${dayWords(twoDaysAgo())}`, list));
+  await handler(answer(9102, `1 on ${dayWords(twoDaysAgo())}`, list));
   assertEquals(approvals().length, 1);
   assertEquals(approvals()[0].p_amount, 20);
   assert(lastReply().startsWith(`Recorded 1 on ${dayWords(twoDaysAgo())}.`), lastReply());
@@ -111,7 +120,7 @@ freshTest("some on a date records those, and the rest wait", async () => {
 
 freshTest("drop sets an entry aside", async () => {
   const list = await paste([sms("City Taxi", 20), sms("Corner Shop", 45.5)]);
-  await handler(replyUpdate(9102, "drop 2", list));
+  await handler(answer(9102, "drop 2", list));
   const byMerchant = Object.fromEntries(capturedIntake().map((r) => [r.parsed_merchant, r.status]));
   assertEquals(byMerchant, { "City Taxi": "pending", "Corner Shop": "rejected" });
   assertEquals(approvals().length, 0);
@@ -122,10 +131,10 @@ freshTest("a list of dated entries takes all alone, and refuses a date given", a
   const day = dubaiDaysAgo(3);
   const list = await paste([sms("City Taxi", 20, { occurred_at: day, date_stated: true }), sms("Corner Shop", 45.5, { occurred_at: day, date_stated: true })]);
   assert(lastReply().includes('Reply "all" to record them'), lastReply());
-  await handler(replyUpdate(9102, `all on ${dayWords(twoDaysAgo())}`, list));
+  await handler(answer(9102, `all on ${dayWords(twoDaysAgo())}`, list));
   assertEquals(approvals().length, 0);
   assert(lastReply().includes("own dates"), lastReply());
-  await handler(replyUpdate(9103, "all", list));
+  await handler(answer(9103, "all", list));
   assertEquals(approvals().length, 2);
   for (const c of approvals()) {
     assertEquals(c.p_occurred_at, day);
@@ -135,7 +144,7 @@ freshTest("a list of dated entries takes all alone, and refuses a date given", a
 
 freshTest("all with no day, when an entry had none, records nothing and asks for the day", async () => {
   const list = await paste([sms("City Taxi", 20), sms("Corner Shop", 45.5)]);
-  await handler(replyUpdate(9102, "all", list));
+  await handler(answer(9102, "all", list));
   assertEquals(approvals().length, 0);
   assert(lastReply().includes("Nothing recorded yet"), lastReply());
 });
@@ -145,7 +154,7 @@ freshTest("a mixed list dates only the undated", async () => {
   const own = dubaiDaysAgo(5);
   const list = await paste([sms("City Taxi", 20, { occurred_at: own, date_stated: true }), sms("Corner Shop", 45.5)]);
   const day = twoDaysAgo();
-  await handler(replyUpdate(9102, `all on ${dayWords(day)}`, list));
+  await handler(answer(9102, `all on ${dayWords(day)}`, list));
   const byAmount = Object.fromEntries(approvals().map((c) => [c.p_amount, c]));
   assertEquals(byAmount[20].p_occurred_at, own);
   assertEquals(byAmount[20].p_date_confirmed, undefined);
@@ -156,9 +165,9 @@ freshTest("a mixed list dates only the undated", async () => {
 // Review Focus 2.
 freshTest("a number not on the list does nothing", async () => {
   const list = await paste([sms("City Taxi", 20), sms("Corner Shop", 45.5)]);
-  await handler(replyUpdate(9102, `1, 3 on ${dayWords(twoDaysAgo())}`, list));
-  await handler(replyUpdate(9103, "drop 5", list));
-  await handler(replyUpdate(9104, "drop", list));
+  await handler(answer(9102, `1, 3 on ${dayWords(twoDaysAgo())}`, list));
+  await handler(answer(9103, "drop 5", list));
+  await handler(answer(9104, "drop", list));
   assertEquals(approvals().length, 0);
   assert(capturedIntake().every((r) => r.status === "pending"));
   assert(lastReply().includes("drop 4"), lastReply());
@@ -178,8 +187,8 @@ freshTest("the other member's reply does nothing", async () => {
 // Review Focus 5.
 freshTest("a reply delivered again records nothing twice", async () => {
   const list = await paste([sms("City Taxi", 20), sms("Corner Shop", 45.5)]);
-  await handler(replyUpdate(9102, `all on ${dayWords(twoDaysAgo())}`, list));
-  await handler(replyUpdate(9103, `all on ${dayWords(twoDaysAgo())}`, list));
+  await handler(answer(9102, `all on ${dayWords(twoDaysAgo())}`, list));
+  await handler(answer(9103, `all on ${dayWords(twoDaysAgo())}`, list));
   assertEquals(approvals().length, 2);
   assert(lastReply().includes("already settled"), lastReply());
 });
@@ -187,14 +196,14 @@ freshTest("a reply delivered again records nothing twice", async () => {
 freshTest("two alike entries on one list are both recorded, not taken for each other", async () => {
   const list = await paste([sms("City Taxi", 20), sms("City Taxi", 20)]);
   // The first one's record is in place when the second is checked for repeats.
-  await handler(replyUpdate(9102, `all on ${dayWords(twoDaysAgo())}`, list));
+  await handler(answer(9102, `all on ${dayWords(twoDaysAgo())}`, list));
   assertEquals(approvals().length, 2);
   assertEquals(lastReply(), `Recorded 2 on ${dayWords(twoDaysAgo())}.`);
 });
 
 freshTest("a bare yes, or a thumbs up, on the list says how to reply", async () => {
   const list = await paste([sms("City Taxi", 20), sms("Corner Shop", 45.5)]);
-  await handler(replyUpdate(9102, "yes", list));
+  await handler(answer(9102, "yes", list));
   assert(lastReply().includes('"all on'), lastReply());
   const sent = backend.telegramSent.length;
   await handler(reactionUpdate(9103, list, "👍"));
@@ -209,4 +218,55 @@ freshTest("an unaddressed all on a date with a list open says to reply to the li
   assertEquals(approvals().length, 0);
   assert(lastReply().includes("reply to the list"), lastReply());
   assertEquals(capturedIntake().length, 2);
+});
+
+// --- The fresh review's findings -----------------------------------------
+
+freshTest("a bare yes for a single entry is not blocked by a list with nothing ready for a yes", async () => {
+  await paste([sms("City Taxi", 20), sms("Corner Shop", 45.5)]);
+  backend.parse = [sms("Book Shop", 60, { occurred_at: dubaiToday(), date_stated: true })];
+  await handler(textUpdate(9102, "one more"));
+  assert(lastReply().includes('reply "yes" to record it'), lastReply());
+  await handler(textUpdate(9103, "yes"));
+  assertEquals(approvals().map((c) => c.p_merchant), ["Book Shop"]);
+});
+
+freshTest("an entry changed in the Inbox after the list was sent is left there, not recorded as changed", async () => {
+  const list = await paste([sms("City Taxi", 20), sms("Corner Shop", 45.5)]);
+  capturedIntake().find((r) => r.parsed_merchant === "City Taxi")!.parsed_amount = 999;
+  await handler(answer(9102, `all on ${dayWords(twoDaysAgo())}`, list));
+  assertEquals(approvals().map((c) => c.p_amount), [45.5]);
+  assert(lastReply().includes("changed in the Inbox"), lastReply());
+});
+
+freshTest("a reply whose list cannot be seen records nothing", async () => {
+  const list = await paste([sms("City Taxi", 20), sms("Corner Shop", 45.5)]);
+  await handler(replyUpdate(9102, `all on ${dayWords(twoDaysAgo())}`, list));
+  assertEquals(approvals().length, 0);
+});
+
+freshTest("a day weeks ahead is refused, not read as last year", async () => {
+  const list = await paste([sms("City Taxi", 20), sms("Corner Shop", 45.5)]);
+  const ahead = new Date(Date.parse(`${dubaiToday()}T00:00:00Z`) + 45 * 86400000).toISOString().slice(0, 10);
+  await handler(answer(9102, `all on ${dayWords(ahead)}`, list));
+  assertEquals(approvals().length, 0);
+});
+
+freshTest("a day after the paste is refused", async () => {
+  fixtures();
+  backend.now = Date.now() - 3 * 86400000;
+  backend.parse = [sms("City Taxi", 20), sms("Corner Shop", 45.5)];
+  await handler(textUpdate(9101, "pasted bank texts"));
+  listText = lastReply();
+  const list = listId();
+  await handler(answer(9102, "all today", list));
+  assertEquals(approvals().length, 0);
+  assert(lastReply().includes("pasted"), lastReply());
+});
+
+freshTest("an expense that starts with drop is captured while a list is open", async () => {
+  await paste([sms("City Taxi", 20), sms("Corner Shop", 45.5)]);
+  backend.parse = [sms("Laundry", 25, { occurred_at: dubaiToday(), date_stated: true, source: "typed" })];
+  await handler(textUpdate(9102, "drop-off laundry 25"));
+  assertEquals(capturedIntake().length, 3);
 });

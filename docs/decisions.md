@@ -3662,8 +3662,12 @@ were not unwanted, only out of the way:
   whenever a listed entry had none in the SMS, and never put over a day the
   SMS gave: "all on 2 Oct" dates only the undated, and a list whose entries
   all had dates takes "all" alone. A day and month is the latest such day
-  not after today, except one within the coming month, which is refused as
-  a slip rather than read as last year. Entries already recorded, or missing
+  not after today, but a paste covers recent days: a year back is taken
+  only within the last two months ("28 Dec" said in January), and any other
+  day ahead is refused as a slip, as is a day after the paste. An entry
+  whose line no longer reads as the list showed it (changed in the Inbox
+  since) is left there, so a reply never records an amount it was not
+  shown. Entries already recorded, or missing
   something, are named and left in the Inbox; only the person who pasted can
   answer, and only by replying to the list (an unaddressed "all on 2 Oct", a
   bare "yes" or a 👍 is told how), so a second paste can never take the

@@ -790,7 +790,7 @@ export function photoUpdate(updateId: number, caption?: string): Request {
 }
 
 // A message sent as a Telegram reply to one of the bot's messages.
-export function replyUpdate(updateId: number, text: string, replyTo: number): Request {
+export function replyUpdate(updateId: number, text: string, replyTo: number, replyToText?: string): Request {
   return new Request("http://edge.test/telegram-webhook", {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Telegram-Bot-Api-Secret-Token": SECRET },
@@ -800,7 +800,8 @@ export function replyUpdate(updateId: number, text: string, replyTo: number): Re
         message_id: 2,
         date: 1,
         text,
-        reply_to_message: { message_id: replyTo },
+        // Telegram sends the message replied to with the reply, its text included.
+        reply_to_message: { message_id: replyTo, ...(replyToText != null ? { text: replyToText } : {}) },
         chat: { id: TELEGRAM_USER, type: "private" },
         from: { id: TELEGRAM_USER, is_bot: false, first_name: "T" },
       },

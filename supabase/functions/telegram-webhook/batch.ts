@@ -42,9 +42,10 @@ function monthNumber(word: string): number | null {
 
 // The day a reply names: "today", "yesterday", a day and month ("2 Oct",
 // "2 October", "2/10"). A day and month with no year is the latest such day
-// not after today, so "28 Dec" said in January is last December. One that
-// falls within the coming month is taken as a slip and refused ("future"),
-// never moved back a year: "20 Oct" said on 9 Oct is not last October.
+// not after today, so "28 Dec" said in January is last December. A paste
+// covers recent days, so a year back is taken only within the last two
+// months; any other day after today is a slip and refused ("future"), never
+// moved back a year: "20 Oct" said on 9 Oct is not last October.
 // Null when the words are not a day at all, or name one that does not exist.
 export function readBatchDate(words: string, today: string): string | null | "future" {
   const w = words.trim().toLowerCase().replace(/[.!]+$/, "");
@@ -59,8 +60,8 @@ export function readBatchDate(words: string, today: string): string | null | "fu
   const thisYear = isoOf(year, month, day);
   if (!thisYear) return null;
   if (thisYear <= today) return thisYear;
-  if (Date.parse(thisYear) - Date.parse(today) <= 31 * DAY_MS) return "future";
-  return isoOf(year - 1, month, day);
+  const lastYear = isoOf(year - 1, month, day);
+  return lastYear && Date.parse(today) - Date.parse(lastYear) <= 60 * DAY_MS ? lastYear : "future";
 }
 
 // "1-3, 5", "2 4", "1 and 3" -> ascending, without repeats. Null when a range
@@ -126,6 +127,13 @@ export function parseBatchReply(text: string, today: string): BatchReply | null 
   return null;
 }
 
+// A command a list would take, read in full: "drop-off laundry 25" is an
+// expense, not a malformed "drop".
+export function isBatchCommand(text: string, today: string): boolean {
+  const command = parseBatchReply(text, today);
+  return command != null && command.kind !== "invalid";
+}
+
 export type ListedEntry = { amount: number; merchant: string; account: string; category: string; undated: boolean };
 
 export type ListNotes = {
@@ -138,6 +146,22 @@ function aed(amount: number): string {
   return `AED ${Number(amount).toFixed(2)}`;
 }
 
+// One entry as the list shows it, after its number. A reply is checked
+// against this, so an entry changed since is never recorded unseen.
+export function listLine(e: Omit<ListedEntry, "undated">): string {
+  return `${aed(e.amount)} · ${e.merchant} · ${e.account} · ${e.category}`;
+}
+
+// The numbered lines of a list as sent, by number, without the "no date" mark.
+export function listedLines(text: string): Map<number, string> {
+  const lines = new Map<number, string>();
+  for (const line of text.split("\n")) {
+    const m = /^(\d+)\. (.*?)( · no date)?$/.exec(line);
+    if (m) lines.set(Number(m[1]), m[2]);
+  }
+  return lines;
+}
+
 // The numbered list sent after a paste of several entries. Entries with no
 // date in the SMS are dated by the reply, so the instruction asks for a day
 // whenever one is undated; in a list where only some are, those are marked.
@@ -147,7 +171,7 @@ export function batchListMessage(listed: ListedEntry[], notes: ListNotes): strin
   const mixed = undated > 0 && undated < listed.length;
   const lines = [`Got ${total} from that message. Reply to this to record them:`];
   listed.forEach((e, i) => {
-    lines.push(`${i + 1}. ${aed(e.amount)} · ${e.merchant} · ${e.account} · ${e.category}${mixed && e.undated ? " · no date" : ""}`);
+    lines.push(`${i + 1}. ${listLine(e)}${mixed && e.undated ? " · no date" : ""}`);
   });
   const range = listed.length > 1 ? `1-${listed.length}` : "1";
   if (undated) {
