@@ -38,6 +38,8 @@ export type Backend = {
   log: Map<number, { status: string; claimed_at: number; attempts: number; answer_target?: Row | null }>;
   telegramSent: Array<{ method: string; body: Row }>;
   telegramDeleted: number[];
+  // Every other Telegram call (answerCallbackQuery, editMessageText, ...).
+  telegramCalls: Array<{ method: string; body: Row }>;
   requests: Array<{ method: string; path: string }>;
   faults: {
     // Make claim_telegram_update fail the way a live database can.
@@ -128,6 +130,7 @@ export function reset(): void {
     log: new Map(),
     telegramSent: [],
     telegramDeleted: [],
+    telegramCalls: [],
     requests: [],
     faults: {},
     parsePrompts: [],
@@ -666,6 +669,7 @@ export async function telegram(req: Request, url: URL): Promise<Response> {
     return json({ ok: true, result: { message_id: 1000 + sendCount } });
   }
   if (method === "deleteMessage") backend.telegramDeleted.push(Number(body.message_id));
+  else backend.telegramCalls.push({ method, body });
   return json({ ok: true, result: {} });
 }
 
@@ -804,6 +808,23 @@ export function replyUpdate(updateId: number, text: string, replyTo: number, rep
         reply_to_message: { message_id: replyTo, ...(replyToText != null ? { text: replyToText } : {}) },
         chat: { id: TELEGRAM_USER, type: "private" },
         from: { id: TELEGRAM_USER, is_bot: false, first_name: "T" },
+      },
+    }),
+  });
+}
+
+// A tap on one of the buttons under a bot message.
+export function tapUpdate(updateId: number, messageId: number, data: string, fromId = TELEGRAM_USER): Request {
+  return new Request("http://edge.test/telegram-webhook", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Telegram-Bot-Api-Secret-Token": SECRET },
+    body: JSON.stringify({
+      update_id: updateId,
+      callback_query: {
+        id: `cb-${updateId}`,
+        from: { id: fromId, is_bot: false, first_name: "T" },
+        message: { message_id: messageId, date: 1, chat: { id: fromId, type: "private" }, text: "" },
+        data,
       },
     }),
   });

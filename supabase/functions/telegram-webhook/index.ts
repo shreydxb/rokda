@@ -63,6 +63,7 @@ import { runRecurringCheck } from "./checks/recurring.ts";
 import { runSplitCheck, runUnusualSpendCheck } from "./checks/spending.ts";
 import { handleStatementText, runStatementCheck } from "./checks/statements.ts";
 import { isBatchCommand } from "./batch.ts";
+import { handleChoiceTap, sendChoicePrompt } from "./choices.ts";
 import { BATCH_UNADDRESSED_HINT, batchForPrompt, handleBatchReply, hasOpenList, type SavedItem, sendBatchList } from "./batchReview.ts";
 import { confirmCandidates, confirmPendingIntake, decideAutopay, decidedProposalMessage, decideProposal, handleReaction, intakeForPrompt, openProposals, PENDING_WINDOW_MS, type PendingIntakeRow, type PromptLookup, PROPOSAL_COLUMNS, proposalForPrompt, type ProposalRow, RECENT_INTAKE_COLUMNS, recentlyDecidedProposal, sendFastConfirmPrompt, sendProposal } from "./confirmations.ts";
 import { DIVIDEND_CLASSES, DIVIDEND_GUARD_REPLY, readsAsDividend } from "./dividends.ts";
@@ -111,7 +112,9 @@ async function handleRequest(req: Request): Promise<Response> {
   if (req.method === "GET" && url.searchParams.get("setup") === "1") {
     const result = await tgCall("setWebhook", {
       url: `${SUPABASE_URL}/functions/v1/telegram-webhook`,
-      allowed_updates: ["message", "message_reaction"],
+      // callback_query: taps on the buttons that ask for a missing category
+      // or card (choices.ts).
+      allowed_updates: ["message", "message_reaction", "callback_query"],
       secret_token: expectedSecret,
     });
     // getMe reports can_join_groups and can_read_all_group_messages, which are
@@ -225,6 +228,8 @@ async function handleRequest(req: Request): Promise<Response> {
 async function processUpdate(update: Record<string, unknown>): Promise<Response> {
   const message = update?.message as Record<string, unknown> | undefined;
   if (!message) {
+    const tap = update?.callback_query as Record<string, unknown> | undefined;
+    if (tap) return await handleChoiceTap(tap);
     const reaction = update?.message_reaction as Record<string, unknown> | undefined;
     if (reaction) return await handleReaction(reaction, update.update_id);
     return new Response("ok");
@@ -1138,7 +1143,20 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
     // (batchReview.ts). Otherwise, or if it cannot be worked out, the Inbox.
     if (kept.length > 1) {
       const listed = await sendBatchList(chatId, member.household_id, savedItems, [unsavedNote.trim(), dividendNote.trim()]).catch(() => false);
-      if (listed) return new Response("ok");
+      if (listed) {
+        // Up to three entries missing only a category or card are asked
+        // about with buttons (choices.ts); any more wait in the Inbox.
+        let asked = 0;
+        for (const s of savedItems) {
+          if (asked >= 3) break;
+          if (await sendChoicePrompt(chatId, member.household_id, member.id, { id: s.id, ...s.row })) asked++;
+        }
+        return new Response("ok");
+      }
+    }
+    // One entry missing only its category or card: asked with buttons.
+    if (kept.length === 1 && savedItems.length === 1 && (await sendChoicePrompt(chatId, member.household_id, member.id, { id: savedItems[0].id, ...savedItems[0].row }))) {
+      return new Response("ok");
     }
     await reply(
       chatId,
