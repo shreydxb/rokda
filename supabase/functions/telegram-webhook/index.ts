@@ -66,7 +66,7 @@ import { BATCH_UNADDRESSED_HINT, batchForPrompt, handleBatchReply, hasOpenList, 
 import { confirmCandidates, confirmPendingIntake, decideAutopay, decidedProposalMessage, decideProposal, handleReaction, intakeForPrompt, openProposals, PENDING_WINDOW_MS, type PendingIntakeRow, type PromptLookup, PROPOSAL_COLUMNS, proposalForPrompt, type ProposalRow, RECENT_INTAKE_COLUMNS, recentlyDecidedProposal, sendFastConfirmPrompt, sendProposal } from "./confirmations.ts";
 import { DIVIDEND_CLASSES, DIVIDEND_GUARD_REPLY, readsAsDividend } from "./dividends.ts";
 import { OPENROUTER_API_KEY, supabase, SUPABASE_URL, TELEGRAM_BOT_TOKEN } from "./env.ts";
-import { alreadyRecordedNote, datedItems, findDuplicateTransaction, forwardedDay, inboxReason, loadCategoryKnowledge, matchAccountByCardLast4, matchAccountByNameHint, matchCategoryFromMerchantHistory, parseIntakeWithAI, QUESTION_TOOLS, undatedNote } from "./intake.ts";
+import { alreadyRecordedNote, categoryByName, datedItems, findDuplicateTransaction, forwardedDay, inboxReason, loadCategoryKnowledge, loadFileableCategories, matchAccountByCardLast4, matchAccountByNameHint, matchCategoryFromMerchantHistory, parseIntakeWithAI, QUESTION_TOOLS, undatedNote } from "./intake.ts";
 import { BRIEF_TRIGGERS, buildBriefMessage, figuresUnavailableMessage, goalContributionDraft, ReadFailed, toolGetAccountBalance, toolGetBudgetStatus, toolGetCategorySpend, toolGetHoldings, toolGetNetWorth, toolGetTradeProfit, toolGetUpcomingBills, transferDraft, transferPrompt } from "./tools.ts";
 import { answerTradeQuestion, FILE_TOO_BIG, FILE_TOO_BIG_CAPTION_KEPT, handleTradeMessage, handleUndoTrade } from "./tradeMessages.ts";
 import { ANSWER_HINT } from "./trades.ts";
@@ -579,14 +579,9 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
     // harmless.
     let committedElsewhere = false;
     try {
-      const { data: categories } = await supabase
-        .from("categories")
-        .select("id, name")
-        .eq("household_id", member.household_id)
-        .eq("kind", "expense")
-        .eq("archived", false)
-        // Nothing is filed under a savings category as spending.
-        .eq("is_savings", false);
+      // Nothing is filed under a savings category as spending, nor under a
+      // group with categories within it (fileableCategories).
+      const categories = await loadFileableCategories(member.household_id, "expense");
 
       // A short follow-up ("compare that to last month") only makes sense
       // in light of the previous exchange, and only when it was recent --
@@ -600,7 +595,7 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
           ? { question: member.telegram_last_question as string, answer: member.telegram_last_answer as string }
           : null;
 
-      const routed = await classifyAndRoute(rawText, (categories ?? []).map((c) => c.name), recentPending, priorContext, member.household_id, member.id);
+      const routed = await classifyAndRoute(rawText, categories.map((c) => c.label), recentPending, priorContext, member.household_id, member.id);
       if (!routed) routingFailed = true;
       const choice = routed?.choices?.[0];
       const toolCall = choice?.message?.tool_calls?.[0];
@@ -615,14 +610,14 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
           rawText: combinedText,
           imageBase64: null,
           imageMime: null,
-          categoryNames: (categories ?? []).map((c) => c.name),
+          categoryNames: categories.map((c) => c.label),
           householdId: member.household_id,
           memberId: member.id,
         });
         const parsed = reparsed?.length ? datedItems([reparsed[0]], householdToday(), forwardedDay(message))[0] : null;
         const matchedCategory = parsed
-          ? (await matchCategoryFromMerchantHistory(await loadCategoryKnowledge(member.household_id), parsed.merchant)) ??
-            (parsed.categoryName ? (categories ?? []).find((c) => c.name.toLowerCase() === parsed.categoryName!.toLowerCase()) ?? null : null)
+          ? (await matchCategoryFromMerchantHistory(await loadCategoryKnowledge(member.household_id), parsed.merchant, categories)) ??
+            categoryByName(categories, parsed.categoryName)
           : null;
         const matchedAccount = parsed
           ? (await matchAccountByCardLast4(member.household_id, parsed.cardLast4)) ?? (await matchAccountByNameHint(member.household_id, parsed.accountHint))
@@ -951,19 +946,15 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
   let nothingFound = false;
   let kept: NonNullable<ReturnType<typeof datedItems>> = [];
   try {
-    const { data: categories } = await supabase
-      .from("categories")
-      .select("id, name")
-      .eq("household_id", member.household_id)
-      .eq("archived", false)
-      // Nothing is filed under a savings category as spending.
-      .eq("is_savings", false);
+    // Nothing is filed under a savings category as spending, nor under a
+    // group with categories within it (fileableCategories).
+    const categories = await loadFileableCategories(member.household_id);
 
     const parsedItems = await parseIntakeWithAI({
       rawText,
       imageBase64: photoBase64,
       imageMime: photoMime,
-      categoryNames: (categories ?? []).map((c) => c.name),
+      categoryNames: categories.map((c) => c.label),
       householdId: member.household_id,
       memberId: member.id,
     });
@@ -1015,8 +1006,8 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
       const item = kept[i];
       try {
         const matchedCategory =
-          (await matchCategoryFromMerchantHistory(knowledge, item.merchant)) ??
-          (item.categoryName ? (categories ?? []).find((c) => c.name.toLowerCase() === item.categoryName!.toLowerCase()) ?? null : null);
+          (await matchCategoryFromMerchantHistory(knowledge, item.merchant, categories)) ??
+          categoryByName(categories, item.categoryName);
         const matchedAccount =
           (await matchAccountByCardLast4(member.household_id, item.cardLast4)) ?? (await matchAccountByNameHint(member.household_id, item.accountHint));
         const updatedRow = {

@@ -125,6 +125,9 @@ here, because this repository is public.
   merchants follows the selected month, net of refunds.
 - Money and the AED-entered plans (Plan, Goals, Debt payoff) stay in AED
   whatever the display currency, and say so when another one is picked.
+- **Categories**: a record is filed under a category with no subcategories;
+  pickers list them as "Group › Category" (Shopping, with none, stands
+  alone). A record already under a group keeps it.
 - **Inbox**: transactions the bot was not sure of, to confirm or fix. An entry
   whose message had no date is marked "No date" and is approved only once its
   date is set or confirmed, never in bulk. The undated entries of one

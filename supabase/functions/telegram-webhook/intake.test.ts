@@ -1,7 +1,8 @@
 // Reading a message: cards named loosely, dates, corrections, and what the capture reply says.
 // The fake backend these drive the real handler against is testing/harness.ts.
 import { assert, assertEquals } from "jsr:@std/assert@1";
-import { backend, capturedIntake, dubaiToday, datedItems, FAB, FAB_Z, forwardedDay, freshTest, handler, HOUSEHOLD, lastReply, MARRIOTT, MEMBER, NOON, photoUpdate, pickAccountByHint, replyUpdate, TELEGRAM_USER, textUpdate, undatedNote } from "./testing/harness.ts";
+import { CATEGORY_GUIDANCE, categoryByName, fileableCategories } from "./intake.ts";
+import { backend, capturedIntake, dubaiToday, datedItems, FAB, FAB_Z, forwardedDay, freshTest, handler, HOUSEHOLD, lastReply, MARRIOTT, MEMBER, NOON, photoUpdate, pickAccountByHint, replyUpdate, reset, TELEGRAM_USER, textUpdate, undatedNote } from "./testing/harness.ts";
 
 Deno.test("a card named misspelt, shortened or with filler words still resolves to the one card it means", () => {
   const accounts = [MARRIOTT, NOON, FAB_Z, FAB];
@@ -216,3 +217,67 @@ freshTest("a photo the parser finds nothing in still waits in the Inbox to be re
   assertEquals(capturedIntake().filter((r) => r.status === "pending").length, 1);
 });
 
+
+// ---------------------------------------------------------------------------
+// Only a category with no subcategories is guessed (the feature review,
+// November 2026: half the categories changed on approval were a parent,
+// "Food & Dining", picked where a subcategory was meant).
+// ---------------------------------------------------------------------------
+
+const FOOD = "c1000000-0000-4000-8000-0000000000f0";
+const EATING_OUT = "c1000000-0000-4000-8000-0000000000f1";
+const DELIVERY = "c1000000-0000-4000-8000-0000000000f2";
+const OLD_CHILD = "c1000000-0000-4000-8000-0000000000f3";
+const SHOPPING = "c1000000-0000-4000-8000-0000000000f4";
+const SAVINGS = "c1000000-0000-4000-8000-0000000000f5";
+
+function seedFoodTree(): void {
+  backend.tables.categories.push(
+    { id: FOOD, household_id: HOUSEHOLD, name: "Food & Dining", kind: "expense", parent_id: null, archived: false, is_savings: false },
+    { id: EATING_OUT, household_id: HOUSEHOLD, name: "Eating Out", kind: "expense", parent_id: FOOD, archived: false, is_savings: false },
+    { id: DELIVERY, household_id: HOUSEHOLD, name: "Food Delivery", kind: "expense", parent_id: FOOD, archived: false, is_savings: false },
+    // A parent whose only subcategory is archived is filed under itself.
+    { id: SHOPPING, household_id: HOUSEHOLD, name: "Shopping", kind: "expense", parent_id: null, archived: false, is_savings: false },
+    { id: OLD_CHILD, household_id: HOUSEHOLD, name: "Old Child", kind: "expense", parent_id: SHOPPING, archived: true, is_savings: false },
+    { id: SAVINGS, household_id: HOUSEHOLD, name: "Savings", kind: "expense", parent_id: null, archived: false, is_savings: true },
+  );
+}
+
+Deno.test("only categories with no subcategories can be filed under, each named with its parent", () => {
+  reset();
+  seedFoodTree();
+  const rows = fileableCategories(backend.tables.categories as Parameters<typeof fileableCategories>[0]);
+  assertEquals(rows.map((c) => c.label).sort(), ["Food & Dining › Eating Out", "Food & Dining › Food Delivery", "Shopping"]);
+  assertEquals(categoryByName(rows, "Food & Dining › Eating Out")?.id, EATING_OUT);
+  assertEquals(categoryByName(rows, "eating out")?.id, EATING_OUT);
+  assertEquals(categoryByName(rows, "Food & Dining"), null);
+});
+
+freshTest("the parser is offered subcategories with their parents, never a parent", async () => {
+  seedFoodTree();
+  backend.parse = [{ merchant: "New Cafe", amount: 20, currency: "AED", occurred_at: "2026-09-24", category: "Food & Dining › Eating Out", card_last4: null, account_hint: null, confidence: 1, kind: "expense" }];
+  await handler(textUpdate(9301, "new cafe 20"));
+  const prompt = backend.parsePrompts.at(-1)!;
+  assert(prompt.includes("Food & Dining › Eating Out"), prompt);
+  assert(!prompt.includes('\\"Food & Dining\\",'), prompt);
+  assertEquals(capturedIntake()[0].parsed_category_id, EATING_OUT);
+});
+
+freshTest("a parent the model names anyway is not filed: the entry waits for its category", async () => {
+  seedFoodTree();
+  backend.parse = [{ merchant: "New Cafe", amount: 20, currency: "AED", occurred_at: "2026-09-24", category: "Food & Dining", card_last4: null, account_hint: null, confidence: 1, kind: "expense" }];
+  await handler(textUpdate(9302, "new cafe 20"));
+  assertEquals(capturedIntake()[0].parsed_category_id, null);
+});
+
+freshTest("a merchant filed under a parent before is not filed there again", async () => {
+  seedFoodTree();
+  for (let i = 0; i < 3; i++) backend.tables.transactions.push({ id: crypto.randomUUID(), household_id: HOUSEHOLD, merchant: "Corner Cafe", category_id: FOOD, kind: "expense", amount: -10, occurred_at: "2026-09-0" + (i + 1) });
+  backend.parse = [{ merchant: "Corner Cafe", amount: 12, currency: "AED", occurred_at: "2026-09-24", category: "Food & Dining › Eating Out", card_last4: null, account_hint: null, confidence: 1, kind: "expense" }];
+  await handler(textUpdate(9303, "corner cafe 12"));
+  assertEquals(capturedIntake()[0].parsed_category_id, EATING_OUT);
+});
+
+Deno.test("the parser is told a shop is never where food or drink goes", () => {
+  assert(/Shopping.*never.*(food|restaurant)/i.test(CATEGORY_GUIDANCE), CATEGORY_GUIDANCE);
+});

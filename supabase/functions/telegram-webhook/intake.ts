@@ -5,6 +5,7 @@ import { pickCategory } from "../_shared/applib/merchants.js";
 import { logTelegramCall, postToAiService } from "./ai.ts";
 import { OPENROUTER_API_KEY, PARSE_MODEL, supabase } from "./env.ts";
 import { ALREADY_RECORDED_DAYS, alreadyRecordedAll } from "../_shared/applib/alreadyRecorded.js";
+import { fileableCategories as sharedFileable } from "../_shared/applib/fileableCategories.js";
 import { ReadFailed } from "./tools.ts";
 
 export type IntakeKind = "expense" | "income" | "refund";
@@ -207,7 +208,7 @@ export async function parseIntakeWithAI(params: {
       : "") +
     `"category" MUST be exactly one of these household categories, verbatim, or null if none clearly fits -- never invent a category name: ` +
     `${JSON.stringify(categoryNames)}. ` +
-    `This list mixes broad categories (e.g. "Transport") with specific subcategories of them (e.g. "Salik / Parking / Misc", "Car EMI", "Fuel" -- all under Transport). Always prefer the most specific one that clearly fits over its broader parent: a toll/parking charge is "Salik / Parking / Misc", not "Transport"; a car loan instalment is "Car EMI", not "Transport". Only fall back to the broad parent when nothing more specific applies (e.g. a taxi fare, which fits none of Transport's subcategories). ` +
+    `${CATEGORY_GUIDANCE} ` +
     `Noon is three different services, told apart by the name the payment shows: "Noon Minutes" (or "Minutes") is grocery delivery -- a groceries category; plain "Noon" on its own is Noon Food, restaurant delivery -- a food or dining category; "noon.com" (or "Noon.com") is the marketplace -- a shopping category. Apply this unless the message itself says what was bought. ` +
     `"confidence" is your own confidence in this extraction, 0 to 1. ` +
     `If you cannot determine a field, use null rather than guessing.`;
@@ -412,6 +413,40 @@ export type CategoryKnowledge = {
 
 // Read once per message, however many items it holds. A failed read leaves
 // that half empty: the model's guess still stands, as it did before.
+// How the parser is told to choose among the categories it is offered
+// (fileableCategories): a group is never offered, so only the guidance on
+// telling them apart is left. Shopping was the model's fallback for food it
+// could not place (the feature review, November 2026).
+export const CATEGORY_GUIDANCE =
+  'A category within a group is named "Group › Category": give the full name exactly as listed. ' +
+  "A Shopping category is for goods bought from a shop or an online store, and is never where food or drink goes: a restaurant, café, takeaway or food delivery belongs in the food or dining category that fits, and a supermarket in a groceries one. " +
+  "A toll, parking or fuel charge is never food, and a meal is never transport.";
+
+type CategoryRow = { id: string; name: string; kind?: string | null; parent_id?: string | null; archived?: boolean | null; is_savings?: boolean | null };
+export type FileableCategory = { id: string; name: string; label: string };
+
+// The categories an entry can be filed under, shared with the app
+// (applib/fileableCategories.js): no group with categories within it, so a
+// guessed "Food & Dining" can't be filed (the feature review, November 2026).
+export function fileableCategories(rows: CategoryRow[], kind: string | null = null): FileableCategory[] {
+  return sharedFileable(rows, kind) as FileableCategory[];
+}
+
+// The category the model named, by its full label or its own name. A group
+// is not in the list, so naming one finds nothing and the entry waits for a
+// person to choose.
+export function categoryByName(list: FileableCategory[], name: string | null): FileableCategory | null {
+  if (!name) return null;
+  const n = name.trim().toLowerCase();
+  return list.find((c) => c.label.toLowerCase() === n) ?? list.find((c) => c.name.toLowerCase() === n) ?? null;
+}
+
+// The household's fileable categories, read once per message.
+export async function loadFileableCategories(householdId: string, kind: string | null = null): Promise<FileableCategory[]> {
+  const { data } = await supabase.from("categories").select("id, name, kind, parent_id, archived, is_savings").eq("household_id", householdId).eq("archived", false);
+  return fileableCategories((data ?? []) as CategoryRow[], kind);
+}
+
 export async function loadCategoryKnowledge(householdId: string): Promise<CategoryKnowledge> {
   const PAGE = 1000;
   const history: CategoryKnowledge["history"] = [];
@@ -431,9 +466,12 @@ export async function loadCategoryKnowledge(householdId: string): Promise<Catego
 }
 
 
-export async function matchCategoryFromMerchantHistory(knowledge: CategoryKnowledge, merchant: string | null): Promise<{ id: string; name: string } | null> {
+// fileable, when given, keeps a merchant's history from filing it under a
+// group it was once filed under; a household rule is followed as written.
+export async function matchCategoryFromMerchantHistory(knowledge: CategoryKnowledge, merchant: string | null, fileable: FileableCategory[] | null = null): Promise<{ id: string; name: string } | null> {
   const pick = pickCategory(merchant, knowledge);
   if (!pick) return null;
+  if (fileable && pick.source === "history" && !fileable.some((c) => c.id === pick.categoryId)) return null;
   const { data: category } = await supabase.from("categories").select("id, name, archived").eq("id", pick.categoryId).maybeSingle();
   if (!category || (category as { archived?: boolean }).archived) return null;
   return { id: (category as { id: string }).id, name: (category as { name: string }).name };

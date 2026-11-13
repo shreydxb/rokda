@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
+import { fileableCategories } from '../../lib/fileableCategories';
 import { formatMoney } from '../../lib/money';
 import { firstMatchingRule, rememberMerchantCheck, ruleLabel } from '../../lib/rules';
 import { accountOptionLabel, selectableAccounts } from '../../lib/accounts';
@@ -810,13 +811,12 @@ function IntakeEditForm({ item, sender, accounts, members, categories, categoryR
             <button type="button" className="om-seg" data-active={categoryId === ''} onClick={() => setCategoryId('')}>
               Uncategorised
             </button>
-            {categories
-              .filter((c) => (!c.archived && !c.is_savings) || c.id === categoryId)
-              .map((c) => (
-                <button key={c.id} type="button" className="om-seg" data-active={categoryId === c.id} onClick={() => setCategoryId(c.id)}>
-                  {c.name}
-                </button>
-              ))}
+            {/* Subcategories, never the group they are in (lib/fileableCategories.js). */}
+            {fileableCategories(categories, null, categoryId || null).map((c) => (
+              <button key={c.id} type="button" className="om-seg" data-active={categoryId === c.id} onClick={() => setCategoryId(c.id)}>
+                {c.label}
+              </button>
+            ))}
           </div>
         </div>
         {suggestedRule && categoryId === suggestedRule.category_id && (

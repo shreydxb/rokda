@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
+import { needsSubcategory } from '../../lib/fileableCategories';
 import { useCloseGuard } from '../../lib/useCloseGuard';
 import DiscardPrompt from '../DiscardPrompt';
 import { useDrawerFocus } from '../../lib/useDrawerFocus';
@@ -108,6 +109,10 @@ export default function TransactionEditor({ tx, household, householdId, accounts
   const figures = amountFigures(form, fxHistory, household?.inr_per_aed);
   const { foreign, typed, amountAed, amountError } = figures;
   const accountError = !form.account_id ? 'Choose an account.' : '';
+  // A group with subcategories is not where a record newly goes
+  // (lib/fileableCategories.js); one already filed there may stay.
+  const groupChosen = !split && form.category_id !== (tx?.category_id ?? null) && needsSubcategory(categories, form.category_id);
+  const categoryError = groupChosen ? `Choose a subcategory of ${categories.find((c) => c.id === form.category_id)?.name}.` : '';
 
   // findDuplicate reads only these four fields of a new record.
   const { merchant, amount, occurred_at: occurredAt, account_id: accountId } = form;
@@ -170,8 +175,8 @@ export default function TransactionEditor({ tx, household, householdId, accounts
     // A rule that wouldn't match this merchant is caught before anything is
     // written, so the record is never saved on the way to a rule that can't be.
     const ruleError = ruleCheck?.status === 'invalid' ? ruleCheck.reason : '';
-    if (amountError || accountError || linesError || ruleError) {
-      setError(amountError || accountError || linesError || ruleError);
+    if (amountError || accountError || categoryError || linesError || ruleError) {
+      setError(amountError || accountError || categoryError || linesError || ruleError);
       return;
     }
     setSaving(true);

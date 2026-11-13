@@ -3691,3 +3691,24 @@ were not unwanted, only out of the way:
   answered with that, no longer with "again tomorrow". A shared card's
   questions still go to both members, a personal card's to its owner only,
   as before.
+- **Only a category with no subcategories is chosen.** Of the 20 categories
+  changed on approval, 10 were a group ("Food & Dining", "Transport")
+  guessed where one of its subcategories was meant, and 7 were Shopping
+  taken as the fallback for food. A record is now filed only under a
+  category with no active subcategories (lib/fileableCategories.js, which
+  the bot shares): the bot is offered those, named "Group › Category", and
+  a group it names anyway, or one a merchant was filed under before, is not
+  taken, so the entry waits for a person to choose. The parser is told that
+  a Shopping category is never where food or drink goes. The Inbox and
+  Overview list subcategories only; the transaction editor asks for a
+  subcategory once a group is chosen ("Choose…"), refusing to save the group
+  itself. A record already filed under a group keeps it ("General"), and a
+  household rule is followed as written. A group whose subcategories are
+  all archived is filed under itself, as Shopping now is.
+- **Categories tidied with the household.** Categories with no budget, no
+  bill and no use in months were archived (a finished trip, a cancelled
+  subscription, a one-off licence, a trading loss now told by the trades),
+  and a small drinks category merged into eating out, with what was drunk
+  kept in a record's note. Categories never used but holding a monthly
+  budget stay: they are lines of the plan. Insurance categories stay too,
+  for premiums still to start.
