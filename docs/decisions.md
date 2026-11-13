@@ -1192,7 +1192,8 @@ check happened when someone remembered it, and nothing recorded whether it had.
   *confirmed* (a member says it is done), *reconciled* (checked line by line
   and the figures agree) or *mismatch* (checked, and they do not).
 - **The bot asks from the day after a statement closes**, every morning, until
-  it is no longer waiting or the next statement closes. Not on the closing day
+  it is no longer waiting or the next statement closes. (Since November 2026
+  it asks once and reminds once: see "What the feature review changed".) Not on the closing day
   itself: its last day's spending can still post. "done", "reconciled",
   "checked" or a 👍 settle it; "not yet", or "sent" without "checked", asks
   again tomorrow (see "A statement answer belongs to the chat it was asked
@@ -3679,3 +3680,14 @@ were not unwanted, only out of the way:
   entry's own "reply yes" prompt uses, so no table changed; a message of one
   entry keeps that prompt. Changing a category, amount, card or merchant
   stays in the Inbox.
+- **A statement is asked about once, and reminded once.** In a month the
+  daily statement question was most of what the bot sent: four statements
+  left waiting were asked about every morning, to the card's owner. The
+  household reconciles statements by sharing them in a Claude session, so
+  the bot has nothing to collect; it only says one has closed. It now asks
+  the morning after the close and reminds once three days before the payment
+  is due (ten days after the close when no due date is set), then stops; the
+  statement stays open in Wealth -> Statements. "not yet" and "sent" are
+  answered with that, no longer with "again tomorrow". A shared card's
+  questions still go to both members, a personal card's to its owner only,
+  as before.

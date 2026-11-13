@@ -1,7 +1,7 @@
 // Part of the Telegram webhook (index.ts), split out by responsibility in
 // the round 2 cleanup (SHR-383). Moved, not changed.
 import { householdDay, householdToday } from "../../_shared/applib/day.js";
-import { statementAlreadySettledMessage, statementAnswer, statementDoneMessage, statementLookupFailedMessage, statementNotSavedMessage, statementNotYetMessage, statementQuestion, statementSentMessage } from "../../_shared/applib/statementReminder.js";
+import { statementAlreadySettledMessage, statementAnswer, statementAskDue, statementDoneMessage, statementLookupFailedMessage, statementNotSavedMessage, statementNotYetMessage, statementQuestion, statementSentMessage } from "../../_shared/applib/statementReminder.js";
 import { closedStatementDates, isoDay, statementDueDate, statementPeriodStart } from "../../_shared/applib/statements.js";
 import { openProposals } from "../confirmations.ts";
 import { supabase } from "../env.ts";
@@ -13,10 +13,10 @@ import { prefEnabled, telegramPrefsMap } from "./recipients.ts";
 // reconciled, and Rokda records it")
 // ---------------------------------------------------------------------------
 //
-// From the day after a card's statement closes, the morning check asks
-// whether it has been reconciled, and asks again each morning until a member
-// says it has (or a reconciliation is recorded some other way, or the next
-// statement closes). The statement's own row in statement_reconciliations
+// The morning after a card's statement closes, the check asks whether it has
+// been reconciled, and reminds once before the payment is due
+// (statementAskDue), unless a member says it has been, or a reconciliation is
+// recorded some other way, or the next statement closes. The statement's own row in statement_reconciliations
 // holds the state: no proposal, because nothing is applied on a "yes" except
 // marking the statement done.
 //
@@ -82,7 +82,9 @@ export async function runStatementCheck(): Promise<{ checked: number; asked: num
         .eq("statement_date", statementDate)
         .maybeSingle();
       const row = found as StatementRow | null;
-      if (error || !row || row.status !== "waiting" || row.last_asked_on === todayStr) continue;
+      if (error || !row || row.status !== "waiting") continue;
+      const ask = statementAskDue({ statementDate: row.statement_date, dueDate: row.due_date, lastAskedOn: row.last_asked_on }, todayStr);
+      if (!ask) continue;
 
       const { data: members } = await supabase
         .from("household_members")
@@ -90,8 +92,7 @@ export async function runStatementCheck(): Promise<{ checked: number; asked: num
         .eq("household_id", card.household_id);
       const recipients = ((members ?? []) as Array<{ id: string; telegram_user_id: number | null }>)
         .filter((m) => m.telegram_user_id != null && (card.is_shared || !card.owner_member_id || m.id === card.owner_member_id));
-      const askedBefore = row.last_asked_on != null;
-      const text = statementQuestion({ cardName: card.name, statementDate, dueDate: row.due_date }, { reminder: askedBefore });
+      const text = statementQuestion({ cardName: card.name, statementDate, dueDate: row.due_date }, { reminder: ask === "reminder" });
       const sent: StatementPrompt[] = [];
       for (const m of recipients) {
         try {

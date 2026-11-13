@@ -240,7 +240,8 @@ here, because this repository is public.
   the statement's own figure when recorded, and the difference, which way it
   goes. Its buttons sit in one row underneath: "Mark done" (or "Resolve…" for
   one that did not match), its transactions, and "Reopen…" for a settled one;
-  the bot asks about each until it is settled (`statement_reconciliations`).
+  the bot asks about each once and reminds once before it is due
+  (`statement_reconciliations`).
 
 ## Planning (`/planning`)
 
@@ -395,8 +396,9 @@ Forecast or Drawdown, which went (Planning audit, 3.15), opens the Life plan.
   to that message; "no" drops it.
 - Nudges and briefs (daily job): bills due and overdue, card payments, budget
   alerts, cash cover, unusual spending, a weekly and a monthly brief, a
-  balance check-in on the 1st of each month, and each card statement from the
-  day after it closes until someone says it is reconciled ("done" or 👍).
+  balance check-in on the 1st of each month, and each card statement: asked
+  the morning after it closes and reminded once three days before it is due,
+  unless someone says it is reconciled ("done" or 👍).
 - Asks each morning about dividends due in a broker's fund, once, one
   message per fund with each line's sum, withholding and net; "yes" or 👍
   records them all, "not yet" or 👎 asks again tomorrow, "no" leaves them

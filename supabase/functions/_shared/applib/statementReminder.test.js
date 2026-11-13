@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { statementAlreadySettledMessage, statementAnswer, statementDoneMessage, statementQuestion, statementReactionDecision } from './statementReminder.js';
+import { statementAlreadySettledMessage, statementAnswer, statementAskDue, statementDoneMessage, statementNotYetMessage, statementQuestion, statementReactionDecision, statementSentMessage } from './statementReminder.js';
 
 describe('statementQuestion', () => {
   it('names the card, the close and the due date, and says how to answer', () => {
@@ -54,5 +54,39 @@ describe('replies', () => {
     expect(statementAlreadySettledMessage('Bank card', '2026-09-28', 'mismatch')).toContain("doesn't match Rokda");
     expect(statementAlreadySettledMessage('Bank card', '2026-09-28', 'reconciled')).toContain('already been reconciled');
     expect(statementAlreadySettledMessage('Bank card', '2026-09-28', 'confirmed')).toContain('already marked as done');
+  });
+});
+
+describe('statementAskDue', () => {
+  const statement = { statementDate: '2026-10-28', dueDate: '2026-11-22' };
+
+  it('asks once, the first morning after the close', () => {
+    expect(statementAskDue({ ...statement, lastAskedOn: null }, '2026-10-29')).toBe('first');
+    expect(statementAskDue({ ...statement, lastAskedOn: '2026-10-29' }, '2026-10-30')).toBe(null);
+    expect(statementAskDue({ ...statement, lastAskedOn: '2026-10-29' }, '2026-11-18')).toBe(null);
+  });
+
+  it('reminds once, three days before the payment is due, and then stops', () => {
+    expect(statementAskDue({ ...statement, lastAskedOn: '2026-10-29' }, '2026-11-19')).toBe('reminder');
+    expect(statementAskDue({ ...statement, lastAskedOn: '2026-11-19' }, '2026-11-20')).toBe(null);
+    expect(statementAskDue({ ...statement, lastAskedOn: '2026-11-19' }, '2026-12-05')).toBe(null);
+  });
+
+  it('a first question already inside those three days is the only one', () => {
+    expect(statementAskDue({ statementDate: '2026-10-28', dueDate: '2026-10-30', lastAskedOn: '2026-10-29' }, '2026-10-30')).toBe(null);
+  });
+
+  it('with no due date, reminds once ten days after the close', () => {
+    const noDue = { statementDate: '2026-10-28', dueDate: null, lastAskedOn: '2026-10-29' };
+    expect(statementAskDue(noDue, '2026-11-06')).toBe(null);
+    expect(statementAskDue(noDue, '2026-11-07')).toBe('reminder');
+  });
+});
+
+describe('the answers to "not yet" and "sent"', () => {
+  it('no longer promise a question every morning', () => {
+    expect(statementNotYetMessage('Bank card')).not.toContain('tomorrow');
+    expect(statementSentMessage('Bank card')).not.toContain('tomorrow');
+    expect(statementQuestion({ cardName: 'Bank card', statementDate: '2026-09-28', dueDate: '2026-10-22' })).not.toContain('tomorrow');
   });
 });

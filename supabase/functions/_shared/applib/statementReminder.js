@@ -1,11 +1,40 @@
 // Asking about a card statement over Telegram (docs/decisions.md, "A
 // statement is reconciled, and Rokda records it").
 //
-// From the day after a card's statement closes, the bot asks each morning
-// whether it has been reconciled, until someone says it has. This file words
-// the question and reads the answer; index.ts does the asking and records it
-// in statement_reconciliations. Bot-only, like autopay.js.
+// The morning after a card's statement closes, the bot asks whether it has
+// been reconciled, and reminds once three days before the payment is due (or
+// ten days after the close, with no due date). Then it stops: the statement
+// stays open in Wealth -> Statements. It used to ask every morning until
+// someone answered, which was most of what the bot sent (the feature review,
+// November 2026). This file words the question, decides when to ask, and
+// reads the answer; checks/statements.ts does the asking and records it in
+// statement_reconciliations. Bot-only, like autopay.js.
 import { autopayReactionDecision, shortDay } from './autopay.js';
+import { parseDay } from './day.js';
+
+const REMIND_DAYS_BEFORE_DUE = 3;
+const REMIND_DAYS_AFTER_CLOSE = 10;
+
+function shiftIso(iso, days) {
+  const d = parseDay(iso);
+  d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// Whether this morning's check asks about a waiting statement: 'first' when
+// it has never been asked, 'reminder' once on or after the reminder day if it
+// was last asked before it, otherwise null. A first question already on or
+// after the reminder day is the only one.
+/**
+ * @param {{ statementDate: string, dueDate?: string | null, lastAskedOn: string | null }} statement
+ * @param {string} today
+ * @returns {'first' | 'reminder' | null}
+ */
+export function statementAskDue(statement, today) {
+  if (!statement.lastAskedOn) return 'first';
+  const remindOn = statement.dueDate ? shiftIso(statement.dueDate, -REMIND_DAYS_BEFORE_DUE) : shiftIso(statement.statementDate, REMIND_DAYS_AFTER_CLOSE);
+  return today >= remindOn && statement.lastAskedOn < remindOn ? 'reminder' : null;
+}
 
 /**
  * @param {{ cardName: string, statementDate: string, dueDate?: string | null }} statement
@@ -16,13 +45,13 @@ export function statementQuestion(statement, { reminder = false } = {}) {
   if (reminder) {
     return (
       `Reminder: the ${statement.cardName} statement from ${shortDay(statement.statementDate)} hasn't been reconciled yet.${due}\n` +
-      'Reply "done" or react 👍 once it is, and I\'ll stop asking.'
+      'Reply "done" or react 👍 once it is. I won\'t ask again: it stays open in Wealth -> Statements.'
     );
   }
   return (
     `Your ${statement.cardName} statement closed on ${shortDay(statement.statementDate)}.${due}\n` +
     'Send the PDF to Claude to reconcile it against Rokda, then reply "done" here or react 👍 once it has been checked. ' +
-    'Reply "not yet" and I\'ll ask again tomorrow morning.'
+    'I\'ll remind you once more before it\'s due.'
   );
 }
 
@@ -76,7 +105,7 @@ export function statementReactionDecision(emoji) {
 }
 
 export function statementNotYetMessage(cardName) {
-  return `OK, I'll ask about the ${cardName} statement again tomorrow morning.`;
+  return `OK. The ${cardName} statement stays open in Wealth -> Statements, and I'll remind you once before it's due if it still is.`;
 }
 
 // A member said it is done: recorded as confirmed, which is not the same as
@@ -87,7 +116,7 @@ export function statementDoneMessage(cardName, statementDate) {
 }
 
 export function statementSentMessage(cardName) {
-  return `Thanks. I'll keep the ${cardName} statement open until it has been checked against Rokda, and ask again tomorrow morning. Reply "done" once it has.`;
+  return `Thanks. The ${cardName} statement stays open until it has been checked against Rokda. Reply "done" once it has.`;
 }
 
 // Which statement a message answers could not be read: nothing changed.
