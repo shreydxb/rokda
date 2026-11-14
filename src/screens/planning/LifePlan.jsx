@@ -653,24 +653,24 @@ export default function LifePlan({
       <GoalsOnTimeline goals={openGoals} startYear={startYear} money={money} onChanged={data.reload} onOpenTab={onOpenTab} />
 
       <div style={{ marginTop: 30 }}>
-      <Explain label="Assumptions">
-        {selected.label}: {selected.nominalPct.toFixed(1)}% a year before work stops and {postNominal.toFixed(1)}% after, less {inflationPct.toFixed(1)}%
-        inflation. Saving is {money.code} {money.fmtBalance(inputs.monthlySaving)} a month
-        {inputs.source === 'budget' ? ', your savings target in the budget' : `, the average of the last ${inputs.monthCount} ended months`}, kept the
-        same in today&rsquo;s money until work stops.
-        {basis.cashPot > 0 &&
-          ` The ${money.code} ${money.fmt(basis.cashPot)} held in cash and deposits today stays cash at ${basis.cashNominal.toFixed(1)}% a year; the rest earns the return.`}
-        {loansLine && ` ${loansLine}`}
-        {people.length > 1 && survivorPct !== 100 && ` Once one person remains, spending is ${survivorPct}% of the couple's.`}
-        {costsLine && ` ${costsLine}`}
-        {incomes.length > 0 && ` ${incomes.length} source${incomes.length === 1 ? '' : 's'} of other income count from ${stopYear}.`}
-        {uncounted.length > 0 &&
-          ` ${uncounted.map((r) => r.name).join(', ')} ${uncounted.length === 1 ? 'is' : 'are'} not counted: no AED/INR rate is set yet (Settings → Household).`}
-        {inflows.length > 0 &&
-          ` ${inflows.map((i) => `${i.name} (${i.year})`).join(', ')} ${inflows.length === 1 ? 'is' : 'are'} added in ${inflows.length === 1 ? 'its' : 'their'} year, converted at today's rate${drift ? `: If the rupee weakens, above, shows ${inflows.length === 1 ? 'it' : 'them'} worth less` : ''}.`}{' '}
-        No tax is
-        taken out.
-      </Explain>
+        <Explain label="Assumptions">
+          {selected.label}: {selected.nominalPct.toFixed(1)}% a year before work stops and {postNominal.toFixed(1)}% after, less {inflationPct.toFixed(1)}%
+          inflation. Saving is {money.code} {money.fmtBalance(inputs.monthlySaving)} a month
+          {inputs.source === 'budget' ? ', your savings target in the budget' : `, the average of the last ${inputs.monthCount} ended months`}, kept the
+          same in today&rsquo;s money until work stops.
+          {basis.cashPot > 0 &&
+            ` The ${money.code} ${money.fmt(basis.cashPot)} held in cash and deposits today stays cash at ${basis.cashNominal.toFixed(1)}% a year; the rest earns the return.`}
+          {loansLine && ` ${loansLine}`}
+          {people.length > 1 && survivorPct !== 100 && ` Once one person remains, spending is ${survivorPct}% of the couple's.`}
+          {costsLine && ` ${costsLine}`}
+          {incomes.length > 0 && ` ${incomes.length} source${incomes.length === 1 ? '' : 's'} of other income count from ${stopYear}.`}
+          {uncounted.length > 0 &&
+            ` ${uncounted.map((r) => r.name).join(', ')} ${uncounted.length === 1 ? 'is' : 'are'} not counted: no AED/INR rate is set yet (Settings → Household).`}
+          {inflows.length > 0 &&
+            ` ${inflows.map((i) => `${i.name} (${i.year})`).join(', ')} ${inflows.length === 1 ? 'is' : 'are'} added in ${inflows.length === 1 ? 'its' : 'their'} year, converted at today's rate${drift ? `: If the rupee weakens, above, shows ${inflows.length === 1 ? 'it' : 'them'} worth less` : ''}.`}{' '}
+          No tax is
+          taken out.
+        </Explain>
       </div>
 
       {editor}

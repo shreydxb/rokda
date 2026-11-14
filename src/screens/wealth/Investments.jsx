@@ -396,7 +396,7 @@ export default function Investments({ household, members, me, data, loading, rel
                 ? 'No holding has auto-pricing set up yet — edit one to opt it in.'
                 : `${autoPriced.length} holding${autoPriced.length === 1 ? '' : 's'} on a live feed`}
             </div>
-            <Explain>Refresh at the top of the page re-reads stored values and does not fetch prices; Refresh prices calls the live feed.</Explain>
+            <Explain label="About refreshing">Refresh at the top of the page re-reads stored values and does not fetch prices; Refresh prices calls the live feed.</Explain>
           </section>
 
           <section style={{ marginTop: 34, paddingBottom: sold.length > 0 ? 22 : 40 }}>

@@ -117,8 +117,17 @@ describe('BasisLine: fewer words', () => {
     const more = screen.getByText(/No basis is chosen/);
     expect(more.closest('details')).toBeTruthy();
     const note = screen.getByRole('note', { name: 'Planning basis' });
-    const visible = note.firstElementChild.firstChild.parentElement.childNodes;
+    const visible = note.firstElementChild.childNodes;
     const shown = [...visible].filter((n) => n.nodeName !== 'DETAILS').map((n) => n.textContent).join('');
     expect(shown).toMatch(/^Recorded months\. Spending AED 4,000 and saving AED 6,000 a month\.$/);
+  });
+});
+
+// The fresh review of the shell: that a choice is not in effect yet is a
+// status, so it stays on the line.
+describe('BasisLine: a choice not in effect yet stays in view', () => {
+  it('says the recorded months chosen take over later, outside the link', () => {
+    renderLine({ ...BUDGET, basis: 'recorded', why: 'few-months', monthCount: 1, recordsFrom: '2026-08' });
+    expect(screen.getByText(/You chose recorded months; they take over/).closest('details')).toBeNull();
   });
 });

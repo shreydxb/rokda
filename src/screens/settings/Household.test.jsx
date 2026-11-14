@@ -101,3 +101,11 @@ describe('Household: the build, and fewer words', () => {
     expect(screen.getByText(/A member without a linked login/).closest('details')).toBeTruthy();
   });
 });
+
+describe('Household: what a member who is not an owner can do', () => {
+  it('says only an owner can add or remove members, in view', () => {
+    const member = { ...ME, role: 'member' };
+    render(<Household household={{ id: 'h1', name: 'Home', inr_per_aed: 25 }} members={[member]} me={member} loading={false} reload={vi.fn()} />);
+    expect(screen.getByText('Only an owner can add or remove members.').closest('details')).toBeNull();
+  });
+});

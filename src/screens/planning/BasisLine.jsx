@@ -34,7 +34,8 @@ export default function BasisLine({ inputs, householdId, assumptions, onSaved, m
   } else if (inputs.source === 'budget') {
     lead = inputs.why === 'chosen' ? 'Your budget, as you chose.' : 'Your budget, for now.';
     text = `${Figures}, from your spending budget and savings target over ${budgeted}.`;
-    short = `${Figures}.`;
+    // A choice not in effect yet is a status, so the whole line stays.
+    if (inputs.why === 'chosen') short = `${Figures}.`;
     if (inputs.why !== 'chosen') {
       text += ` ${inputs.basis === 'recorded' ? 'You chose recorded months; they' : 'Recorded months'} take over once three have ended${since} · ${n === 0 ? 'none yet' : `${n} so far`}.`;
     }

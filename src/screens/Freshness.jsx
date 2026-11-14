@@ -14,7 +14,10 @@ export default function Freshness({ title, loadedAt, refreshing, onRefresh }) {
       {/* When it was read stays said (and shown on hover), not printed:
           the page reads itself again every few minutes. */}
       <span className="fresh" aria-live="polite">
-        <span className="fresh-when">{label}</span>
+        {/* "Refreshing…" is a status and shows; "Loaded 14:32" is kept to
+            the hover and to screen readers. */}
+        <span className={refreshing ? undefined : 'fresh-when'}>{label}</span>
+        {refreshing && ' '}
         {onRefresh && (
           <button type="button" className="fresh-btn" onClick={onRefresh} disabled={refreshing} title={label || undefined}>
             Refresh
