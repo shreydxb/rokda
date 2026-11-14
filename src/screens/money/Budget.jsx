@@ -11,6 +11,7 @@ import { categoryOwner, householdShare } from '../../lib/share';
 import { neverLoaded } from '../../lib/loadState';
 import Withheld from '../planning/Withheld';
 import './Budget.css';
+import Explain from '../Explain';
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -342,11 +343,11 @@ function HouseholdShare({ members, categories, budgets, transactions, accounts, 
         </>
       )}
 
-      <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 8, lineHeight: 1.6 }}>
+      <Explain>
         Whose cost a category is is set in Settings → Categories; subcategories follow their group. Paid is spending from each
         person’s own accounts and cards, a joint account’s split the same way; uncategorised spending counts as shared.
         {share.basis === 'even' && ' Add each salary as an income reminder to split by income instead.'}
-      </div>
+      </Explain>
     </section>
   );
 }

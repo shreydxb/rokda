@@ -29,6 +29,7 @@ import HoldingEditor from './HoldingEditor';
 import Withheld from '../planning/Withheld';
 import ConcentrationLine from './ConcentrationLine';
 import './Investments.css';
+import Explain from '../Explain';
 
 // One empty list for a source a caller did not pass, so the figures worked
 // from it are not worked out again on every render.
@@ -394,8 +395,8 @@ export default function Investments({ household, members, me, data, loading, rel
               {autoPriced.length === 0
                 ? 'No holding has auto-pricing set up yet — edit one to opt it in.'
                 : `${autoPriced.length} holding${autoPriced.length === 1 ? '' : 's'} on a live feed`}
-              {' · Refresh at the top of the page re-reads stored values and does not fetch prices; Refresh prices calls the live feed.'}
             </div>
+            <Explain label="About refreshing">Refresh at the top of the page re-reads stored values and does not fetch prices; Refresh prices calls the live feed.</Explain>
           </section>
 
           <section style={{ marginTop: 34, paddingBottom: sold.length > 0 ? 22 : 40 }}>

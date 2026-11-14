@@ -3745,3 +3745,28 @@ were not unwanted, only out of the way:
   category or account of their household. Telegram sends taps only to a bot
   registered for them, so the webhook is registered again with
   "callback_query" after this ships.
+
+## The shell, and fewer words
+
+The revamp audit (November 2026) found the same things on every screen, and
+the household asked for fewer words and a cleaner, more professional look.
+The shared pieces now do this for every screen at once:
+
+- **A title on every screen.** Money, Wealth, Planning and Settings open
+  with their name as a title, where a small spaced-out label sat.
+- **Labels in sentence case.** The 21 styles that set labels and table
+  headers in spaced-out capitals now use plain sentence case.
+- **The sidebar runs the full height,** with the household and currency
+  switches under the menu and the account at the foot. The phone layout is
+  unchanged.
+- **Technical details leave everyday view.** The build id moved to
+  Settings → Household → About. "Loaded 14:32 · Refresh" became "Refresh",
+  with the time on hover and still announced to screen readers.
+- **At most one line of help per block.** Anything longer (how a figure is
+  worked out, why it may differ, what a feed does) sits behind "How this is
+  worked out", a closed disclosure (screens/Explain.jsx). Warnings, errors
+  and statuses never go there; they stay in view. This PR moves the longest
+  passages (Budget's household share, the Investments feed note, Settings →
+  Household's currency and members notes, the planning basis line, the Life
+  plan's assumptions); each screen's own PR trims the rest.
+

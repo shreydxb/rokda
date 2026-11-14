@@ -17,6 +17,9 @@ describe('Freshness', () => {
     const onRefresh = vi.fn();
     render(<Freshness title="Money" loadedAt={new Date()} refreshing={false} onRefresh={onRefresh} />);
     expect(screen.getByText(/^Loaded \d{2}:\d{2}/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Refresh' }).title).toMatch(/^Loaded \d{2}:\d{2}/);
+    // The shell (November 2026): the screen's name is its title.
+    expect(screen.getByRole('heading', { level: 1, name: 'Money' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
     expect(onRefresh).toHaveBeenCalledOnce();
   });
@@ -24,6 +27,9 @@ describe('Freshness', () => {
   it('says it is refreshing, and does not offer a second refresh meanwhile', () => {
     render(<Freshness title="Money" loadedAt={new Date()} refreshing onRefresh={() => {}} />);
     expect(screen.getByText(/Refreshing…/)).toBeTruthy();
+    // The fresh review of the shell: a status stays in view; only the time
+    // it last read is kept to the hover.
+    expect(screen.getByText(/Refreshing…/).closest('.fresh-when')).toBeNull();
     expect(screen.getByRole('button', { name: 'Refresh' }).disabled).toBe(true);
   });
 });

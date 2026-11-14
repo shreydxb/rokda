@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import MemberEditor from './MemberEditor';
+import Explain from '../Explain';
+import { buildLabel, buildTitle } from '../../lib/buildInfo';
 
 export default function Household({ household, members, me, loading, reload }) {
   const [name, setName] = useState(household?.name ?? '');
@@ -138,11 +140,13 @@ export default function Household({ household, members, me, loading, reload }) {
         <div className="ov-kicker" style={{ marginBottom: 12 }}>
           Display currency
         </div>
-        <div className="ov-muted" style={{ fontSize: 11.5, lineHeight: 1.65, marginBottom: 14 }}>
-          Everything is still stored and charged in AED. The sidebar toggle only changes what portfolio and net-worth
-          figures are <em>shown as</em>. USD uses the fixed AED peg (3.6725, unchanged since 1997) — INR floats, so a
-          daily feed refreshes it automatically. Entering a rate here overrides that until the next refresh, and
-          exists mainly as a fallback for when the feed has never run.
+        <div style={{ marginBottom: 14 }}>
+          <Explain label="How the currency works">
+            Everything is still stored and charged in AED. The sidebar toggle only changes what portfolio and net-worth
+            figures are <em>shown as</em>. USD uses the fixed AED peg (3.6725, unchanged since 1997) — INR floats, so a
+            daily feed refreshes it automatically. Entering a rate here overrides that until the next refresh, and
+            exists mainly as a fallback for when the feed has never run.
+          </Explain>
         </div>
         <form onSubmit={saveRate} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <span className="ov-muted" style={{ fontSize: 13 }}>
@@ -211,11 +215,26 @@ export default function Household({ household, members, me, loading, reload }) {
             </button>
           ))}
         </div>
-        <div className="ov-muted" style={{ marginTop: 14, fontSize: 11.5, lineHeight: 1.65, maxWidth: '80ch' }}>
+        {!iAmOwner && (
+          <div className="ov-muted" style={{ marginTop: 14 }}>
+            Only an owner can add or remove members.
+          </div>
+        )}
+        <Explain label="About members">
           A member without a linked login can still own accounts, transactions, and goals — useful for adding a partner before
           they have their own account. They cannot be a household owner, though: that role is about administering the roster,
           which needs a login. Sending them an actual invite isn't wired up yet.
-          {!iAmOwner && ' Only an owner can add or remove members.'}
+        </Explain>
+      </section>
+
+      {/* The build this is, for checking a deploy (it used to sit in the
+          sidebar of every screen). */}
+      <section style={{ marginTop: 40 }}>
+        <div className="ov-kicker" style={{ marginBottom: 8 }}>
+          About
+        </div>
+        <div className="ov-muted" title={buildTitle()}>
+          {buildLabel()}
         </div>
       </section>
 

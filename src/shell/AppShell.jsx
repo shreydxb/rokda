@@ -6,7 +6,6 @@ import { ScopeFromLink, useScope } from '../lib/ScopeContext';
 import { useHousehold } from '../lib/useHousehold';
 import { useMoneyDisplay } from '../lib/CurrencyContext';
 import { CURRENCIES, currencyAvailable } from '../lib/currency';
-import { buildLabel, buildTitle } from '../lib/buildInfo';
 import './AppShell.css';
 
 const NAV = [
@@ -122,7 +121,6 @@ export default function AppShell() {
                 <span>{user?.email}</span>
                 <span>Sign out</span>
               </button>
-              <div className="om-buildid" title={buildTitle()}>{buildLabel()}</div>
             </div>
           </div>
         </aside>

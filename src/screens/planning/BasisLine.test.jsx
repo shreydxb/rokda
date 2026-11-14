@@ -30,7 +30,13 @@ function renderLine(inputs, assumptions = null) {
   renderScreen(<BasisLine inputs={inputs} householdId="h" assumptions={assumptions} onSaved={onSaved} money={AED} />);
   return { onSaved };
 }
-const line = () => screen.getByRole('note', { name: 'Planning basis' }).textContent;
+// The whole of what the line says: its lead and, where the rest sits behind
+// "How this is worked out", that text in full.
+const line = () => {
+  const note = screen.getByRole('note', { name: 'Planning basis' });
+  const body = note.querySelector('.explain-body');
+  return body ? `${note.querySelector('b').textContent} ${body.textContent}` : note.textContent;
+};
 
 // Planning audit, 2.9: one always-on line, and the household's choice.
 describe('BasisLine: what the plan rests on', () => {
@@ -44,7 +50,7 @@ describe('BasisLine: what the plan rests on', () => {
 
   it('says the budget, as chosen or standing in, and the records standing in for a missing budget', () => {
     renderLine(BUDGET);
-    expect(line()).toMatch(/^Your budget, as you chose\. Spending AED 8,000 and saving AED 1,500 a month, from your spending budget and savings target over 4 budgeted months\.Change basis$/);
+    expect(line()).toMatch(/^Your budget, as you chose\. Spending AED 8,000 and saving AED 1,500 a month, from your spending budget and savings target over 4 budgeted months\.$/);
     document.body.innerHTML = '';
     renderLine({ ...BUDGET, basis: 'recorded', why: 'few-months', monthCount: 1, recordsFrom: '2026-08' });
     expect(line()).toMatch(/You chose recorded months; they take over once three have ended since Aug 2026 · 1 so far\./);
@@ -100,5 +106,28 @@ describe('BasisLine: changing the basis', () => {
     expect((await screen.findByRole('alert')).textContent).toBe("The basis wasn't saved: permission denied");
     expect(onSaved).not.toHaveBeenCalled();
     expect(screen.getByRole('dialog', { name: 'Planning basis' })).toBeTruthy();
+  });
+});
+
+// The shell (November 2026): the line says what the plan rests on in a few
+// words; the why and the when sit behind "How this is worked out".
+describe('BasisLine: fewer words', () => {
+  it('shows the basis and its figures, with the rest behind a link', () => {
+    renderLine(RECORDED);
+    const more = screen.getByText(/No basis is chosen/);
+    expect(more.closest('details')).toBeTruthy();
+    const note = screen.getByRole('note', { name: 'Planning basis' });
+    const visible = note.firstElementChild.childNodes;
+    const shown = [...visible].filter((n) => n.nodeName !== 'DETAILS').map((n) => n.textContent).join('');
+    expect(shown).toMatch(/^Recorded months\. Spending AED 4,000 and saving AED 6,000 a month\.$/);
+  });
+});
+
+// The fresh review of the shell: that a choice is not in effect yet is a
+// status, so it stays on the line.
+describe('BasisLine: a choice not in effect yet stays in view', () => {
+  it('says the recorded months chosen take over later, outside the link', () => {
+    renderLine({ ...BUDGET, basis: 'recorded', why: 'few-months', monthCount: 1, recordsFrom: '2026-08' });
+    expect(screen.getByText(/You chose recorded months; they take over/).closest('details')).toBeNull();
   });
 });

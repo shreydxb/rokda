@@ -137,8 +137,6 @@
   color: var(--ink2);
   font-weight: 400;
   font-size: 11px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
 }
 .ch-table tr[data-active='true'] td {
   background: var(--raise);

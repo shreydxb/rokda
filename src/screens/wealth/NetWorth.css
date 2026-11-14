@@ -115,8 +115,6 @@
 .wl-history-table th[scope='col'] {
   font-family: inherit;
   font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
   color: var(--ink3);
 }
 

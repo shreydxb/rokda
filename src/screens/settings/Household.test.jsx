@@ -90,3 +90,22 @@ describe('Household: typing while a save is under way', () => {
     expect(await typeDuringSave('Rupees per dirham', 1, '25.80', '26.1')).toBe('26.1');
   });
 });
+
+// The shell (November 2026): the build id moved here from the sidebar, and
+// the long notes on currency and members sit behind their own link.
+describe('Household: the build, and fewer words', () => {
+  it('names the build it is running, and keeps the notes closed', () => {
+    render(view({ id: 'h1', name: 'Home', inr_per_aed: 25 }));
+    expect(screen.getByText(/^build /)).toBeTruthy();
+    expect(screen.getByText(/Everything is still stored and charged in AED/).closest('details')).toBeTruthy();
+    expect(screen.getByText(/A member without a linked login/).closest('details')).toBeTruthy();
+  });
+});
+
+describe('Household: what a member who is not an owner can do', () => {
+  it('says only an owner can add or remove members, in view', () => {
+    const member = { ...ME, role: 'member' };
+    render(<Household household={{ id: 'h1', name: 'Home', inr_per_aed: 25 }} members={[member]} me={member} loading={false} reload={vi.fn()} />);
+    expect(screen.getByText('Only an owner can add or remove members.').closest('details')).toBeNull();
+  });
+});

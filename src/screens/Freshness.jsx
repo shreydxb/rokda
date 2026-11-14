@@ -10,16 +10,18 @@ export default function Freshness({ title, loadedAt, refreshing, onRefresh }) {
   const label = refreshing ? 'Refreshing…' : loadedLabel(loadedAt);
   return (
     <div className="fresh-row">
-      {title ? <div className="ov-kicker">{title}</div> : <span />}
+      {title ? <h1 className="fresh-title">{title}</h1> : <span />}
+      {/* When it was read stays said (and shown on hover), not printed:
+          the page reads itself again every few minutes. */}
       <span className="fresh" aria-live="polite">
-        {label}
+        {/* "Refreshing…" is a status and shows; "Loaded 14:32" is kept to
+            the hover and to screen readers. */}
+        <span className={refreshing ? undefined : 'fresh-when'}>{label}</span>
+        {refreshing && ' '}
         {onRefresh && (
-          <>
-            {label && ' · '}
-            <button type="button" className="fresh-btn" onClick={onRefresh} disabled={refreshing}>
-              Refresh
-            </button>
-          </>
+          <button type="button" className="fresh-btn" onClick={onRefresh} disabled={refreshing} title={label || undefined}>
+            Refresh
+          </button>
         )}
       </span>
     </div>
