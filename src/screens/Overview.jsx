@@ -82,7 +82,6 @@ export default function Overview() {
     [netWorthSnapshots, nw.assets, nw.liabilities, now]
   );
   const nwChange1mo = changeOverMonths(nwSeries, 1);
-  const nwChange12mo = changeOverMonths(nwSeries, 12);
   const p = useMemo(() => periodSummary(transactions, period, scopeMemberId, now), [transactions, period, scopeMemberId, now]);
   const prev = useMemo(() => previousPeriodSummary(transactions, period, scopeMemberId, now), [transactions, period, scopeMemberId, now]);
   // Pay still to come this period, so Income reading 0 before payday says why.
@@ -225,7 +224,16 @@ export default function Overview() {
         <OverviewEmpty navigate={navigate} />
       ) : (
         <>
+          <OverviewQuality
+            qualityIssues={qualityIssues}
+            qualityOk={qualityOk}
+            quality={quality}
+            accounts={accounts}
+          />
 
+          {/* The Overview redesign (November 2026): the figures, then what
+              needs a decision beside the next 30 days, then the chart and
+              the detail. */}
           <OverviewPeriod
             period={period}
             p={p}
@@ -234,19 +242,22 @@ export default function Overview() {
             prev={prev}
             prevLabel={prevLabel}
             expected={expected}
-          />
+          >
+            <OverviewNetWorth
+              scope={scope}
+              me={me}
+              members={members}
+              netWorthTrustworthy={netWorthTrustworthy}
+              money={money}
+              nw={nw}
+              netWorthIsProvisional={netWorthIsProvisional}
+              unconfirmed={unconfirmed}
+              nwChange1mo={nwChange1mo}
+              runway={runway}
+            />
+          </OverviewPeriod>
 
           <section className="ov-split">
-            <OverviewFlow
-              period={period}
-              money={money}
-              maxColValue={maxColValue}
-              columns={columns}
-              selected={selected}
-              setSelectedKey={setSelectedKey}
-              now={now}
-            />
-
             <OverviewAttention
               attention={attention}
               attentionShown={attentionShown}
@@ -260,45 +271,35 @@ export default function Overview() {
               attentionExpanded={attentionExpanded}
               setAttentionExpanded={setAttentionExpanded}
             />
+
+            <OverviewNext30
+              next30={next30}
+              recurring={recurring}
+              money={money}
+              committedTotal={committedTotal}
+              withoutAutopay={withoutAutopay}
+            />
           </section>
 
+          <section className="ov-pair">
+            <OverviewFlow
+              period={period}
+              money={money}
+              maxColValue={maxColValue}
+              columns={columns}
+              selected={selected}
+              setSelectedKey={setSelectedKey}
+              now={now}
+            />
 
-          <OverviewNext30
-            next30={next30}
-            recurring={recurring}
-            money={money}
-            committedTotal={committedTotal}
-            withoutAutopay={withoutAutopay}
-          />
-
-          <OverviewNetWorth
-            scope={scope}
-            me={me}
-            members={members}
-            netWorthTrustworthy={netWorthTrustworthy}
-            money={money}
-            nw={nw}
-            netWorthIsProvisional={netWorthIsProvisional}
-            unconfirmed={unconfirmed}
-            nwChange1mo={nwChange1mo}
-            nwChange12mo={nwChange12mo}
-            runway={runway}
-          />
-
-          <OverviewQuality
-            qualityIssues={qualityIssues}
-            qualityOk={qualityOk}
-            quality={quality}
-            accounts={accounts}
-          />
-
-          <section className="ov-triple">
             <OverviewSpending
               period={period}
               composition={composition}
               money={money}
             />
+          </section>
 
+          <section className="ov-pair">
             <OverviewRecent
               recent={recent}
               money={money}

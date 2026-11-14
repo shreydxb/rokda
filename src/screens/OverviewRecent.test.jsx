@@ -105,7 +105,7 @@ describe('Overview: the section links', () => {
       expect(link.tagName).toBe('A');
       return link.getAttribute('href');
     };
-    expect(href('History →')).toBe('/wealth');
+    expect(href('Net worth →')).toBe('/wealth');
     expect(href('Activity →')).toBe('/money');
     expect(href('All records in Activity →')).toBe('/money');
     expect(href('Wealth →')).toMatch(/^\/wealth\?.*accounts/);
