@@ -111,6 +111,9 @@ export function portfolioValueChange(holdings, history, range, scopeMemberId, no
   let startTotal = 0;
   let nowTotal = 0;
   let coveredCount = 0;
+  // Holdings with no value at the range start, named so the screen can say
+  // why there is no change rather than only that there is not enough history.
+  const missing = [];
   for (const h of holdings) {
     const startRaw = valueAsOf(history, h.id, startDate);
     const nowValue = scopedHoldingValue(h, scopeMemberId);
@@ -118,12 +121,14 @@ export function portfolioValueChange(holdings, history, range, scopeMemberId, no
     if (startRaw !== null) {
       coveredCount += 1;
       startTotal += scopedValue(startRaw, h, scopeMemberId);
+    } else {
+      missing.push(h.name);
     }
   }
   if (coveredCount === 0 || coveredCount < holdings.length) {
-    return { available: coveredCount > 0 && coveredCount === holdings.length, nowTotal, startTotal: null, absolute: null, pct: null, includesContributions: true };
+    return { available: coveredCount > 0 && coveredCount === holdings.length, nowTotal, startTotal: null, absolute: null, pct: null, includesContributions: true, missing };
   }
   const absolute = nowTotal - startTotal;
   const pct = startTotal > 0 ? absolute / startTotal : null;
-  return { available: true, nowTotal, startTotal, absolute, pct, includesContributions: true };
+  return { available: true, nowTotal, startTotal, absolute, pct, includesContributions: true, missing };
 }

@@ -80,6 +80,9 @@ describe('Wealth -> Statements', () => {
     expect(within(august).getByText('Matches')).toBeTruthy();
     expect(within(august).queryByRole('button', { name: 'Mark done' })).toBeNull();
     expect(screen.getByText(/statements? still to check/)).toBeTruthy();
+    // The audit (November 2026): it said the bot asks until it's done, which
+    // stopped when statements moved to one question and one reminder.
+    expect(screen.queryByText(/until it's done/)).toBeNull();
   });
 
   it('marks an unchecked statement done by recording it', async () => {

@@ -265,7 +265,9 @@ export default function Investments({ household, members, me, data, loading, rel
                       from time passing (QA-05). */}
                   {holdingHistory.length === 0
                     ? 'No valuation history yet. Refreshing prices records a dated point.'
-                    : `Not enough history yet for ${range}.`}
+                    : valueChange.missing?.length && valueChange.missing.length < rows.length
+                      ? `No ${range} change: ${valueChange.missing.join(', ')} has no value from then.`
+                      : `Not enough history yet for ${range}.`}
                 </div>
               )}
             </div>

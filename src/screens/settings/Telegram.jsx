@@ -14,14 +14,14 @@ const DEFAULTS = {
 };
 
 const SIGNALS = [
-  { key: 'recurring_enabled', label: 'Missed recurring bills', note: "Nudge when a bill's due date passes with nothing logged for it" },
-  { key: 'credit_card_enabled', label: 'Credit card due dates', note: 'Nudge 1-2 days before a card is due, and again if it still shows owing after' },
-  { key: 'cash_cover_enabled', label: 'Cash cover', note: "Weekly warning if liquid balances can't cover what's due in the next 7 days" },
-  { key: 'brief_enabled', label: 'Weekly & month-end brief', note: 'The /brief digest, sent automatically every Monday and after each month closes' },
-  { key: 'unusual_spend_enabled', label: 'Unusual spend', note: "Nudge once when a category runs well past its usual trailing average -- a deliberately high bar to avoid false alarms" },
-  { key: 'balance_checkin_enabled', label: 'Month-end balance check-in', note: 'On the 1st, asks for every account and card balance; reply in one message to set them all' },
-  { key: 'statement_enabled', label: 'Card statements', note: "From the day after a card's statement closes, asks each morning until it's reconciled; reply \"done\" or react 👍" },
-  { key: 'dividends_enabled', label: 'Dividends', note: 'Each morning, asks about dividends paid into a broker fund that day; reply "yes" once they\'re in' },
+  { key: 'recurring_enabled', label: 'Missed recurring bills', note: "When a bill's date passes with nothing recorded for it" },
+  { key: 'credit_card_enabled', label: 'Credit card due dates', note: 'A day or two before a card is due, and again if it still shows owing' },
+  { key: 'cash_cover_enabled', label: 'Cash cover', note: "Once a week, if cash can't cover the next 7 days' bills" },
+  { key: 'brief_enabled', label: 'Weekly & month-end brief', note: 'Every Monday, and when a month ends' },
+  { key: 'unusual_spend_enabled', label: 'Unusual spend', note: 'Once, when a category runs well past its usual' },
+  { key: 'balance_checkin_enabled', label: 'Month-end balance check-in', note: 'On the 1st, with the monthly review; reply with your balances' },
+  { key: 'statement_enabled', label: 'Card statements', note: "Once when it closes, and again 3 days before it's due; reply \"done\"" },
+  { key: 'dividends_enabled', label: 'Dividends', note: 'When dividends are paid into a broker fund; reply "yes" once they\'re in' },
 ];
 
 const STATS_WINDOW_DAYS = 30;
@@ -185,9 +185,7 @@ export default function Telegram({ household, loading }) {
   return (
     <div>
       <p className="ov-muted" style={{ marginTop: 0 }}>
-        Which proactive nudges this household's linked Telegram members get. Budget-threshold alerts (80/90/100% of a
-        category's budget) aren't here -- they're set per category in Money → Budget, since some categories matter and
-        others don't.
+        Reminders that need no answer arrive together, as one morning message. Budget alerts are set per category in Money → Budget.
       </p>
 
       {SIGNALS.map((s) => (

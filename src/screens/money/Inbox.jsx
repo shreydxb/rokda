@@ -471,7 +471,9 @@ function IntakeReview({ item, sender, accounts, members, categories, categoryRul
           <div className="ib-review-head">
             <div className="ov-kicker">What we read</div>
             <div className={lowConfidence ? 'ov-warn' : 'ov-pos'} style={{ fontSize: 11.5 }}>
-              {lowConfidence ? 'Check the flagged rows' : 'Read cleanly'}
+              {/* A reading under the confidence bar with every value found
+                  has no row to point at: it says what it means instead. */}
+              {!lowConfidence ? 'Read cleanly' : fields.some((f) => !f.ok) ? 'Check the flagged rows' : 'Not sure it read this right'}
             </div>
           </div>
           <div className="ib-fields">
