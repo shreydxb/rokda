@@ -17,6 +17,8 @@ describe('Freshness', () => {
     const onRefresh = vi.fn();
     render(<Freshness title="Money" loadedAt={new Date()} refreshing={false} onRefresh={onRefresh} />);
     expect(screen.getByText(/^Loaded \d{2}:\d{2}/)).toBeTruthy();
+    // The shell (November 2026): the screen's name is its title.
+    expect(screen.getByRole('heading', { level: 1, name: 'Money' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
     expect(onRefresh).toHaveBeenCalledOnce();
   });

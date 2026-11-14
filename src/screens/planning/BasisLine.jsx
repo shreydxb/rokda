@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { monthKeyLabel } from '../../lib/forecast';
 import BasisEditor from './BasisEditor';
+import Explain from '../Explain';
 
 // The basis a projection rests on, said in one line wherever one is worked
 // out, with a way to change it (Planning audit, 2.9): the budget or the
@@ -21,6 +22,9 @@ export default function BasisLine({ inputs, householdId, assumptions, onSaved, m
 
   let lead;
   let text;
+  // The figures alone, when the plan rests on them; why and since when sit
+  // behind "How this is worked out" (the shell, November 2026).
+  let short = null;
   if (!inputs.ready) {
     lead = 'No basis yet.';
     text =
@@ -30,6 +34,7 @@ export default function BasisLine({ inputs, householdId, assumptions, onSaved, m
   } else if (inputs.source === 'budget') {
     lead = inputs.why === 'chosen' ? 'Your budget, as you chose.' : 'Your budget, for now.';
     text = `${Figures}, from your spending budget and savings target over ${budgeted}.`;
+    short = `${Figures}.`;
     if (inputs.why !== 'chosen') {
       text += ` ${inputs.basis === 'recorded' ? 'You chose recorded months; they' : 'Recorded months'} take over once three have ended${since} · ${n === 0 ? 'none yet' : `${n} so far`}.`;
     }
@@ -39,13 +44,15 @@ export default function BasisLine({ inputs, householdId, assumptions, onSaved, m
   } else {
     lead = inputs.why === 'chosen' ? 'Recorded months, as you chose.' : 'Recorded months.';
     text = `The average of ${ended}: ${figures}.${inputs.why === 'chosen' ? '' : ' No basis is chosen, so the records took over from your budget once three months had ended.'}`;
+    short = `${Figures}.`;
   }
 
   return (
     <>
       <div className="pl-basis" role="note" aria-label="Planning basis">
         <div>
-          <b>{lead}</b> {text}
+          <b>{lead}</b> {short ?? text}
+          {short && <Explain>{text}</Explain>}
         </div>
         {householdId && (
           <button type="button" className="om-btn" onClick={() => setEditing(true)}>

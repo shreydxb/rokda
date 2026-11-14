@@ -1,0 +1,19 @@
+.explain {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--ink2);
+}
+.explain > summary {
+  cursor: pointer;
+  color: var(--ink3);
+  width: fit-content;
+}
+.explain > summary:hover,
+.explain > summary:focus-visible {
+  color: var(--accent);
+}
+.explain-body {
+  margin-top: 6px;
+  max-width: 80ch;
+  line-height: 1.6;
+}

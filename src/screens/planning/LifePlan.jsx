@@ -21,6 +21,7 @@ import { isDone } from '../../lib/goals';
 import { projectionInputs } from './planningSources';
 import Withheld from './Withheld';
 import './LifePlan.css';
+import Explain from '../Explain';
 
 // Fixed order, so each phase keeps its colour whatever the numbers do.
 const PHASES = [
@@ -651,7 +652,8 @@ export default function LifePlan({
 
       <GoalsOnTimeline goals={openGoals} startYear={startYear} money={money} onChanged={data.reload} onOpenTab={onOpenTab} />
 
-      <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 30, lineHeight: 1.7, maxWidth: '92ch' }}>
+      <div style={{ marginTop: 30 }}>
+      <Explain label="Assumptions">
         {selected.label}: {selected.nominalPct.toFixed(1)}% a year before work stops and {postNominal.toFixed(1)}% after, less {inflationPct.toFixed(1)}%
         inflation. Saving is {money.code} {money.fmtBalance(inputs.monthlySaving)} a month
         {inputs.source === 'budget' ? ', your savings target in the budget' : `, the average of the last ${inputs.monthCount} ended months`}, kept the
@@ -668,6 +670,7 @@ export default function LifePlan({
           ` ${inflows.map((i) => `${i.name} (${i.year})`).join(', ')} ${inflows.length === 1 ? 'is' : 'are'} added in ${inflows.length === 1 ? 'its' : 'their'} year, converted at today's rate${drift ? `: If the rupee weakens, above, shows ${inflows.length === 1 ? 'it' : 'them'} worth less` : ''}.`}{' '}
         No tax is
         taken out.
+      </Explain>
       </div>
 
       {editor}

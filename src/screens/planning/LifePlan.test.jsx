@@ -356,7 +356,10 @@ describe('LifePlan: the budget beside the records', () => {
   // Planning audit, 2.9: the household chooses the basis.
   it('plans on the budget once it is chosen, with nothing beside it', () => {
     renderPlan({ categories, budgets: [budget('food', 2000), budget('save', 8000)], data: { assumptions: { planning_basis: 'budget' } } });
-    expect(screen.getByRole('note', { name: 'Planning basis' }).textContent).toMatch(/^Your budget, as you chose\. Spending AED 2,000 and saving AED 8,000 a month, from your spending budget and savings target/);
+    // The line gives the figures; where they come from is behind "How this is worked out".
+    const note = screen.getByRole('note', { name: 'Planning basis' });
+    expect(note.textContent).toMatch(/^Your budget, as you chose\. Spending AED 2,000 and saving AED 8,000 a month\./);
+    expect(note.querySelector('.explain-body').textContent).toMatch(/from your spending budget and savings target/);
     expect(screen.queryByText(/Your budget beside the records/)).toBeNull();
   });
 

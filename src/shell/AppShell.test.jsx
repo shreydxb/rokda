@@ -42,3 +42,16 @@ describe('AppShell: the scope and currency choices', () => {
     expect(currency.getByRole('button', { name: 'INR' }).getAttribute('aria-pressed')).toBe('false');
   });
 });
+
+// The shell (November 2026): the build id is for checking a deploy, so it is
+// on Settings, not in the sidebar every screen shows.
+describe('AppShell: no technical details', () => {
+  it('shows no build id in the sidebar', () => {
+    renderScreen(
+      <MemoryRouter>
+        <AppShell />
+      </MemoryRouter>,
+    );
+    expect(screen.queryByText(/^build /)).toBeNull();
+  });
+});
