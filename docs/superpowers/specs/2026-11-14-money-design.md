@@ -32,12 +32,12 @@ keeps its job; this pass takes out what repeats and tightens the layout.
 
 ```
 [Search…] [All dates ▾] [Posted|Scheduled|All] [Needs review] [Filters · 1]   [List|Calendar] [+ Add]
-8 records · Net spend AED 7,748 · Income AED 18,000
+{n} records · Net spend AED {x} · Income AED {x}
 
 Date    Merchant                          Category     Account          Amount
-13 Nov  Unknown · needs review            Uncategorised Current account   −95
-12 Nov  Restaurant …                      Dining out   Platinum card    −220
-11 Nov  Spinneys · Alex                   Groceries    Platinum card    −412
+13 Nov  Unknown · needs review            Uncategorised Current account   −{x}
+12 Nov  Restaurant …                      Dining out   Bank card        −{x}
+11 Nov  Supermarket · Partner             Groceries    Bank card        −{x}
 ```
 
 - **Filters fold.** Category, account, type and sort move behind a
@@ -56,16 +56,16 @@ Date    Merchant                          Category     Account          Amount
 [Month|Year]  ‹ Nov 2026 ›                                        [+ Set budget]
 
 Spent of budget   ━━━━━━━━━━━━━|━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-572 of 2,150      27% used                    47% of the month gone
+{x} of {x}        27% used                    47% of the month gone
 ```
 
 - The month switcher sits beside Month | Year.
 - **The pace sentence goes when it only repeats the bar** ("47% of the month
-  gone, 27% of budget spent."). "Already 70 over budget" stays as a warning,
+  gone, 27% of budget spent."). "Already {x} over budget" stays as a warning,
   and a past month still says what it closed at.
 - **"Budgeted subtotal" and "All spending" become one line:**
-  "Budgeted 2,150 · spent 572 · all spending 7,168, of which 6,595 outside
-  the budget (95 uncategorised)".
+  "Budgeted {x} · spent {x} · all spending {x}, of which {x} outside the
+  budget ({x} uncategorised)".
 - **Household share:** when shared costs are split evenly because no salary
   is recorded, one grey line says how to change it: "Add each salary as an
   income reminder to split by income." (deferred from the shell review).
@@ -73,11 +73,11 @@ Spent of budget   ━━━━━━━━━━━━━|━━━━━━━�
 ### Recurring
 
 ```
-+ Add recurring                     Committed each month 6,555 · Variable ~0
++ Add recurring                     Committed each month {x} · Variable ~{x}
 
 Name        Schedule   Next     Whose    Autopay       Status     Amount
-Streaming   Monthly    20 Nov   Alex     Yes           Upcoming      −55
-Rent        Monthly    28 Nov   Shared   No            Upcoming   −6,500
+Streaming   Monthly    20 Nov   Partner  Yes           Upcoming      −{x}
+Rent        Monthly    28 Nov   Shared   No            Upcoming      −{x}
 ```
 
 - **Full width, as a table**, in place of a list held to 820px with the

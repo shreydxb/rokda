@@ -47,10 +47,20 @@ export default function AppShell() {
   // in one menu at the foot of the sidebar (review N10).
   const [accountOpen, setAccountOpen] = useState(false);
   const accountRef = useRef(null);
+  const accountButtonRef = useRef(null);
+  const menuRef = useRef(null);
+  // Focus goes to the menu's first choice as it opens (fresh review of the
+  // revamp's shell); Escape closes it and hands focus back to its button.
+  useEffect(() => {
+    if (accountOpen) menuRef.current?.querySelector('button:not(:disabled)')?.focus();
+  }, [accountOpen]);
   useEffect(() => {
     if (!accountOpen) return undefined;
     const onKey = (e) => {
-      if (e.key === 'Escape') setAccountOpen(false);
+      if (e.key === 'Escape') {
+        setAccountOpen(false);
+        accountButtonRef.current?.focus();
+      }
     };
     const onDown = (e) => {
       if (accountRef.current && !accountRef.current.contains(e.target)) setAccountOpen(false);
@@ -91,7 +101,7 @@ export default function AppShell() {
             type="button"
             className="om-sidetoggle"
             aria-expanded={controlsOpen}
-            aria-controls="om-sidecontrols"
+            aria-controls="om-sidecontrols om-sidefoot"
             onClick={() => setControlsOpen((open) => !open)}
           >
             {scopeLabel} · {currency}
@@ -124,7 +134,12 @@ export default function AppShell() {
               <Link key={item.label} to={item.to} className={`om-nav${isCurrent(item) ? ' active' : ''}`} aria-current={isCurrent(item) ? 'page' : undefined} onClick={() => setControlsOpen(false)}>
                 <Icon name={item.icon} />
                 {item.label}
-                {item.inbox && inboxCount > 0 && <span className="om-nav-count">{inboxCount > 99 ? '99+' : inboxCount}</span>}
+                {item.inbox && inboxCount > 0 && (
+                  <span className="om-nav-count">
+                    {inboxCount > 99 ? '99+' : inboxCount}
+                    <span className="om-sr"> waiting</span>
+                  </span>
+                )}
               </Link>
             ))}
             <Link
@@ -138,9 +153,37 @@ export default function AppShell() {
             </Link>
           </nav>
 
-          <div className="om-sidefoot" ref={accountRef} data-open={controlsOpen}>
+          {/* The menu comes after its button in the page, so Tab moves on into
+              it; CSS places it above. It closes once focus leaves it. */}
+          <div
+            className="om-sidefoot"
+            id="om-sidefoot"
+            ref={accountRef}
+            data-open={controlsOpen}
+            onBlur={(e) => {
+              if (accountOpen && !accountRef.current?.contains(e.relatedTarget)) setAccountOpen(false);
+            }}
+          >
+            <button
+              type="button"
+              ref={accountButtonRef}
+              className="om-acct"
+              aria-label={`Account: ${name}${household?.name ? `, ${household.name}` : ''}`}
+              aria-expanded={accountOpen}
+              aria-haspopup="dialog"
+              onClick={() => setAccountOpen((open) => !open)}
+            >
+              <span className="om-avatar" aria-hidden="true">
+                {name.slice(0, 1).toUpperCase()}
+              </span>
+              <span className="om-acct-text">
+                <span className="om-acct-name">{name}</span>
+                <span className="om-acct-sub">{household?.name}</span>
+              </span>
+              <Icon name="down" />
+            </button>
             {accountOpen && (
-              <div className="om-menu" role="dialog" aria-label="Account">
+              <div className="om-menu" role="dialog" aria-label="Account" ref={menuRef}>
                 <div className="om-menu-label">Display currency</div>
                 <div className="om-segment om-scope-list" role="group" aria-label="Display currency">
                   {CURRENCIES.map((c) => {
@@ -179,16 +222,6 @@ export default function AppShell() {
                 </button>
               </div>
             )}
-            <button type="button" className="om-acct" aria-expanded={accountOpen} aria-haspopup="dialog" onClick={() => setAccountOpen((open) => !open)}>
-              <span className="om-avatar" aria-hidden="true">
-                {name.slice(0, 1).toUpperCase()}
-              </span>
-              <span className="om-acct-text">
-                <span className="om-acct-name">{name}</span>
-                <span className="om-acct-sub">{household?.name}</span>
-              </span>
-              <Icon name="down" />
-            </button>
           </div>
         </aside>
 

@@ -131,7 +131,8 @@ a.ov-link {
   border-bottom: 1px solid var(--rule);
 }
 .ov-hero {
-  font-weight: 300;
+  /* Geist's figure weight (the revamp); it loads 400 to 600 only. */
+  font-weight: 600;
   font-size: 46px;
   line-height: 1.1;
   margin-top: 8px;

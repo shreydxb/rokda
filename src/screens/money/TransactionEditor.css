@@ -163,9 +163,9 @@
 .te-hero-input {
   flex: 1;
   min-width: 0;
-  font-family: var(--fig);
+  font-family: var(--font-fig);
   font-size: 36px;
-  font-weight: 300;
+  font-weight: 600;
   line-height: 1;
   background: none;
   border: none;

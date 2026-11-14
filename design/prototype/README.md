@@ -1,6 +1,6 @@
 # Rokda prototype
 
-A clickable mock of the recommendations in `review.md`, designed fresh. It is not the app: there is no login, no database and no bot. Everything on screen comes from `data.js`, and nothing is saved when the page is closed.
+A clickable mock of the recommendations of an independent UI/UX review (kept privately; see `design/README.md`), designed fresh. It is not the app: there is no login, no database and no bot. Everything on screen comes from `data.js`, and nothing is saved when the page is closed.
 
 ## Open it
 

@@ -128,13 +128,64 @@ describe('AppShell: the account menu', () => {
     expect(signOut).toHaveBeenCalledOnce();
   });
 
-  it('closes on Escape', () => {
+  it('closes on Escape and gives focus back to the account button', () => {
     shell();
     openAccount();
     act(() => {
       fireEvent.keyDown(document, { key: 'Escape' });
     });
     expect(screen.queryByRole('group', { name: 'Display currency' })).toBeNull();
-    expect(screen.getByRole('button', { name: /Partner A/ }).getAttribute('aria-expanded')).toBe('false');
+    const button = screen.getByRole('button', { name: /Partner A/ });
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+    expect(document.activeElement).toBe(button);
+  });
+
+  // The fresh review of the revamp's shell: the menu came before its button in
+  // the page, so Tab from the button left it behind, and focus never entered.
+  it('takes focus to its first choice when it opens, and comes after the button in tab order', () => {
+    shell();
+    openAccount();
+    const currency = within(screen.getByRole('group', { name: 'Display currency' }));
+    expect(document.activeElement).toBe(currency.getByRole('button', { name: 'AED' }));
+    const button = screen.getByRole('button', { name: /Partner A/ });
+    const menu = screen.getByRole('dialog', { name: 'Account' });
+    expect(button.compareDocumentPosition(menu) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('closes when focus leaves it, and on a click outside', () => {
+    shell();
+    openAccount();
+    act(() => {
+      screen.getByRole('link', { name: 'Wealth' }).focus();
+    });
+    expect(screen.queryByRole('dialog', { name: 'Account' })).toBeNull();
+    openAccount();
+    fireEvent.mouseDown(screen.getByRole('link', { name: 'Overview' }));
+    expect(screen.queryByRole('dialog', { name: 'Account' })).toBeNull();
+  });
+});
+
+describe('AppShell: the current item', () => {
+  const current = () => screen.getAllByRole('link').filter((l) => l.getAttribute('aria-current') === 'page').map((l) => l.textContent);
+  it('is Overview at the root, and only there', () => {
+    shell('/');
+    expect(current()).toEqual(['Overview']);
+  });
+  it('follows a screen whatever its tab', () => {
+    shell('/wealth?tab=investments');
+    expect(current()).toEqual(['Wealth']);
+  });
+  it('marks Settings', () => {
+    shell('/settings?tab=telegram');
+    expect(current()).toEqual(['Settings']);
+  });
+  it('does not take a longer path that only starts the same', () => {
+    shell('/moneyx');
+    expect(current()).toEqual([]);
+  });
+  it('says past 99 that more wait', () => {
+    inboxCount = 120;
+    shell();
+    expect(within(screen.getByRole('link', { name: /Inbox/ })).getByText('99+')).toBeTruthy();
   });
 });

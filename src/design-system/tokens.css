@@ -50,17 +50,21 @@
   --warn-mark: #e0a54a;
   --shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
 
-  /* today's names, on the new values */
+  /* today's names, on the new values. --raise stays a see-through tint, as
+     it was: hover fills and the chart's active band sit on top of other
+     fills and gridlines, which an opaque colour would hide. */
   --canvas: var(--ground);
-  --raise: var(--raised);
+  --raise: color-mix(in oklab, var(--ink) 4%, transparent);
   --rule2: var(--control);
   --neutralbar: var(--context);
 
-  /* chart series, in fixed order: the screen's own series in the accent,
-     context in the neutral (review P21). */
-  --series-1: var(--context);
-  --series-2: var(--accent);
-  --series-3: var(--pos);
+  /* chart series, in fixed order: the screen's own series in the accent, a
+     second in the lighter iris, and a third in the neutral grey (review
+     P21). Each stands at 3:1 or more on the page (tokens.test.js); green
+     stays for status. */
+  --series-1: var(--c1);
+  --series-2: var(--c2);
+  --series-3: var(--ink3);
 
   /* radius: the prototype's soft corners */
   --radius: 10px;
@@ -86,7 +90,7 @@
   --control: #cbc8c1;
   --ink: #161616;
   --ink2: #5a5955;
-  --ink3: #6e6d68;
+  --ink3: #6b6a65;
   --accent: #4a53d1;
   --accent-hover: #3d45b8;
   --accent-ink: #ffffff;

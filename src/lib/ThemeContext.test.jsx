@@ -46,4 +46,20 @@ describe('ThemeProvider', () => {
     render(<ThemeProvider><Probe /></ThemeProvider>);
     expect(screen.getByTestId('theme').textContent).toBe('light');
   });
+
+  // The fresh review of the revamp's shell: the theme was saved on every load,
+  // so a first visit's device setting was frozen as if it had been chosen.
+  it('saves nothing until a choice is made', () => {
+    prefers(false);
+    render(<ThemeProvider><Probe /></ThemeProvider>);
+    expect(localStorage.getItem('rokda:theme')).toBeNull();
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+  });
+
+  it('keeps a choice saved before the revamp', () => {
+    prefers(false);
+    localStorage.setItem('rokda:theme', 'dark');
+    render(<ThemeProvider><Probe /></ThemeProvider>);
+    expect(screen.getByTestId('theme').textContent).toBe('dark');
+  });
 });
