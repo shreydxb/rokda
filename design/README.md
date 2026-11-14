@@ -16,6 +16,9 @@ layout and interaction, not its numbers. The review itself is kept privately
   error and status the app has stays, even where the prototype's sample data
   never shows it.
 - `prototype/README.md` lists what to try and the states it shows.
+- The app's own version of the prototype's components is the shared kit,
+  `src/design-system/kit.jsx`; its gallery opens at `/kit` in development
+  (or a build made with `VITE_KIT=1`).
 
 `archive/` holds "Our Money - Command Center v3", the reference before the
 revamp, kept for its history.
