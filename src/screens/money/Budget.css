@@ -71,8 +71,6 @@
   margin-top: 8px;
   border-bottom: 1px solid var(--rule2);
   font-size: 10px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
   color: var(--ink3);
 }
 
@@ -193,8 +191,6 @@
   color: var(--ink3);
   font-weight: 400;
   font-size: 10.5px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
 }
 
 .bud-planned {
@@ -313,8 +309,6 @@
 
 .bud-share-headrow {
   font-size: 10.5px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
   color: var(--ink3);
 }
 

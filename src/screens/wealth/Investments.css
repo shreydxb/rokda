@@ -182,8 +182,6 @@
   color: var(--ink3);
   font-weight: 400;
   font-size: 10.5px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
 }
 
 /* The holding's name, the button that opens it from the keyboard: it reads

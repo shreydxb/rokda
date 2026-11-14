@@ -172,8 +172,6 @@
 .dd-label {
   min-width: 190px;
   font-size: 11.5px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
   color: var(--ink3);
 }
 

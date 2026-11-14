@@ -27,7 +27,7 @@
   position: sticky;
   top: 0;
   align-self: flex-start;
-  max-height: 100vh;
+  height: 100vh;
   overflow-y: auto;
 }
 
@@ -98,13 +98,10 @@
   padding: 0 20px;
   border-top: 1px solid var(--rule);
   padding-top: 16px;
-  margin-top: auto;
 }
 
 .om-scopelabel {
-  font-size: 10.5px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-size: 12px;
   color: var(--ink3);
   margin-bottom: 8px;
 }
@@ -156,6 +153,9 @@
 
 .om-sidefoot {
   padding: 0 20px;
+  /* The theme, the account and sign-out sit at the foot of the full-height
+     sidebar; the household and currency switches stay under the menu. */
+  margin-top: auto;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -211,6 +211,7 @@
   }
   .om-side {
     width: 100%;
+    height: auto;
     flex-direction: row;
     flex-wrap: wrap;
     align-items: center;
@@ -280,6 +281,7 @@
   }
   .om-sidefoot {
     padding: 0;
+    margin-top: 0;
     flex-direction: row;
     flex-wrap: wrap;
     align-items: center;
@@ -307,4 +309,10 @@
   color: var(--ink3);
   opacity: 0.75;
   cursor: default;
+}
+
+/* The build id is for checking a deploy, not for every day: it is on
+   Settings, and here only as the brand's tooltip. */
+.om-buildid {
+  display: none;
 }

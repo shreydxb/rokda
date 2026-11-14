@@ -16,10 +16,23 @@
   padding: 0;
   font: inherit;
   color: var(--ink2);
-  text-decoration: underline;
   cursor: pointer;
 }
 .fresh-btn:disabled {
   cursor: default;
   opacity: 0.6;
+}
+.fresh-title {
+  font-family: var(--font-fig);
+  font-size: 26px;
+  font-weight: 400;
+  margin: 0;
+  color: var(--ink);
+}
+.fresh-when {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
 }

@@ -4,10 +4,9 @@
 }
 
 .ov-kicker {
-  font-size: 11.5px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--ink3);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink2);
 }
 
 /* Caveats and sublines: what qualifies a figure has to be readable. --ink3
@@ -97,8 +96,6 @@ a.ov-link {
 .ov-empty-kicker {
   font-family: var(--font-mono);
   font-size: 10px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
   color: var(--ink3);
 }
 .ov-empty-body {
