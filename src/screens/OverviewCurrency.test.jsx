@@ -72,17 +72,25 @@ describe('Overview display currency', () => {
     expect(period).toMatch(/USD/);
     expect(period).toMatch(/3\.6725/);
     expect(container.querySelector('.ov-chart-readout').textContent).toMatch(/Income 5,000/);
-    // The change against last month is in the display currency too.
-    expect(container.querySelector('.ov-kpi-change').textContent).toMatch(/▲ 5,000 vs the same days last month/);
+    // Nothing last month: the figure is new, said in grey, not a coloured rise
+    // (the Overview redesign, November 2026).
+    expect(container.querySelector('.ov-kpi-change').textContent).toBe('new');
   });
 });
 
 describe('Overview layout', () => {
-  it('puts the month and what needs doing before net worth, and folds data quality into one line', async () => {
+  // The Overview redesign (November 2026): what needs a decision first, net
+  // worth among the figures, data quality as one line under the title.
+  it('puts what needs doing beside the next 30 days, net worth among the figures, and data quality up top', async () => {
     const { container } = await renderOverview();
     const order = [...container.querySelectorAll('section')].map((s) => s.className.split(' ')[0]);
-    expect(order.indexOf('ov-period-section')).toBeLessThan(order.indexOf('ov-hero-section'));
-    expect(order.indexOf('ov-split')).toBeLessThan(order.indexOf('ov-hero-section'));
+    expect(order.indexOf('ov-quality-section')).toBeLessThan(order.indexOf('ov-period-section'));
+    expect(order.indexOf('ov-period-section')).toBeLessThan(order.indexOf('ov-split'));
+    expect(order).not.toContain('ov-hero-section');
+    const split = container.querySelector('.ov-split');
+    expect(split.querySelector('.ov-attn-col')).toBeTruthy();
+    expect(split.querySelector('.ov-next30')).toBeTruthy();
+    expect(kpis(container)['Net worth']).toMatch(/36,725/);
     const quality = container.querySelector('.ov-quality-details');
     expect(quality.open).toBe(false);
     expect(quality.querySelector('summary').textContent).toMatch(/Data quality/);

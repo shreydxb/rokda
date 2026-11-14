@@ -3770,3 +3770,16 @@ The shared pieces now do this for every screen at once:
   Household's currency and members notes, the planning basis line, the Life
   plan's assumptions); each screen's own PR trims the rest.
 
+## Overview: the decisions first
+
+The revamp audit found Overview's title ("3 things need a decision") above
+a chart, with the decisions beside it, net worth below the first screen and
+the next 30 days as two half-empty boxes. Now, under the title and its data
+quality line: the period's figures with net worth as the fifth, then Needs
+attention beside the next 30 days (one row a bill), then the chart at half
+its height (months with no records in a thin slot) beside categories, then
+recent records and accounts. A figure against nothing says "new" in grey
+instead of a coloured rise. Assets, liabilities and the 12-month change
+moved off Overview to Wealth → Net worth, a link away; the runway stays as
+net worth's one line of help. No figure is worked out differently.
+

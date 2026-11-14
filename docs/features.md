@@ -35,15 +35,16 @@ here, because this repository is public.
 
 ## Overview (`/`)
 
-- In order: the period's income, net spend, income less spending and savings
-  rate, each against the same days of the period before (Income also says
-  which expected pay is still to come this period, and how much); the cash-flow chart
-  (titled by its grouping, with its scale, the running period marked "so
-  far", and periods with no records saying so) beside Needs attention (on a
-  phone, Needs attention comes first, above the chart); the
-  next 30 days; net worth and cash position; data quality as one line that
-  opens; then categories, the five newest records (with a link to the rest
-  in Activity) and accounts.
+- In order: data quality as one line under the title, which opens; the
+  period's income, net spend, income less spending, savings rate and net
+  worth, each against the same days of the period before ("new" in grey
+  when there was nothing then; Income also says which expected pay is still
+  to come; net worth has its change this month, its runway and any
+  provisional or incomplete warning); Needs attention beside the next 30
+  days, one row a bill; the cash-flow chart (titled by its grouping, with its
+  scale, the running period marked "so far", and periods with no records in
+  a thin slot saying so) beside categories; then the five newest records
+  (with a link to the rest in Activity) and accounts.
 - The Both / Me / Partner scope in the sidebar applies throughout (shared rows
   split evenly between the two individual scopes).
 - Needs attention: bills and expected income not yet matched, card payments

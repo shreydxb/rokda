@@ -15,8 +15,7 @@ export default function OverviewQuality({ qualityIssues, qualityOk, quality, acc
           <span className="ov-kicker">Data quality</span>{' '}
           <span className={qualityIssues > 0 ? 'ov-warn' : 'ov-muted'}>
             {qualityIssues === 0 ? 'All four checks fine' : `${qualityIssues} of 4 checks need a look`}
-          </span>{' '}
-          <span className="ov-muted">· what every figure on this page rests on</span>
+          </span>
         </summary>
       <div className="ov-quality-grid">
         <QualityItem
