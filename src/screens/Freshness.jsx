@@ -1,4 +1,5 @@
 import { loadedLabel } from '../lib/freshness';
+import Icon from '../design-system/Icon';
 import './Freshness.css';
 
 // When this page last read the household's records, and a way to read them
@@ -8,19 +9,20 @@ import './Freshness.css';
 // comes back into view and every few minutes (lib/useSources.js).
 export default function Freshness({ title, loadedAt, refreshing, onRefresh }) {
   const label = refreshing ? 'Refreshing…' : loadedLabel(loadedAt);
+  // The revamp (design/prototype): the button is a refresh icon with the time
+  // it last read beside it; the full "Loaded 14 Nov, 14:32" is its hover.
+  const time = loadedAt ? loadedAt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : null;
   return (
     <div className="fresh-row">
       {title ? <h1 className="fresh-title">{title}</h1> : <span />}
-      {/* When it was read stays said (and shown on hover), not printed:
-          the page reads itself again every few minutes. */}
       <span className="fresh" aria-live="polite">
-        {/* "Refreshing…" is a status and shows; "Loaded 14:32" is kept to
-            the hover and to screen readers. */}
-        <span className={refreshing ? undefined : 'fresh-when'}>{label}</span>
-        {refreshing && ' '}
+        {/* "Refreshing…" is a status and shows; "Loaded 14:32" is said to
+            screen readers, and shown as the button's time. */}
+        <span className={refreshing ? 'fresh-status' : 'fresh-when'}>{label}</span>
         {onRefresh && (
-          <button type="button" className="fresh-btn" onClick={onRefresh} disabled={refreshing} title={label || undefined}>
-            Refresh
+          <button type="button" className="fresh-btn" data-spin={refreshing || undefined} onClick={onRefresh} disabled={refreshing} title={label || undefined} aria-label="Refresh">
+            <Icon name="refresh" />
+            {time && <span aria-hidden="true">{time}</span>}
           </button>
         )}
       </span>

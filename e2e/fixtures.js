@@ -304,19 +304,24 @@ export async function stubSupabase(page, { empty = false, tables = {}, failReads
   });
 }
 
-// Picks a household scope or display currency in the shell. On a phone those
-// switches are folded behind the "Both · AED" button, so it is opened first.
-// Which layout the page has is only known once the shell has rendered, so it
-// waits for the fold button or the switch to show before deciding: asking
-// straight away, a slow page had neither yet, the fold was never opened and
-// the click waited for a switch that stayed hidden.
+// Picks a household scope, display currency or theme in the shell. On a
+// phone the scope and the account fold behind the "Both · AED" button, so it
+// is opened first; the display currency and the theme sit in the account menu
+// at the foot of the sidebar (the revamp), so that is opened next. Which
+// layout the page has is only known once the shell has rendered, so it waits
+// for the fold button or the account button to show before deciding.
 export async function pickInShell(page, group, name) {
   const folded = page.locator('.om-sidetoggle');
+  const account = page.locator('.om-acct');
   const target = page.getByRole('group', { name: group }).getByRole('button', { name, exact: true });
-  await expect.poll(async () => (await folded.isVisible()) || (await target.isVisible())).toBe(true);
+  await expect.poll(async () => (await folded.isVisible()) || (await account.isVisible())).toBe(true);
   if ((await folded.isVisible()) && (await folded.getAttribute('aria-expanded')) !== 'true') {
     await folded.click();
     await expect(folded).toHaveAttribute('aria-expanded', 'true');
+  }
+  if (!(await target.isVisible()) && (await account.getAttribute('aria-expanded')) !== 'true') {
+    await account.click();
+    await expect(account).toHaveAttribute('aria-expanded', 'true');
   }
   await target.click();
 }

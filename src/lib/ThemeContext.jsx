@@ -6,7 +6,9 @@ const THEME_KEY = 'rokda:theme';
 function getInitialTheme() {
   const stored = localStorage.getItem(THEME_KEY);
   if (stored === 'light' || stored === 'dark') return stored;
-  return 'dark'; // design's starting theme is dark (warm near-black canvas)
+  // The revamp (November 2026): a first visit follows the device's setting;
+  // the choice made in the app is stored and wins from then on.
+  return window.matchMedia?.('(prefers-color-scheme: dark)')?.matches ? 'dark' : 'light';
 }
 
 export function ThemeProvider({ children }) {

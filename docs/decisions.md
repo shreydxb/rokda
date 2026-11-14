@@ -3783,3 +3783,32 @@ instead of a coloured rise. Assets, liabilities and the 12-month change
 moved off Overview to Wealth → Net worth, a link away; the runway stays as
 net worth's one line of help. No figure is worked out differently.
 
+
+## The revamp: the look and the shell
+
+- **An independent review set the plan.** The household asked for a fresh
+  view of the whole app. A separate review of every screen and the bot,
+  with a clickable prototype built from it, was adopted as the plan for the
+  rest of the revamp (SHR-385); `design/prototype/` replaces "Command Center
+  v3" as the reference for the look. The review is kept privately, because
+  it carries the household's own notes.
+- **Graphite and iris, with Geist.** Three looks were compared on the real
+  Overview: graphite and iris with Geist, the same palette with the old
+  fonts, and the old look. The first was chosen. The old gold accent and
+  amber warnings were almost the same hue, so data, buttons and warnings
+  read as one colour; iris has no money meaning, which leaves green, red and
+  amber to mean status only. Today's token names point at the new values,
+  so screens not yet rebuilt take the new look at once.
+- **Light or dark follows the device on a first visit**, then the choice
+  made in the app.
+- **The Inbox is in the sidebar, with its count**, because it is the queue
+  worked every day. It opens Money's Inbox tab until it has a page of its
+  own; the Money screen announces the count when an item is approved, so the
+  sidebar follows without asking again.
+- **Display currency, light or dark and sign-out are in one account menu**
+  at the foot of the sidebar: they are changed rarely, and the household
+  switch, used often, stays at the top as "Showing".
+- **The refresh button shows the time it last read**, as an icon and a
+  time, with the full "Loaded …" as its hover and for screen readers.
+- **On a phone** the menu is one line of words that scrolls sideways, and
+  the household switch and the account fold behind one button, as before.

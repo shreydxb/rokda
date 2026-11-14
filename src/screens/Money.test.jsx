@@ -12,10 +12,10 @@ vi.mock('../lib/useHousehold', () => ({
 vi.mock('./money/Review', () => ({ default: () => <div>Review</div> }));
 vi.mock('./money/Activity', () => ({ default: () => <div>Activity</div> }));
 
-const overview = { reload: vi.fn(async () => {}) };
+const overview = { reload: vi.fn(async () => {}), intake: [] };
 const planning = { reload: vi.fn(async () => {}) };
 vi.mock('./useOverviewData', () => ({
-  useOverviewData: () => ({ loading: false, refreshing: false, errors: {}, loaded: {}, loadedAt: new Date(), intake: [], accounts: [], categories: [], reload: overview.reload }),
+  useOverviewData: () => ({ loading: false, refreshing: false, errors: {}, loaded: {}, loadedAt: new Date(), intake: overview.intake, accounts: [], categories: [], reload: overview.reload }),
 }));
 vi.mock('./usePlanningData', () => ({
   usePlanningData: () => ({ loading: false, refreshing: false, errors: { goals: 'network' }, loaded: {}, reload: planning.reload }),
@@ -61,5 +61,26 @@ describe('Money -> Review: reading again', () => {
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Refresh' })));
     expect(overview.reload).toHaveBeenCalled();
     expect(planning.reload).not.toHaveBeenCalled();
+  });
+});
+
+// The revamp (review N1): the sidebar shows the Inbox's count. Money already
+// has the Inbox's items, so it says how many wait whenever that changes, and
+// the sidebar follows at once after an approval.
+describe('Money: the Inbox count for the sidebar', () => {
+  it('announces how many items wait', async () => {
+    const { INBOX_COUNT_EVENT } = await import('../shell/useInboxCount');
+    overview.intake = [{ id: 'a', status: 'pending' }, { id: 'b', status: 'approved' }, { id: 'c', status: 'pending' }];
+    const seen = [];
+    const listen = (e) => seen.push(e.detail);
+    window.addEventListener(INBOX_COUNT_EVENT, listen);
+    renderScreen(
+      <MemoryRouter initialEntries={['/money']}>
+        <Money />
+      </MemoryRouter>,
+    );
+    window.removeEventListener(INBOX_COUNT_EVENT, listen);
+    overview.intake = [];
+    expect(seen.at(-1)).toBe(2);
   });
 });

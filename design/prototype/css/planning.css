@@ -1,0 +1,45 @@
+/* Planning screens only. */
+.band-h { font-size: 15px; line-height: 20px; font-weight: 600; letter-spacing: -0.01em; margin: 10px 0 -4px; }
+.unit { font-size: 13px; font-weight: 400; color: var(--ink3); letter-spacing: 0; }
+
+/* Plan: basis and assumptions on one line */
+.plan-strip { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 20px; padding: 9px 18px; font-size: 13px; }
+.plan-strip .row { gap: 8px; }
+.plan-stop-grid { display: grid; grid-template-columns: 320px minmax(0, 1fr); }
+.plan-stop-l { padding: 18px; border-right: 1px solid var(--rule); display: flex; flex-direction: column; gap: 16px; }
+.plan-stop-l .hero-fig { margin-top: 2px; }
+.plan-stop-r { min-width: 0; }
+.chips-v { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.plan-figs { display: grid; grid-template-columns: 1fr auto; gap: 8px 12px; margin: 0; padding-top: 14px; border-top: 1px solid var(--rule-soft); font-size: 13px; }
+.plan-figs dt { color: var(--ink3); display: flex; align-items: center; gap: 6px; }
+.plan-figs dd { margin: 0; font-weight: 500; font-variant-numeric: tabular-nums; text-align: right; }
+.stop-row { border-top: 1px solid var(--rule-soft); padding-top: 14px; margin-top: auto; }
+.card-r .sw { margin-right: 5px; }
+/* The (i) button inside a table header keeps its ring (the header's plain-button rule would strip it). */
+.tbl th .info { border: 1px solid var(--control); display: inline-grid; padding: 0; vertical-align: -3px; }
+.tbl th .info:hover { border-color: var(--accent); color: var(--accent); }
+
+/* plan drawer: sections as folds */
+.plan-form { display: flex; flex-direction: column; }
+.plan-form details.fold > summary { padding: 11px 0; font-weight: 500; color: var(--ink); }
+.plan-form details.fold:first-child > summary { border-top: 0; padding-top: 0; }
+.plan-form .fold-b { display: flex; flex-direction: column; gap: 12px; padding: 2px 0 16px; }
+
+/* Goals & debts */
+.fold-card details.fold > summary { border-top: 0; }
+.extra-row { border-top: 1px solid var(--rule); gap: 10px; min-height: 52px; font-size: 13.5px; flex-wrap: wrap; }
+.extra-row b { font-weight: 600; }
+.goal-tabs { margin: -18px -22px 0; }
+.goal-pane { display: flex; flex-direction: column; gap: 14px; }
+.goal-pane[hidden] { display: none; }
+.goal-pane .row > .field { flex: 1; }
+.goal-list { margin: 0 -22px; border-top: 1px solid var(--rule-soft); }
+.goal-list .rw { padding: 6px 22px; }
+
+/* Notes */
+.note-t { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
+.note-body { font-size: 14px; line-height: 22px; max-width: 640px; }
+.note-body p { margin: 0 0 10px; }
+.note-body ul { margin: 0 0 10px; padding-left: 18px; }
+.note-body .note-h { font-weight: 600; margin-bottom: 4px; }
+.warnrow.note-ok { background: var(--raised); color: var(--ink3); }

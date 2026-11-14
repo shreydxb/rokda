@@ -1,0 +1,71 @@
+/* Money screens only: Activity, Budget, Recurring, Month end. */
+
+/* ---------- shared bits ---------- */
+.of { font-size: 14px; font-weight: 400; color: var(--ink3); letter-spacing: 0; }
+.hero-fig .of { font-size: 16px; }
+.caret { width: 6px; height: 6px; border-right: 1.5px solid var(--ink3); border-bottom: 1.5px solid var(--ink3); transform: rotate(-45deg); transition: transform 0.12s; flex: none; margin: 0 4px 0 2px; }
+.caret.on { transform: rotate(45deg); }
+.inp.lim { width: 92px; text-align: right; font-variant-numeric: tabular-nums; }
+.lim-t { padding-right: 11px; }
+.card-r b.sum { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; margin-left: 4px; }
+.card-r { gap: 14px; }
+details.fold.first > summary { border-top: 0; }
+input.tick { width: 15px; height: 15px; accent-color: var(--accent); margin: 0; vertical-align: middle; cursor: pointer; }
+
+/* ---------- Activity ---------- */
+.filters { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.filters .search .inp { width: 280px; }
+.filters .sel { max-width: 210px; }
+.filters .btn .chip { height: 16px; padding: 0 5px; }
+.act-m { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.act-m .name { min-width: 0; line-height: 18px; }
+.pop-f { display: flex; flex-direction: column; width: 244px; }
+.pop-f .m-l { padding: 8px 0 5px; }
+.pop-f .m-l:first-child { padding-top: 0; }
+.pop-f .sel { width: 100%; }
+
+.cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.cal-h { margin-bottom: 6px; font-size: 12px; color: var(--ink3); }
+.cal-h div { padding: 0 8px; }
+.cal-c { height: 78px; border: 1px solid var(--rule); border-radius: 8px; background: var(--surface); padding: 7px 9px; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; text-align: left; }
+.cal-c.off { border-color: transparent; background: transparent; }
+button.cal-c:hover { background: var(--raised); }
+.cal-c.none { background: var(--ground); }
+.cal-c.none .cal-d { color: var(--ink3); }
+.cal-c.today { border-color: var(--ink); }
+.cal-c.today .cal-d { font-weight: 600; }
+.cal-c.sel { background: var(--active); box-shadow: inset 0 0 0 1px var(--ink); }
+.cal-d { font: 400 12px var(--mono); color: var(--ink2); margin-bottom: auto; }
+.cal-v { font-size: 12.5px; font-variant-numeric: tabular-nums; line-height: 16px; }
+
+/* ---------- Budget ---------- */
+.bud-hero { display: flex; align-items: center; gap: 40px; padding: 18px 22px 20px; }
+.tbl tr.bud-exp td { padding: 0; height: auto; background: var(--ground); }
+.tbl tr.bud-exp .rw { padding-left: 44px; min-height: 36px; font-size: 13px; }
+.tbl tr.open td { border-bottom-color: transparent; }
+.tbl.yr { font-size: 12.5px; }
+.tbl.yr th, .tbl.yr td { padding-left: 6px; padding-right: 6px; }
+.tbl.yr th:first-child, .tbl.yr td:first-child { padding-left: 18px; width: 150px; }
+.tbl.yr th:last-child, .tbl.yr td:last-child { padding-right: 18px; }
+.tbl.yr td.cur { background: var(--accent-soft); }
+.tbl.yr tr.group td { height: 30px; }
+
+/* ---------- Month end ---------- */
+.me-head { display: flex; align-items: center; gap: 16px; padding: 2px 2px 0; }
+.steps-bar { display: flex; gap: 4px; width: 132px; }
+.steps-bar i { flex: 1; height: 4px; border-radius: 2px; background: var(--control); }
+.steps-bar i.on { background: var(--pos); }
+.step-h { display: flex; align-items: center; gap: 12px; padding: 13px 18px; cursor: pointer; min-height: 52px; }
+.step-h:hover .step-t { color: var(--accent); }
+.step-n { width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--control); display: grid; place-items: center; font-size: 12px; font-weight: 600; color: var(--ink2); flex: none; }
+.step-n svg { width: 13px; height: 13px; }
+.step-n.done { background: var(--pos-soft); border-color: transparent; color: var(--pos); }
+.step-n.cur { background: var(--ink); border-color: var(--ink); color: var(--ground); }
+.step-t { font-size: 14px; font-weight: 600; }
+.step-b { border-top: 1px solid var(--rule); }
+.step-b .kpis { border-bottom: 1px solid var(--rule-soft); }
+.me-sub { border-top: 1px solid var(--rule-soft); padding-top: 12px; }
+.me-clear { display: flex; flex-wrap: wrap; gap: 8px 20px; padding: 0 18px 14px 34px; font-size: 13px; color: var(--ink2); }
+.me-clear span { display: inline-flex; align-items: center; gap: 6px; }
+.me-clear svg { width: 13px; height: 13px; color: var(--pos); }
+.me-close { padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 14px; }

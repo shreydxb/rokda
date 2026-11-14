@@ -20,6 +20,9 @@ describe('Freshness', () => {
     expect(screen.getByRole('button', { name: 'Refresh' }).title).toMatch(/^Loaded \d{2}:\d{2}/);
     // The shell (November 2026): the screen's name is its title.
     expect(screen.getByRole('heading', { level: 1, name: 'Money' })).toBeTruthy();
+    // The revamp: the refresh button shows the time it last read, as the
+    // prototype's header does.
+    expect(screen.getByRole('button', { name: 'Refresh' }).textContent).toMatch(/^\d{2}:\d{2}$/);
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
     expect(onRefresh).toHaveBeenCalledOnce();
   });

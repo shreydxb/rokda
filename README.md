@@ -2,7 +2,7 @@
 
 A private household finance app — net worth, cash flow, budgets, investments, and planning in one place. Built with Vite + React + Supabase.
 
-Implements the "Our Money — Command Center v3" design (Direction A · Private Ledger), in `design/`. Independent from any prior project; started from scratch.
+Its look follows the clickable prototype in `design/prototype/` (the revamp, November 2026). Independent from any prior project; started from scratch.
 
 ## Stack
 
@@ -39,8 +39,9 @@ npm run verify:migrations  # build a throwaway database from the migrations (nee
 CI (`.github/workflows/ci.yml`) runs a locked install, lint, tests and build for
 every pull request and every push to `main`.
 
-`design/` holds the exported Claude Design runtime. It is generated output: it is
-excluded from lint and must never be hand-edited to satisfy a rule.
+`design/` holds the design reference: the prototype and the archived earlier
+mock. It is reference material: it is excluded from lint and is not edited to
+satisfy a rule.
 
 ## Build identity
 

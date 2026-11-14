@@ -1,0 +1,10 @@
+/* Overview and Inbox only. */
+.rw.sel { background: var(--active); box-shadow: inset 2px 0 0 var(--ink); }
+.tag { font: 500 10.5px var(--mono); color: var(--ink3); border: 1px solid var(--rule); border-radius: 4px; padding: 2px 5px; flex: none; text-transform: lowercase; }
+.quote { padding: 14px 16px; background: var(--raised); border-radius: 8px; font-size: 13.5px; line-height: 20px; color: var(--ink); min-height: 96px; }
+.quote.photo { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--ink3); min-height: 150px; }
+.quote.photo svg { width: 28px; height: 28px; }
+.kv .sel, .kv .inp { width: 100%; }
+.kpi.click:hover { background: var(--raised); }
+.kpi.click:first-child { border-radius: 0 0 0 var(--radius); }
+.kpi.click:last-child { border-radius: 0 0 var(--radius) 0; }

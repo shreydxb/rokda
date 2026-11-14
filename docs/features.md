@@ -8,15 +8,22 @@ here, because this repository is public.
 
 ## Every page
 
+- The look follows `design/prototype/`: graphite and iris, in dark or light
+  (a first visit follows the device; the choice is remembered), with Geist.
+- The sidebar: "Showing: Both / Me / Partner" at the top, which applies
+  throughout; Overview, Inbox (with how many wait), Money, Wealth, Planning
+  and Settings; and the account at the foot, whose menu holds the display
+  currency, light or dark, and sign-out.
 - Each screen opens with its name as a title, and labels are in sentence
-  case. "Refresh" at the top reads the page again; when it last read the
-  household's records shows on hover ("Loaded 14:32"). Pages read again when the tab comes back into view
-  (if more than a minute old), every five minutes while in view, and on
-  Refresh, without closing an open editor.
-- On a phone the top bar holds the nav and one button showing the household
-  scope and display currency ("Both · AED ▾"); it opens those switches, light
-  mode and sign-out. The build this is shows under Settings → Household →
-  About.
+  case. The refresh button at the top right shows when the page last read
+  the household's records ("14:32"; "Loaded 14:32" on hover) and reads it
+  again. Pages read again when the tab comes back into view (if more than a
+  minute old), every five minutes while in view, and on refresh, without
+  closing an open editor.
+- On a phone the top bar holds the menu, as one line that scrolls sideways,
+  and one button showing the household scope and display currency ("Both ·
+  AED ▾"); it opens the scope and the account. The build this is shows
+  under Settings → Household → About.
 - Longer explanations (how a figure is worked out, what a feed does) sit
   behind a small "How this is worked out" link that opens in place.
 
