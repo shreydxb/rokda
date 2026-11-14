@@ -1,5 +1,9 @@
 # Money — design
 
+> Superseded (14 Nov 2026): the household adopted the independent review and
+> its prototype as the revamp plan; Money is rebuilt in phase 4 of
+> `2026-11-14-revamp-shell-kit-design.md`.
+
 ## Why
 
 Money is where records are kept, so it is the screen worked in most after
