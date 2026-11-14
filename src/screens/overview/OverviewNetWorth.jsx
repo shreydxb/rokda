@@ -39,7 +39,12 @@ export default function OverviewNetWorth({ scope, me, members, netWorthTrustwort
       {/* An account with no AED conversion is not counted at all, so the
           total says it is incomplete (QA #4). */}
       {incomplete && <div className="ov-kpi-change ov-warn">Incomplete — {incompleteNote({ accounts: nw.unvalued, holdings: nw.unpricedHoldings }, { capitalised: false })}</div>}
-      {runway.available && <div className="ov-kpi-change ov-muted ov-kpi-hint">Runway {Math.round(runway.months)} months</div>}
+      {/* One decimal, as before: a short runway never rounds down to none. */}
+      {runway.available && (
+        <div className="ov-kpi-change ov-muted ov-kpi-hint">
+          Runway {runway.months.toFixed(1)} {runway.months.toFixed(1) === '1.0' ? 'month' : 'months'}
+        </div>
+      )}
       <div className="ov-kpi-change">
         <Link className="ov-link" to="/wealth">
           Net worth →

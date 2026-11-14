@@ -12,7 +12,9 @@ import { formatPct } from '../../lib/money';
 // The period's figures: income, spending and what is left, against the
 // period before.
 export default function OverviewPeriod({ period, p, money, now, prev, prevLabel, expected, children = null }) {
-  const fromNothing = (current, previous) => previous === 0 && current !== 0;
+  // "New" only when nothing was recorded then: records that net to zero are
+  // a real comparison (the fresh review).
+  const fromNothing = (current) => prev.count === 0 && current !== 0;
   return (
     <section className="ov-period-section">
       <div className="ov-section-head">
@@ -37,10 +39,10 @@ export default function OverviewPeriod({ period, p, money, now, prev, prevLabel,
           prevLabel={prevLabel}
           fmt={money.fmt}
           hint={expected.items.length > 0 ? `${p.income > 0 ? 'More pay' : 'Pay'} expected ${expectedDatesLabel(expected.items)} · ${money.fmt(expected.total)}` : null}
-          isNew={fromNothing(p.income, prev.income)}
+          isNew={fromNothing(p.income)}
         />
-        <Kpi label="Net spend" figure={money.fmt(p.spend)} change={periodChange(p.spend, prev.spend)} goodWhenUp={false} prevLabel={prevLabel} fmt={money.fmt} isNew={fromNothing(p.spend, prev.spend)} />
-        <Kpi label="Income less spending" figure={money.fmtSigned(p.saved)} change={periodChange(p.saved, prev.saved)} goodWhenUp prevLabel={prevLabel} fmt={money.fmt} isNew={fromNothing(p.saved, prev.saved)} />
+        <Kpi label="Net spend" figure={money.fmt(p.spend)} change={periodChange(p.spend, prev.spend)} goodWhenUp={false} prevLabel={prevLabel} fmt={money.fmt} isNew={fromNothing(p.spend)} />
+        <Kpi label="Income less spending" figure={money.fmtSigned(p.saved)} change={periodChange(p.saved, prev.saved)} goodWhenUp prevLabel={prevLabel} fmt={money.fmt} isNew={fromNothing(p.saved)} />
         {/* Coloured by its sign: a month that spent more than it earned
             has a negative rate, and painting that green said the
             opposite of the figure. */}

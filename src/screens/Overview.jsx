@@ -299,7 +299,7 @@ export default function Overview() {
             />
           </section>
 
-          <section className="ov-pair">
+          <section className="ov-pair ov-pair-last">
             <OverviewRecent
               recent={recent}
               money={money}

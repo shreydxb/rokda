@@ -22,15 +22,17 @@ export default function OverviewNext30({ next30, recurring, money, committedTota
       ) : (
         <>
           {/* One row a bill (the Overview redesign, November 2026). */}
-          <ul className="ov-next30-list">
+          <ul className="ov-next30-list" role="list">
             {next30.map((r) => (
               <li key={r.occurrenceKey} className="ov-next30-item">
                 <span className="ov-muted ov-next30-date">{r.dueDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span>
-                <span className="ov-next30-name">
-                  {r.name}
-                  {nativeAmountLabel(r) && <span className="ov-muted"> · {nativeAmountLabel(r)}</span>}
+                <span className="ov-next30-name">{r.name}</span>
+                {/* The native amount sits with the amount, never in the name
+                    a long bill name may cut short. */}
+                <span className={`fig ov-next30-amt ${Number(r.amount) > 0 ? 'ov-pos' : ''}`}>
+                  {money.fmtSigned(r.amount)}
+                  {nativeAmountLabel(r) && <span className="ov-muted ov-next30-native">{nativeAmountLabel(r)}</span>}
                 </span>
-                <span className={`fig ov-next30-amt ${Number(r.amount) > 0 ? 'ov-pos' : ''}`}>{money.fmtSigned(r.amount)}</span>
                 <span className={`ov-next30-pay ${Number(r.amount) < 0 && !r.autopay ? 'ov-warn' : 'ov-muted'}`}>
                   {Number(r.amount) > 0 ? 'expected' : r.autopay ? 'autopay' : 'no autopay'}
                 </span>

@@ -19,4 +19,17 @@ describe('OverviewNext30', () => {
     expect(rows).toHaveLength(2);
     expect(rows[1].textContent).toMatch(/28 Nov.*Rent.*−6,500.*no autopay/);
   });
+
+  // The fresh review: a long name must never hide the native amount.
+  it("keeps a bill's native amount out of the name that may be cut short", () => {
+    const usd = { ...due('Annual insurance renewal with a long name', -4591, 25, false), native_amount: -1250, currency: 'USD' };
+    render(
+      <MemoryRouter>
+        <OverviewNext30 next30={[usd]} recurring={[{}]} money={money} committedTotal={4591} withoutAutopay={1} />
+      </MemoryRouter>,
+    );
+    const native = screen.getByText(/\$1,250/);
+    expect(native.closest('.ov-next30-name')).toBeNull();
+    expect(screen.getByRole('list')).toBeTruthy();
+  });
 });
