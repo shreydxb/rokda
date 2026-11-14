@@ -1,0 +1,15 @@
+/* Wealth screens only. */
+.card.fill { display: flex; flex-direction: column; }
+.card.fill > .card-b { flex: 1; display: flex; flex-direction: column; }
+.card.fill .push { margin-top: auto; }
+.nw-mini { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding-top: 16px; border-top: 1px solid var(--rule-soft); }
+.nw-mini .kpi-l { margin-bottom: 2px; }
+.nw-wrap, .inv-conc { padding-top: 16px; }
+.inv-conc { border-top: 1px solid var(--rule-soft); }
+.push-gap { height: 18px; flex: none; }
+.util { display: flex; flex-direction: column; gap: 5px; min-width: 96px; }
+.util .sub { white-space: nowrap; }
+.bar.warnb > i { background: var(--warn-mark); }
+.tbl td.num.two > div { text-align: right; }
+.tbl td .row { gap: 8px; }
+.dr-b dl.kv { margin: 0; }

@@ -1,5 +1,12 @@
-/* Design tokens ported from "Our Money - Command Center v2" (Direction A · Private Ledger).
-   Warm near-black canvas, serif money figures, hairline rules instead of cards. */
+/* Design tokens: "Graphite and iris" from the revamp (November 2026,
+   design/prototype/styles.css; review P24 and H8). Neutral graphite ground,
+   ivory ink, one iris accent for the main data series and the one primary
+   button; green, red and amber mean status only. Geist for everything.
+
+   Today's names (--canvas, --raise, --ink2, --rule2, --series-*) are kept
+   and pointed at the new values, so screens not yet rebuilt take the new look
+   without breaking; the prototype's own names sit beside them for the shared
+   kit and the rebuilt screens. */
 
 :root {
   /* Tells the browser this app paints its own light/dark chrome, so native
@@ -10,37 +17,59 @@
   color-scheme: dark;
 
   /* type */
-  --font-fig: 'Newsreader', serif; /* money figures only */
-  --font-ui: 'IBM Plex Sans', sans-serif; /* labels, body, nav */
-  --font-mono: 'IBM Plex Mono', monospace; /* chrome, data, meta */
+  --font-ui: 'Geist', 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-fig: var(--font-ui); /* money figures: the same face, at weight 600 */
+  --font-mono: 'Geist Mono', 'Cascadia Mono', ui-monospace, Consolas, monospace;
 
-  /* dark (default) */
-  --canvas: #0d0c0a;
-  --raise: rgba(242, 237, 228, 0.035);
-  --ink: #f2ede4;
-  --ink2: #9d9385;
-  --ink3: #6f665a;
-  --rule: rgba(242, 237, 228, 0.09);
-  --rule2: rgba(242, 237, 228, 0.16);
-  --accent: #c98b52;
-  --accent-hover: #dda87a;
-  --pos: #8fae7f;
-  --neg: #c2726b;
-  --warn: #c99a52;
-  --neutralbar: rgba(242, 237, 228, 0.2);
+  /* dark (the theme toggle's other side is below) */
+  --ground: #0f1011;
+  --surface: #17181a;
+  --raised: #1e1f22;
+  --active: #232427;
+  --rule: #25262a;
+  --rule-soft: #1f2023;
+  --control: #3d3f44;
+  --ink: #f3f2ee;
+  --ink2: #b5b4af;
+  --ink3: #8f8e89;
+  --accent: #8e97ff;
+  --accent-hover: #a6adff;
+  --accent-ink: #0f1011;
+  --accent-soft: #23264a;
+  --c1: #8e97ff;
+  --c2: #6c74cf;
+  --c3: #4d549c;
+  --c4: #353a6b;
+  --context: #4a4b50;
+  --pos: #6cc592;
+  --pos-soft: #16291f;
+  --neg: #e5736b;
+  --neg-soft: #2e1a19;
+  --warn: #e0a54a;
+  --warn-soft: #2c2212;
+  --warn-mark: #e0a54a;
+  --shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
 
-  /* chart series, in fixed order: identity, never rank. Validated as an
-     adjacent set (series-1, accent, series-3) for colour-vision deficiency
-     and contrast against --canvas. The accent sits a hair above the dark
-     lightness band; it stays because it is the brand colour every chart
-     already uses. */
-  --series-1: #4f84ba;
-  --series-2: var(--accent);
-  --series-3: #0f9b89;
+  /* today's names, on the new values. --raise stays a see-through tint, as
+     it was: hover fills and the chart's active band sit on top of other
+     fills and gridlines, which an opaque colour would hide. */
+  --canvas: var(--ground);
+  --raise: color-mix(in oklab, var(--ink) 4%, transparent);
+  --rule2: var(--control);
+  --neutralbar: var(--context);
 
-  /* radius: sharp/editorial, not rounded */
-  --radius-sm: 2px;
-  --radius-md: 3px;
+  /* chart series, in fixed order: the screen's own series in the accent, a
+     second in the lighter iris, and a third in the neutral grey (review
+     P21). Each stands at 3:1 or more on the page (tokens.test.js); green
+     stays for status. */
+  --series-1: var(--c1);
+  --series-2: var(--c2);
+  --series-3: var(--ink3);
+
+  /* radius: the prototype's soft corners */
+  --radius: 10px;
+  --radius-sm: 7px;
+  --radius-md: 8px;
 
   /* motion */
   --ease: 140ms;
@@ -52,20 +81,31 @@
 
 :root[data-theme='light'] {
   color-scheme: light;
-  --canvas: #f8f5ef;
-  --raise: rgba(26, 23, 18, 0.028);
-  --ink: #1a1712;
-  --ink2: #6b6255;
-  --ink3: #8d8478;
-  --rule: rgba(26, 23, 18, 0.12);
-  --rule2: rgba(26, 23, 18, 0.22);
-  --accent: #9c5d26;
-  --accent-hover: #7a4a1e;
-  --pos: #4a7a52;
-  --neg: #a8443c;
-  --warn: #8a6320;
-  --neutralbar: rgba(26, 23, 18, 0.16);
-  --series-1: #316ca5;
-  --series-2: var(--accent);
-  --series-3: #008c7a;
+  --ground: #faf9f6;
+  --surface: #ffffff;
+  --raised: #f5f4f0;
+  --active: #efeee9;
+  --rule: #e8e6e1;
+  --rule-soft: #f1efea;
+  --control: #cbc8c1;
+  --ink: #161616;
+  --ink2: #5a5955;
+  --ink3: #6b6a65;
+  --accent: #4a53d1;
+  --accent-hover: #3d45b8;
+  --accent-ink: #ffffff;
+  --accent-soft: #eceefd;
+  --c1: #4a53d1;
+  --c2: #7c83e0;
+  --c3: #aab0ec;
+  --c4: #d0d3f5;
+  --context: #c3c1bb;
+  --pos: #1f7a4d;
+  --pos-soft: #e3f4ea;
+  --neg: #b3362f;
+  --neg-soft: #fbe9e7;
+  --warn: #8a5a00;
+  --warn-soft: #fbf1dc;
+  --warn-mark: #d9982b;
+  --shadow: 0 16px 40px rgba(22, 22, 22, 0.14);
 }

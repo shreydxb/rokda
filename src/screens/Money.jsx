@@ -1,4 +1,6 @@
+import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { INBOX_COUNT_EVENT } from '../shell/useInboxCount';
 import { useTab } from '../lib/useTab';
 import { activityHref, monthRange } from '../lib/activityLink';
 import { useHousehold } from '../lib/useHousehold';
@@ -41,6 +43,15 @@ export default function Money() {
   const planning = usePlanningData(tab === 'review' ? household?.id : null);
   const loading = householdLoading || data.loading || (tab === 'review' && planning.loading);
   const pendingIntake = data.intake?.filter((i) => i.status === 'pending').length ?? 0;
+  // The sidebar shows the same count (the revamp, review N1). Say it after
+  // every read here, so an approval moves it at once and the sidebar settles
+  // on this figure rather than an older one of its own. Not while loading,
+  // nor after a failed read, when the count here is not known.
+  const intakeKnown = !data.loading && !data.errors?.intake;
+  const readAt = data.loadedAt?.getTime?.() ?? null;
+  useEffect(() => {
+    if (intakeKnown) window.dispatchEvent(new CustomEvent(INBOX_COUNT_EVENT, { detail: pendingIntake }));
+  }, [intakeKnown, pendingIntake, readAt]);
   // Refresh and Try again read everything this tab shows, the review's goals
   // and plan included: those were reported as failed and never read again
   // (round 2 of the outside review, E2-9).

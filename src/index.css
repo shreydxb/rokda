@@ -37,6 +37,7 @@ a:hover {
 .fig {
   font-family: var(--font-fig);
   font-variant-numeric: tabular-nums;
+  letter-spacing: -0.015em;
 }
 
 button,
@@ -45,15 +46,16 @@ input {
   color: inherit;
 }
 
-/* shared segmented-control primitive (period/view toggles) */
+/* shared segmented-control primitive (period/view toggles), in the
+   prototype's look: a quiet outlined button, the chosen one raised. */
 .om-seg {
-  padding: 7px 13px;
-  border: 1px solid var(--rule);
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--control);
   border-radius: var(--radius-sm);
-  background: none;
+  background: var(--surface);
   color: var(--ink2);
-  font-size: 12px;
-  letter-spacing: 0.06em;
+  font-size: 12.5px;
   cursor: pointer;
   transition:
     color var(--ease),
@@ -62,11 +64,12 @@ input {
 }
 .om-seg:hover:where(:not(:disabled)) {
   color: var(--ink);
+  background: var(--raised);
 }
 .om-seg[data-active='true'] {
   color: var(--ink);
-  border-color: var(--rule2);
-  background: var(--raise);
+  font-weight: 500;
+  background: var(--active);
 }
 /* .om-seg is also used on a <select> (Activity's category filter). Scoped to
    the element, not the class, so the many om-seg *buttons* elsewhere keep
@@ -76,19 +79,23 @@ input {
    background-color makes the popup ignore color-scheme and fall back to the
    OS's light Canvas. */
 select.om-seg {
-  background-color: var(--canvas);
+  background-color: var(--surface);
 }
 
 .om-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 8px 14px;
-  border: 1px solid var(--rule2);
-  border-radius: 3px;
-  background: none;
-  color: var(--ink2);
-  font-size: 13.5px;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--control);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
   cursor: pointer;
   transition:
     background var(--ease),
@@ -98,8 +105,7 @@ select.om-seg {
 /* :where keeps this rule's weight, so a button's own hover (Delete's red)
    still wins over it. */
 .om-btn:hover:where(:not(:disabled)) {
-  background: color-mix(in oklab, var(--accent) 18%, transparent);
-  border-color: var(--accent);
+  background: var(--raised);
   color: var(--ink);
 }
 /* A button that can't be pressed looks it: before this a disabled button
@@ -111,21 +117,24 @@ select.om-seg {
 }
 
 .om-tab {
-  padding: 0 0 11px;
+  padding: 8px 0 9px;
   margin-bottom: -1px;
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
-  font-size: 13.5px;
-  color: var(--ink2);
+  font-size: 14px;
+  color: var(--ink3);
   cursor: pointer;
 }
 .om-tab:hover {
   color: var(--ink);
 }
+/* The chosen tab is marked in ink, not the accent: the accent is kept for
+   the main data and the one primary button (review P22). */
 .om-tab[data-active='true'] {
   color: var(--ink);
-  border-bottom-color: var(--accent);
+  font-weight: 500;
+  border-bottom-color: var(--ink);
 }
 
 /* A finger needs about 44px. On a phone, or under any coarse pointer, every

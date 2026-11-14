@@ -18,8 +18,9 @@ plan lives in the app (Planning → Notes).
 - Every product decision gets a short section in `docs/decisions.md`.
 - Layout work: use the `design-taste-frontend` skill's app-screen rules
   (`references/app-screens.md`) as a checklist for placement, tables, forms
-  and states. `design/` stays the authority on look: keep Rokda's palette
-  and type, and don't take a style or palette from the skill.
+  and states. `design/prototype/` is the authority on look (graphite and
+  iris, Geist; see `design/README.md`): build screens like it, and don't
+  take a style or palette from the skill.
 - Desktop first: new work is built and checked on desktop only. Keep the
   existing phone layouts working where a change touches them, but don't plan,
   test or screenshot for the phone; Playwright runs the desktop project

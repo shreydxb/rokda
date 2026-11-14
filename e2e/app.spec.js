@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { Buffer } from 'node:buffer';
-import { data, stubSupabase } from './fixtures.js';
+import { data, pickInShell, stubSupabase } from './fixtures.js';
 
 const ROUTES = [
   { path: '/', name: 'overview' },
@@ -398,24 +398,21 @@ test('theme toggle switches and the page stays readable', async ({ page }) => {
   await stubSupabase(page);
   await gotoReady(page, '/');
   const before = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-  // On a phone the theme toggle is folded behind the household button.
-  const folded = page.locator('.om-sidetoggle');
-  if (await folded.isVisible()) await folded.click();
-  // The toggle must be there: every check used to sit inside "if there is
+  // The theme sits in the account menu at the foot of the sidebar (the
+  // revamp). It must be there: every check used to sit inside "if there is
   // one", so the test passed with no toggle at all (round 2 of the outside
   // review).
-  const toggle = page.getByRole('button', { name: /^(Light|Dark) mode$/ });
-  await expect(toggle).toBeVisible();
-  const label = await toggle.textContent();
-  await toggle.click();
-  await expect(toggle).not.toHaveText(label);
+  const current = await page.evaluate(() => document.documentElement.getAttribute('data-theme'));
+  const other = current === 'dark' ? 'Light' : 'Dark';
+  const back = current === 'dark' ? 'Dark' : 'Light';
+  await pickInShell(page, 'Theme', other);
+  await expect.poll(() => page.evaluate(() => document.documentElement.getAttribute('data-theme'))).toBe(other.toLowerCase());
   const after = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
   expect(after, 'theme toggle did not change the background').not.toBe(before);
   const text = await page.evaluate(() => getComputedStyle(document.body).color);
   expect(text, 'body text colour unset after theme switch').toBeTruthy();
   // And back.
-  await toggle.click();
-  await expect(toggle).toHaveText(label);
+  await pickInShell(page, 'Theme', back);
   await expect.poll(() => page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe(before);
 });
 

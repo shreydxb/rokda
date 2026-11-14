@@ -19,16 +19,16 @@ the month's figures beside them, everything else after.
 Saturday 14 November · Data quality: 2 of 4 checks need a look ▾
 
 Income      Net spend     Income less spending   Savings rate   Net worth
-18,000      7,168         +10,832                60%            168,900
-new         new           new                                   +14,400 this month
+{x}         {x}           +{x}                   60%            {x}
+new         new           new                                   +{x} this month
 
 Needs attention (3)                          Next 30 days
-Unknown · 13 Nov · −95   [Categorise…] [✓]   20 Nov  Streaming    −55   autopay
-Streaming: debit not confirmed   [Open]      28 Nov  Rent      −6,500   no autopay
-Groceries running high           [Open]      Committed 6,555 · Recurring →
+Unknown · 13 Nov · −{x}  [Categorise…] [✓]   20 Nov  Streaming    −{x}  autopay
+Streaming: debit not confirmed   [Open]      28 Nov  Rent      −{x}     no autopay
+Groceries running high           [Open]      Committed {x} · Recurring →
 
 Last 6 months (income and net spend)         Spending by category · this month
-▁ ▁ ▁ ▂ ▂ █▆                                 Rent 6,500 · Groceries 412 · …
+▁ ▁ ▁ ▂ ▂ █▆                                 Rent {x} · Groceries {x} · …
 
 Recent activity                              Accounts
 …                                            …
@@ -45,7 +45,7 @@ Recent activity                              Accounts
    slot instead of a full one.
 4. **Data quality moves up** beside the date, as the one status line it is,
    still opening its list in place.
-5. **A change from nothing says "new"** in grey, instead of "▲ 18,000 vs the
+5. **A change from nothing says "new"** in grey, instead of "▲ {x} vs the
    same days last month" in colour.
 6. **What stays:** spending by category, recent activity and accounts, at the
    foot, as now. Every figure and link the screen has today is kept or one
