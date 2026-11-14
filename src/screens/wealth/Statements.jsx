@@ -190,10 +190,7 @@ export default function Statements({ household, me, members = [], data, loading 
               : 'Every recent statement has been checked.'
             : `${toCheck} statement${toCheck === 1 ? '' : 's'} still to check against Rokda.`}
         </div>
-        <div className="ov-muted">
-          {toCheck > 0 && "The bot asks about each one on Telegram until it's done. "}
-          Rokda&rsquo;s figure is what was spent on the card over the statement&rsquo;s period, refunds netted, in AED.
-        </div>
+        <div className="ov-muted">In Rokda: spent on the card over the period, refunds netted, in AED.</div>
       </div>
       {error && (
         <div className="ov-error" role="alert" style={{ marginTop: 12 }}>

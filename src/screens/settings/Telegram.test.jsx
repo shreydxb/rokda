@@ -60,7 +60,7 @@ describe('Telegram: the dividend question', () => {
       renderScreen(<Telegram household={{ id: 'h1' }} loading={false} />);
     });
     const row = screen.getByText('Dividends').closest('button');
-    expect(within(row).getByText('Each morning, asks about dividends paid into a broker fund that day; reply "yes" once they\'re in')).toBeTruthy();
+    expect(within(row).getByText('When dividends are paid into a broker fund; reply "yes" once they\'re in')).toBeTruthy();
     expect(within(row).getByText('On')).toBeTruthy();
     await act(async () => {
       fireEvent.click(row);
@@ -86,5 +86,19 @@ describe('Telegram: two switches flipped together', () => {
       { household_id: 'h1', dividends_enabled: false },
       { household_id: 'h1', statement_enabled: false },
     ]);
+  });
+});
+
+// The audit (November 2026): the notes still described a reminder each
+// morning, after statements moved to once-and-a-reminder and the reminders
+// to one morning message.
+describe('the notes describe the reminders as they are sent now', () => {
+  it('says statements are asked about once and reminded once, and reminders come together', async () => {
+    await act(async () => {
+      renderScreen(<Telegram household={{ id: 'h1' }} loading={false} />);
+    });
+    expect(await screen.findByText(/once when it closes, and again 3 days before it's due/i)).toBeTruthy();
+    expect(screen.queryByText(/asks each morning until/)).toBeNull();
+    expect(screen.getByText(/one morning message/)).toBeTruthy();
   });
 });

@@ -520,3 +520,16 @@ describe('the editor offers subcategories, not the groups they are in', () => {
     expect(screen.queryByRole('button', { name: 'Food & Dining' })).toBeNull();
   });
 });
+
+// The audit (November 2026): a reading below the confidence bar said "Check
+// the flagged rows" when no row was flagged.
+describe('a reading the bot was unsure of, with every value found', () => {
+  it('says it was unsure, not that rows are flagged', () => {
+    const UNSURE = { ...ITEM, parsed_account_id: 'acc-1', parsed_category_id: 'cat-1', date_guessed: false, confidence: 0.6 };
+    renderScreen(
+      <Inbox members={MEMBERS} accounts={ACCOUNTS} categories={[{ id: 'cat-1', name: 'Groceries', kind: 'expense' }]} loading={false} data={{ intake: [UNSURE], categoryRules: [], reload: vi.fn() }} />,
+    );
+    expect(screen.queryByText('Check the flagged rows')).toBeNull();
+    expect(screen.getByText('Not sure it read this right')).toBeTruthy();
+  });
+});

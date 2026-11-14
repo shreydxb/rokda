@@ -88,6 +88,16 @@ describe('QA #5: portfolio value change is not investment return', () => {
     expect(result.includesContributions).toBe(true);
   });
 
+  // The audit (November 2026): "Not enough history yet for 3M" under a chart
+  // drawn over 3M. The change waits for every holding's start value, so the
+  // screen names the ones that have none.
+  it('names the holdings with no value at the range start when it cannot give a change', () => {
+    const history = [{ holding_id: 'h1', as_of: startAsOf, value_aed: 10_000 }];
+    const result = portfolioValueChange([holding(11_000), { id: 'h2', name: 'Gold', value_aed: 500, is_shared: true }], history, RANGE, null, now);
+    expect(result.available).toBe(false);
+    expect(result.missing).toEqual(['Gold']);
+  });
+
   it('reports a withdrawal as a fall in value, not a loss, and flags it the same way', () => {
     const history = [{ holding_id: 'h1', as_of: startAsOf, value_aed: 10_000 }];
     const result = portfolioValueChange([holding(6_000)], history, RANGE, null, now);
