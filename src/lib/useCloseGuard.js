@@ -11,7 +11,12 @@ import { useEffect, useState } from 'react';
 // typed counts in the holding editor). `onEscape` is for an editor that has
 // something to step back from before closing (a pending confirmation, a
 // drawer open on top of it); it is called instead of requestClose.
-export function useCloseGuard({ dirty, onClose, onEscape }) {
+//
+// An editor drawn in the shared kit's Drawer passes `listen: false` and hands
+// `escapeKey` to the Drawer, which answers Escape on itself and stops it
+// there: one key press, one step back, and a drawer underneath or a popover
+// inside is left alone (fresh review of the kit).
+export function useCloseGuard({ dirty, onClose, onEscape, listen = true }) {
   const [confirmingClose, setConfirmingClose] = useState(false);
 
   function requestClose() {
@@ -24,15 +29,18 @@ export function useCloseGuard({ dirty, onClose, onEscape }) {
 
   // Subscribed afresh on each render, so Escape always reads the editor as it
   // is now rather than as it was when the listener was added.
+  const escapeKey = (e) => {
+    if (onEscape) onEscape(e);
+    else requestClose();
+  };
   useEffect(() => {
+    if (!listen) return undefined;
     const onKey = (e) => {
-      if (e.key !== 'Escape') return;
-      if (onEscape) onEscape(e);
-      else requestClose();
+      if (e.key === 'Escape') escapeKey(e);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   });
 
-  return { confirmingClose, setConfirmingClose, requestClose, keepEditing: () => setConfirmingClose(false) };
+  return { confirmingClose, setConfirmingClose, requestClose, escapeKey, keepEditing: () => setConfirmingClose(false) };
 }

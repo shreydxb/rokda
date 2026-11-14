@@ -3812,3 +3812,25 @@ net worth's one line of help. No figure is worked out differently.
   time, with the full "Loaded …" as its hover and for screen readers.
 - **On a phone** the menu is one line of words that scrolls sideways, and
   the household switch and the account fold behind one button, as before.
+
+## The revamp: the shared kit
+
+- **One kit for every rebuilt screen** (`src/design-system/kit.jsx`): card,
+  figure strip, chip, warning row, info button, month stepper, segmented
+  switch, on/off switch, fold, empty state, banner with "Try again", drawer,
+  progress bar, stacked bar and ranked bar list, plus the table's look
+  (`.ds-table`). Screens compose them and do not restyle them, so a chip or
+  a warning looks and reads the same everywhere. Their classes are prefixed
+  `ds-`, so the new look never meets a screen's old classes while screens
+  are rebuilt one at a time.
+- **What each piece says and how it answers the keyboard is pinned once,**
+  in its tests: a card is a region named by its title; the info button
+  opens in place and closes on Escape with focus back; the stepper's arrows
+  are "Previous month" and "Next month"; a switch is a switch; the drawer is
+  a modal dialog that holds focus, closes on Escape and takes the editor's
+  own "Discard changes?" check.
+- **The charts the prototype adds** (trend line, paired columns, dated
+  strip, year bars) are built with Overview, the first screen to need them,
+  rather than ahead of any screen that uses them.
+- **A gallery of the kit** opens at `/kit` in development, or in a build
+  made with `VITE_KIT=1`; production builds leave it out.

@@ -25,6 +25,10 @@ const Money = lazy(() => import('./screens/Money'));
 const Wealth = lazy(() => import('./screens/Wealth'));
 const Planning = lazy(() => import('./screens/Planning'));
 const Settings = lazy(() => import('./screens/Settings'));
+// The shared kit's gallery, for looking at the components: only in development
+// or a build made with VITE_KIT=1, so production never ships it.
+const showKit = import.meta.env.DEV || import.meta.env.VITE_KIT === '1';
+const KitGallery = showKit ? lazy(() => import('./design-system/KitGallery')) : null;
 
 export default function App() {
   const { session, recovering, twoStep } = useAuth();
@@ -61,6 +65,7 @@ export default function App() {
         <Route path="wealth" element={<Wealth />} />
         <Route path="planning" element={<Planning />} />
         <Route path="settings" element={<Settings />} />
+        {KitGallery && <Route path="kit" element={<KitGallery />} />}
       </Route>
     </Routes>
   );
