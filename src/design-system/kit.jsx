@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useDrawerFocus } from '../lib/useDrawerFocus';
 import Icon from './Icon';
 import './kit.css';
@@ -16,11 +17,13 @@ export function Card({ title, info, right, action = false, flush = false, classN
     <section className={`ds-card${action ? ' ds-card-action' : ''}${className ? ` ${className}` : ''}`} aria-labelledby={title ? id : undefined}>
       {(title || right) && (
         <div className="ds-card-head">
+          {/* The (i) sits beside the heading, not in it, so the card's name
+              is its title alone (fresh review of the kit). */}
           {title && (
-            <h2 className="ds-card-title" id={id}>
-              {title}
+            <div className="ds-card-title">
+              <h2 id={id}>{title}</h2>
               {info}
-            </h2>
+            </div>
           )}
           {right && <div className="ds-card-right">{right}</div>}
         </div>
@@ -34,12 +37,12 @@ export function Card({ title, info, right, action = false, flush = false, classN
 export function KpiStrip({ items }) {
   return (
     <dl className="ds-kpis">
-      {items.map((k) => (
-        <div className="ds-kpi" key={k.label}>
-          <dt className="ds-kpi-label">
-            {k.label}
+      {items.map((k, i) => (
+        <div className="ds-kpi" key={k.id ?? `${i}-${k.label}`}>
+          <div className="ds-kpi-label">
+            <dt>{k.label}</dt>
             {k.info}
-          </dt>
+          </div>
           <dd className="ds-kpi-value">
             <span className={`ds-fig${k.tone ? ` ds-${k.tone}` : ''}`}>{k.value}</span>
             {k.sub && <span className="ds-kpi-sub">{k.sub}</span>}
@@ -68,9 +71,9 @@ export function WarningRow({ tone = 'warn', action, children }) {
       <span className="ds-warn-text">{children}</span>
       {action &&
         (action.href ? (
-          <a className="ds-btn ds-btn-sm" href={action.href}>
+          <Link className="ds-btn ds-btn-sm" to={action.href}>
             {action.label}
-          </a>
+          </Link>
         ) : (
           <button type="button" className="ds-btn ds-btn-sm" onClick={action.onClick}>
             {action.label}
@@ -89,24 +92,31 @@ export function InfoButton({ about, children }) {
   const id = useId();
   useEffect(() => {
     if (!open) return undefined;
-    const onKey = (e) => {
-      if (e.key === 'Escape') {
-        setOpen(false);
-        button.current?.focus();
-      }
-    };
     const onDown = (e) => {
       if (wrap.current && !wrap.current.contains(e.target)) setOpen(false);
     };
-    document.addEventListener('keydown', onKey);
     document.addEventListener('mousedown', onDown);
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      document.removeEventListener('mousedown', onDown);
-    };
+    return () => document.removeEventListener('mousedown', onDown);
   }, [open]);
+  // Escape is answered here and goes no further, so closing the explanation
+  // inside a drawer leaves the drawer open (fresh review of the kit).
+  const onKeyDown = (e) => {
+    if (open && e.key === 'Escape') {
+      e.stopPropagation();
+      e.nativeEvent?.stopImmediatePropagation?.();
+      setOpen(false);
+      button.current?.focus();
+    }
+  };
   return (
-    <span className="ds-info-wrap" ref={wrap}>
+    <span
+      className="ds-info-wrap"
+      ref={wrap}
+      onKeyDown={onKeyDown}
+      onBlur={(e) => {
+        if (open && !wrap.current?.contains(e.relatedTarget)) setOpen(false);
+      }}
+    >
       <button type="button" ref={button} className="ds-info" aria-label={`About ${about}`} aria-expanded={open} aria-controls={open ? id : undefined} onClick={() => setOpen((o) => !o)}>
         i
       </button>
@@ -158,7 +168,7 @@ export function Switch({ label, checked, onChange, disabled = false }) {
 export function Fold({ label, count, defaultOpen = false, children }) {
   return (
     <details className="ds-fold" open={defaultOpen || undefined}>
-      <summary>{count != null ? `${label} (${count})` : label}</summary>
+      <summary>{count ? `${label} (${count})` : label}</summary>
       <div className="ds-fold-body">{children}</div>
     </details>
   );
@@ -182,7 +192,8 @@ export function EmptyState({ title, body, action }) {
 // What could not be loaded, and Try again (review P12).
 export function Banner({ tone = 'neg', onRetry, children }) {
   return (
-    <div className={`ds-banner ds-banner-${tone}`} role="alert">
+    // A failure interrupts; a warning waits its turn.
+    <div className={`ds-banner ds-banner-${tone}`} role={tone === 'neg' ? 'alert' : 'status'}>
       <Icon name="alert" />
       <span className="ds-banner-text">{children}</span>
       {onRetry && (
@@ -198,25 +209,38 @@ export function Banner({ tone = 'neg', onRetry, children }) {
 // title, an "Unsaved" chip, optional tabs and a sticky footer. Focus is held
 // inside it (lib/useDrawerFocus). `onClose` is the editor's own close, which
 // asks before discarding changes (lib/useCloseGuard).
-export function Drawer({ kicker, title, dirty = false, tabs, tab, onTab, footer, onClose, wide = false, children }) {
+export function Drawer({ kicker, title, dirty = false, tabs, tab, onTab, footer, onClose, onEscape, wide = false, children }) {
   const ref = useDrawerFocus();
   const titleId = useId();
-  // Escape reads the latest close, so an editor's own "Discard changes?"
-  // check sees its current state.
-  const closeRef = useRef(onClose);
-  useEffect(() => {
-    closeRef.current = onClose;
-  });
-  useEffect(() => {
-    const onKey = (e) => {
-      if (e.key === 'Escape') closeRef.current?.();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, []);
+  const tabsId = useId();
+  const tabRefs = useRef({});
+  // Escape is answered on the drawer itself and stops there: the editor's
+  // own step back (onEscape, from useCloseGuard with listen: false) or its
+  // close, once, and a drawer underneath is left alone (fresh review of the
+  // kit).
+  const onKeyDown = (e) => {
+    if (e.key !== 'Escape') return;
+    e.stopPropagation();
+    e.nativeEvent?.stopImmediatePropagation?.();
+    if (onEscape) onEscape(e);
+    else onClose?.();
+  };
+  // Left and right move between the tabs, Home and End to either end; only
+  // the chosen tab is in the Tab order.
+  const onTabKey = (e) => {
+    const ids = tabs.map((t) => t.id);
+    const at = ids.indexOf(tab);
+    const to = { ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: ids.length - 1 }[e.key];
+    if (to == null) return;
+    e.preventDefault();
+    const next = ids[(to + ids.length) % ids.length];
+    onTab(next);
+    tabRefs.current[next]?.focus();
+  };
+  const tabId = (id) => `${tabsId}-${id}`;
   return (
     <div className="ds-scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose?.()}>
-      <div className={`ds-drawer${wide ? ' ds-drawer-wide' : ''}`} ref={ref} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={titleId}>
+      <div className={`ds-drawer${wide ? ' ds-drawer-wide' : ''}`} ref={ref} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={titleId} onKeyDown={onKeyDown}>
         <div className="ds-drawer-head">
           <div className="ds-drawer-titles">
             {(kicker || dirty) && (
@@ -234,15 +258,30 @@ export function Drawer({ kicker, title, dirty = false, tabs, tab, onTab, footer,
           </button>
         </div>
         {tabs && (
-          <div className="ds-drawer-tabs" role="tablist">
+          <div className="ds-drawer-tabs" role="tablist" aria-labelledby={titleId}>
             {tabs.map((t) => (
-              <button key={t.id} type="button" role="tab" aria-selected={tab === t.id} data-on={tab === t.id || undefined} onClick={() => onTab(t.id)}>
+              <button
+                key={t.id}
+                ref={(el) => {
+                  tabRefs.current[t.id] = el;
+                }}
+                type="button"
+                role="tab"
+                id={tabId(t.id)}
+                aria-selected={tab === t.id}
+                tabIndex={tab === t.id ? 0 : -1}
+                data-on={tab === t.id || undefined}
+                onClick={() => onTab(t.id)}
+                onKeyDown={onTabKey}
+              >
                 {t.label}
               </button>
             ))}
           </div>
         )}
-        <div className="ds-drawer-body">{children}</div>
+        <div className="ds-drawer-body" role={tabs ? 'tabpanel' : undefined} aria-labelledby={tabs ? tabId(tab) : undefined}>
+          {children}
+        </div>
         {footer && <div className="ds-drawer-foot">{footer}</div>}
       </div>
     </div>
@@ -251,35 +290,42 @@ export function Drawer({ kicker, title, dirty = false, tabs, tab, onTab, footer,
 
 const pct = (v) => `${Math.round(Math.max(0, Math.min(1, v)) * 1000) / 10}%`;
 
-// A bar filled to a share, with an optional tick (the month's pace, a
-// usual amount). Over full draws full; the tone says it is over.
-export function ProgressBar({ label, value, max, tick, tone = 'accent' }) {
-  const share = max > 0 ? value / max : 0;
+// A bar filled to a share, with an optional tick at an amount (the month's
+// pace, a usual amount). Over full draws full and says by how much: ARIA
+// keeps the value within its range, so the words carry the over (fresh
+// review of the kit). A value it cannot read draws nothing.
+export function ProgressBar({ label, value, max, tick, tone = 'accent', format = (n) => String(n) }) {
+  const v = Number.isFinite(value) ? value : 0;
+  const m = Number.isFinite(max) && max > 0 ? max : 0;
+  const share = m > 0 ? v / m : 0;
+  const over = m > 0 && v > m ? v - m : 0;
+  const text = `${format(v)} of ${format(m)}${over > 0 ? `, ${format(over)} over` : ''}`;
   return (
-    <div className="ds-bar" role="progressbar" aria-label={label} aria-valuenow={value} aria-valuemin={0} aria-valuemax={max}>
+    <div className="ds-bar" role="progressbar" aria-label={label} aria-valuenow={Math.max(0, Math.min(v, m))} aria-valuemin={0} aria-valuemax={m} aria-valuetext={text}>
       <span className={`ds-bar-fill ds-bar-${tone}`} style={{ width: pct(share) }} />
-      {tick != null && <span className="ds-bar-tick" style={{ left: pct(tick) }} />}
+      {tick != null && Number.isFinite(tick) && m > 0 && <span className="ds-bar-tick" style={{ left: pct(tick / m) }} />}
     </div>
   );
 }
 
 // One bar in steps of the accent, largest darkest, with a legend in words
-// (review P21). Parts worth nothing or less are left out.
+// (review P21). Parts worth nothing or less, or that cannot be read, are left
+// out; past four, the rest are one "Other", so no two parts share a colour.
 export function StackBar({ label, parts }) {
-  const shown = parts.filter((p) => p.value > 0);
-  const total = shown.reduce((s, p) => s + p.value, 0);
-  const sorted = [...shown].sort((a, b) => b.value - a.value);
+  const shown = parts.filter((p) => Number.isFinite(p.value) && p.value > 0).sort((a, b) => b.value - a.value);
+  const grouped = shown.length > 4 ? [...shown.slice(0, 3), { label: 'Other', value: shown.slice(3).reduce((s, p) => s + p.value, 0) }] : shown;
+  const total = grouped.reduce((s, p) => s + p.value, 0);
   return (
     <div className="ds-stack-wrap">
       <div className="ds-stack" role="img" aria-label={label}>
-        {sorted.map((p, i) => (
-          <span key={p.label} className={`ds-stack-part ds-c${Math.min(i + 1, 4)}`} style={{ width: pct(total > 0 ? p.value / total : 0) }} />
+        {grouped.map((p, i) => (
+          <span key={`${i}-${p.label}`} className={`ds-stack-part ds-c${i + 1}`} style={{ width: pct(total > 0 ? p.value / total : 0) }} />
         ))}
       </div>
       <ul className="ds-legend">
-        {sorted.map((p, i) => (
-          <li key={p.label}>
-            <span className={`ds-swatch ds-c${Math.min(i + 1, 4)}`} aria-hidden="true" />
+        {grouped.map((p, i) => (
+          <li key={`${i}-${p.label}`}>
+            <span className={`ds-swatch ds-c${i + 1}`} aria-hidden="true" />
             {`${p.label} ${total > 0 ? Math.round((p.value / total) * 100) : 0}%`}
           </li>
         ))}
@@ -291,8 +337,10 @@ export function StackBar({ label, parts }) {
 // A ranked list of bars, each scaled to the largest, with an optional tick at
 // its usual amount (review S-overview-3).
 export function BarList({ items, onSelect }) {
-  const sorted = [...items].sort((a, b) => b.value - a.value);
-  const top = Math.max(0, ...sorted.map((i) => Math.max(i.value, i.usual ?? 0)));
+  // A value it cannot read is left out, so one bad row cannot blank the rest
+  // (fresh review of the kit).
+  const sorted = items.filter((i) => Number.isFinite(i.value)).sort((a, b) => b.value - a.value);
+  const top = Math.max(0, ...sorted.map((i) => Math.max(i.value, Number.isFinite(i.usual) ? i.usual : 0)));
   return (
     <ul className="ds-barlist">
       {sorted.map((item) => {
@@ -301,13 +349,13 @@ export function BarList({ items, onSelect }) {
             <span className="ds-bl-label">{item.label}</span>
             <span className="ds-bl-track">
               <span className="ds-bl-fill" style={{ width: pct(top > 0 ? item.value / top : 0) }} />
-              {item.usual != null && <span className="ds-bl-tick" style={{ left: pct(top > 0 ? item.usual / top : 0) }} />}
+               {Number.isFinite(item.usual) && <span className="ds-bl-tick" style={{ left: pct(top > 0 ? item.usual / top : 0) }} />}
             </span>
             <span className="ds-bl-value">{item.display}</span>
           </>
         );
         return (
-          <li key={item.id} className="ds-bl-row">
+          <li key={item.id} className={onSelect ? 'ds-bl-row ds-bl-selectable' : 'ds-bl-row'}>
             {onSelect ? (
               <button type="button" className="ds-bl-hit" onClick={() => onSelect(item)}>
                 {body}

@@ -21,13 +21,15 @@
   min-height: 36px;
 }
 .ds-card-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ds-card-title h2 {
   margin: 0;
   font-size: 13px;
   font-weight: 500;
   color: var(--ink2);
-  display: flex;
-  align-items: center;
-  gap: 6px;
 }
 .ds-card-right {
   display: flex;
@@ -93,6 +95,9 @@
 }
 .ds-kpi:first-child {
   border-left: 0;
+}
+.ds-kpi-label dt {
+  display: inline;
 }
 .ds-kpi-label {
   font-size: 12.5px;
@@ -324,13 +329,15 @@ a.ds-btn {
   font-variant-numeric: tabular-nums;
 }
 
+/* The off track is drawn in the grey text colour, so an off switch stands
+   at 3:1 against the page (fresh review of the kit). */
 .ds-switch {
   position: relative;
   width: 34px;
   height: 20px;
   border-radius: 10px;
   border: 0;
-  background: var(--control);
+  background: var(--ink3);
   padding: 0;
   flex: none;
   cursor: pointer;
@@ -367,7 +374,7 @@ a.ds-btn {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  border: 1px solid var(--control);
+  border: 1px solid var(--ink3);
   background: transparent;
   color: var(--ink3);
   font: 500 10.5px/1 var(--font-ui);
@@ -388,7 +395,7 @@ a.ds-btn {
   left: -8px;
   z-index: 60;
   width: max-content;
-  max-width: 300px;
+  max-width: min(300px, 70vw);
   background: var(--surface);
   border: 1px solid var(--rule);
   border-radius: 10px;
@@ -578,7 +585,7 @@ a.ds-btn {
   flex-direction: column;
   gap: 10px;
 }
-.ds-bl-row > .ds-bl-hit,
+.ds-bl-hit,
 .ds-bl-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto;
@@ -594,7 +601,7 @@ a.ds-btn {
   cursor: pointer;
   color: inherit;
 }
-.ds-bl-row:has(> .ds-bl-hit) {
+.ds-bl-selectable {
   display: block;
 }
 .ds-bl-label {
@@ -631,11 +638,16 @@ a.ds-btn {
 }
 
 /* ---------- drawer ---------- */
+/* Above the older editor overlay (.te-overlay, 80), so a kit drawer opened
+   from an older editor while screens move over is on top. */
 .ds-scrim {
   position: fixed;
   inset: 0;
   background: rgba(15, 16, 17, 0.32);
-  z-index: 40;
+  z-index: 90;
+}
+.ds-scrim .ds-scrim {
+  background: transparent;
 }
 .ds-drawer {
   position: fixed;
@@ -646,7 +658,7 @@ a.ds-btn {
   max-width: 100vw;
   background: var(--surface);
   border-left: 1px solid var(--rule);
-  z-index: 41;
+  z-index: 91;
   display: flex;
   flex-direction: column;
   box-shadow: var(--shadow);
@@ -719,6 +731,13 @@ a.ds-btn {
   gap: 8px;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .ds-switch,
+  .ds-switch::after,
+  .ds-fold > summary::before {
+    transition: none;
+  }
+}
 @media (prefers-reduced-motion: no-preference) {
   .ds-drawer {
     animation: ds-slide 0.16s ease-out;
