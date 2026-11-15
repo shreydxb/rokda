@@ -192,3 +192,19 @@
 .bud-bar-spent.bud-bar-save {
   background: var(--pos);
 }
+
+/* The open tab's own controls, in the page header beside Refresh (the
+   revamp, phase 4). */
+.mn-tools,
+.mn-tools-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.mn-tools:empty {
+  display: none;
+}
+.mn-tools-inline {
+  margin-bottom: 14px;
+}

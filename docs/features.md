@@ -92,18 +92,31 @@ plan holds.
 
 ## Money (`/money`)
 
-- **Activity**: every transaction, with a list and a calendar view, filters,
-  and an editor for expense / income / refund. Refunds net against spending.
-  Posted / Scheduled / All picks which dates count (Posted by default, like
-  every other total); scheduled rows are labelled. Under Me or the partner's
-  name, totals are that person's share and shared rows show the share under
-  the full amount. Calendar days add up the same way, and open the editor.
-  Filters: search, dates (presets or custom), category (a group includes its
-  subcategories, and "Uncategorised" shows records with none), account, type, which dates count, needs review, and sort.
-  On a phone the second row folds behind "Filters (n)". They are all in the
-  address, so Back, reload and a bookmark keep them. The summary shows net
-  spend as purchases less refunds, and income. The list shows 200 rows at a
-  time; the totals cover everything matching.
+- **Activity**: every transaction, as a table, a calendar or by merchant
+  (List / Calendar / Merchants in the page header, beside the month stepper
+  and + Transaction). It shows this month unless the address names another;
+  the Dates filter also offers All dates and a custom range, and a link's
+  range that is one whole month is that month. Posted / Scheduled / All
+  (under More) picks which dates count, Posted by default like every other
+  total; "N scheduled not counted" on the table shows them. Filters: search,
+  dates, category (a group includes its subcategories, and "Uncategorised"
+  shows records with none) and account in one row; type, which dates count,
+  Needs review only and AED estimated only under More. Each filter set is a
+  chip that takes it off, with Clear. They are all in the address, so Back,
+  reload and a bookmark keep them. The table's card gives the count, Spent
+  (purchases less refunds, its (i) says so) and Income; Date and Amount sort
+  from their headings. A row says what it is with chips (Needs review, a
+  low-confidence reading, Refund, Refunded, Scheduled, Possible duplicate),
+  the owner's initial sits beside the account, and a record with no category
+  gets one chosen in place, saved only while it still has none and written to
+  its history. Under Me or the partner's name, totals are that person's share
+  and a shared row shows their half with the whole beneath. The calendar
+  follows the month stepper and adds up the same way; a day chosen lists its
+  records beneath. Merchants is the month's spending by merchant, net of
+  refunds, with how many payments each, how many merchants were paid and the
+  top three's share; a merchant opens its records. The list shows 200 rows
+  at a time; the totals cover everything matching. The month is shared with
+  Budget: switching tab keeps it.
 - **Remember this merchant**: moving an ordinary expense to another category
   offers, unticked, a household rule for its merchant. Ticked, it shows the
   rule before saving: the pattern (the whole merchant name to begin with),
@@ -156,11 +169,21 @@ plan holds.
   person's plan (own lines plus their income-proportional split of the shared
   ones), what each paid against their part, and the one transfer that evens it up.
 - **Recurring**: bills and expected income on a cadence, with an optional
-  last date and amounts in AED, USD or INR. Status per occurrence (Paid,
-  Posted, Expected, Late, Ended). Income is matched within 10 days of its
-  date, bills within 5, and a salary counts in the month it was due. What
-  needs marking paid comes first (late, then due soon, a late one saying when
-  it was due), the rest by next date; ended schedules fold under "Ended".
+  last date and amounts in AED, USD or INR. A strip gives Fixed a month,
+  Variable (about) a month, Expected income a month and To mark paid: each
+  schedule counts its share of a month (a yearly bill a twelfth), and ended
+  and paused ones are left out. Bills and expected income are tables:
+  status, name, every, next due (or when it was due, for one not yet
+  marked) and how far off, owner, paid by (Autopay or Manual) or paid into,
+  amount ("about" for a variable bill) and Mark paid. A bill reads Paid and
+  income Received once recorded; an autopay bill past its date with nothing
+  recorded reads Not confirmed, a manual one Late. Income is matched within
+  10 days of its date, bills within 5, and a salary counts in the month it
+  was due. What needs marking comes first, the rest by next date; ended
+  schedules fold under "Ended" once nothing is left to mark, and a paused one
+  reads Paused. Mark paid opens the payment filled from the bill, dated the
+  day it was due when it is late. Under one person, the other's own schedules
+  are left out and a shared one counts half. + Bill is in the page header.
 - **Insights**: what moved month on month. Every category figure, card and
   merchant opens its records in Activity for the month on screen. Top
   merchants follows the selected month, net of refunds.

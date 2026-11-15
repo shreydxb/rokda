@@ -71,3 +71,33 @@ export function confirmedPairRow(householdId, a, b) {
   const [from, to] = a.id < b.id ? [a.id, b.id] : [b.id, a.id];
   return { household_id: householdId, kind: 'duplicate_confirmed', from_transaction_id: from, to_transaction_id: to };
 }
+
+// Every record that may be recorded twice, for Activity's chips (the revamp,
+// phase 4): the same as the pairs above but without the one-pair-each rule,
+// and worked out once for the whole ledger by grouping on account, merchant,
+// amount and kind, so a long history doesn't slow every keystroke (the fresh
+// review of 4a: comparing each row with every record took over a second on
+// six thousand).
+export function possibleDuplicateIds(transactions = [], links = [], { days = DUPLICATE_DAYS } = {}) {
+  const groups = new Map();
+  for (const t of transactions) {
+    const merchant = (t.merchant ?? '').trim().toLowerCase();
+    if (t.kind === 'transfer' || merchant === '') continue;
+    const key = `${t.account_id}|${merchant}|${Math.round(Number(t.amount) * 100)}|${t.kind ?? ''}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(t);
+  }
+  const ids = new Set();
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    const dated = group.map((t) => ({ t, at: new Date(t.occurred_at).getTime() })).sort((a, b) => a.at - b.at);
+    for (let i = 0; i < dated.length; i++) {
+      for (let j = i + 1; j < dated.length && (dated[j].at - dated[i].at) / DAY_MS <= days; j++) {
+        if (isConfirmedPair(dated[i].t.id, dated[j].t.id, links)) continue;
+        ids.add(dated[i].t.id);
+        ids.add(dated[j].t.id);
+      }
+    }
+  }
+  return ids;
+}

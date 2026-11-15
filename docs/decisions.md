@@ -3892,3 +3892,55 @@ net worth's one line of help. No figure is worked out differently.
   the month: within the first two screens rather than the first. Tables
   scroll inside their card rather than widening the page.
 - **Activity and Overview open a record the same way** (`RecordEditor`).
+
+## Money: Activity and Recurring like the prototype
+
+The revamp's phase 4a (design note `docs/superpowers/specs/2026-11-15-money-design.md`).
+
+- **Each tab's controls are in the page header**, beside Refresh, as on the
+  prototype: a tab draws them into a slot Money's header holds
+  (`money/MoneyTools.jsx`), so they stay with the state they act on.
+- **Activity shows this month by default.** It showed every date, which the
+  prototype and every other Money figure do not. The month is in the
+  address and Budget shares it, so a switch of tab keeps it; a link's range
+  that is one whole month is that month, so the stepper lands on it.
+- **A category is chosen in place** for a record with none. It is saved only
+  while the record still has none, so a category set elsewhere meanwhile is
+  never overwritten, and goes into the record's history as the editor's
+  change would.
+- **One person's view shows their part** of a shared row, with the whole
+  beneath, so the amounts add up to the totals above them. It showed the
+  whole with the part beneath.
+- **Merchants moved from Insights** into Activity. It is the month's
+  spending as a whole, so Activity's filters are not offered there.
+- **Recurring's monthly figures are a month's share.** They added each
+  schedule's amount whatever its cadence, so a yearly bill counted in full
+  every month; a paused schedule counted too. Now a yearly bill is a twelfth
+  of itself and ended and paused ones are left out (`lib/recurringTotals.js`,
+  the app's alone, so the bot's shared schedule logic is unchanged).
+- **An autopay bill past its date reads Not confirmed**, in amber: with
+  nothing recorded the money most likely left on time and the record has not
+  arrived. A manual bill stays Late, in red. Paid and Received replace
+  Posted. Only the app's words changed; the bot's are phase 8.
+- **Recurring follows the person shown**, as Overview's Next 30 days does:
+  the other person's own schedules are left out and a shared one counts half.
+- **The fresh review of 4a** changed these:
+  - **A schedule past its last date is ended only once nothing is left to
+    mark.** A bill ending on the 10th whose payment on the 5th was unpaid sat
+    in the Ended fold with no Mark paid while To do called it late; it now
+    stays among the bills, and counts to mark paid.
+  - **Mark paid on Recurring dates the payment the day the bill was due**
+    when it is late, as Overview's To do does, so the payment settles it;
+    dated today, a bill more than a few days late stayed Late.
+  - **A paused schedule reads Paused** and offers no Mark paid, as the strip
+    and To do already leave it out.
+  - **Spent keeps its sign**: refunds that outweigh purchases are money back.
+  - **A linked refund has no category to choose in the list**: it is filed
+    under its purchase's, and the database refuses one of its own.
+  - **A merchant chosen on Merchants opens its records with no other filter
+    on**, since that view offers none to see.
+  - **A link's whole month is shared with the other tabs**, as a month chosen
+    on the stepper is.
+  - **Possible duplicates are worked out once for the whole ledger**, by
+    grouping, rather than each row against every record on every keystroke.
+

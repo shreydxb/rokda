@@ -761,3 +761,106 @@ a.ds-btn {
     opacity: 0;
   }
 }
+
+/* A button's panel (Activity's More filters; prototype .pop). */
+.ds-popover {
+  position: relative;
+  display: inline-flex;
+}
+.ds-popover > .ds-btn .ds-chip {
+  margin-left: 2px;
+}
+.ds-popover-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 60;
+  width: 280px;
+  max-width: 80vw;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+}
+
+/* Whose a record is (prototype .avatar). */
+.ds-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: inline-grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  flex: none;
+  background: var(--raise);
+  color: var(--ink2);
+}
+.ds-avatar-a {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.ds-avatar-b {
+  background: var(--pos-soft);
+  color: var(--pos);
+}
+
+/* A select or text field (prototype .sel and .inp). */
+.ds-select {
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--control);
+  border-radius: var(--radius-sm);
+  background-color: var(--surface);
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  min-width: 0;
+}
+select.ds-select {
+  appearance: none;
+  padding-right: 28px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none' stroke='%236e6d68' stroke-width='1.6' stroke-linecap='round'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+.ds-select-sm {
+  height: 26px;
+  font-size: 12.5px;
+  border-radius: 6px;
+}
+.ds-select::placeholder {
+  color: var(--ink3);
+}
+.ds-select:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+  border-color: transparent;
+}
+
+/* A quiet text button (prototype .link). */
+.ds-link {
+  color: var(--ink3);
+  font: inherit;
+  font-size: 12.5px;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.ds-link:hover,
+.ds-link-accent {
+  color: var(--accent);
+}
+.ds-muted {
+  color: var(--ink3);
+}
+button.ds-chip {
+  cursor: pointer;
+}
+button.ds-chip:hover {
+  filter: brightness(0.97);
+}

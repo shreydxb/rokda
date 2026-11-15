@@ -37,9 +37,9 @@ test('reload keeps the person whose figures were shown', async ({ page }) => {
   ];
   await open(page, '/money?tab=activity', { tables: { transactions } });
   await pickInShell(page, 'Household scope', 'Me');
-  await expect(page.locator('.mn-count')).toContainText('Net spend AED 40');
+  await expect(page.locator('.mn-summary')).toContainText('Spent 40');
   await page.reload();
-  await expect(page.locator('.mn-count')).toContainText('Net spend AED 40');
+  await expect(page.locator('.mn-summary')).toContainText('Spent 40');
   await expect(scope(page, 'Me')).toHaveAttribute('data-active', 'true');
 });
 
@@ -74,7 +74,7 @@ test('a save that matched no row stays open with an error', async ({ page }) => 
     }
     return route.fallback();
   });
-  await page.locator('.om-tx-row').first().click();
+  await page.locator('.om-tx-row .mn-open').first().click();
   const editor = page.getByRole('dialog', { name: 'Edit transaction' });
   await editor.getByRole('button', { name: 'Save changes' }).click();
   await expect.poll(() => attempted).toBe(true);

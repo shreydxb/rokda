@@ -113,3 +113,12 @@ export function topMerchants(transactions, scopeMemberId, { year, month, now = n
     .sort((a, b) => b.total - a.total)
     .slice(0, limit);
 }
+
+// Activity's Merchants view (the revamp, phase 4): from topMerchants' list,
+// how many merchants were paid, what they were paid in all, and the share of
+// it that went to the three largest. No share when nothing was spent.
+export function merchantSummary(list) {
+  const total = list.reduce((s, m) => s + m.total, 0);
+  const topThree = list.slice(0, 3).reduce((s, m) => s + m.total, 0);
+  return { count: list.length, total, topThree, topThreeShare: total > 0 ? topThree / total : null };
+}

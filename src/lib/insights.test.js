@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { notableMoves, topMerchants, trailingAverageByCategory } from './insights';
+import { notableMoves, topMerchants, merchantSummary, trailingAverageByCategory } from './insights';
 
 const NOW = new Date(2026, 8, 30, 12); // 30 September 2026
 const catById = new Map([
@@ -122,5 +122,23 @@ describe('topMerchants', () => {
   it('drops a merchant whose refunds cancel its purchases', () => {
     const refunded = [rows[2], { id: 'f', merchant: 'Cafe', amount: 60, kind: 'refund', occurred_at: '2026-09-08', is_shared: true }];
     expect(topMerchants(refunded, null, { year: 2026, month: 9, now: NOW })).toEqual([]);
+  });
+});
+
+// Activity's Merchants view (the revamp, phase 4): how many merchants were
+// paid, and how much of what was spent went to the top three.
+describe('merchantSummary', () => {
+  it('counts the merchants and gives the top three share of the total', () => {
+    const list = [
+      { name: 'A', total: 50, count: 1 },
+      { name: 'B', total: 30, count: 2 },
+      { name: 'C', total: 10, count: 1 },
+      { name: 'D', total: 10, count: 1 },
+    ];
+    expect(merchantSummary(list)).toEqual({ count: 4, total: 100, topThree: 90, topThreeShare: 0.9 });
+  });
+
+  it('has no share when nothing was spent', () => {
+    expect(merchantSummary([])).toEqual({ count: 0, total: 0, topThree: 0, topThreeShare: null });
   });
 });

@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { render, screen, fireEvent, within, act } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { useCloseGuard } from '../lib/useCloseGuard';
-import { Card, KpiStrip, Chip, WarningRow, InfoButton, MonthStepper, Segmented, Switch, Fold, EmptyState, Banner, Drawer, ProgressBar, StackBar, BarList } from './kit';
+import { Card, KpiStrip, Chip, WarningRow, InfoButton, MonthStepper, Segmented, Switch, Fold, EmptyState, Banner, Drawer, ProgressBar, StackBar, BarList, Popover, Avatar } from './kit';
 
 // The shared kit (the revamp, phase 2; design/prototype/styles.css). Each
 // piece is used by every rebuilt screen, so what it says to a screen reader
@@ -495,5 +495,69 @@ describe('StackBar: many parts', () => {
     render(<StackBar label="Assets" parts={[50, 20, 10, 10, 6, 4].map((v, i) => ({ label: `P${i}`, value: v }))} />);
     expect(document.querySelectorAll('.ds-stack-part')).toHaveLength(4);
     expect(screen.getByText('Other 20%')).toBeTruthy();
+  });
+});
+
+// More filters, folded behind one button (review S-activity-2): the panel
+// opens under it and closes on Escape, with focus back, or on a click
+// elsewhere; a choice inside leaves it open.
+describe('Popover', () => {
+  const renderPop = () =>
+    render(
+      <>
+        <Popover label="More" count={2}>
+          <label>
+            Type
+            <select aria-label="Type">
+              <option>All types</option>
+            </select>
+          </label>
+        </Popover>
+        <button type="button">Elsewhere</button>
+      </>,
+    );
+
+  it('says how many of its filters are set, and opens on a click', () => {
+    renderPop();
+    const button = screen.getByRole('button', { name: 'More, 2 set' });
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByLabelText('Type')).toBeNull();
+    fireEvent.click(button);
+    expect(button.getAttribute('aria-expanded')).toBe('true');
+    expect(within(screen.getByRole('group', { name: 'More' })).getByLabelText('Type')).not.toBeNull();
+  });
+
+  it('closes on Escape with focus back on its button', () => {
+    renderPop();
+    const button = screen.getByRole('button', { name: /^More/ });
+    fireEvent.click(button);
+    fireEvent.keyDown(screen.getByLabelText('Type'), { key: 'Escape' });
+    expect(screen.queryByLabelText('Type')).toBeNull();
+    expect(document.activeElement).toBe(button);
+  });
+
+  it('closes on a click elsewhere, and stays open for a click inside', () => {
+    renderPop();
+    fireEvent.click(screen.getByRole('button', { name: /^More/ }));
+    fireEvent.mouseDown(screen.getByLabelText('Type'));
+    expect(screen.getByLabelText('Type')).not.toBeNull();
+    fireEvent.mouseDown(screen.getByText('Elsewhere'));
+    expect(screen.queryByLabelText('Type')).toBeNull();
+  });
+
+  it('gives no count when none is set', () => {
+    render(<Popover label="More">x</Popover>);
+    expect(screen.getByRole('button', { name: 'More' })).not.toBeNull();
+  });
+});
+
+// Whose a record is, as an initial (design/prototype ui.avatar): named for a
+// screen reader, coloured per person.
+describe('Avatar', () => {
+  it('is named for whose it is, and carries its tone', () => {
+    render(<Avatar name="Sam" initial="S" tone="b" />);
+    const avatar = screen.getByRole('img', { name: 'Sam' });
+    expect(avatar.textContent).toBe('S');
+    expect(avatar.className).toBe('ds-avatar ds-avatar-b');
   });
 });

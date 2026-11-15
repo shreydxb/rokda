@@ -75,3 +75,27 @@ describe('RecurringEditor: rupees and a last date', () => {
     expect(calls.writes[0].row).toMatchObject({ amount: -500, currency: 'AED', native_amount: null, ends_on: null });
   });
 });
+
+// The revamp, phase 4: the editor is the kit's drawer, named by its title,
+// and Escape closes it (asking first once something is typed).
+describe('RecurringEditor: the drawer', () => {
+  it('is a modal dialog named by its title, and closes on Escape', () => {
+    const onClose = vi.fn();
+    renderScreen(<RecurringEditor household={HOUSEHOLD} householdId="h" accounts={[]} categories={[]} members={[]} onClose={onClose} onSaved={vi.fn()} />);
+    const dialog = screen.getByRole('dialog', { name: 'Add a bill or income' });
+    expect(dialog.className).toMatch(/ds-drawer/);
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('asks before throwing away what was typed', () => {
+    const onClose = vi.fn();
+    renderScreen(<RecurringEditor household={HOUSEHOLD} householdId="h" accounts={[]} categories={[]} members={[]} onClose={onClose} onSaved={vi.fn()} />);
+    fireEvent.change(field('Name'), { target: { value: 'Gym' } });
+    const dialog = screen.getByRole('dialog', { name: 'Add a bill or income' });
+    expect(dialog.textContent).toMatch(/Unsaved/);
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Discard' })).toBeTruthy();
+  });
+});

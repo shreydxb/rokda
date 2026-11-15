@@ -20,7 +20,7 @@ test('a refund is linked to the purchase it returns from its editor', async ({ p
       if (request.url().includes('/rpc/link_refund')) calls.push(request.postDataJSON());
     },
   });
-  await page.locator('.om-tx-row').filter({ hasText: 'refund' }).click();
+  await page.locator('.om-tx-row').filter({ hasText: 'Refund' }).locator('.mn-open').click();
   const dialog = page.getByRole('dialog', { name: 'Edit transaction' });
   const group = dialog.getByRole('group', { name: 'Refund for' });
   await group.getByRole('button', { name: /Spinneys/ }).click();
@@ -32,8 +32,8 @@ test('a refund is linked to the purchase it returns from its editor', async ({ p
 test('a linked refund and its purchase say so in the list', async ({ page }) => {
   const links = [{ id: '99999999-7777-4777-8777-0000000000f1', household_id: ids.HH, kind: 'refund', from_transaction_id: PURCHASE, to_transaction_id: REFUND, created_by: ids.ME, created_at: `${dayThisMonth(12)}T09:00:00+00:00` }];
   await openActivity(page, { links });
-  await expect(page.locator('.om-tx-row').filter({ hasText: 'refund for Spinneys' })).toHaveCount(1);
-  await expect(page.locator('.om-tx-row').filter({ hasText: 'part refunded' })).toHaveCount(1);
+  await expect(page.locator('.om-tx-row').filter({ hasText: 'for Spinneys' })).toHaveCount(1);
+  await expect(page.locator('.om-tx-row').filter({ hasText: 'Part refunded' })).toHaveCount(1);
 });
 
 // QA regression check, 17 October: a linked split refund's amount couldn't be

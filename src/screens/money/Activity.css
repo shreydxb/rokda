@@ -1,117 +1,224 @@
-/* Split out of ../Money.css with the round 2 cleanup (SHR-383): the rules only
-   this tab uses. What the Money tabs share stays there. */
+/* Money -> Activity (the revamp, phase 4; design/prototype .filters, .tbl
+   and the Activity screen). */
 
-.mn-search {
-  border: 1px solid var(--rule);
-  border-radius: var(--radius-sm);
-  padding: 7px 12px;
-  font-size: 12.5px;
-  color: var(--ink);
-  background: none;
-  min-width: 220px;
+.mn-filterbar {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 18px;
 }
-
-.mn-viewtoggle {
+.mn-act-filters {
   display: flex;
-  gap: 6px;
-  margin-left: auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
-
-.mn-count {
-  margin-top: 14px;
+.mn-search {
+  position: relative;
+  display: inline-flex;
+}
+.mn-search svg {
+  position: absolute;
+  left: 10px;
+  top: 9px;
+  width: 14px;
+  height: 14px;
+  color: var(--ink3);
+  pointer-events: none;
+}
+.mn-search input {
+  height: 32px;
+  width: 240px;
+  padding: 0 10px 0 30px;
+  border: 1px solid var(--control);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+}
+.mn-search input::placeholder {
+  color: var(--ink3);
+}
+.mn-search input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+  border-color: transparent;
+}
+.mn-custom-dates {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.mn-pop-field {
+  display: grid;
+  gap: 6px;
   font-size: 12px;
   color: var(--ink3);
 }
-
-/* "3 scheduled not counted": a link that switches the list to All. */
-.mn-count-link {
-  background: none;
-  border: none;
+.mn-pop-switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--ink);
+}
+.mn-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
   padding: 0;
-  font: inherit;
-  color: var(--ink2);
-  text-decoration: underline;
-  cursor: pointer;
+}
+.mn-clear {
+  color: var(--accent);
+  margin-left: 4px;
 }
 
-/* activity: a real per-column table (date/merchant/category/owner/account/
-   amount), not just a two-line row -- matches design/Our Money - Command
-   Center v3.dc.html's om-tx layout, including its narrow-width collapse
-   (category/owner/account fold into one meta line under the merchant). */
-.om-tx {
-  display: grid;
-  grid-template-columns: 74px 1.5fr 1fr 90px 1fr 120px 14px;
-  gap: 16px;
-  align-items: baseline;
-}
-
-.om-tx-head {
-  padding: 14px 0 10px;
-  margin-top: 12px;
-  border-bottom: 1px solid var(--rule2);
-  font-size: 10px;
+/* The table card's count, totals and the scheduled chip. */
+.mn-summary {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  font-size: 12.5px;
   color: var(--ink3);
 }
+.mn-sum {
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  margin-left: 4px;
+}
+.mn-row-error {
+  margin: 0 18px 10px;
+  font-size: 12.5px;
+  color: var(--neg);
+}
 
-.om-tx-row {
-  padding: 12px 0;
-  border-top: 1px solid var(--rule);
+.mn-table tbody tr {
   cursor: pointer;
-  background: none;
-  border-left: none;
-  border-right: none;
-  border-bottom: none;
-  text-align: left;
-  width: 100%;
+}
+.mn-table tbody tr:hover td {
+  background: color-mix(in oklab, var(--ink) 2.5%, transparent);
+}
+.mn-sort {
   font: inherit;
   color: inherit;
-  font-size: 13.5px;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
 }
-
-.om-tx-row:hover {
-  background: var(--raise);
+.mn-sort[data-on] {
+  color: var(--ink2);
 }
-
-.om-tx-date {
-  color: var(--ink3);
+.mn-date {
+  font-family: var(--font-mono);
   font-size: 12px;
+  color: var(--ink3);
+  white-space: nowrap;
+  width: 88px;
 }
-
-.om-tx-merchant {
+.mn-merchant {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.mn-merchant-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.mn-open {
+  font: inherit;
+  font-weight: 500;
+  color: var(--ink);
+  background: none;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  max-width: 100%;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.mn-open:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+.mn-sub {
+  font-size: 11.5px;
+  color: var(--ink3);
+  white-space: nowrap;
+  font-weight: 400;
+}
+.mn-warn {
+  color: var(--warn);
+}
+.mn-meta {
+  display: none;
+  font-size: 12px;
+  color: var(--ink3);
+  margin-top: 2px;
+}
+.mn-col-cat {
+  width: 230px;
+}
+.mn-col-acct {
+  width: 190px;
+}
+.mn-cat-select {
+  max-width: 210px;
+}
+.mn-acct-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   min-width: 0;
 }
-
-.om-tx-flag {
-  font-size: 11.5px;
-}
-
-.om-tx-meta {
-  display: none;
-  font-size: 11.5px;
-  color: var(--ink3);
-  margin-top: 3px;
-}
-
-.om-tx-cat {
+.mn-acct-name {
   color: var(--ink2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mn-amt {
+  width: 120px;
+  white-space: nowrap;
+}
+.mn-show-more {
+  display: flex;
+  margin: 12px auto;
+}
+.mn-empty-actions {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 14px;
 }
 
-.om-tx-owner,
-.om-tx-account {
-  color: var(--ink2);
-  font-size: 12px;
+/* On a phone the category and account fold under the merchant. */
+@media (max-width: 720px) {
+  .mn-col-cat,
+  .mn-col-acct,
+  .mn-date {
+    display: none;
+  }
+  .mn-meta {
+    display: block;
+  }
+  .mn-search,
+  .mn-search input {
+    width: 100%;
+  }
 }
 
-.om-tx-amt {
-  text-align: right;
-  font-size: 16px;
-}
-
-.om-tx-head .om-tx-amt {
-  font-size: inherit;
-}
-
-/* A person's share of a shared record, under its full amount. */
 .om-tx-share {
   display: block;
   font-size: 11.5px;
@@ -119,136 +226,104 @@
   white-space: nowrap;
 }
 
-.om-tx-chev {
-  color: var(--ink3);
-  font-size: 14px;
-  line-height: 1;
-}
-
-/* On a phone a record is two lines: merchant and amount, then the date,
-   category, account and owner in grey. The date and the chevron gave up a
-   third of the width and left the merchant a word a line. */
-@container (max-width: 720px) {
-  .om-tx {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-  .om-hide-sm {
-    display: none;
-  }
-  .om-tx-meta {
-    display: block;
-  }
-}
-
-/* calendar */
-.cal {
-  margin-top: 22px;
-}
-
+/* The calendar (prototype css/money.css .cal): a card of day tiles, the
+   month the header stepper shows. */
 .cal-grid {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 1px;
-  background: var(--rule);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
 }
-
 .cal-grid-head {
-  background: none;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
-
 .cal-weekday {
-  font-size: 10.5px;
+  font-size: 12px;
   color: var(--ink3);
-  text-align: center;
-  padding: 4px 0;
+  padding: 0 8px;
 }
-
 .cal-cell {
-  background: var(--canvas);
-  border: none;
-  min-height: 68px;
-  padding: 8px;
-  text-align: left;
-  cursor: pointer;
+  height: 78px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 7px 9px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  align-items: flex-start;
+  gap: 1px;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
 }
-
 .cal-cell:hover {
-  background: var(--raise);
+  background: var(--raised);
 }
-
 .cal-cell-empty {
+  border-color: transparent;
+  background: transparent;
   cursor: default;
-  background: var(--canvas);
 }
-
 .cal-cell-empty:hover {
-  background: var(--canvas);
+  background: transparent;
 }
-
+.cal-cell[data-none] {
+  background: var(--ground);
+}
+.cal-cell[data-none] .cal-daynum {
+  color: var(--ink3);
+}
+.cal-cell[data-today='true'] {
+  border-color: var(--ink);
+}
 .cal-cell[data-today='true'] .cal-daynum {
-  color: var(--accent);
-  font-weight: 500;
+  font-weight: 600;
 }
-
 .cal-cell[data-active='true'] {
-  background: color-mix(in oklab, var(--accent) 12%, transparent);
+  background: var(--active);
+  box-shadow: inset 0 0 0 1px var(--ink);
 }
-
 .cal-daynum {
-  font-size: 11.5px;
+  font: 400 12px var(--font-mono);
   color: var(--ink2);
+  margin-bottom: auto;
 }
-
 .cal-amounts {
-  font-size: 10.5px;
+  font-size: 12.5px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
 }
-
 .cal-spend {
-  color: var(--ink2);
+  color: var(--ink);
 }
-
 .cal-income {
   color: var(--pos);
 }
 
-.cal-daylist {
-  margin-top: 28px;
-  padding-top: 16px;
-  border-top: 1px solid var(--rule);
+/* Merchants: the bar list beside its two figures (prototype c-8 / c-4). */
+.mn-merchants {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
 }
-
-/* The second row of Activity's filters. On a phone it folds away behind
-   "Filters (n)", which only shows there. */
-.mn-more {
-  margin-top: 8px;
+.mn-merchant-figures .ds-kpis {
+  grid-auto-flow: row;
 }
-
-.mn-more-toggle {
-  display: none;
+.mn-merchant-figures .ds-kpi + .ds-kpi {
+  border-left: 0;
+  border-top: 1px solid var(--rule-soft);
 }
-
-.mn-custom-dates {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.mn-show-more {
-  margin: 14px auto 0;
-}
-
 @media (max-width: 720px) {
-  .mn-more-toggle {
-    display: inline-flex;
-    align-items: center;
+  .mn-merchants {
+    grid-template-columns: 1fr;
   }
-  .mn-more[data-open='false'] {
-    display: none;
-  }
+}
+
+/* Cards on the tab stand a step apart (prototype .page). */
+.mn-activity > .ds-card + .ds-card,
+.mn-activity .ds-card + .mn-table-card {
+  margin-top: 16px;
 }
 
 /* What a save added besides the record (a merchant rule), above the list. */
@@ -275,4 +350,9 @@
   font-size: 16px;
   line-height: 1;
   padding: 0;
+}
+
+/* The page's content starts a step below the tabs (prototype .page). */
+.mn-activity {
+  margin-top: 20px;
 }

@@ -32,7 +32,7 @@ test('a split receipt shows its categories and counts only its line when narrowe
   await expect(row).toContainText('−500');
   await expect(row).toContainText('Dining out −100');
   // The fixtures' own dining (220) plus the receipt's 100 dining line.
-  await expect(page.locator('.mn-count')).toContainText('Net spend AED 320');
+  await expect(page.locator('.mn-summary')).toContainText('Spent 320');
 });
 
 test('a new receipt is split in one call after it is saved', async ({ page }) => {
@@ -40,7 +40,7 @@ test('a new receipt is split in one call after it is saved', async ({ page }) =>
   await openActivity(page, '/money', (request) => {
     if (request.url().includes('/rpc/split_transaction')) calls.push(request.postDataJSON());
   });
-  await page.getByRole('button', { name: '+ Add transaction' }).click();
+  await page.getByRole('button', { name: '+ Transaction' }).click();
   const dialog = page.getByRole('dialog', { name: 'Add transaction' });
   await dialog.getByPlaceholder('0').fill('500');
   await dialog.getByRole('button', { name: 'Split across categories' }).click();

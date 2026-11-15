@@ -1,4 +1,5 @@
 import { parseDay } from './day';
+import { monthFromParam, monthParam } from './useMonthParam';
 
 // Where a summary sends you to see its records, and what Activity reads back
 // out of the address. The filters live in the URL rather than in screen state
@@ -11,7 +12,8 @@ import { parseDay } from './day';
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const BASES = new Set(['posted', 'scheduled', 'all']);
 const KINDS = new Set(['expense', 'income', 'refund', 'transfer']);
-const SORTS = new Set(['newest', 'oldest', 'largest']);
+const VIEWS = new Set(['calendar', 'merchants']);
+const SORTS = new Set(['newest', 'oldest', 'largest', 'smallest']);
 const pad = (n) => String(n).padStart(2, '0');
 
 export function isoDay(date) {
@@ -38,7 +40,7 @@ export function readActivityFilters(params) {
     dateBasis: BASES.has(dates) ? dates : 'posted',
     from: from && DATE.test(from) ? from : null,
     to: to && DATE.test(to) ? to : null,
-    view: params.get('view') === 'calendar' ? 'calendar' : 'list',
+    view: VIEWS.has(params.get('view')) ? params.get('view') : 'list',
     accountId: params.get('acct') || 'all',
     kind: KINDS.has(params.get('kind')) ? params.get('kind') : 'all',
     sort: SORTS.has(params.get('sort')) ? params.get('sort') : 'newest',
@@ -48,13 +50,6 @@ export function readActivityFilters(params) {
 const PARAM_OF = { categoryId: 'cat', search: 'q', needsReview: 'review', estimated: 'est', dateBasis: 'dates', from: 'from', to: 'to', view: 'view', accountId: 'acct', kind: 'kind', sort: 'sort' };
 const DEFAULTS = { categoryId: 'all', search: '', needsReview: false, estimated: false, dateBasis: 'posted', from: null, to: null, view: 'list', accountId: 'all', kind: 'all', sort: 'newest' };
 
-// How many of the filters that narrow the list are set (not the view or the
-// sort, which only arrange it), for "Filters (2)" and "Clear filters".
-export function activeFilterCount(filters) {
-  const narrowing = ['categoryId', 'search', 'needsReview', 'estimated', 'dateBasis', 'accountId', 'kind'];
-  return narrowing.filter((key) => filters[key] !== DEFAULTS[key]).length + (filters.from || filters.to ? 1 : 0);
-}
-
 // Every narrowing filter back to its default, keeping the tab, the view and
 // the sort.
 export function withoutFilters(params) {
@@ -63,25 +58,58 @@ export function withoutFilters(params) {
   return next;
 }
 
-// The date select's choices, worked out from today. Each is an inclusive
-// range; "All dates" has neither end.
-export function datePresets(now = new Date()) {
-  const y = now.getFullYear();
-  const m = now.getMonth() + 1;
-  const last = new Date(y, m - 2, 1);
-  const ninety = new Date(y, now.getMonth(), now.getDate() - 89);
-  return [
-    { id: 'all', label: 'All dates', from: null, to: null },
-    { id: 'this-month', label: 'This month', ...monthRange(y, m) },
-    { id: 'last-month', label: 'Last month', ...monthRange(last.getFullYear(), last.getMonth() + 1) },
-    { id: '90-days', label: 'Last 90 days', from: isoDay(ninety), to: isoDay(now) },
-    { id: 'this-year', label: 'This year', from: `${y}-01-01`, to: `${y}-12-31` },
-  ];
+// Which dates Activity shows (the revamp, phase 4; design/prototype): a month
+// by default, the one in the address (`month`, shared with Budget) or this
+// one; every date on `range=all`; and a link's own range as it is. A range
+// that is one whole month is that month, so a link from Budget or Overview
+// lands with the stepper on it. `month` is the first of the month the stepper
+// shows: a custom range shows the month it starts in.
+export function activityPeriod(params, now = new Date()) {
+  const filters = readActivityFilters(params);
+  const current = new Date(now.getFullYear(), now.getMonth(), 1);
+  const named = monthFromParam(params.get('month')) ?? current;
+  if (filters.from || filters.to) {
+    const start = parseDay(filters.from ?? filters.to);
+    const month = new Date(start.getFullYear(), start.getMonth(), 1);
+    const whole = monthRange(month.getFullYear(), month.getMonth() + 1);
+    if (whole.from === filters.from && whole.to === filters.to) return { mode: 'month', month, ...whole };
+    return { mode: 'custom', month, from: filters.from, to: filters.to };
+  }
+  if (params.get('range') === 'all') return { mode: 'all', month: named, from: null, to: null };
+  return { mode: 'month', month: named, ...monthRange(named.getFullYear(), named.getMonth() + 1) };
 }
 
-// Which preset the current range is, if any.
-export function presetFor(from, to, now = new Date()) {
-  return datePresets(now).find((p) => p.from === (from ?? null) && p.to === (to ?? null))?.id ?? null;
+// The month Money's tabs share, as `month` would write it: the one in the
+// address, or a link's range when that is one whole month (the fresh review
+// of 4a: Budget opened from a link into Activity showed this month). Null for
+// this month, which the address leaves out, and for any other range.
+export function sharedMonth(params, now = new Date()) {
+  const filters = readActivityFilters(params);
+  let month = null;
+  if (filters.from || filters.to) {
+    const period = activityPeriod(params, now);
+    if (period.mode === 'month') month = monthParam(period.month);
+  } else if (monthFromParam(params.get('month'))) month = params.get('month');
+  return month && month !== monthParam(now) ? month : null;
+}
+
+// The address showing one month: any range and All dates go, and this month
+// is left out (lib/useMonthParam.js).
+export function withActivityMonth(params, month, now = new Date()) {
+  const next = new URLSearchParams(params);
+  for (const name of ['from', 'to', 'range', 'month']) next.delete(name);
+  if (monthParam(month) !== monthParam(now)) next.set('month', monthParam(month));
+  return next;
+}
+
+// The address showing every date. The month stays, for the stepper to step
+// from.
+export function withAllDates(params) {
+  const next = new URLSearchParams(params);
+  next.delete('from');
+  next.delete('to');
+  next.set('range', 'all');
+  return next;
 }
 
 // New search params with one filter changed. A filter at its default is left

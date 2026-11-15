@@ -13,7 +13,7 @@ test('a record added elsewhere appears on an open page, and an open editor keeps
   await expect(page.locator('.om-main .ov-skel')).toHaveCount(0, { timeout: 15_000 });
   await expect(page.locator('.fresh')).toContainText(/Loaded \d{2}:\d{2}/);
 
-  await page.getByRole('button', { name: '+ Add transaction' }).click();
+  await page.getByRole('button', { name: '+ Transaction' }).click();
   const merchant = page.getByPlaceholder('Type a merchant name');
   await merchant.fill('Half-typed');
 

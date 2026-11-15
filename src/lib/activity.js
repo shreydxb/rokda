@@ -79,11 +79,13 @@ export function isUncategorised(row) {
   return row.kind !== 'transfer' && !row.is_split && !row.category_id;
 }
 
-// The list's order. Largest is by size of the amount, either direction.
+// The list's order. Largest and smallest are by size of the amount, either
+// direction.
 export function sortRows(rows, sort) {
   const byDate = (a, b) => (a.occurred_at < b.occurred_at ? -1 : a.occurred_at > b.occurred_at ? 1 : 0);
   if (sort === 'oldest') return [...rows].sort(byDate);
   if (sort === 'largest') return [...rows].sort((a, b) => Math.abs(Number(b.amount)) - Math.abs(Number(a.amount)));
+  if (sort === 'smallest') return [...rows].sort((a, b) => Math.abs(Number(a.amount)) - Math.abs(Number(b.amount)));
   return [...rows].sort((a, b) => byDate(b, a));
 }
 

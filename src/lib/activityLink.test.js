@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { activeFilterCount, activityHref, bucketRange, categoryAndChildren, datePresets, dateRangeLabel, inDateRange, monthRange, presetFor, readActivityFilters, tabHref, withActivityFilter, withoutFilters } from './activityLink';
+import { activityHref, activityPeriod, sharedMonth, bucketRange, categoryAndChildren, dateRangeLabel, inDateRange, monthRange, readActivityFilters, tabHref, withActivityFilter, withActivityMonth, withAllDates, withoutFilters } from './activityLink';
 
 describe('activityHref and readActivityFilters', () => {
   it('round-trips a month and category through the address', () => {
@@ -77,33 +77,71 @@ describe('tabHref', () => {
   });
 });
 
-describe('date presets', () => {
-  const now = new Date(2026, 9, 15, 12);
-  it('works each preset out from today', () => {
-    const byId = Object.fromEntries(datePresets(now).map((p) => [p.id, p]));
-    expect(byId['this-month']).toMatchObject({ from: '2026-10-01', to: '2026-10-31' });
-    expect(byId['last-month']).toMatchObject({ from: '2026-09-01', to: '2026-09-30' });
-    expect(byId['90-days']).toMatchObject({ from: '2026-07-18', to: '2026-10-15' });
-    expect(byId['this-year']).toMatchObject({ from: '2026-01-01', to: '2026-12-31' });
-    expect(byId.all).toMatchObject({ from: null, to: null });
-  });
-
-  it('recognises a range as a preset, or not', () => {
-    expect(presetFor('2026-09-01', '2026-09-30', now)).toBe('last-month');
-    expect(presetFor(null, null, now)).toBe('all');
-    expect(presetFor('2026-08-01', '2026-08-31', now)).toBeNull();
-  });
-
-  it('crosses a year boundary for last month in January', () => {
-    const jan = new Date(2027, 0, 10);
-    expect(datePresets(jan).find((p) => p.id === 'last-month')).toMatchObject({ from: '2026-12-01', to: '2026-12-31' });
+describe('withoutFilters', () => {
+  it('clears the filters that narrow the list, keeping the view and the sort', () => {
+    const params = new URLSearchParams('tab=activity&cat=c1&from=2026-09-01&to=2026-09-30&view=calendar&sort=largest&acct=a1');
+    expect(withoutFilters(params).toString()).toBe('tab=activity&view=calendar&sort=largest');
   });
 });
 
-describe('activeFilterCount and withoutFilters', () => {
-  it('counts the filters that narrow the list, and clears them keeping the view', () => {
-    const params = new URLSearchParams('tab=activity&cat=c1&from=2026-09-01&to=2026-09-30&view=calendar&sort=largest&acct=a1');
-    expect(activeFilterCount(readActivityFilters(params))).toBe(3);
-    expect(withoutFilters(params).toString()).toBe('tab=activity&view=calendar&sort=largest');
+// Which dates Activity shows (the revamp, phase 4): the month the address
+// names, or this one; every date on `range=all`; a link's range as given,
+// counted as its month when it covers one whole month.
+describe('activityPeriod', () => {
+  const now = new Date(2026, 10, 15, 12);
+  const at = (search) => activityPeriod(new URLSearchParams(search), now);
+
+  it('shows this month when the address names no dates', () => {
+    expect(at('')).toEqual({ mode: 'month', month: new Date(2026, 10, 1), from: '2026-11-01', to: '2026-11-30' });
+  });
+
+  it('shows the month the address names', () => {
+    expect(at('month=2026-09')).toMatchObject({ mode: 'month', month: new Date(2026, 8, 1), from: '2026-09-01', to: '2026-09-30' });
+  });
+
+  it('counts a range that is one whole month as that month', () => {
+    expect(at('from=2026-08-01&to=2026-08-31')).toMatchObject({ mode: 'month', month: new Date(2026, 7, 1) });
+  });
+
+  it('keeps any other range as it is, on the month it starts in', () => {
+    expect(at('from=2026-11-01&to=2026-11-15')).toEqual({ mode: 'custom', month: new Date(2026, 10, 1), from: '2026-11-01', to: '2026-11-15' });
+    expect(at('to=2026-06-30')).toMatchObject({ mode: 'custom', month: new Date(2026, 5, 1), from: null, to: '2026-06-30' });
+  });
+
+  it('shows every date on range=all, keeping the month to step from', () => {
+    expect(at('range=all&month=2026-09')).toEqual({ mode: 'all', month: new Date(2026, 8, 1), from: null, to: null });
+  });
+});
+
+describe('withActivityMonth and withAllDates', () => {
+  const now = new Date(2026, 10, 15, 12);
+
+  it('moves to a month, dropping a range and All dates, and leaves this month out of the address', () => {
+    const start = new URLSearchParams('tab=activity&from=2026-11-01&to=2026-11-15&range=all&cat=c1');
+    expect(withActivityMonth(start, new Date(2026, 9, 1), now).toString()).toBe('tab=activity&cat=c1&month=2026-10');
+    expect(withActivityMonth(start, new Date(2026, 10, 1), now).toString()).toBe('tab=activity&cat=c1');
+  });
+
+  it('shows every date, keeping the month', () => {
+    const start = new URLSearchParams('tab=activity&month=2026-09&from=2026-09-01&to=2026-09-30');
+    expect(withAllDates(start).toString()).toBe('tab=activity&month=2026-09&range=all');
+  });
+});
+
+// The month Money's tabs share (the fresh review of 4a): a link's whole
+// month counts, so Budget opened from Activity shows the month Activity did.
+describe('sharedMonth', () => {
+  const now = new Date(2026, 10, 15, 12);
+  const at = (search) => sharedMonth(new URLSearchParams(search), now);
+
+  it("is the month in the address, or a link's whole month", () => {
+    expect(at('month=2026-09')).toBe('2026-09');
+    expect(at('from=2026-09-01&to=2026-09-30')).toBe('2026-09');
+  });
+
+  it('is nothing for this month, or for a range that is not one month', () => {
+    expect(at('')).toBeNull();
+    expect(at('month=2026-11')).toBeNull();
+    expect(at('from=2026-09-01&to=2026-09-15')).toBeNull();
   });
 });

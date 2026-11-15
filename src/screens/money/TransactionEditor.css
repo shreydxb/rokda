@@ -521,3 +521,9 @@
     min-height: 44px;
   }
 }
+
+/* An editor's form inside the kit's drawer (the revamp, phase 4): the
+   drawer's body already gives the padding. */
+.ds-drawer-body > .te-form {
+  padding: 0;
+}
