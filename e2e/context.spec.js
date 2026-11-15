@@ -16,17 +16,23 @@ async function open(page, path, options = {}) {
 // hidden button has no role to find, but its state still counts.
 const scope = (page, name) => page.locator('[aria-label="Household scope"] .om-scope', { hasText: new RegExp(`^${name}$`) });
 
-test('Back from an Insights figure returns to the month it came from', async ({ page }) => {
-  await open(page, '/money?tab=insights');
-  const label = page.locator('.cal-nav .fig');
+// Insights is gone (the revamp, phase 4b): a budget line's records are the
+// figure that opens Activity for a month now.
+test("Back from a budget line's records returns to the month it came from", async ({ page }) => {
+  const now = new Date();
+  const last = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const budgets = data.budgets.map((b) => ({ ...b, id: b.id.replace(/1$/, '9'), year: last.getFullYear(), month: last.getMonth() + 1 }));
+  await open(page, '/money?tab=budget', { tables: { budgets: [...data.budgets, ...budgets] } });
+  const label = page.locator('.ds-stepper-label');
   const current = await label.innerText();
-  await page.getByRole('button', { name: '← Prev' }).click();
-  // The address changes a render before the label does.
+  await page.getByRole('button', { name: 'Previous month' }).click();
   await expect(label).not.toHaveText(current);
   const chosen = await label.innerText();
-  await page.locator('.ins-cmp-row').filter({ hasText: 'Groceries' }).click();
+  await page.getByRole('button', { name: 'Groceries', exact: true }).click();
+  await page.getByRole('region', { name: 'Groceries this month' }).getByRole('button', { name: 'All in Activity →' }).click();
   await expect(page).toHaveURL(/tab=activity/);
   await page.goBack();
+  await expect(page.getByRole('button', { name: 'Budget', exact: true })).toHaveAttribute('data-active', 'true');
   await expect(label).toHaveText(chosen);
 });
 
