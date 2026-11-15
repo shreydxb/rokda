@@ -13,12 +13,6 @@ async function open(page, path) {
 }
 
 const activeTab = (page) => page.locator('.mn-tabs button[data-active="true"]');
-// "Oct 2026", as the month stepper names it.
-const lastMonthShort = () => {
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth() - 1, 1).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' }).replace('Sept', 'Sep');
-};
-
 test("Overview's Recurring link opens the Recurring tab, and Back returns", async ({ page }) => {
   await open(page, '/');
   await page.locator('.ov-next30').getByText('Recurring →').last().click();
@@ -28,31 +22,22 @@ test("Overview's Recurring link opens the Recurring tab, and Back returns", asyn
   await expect(page).toHaveURL(/\/$/);
 });
 
-test('an Insights figure opens its month and category in Activity, through Back and reload', async ({ page }) => {
+// Insights is gone (the revamp, phase 4b): an old link opens Activity's
+// Merchants for its month, and a merchant opens its records.
+test("an old Insights link opens Activity's Merchants for its month", async ({ page }) => {
   await open(page, '/money?tab=insights');
-  await expect(activeTab(page)).toHaveText('Insights');
-  await page.getByRole('button', { name: '← Prev' }).click();
-  await page.locator('.ins-cmp-row').filter({ hasText: 'Groceries' }).click();
-
-  await expect(page).toHaveURL(/tab=activity&cat=[^&]+&from=\d{4}-\d{2}-01&to=\d{4}-\d{2}-\d{2}$/);
-  const summary = page.locator('.mn-summary');
+  await expect(page).toHaveURL(/\/money\?tab=activity&view=merchants$/);
+  await expect(activeTab(page)).toHaveText('Activity');
+  const merchants = page.getByRole('region', { name: /^Merchants · / });
+  await merchants.getByRole('button', { name: /^Landlord/ }).click();
+  await expect(page).toHaveURL(/tab=activity&q=Landlord$/);
   await expect(page.getByRole('region', { name: '1 transaction' })).toBeVisible();
-  await expect(summary).toContainText('Spent 300');
-  // A link's whole month is that month: the stepper is on it.
-  await expect(page.getByRole('combobox', { name: 'Dates' })).toHaveValue('month');
-  await expect(page.locator('.ds-stepper-label')).toHaveText(lastMonthShort());
-
-  await page.reload({ waitUntil: 'domcontentloaded' });
-  await expect(summary).toContainText('Spent 300');
-
-  await page.goBack();
-  await expect(activeTab(page)).toHaveText('Insights');
 });
 
-test("a budget's records open from its editor, for its month and category", async ({ page }) => {
+test("a budget line's records open in Activity, for its month and category", async ({ page }) => {
   await open(page, '/money?tab=budget');
-  await page.locator('.bud-tr').filter({ hasText: 'Groceries' }).first().click();
-  await page.getByRole('button', { name: 'See the records →' }).click();
+  await page.getByRole('button', { name: 'Groceries', exact: true }).click();
+  await page.getByRole('region', { name: 'Groceries this month' }).getByRole('button', { name: 'All in Activity →' }).click();
   await expect(page).toHaveURL(/tab=activity&cat=[^&]+&from=\d{4}-\d{2}-01&to=/);
-  await expect(page.getByRole('combobox', { name: 'Category' }).locator('option:checked')).toHaveText('Groceries');
+  await expect(page.getByRole('combobox', { name: 'Category', exact: true }).locator('option:checked')).toHaveText('Groceries');
 });

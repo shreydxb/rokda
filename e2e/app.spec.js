@@ -126,7 +126,7 @@ const YEARLY_NOTE = {
 
 const SUBVIEWS = [
   { name: 'goals', path: '/planning', tabs: ['Goals'], expectText: 'counts only the cash set aside for it' },
-  { name: 'budget-year', path: '/money', tabs: ['Budget', 'Year'], expectText: 'Net saved each month' },
+  { name: 'budget-year', path: '/money', tabs: ['Budget', 'Year'], expectText: 'Saved so far' },
   { name: 'life-plan', path: '/planning', tabs: ['Life plan'], expectText: 'The pot, year by year' },
   // The fixture's own data: two closed months and a budget, so the Life plan
   // projects from the budget and must say so.

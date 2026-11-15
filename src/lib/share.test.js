@@ -12,7 +12,7 @@ const CATEGORIES = [
   { id: 'transport', name: 'Transport', owner_member_id: 'him' },
   { id: 'emi', name: 'Car EMI', parent_id: 'transport' },
   { id: 'family', name: 'Family Support' },
-  { id: 'raipur', name: 'Raipur Remittance', parent_id: 'family', owner_member_id: 'her' },
+  { id: 'remit', name: 'Family remittance', parent_id: 'family', owner_member_id: 'her' },
   { id: 'savings', name: 'Savings', is_savings: true },
   { id: 'her-goals', name: "Sam's Goals", parent_id: 'savings', is_savings: true, owner_member_id: 'her' },
 ];
@@ -30,7 +30,7 @@ const ACCOUNTS = [
 describe('categoryOwner', () => {
   const byId = new Map(CATEGORIES.map((c) => [c.id, c]));
   it('reads a category’s own owner, else its parent’s, else shared', () => {
-    expect(categoryOwner('raipur', byId)).toBe('her');
+    expect(categoryOwner('remit', byId)).toBe('her');
     expect(categoryOwner('emi', byId)).toBe('him');
     expect(categoryOwner('rent', byId)).toBeNull();
     expect(categoryOwner('missing', byId)).toBeNull();
@@ -71,8 +71,8 @@ describe('shareSplit', () => {
 describe('householdShare', () => {
   const BUDGETS = [
     { year: 2026, month: 10, category_id: 'rent', amount: 6500 },
-    { year: 2026, month: 10, category_id: 'emi', amount: 2194 },
-    { year: 2026, month: 10, category_id: 'raipur', amount: 417 },
+    { year: 2026, month: 10, category_id: 'emi', amount: 2200 },
+    { year: 2026, month: 10, category_id: 'remit', amount: 400 },
     { year: 2026, month: 10, category_id: 'her-goals', amount: 2000 },
     { year: 2026, month: 11, category_id: 'rent', amount: 99999 },
   ];
@@ -81,9 +81,9 @@ describe('householdShare', () => {
     const share = householdShare({ members: MEMBERS, categories: CATEGORIES, budgets: BUDGETS, recurring: RECURRING, year: 2026, month: 10, now: NOW });
     expect(share.planned.shared).toBe(6500);
     const [him, her] = share.people;
-    expect(him.ownPlanned).toBe(2194);
-    expect(her.ownPlanned).toBe(417);
-    expect(him.planned + her.planned).toBeCloseTo(6500 + 2194 + 417);
+    expect(him.ownPlanned).toBe(2200);
+    expect(her.ownPlanned).toBe(400);
+    expect(him.planned + her.planned).toBeCloseTo(6500 + 2200 + 400);
     expect(her.sharedPlanned).toBeCloseTo(6500 * (8500 / 32500));
     expect(her.savingPlanned).toBe(2000);
     expect(him.savingPlanned).toBe(0);
@@ -94,9 +94,9 @@ describe('householdShare', () => {
       // He pays the whole rent: the household's, so she owes her part.
       { occurred_at: '2026-10-01', amount: -6500, category_id: 'rent', account_id: 'his-card' },
       // His own EMI from his card: nothing between them.
-      { occurred_at: '2026-10-03', amount: -2194, category_id: 'emi', account_id: 'his-card' },
+      { occurred_at: '2026-10-03', amount: -2200, category_id: 'emi', account_id: 'his-card' },
       // Her remittance from his card: she owes it all back.
-      { occurred_at: '2026-10-05', amount: -417, category_id: 'raipur', account_id: 'his-card' },
+      { occurred_at: '2026-10-05', amount: -400, category_id: 'remit', account_id: 'his-card' },
       // Groceries from the joint account are already split.
       { occurred_at: '2026-10-06', amount: -300, category_id: null, account_id: 'joint' },
       // Income, a later month, and a future date are not spending this month.
@@ -106,11 +106,11 @@ describe('householdShare', () => {
     ];
     const share = householdShare({ members: MEMBERS, categories: CATEGORIES, budgets: BUDGETS, transactions, accounts: ACCOUNTS, recurring: RECURRING, year: 2026, month: 10, now: NOW });
     const herPct = 8500 / 32500;
-    expect(share.spent).toBe(6500 + 2194 + 417 + 300);
+    expect(share.spent).toBe(6500 + 2200 + 400 + 300);
     expect(share.sharedSpent).toBe(6800);
     expect(share.settle.from).toBe(HER);
     expect(share.settle.to).toBe(HIM);
-    expect(share.settle.amount).toBeCloseTo(6500 * herPct + 417);
+    expect(share.settle.amount).toBeCloseTo(6500 * herPct + 400);
     const [him, her] = share.people;
     expect(him.net + her.net).toBeCloseTo(0);
   });

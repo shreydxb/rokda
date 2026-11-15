@@ -206,4 +206,17 @@ describe('Money: the header and the month', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Budget' }));
     expect(screen.getByTestId('where').textContent).toBe('?tab=budget&month=2026-09');
   });
+
+  // Insights is gone (the revamp, phase 4b): its merchants are Activity's
+  // Merchants view, and an old link or bookmark opens it for its month.
+  it('opens an old Insights link as Activity\'s Merchants for the same month', () => {
+    renderScreen(
+      <MemoryRouter initialEntries={['/money?tab=insights&month=2026-09']}>
+        <Where />
+        <Money />
+      </MemoryRouter>,
+    );
+    expect(screen.getByTestId('where').textContent).toBe('?tab=activity&view=merchants&month=2026-09');
+    expect(screen.queryByRole('button', { name: 'Insights' })).toBeNull();
+  });
 });

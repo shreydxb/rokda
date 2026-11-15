@@ -3,17 +3,33 @@ import { useNow } from '../../lib/useNow';
 import { useMonthParam } from '../../lib/useMonthParam';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
-import { formatBalance, formatCompact, formatMoney } from '../../lib/money';
+import { formatBalance, formatMoney, formatSigned } from '../../lib/money';
 import { budgetGroupSpend, monthIncome, monthPace } from '../../lib/budget';
-import { ChartLegend, ColumnChart, LineChart } from '../../charts/Charts';
+import { budgetTable, lineRecords, paceVerdict } from '../../lib/budgetTable';
+import { UNCATEGORISED } from '../../lib/activityLink';
+import { rowDateLabel } from '../../lib/activity';
+import { Avatar, Card, Chip, EmptyState, InfoButton, MonthStepper, ProgressBar, Segmented } from '../../design-system/kit';
 import BudgetEditor from './BudgetEditor';
 import { categoryOwner, householdShare } from '../../lib/share';
 import { neverLoaded } from '../../lib/loadState';
 import Withheld from '../planning/Withheld';
+import { Tools } from './MoneyTools';
+import { setBudgetLimit } from './setBudgetLimit';
 import './Budget.css';
-import Explain from '../Explain';
+
+// Money -> Budget, built like the prototype (the revamp, phase 4b;
+// design/prototype/js/screens-money.js budMonth): the month's spent of
+// budget and its verdict, then each line against its limit, its usual month
+// and the month's pace, then the savings target and the household's share.
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const VIEWS = [
+  { id: 'month', label: 'Month' },
+  { id: 'year', label: 'Year' },
+];
+const pctText = (v) => `${Math.round(v * 100)}%`;
+// A limit as its box shows it: pence only when it has them.
+const limitText = (v) => formatMoney(v, { decimals: Number.isInteger(Number(v)) ? 0 : 2 });
 
 export default function Budget({ household, me, members, data, loading, onOpenRecords }) {
   const { scope } = useScope();
@@ -28,8 +44,8 @@ export default function Budget({ household, me, members, data, loading, onOpenRe
 
   const [view, setView] = useState('month'); // 'month' | 'year'
   const now = useNow(data?.loadedAt);
-  // The month view's month is in the address, like Insights', so Back from
-  // its records returns to it.
+  // The month is in the address, shared with Activity (lib/useTab keep), so
+  // Back from its records returns to it.
   const [cursor, setCursor] = useMonthParam(now);
   const [yearCursor, setYearCursor] = useState(now.getFullYear());
   // The editor's budget and the month it saves into, fixed when it opens. A
@@ -52,42 +68,42 @@ export default function Budget({ household, me, members, data, loading, onOpenRe
   }
 
   const catById = new Map(categories.map((c) => [c.id, c]));
+  const year = cursor.getFullYear();
+  const month = cursor.getMonth() + 1;
 
   return (
-    <div>
-      <div className="mn-filters">
-        <div className="mn-datebasis">
-          <button type="button" className="om-seg" data-active={view === 'month'} onClick={() => setView('month')}>
-            Month
-          </button>
-          <button type="button" className="om-seg" data-active={view === 'year'} onClick={() => setView('year')}>
-            Year
-          </button>
-        </div>
-        <div className="mn-toolbar-end">
-          <button type="button" className="om-btn mn-add" onClick={() => openEditor(null)}>
-            + Set budget
-          </button>
-        </div>
-      </div>
+    <div className="bud">
+      <Tools>
+        <Segmented label="View" options={VIEWS} value={view} onChange={setView} />
+        {view === 'month' ? (
+          <MonthStepper label={`${MONTH_LABELS[month - 1]} ${year}`} onPrev={() => setCursor(new Date(year, month - 2, 1))} onNext={() => setCursor(new Date(year, month, 1))} />
+        ) : (
+          <MonthStepper unit="year" label={String(yearCursor)} onPrev={() => setYearCursor(yearCursor - 1)} onNext={() => setYearCursor(yearCursor + 1)} />
+        )}
+        <button type="button" className="ds-btn ds-btn-primary" onClick={() => openEditor(null)}>
+          + Budget
+        </button>
+      </Tools>
 
       {view === 'month' ? (
         <MonthView
-          cursor={cursor}
-          setCursor={setCursor}
+          year={year}
+          month={month}
           budgets={spendBudgets}
           savingsBudgets={savingsBudgets}
           transactions={transactions}
+          categories={categories}
           catById={catById}
           scopeMemberId={scopeMemberId}
           now={now}
           onEdit={openEditor}
+          onOpenRecords={onOpenRecords}
+          reload={reload}
           share={{ members, categories, budgets, transactions, accounts, recurring }}
         />
       ) : (
         <YearView
           year={yearCursor}
-          setYear={setYearCursor}
           budgets={spendBudgets}
           savingsBudgets={savingsBudgets}
           transactions={transactions}
@@ -116,157 +132,295 @@ export default function Budget({ household, me, members, data, loading, onOpenRe
   );
 }
 
-function MonthView({ cursor, setCursor, budgets, savingsBudgets, transactions, catById, scopeMemberId, now, onEdit, share }) {
-  const year = cursor.getFullYear();
-  const month = cursor.getMonth() + 1;
+function MonthView({ year, month, budgets, savingsBudgets, transactions, categories, catById, scopeMemberId, now, onEdit, onOpenRecords, reload, share }) {
   const rows = budgets.filter((b) => b.year === year && b.month === month);
   const pace = monthPace(year, month, now);
-
   // What was actually spent, budgeted or not (QA-09), split by the same
-  // groups the rows below show -- so the hero, the rows and the footer are
-  // one set of figures that adds up, and the year view reads the same month
-  // identically.
+  // groups the table shows, so the hero, the rows and the totals are one set
+  // of figures that adds up, and the year view reads the same month alike.
   const spend = budgetGroupSpend(transactions, rows.map((r) => r.category_id), catById, year, month, scopeMemberId, now);
-  const actuals = spend.byCategory;
-  const totalBudget = rows.reduce((s, r) => s + Number(r.amount), 0);
-  const totalActual = spend.inBudgetedGroups;
-  const outsideBudget = spend.outside;
-
-  // Budgets are almost always set at subcategory level, but a household
-  // categorises inconsistently -- the same kind of purchase sometimes gets
-  // the specific subcategory, sometimes just the broad parent -- so a
-  // subcategory's own budget could read "not started" next to real matching
-  // spend sitting one level up. Grouping by main category and rolling actuals
-  // up to match (rollupActualsByGroup) fixes that at the level someone
-  // actually glances at first; the per-subcategory breakdown is still there,
-  // one click away.
-  const rolledActuals = spend.groups;
-  const groups = new Map();
-  for (const r of rows) {
-    const groupId = catById.get(r.category_id)?.parent_id ?? r.category_id;
-    if (!groups.has(groupId)) groups.set(groupId, []);
-    groups.get(groupId).push(r);
-  }
-
-  const usedPct = totalBudget > 0 ? totalActual / totalBudget : 0;
-  // Whose line each budget row is, shown beside its name when it is one
-  // person's own rather than the household's.
+  const table = budgetTable({ budgets: rows, catById, spend, transactions, year, month, scopeMemberId });
   const members = share?.members ?? [];
-  const ownerName = (categoryId) => {
-    const id = categoryOwner(categoryId, catById);
-    return id ? (members.find((m) => m.id === id)?.display_name ?? null) : null;
+  const monthLabel = `${MONTH_LABELS[month - 1]} ${year}`;
+  const income = monthIncome(transactions, year, month, scopeMemberId, now);
+
+  return (
+    <>
+      {rows.length === 0 ? (
+        <Card>
+          <EmptyState title="No budget set" body={`Nothing budgeted for ${monthLabel} yet.`} action={{ label: 'Set a budget', onClick: () => onEdit(null) }} />
+        </Card>
+      ) : (
+        <>
+          <Hero spent={table.budgeted.spent} limit={table.budgeted.limit} pace={pace} scoped={scopeMemberId !== null} />
+          <BudgetLines
+            table={table}
+            members={members}
+            catById={catById}
+            categories={categories}
+            transactions={transactions}
+            year={year}
+            month={month}
+            pace={pace}
+            scopeMemberId={scopeMemberId}
+            now={now}
+            onEdit={onEdit}
+            onOpenRecords={onOpenRecords}
+            reload={reload}
+          />
+        </>
+      )}
+      <div className="bud-cards">
+        <SavingsTarget rows={savingsBudgets.filter((b) => b.year === year && b.month === month)} saved={income - spend.total} income={income} pace={pace} catById={catById} scoped={scopeMemberId !== null} onEdit={onEdit} />
+        {members.length === 2 && <HouseholdShare {...share} year={year} month={month} pace={pace} now={now} />}
+      </div>
+    </>
+  );
+}
+
+// The spent of budget, the month's tick and its verdict (design/prototype
+// bud-hero).
+function Hero({ spent, limit, pace, scoped }) {
+  const verdict = paceVerdict(spent, limit, pace);
+  const used = limit > 0 ? spent / limit : 0;
+  return (
+    <section className="ds-card bud-hero" aria-label="Spent of budget">
+      <div className="bud-hero-fig">
+        <div className="bud-label">Spent of budget</div>
+        <div className="bud-big">
+          {formatMoney(spent)} <span className="bud-of">of {formatMoney(limit)}</span>
+        </div>
+      </div>
+      <div className="bud-hero-track">
+        <div className="bud-hero-line">
+          <span className="bud-ink2">
+            {pctText(used)} spent · {pace.isPast ? 'month complete' : `${pctText(pace.elapsedFraction)} of month gone`}
+          </span>
+          <span className="bud-chips">
+            {scoped && <Chip>Limits are the household’s</Chip>}
+            {verdict && <Chip tone={verdict.tone}>{verdict.label}</Chip>}
+          </span>
+        </div>
+        <ProgressBar label="Spent of budget" value={spent} max={limit} tick={pace.isPast ? null : pace.elapsedFraction * limit} tone={spent > limit ? 'neg' : 'accent'} format={formatMoney} />
+      </div>
+    </section>
+  );
+}
+
+// The By category table (design/prototype budMonth): group rows with their
+// subtotals, each line with what was spent, its limit typed in place, its
+// usual month and its pace; a line opens its records beneath it. Then what
+// was budgeted in all, and what was spent outside it.
+function BudgetLines({ table, members, catById, categories, transactions, year, month, pace, scopeMemberId, now, onEdit, onOpenRecords, reload }) {
+  const [open, setOpen] = useState(null);
+  const [error, setError] = useState(null);
+  const tone = new Map(members.map((m, i) => [m.id, i === 0 ? 'a' : 'b']));
+  const owner = (categoryId) => {
+    const id = categoryId ? categoryOwner(categoryId, catById) : null;
+    const m = id ? members.find((x) => x.id === id) : null;
+    return m ? <Avatar name={m.display_name} initial={m.display_name.slice(0, 1).toUpperCase()} tone={tone.get(m.id)} /> : null;
+  };
+  const saveLimit = async (line, text, input) => {
+    // Saved only when the text was changed, so passing through a limit with
+    // pence never rounds it, and only as a plain amount: "1,200", "1200.50"
+    // or "1200 AED". Anything else ("1e3", "-500", "lots") is left as it was
+    // (the fresh review of 4b).
+    const shown = limitText(line.limit);
+    const plain = /^\s*(\d{1,3}(,\d{3})+|\d+)(\.\d{1,2})?\s*(aed)?\s*$/i.exec(String(text));
+    const amount = plain ? Number(`${plain[1].replace(/,/g, '')}${plain[3] ?? ''}`) : NaN;
+    if (String(text).trim() === shown || !Number.isFinite(amount) || Math.abs(amount - line.limit) < 0.005) {
+      input.value = shown;
+      return;
+    }
+    setError(null);
+    const result = await setBudgetLimit(line.budget, amount);
+    if (result.error) {
+      setError(result.error);
+      input.value = shown;
+      return;
+    }
+    await reload();
+  };
+  const usualCell = (spent, usual) =>
+    usual == null ? null : (
+      <>
+        {usual > 0 && spent >= usual * 1.1 - 0.005 && <span className="bud-warn">+{Math.round((spent / usual - 1) * 100)}%</span>}
+        {usual > 0 && spent >= usual * 1.1 - 0.005 && ' '}
+        <span className="bud-ink2">{formatMoney(usual)}</span>
+      </>
+    );
+  const paceCell = (spent, limit) =>
+    limit ? (
+      <div className="bud-pace">
+        <div className="bud-pace-bar">
+          <ProgressBar label="Spent of limit" value={spent} max={limit} tick={pace.isPast ? null : pace.elapsedFraction * limit} tone={spent > limit ? 'neg' : 'accent'} format={formatMoney} />
+        </div>
+        {spent > limit + 0.005 && <Chip tone="neg">{`Over by ${formatMoney(spent - limit)}`}</Chip>}
+      </div>
+    ) : null;
+
+  const lineRow = (line) => {
+    const isOpen = open === line.id;
+    const canOpen = line.recordsCategoryId != null;
+    return [
+      <tr key={line.id} className={`bud-line${isOpen ? ' bud-open' : ''}`} onClick={canOpen ? () => setOpen(isOpen ? null : line.id) : undefined}>
+        <td>
+          <span className="bud-name-cell">
+            {canOpen && <span className="bud-caret" data-on={isOpen || undefined} aria-hidden="true" />}
+            {canOpen ? (
+              <button type="button" className="bud-name" aria-expanded={isOpen} onClick={(e) => (e.stopPropagation(), setOpen(isOpen ? null : line.id))}>
+                {line.name}
+              </button>
+            ) : (
+              <span className="bud-name">{line.name}</span>
+            )}
+            {owner(line.categoryId)}
+          </span>
+        </td>
+        <td className="ds-num">{formatBalance(line.spent)}</td>
+        <td className="ds-num" onClick={(e) => e.stopPropagation()}>
+          {line.budget ? (
+            <input
+              className="ds-select ds-select-sm bud-lim"
+              inputMode="decimal"
+              aria-label={`${line.name} limit`}
+              defaultValue={limitText(line.limit)}
+              key={`${line.id}-${line.limit}`}
+              onBlur={(e) => saveLimit(line, e.target.value, e.target)}
+              onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+            />
+          ) : (
+            <span className="bud-ink2">—</span>
+          )}
+        </td>
+        <td className="ds-num bud-usual">{usualCell(line.spent, line.usual)}</td>
+        <td className="bud-pace-cell">{paceCell(line.spent, line.limit)}</td>
+      </tr>,
+      isOpen && (
+        <tr key={`${line.id}-records`} className="bud-records-row">
+          <td colSpan={5}>
+            <LineRecords line={line} categories={categories} transactions={transactions} year={year} month={month} scopeMemberId={scopeMemberId} now={now} onOpenRecords={onOpenRecords} onEdit={onEdit} />
+          </td>
+        </tr>
+      ),
+    ];
   };
 
   return (
-    <div>
-      <div className="cal-nav" style={{ marginTop: 22 }}>
-        <button type="button" className="om-btn" onClick={() => setCursor(new Date(year, month - 2, 1))}>
-          ← Prev
-        </button>
-        <div className="fig">
-          {MONTH_LABELS[month - 1]} {year}
+    <Card
+      title="By category"
+      flush
+      info={<InfoButton about="the table">Usual is the average of up to six earlier months with records. The tick on each bar is how far through the month it is. Choose a line to see its transactions.</InfoButton>}
+    >
+      {error && (
+        <div className="bud-error" role="alert">
+          {error}
         </div>
-        <button type="button" className="om-btn" onClick={() => setCursor(new Date(year, month, 1))}>
-          Next →
-        </button>
-      </div>
-
-      {rows.length === 0 ? (
-        <div className="ov-empty">
-          <div className="ov-empty-kicker">No budget set</div>
-          <div className="ov-empty-body">Nothing budgeted for {MONTH_LABELS[month - 1]} {year} yet.</div>
-        </div>
-      ) : (
-        <>
-          <section className="bud-hero">
-            <div>
-              <div className="ov-kicker">Spent of budget</div>
-              <div className="ov-hero fig">
-                {formatMoney(totalActual)} <span className="bud-hero-of">of {formatMoney(totalBudget)}</span>
-              </div>
-            </div>
-            <div className="bud-hero-bar-wrap">
-              <div className="bud-bar bud-bar-lg">
-                <span className={`bud-bar-spent ${usedPct > 1 ? 'bud-bar-over' : ''}`} style={{ width: `${Math.min(100, usedPct * 100)}%` }} />
-                <span className="bud-bar-marker" style={{ left: `${Math.min(100, pace.elapsedFraction * 100)}%` }} />
-              </div>
-              <div className="bud-hero-labels">
-                <span>{Math.round(usedPct * 100)}% used</span>
-                <span>{pace.isPast ? 'Month complete' : `Pace marker · ${Math.round(pace.elapsedFraction * 100)}% of month elapsed`}</span>
-              </div>
-              <div className={`bud-tracknote ${usedPct > 1 ? 'ov-warn' : ''}`}>
-                {pace.isPast
-                  ? `Month closed at ${formatMoney(totalActual)} of ${formatMoney(totalBudget)} budgeted.`
-                  : usedPct > 1
-                    ? `Already ${formatMoney(totalActual - totalBudget)} over budget.`
-                    : `${Math.round(pace.elapsedFraction * 100)}% of the month gone, ${Math.round(usedPct * 100)}% of budget spent.`}
-              </div>
-            </div>
-          </section>
-
-          <div className="bud-table-head">
-            <div>Category</div>
-            <div className="bud-col-num">Spent</div>
-            <div className="bud-col-num">Limit</div>
-            <div>Pace</div>
-          </div>
-          <div className="mn-list">
-            {[...groups.entries()].map(([groupId, groupRows]) => (
-              <BudgetGroup
-                key={groupId}
-                groupId={groupId}
-                groupCategory={catById.get(groupId)}
-                rows={groupRows}
-                actuals={actuals}
-                groupActual={rolledActuals.get(groupId) ?? 0}
-                catById={catById}
-                pace={pace}
-                onEdit={onEdit}
-                ownerName={ownerName}
-              />
-            ))}
-          </div>
-
-          <div className="bud-footer">
-            <div className="bud-footer-row">
-              <span>Budgeted subtotal</span>
-              <span>
-                Budget <span className="fig">{formatMoney(totalBudget)}</span> · Spent <span className="fig">{formatMoney(totalActual)}</span>
-                {pace.isPast && ' · final'}
-              </span>
-            </div>
-            <div className="bud-footer-row">
-              <span>All spending</span>
-              <span>
-                Total <span className="fig">{formatMoney(spend.total)}</span>
-                {outsideBudget > 0 && (
-                  <>
-                    {' · outside budget '}
-                    <span className="fig">{formatMoney(outsideBudget)}</span>
-                    {spend.uncategorised > 0 && ` (${formatMoney(spend.uncategorised)} uncategorised)`}
-                  </>
-                )}
-              </span>
-            </div>
-            {scopeMemberId !== null && (
-              <div className="ov-muted" style={{ marginTop: 4 }}>
-                Actuals are this person’s share; budgets are the whole household’s, so the two are not like for like.
-              </div>
-            )}
-          </div>
-        </>
       )}
+      <div className="ds-table-wrap" tabIndex={0} role="region" aria-label="Budget lines">
+        <table className="ds-table bud-table">
+          <thead>
+            <tr>
+              <th scope="col">Category</th>
+              <th scope="col" className="ds-num bud-col-spent">
+                Spent
+              </th>
+              <th scope="col" className="ds-num bud-col-limit">
+                Limit
+              </th>
+              <th scope="col" className="ds-num bud-col-usual">
+                Usual
+              </th>
+              <th scope="col" className="bud-col-pace">
+                Pace
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {table.sections.flatMap((section) => [
+              section.group && (
+                <tr key={section.group.id} className="bud-group">
+                  <td>
+                    <span className="bud-name">{section.group.name}</span>
+                  </td>
+                  <td className="ds-num">{formatMoney(section.group.spent)}</td>
+                  <td className="ds-num bud-lim-total">{formatMoney(section.group.limit)}</td>
+                  <td className="ds-num bud-usual">{usualCell(section.group.spent, section.group.usual)}</td>
+                  <td className="bud-pace-cell" />
+                </tr>
+              ),
+              ...section.lines.flatMap(lineRow),
+            ])}
+            <tr className="bud-total">
+              <td>
+                <span className="bud-name">Budgeted</span>
+              </td>
+              <td className="ds-num">{formatMoney(table.budgeted.spent)}</td>
+              <td className="ds-num bud-lim-total">{formatMoney(table.budgeted.limit)}</td>
+              <td className="bud-usual" />
+              <td className="bud-pace-cell">{paceCell(table.budgeted.spent, table.budgeted.limit)}</td>
+            </tr>
+            <tr className="bud-outside">
+              <td>
+                <span className="bud-name-cell">
+                  <span className="bud-name">Outside budget</span>
+                  {table.uncategorised > 0 && (
+                    <button type="button" className="ds-chip ds-chip-warn" onClick={() => onOpenRecords({ categoryId: UNCATEGORISED, year, month })}>
+                      {`${formatMoney(table.uncategorised)} uncategorised`}
+                    </button>
+                  )}
+                </span>
+              </td>
+              <td className="ds-num">{formatMoney(table.outside)}</td>
+              <td />
+              <td className="bud-usual" />
+              <td className="bud-pace-cell">
+                <button type="button" className="ds-link" onClick={() => onOpenRecords({ year, month })}>
+                  Activity →
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
 
-      <SavingsTarget
-        rows={savingsBudgets.filter((b) => b.year === year && b.month === month)}
-        saved={monthIncome(transactions, year, month, scopeMemberId, now) - spend.total}
-        pace={pace}
-        catById={catById}
-        scoped={scopeMemberId !== null}
-        onEdit={onEdit}
-      />
-
-      {members.length === 2 && <HouseholdShare {...share} year={year} month={month} pace={pace} now={now} />}
+// A line's records for the month, beneath it, with the way to all of them in
+// Activity and to the line's budget (design/prototype bud-exp).
+function LineRecords({ line, categories, transactions, year, month, scopeMemberId, now, onOpenRecords, onEdit }) {
+  const records = lineRecords(transactions, line.recordsCategoryId, categories, year, month, scopeMemberId, now, { ownOnly: line.ownOnly });
+  return (
+    <div className="bud-records" role="region" aria-label={`${line.name} this month`}>
+      {records.length === 0 ? (
+        <div className="bud-ink3">Nothing spent here this month.</div>
+      ) : (
+        <ul className="bud-record-list">
+          {records.map(({ t, amount }) => (
+            <li key={t.id}>
+              <span className="bud-record-date">{rowDateLabel(t.occurred_at, now)}</span>
+              <span className="bud-record-name">{t.merchant || 'Transaction'}</span>
+              {t.kind === 'refund' && <Chip tone="pos">Refund</Chip>}
+              <span className="ds-num">{formatSigned(amount)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="bud-record-actions">
+        {/* Activity's category takes in its subcategories, so a general
+            line's own records have no list there to open. */}
+        {!line.ownOnly && (
+          <button type="button" className="ds-link ds-link-accent" onClick={() => onOpenRecords({ categoryId: line.recordsCategoryId, year, month })}>
+            All in Activity →
+          </button>
+        )}
+        {line.budget && (
+          <button type="button" className="ds-link" onClick={() => onEdit({ ...line.budget, spentSoFar: line.spent, recordsCategoryId: line.recordsCategoryId })}>
+            Edit budget
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -281,74 +435,94 @@ function HouseholdShare({ members, categories, budgets, transactions, accounts, 
   const planned = share.people.some((p) => p.planned > 0 || p.savingPlanned > 0);
   if (!planned && share.spent === 0) return null;
   const pctLabel = share.people.map((p) => `${p.member.display_name} ${Math.round(p.pct * 100)}%`).join(' · ');
+  const tone = new Map(members.map((m, i) => [m.id, i === 0 ? 'a' : 'b']));
+  const saving = share.people.some((p) => p.savingPlanned > 0);
+  const settled = share.spent > 0 && !pace.isFuture;
   return (
-    <section className="bud-savings bud-share" aria-label="Household share">
-      <div className="bud-savings-head">
-        <div className="ov-kicker" style={{ marginBottom: 0 }}>
-          Household share
-        </div>
-        <span className="ov-muted" style={{ fontSize: 11.5 }}>
-          Shared costs split {share.basis === 'income' ? `by income: ${pctLabel}` : 'evenly'}
-        </span>
-      </div>
-
-      {planned && (
-        <div className="bud-share-table" role="table" aria-label="Planned by person">
-          <div className="bud-share-row bud-share-headrow" role="row">
-            <span role="columnheader">Planned</span>
-            <span role="columnheader" className="bud-col-num">Own</span>
-            <span role="columnheader" className="bud-col-num">Share of shared</span>
-            <span role="columnheader" className="bud-col-num">Spending</span>
-            <span role="columnheader" className="bud-col-num">Saving</span>
-          </div>
-          {share.people.map((p) => (
-            <div key={p.member.id} className="bud-share-row" role="row">
-              <span role="cell">{p.member.display_name}</span>
-              <span role="cell" className="bud-col-num fig">{formatMoney(p.ownPlanned)}</span>
-              <span role="cell" className="bud-col-num fig">{formatMoney(p.sharedPlanned)}</span>
-              <span role="cell" className="bud-col-num fig">{formatMoney(p.planned)}</span>
-              <span role="cell" className="bud-col-num fig">{formatMoney(p.savingPlanned)}</span>
-            </div>
-          ))}
-          <div className="bud-share-row bud-share-foot" role="row">
-            <span role="cell">Shared lines</span>
-            <span role="cell" className="bud-col-num" />
-            <span role="cell" className="bud-col-num fig">{formatMoney(share.planned.shared)}</span>
-            <span role="cell" className="bud-col-num" />
-            <span role="cell" className="bud-col-num fig">{formatMoney(share.plannedSaving.shared)}</span>
-          </div>
-        </div>
-      )}
-
-      {share.spent > 0 && !pace.isFuture && (
-        <>
-          <div className="bud-share-settle">
+    <Card
+      title="Household share"
+      className="bud-share"
+      flush
+      right={<span className="bud-ink3">Shared costs split {share.basis === 'income' ? `by income: ${pctLabel}` : 'evenly'}</span>}
+      info={
+        <InfoButton about="the household share">
+          Each person’s part is their own costs plus their split of the shared ones. Paid is spending from each person’s own accounts and cards, a joint
+          account’s split the same way; uncategorised spending counts as shared. Whose cost a category is is set in Settings → Categories.
+          {share.basis === 'even' && ' Add each salary as an income reminder to split by income instead.'}
+        </InfoButton>
+      }
+    >
+      {settled && (
+        <div className="bud-share-settle">
+          <div className="bud-label">To even up {pace.isPast ? 'for the month' : 'so far'}</div>
+          <div className="bud-fig">
             {share.settle ? (
               <>
-                To even up{pace.isPast ? ' for the month' : ' so far'}: <span className="fig">{formatMoney(share.settle.amount)}</span> from{' '}
-                {share.settle.from.display_name} to {share.settle.to.display_name}
+                {formatMoney(share.settle.amount)}{' '}
+                <span className="bud-of">
+                  from {share.settle.from.display_name} to {share.settle.to.display_name}
+                </span>
               </>
             ) : (
-              <>All even {pace.isPast ? 'for the month' : 'so far'}</>
+              'All even'
             )}
           </div>
-          <div className="bud-share-paid">
-            {share.people.map((p) => (
-              <span key={p.member.id} className="ov-muted">
-                {p.member.display_name} paid <span className="fig">{formatMoney(p.paid)}</span> of their part{' '}
-                <span className="fig">{formatMoney(p.responsible)}</span>
-              </span>
-            ))}
-          </div>
-        </>
+        </div>
       )}
-
-      <Explain>
-        Whose cost a category is is set in Settings → Categories; subcategories follow their group. Paid is spending from each
-        person’s own accounts and cards, a joint account’s split the same way; uncategorised spending counts as shared.
-        {share.basis === 'even' && ' Add each salary as an income reminder to split by income instead.'}
-      </Explain>
-    </section>
+      {planned && (
+        <div className="ds-table-wrap" tabIndex={0} role="region" aria-label="Planned and paid by person">
+          <table className="ds-table bud-share-table">
+            <thead>
+              <tr>
+                <th scope="col" aria-label="Person" />
+                <th scope="col" className="ds-num">
+                  Own
+                </th>
+                <th scope="col" className="ds-num">
+                  Share of shared
+                </th>
+                <th scope="col" className="ds-num">
+                  Planned
+                </th>
+                {saving && (
+                  <th scope="col" className="ds-num">
+                    Saving
+                  </th>
+                )}
+                {settled && (
+                  <th scope="col" className="ds-num">
+                    Part so far
+                  </th>
+                )}
+                {settled && (
+                  <th scope="col" className="ds-num">
+                    Paid so far
+                  </th>
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {share.people.map((p) => (
+                <tr key={p.member.id}>
+                  <td>
+                    <span className="bud-name-cell">
+                      <Avatar name={p.member.display_name} initial={p.member.display_name.slice(0, 1).toUpperCase()} tone={tone.get(p.member.id)} />
+                      <span className="bud-name">{p.member.display_name}</span>
+                    </span>
+                  </td>
+                  <td className="ds-num">{formatMoney(p.ownPlanned)}</td>
+                  <td className="ds-num">{formatMoney(p.sharedPlanned)}</td>
+                  <td className="ds-num">{formatMoney(p.planned)}</td>
+                  {saving && <td className="ds-num">{formatMoney(p.savingPlanned)}</td>}
+                  {settled && <td className="ds-num">{formatMoney(p.responsible)}</td>}
+                  {settled && <td className="ds-num">{formatMoney(p.paid)}</td>}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
   );
 }
 
@@ -356,127 +530,35 @@ function HouseholdShare({ members, categories, budgets, transactions, accounts, 
 // spending, the same net saved the year view and Overview show. Saving is
 // what is left over, so there is nothing to file under the savings category
 // itself -- the target is met by spending less than was earned.
-function SavingsTarget({ rows, saved, pace, catById, scoped, onEdit }) {
+function SavingsTarget({ rows, saved, income, pace, catById, scoped, onEdit }) {
   if (rows.length === 0) return null;
   const target = rows.reduce((s, r) => s + Number(r.amount), 0);
-  const pct = target > 0 ? saved / target : 0;
   const names = rows.map((r) => catById.get(r.category_id)?.name ?? 'Savings').join(', ');
-  const verdict = saved >= target ? 'met' : pace.isPast ? 'short' : 'so far';
+  const gap = target - saved;
+  const chip = gap <= 0 ? <Chip tone="pos">Target met</Chip> : <Chip tone={pace.isPast ? 'neg' : 'neutral'}>{`${formatMoney(gap)} short${pace.isPast ? '' : ' so far'}`}</Chip>;
   return (
-    <section className="bud-savings">
-      <div className="bud-savings-head">
-        <div className="ov-kicker" style={{ marginBottom: 0 }}>
-          Savings target
-        </div>
-        <button type="button" className="om-link bud-savings-edit" onClick={() => onEdit(rows[0])}>
+    <Card
+      title="Savings target"
+      className="bud-savings"
+      right={chip}
+      info={
+        <InfoButton about="the savings target">
+          Saved is income less all spending this month. The target is not part of the budget: money set aside is not money spent.
+          {scoped && ' Saved is this person’s share; the target is the whole household’s.'}
+        </InfoButton>
+      }
+    >
+      <div className="bud-fig">
+        <span data-negative={saved < 0 || undefined}>{formatBalance(saved)}</span> <span className="bud-of">of {formatMoney(target)}</span>
+      </div>
+      <ProgressBar label="Saved of target" value={Math.max(0, saved)} max={target} tone="pos" format={formatMoney} />
+      <div className="bud-savings-foot">
+        <span className="bud-ink3">{income > 0 ? `${Math.round((saved / income) * 100)}% of income saved` : 'No income recorded this month'}</span>
+        <button type="button" className="ds-link" onClick={() => onEdit(rows[0])}>
           {names} · edit
         </button>
       </div>
-      <div className="bud-savings-figs">
-        <span className="fig bud-savings-saved" data-negative={saved < 0}>
-          {formatBalance(saved)}
-        </span>
-        <span className="ov-muted">
-          saved of <span className="fig">{formatMoney(target)}</span>
-          {verdict === 'met' ? ' · target met' : verdict === 'short' ? ` · ${formatMoney(target - saved)} short` : ' so far this month'}
-        </span>
-      </div>
-      <div className="bud-bar bud-bar-lg">
-        <span className="bud-bar-spent bud-bar-save" style={{ width: `${Math.max(0, Math.min(100, pct * 100))}%` }} />
-      </div>
-      <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 8, lineHeight: 1.6 }}>
-        Saved is income less all spending this month. The target is not counted in the budget above: money set aside is not
-        money spent.
-        {scoped && ' Saved is this person’s share; the target is the whole household’s.'}
-      </div>
-    </section>
-  );
-}
-
-function BudgetGroup({ groupId, groupCategory, rows, actuals, groupActual, catById, pace, onEdit, ownerName = () => null }) {
-  const [expanded, setExpanded] = useState(false);
-  const groupBudget = rows.reduce((s, r) => s + Number(r.amount), 0);
-  // A category budgeted directly, with no subcategory also budgeted this
-  // month -- nothing to expand into, so it behaves like a flat row.
-  const isSingle = rows.length === 1 && rows[0].category_id === groupId;
-  // Exactly one budgeted subcategory under this parent: there's no other
-  // subcategory a parent-level transaction could belong to instead, so the
-  // subrow can safely show the same rolled total the group row does rather
-  // than its own (possibly zero) raw actual -- a household categorising
-  // inconsistently shouldn't see this one subcategory read "not started"
-  // right below a group row showing real spend.
-  const onlyBudgetedSubcategory = rows.length === 1;
-
-  if (isSingle) {
-    return (
-      <BudgetRow
-        name={groupCategory?.name ?? 'Unknown'}
-        owner={ownerName(rows[0].category_id)}
-        budget={Number(rows[0].amount)}
-        actual={groupActual}
-        pace={pace}
-        onClick={() => onEdit({ ...rows[0], spentSoFar: groupActual, recordsCategoryId: groupCategory?.id ?? rows[0].category_id })}
-      />
-    );
-  }
-
-  // The group row names an owner only when every line under it is theirs.
-  const owners = new Set(rows.map((r) => ownerName(r.category_id)));
-  return (
-    <div className="bud-group">
-      <BudgetRow
-        name={groupCategory?.name ?? 'Unknown'}
-        owner={owners.size === 1 ? [...owners][0] : null}
-        budget={groupBudget}
-        actual={groupActual}
-        pace={pace}
-        onClick={() => setExpanded((v) => !v)}
-        expandable
-        expanded={expanded}
-      />
-      {expanded && (
-        <div className="bud-subrows">
-          {rows.map((r) => {
-            const subActual = onlyBudgetedSubcategory ? groupActual : (actuals.get(r.category_id) ?? 0);
-            return (
-              <BudgetRow
-                key={r.id}
-                name={catById.get(r.category_id)?.name ?? 'Unknown'}
-                owner={ownerName(r.category_id)}
-                budget={Number(r.amount)}
-                actual={subActual}
-                pace={pace}
-                onClick={() => onEdit({ ...r, spentSoFar: subActual, recordsCategoryId: onlyBudgetedSubcategory ? (groupCategory?.id ?? r.category_id) : r.category_id })}
-                sub
-              />
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function BudgetRow({ name, owner, budget, actual, pace, onClick, expandable, expanded, sub }) {
-  const overNow = actual > budget;
-  return (
-    <button type="button" className={`bud-tr ${sub ? 'bud-tr-sub' : ''}`} onClick={onClick}>
-      <div className="bud-tr-name">
-        {expandable && <span className="bud-chevron">{expanded ? '▾' : '▸'}</span>}
-        {name}
-        {owner && <span className="bud-owner">{owner}</span>}
-      </div>
-      <div className="bud-col-num fig">{formatMoney(actual)}</div>
-      <div className="bud-col-num"><span className="bud-limit-chip">{formatMoney(budget)}</span></div>
-      <div className="bud-tr-pace">
-        <div className="bud-bar">
-          <span className={`bud-bar-spent ${overNow ? 'bud-bar-over' : ''}`} style={{ width: `${Math.min(100, (actual / (budget || 1)) * 100)}%` }} />
-        </div>
-        <div className={`bud-pacetext ${overNow ? 'ov-warn' : ''}`}>
-          {overNow ? `over by ${formatMoney(actual - budget)}` : pace.isPast ? 'final' : actual > 0 ? 'tracking' : 'not started'}
-        </div>
-      </div>
-    </button>
+    </Card>
   );
 }
 
@@ -488,8 +570,7 @@ const sum = (values) => values.reduce((s, v) => s + (v ?? 0), 0);
 // total, a monthly average and each group's share of what was spent. Every
 // actual comes from budgetGroupSpend, the same figures the month view shows,
 // so a month reads identically in either view and every column adds up.
-function YearView({ year, setYear, budgets, savingsBudgets = [], transactions, categories, scopeMemberId, now }) {
-  const [activeMonth, setActiveMonth] = useState(null);
+function YearView({ year, budgets, savingsBudgets = [], transactions, categories, scopeMemberId, now }) {
   const catById = new Map(categories.map((c) => [c.id, c]));
   const yearBudgets = budgets.filter((b) => b.year === year);
   const catIds = [...new Set(yearBudgets.map((b) => b.category_id))];
@@ -566,97 +647,33 @@ function YearView({ year, setYear, budgets, savingsBudgets = [], transactions, c
   };
   const values = (cells) => cells.map((c) => c.value);
 
-  const active = activeMonth ?? (year === currentYear ? currentMonth - 1 : anyActual ? 11 : null);
-  const activeCol = (i) => (i === active ? 'bud-col-active' : undefined);
+  // The month now running is marked down the grid (design/prototype .cur).
+  const activeCol = (i) => (year === currentYear && i === currentMonth - 1 ? 'bud-col-active' : undefined);
 
-  return (
-    <div>
-      <div className="cal-nav" style={{ marginTop: 22 }}>
-        <button type="button" className="om-btn" onClick={() => setYear(year - 1)}>
-          ← {year - 1}
-        </button>
-        <div className="fig">{year}</div>
-        <button type="button" className="om-btn" onClick={() => setYear(year + 1)}>
-          {year + 1} →
-        </button>
-      </div>
-
-      {anyActual && (
-        <section style={{ marginTop: 22 }}>
-          <div className="ch-pair">
-            <div>
-              <div className="ov-kicker">Net saved each month</div>
-              <ColumnChart
-                columns={MONTHS.map((m, i) => ({ key: m, label: MONTH_LABELS[i], values: [netSaved[i] ?? 0], muted: netSaved[i] === null }))}
-                series={[{ key: 'net', label: 'Net saved', color: (v) => (v < 0 ? 'var(--neg)' : 'var(--pos)') }]}
-                reference={hasTarget ? { values: target, label: 'Target' } : null}
-                height={150}
-                formatTick={formatCompact}
-                labelEvery={2}
-                activeIndex={active}
-                onActiveChange={setActiveMonth}
-                ariaLabel={`Net saved each month of ${year}: income minus all spending. Use the arrow keys to move between months.`}
-              />
-            </div>
-            <div>
-              <div className="ov-kicker">Saved so far in {year}</div>
-              <LineChart
-                points={MONTHS.map((m, i) => ({ key: m, label: MONTH_LABELS[i], value: savedSoFar[i] }))}
-                color="var(--accent)"
-                height={150}
-                formatTick={formatCompact}
-                labelEvery={2}
-                activeIndex={active}
-                onActiveChange={setActiveMonth}
-                ariaLabel={`Running total of net saved through ${year}. Use the arrow keys to move between months.`}
-              />
-            </div>
-          </div>
-          {active !== null && (
-            <div className="ov-chart-readout">
-              <span className="fig">
-                {MONTH_LABELS[active]} {year}
-              </span>
-              {netSaved[active] === null ? (
-                <span>Not reached yet · budgeted {formatMoney(budgetedCells[active])}</span>
-              ) : (
-                <>
-                  <span>
-                    Income <b className="fig">{formatMoney(income[active])}</b>
-                  </span>
-                  <span>
-                    Spending <b className="fig">{formatMoney(allSpending[active])}</b>
-                  </span>
-                  <span>
-                    Net saved <b className={`fig ${netSaved[active] < 0 ? 'ov-neg' : ''}`}>{formatBalance(netSaved[active])}</b>
-                  </span>
-                  <span>
-                    So far this year <b className="fig">{formatBalance(savedSoFar[active])}</b>
-                  </span>
-                  {year === currentYear && active === currentMonth - 1 && <span className="ov-muted">month still open</span>}
-                </>
-              )}
-            </div>
-          )}
-          <ChartLegend
-            items={[
-              { label: 'Saved', color: 'var(--pos)' },
-              { label: 'Overspent', color: 'var(--neg)' },
-              { label: 'Running total', color: 'var(--accent)', kind: 'line' },
-              ...(hasTarget ? [{ label: 'Savings target', color: 'var(--ink2)', kind: 'line' }] : []),
-            ]}
-          />
-        </section>
-      )}
-
-      {catIds.length === 0 ? (
-        <div className="ov-empty">
-          <div className="ov-empty-kicker">No budget set</div>
-          <div className="ov-empty-body">Nothing budgeted for {year} yet.</div>
-        </div>
-      ) : (
-        <div className="bud-yearwrap">
-          <table className="bud-year">
+  return catIds.length === 0 ? (
+    <Card>
+      <EmptyState title="No budget set" body={`Nothing budgeted for ${year} yet.`} />
+    </Card>
+  ) : (
+    <Card
+      title={`${year} by month`}
+      flush
+      right={
+        <span className="bud-ink3">
+          <i>Italic</i> = budgeted, months ahead
+        </span>
+      }
+      info={
+        <InfoButton about="the year">
+          Months to date show what was spent; months ahead show the budget, in italics. Total adds the two. Each group counts everything spent in it,
+          subcategories included, the same as the month view. Net saved is income minus all spending, including categories with no budget and records
+          with no category.
+          {scopeMemberId !== null && ' Actuals are this person’s share; budgets are the whole household’s.'}
+        </InfoButton>
+      }
+    >
+        <div className="ds-table-wrap bud-yearwrap" tabIndex={0} role="region" aria-label={`${year}, month by month`}>
+          <table className="ds-table bud-year">
             <thead>
               <tr>
                 <th scope="col">Category</th>
@@ -707,15 +724,8 @@ function YearView({ year, setYear, budgets, savingsBudgets = [], transactions, c
               </tr>
             </tbody>
           </table>
-          <div className="ov-muted" style={{ marginTop: 8, fontSize: 11.5, lineHeight: 1.6 }}>
-            Months to date show what was spent; months ahead show the budget, in italics. Total adds the two. Each group counts
-            everything spent in it, subcategories included, the same as the month view. Net saved is income minus <em>all</em>{' '}
-            spending, including categories with no budget and records with no category.
-            {scopeMemberId !== null && ' Actuals are this person’s share; budgets are the whole household’s.'}
-          </div>
         </div>
-      )}
-    </div>
+    </Card>
   );
 }
 
