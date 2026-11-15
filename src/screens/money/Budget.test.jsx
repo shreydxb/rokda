@@ -9,14 +9,23 @@ const renderScreen = (ui) => renderBare(<MemoryRouter>{ui}</MemoryRouter>);
 import Budget from './Budget';
 
 // What a save sends, for the editor's month (E2-2).
-const { upserts } = vi.hoisted(() => ({ upserts: [] }));
+const { upserts, updates } = vi.hoisted(() => ({ upserts: [], updates: [] }));
 vi.mock('../../lib/supabaseClient', () => ({
   supabase: {
-    from: () => ({
+    from: (table) => ({
       upsert: (rows) => {
         upserts.push(rows);
         return Promise.resolve({ error: null });
       },
+      // A limit typed in place (the revamp, phase 4b).
+      update: (row) => ({
+        eq: (col, id) => ({
+          select: () => {
+            updates.push({ table, row, id });
+            return Promise.resolve({ data: [{ id }], error: null });
+          },
+        }),
+      }),
     }),
   },
 }));
@@ -66,21 +75,22 @@ describe('Budget: household share', () => {
 
   it('splits shared lines by income and gives the one transfer that evens it up', () => {
     renderShare(TWO);
-    const section = screen.getByLabelText('Household share');
+    const section = screen.getByRole('region', { name: 'Household share' });
     expect(section.textContent).toMatch(/Alex 75% · Sam 25%/);
     // Her part of the rent he paid: 25% of 6,000.
-    expect(section.querySelector('.bud-share-settle').textContent).toMatch(/To even up so far:\s*\S*1,500 from Sam to Alex/);
+    expect(section.querySelector('.bud-share-settle').textContent).toMatch(/To even up so far\s*1,500 from Sam to Alex/);
     expect(section.textContent).not.toMatch(/owes/);
   });
 
-  it('labels one person’s own lines in the budget', () => {
+  it('marks one person’s own lines in the budget with their initial', () => {
     renderShare(TWO);
-    expect([...document.querySelectorAll('.bud-owner')].map((n) => n.textContent)).toContain('Sam');
+    const row = screen.getByText('Family Support › Raipur Remittance').closest('tr');
+    expect(within(row).getByRole('img', { name: 'Sam' })).toBeTruthy();
   });
 
   it('is not shown for a household of one', () => {
     renderShare(TWO.slice(0, 1));
-    expect(screen.queryByLabelText('Household share')).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Household share' })).toBeNull();
   });
 });
 
@@ -114,36 +124,124 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe('Budget: over-budget shows red and "over by", even too early to project', () => {
-  it('flags a subcategory already spent past its limit before a projection is possible', () => {
-    renderBudget({
-      budgets: [{ id: 'b1', category_id: 'dewa', year: 2026, month: 9, amount: 300 }],
-      transactions: [{ id: 't1', amount: -450, kind: 'expense', occurred_at: '2026-09-02', is_shared: true, category_id: 'dewa' }],
-    });
-    expect(screen.getByText(/over by/i)).toBeTruthy();
-    expect(document.querySelector('.bud-bar-over')).toBeTruthy();
+// The month as the prototype lays it out (the revamp, phase 4b): the spent of
+// budget with its verdict, the table with each line's usual, a limit typed in
+// place, and a line's records beneath it.
+describe('Budget: the month', () => {
+  const CATS = [
+    { id: 'food', name: 'Food', kind: 'expense', parent_id: null },
+    { id: 'groc', name: 'Groceries', kind: 'expense', parent_id: 'food' },
+    { id: 'dine', name: 'Dining out', kind: 'expense', parent_id: 'food' },
+    { id: 'shop', name: 'Shopping', kind: 'expense', parent_id: null },
+  ];
+  const BUDGETS = [
+    { id: 'b1', category_id: 'groc', year: 2026, month: 9, amount: 1000 },
+    { id: 'b2', category_id: 'dine', year: 2026, month: 9, amount: 400 },
+  ];
+  const TXNS = [
+    { id: 't1', amount: -300, kind: 'expense', occurred_at: '2026-09-02', is_shared: true, category_id: 'groc', merchant: 'Grocer' },
+    { id: 't2', amount: -450, kind: 'expense', occurred_at: '2026-09-02', is_shared: true, category_id: 'dine', merchant: 'Cafe' },
+    { id: 't3', amount: -50, kind: 'expense', occurred_at: '2026-09-01', is_shared: true, category_id: 'food', merchant: 'Market' },
+    { id: 't4', amount: -120, kind: 'expense', occurred_at: '2026-09-02', is_shared: true, category_id: 'shop', merchant: 'Store' },
+    { id: 't5', amount: -30, kind: 'expense', occurred_at: '2026-09-02', is_shared: true, category_id: null, merchant: 'Unknown' },
+    // August, for the usual month.
+    { id: 'a1', amount: -200, kind: 'expense', occurred_at: '2026-08-10', is_shared: true, category_id: 'dine', merchant: 'Cafe' },
+  ];
+  const reload = vi.fn().mockResolvedValue(undefined);
+  const onOpenRecords = vi.fn();
+  const render = (props = {}) =>
+    renderScreen(
+      <Budget household={{ id: 'h' }} me={{ id: 'm1' }} members={MEMBERS} loading={false} onOpenRecords={onOpenRecords} data={{ transactions: TXNS, categories: CATS, budgets: BUDGETS, reload }} {...props} />,
+    );
+  const row = (name) => screen.getByText(name, { selector: '.bud-name' }).closest('tr');
+
+  beforeEach(() => {
+    updates.length = 0;
+    reload.mockClear();
+    onOpenRecords.mockClear();
   });
 
-  it('the hero note says "Already X over budget" instead of "too early to project"', () => {
-    renderBudget({
-      budgets: [{ id: 'b1', category_id: 'dewa', year: 2026, month: 9, amount: 300 }],
-      transactions: [{ id: 't1', amount: -450, kind: 'expense', occurred_at: '2026-09-02', is_shared: true, category_id: 'dewa' }],
-    });
-    expect(screen.getByText(/Already.*over budget/i)).toBeTruthy();
+  it('gives the spent of budget, how far through the month it is, and the verdict', () => {
+    render();
+    const hero = screen.getByRole('region', { name: 'Spent of budget' });
+    expect(hero.textContent).toMatch(/800\s*of 1,400/);
+    expect(hero.textContent).toMatch(/57% spent · 10% of month gone/);
+    expect(within(hero).getByText('Over pace')).toBeTruthy();
   });
-});
 
-describe('Budget: single-budgeted-subcategory rollup fixes false "not started"', () => {
-  it('shows the parent-posted spend on the one budgeted subcategory instead of "not started"', () => {
+  it('lists a group with its lines, Other for what none of them holds, and says a line is over', () => {
+    render();
+    expect(row('Food').textContent).toMatch(/800/);
+    expect(row('Dining out').textContent).toMatch(/Over by 50/);
+    expect(row('Other Food').textContent).toMatch(/50/);
+  });
+
+  it("gives each line's usual month, and says when this month is well above it", () => {
+    render();
+    expect(row('Dining out').querySelector('.bud-usual').textContent).toBe('+125% 200');
+    expect(row('Groceries').querySelector('.bud-usual').textContent).toBe('');
+  });
+
+  it('saves a limit typed in place', async () => {
+    render();
+    const input = screen.getByRole('textbox', { name: 'Groceries limit' });
+    fireEvent.change(input, { target: { value: '1,200' } });
+    await act(async () => fireEvent.focusOut(input));
+    expect(updates).toEqual([{ table: 'budgets', row: { amount: 1200 }, id: 'b1' }]);
+    expect(reload).toHaveBeenCalled();
+  });
+
+  it('leaves a limit that is not a number as it was', async () => {
+    render();
+    const input = screen.getByRole('textbox', { name: 'Groceries limit' });
+    fireEvent.change(input, { target: { value: 'lots' } });
+    await act(async () => fireEvent.focusOut(input));
+    expect(updates).toEqual([]);
+    expect(input.value).toBe('1,000');
+  });
+
+  it("opens a line's records beneath it, with the way to all of them and to its budget", () => {
+    render();
+    fireEvent.click(screen.getByText('Dining out', { selector: '.bud-name' }));
+    const records = screen.getByRole('region', { name: 'Dining out this month' });
+    expect(within(records).getByText('Cafe')).toBeTruthy();
+    fireEvent.click(within(records).getByRole('button', { name: 'All in Activity →' }));
+    expect(onOpenRecords).toHaveBeenCalledWith({ categoryId: 'dine', year: 2026, month: 9 });
+    fireEvent.click(within(records).getByRole('button', { name: 'Edit budget' }));
+    expect(screen.getByRole('dialog', { name: 'Edit budget' })).toBeTruthy();
+  });
+
+  it('totals the budgeted lines, and opens what was spent outside them', () => {
+    render();
+    expect(row('Budgeted').textContent).toMatch(/800/);
+    expect(row('Outside budget').textContent).toMatch(/150/);
+    fireEvent.click(within(row('Outside budget')).getByRole('button', { name: '30 uncategorised' }));
+    expect(onOpenRecords).toHaveBeenCalledWith({ categoryId: 'none', year: 2026, month: 9 });
+    fireEvent.click(within(row('Outside budget')).getByRole('button', { name: 'Activity →' }));
+    expect(onOpenRecords).toHaveBeenLastCalledWith({ year: 2026, month: 9 });
+  });
+
+  it('counts the whole group on its one budgeted line, so spending on the group is not "not started"', () => {
     renderBudget({
       budgets: [{ id: 'b1', category_id: 'dewa', year: 2026, month: 9, amount: 300 }],
-      // Posted directly to the parent "Utilities", not the "DEWA" subcategory
-      // -- exactly the real mis-categorisation this app already tolerates.
       transactions: [{ id: 't1', amount: -250, kind: 'expense', occurred_at: '2026-09-02', is_shared: true, category_id: 'util' }],
     });
-    fireEvent.click(screen.getByText('Utilities'));
-    expect(screen.queryByText('not started')).toBeNull();
-    expect(screen.getAllByText(/250/).length).toBeGreaterThan(0);
+    expect(row('Utilities › DEWA').textContent).toMatch(/250/);
+  });
+
+  it('says over by how much in the hero once the budget is passed, however early', () => {
+    renderBudget({
+      budgets: [{ id: 'b1', category_id: 'dewa', year: 2026, month: 9, amount: 300 }],
+      transactions: [{ id: 't1', amount: -450, kind: 'expense', occurred_at: '2026-09-02', is_shared: true, category_id: 'dewa' }],
+    });
+    expect(within(screen.getByRole('region', { name: 'Spent of budget' })).getByText('Over by 150')).toBeTruthy();
+  });
+
+  it('puts Month and Year, the month and + Budget in the header', () => {
+    render();
+    expect(screen.getByRole('group', { name: 'View' })).toBeTruthy();
+    expect(screen.getByText('Sep 2026', { selector: '.ds-stepper-label' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '+ Budget' })).toBeTruthy();
   });
 });
 
@@ -238,16 +336,17 @@ describe('Budget: a savings category is a target, not spending', () => {
   it('keeps the target out of the spending budget', () => {
     render();
     // 1,500 of 2,000 -- not of 5,000.
-    expect(screen.getByText('of 2,000')).toBeTruthy();
-    expect(screen.queryByText('of 5,000')).toBeNull();
+    expect(screen.getByRole('region', { name: 'Spent of budget' }).textContent).toMatch(/1,500\s*of 2,000/);
+    expect(screen.queryByText(/of 5,000/)).toBeNull();
   });
 
   it('shows the target against what the month saved', () => {
     render();
-    expect(screen.getByText('Savings target')).toBeTruthy();
+    const card = screen.getByRole('region', { name: 'Savings target' });
     // 10,000 income less 1,500 spent = 8,500 saved of a 3,000 target.
-    expect(screen.getByText('8,500')).toBeTruthy();
-    expect(screen.getByText(/target met/)).toBeTruthy();
+    expect(card.textContent).toMatch(/8,500\s*of 3,000/);
+    expect(within(card).getByText('Target met')).toBeTruthy();
+    expect(card.textContent).toMatch(/85% of income saved/);
   });
 
   it('gives the target its own row in the year view, outside the budgeted subtotal', () => {
@@ -307,7 +406,7 @@ describe('Budget: records that never loaded', () => {
       />,
     );
     expect(screen.queryByText('Couldn’t load transactions.')).toBeNull();
-    expect(screen.getByRole('button', { name: '+ Set budget' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '+ Budget' })).toBeTruthy();
   });
 });
 
@@ -334,7 +433,7 @@ describe('Budget: an open editor keeps its month', () => {
         data={{ categories: [{ id: 'rent', name: 'Rent', kind: 'expense', parent_id: null }], budgets: [], transactions: [], reload: vi.fn().mockResolvedValue(undefined) }}
       />,
     );
-    fireEvent.click(screen.getByRole('button', { name: '+ Set budget' }));
+    fireEvent.click(screen.getByRole('button', { name: '+ Budget' }));
     const editor = within(screen.getByRole('dialog', { name: 'Set budget' }));
     fireEvent.change(editor.getByLabelText('Monthly limit'), { target: { value: '500' } });
     fireEvent.click(editor.getByRole('button', { name: 'Rent' }));

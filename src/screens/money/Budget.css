@@ -1,167 +1,262 @@
-/* Split out of ../Money.css with the round 2 cleanup (SHR-383): the rules only
-   this tab uses. What the Money tabs share stays there. */
+/* Money -> Budget (the revamp, phase 4b; design/prototype css/money.css
+   Budget): the hero, the By category table, and the two cards beneath. */
 
-.bud-chevron {
-  display: inline-block;
-  width: 12px;
+.bud {
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.bud-label {
+  font-size: 12.5px;
   color: var(--ink3);
-  font-size: 10px;
+  margin-bottom: 4px;
+}
+.bud-big {
+  font-size: 34px;
+  line-height: 40px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.bud-fig {
+  font-size: 21px;
+  line-height: 26px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 12px;
+}
+.bud-fig [data-negative] {
+  color: var(--neg);
+}
+.bud-of {
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--ink3);
+  letter-spacing: 0;
+}
+.bud-big .bud-of {
+  font-size: 16px;
+}
+.bud-ink2 {
+  color: var(--ink2);
+}
+.bud-ink3 {
+  color: var(--ink3);
+  font-size: 12.5px;
+}
+.bud-warn {
+  color: var(--warn);
+  font-size: 12.5px;
+}
+.bud-error {
+  margin: 0 18px 10px;
+  font-size: 12.5px;
+  color: var(--neg);
 }
 
-.bud-subrows {
-  border-left: 1px solid var(--rule2);
-  margin-left: 8px;
-}
-
-/* hero: spent-of-budget headline, pace bar with an elapsed-time marker, and
-   a plain-English pace readout -- matches design/Our Money - Command Center
-   v3.dc.html's V.bud block. */
+/* The hero. */
 .bud-hero {
   display: flex;
+  align-items: center;
   gap: 40px;
-  align-items: flex-end;
-  flex-wrap: wrap;
-  padding-bottom: 24px;
-  margin-top: 22px;
-  border-bottom: 1px solid var(--rule);
+  padding: 18px 22px 20px;
 }
-
-.bud-hero-of {
-  font-size: 18px;
-  color: var(--ink2);
-}
-
-.bud-hero-bar-wrap {
+.bud-hero-track {
   flex: 1;
-  min-width: 280px;
-  padding-bottom: 6px;
+  min-width: 0;
 }
-
-.bud-bar-marker {
-  position: absolute;
-  top: -5px;
-  bottom: -5px;
-  width: 1px;
-  background: var(--ink2);
-}
-
-.bud-hero-labels {
+.bud-hero-line {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 12px;
-  font-size: 11.5px;
-  color: var(--ink3);
-  margin-top: 8px;
+  font-size: 12.5px;
+  margin-bottom: 10px;
+}
+.bud-chips {
+  display: inline-flex;
+  gap: 6px;
+}
+.bud-hero .ds-bar {
+  height: 8px;
 }
 
-.bud-tracknote {
+/* The table. */
+.bud-col-spent {
+  width: 110px;
+}
+.bud-col-limit {
+  width: 120px;
+}
+.bud-col-usual {
+  width: 150px;
+}
+.bud-col-pace {
+  width: 300px;
+}
+.bud-name-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.bud-name {
+  font: inherit;
+  font-weight: 500;
+  color: var(--ink);
+  background: none;
+  border: 0;
+  padding: 0;
+  text-align: left;
+}
+button.bud-name {
+  cursor: pointer;
+}
+button.bud-name:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+.bud-caret {
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid var(--ink3);
+  border-bottom: 1.5px solid var(--ink3);
+  transform: rotate(-45deg);
+  transition: transform 0.12s;
+  flex: none;
+  margin: 0 4px 0 2px;
+}
+.bud-caret[data-on] {
+  transform: rotate(45deg);
+}
+.bud-line {
+  cursor: pointer;
+}
+.bud-line:hover td {
+  background: color-mix(in oklab, var(--ink) 2.5%, transparent);
+}
+.bud-open td {
+  border-bottom-color: transparent;
+}
+.bud-group td {
+  height: 34px;
   font-size: 12.5px;
+  color: var(--ink2);
+  background: var(--ground);
+}
+.bud-group .bud-name {
+  color: var(--ink2);
+}
+.bud-total td {
+  font-weight: 500;
+  border-top: 1px solid var(--rule);
+}
+.bud-lim {
+  width: 92px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.bud-lim-total {
+  padding-right: 23px;
+}
+.bud-usual {
+  white-space: nowrap;
+}
+.bud-pace {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.bud-pace-bar {
+  flex: 1;
+  min-width: 80px;
+}
+
+/* A line's records, beneath it. */
+.bud-records-row td {
+  padding: 0;
+  height: auto;
+  background: var(--ground);
+}
+.bud-records {
+  padding: 8px 18px 12px 44px;
+  font-size: 13px;
+}
+.bud-record-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.bud-record-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 32px;
+}
+.bud-record-date {
+  font: 400 12px var(--font-mono);
+  color: var(--ink3);
+  width: 64px;
+}
+.bud-record-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bud-record-actions {
+  display: flex;
+  gap: 18px;
+  margin-top: 6px;
+}
+
+/* The savings target and the household share, side by side. */
+.bud-cards {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: 16px;
+  align-items: stretch;
+}
+.bud-cards > :only-child {
+  grid-column: 1 / -1;
+}
+.bud-savings .ds-bar {
+  height: 8px;
+}
+.bud-savings-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   margin-top: 10px;
 }
-
-/* table: Category | Spent | Limit | Pace -- a group row and its expanded
-   subcategory rows share the same columns. No Projected column: a linear
-   extrapolation off partial-month spend read as invented precision more
-   than it helped. */
-.bud-table-head {
-  display: grid;
-  grid-template-columns: 1.4fr 110px 110px 1fr;
-  gap: 16px;
-  padding: 18px 0 10px;
-  margin-top: 8px;
-  border-bottom: 1px solid var(--rule2);
-  font-size: 10px;
-  color: var(--ink3);
+.bud-share-settle {
+  padding: 6px 18px 12px;
+}
+.bud-share-settle .bud-fig {
+  margin-bottom: 0;
 }
 
-.bud-col-num {
-  text-align: right;
-}
-
-.bud-tr {
-  display: grid;
-  grid-template-columns: 1.4fr 110px 110px 1fr;
-  gap: 16px;
-  align-items: center;
-  padding: 13px 0;
-  border-top: 1px solid var(--rule);
-  cursor: pointer;
-  background: none;
-  border-left: none;
-  border-right: none;
-  border-bottom: none;
-  text-align: left;
-  width: 100%;
-  font: inherit;
-  font-size: 13.5px;
-  color: inherit;
-}
-
-.bud-tr:hover {
-  background: var(--raise);
-}
-
-.bud-tr-name {
-  min-width: 0;
-}
-
-.bud-tr-sub .bud-tr-name {
-  padding-left: 20px;
-}
-
-.bud-limit-chip {
-  border: 1px solid var(--rule);
-  padding: 4px 8px;
-  font-size: 12.5px;
-  color: var(--ink2);
-}
-
-.bud-tr-pace {
-  min-width: 0;
-}
-
-.bud-pacetext {
-  font-size: 11.5px;
-  color: var(--ink3);
-  margin-top: 5px;
-}
-
-/* On a phone the four columns left the category name and the pace bar a few
-   pixels each, and Pace ran past the margin. The pace moves under its row,
-   full width, and the two figures keep their columns. */
 @media (max-width: 720px) {
-  .bud-table-head,
-  .bud-tr {
-    grid-template-columns: minmax(0, 1fr) 76px 76px;
-    gap: 6px 12px;
+  .bud-hero {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
   }
-  .bud-table-head > :nth-child(4) {
+  .bud-cards {
+    grid-template-columns: 1fr;
+  }
+  .bud-col-usual,
+  .bud-usual,
+  .bud-col-pace {
     display: none;
   }
-  .bud-tr-pace {
-    grid-column: 1 / -1;
-  }
-  .bud-tr-sub .bud-tr-pace {
-    padding-left: 20px;
-  }
 }
 
-.bud-footer {
-  margin-top: 4px;
-  padding-top: 14px;
-  border-top: 1px solid var(--rule2);
-}
-
-.bud-footer-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  font-size: 12.5px;
-  color: var(--ink3);
-  padding: 6px 0;
-  flex-wrap: wrap;
-}
-
+/* The year view. */
 .bud-yearwrap {
   margin-top: 22px;
   overflow-x: auto;
@@ -239,103 +334,3 @@
   background: var(--canvas);
 }
 
-/* Budget: the savings target, shown apart from the spending budget. */
-.bud-savings {
-  margin-top: 30px;
-  padding-top: 20px;
-  border-top: 1px solid var(--rule);
-}
-
-.bud-savings-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.bud-savings-edit {
-  background: none;
-  border: none;
-  color: var(--accent);
-  cursor: pointer;
-  font: inherit;
-  font-size: 11.5px;
-  padding: 0;
-}
-
-.bud-savings-figs {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin: 10px 0 12px;
-}
-
-.bud-savings-saved {
-  font-size: 28px;
-}
-
-.bud-savings-saved[data-negative='true'] {
-  color: var(--neg);
-}
-
-/* Household share: who carries what this month. */
-.bud-owner {
-  margin-left: 8px;
-  font-size: 10.5px;
-  letter-spacing: 0.04em;
-  color: var(--ink3);
-  border: 1px solid var(--rule);
-  border-radius: 999px;
-  padding: 1px 7px;
-  white-space: nowrap;
-}
-
-.bud-share-table {
-  margin: 12px 0 4px;
-  overflow-x: auto;
-}
-
-.bud-share-row {
-  display: grid;
-  grid-template-columns: minmax(90px, 1.2fr) repeat(4, minmax(72px, 1fr));
-  gap: 8px;
-  padding: 7px 0;
-  border-bottom: 1px solid var(--rule);
-  font-size: 13px;
-  min-width: 420px;
-}
-
-.bud-share-headrow {
-  font-size: 10.5px;
-  color: var(--ink3);
-}
-
-/* Five narrow columns fit a phone once they may shrink; at their desktop
-   minimums the last one, Saving, was off the edge. */
-@media (max-width: 720px) {
-  .bud-share-row {
-    grid-template-columns: minmax(0, 1.1fr) repeat(4, minmax(0, 1fr));
-    gap: 6px;
-    min-width: 0;
-  }
-}
-
-.bud-share-foot {
-  color: var(--ink3);
-  border-bottom: none;
-}
-
-.bud-share-settle {
-  margin-top: 14px;
-  font-size: 18px;
-}
-
-.bud-share-paid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 18px;
-  margin-top: 6px;
-  font-size: 12.5px;
-}

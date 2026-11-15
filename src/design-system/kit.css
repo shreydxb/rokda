@@ -860,6 +860,10 @@ select.ds-select {
 }
 button.ds-chip {
   cursor: pointer;
+  border: 0;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
 }
 button.ds-chip:hover {
   filter: brightness(0.97);
