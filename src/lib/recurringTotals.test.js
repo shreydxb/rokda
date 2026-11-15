@@ -85,3 +85,20 @@ describe('recurringStrip', () => {
     expect(strip.fixedCount).toBe(2);
   });
 });
+
+// The fresh review of 4a: a schedule whose last payment is due but unpaid is
+// not finished until it is marked, so it still counts to mark paid.
+describe('recurringStrip: a schedule that has just ended', () => {
+  it('still counts its last unpaid payment', () => {
+    const strip = recurringStrip([bill({ name: 'Gym', next_due_date: '2026-09-05', ends_on: '2026-10-10' })], [], null, NOW);
+    expect(strip.toMarkPaid).toBe(1);
+    expect(strip.late).toBe(1);
+  });
+});
+
+// A paused schedule asks nothing of anyone (the fresh review of 4a).
+describe('statusWords: paused', () => {
+  it('says Paused, whatever the date', () => {
+    expect(statusWords(bill({ name: 'a', active: false }), { label: 'Late', tone: 'neg' })).toEqual({ label: 'Paused', tone: 'neutral' });
+  });
+});

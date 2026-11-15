@@ -3924,4 +3924,23 @@ The revamp's phase 4a (design note `docs/superpowers/specs/2026-11-15-money-desi
   Posted. Only the app's words changed; the bot's are phase 8.
 - **Recurring follows the person shown**, as Overview's Next 30 days does:
   the other person's own schedules are left out and a shared one counts half.
+- **The fresh review of 4a** changed these:
+  - **A schedule past its last date is ended only once nothing is left to
+    mark.** A bill ending on the 10th whose payment on the 5th was unpaid sat
+    in the Ended fold with no Mark paid while To do called it late; it now
+    stays among the bills, and counts to mark paid.
+  - **Mark paid on Recurring dates the payment the day the bill was due**
+    when it is late, as Overview's To do does, so the payment settles it;
+    dated today, a bill more than a few days late stayed Late.
+  - **A paused schedule reads Paused** and offers no Mark paid, as the strip
+    and To do already leave it out.
+  - **Spent keeps its sign**: refunds that outweigh purchases are money back.
+  - **A linked refund has no category to choose in the list**: it is filed
+    under its purchase's, and the database refuses one of its own.
+  - **A merchant chosen on Merchants opens its records with no other filter
+    on**, since that view offers none to see.
+  - **A link's whole month is shared with the other tabs**, as a month chosen
+    on the stepper is.
+  - **Possible duplicates are worked out once for the whole ledger**, by
+    grouping, rather than each row against every record on every keystroke.
 

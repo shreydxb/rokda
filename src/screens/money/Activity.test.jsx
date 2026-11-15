@@ -22,6 +22,12 @@ vi.mock('../../lib/supabaseClient', () => ({
         writes.edits.push({ table, rows });
         return Promise.resolve({ error: null });
       },
+      // Reads an opened editor makes (its history): nothing there.
+      select: () => {
+        const chain = { then: (resolve) => resolve({ data: [], error: null }) };
+        for (const m of ['eq', 'in', 'or', 'order', 'limit']) chain[m] = () => chain;
+        return chain;
+      },
     }),
   },
 }));
@@ -95,6 +101,13 @@ describe('Activity: the summary on the table', () => {
     expect(screen.getByText('Nothing matches')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
     expect(currentSearch()).toBe('');
+  });
+
+  // The fresh review of 4a: refunds that outweigh purchases are money back,
+  // and the figure keeps its sign.
+  it('keeps the sign of Spent when refunds outweigh purchases', () => {
+    renderActivity([{ id: 'r', amount: 25, kind: 'refund', occurred_at: '2026-10-05', is_shared: true, category_id: 'c1', merchant: 'Shop' }]);
+    expect(summary()).toMatch(/Spent\s*−25/);
   });
 
   // The reviewer's case: a shared expense of 100 and a shared refund of 20.
@@ -226,6 +239,27 @@ describe('Activity: a category chosen in the list', () => {
     await act(async () => fireEvent.change(screen.getByRole('combobox', { name: 'Category for Shop' }), { target: { value: 'c1' } }));
     expect(screen.getByRole('alert').textContent).toMatch(/changed elsewhere/);
     expect(writes.edits).toEqual([]);
+  });
+
+  it('chooses without opening the record', () => {
+    renderActivity([BARE], { categories: CATS });
+    fireEvent.click(screen.getByRole('combobox', { name: 'Category for Shop' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('offers income categories for income', () => {
+    renderActivity([{ ...BARE, amount: 500, kind: 'income', merchant: 'Employer' }], { categories: CATS });
+    expect([...screen.getByRole('combobox', { name: 'Category for Employer' }).options].map((o) => o.textContent)).toEqual(['Uncategorised', 'Salary']);
+  });
+
+  // A linked refund is filed under its purchase's category, and the
+  // database refuses one of its own (the fresh review of 4a).
+  it('offers none for a refund linked to its purchase', () => {
+    const purchase = { ...BARE, id: 'p', merchant: 'Shop' };
+    const refund = { ...BARE, id: 'r', amount: 20, kind: 'refund', merchant: 'Shop refund' };
+    renderActivity([purchase, refund], { categories: CATS, links: [{ id: 'l', kind: 'refund', from_transaction_id: 'p', to_transaction_id: 'r' }] });
+    expect(screen.queryByRole('combobox', { name: 'Category for Shop refund' })).toBeNull();
+    expect(screen.getByText('Shop refund').closest('tr').querySelector('.mn-cat').textContent).toBe('With its purchase');
   });
 
   it('names the category of a record that has one, and leaves transfers and splits alone', () => {
@@ -385,7 +419,8 @@ describe('Activity: the calendar', () => {
     fireEvent.click(day);
     const list = screen.getByRole('region', { name: '10 Oct · 2 transactions' });
     expect(within(list).getByText('Grocer')).toBeTruthy();
-    expect(within(list).getByText('Cafe')).toBeTruthy();
+    fireEvent.click(within(list).getByText('Cafe'));
+    expect(screen.getByRole('dialog', { name: 'Edit transaction' })).toBeTruthy();
   });
 });
 
@@ -416,6 +451,15 @@ describe('Activity: Merchants', () => {
     expect(figures.textContent).toMatch(/Top three\s*89%\s*of 180 spent/);
     // It is the month's spending whatever the filters, so they are not offered.
     expect(screen.queryByRole('combobox', { name: 'Category' })).toBeNull();
+  });
+
+  // The filters are not offered on Merchants, so none of them may hide the
+  // merchant's records once it is chosen (the fresh review of 4a).
+  it('opens them with no other filter left on', () => {
+    renderActivity(ROWS, { url: '/money?view=merchants&cat=other&acct=a9&kind=income' });
+    fireEvent.click(screen.getByRole('button', { name: /^Cafe/ }));
+    expect(currentSearch()).toBe('?q=Cafe');
+    expect(merchants()).toEqual(['Cafe', 'Cafe']);
   });
 
   it('opens the records of a merchant chosen', () => {

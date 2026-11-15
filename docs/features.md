@@ -180,7 +180,9 @@ plan holds.
   recorded reads Not confirmed, a manual one Late. Income is matched within
   10 days of its date, bills within 5, and a salary counts in the month it
   was due. What needs marking comes first, the rest by next date; ended
-  schedules fold under "Ended". Under one person, the other's own schedules
+  schedules fold under "Ended" once nothing is left to mark, and a paused one
+  reads Paused. Mark paid opens the payment filled from the bill, dated the
+  day it was due when it is late. Under one person, the other's own schedules
   are left out and a shared one counts half. + Bill is in the page header.
 - **Insights**: what moved month on month. Every category figure, card and
   merchant opens its records in Activity for the month on screen. Top

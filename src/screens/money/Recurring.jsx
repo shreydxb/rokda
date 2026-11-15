@@ -7,6 +7,8 @@ import { billStatus, hasEnded, nativeAmountLabel, rollForward } from '../../lib/
 import { everyLabel, recurringStrip, statusWords } from '../../lib/recurringTotals';
 import { scopedValue } from '../../lib/scope';
 import { billPaymentInitial } from '../../lib/transactionForm';
+import { householdToday } from '../../lib/day';
+import { isoDay } from '../../lib/activityLink';
 import { Avatar, Card, Chip, EmptyState, Fold, InfoButton, KpiStrip } from '../../design-system/kit';
 import RecurringEditor from './RecurringEditor';
 import TransactionEditor from './TransactionEditor';
@@ -34,7 +36,8 @@ export default function Recurring({ household, members, me, data, loading }) {
   const { scope } = useScope();
   const scopeMemberId = resolveScopeMemberId(scope, me, members);
   const [editing, setEditing] = useState(null);
-  const [paying, setPaying] = useState(null); // a recurring row being marked paid
+  // A bill being marked paid, and the day its payment is dated.
+  const [paying, setPaying] = useState(null);
   const now = useNow(data?.loadedAt);
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
@@ -59,7 +62,23 @@ export default function Recurring({ household, members, me, data, loading }) {
     </Tools>
   );
   const table = (rows, sixth) => (
-    <RecurringTable rows={rows} sixth={sixth} members={members} accounts={accounts} scopeMemberId={scopeMemberId} now={now} onEdit={setEditing} onMarkPaid={setPaying} />
+    <RecurringTable
+      rows={rows}
+      sixth={sixth}
+      members={members}
+      accounts={accounts}
+      scopeMemberId={scopeMemberId}
+      now={now}
+      onEdit={setEditing}
+      // A payment settles a bill only near its date, so a late one is paid on
+      // the day it was due, as Overview's To do does; one not yet due today
+      // (the fresh review of 4a).
+      onMarkPaid={(bill, status) => {
+        const today = householdToday();
+        const due = status.due ? isoDay(status.due) : today;
+        setPaying({ bill, on: due < today ? due : today });
+      }}
+    />
   );
 
   return (
@@ -128,7 +147,7 @@ export default function Recurring({ household, members, me, data, loading }) {
           allTransactions={transactions}
           fxHistory={data.fxRateHistory}
           // Filled from the bill, as Overview's To do does (lib/transactionForm.js).
-          initial={billPaymentInitial(paying, accounts)}
+          initial={billPaymentInitial(paying.bill, accounts, paying.on)}
           onClose={() => setPaying(null)}
           onSaved={async () => {
             setPaying(null);
@@ -140,13 +159,19 @@ export default function Recurring({ household, members, me, data, loading }) {
   );
 }
 
-// A schedule that needs something done comes first (late, then due soon),
-// then the rest by their next date.
+// A schedule that needs something done comes first (late, then due soon or
+// unconfirmed), then the rest by their next date. One past its last date is
+// ended only once nothing is left to mark (the fresh review of 4a); a paused
+// one needs nothing.
 function orderRows(rows, transactions, now) {
   const RANK = { neg: 0, warn: 1 };
   return rows
-    .map((r) => ({ r, status: billStatus(r, transactions, now), ended: hasEnded(r, now) }))
-    .sort((a, b) => (RANK[a.status.tone] ?? 2) - (RANK[b.status.tone] ?? 2) || rollForward(a.r.next_due_date, a.r.cadence, now, a.r.interval_count) - rollForward(b.r.next_due_date, b.r.cadence, now, b.r.interval_count));
+    .map((r) => {
+      const status = billStatus(r, transactions, now);
+      const needsAction = status.needsAction && r.active !== false;
+      return { r, status: { ...status, needsAction }, words: statusWords(r, status), ended: hasEnded(r, now) && !needsAction };
+    })
+    .sort((a, b) => (RANK[a.words.tone] ?? 2) - (RANK[b.words.tone] ?? 2) || rollForward(a.r.next_due_date, a.r.cadence, now, a.r.interval_count) - rollForward(b.r.next_due_date, b.r.cadence, now, b.r.interval_count));
 }
 
 // The prototype's table: status, name, how often, when next (or when it was
@@ -187,8 +212,8 @@ function RecurringTable({ rows, sixth, members, accounts, scopeMemberId, now, on
           </tr>
         </thead>
         <tbody>
-          {rows.map(({ r, status, ended }) => {
-            const words = ended ? { label: 'Ended', tone: 'neutral' } : statusWords(r, status);
+          {rows.map(({ r, status, words: stated, ended }) => {
+            const words = ended ? { label: 'Ended', tone: 'neutral' } : stated;
             const incomeRow = Number(r.amount) > 0;
             // A bill not yet marked shows the date it was due; the rest their
             // next date.
@@ -247,7 +272,7 @@ function RecurringTable({ rows, sixth, members, accounts, scopeMemberId, now, on
                       title="Records a real transaction dated today; this schedule itself is unchanged"
                       onClick={(e) => {
                         e.stopPropagation();
-                        onMarkPaid(r);
+                        onMarkPaid(r, status);
                       }}
                     >
                       Mark paid

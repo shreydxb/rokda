@@ -194,4 +194,16 @@ describe('Money: the header and the month', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Budget' }));
     expect(screen.getByTestId('where').textContent).toBe('?tab=budget&month=2026-09');
   });
+
+  // The fresh review of 4a: a link into Activity names its month as a range.
+  it("keeps a link's month when another tab is opened", () => {
+    renderScreen(
+      <MemoryRouter initialEntries={['/money?tab=activity&cat=c1&from=2026-09-01&to=2026-09-30']}>
+        <Where />
+        <Money />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Budget' }));
+    expect(screen.getByTestId('where').textContent).toBe('?tab=budget&month=2026-09');
+  });
 });

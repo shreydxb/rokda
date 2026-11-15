@@ -17,7 +17,7 @@ import {
   withAllDates,
   withoutFilters,
 } from '../../lib/activityLink';
-import { duplicatePairs } from '../../lib/duplicates';
+import { possibleDuplicateIds } from '../../lib/duplicates';
 import { amountInCategory, inCategory } from '../../lib/splits';
 import { EmptyState, MonthStepper, Segmented } from '../../design-system/kit';
 import RecordEditor from './RecordEditor';
@@ -168,7 +168,7 @@ export default function Activity({ household, members, me, data, loading }) {
   // entered with next week's date doesn't simply vanish.
   const scheduledHidden = dateBasis === 'posted' ? matching.length - rows.length : 0;
   // The pairs Month end asks about, marked where they are listed too.
-  const duplicateIds = useMemo(() => new Set(duplicatePairs(rows, transactions, links).flatMap((p) => [p.first.id, p.second.id])), [rows, transactions, links]);
+  const duplicateIds = useMemo(() => possibleDuplicateIds(transactions, links), [transactions, links]);
   // A new set of filters starts again from the first page.
   const pageKey = params.toString();
   const visibleCount = shown.key === pageKey ? shown.count : PAGE;
@@ -272,9 +272,12 @@ export default function Activity({ household, members, me, data, loading }) {
           month={period.month}
           monthLabel={monthShort(period.month)}
           now={now}
+          // Its records for the month, with none of the filters Merchants
+          // doesn't offer left on to hide them (the fresh review of 4a).
           onSelect={(name) =>
             update((prev) => {
-              const next = withActivityFilter(withActivityFilter(prev, 'search', name), 'view', null);
+              const next = withActivityFilter(withActivityFilter(withoutFilters(prev), 'search', name), 'view', null);
+              next.delete('range');
               return next;
             })
           }

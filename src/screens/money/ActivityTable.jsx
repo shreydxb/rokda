@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { formatMoney, formatSigned } from '../../lib/money';
+import { formatBalance, formatMoney, formatSigned } from '../../lib/money';
 import { isPosted, parseDay } from '../../lib/day';
 import { isUncategorised, rowDateLabel, shareOf } from '../../lib/activity';
 import { fileableCategories } from '../../lib/fileableCategories';
@@ -112,7 +112,8 @@ export default function ActivityTable({
             </button>
           )}
           <span>
-            Spent <b className="mn-sum">{formatMoney(totals.spend)}</b>
+            {/* Refunds can outweigh purchases: the money back keeps its sign. */}
+            Spent <b className="mn-sum">{formatBalance(totals.spend)}</b>
           </span>
           <span>
             Income <b className="mn-sum">{formatMoney(totals.income)}</b>
@@ -194,6 +195,10 @@ export default function ActivityTable({
                         <span className="ds-muted">Transfer</span>
                       ) : parts ? (
                         parts.map((p) => catName.get(p.categoryId) ?? 'Unknown').join(' + ')
+                      ) : isUncategorised(t) && refundLinks.purchaseOf.has(t.id) ? (
+                        // A linked refund is filed under its purchase's
+                        // category, and has none of its own to choose.
+                        <span className="ds-muted">With its purchase</span>
                       ) : isUncategorised(t) ? (
                         <select
                           className="ds-select ds-select-sm mn-cat-select"

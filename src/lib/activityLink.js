@@ -79,6 +79,20 @@ export function activityPeriod(params, now = new Date()) {
   return { mode: 'month', month: named, ...monthRange(named.getFullYear(), named.getMonth() + 1) };
 }
 
+// The month Money's tabs share, as `month` would write it: the one in the
+// address, or a link's range when that is one whole month (the fresh review
+// of 4a: Budget opened from a link into Activity showed this month). Null for
+// this month, which the address leaves out, and for any other range.
+export function sharedMonth(params, now = new Date()) {
+  const filters = readActivityFilters(params);
+  let month = null;
+  if (filters.from || filters.to) {
+    const period = activityPeriod(params, now);
+    if (period.mode === 'month') month = monthParam(period.month);
+  } else if (monthFromParam(params.get('month'))) month = params.get('month');
+  return month && month !== monthParam(now) ? month : null;
+}
+
 // The address showing one month: any range and All dates go, and this month
 // is left out (lib/useMonthParam.js).
 export function withActivityMonth(params, month, now = new Date()) {

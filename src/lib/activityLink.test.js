@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { activityHref, activityPeriod, bucketRange, categoryAndChildren, dateRangeLabel, inDateRange, monthRange, readActivityFilters, tabHref, withActivityFilter, withActivityMonth, withAllDates, withoutFilters } from './activityLink';
+import { activityHref, activityPeriod, sharedMonth, bucketRange, categoryAndChildren, dateRangeLabel, inDateRange, monthRange, readActivityFilters, tabHref, withActivityFilter, withActivityMonth, withAllDates, withoutFilters } from './activityLink';
 
 describe('activityHref and readActivityFilters', () => {
   it('round-trips a month and category through the address', () => {
@@ -125,5 +125,23 @@ describe('withActivityMonth and withAllDates', () => {
   it('shows every date, keeping the month', () => {
     const start = new URLSearchParams('tab=activity&month=2026-09&from=2026-09-01&to=2026-09-30');
     expect(withAllDates(start).toString()).toBe('tab=activity&month=2026-09&range=all');
+  });
+});
+
+// The month Money's tabs share (the fresh review of 4a): a link's whole
+// month counts, so Budget opened from Activity shows the month Activity did.
+describe('sharedMonth', () => {
+  const now = new Date(2026, 10, 15, 12);
+  const at = (search) => sharedMonth(new URLSearchParams(search), now);
+
+  it("is the month in the address, or a link's whole month", () => {
+    expect(at('month=2026-09')).toBe('2026-09');
+    expect(at('from=2026-09-01&to=2026-09-30')).toBe('2026-09');
+  });
+
+  it('is nothing for this month, or for a range that is not one month', () => {
+    expect(at('')).toBeNull();
+    expect(at('month=2026-11')).toBeNull();
+    expect(at('from=2026-09-01&to=2026-09-15')).toBeNull();
   });
 });

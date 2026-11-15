@@ -33,6 +33,8 @@ export function everyLabel(row) {
 // the quiet ones grey.
 export function statusWords(row, status) {
   const income = Number(row.amount) > 0;
+  // A paused schedule asks nothing of anyone, whatever its date.
+  if (row.active === false) return { label: 'Paused', tone: 'neutral' };
   if (status.label === 'Posted') return { label: income ? 'Received' : 'Paid', tone: 'pos' };
   if (status.label === 'Late' && row.autopay && !income) return { label: 'Not confirmed', tone: 'warn' };
   return { label: status.label, tone: status.tone === 'mute' ? 'neutral' : status.tone };
@@ -41,26 +43,30 @@ export function statusWords(row, status) {
 // The strip above the tables: fixed and variable bills a month, expected
 // income a month, and the bills to mark paid, with how many of those are late
 // and how many unconfirmed autopay. A schedule that has ended or is paused is
-// not a commitment and is left out. In one person's view a shared schedule
-// counts half and the other person's own not at all, as everywhere else.
+// not a commitment and is left out of the monthly figures; one that ended
+// with its last payment still unpaid is still to mark (the fresh review of
+// 4a). In one person's view a shared schedule counts half and the other
+// person's own not at all, as everywhere else.
 export function recurringStrip(rows, transactions, scopeMemberId, now = new Date()) {
   const strip = { fixed: 0, fixedCount: 0, variable: 0, variableCount: 0, income: 0, toMarkPaid: 0, late: 0, unconfirmed: 0 };
   for (const row of rows) {
-    if (row.active === false || hasEnded(row, now)) continue;
+    if (row.active === false) continue;
     const share = scopedValue(monthlyEquivalent(row), row, scopeMemberId);
     if (share === 0) continue;
+    const status = billStatus(row, transactions, now);
+    const ended = hasEnded(row, now);
+    if (ended && !status.needsAction) continue;
     if (Number(row.amount) > 0) {
-      strip.income += share;
+      if (!ended) strip.income += share;
       continue;
     }
-    if (row.is_fixed) {
+    if (!ended && row.is_fixed) {
       strip.fixed += -share;
       strip.fixedCount += 1;
-    } else {
+    } else if (!ended) {
       strip.variable += -share;
       strip.variableCount += 1;
     }
-    const status = billStatus(row, transactions, now);
     if (!status.needsAction) continue;
     strip.toMarkPaid += 1;
     const words = statusWords(row, status);

@@ -98,6 +98,24 @@ describe('Recurring: the bills', () => {
   });
 });
 
+// The fresh review of 4a: a schedule past its last date with its last
+// payment unpaid is still to mark, and a paused one asks nothing.
+describe('Recurring: ending and pausing', () => {
+  it('keeps a just-ended schedule with an unpaid payment among the bills, with Mark paid', () => {
+    renderRecurring([bill({ name: 'Gym', next_due_date: '2026-09-05', ends_on: '2026-10-10' })]);
+    expect(names('Bills')).toEqual(['Gym']);
+    expect(screen.getByRole('button', { name: 'Mark paid' })).toBeTruthy();
+    expect(screen.queryByText('Ended (1)')).toBeNull();
+  });
+
+  it('says Paused, with no Mark paid', () => {
+    renderRecurring([bill({ name: 'Gym', active: false, next_due_date: '2026-09-05' })]);
+    const row = screen.getByText('Gym').closest('tr');
+    expect(within(row).getByText('Paused')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Mark paid' })).toBeNull();
+  });
+});
+
 describe('Recurring: expected income', () => {
   it('lists income with the account it is paid into', () => {
     renderRecurring([bill({ name: 'Salary', amount: 20000, account_id: 'a', next_due_date: '2026-10-28' })], { accounts: [{ id: 'a', name: 'Current account', is_shared: true }] });
@@ -133,6 +151,20 @@ describe('Recurring: Mark paid', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Mark paid' }));
     const account = [...document.querySelectorAll('select')].find((el) => [...el.options].some((o) => o.value === 'a-bill'));
     expect(account.value).toBe('a-bill');
+  });
+
+  // A payment settles a bill only near its date, so a late one is paid on
+  // the day it was due, as Overview's To do does (the fresh review of 4a).
+  it('dates a late bill\'s payment the day it was due, and one not yet due today', () => {
+    renderRecurring([bill({ name: 'School fees', next_due_date: '2026-09-05' })]);
+    fireEvent.click(screen.getByRole('button', { name: 'Mark paid' }));
+    expect(screen.getByLabelText('Date').value).toBe('2026-10-05');
+  });
+
+  it('dates a bill due soon today', () => {
+    renderRecurring([bill({ name: 'Phone', next_due_date: '2026-10-23' })]);
+    fireEvent.click(screen.getByRole('button', { name: 'Mark paid' }));
+    expect(screen.getByLabelText('Date').value).toBe('2026-10-21');
   });
 });
 
