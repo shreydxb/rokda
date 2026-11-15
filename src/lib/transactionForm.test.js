@@ -131,3 +131,31 @@ describe('foreignOf and signedNative', () => {
     expect(signedNative(null, 'expense')).toBeNull();
   });
 });
+
+// "Mark paid" on Recurring and on Overview's To do opens the transaction
+// editor filled from the bill, the same way from both (the revamp, phase 3).
+describe('billPaymentInitial', () => {
+  const accounts = [
+    { id: 'a1', archived_at: null },
+    { id: 'a2', archived_at: '2026-01-01' },
+  ];
+  const bill = { name: 'Gym', amount: -250, account_id: 'a1', category_id: 'c1', is_shared: true };
+
+  it('fills the amount, payee, account, category and owner from the bill, dated today', async () => {
+    const { billPaymentInitial } = await import('./transactionForm');
+    expect(billPaymentInitial(bill, accounts, '2026-11-15')).toEqual({ type: 'expense', amount: '250', merchant: 'Gym', occurred_at: '2026-11-15', account_id: 'a1', category_id: 'c1', owner: 'shared' });
+  });
+
+  it('keeps a bill set in rupees in rupees', async () => {
+    const { billPaymentInitial } = await import('./transactionForm');
+    const init = billPaymentInitial({ ...bill, currency: 'INR', native_amount: -5000 }, accounts, '2026-11-15');
+    expect(init).toMatchObject({ entry_currency: 'INR', amount: '5000' });
+  });
+
+  it("leaves a closed account and an expected pay's sign alone", async () => {
+    const { billPaymentInitial } = await import('./transactionForm');
+    const init = billPaymentInitial({ ...bill, amount: 18000, account_id: 'a2', is_shared: false, owner_member_id: 'm1' }, accounts, '2026-11-15');
+    expect(init).toMatchObject({ type: 'income', owner: 'm1' });
+    expect(init.account_id).toBeUndefined();
+  });
+});

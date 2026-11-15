@@ -1,26 +1,23 @@
 import { tabHref } from '../../lib/activityLink';
+import { Card } from '../../design-system/kit';
 
-// Part of Overview (Overview.jsx), split out with the round 2 cleanup
-// (SHR-383).
-//
-// Day one: no figures yet, so none are shown, and where to start.
-export default function EmptyState({ navigate }) {
+// A household with nothing recorded yet (the revamp, phase 3; review
+// S-overview-10): one line and the two first steps. Figures stay blank
+// rather than reading as zero until a first record arrives.
+export default function OverviewEmpty({ navigate, onAddTransaction }) {
   return (
-    <div className="ov-empty">
-      <div className="ov-empty-kicker">Day one</div>
-      <div className="ov-empty-body">
-        There are no figures to show, so none are shown. Net worth, savings rate and runway all need a first record;
-        until one arrives they stay blank rather than reading as zero.
+    <Card className="ov-empty-card">
+      <div className="ds-empty">
+        <div className="ds-empty-title">Figures appear with the first record.</div>
+        <div className="ov-empty-actions">
+          <button type="button" className="ds-btn ds-btn-primary" onClick={onAddTransaction}>
+            + Transaction
+          </button>
+          <button type="button" className="ds-btn" onClick={() => navigate(tabHref('/wealth', 'accounts'))}>
+            + Account
+          </button>
+        </div>
       </div>
-      <div className="ov-empty-actions">
-        <button type="button" className="om-btn ov-btn-primary" onClick={() => navigate('/money')}>
-          Add a transaction
-        </button>
-        <button type="button" className="om-btn" onClick={() => navigate(tabHref('/wealth', 'accounts'))}>
-          Add an account
-        </button>
-      </div>
-      <div className="ov-empty-foot">Three records is enough for Activity and Accounts. A savings rate needs one closed month. Runway needs six.</div>
-    </div>
+    </Card>
   );
 }

@@ -169,7 +169,7 @@ const SUBVIEWS = [
   // A note checked once a year, never checked yet: on the note and on
   // Overview's Needs attention (Planning audit, 4.18).
   { name: 'notes-yearly-check', path: '/planning', tabs: ['Notes'], expectText: 'Checked once a year · not checked yet', tables: { household_notes: [YEARLY_NOTE] } },
-  { name: 'overview-yearly-check', path: '/', tabs: [], expectText: 'Yearly check: Protection', tables: { household_notes: [YEARLY_NOTE] } },
+  { name: 'overview-yearly-check', path: '/', tabs: [], expectText: 'Protection · Yearly check due', tables: { household_notes: [YEARLY_NOTE] } },
   // A policy paid in rupees: the Life plan puts it through a weakening rupee
   // (Planning audit, 4.19).
   { name: 'life-plan-rupee', path: '/planning', tabs: ['Life plan'], expectText: 'If the rupee weakens', tables: { independence_income: rupeeIncome } },
@@ -293,8 +293,11 @@ test('phone: the header folds and the decisions start on the first screen', asyn
   const scope = page.getByRole('group', { name: 'Household scope' });
   await expect(scope).toBeHidden();
 
-  const attention = await page.locator('.ov-attn-col').boundingBox();
-  expect(attention.y, 'Needs attention starts below the first screen').toBeLessThan(page.viewportSize().height);
+  // The revamp (phase 3): the decisions are To do, the cockpit's second band;
+  // on a phone it follows net worth and the month, within the first two
+  // screens rather than the first (docs/decisions.md).
+  const attention = await page.locator('.ov-todo').boundingBox();
+  expect(attention.y, 'To do starts later than the second screen').toBeLessThan(page.viewportSize().height * 2);
 
   const toggle = page.locator('.om-sidetoggle');
   await expect(toggle).toHaveText(/Both · AED/);

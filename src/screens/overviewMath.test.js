@@ -374,3 +374,61 @@ describe('scope labels and rows', () => {
     expect(scopeLabel('partner', ME, [ME])).toBe('Partner');
   });
 });
+
+// The cockpit's Next 30 days (the revamp, phase 3): a bill late or an
+// autopay not confirmed comes first, on today, then what is due; and the
+// cash cover counts the bills and the cards due in the window, as the bot's
+// morning check does.
+describe('next30Items and next30Bills', () => {
+  const now = new Date(2026, 10, 15, 12);
+  const bill = { id: 'r1', name: 'Gym', amount: -250, cadence: 'monthly', interval_count: 1, next_due_date: '2026-11-20', active: true, is_shared: true };
+  const pay = { id: 'r2', name: 'Salary', amount: 10000, cadence: 'monthly', interval_count: 1, next_due_date: '2026-11-28', active: true, is_shared: true };
+
+  it('puts a late bill first, on today, then the upcoming ones by date', async () => {
+    const { next30Items } = await import('./overviewMath');
+    const items = next30Items([bill, pay], [{ kind: 'missing_recurring', recurringId: 'r1', late: true }], null, now);
+    expect(items.map((i) => [i.name, i.late ?? false])).toEqual([
+      ['Gym', true],
+      ['Gym', false],
+      ['Salary', false],
+    ]);
+    expect(items[0].dueDate.getDate()).toBe(15);
+    expect(new Set(items.map((i) => i.occurrenceKey)).size).toBe(3);
+  });
+
+  it('marks an autopay waiting for its confirmation, not late', async () => {
+    const { next30Items } = await import('./overviewMath');
+    const [first] = next30Items([{ ...bill, autopay: true }], [{ kind: 'missing_recurring', recurringId: 'r1', late: false }], null, now);
+    expect(first).toMatchObject({ unconfirmed: true });
+    expect(first.late).toBeFalsy();
+  });
+
+  it('counts the bills due in the window and a card due, not pay', async () => {
+    const { next30Items, next30Bills } = await import('./overviewMath');
+    const items = next30Items([bill, pay], [], null, now);
+    const card = { id: 'c1', name: 'Bank card', type: 'credit_card', is_shared: true, balance: 1200, balance_aed: 1200, currency: 'AED', due_day: 25, archived_at: null };
+    const bills = next30Bills(items, [card], null, now);
+    expect(bills.recurring).toEqual([{ due_date: '2026-11-20', amount_aed: 250 }]);
+    expect(bills.credit_cards).toEqual([{ due_date: '2026-11-25', amount_owed_aed: 1200 }]);
+  });
+
+  it("leaves a card in another currency's amount unknown, not zero", async () => {
+    const { next30Bills } = await import('./overviewMath');
+    const card = { id: 'c2', name: 'Travel card', type: 'credit_card', is_shared: true, balance: 500, balance_aed: null, currency: 'USD', due_day: 25, archived_at: null };
+    expect(next30Bills([], [card], null, now).credit_cards).toEqual([{ due_date: '2026-11-25', amount_owed_aed: null }]);
+  });
+});
+
+// The fresh review of the cockpit: what is committed counts what falls due
+// from today, as the bot's morning check does. A bill already waiting (an
+// autopay not confirmed has usually left the bank) is not counted again.
+describe('next30Bills: what is committed', () => {
+  it('leaves out a bill already waiting', async () => {
+    const { next30Items, next30Bills } = await import('./overviewMath');
+    const now = new Date(2026, 10, 15, 12);
+    const bill = { id: 'r1', name: 'Gym', amount: -250, cadence: 'monthly', interval_count: 1, next_due_date: '2026-11-20', active: true, is_shared: true };
+    const items = next30Items([bill], [{ kind: 'missing_recurring', recurringId: 'r1', late: false }], null, now);
+    expect(items).toHaveLength(2);
+    expect(next30Bills(items, [], null, now).recurring).toEqual([{ due_date: '2026-11-20', amount_aed: 250 }]);
+  });
+});

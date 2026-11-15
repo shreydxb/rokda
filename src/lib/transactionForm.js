@@ -176,3 +176,23 @@ export function buildEdits(tx, form, savedAmount, { accounts, categories, member
 
   return changes;
 }
+
+// The transaction editor's starting values for paying a bill or recording
+// an expected pay ("Mark paid" on Recurring and on Overview's To do): the
+// bill's amount and payee, dated today, on its own account while that is
+// open (a payment settles a bill only on its account; fresh review of B-02),
+// in its category, for its owner. A bill set in rupees is paid in rupees: the
+// editor estimates the AED until the AED debited is entered.
+export function billPaymentInitial(bill, accounts = [], today = householdToday()) {
+  return {
+    type: Number(bill.amount) >= 0 ? 'income' : 'expense',
+    ...(bill.currency && bill.currency !== 'AED' && bill.native_amount != null
+      ? { entry_currency: bill.currency, amount: String(Math.abs(Number(bill.native_amount))) }
+      : { amount: String(Math.abs(Number(bill.amount))) }),
+    merchant: bill.name,
+    occurred_at: today,
+    ...(bill.account_id && accounts.some((a) => a.id === bill.account_id && !a.archived_at) ? { account_id: bill.account_id } : {}),
+    category_id: bill.category_id ?? '',
+    owner: bill.is_shared ? 'shared' : (bill.owner_member_id ?? ''),
+  };
+}

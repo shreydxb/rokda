@@ -132,3 +132,71 @@ describe('a yearly check that is due', () => {
     expect(items).toEqual([expect.objectContaining({ id: 'yearly-check-n1', kind: 'yearly_check', severity: 'info', title: 'Yearly check: Protection' })]);
   });
 });
+
+// The revamp (Overview's To do, phase 3): each item also carries a short
+// name and status, and what it is about, so To do can show it in one line
+// with a button that does the job. The sentences above are unchanged.
+describe('attention items: short forms for To do', () => {
+  const now = new Date('2026-10-15T10:00:00');
+  const base = { transactions: [], recurring: [], holdings: [], categories: [], scopeMemberId: null, now };
+  const bill = { id: 'r1', name: 'Car loan', amount: -2000, cadence: 'monthly', interval_count: 1, next_due_date: '2026-10-08', active: true, is_shared: true, account_id: 'a1' };
+
+  it('names a bill and says whether it is late or only not confirmed', () => {
+    const [manual] = buildAttentionItems({ ...base, accounts: [], recurring: [{ ...bill, autopay: false }] });
+    expect(manual).toMatchObject({ name: 'Car loan', status: 'Late · was due 8 Oct', recurringId: 'r1', late: true });
+    const [autopay] = buildAttentionItems({ ...base, accounts: [], recurring: [{ ...bill, autopay: true }] });
+    expect(autopay).toMatchObject({ name: 'Car loan', status: 'Autopay not confirmed · due 8 Oct', recurringId: 'r1', late: false });
+  });
+
+  it('names an account with no confirmed balance', () => {
+    const [item] = buildAttentionItems({ ...base, accounts: [{ id: 'a9', name: 'Cash wallet', type: 'cash', archived_at: null, is_shared: true, balance: null, balance_as_of: null }] }).filter((i) => i.kind === 'balance_unset');
+    expect(item).toMatchObject({ name: 'Cash wallet', status: 'Balance not confirmed', accountId: 'a9' });
+  });
+
+  it('names a backup that is due', () => {
+    const [item] = buildAttentionItems({ ...base, accounts: [{ id: 'a1', name: 'Bank', archived_at: null, is_shared: true, balance: 1, balance_as_of: '2026-10-14T00:00:00Z' }], backupRecords: [] }).filter((i) => i.kind === 'backup');
+    expect(item).toMatchObject({ name: 'Backup', status: 'None recorded' });
+  });
+
+  it('names a month not closed', () => {
+    const [item] = buildAttentionItems({ ...base, accounts: [{ id: 'a1', name: 'Bank', archived_at: null, is_shared: true, balance: 1, balance_as_of: '2026-10-14T00:00:00Z' }], snapshots: [] }).filter((i) => i.kind === 'month_close');
+    expect(item).toMatchObject({ name: 'September', status: 'Not closed' });
+  });
+});
+
+// The fresh review of the cockpit: Mark paid was dated today, but a payment
+// settles a bill only near its due date, so a bill more than a few days late
+// stayed "Late" after it was marked paid. The item carries the date it was
+// due, and a payment on that date clears it.
+describe('a late bill carries the date it was due', () => {
+  const now = new Date('2026-10-20T10:00:00');
+  const account = { id: 'a1', name: 'Bank', type: 'checking', archived_at: null, is_shared: true, balance: 100, balance_as_of: '2026-10-19T00:00:00Z' };
+  const bill = { id: 'r1', name: 'Gym', amount: -250, cadence: 'monthly', interval_count: 1, next_due_date: '2026-10-05', active: true, autopay: false, is_shared: true, account_id: 'a1', category_id: 'c1' };
+  const build = (transactions) => buildAttentionItems({ transactions, recurring: [bill], accounts: [account], holdings: [], categories: [], scopeMemberId: null, now }).filter((i) => i.kind === 'missing_recurring');
+
+  it('says when it was due, and whether it is pay', () => {
+    const [item] = build([]);
+    expect(item).toMatchObject({ dueOn: '2026-10-05', income: false });
+  });
+
+  it('is cleared by a payment filled from the bill on that date', async () => {
+    const { billPaymentInitial } = await import('./transactionForm');
+    const [item] = build([]);
+    const init = billPaymentInitial(bill, [account], item.dueOn);
+    const paid = { id: 'p1', kind: init.type, amount: -Number(init.amount), occurred_at: init.occurred_at, account_id: init.account_id, category_id: init.category_id, is_shared: true };
+    expect(build([paid])).toEqual([]);
+  });
+});
+
+// The fresh review of the cockpit: a category running high is shown under
+// What changed, so the item carries its figures, not only its sentence.
+describe('a category running high carries its figures', () => {
+  it('says what was spent so far and what the usual month would have reached by now', () => {
+    const now = new Date('2026-10-15T10:00:00');
+    const tx = (id, occurred_at, amount) => ({ id, occurred_at, amount, kind: 'expense', category_id: 'g', is_shared: true });
+    const transactions = [tx('a', '2026-07-10', -300), tx('b', '2026-08-10', -300), tx('c', '2026-09-10', -300), tx('d', '2026-10-05', -400)];
+    const [item] = buildAttentionItems({ transactions, recurring: [], accounts: [], holdings: [], categories: [{ id: 'g', name: 'Groceries' }], scopeMemberId: null, now }).filter((i) => i.kind === 'category_anomaly');
+    expect(item).toMatchObject({ categoryId: 'g', name: 'Groceries', actual: 400, average: 300 });
+    expect(item.expectedSoFar).toBeCloseTo(300 * (15 / 31), 0);
+  });
+});

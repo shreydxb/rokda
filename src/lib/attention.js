@@ -56,6 +56,10 @@ function missingRecurringItems(recurring, transactions, scopeMemberId, now) {
     if (matched) continue;
 
     const expected = prevDue.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    // The day it was due, so Mark paid can date the payment there: a payment
+    // settles a bill only near its due date (fresh review of the cockpit).
+    const dueOn = `${prevDue.getFullYear()}-${String(prevDue.getMonth() + 1).padStart(2, '0')}-${String(prevDue.getDate()).padStart(2, '0')}`;
+    const income = Number(r.amount) > 0;
     // An autopay bill leaves the bank on its own; what is missing is the
     // confirmation, which the bot asks for every morning (docs/decisions.md,
     // "Autopay bills are confirmed, not entered").
@@ -67,6 +71,12 @@ function missingRecurringItems(recurring, transactions, scopeMemberId, now) {
             severity: 'warn',
             title: `${r.name}: debit not confirmed yet`,
             detail: `Autopay due ~${expected} · answer the bot's question on Telegram, or log it here`,
+            name: r.name,
+            status: `Autopay not confirmed · due ${expected}`,
+            recurringId: r.id,
+            late: false,
+            dueOn,
+            income,
           }
         : {
             id: `missing-recurring-${r.id}`,
@@ -74,6 +84,12 @@ function missingRecurringItems(recurring, transactions, scopeMemberId, now) {
             severity: 'warn',
             title: `${r.name} hasn't posted`,
             detail: `Expected ~${expected} · no matching transaction in the ${windowDays * 2 + 1}-day window around it`,
+            name: r.name,
+            status: `Late · was due ${expected}`,
+            recurringId: r.id,
+            late: true,
+            dueOn,
+            income,
           },
     );
   }
@@ -110,6 +126,9 @@ function cardDueItems(accounts, scopeMemberId, now) {
       kind: 'card_due',
       severity: 'urgent',
       title: `${a.name} payment due ${daysUntil <= 0 ? 'today' : `in ${daysUntil}d`}`,
+      name: a.name,
+      status: `Payment due ${daysUntil <= 0 ? 'today' : `in ${daysUntil}d`}`,
+      accountId: a.id,
       detail:
         balance === null
           ? `Due ${due.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} · ${a.currency} ${Number(a.balance ?? 0).toLocaleString('en-AE')} owed, not converted to AED, nothing recorded paid yet`
@@ -149,6 +168,10 @@ function categoryAnomalyItems(transactions, categories, scopeMemberId, now) {
       categoryId: catId,
       severity: 'info',
       title: `${name} is running high this month`,
+      name,
+      actual,
+      average: avg,
+      expectedSoFar,
       detail: `AED ${Math.round(actual).toLocaleString('en-AE')} so far vs a trailing ${ANOMALY_MONTHS_BACK}-month average of AED ${Math.round(avg).toLocaleString('en-AE')}`,
     });
   }
@@ -169,6 +192,9 @@ function staleHoldingItems(holdings, scopeMemberId, now) {
       kind: 'stale_holding',
       severity: 'info',
       title: `${h.name} hasn't been repriced`,
+      name: h.name,
+      status: daysSince === null ? 'Not valued yet' : `Price ${daysSince}d old`,
+      holdingId: h.id,
       detail: daysSince === null
         ? `Value AED ${Math.round(scopedHoldingValue(h, scopeMemberId)).toLocaleString('en-AE')} · no valuation confirmed yet`
         : `Value AED ${Math.round(scopedHoldingValue(h, scopeMemberId)).toLocaleString('en-AE')} · valued ${daysSince}d ago`,
@@ -191,6 +217,9 @@ function unconfirmedBalanceItems(accounts, scopeMemberId, now) {
       kind: 'balance_unset',
       severity: status === 'unset' ? 'warn' : 'info',
       title: status === 'unset' ? `${a.name} has no confirmed balance` : `${a.name}'s balance is getting old`,
+      name: a.name,
+      status: status === 'unset' ? 'Balance not confirmed' : `Balance ${Math.floor((now - new Date(a.balance_as_of)) / 86400000)}d old`,
+      accountId: a.id,
       detail:
         status === 'unset'
           ? 'Net worth treats it as zero until someone confirms what it actually is.'
@@ -216,6 +245,8 @@ function monthCloseItems(accounts, snapshots, now) {
       kind: 'month_close',
       severity: 'warn',
       title: `${name} hasn't been closed`,
+      name: pending.month.toLocaleDateString('en-GB', { month: 'long' }),
+      status: 'Not closed',
       detail: 'Review it under Money → Review, then close it to keep its totals in history. Months close by hand; waiting does not close one.',
     },
   ];
@@ -232,7 +263,7 @@ function backupItems(accounts, records, now) {
   const day = (record) => new Date(`${record.done_on}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
   const lastGood = status.lastPassedExport ? `The last one that passed was on ${day(status.lastPassedExport)}.` : 'No export has passed yet.';
   if (status.lastExportFailed) {
-    return [{ id: 'backup-failed', kind: 'backup', severity: 'warn', title: 'The last backup export failed', detail: `Recorded for ${day(status.lastExport)}. ${lastGood}` }];
+    return [{ id: 'backup-failed', kind: 'backup', severity: 'warn', title: 'The last backup export failed', detail: `Recorded for ${day(status.lastExport)}. ${lastGood}`, name: 'Backup', status: 'Last export failed' }];
   }
   if (!status.exportDue) return [];
   return [
@@ -241,6 +272,8 @@ function backupItems(accounts, records, now) {
       kind: 'backup',
       severity: 'warn',
       title: status.lastPassedExport ? `The last backup is ${status.daysSinceExport} days old` : 'No backup has been recorded',
+      name: 'Backup',
+      status: status.lastPassedExport ? `Last one ${status.daysSinceExport} days old` : 'None recorded',
       detail: status.lastPassedExport
         ? `Taken on ${day(status.lastPassedExport)}; one is due every ${EXPORT_DUE_DAYS} days. Record the next under Settings → Backups.`
         : 'Take an export (docs/backup-restore.md) and record it under Settings → Backups.',

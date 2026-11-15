@@ -38,6 +38,11 @@ vi.mock('../lib/useHousehold', () => ({
   }),
 }));
 
+// Overview also reads Planning's records, for its Plan strip.
+vi.mock('./usePlanningData', async () => {
+  const { emptyPlanning } = await import('../test/planningStub');
+  return { usePlanningData: () => emptyPlanning() };
+});
 vi.mock('./useOverviewData', async (importOriginal) => ({
   ...(await importOriginal()),
   useOverviewData: () => ({

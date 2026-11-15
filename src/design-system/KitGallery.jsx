@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import Freshness from '../screens/Freshness';
+import { TrendLine, PairedColumns, DatedStrip } from './charts';
 import { Card, KpiStrip, Chip, WarningRow, InfoButton, MonthStepper, Segmented, Switch, Fold, EmptyState, Banner, Drawer, ProgressBar, StackBar, BarList } from './kit';
 
 // Every piece of the shared kit on one page, with made-up figures, to look at
@@ -57,6 +58,17 @@ export default function KitGallery() {
           <div style={{ marginTop: 18 }}>
             <StackBar label="Assets" parts={[{ label: 'Cash', value: 60 }, { label: 'Shares', value: 25 }, { label: 'Gold', value: 10 }, { label: 'Deposit', value: 5 }]} />
           </div>
+        </Card>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.4fr 1fr', gap: 16 }}>
+        <Card title="Trend line">
+          <TrendLine ariaLabel="Trend" points={[100, 120, 115, 140, 160].map((v, i) => ({ key: String(i), label: `M${i}`, value: v }))} />
+        </Card>
+        <Card title="Paired columns">
+          <PairedColumns ariaLabel="Six months" formatTick={(v) => `${v / 1000}K`} groups={[{ key: 'a', label: 'Jun', empty: true }, { key: 'b', label: 'Jul', a: 20000, b: 15000, line: 5000 }, { key: 'c', label: 'Aug', a: 20000, b: 22000, line: -2000 }, { key: 'd', label: 'Sep', a: 20000, b: 12000, line: 8000, current: true }]} />
+        </Card>
+        <Card title="Dated strip">
+          <DatedStrip ariaLabel="Next 30 days" marks={[{ key: '1', day: 0, amount: -250, tone: 'neg', label: 'Late' }, { key: '2', day: 6, amount: -50, label: 'Streaming' }, { key: '3', day: 13, amount: 20000, tone: 'pos', label: 'Salary' }, { key: '4', day: 20, amount: -5000, label: 'Rent' }]} />
         </Card>
       </div>
       <Banner onRetry={() => {}}>Couldn&apos;t load accounts. Net worth not shown.</Banner>

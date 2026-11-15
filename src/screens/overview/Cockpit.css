@@ -1,0 +1,364 @@
+/* Overview, the cockpit (the revamp, phase 3; design/prototype/css/
+   overview.css): four bands of kit cards under one header row. */
+
+.ov-cockpit .fresh-row {
+  margin-bottom: 20px;
+}
+.ov-bands {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.ov-band {
+  display: grid;
+  gap: 16px;
+  align-items: stretch;
+}
+.ov-band-hero {
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+}
+.ov-band-wide {
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+}
+.ov-band > .ds-card {
+  height: 100%;
+}
+.ov-readout {
+  min-height: 18px;
+  margin-top: 6px;
+  font-size: 12.5px;
+  color: var(--ink2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Net worth */
+.ov-nw-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.ov-nw-change {
+  margin-top: 4px;
+  font-size: 12.5px;
+}
+.ov-nw-warn {
+  margin-top: 4px;
+  font-size: 12.5px;
+  color: var(--warn);
+}
+.ov-nw-trend {
+  margin-top: 12px;
+}
+
+/* This month */
+.ov-month .ds-kpis {
+  border-bottom: 1px solid var(--rule-soft);
+}
+.ov-budget {
+  padding: 14px 18px 16px;
+}
+.ov-budget-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  font-size: 12.5px;
+  color: var(--ink2);
+}
+
+/* To do */
+.ov-todo-group + .ov-todo-group {
+  margin-top: 4px;
+}
+.ov-todo-head {
+  margin: 0;
+  padding: 10px 18px 4px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--ink3);
+}
+.ov-changed .ov-todo-head {
+  padding: 16px 0 4px;
+}
+.ov-todo-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.ov-todo-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 6px 18px;
+  border-top: 1px solid var(--rule-soft);
+}
+.ov-todo-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--control);
+}
+.ov-todo-neg {
+  background: var(--neg);
+}
+.ov-todo-warn {
+  background: var(--warn-mark);
+}
+.ov-todo-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ov-todo-title {
+  font-size: 13.5px;
+  font-weight: 500;
+}
+.ov-todo-status {
+  font-size: 12.5px;
+  color: var(--ink3);
+}
+.ov-todo-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+.ov-todo-actions .ds-select {
+  height: 26px;
+  max-width: 180px;
+  padding: 0 8px;
+  border: 1px solid var(--control);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 12.5px;
+}
+.ov-todo-more {
+  display: block;
+  width: 100%;
+  min-height: 40px;
+  padding: 0 18px;
+  border: 0;
+  border-top: 1px solid var(--rule-soft);
+  background: none;
+  text-align: left;
+  font-size: 12.5px;
+  color: var(--ink2);
+  cursor: pointer;
+}
+.ov-todo-more:hover {
+  color: var(--ink);
+}
+
+/* Next 30 days */
+.ov-next30-strip {
+  padding: 4px 18px 6px;
+}
+.ov-next30-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.ov-next30-item {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) auto 96px;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  padding: 4px 18px;
+  border-top: 1px solid var(--rule-soft);
+}
+.ov-next30-date {
+  font: 400 12px var(--font-mono);
+  color: var(--ink3);
+}
+.ov-next30-name {
+  font-size: 13.5px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ov-next30-kind {
+  font-size: 12.5px;
+  color: var(--ink3);
+}
+.ov-next30-amount {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: 13.5px;
+}
+.ov-next30-native {
+  display: block;
+  font-size: 11.5px;
+  color: var(--ink3);
+}
+.ov-next30-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 40px;
+  padding: 6px 18px;
+  border-top: 1px solid var(--rule-soft);
+  font-size: 12.5px;
+  color: var(--ink3);
+}
+.ov-next30-none {
+  padding: 8px 18px 12px;
+  font-size: 13px;
+  color: var(--ink3);
+}
+
+/* Where it went */
+.ov-changed-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.ov-changed-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  color: var(--ink);
+}
+.ov-changed-row:hover {
+  color: var(--ink);
+}
+.ov-changed-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+}
+
+/* Plan strip */
+.ov-plan-tiles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.ov-plan-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 18px 16px;
+  border-left: 1px solid var(--rule);
+  color: var(--ink);
+}
+.ov-plan-tile:first-child {
+  border-left: 0;
+}
+.ov-plan-tile:hover {
+  background: var(--raise);
+  color: var(--ink);
+}
+.ov-plan-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12.5px;
+  color: var(--ink3);
+}
+.ov-plan-code {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink3);
+  letter-spacing: 0;
+  margin-right: 5px;
+}
+.ov-plan-of {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--ink3);
+  letter-spacing: 0;
+}
+.ov-plan-sub,
+.ov-plan-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--ink3);
+}
+.ov-plan-bar {
+  margin-top: 6px;
+}
+.ov-skel-plan {
+  min-height: 110px;
+}
+
+/* Recent */
+.ov-recent-date {
+  font: 400 12px var(--font-mono);
+  color: var(--ink3);
+  width: 84px;
+}
+.ov-recent-open {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--ink);
+  font: 500 13.5px var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+  max-width: 420px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ov-recent-open:hover {
+  color: var(--accent);
+}
+.ov-recent-none {
+  padding: 8px 18px 12px;
+}
+
+/* Data quality */
+.ov-quality-chip {
+  border: 0;
+  cursor: pointer;
+}
+.ov-quality .ov-quality-grid {
+  margin-top: 0;
+}
+
+/* The empty household */
+.ov-empty-card .ov-empty-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+/* A phone keeps a single column. */
+@container (max-width: 900px) {
+  .ov-band-hero,
+  .ov-band-wide {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ov-plan-tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .ov-plan-tile:nth-child(3) {
+    border-left: 0;
+  }
+  .ov-recent .ds-table th:nth-child(3),
+  .ov-recent .ds-table td:nth-child(3),
+  .ov-recent .ds-table th:nth-child(4),
+  .ov-recent .ds-table td:nth-child(4) {
+    display: none;
+  }
+  .ov-recent-open {
+    max-width: none;
+    white-space: normal;
+  }
+}

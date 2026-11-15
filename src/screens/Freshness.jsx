@@ -7,14 +7,21 @@ import './Freshness.css';
 // balance keeps its "as of" date and a price its "priced" date, and reading
 // the page again changes neither. The page also reads again by itself when it
 // comes back into view and every few minutes (lib/useSources.js).
-export default function Freshness({ title, loadedAt, refreshing, onRefresh }) {
+export default function Freshness({ title, kicker = null, tools = null, loadedAt, refreshing, onRefresh }) {
   const label = refreshing ? 'Refreshing…' : loadedLabel(loadedAt);
   // The revamp (design/prototype): the button is a refresh icon with the time
   // it last read beside it; the full "Loaded 14 Nov, 14:32" is its hover.
   const time = loadedAt ? loadedAt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : null;
   return (
     <div className="fresh-row">
-      {title ? <h1 className="fresh-title">{title}</h1> : <span />}
+      {/* One header row on every screen (review P1): an optional line above
+          the title, then the screen's own controls before refresh. */}
+      <div className="fresh-left">
+        {kicker && <div className="fresh-kicker">{kicker}</div>}
+        {title ? <h1 className="fresh-title">{title}</h1> : <span />}
+      </div>
+      <div className="fresh-right">
+      {tools}
       <span className="fresh" aria-live="polite">
         {/* "Refreshing…" is a status and shows; "Loaded 14:32" is said to
             screen readers, and shown as the button's time. */}
@@ -26,6 +33,7 @@ export default function Freshness({ title, loadedAt, refreshing, onRefresh }) {
           </button>
         )}
       </span>
+      </div>
     </div>
   );
 }

@@ -44,6 +44,9 @@ export function yearlyCheckItems(notes = [], now = new Date()) {
       kind: 'yearly_check',
       severity: 'info',
       title: `Yearly check: ${note.title}`,
+      name: note.title,
+      status: 'Yearly check due',
+      noteId: note.id,
       detail: status.last
         ? `Last checked ${dayText(status.last)}. Go through the note in Planning → Notes, then mark it checked.`
         : 'Not checked yet. Go through the note in Planning → Notes, then mark it checked.',

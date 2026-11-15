@@ -18,6 +18,11 @@ vi.mock('../lib/useHousehold', () => ({
 }));
 
 let transactions = [];
+// Overview also reads Planning's records, for its Plan strip.
+vi.mock('./usePlanningData', async () => {
+  const { emptyPlanning } = await import('../test/planningStub');
+  return { usePlanningData: () => emptyPlanning() };
+});
 vi.mock('./useOverviewData', async (importOriginal) => ({
   ...(await importOriginal()),
   useOverviewData: () => ({
@@ -54,24 +59,24 @@ async function incomeKpi() {
       <Overview />
     </MemoryRouter>,
   );
-  return [...container.querySelectorAll('.ov-kpi-row > div')].find((k) => k.querySelector('.ov-kpi-label').textContent === 'Income');
+  return [...container.querySelectorAll('.ov-month .ds-kpi')].find((k) => k.querySelector('dt').textContent === 'Income');
 }
 
 describe('Overview: pay still to come this period', () => {
   it('says when pay is expected while none has been recorded', async () => {
     transactions = [{ id: 't1', amount: -500, kind: 'expense', occurred_at: '2026-10-10', is_shared: true, merchant: 'Groceries' }];
     const kpi = await incomeKpi();
-    expect(kpi.querySelector('.ov-kpi-fig').textContent).toBe('0');
-    expect(kpi.querySelector('.ov-kpi-hint').textContent).toBe('Pay expected 25 and 30 Oct · 18,000');
+    expect(kpi.querySelector('.ds-fig').textContent).toBe('0');
+    expect(kpi.querySelector('.ds-kpi-sub').textContent).toBe('Pay expected 25 and 30 Oct · 18,000');
   });
 
   it('says "more pay" once one salary is in, and nothing once both are', async () => {
     transactions = [{ id: 't1', amount: 10000, kind: 'income', occurred_at: '2026-10-19', is_shared: true, merchant: 'Salary A' }];
     let kpi = await incomeKpi();
-    expect(kpi.querySelector('.ov-kpi-hint').textContent).toBe('More pay expected 30 Oct · 8,000');
+    expect(kpi.querySelector('.ds-kpi-sub').textContent).toBe('More pay expected 30 Oct · 8,000');
 
     transactions = [...transactions, { id: 't2', amount: 8000, kind: 'income', occurred_at: '2026-10-20', is_shared: true, merchant: 'Salary B' }];
     kpi = await incomeKpi();
-    expect(kpi.querySelector('.ov-kpi-hint')).toBeNull();
+    expect(kpi.querySelector('.ds-kpi-sub')).toBeNull();
   });
 });

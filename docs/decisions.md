@@ -3834,3 +3834,61 @@ net worth's one line of help. No figure is worked out differently.
   rather than ahead of any screen that uses them.
 - **A gallery of the kit** opens at `/kit` in development, or in a build
   made with `VITE_KIT=1`; production builds leave it out.
+
+## Overview, the cockpit
+
+- **The prototype's Overview, from the kit.** Net worth beside the period's
+  figures; To do beside the next 30 days; income and spending beside where
+  it went; the Plan strip; recent transactions. Every figure is one the app
+  already works out elsewhere: the budget's track is Budget's
+  (`monthBudgetTrack`), the cash cover is the bot's morning check over 30
+  days, Where it went and What changed are Insights', and the Plan strip is
+  Planning → Plan's (`usePlanFigures`, moved out of the Plan tab so both use
+  one computation).
+- **To do is the one list** (`lib/todo.js`): Needs attention's items, the
+  latest statement to check on each card, dividends' questions and goals
+  short of cash. A button is named for what it does, and opens the place the
+  job is done; a record to review keeps its quick actions in place, and
+  Mark paid opens the transaction editor filled from the bill, as Recurring
+  does (`billPaymentInitial`). A category running high is a finding, not a
+  decision, so it moved to What changed. A card with several unchecked
+  statements is one row, the latest, saying how many older ones wait.
+- **Where it went is this month, net of refunds.** The design said it would
+  stay before refunds, as the old spending list was. Its tick is the
+  category's usual month, which Insights works out net of refunds, so the
+  bars are counted the same way: a bar and its tick agree, and both agree
+  with Insights and Budget. It no longer follows the period switch.
+- **What left Overview:** the change against the same days of the last
+  period under each figure (the six-month chart carries the trend); runway
+  (the Plan strip's cash reserve says it in months of spending); the
+  Accounts list (Wealth has it); the gross spending total; and the data
+  quality section, now a chip that opens the same checks.
+- **Overview reads Planning's records too**, for the Plan strip; while they
+  load, only the strip waits, and a tile whose records failed says so. The
+  strip's figures are in dirhams, as Planning's are, and say so; it keeps the
+  Plan tab's warnings (Provisional, an assumed year, someone not in the
+  plan, an unvalued account in the reserve) as chips, and under one person
+  marks the figures that are the household's.
+- **The fresh review of the cockpit** changed these:
+  - **Mark paid is dated the day the bill was due**, so the payment settles
+    it; dated today, a bill more than a few days late stayed "Late". Pay is
+    **Mark received**.
+  - **What changed is Needs attention's pace check** (spent so far against
+    the usual month pro rata), the finding that left To do, not Insights'
+    whole-month comparison, which misread a month in progress.
+  - **The cash cover is the household's whoever is shown**, as the bot's
+    morning check is, and counts what falls due from today: a bill already
+    waiting (an autopay not confirmed has usually left the bank) is not
+    counted again.
+  - **One person's view** draws no net worth trend (the closed months are
+    the household's) and no budget track (the budget is the household's),
+    and lists only that person's and shared cards' statements.
+  - **Statements and dividend questions** come only from records that
+    loaded, as their own tabs guard.
+  - **Recent** names a split record's categories and marks one needing
+    review; **Next 30 days** shows every bill on request, not only the first
+    five; the editor's notice after a save shows on Overview as on Activity.
+- **On a phone** the cockpit is one column, so To do follows net worth and
+  the month: within the first two screens rather than the first. Tables
+  scroll inside their card rather than widening the page.
+- **Activity and Overview open a record the same way** (`RecordEditor`).

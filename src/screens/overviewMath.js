@@ -6,6 +6,8 @@ import { scopedHoldingValue, visibleHoldings } from '../lib/holdings';
 import { isAwaitingFirstValuation } from '../lib/valuation';
 import { applyToIncomeSpend, isSpendRow, isTransfer } from '../lib/transactionKind';
 import { categoryParts } from '../lib/splits';
+import { upcomingItems } from '../lib/recurring';
+import { daysUntilDue, nextDueDate } from '../lib/creditCard';
 
 const LIABILITY_TYPES = new Set(['credit_card', 'loan']);
 const LIQUID_TYPES = new Set(['checking', 'savings', 'cash']);
@@ -254,9 +256,9 @@ export function periodChange(current, previous, { asPoints = false } = {}) {
 // toggle changes them (months under MTD, quarters under QTD, years under YTD)
 // while the figures above stay period to date.
 export const CHART_TITLES = {
-  mtd: 'Monthly income and net spend · last 6 months',
-  qtd: 'Quarterly income and net spend · last 4 quarters',
-  ytd: 'Yearly income and net spend · last 5 years',
+  mtd: 'Income and spending · 6 months',
+  qtd: 'Income and spending · 4 quarters',
+  ytd: 'Income and spending · 5 years',
 };
 
 // Whether a bucket is the one still running, so it can say "so far".
@@ -282,4 +284,40 @@ export function scopeLabel(scope, me, members) {
   if (scope === 'me') return me?.display_name ?? 'Me';
   const partner = members.find((m) => m.id !== me?.id);
   return partner?.display_name ?? 'Partner';
+}
+
+// The cockpit's Next 30 days (the revamp, phase 3; review S-overview-11):
+// a bill that has not posted, or an autopay waiting for its confirmation,
+// first and on today (Needs attention's own check, lib/attention.js), then
+// every occurrence due in the next 30 days, in the scope.
+export function next30Items(recurring, attention, scopeMemberId, now = new Date()) {
+  const visible = recurring.filter((r) => scopeMemberId === null || r.is_shared || r.owner_member_id === scopeMemberId);
+  const byId = new Map(visible.map((r) => [r.id, r]));
+  const today = startOfDay(now);
+  const waiting = attention
+    .filter((a) => a.kind === 'missing_recurring' && byId.has(a.recurringId))
+    .map((a) => ({ ...byId.get(a.recurringId), dueDate: today, occurrenceKey: `${a.recurringId}@waiting`, late: a.late === true, unconfirmed: a.late === false }));
+  return [...waiting, ...upcomingItems(visible, 30, now)];
+}
+
+// What is committed over those 30 days, as the bot's morning cash check
+// counts it (lib/cashCover.js): each bill falling due from today, and each
+// card with a balance due in it. A bill already waiting is not counted again:
+// an autopay not confirmed has usually left the bank (fresh review of the
+// cockpit). A card in another currency with no AED conversion is still a
+// bill, its amount unknown rather than zero (QA #4).
+export function next30Bills(items, accounts, scopeMemberId, now = new Date()) {
+  const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const recurring = items.filter((i) => Number(i.amount) < 0 && !i.late && !i.unconfirmed).map((i) => ({ due_date: iso(i.dueDate), amount_aed: -Number(i.amount) }));
+  const credit_cards = [];
+  for (const a of accounts) {
+    if (a.type !== 'credit_card' || isArchived(a)) continue;
+    if (!(scopeMemberId === null || a.is_shared || a.owner_member_id === scopeMemberId)) continue;
+    const aed = accountValueAed(a);
+    if ((aed ?? Number(a.balance ?? 0)) <= 0) continue;
+    const days = daysUntilDue(a.due_day, now);
+    if (days === null || days < 0 || days > 30) continue;
+    credit_cards.push({ due_date: iso(nextDueDate(a.due_day, now)), amount_owed_aed: aed === null ? null : Math.round(aed * 100) / 100 });
+  }
+  return { recurring, credit_cards };
 }

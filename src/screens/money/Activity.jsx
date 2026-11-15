@@ -19,9 +19,8 @@ import {
   withActivityFilter,
   withoutFilters,
 } from '../../lib/activityLink';
-import TransactionEditor from './TransactionEditor';
-import TransferEditor from './TransferEditor';
-import { transferCounterpart, transferDirectionLabel, transferLinkOf } from '../../lib/transfers';
+import RecordEditor from './RecordEditor';
+import { transferCounterpart, transferDirectionLabel } from '../../lib/transfers';
 import { amountInCategory, categoryParts, inCategory } from '../../lib/splits';
 import ActivityCalendar from './ActivityCalendar';
 import './Activity.css';
@@ -407,52 +406,24 @@ export default function Activity({ household, members, me, data, loading }) {
         </div>
       )}
 
-      {editing && (() => {
-        const close = () => setEditing(null);
-        const saved = async ({ notice: next = null } = {}) => {
-          setEditing(null);
-          setNotice(next);
-          await reload();
-        };
-        const link = editing !== 'new' && editing !== 'new-transfer' && !editing.newType ? transferLinkOf(editing.id, links) : null;
-        if (editing === 'new-transfer' || link) {
-          const transfer = link
-            ? { link, out: transactions.find((t) => t.id === link.from_transaction_id), in: transactions.find((t) => t.id === link.to_transaction_id) }
-            : null;
-          return (
-            <TransferEditor
-              transfer={transfer?.out && transfer?.in ? transfer : null}
-              householdId={household?.id}
-              accounts={accounts}
-              members={members}
-              onClose={close}
-              onSaved={saved}
-              onSwitchType={(type) => setEditing({ newType: type })}
-            />
-          );
-        }
-        const isNew = editing === 'new' || !!editing.newType;
-        return (
-          <TransactionEditor
-            key={isNew ? `new-${editing.newType ?? 'expense'}` : editing.id}
-            tx={isNew ? null : editing}
-            initial={editing.newType ? { type: editing.newType } : undefined}
-            household={household}
-            householdId={household?.id}
-            accounts={accounts}
-            categories={categories}
-            members={members}
-            allTransactions={transactions}
-            links={links}
-            categoryRules={data.categoryRules ?? []}
-            fxHistory={data.fxRateHistory}
-            onOpenOther={(other) => setEditing(other)}
-            onSwitchToTransfer={() => setEditing('new-transfer')}
-            onClose={close}
-            onSaved={saved}
-          />
-        );
-      })()}
+      {editing && (
+        <RecordEditor
+          editing={editing}
+          setEditing={setEditing}
+          household={household}
+          accounts={accounts}
+          categories={categories}
+          members={members}
+          transactions={transactions}
+          links={links}
+          categoryRules={data.categoryRules ?? []}
+          fxHistory={data.fxRateHistory}
+          onSaved={async ({ notice: next = null } = {}) => {
+            setNotice(next);
+            await reload();
+          }}
+        />
+      )}
     </div>
   );
 }

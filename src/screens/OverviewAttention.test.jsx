@@ -40,6 +40,11 @@ const HOLDINGS = Array.from({ length: 6 }, (_, i) => ({
   id: `h${i}`, name: `Fund ${i + 1}`, asset_class: 'intl_equity', quantity: 1, value_aed: 1000, priced_at: LONG_AGO, is_shared: true, owner_member_id: null,
 }));
 
+// Overview also reads Planning's records, for its Plan strip.
+vi.mock('./usePlanningData', async () => {
+  const { emptyPlanning } = await import('../test/planningStub');
+  return { usePlanningData: () => emptyPlanning() };
+});
 vi.mock('./useOverviewData', async (importOriginal) => ({
   ...(await importOriginal()),
   useOverviewData: () => ({
@@ -58,11 +63,13 @@ vi.mock('./useOverviewData', async (importOriginal) => ({
 }));
 
 function attentionRows(container) {
-  return [...container.querySelectorAll('#ov-attn-list .ov-attn-row')].map((r) => r.querySelector('.ov-attn-main span')?.textContent ?? '');
+  return [...container.querySelectorAll('#ov-todo-list .ov-todo-row')].map((r) => r.querySelector('.ov-todo-text')?.textContent ?? '');
 }
 
-describe('Needs attention', () => {
-  it('shows the most pressing four first, and the rest on request', async () => {
+// The revamp (phase 3): Needs attention is To do, the one list, six rows
+// first and the rest on request, the most pressing first.
+describe('To do', () => {
+  it('shows the most pressing six first, and the rest on request', async () => {
     const { default: Overview } = await import('./Overview');
     const { container } = renderScreen(
       <MemoryRouter>
@@ -71,8 +78,8 @@ describe('Needs attention', () => {
     );
 
     let rows = attentionRows(container);
-    expect(rows).toHaveLength(4);
-    expect(rows[0]).toMatch(/Bank card payment due/);
+    expect(rows).toHaveLength(6);
+    expect(rows[0]).toMatch(/^Bank card · Payment due today/);
     expect(container.textContent).toContain('7 open');
 
     const more = screen.getByRole('button', { name: 'Show all 7' });
@@ -80,11 +87,23 @@ describe('Needs attention', () => {
     await act(async () => more.click());
     rows = attentionRows(container);
     expect(rows).toHaveLength(7);
-    expect(rows.filter((r) => /hasn't been repriced/.test(r))).toHaveLength(6);
+    expect(rows.filter((r) => /· Price \d+d old/.test(r))).toHaveLength(6);
 
     const fewer = screen.getByRole('button', { name: 'Show fewer' });
     expect(fewer.getAttribute('aria-expanded')).toBe('true');
     await act(async () => fewer.click());
-    expect(attentionRows(container)).toHaveLength(4);
+    expect(attentionRows(container)).toHaveLength(6);
+  });
+
+  it('names each button for what it does', async () => {
+    const { default: Overview } = await import('./Overview');
+    renderScreen(
+      <MemoryRouter>
+        <Overview />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole('link', { name: 'Open card' }).getAttribute('href')).toBe('/wealth?tab=accounts');
+    expect(screen.getAllByRole('link', { name: 'Update price' })[0].getAttribute('href')).toBe('/wealth?tab=investments');
+    expect(screen.queryByRole('button', { name: 'Open' })).toBeNull();
   });
 });
