@@ -46,16 +46,18 @@ test('Activity and its calendar agree under Me, net of the refund', async ({ pag
   await expect(first.locator('.cal-income')).toHaveCount(0);
 });
 
-test('Top merchants follows the month Insights is showing', async ({ page }) => {
-  await openMoney(page, 'Insights');
-  const merchants = page.locator('.mn-row').filter({ hasText: /\d transactions?/ });
-  await expect(page.getByText(/^Top merchants · /)).toBeVisible();
-  await expect(merchants.filter({ hasText: 'Grocer' })).toContainText('80');
-  await expect(merchants.filter({ hasText: 'Old shop' })).toHaveCount(0);
+// Insights' top merchants are Activity's Merchants view (the revamp, phase
+// 4b): the month the stepper shows, net of refunds.
+test("Activity's Merchants follows the month the stepper shows", async ({ page }) => {
+  await openMoney(page);
+  await page.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Merchants' }).click();
+  const card = page.getByRole('region', { name: /^Merchants · / });
+  await expect(card.locator('.ds-bl-row').filter({ hasText: 'Grocer' })).toContainText('80');
+  await expect(card.locator('.ds-bl-row').filter({ hasText: 'Old shop' })).toHaveCount(0);
 
-  await page.getByRole('button', { name: '← Prev' }).click();
-  await expect(merchants.filter({ hasText: 'Old shop' })).toContainText('500');
-  await expect(merchants.filter({ hasText: 'Grocer' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Previous month' }).click();
+  await expect(card.locator('.ds-bl-row').filter({ hasText: 'Old shop' })).toContainText('500');
+  await expect(card.locator('.ds-bl-row').filter({ hasText: 'Grocer' })).toHaveCount(0);
 });
 
 test('Money says its amounts are AED when another display currency is picked', async ({ page }) => {
