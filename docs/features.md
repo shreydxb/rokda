@@ -77,7 +77,7 @@ plan holds.
   income and spent as columns, saved as a line, with an axis; a period with
   no records says so; pick one to read its figures.
 - **Where it went**: this month's five biggest categories, net of refunds,
-  each with a tick at its usual month (Insights' average), and up to three
+  each with a tick at its usual month (the six-month average Budget's Usual shows), and up to three
   running ahead of their usual pace (What changed); each opens the month's
   transactions in that category.
 - **Plan**: when work can stop (Baseline and Conservative), the goals for the
@@ -162,12 +162,26 @@ plan holds.
   refund whose category followed the purchase shows both in the same save. A
   transfer's history shows both sides. Dates are recorded too. A change with
   no member behind it (the bot) reads "Automatic".
-- **Budget**: month and year views. Spending is budgeted by subcategory and
-  rolled up to its group. Savings categories are savings targets measured
-  against what the month actually saved, never counted as spending.
-  One person's own lines carry their name. **Household share** shows each
-  person's plan (own lines plus their income-proportional split of the shared
-  ones), what each paid against their part, and the one transfer that evens it up.
+- **Budget**: month and year views (Month / Year, the stepper and
+  + Budget in the page header). Spending is budgeted by subcategory and
+  rolled up to its group. The month opens with the spent of budget, its bar
+  ticked at how far through the month it is, and a verdict: over by an
+  amount, over pace (more than ten points ahead of the month), on pace, or
+  within budget once the month is over. By category is a table: a group with
+  several budgeted lines has a header row, and Other holds what none of them
+  does; a group with one budgeted line is one row counting the whole group.
+  Each line gives what was spent, its limit (typed in place; a whole year or
+  deleting is the editor's), its usual month (the average over up to six
+  earlier months with records, with how far above it this month is once ten
+  per cent or more) and its pace. A line opens its records beneath it, with
+  All in Activity and Edit budget. Then Budgeted in all, and Outside budget,
+  whose uncategorised part and Activity link open those records. Savings
+  categories are savings targets measured against what the month actually
+  saved (and its share of income), never counted as spending. One person's
+  own lines carry their initial. **Household share** shows each person's plan
+  (own lines plus their split of the shared ones, by income when salaries
+  are set up), their part so far, what each paid, and the one transfer that
+  evens it up. The year is a grid of months, months ahead in italics.
 - **Recurring**: bills and expected income on a cadence, with an optional
   last date and amounts in AED, USD or INR. A strip gives Fixed a month,
   Variable (about) a month, Expected income a month and To mark paid: each
@@ -184,9 +198,6 @@ plan holds.
   reads Paused. Mark paid opens the payment filled from the bill, dated the
   day it was due when it is late. Under one person, the other's own schedules
   are left out and a shared one counts half. + Bill is in the page header.
-- **Insights**: what moved month on month. Every category figure, card and
-  merchant opens its records in Activity for the month on screen. Top
-  merchants follows the selected month, net of refunds.
 - Money and the AED-entered plans (Plan, Goals, Debt payoff) stay in AED
   whatever the display currency, and say so when another one is picked.
 - **Categories**: a record is filed under a category with no subcategories;

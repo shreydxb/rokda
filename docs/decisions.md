@@ -3944,3 +3944,32 @@ The revamp's phase 4a (design note `docs/superpowers/specs/2026-11-15-money-desi
   - **Possible duplicates are worked out once for the whole ledger**, by
     grouping, rather than each row against every record on every keystroke.
 
+## Money: Budget like the prototype, and Insights retired
+
+The revamp's phase 4b (design note `docs/superpowers/specs/2026-11-15-money-design.md`).
+
+- **Budget's month is the prototype's.** The figures are the same ones
+  (`budgetGroupSpend`); `lib/budgetTable.js` lays them out as the table:
+  group header rows with Other for spending no line holds (as the year view
+  already did), and one row for a group with one budgeted line, counting the
+  whole group, so a purchase filed under the group still counts.
+- **The verdict is new.** Over by an amount past the limit; over pace when
+  the share of the limit spent is more than ten points ahead of the share of
+  the month gone; on pace; within budget once the month is over. It replaces
+  the sentence that said the same at more length.
+- **Usual is over six months**, the same average Overview's What changed
+  used and Insights showed (the design note's decision 4), not the
+  prototype's three. "+N%" shows once a month is ten per cent or more above
+  it.
+- **A limit is typed in place** for its month; the editor stays where a
+  budget is set for the whole year or deleted, and opens from a line's
+  records. Text with no number in it is left as it was, not saved as 0.
+- **The year view lost its two charts**: net saved each month and saved so
+  far. Overview's months show income, spending and what was saved, and the
+  grid's last rows give both figures.
+- **Insights is retired.** Its usual month is Budget's Usual column, its top
+  merchants Activity's Merchants view, and what moved Overview's What
+  changed. An old link opens Merchants for the month it named.
+  `notableMoves` stays in `lib/insights.js`: the bot's spending check uses
+  its mirrored copy.
+
