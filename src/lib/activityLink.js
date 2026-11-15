@@ -12,6 +12,7 @@ import { monthFromParam, monthParam } from './useMonthParam';
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const BASES = new Set(['posted', 'scheduled', 'all']);
 const KINDS = new Set(['expense', 'income', 'refund', 'transfer']);
+const VIEWS = new Set(['calendar', 'merchants']);
 const SORTS = new Set(['newest', 'oldest', 'largest', 'smallest']);
 const pad = (n) => String(n).padStart(2, '0');
 
@@ -39,7 +40,7 @@ export function readActivityFilters(params) {
     dateBasis: BASES.has(dates) ? dates : 'posted',
     from: from && DATE.test(from) ? from : null,
     to: to && DATE.test(to) ? to : null,
-    view: params.get('view') === 'calendar' ? 'calendar' : 'list',
+    view: VIEWS.has(params.get('view')) ? params.get('view') : 'list',
     accountId: params.get('acct') || 'all',
     kind: KINDS.has(params.get('kind')) ? params.get('kind') : 'all',
     sort: SORTS.has(params.get('sort')) ? params.get('sort') : 'newest',

@@ -30,6 +30,8 @@ const SORT_OF = {
 const ARIA_SORT = { newest: ['date', 'descending'], oldest: ['date', 'ascending'], largest: ['amount', 'descending'], smallest: ['amount', 'ascending'] };
 
 export default function ActivityTable({
+  title = null,
+  showTotals = true,
   rows,
   visibleCount,
   onShowMore,
@@ -98,10 +100,11 @@ export default function ActivityTable({
 
   return (
     <Card
-      title={`${rows.length} transaction${rows.length === 1 ? '' : 's'}`}
+      title={title ?? `${rows.length} transaction${rows.length === 1 ? '' : 's'}`}
       className="mn-table-card"
       flush
       right={
+        showTotals && (
         <span className="mn-summary">
           {scheduledHidden > 0 && (
             <button type="button" className="ds-chip ds-chip-neutral" onClick={onShowScheduled}>
@@ -116,6 +119,7 @@ export default function ActivityTable({
           </span>
           {info}
         </span>
+        )
       }
     >
       {error && (

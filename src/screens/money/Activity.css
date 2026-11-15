@@ -226,89 +226,105 @@
   white-space: nowrap;
 }
 
-/* calendar */
-.cal {
-  margin-top: 22px;
-}
-
+/* The calendar (prototype css/money.css .cal): a card of day tiles, the
+   month the header stepper shows. */
 .cal-grid {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 1px;
-  background: var(--rule);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
 }
-
 .cal-grid-head {
-  background: none;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
-
 .cal-weekday {
-  font-size: 10.5px;
+  font-size: 12px;
   color: var(--ink3);
-  text-align: center;
-  padding: 4px 0;
+  padding: 0 8px;
 }
-
 .cal-cell {
-  background: var(--canvas);
-  border: none;
-  min-height: 68px;
-  padding: 8px;
-  text-align: left;
-  cursor: pointer;
+  height: 78px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 7px 9px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  align-items: flex-start;
+  gap: 1px;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
 }
-
 .cal-cell:hover {
-  background: var(--raise);
+  background: var(--raised);
 }
-
 .cal-cell-empty {
+  border-color: transparent;
+  background: transparent;
   cursor: default;
-  background: var(--canvas);
 }
-
 .cal-cell-empty:hover {
-  background: var(--canvas);
+  background: transparent;
 }
-
+.cal-cell[data-none] {
+  background: var(--ground);
+}
+.cal-cell[data-none] .cal-daynum {
+  color: var(--ink3);
+}
+.cal-cell[data-today='true'] {
+  border-color: var(--ink);
+}
 .cal-cell[data-today='true'] .cal-daynum {
-  color: var(--accent);
-  font-weight: 500;
+  font-weight: 600;
 }
-
 .cal-cell[data-active='true'] {
-  background: color-mix(in oklab, var(--accent) 12%, transparent);
+  background: var(--active);
+  box-shadow: inset 0 0 0 1px var(--ink);
 }
-
 .cal-daynum {
-  font-size: 11.5px;
+  font: 400 12px var(--font-mono);
   color: var(--ink2);
+  margin-bottom: auto;
 }
-
 .cal-amounts {
-  font-size: 10.5px;
+  font-size: 12.5px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
 }
-
 .cal-spend {
-  color: var(--ink2);
+  color: var(--ink);
 }
-
 .cal-income {
   color: var(--pos);
 }
 
-.cal-daylist {
-  margin-top: 28px;
-  padding-top: 16px;
-  border-top: 1px solid var(--rule);
+/* Merchants: the bar list beside its two figures (prototype c-8 / c-4). */
+.mn-merchants {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.mn-merchant-figures .ds-kpis {
+  grid-auto-flow: row;
+}
+.mn-merchant-figures .ds-kpi + .ds-kpi {
+  border-left: 0;
+  border-top: 1px solid var(--rule-soft);
+}
+@media (max-width: 720px) {
+  .mn-merchants {
+    grid-template-columns: 1fr;
+  }
 }
 
-/* The second row of Activity's filters. On a phone it folds away behind
-   "Filters (n)", which only shows there. */
+/* Cards on the tab stand a step apart (prototype .page). */
+.mn-activity > .ds-card + .ds-card,
+.mn-activity .ds-card + .mn-table-card {
+  margin-top: 16px;
+}
 
 /* What a save added besides the record (a merchant rule), above the list. */
 .mn-notice {

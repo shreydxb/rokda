@@ -361,3 +361,67 @@ describe('Activity: transfers', () => {
     expect(screen.getByRole('note').textContent).toMatch(/2 transfers between your own accounts count as neither/);
   });
 });
+
+describe('Activity: the calendar', () => {
+  const ROWS = [
+    { id: 'a', amount: -40, kind: 'expense', occurred_at: '2026-10-10', is_shared: true, category_id: 'c1', merchant: 'Grocer' },
+    { id: 'b', amount: -60, kind: 'expense', occurred_at: '2026-10-10', is_shared: true, category_id: 'c1', merchant: 'Cafe' },
+    { id: 'c', amount: -70, kind: 'expense', occurred_at: '2026-09-02', is_shared: true, category_id: 'c1', merchant: 'September' },
+  ];
+
+  // The header's stepper moves it; it has no month buttons of its own.
+  it("shows the stepper's month", () => {
+    renderActivity(ROWS, { url: '/money?view=calendar&month=2026-09' });
+    expect(screen.getByRole('region', { name: 'September 2026' })).toBeTruthy();
+    expect(screen.queryByText('← Prev')).toBeNull();
+    expect(screen.getAllByRole('button', { name: 'Previous month' })).toHaveLength(1);
+    const day = [...document.querySelectorAll('.cal-cell')].find((c) => c.querySelector('.cal-daynum')?.textContent === '2');
+    expect(day.querySelector('.cal-spend').textContent).toBe('−70');
+  });
+
+  it("lists a day's records beneath it, and opens one", () => {
+    renderActivity(ROWS, { url: '/money?view=calendar' });
+    const day = [...document.querySelectorAll('.cal-cell')].find((c) => c.querySelector('.cal-daynum')?.textContent === '10');
+    fireEvent.click(day);
+    const list = screen.getByRole('region', { name: '10 Oct · 2 transactions' });
+    expect(within(list).getByText('Grocer')).toBeTruthy();
+    expect(within(list).getByText('Cafe')).toBeTruthy();
+  });
+});
+
+// From Insights (the revamp, phase 4; design/prototype actMerchants): the
+// month's spending by merchant, net of refunds, and a merchant opens its
+// records.
+describe('Activity: Merchants', () => {
+  const ROWS = [
+    { id: 'a', amount: -100, kind: 'expense', occurred_at: '2026-10-10', is_shared: true, category_id: 'c1', merchant: 'Grocer' },
+    { id: 'r', amount: 20, kind: 'refund', occurred_at: '2026-10-11', is_shared: true, category_id: 'c1', merchant: 'Grocer' },
+    { id: 'b', amount: -30, kind: 'expense', occurred_at: '2026-10-03', is_shared: true, category_id: 'c1', merchant: 'Cafe' },
+    { id: 'c', amount: -30, kind: 'expense', occurred_at: '2026-10-04', is_shared: true, category_id: 'c1', merchant: 'Cafe' },
+    { id: 'd', amount: -20, kind: 'expense', occurred_at: '2026-10-05', is_shared: true, category_id: 'c1', merchant: 'Taxi' },
+    { id: 'e', amount: -20, kind: 'expense', occurred_at: '2026-10-06', is_shared: true, category_id: 'c1', merchant: 'Kiosk' },
+    { id: 's', amount: -999, kind: 'expense', occurred_at: '2026-09-06', is_shared: true, category_id: 'c1', merchant: 'September' },
+  ];
+
+  it("ranks the month's merchants net of refunds, with how many were paid and the top three's share", () => {
+    renderActivity(ROWS);
+    fireEvent.click(screen.getByRole('button', { name: 'Merchants' }));
+    expect(currentSearch()).toBe('?view=merchants');
+    const card = screen.getByRole('region', { name: 'Merchants · Oct 2026' });
+    const labels = [...card.querySelectorAll('.ds-bl-label')].map((l) => l.textContent);
+    expect(labels).toEqual(['Grocer · 1', 'Cafe · 2', 'Taxi · 1', 'Kiosk · 1']);
+    expect(within(card).getByText('80')).toBeTruthy();
+    const figures = screen.getByRole('region', { name: 'Merchants paid' });
+    expect(figures.textContent).toMatch(/Merchants paid\s*4/);
+    expect(figures.textContent).toMatch(/Top three\s*89%\s*of 180 spent/);
+    // It is the month's spending whatever the filters, so they are not offered.
+    expect(screen.queryByRole('combobox', { name: 'Category' })).toBeNull();
+  });
+
+  it('opens the records of a merchant chosen', () => {
+    renderActivity(ROWS, { url: '/money?view=merchants' });
+    fireEvent.click(screen.getByRole('button', { name: /^Cafe/ }));
+    expect(currentSearch()).toBe('?q=Cafe');
+    expect(merchants()).toEqual(['Cafe', 'Cafe']);
+  });
+});

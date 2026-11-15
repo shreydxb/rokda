@@ -24,6 +24,7 @@ import RecordEditor from './RecordEditor';
 import ActivityCalendar from './ActivityCalendar';
 import ActivityFilters from './ActivityFilters';
 import ActivityTable from './ActivityTable';
+import ActivityMerchants from './ActivityMerchants';
 import { Tools } from './MoneyTools';
 import { setCategory } from './setCategory';
 import './Activity.css';
@@ -39,6 +40,7 @@ const PAGE = 200;
 const VIEWS = [
   { id: 'list', label: 'List' },
   { id: 'calendar', label: 'Calendar' },
+  { id: 'merchants', label: 'Merchants' },
 ];
 const monthShort = (d) => d.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' }).replace('Sept', 'Sep');
 const monthLong = (d) => d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
@@ -216,49 +218,71 @@ export default function Activity({ household, members, me, data, loading }) {
         </div>
       </div>
     );
-  } else if (view === 'calendar') {
-    body = (
-      <ActivityCalendar
-        rows={rows}
-        members={members}
-        scopeMemberId={scopeMemberId}
-        shareLabel={scopeMemberId === null ? null : scopeMemberId === me?.id ? 'Your share' : `${members.find((m) => m.id === scopeMemberId)?.display_name ?? 'Partner'}'s share`}
-        onOpen={setEditing}
-        startMonth={from ?? monthRange(period.month.getFullYear(), period.month.getMonth() + 1).from}
-        amountOf={amountOf}
-      />
-    );
   } else {
-    body = (
-      <ActivityTable
-        rows={rows}
-        visibleCount={visibleCount}
-        onShowMore={() => setShown({ key: pageKey, count: visibleCount + PAGE })}
-        totals={totals}
-        scheduledHidden={scheduledHidden}
-        onShowScheduled={() => setFilter('dateBasis', 'all')}
-        sort={sort}
-        onSort={(next) => setFilter('sort', next)}
-        scopeMemberId={scopeMemberId}
-        members={members}
-        categories={categories}
-        accountById={accountById}
-        links={links}
-        transactions={transactions}
-        refundLinks={refundLinks}
-        amountOf={amountOf}
-        categoryFilterName={categories.find((c) => c.id === categoryFilter)?.name ?? 'this category'}
-        duplicateIds={duplicateIds}
-        now={now}
-        onOpen={setEditing}
-        onCategorise={async (t, category) => {
-          const result = await setCategory(t, category);
-          if (!result.error) await reload();
-          return result;
-        }}
-        onClearFilters={clearAll}
-      />
-    );
+    // The list and a calendar day's records are the same table.
+    const table = {
+      visibleCount,
+      onShowMore: () => setShown({ key: pageKey, count: visibleCount + PAGE }),
+      totals,
+      scheduledHidden,
+      onShowScheduled: () => setFilter('dateBasis', 'all'),
+      sort,
+      onSort: (next) => setFilter('sort', next),
+      scopeMemberId,
+      members,
+      categories,
+      accountById,
+      links,
+      transactions,
+      refundLinks,
+      amountOf,
+      categoryFilterName: categories.find((c) => c.id === categoryFilter)?.name ?? 'this category',
+      duplicateIds,
+      now,
+      onOpen: setEditing,
+      onCategorise: async (t, category) => {
+        const result = await setCategory(t, category);
+        if (!result.error) await reload();
+        return result;
+      },
+      onClearFilters: clearAll,
+    };
+    if (view === 'calendar') {
+      body = (
+        <ActivityCalendar
+          rows={rows}
+          scopeMemberId={scopeMemberId}
+          month={period.month}
+          amountOf={amountOf}
+          renderDay={(day, items) => (
+            <ActivityTable
+              {...table}
+              title={`${day.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }).replace('Sept', 'Sep')} · ${items.length} transaction${items.length === 1 ? '' : 's'}`}
+              showTotals={false}
+              rows={sortRows(items, sort)}
+            />
+          )}
+        />
+      );
+    } else if (view === 'merchants') {
+      body = (
+        <ActivityMerchants
+          transactions={transactions}
+          scopeMemberId={scopeMemberId}
+          month={period.month}
+          monthLabel={monthShort(period.month)}
+          now={now}
+          onSelect={(name) =>
+            update((prev) => {
+              const next = withActivityFilter(withActivityFilter(prev, 'search', name), 'view', null);
+              return next;
+            })
+          }
+        />
+      );
+    } else {
+      body = <ActivityTable {...table} rows={rows} />;
+    }
   }
 
   return (
@@ -280,7 +304,9 @@ export default function Activity({ household, members, me, data, loading }) {
           </button>
         </div>
       )}
-      {transactions.length > 0 && (
+      {/* Merchants is the month's spending as a whole, so the filters, which
+          it doesn't use, are not offered there. */}
+      {transactions.length > 0 && view !== 'merchants' && (
         <ActivityFilters
           filters={filters}
           period={period}
