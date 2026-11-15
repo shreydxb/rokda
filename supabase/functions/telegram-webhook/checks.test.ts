@@ -99,7 +99,11 @@ freshTest("a personal card's line is in its owner's digest only", async () => {
   const res = await handler(dailyCheck());
   await res.body?.cancel();
   assert(backend.telegramSent.some((m) => Number(m.body.chat_id) === TELEGRAM_USER && String(m.body.text).includes("Bank card is due")));
-  assert(!backend.telegramSent.some((m) => Number(m.body.chat_id) === 7701 && String(m.body.text).includes("Bank card")));
+  // Only the due line is the owner's. On a Monday the digest is the weekly
+  // one, whose upcoming bills list the household's, this card among them, for
+  // everyone; this test failed every Monday in Dubai when it refused any
+  // mention of the card.
+  assert(!backend.telegramSent.some((m) => Number(m.body.chat_id) === 7701 && String(m.body.text).includes("Bank card is due")));
 });
 
 freshTest("a digest Telegram refuses records none of its lines, and all come again the next morning", async () => {
