@@ -1,6 +1,9 @@
 # Money, the revamp's phase 4: design
 
-Status: draft for approval. Replaces `2026-11-14-money-design.md`, which was
+Status: approved 15 November 2026, with the four decisions below as
+recommended (monthly equivalents, no statement total typed in, Not
+confirmed for autopay, Usual over 6 months). Replaces
+`2026-11-14-money-design.md`, which was
 written before the independent review and is superseded.
 
 The prototype (`design/prototype/js/screens-money.js`, Inbox in
