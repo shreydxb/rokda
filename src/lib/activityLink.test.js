@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { activeFilterCount, activityHref, bucketRange, categoryAndChildren, datePresets, dateRangeLabel, inDateRange, monthRange, presetFor, readActivityFilters, tabHref, withActivityFilter, withoutFilters } from './activityLink';
+import { activeFilterCount, activityHref, activityPeriod, bucketRange, categoryAndChildren, datePresets, dateRangeLabel, inDateRange, monthRange, presetFor, readActivityFilters, tabHref, withActivityFilter, withActivityMonth, withAllDates, withoutFilters } from './activityLink';
 
 describe('activityHref and readActivityFilters', () => {
   it('round-trips a month and category through the address', () => {
@@ -105,5 +105,49 @@ describe('activeFilterCount and withoutFilters', () => {
     const params = new URLSearchParams('tab=activity&cat=c1&from=2026-09-01&to=2026-09-30&view=calendar&sort=largest&acct=a1');
     expect(activeFilterCount(readActivityFilters(params))).toBe(3);
     expect(withoutFilters(params).toString()).toBe('tab=activity&view=calendar&sort=largest');
+  });
+});
+
+// Which dates Activity shows (the revamp, phase 4): the month the address
+// names, or this one; every date on `range=all`; a link's range as given,
+// counted as its month when it covers one whole month.
+describe('activityPeriod', () => {
+  const now = new Date(2026, 10, 15, 12);
+  const at = (search) => activityPeriod(new URLSearchParams(search), now);
+
+  it('shows this month when the address names no dates', () => {
+    expect(at('')).toEqual({ mode: 'month', month: new Date(2026, 10, 1), from: '2026-11-01', to: '2026-11-30' });
+  });
+
+  it('shows the month the address names', () => {
+    expect(at('month=2026-09')).toMatchObject({ mode: 'month', month: new Date(2026, 8, 1), from: '2026-09-01', to: '2026-09-30' });
+  });
+
+  it('counts a range that is one whole month as that month', () => {
+    expect(at('from=2026-08-01&to=2026-08-31')).toMatchObject({ mode: 'month', month: new Date(2026, 7, 1) });
+  });
+
+  it('keeps any other range as it is, on the month it starts in', () => {
+    expect(at('from=2026-11-01&to=2026-11-15')).toEqual({ mode: 'custom', month: new Date(2026, 10, 1), from: '2026-11-01', to: '2026-11-15' });
+    expect(at('to=2026-06-30')).toMatchObject({ mode: 'custom', month: new Date(2026, 5, 1), from: null, to: '2026-06-30' });
+  });
+
+  it('shows every date on range=all, keeping the month to step from', () => {
+    expect(at('range=all&month=2026-09')).toEqual({ mode: 'all', month: new Date(2026, 8, 1), from: null, to: null });
+  });
+});
+
+describe('withActivityMonth and withAllDates', () => {
+  const now = new Date(2026, 10, 15, 12);
+
+  it('moves to a month, dropping a range and All dates, and leaves this month out of the address', () => {
+    const start = new URLSearchParams('tab=activity&from=2026-11-01&to=2026-11-15&range=all&cat=c1');
+    expect(withActivityMonth(start, new Date(2026, 9, 1), now).toString()).toBe('tab=activity&cat=c1&month=2026-10');
+    expect(withActivityMonth(start, new Date(2026, 10, 1), now).toString()).toBe('tab=activity&cat=c1');
+  });
+
+  it('shows every date, keeping the month', () => {
+    const start = new URLSearchParams('tab=activity&month=2026-09&from=2026-09-01&to=2026-09-30');
+    expect(withAllDates(start).toString()).toBe('tab=activity&month=2026-09&range=all');
   });
 });

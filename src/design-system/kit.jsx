@@ -129,6 +129,56 @@ export function InfoButton({ about, children }) {
   );
 }
 
+// A button that opens a small panel under it: Activity's More filters (the
+// revamp, phase 4; review S-activity-2). `count` says how many of the panel's
+// settings are set, beside the label and in its name. Escape or a click
+// elsewhere closes it, with focus back on the button; a choice inside it
+// leaves it open, so several can be set in turn.
+export function Popover({ label, count = 0, children }) {
+  const [open, setOpen] = useState(false);
+  const wrap = useRef(null);
+  const button = useRef(null);
+  const id = useId();
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e) => {
+      if (wrap.current && !wrap.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
+  const onKeyDown = (e) => {
+    if (open && e.key === 'Escape') {
+      e.stopPropagation();
+      e.nativeEvent?.stopImmediatePropagation?.();
+      setOpen(false);
+      button.current?.focus();
+    }
+  };
+  return (
+    <span className="ds-popover" ref={wrap} onKeyDown={onKeyDown}>
+      <button
+        type="button"
+        ref={button}
+        className="ds-btn"
+        aria-label={count > 0 ? `${label}, ${count} set` : label}
+        aria-expanded={open}
+        aria-controls={open ? id : undefined}
+        onClick={() => setOpen((o) => !o)}
+      >
+        {label}
+        {count > 0 && <span className="ds-chip ds-chip-accent">{count}</span>}
+        <Icon name="down" />
+      </button>
+      {open && (
+        <div className="ds-popover-panel" id={id} role="group" aria-label={label}>
+          {children}
+        </div>
+      )}
+    </span>
+  );
+}
+
 // ‹ Nov 2026 › (review P8): one compact stepper for every month or year.
 export function MonthStepper({ label, onPrev, onNext, prevDisabled = false, nextDisabled = false, unit = 'month' }) {
   return (

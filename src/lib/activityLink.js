@@ -1,4 +1,5 @@
 import { parseDay } from './day';
+import { monthFromParam, monthParam } from './useMonthParam';
 
 // Where a summary sends you to see its records, and what Activity reads back
 // out of the address. The filters live in the URL rather than in screen state
@@ -60,6 +61,46 @@ export function activeFilterCount(filters) {
 export function withoutFilters(params) {
   let next = new URLSearchParams(params);
   for (const key of ['categoryId', 'search', 'needsReview', 'estimated', 'dateBasis', 'from', 'to', 'accountId', 'kind']) next = withActivityFilter(next, key, null);
+  return next;
+}
+
+// Which dates Activity shows (the revamp, phase 4; design/prototype): a month
+// by default, the one in the address (`month`, shared with Budget) or this
+// one; every date on `range=all`; and a link's own range as it is. A range
+// that is one whole month is that month, so a link from Budget or Overview
+// lands with the stepper on it. `month` is the first of the month the stepper
+// shows: a custom range shows the month it starts in.
+export function activityPeriod(params, now = new Date()) {
+  const filters = readActivityFilters(params);
+  const current = new Date(now.getFullYear(), now.getMonth(), 1);
+  const named = monthFromParam(params.get('month')) ?? current;
+  if (filters.from || filters.to) {
+    const start = parseDay(filters.from ?? filters.to);
+    const month = new Date(start.getFullYear(), start.getMonth(), 1);
+    const whole = monthRange(month.getFullYear(), month.getMonth() + 1);
+    if (whole.from === filters.from && whole.to === filters.to) return { mode: 'month', month, ...whole };
+    return { mode: 'custom', month, from: filters.from, to: filters.to };
+  }
+  if (params.get('range') === 'all') return { mode: 'all', month: named, from: null, to: null };
+  return { mode: 'month', month: named, ...monthRange(named.getFullYear(), named.getMonth() + 1) };
+}
+
+// The address showing one month: any range and All dates go, and this month
+// is left out (lib/useMonthParam.js).
+export function withActivityMonth(params, month, now = new Date()) {
+  const next = new URLSearchParams(params);
+  for (const name of ['from', 'to', 'range', 'month']) next.delete(name);
+  if (monthParam(month) !== monthParam(now)) next.set('month', monthParam(month));
+  return next;
+}
+
+// The address showing every date. The month stays, for the stepper to step
+// from.
+export function withAllDates(params) {
+  const next = new URLSearchParams(params);
+  next.delete('from');
+  next.delete('to');
+  next.set('range', 'all');
   return next;
 }
 

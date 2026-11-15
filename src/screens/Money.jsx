@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { INBOX_COUNT_EVENT } from '../shell/useInboxCount';
 import { useTab } from '../lib/useTab';
@@ -20,6 +20,7 @@ import { usePlanningData } from './usePlanningData';
 import BackToReview from './BackToReview';
 import AedNote from './AedNote';
 import TabRow from './TabRow';
+import { ToolsSlot } from './money/MoneyTools';
 
 const TABS = [
   { id: 'activity', label: 'Activity' },
@@ -35,7 +36,7 @@ export default function Money() {
   // The tab and Activity's filters are in the address (lib/useTab.js,
   // lib/activityLink.js), so a link from Overview or Insights opens the tab
   // and the records it means, and Back returns to where it came from.
-  const [tab, setTab] = useTab(TABS);
+  const [tab, setTab] = useTab(TABS, TABS[0].id, {}, ['month']);
   const { household, members, me, loading: householdLoading, error: householdError, reload: reloadHousehold } = useHousehold();
   const data = useOverviewData(household?.id);
   // The review's goal action needs the goals; nothing else here does, so they
@@ -59,14 +60,13 @@ export default function Money() {
     await Promise.all([reloadHousehold(), data.reload(), ...(tab === 'review' ? [planning.reload()] : [])]);
   };
 
+  // The header's slot for the open tab's own controls (money/MoneyTools.jsx).
+  const [toolsNode, setToolsNode] = useState(null);
+
   return (
     <div className="mn">
-      <Freshness
-        title="Money"
-        loadedAt={data.loadedAt}
-        refreshing={data.refreshing}
-        onRefresh={reloadAll}
-      />
+      <Freshness title="Money" tools={<span className="mn-tools" ref={setToolsNode} />} loadedAt={data.loadedAt} refreshing={data.refreshing} onRefresh={reloadAll} />
+      <ToolsSlot node={toolsNode}>
       <AedNote household={household} />
       <LoadFailure
         errors={{ ...data.errors, ...(tab === 'review' ? planning.errors : {}), ...(householdError ? { household: householdError } : {}) }}
@@ -113,6 +113,7 @@ export default function Money() {
         <Inbox household={household} members={members} accounts={data.accounts} categories={data.categories} data={data} loading={loading} />
       )}
       {tab === 'review' && <Review household={household} data={data} planning={planning} loading={loading} />}
+      </ToolsSlot>
     </div>
   );
 }

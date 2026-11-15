@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, fireEvent } from '@testing-library/react';
 import { act } from 'react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { renderScreen } from '../test/renderScreen';
 import { ScopeProvider } from '../lib/ScopeContext';
 import { CurrencyProvider } from '../lib/CurrencyContext';
@@ -12,7 +12,21 @@ vi.mock('../lib/useHousehold', () => ({
 }));
 // The tabs' own content is not what is tested here.
 vi.mock('./money/Review', () => ({ default: () => <div>Review</div> }));
-vi.mock('./money/Activity', () => ({ default: () => <div>Activity</div> }));
+// Activity puts a control in the page header, as every rebuilt tab does.
+vi.mock('./money/Activity', async () => {
+  const { Tools } = await import('./money/MoneyTools');
+  return {
+    default: () => (
+      <div>
+        Activity
+        <Tools>
+          <button type="button">Next month</button>
+        </Tools>
+      </div>
+    ),
+  };
+});
+vi.mock('./money/Budget', () => ({ default: () => <div>Budget</div> }));
 
 const overview = { reload: vi.fn(async () => {}), intake: [], loading: false, errors: {}, loadedAt: new Date() };
 const planning = { reload: vi.fn(async () => {}) };
@@ -149,5 +163,35 @@ describe('Money: the Inbox count for the sidebar', () => {
     window.removeEventListener(INBOX_COUNT_EVENT, listen);
     overview.intake = [];
     expect(seen).toEqual([1, 1]);
+  });
+});
+
+// The revamp, phase 4 (design/prototype): each tab's controls sit in the page
+// header beside Refresh, and the month is shared by the tabs.
+describe('Money: the header and the month', () => {
+  function Where() {
+    return <output data-testid="where">{useLocation().search}</output>;
+  }
+
+  it("puts the tab's controls in the page header", () => {
+    renderScreen(
+      <MemoryRouter initialEntries={['/money']}>
+        <Money />
+      </MemoryRouter>,
+    );
+    const control = screen.getByRole('button', { name: 'Next month' });
+    expect(control.closest('.fresh-row')).not.toBeNull();
+    expect(screen.getAllByRole('button', { name: 'Next month' })).toHaveLength(1);
+  });
+
+  it('keeps the month when another tab is opened', () => {
+    renderScreen(
+      <MemoryRouter initialEntries={['/money?month=2026-09&cat=c1']}>
+        <Where />
+        <Money />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Budget' }));
+    expect(screen.getByTestId('where').textContent).toBe('?tab=budget&month=2026-09');
   });
 });
