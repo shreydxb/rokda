@@ -3,12 +3,11 @@ import { useNow } from '../../lib/useNow';
 import { useMonthParam } from '../../lib/useMonthParam';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
-import { formatBalance, formatCompact, formatMoney, formatSigned } from '../../lib/money';
+import { formatBalance, formatMoney, formatSigned } from '../../lib/money';
 import { budgetGroupSpend, monthIncome, monthPace } from '../../lib/budget';
 import { budgetTable, lineRecords, paceVerdict } from '../../lib/budgetTable';
 import { UNCATEGORISED } from '../../lib/activityLink';
 import { rowDateLabel } from '../../lib/activity';
-import { ChartLegend, ColumnChart, LineChart } from '../../charts/Charts';
 import { Avatar, Card, Chip, EmptyState, InfoButton, MonthStepper, ProgressBar, Segmented } from '../../design-system/kit';
 import BudgetEditor from './BudgetEditor';
 import { categoryOwner, householdShare } from '../../lib/share';
@@ -103,7 +102,6 @@ export default function Budget({ household, me, members, data, loading, onOpenRe
       ) : (
         <YearView
           year={yearCursor}
-          setYear={setYearCursor}
           budgets={spendBudgets}
           savingsBudgets={savingsBudgets}
           transactions={transactions}
@@ -563,8 +561,7 @@ const sum = (values) => values.reduce((s, v) => s + (v ?? 0), 0);
 // total, a monthly average and each group's share of what was spent. Every
 // actual comes from budgetGroupSpend, the same figures the month view shows,
 // so a month reads identically in either view and every column adds up.
-function YearView({ year, setYear, budgets, savingsBudgets = [], transactions, categories, scopeMemberId, now }) {
-  const [activeMonth, setActiveMonth] = useState(null);
+function YearView({ year, budgets, savingsBudgets = [], transactions, categories, scopeMemberId, now }) {
   const catById = new Map(categories.map((c) => [c.id, c]));
   const yearBudgets = budgets.filter((b) => b.year === year);
   const catIds = [...new Set(yearBudgets.map((b) => b.category_id))];
@@ -641,97 +638,33 @@ function YearView({ year, setYear, budgets, savingsBudgets = [], transactions, c
   };
   const values = (cells) => cells.map((c) => c.value);
 
-  const active = activeMonth ?? (year === currentYear ? currentMonth - 1 : anyActual ? 11 : null);
-  const activeCol = (i) => (i === active ? 'bud-col-active' : undefined);
+  // The month now running is marked down the grid (design/prototype .cur).
+  const activeCol = (i) => (year === currentYear && i === currentMonth - 1 ? 'bud-col-active' : undefined);
 
-  return (
-    <div>
-      <div className="cal-nav" style={{ marginTop: 22 }}>
-        <button type="button" className="om-btn" onClick={() => setYear(year - 1)}>
-          ← {year - 1}
-        </button>
-        <div className="fig">{year}</div>
-        <button type="button" className="om-btn" onClick={() => setYear(year + 1)}>
-          {year + 1} →
-        </button>
-      </div>
-
-      {anyActual && (
-        <section style={{ marginTop: 22 }}>
-          <div className="ch-pair">
-            <div>
-              <div className="ov-kicker">Net saved each month</div>
-              <ColumnChart
-                columns={MONTHS.map((m, i) => ({ key: m, label: MONTH_LABELS[i], values: [netSaved[i] ?? 0], muted: netSaved[i] === null }))}
-                series={[{ key: 'net', label: 'Net saved', color: (v) => (v < 0 ? 'var(--neg)' : 'var(--pos)') }]}
-                reference={hasTarget ? { values: target, label: 'Target' } : null}
-                height={150}
-                formatTick={formatCompact}
-                labelEvery={2}
-                activeIndex={active}
-                onActiveChange={setActiveMonth}
-                ariaLabel={`Net saved each month of ${year}: income minus all spending. Use the arrow keys to move between months.`}
-              />
-            </div>
-            <div>
-              <div className="ov-kicker">Saved so far in {year}</div>
-              <LineChart
-                points={MONTHS.map((m, i) => ({ key: m, label: MONTH_LABELS[i], value: savedSoFar[i] }))}
-                color="var(--accent)"
-                height={150}
-                formatTick={formatCompact}
-                labelEvery={2}
-                activeIndex={active}
-                onActiveChange={setActiveMonth}
-                ariaLabel={`Running total of net saved through ${year}. Use the arrow keys to move between months.`}
-              />
-            </div>
-          </div>
-          {active !== null && (
-            <div className="ov-chart-readout">
-              <span className="fig">
-                {MONTH_LABELS[active]} {year}
-              </span>
-              {netSaved[active] === null ? (
-                <span>Not reached yet · budgeted {formatMoney(budgetedCells[active])}</span>
-              ) : (
-                <>
-                  <span>
-                    Income <b className="fig">{formatMoney(income[active])}</b>
-                  </span>
-                  <span>
-                    Spending <b className="fig">{formatMoney(allSpending[active])}</b>
-                  </span>
-                  <span>
-                    Net saved <b className={`fig ${netSaved[active] < 0 ? 'ov-neg' : ''}`}>{formatBalance(netSaved[active])}</b>
-                  </span>
-                  <span>
-                    So far this year <b className="fig">{formatBalance(savedSoFar[active])}</b>
-                  </span>
-                  {year === currentYear && active === currentMonth - 1 && <span className="ov-muted">month still open</span>}
-                </>
-              )}
-            </div>
-          )}
-          <ChartLegend
-            items={[
-              { label: 'Saved', color: 'var(--pos)' },
-              { label: 'Overspent', color: 'var(--neg)' },
-              { label: 'Running total', color: 'var(--accent)', kind: 'line' },
-              ...(hasTarget ? [{ label: 'Savings target', color: 'var(--ink2)', kind: 'line' }] : []),
-            ]}
-          />
-        </section>
-      )}
-
-      {catIds.length === 0 ? (
-        <div className="ov-empty">
-          <div className="ov-empty-kicker">No budget set</div>
-          <div className="ov-empty-body">Nothing budgeted for {year} yet.</div>
-        </div>
-      ) : (
-        <div className="bud-yearwrap">
-          <table className="bud-year">
+  return catIds.length === 0 ? (
+    <Card>
+      <EmptyState title="No budget set" body={`Nothing budgeted for ${year} yet.`} />
+    </Card>
+  ) : (
+    <Card
+      title={`${year} by month`}
+      flush
+      right={
+        <span className="bud-ink3">
+          <i>Italic</i> = budgeted, months ahead
+        </span>
+      }
+      info={
+        <InfoButton about="the year">
+          Months to date show what was spent; months ahead show the budget, in italics. Total adds the two. Each group counts everything spent in it,
+          subcategories included, the same as the month view. Net saved is income minus all spending, including categories with no budget and records
+          with no category.
+          {scopeMemberId !== null && ' Actuals are this person’s share; budgets are the whole household’s.'}
+        </InfoButton>
+      }
+    >
+        <div className="ds-table-wrap bud-yearwrap" tabIndex={0} role="region" aria-label={`${year}, month by month`}>
+          <table className="ds-table bud-year">
             <thead>
               <tr>
                 <th scope="col">Category</th>
@@ -782,15 +715,8 @@ function YearView({ year, setYear, budgets, savingsBudgets = [], transactions, c
               </tr>
             </tbody>
           </table>
-          <div className="ov-muted" style={{ marginTop: 8, fontSize: 11.5, lineHeight: 1.6 }}>
-            Months to date show what was spent; months ahead show the budget, in italics. Total adds the two. Each group counts
-            everything spent in it, subcategories included, the same as the month view. Net saved is income minus <em>all</em>{' '}
-            spending, including categories with no budget and records with no category.
-            {scopeMemberId !== null && ' Actuals are this person’s share; budgets are the whole household’s.'}
-          </div>
         </div>
-      )}
-    </div>
+    </Card>
   );
 }
 

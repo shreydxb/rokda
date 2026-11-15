@@ -307,10 +307,15 @@ describe('Budget: the year view adds up like a budget sheet', () => {
     expect(util[15]).toBe('47%'); // 350 of the 750 spent
   });
 
-  it('draws the monthly net and running total charts', () => {
+  // The prototype's year (the revamp, phase 4b): the grid in a card, the year
+  // stepped from the header; the charts above it, which Overview's months
+  // already show, are gone.
+  it('is the grid in a card for the year, stepped from the header', () => {
     openYear();
-    expect(screen.getByText('Net saved each month')).toBeTruthy();
-    expect(screen.getByText('Saved so far in 2026')).toBeTruthy();
+    expect(screen.getByRole('region', { name: '2026 by month' })).toBeTruthy();
+    expect(screen.queryByText('Net saved each month')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Previous year' }));
+    expect(screen.getByText('Nothing budgeted for 2025 yet.')).toBeTruthy();
   });
 });
 
