@@ -50,9 +50,9 @@ async function open(page, path, { failRuleInserts = 0 } = {}) {
 const categorySelect = (editor) => editor.locator('select').filter({ has: editor.page().locator('option', { hasText: 'Uncategorised' }) });
 
 test('a corrected merchant is remembered after the record saves, and Activity keeps its place', async ({ page }) => {
-  const { writes, added } = await open(page, '/money?tab=activity&q=Carrefour&sort=largest');
+  const { writes, added } = await open(page, '/money?tab=activity&q=Carrefour&sort=largest&range=all');
   await pickInShell(page, 'Household scope', 'Me');
-  await page.locator('.om-tx-row').first().click();
+  await page.locator('.om-tx-row .mn-open').first().click();
   const editor = page.getByRole('dialog', { name: 'Edit transaction' });
   const remember = editor.getByRole('checkbox', { name: /Remember this merchant/ });
   await expect(remember).toHaveCount(0);
@@ -76,8 +76,8 @@ test('a corrected merchant is remembered after the record saves, and Activity ke
   expect(added[0]).toMatchObject({ household_id: ids.HH, pattern: 'Carrefour', match_type: 'contains', category_id: ids.C_DINING });
 
   // Same filters, same person.
-  await expect(page).toHaveURL(/tab=activity&q=Carrefour&sort=largest$/);
-  await expect(page.getByLabel('Search')).toHaveValue('Carrefour');
+  await expect(page).toHaveURL(/tab=activity&q=Carrefour&sort=largest&range=all$/);
+  await expect(page.getByLabel('Search', { exact: true })).toHaveValue('Carrefour');
   await expect(scope(page, 'Me')).toHaveAttribute('data-active', 'true');
 
   await notice.getByRole('link', { name: 'See the rule in Settings' }).click();
@@ -87,12 +87,12 @@ test('a corrected merchant is remembered after the record saves, and Activity ke
   await ruleEditor.getByRole('button', { name: 'Cancel' }).click();
   await expect(page.locator('.mn-row').filter({ hasText: 'Contains "Carrefour" → Dining out' })).toHaveCount(1);
   await page.goBack();
-  await expect(page).toHaveURL(/tab=activity&q=Carrefour&sort=largest$/);
+  await expect(page).toHaveURL(/tab=activity&q=Carrefour&sort=largest&range=all$/);
 });
 
 test('a rule that fails is retried alone, without saving the record again', async ({ page }) => {
-  const { writes, added } = await open(page, '/money?tab=activity&q=Carrefour', { failRuleInserts: 1 });
-  await page.locator('.om-tx-row').first().click();
+  const { writes, added } = await open(page, '/money?tab=activity&q=Carrefour&range=all', { failRuleInserts: 1 });
+  await page.locator('.om-tx-row .mn-open').first().click();
   const editor = page.getByRole('dialog', { name: 'Edit transaction' });
   await categorySelect(editor).selectOption({ label: 'Dining out' });
   await editor.getByRole('checkbox', { name: /Remember this merchant/ }).check();
@@ -109,7 +109,7 @@ test('a rule that fails is retried alone, without saving the record again', asyn
 
 test('a rule that files the merchant elsewhere is explained and linked, and the correction saves without a new rule', async ({ page, browser, baseURL }) => {
   const { writes, added } = await open(page, '/money?tab=activity&q=Spinneys&kind=expense');
-  await page.locator('.om-tx-row').first().click();
+  await page.locator('.om-tx-row .mn-open').first().click();
   const editor = page.getByRole('dialog', { name: 'Edit transaction' });
   await categorySelect(editor).selectOption({ label: 'Dining out' });
   await editor.getByRole('checkbox', { name: /Remember this merchant/ }).check();
@@ -143,7 +143,7 @@ test('a rule that files the merchant elsewhere is explained and linked, and the 
 
 test('a refund is not offered a merchant rule', async ({ page }) => {
   await open(page, '/money?tab=activity&q=Spinneys&kind=refund');
-  await page.locator('.om-tx-row').first().click();
+  await page.locator('.om-tx-row .mn-open').first().click();
   const editor = page.getByRole('dialog', { name: 'Edit transaction' });
   await categorySelect(editor).selectOption({ label: 'Dining out' });
   await expect(editor.getByRole('checkbox', { name: /Remember this merchant/ })).toHaveCount(0);

@@ -53,6 +53,17 @@ export function KpiStrip({ items }) {
   );
 }
 
+// Whose a record is, as an initial in a circle (design/prototype ui.avatar):
+// tone 'a' for the first member, 'b' for the second, grey for shared. Named
+// for a screen reader, since the initial alone says little.
+export function Avatar({ name, initial, tone = 'neutral' }) {
+  return (
+    <span className={`ds-avatar ds-avatar-${tone}`} role="img" aria-label={name} title={name}>
+      {initial}
+    </span>
+  );
+}
+
 // The one status label (review P6): grey for neutral, amber for needs a look,
 // red for wrong or late, green for done, iris for a display setting.
 export function Chip({ tone = 'neutral', children, title }) {

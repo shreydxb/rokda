@@ -30,12 +30,15 @@ test('Activity and its calendar agree under Me, net of the refund', async ({ pag
   await openMoney(page);
   await pickInShell(page, 'Household scope', 'Me');
 
-  const summary = page.locator('.mn-count');
+  const summary = page.locator('.mn-summary');
   await expect(summary).toContainText('1 scheduled not counted');
-  // Activity covers all dates until it has a date filter; the search narrows
-  // it to the pair.
+  // Activity shows this month; the search narrows it to the pair.
   await page.getByPlaceholder('Search merchant, note or amount').fill('Grocer');
-  await expect(summary).toContainText('2 posted records · Net spend AED 40 (purchases 50 less refunds 10) · Income AED 0');
+  await expect(page.getByRole('region', { name: '2 transactions' })).toBeVisible();
+  await expect(summary).toContainText('Spent 40');
+  await expect(summary).toContainText('Income 0');
+  await page.getByRole('button', { name: 'About these totals' }).click();
+  await expect(page.getByRole('note')).toContainText('Spent is purchases 50 less refunds 10.');
 
   await page.getByRole('button', { name: 'Calendar' }).click();
   const first = page.locator('.cal-cell').filter({ has: page.locator('.cal-daynum', { hasText: /^1$/ }) });

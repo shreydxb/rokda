@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { render, screen, fireEvent, within, act } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { useCloseGuard } from '../lib/useCloseGuard';
-import { Card, KpiStrip, Chip, WarningRow, InfoButton, MonthStepper, Segmented, Switch, Fold, EmptyState, Banner, Drawer, ProgressBar, StackBar, BarList, Popover } from './kit';
+import { Card, KpiStrip, Chip, WarningRow, InfoButton, MonthStepper, Segmented, Switch, Fold, EmptyState, Banner, Drawer, ProgressBar, StackBar, BarList, Popover, Avatar } from './kit';
 
 // The shared kit (the revamp, phase 2; design/prototype/styles.css). Each
 // piece is used by every rebuilt screen, so what it says to a screen reader
@@ -548,5 +548,16 @@ describe('Popover', () => {
   it('gives no count when none is set', () => {
     render(<Popover label="More">x</Popover>);
     expect(screen.getByRole('button', { name: 'More' })).not.toBeNull();
+  });
+});
+
+// Whose a record is, as an initial (design/prototype ui.avatar): named for a
+// screen reader, coloured per person.
+describe('Avatar', () => {
+  it('is named for whose it is, and carries its tone', () => {
+    render(<Avatar name="Sam" initial="S" tone="b" />);
+    const avatar = screen.getByRole('img', { name: 'Sam' });
+    expect(avatar.textContent).toBe('S');
+    expect(avatar.className).toBe('ds-avatar ds-avatar-b');
   });
 });

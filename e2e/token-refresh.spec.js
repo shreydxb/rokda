@@ -11,7 +11,7 @@ test('an open editor and what was typed in it survive a new token from another t
   await stubSupabase(page);
   await page.goto('/money?tab=activity', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('.om-main .ov-skel')).toHaveCount(0, { timeout: 15_000 });
-  await page.locator('.om-tx-row').first().click();
+  await page.locator('.om-tx-row .mn-open').first().click();
   const editor = page.getByRole('dialog', { name: 'Edit transaction' });
   const note = editor.locator('textarea');
   await note.fill('half-typed correction');

@@ -65,7 +65,7 @@ test('saving a transaction when the save fails keeps the editor open and says wh
   await stubSupabase(page, { failWrites: ['transactions'] });
   await open(page, '/money');
 
-  await page.locator('.om-tx-row').first().click();
+  await page.locator('.om-tx-row .mn-open').first().click();
   const editor = page.getByRole('dialog', { name: 'Edit transaction' });
   await expect(editor).toBeVisible();
   await editor.getByRole('button', { name: 'Save changes' }).click();

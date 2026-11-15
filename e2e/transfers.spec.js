@@ -24,9 +24,11 @@ test('a transfer shows where the money went and stays out of the totals', async 
   await expect(page.locator('.om-tx-row').filter({ hasText: 'To Savings' })).toHaveCount(1);
   await expect(page.locator('.om-tx-row').filter({ hasText: 'From Current account' })).toHaveCount(1);
   // The fixtures' own income and spending, unchanged by the 5,000 moved.
-  await expect(page.locator('.mn-count')).toContainText('Income AED 18,000 · 2 transfers between accounts, in neither');
+  await expect(page.locator('.mn-summary')).toContainText('Income 18,000');
+  await page.getByRole('button', { name: 'About these totals' }).click();
+  await expect(page.getByRole('note')).toContainText('2 transfers between your own accounts count as neither.');
 
-  await page.locator('.om-tx-row').filter({ hasText: 'To Savings' }).click();
+  await page.locator('.om-tx-row').filter({ hasText: 'To Savings' }).locator('.mn-open').click();
   await expect(page.getByRole('dialog', { name: 'Edit transfer' })).toBeVisible();
   await expect(page.getByLabel('Amount')).toHaveValue('5000');
 });
@@ -36,7 +38,7 @@ test('a new transfer is recorded as both sides in one call', async ({ page }) =>
   await openActivity(page, (request) => {
     if (request.url().includes('/rpc/record_transfer')) calls.push(request.postDataJSON());
   });
-  await page.getByRole('button', { name: '+ Add transaction' }).click();
+  await page.getByRole('button', { name: '+ Transaction' }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Transfer', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Add transfer' });
   await dialog.getByLabel('Amount').fill('750');

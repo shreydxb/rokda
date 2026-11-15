@@ -104,3 +104,10 @@ describe('rowDateLabel', () => {
     expect(rowDateLabel('2025-12-31', NOW)).toBe('31 Dec 2025');
   });
 });
+
+describe('sortRows: smallest first', () => {
+  it('orders by the size of the amount, either direction, smallest first', () => {
+    const rows = [{ id: 'a', amount: -60, occurred_at: '2026-10-01' }, { id: 'b', amount: 25, occurred_at: '2026-10-02' }, { id: 'c', amount: -40, occurred_at: '2026-10-03' }];
+    expect(sortRows(rows, 'smallest').map((r) => r.id)).toEqual(['b', 'c', 'a']);
+  });
+});

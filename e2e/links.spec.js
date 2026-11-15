@@ -13,9 +13,10 @@ async function open(page, path) {
 }
 
 const activeTab = (page) => page.locator('.mn-tabs button[data-active="true"]');
-const lastMonth = () => {
+// "Oct 2026", as the month stepper names it.
+const lastMonthShort = () => {
   const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth() - 1, 1).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+  return new Date(now.getFullYear(), now.getMonth() - 1, 1).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' }).replace('Sept', 'Sep');
 };
 
 test("Overview's Recurring link opens the Recurring tab, and Back returns", async ({ page }) => {
@@ -34,12 +35,15 @@ test('an Insights figure opens its month and category in Activity, through Back 
   await page.locator('.ins-cmp-row').filter({ hasText: 'Groceries' }).click();
 
   await expect(page).toHaveURL(/tab=activity&cat=[^&]+&from=\d{4}-\d{2}-01&to=\d{4}-\d{2}-\d{2}$/);
-  const summary = page.locator('.mn-count');
-  await expect(summary).toContainText(`1 posted record · ${lastMonth()} · Net spend AED 300`);
-  await expect(page.getByRole('combobox', { name: 'Dates' })).toHaveValue('last-month');
+  const summary = page.locator('.mn-summary');
+  await expect(page.getByRole('region', { name: '1 transaction' })).toBeVisible();
+  await expect(summary).toContainText('Spent 300');
+  // A link's whole month is that month: the stepper is on it.
+  await expect(page.getByRole('combobox', { name: 'Dates' })).toHaveValue('month');
+  await expect(page.locator('.ds-stepper-label')).toHaveText(lastMonthShort());
 
   await page.reload({ waitUntil: 'domcontentloaded' });
-  await expect(summary).toContainText('Net spend AED 300');
+  await expect(summary).toContainText('Spent 300');
 
   await page.goBack();
   await expect(activeTab(page)).toHaveText('Insights');

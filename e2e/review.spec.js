@@ -39,7 +39,7 @@ test('the review leads with the next check and ends in what goes into history', 
 
 test('Activity can show just the records with no category', async ({ page }) => {
   await open(page, '/money?tab=activity&cat=none&dates=all');
-  await expect(page.getByLabel('Category')).toHaveValue('none');
+  await expect(page.getByRole('combobox', { name: 'Category', exact: true })).toHaveValue('none');
   const rows = page.locator('.om-tx-row');
   await expect(rows).toHaveCount(1);
   await expect(rows.first()).toContainText('Unknown');
