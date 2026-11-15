@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useCloseGuard } from '../../lib/useCloseGuard';
 import DiscardPrompt from '../DiscardPrompt';
-import { useDrawerFocus } from '../../lib/useDrawerFocus';
+import { Drawer } from '../../design-system/kit';
 import { supabase } from '../../lib/supabaseClient';
 import { accountOptionLabel, selectableAccounts } from '../../lib/accounts';
 import { CADENCES } from '../../lib/recurring';
@@ -50,13 +50,14 @@ function initialForm(item, accounts) {
 }
 
 export default function RecurringEditor({ item, household = null, householdId, accounts, categories, members, onClose, onSaved }) {
-  const drawerRef = useDrawerFocus();
+  const formId = useId();
   // Closed accounts stay out of new-entry choices; an existing schedule keeps
   // the account it already points at (QA-01).
   const selectable = selectableAccounts(accounts, item?.account_id ?? null);
   const [form, setForm] = useState(() => initialForm(item, selectableAccounts(accounts, item?.account_id ?? null)));
   const [dirty, setDirty] = useState(false);
-  const { confirmingClose, requestClose, keepEditing } = useCloseGuard({ dirty, onClose });
+  // The kit's drawer answers Escape itself (the revamp, phase 4).
+  const { confirmingClose, requestClose, keepEditing, escapeKey } = useCloseGuard({ dirty, onClose, listen: false });
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -135,22 +136,37 @@ export default function RecurringEditor({ item, household = null, householdId, a
   }
 
   return (
-    <div className="te-overlay" onMouseDown={(e) => e.target === e.currentTarget && requestClose()}>
-      <div className="te-drawer" ref={drawerRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={item ? 'Edit recurring item' : 'Add recurring item'}>
-        <div className="te-head">
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-              <span className="ov-kicker">{item ? 'Edit commitment' : 'New commitment'}</span>
-              {dirty && <span className="te-dirty-chip">Unsaved</span>}
-            </div>
-            <div className="te-title">{item ? item.name : 'Add a bill or income'}</div>
+    <Drawer
+      kicker={item ? 'Edit commitment' : 'New commitment'}
+      title={item ? item.name : 'Add a bill or income'}
+      dirty={dirty}
+      onClose={requestClose}
+      onEscape={escapeKey}
+      footer={
+        <div className="te-actions" style={{ borderTop: 'none', paddingTop: 0, marginTop: 0, width: '100%' }}>
+          {item && (
+            <button type="button" className="om-btn te-delete" onClick={handleDelete} disabled={saving}>
+              {confirmingDelete ? 'Confirm delete?' : 'Delete'}
+            </button>
+          )}
+          <div className="te-actions-right">
+            {confirmingClose ? (
+              <DiscardPrompt onDiscard={onClose} onKeepEditing={keepEditing} />
+            ) : (
+              <>
+                <button type="button" className="om-btn" onClick={requestClose}>
+                  Cancel
+                </button>
+                <button type="submit" form={formId} className="om-btn ov-btn-primary" disabled={saving}>
+                  {saving ? 'Saving…' : item ? 'Save changes' : 'Add commitment'}
+                </button>
+              </>
+            )}
           </div>
-          <button type="button" className="te-close" onClick={requestClose} aria-label="Close">
-            ×
-          </button>
         </div>
-
-        <form className="te-form" onSubmit={handleSave}>
+      }
+    >
+        <form className="te-form" id={formId} onSubmit={handleSave}>
           <div className="te-type">
             <button type="button" className="om-seg" data-active={form.type === 'expense'} onClick={() => set('type', 'expense')}>
               Bill
@@ -290,33 +306,7 @@ export default function RecurringEditor({ item, household = null, householdId, a
             </p>
           )}
 
-          <div className="te-sticky-actions">
-            <div className="te-actions" style={{ borderTop: 'none', paddingTop: 0, marginTop: 0 }}>
-              {item && (
-                <button type="button" className="om-btn te-delete" onClick={handleDelete} disabled={saving}>
-                  {confirmingDelete ? 'Confirm delete?' : 'Delete'}
-                </button>
-              )}
-              <div className="te-actions-right">
-                {confirmingClose ? (
-                  <>
-                    <DiscardPrompt onDiscard={onClose} onKeepEditing={keepEditing} />
-                  </>
-                ) : (
-                  <>
-                    <button type="button" className="om-btn" onClick={requestClose}>
-                      Cancel
-                    </button>
-                    <button type="submit" className="om-btn ov-btn-primary" disabled={saving}>
-                      {saving ? 'Saving…' : item ? 'Save changes' : 'Add commitment'}
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
         </form>
-      </div>
-    </div>
+    </Drawer>
   );
 }

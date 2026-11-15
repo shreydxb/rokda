@@ -89,7 +89,7 @@ export default function Money() {
           loading={loading}
         />
       )}
-      {tab === 'recurring' && <Recurring household={household} members={members} data={data} loading={loading} />}
+      {tab === 'recurring' && <Recurring household={household} members={members} me={me} data={data} loading={loading} />}
       {tab === 'budget' && (
         <Budget
           household={household}
