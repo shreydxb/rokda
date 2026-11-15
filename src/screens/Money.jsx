@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { INBOX_COUNT_EVENT } from '../shell/useInboxCount';
 import { useTab } from '../lib/useTab';
 import { activityHref, monthRange, sharedMonth } from '../lib/activityLink';
@@ -11,7 +11,6 @@ import './Money.css';
 import Activity from './money/Activity';
 import Recurring from './money/Recurring';
 import Budget from './money/Budget';
-import Insights from './money/Insights';
 import Inbox from './money/Inbox';
 import Review from './money/Review';
 import LoadFailure from './LoadFailure';
@@ -26,7 +25,6 @@ const TABS = [
   { id: 'activity', label: 'Activity' },
   { id: 'budget', label: 'Budget' },
   { id: 'recurring', label: 'Recurring' },
-  { id: 'insights', label: 'Insights' },
   { id: 'inbox', label: 'Inbox' },
   { id: 'review', label: 'Review' },
 ];
@@ -34,12 +32,27 @@ const TABS = [
 export default function Money() {
   const navigate = useNavigate();
   // The tab and Activity's filters are in the address (lib/useTab.js,
-  // lib/activityLink.js), so a link from Overview or Insights opens the tab
+  // lib/activityLink.js), so a link from Overview or Budget opens the tab
   // and the records it means, and Back returns to where it came from.
   const [tab, setTab] = useTab(TABS, TABS[0].id, {}, (params) => {
     const month = sharedMonth(params);
     return month ? [['month', month]] : [];
   });
+  // Insights is gone (the revamp, phase 4b): its merchants are Activity's
+  // Merchants view, so an old link or bookmark opens that, for its month.
+  const [params, setParams] = useSearchParams();
+  const retiredInsights = params.get('tab') === 'insights';
+  useEffect(() => {
+    if (!retiredInsights) return;
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams({ tab: 'activity', view: 'merchants' });
+        if (prev.get('month')) next.set('month', prev.get('month'));
+        return next;
+      },
+      { replace: true },
+    );
+  }, [retiredInsights, setParams]);
   const { household, members, me, loading: householdLoading, error: householdError, reload: reloadHousehold } = useHousehold();
   const data = useOverviewData(household?.id);
   // The review's goal action needs the goals; nothing else here does, so they
@@ -101,15 +114,6 @@ export default function Money() {
           data={data}
           loading={loading}
           onOpenRecords={({ categoryId, year, month }) => navigate(activityHref({ categoryId, ...monthRange(year, month) }))}
-        />
-      )}
-      {tab === 'insights' && (
-        <Insights
-          me={me}
-          members={members}
-          data={data}
-          loading={loading}
-          onDrillIntoActivity={(filters) => navigate(activityHref(filters))}
         />
       )}
       {tab === 'inbox' && (

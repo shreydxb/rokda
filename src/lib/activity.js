@@ -3,7 +3,7 @@ import { scopedValue } from './scope';
 import { applyToIncomeSpend } from './transactionKind';
 
 // The arithmetic behind Activity's list, its summary line and its calendar.
-// It is the same arithmetic Overview, Budget and Insights use: a member's
+// It is the same arithmetic Overview and Budget use: a member's
 // view counts their own records in full and half of each shared one
 // (scopedValue), and a refund nets against spend rather than counting as
 // income (transactionKind.js). The calendar used to add up raw signed amounts,

@@ -190,7 +190,7 @@ export function monthlyReview({ year, month }, { transactions = [], accounts = [
     status: uncategorised.length ? 'todo' : 'done',
     count: uncategorised.length,
     detail: uncategorised.length
-      ? `${plural(uncategorised.length, 'record')} with no category, so Budget and Insights leave ${uncategorised.length === 1 ? 'it' : 'them'} out of every category.`
+      ? `${plural(uncategorised.length, 'record')} with no category, so Budget leaves ${uncategorised.length === 1 ? 'it' : 'them'} out of every category.`
       : 'Every record has a category.',
     href: activityHref({ categoryId: 'none', from, to, who: 'both' }),
   });
