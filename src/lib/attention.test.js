@@ -163,3 +163,40 @@ describe('attention items: short forms for To do', () => {
     expect(item).toMatchObject({ name: 'September', status: 'Not closed' });
   });
 });
+
+// The fresh review of the cockpit: Mark paid was dated today, but a payment
+// settles a bill only near its due date, so a bill more than a few days late
+// stayed "Late" after it was marked paid. The item carries the date it was
+// due, and a payment on that date clears it.
+describe('a late bill carries the date it was due', () => {
+  const now = new Date('2026-10-20T10:00:00');
+  const account = { id: 'a1', name: 'Bank', type: 'checking', archived_at: null, is_shared: true, balance: 100, balance_as_of: '2026-10-19T00:00:00Z' };
+  const bill = { id: 'r1', name: 'Gym', amount: -250, cadence: 'monthly', interval_count: 1, next_due_date: '2026-10-05', active: true, autopay: false, is_shared: true, account_id: 'a1', category_id: 'c1' };
+  const build = (transactions) => buildAttentionItems({ transactions, recurring: [bill], accounts: [account], holdings: [], categories: [], scopeMemberId: null, now }).filter((i) => i.kind === 'missing_recurring');
+
+  it('says when it was due, and whether it is pay', () => {
+    const [item] = build([]);
+    expect(item).toMatchObject({ dueOn: '2026-10-05', income: false });
+  });
+
+  it('is cleared by a payment filled from the bill on that date', async () => {
+    const { billPaymentInitial } = await import('./transactionForm');
+    const [item] = build([]);
+    const init = billPaymentInitial(bill, [account], item.dueOn);
+    const paid = { id: 'p1', kind: init.type, amount: -Number(init.amount), occurred_at: init.occurred_at, account_id: init.account_id, category_id: init.category_id, is_shared: true };
+    expect(build([paid])).toEqual([]);
+  });
+});
+
+// The fresh review of the cockpit: a category running high is shown under
+// What changed, so the item carries its figures, not only its sentence.
+describe('a category running high carries its figures', () => {
+  it('says what was spent so far and what the usual month would have reached by now', () => {
+    const now = new Date('2026-10-15T10:00:00');
+    const tx = (id, occurred_at, amount) => ({ id, occurred_at, amount, kind: 'expense', category_id: 'g', is_shared: true });
+    const transactions = [tx('a', '2026-07-10', -300), tx('b', '2026-08-10', -300), tx('c', '2026-09-10', -300), tx('d', '2026-10-05', -400)];
+    const [item] = buildAttentionItems({ transactions, recurring: [], accounts: [], holdings: [], categories: [{ id: 'g', name: 'Groceries' }], scopeMemberId: null, now }).filter((i) => i.kind === 'category_anomaly');
+    expect(item).toMatchObject({ categoryId: 'g', name: 'Groceries', actual: 400, average: 300 });
+    expect(item.expectedSoFar).toBeCloseTo(300 * (15 / 31), 0);
+  });
+});

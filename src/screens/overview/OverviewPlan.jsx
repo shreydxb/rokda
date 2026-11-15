@@ -1,7 +1,8 @@
 import { Link } from 'react-router-dom';
 import { tabHref } from '../../lib/activityLink';
 import { formatMoney } from '../../lib/money';
-import { payoffMonthLabel } from '../../lib/debt';
+import { minimumOnlyText, payoffMonthLabel } from '../../lib/debt';
+import { leftOutText } from '../../lib/lifePlanBasis';
 import { couldntLoad } from '../../lib/loadState';
 import { Banner, Card, Chip, ProgressBar } from '../../design-system/kit';
 
@@ -9,10 +10,15 @@ import { Banner, Card, Chip, ProgressBar } from '../../design-system/kit';
 // S-overview-12): when work can stop, the goals for the next 3 years, the
 // debts and when they clear, and the cash reserve. The same figures as
 // Planning -> Plan (planning/usePlanFigures.js), in dirhams as Planning
-// shows them; each tile opens its page.
+// shows them, and said so whatever the display currency; each tile opens its
+// page. The warnings Plan shows beside the same figures stay here as chips,
+// and a figure that is the household's whoever is selected says so (fresh
+// review of the cockpit).
 const aed = (v) => formatMoney(v);
+const Aed = () => <span className="ov-plan-code">AED</span>;
 
-export default function OverviewPlan({ f, unread, onRetry }) {
+export default function OverviewPlan({ f, scope = 'both', unread, onRetry }) {
+  const household = scope !== 'both' ? <Chip>Household</Chip> : null;
   if (unread.length > 0) {
     return (
       <Card title="Plan" className="ov-plan">
@@ -36,7 +42,16 @@ export default function OverviewPlan({ f, unread, onRetry }) {
           {f.stop ? (
             <>
               <div className="ds-fig">{f.stop.stopYear}</div>
-              <div className="ov-plan-chips">{f.stop.range.map(verdict)}</div>
+              <div className="ov-plan-chips">
+                {f.stop.range.map(verdict)}
+                {f.stop.stopAssumed && <Chip title="Until you choose a year on the Life plan">Assumed year</Chip>}
+                {f.stop.leftOut?.length > 0 && (
+                  <Chip tone="warn" title={leftOutText(f.stop.leftOut)}>
+                    Not everyone in the plan
+                  </Chip>
+                )}
+                {household}
+              </div>
             </>
           ) : (
             <>
@@ -44,11 +59,21 @@ export default function OverviewPlan({ f, unread, onRetry }) {
               <div className="ov-plan-sub">{f.forecast.ready ? 'Set each birth year on the Life plan' : 'Not enough to project yet'}</div>
             </>
           )}
+          {/* Balances nobody has entered count as 0 in every projection, so
+              the strip says so whether or not a year is worked out yet. */}
+          {f.provisional && (
+            <div className="ov-plan-sub">
+              <Chip tone="warn" title={f.provisional}>
+                Provisional
+              </Chip>
+            </div>
+          )}
         </Tile>
         <Tile label="Goals · next 3 years" to={tabHref('/planning', 'goals')} missing={f.goalsMissing}>
           {f.nearGoals.length > 0 ? (
             <>
               <div className="ds-fig">
+                <Aed />
                 {aed(f.nearCash)} <span className="ov-plan-of">of {aed(f.nearCost)}</span>
               </div>
               <div className="ov-plan-bar">
@@ -65,9 +90,11 @@ export default function OverviewPlan({ f, unread, onRetry }) {
         <Tile label="Debts" to={tabHref('/planning', 'debt')} missing={f.debtsMissing}>
           {f.visibleDebts.length > 0 ? (
             <>
-              <div className="ds-fig">−{aed(f.totalOwed)}</div>
+              <div className="ds-fig">
+                <Aed />−{aed(f.totalOwed)}
+              </div>
               <div className="ov-plan-sub">
-                {clears != null ? `Clears ${payoffMonthLabel(clears, f.now)}` : 'No payoff date'}
+                {clears != null ? `Clears ${payoffMonthLabel(clears, f.now)}${f.canProjectDebt ? ' with the extra payment' : ''}` : minimumOnlyText(f.atMinimums, f.now)}
                 {f.visibleDebts.some((d) => !d.inNetWorth) && <Chip tone="warn">Not all in net worth</Chip>}
               </div>
             </>
@@ -84,7 +111,15 @@ export default function OverviewPlan({ f, unread, onRetry }) {
               <div className="ds-fig">
                 {reserve.months.toFixed(1)} <span className="ov-plan-of">months of spending</span>
               </div>
-              {reserve.target != null && <div className="ov-plan-sub">{reserve.liquid >= reserve.target ? <Chip tone="pos">Covers kept goals</Chip> : <Chip tone="warn">Short of kept goals</Chip>}</div>}
+              <div className="ov-plan-sub">
+                {reserve.target != null && (reserve.liquid >= reserve.target ? <Chip tone="pos">Covers kept goals</Chip> : <Chip tone="warn">Short of kept goals</Chip>)}
+                {reserve.unvalued > 0 && (
+                  <Chip tone="warn" title={`${reserve.unvalued} account${reserve.unvalued === 1 ? '' : 's'} with no dirham value left out`}>
+                    Incomplete
+                  </Chip>
+                )}
+                {household}
+              </div>
             </>
           ) : (
             <>

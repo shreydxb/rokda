@@ -418,3 +418,17 @@ describe('next30Items and next30Bills', () => {
     expect(next30Bills([], [card], null, now).credit_cards).toEqual([{ due_date: '2026-11-25', amount_owed_aed: null }]);
   });
 });
+
+// The fresh review of the cockpit: what is committed counts what falls due
+// from today, as the bot's morning check does. A bill already waiting (an
+// autopay not confirmed has usually left the bank) is not counted again.
+describe('next30Bills: what is committed', () => {
+  it('leaves out a bill already waiting', async () => {
+    const { next30Items, next30Bills } = await import('./overviewMath');
+    const now = new Date(2026, 10, 15, 12);
+    const bill = { id: 'r1', name: 'Gym', amount: -250, cadence: 'monthly', interval_count: 1, next_due_date: '2026-11-20', active: true, is_shared: true };
+    const items = next30Items([bill], [{ kind: 'missing_recurring', recurringId: 'r1', late: false }], null, now);
+    expect(items).toHaveLength(2);
+    expect(next30Bills(items, [], null, now).recurring).toEqual([{ due_date: '2026-11-20', amount_aed: 250 }]);
+  });
+});

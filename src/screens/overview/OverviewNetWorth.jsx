@@ -11,7 +11,11 @@ import { TrendLine } from '../../design-system/charts';
 export default function OverviewNetWorth({ scope, me, members, netWorthTrustworthy, money, nw, netWorthIsProvisional, unconfirmed, nwChange1mo, series = [] }) {
   const [pick, setPick] = useState(null);
   const incomplete = netWorthTrustworthy && incompleteNote({ accounts: nw.unvalued, holdings: nw.unpricedHoldings }, { capitalised: false });
-  const points = series.slice(-12).map((p) => ({ key: p.date.toISOString(), label: p.isLive ? 'Today' : p.label, value: p.net }));
+  // The closed months are the household's, so the trend is drawn for both of
+  // you only: under one person it joined their today to the household's past
+  // and drew a false drop (fresh review of the cockpit; Wealth does the same).
+  // Only months it can read, so a pick names the month it shows.
+  const points = scope === 'both' ? series.filter((p) => Number.isFinite(p.net)).slice(-12).map((p) => ({ key: p.date.toISOString(), label: p.isLive ? 'Today' : p.label, value: p.net })) : [];
   const picked = pick !== null ? points[pick] : null;
   const title = `Net worth${scope !== 'both' ? ` · ${scopeLabel(scope, me, members)}` : ''}`;
   return (
@@ -40,7 +44,7 @@ export default function OverviewNetWorth({ scope, me, members, netWorthTrustwort
                 {nwChange1mo.absolute >= 0 ? '▲' : '▼'} {money.fmtSigned(nwChange1mo.absolute)}
               </span>
               <span className="ov-muted"> this month</span>
-              {points.length > 1 && <span className="ov-muted"> · {points.length} months</span>}
+              {points.length > 1 && <span className="ov-muted"> · since {points[0].label}</span>}
             </div>
           )}
           {/* The warnings in words as well as chips, so neither is only a colour. */}

@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { Card, Chip } from '../../design-system/kit';
 import { isTransfer } from '../../lib/transactionKind';
+import { categoryParts } from '../../lib/splits';
 
 // The last five transactions, a glance not a ledger (SHR-328; the revamp,
 // phase 3, review S-overview-8): Activity is where records are looked into.
@@ -24,7 +25,7 @@ export default function OverviewRecent({ recent, money, categories, accounts, on
       ) : (
         // A table scrolls sideways inside its card when the screen is narrow,
         // never the page.
-        <div className="ds-table-wrap">
+        <div className="ds-table-wrap" tabIndex={0} role="region" aria-label="Recent transactions">
         <table className="ds-table">
           <thead>
             <tr>
@@ -45,8 +46,16 @@ export default function OverviewRecent({ recent, money, categories, accounts, on
                   <button type="button" className="ov-recent-open" onClick={() => onOpen(t)}>
                     {t.merchant ?? 'Transaction'}
                   </button>
+                  {t.needs_review && (
+                    <>
+                      {' '}
+                      <Chip tone="warn">Needs review</Chip>
+                    </>
+                  )}
                 </td>
-                <td>{isTransfer(t) ? <span className="ov-muted">Transfer</span> : t.category_id ? (catName.get(t.category_id) ?? '—') : <Chip tone="warn">Uncategorised</Chip>}</td>
+                <td>
+                  <CategoryCell t={t} catName={catName} />
+                </td>
                 <td className="ov-muted">{accName.get(t.account_id) ?? '—'}</td>
                 <td className={`ds-num${Number(t.amount) > 0 ? ' ds-pos' : ''}`}>{money.fmtSigned(t.amount)}</td>
               </tr>
@@ -57,4 +66,13 @@ export default function OverviewRecent({ recent, money, categories, accounts, on
       )}
     </Card>
   );
+}
+
+// A transfer says so; a split record names its lines' categories, as
+// Activity does (it has none of its own, so it read as Uncategorised; fresh
+// review of the cockpit); a record with none says so.
+function CategoryCell({ t, catName }) {
+  if (isTransfer(t)) return <span className="ov-muted">Transfer</span>;
+  const names = [...new Set(categoryParts(t).map((p) => p.categoryId).filter(Boolean))].map((id) => catName.get(id) ?? '—');
+  return names.length ? names.join(', ') : <Chip tone="warn">Uncategorised</Chip>;
 }

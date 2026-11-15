@@ -3864,7 +3864,30 @@ net worth's one line of help. No figure is worked out differently.
   Accounts list (Wealth has it); the gross spending total; and the data
   quality section, now a chip that opens the same checks.
 - **Overview reads Planning's records too**, for the Plan strip; while they
-  load, only the strip waits, and a tile whose records failed says so.
+  load, only the strip waits, and a tile whose records failed says so. The
+  strip's figures are in dirhams, as Planning's are, and say so; it keeps the
+  Plan tab's warnings (Provisional, an assumed year, someone not in the
+  plan, an unvalued account in the reserve) as chips, and under one person
+  marks the figures that are the household's.
+- **The fresh review of the cockpit** changed these:
+  - **Mark paid is dated the day the bill was due**, so the payment settles
+    it; dated today, a bill more than a few days late stayed "Late". Pay is
+    **Mark received**.
+  - **What changed is Needs attention's pace check** (spent so far against
+    the usual month pro rata), the finding that left To do, not Insights'
+    whole-month comparison, which misread a month in progress.
+  - **The cash cover is the household's whoever is shown**, as the bot's
+    morning check is, and counts what falls due from today: a bill already
+    waiting (an autopay not confirmed has usually left the bank) is not
+    counted again.
+  - **One person's view** draws no net worth trend (the closed months are
+    the household's) and no budget track (the budget is the household's),
+    and lists only that person's and shared cards' statements.
+  - **Statements and dividend questions** come only from records that
+    loaded, as their own tabs guard.
+  - **Recent** names a split record's categories and marks one needing
+    review; **Next 30 days** shows every bill on request, not only the first
+    five; the editor's notice after a save shows on Overview as on Activity.
 - **On a phone** the cockpit is one column, so To do follows net worth and
   the month: within the first two screens rather than the first. Tables
   scroll inside their card rather than widening the page.

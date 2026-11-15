@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import OverviewNext30 from './OverviewNext30';
 
 const money = { fmt: (v) => Math.abs(Math.round(v)).toLocaleString('en-US'), fmtSigned: (v) => `${v < 0 ? '−' : '+'}${Math.abs(Math.round(v)).toLocaleString('en-US')}` };
@@ -31,10 +31,25 @@ describe('OverviewNext30', () => {
     expect(screen.getByText('Not confirmed')).toBeTruthy();
   });
 
-  it('shows five rows at most, every one on the strip', () => {
+  // The fresh review: past five, a bill was only on the strip, which a
+  // keyboard or screen reader cannot reach.
+  it('shows five rows, every one on the strip, and the rest on request', () => {
     show(Array.from({ length: 7 }, (_, i) => due(`Bill ${i}`, -10, 16 + i, false)));
     expect(screen.getAllByRole('listitem')).toHaveLength(5);
     expect(document.querySelectorAll('.ds-strip-mark')).toHaveLength(7);
+    const more = screen.getByRole('button', { name: 'Show all 7' });
+    fireEvent.click(more);
+    expect(screen.getAllByRole('listitem')).toHaveLength(7);
+    expect(more.getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('says when there are no recurring bills at all, not only none due', () => {
+    render(
+      <MemoryRouter>
+        <OverviewNext30 items={[]} money={money} cover={null} now={NOW} hasRecurring={false} />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText('No recurring bills or income set up yet.')).toBeTruthy();
   });
 
   it('says whether the cash covers what is committed, and never covers an unknown', () => {

@@ -8,7 +8,7 @@ export default function OverviewEmpty({ navigate, onAddTransaction }) {
   return (
     <Card className="ov-empty-card">
       <div className="ds-empty">
-        <div className="ds-empty-title">Nothing recorded yet.</div>
+        <div className="ds-empty-title">Figures appear with the first record.</div>
         <div className="ov-empty-actions">
           <button type="button" className="ds-btn ds-btn-primary" onClick={onAddTransaction}>
             + Transaction

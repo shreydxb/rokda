@@ -57,32 +57,36 @@ plan holds.
 - **This month** (or quarter, or year): income (with any pay still
   expected), spent and saved with the rate, the number of transactions
   (opening them in Activity), the display rate when not in dirhams, and in a
-  month the budget's track against how far through the month it is.
+  month, for both of you, the budget's track against how far through the
+  month it is.
 - **To do**: the one list of everything waiting, in Today / Month end /
   Planning, six rows then "Show all". A record to review is categorised or
   marked reviewed in place; a late bill or an unconfirmed autopay is
-  **Mark paid** (the editor opens filled from the bill); a balance to confirm,
+  **Mark paid** (**Mark received** for pay; the editor opens filled from the
+  bill, dated the day it was due); a balance to confirm,
   a card payment due, a holding to reprice, a dividend question, the latest
   statement to check on each card (with how many older ones wait), a month
   not closed, a backup due, a goal due within 3 years short of cash, and a
   yearly check each open their own place.
 - **Next 30 days**: a dated strip of every bill and pay day (late or not
-  confirmed on today), the next five as rows, rupee amounts in rupees as
-  well, and whether the cash on hand covers what is committed, bills and
-  cards due included (never "Covered" when a bill has no dirham amount).
+  confirmed on today), the next five as rows and the rest on request, rupee
+  amounts in rupees as well, and whether the household's cash on hand covers
+  what falls due from today, bills and cards included (never "Covered" when a
+  bill has no dirham amount).
 - **Income and spending** over six months, four quarters or five years:
   income and spent as columns, saved as a line, with an axis; a period with
   no records says so; pick one to read its figures.
 - **Where it went**: this month's five biggest categories, net of refunds,
   each with a tick at its usual month (Insights' average), and up to three
-  that moved against their usual (What changed); each opens the month's
+  running ahead of their usual pace (What changed); each opens the month's
   transactions in that category.
 - **Plan**: when work can stop (Baseline and Conservative), the goals for the
   next 3 years in cash, the debts and when they clear, and the cash reserve
-  in months of spending, each opening its Planning page; the same figures as
-  Planning → Plan.
-- **Recent**: the five newest transactions, each opening in its editor, with
-  a link to the rest in Activity.
+  in months of spending, in dirhams, each opening its Planning page; the same
+  figures and warnings as Planning → Plan.
+- **Recent**: the five newest transactions (a split one with its lines'
+  categories, one needing review marked), each opening in its editor, with a
+  link to the rest in Activity.
 - The Both / Me / Partner scope in the sidebar applies throughout (shared rows
   split evenly between the two individual scopes).
 

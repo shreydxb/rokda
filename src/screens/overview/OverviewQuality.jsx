@@ -6,7 +6,7 @@ import { Card } from '../../design-system/kit';
 // S-overview-9): "Data: 2 to check", opening the same four checks in place.
 export function QualityChip({ issues, open, onToggle }) {
   return (
-    <button type="button" className={`ds-chip ${issues > 0 ? 'ds-chip-warn' : 'ds-chip-pos'} ov-quality-chip`} aria-expanded={open} aria-controls="ov-quality-panel" onClick={onToggle}>
+    <button type="button" className={`ds-chip ${issues > 0 ? 'ds-chip-warn' : 'ds-chip-pos'} ov-quality-chip`} aria-expanded={open} aria-controls={open ? 'ov-quality-panel' : undefined} onClick={onToggle}>
       {issues > 0 ? `Data: ${issues} to check` : 'Data: all clear'}
     </button>
   );

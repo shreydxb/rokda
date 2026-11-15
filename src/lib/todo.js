@@ -26,7 +26,8 @@ function fromAttention(item) {
     case 'missing_recurring':
       // A bill that has not posted is late; an autopay one only waits for
       // its confirmation.
-      return { ...base, group: 'Today', tone: item.late ? 'neg' : 'warn', action: { kind: 'mark-paid', label: 'Mark paid', recurringId: item.recurringId } };
+      // Dated the day it was due, so the payment settles it.
+      return { ...base, group: 'Today', tone: item.late ? 'neg' : 'warn', action: { kind: 'mark-paid', label: item.income ? 'Mark received' : 'Mark paid', recurringId: item.recurringId, dueOn: item.dueOn } };
     case 'card_due':
       return { ...base, group: 'Today', action: link('Open card', tabHref('/wealth', 'accounts')) };
     case 'balance_unset':
@@ -90,7 +91,8 @@ function fromGoals(goalsShort) {
     id: `goal-${r.goal.id}`,
     group: 'Planning',
     title: r.goal.name,
-    status: `Short of cash · ${formatMoney(r.remaining)} to set aside`,
+    // Planning's figures are in dirhams whatever the display currency.
+    status: `Short of cash · AED ${formatMoney(r.remaining)} to set aside`,
     tone: 'warn',
     action: link('Open goal', tabHref('/planning', 'goals')),
   }));

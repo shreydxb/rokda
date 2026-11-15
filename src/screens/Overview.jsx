@@ -9,7 +9,7 @@ import { buildNetWorthSeries, changeOverMonths } from '../lib/netWorth';
 import { buildAttentionItems } from '../lib/attention';
 import { buildTodo } from '../lib/todo';
 import { monthActualsByCategory, monthBudgetTrack } from '../lib/budget';
-import { notableMoves, trailingAverageByCategory } from '../lib/insights';
+import { trailingAverageByCategory } from '../lib/insights';
 import { statementRows } from '../lib/statements';
 import { buildDividendInput, needsYou } from '../lib/dividendSummary';
 import { cashCoverStatus } from '../lib/cashCover';
@@ -48,6 +48,8 @@ const PERIODS = [
 const RECENT_COUNT = 5;
 // Insights' own window for a category's usual month (money/Insights.jsx).
 const USUAL_MONTHS = 6;
+// The records a dividend question rests on (wealth/Dividends.jsx).
+const DIVIDEND_SOURCES = ['holdings', 'holdingDividends', 'holdingTrades', 'dividendEvents', 'dividendSplits', 'dividendSpecialParts', 'accounts'];
 
 // Overview, the cockpit (the revamp, phase 3; design/prototype, review
 // S-overview-1 to 12): what needs doing, how the period is going, what the
@@ -99,7 +101,10 @@ export default function Overview() {
   const expected = useMemo(() => expectedIncome(recurring, transactions, { kind: period, start: p.start, now, scopeMemberId }), [recurring, transactions, period, p.start, now, scopeMemberId]);
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
-  const budget = useMemo(() => monthBudgetTrack({ budgets, categories, transactions, year, month, scopeMemberId, now }), [budgets, categories, transactions, year, month, scopeMemberId, now]);
+  // The budget is the household's, so its track is shown to both of you:
+  // one person's share against it read as well under budget (fresh review of
+  // the cockpit; Budget says the same).
+  const budget = useMemo(() => (scope === 'both' ? monthBudgetTrack({ budgets, categories, transactions, year, month, scopeMemberId, now }) : null), [scope, budgets, categories, transactions, year, month, scopeMemberId, now]);
   const columns = useMemo(() => buildChartColumns(transactions, period, scopeMemberId, now), [transactions, period, scopeMemberId, now]);
 
   // Where this month went, and what moved against the usual: Insights' own
@@ -114,29 +119,56 @@ export default function Overview() {
       .slice(0, 5)
       .map(([id, value]) => ({ id, name: catById.get(id)?.name ?? 'Uncategorised', value, usual: averages.get(id) ?? null }));
   }, [transactions, year, month, scopeMemberId, now, catById]);
-  const moves = useMemo(() => notableMoves(transactions, year, month, scopeMemberId, catById, now, { limit: 3 }), [transactions, year, month, scopeMemberId, catById, now]);
-
   const attention = useMemo(
     () => buildAttentionItems({ transactions, recurring, accounts, holdings, categories, snapshots: netWorthSnapshots, backupRecords, yearlyChecks, scopeMemberId, now }),
     [transactions, recurring, accounts, holdings, categories, netWorthSnapshots, backupRecords, yearlyChecks, scopeMemberId, now]
   );
-  const statements = useMemo(() => statementRows({ accounts, reconciliations: statementReconciliations, transactions, now }), [accounts, statementReconciliations, transactions, now]);
+  // What changed: Needs attention's own check of a category running ahead of
+  // its usual pace this month, the finding that left To do (fresh review of
+  // the cockpit: a whole month's average against a month to date misread).
+  const moves = useMemo(
+    () =>
+      attention
+        .filter((a) => a.kind === 'category_anomaly')
+        .map((a) => ({ categoryId: a.categoryId, categoryName: a.name, actual: a.actual, expectedSoFar: a.expectedSoFar, pct: a.actual / a.expectedSoFar - 1 }))
+        .sort((a, b) => b.pct - a.pct)
+        .slice(0, 3),
+    [attention]
+  );
+  // Statements and dividend questions only from records that loaded: with
+  // them unread, every card read "To check" (fresh review of the cockpit), as
+  // the Statements and Dividends tabs already guard. The cards in the scope.
+  const statementsRead = neverLoaded({ errors, loaded }, ['accounts', 'transactions', 'statementReconciliations']).length === 0;
+  const statements = useMemo(
+    () => (statementsRead ? statementRows({ accounts: visibleAccounts(accounts, scopeMemberId), reconciliations: statementReconciliations, transactions, now }) : []),
+    [statementsRead, accounts, scopeMemberId, statementReconciliations, transactions, now]
+  );
   const today = householdToday(now);
-  const dividendInput = useMemo(() => buildDividendInput({ data, household, scopeMemberId, today }), [data, household, scopeMemberId, today]);
+  const dividendsRead = neverLoaded({ errors, loaded }, DIVIDEND_SOURCES).length === 0;
+  const { holdingDividends, holdingTrades, dividendEvents, dividendSplits, dividendSpecialParts, dividendFeedStatus, fxRateHistory } = data;
+  const dividendInput = useMemo(
+    () => buildDividendInput({ data: { holdings, holdingDividends, holdingTrades, dividendEvents, dividendSplits, dividendSpecialParts, dividendFeedStatus, accounts, fxRateHistory }, household, scopeMemberId, today }),
+    [holdings, holdingDividends, holdingTrades, dividendEvents, dividendSplits, dividendSpecialParts, dividendFeedStatus, accounts, fxRateHistory, household, scopeMemberId, today]
+  );
   const todo = useMemo(
     () =>
       buildTodo({
         attention,
         statements,
-        dividendQuestions: needsYou(dividendInput),
+        dividendQuestions: dividendsRead ? needsYou(dividendInput) : [],
         holdings: dividendInput.holdings,
         goalsShort: plan.goalsMissing.length === 0 ? plan.shortOfCash : [],
       }),
-    [attention, statements, dividendInput, plan.goalsMissing, plan.shortOfCash]
+    [attention, statements, dividendsRead, dividendInput, plan.goalsMissing, plan.shortOfCash]
   );
 
   const next30 = useMemo(() => next30Items(recurring, attention, scopeMemberId, now), [recurring, attention, scopeMemberId, now]);
-  const cover = useMemo(() => (anyFailed(errors, ['accounts', 'recurring']) ? null : cashCoverStatus(accountRows, next30Bills(next30, accounts, scopeMemberId, now), { days: 30, today: now })), [errors, accountRows, next30, accounts, scopeMemberId, now]);
+  // The cash to hand against what is committed is the household's, whoever
+  // is shown, as the bot's morning check is (fresh review of the cockpit).
+  const cover = useMemo(
+    () => (anyFailed(errors, ['accounts', 'recurring']) ? null : cashCoverStatus(accounts, next30Bills(next30Items(recurring, [], null, now), accounts, null, now), { days: 30, today: now })),
+    [errors, accounts, recurring, now]
+  );
 
   const quality = useMemo(() => dataQuality(accounts, transactions, now), [accounts, transactions, now]);
   // The four checks behind the Data chip.
@@ -188,9 +220,11 @@ export default function Overview() {
   const categorise = (tx, categoryId) => quickAction(tx, { category_id: categoryId, needs_review: false }, { done: (name) => `Categorised ${name}`, failed: (name) => `categorise ${name}` });
   // "Mark paid" opens the transaction editor filled from the bill, as
   // Recurring's does (lib/transactionForm.js).
-  const markPaid = (recurringId) => {
+  // Dated the day it was due, so the payment settles it (fresh review of the
+  // cockpit).
+  const markPaid = (recurringId, dueOn) => {
     const bill = recurring.find((r) => r.id === recurringId);
-    if (bill) setEditing({ initial: billPaymentInitial(bill, accounts) });
+    if (bill) setEditing({ initial: billPaymentInitial(bill, accounts, dueOn ?? today) });
   };
 
   const reloadAll = async () => {
@@ -203,7 +237,7 @@ export default function Overview() {
 
   return (
     <div className="ov ov-cockpit">
-      <LoadFailure errors={{ ...errors, ...(householdError ? { household: householdError } : {}) }} loadedAt={loadedAt} onRetry={reloadAll} />
+      <LoadFailure errors={{ ...errors, ...planning.errors, ...(householdError ? { household: householdError } : {}) }} loadedAt={loadedAt} onRetry={reloadAll} />
       <Freshness
         title={lede}
         kicker={
@@ -247,13 +281,13 @@ export default function Overview() {
           </div>
           <div className="ov-band ov-band-wide">
             <OverviewTodo rows={todo} money={money} categories={categories} categorise={categorise} markReviewed={markReviewed} onMarkPaid={markPaid} />
-            <OverviewNext30 items={next30} money={money} cover={cover} now={now} />
+            <OverviewNext30 items={next30} money={money} cover={cover} household={scope !== 'both'} hasRecurring={recurring.length > 0} now={now} />
           </div>
           <div className="ov-band ov-band-wide">
             <OverviewFlow period={period} columns={columns} money={money} now={now} />
-            <OverviewWhere categories={where} moves={moves} money={money} now={now} />
+            <OverviewWhere categories={where} moves={moves} money={money} now={now} period={period} />
           </div>
-          {planning.loading ? <div className="ov-skel ov-skel-plan" aria-busy="true" /> : <OverviewPlan f={plan} unread={neverLoaded(sources, ['household'])} onRetry={reloadAll} />}
+          {planning.loading ? <div className="ov-skel ov-skel-plan" aria-busy="true" /> : <OverviewPlan f={plan} scope={scope} unread={neverLoaded(sources, ['household'])} onRetry={reloadAll} />}
           <OverviewRecent recent={recent} money={money} categories={categories} accounts={accounts} onOpen={(tx) => setEditing(tx)} />
         </div>
       )}
@@ -270,7 +304,12 @@ export default function Overview() {
           links={data.transactionLinks ?? []}
           categoryRules={data.categoryRules ?? []}
           fxHistory={data.fxRateHistory}
-          onSaved={reload}
+          onSaved={async ({ notice } = {}) => {
+            // The editor's own word on the save ("Saved, and remembered…"),
+            // as Activity shows it (fresh review of the cockpit).
+            if (notice?.text) showToast(notice.text, null);
+            await reload();
+          }}
         />
       )}
 

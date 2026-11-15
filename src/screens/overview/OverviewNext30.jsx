@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { tabHref } from '../../lib/activityLink';
 import { nativeAmountLabel } from '../../lib/recurring';
@@ -12,7 +13,10 @@ const DAY = 86400000;
 // cash to hand covers what is committed. A bill late or an autopay not yet
 // confirmed comes first, on today. The rows say in words what the strip
 // shows, so nothing is only on the strip.
-export default function OverviewNext30({ items, money, cover, now }) {
+export default function OverviewNext30({ items, money, cover, now, household = false, hasRecurring = true }) {
+  // Every bill as a row on request, so none is only on the strip (fresh
+  // review of the cockpit).
+  const [all, setAll] = useState(false);
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const dayOf = (it) => Math.max(0, Math.round((it.dueDate - today) / DAY));
   const statusOf = (it) => (it.late ? 'late' : it.unconfirmed ? 'unconfirmed' : null);
@@ -32,14 +36,14 @@ export default function OverviewNext30({ items, money, cover, now }) {
       }
     >
       {items.length === 0 ? (
-        <div className="ov-next30-none">Nothing due in the next 30 days.</div>
+        <div className="ov-next30-none">{hasRecurring ? 'Nothing due in the next 30 days.' : 'No recurring bills or income set up yet.'}</div>
       ) : (
         <>
           <div className="ov-next30-strip">
             <DatedStrip days={30} ariaLabel={`${items.length} bills and pay days in the next 30 days`} marks={items.map((it) => ({ key: it.occurrenceKey, day: dayOf(it), amount: Number(it.amount), tone: tone(it), label: label(it) }))} />
           </div>
-          <ul className="ov-next30-list" role="list">
-            {items.slice(0, ROWS).map((it) => {
+          <ul className="ov-next30-list" role="list" id="ov-next30-list">
+            {(all ? items : items.slice(0, ROWS)).map((it) => {
               // The native amount sits with the amount, never in the name
               // that may be cut short (fresh review of the Overview redesign).
               const native = nativeAmountLabel(it);
@@ -63,12 +67,18 @@ export default function OverviewNext30({ items, money, cover, now }) {
               );
             })}
           </ul>
+          {items.length > ROWS && (
+            <button type="button" className="ov-todo-more" aria-expanded={all} aria-controls="ov-next30-list" onClick={() => setAll((v) => !v)}>
+              {all ? 'Show fewer' : `Show all ${items.length}`}
+            </button>
+          )}
         </>
       )}
       {cover && (
         <div className="ov-next30-foot">
           <span>
             Committed {money.fmt(cover.dueAed)} · cash on hand {money.fmt(cover.liquidAed)}
+            {household && ' · the household’s'}
           </span>
           {/* An unconverted bill makes the committed total too low, so a
               "covered" is not said on it (SHR-292). */}

@@ -75,7 +75,7 @@ function TodoRow({ row, money, categories, categorise, markReviewed, onMarkPaid 
           </button>
         </span>
       ) : action.kind === 'mark-paid' ? (
-        <button type="button" className="ds-btn ds-btn-sm" onClick={() => onMarkPaid(action.recurringId)}>
+        <button type="button" className="ds-btn ds-btn-sm" onClick={() => onMarkPaid(action.recurringId, action.dueOn)}>
           {action.label}
         </button>
       ) : (

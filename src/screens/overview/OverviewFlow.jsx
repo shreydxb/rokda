@@ -37,7 +37,7 @@ export default function OverviewFlow({ period, columns, money, now }) {
       </div>
       <ChartLegend
         items={[
-          { label: 'Income', color: 'var(--context)' },
+          { label: 'Income', color: 'var(--series-3)' },
           { label: 'Spent', color: 'var(--accent)' },
           { label: 'Saved', color: 'var(--pos)', kind: 'line' },
         ]}

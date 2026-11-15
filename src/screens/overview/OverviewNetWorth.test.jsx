@@ -20,7 +20,7 @@ describe('OverviewNetWorth', () => {
     show();
     expect(screen.getByText(/100,000/)).toBeTruthy();
     expect(screen.getByText(/\+2,000/)).toBeTruthy();
-    expect(screen.getByText(/3 months/)).toBeTruthy();
+    expect(screen.getByText(/since Sep 26/)).toBeTruthy();
     expect(screen.getByRole('group', { name: 'Net worth over 3 months' })).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Net worth →' }).getAttribute('href')).toBe('/wealth');
   });
@@ -54,5 +54,7 @@ describe('OverviewNetWorth', () => {
     show({ scope: 'me' });
     expect(screen.getByRole('region', { name: 'Net worth · Partner A' })).toBeTruthy();
     expect(screen.queryByText(/this month/)).toBeNull();
+    // The closed months are the household's (fresh review of the cockpit).
+    expect(screen.queryByRole('group', { name: /Net worth over/ })).toBeNull();
   });
 });

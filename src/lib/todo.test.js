@@ -119,7 +119,7 @@ describe('buildTodo', () => {
 
   it('raises a goal due within 3 years and short of cash, under Planning', () => {
     const [row] = buildTodo({ goalsShort: [{ goal: { id: 'g1', name: 'Car' }, remaining: 20000 }] });
-    expect(row).toMatchObject({ group: 'Planning', title: 'Car', status: 'Short of cash · 20,000 to set aside', tone: 'warn', action: { kind: 'link', label: 'Open goal', href: '/planning?tab=goals' } });
+    expect(row).toMatchObject({ group: 'Planning', title: 'Car', status: 'Short of cash · AED 20,000 to set aside', tone: 'warn', action: { kind: 'link', label: 'Open goal', href: '/planning?tab=goals' } });
   });
 
   it('gives every row its own key', () => {
@@ -130,5 +130,22 @@ describe('buildTodo', () => {
       holdings: [{ id: 'h1', name: 'Fund' }],
     });
     expect(new Set(rows.map((r) => r.id)).size).toBe(rows.length);
+  });
+});
+
+describe('buildTodo: from the fresh review of the cockpit', () => {
+  it('carries the date a late bill was due to Mark paid', () => {
+    const [row] = buildTodo({ attention: [att({ kind: 'missing_recurring', name: 'Gym', status: 'Late', recurringId: 'r1', late: true, dueOn: '2026-11-05', income: false })] });
+    expect(row.action).toEqual({ kind: 'mark-paid', label: 'Mark paid', recurringId: 'r1', dueOn: '2026-11-05' });
+  });
+
+  it('says Mark received for pay', () => {
+    const [row] = buildTodo({ attention: [att({ kind: 'missing_recurring', name: 'Salary', status: 'Late', recurringId: 'r2', late: true, dueOn: '2026-11-01', income: true })] });
+    expect(row.action.label).toBe('Mark received');
+  });
+
+  it('says a goal amount is in dirhams', () => {
+    const [row] = buildTodo({ goalsShort: [{ goal: { id: 'g1', name: 'Car' }, remaining: 20000 }] });
+    expect(row.status).toBe('Short of cash · AED 20,000 to set aside');
   });
 });

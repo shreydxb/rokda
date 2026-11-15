@@ -301,12 +301,14 @@ export function next30Items(recurring, attention, scopeMemberId, now = new Date(
 }
 
 // What is committed over those 30 days, as the bot's morning cash check
-// counts it (lib/cashCover.js): each bill in the window, and each card with a
-// balance due in it. A card in another currency with no AED conversion is
-// still a bill, its amount unknown rather than zero (QA #4).
+// counts it (lib/cashCover.js): each bill falling due from today, and each
+// card with a balance due in it. A bill already waiting is not counted again:
+// an autopay not confirmed has usually left the bank (fresh review of the
+// cockpit). A card in another currency with no AED conversion is still a
+// bill, its amount unknown rather than zero (QA #4).
 export function next30Bills(items, accounts, scopeMemberId, now = new Date()) {
   const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  const recurring = items.filter((i) => Number(i.amount) < 0).map((i) => ({ due_date: iso(i.dueDate), amount_aed: -Number(i.amount) }));
+  const recurring = items.filter((i) => Number(i.amount) < 0 && !i.late && !i.unconfirmed).map((i) => ({ due_date: iso(i.dueDate), amount_aed: -Number(i.amount) }));
   const credit_cards = [];
   for (const a of accounts) {
     if (a.type !== 'credit_card' || isArchived(a)) continue;

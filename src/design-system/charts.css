@@ -41,7 +41,9 @@
   margin-top: 6px;
 }
 .ds-col-a {
-  fill: var(--context);
+  /* The context series in the grey that stands at 3:1 on the page, so the
+     income columns are not a faint 2:1 (fresh review of the cockpit). */
+  fill: var(--series-3);
 }
 .ds-col-b {
   fill: var(--accent);

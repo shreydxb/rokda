@@ -6,17 +6,18 @@ import { BarList, Card, Chip, InfoButton } from '../../design-system/kit';
 
 // Where this month's money went, and what changed (the revamp, phase 3;
 // review S-overview-3 and N2): the five categories spent on most, each with
-// a tick at its usual month, and up to three categories that moved against
-// their usual. Both on Insights' own figures (lib/insights.js), net of
-// refunds, so a bar and its tick are counted the same way and agree with
-// Insights and Budget. Each opens the month's transactions in that category.
-export default function OverviewWhere({ categories, moves, money, now }) {
+// a tick at its usual month, on Insights' own figures (lib/insights.js), net
+// of refunds, so a bar and its tick are counted the same way and agree with
+// Insights and Budget; and up to three categories running ahead of their
+// usual pace, Needs attention's own check (lib/attention.js). Each opens the
+// month's transactions in that category.
+export default function OverviewWhere({ categories, moves, money, now, period = 'mtd' }) {
   const navigate = useNavigate();
   const range = monthRange(now.getFullYear(), now.getMonth() + 1);
   const open = (categoryId) => navigate(activityHref({ categoryId, ...range }));
   return (
     <Card
-      title="Where it went"
+      title={period === 'mtd' ? 'Where it went' : 'Where it went · this month'}
       className="ov-where"
       info={
         <InfoButton about="Where it went">
@@ -41,12 +42,12 @@ export default function OverviewWhere({ categories, moves, money, now }) {
             {moves.map((m) => (
               <li key={m.categoryId}>
                 <Link className="ov-changed-row" to={activityHref({ categoryId: m.categoryId, ...range })}>
-                  <Chip tone={m.pct > 0 ? 'warn' : 'neutral'}>{`${m.pct > 0 ? '+' : '−'}${formatPct(Math.abs(m.pct))} vs usual`}</Chip>
+                  <Chip tone="warn">{`+${formatPct(m.pct)} vs usual pace`}</Chip>
                   <span className="ov-changed-text">
                     <span className="ov-todo-title">{m.categoryName}</span>
                     <span className="ov-muted">
                       {' '}
-                      · {money.fmt(m.actual)} against {money.fmt(m.avg)}
+                      · {money.fmt(m.actual)} so far, {money.fmt(m.expectedSoFar)} usual by now
                     </span>
                   </span>
                   <span className="ov-muted" aria-hidden="true">

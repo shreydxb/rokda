@@ -56,6 +56,10 @@ function missingRecurringItems(recurring, transactions, scopeMemberId, now) {
     if (matched) continue;
 
     const expected = prevDue.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    // The day it was due, so Mark paid can date the payment there: a payment
+    // settles a bill only near its due date (fresh review of the cockpit).
+    const dueOn = `${prevDue.getFullYear()}-${String(prevDue.getMonth() + 1).padStart(2, '0')}-${String(prevDue.getDate()).padStart(2, '0')}`;
+    const income = Number(r.amount) > 0;
     // An autopay bill leaves the bank on its own; what is missing is the
     // confirmation, which the bot asks for every morning (docs/decisions.md,
     // "Autopay bills are confirmed, not entered").
@@ -71,6 +75,8 @@ function missingRecurringItems(recurring, transactions, scopeMemberId, now) {
             status: `Autopay not confirmed · due ${expected}`,
             recurringId: r.id,
             late: false,
+            dueOn,
+            income,
           }
         : {
             id: `missing-recurring-${r.id}`,
@@ -82,6 +88,8 @@ function missingRecurringItems(recurring, transactions, scopeMemberId, now) {
             status: `Late · was due ${expected}`,
             recurringId: r.id,
             late: true,
+            dueOn,
+            income,
           },
     );
   }
@@ -160,6 +168,10 @@ function categoryAnomalyItems(transactions, categories, scopeMemberId, now) {
       categoryId: catId,
       severity: 'info',
       title: `${name} is running high this month`,
+      name,
+      actual,
+      average: avg,
+      expectedSoFar,
       detail: `AED ${Math.round(actual).toLocaleString('en-AE')} so far vs a trailing ${ANOMALY_MONTHS_BACK}-month average of AED ${Math.round(avg).toLocaleString('en-AE')}`,
     });
   }

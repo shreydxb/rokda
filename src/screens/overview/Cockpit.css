@@ -267,6 +267,13 @@
   font-size: 12.5px;
   color: var(--ink3);
 }
+.ov-plan-code {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink3);
+  letter-spacing: 0;
+  margin-right: 5px;
+}
 .ov-plan-of {
   font-size: 13px;
   font-weight: 400;
