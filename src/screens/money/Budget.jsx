@@ -28,6 +28,8 @@ const VIEWS = [
   { id: 'year', label: 'Year' },
 ];
 const pctText = (v) => `${Math.round(v * 100)}%`;
+// A limit as its box shows it: pence only when it has them.
+const limitText = (v) => formatMoney(v, { decimals: Number.isInteger(Number(v)) ? 0 : 2 });
 
 export default function Budget({ household, me, members, data, loading, onOpenRecords }) {
   const { scope } = useScope();
@@ -219,19 +221,22 @@ function BudgetLines({ table, members, catById, categories, transactions, year, 
     return m ? <Avatar name={m.display_name} initial={m.display_name.slice(0, 1).toUpperCase()} tone={tone.get(m.id)} /> : null;
   };
   const saveLimit = async (line, text, input) => {
-    // "1,200" or "1200 AED" reads as 1,200; anything with no number in it is
-    // left as it was, not saved as nothing.
-    const digits = String(text).replace(/[^\d.]/g, '');
-    const amount = Number(digits);
-    if (!digits || !Number.isFinite(amount) || Math.abs(amount - line.limit) < 0.005) {
-      input.value = formatMoney(line.limit);
+    // Saved only when the text was changed, so passing through a limit with
+    // pence never rounds it, and only as a plain amount: "1,200", "1200.50"
+    // or "1200 AED". Anything else ("1e3", "-500", "lots") is left as it was
+    // (the fresh review of 4b).
+    const shown = limitText(line.limit);
+    const plain = /^\s*(\d{1,3}(,\d{3})+|\d+)(\.\d{1,2})?\s*(aed)?\s*$/i.exec(String(text));
+    const amount = plain ? Number(`${plain[1].replace(/,/g, '')}${plain[3] ?? ''}`) : NaN;
+    if (String(text).trim() === shown || !Number.isFinite(amount) || Math.abs(amount - line.limit) < 0.005) {
+      input.value = shown;
       return;
     }
     setError(null);
     const result = await setBudgetLimit(line.budget, amount);
     if (result.error) {
       setError(result.error);
-      input.value = formatMoney(line.limit);
+      input.value = shown;
       return;
     }
     await reload();
@@ -239,8 +244,8 @@ function BudgetLines({ table, members, catById, categories, transactions, year, 
   const usualCell = (spent, usual) =>
     usual == null ? null : (
       <>
-        {usual > 0 && spent > usual * 1.1 && <span className="bud-warn">+{Math.round((spent / usual - 1) * 100)}%</span>}
-        {usual > 0 && spent > usual * 1.1 && ' '}
+        {usual > 0 && spent >= usual * 1.1 - 0.005 && <span className="bud-warn">+{Math.round((spent / usual - 1) * 100)}%</span>}
+        {usual > 0 && spent >= usual * 1.1 - 0.005 && ' '}
         <span className="bud-ink2">{formatMoney(usual)}</span>
       </>
     );
@@ -272,14 +277,14 @@ function BudgetLines({ table, members, catById, categories, transactions, year, 
             {owner(line.categoryId)}
           </span>
         </td>
-        <td className="ds-num">{formatMoney(line.spent)}</td>
+        <td className="ds-num">{formatBalance(line.spent)}</td>
         <td className="ds-num" onClick={(e) => e.stopPropagation()}>
           {line.budget ? (
             <input
               className="ds-select ds-select-sm bud-lim"
               inputMode="decimal"
               aria-label={`${line.name} limit`}
-              defaultValue={formatMoney(line.limit)}
+              defaultValue={limitText(line.limit)}
               key={`${line.id}-${line.limit}`}
               onBlur={(e) => saveLimit(line, e.target.value, e.target)}
               onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
@@ -289,7 +294,7 @@ function BudgetLines({ table, members, catById, categories, transactions, year, 
           )}
         </td>
         <td className="ds-num bud-usual">{usualCell(line.spent, line.usual)}</td>
-        <td>{paceCell(line.spent, line.limit)}</td>
+        <td className="bud-pace-cell">{paceCell(line.spent, line.limit)}</td>
       </tr>,
       isOpen && (
         <tr key={`${line.id}-records`} className="bud-records-row">
@@ -341,7 +346,7 @@ function BudgetLines({ table, members, catById, categories, transactions, year, 
                   <td className="ds-num">{formatMoney(section.group.spent)}</td>
                   <td className="ds-num bud-lim-total">{formatMoney(section.group.limit)}</td>
                   <td className="ds-num bud-usual">{usualCell(section.group.spent, section.group.usual)}</td>
-                  <td />
+                  <td className="bud-pace-cell" />
                 </tr>
               ),
               ...section.lines.flatMap(lineRow),
@@ -352,8 +357,8 @@ function BudgetLines({ table, members, catById, categories, transactions, year, 
               </td>
               <td className="ds-num">{formatMoney(table.budgeted.spent)}</td>
               <td className="ds-num bud-lim-total">{formatMoney(table.budgeted.limit)}</td>
-              <td />
-              <td>{paceCell(table.budgeted.spent, table.budgeted.limit)}</td>
+              <td className="bud-usual" />
+              <td className="bud-pace-cell">{paceCell(table.budgeted.spent, table.budgeted.limit)}</td>
             </tr>
             <tr className="bud-outside">
               <td>
@@ -368,8 +373,8 @@ function BudgetLines({ table, members, catById, categories, transactions, year, 
               </td>
               <td className="ds-num">{formatMoney(table.outside)}</td>
               <td />
-              <td />
-              <td>
+              <td className="bud-usual" />
+              <td className="bud-pace-cell">
                 <button type="button" className="ds-link" onClick={() => onOpenRecords({ year, month })}>
                   Activity →
                 </button>
@@ -385,7 +390,7 @@ function BudgetLines({ table, members, catById, categories, transactions, year, 
 // A line's records for the month, beneath it, with the way to all of them in
 // Activity and to the line's budget (design/prototype bud-exp).
 function LineRecords({ line, categories, transactions, year, month, scopeMemberId, now, onOpenRecords, onEdit }) {
-  const records = lineRecords(transactions, line.recordsCategoryId, categories, year, month, scopeMemberId, now);
+  const records = lineRecords(transactions, line.recordsCategoryId, categories, year, month, scopeMemberId, now, { ownOnly: line.ownOnly });
   return (
     <div className="bud-records" role="region" aria-label={`${line.name} this month`}>
       {records.length === 0 ? (
@@ -403,9 +408,13 @@ function LineRecords({ line, categories, transactions, year, month, scopeMemberI
         </ul>
       )}
       <div className="bud-record-actions">
-        <button type="button" className="ds-link ds-link-accent" onClick={() => onOpenRecords({ categoryId: line.recordsCategoryId, year, month })}>
-          All in Activity →
-        </button>
+        {/* Activity's category takes in its subcategories, so a general
+            line's own records have no list there to open. */}
+        {!line.ownOnly && (
+          <button type="button" className="ds-link ds-link-accent" onClick={() => onOpenRecords({ categoryId: line.recordsCategoryId, year, month })}>
+            All in Activity →
+          </button>
+        )}
         {line.budget && (
           <button type="button" className="ds-link" onClick={() => onEdit({ ...line.budget, spentSoFar: line.spent, recordsCategoryId: line.recordsCategoryId })}>
             Edit budget

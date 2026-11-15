@@ -39,7 +39,7 @@ describe('Budget: household share', () => {
     { id: 'housing', name: 'Housing', kind: 'expense', parent_id: null },
     { id: 'rent', name: 'Rent', kind: 'expense', parent_id: 'housing' },
     { id: 'family', name: 'Family Support', kind: 'expense', parent_id: null },
-    { id: 'raipur', name: 'Raipur Remittance', kind: 'expense', parent_id: 'family', owner_member_id: 'm2' },
+    { id: 'remit', name: 'Family remittance', kind: 'expense', parent_id: 'family', owner_member_id: 'm2' },
   ];
   const renderShare = (members) =>
     renderScreen(
@@ -52,7 +52,7 @@ describe('Budget: household share', () => {
           categories: CATS,
           budgets: [
             { id: 'b1', category_id: 'rent', year: 2026, month: 9, amount: 6000 },
-            { id: 'b2', category_id: 'raipur', year: 2026, month: 9, amount: 400 },
+            { id: 'b2', category_id: 'remit', year: 2026, month: 9, amount: 400 },
           ],
           transactions: [{ id: 't1', amount: -6000, kind: 'expense', occurred_at: '2026-09-01', is_shared: true, category_id: 'rent', account_id: 'a1' }],
           accounts: [{ id: 'a1', owner_member_id: 'm1', is_shared: false }],
@@ -84,7 +84,7 @@ describe('Budget: household share', () => {
 
   it('marks one person’s own lines in the budget with their initial', () => {
     renderShare(TWO);
-    const row = screen.getByText('Family Support › Raipur Remittance').closest('tr');
+    const row = screen.getByText('Family Support › Family remittance').closest('tr');
     expect(within(row).getByRole('img', { name: 'Sam' })).toBeTruthy();
   });
 
@@ -166,7 +166,10 @@ describe('Budget: the month', () => {
     const hero = screen.getByRole('region', { name: 'Spent of budget' });
     expect(hero.textContent).toMatch(/800\s*of 1,400/);
     expect(hero.textContent).toMatch(/57% spent · 10% of month gone/);
-    expect(within(hero).getByText('Over pace')).toBeTruthy();
+    // A third of the month has not gone yet: no word on the pace (the fresh
+    // review of 4b), and the limit is not passed.
+    expect(within(hero).queryByText('Over pace')).toBeNull();
+    expect(within(hero).queryByText('On pace')).toBeNull();
   });
 
   it('lists a group with its lines, Other for what none of them holds, and says a line is over', () => {
@@ -182,6 +185,23 @@ describe('Budget: the month', () => {
     expect(row('Groceries').querySelector('.bud-usual').textContent).toBe('');
   });
 
+  it('says so from ten per cent above the usual', () => {
+    const txns = [
+      { id: 'n', amount: -110, kind: 'expense', occurred_at: '2026-09-02', is_shared: true, category_id: 'dine', merchant: 'Cafe' },
+      { id: 'o', amount: -100, kind: 'expense', occurred_at: '2026-08-10', is_shared: true, category_id: 'dine', merchant: 'Cafe' },
+    ];
+    render({ data: { transactions: txns, categories: CATS, budgets: BUDGETS, reload } });
+    expect(row('Dining out').querySelector('.bud-usual').textContent).toBe('+10% 100');
+  });
+
+  // The fresh review of 4b: a refund filed under the group made Other
+  // negative, and it showed without its sign.
+  it('keeps the sign of an Other that refunds made negative', () => {
+    const txns = [...TXNS.filter((t) => t.id !== 't3'), { id: 'r', amount: 50, kind: 'refund', occurred_at: '2026-09-02', is_shared: true, category_id: 'food', merchant: 'Market' }];
+    render({ data: { transactions: txns, categories: CATS, budgets: BUDGETS, reload } });
+    expect(row('Other Food').querySelector('td:nth-child(2)').textContent).toBe('−50');
+  });
+
   it('saves a limit typed in place', async () => {
     render();
     const input = screen.getByRole('textbox', { name: 'Groceries limit' });
@@ -189,6 +209,27 @@ describe('Budget: the month', () => {
     await act(async () => fireEvent.focusOut(input));
     expect(updates).toEqual([{ table: 'budgets', row: { amount: 1200 }, id: 'b1' }]);
     expect(reload).toHaveBeenCalled();
+  });
+
+  // The fresh review of 4b: a limit with pence showed rounded, and leaving
+  // the box saved the rounded figure.
+  it('shows a limit with pence as it is, and saves nothing when it was not changed', async () => {
+    render({ data: { transactions: TXNS, categories: CATS, budgets: [{ ...BUDGETS[0], amount: 1200.5 }, BUDGETS[1]], reload } });
+    const input = screen.getByRole('textbox', { name: 'Groceries limit' });
+    expect(input.value).toBe('1,200.50');
+    await act(async () => fireEvent.focusOut(input));
+    expect(updates).toEqual([]);
+  });
+
+  it('refuses a limit written any other way than as a plain amount', async () => {
+    render();
+    const input = screen.getByRole('textbox', { name: 'Groceries limit' });
+    for (const text of ['1e3', '-500', '1.5k']) {
+      fireEvent.change(input, { target: { value: text } });
+      await act(async () => fireEvent.focusOut(input));
+    }
+    expect(updates).toEqual([]);
+    expect(input.value).toBe('1,000');
   });
 
   it('leaves a limit that is not a number as it was', async () => {

@@ -3972,4 +3972,19 @@ The revamp's phase 4b (design note `docs/superpowers/specs/2026-11-15-money-desi
   changed. An old link opens Merchants for the month it named.
   `notableMoves` stays in `lib/insights.js`: the bot's spending check uses
   its mirrored copy.
+- **The fresh review of 4b** changed these:
+  - **The pace says nothing until a third of the month has gone.** Rent on
+    the 1st put most households "over pace" for half of every month; Budget's
+    projection always waited the same third (`monthPace`'s `canProject`).
+    Over by an amount still shows at once.
+  - **A limit is saved only when its text was changed**, and shows pence
+    when it has them: passing through a limit of 1,200.50 saved 1,201.
+    Only a plain amount is taken; "1e3", "-500" and "1.5k" are refused.
+  - **A "· general" line lists only what was filed to the group itself**,
+    with no link to Activity, whose category takes in its subcategories.
+  - **Other keeps its sign** when refunds filed to the group outweigh what
+    was spent there, so the rows add up on screen.
+  - **"+N%" shows from ten per cent above the usual**, as written above.
+  - **Test figures are generic**: a category named after a real place and
+    two amounts that read as real ones became generic.
 

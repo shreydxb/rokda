@@ -21,12 +21,18 @@ export const USUAL_MONTHS = 6;
 // Over by an amount once the limit is passed; over pace when the share of
 // the limit spent is more than ten points ahead of the share of the month
 // gone; on pace; within budget once the month is over; not started for one
-// ahead. Nothing without a limit.
+// ahead. Nothing without a limit, nor on the pace before a third of the month
+// has gone.
 export function paceVerdict(spent, limit, pace) {
   if (!(limit > 0)) return null;
   if (spent > limit + 0.005) return { label: `Over by ${formatMoney(spent - limit)}`, tone: 'neg' };
   if (pace.isPast) return { label: 'Within budget', tone: 'pos' };
   if (pace.isFuture) return { label: 'Not started', tone: 'neutral' };
+  // Early in the month what was spent is mostly whichever big bill landed
+  // first (rent on the 1st), so the pace says nothing until a third of the
+  // month has gone, as Budget's projection always waited (monthPace's
+  // canProject; the fresh review of 4b).
+  if (!pace.canProject) return null;
   if (spent / limit > pace.elapsedFraction + 0.1) return { label: 'Over pace', tone: 'warn' };
   return { label: 'On pace', tone: 'pos' };
 }
@@ -66,6 +72,9 @@ export function budgetTable({ budgets, catById, spend, transactions, year, month
       sections.push({ group: null, lines: [{ id: b.id, budget: b, categoryId: b.category_id, name, spent: groupSpent, limit: Number(b.amount), usual: groupUsual, recordsCategoryId: groupId }] });
       continue;
     }
+    // A group budgeted beside its own lines is its "general" line: what was
+    // filed to the group itself, so its records are those alone (the fresh
+    // review of 4b).
     const lines = rows.map((b) => ({
       id: b.id,
       budget: b,
@@ -75,6 +84,7 @@ export function budgetTable({ budgets, catById, spend, transactions, year, month
       limit: Number(b.amount),
       usual: usualOf([b.category_id]),
       recordsCategoryId: b.category_id,
+      ownOnly: b.category_id === groupId,
     }));
     const other = groupSpent - lines.reduce((s, l) => s + l.spent, 0);
     if (Math.abs(other) >= 0.005) {
@@ -90,9 +100,10 @@ export function budgetTable({ budgets, catById, spend, transactions, year, month
 // A line's records for the month, opened beneath it: posted spending (and
 // refunds) in its categories, the selected person's part, newest first, each
 // with its amount in those categories (a split record's lines there). A
-// group's line takes in its subcategories.
-export function lineRecords(transactions, categoryId, categories, year, month, scopeMemberId, now = new Date()) {
-  const ids = categoryAndChildren(categoryId, categories);
+// group's line takes in its subcategories; its "general" line, `ownOnly`, the
+// group alone.
+export function lineRecords(transactions, categoryId, categories, year, month, scopeMemberId, now = new Date(), { ownOnly = false } = {}) {
+  const ids = ownOnly ? new Set([categoryId]) : categoryAndChildren(categoryId, categories);
   return transactions
     .filter((t) => {
       const d = parseDay(t.occurred_at);

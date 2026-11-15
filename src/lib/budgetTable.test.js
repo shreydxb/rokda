@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { budgetTable, lineRecords, paceVerdict } from './budgetTable';
 import { budgetGroupSpend } from './budget';
 
-const pace = (over) => ({ elapsedFraction: 0.5, isPast: false, isFuture: false, isCurrentMonth: true, ...over });
+const pace = (over) => ({ elapsedFraction: 0.5, isPast: false, isFuture: false, isCurrentMonth: true, canProject: true, ...over });
 
 // The hero's and each line's one-word verdict (the revamp, phase 4b;
 // design/prototype budMonth): over by an amount, ahead of the month's pace by
@@ -20,6 +20,15 @@ describe('paceVerdict', () => {
   it('says within budget for a finished month, and not started for one ahead', () => {
     expect(paceVerdict(480, 500, pace({ isPast: true, isCurrentMonth: false, elapsedFraction: 1 }))).toEqual({ label: 'Within budget', tone: 'pos' });
     expect(paceVerdict(0, 500, pace({ isFuture: true, isCurrentMonth: false, elapsedFraction: 0 }))).toEqual({ label: 'Not started', tone: 'neutral' });
+  });
+
+  // The fresh review of 4b: rent paid on the 1st put most households "over
+  // pace" for half of every month. The month's pace says nothing until a
+  // third of it has gone, as Budget's projection always waited (monthPace).
+  it('says nothing of the pace until a third of the month has gone, short of the limit', () => {
+    const early = pace({ elapsedFraction: 0.1, canProject: false });
+    expect(paceVerdict(600, 1000, early)).toBeNull();
+    expect(paceVerdict(1100, 1000, early)).toEqual({ label: 'Over by 100', tone: 'neg' });
   });
 
   it('says nothing without a limit', () => {
@@ -90,6 +99,23 @@ describe('budgetTable', () => {
     expect(table.budgeted).toEqual({ spent: 7100, limit: 7600 });
     expect(table.outside).toBe(370);
     expect(table.uncategorised).toBe(70);
+  });
+});
+
+// The fresh review of 4b: a group budgeted alongside its own lines has a
+// "· general" line, and its records are those filed to the group itself.
+describe('budgetTable: a group budgeted alongside its lines', () => {
+  it("lists only the group's own records under its general line", () => {
+    const budgets = [
+      { id: 'g', category_id: 'food', amount: 500, year: 2026, month: 10 },
+      { id: 'b', category_id: 'groc', amount: 1000, year: 2026, month: 10 },
+    ];
+    const transactions = [tx('own', 'food', -50), tx('sub', 'groc', -600)];
+    const spend = budgetGroupSpend(transactions, budgets.map((b) => b.category_id), catById, 2026, 10, null, NOW);
+    const { sections } = budgetTable({ budgets, catById, spend, transactions, year: 2026, month: 10, scopeMemberId: null });
+    const general = sections[0].lines.find((l) => l.name === 'Food · general');
+    expect(general).toMatchObject({ spent: 50, ownOnly: true });
+    expect(lineRecords(transactions, general.recordsCategoryId, CATS, 2026, 10, null, NOW, { ownOnly: general.ownOnly }).map((r) => r.t.id)).toEqual(['own']);
   });
 });
 

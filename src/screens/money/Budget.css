@@ -251,7 +251,8 @@ button.bud-name:focus-visible {
   }
   .bud-col-usual,
   .bud-usual,
-  .bud-col-pace {
+  .bud-col-pace,
+  .bud-pace-cell {
     display: none;
   }
 }
