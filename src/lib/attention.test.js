@@ -132,3 +132,34 @@ describe('a yearly check that is due', () => {
     expect(items).toEqual([expect.objectContaining({ id: 'yearly-check-n1', kind: 'yearly_check', severity: 'info', title: 'Yearly check: Protection' })]);
   });
 });
+
+// The revamp (Overview's To do, phase 3): each item also carries a short
+// name and status, and what it is about, so To do can show it in one line
+// with a button that does the job. The sentences above are unchanged.
+describe('attention items: short forms for To do', () => {
+  const now = new Date('2026-10-15T10:00:00');
+  const base = { transactions: [], recurring: [], holdings: [], categories: [], scopeMemberId: null, now };
+  const bill = { id: 'r1', name: 'Car loan', amount: -2000, cadence: 'monthly', interval_count: 1, next_due_date: '2026-10-08', active: true, is_shared: true, account_id: 'a1' };
+
+  it('names a bill and says whether it is late or only not confirmed', () => {
+    const [manual] = buildAttentionItems({ ...base, accounts: [], recurring: [{ ...bill, autopay: false }] });
+    expect(manual).toMatchObject({ name: 'Car loan', status: 'Late · was due 8 Oct', recurringId: 'r1', late: true });
+    const [autopay] = buildAttentionItems({ ...base, accounts: [], recurring: [{ ...bill, autopay: true }] });
+    expect(autopay).toMatchObject({ name: 'Car loan', status: 'Autopay not confirmed · due 8 Oct', recurringId: 'r1', late: false });
+  });
+
+  it('names an account with no confirmed balance', () => {
+    const [item] = buildAttentionItems({ ...base, accounts: [{ id: 'a9', name: 'Cash wallet', type: 'cash', archived_at: null, is_shared: true, balance: null, balance_as_of: null }] }).filter((i) => i.kind === 'balance_unset');
+    expect(item).toMatchObject({ name: 'Cash wallet', status: 'Balance not confirmed', accountId: 'a9' });
+  });
+
+  it('names a backup that is due', () => {
+    const [item] = buildAttentionItems({ ...base, accounts: [{ id: 'a1', name: 'Bank', archived_at: null, is_shared: true, balance: 1, balance_as_of: '2026-10-14T00:00:00Z' }], backupRecords: [] }).filter((i) => i.kind === 'backup');
+    expect(item).toMatchObject({ name: 'Backup', status: 'None recorded' });
+  });
+
+  it('names a month not closed', () => {
+    const [item] = buildAttentionItems({ ...base, accounts: [{ id: 'a1', name: 'Bank', archived_at: null, is_shared: true, balance: 1, balance_as_of: '2026-10-14T00:00:00Z' }], snapshots: [] }).filter((i) => i.kind === 'month_close');
+    expect(item).toMatchObject({ name: 'September', status: 'Not closed' });
+  });
+});

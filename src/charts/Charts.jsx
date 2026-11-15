@@ -1,4 +1,5 @@
-import { nearestIndex, niceTicks, stackSegments, yScale } from './scale';
+import { niceTicks, stackSegments, yScale } from './scale';
+import { handleKey, pointerHandlers } from './interaction';
 import { useChartWidth } from './useChartWidth';
 import './charts.css';
 
@@ -21,36 +22,6 @@ function colorOf(series, value) {
   return typeof series.color === 'function' ? series.color(value) : series.color;
 }
 
-function handleKey(e, activeIndex, count, onActiveChange) {
-  const current = activeIndex ?? count - 1;
-  let next = null;
-  if (e.key === 'ArrowLeft') next = Math.max(0, current - 1);
-  else if (e.key === 'ArrowRight') next = Math.min(count - 1, current + 1);
-  else if (e.key === 'Home') next = 0;
-  else if (e.key === 'End') next = count - 1;
-  if (next !== null) {
-    e.preventDefault();
-    onActiveChange(next);
-  }
-}
-
-function pointerHandlers(count, onActiveChange) {
-  const pick = (e) => {
-    const box = e.currentTarget.getBoundingClientRect();
-    const i = nearestIndex(e.clientX - box.left, box.width, count);
-    if (i !== null) onActiveChange(i);
-  };
-  return {
-    onPointerMove: pick,
-    onPointerDown: pick,
-    // A mouse leaving the plot hands the pick back to the screen's default;
-    // a finger lifting does not, or the readout would vanish mid-read.
-    onPointerLeave: (e) => {
-      if (e.pointerType === 'mouse') onActiveChange(null);
-    },
-  };
-}
-
 // X-axis labels: every `labelEvery`th, plus the active one, and never two
 // close enough to overlap (the regular labels next to an active one give way).
 function xLabels(count, band, labelEvery, activeIndex) {
@@ -64,7 +35,7 @@ function xLabels(count, band, labelEvery, activeIndex) {
   return shown;
 }
 
-function Axis({ ticks, y, width, formatTick }) {
+export function Axis({ ticks, y, width, formatTick }) {
   return (
     <g aria-hidden="true">
       {ticks.map((t) => (

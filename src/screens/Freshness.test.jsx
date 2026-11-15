@@ -36,3 +36,17 @@ describe('Freshness', () => {
     expect(screen.getByRole('button', { name: 'Refresh' }).disabled).toBe(true);
   });
 });
+
+// The revamp (review P1): one header row on every screen, the title on the
+// left with an optional line above it, the screen's own controls on the
+// right before refresh.
+describe('Freshness: the page header', () => {
+  it('takes a line above the title and the screen controls beside refresh', () => {
+    render(<Freshness title="4 things need a decision" kicker={<span>Saturday 14 Nov</span>} tools={<button type="button">+ Transaction</button>} loadedAt={new Date()} onRefresh={() => {}} />);
+    const heading = screen.getByRole('heading', { level: 1, name: '4 things need a decision' });
+    expect(heading.previousElementSibling.textContent).toBe('Saturday 14 Nov');
+    const tools = screen.getByRole('button', { name: '+ Transaction' });
+    const refresh = screen.getByRole('button', { name: 'Refresh' });
+    expect(tools.compareDocumentPosition(refresh) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});

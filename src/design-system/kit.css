@@ -457,6 +457,10 @@ a.ds-btn {
 }
 
 /* ---------- table ---------- */
+.ds-table-wrap {
+  overflow-x: auto;
+  max-width: 100%;
+}
 .ds-table {
   width: 100%;
   border-collapse: collapse;

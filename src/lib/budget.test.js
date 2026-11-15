@@ -177,3 +177,40 @@ describe('a split receipt in the budget', () => {
     expect(actuals.get('household')).toBe(50);
   });
 });
+
+// Overview's budget track (the revamp, phase 3): the same month totals
+// Budget's hero shows, worked out once for both.
+describe('monthBudgetTrack', () => {
+  const categories = [
+    { id: 'food', name: 'Food', parent_id: null },
+    { id: 'groc', name: 'Groceries', parent_id: 'food' },
+    { id: 'save', name: 'Emergency fund', parent_id: null, is_savings: true },
+    { id: 'fun', name: 'Fun', parent_id: null },
+  ];
+  const now = new Date(2026, 10, 15, 12);
+  const tx = (id, category_id, amount) => ({ id, category_id, amount, kind: 'expense', occurred_at: '2026-11-05', is_shared: true });
+
+  it('counts the spending budgets and what was spent in their groups, as Budget does', async () => {
+    const { monthBudgetTrack } = await import('./budget');
+    const track = monthBudgetTrack({
+      budgets: [
+        { category_id: 'groc', year: 2026, month: 11, amount: 1000 },
+        { category_id: 'save', year: 2026, month: 11, amount: 500 },
+        { category_id: 'groc', year: 2026, month: 10, amount: 900 },
+      ],
+      categories,
+      transactions: [tx('t1', 'groc', -300), tx('t2', 'fun', -200)],
+      year: 2026,
+      month: 11,
+      scopeMemberId: null,
+      now,
+    });
+    expect(track).toMatchObject({ budgeted: 1000, spent: 300 });
+    expect(track.elapsedFraction).toBeCloseTo(15 / 30);
+  });
+
+  it('is nothing to show when the month has no spending budget', async () => {
+    const { monthBudgetTrack } = await import('./budget');
+    expect(monthBudgetTrack({ budgets: [{ category_id: 'save', year: 2026, month: 11, amount: 500 }], categories, transactions: [], year: 2026, month: 11, scopeMemberId: null, now })).toBeNull();
+  });
+});

@@ -139,3 +139,17 @@ export function monthIncome(transactions, year, month, scopeMemberId, now = new 
   }
   return total;
 }
+
+// One month's spending budget against what was spent in its groups, with how
+// far through the month it is: Budget's hero, and Overview's budget track
+// (the revamp, phase 3), from one place. A savings category's budget is a
+// target, not money to spend, so it stays out. Null when the month has no
+// spending budget.
+export function monthBudgetTrack({ budgets = [], categories = [], transactions = [], year, month, scopeMemberId, now = new Date() }) {
+  const savingsIds = new Set(categories.filter((c) => c.is_savings).map((c) => c.id));
+  const rows = budgets.filter((b) => b.year === year && b.month === month && !savingsIds.has(b.category_id));
+  if (rows.length === 0) return null;
+  const spend = budgetGroupSpend(transactions, rows.map((r) => r.category_id), categories, year, month, scopeMemberId, now);
+  const pace = monthPace(year, month, now);
+  return { budgeted: rows.reduce((s, r) => s + Number(r.amount), 0), spent: spend.inBudgetedGroups, elapsedFraction: pace.elapsedFraction, isPast: pace.isPast };
+}

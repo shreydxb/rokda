@@ -4,7 +4,7 @@ import { formatMoney, formatSigned } from '../../lib/money';
 import { billStatus, hasEnded, nativeAmountLabel, rollForward } from '../../lib/recurring';
 import RecurringEditor from './RecurringEditor';
 import TransactionEditor from './TransactionEditor';
-import { householdToday } from '../../lib/day';
+import { billPaymentInitial } from '../../lib/transactionForm';
 import './Recurring.css';
 
 const UNIT_LABEL = { weekly: 'week', monthly: 'month', quarterly: 'quarter', yearly: 'year' };
@@ -105,23 +105,8 @@ export default function Recurring({ household, members, data, loading }) {
           members={members}
           allTransactions={transactions}
           fxHistory={data.fxRateHistory}
-          initial={{
-            type: Number(paying.amount) >= 0 ? 'income' : 'expense',
-            // A bill set in rupees is paid in rupees: the editor estimates
-            // the AED until the AED debited is entered.
-            ...(paying.currency && paying.currency !== 'AED' && paying.native_amount != null
-              ? { entry_currency: paying.currency, amount: String(Math.abs(Number(paying.native_amount))) }
-              : { amount: String(Math.abs(Number(paying.amount))) }),
-            merchant: paying.name,
-            occurred_at: householdToday(),
-            // On the bill's own account while it is open: a payment settles a
-            // bill only on its account, and the editor's default (the first
-            // account) left a bill marked paid still due (fresh review of
-            // B-02).
-            ...(paying.account_id && accounts.some((a) => a.id === paying.account_id && !a.archived_at) ? { account_id: paying.account_id } : {}),
-            category_id: paying.category_id ?? '',
-            owner: paying.is_shared ? 'shared' : (paying.owner_member_id ?? ''),
-          }}
+          // Filled from the bill, as Overview's To do does (lib/transactionForm.js).
+          initial={billPaymentInitial(paying, accounts)}
           onClose={() => setPaying(null)}
           onSaved={async () => {
             setPaying(null);

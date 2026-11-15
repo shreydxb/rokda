@@ -1,79 +1,47 @@
-import { CHART_TITLES, isRunningBucket } from '../overviewMath';
-import { formatPct } from '../../lib/money';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { activityHref, bucketRange } from '../../lib/activityLink';
+import { CHART_TITLES, isRunningBucket } from '../overviewMath';
+import { Card } from '../../design-system/kit';
+import { PairedColumns } from '../../design-system/charts';
+import { ChartLegend } from '../../charts/Charts';
 
-// Part of Overview (Overview.jsx), split out with the round 2 cleanup
-// (SHR-383).
-//
-// Income and spending by month or week for the period, one bar each, and
-// the records behind the bar chosen.
-export default function OverviewFlow({ period, money, maxColValue, columns, selected, setSelectedKey, now }) {
+// Income and spending over the last six months, quarters or years (the
+// revamp, phase 3; review S-overview-5): income and what was spent as
+// columns, what was saved as a line, with an axis. A month with no records
+// says so instead of drawing zeros. Hover, touch or the arrow keys pick a
+// column; the readout under the chart says its figures, so none is only on
+// hover.
+export default function OverviewFlow({ period, columns, money, now }) {
+  const [pick, setPick] = useState(null);
+  const shown = columns[pick ?? columns.length - 1];
+  const running = shown ? isRunningBucket(shown, now) : false;
   return (
-    <div>
-      <div className="ov-section-head">
-        <div className="ov-kicker">{CHART_TITLES[period]}</div>
-        {/* The scale: the tallest bar's figure, so a bar's height
-            means an amount. */}
-        <div className="ov-muted">top of chart {money.fmt(maxColValue)} {money.code}</div>
+    <Card
+      title={CHART_TITLES[period]}
+      className="ov-flow"
+      right={
+        <Link className="ov-link" to="/money">
+          Activity →
+        </Link>
+      }
+    >
+      <PairedColumns
+        ariaLabel={CHART_TITLES[period]}
+        formatTick={(v) => money.fmtCompact(v)}
+        activeIndex={pick}
+        onActiveChange={setPick}
+        groups={columns.map((c) => ({ key: c.key, label: `${c.label}${isRunningBucket(c, now) ? ' · so far' : ''}`, a: c.income, b: c.spend, line: c.saved, empty: !c.hasData, current: isRunningBucket(c, now) }))}
+      />
+      <div className="ov-readout ov-chart-readout" aria-live="polite">
+        {shown && (shown.hasData ? `${shown.label}${running ? ' so far' : ''} · Income ${money.fmt(shown.income)} · Spent ${money.fmt(shown.spend)} · Saved ${money.fmtSigned(shown.saved)}` : `${shown.label} · no transactions`)}
       </div>
-      <div className="ov-chart">
-        {columns.map((c) => (
-          <button
-            key={c.key}
-            type="button"
-            className="ov-col"
-            data-active={selected?.key === c.key}
-            onClick={() => setSelectedKey(c.key)}
-            data-running={isRunningBucket(c, now)}
-            title={c.hasData ? `${c.label}${isRunningBucket(c, now) ? ' so far' : ''}: income ${money.fmt(c.income)}, net spend ${money.fmt(c.spend)}` : `${c.label}: no records`}
-            aria-label={c.hasData ? `${c.label}${isRunningBucket(c, now) ? ' so far' : ''}: income ${money.fmt(c.income)}, net spend ${money.fmt(c.spend)}` : `${c.label}: no records`}
-          >
-            {/* A period with nothing recorded says so, rather than
-                drawing two empty bars that read as a verified zero. */}
-            <div className="ov-col-bars">
-              {c.hasData ? (
-                <>
-                  <span className="ov-bar-inc" style={{ height: `${(c.income / maxColValue) * 100}%` }} />
-                  <span className="ov-bar-out" style={{ height: `${(Math.max(0, c.spend) / maxColValue) * 100}%` }} />
-                </>
-              ) : (
-                <span className="ov-col-none">no records</span>
-              )}
-            </div>
-            <div className="ov-col-label">
-              {c.label}
-              {isRunningBucket(c, now) ? ' · so far' : ''}
-            </div>
-          </button>
-        ))}
-      </div>
-      {selected && (
-        <div className="ov-chart-readout">
-          <span className="fig">
-            {selected.label}
-            {isRunningBucket(selected, now) ? ' so far' : ''}
-          </span>
-          <span>
-            Income <b className="fig">{money.fmt(selected.income)}</b>
-          </span>
-          <span>
-            Net spend <b className="fig">{money.fmt(selected.spend)}</b>
-          </span>
-          <span>
-            Rate <b className={`fig ${selected.rate === null ? '' : selected.rate < 0 ? 'ov-neg' : 'ov-pos'}`}>{selected.rate !== null ? formatPct(selected.rate) : '—'}</b>
-          </span>
-          {/* The bar's own records: its dates, up to today for the
-              bucket still running. */}
-          <Link className="ov-link" to={activityHref(bucketRange(selected, now))}>
-            Records →
-          </Link>
-        </div>
-      )}
-      <div className="ov-legend">
-        <span><i className="ov-dot-inc" />Income</span>
-        <span><i className="ov-dot-out" />Net spend</span>
-      </div>
-    </div>
+      <ChartLegend
+        items={[
+          { label: 'Income', color: 'var(--context)' },
+          { label: 'Spent', color: 'var(--accent)' },
+          { label: 'Saved', color: 'var(--pos)', kind: 'line' },
+        ]}
+      />
+    </Card>
   );
 }

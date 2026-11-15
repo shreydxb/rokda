@@ -1,0 +1,101 @@
+/* The kit's charts (the revamp, phase 3; design/prototype/js/charts.js).
+   The accent is the screen's own series; the neutral is context; green is
+   what was saved. */
+
+.ds-trend,
+.ds-strip {
+  position: relative;
+  width: 100%;
+}
+.ds-trend svg,
+.ds-strip svg {
+  display: block;
+  overflow: visible;
+}
+.ds-trend:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: var(--radius-sm);
+}
+.ds-trend-wash {
+  fill: var(--accent);
+  opacity: 0.08;
+}
+.ds-trend-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.ds-trend-last {
+  fill: var(--accent);
+}
+.ds-trend-pick {
+  fill: var(--surface);
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.ds-cols {
+  margin-top: 6px;
+}
+.ds-col-a {
+  fill: var(--context);
+}
+.ds-col-b {
+  fill: var(--accent);
+}
+.ds-col-line {
+  fill: none;
+  stroke: var(--pos);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+.ds-col-dot {
+  fill: var(--surface);
+  stroke: var(--pos);
+  stroke-width: 1.5;
+  pointer-events: none;
+}
+.ds-col-empty {
+  stroke: var(--control);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-dasharray: 1 5;
+}
+
+.ds-strip-rail {
+  stroke: var(--rule);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+.ds-strip-tick {
+  stroke: var(--control);
+}
+.ds-strip-label {
+  font: 400 10.5px var(--font-mono);
+  fill: var(--ink3);
+}
+.ds-strip-today {
+  fill: var(--ink);
+  font-weight: 500;
+}
+.ds-strip-mark {
+  fill-opacity: 0.18;
+  stroke-width: 1.5;
+  fill: var(--accent);
+  stroke: var(--accent);
+}
+.ds-strip-pos {
+  fill: var(--pos);
+  stroke: var(--pos);
+}
+.ds-strip-neg {
+  fill: var(--neg);
+  stroke: var(--neg);
+}
+.ds-strip-warn {
+  fill: var(--warn-mark);
+  stroke: var(--warn-mark);
+}

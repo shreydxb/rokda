@@ -42,24 +42,49 @@ here, because this repository is public.
 
 ## Overview (`/`)
 
-- In order: data quality as one line under the title, which opens; the
-  period's income, net spend, income less spending, savings rate and net
-  worth, each against the same days of the period before ("new" in grey
-  when there was nothing then; Income also says which expected pay is still
-  to come; net worth has its change this month, its runway and any
-  provisional or incomplete warning); Needs attention beside the next 30
-  days, one row a bill; the cash-flow chart (titled by its grouping, with its
-  scale, the running period marked "so far", and periods with no records in
-  a thin slot saying so) beside categories; then the five newest records
-  (with a link to the rest in Activity) and accounts.
+The cockpit (the revamp, November 2026; `design/prototype/`): what needs
+doing, how the period is going, what the household is worth and whether the
+plan holds.
+
+- The header: the date, a "Data: N to check" chip that opens the four data
+  checks in place, the title ("N things need a decision", or "All clear"),
+  then Month / Quarter / Year, **+ Transaction** (the editor opens here) and
+  refresh.
+- **Net worth**: today's figure, its change this month, a trend of the closed
+  months (up to twelve; pick a month to read it), and Provisional or
+  Incomplete when a balance is not confirmed or a value not converted, in
+  words and as chips.
+- **This month** (or quarter, or year): income (with any pay still
+  expected), spent and saved with the rate, the number of transactions
+  (opening them in Activity), the display rate when not in dirhams, and in a
+  month the budget's track against how far through the month it is.
+- **To do**: the one list of everything waiting, in Today / Month end /
+  Planning, six rows then "Show all". A record to review is categorised or
+  marked reviewed in place; a late bill or an unconfirmed autopay is
+  **Mark paid** (the editor opens filled from the bill); a balance to confirm,
+  a card payment due, a holding to reprice, a dividend question, the latest
+  statement to check on each card (with how many older ones wait), a month
+  not closed, a backup due, a goal due within 3 years short of cash, and a
+  yearly check each open their own place.
+- **Next 30 days**: a dated strip of every bill and pay day (late or not
+  confirmed on today), the next five as rows, rupee amounts in rupees as
+  well, and whether the cash on hand covers what is committed, bills and
+  cards due included (never "Covered" when a bill has no dirham amount).
+- **Income and spending** over six months, four quarters or five years:
+  income and spent as columns, saved as a line, with an axis; a period with
+  no records says so; pick one to read its figures.
+- **Where it went**: this month's five biggest categories, net of refunds,
+  each with a tick at its usual month (Insights' average), and up to three
+  that moved against their usual (What changed); each opens the month's
+  transactions in that category.
+- **Plan**: when work can stop (Baseline and Conservative), the goals for the
+  next 3 years in cash, the debts and when they clear, and the cash reserve
+  in months of spending, each opening its Planning page; the same figures as
+  Planning → Plan.
+- **Recent**: the five newest transactions, each opening in its editor, with
+  a link to the rest in Activity.
 - The Both / Me / Partner scope in the sidebar applies throughout (shared rows
   split evenly between the two individual scopes).
-- Needs attention: bills and expected income not yet matched, card payments
-  due, spending well above a category's usual, items waiting in the Inbox,
-  accounts with no balance set, holdings whose price has gone stale, the
-  month that just ended until someone closes it, a backup export that is
-  late or failed, and a note checked once a year that is due.
-- Upcoming bills and income, with rupee amounts shown in rupees as well.
 
 ## Money (`/money`)
 

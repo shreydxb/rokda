@@ -21,6 +21,11 @@ import { cashCoverStatus, formatCashCoverLine } from './lib/cashCover';
 import * as botCashCover from '../supabase/functions/_shared/applib/cashCover.js';
 
 vi.mock('./lib/supabaseClient', () => ({ supabase: {} }));
+// Overview also reads Planning's records, for its Plan strip.
+vi.mock('./screens/usePlanningData', async () => {
+  const { emptyPlanning } = await import('./test/planningStub');
+  return { usePlanningData: () => emptyPlanning() };
+});
 
 // Overview loads its own data; hand it the fixture instead.
 vi.mock('./lib/useHousehold', () => ({

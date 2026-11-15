@@ -21,6 +21,11 @@ vi.mock('../lib/useHousehold', () => ({
 const NOW = new Date();
 const TODAY = `${NOW.getFullYear()}-${String(NOW.getMonth() + 1).padStart(2, '0')}-${String(NOW.getDate()).padStart(2, '0')}`;
 
+// Overview also reads Planning's records, for its Plan strip.
+vi.mock('./usePlanningData', async () => {
+  const { emptyPlanning } = await import('../test/planningStub');
+  return { usePlanningData: () => emptyPlanning() };
+});
 vi.mock('./useOverviewData', async (importOriginal) => ({
   ...(await importOriginal()),
   useOverviewData: () => ({
@@ -53,54 +58,45 @@ async function renderOverview() {
 }
 
 function kpis(container) {
-  return Object.fromEntries([...container.querySelectorAll('.ov-kpi-row > div')].map((k) => [k.querySelector('.ov-kpi-label').textContent, k.querySelector('.ov-kpi-fig').textContent]));
+  return Object.fromEntries([...container.querySelectorAll('.ov-month .ds-kpi')].map((k) => [k.querySelector('dt').textContent, k.querySelector('.ds-fig').textContent]));
 }
 
 describe('Overview display currency', () => {
-  it('shows income, spend and saved in AED by default', async () => {
+  it('shows income, spent and saved in AED by default', async () => {
     const { container } = await renderOverview();
-    expect(kpis(container)).toMatchObject({ Income: '18,363', 'Net spend': '3,673', 'Income less spending': '+14,690' });
-    expect(container.querySelector('.ov-period-section').textContent).toMatch(/AED/);
+    expect(kpis(container)).toMatchObject({ Income: '18,363', Spent: '3,673', Saved: '+14,690' });
+    expect(container.querySelector('.ov-nw .ds-code').textContent).toBe('AED');
   });
 
-  it('converts income, spend, saved and the chart along with the net worth', async () => {
+  it('converts income, spent, saved and the chart along with the net worth', async () => {
     localStorage.setItem('rokda:currency', 'USD');
     const { container } = await renderOverview();
-    expect(container.querySelector('.ov-hero-currency').textContent).toBe('USD');
-    expect(kpis(container)).toMatchObject({ Income: '5,000', 'Net spend': '1,000', 'Income less spending': '+4,000' });
-    const period = container.querySelector('.ov-period-section').textContent;
-    expect(period).toMatch(/USD/);
-    expect(period).toMatch(/3\.6725/);
+    expect(container.querySelector('.ov-nw .ds-code').textContent).toBe('USD');
+    expect(kpis(container)).toMatchObject({ Income: '5,000', Spent: '1,000', Saved: '+4,000' });
+    // The rate it converts at is said beside the month's figures.
+    expect(container.querySelector('.ov-month').textContent).toMatch(/3\.6725/);
     expect(container.querySelector('.ov-chart-readout').textContent).toMatch(/Income 5,000/);
-    // Nothing last month: the figure is new, said in grey, not a coloured rise
-    // (the Overview redesign, November 2026).
-    expect(container.querySelector('.ov-kpi-change').textContent).toBe('new');
   });
 });
 
+// The revamp (phase 3): the cockpit, as the prototype lays it out.
 describe('Overview layout', () => {
-  // The Overview redesign (November 2026): what needs a decision first, net
-  // worth among the figures, data quality as one line under the title.
-  it('puts what needs doing beside the next 30 days, net worth among the figures, and data quality up top', async () => {
+  it('leads with net worth and the month, then To do beside the next 30 days, then the chart, the plan and recent', async () => {
     const { container } = await renderOverview();
-    const order = [...container.querySelectorAll('section')].map((s) => s.className.split(' ')[0]);
-    expect(order.indexOf('ov-quality-section')).toBeLessThan(order.indexOf('ov-period-section'));
-    expect(order.indexOf('ov-period-section')).toBeLessThan(order.indexOf('ov-split'));
-    expect(order).not.toContain('ov-hero-section');
-    const split = container.querySelector('.ov-split');
-    expect(split.querySelector('.ov-attn-col')).toBeTruthy();
-    expect(split.querySelector('.ov-next30')).toBeTruthy();
-    expect(kpis(container)['Net worth']).toMatch(/36,725/);
-    const quality = container.querySelector('.ov-quality-details');
-    expect(quality.open).toBe(false);
-    expect(quality.querySelector('summary').textContent).toMatch(/Data quality/);
+    const order = [...container.querySelectorAll('.ds-card')].map((c) => c.className.split(' ').find((n) => n.startsWith('ov-')));
+    expect(order).toEqual(['ov-nw', 'ov-month', 'ov-todo', 'ov-next30', 'ov-flow', 'ov-where', 'ov-plan', 'ov-recent']);
+    expect(container.querySelector('.ov-nw').textContent).toMatch(/36,725/);
+    // Data quality is one chip beside the date, opening its checks in place.
+    const chip = container.querySelector('.ov-quality-chip');
+    expect(chip.getAttribute('aria-expanded')).toBe('false');
+    expect(chip.textContent).toMatch(/^Data: /);
   });
 
   it('titles the chart by its grouping and marks the running month', async () => {
     const { container } = await renderOverview();
-    expect(container.textContent).toContain('Monthly income and net spend · last 6 months');
-    expect(container.querySelector('.ov-col[data-running="true"] .ov-col-label').textContent).toMatch(/so far/);
+    expect(container.textContent).toContain('Income and spending · 6 months');
+    expect(container.querySelector('.ch-tick-active').textContent).toMatch(/so far/);
     // Months before the first record say so rather than drawing a zero.
-    expect(container.querySelectorAll('.ov-col-none').length).toBeGreaterThan(0);
+    expect(container.querySelectorAll('.ds-col-empty').length).toBeGreaterThan(0);
   });
 });

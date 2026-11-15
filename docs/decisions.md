@@ -3834,3 +3834,38 @@ net worth's one line of help. No figure is worked out differently.
   rather than ahead of any screen that uses them.
 - **A gallery of the kit** opens at `/kit` in development, or in a build
   made with `VITE_KIT=1`; production builds leave it out.
+
+## Overview, the cockpit
+
+- **The prototype's Overview, from the kit.** Net worth beside the period's
+  figures; To do beside the next 30 days; income and spending beside where
+  it went; the Plan strip; recent transactions. Every figure is one the app
+  already works out elsewhere: the budget's track is Budget's
+  (`monthBudgetTrack`), the cash cover is the bot's morning check over 30
+  days, Where it went and What changed are Insights', and the Plan strip is
+  Planning → Plan's (`usePlanFigures`, moved out of the Plan tab so both use
+  one computation).
+- **To do is the one list** (`lib/todo.js`): Needs attention's items, the
+  latest statement to check on each card, dividends' questions and goals
+  short of cash. A button is named for what it does, and opens the place the
+  job is done; a record to review keeps its quick actions in place, and
+  Mark paid opens the transaction editor filled from the bill, as Recurring
+  does (`billPaymentInitial`). A category running high is a finding, not a
+  decision, so it moved to What changed. A card with several unchecked
+  statements is one row, the latest, saying how many older ones wait.
+- **Where it went is this month, net of refunds.** The design said it would
+  stay before refunds, as the old spending list was. Its tick is the
+  category's usual month, which Insights works out net of refunds, so the
+  bars are counted the same way: a bar and its tick agree, and both agree
+  with Insights and Budget. It no longer follows the period switch.
+- **What left Overview:** the change against the same days of the last
+  period under each figure (the six-month chart carries the trend); runway
+  (the Plan strip's cash reserve says it in months of spending); the
+  Accounts list (Wealth has it); the gross spending total; and the data
+  quality section, now a chip that opens the same checks.
+- **Overview reads Planning's records too**, for the Plan strip; while they
+  load, only the strip waits, and a tile whose records failed says so.
+- **On a phone** the cockpit is one column, so To do follows net worth and
+  the month: within the first two screens rather than the first. Tables
+  scroll inside their card rather than widening the page.
+- **Activity and Overview open a record the same way** (`RecordEditor`).

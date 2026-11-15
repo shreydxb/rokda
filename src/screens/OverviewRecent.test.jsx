@@ -19,6 +19,11 @@ vi.mock('../lib/useHousehold', () => ({
 }));
 
 const transactions = Array.from({ length: 8 }, (_, i) => ({ id: `t${i}`, amount: -(i + 1) * 10, kind: 'expense', occurred_at: `2026-10-${String(18 - i).padStart(2, '0')}`, is_shared: true, merchant: `Shop ${i + 1}` }));
+// Overview also reads Planning's records, for its Plan strip.
+vi.mock('./usePlanningData', async () => {
+  const { emptyPlanning } = await import('../test/planningStub');
+  return { usePlanningData: () => emptyPlanning() };
+});
 vi.mock('./useOverviewData', async (importOriginal) => ({
   ...(await importOriginal()),
   useOverviewData: () => ({
@@ -59,15 +64,16 @@ describe('Overview: recent activity', () => {
         </Routes>
       </MemoryRouter>,
     );
-    const section = [...document.querySelectorAll('.ov-section-head')].find((h) => h.textContent.startsWith('Recent activity')).parentElement;
-    expect([...section.querySelectorAll('.ov-list-row')].map((r) => r.querySelector('.ov-list-main div').textContent)).toEqual(['Shop 1', 'Shop 2', 'Shop 3', 'Shop 4', 'Shop 5']);
+    const section = screen.getByRole('region', { name: 'Recent' });
+    expect([...section.querySelectorAll('.ov-recent-row')].map((r) => r.querySelector('.ov-recent-main').textContent)).toEqual(['Shop 1', 'Shop 2', 'Shop 3', 'Shop 4', 'Shop 5']);
     fireEvent.click(screen.getByText('All records in Activity →'));
     expect(screen.getByText('Activity page')).toBeTruthy();
   });
 });
 
-// The outside review, E-13: "Records →" is a real link, so Enter follows it
-// and it can be opened in a new tab; it was a span that only a click moved.
+// The outside review, E-13: the link to the period's records is a real
+// link, so Enter follows it and it can be opened in a new tab; it was a span
+// that only a click moved. The revamp names it by how many there are.
 describe('Overview: Records links', () => {
   it('are links with somewhere to go', async () => {
     const { default: Overview } = await import('./Overview');
@@ -78,7 +84,7 @@ describe('Overview: Records links', () => {
         </Routes>
       </MemoryRouter>,
     );
-    const links = screen.getAllByRole('link', { name: 'Records →' });
+    const links = screen.getAllByRole('link', { name: /^\d+ transactions?$/ });
     expect(links.length).toBeGreaterThan(0);
     for (const link of links) {
       expect(link.tagName).toBe('A');
@@ -108,6 +114,7 @@ describe('Overview: the section links', () => {
     expect(href('Net worth →')).toBe('/wealth');
     expect(href('Activity →')).toBe('/money');
     expect(href('All records in Activity →')).toBe('/money');
-    expect(href('Wealth →')).toMatch(/^\/wealth\?.*accounts/);
+    expect(href('Recurring →')).toBe('/money?tab=recurring');
+    expect(screen.getAllByRole('link', { name: 'Budget →' }).every((l) => l.getAttribute('href') === '/money?tab=budget')).toBe(true);
   });
 });
