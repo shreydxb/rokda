@@ -3988,3 +3988,49 @@ The revamp's phase 4b (design note `docs/superpowers/specs/2026-11-15-money-desi
   - **Test figures are generic**: a category named after a real place and
     two amounts that read as real ones became generic.
 
+## The Inbox, its own page
+
+The revamp's phase 4c (design note `docs/superpowers/specs/2026-11-15-money-design.md`).
+
+- **The Inbox is a page, `/inbox`**, not a Money tab: it is worked every
+  day, and the sidebar already named it. Its count is in the title, and an
+  old link to Money's Inbox tab opens it.
+- **What was read is edited in place.** The read-only summary and its "Edit
+  first" step are gone: every field is in view, so nothing is approved that
+  was not shown. The approval itself did not change (one `approve_intake`
+  call, then "both are real" and the merchant rule).
+- **An account is chosen, never guessed.** The editor filled in the first
+  open account when the message named none; behind "Edit first" that was
+  seen, but with the fields always in view an Approve would take it
+  unnoticed. It starts empty when the household has more than one open
+  account.
+- **Reject replaces "Not a spend"**, as the prototype words it; both kept
+  the entry in the Inbox's history as rejected, only if still waiting.
+- **The next message is chosen** after an approval or a rejection, and A, R
+  and the arrows work the list (review S-inbox-7). In a field, or with an
+  editor open, they are only keys.
+- **Category is a select** of the categories a record can be filed under,
+  as the prototype has it, rather than a row of buttons.
+- **Approving as read changed with the summary.** Its one-click Approve sent
+  the parsed values as they stood: a message in another currency went in as
+  AED, its foreign figure counted as dirhams. Every approval is the form's
+  now, so the foreign amount is kept with the AED debited or an estimate;
+  the category starts from a matching rule, as the form's did; and a
+  message with no date starts on today, marked as not read.
+- **The list lost its confidence dots** (and its under-50% note) and the
+  oldest message's age: Read cleanly, No date and Already recorded say what
+  the dots said, in words.
+- **The fresh review of 4c** changed these:
+  - **A key held down acts once.** Held, R rejected one message after
+    another, and nothing brings a rejected one back. The keys are left
+    alone inside a menu or dialog, and while a save or bulk action runs.
+  - **An error belongs to its message**: choosing another clears it.
+  - **The message on screen is held by its id**, so a newer one arriving on
+    a refresh does not replace it while it is being worked on.
+  - **The chip reads the form as it stands**: it asked to check marked
+    fields when a rule or the only account had filled them.
+  - **A date or amount not read says so**, and income shows with a plus in
+    the list.
+  - **The count waits for the Inbox to be read**: the title said "0 waiting",
+    and the sidebar was told 0, while the household was still loading.
+

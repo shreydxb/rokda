@@ -1,22 +1,24 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
-import { fileableCategories } from '../../lib/fileableCategories';
 import { formatMoney } from '../../lib/money';
-import { firstMatchingRule, rememberMerchantCheck, ruleLabel } from '../../lib/rules';
-import { accountOptionLabel, selectableAccounts } from '../../lib/accounts';
-import { INTAKE_KINDS, INTAKE_SOURCE_LABELS, approvalArgs, validateApproval } from '../../lib/intake';
-import { confirmedPairRow, findDuplicate } from '../../lib/duplicates';
+import { INTAKE_SOURCE_LABELS, approvalArgs } from '../../lib/intake';
 import { householdToday, parseDay } from '../../lib/day';
-import { estimateAed } from '../../lib/fxHistory';
 import { neverLoaded } from '../../lib/loadState';
-import Withheld from '../planning/Withheld';
-import './TransactionEditor.css';
-import OwnerPicker from '../OwnerPicker';
 import { readsCleanly, undatedBatches } from '../../lib/inboxBatches';
 import { alreadyRecordedAll } from '../../lib/alreadyRecorded';
-import RememberMerchant from './RememberMerchant';
-import { addMerchantRule } from './merchantRule';
+import { Card, Chip, EmptyState } from '../../design-system/kit';
+import Withheld from '../planning/Withheld';
+import InboxDetail from './InboxDetail';
+import { Tools } from './MoneyTools';
+import { ago, isConfident } from './inboxText';
+import './TransactionEditor.css';
 import './Inbox.css';
+
+// The Inbox, as the prototype lays it out (the revamp, phase 4c;
+// design/prototype Inbox; review S-inbox-1 to 9): what waits, newest first,
+// beside the message chosen and what was read from it. Bulk approval sits in
+// the page header; the undated entries of one message are dated together
+// above the list.
 
 function senderName(item, members) {
   if (!item.member_id) return null;
@@ -45,15 +47,6 @@ function findDuplicatePending(item, otherPending) {
   );
 }
 
-// Same bar the Telegram fast-confirm path uses server-side (see
-// isReadyForFastConfirm in the telegram-webhook function): every field
-// approve_intake needs is already resolved, with no guesswork, and the
-// parser was confident about it. Only a row meeting this bar is safe to
-// wave through in bulk with nobody looking at it first.
-function isConfident(item) {
-  return readsCleanly(item) && !item.date_guessed;
-}
-
 // The undated entries of one message, and the one date to approve them on.
 // The field starts empty: the day the message was sent is only when it was
 // pasted, so it is not offered as the answer.
@@ -64,17 +57,17 @@ function UndatedBatch({ batch, leftOut = 0, disabled, onApprove }) {
   const n = batch.items.length;
   const sent = parseDay(batch.sentOn).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
   return (
-    <div className="ib-batch" role="group" aria-label={`${n} entries with no date`}>
+    <div className="ds-card ib-batch" role="group" aria-label={`${n} entries with no date`}>
       <div>
         <div>{`${n} entries from one message, sent ${sent}, have no date.`}</div>
-        <div className="ov-muted ib-batch-note">
+        <div className="ib-note ib-batch-note">
           {`Give the day they were paid to approve them together: ${batch.items.map((i) => i.parsed_merchant).filter((m, k, all) => all.indexOf(m) === k).slice(0, 3).join(', ')}. Paid on different days? Open each one instead.`}
           {leftOut > 0 && ` ${leftOut} more ${leftOut === 1 ? 'looks' : 'look'} already recorded and ${leftOut === 1 ? 'is' : 'are'} left out.`}
         </div>
       </div>
       <div className="ib-batch-actions">
-        <input type="date" className="te-fieldvalue" aria-label={`Paid on, for these ${n} entries`} value={date} max={householdToday()} onChange={(e) => setDate(e.target.value)} />
-        <button type="button" className="om-btn" disabled={disabled || !usable} onClick={() => onApprove(batch, date)}>
+        <input type="date" className="ds-select" aria-label={`Paid on, for these ${n} entries`} value={date} max={householdToday()} onChange={(e) => setDate(e.target.value)} />
+        <button type="button" className="ds-btn" disabled={disabled || !usable} onClick={() => onApprove(batch, date)}>
           {`Approve ${n} on this date`}
         </button>
       </div>
@@ -82,19 +75,63 @@ function UndatedBatch({ batch, leftOut = 0, disabled, onApprove }) {
   );
 }
 
-function sourceIcon(item) {
-  if (item.photo_path) return '📷';
-  return '💬';
-}
-
-const READ_CLEANLY_THRESHOLD = 0.85;
-
 export default function Inbox({ household = null, members = [], accounts, categories, data, loading }) {
   const { intake, categoryRules, transactions, reload } = data;
   const [selectedId, setSelectedId] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [bulkSaving, setBulkSaving] = useState(false);
+  // The selected message's Approve and Reject, for the keys (InboxDetail).
+  const actionsRef = useRef(null);
+  // What the keys move through, as last drawn.
+  const listRef = useRef({ ids: [], selected: null, busy: false });
+  // Choosing another message clears the last one's error, so it is never
+  // read as this one's (the fresh review of 4c).
+  const select = (id) => {
+    setSelectedId(id);
+    setError('');
+  };
+  // A approves, R rejects, the arrows move (review S-inbox-7). Typed into a
+  // field, or with an editor open over the page, they are just keys.
+  useEffect(() => {
+    const onKey = (e) => {
+      // A key held down acts once: held, R rejected one message after
+      // another, and nothing brings a rejected one back (the fresh review
+      // of 4c).
+      if (e.repeat || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.target instanceof Element && e.target.closest('input, select, textarea, [contenteditable="true"], [role="dialog"], [role="menu"]')) return;
+      if (document.querySelector('[aria-modal="true"]')) return;
+      const { ids, selected, busy } = listRef.current;
+      if (busy) return;
+      if (ids.length === 0) return;
+      const at = Math.max(0, ids.indexOf(selected));
+      const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+      if (key === 'ArrowDown' || key === 'ArrowUp') {
+        const to = ids[at + (key === 'ArrowDown' ? 1 : -1)];
+        if (!to) return;
+        e.preventDefault();
+        setSelectedId(to);
+        setError('');
+      } else if (key === 'a') {
+        actionsRef.current?.approve();
+      } else if (key === 'r') {
+        actionsRef.current?.reject();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  useEffect(() => {
+    if (!data.intake) return;
+    const ids = [...data.intake.filter((i) => i.status === 'pending')].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).map((i) => i.id);
+    listRef.current = { ids, selected: ids.includes(selectedId) ? selectedId : (ids[0] ?? null), busy: bulkSaving || saving };
+  });
+  // The message on screen is held by its id, so a newer one arriving on a
+  // refresh does not take its place while it is being worked on (the fresh
+  // review of 4c). Until one is chosen, it is the newest.
+  const firstPending = data.intake ? [...data.intake.filter((i) => i.status === 'pending')].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0]?.id : undefined;
+  const [pinned, setPinned] = useState(null);
+  if (selectedId === null && pinned === null && firstPending) setPinned(firstPending);
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
   // An inbox that never loaded is not an empty one: it read "Inbox zero" with
@@ -108,20 +145,16 @@ export default function Inbox({ household = null, members = [], accounts, catego
     );
   }
 
-  // Sorted oldest last, so the newest arrival leads and the queue reads the
-  // same direction top-to-bottom as everywhere else in the app.
-  const pending = [...intake.filter((i) => i.status === 'pending')].sort(
-    (a, b) => new Date(b.created_at) - new Date(a.created_at)
-  );
-  const selected = pending.find((i) => i.id === selectedId) ?? pending[0] ?? null;
+  // Newest first, so the latest arrival leads.
+  const pending = [...intake.filter((i) => i.status === 'pending')].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  const selected = pending.find((i) => i.id === (selectedId ?? pinned)) ?? pending[0] ?? null;
   const confident = pending.filter(isConfident);
   // Dated the day they were sent to the bot; each waits for its real date.
   const undated = pending.filter((i) => i.date_guessed);
-  const oldest = pending[pending.length - 1];
   // Undated entries that repeat a record already made (lib/alreadyRecorded.js):
-  // marked, left out of the batch date, and set aside together.
-  // Oldest first, so where two entries could repeat one record, the one sent
-  // first is the copy.
+  // marked, left out of the batch date, and set aside together. Oldest first,
+  // so where two entries could repeat one record, the one sent first is the
+  // copy.
   const recordedById = alreadyRecordedAll([...pending].reverse(), transactions ?? [], intake);
   const batches = undatedBatches(pending.filter((i) => !recordedById.has(i.id)));
   // Only those the batch would otherwise have held.
@@ -187,88 +220,86 @@ export default function Inbox({ household = null, members = [], accounts, catego
     await reload();
   }
 
-  return (
-    <div>
-      <div className="ib-summary">
-        <div className="ov-muted">
-          {pending.length > 0
-            ? `${pending.length} waiting · ${confident.length} read cleanly${undated.length ? ` · ${undated.length} with no date` : ''}${oldest ? ` · oldest ${ago(oldest.created_at)}` : ''}`
-            : 'All filed'}
-        </div>
+  // After an approval or a rejection the next message is chosen, so the
+  // list is worked from the top down without reaching for it.
+  const next = (id) => {
+    const at = pending.findIndex((i) => i.id === id);
+    return (pending[at + 1] ?? pending[at - 1] ?? null)?.id ?? null;
+  };
 
+  return (
+    <div className="ib">
+      <Tools>
         {recordedById.size > 0 && (
-          <button type="button" className="om-btn" disabled={bulkSaving} onClick={setAsideRecorded}>
+          <button type="button" className="ds-btn" disabled={bulkSaving} onClick={setAsideRecorded}>
             {`Set aside ${recordedById.size} already recorded`}
           </button>
         )}
-        {/* Offered only when something read cleanly; otherwise the count
-            beside it already says none can be approved in bulk. */}
+        {/* Offered only when something read cleanly; the list says how many. */}
         {confident.length > 0 && (
-          <button type="button" className="om-btn mn-add" disabled={bulkSaving} onClick={approveConfident}>
-            {bulkSaving ? 'Approving…' : `Approve ${confident.length} confident`}
+          <button type="button" className="ds-btn" disabled={bulkSaving} onClick={approveConfident}>
+            {bulkSaving ? 'Approving…' : `Approve ${confident.length} read cleanly`}
           </button>
         )}
-      </div>
+      </Tools>
 
       {batches.map((batch) => (
         <UndatedBatch key={batch.key} batch={batch} leftOut={recordedIn(batch)} disabled={bulkSaving} onApprove={approveBatch} />
       ))}
 
       {pending.length === 0 ? (
-        <div className="ov-empty" style={{ marginTop: 0 }}>
-          <div className="ov-empty-kicker">Inbox zero</div>
-          <div className="ov-empty-body">Nothing waiting on review. Approved items appear in Activity straight away.</div>
-        </div>
+        <Card>
+          <EmptyState title="Inbox zero" body="Nothing waiting on review. Approved items appear in Activity straight away." />
+        </Card>
       ) : (
-        <div className="ov-split ib-split">
-          <div>
-            <div className="ib-queue-head">Waiting · {pending.length}</div>
-            <div className="ib-queue">
-              {pending.map((i) => {
-                const low = i.confidence !== null && Number(i.confidence) < 0.5;
-                return (
-                  <button
-                    key={i.id}
-                    type="button"
-                    className="ib-queue-row"
-                    data-active={selected?.id === i.id}
-                    onClick={() => setSelectedId(i.id)}
-                  >
-                    <span className="ib-queue-icon">{sourceIcon(i)}</span>
-                    <div className="ib-queue-body">
-                      <div className="ib-queue-top">
-                        <span>{i.parsed_merchant || 'Unrecognised merchant'}</span>
-                        <span className={`fig ${low ? 'ov-warn' : ''}`}>{i.parsed_amount !== null ? formatMoney(i.parsed_amount) : '—'}</span>
-                      </div>
-                      <div className="ib-queue-bottom">
-                        <span className={`ib-dot ib-dot-${dotTone(i.confidence)}`} />
-                        <span className="ov-muted">
+        <div className="ib-panes">
+          <Card
+            title="Waiting"
+            className="ib-list-card"
+            flush
+            right={<span className="ib-note">{`${confident.length} read cleanly${undated.length ? ` · ${undated.length} with no date` : ''}`}</span>}
+          >
+            <ul className="ib-list" aria-label="Waiting">
+              {pending.map((i) => (
+                <li key={i.id}>
+                  <button type="button" className="ib-row-btn" aria-pressed={selected?.id === i.id} data-on={selected?.id === i.id || undefined} onClick={() => select(i.id)}>
+                    <span className="ib-tag">{i.photo_path ? 'photo' : 'text'}</span>
+                    <span className="ib-row-main">
+                      <span className="ib-row-top">
+                        <span className="ib-row-name">{i.parsed_merchant || 'Unrecognised merchant'}</span>
+                        <span className="ib-row-amt">
+                          {i.parsed_amount === null
+                            ? '—'
+                            : i.parsed_currency && i.parsed_currency !== 'AED'
+                              ? `${i.parsed_currency} ${formatMoney(i.parsed_amount)}`
+                              : `${i.parsed_kind === 'income' || i.parsed_kind === 'refund' ? '+' : '−'}${formatMoney(i.parsed_amount)}`}
+                        </span>
+                      </span>
+                      <span className="ib-row-sub">
+                        <span>
                           {senderName(i, members) ?? INTAKE_SOURCE_LABELS[i.source] ?? 'Unknown sender'} · {ago(i.created_at)}
                         </span>
                         {recordedById.has(i.id) ? (
-                          <span className="ov-chip-warn" style={{ marginLeft: 'auto' }} title="The same amount on the same card, recorded in the two weeks before it was sent">
-                            Recorded
-                          </span>
-                        ) : (
-                          i.date_guessed && (
-                            <span className="ov-chip-warn" style={{ marginLeft: 'auto' }} title="Not in the message: dated the day it was sent">
-                              No date
-                            </span>
-                          )
-                        )}
-                      </div>
-                    </div>
+                          <Chip tone="warn" title="The same amount on the same card, recorded in the two weeks before it was sent">
+                            Already recorded
+                          </Chip>
+                        ) : i.date_guessed ? (
+                          <Chip tone="warn" title="Not in the message: dated the day it was sent">
+                            No date
+                          </Chip>
+                        ) : isConfident(i) ? (
+                          <Chip tone="pos">Read cleanly</Chip>
+                        ) : null}
+                      </span>
+                    </span>
                   </button>
-                );
-              })}
-            </div>
-            <div className="ov-muted ib-queue-note">
-              Sorted newest first. Anything under 50% confidence is flagged before it reaches your books.
-            </div>
-          </div>
+                </li>
+              ))}
+            </ul>
+          </Card>
 
           {selected && (
-            <IntakeReview
+            <InboxDetail
               key={selected.id}
               item={selected}
               sender={senderName(selected, members)}
@@ -284,628 +315,20 @@ export default function Inbox({ household = null, members = [], accounts, catego
               setSaving={setSaving}
               error={error}
               setError={setError}
+              actionsRef={actionsRef}
               onDone={async () => {
-                setSelectedId(null);
+                // Moves on only if this message is still the one chosen: one
+                // picked meanwhile stays (the fresh review of 4c).
+                const done = selected.id;
+                const following = next(done);
+                setSelectedId((cur) => ((cur ?? done) === done ? following : cur));
+                setError('');
                 await reload();
               }}
             />
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-function dotTone(confidence) {
-  if (confidence === null) return 'warn';
-  const c = Number(confidence);
-  if (c >= READ_CLEANLY_THRESHOLD) return 'pos';
-  if (c >= 0.5) return 'warn';
-  return 'neg';
-}
-
-function ago(isoDate) {
-  const ms = Date.now() - new Date(isoDate).getTime();
-  const mins = Math.round(ms / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.round(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.round(hours / 24);
-  return `${days}d ago`;
-}
-
-function ReceiptPhoto({ photoPath }) {
-  const [url, setUrl] = useState(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    supabase.storage
-      .from('telegram-receipts')
-      .createSignedUrl(photoPath, 300)
-      .then(({ data }) => {
-        if (!cancelled) setUrl(data?.signedUrl ?? null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [photoPath]);
-
-  if (!url) return <div className="ov-muted" style={{ fontSize: 11.5 }}>Loading photo…</div>;
-  return <img src={url} alt="Receipt" style={{ maxWidth: '100%', maxHeight: 320, borderRadius: 4, display: 'block' }} />;
-}
-
-// A read-only summary of what was extracted -- confidence dot per field,
-// matching design/Our Money - Command Center v3.dc.html's "What we read"
-// panel -- with an explicit "Edit first" switch into the real editable form
-// underneath it, rather than always showing a form. Approve, when nothing
-// needs fixing, uses these parsed values directly.
-function FieldRow({ label, value, hint, ok, onClick }) {
-  return (
-    <button type="button" className="ib-field" onClick={onClick}>
-      <span className="ib-field-label">{label}</span>
-      <span className="ib-field-value">
-        <span className={ok ? '' : 'ov-warn'}>{value}</span>
-        {hint && <span className="ov-muted ib-field-hint">{hint}</span>}
-      </span>
-      <span className={`ib-dot ib-dot-${ok ? 'pos' : 'warn'}`} />
-    </button>
-  );
-}
-
-// household_id is taken from the intake row inside the RPC rather than passed
-// in, so an approval cannot be redirected to another household.
-function IntakeReview({ item, sender, accounts, members, categories, categoryRules, allTransactions, rates, duplicatePending, recorded = null, saving, setSaving, error, setError, onDone }) {
-  const [mode, setMode] = useState('review'); // 'review' | 'edit'
-
-  const catById = new Map(categories.map((c) => [c.id, c]));
-  const accountById = new Map(accounts.map((a) => [a.id, a]));
-  const suggestedAccount = item.parsed_account_id ? accountById.get(item.parsed_account_id) : null;
-  const suggestedCategory = item.parsed_category_id ? catById.get(item.parsed_category_id) : null;
-  const lowConfidence = (item.confidence !== null && Number(item.confidence) < READ_CLEANLY_THRESHOLD) || !!item.date_guessed;
-
-  const fields = [
-    { label: 'Merchant', value: item.parsed_merchant ?? 'Not read', hint: item.parsed_merchant ? '' : 'Nothing readable', ok: !!item.parsed_merchant },
-    { label: 'Amount', value: item.parsed_amount !== null ? `AED ${formatMoney(item.parsed_amount)}` : 'Not read', hint: '', ok: item.parsed_amount !== null },
-    // A bank SMS or receipt with no date on it is dated the day it was sent
-    // to the bot, which is rarely the day it was paid.
-    { label: 'Date', value: item.parsed_date ? parseDay(item.parsed_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Not read', hint: item.date_guessed ? 'Not in the message; check it' : '', ok: !!item.parsed_date && !item.date_guessed },
-    { label: 'Category', value: suggestedCategory?.name ?? 'Uncategorised', hint: item.parsed_category_id ? '' : 'No rule matched', ok: !!item.parsed_category_id },
-    { label: 'Account', value: suggestedAccount?.name ?? 'Not matched', hint: item.parsed_account_id ? '' : 'Ambiguous or unmatched', ok: !!item.parsed_account_id },
-    { label: 'Currency', value: item.parsed_currency ?? 'AED', hint: item.parsed_currency && item.parsed_currency !== 'AED' ? 'Edit first to record it with the AED debited' : '', ok: !item.parsed_currency || item.parsed_currency === 'AED' },
-  ];
-
-  async function approveDirect() {
-    const form = {
-      accountId: item.parsed_account_id,
-      amount: item.parsed_amount,
-      date: item.parsed_date,
-      // Approving as read would record a guessed date as fact, so it fails
-      // validation and opens the editor, where the date is set or confirmed.
-      dateGuessed: !!item.date_guessed,
-      // Trusts the parser's own classification (SHR-282), same reasoning as
-      // approveConfident above.
-      kind: item.parsed_kind ?? 'expense',
-      categoryId: item.parsed_category_id,
-      currency: 'AED',
-      merchant: item.parsed_merchant,
-      isShared: true,
-      ownerMemberId: null,
-    };
-    const invalid = validateApproval(form);
-    if (invalid) {
-      setMode('edit');
-      setError(invalid);
-      return;
-    }
-    setSaving(true);
-    setError('');
-    const { error: rpcError } = await supabase.rpc('approve_intake', approvalArgs(item, form));
-    setSaving(false);
-    if (rpcError) {
-      setError(rpcError.message);
-      return;
-    }
-    await onDone();
-  }
-
-  async function reject() {
-    setSaving(true);
-    const { error: updError } = await supabase
-      .from('intake')
-      .update({ status: 'rejected' })
-      .eq('id', item.id)
-      .eq('status', 'pending');
-    setSaving(false);
-    if (updError) {
-      setError(updError.message);
-      return;
-    }
-    await onDone();
-  }
-
-  if (mode === 'edit') {
-    return (
-      <IntakeEditForm
-        item={item}
-        sender={sender}
-        accounts={accounts}
-        members={members}
-        categories={categories}
-        categoryRules={categoryRules}
-        allTransactions={allTransactions}
-        rates={rates}
-        duplicatePending={duplicatePending}
-        saving={saving}
-        setSaving={setSaving}
-        error={error}
-        setError={setError}
-        onBack={() => {
-          setError('');
-          setMode('review');
-        }}
-        onDone={onDone}
-      />
-    );
-  }
-
-  return (
-    <div className="ib-review">
-      <div className="ib-review-cols">
-        <div>
-          <div className="ov-kicker" style={{ marginBottom: 10 }}>
-            {item.photo_path ? 'Receipt photo' : 'Message'}
-          </div>
-          <div className="ib-source-box">
-            {item.photo_path && <ReceiptPhoto photoPath={item.photo_path} />}
-            {item.raw_text && <div className="ib-source-text">{item.raw_text}</div>}
-            {!item.photo_path && !item.raw_text && <div className="ov-muted">No content captured.</div>}
-          </div>
-          <div className="ov-muted" style={{ marginTop: 10, fontSize: 11.5 }}>
-            {sender ? `From ${sender}` : 'Unassigned'} · {ago(item.created_at)}
-            {item.source === 'telegram' ? ' · via Telegram' : item.source === 'manual' ? ' · added by hand' : ''}
-          </div>
-        </div>
-
-        <div>
-          <div className="ib-review-head">
-            <div className="ov-kicker">What we read</div>
-            <div className={lowConfidence ? 'ov-warn' : 'ov-pos'} style={{ fontSize: 11.5 }}>
-              {/* A reading under the confidence bar with every value found
-                  has no row to point at: it says what it means instead. */}
-              {!lowConfidence ? 'Read cleanly' : fields.some((f) => !f.ok) ? 'Check the flagged rows' : 'Not sure it read this right'}
-            </div>
-          </div>
-          <div className="ib-fields">
-            {fields.map((f) => (
-              <FieldRow key={f.label} {...f} onClick={() => setMode('edit')} />
-            ))}
-          </div>
-
-          {recorded && (
-            <div className="te-duplicate" role="status">
-              <div className="te-duplicate-title">
-                {`Looks already recorded: ${recorded.merchant ?? 'a record'}, AED ${formatMoney(Math.abs(Number(recorded.amount)), { decimals: 2 })} on ${parseDay(recorded.occurred_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`}
-              </div>
-              <div className="te-duplicate-body">
-                The same amount on the same card, recorded in the two weeks before this message. Set it aside with Not a spend, unless it was a second charge.
-              </div>
-            </div>
-          )}
-
-          {duplicatePending && (
-            <div className="te-duplicate" role="status" style={{ marginTop: 16 }}>
-              <div className="te-duplicate-title">You may have sent this one twice</div>
-              <div className="te-duplicate-body">
-                Another pending entry for {duplicatePending.parsed_merchant}, {formatMoney(duplicatePending.parsed_amount)}, dated
-                within a few days of this one, is also waiting for review.
-              </div>
-            </div>
-          )}
-
-          {error && (
-            <p className="ov-warn" role="alert" style={{ fontSize: 12.5, marginTop: 12 }}>
-              {error}
-            </p>
-          )}
-
-          <div style={{ display: 'flex', gap: 8, marginTop: 20, flexWrap: 'wrap' }}>
-            <button type="button" className="om-btn ov-btn-primary" disabled={saving} onClick={approveDirect}>
-              {saving ? 'Saving…' : 'Approve'}
-            </button>
-            <button type="button" className="om-btn" onClick={() => setMode('edit')}>
-              Edit first
-            </button>
-            <button type="button" className="om-btn" disabled={saving} onClick={reject}>
-              Not a spend
-            </button>
-          </div>
-          <div className="ov-muted" style={{ marginTop: 10, fontSize: 11.5 }}>
-            Approved items appear in Activity straight away.
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function IntakeEditForm({ item, sender, accounts, members, categories, categoryRules, allTransactions, rates = { history: [], current: null }, duplicatePending, saving, setSaving, error, setError, onBack, onDone }) {
-  // A detected non-AED currency means the parsed amount is in that currency.
-  // It is kept as that, and the AED that counts is the AED debited, or until
-  // that is known an estimate at the payment date's rate, marked as one
-  // (docs/decisions.md, "A payment in rupees keeps both amounts"). A card's
-  // exchange markup isn't knowable here, so an estimate is never passed off
-  // as the debited figure.
-  const foreignCurrency = item.parsed_currency && item.parsed_currency !== 'AED' ? item.parsed_currency : null;
-  const [typedAmount, setAmount] = useState(item.parsed_amount !== null ? String(item.parsed_amount) : '');
-  const [aedDebited, setAedDebited] = useState('');
-  const [merchant, setMerchant] = useState(item.parsed_merchant ?? '');
-  const [date, setDate] = useState(item.parsed_date ?? householdToday());
-  // Intake can only be approved onto an open account (QA-01).
-  const selectable = selectableAccounts(accounts);
-  const suggestedAccountId = item.parsed_account_id && selectable.some((a) => a.id === item.parsed_account_id) ? item.parsed_account_id : null;
-  const [accountId, setAccountId] = useState(suggestedAccountId ?? selectable[0]?.id ?? '');
-  const suggestedRule = item.parsed_category_id ? null : firstMatchingRule(item.parsed_merchant, categoryRules);
-  const [categoryId, setCategoryId] = useState(item.parsed_category_id ?? suggestedRule?.category_id ?? '');
-  // Every item used to be forced to a shared AED expense. The reviewer says
-  // which it is (QA-11) -- pre-filled from the parser's own classification
-  // (SHR-282) when it made one, so a salary credit opens already set to
-  // Income rather than always starting at Expense.
-  const [kind, setKind] = useState(item.parsed_kind ?? 'expense');
-  // Read from the message, not typed: letting it be edited let "USD" sit
-  // against an AED figure (SHR-252). An AED entry has one amount; any other
-  // has both.
-  const currency = foreignCurrency ?? 'AED';
-  const estimate = foreignCurrency && aedDebited.trim() === '' ? estimateAed(Number(typedAmount) || 0, foreignCurrency, date, rates.history, rates.current) : null;
-  const amount = !foreignCurrency ? typedAmount : aedDebited.trim() !== '' ? aedDebited : estimate ? String(Math.abs(estimate.aed)) : '';
-  const [owner, setOwner] = useState('shared');
-  const [duplicateDismissed, setDuplicateDismissed] = useState(false);
-  // The record "Both are real" was said about, remembered as a confirmed pair
-  // once this entry is approved, so the monthly review doesn't ask again.
-  const [keptAlongside, setKeptAlongside] = useState(null);
-  // A date the message did not give is the day it was sent to the bot. It
-  // counts as the day it was paid once someone picks a date or ticks that the
-  // one shown is right. This starts false even for a dated entry: the
-  // database checks its own copy, and a copy this screen holds could be older
-  // than a correction that has since made the date a guess.
-  const [dateConfirmed, setDateConfirmed] = useState(false);
-  // "Remember this merchant": a household rule added once the entry is
-  // approved, so the next one from this merchant arrives already filed. Off
-  // until ticked, and offered only for an expense with a category chosen
-  // whose merchant no rule covers yet (docs/decisions.md, "A correction can
-  // remember its merchant"). The pattern follows the merchant until edited.
-  const [remember, setRemember] = useState(false);
-  const [rulePattern, setRulePattern] = useState(null);
-  const [ruleMatchType, setRuleMatchType] = useState('contains');
-  // Approved, with a step after it that failed. The entry is in the ledger
-  // by then, so Approve and Reject would act on nothing: only Done is left.
-  const [approvedAlready, setApprovedAlready] = useState(false);
-  const merchantName = merchant.trim();
-  const canRemember = kind === 'expense' && merchantName !== '' && !!categoryId && !firstMatchingRule(merchantName, categoryRules);
-  const remembering = canRemember && remember;
-  const ruleProposal = { pattern: rulePattern ?? merchantName, match_type: ruleMatchType, category_id: categoryId };
-  const ruleCheck = remembering ? rememberMerchantCheck(merchantName, ruleProposal, categoryRules) : null;
-  const categoryNameOf = (id) => categories.find((c) => c.id === id)?.name ?? 'a category that no longer exists';
-
-  const duplicateTransaction = duplicateDismissed
-    ? null
-    : findDuplicate({ merchant, amount, account_id: accountId, occurred_at: date }, allTransactions, null);
-
-  const form = {
-    accountId,
-    amount,
-    date,
-    dateGuessed: !!item.date_guessed,
-    dateConfirmed,
-    kind,
-    categoryId,
-    currency,
-    nativeAmount: foreignCurrency ? typedAmount : null,
-    aedEstimated: !!foreignCurrency && aedDebited.trim() === '',
-    merchant,
-    isShared: owner === 'shared',
-    ownerMemberId: owner === 'shared' ? null : owner,
-  };
-
-  // One call, one database transaction. The insert and the status update used
-  // to be separate round trips: a failure or a retry between them wrote a
-  // second transaction, and two reviewers could race. The RPC approves a
-  // pending row exactly once and returns the existing result on retry (QA-11).
-  async function approve(e) {
-    e.preventDefault();
-    // Enter in a field of an entry already approved approves nothing again.
-    if (approvedAlready) return;
-    if (foreignCurrency && !amount) {
-      setError(`No ${foreignCurrency} rate for that date: enter the AED debited.`);
-      return;
-    }
-    // A rule that wouldn't match this merchant is caught before anything is
-    // written, so the entry is never approved on the way to a rule that
-    // can't be.
-    const invalid = validateApproval(form) || (ruleCheck?.status === 'invalid' ? ruleCheck.reason : '');
-    if (invalid) {
-      setError(invalid);
-      return;
-    }
-    setSaving(true);
-    setError('');
-    const { data: approved, error: rpcError } = await supabase.rpc('approve_intake', approvalArgs(item, form));
-    if (rpcError) {
-      setSaving(false);
-      setError(rpcError.message);
-      return;
-    }
-    // Only if the record "Both are real" was said about is still the one this
-    // entry matches: the fields may have changed since.
-    const stillMatches = keptAlongside && findDuplicate({ merchant, amount, account_id: accountId, occurred_at: date }, allTransactions, null)?.id === keptAlongside.id;
-    if (stillMatches && approved?.transaction_id) {
-      const { error: pairError } = await supabase.from('transaction_links').insert(confirmedPairRow(item.household_id, { id: approved.transaction_id }, keptAlongside));
-      if (pairError) {
-        setSaving(false);
-        setApprovedAlready(true);
-        setError(`Approved, but "both are real" wasn't remembered: ${pairError.message}. The monthly review will ask about the pair again.`);
-        return;
-      }
-    }
-    // The rule comes only after the entry is approved. One already filing
-    // this merchant there means none is needed; anything else that stops it
-    // is said, with the entry kept approved.
-    if (remembering) {
-      const added = await addMerchantRule({ householdId: item.household_id, merchant: merchantName, proposal: ruleProposal });
-      if (added.status === 'conflict' || added.status === 'failed') {
-        setSaving(false);
-        setApprovedAlready(true);
-        setError(
-          `Approved, but the merchant rule wasn’t added: ${added.status === 'conflict' ? `${ruleLabel(added.rule)} already files this merchant under ${categoryNameOf(added.rule.category_id)}` : added.reason}. Add or change it in Settings → Categories & rules.`,
-        );
-        return;
-      }
-    }
-    setSaving(false);
-    await onDone();
-  }
-
-  async function reject() {
-    setSaving(true);
-    // Conditional on still being pending, so rejecting cannot undo someone
-    // else's approval.
-    const { error: updError } = await supabase
-      .from('intake')
-      .update({ status: 'rejected' })
-      .eq('id', item.id)
-      .eq('status', 'pending');
-    setSaving(false);
-    if (updError) {
-      setError(updError.message);
-      return;
-    }
-    await onDone();
-  }
-
-  return (
-    <div>
-      <div className="ib-review-head" style={{ marginBottom: 8 }}>
-        <div className="ov-kicker">Edit before approving</div>
-        <button type="button" className="ov-link te-rowaction" onClick={onBack}>
-          ← Back to summary
-        </button>
-      </div>
-      {sender && <div className="ov-muted" style={{ marginBottom: 8 }}>From {sender}</div>}
-      {item.photo_path && <ReceiptPhoto photoPath={item.photo_path} />}
-      {item.raw_text && (
-        <div className="ov-muted" style={{ margin: '10px 0 16px', lineHeight: 1.6, fontSize: 12.5 }}>
-          "{item.raw_text}"
-        </div>
-      )}
-      <form onSubmit={approve} style={{ display: 'flex', flexDirection: 'column', gap: 18, maxWidth: 420 }}>
-        <div>
-          <div className="te-hero-label">Amount</div>
-          <div className="te-hero-row">
-            <span className="te-hero-currency">{currency}</span>
-            <input type="number" min="0" step="0.01" className="te-hero-input" aria-label="Amount" value={typedAmount} onChange={(e) => setAmount(e.target.value)} placeholder="0" />
-          </div>
-        </div>
-        {foreignCurrency && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <label className="te-fieldcell">
-              <span className="te-fieldlabel">AED debited</span>
-              <input
-                className="te-fieldvalue"
-                type="number"
-                min="0"
-                step="0.01"
-                aria-label="AED debited"
-                value={aedDebited}
-                onChange={(e) => setAedDebited(e.target.value)}
-                placeholder={estimate ? formatMoney(Math.abs(estimate.aed), { decimals: 2 }) : 'From the statement'}
-              />
-            </label>
-            <div className={estimate || aedDebited.trim() !== '' ? 'ov-muted' : 'ov-warn'} style={{ fontSize: 11.5 }}>
-              {aedDebited.trim() !== ''
-                ? `Recorded as ${foreignCurrency} ${typedAmount || 0}, with this AED as what every total counts.`
-                : estimate
-                  ? `Leave it blank to record an estimate of AED ${formatMoney(Math.abs(estimate.aed), { decimals: 2 })}, marked as one until the AED debited is entered.`
-                  : `No ${foreignCurrency} rate for that date: enter the AED debited.`}
-            </div>
-          </div>
-        )}
-
-        <div className="te-fieldgrid">
-          <div className="te-fieldcell te-span2">
-            <span className="te-fieldlabel">Merchant</span>
-            <input aria-label="Merchant" className="te-fieldvalue" type="text" value={merchant} onChange={(e) => setMerchant(e.target.value)} />
-          </div>
-          <div className="te-fieldcell">
-            <span className="te-fieldlabel">Date</span>
-            <input
-              className="te-fieldvalue"
-              type="date"
-              aria-label="Date"
-              value={date}
-              onChange={(e) => {
-                setDate(e.target.value);
-                setDateConfirmed(true);
-              }}
-            />
-            {/* No role="alert" on the warning: the form's own error is the
-                one alert, and the date cell says where to look. */}
-            {item.date_guessed && (
-              <>
-                {!dateConfirmed && (
-                  <div className="ov-warn" style={{ fontSize: 11, marginTop: 4 }}>
-                    Not in the message: the day it was sent.
-                  </div>
-                )}
-                <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 11.5 }}>
-                  <input type="checkbox" checked={dateConfirmed} onChange={(e) => setDateConfirmed(e.target.checked)} />
-                  <span>Paid on this day</span>
-                </label>
-              </>
-            )}
-          </div>
-          <div className="te-fieldcell">
-            <span className="te-fieldlabel">Account</span>
-            <select aria-label="Account" className="te-fieldvalue" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-              {selectable.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {accountOptionLabel(a, { accounts: selectable, members })}
-                </option>
-              ))}
-            </select>
-            {suggestedAccountId && accountId === suggestedAccountId && (
-              <div className="ov-muted" style={{ fontSize: 11, marginTop: 4 }}>
-                Suggested from a card-ending match.
-              </div>
-            )}
-          </div>
-          <div className="te-fieldcell">
-            <span className="te-fieldlabel">Currency</span>
-            <input aria-label="Currency" className="te-fieldvalue" type="text" value={currency} disabled />
-          </div>
-        </div>
-
-        <div>
-          <span className="te-fieldlabel">What this is</span>
-          <div className="om-scope-list" style={{ marginTop: 10 }}>
-            {INTAKE_KINDS.map((k) => (
-              <button
-                key={k.id}
-                type="button"
-                className="om-scope"
-                data-active={kind === k.id}
-                title={k.hint}
-                onClick={() => setKind(k.id)}
-              >
-                {k.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div>
-          <span className="te-fieldlabel">Whose</span>
-          <OwnerPicker value={owner} members={members} onChange={setOwner} />
-        </div>
-
-        <div>
-          <span className="te-fieldlabel">Category</span>
-          <div className="te-chips">
-            <button type="button" className="om-seg" data-active={categoryId === ''} onClick={() => setCategoryId('')}>
-              Uncategorised
-            </button>
-            {/* Subcategories, never the group they are in (lib/fileableCategories.js). */}
-            {fileableCategories(categories, null, categoryId || null).map((c) => (
-              <button key={c.id} type="button" className="om-seg" data-active={categoryId === c.id} onClick={() => setCategoryId(c.id)}>
-                {c.label}
-              </button>
-            ))}
-          </div>
-        </div>
-        {suggestedRule && categoryId === suggestedRule.category_id && (
-          <div className="ov-muted" style={{ fontSize: 11.5, marginTop: -12 }}>
-            Suggested by a rule matching "{suggestedRule.pattern}".
-          </div>
-        )}
-        {canRemember && (
-          <>
-            <label className="te-remember">
-              <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
-              <span>
-                <span className="te-togglelabel">Remember this merchant</span>
-                <span className="te-togglenote">Add a household rule so future entries from “{merchantName}” go to {categoryNameOf(categoryId)}</span>
-              </span>
-            </label>
-            {remember && (
-              <RememberMerchant
-                merchant={merchantName}
-                categoryName={categoryNameOf(categoryId)}
-                categories={categories}
-                pattern={ruleProposal.pattern}
-                matchType={ruleMatchType}
-                check={ruleCheck}
-                disabled={saving}
-                onPattern={setRulePattern}
-                onMatchType={setRuleMatchType}
-              />
-            )}
-          </>
-        )}
-
-        {duplicatePending && (
-          <div className="te-duplicate" role="status">
-            <div className="te-duplicate-title">You may have sent this one twice</div>
-            <div className="te-duplicate-body">
-              Another pending entry for {duplicatePending.parsed_merchant}, {formatMoney(duplicatePending.parsed_amount)}, dated within
-              a few days of this one, is also waiting for review. If both are real, approve both as usual; otherwise reject one.
-            </div>
-          </div>
-        )}
-        {duplicateTransaction && (
-          <div className="te-duplicate" role="status">
-            <div className="te-duplicate-title">A record like this already exists</div>
-            <div className="te-duplicate-body">
-              {duplicateTransaction.merchant}, {formatMoney(duplicateTransaction.amount)},{' '}
-              {new Date(duplicateTransaction.occurred_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} — already
-              posted, within a few days of this one. Approving is allowed if the household really spent twice.
-            </div>
-            <div style={{ display: 'flex', gap: 8, marginTop: 11 }}>
-              <button
-                type="button"
-                className="om-btn"
-                onClick={() => {
-                  setKeptAlongside(duplicateTransaction);
-                  setDuplicateDismissed(true);
-                }}
-              >
-                Both are real
-              </button>
-            </div>
-          </div>
-        )}
-
-        {error && (
-          <p className="ov-warn" role="alert" style={{ fontSize: 12.5 }}>
-            {error}
-          </p>
-        )}
-
-        {approvedAlready ? (
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button type="button" className="om-btn ov-btn-primary" onClick={onDone}>
-              Done
-            </button>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button type="button" className="om-btn" onClick={reject} disabled={saving}>
-              Reject
-            </button>
-            <button type="submit" className="om-btn ov-btn-primary" disabled={saving}>
-              {saving ? 'Saving…' : remembering && ruleCheck?.status === 'new' ? 'Approve and add rule' : 'Approve'}
-            </button>
-          </div>
-        )}
-      </form>
     </div>
   );
 }

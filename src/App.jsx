@@ -22,6 +22,7 @@ import { useAuth } from './lib/AuthContext';
 // AppShell renders these inside a Suspense boundary, so the nav stays on
 // screen while a route's chunk loads instead of the page going blank.
 const Money = lazy(() => import('./screens/Money'));
+const InboxPage = lazy(() => import('./screens/InboxPage'));
 const Wealth = lazy(() => import('./screens/Wealth'));
 const Planning = lazy(() => import('./screens/Planning'));
 const Settings = lazy(() => import('./screens/Settings'));
@@ -61,6 +62,7 @@ export default function App() {
         }
       >
         <Route index element={<Overview />} />
+        <Route path="inbox" element={<InboxPage />} />
         <Route path="money" element={<Money />} />
         <Route path="wealth" element={<Wealth />} />
         <Route path="planning" element={<Planning />} />

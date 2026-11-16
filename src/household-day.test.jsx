@@ -61,9 +61,7 @@ describe("forms default to the household's day, not UTC's", () => {
   it('an Inbox item with no date, opened to edit', async () => {
     const item = { id: 'i1', household_id: 'hh', status: 'pending', source: 'telegram', raw_text: 'Cafe 20', parsed_amount: 20, parsed_merchant: 'Cafe', parsed_category_id: null, parsed_date: null, confidence: 0.9 };
     renderScreen(<Inbox members={[]} accounts={ACCOUNTS} categories={[]} loading={false} data={{ intake: [item], categoryRules: [], reload: vi.fn() }} />);
-    await act(async () => {
-      screen.getByRole('button', { name: 'Edit first' }).click();
-    });
+    await act(async () => {});
     expect(document.querySelector('input[type="date"]').value).toBe(DUBAI_DAY);
   });
 

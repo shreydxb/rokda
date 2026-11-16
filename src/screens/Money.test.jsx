@@ -219,4 +219,20 @@ describe('Money: the header and the month', () => {
     expect(screen.getByTestId('where').textContent).toBe('?tab=activity&view=merchants&month=2026-09');
     expect(screen.queryByRole('button', { name: 'Insights' })).toBeNull();
   });
+
+  // The Inbox is its own page (the revamp, phase 4c): an old link to Money's
+  // Inbox tab opens it.
+  it('opens an old Inbox tab link as the Inbox page', () => {
+    function Path() {
+      return <output data-testid="path">{useLocation().pathname}</output>;
+    }
+    renderScreen(
+      <MemoryRouter initialEntries={['/money?tab=inbox']}>
+        <Path />
+        <Money />
+      </MemoryRouter>,
+    );
+    expect(screen.getByTestId('path').textContent).toBe('/inbox');
+    expect(screen.queryByRole('button', { name: /^Inbox/ })).toBeNull();
+  });
 });

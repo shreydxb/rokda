@@ -84,9 +84,7 @@ describe('a payment in rupees, in the Inbox', () => {
     renderScreen(
       <Inbox household={HOUSEHOLD} members={[]} accounts={ACCOUNTS} categories={[]} loading={false} data={{ intake: [item], transactions: [], categoryRules: [], fxRateHistory: HISTORY, reload: vi.fn().mockResolvedValue(undefined) }} />,
     );
-    await act(async () => {
-      screen.getByRole('button', { name: 'Edit first' }).click();
-    });
+    await act(async () => {});
     expect(screen.getByLabelText('Amount').value).toBe('23000');
     await act(async () => {
       screen.getByRole('button', { name: 'Approve' }).click();

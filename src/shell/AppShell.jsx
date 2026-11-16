@@ -11,12 +11,11 @@ import { useInboxCount } from './useInboxCount';
 import './AppShell.css';
 
 // The revamp (November 2026, design/prototype): Inbox is its own item, with
-// its count, because it is the queue worked every day (review N1). Until it
-// has a page of its own it opens Money's Inbox tab, and is the item marked
-// current there instead of Money.
+// its count, because it is the queue worked every day (review N1). It opens
+// the Inbox page (phase 4c).
 const NAV = [
   { to: '/', label: 'Overview', icon: 'home', end: true },
-  { to: '/money?tab=inbox', label: 'Inbox', icon: 'inbox', inbox: true },
+  { to: '/inbox', label: 'Inbox', icon: 'inbox', inbox: true },
   { to: '/money', label: 'Money', icon: 'wallet' },
   { to: '/wealth', label: 'Wealth', icon: 'chart' },
   { to: '/planning', label: 'Planning', icon: 'compass' },
@@ -30,7 +29,8 @@ export default function AppShell() {
   const { currency, setCurrency } = useMoneyDisplay(household);
   const inboxCount = useInboxCount(household?.id);
   const location = useLocation();
-  const onInbox = location.pathname === '/money' && new URLSearchParams(location.search).get('tab') === 'inbox';
+  // The Inbox is its own page (the revamp, phase 4c).
+  const onInbox = location.pathname === '/inbox';
   const partnerLabel = members.find((m) => m.id !== me?.id)?.display_name ?? 'Partner';
   const scopes = [
     { id: 'both', label: 'Both' },
@@ -74,15 +74,13 @@ export default function AppShell() {
   }, [accountOpen]);
 
   const name = me?.display_name ?? user?.email ?? '';
-  // Which item is current is worked out here rather than by NavLink, which
-  // does not read the address's query and so marked Money current on its
-  // Inbox tab as well.
+  // Which item is current is worked out here: an item is current on its own
+  // page and the pages under it.
   const isCurrent = (item) => {
     if (item.inbox) return onInbox;
     if (item.end) return location.pathname === item.to;
     const path = item.to.split('?')[0];
-    const here = location.pathname === path || location.pathname.startsWith(`${path}/`);
-    return here && !(path === '/money' && onInbox);
+    return location.pathname === path || location.pathname.startsWith(`${path}/`);
   };
 
   return (

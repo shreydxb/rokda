@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient';
 
-// The Money screen announces the Inbox's count whenever its own data is read
-// (an item approved or rejected, a refresh), so the sidebar follows without
-// asking again.
+// The Inbox page (and Money, which reads the same records) announces the
+// Inbox's count whenever its data is read (an item approved or rejected, a
+// refresh), so the sidebar follows without asking again.
 export const INBOX_COUNT_EVENT = 'rokda:inbox-count';
 
 // How many Inbox items wait, for the sidebar (the revamp, review N1). Read

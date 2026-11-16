@@ -78,7 +78,7 @@ describe('AppShell: the Inbox in the sidebar', () => {
     inboxCount = 3;
     shell();
     const link = screen.getByRole('link', { name: /Inbox/ });
-    expect(link.getAttribute('href')).toBe('/money?tab=inbox');
+    expect(link.getAttribute('href')).toBe('/inbox');
     expect(within(link).getByText('3')).toBeTruthy();
   });
 
@@ -87,8 +87,9 @@ describe('AppShell: the Inbox in the sidebar', () => {
     expect(screen.getByRole('link', { name: 'Inbox' })).toBeTruthy();
   });
 
+  // The Inbox is its own page (the revamp, phase 4c).
   it('is the item marked as current on the Inbox, not Money', () => {
-    shell('/money?tab=inbox');
+    shell('/inbox');
     expect(screen.getByRole('link', { name: 'Inbox' }).getAttribute('aria-current')).toBe('page');
     expect(screen.getByRole('link', { name: 'Money' }).getAttribute('aria-current')).toBeNull();
   });
