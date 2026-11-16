@@ -394,6 +394,10 @@ input.me-tick {
 .me-step-b .ds-fold {
   border-top: 1px solid var(--rule-soft);
 }
+.me-step-b .ds-fold > summary {
+  padding-left: 18px;
+  padding-right: 18px;
+}
 .me-clear {
   display: flex;
   flex-wrap: wrap;

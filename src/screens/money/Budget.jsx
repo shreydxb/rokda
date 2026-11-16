@@ -13,7 +13,7 @@ import BudgetEditor from './BudgetEditor';
 import { categoryOwner, householdShare } from '../../lib/share';
 import { neverLoaded } from '../../lib/loadState';
 import Withheld from '../planning/Withheld';
-import { Tools } from './MoneyTools';
+import { Tools } from '../PageTools';
 import { setBudgetLimit } from './setBudgetLimit';
 import './Budget.css';
 

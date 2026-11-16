@@ -25,7 +25,7 @@ import ActivityCalendar from './ActivityCalendar';
 import ActivityFilters from './ActivityFilters';
 import ActivityTable from './ActivityTable';
 import ActivityMerchants from './ActivityMerchants';
-import { Tools } from './MoneyTools';
+import { Tools } from '../PageTools';
 import { setCategory } from './setCategory';
 import './Activity.css';
 

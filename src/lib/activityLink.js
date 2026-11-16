@@ -122,6 +122,16 @@ export function withActivityFilter(params, key, value) {
   return next;
 }
 
+// The address of one account's drawer on Wealth (screens/wealth/
+// AccountDrawer.jsx): a card opens on its cycle; `view` opens 'statements' or
+// 'details'. `who` as for activityHref.
+export function accountHref(accountId, { view, who } = {}) {
+  const params = new URLSearchParams({ account: accountId });
+  if (view) params.set('view', view);
+  if (who) params.set('who', who);
+  return `/wealth?${params}`;
+}
+
 // The address of one tab of a screen (lib/useTab.js reads it), with any
 // other parameters it takes.
 export function tabHref(path, tab, extra = {}) {
@@ -136,8 +146,9 @@ export const UNCATEGORISED = 'none';
 
 // The address of Activity showing just these records.
 // `who` chooses the person the records are counted for (lib/ScopeContext.jsx):
-// a household-wide view's links pass 'both'.
-export function activityHref({ categoryId, search, from, to, dateBasis, needsReview, estimated, kind, who } = {}) {
+// a household-wide view's links pass 'both'. `allDates` shows every date
+// rather than this month (a card's records, from its view on Net worth).
+export function activityHref({ categoryId, search, from, to, dateBasis, needsReview, estimated, kind, accountId, allDates = false, who } = {}) {
   let params = new URLSearchParams({ tab: 'activity' });
   if (who) params.set('who', who);
   params = withActivityFilter(params, 'estimated', estimated);
@@ -148,6 +159,8 @@ export function activityHref({ categoryId, search, from, to, dateBasis, needsRev
   params = withActivityFilter(params, 'from', from);
   params = withActivityFilter(params, 'to', to);
   params = withActivityFilter(params, 'dateBasis', dateBasis);
+  params = withActivityFilter(params, 'accountId', accountId);
+  if (allDates) params = withAllDates(params);
   return `/money?${params}`;
 }
 

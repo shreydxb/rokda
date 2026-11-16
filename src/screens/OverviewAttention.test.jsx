@@ -102,7 +102,8 @@ describe('To do', () => {
         <Overview />
       </MemoryRouter>,
     );
-    expect(screen.getByRole('link', { name: 'Open card' }).getAttribute('href')).toBe('/wealth?tab=accounts');
+    // The card's own view on Net worth (the revamp, phase 5a).
+    expect(screen.getByRole('link', { name: 'Open card' }).getAttribute('href')).toMatch(/^\/wealth\?account=[^&]+$/);
     expect(screen.getAllByRole('link', { name: 'Update price' })[0].getAttribute('href')).toBe('/wealth?tab=investments');
     expect(screen.queryByRole('button', { name: 'Open' })).toBeNull();
   });

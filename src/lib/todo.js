@@ -1,6 +1,6 @@
 import { parseDay } from './day';
 import { formatMoney } from './money';
-import { tabHref } from './activityLink';
+import { accountHref, tabHref } from './activityLink';
 
 // Overview's To do (the revamp, phase 3; review S-overview-1 and N13): the
 // one list of everything waiting on someone, from the checks the app already
@@ -29,9 +29,9 @@ function fromAttention(item) {
       // Dated the day it was due, so the payment settles it.
       return { ...base, group: 'Today', tone: item.late ? 'neg' : 'warn', action: { kind: 'mark-paid', label: item.income ? 'Mark received' : 'Mark paid', recurringId: item.recurringId, dueOn: item.dueOn } };
     case 'card_due':
-      return { ...base, group: 'Today', action: link('Open card', tabHref('/wealth', 'accounts')) };
+      return { ...base, group: 'Today', action: link('Open card', item.accountId ? accountHref(item.accountId) : '/wealth') };
     case 'balance_unset':
-      return { ...base, group: 'Today', action: link('Confirm balance', tabHref('/wealth', 'accounts')) };
+      return { ...base, group: 'Today', action: link('Confirm balance', item.accountId ? accountHref(item.accountId, { view: 'details' }) : '/wealth') };
     case 'stale_holding':
       return { ...base, group: 'Today', action: link('Update price', tabHref('/wealth', 'investments')) };
     case 'month_close':

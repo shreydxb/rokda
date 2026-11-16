@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useCloseGuard } from '../../lib/useCloseGuard';
 import DiscardPrompt from '../DiscardPrompt';
-import { useDrawerFocus } from '../../lib/useDrawerFocus';
+import { Drawer } from '../../design-system/kit';
 import { supabase } from '../../lib/supabaseClient';
 import { ACCOUNT_TYPE_LABELS, COMPOUNDING_LABELS, closurePlan, isArchived } from '../../lib/accounts';
 import { isBalanceConfirmed } from '../../lib/balance';
@@ -48,15 +48,32 @@ function initialForm(account, defaultType) {
   };
 }
 
-export default function AccountEditor({ account, defaultType, householdId, members, accounts = [], transactions = [], onClose, onSaved }) {
-  const drawerRef = useDrawerFocus();
-  const [form, setForm] = useState(() => initialForm(account, defaultType));
+// An account's details, in the shared kit's drawer (the revamp, phase 5a).
+// A card's drawer has tabs, This cycle and Statements beside these details
+// (screens/wealth/AccountDrawer.jsx): `tabs` and `onTab` draw them, and
+// leaving the details for another tab with changes unsaved asks first, as
+// closing does.
+export default function AccountEditor({ account, defaultType, householdId, members, accounts = [], transactions = [], onClose, onSaved, tabs, onTab, kicker, focusTab = false }) {
+  const formId = useId();
+  // The account as it was when the editor opened. The drawer is handed the
+  // live row, which a refresh replaces while the editor is open; the balance
+  // is compared with the one the editor opened with, so a balance a trade
+  // moved meanwhile is not written back (SHR-367; the fresh review of 5a).
+  const [opened] = useState(() => initialForm(account, defaultType));
+  const [form, setForm] = useState(opened);
   // A balance is a claim someone makes as of a date. Until it is confirmed it
   // stays unknown rather than becoming a confident zero (QA-02).
   const [confirmBalance, setConfirmBalance] = useState(() => !account || !isBalanceConfirmed(account));
   const [balanceAsOf, setBalanceAsOf] = useState(() => todayISODate());
   const [dirty, setDirty] = useState(false);
-  const { confirmingClose, requestClose, keepEditing } = useCloseGuard({ dirty, onClose });
+  const { confirmingClose, requestClose, keepEditing, escapeKey } = useCloseGuard({ dirty, onClose, listen: false });
+  // A tab the details are being left for, waiting on "Discard changes?".
+  const [leaveTo, setLeaveTo] = useState(null);
+  const leave = (tab) => {
+    if (tab === 'details') return;
+    if (dirty) setLeaveTo(tab);
+    else onTab(tab);
+  };
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -123,7 +140,7 @@ export default function AccountEditor({ account, defaultType, householdId, membe
     // moves a broker fund's balance while this editor may be open, and
     // sending the figure it opened with would put the old balance back
     // (SHR-367).
-    if (!account || form.balance !== initialForm(account).balance || form.type !== account.type) {
+    if (!account || form.balance !== opened.balance || form.type !== opened.type) {
       // A loan's balance is the amount owed, and a loan cannot be in credit,
       // so a loan typed below zero is stored as what it owes. Net worth read
       // a negative loan as money held (Planning audit, 0b-D).
@@ -210,22 +227,61 @@ export default function AccountEditor({ account, defaultType, householdId, membe
   }
 
   return (
-    <div className="te-overlay" onMouseDown={(e) => e.target === e.currentTarget && requestClose()}>
-      <div className="te-drawer" ref={drawerRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={account ? 'Edit account' : 'Add account'}>
-        <div className="te-head">
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-              <span className="ov-kicker">{account ? 'Edit account' : 'New account'}</span>
-              {dirty && <span className="te-dirty-chip">Unsaved</span>}
+    <Drawer
+      kicker={kicker ?? (account ? 'Edit account' : 'New account')}
+      title={account ? account.name : 'Add an account'}
+      dirty={dirty}
+      tabs={tabs}
+      tab={tabs ? 'details' : undefined}
+      onTab={leave}
+      wide={!!tabs}
+      focusTab={focusTab}
+      onClose={requestClose}
+      onEscape={escapeKey}
+      footer={
+        <div className="te-actions" style={{ borderTop: 'none', paddingTop: 0, marginTop: 0, width: '100%' }}>
+          {leaveTo ? (
+            <div className="te-actions-right">
+              <DiscardPrompt onDiscard={() => onTab(leaveTo)} onKeepEditing={() => setLeaveTo(null)} />
             </div>
-            <div className="te-title">{account ? account.name : 'Add an account'}</div>
-          </div>
-          <button type="button" className="te-close" onClick={requestClose} aria-label="Close">
-            ×
-          </button>
+          ) : (
+            <>
+              {account && isArchived(account) && (
+                <button type="button" className="om-btn" onClick={handleReopen} disabled={saving}>
+                  Reopen account
+                </button>
+              )}
+              {account && !isArchived(account) && (
+                <button type="button" className="om-btn te-delete" onClick={handleClose} disabled={saving}>
+                  {confirmingDelete
+                    ? plan.action === 'delete'
+                      ? 'Confirm delete?'
+                      : 'Confirm close?'
+                    : plan.action === 'delete'
+                      ? 'Delete'
+                      : 'Close account'}
+                </button>
+              )}
+              <div className="te-actions-right">
+                {confirmingClose ? (
+                  <DiscardPrompt onDiscard={onClose} onKeepEditing={keepEditing} />
+                ) : (
+                  <>
+                    <button type="button" className="om-btn" onClick={requestClose}>
+                      Cancel
+                    </button>
+                    <button type="submit" form={formId} className="om-btn ov-btn-primary" disabled={saving}>
+                      {saving ? 'Saving…' : account ? 'Save changes' : 'Add account'}
+                    </button>
+                  </>
+                )}
+              </div>
+            </>
+          )}
         </div>
-
-        <form className="te-form" onSubmit={handleSave}>
+      }
+    >
+        <form className="te-form" id={formId} onSubmit={handleSave}>
           <div>
             <div className="te-hero-label">{isCard ? 'Balance owed' : isLoan ? 'Amount owed' : isFd ? 'Current value (auto-calculated)' : 'Current balance'}</div>
             <div className="te-hero-row">
@@ -298,7 +354,7 @@ export default function AccountEditor({ account, defaultType, householdId, membe
                   ? 'Balances are manual snapshots — this records what you say it is, as of that date.'
                   : account && isBalanceConfirmed(account)
                     ? 'Leaving this unticked keeps the existing balance and its date.'
-                    : 'Until you confirm it, this balance is shown as not set rather than as a zero.'}
+                    : 'Until you confirm it, this balance counts as entered and is marked not confirmed.'}
               </div>
             </>
           )}
@@ -407,44 +463,7 @@ export default function AccountEditor({ account, defaultType, householdId, membe
             </p>
           )}
 
-          <div className="te-sticky-actions">
-            <div className="te-actions" style={{ borderTop: 'none', paddingTop: 0, marginTop: 0 }}>
-              {account && isArchived(account) && (
-                <button type="button" className="om-btn" onClick={handleReopen} disabled={saving}>
-                  Reopen account
-                </button>
-              )}
-              {account && !isArchived(account) && (
-                <button type="button" className="om-btn te-delete" onClick={handleClose} disabled={saving}>
-                  {confirmingDelete
-                    ? plan.action === 'delete'
-                      ? 'Confirm delete?'
-                      : 'Confirm close?'
-                    : plan.action === 'delete'
-                      ? 'Delete'
-                      : 'Close account'}
-                </button>
-              )}
-              <div className="te-actions-right">
-                {confirmingClose ? (
-                  <>
-                    <DiscardPrompt onDiscard={onClose} onKeepEditing={keepEditing} />
-                  </>
-                ) : (
-                  <>
-                    <button type="button" className="om-btn" onClick={requestClose}>
-                      Cancel
-                    </button>
-                    <button type="submit" className="om-btn ov-btn-primary" disabled={saving}>
-                      {saving ? 'Saving…' : account ? 'Save changes' : 'Add account'}
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
         </form>
-      </div>
-    </div>
+    </Drawer>
   );
 }

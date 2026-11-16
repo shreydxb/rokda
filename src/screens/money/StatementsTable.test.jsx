@@ -98,7 +98,8 @@ describe('Card statements table', () => {
     // opens Accounts for the household, whoever is selected.
     const cardLinks = screen.getAllByRole('link', { name: 'Bank card →' });
     expect(cardLinks).toHaveLength(2);
-    expect(cardLinks[0].getAttribute('href')).toBe('/wealth?tab=accounts&who=both');
+    // The card's own view, its cycle and statements (the revamp, phase 5a).
+    expect(cardLinks[0].getAttribute('href')).toBe('/wealth?account=card-1&who=both');
     expect(screen.getAllByText('· closes 28th · due 22nd')).toHaveLength(2);
     const september = rowOf('29 Aug – 28 Sep');
     expect(within(september).getByText('22 Oct')).toBeTruthy();

@@ -17,7 +17,7 @@ import Freshness from './Freshness';
 import BackToReview from './BackToReview';
 import AedNote from './AedNote';
 import TabRow from './TabRow';
-import { ToolsSlot } from './money/MoneyTools';
+import { ToolsSlot } from './PageTools';
 
 const TABS = [
   { id: 'activity', label: 'Activity' },
@@ -75,7 +75,7 @@ export default function Money() {
     await Promise.all([reloadHousehold(), data.reload()]);
   };
 
-  // The header's slot for the open tab's own controls (money/MoneyTools.jsx).
+  // The header's slot for the open tab's own controls (screens/PageTools.jsx).
   const [toolsNode, setToolsNode] = useState(null);
 
   return (

@@ -11,7 +11,7 @@ import { pendingClose } from '../../lib/snapshots';
 import { couldntLoad, neverLoaded } from '../../lib/loadState';
 import { BarList, Card, Chip, EmptyState, InfoButton, KpiStrip, MonthStepper, ProgressBar } from '../../design-system/kit';
 import Withheld from '../planning/Withheld';
-import { Tools } from './MoneyTools';
+import { Tools } from '../PageTools';
 import StatementsTable, { MarkTicked } from './StatementsTable';
 import { useStatementActions } from './useStatementActions';
 import MonthEndSteps from './MonthEndSteps';
@@ -161,7 +161,7 @@ function RunningMonth({ household, members, me, data, year, month, now }) {
               label: 'Balances not confirmed',
               value: String(strip.balances),
               sub: strip.balances ? (
-                <Link className="ds-link ds-link-accent" to={tabHref('/wealth', 'accounts', { who: 'both' })}>
+                <Link className="ds-link ds-link-accent" to="/wealth?who=both">
                   Accounts →
                 </Link>
               ) : (

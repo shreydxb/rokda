@@ -251,11 +251,20 @@ freshTest("a reply whose list cannot be seen records nothing", async () => {
   assertEquals(approvals().length, 0);
 });
 
-freshTest("a day weeks ahead is refused, not read as last year", async () => {
+// A day still to come this year, up to weeks ahead. Weeks ahead from mid
+// November is January, and "1 Jan" said then is this past January, rightly
+// recorded (batch.ts readBatchDate), so the day stays in this year. On 31
+// December no day of the year is still to come; batch.test.ts holds the rule
+// with fixed dates.
+freshTest("a day still to come is refused, not read as last year", async () => {
+  const today = dubaiToday();
+  if (today.endsWith("-12-31")) return;
   const list = await paste([sms("City Taxi", 20), sms("Corner Shop", 45.5)]);
-  const ahead = new Date(Date.parse(`${dubaiToday()}T00:00:00Z`) + 45 * 86400000).toISOString().slice(0, 10);
+  const weeksAhead = new Date(Date.parse(`${today}T00:00:00Z`) + 45 * 86400000).toISOString().slice(0, 10);
+  const ahead = [weeksAhead, `${today.slice(0, 4)}-12-31`].sort()[0];
   await handler(answer(9102, `all on ${dayWords(ahead)}`, list));
   assertEquals(approvals().length, 0);
+  assert(lastReply().includes("still to come"), lastReply());
 });
 
 freshTest("a day after the paste is refused", async () => {

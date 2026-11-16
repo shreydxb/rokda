@@ -134,7 +134,8 @@ describe('Month end: the running month', () => {
     expect(within(kpi('Balances not confirmed')).getByText('1')).toBeTruthy();
     // Month end counts the household, so its links open the household's
     // accounts whoever is selected (the fresh review of 4d).
-    expect(within(kpi('Balances not confirmed')).getByRole('link', { name: 'Accounts →' }).getAttribute('href')).toBe('/wealth?tab=accounts&who=both');
+    // Net worth holds the accounts (the revamp, phase 5a).
+    expect(within(kpi('Balances not confirmed')).getByRole('link', { name: 'Accounts →' }).getAttribute('href')).toBe('/wealth?who=both');
     const statements = screen.getByRole('region', { name: 'Card statements' });
     const row = within(statements).getByText('29 Sep – 28 Oct').closest('tr');
     expect(within(row).getByRole('button', { name: 'Mark done' })).toBeTruthy();
@@ -250,7 +251,7 @@ describe('Month end: closing the month just ended', () => {
     const row = screen.getByText('29 Sep – 28 Oct').closest('tr');
     expect(within(row).getByText('To check')).toBeTruthy();
     const balance = screen.getByText('Current account', { selector: '.me-rw-t' }).closest('.me-rw');
-    expect(within(balance).getByRole('link', { name: 'Confirm balance' }).getAttribute('href')).toBe('/wealth?tab=accounts&who=both&reviewing=2026-10');
+    expect(within(balance).getByRole('link', { name: 'Confirm balance' }).getAttribute('href')).toBe('/wealth?account=current&view=details&who=both&reviewing=2026-10');
     // Ticking a statement offers to mark it done beside the step's name.
     await click(within(row).getByRole('checkbox'));
     expect(screen.getByRole('button', { name: 'Mark 1 done' }).closest('.me-step-h')).not.toBeNull();

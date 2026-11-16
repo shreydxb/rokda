@@ -278,16 +278,43 @@ plan holds.
 
 ## Wealth (`/wealth`)
 
-- **Net worth**: history from dated balance snapshots and valuations.
-- **Accounts**: bank, card, loan, cash, investment, fixed-deposit and broker funds accounts (a broker's uninvested cash, which trades move).
-  Balances are entered by hand and confirmed, never derived. Every change is
-  kept with the figure it replaced, where it came from (app, bot or system)
-  and who made it (`account_balance_events`). A balance in
-  rupees is valued at the household's current rate, and moves when the rate
-  does. Cards carry a limit, statement day and due day. A loan account can
-  carry its debt terms. Cards sit under their own heading with "+ Add card";
-  closed accounts fold under "Closed (n)" and stay in history. Account types
-  read as words ("Credit card", "Fixed deposit"), never as stored.
+Three tabs: Net worth, Investments, Dividends. An old link to Accounts opens
+Net worth, which holds the accounts.
+
+- **Net worth**: the figure (Provisional while a balance isn't confirmed,
+  with one line naming them and Confirm), "▲ {x} this month · {n}% in 12
+  months", and Assets, Liabilities and Runway (months of spending the cash
+  accounts cover) beside **How it has grown**: the trend of month-end net
+  worth and today, "Close {month}" (to Month end) while the month just ended
+  isn't closed, and the history as a table. History is the household's, so
+  one person's view says to switch to Both. Below, the accounts ledger:
+  **Assets** grouped By type or By owner (in the header, with + Account),
+  each row with its owner, a status ("Not confirmed" with Confirm, or
+  "Checked {n}d ago" after 45 days) and its amount, a group's total, the
+  investments as one row that opens Investments, and Total assets;
+  **Liabilities**, a card with "{x} this cycle · closes in {n}d" and the
+  share of its limit used, a loan with its type, and Total liabilities, the
+  closed accounts folded under "Closed (n)" with Reopen (they stay in
+  history); and **What the assets are**, as shares.
+- **An account** opens in a drawer from its row, or from its address
+  (`/wealth?account={id}`, which Month end, To do and Needs attention link
+  to): bank, card, loan, cash, investment, fixed-deposit and broker funds
+  accounts (a broker's uninvested cash, which trades move). Balances are
+  entered by hand and confirmed, never derived. Every change is kept with the
+  figure it replaced, where it came from (app, bot or system) and who made it
+  (`account_balance_events`). A balance in rupees is valued at the
+  household's current rate, and moves when the rate does. Cards carry a
+  limit, statement day and due day; a loan account can carry its debt terms.
+  A **credit card** opens on **This cycle**: owed (and when checked), spent
+  this cycle (from the day after its last statement through the next,
+  counted as the statement will be), the limit used, the cycle's dates, the
+  payment due (the latest statement's while it is ahead, with what it holds),
+  the cycle's transactions and "All transactions on this card" (Activity);
+  **Statements** lists its statements with the way to check them in Month
+  end; **Details** is the editor, which asks before discarding changes when
+  another tab is chosen. "+ Account" adds one, its type chosen in the drawer;
+  Close account (or Delete for one never used) sits in its footer. Account
+  types read as words ("Credit card", "Fixed deposit"), never as stored.
 - **Investments**: holdings with prices pulled daily where a symbol is set,
   and FX rates for USD and INR. "Refresh prices" fetches them; the page's own
   Refresh re-reads what is stored. Under Allocation, one line names the
