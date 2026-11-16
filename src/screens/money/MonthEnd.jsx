@@ -234,15 +234,16 @@ function ClosedMonth({ data, year, month, now, navigate }) {
             <BarList
               items={changes.rows.map((r) => ({
                 id: r.categoryId,
-                label: r.name,
-                value: r.spent,
-                usual: r.usual ?? undefined,
-                display: (
+                // The change sits beside the name, as in the prototype.
+                label: (
                   <>
-                    {formatMoney(r.spent)}
+                    <span>{r.name}</span>
                     {r.usual != null && <span className={`me-bl-note ${r.spent > r.usual ? 'me-warn' : 'me-ink3'}`}>{`${formatSigned(r.spent - r.usual)} vs usual`}</span>}
                   </>
                 ),
+                value: r.spent,
+                usual: r.usual ?? undefined,
+                display: formatMoney(r.spent),
               }))}
               onSelect={(item) => navigate(activityHref({ categoryId: item.id, ...range, who: 'both' }))}
             />
