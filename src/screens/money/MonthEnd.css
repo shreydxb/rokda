@@ -1,0 +1,187 @@
+/* Money -> Month end (the revamp, phase 4d; design/prototype css/money.css
+   .me-*, .step-*, input.tick, .tbl tr.group): the steps, the closed month on
+   a page, and the card statements table. */
+
+.me-ink2 {
+  color: var(--ink2);
+}
+.me-ink3 {
+  color: var(--ink3);
+}
+.me-pos {
+  color: var(--pos);
+}
+.me-neg {
+  color: var(--neg);
+}
+.me-error {
+  margin: 12px 18px;
+  font-size: 12.5px;
+  color: var(--neg);
+}
+
+/* A line that says a part is clear, with a green tick. */
+.me-ok {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 8px 18px;
+  font-size: 13.5px;
+  color: var(--ink2);
+}
+.me-ok-mark {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--pos-soft);
+  flex: none;
+  position: relative;
+}
+.me-ok-mark::after {
+  content: '';
+  position: absolute;
+  left: 9px;
+  top: 6px;
+  width: 5px;
+  height: 9px;
+  border-right: 1.5px solid var(--pos);
+  border-bottom: 1.5px solid var(--pos);
+  transform: rotate(45deg);
+}
+
+/* ---------- the card statements table ---------- */
+.me-st .ds-fold {
+  border-top: 1px solid var(--rule-soft);
+}
+.me-st-table {
+  min-width: 860px;
+}
+.me-st-tick {
+  width: 36px;
+}
+.ds-table th.me-st-tick,
+.ds-table td.me-st-tick {
+  padding-right: 0;
+}
+.me-st-due {
+  width: 90px;
+}
+.me-st-amt {
+  width: 130px;
+}
+.me-st-diff {
+  width: 200px;
+}
+.me-st-status {
+  width: 130px;
+}
+.me-st-act {
+  width: 120px;
+  text-align: right;
+  white-space: nowrap;
+}
+input.me-tick {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent);
+  margin: 0;
+  vertical-align: middle;
+  cursor: pointer;
+}
+.me-st-group td {
+  height: 34px;
+  background: var(--raised);
+  font-size: 12.5px;
+  color: var(--ink2);
+  font-weight: 500;
+}
+.me-st-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.me-st-cardname {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink);
+  text-decoration: none;
+}
+.me-st-cardname:hover {
+  color: var(--accent);
+}
+.me-st-card .me-ink3 {
+  font-weight: 400;
+}
+.me-st-period {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  background: none;
+  border: 0;
+  font: inherit;
+  font-weight: 500;
+  color: var(--ink);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.me-st-period:hover {
+  color: var(--accent);
+}
+.me-st-period:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+.me-caret {
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid var(--ink3);
+  border-bottom: 1.5px solid var(--ink3);
+  transform: rotate(-45deg);
+  transition: transform 0.12s;
+  flex: none;
+  margin: 0 6px 0 2px;
+}
+.me-caret[data-on] {
+  transform: rotate(45deg);
+}
+.me-st-open td {
+  border-bottom-color: transparent;
+}
+.me-st-sub td {
+  padding: 0;
+  height: auto;
+  background: var(--ground);
+}
+.me-st-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 18px 12px 62px;
+}
+.me-st-note {
+  flex: 1;
+  max-width: 420px;
+}
+.me-st-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 18px 12px 62px;
+  font-size: 13px;
+}
+.me-st-lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-width: 520px;
+}
+.me-st-lines li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 28px;
+  align-items: center;
+}
