@@ -203,16 +203,28 @@ plan holds.
 - **Categories**: a record is filed under a category with no subcategories;
   pickers list them as "Group › Category" (Shopping, with none, stands
   alone). A record already under a group keeps it.
-- **Inbox**: transactions the bot was not sure of, to confirm or fix. An entry
-  whose message had no date is marked "No date" and is approved only once its
-  date is set or confirmed, never in bulk. The undated entries of one
-  message that read cleanly otherwise are offered together above the queue:
-  one date, given by hand, approves them all. An undated entry that repeats
-  a record made in the two weeks before it was sent (same card, same amount,
-  same merchant) is marked "Recorded", left out of that, and "Set aside N
-  already recorded" rejects them together. Its editor offers "Remember this
-  merchant", unticked, for an expense with a category chosen whose merchant
-  no rule covers: the entry is approved, then the rule is added.
+- **Inbox** (`/inbox`, its own page in the sidebar; `/money?tab=inbox`
+  opens it): transactions the bot was not sure of, to confirm or fix. The
+  title says how many wait. The list is newest first, each message tagged
+  text or photo, with who sent it, when, and a chip: Already recorded, No
+  date or Read cleanly. Beside it, the message chosen and what was read
+  from it as fields edited in place: merchant, amount (and the AED debited
+  for another currency), date, category, account, type and whose. An
+  account the message did not name is chosen, never filled in, when the
+  household has more than one. Approve and Reject; then the next message
+  is chosen. A, R and the arrow keys do the same, except while typing in a
+  field. "Approve N read cleanly" in the header approves the messages read
+  cleanly and dated by the message itself. An entry whose message had no
+  date is marked "No date" and is approved only once its date is set or
+  "Paid on this day" is ticked, never in bulk. The undated entries of one
+  message that read cleanly otherwise are offered together above the
+  list: one date, given by hand, approves them all. An undated entry that
+  repeats a record made in the two weeks before it was sent (same card,
+  same amount, same merchant) is marked "Already recorded", left out of
+  that, and "Set aside N already recorded" rejects them together.
+  "Remember this merchant" is offered, unticked, for an expense with a
+  category chosen whose merchant no rule covers: the entry is approved,
+  then the rule is added.
 - **Review**: the month just ended (or an earlier one), as a checklist of
   what to settle before its totals go into history: flagged records,
   records with no category, possible duplicates ("Both are real", remembered

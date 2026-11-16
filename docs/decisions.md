@@ -3988,3 +3988,27 @@ The revamp's phase 4b (design note `docs/superpowers/specs/2026-11-15-money-desi
   - **Test figures are generic**: a category named after a real place and
     two amounts that read as real ones became generic.
 
+## The Inbox, its own page
+
+The revamp's phase 4c (design note `docs/superpowers/specs/2026-11-15-money-design.md`).
+
+- **The Inbox is a page, `/inbox`**, not a Money tab: it is worked every
+  day, and the sidebar already named it. Its count is in the title, and an
+  old link to Money's Inbox tab opens it.
+- **What was read is edited in place.** The read-only summary and its "Edit
+  first" step are gone: every field is in view, so nothing is approved that
+  was not shown. The approval itself did not change (one `approve_intake`
+  call, then "both are real" and the merchant rule).
+- **An account is chosen, never guessed.** The editor filled in the first
+  open account when the message named none; behind "Edit first" that was
+  seen, but with the fields always in view an Approve would take it
+  unnoticed. It starts empty when the household has more than one open
+  account.
+- **Reject replaces "Not a spend"**, as the prototype words it; both kept
+  the entry in the Inbox's history as rejected, only if still waiting.
+- **The next message is chosen** after an approval or a rejection, and A, R
+  and the arrows work the list (review S-inbox-7). In a field, or with an
+  editor open, they are only keys.
+- **Category is a select** of the categories a record can be filed under,
+  as the prototype has it, rather than a row of buttons.
+
