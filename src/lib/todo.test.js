@@ -11,7 +11,7 @@ describe('buildTodo', () => {
   it('groups in a fixed order, the most pressing first within each', () => {
     const rows = buildTodo({
       attention: [
-        att({ kind: 'month_close', name: 'October', status: 'Not closed' }),
+        att({ kind: 'month_close', name: 'October', status: 'Not closed', month: '2026-10' }),
         att({ kind: 'balance_unset', severity: 'info', name: 'Savings', status: 'Balance 40d old', accountId: 'a2' }),
         att({ kind: 'missing_recurring', name: 'Gym', status: 'Late · was due 10 Nov', recurringId: 'r1', late: true }),
         att({ kind: 'yearly_check', severity: 'info', name: 'Insurance', status: 'Yearly check due', noteId: 'n1' }),
@@ -34,7 +34,7 @@ describe('buildTodo', () => {
         att({ kind: 'balance_unset', name: 'Cash wallet', status: 'Balance not confirmed', accountId: 'a1' }),
         att({ kind: 'card_due', severity: 'urgent', name: 'Bank card', status: 'Payment due in 3d', accountId: 'c1' }),
         att({ kind: 'stale_holding', severity: 'info', name: 'Index fund', status: 'Price 9d old', holdingId: 'h1' }),
-        att({ kind: 'month_close', name: 'October', status: 'Not closed' }),
+        att({ kind: 'month_close', name: 'October', status: 'Not closed', month: '2026-10' }),
         att({ kind: 'backup', name: 'Backup', status: 'None recorded' }),
         att({ kind: 'yearly_check', severity: 'info', name: 'Insurance', status: 'Yearly check due', noteId: 'n1' }),
       ],
@@ -45,7 +45,7 @@ describe('buildTodo', () => {
     expect(byTitle['Cash wallet']).toEqual({ kind: 'link', label: 'Confirm balance', href: '/wealth?tab=accounts' });
     expect(byTitle['Bank card']).toEqual({ kind: 'link', label: 'Open card', href: '/wealth?tab=accounts' });
     expect(byTitle['Index fund']).toEqual({ kind: 'link', label: 'Update price', href: '/wealth?tab=investments' });
-    expect(byTitle.October).toEqual({ kind: 'link', label: 'Close month', href: '/money?tab=review' });
+    expect(byTitle.October).toEqual({ kind: 'link', label: 'Close month', href: '/money?tab=monthend&month=2026-10' });
     expect(byTitle.Backup).toEqual({ kind: 'link', label: 'Record backup', href: '/settings?tab=backups' });
     expect(byTitle.Insurance).toEqual({ kind: 'link', label: 'Open notes', href: '/planning?tab=notes' });
   });
@@ -91,7 +91,8 @@ describe('buildTodo', () => {
       title: 'Bank card statement',
       status: 'To check · 11 Oct – 10 Nov · 2 older',
       tone: 'warn',
-      action: { kind: 'link', label: 'Check', href: '/wealth?tab=statements' },
+      // Month end's running month lists every statement still open.
+      action: { kind: 'link', label: 'Check', href: '/money?tab=monthend' },
     });
   });
 

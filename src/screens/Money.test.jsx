@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { screen, fireEvent } from '@testing-library/react';
 import { act } from 'react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
@@ -11,7 +11,7 @@ vi.mock('../lib/useHousehold', () => ({
   useHousehold: () => ({ household: { id: 'hh', name: 'Test' }, members: [], me: { id: 'm1' }, loading: false, error: null, reload: async () => {} }),
 }));
 // The tabs' own content is not what is tested here.
-vi.mock('./money/Review', () => ({ default: () => <div>Review</div> }));
+vi.mock('./money/MonthEnd', () => ({ default: () => <div>Month end content</div> }));
 // Activity puts a control in the page header, as every rebuilt tab does.
 vi.mock('./money/Activity', async () => {
   const { Tools } = await import('./money/MoneyTools');
@@ -39,44 +39,39 @@ vi.mock('./usePlanningData', () => ({
 
 const { default: Money } = await import('./Money');
 
-// Round 2 of the outside review, E2-9: on Money -> Review, a failed read of
-// the goals was reported, but Try again and Refresh re-read only Money's own
-// records, so the failure stayed until the page was opened again.
-describe('Money -> Review: reading again', () => {
-  beforeEach(() => {
-    overview.reload.mockClear();
-    planning.reload.mockClear();
-  });
+// Month end takes Review's place (the revamp, phase 4d): an old link or
+// bookmark to the review opens it, for the same month.
+describe('Money -> Month end', () => {
+  function Where() {
+    return <output data-testid="where">{useLocation().search}</output>;
+  }
 
-  const open = () =>
+  it('opens an old Review link as Month end, and has no Review tab', () => {
     renderScreen(
-      <MemoryRouter initialEntries={['/money?tab=review']}>
+      <MemoryRouter initialEntries={['/money?tab=review&month=2026-10']}>
+        <Where />
         <Money />
       </MemoryRouter>,
     );
-
-  it('Try again reads the planning records again too', async () => {
-    open();
-    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Try again' })));
-    expect(planning.reload).toHaveBeenCalled();
+    expect(screen.getByText('Month end content')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Month end' }).getAttribute('aria-current')).toBe('page');
+    expect(screen.queryByRole('button', { name: 'Review' })).toBeNull();
+    expect(screen.getByTestId('where').textContent).toBe('?tab=review&month=2026-10');
   });
 
-  it('Refresh reads the planning records again too', async () => {
-    open();
-    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Refresh' })));
-    expect(planning.reload).toHaveBeenCalled();
-  });
-
-  // Only the review tab uses them; elsewhere they are not read at all.
-  it('Refresh on another tab leaves them alone', async () => {
+  // The goals were read only for the review's What to do next, which left
+  // with it (the design note: its goal set-asides are on Overview's To do).
+  it('reads no planning records on Month end', async () => {
     renderScreen(
-      <MemoryRouter initialEntries={['/money']}>
+      <MemoryRouter initialEntries={['/money?tab=monthend']}>
         <Money />
       </MemoryRouter>,
     );
+    expect(screen.getByText('Month end content')).toBeTruthy();
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Refresh' })));
     expect(overview.reload).toHaveBeenCalled();
     expect(planning.reload).not.toHaveBeenCalled();
+    expect(screen.queryByText('Couldn’t load goals.')).toBeNull();
   });
 });
 

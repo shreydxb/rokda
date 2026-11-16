@@ -138,9 +138,9 @@ const SUBVIEWS = [
   { name: 'old-forecast-link', path: '/planning?tab=forecast', tabs: [], expectText: 'The pot, year by year' },
   { name: 'old-drawdown-link', path: '/planning?tab=drawdown', tabs: [], expectText: 'If markets fall' },
   { name: 'life-plan-setup', path: '/planning', tabs: ['Life plan'], expectText: 'Set up your life plan', tables: { member_life: [] } },
-  // A statement that does not match, opened for resolving: the reason box and
-  // its buttons must fit a phone.
-  { name: 'statements', path: '/wealth', tabs: ['Statements', 'Resolve…'], expectText: 'Mark resolved', history: false, tables: { statement_reconciliations: cardStatements } },
+  // A statement that does not match, opened for resolving on Month end (the
+  // revamp, phase 4d): the reason box and its buttons.
+  { name: 'statements', path: '/money?tab=monthend', tabs: ['Resolve…'], expectText: 'Mark resolved', history: false, tables: { statement_reconciliations: cardStatements } },
   // The largest concentration under Allocation, and its cap set in place
   // (Planning audit, 4.17).
   { name: 'investments-concentration', path: '/wealth', tabs: ['Investments'], expectText: 'Largest concentration: Technology, 57% of investments', history: false, tables: { holdings: concentratedHoldings } },

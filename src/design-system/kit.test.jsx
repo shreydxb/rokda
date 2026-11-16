@@ -451,6 +451,22 @@ describe('StackBar', () => {
 });
 
 describe('BarList', () => {
+  // Month end's Biggest changes are ranked by how far each moved, not by
+  // what was spent (the fresh review of 4d).
+  it('keeps the order it is given when asked', () => {
+    render(
+      <BarList
+        ordered
+        items={[
+          { id: 't', label: 'Travel', value: 0, display: '0', usual: 1000 },
+          { id: 'g', label: 'Groceries', value: 1500, display: '1,500', usual: 1000 },
+        ]}
+      />,
+    );
+    const rows = [...document.querySelectorAll('.ds-bl-row')];
+    expect(rows.map((r) => r.querySelector('.ds-bl-label').textContent)).toEqual(['Travel', 'Groceries']);
+  });
+
   it('ranks by value, scales to the largest, and marks the usual', () => {
     render(
       <BarList

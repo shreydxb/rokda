@@ -2,9 +2,9 @@ import { test, expect } from '@playwright/test';
 import { stubSupabase, txn, dayThisMonth, ids, data, pickInShell } from './fixtures.js';
 
 // Context survives the round trip (QA re-review, 17 October): the month and
-// person a page was showing come back after Back and reload, the monthly
-// review's links open the records they counted, and a save that changed no row
-// is not reported as saved. Each test reproduced a defect before the fix.
+// person a page was showing come back after Back and reload, Month end's
+// links open the records they counted, and a save that changed no row is not
+// reported as saved. Each test reproduced a defect before the fix.
 
 async function open(page, path, options = {}) {
   await stubSupabase(page, options);
@@ -49,25 +49,32 @@ test('reload keeps the person whose figures were shown', async ({ page }) => {
   await expect(scope(page, 'Me')).toHaveAttribute('data-active', 'true');
 });
 
-test("the review's records link opens the partner's records it counted while viewing Me", async ({ page }) => {
+test("Month end's records link opens the partner's records it counted while viewing Me", async ({ page }) => {
   const d = new Date();
   const last = new Date(d.getFullYear(), d.getMonth() - 1, 5);
-  const day = `${last.getFullYear()}-${String(last.getMonth() + 1).padStart(2, '0')}-05`;
-  const transactions = [txn('77777777-7777-4777-8777-000000000001', ids.A_CARD, ids.C_GROCERIES, -100, day, { is_shared: false, owner_member_id: data.household_members[1].id, needs_review: true, merchant: 'Partner purchase' })];
-  await open(page, '/money?tab=review', { tables: { transactions } });
+  const month = `${last.getFullYear()}-${String(last.getMonth() + 1).padStart(2, '0')}`;
+  const transactions = [txn('77777777-7777-4777-8777-000000000001', ids.A_CARD, ids.C_GROCERIES, -100, `${month}-05`, { is_shared: false, owner_member_id: data.household_members[1].id, needs_review: true, merchant: 'Partner purchase' })];
+  // Not closed yet, so Month end shows its steps.
+  const netWorthSnapshots = data.net_worth_snapshots.filter((s) => !s.snapshot_date.startsWith(month));
+  await open(page, `/money?tab=monthend&month=${month}`, { tables: { transactions, net_worth_snapshots: netWorthSnapshots } });
   await pickInShell(page, 'Household scope', 'Me');
-  const check = page.getByTestId('review-review');
-  await expect(check).toContainText('1 record');
-  await check.getByRole('link', { name: 'Open the records' }).click();
+  const flagged = page.locator('.me-sub-h', { hasText: 'Flagged · 1' }).locator('xpath=following-sibling::div[1]');
+  await expect(flagged).toContainText('1 record');
+  await flagged.getByRole('link', { name: 'Open the records' }).click();
   await expect(page.locator('.om-tx-row')).toHaveCount(1);
 });
 
-test("an old month's statement link opens the statements that closed that month", async ({ page }) => {
+test("an old link to a month's statements opens the ones that closed that month, on Month end", async ({ page }) => {
+  const d = new Date();
+  const before = new Date(d.getFullYear(), d.getMonth() - 2, 1);
+  const month = `${before.getFullYear()}-${String(before.getMonth() + 1).padStart(2, '0')}`;
+  const closeDay = new Date(before.getFullYear(), before.getMonth(), 10).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }).replace('Sept', 'Sep');
   const accounts = data.accounts.map((a) => ({ ...a, created_at: '2024-01-01T00:00:00Z' }));
-  await open(page, '/money?tab=review&month=2025-03', { tables: { accounts } });
-  await page.getByTestId('review-statements').getByRole('link', { name: 'Check statements' }).click();
-  await expect(page.getByText('Statements that closed in March 2025')).toBeVisible();
-  await expect(page.getByTestId('statement-row').filter({ hasText: 'Closed 10 Mar' })).toHaveCount(1);
+  // No month closed, so that month shows its steps rather than its page.
+  await open(page, `/wealth?tab=statements&month=${month}`, { tables: { accounts, net_worth_snapshots: [] } });
+  await expect(page).toHaveURL(new RegExp(`/money\\?tab=monthend&month=${month}&step=2$`));
+  const statements = page.getByRole('region', { name: 'Statements to check' });
+  await expect(statements.getByRole('button', { name: new RegExp(`– ${closeDay}$`) })).toHaveCount(1);
 });
 
 test('a save that matched no row stays open with an error', async ({ page }) => {

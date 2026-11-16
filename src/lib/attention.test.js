@@ -54,8 +54,8 @@ describe('a month that has not been closed', () => {
 
   it('asks for the month that just ended until it is closed', () => {
     const [item] = closeItems({ snapshots: [] });
-    expect(item).toMatchObject({ id: 'month-close-2026-09', severity: 'warn', title: "September 2026 hasn't been closed" });
-    expect(item.detail).toContain('Money → Review');
+    expect(item).toMatchObject({ id: 'month-close-2026-09', severity: 'warn', title: "September 2026 hasn't been closed", month: '2026-09' });
+    expect(item.detail).toContain('Money → Month end');
   });
 
   it('says nothing once that month has a snapshot, whatever came before', () => {
@@ -110,7 +110,8 @@ describe('attentionHref', () => {
     expect(attentionHref({ kind: 'card_due' }, TODAY)).toBe('/wealth?tab=accounts');
     expect(attentionHref({ kind: 'balance_unset' }, TODAY)).toBe('/wealth?tab=accounts');
     expect(attentionHref({ kind: 'stale_holding' }, TODAY)).toBe('/wealth?tab=investments');
-    expect(attentionHref({ kind: 'month_close' }, TODAY)).toBe('/money?tab=review');
+    // Month end, on the month to close (the revamp, phase 4d).
+    expect(attentionHref({ kind: 'month_close', month: '2026-09' }, TODAY)).toBe('/money?tab=monthend&month=2026-09');
     expect(attentionHref({ kind: 'backup' }, TODAY)).toBe('/settings?tab=backups');
     expect(attentionHref({ kind: 'yearly_check' }, TODAY)).toBe('/planning?tab=notes');
   });

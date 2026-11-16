@@ -58,24 +58,16 @@ export function withReviewReturn(href, { year, month }) {
   return `${url.pathname}${url.search}`;
 }
 
-// The month a page was opened from the review for, or null. Only a month the
-// review can show counts, so a stale or hand-edited address offers nothing.
+// The month a page was opened from Month end for, or null, with the way back
+// to it (Money -> Month end took the review's place in the revamp, phase 4d).
+// Only a month that can still be tidied counts, so a stale or hand-edited
+// address offers nothing.
 export function reviewReturn(params, now = new Date()) {
   const asked = params.get(REVIEWING_PARAM);
   if (!asked) return null;
   const month = reviewMonth(asked, now);
   if (reviewMonthParam(month.year, month.month) !== asked) return null;
-  return { ...month, href: tabHref('/money', 'review', { month: asked }), label: new Date(month.year, month.month - 1, 1).toLocaleDateString('en-GB', { month: 'long' }) };
-}
-
-// The months either side, null where there is nothing to step to.
-export function adjacentReviewMonths({ year, month }, now = new Date()) {
-  const prev = new Date(year, month - 2, 1);
-  const next = new Date(year, month, 1);
-  return {
-    prev: { year: prev.getFullYear(), month: prev.getMonth() + 1 },
-    next: next <= lastClosedMonth(now) ? { year: next.getFullYear(), month: next.getMonth() + 1 } : null,
-  };
+  return { ...month, href: tabHref('/money', 'monthend', { month: asked }), label: new Date(month.year, month.month - 1, 1).toLocaleDateString('en-GB', { month: 'long' }) };
 }
 
 const inMonth = (t, from, to) => {
@@ -279,8 +271,9 @@ export function monthlyReview({ year, month }, { transactions = [], accounts = [
       // purchase returned late in the month can read as a difference here
       // and settle on the next one.
       hint: 'A refund can arrive on a later statement than the purchase it returns.',
-      // The statements that closed in this month, however long ago.
-      href: tabHref('/wealth', 'statements', { month: reviewMonthParam(year, month) }),
+      // The statements that closed in this month, however long ago: Month
+      // end's step 2 for the month.
+      href: tabHref('/money', 'monthend', { month: reviewMonthParam(year, month), step: '2' }),
     });
   }
 

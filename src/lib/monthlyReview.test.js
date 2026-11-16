@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { adjacentReviewMonths, balancesToConfirm, budgetSummary, monthStatements, monthlyReview, possibleTransfers, reviewMonth, reviewReturn, withReviewReturn } from './monthlyReview';
+import { balancesToConfirm, budgetSummary, monthStatements, monthlyReview, possibleTransfers, reviewMonth, reviewReturn, withReviewReturn } from './monthlyReview';
 
 // 16 October 2026: September is the month just ended.
 const NOW = new Date(2026, 9, 16, 12);
@@ -24,12 +24,6 @@ describe('reviewMonth', () => {
     expect(reviewMonth('2026-13', NOW)).toEqual(SEPT);
     expect(reviewMonth('soon', NOW)).toEqual(SEPT);
   });
-
-  it('steps back freely and forward only to the month just ended', () => {
-    expect(adjacentReviewMonths(SEPT, NOW)).toEqual({ prev: { year: 2026, month: 8 }, next: null });
-    expect(adjacentReviewMonths({ year: 2026, month: 1 }, NOW).prev).toEqual({ year: 2025, month: 12 });
-    expect(adjacentReviewMonths({ year: 2026, month: 8 }, NOW).next).toEqual(SEPT);
-  });
 });
 
 describe('withReviewReturn and reviewReturn', () => {
@@ -37,7 +31,7 @@ describe('withReviewReturn and reviewReturn', () => {
     const href = withReviewReturn('/money?tab=activity&review=1&from=2026-09-01', { year: 2026, month: 9 });
     expect(href).toBe('/money?tab=activity&review=1&from=2026-09-01&reviewing=2026-09');
     expect(withReviewReturn('/wealth', { year: 2026, month: 9 })).toBe('/wealth?reviewing=2026-09');
-    expect(reviewReturn(new URL(href, 'https://x').searchParams, NOW)).toEqual({ year: 2026, month: 9, href: '/money?tab=review&month=2026-09', label: 'September' });
+    expect(reviewReturn(new URL(href, 'https://x').searchParams, NOW)).toEqual({ year: 2026, month: 9, href: '/money?tab=monthend&month=2026-09', label: 'September' });
   });
 
   it('offers nothing for a month the review cannot show', () => {
@@ -54,6 +48,11 @@ describe('monthlyReview', () => {
     statementReconciliations: [{ account_id: CARD, statement_date: '2026-09-20', status: 'confirmed' }],
     netWorthSnapshots: [],
   };
+
+  // The statements moved to Month end's step 2 (the revamp, phase 4d).
+  it('links the card statements to the month’s step 2 on Month end', () => {
+    expect(byId(monthlyReview(SEPT, settled, NOW)).statements.href).toBe('/money?tab=monthend&month=2026-09&step=2');
+  });
 
   it('counts only what holds the month up, and is complete once it is closed', () => {
     const open = monthlyReview(SEPT, settled, NOW);

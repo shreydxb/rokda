@@ -24,7 +24,7 @@ async function open(page, path) {
 
 const READS = [
   { name: 'transactions on Overview', path: '/', table: 'transactions', message: 'Couldn’t load transactions.' },
-  { name: 'card statements on Wealth', path: '/wealth', table: 'statement_reconciliations', message: 'Couldn’t load card statements.', tab: 'Statements' },
+  { name: 'card statements on Month end', path: '/money?tab=monthend', table: 'statement_reconciliations', message: 'Couldn’t load card statements.' },
   { name: 'goals on Planning', path: '/planning', table: 'goals', message: 'Couldn’t load goals.' },
   { name: 'household notes on Planning', path: '/planning', table: 'household_notes', message: 'Couldn’t load household notes.', tab: 'Notes' },
 ];
@@ -45,18 +45,17 @@ for (const read of READS) {
   });
 }
 
-test('marking a statement done when the save fails says so, and leaves it unchecked', async ({ page }) => {
+test('marking a statement done when the save fails says so, and leaves it to check', async ({ page }) => {
   const errors = watchErrors(page);
   await stubSupabase(page, { failWrites: ['statement_reconciliations'] });
-  await open(page, '/wealth');
-  await page.getByRole('button', { name: 'Statements', exact: true }).click();
+  await open(page, '/money?tab=monthend');
 
-  const row = page.getByTestId('statement-row').first();
-  await expect(row).toContainText('Not checked');
+  const row = page.getByRole('region', { name: 'Statements to check' }).locator('tbody tr').filter({ has: page.getByRole('button', { name: 'Mark done' }) }).first();
+  await expect(row).toContainText('To check');
   await row.getByRole('button', { name: 'Mark done' }).click();
 
   await expect(page.getByRole('alert')).toContainText('canceling statement due to statement timeout');
-  await expect(row).toContainText('Not checked');
+  await expect(row).toContainText('To check');
   expect(errors).toEqual([]);
 });
 
