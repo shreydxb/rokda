@@ -247,7 +247,9 @@ function monthCloseItems(accounts, snapshots, now) {
       title: `${name} hasn't been closed`,
       name: pending.month.toLocaleDateString('en-GB', { month: 'long' }),
       status: 'Not closed',
-      detail: 'Review it under Money → Review, then close it to keep its totals in history. Months close by hand; waiting does not close one.',
+      // The month, so its link opens Month end on it.
+      month: pending.key,
+      detail: 'Tidy it under Money → Month end, then close it to keep its totals in history. Months close by hand; waiting does not close one.',
     },
   ];
 }
@@ -338,7 +340,7 @@ export function attentionHref(item, now = new Date()) {
     case 'stale_holding':
       return tabHref('/wealth', 'investments');
     case 'month_close':
-      return tabHref('/money', 'review');
+      return tabHref('/money', 'monthend', item.month ? { month: item.month } : {});
     case 'backup':
       return tabHref('/settings', 'backups');
     case 'yearly_check':

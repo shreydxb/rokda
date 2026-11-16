@@ -11,10 +11,9 @@ import './Money.css';
 import Activity from './money/Activity';
 import Recurring from './money/Recurring';
 import Budget from './money/Budget';
-import Review from './money/Review';
+import MonthEnd from './money/MonthEnd';
 import LoadFailure from './LoadFailure';
 import Freshness from './Freshness';
-import { usePlanningData } from './usePlanningData';
 import BackToReview from './BackToReview';
 import AedNote from './AedNote';
 import TabRow from './TabRow';
@@ -24,7 +23,7 @@ const TABS = [
   { id: 'activity', label: 'Activity' },
   { id: 'budget', label: 'Budget' },
   { id: 'recurring', label: 'Recurring' },
-  { id: 'review', label: 'Review' },
+  { id: 'monthend', label: 'Month end' },
 ];
 
 export default function Money() {
@@ -32,7 +31,9 @@ export default function Money() {
   // The tab and Activity's filters are in the address (lib/useTab.js,
   // lib/activityLink.js), so a link from Overview or Budget opens the tab
   // and the records it means, and Back returns to where it came from.
-  const [tab, setTab] = useTab(TABS, TABS[0].id, {}, (params) => {
+  // Month end took Review's place (the revamp, phase 4d), so an old link to
+  // the review opens it.
+  const [tab, setTab] = useTab(TABS, TABS[0].id, { review: 'monthend' }, (params) => {
     const month = sharedMonth(params);
     return month ? [['month', month]] : [];
   });
@@ -58,10 +59,7 @@ export default function Money() {
   }, [retiredInsights, setParams]);
   const { household, members, me, loading: householdLoading, error: householdError, reload: reloadHousehold } = useHousehold();
   const data = useOverviewData(household?.id);
-  // The review's goal action needs the goals; nothing else here does, so they
-  // are read only while the review is open.
-  const planning = usePlanningData(tab === 'review' ? household?.id : null);
-  const loading = householdLoading || data.loading || (tab === 'review' && planning.loading);
+  const loading = householdLoading || data.loading;
   const pendingIntake = data.intake?.filter((i) => i.status === 'pending').length ?? 0;
   // The sidebar shows the same count (the revamp, review N1). Say it after
   // every read here, so an approval moves it at once and the sidebar settles
@@ -72,11 +70,9 @@ export default function Money() {
   useEffect(() => {
     if (intakeKnown) window.dispatchEvent(new CustomEvent(INBOX_COUNT_EVENT, { detail: pendingIntake }));
   }, [intakeKnown, pendingIntake, readAt]);
-  // Refresh and Try again read everything this tab shows, the review's goals
-  // and plan included: those were reported as failed and never read again
-  // (round 2 of the outside review, E2-9).
+  // Refresh and Try again read everything the tabs show.
   const reloadAll = async () => {
-    await Promise.all([reloadHousehold(), data.reload(), ...(tab === 'review' ? [planning.reload()] : [])]);
+    await Promise.all([reloadHousehold(), data.reload()]);
   };
 
   // The header's slot for the open tab's own controls (money/MoneyTools.jsx).
@@ -88,7 +84,7 @@ export default function Money() {
       <ToolsSlot node={toolsNode}>
       <AedNote household={household} />
       <LoadFailure
-        errors={{ ...data.errors, ...(tab === 'review' ? planning.errors : {}), ...(householdError ? { household: householdError } : {}) }}
+        errors={{ ...data.errors, ...(householdError ? { household: householdError } : {}) }}
         loadedAt={data.loadedAt}
         onRetry={reloadAll}
       />
@@ -119,7 +115,7 @@ export default function Money() {
           onOpenRecords={({ categoryId, year, month }) => navigate(activityHref({ categoryId, ...monthRange(year, month) }))}
         />
       )}
-      {tab === 'review' && <Review household={household} data={data} planning={planning} loading={loading} />}
+      {tab === 'monthend' && <MonthEnd household={household} members={members} me={me} data={data} loading={loading} />}
       </ToolsSlot>
     </div>
   );

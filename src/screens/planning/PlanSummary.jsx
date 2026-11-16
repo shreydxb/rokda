@@ -247,8 +247,8 @@ function MonthlyCheck({ month, saving, savingMissing, reserve, reserveMissing })
           <div className="ov-attn-main">
             <span>{savingText}</span>
           </div>
-          <Link className="om-btn ov-attn-btn" to={tabHref('/money', 'review', { month: reviewMonthParam(month.year, month.month) })}>
-            Open Review
+          <Link className="om-btn ov-attn-btn" to={tabHref('/money', 'monthend', { month: reviewMonthParam(month.year, month.month) })}>
+            Open Month end
           </Link>
         </div>
         <div className="ov-attn-row">

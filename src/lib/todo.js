@@ -35,7 +35,7 @@ function fromAttention(item) {
     case 'stale_holding':
       return { ...base, group: 'Today', action: link('Update price', tabHref('/wealth', 'investments')) };
     case 'month_close':
-      return { ...base, group: 'Month end', action: link('Close month', tabHref('/money', 'review')) };
+      return { ...base, group: 'Month end', action: link('Close month', tabHref('/money', 'monthend', item.month ? { month: item.month } : {})) };
     case 'backup':
       return { ...base, group: 'Month end', action: link('Record backup', tabHref('/settings', 'backups')) };
     case 'yearly_check':
@@ -67,7 +67,9 @@ function fromStatements(rows) {
       title: `${latest.account.name} statement`,
       status: `${mismatch ? "Doesn't match" : 'To check'} · ${day(latest.periodStart)} – ${day(latest.statementDate)}${older.length ? ` · ${older.length} older` : ''}`,
       tone: mismatch ? 'neg' : 'warn',
-      action: link('Check', tabHref('/wealth', 'statements')),
+      // Month end's running month lists every statement still open (the
+      // revamp, phase 4d).
+      action: link('Check', tabHref('/money', 'monthend')),
     };
   });
 }

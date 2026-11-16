@@ -321,12 +321,12 @@ describe('PlanSummary: the monthly check', () => {
   const target = (amount) => [{ year: last.getFullYear(), month: last.getMonth() + 1, category_id: 'save', amount: String(amount) }];
   const check = () => within(screen.getByRole('region', { name: 'Monthly check' }));
 
-  it('gives the month just ended against the budget\'s savings target, as Review does', () => {
+  it('gives the month just ended against the budget\'s savings target, linked to its Month end', () => {
     renderSummary({}, undefined, { budgets: target(7500), categories });
     // 10,000 in and 4,000 out.
     expect(check().getByText(`Saving in ${name}: 6,000 against a target of 7,500, 1,500 short.`)).toBeTruthy();
     const month = `${last.getFullYear()}-${String(last.getMonth() + 1).padStart(2, '0')}`;
-    expect(check().getByRole('link', { name: 'Open Review' }).getAttribute('href')).toBe(`/money?tab=review&month=${month}`);
+    expect(check().getByRole('link', { name: 'Open Month end' }).getAttribute('href')).toBe(`/money?tab=monthend&month=${month}`);
     document.body.innerHTML = '';
     renderSummary({}, undefined, { budgets: target(5000), categories });
     expect(check().getByText(`Saving in ${name}: 6,000 against a target of 5,000, on target.`)).toBeTruthy();
