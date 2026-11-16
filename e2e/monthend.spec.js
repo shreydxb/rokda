@@ -47,8 +47,12 @@ test('the month just ended is three steps, and a balance to confirm leads back t
   await expect(check.getByRole('button', { expanded: true })).toBeVisible();
   // The card's statement that closed last month, in the statements table.
   await expect(check.getByRole('region', { name: 'Statements to check' })).toContainText('Platinum card');
+  // The account itself opens, on its details (the revamp, phase 5a).
   await check.getByRole('link', { name: 'Confirm balance' }).click();
-  await expect(page).toHaveURL(new RegExp(`/wealth\\?tab=accounts&reviewing=${LAST}$`));
+  await expect(page).toHaveURL(new RegExp(`/wealth\\?account=[^&]+&view=details&reviewing=${LAST}$`));
+  const drawer = page.getByRole('dialog', { name: 'Current account' });
+  await expect(drawer.getByLabel('Name')).toHaveValue('Current account');
+  await drawer.getByRole('button', { name: 'Cancel' }).click();
   await page.getByRole('link', { name: `← Back to Month end for ${LAST_NAME}` }).click();
   await expect(page).toHaveURL(new RegExp(`/money\\?tab=monthend&month=${LAST}$`));
   await expect(page.getByRole('heading', { name: `Close ${LAST_NAME}` })).toBeVisible();

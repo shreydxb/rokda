@@ -4103,3 +4103,41 @@ The revamp's phase 4d (design note `docs/superpowers/specs/2026-11-15-money-desi
   - **A statement is only settled or reopened while it has the status on
     screen**: the bot may have recorded a mismatch since, and a ticked
     Mark done would have settled it unseen.
+
+## Wealth: Net worth with the accounts ledger
+
+The revamp's phase 5a (design note `docs/superpowers/specs/2026-11-16-wealth-design.md`).
+
+- **The Accounts tab is Net worth's ledger** (review N5): the same accounts
+  were listed twice. `?tab=accounts` opens Net worth.
+- **An account has an address**, `/wealth?account={id}` (`&view=statements`
+  or `details`), and opens in a drawer over whichever tab is open. Month
+  end's card names and Confirm balance, To do's Confirm balance and Open
+  card, and Needs attention's card and balance items open the account
+  itself, not the list it was in.
+- **A card is followed through its drawer** (review H10): This cycle,
+  Statements and Details, as the old card box was, now one tab apart.
+- **The ledger counts a balance nobody confirmed as the total does**, as it
+  stands (the shared basis, `netWorthSummary`, counts it, and Overview and
+  the plan read that). The old page's rows said "Not set" while the total
+  counted the figure; now the row shows it with "Not confirmed", and the
+  hero says the balance isn't confirmed rather than that it counts as zero,
+  which held only while the stored balance was the default 0.
+- **A card's cycle is counted as its statement will be**: from the day after
+  the last statement closed through the next closing day. The old estimate
+  ran from the closing day to the day before the next, so a charge on the
+  closing day counted in both the statement and the new cycle.
+- **The month is closed in Month end alone.** Net worth's "Close {month}"
+  opens it; the close's tests drive the shared close directly.
+- **A cycle's transactions open in Activity**, through "All transactions on
+  this card": the kit's drawer sits above the older editors, so an editor
+  opened from inside it would open underneath.
+- **What goes**: the Monthly change list (the chart and its table say it),
+  the card boxes and "+ Add card" (one "+ Account", the type chosen in the
+  drawer), and the sentence "Every completed month is closed".
+- **Runway** is `runwaySummary`, which worked it out with nothing showing it:
+  the cash accounts over an average month of spending, once two months are
+  complete. A balance reads "Checked {n}d ago" at 45 days, as To do and
+  Month end call it old (decision 4).
+- The header's tools slot moves to `screens/PageTools.jsx`, shared by Money,
+  the Inbox and Wealth.
