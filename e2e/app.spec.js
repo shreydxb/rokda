@@ -459,8 +459,7 @@ test('the Inbox shows a receipt photo under the Content-Security-Policy', async 
       ? route.fulfill({ json: { signedURL: '/object/sign/telegram-receipts/receipts/receipt.png?token=t' } })
       : route.fulfill({ status: 200, contentType: 'image/png', body: png }));
 
-  await gotoReady(page, '/money');
-  await page.getByRole('button', { name: /^Inbox/ }).click();
+  await gotoReady(page, '/inbox');
   const photo = page.getByRole('img', { name: 'Receipt' });
   await expect(photo).toBeVisible();
   await expect.poll(() => photo.evaluate((img) => img.complete && img.naturalWidth), { message: 'the receipt image never loaded' }).toBe(1);
