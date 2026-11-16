@@ -16,7 +16,7 @@ import './AppShell.css';
 // current there instead of Money.
 const NAV = [
   { to: '/', label: 'Overview', icon: 'home', end: true },
-  { to: '/money?tab=inbox', label: 'Inbox', icon: 'inbox', inbox: true },
+  { to: '/inbox', label: 'Inbox', icon: 'inbox', inbox: true },
   { to: '/money', label: 'Money', icon: 'wallet' },
   { to: '/wealth', label: 'Wealth', icon: 'chart' },
   { to: '/planning', label: 'Planning', icon: 'compass' },
@@ -30,7 +30,8 @@ export default function AppShell() {
   const { currency, setCurrency } = useMoneyDisplay(household);
   const inboxCount = useInboxCount(household?.id);
   const location = useLocation();
-  const onInbox = location.pathname === '/money' && new URLSearchParams(location.search).get('tab') === 'inbox';
+  // The Inbox is its own page (the revamp, phase 4c).
+  const onInbox = location.pathname === '/inbox';
   const partnerLabel = members.find((m) => m.id !== me?.id)?.display_name ?? 'Partner';
   const scopes = [
     { id: 'both', label: 'Both' },

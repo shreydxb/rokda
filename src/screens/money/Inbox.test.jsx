@@ -72,12 +72,8 @@ describe('QA-11: Inbox approval goes through one atomic call', () => {
       />,
     );
 
-    // The fixture has no parsed_account_id, so the review panel's direct
-    // Approve is unavailable (nothing to approve onto) -- same as a real
-    // ambiguous-account intake row, this needs the edit form to pick one.
-    await act(async () => {
-      screen.getByRole('button', { name: 'Edit first' }).click();
-    });
+    // The fixture has no parsed_account_id; with one open account there is
+    // nothing to choose between, so it is filled in (the revamp, phase 4c).
     await act(async () => {
       screen.getByRole('button', { name: 'Approve' }).click();
     });
@@ -107,9 +103,6 @@ describe('QA-11: Inbox approval goes through one atomic call', () => {
       />,
     );
     await act(async () => {
-      screen.getByRole('button', { name: 'Edit first' }).click();
-    });
-    await act(async () => {
       screen.getByRole('button', { name: 'Both are real' }).click();
     });
     await act(async () => {
@@ -129,10 +122,6 @@ describe('QA-11: Inbox approval goes through one atomic call', () => {
         data={{ intake: [ITEM], categoryRules: [], reload: vi.fn().mockResolvedValue(undefined) }}
       />,
     );
-
-    await act(async () => {
-      screen.getByRole('button', { name: 'Edit first' }).click();
-    });
     await act(async () => {
       screen.getByRole('button', { name: 'Income' }).click();
     });
@@ -163,10 +152,6 @@ describe('QA-11: Inbox approval goes through one atomic call', () => {
         data={{ intake: [parsedAsIncome], categoryRules: [], reload: vi.fn().mockResolvedValue(undefined) }}
       />,
     );
-
-    await act(async () => {
-      screen.getByRole('button', { name: 'Edit first' }).click();
-    });
     // No click on "Income" here -- it should already be the active choice.
     await act(async () => {
       screen.getByRole('button', { name: 'Approve' }).click();
@@ -197,8 +182,8 @@ describe('SHR-310: a guessed date is checked before approval', () => {
 
   it('flags the date as not in the message', () => {
     renderGuessed();
-    expect(screen.getByText('Not in the message; check it')).toBeTruthy();
-    expect(screen.getByText('Check the flagged rows')).toBeTruthy();
+    expect(screen.getByText('Not in the message: the day it was sent.')).toBeTruthy();
+    expect(screen.getByText('Check the marked fields')).toBeTruthy();
   });
 
   it('opens the editor instead of approving the guessed date', async () => {
@@ -212,16 +197,13 @@ describe('SHR-310: a guessed date is checked before approval', () => {
 
   it('marks each undated entry in the queue and counts them', () => {
     renderGuessed();
-    const row = document.querySelector('.ib-queue-row');
+    const row = document.querySelector('.ib-row-btn');
     expect(row.textContent).toMatch(/No date/);
-    expect(screen.getByText(/1 waiting · 0 read cleanly · 1 with no date/)).toBeTruthy();
+    expect(screen.getByText('0 read cleanly · 1 with no date')).toBeTruthy();
   });
 
   it('approves with the date picked in the editor, marked as confirmed', async () => {
     renderGuessed();
-    await act(async () => {
-      screen.getByRole('button', { name: 'Edit first' }).click();
-    });
     await act(async () => {
       fireEvent.change(screen.getByLabelText('Date'), { target: { value: '2026-09-01' } });
     });
@@ -235,9 +217,6 @@ describe('SHR-310: a guessed date is checked before approval', () => {
 
   it('keeps the date shown only once it is ticked as the day it was paid', async () => {
     renderGuessed();
-    await act(async () => {
-      screen.getByRole('button', { name: 'Edit first' }).click();
-    });
     await act(async () => {
       screen.getByRole('button', { name: 'Approve' }).click();
     });
@@ -270,9 +249,6 @@ describe('SHR-310: a guessed date is checked before approval', () => {
       />,
     );
     expect(screen.queryByText(/with no date/)).toBeNull();
-    await act(async () => {
-      screen.getByRole('button', { name: 'Edit first' }).click();
-    });
     expect(screen.queryByLabelText('Paid on this day')).toBeNull();
     await act(async () => {
       screen.getByRole('button', { name: 'Approve' }).click();
@@ -294,7 +270,7 @@ describe('SHR-310: a guessed date is checked before approval', () => {
       />,
     );
     await act(async () => {
-      screen.getByRole('button', { name: 'Approve 1 confident' }).click();
+      screen.getByRole('button', { name: 'Approve 1 read cleanly' }).click();
     });
     const rpc = calls.filter((c) => c.kind === 'rpc');
     expect(rpc).toHaveLength(1);
@@ -311,8 +287,8 @@ describe('Inbox: what it offers and where an entry came from', () => {
 
   it('offers bulk approval only when something read cleanly, and the count says why not', () => {
     render([ITEM]);
-    expect(screen.queryByRole('button', { name: /Approve \d+ confident|bulk-approve/ })).toBeNull();
-    expect(screen.getByText(/1 waiting · 0 read cleanly/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Approve \d+ read cleanly/ })).toBeNull();
+    expect(screen.getByText('0 read cleanly')).toBeTruthy();
   });
 
   it('names an entry added by hand as that, not as its stored source or as Telegram', () => {
@@ -320,7 +296,7 @@ describe('Inbox: what it offers and where an entry came from', () => {
     expect(screen.getByText(/^Added by hand · /)).toBeTruthy();
     expect(screen.queryByText(/via Telegram/)).toBeNull();
     expect(screen.getByText(/added by hand$/)).toBeTruthy();
-    expect(screen.getByText('5 Sept 2026')).toBeTruthy();
+    expect(screen.getByLabelText('Date').value).toBe('2026-09-05');
   });
 });
 
@@ -350,9 +326,7 @@ describe('Inbox: remembering a merchant while approving', () => {
     renderScreen(
       <Inbox members={MEMBERS} accounts={ACCOUNTS} categories={[FOOD]} loading={false} data={{ intake: [ITEM], categoryRules: rules, transactions: [], reload: vi.fn().mockResolvedValue(undefined) }} />,
     );
-    return act(async () => {
-      screen.getByRole('button', { name: 'Edit first' }).click();
-    });
+    return act(async () => {});
   };
   beforeEach(() => {
     calls.length = 0;
@@ -361,7 +335,7 @@ describe('Inbox: remembering a merchant while approving', () => {
   it('offers it, unticked, once a category is chosen, and adds the rule after the approval', async () => {
     await render();
     expect(screen.queryByLabelText(/Remember this merchant/)).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Groceries' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Category' }), { target: { value: 'food' } });
     const tick = screen.getByLabelText(/Remember this merchant/);
     expect(tick.checked).toBe(false);
     fireEvent.click(tick);
@@ -375,7 +349,7 @@ describe('Inbox: remembering a merchant while approving', () => {
 
   it('adds nothing unless it is ticked', async () => {
     await render();
-    fireEvent.click(screen.getByRole('button', { name: 'Groceries' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Category' }), { target: { value: 'food' } });
     await act(async () => {
       screen.getByRole('button', { name: 'Approve' }).click();
     });
@@ -389,7 +363,7 @@ describe('Inbox: remembering a merchant while approving', () => {
 
   it('is not offered for income', async () => {
     await render();
-    fireEvent.click(screen.getByRole('button', { name: 'Groceries' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Category' }), { target: { value: 'food' } });
     expect(screen.getByLabelText(/Remember this merchant/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Income' }));
     expect(screen.queryByLabelText(/Remember this merchant/)).toBeNull();
@@ -400,7 +374,7 @@ describe('Inbox: remembering a merchant while approving', () => {
   it('says when the rule could not be added, and leaves only Done on the approved entry', async () => {
     await render();
     stored.rules = [{ id: 'r9', pattern: 'carre', match_type: 'contains', category_id: 'other', archived: false }];
-    fireEvent.click(screen.getByRole('button', { name: 'Groceries' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Category' }), { target: { value: 'food' } });
     fireEvent.click(screen.getByLabelText(/Remember this merchant/));
     await act(async () => {
       screen.getByRole('button', { name: 'Approve and add rule' }).click();
@@ -414,7 +388,7 @@ describe('Inbox: remembering a merchant while approving', () => {
 
   it('refuses a pattern that would not match the merchant, before approving anything', async () => {
     await render();
-    fireEvent.click(screen.getByRole('button', { name: 'Groceries' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Category' }), { target: { value: 'food' } });
     fireEvent.click(screen.getByLabelText(/Remember this merchant/));
     fireEvent.change(screen.getByLabelText('Merchant pattern'), { target: { value: 'Lulu' } });
     await act(async () => {
@@ -483,8 +457,8 @@ describe('Inbox: undated entries already recorded', () => {
 
   it('marks it, names the record it repeats, and leaves it out of the batch date', () => {
     render([pasted('dup', '700', 'CITY TAXI', 20), pasted('new1', '700#1', 'Lulu', 50), pasted('new2', '700#2', 'Careem', 30)]);
-    const dupRow = [...document.querySelectorAll('.ib-queue-row')].find((r) => r.textContent.includes('CITY TAXI'));
-    expect(dupRow.textContent).toMatch(/Recorded/);
+    const dupRow = [...document.querySelectorAll('.ib-row-btn')].find((r) => r.textContent.includes('CITY TAXI'));
+    expect(dupRow.textContent).toMatch(/Already recorded/);
     fireEvent.click(dupRow);
     expect(screen.getByText(/Looks already recorded: CITY TAXI, DUBAI, AED 20.00 on 27 Sep/)).toBeTruthy();
     expect(screen.getByText(/2 entries from one message, sent 4 Oct, have no date/)).toBeTruthy();
@@ -512,12 +486,8 @@ describe('the editor offers subcategories, not the groups they are in', () => {
 
   it('lists Food & Dining › Eating Out and Shopping, never Food & Dining alone', async () => {
     renderScreen(<Inbox members={MEMBERS} accounts={ACCOUNTS} categories={TREE} loading={false} data={{ intake: [ITEM], categoryRules: [], reload: vi.fn() }} />);
-    await act(async () => {
-      screen.getByRole('button', { name: 'Edit first' }).click();
-    });
-    expect(screen.getByRole('button', { name: 'Food & Dining › Eating Out' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Shopping' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Food & Dining' })).toBeNull();
+    const options = [...screen.getByRole('combobox', { name: 'Category' }).options].map((o) => o.textContent);
+    expect(options).toEqual(['Uncategorised', 'Food & Dining › Eating Out', 'Shopping']);
   });
 });
 
@@ -531,5 +501,80 @@ describe('a reading the bot was unsure of, with every value found', () => {
     );
     expect(screen.queryByText('Check the flagged rows')).toBeNull();
     expect(screen.getByText('Not sure it read this right')).toBeTruthy();
+  });
+});
+
+// The revamp, phase 4c (design/prototype Inbox): every field is in view, so
+// nothing is approved onto an account nobody chose, and the list is worked
+// from the top down.
+describe('Inbox: the message beside the list', () => {
+  const TWO_ACCOUNTS = [...ACCOUNTS, { id: 'acc-2', name: 'Current account', type: 'checking', archived_at: null, is_shared: true }];
+  const SECOND = { ...ITEM, id: 'intake-2', parsed_merchant: 'Bakery', raw_text: 'Bakery 30', parsed_amount: 30, created_at: '2026-09-04T08:00:00Z' };
+  const FIRST = { ...ITEM, created_at: '2026-09-05T08:00:00Z' };
+  const render = (props = {}) =>
+    renderScreen(
+      <Inbox members={MEMBERS} accounts={TWO_ACCOUNTS} categories={[]} loading={false} data={{ intake: [FIRST, SECOND], categoryRules: [], reload: vi.fn().mockResolvedValue(undefined) }} {...props} />,
+    );
+  beforeEach(() => {
+    calls.length = 0;
+  });
+
+  it('asks for the account when the message named none, and approves nothing until one is chosen', async () => {
+    render();
+    const account = screen.getByRole('combobox', { name: 'Account' });
+    expect(account.value).toBe('');
+    expect(screen.getByText('Not matched: choose the account.')).toBeTruthy();
+    await act(async () => {
+      screen.getByRole('button', { name: 'Approve' }).click();
+    });
+    expect(calls).toEqual([]);
+    expect(screen.getByRole('alert').textContent).toBe('Choose the account this belongs to.');
+  });
+
+  it('moves on to the next message once one is approved', async () => {
+    render();
+    expect(screen.getByLabelText('Merchant').value).toBe('Carrefour');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Account' }), { target: { value: 'acc-2' } });
+    await act(async () => {
+      screen.getByRole('button', { name: 'Approve' }).click();
+    });
+    expect(calls[0]).toMatchObject({ name: 'approve_intake', args: { p_account_id: 'acc-2' } });
+    expect(screen.getByLabelText('Merchant').value).toBe('Bakery');
+  });
+
+  it('rejects only while it is still waiting, and moves on', async () => {
+    render();
+    await act(async () => {
+      screen.getByRole('button', { name: 'Reject' }).click();
+    });
+    expect(calls).toEqual([{ kind: 'update', table: 'intake', payload: { status: 'rejected' }, where: { id: 'intake-1', status: 'pending' } }]);
+    expect(screen.getByLabelText('Merchant').value).toBe('Bakery');
+  });
+
+  it('says a message read cleanly, in the list and beside what was read', () => {
+    const CLEAN = { ...FIRST, parsed_account_id: 'acc-1', parsed_category_id: 'cat-1', confidence: 0.95 };
+    render({ categories: [{ id: 'cat-1', name: 'Groceries', kind: 'expense' }], data: { intake: [CLEAN], categoryRules: [], reload: vi.fn() } });
+    expect(screen.getAllByText('Read cleanly')).toHaveLength(2);
+  });
+
+  // A, R and the arrows work the list without the mouse (review S-inbox-7);
+  // typed into a field they are just letters.
+  it('approves with A, rejects with R and moves with the arrows, but not while typing', async () => {
+    const CLEAN = { ...FIRST, parsed_account_id: 'acc-1' };
+    render({ data: { intake: [CLEAN, { ...SECOND, parsed_account_id: 'acc-1' }], categoryRules: [], reload: vi.fn().mockResolvedValue(undefined) } });
+    fireEvent.keyDown(document.body, { key: 'ArrowDown' });
+    expect(screen.getByLabelText('Merchant').value).toBe('Bakery');
+    fireEvent.keyDown(document.body, { key: 'ArrowUp' });
+    expect(screen.getByLabelText('Merchant').value).toBe('Carrefour');
+    fireEvent.keyDown(screen.getByLabelText('Merchant'), { key: 'a' });
+    expect(calls).toEqual([]);
+    await act(async () => {
+      fireEvent.keyDown(document.body, { key: 'a' });
+    });
+    expect(calls[0]).toMatchObject({ name: 'approve_intake', args: { p_intake_id: 'intake-1' } });
+    await act(async () => {
+      fireEvent.keyDown(document.body, { key: 'r' });
+    });
+    expect(calls[1]).toMatchObject({ kind: 'update', where: { id: 'intake-2', status: 'pending' } });
   });
 });

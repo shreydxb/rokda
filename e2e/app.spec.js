@@ -314,7 +314,7 @@ test('phone: the header folds and the decisions start on the first screen', asyn
 test('phone: every control is big enough for a finger', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'mobile', 'phone layout only');
   await stubSupabase(page);
-  for (const path of ['/planning', '/planning?tab=life', '/planning?tab=debt', '/money?tab=inbox']) {
+  for (const path of ['/planning', '/planning?tab=life', '/planning?tab=debt', '/inbox']) {
     await gotoReady(page, path);
     const small = await page.evaluate(() =>
       [...document.querySelectorAll('.om-main button, .om-main a')]

@@ -146,8 +146,7 @@ select.om-seg {
   .om-btn,
   .om-seg,
   .om-scope,
-  .om-tab,
-  .ib-field {
+  .om-tab {
     min-height: 44px;
   }
   /* A tab grows upwards, so its label keeps its place over the underline. */

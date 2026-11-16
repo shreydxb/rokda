@@ -58,7 +58,6 @@
 }
 
 .mn-filters .om-btn,
-.ib-summary .om-btn,
 .rc-toolbar .om-btn,
 .debt-toolbar .om-btn,
 .ov-section-head .om-btn,
@@ -121,18 +120,6 @@
   align-items: center;
   justify-content: space-between;
   margin-bottom: 16px;
-}
-
-.ib-dot-pos {
-  background: var(--pos);
-}
-
-.ib-dot-warn {
-  background: var(--warn);
-}
-
-.ib-dot-neg {
-  background: var(--neg);
 }
 
 .rc-markpaid {

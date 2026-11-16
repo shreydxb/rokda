@@ -11,7 +11,6 @@ import './Money.css';
 import Activity from './money/Activity';
 import Recurring from './money/Recurring';
 import Budget from './money/Budget';
-import Inbox from './money/Inbox';
 import Review from './money/Review';
 import LoadFailure from './LoadFailure';
 import Freshness from './Freshness';
@@ -25,7 +24,6 @@ const TABS = [
   { id: 'activity', label: 'Activity' },
   { id: 'budget', label: 'Budget' },
   { id: 'recurring', label: 'Recurring' },
-  { id: 'inbox', label: 'Inbox' },
   { id: 'review', label: 'Review' },
 ];
 
@@ -42,6 +40,11 @@ export default function Money() {
   // Merchants view, so an old link or bookmark opens that, for its month.
   const [params, setParams] = useSearchParams();
   const retiredInsights = params.get('tab') === 'insights';
+  // The Inbox is its own page (the revamp, phase 4c), so its old tab opens it.
+  const retiredInbox = params.get('tab') === 'inbox';
+  useEffect(() => {
+    if (retiredInbox) navigate('/inbox', { replace: true });
+  }, [retiredInbox, navigate]);
   useEffect(() => {
     if (!retiredInsights) return;
     setParams(
@@ -91,7 +94,7 @@ export default function Money() {
       />
       <BackToReview />
       <TabRow
-        tabs={TABS.map((t) => (t.id === 'inbox' && pendingIntake > 0 ? { ...t, label: `${t.label} (${pendingIntake})` } : t))}
+        tabs={TABS}
         active={tab}
         onChange={setTab}
       />
@@ -115,9 +118,6 @@ export default function Money() {
           loading={loading}
           onOpenRecords={({ categoryId, year, month }) => navigate(activityHref({ categoryId, ...monthRange(year, month) }))}
         />
-      )}
-      {tab === 'inbox' && (
-        <Inbox household={household} members={members} accounts={data.accounts} categories={data.categories} data={data} loading={loading} />
       )}
       {tab === 'review' && <Review household={household} data={data} planning={planning} loading={loading} />}
       </ToolsSlot>
