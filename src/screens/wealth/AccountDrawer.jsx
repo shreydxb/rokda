@@ -1,4 +1,6 @@
-import { Link, useSearchParams } from 'react-router-dom';
+import { useState } from 'react';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { useScope } from '../../lib/ScopeContext';
 import { useNow } from '../../lib/useNow';
 import { accountValueAed } from '../../lib/accounts';
 import { isBalanceConfirmed } from '../../lib/balance';
@@ -6,9 +8,10 @@ import { activityHref, tabHref } from '../../lib/activityLink';
 import { ordinal } from '../../lib/creditCard';
 import { statementRows, statementsToCheck } from '../../lib/statements';
 import { cardCycle, liabilityRows, paymentDue } from '../../lib/netWorthLedger';
+import { LimitUsed } from './NetWorth';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { formatBalance } from '../../lib/money';
-import { Chip, Drawer, InfoButton, KpiStrip, ProgressBar } from '../../design-system/kit';
+import { Chip, Drawer, InfoButton, KpiStrip } from '../../design-system/kit';
 import { STATEMENT_STATUS, shortDate } from '../money/useStatementActions';
 import AccountEditor from './AccountEditor';
 import './AccountDrawer.css';
@@ -29,14 +32,27 @@ const CARD_TABS = [
 
 export default function AccountDrawer({ household, members = [], data }) {
   const [params, setParams] = useSearchParams();
+  const location = useLocation();
+  const navigate = useNavigate();
   const now = useNow(data?.loadedAt);
   const money = useMoneyDisplay(household);
+  const { scope } = useScope();
+  // The tab a switch just chose, so the drawer drawn afresh for it keeps the
+  // keyboard there (the fresh review of 5a).
+  const [switchedTo, setSwitchedTo] = useState(null);
   const id = params.get('account');
   if (!id) return null;
   const { accounts = [], transactions = [], statementReconciliations = [], categories = [], reload } = data;
 
-  // Closing leaves the page as it was under the drawer.
-  const close = () =>
+  // Closing leaves the page as it was under the drawer. Opened from the page
+  // (`state.drawer`), it was a step forward, so closing goes back, and Back
+  // then leaves the page rather than landing on it again; opened from a link
+  // or a reload, the address is replaced (the fresh review of 5a).
+  const close = () => {
+    if (location.state?.drawer) {
+      navigate(-1);
+      return;
+    }
     setParams(
       (prev) => {
         const next = new URLSearchParams(prev);
@@ -46,6 +62,7 @@ export default function AccountDrawer({ household, members = [], data }) {
       },
       { replace: true },
     );
+  };
   const saved = async () => {
     await reload();
     close();
@@ -61,7 +78,8 @@ export default function AccountDrawer({ household, members = [], data }) {
 
   const view = params.get('view');
   const tab = view === 'statements' || view === 'details' ? view : 'cycle';
-  const setTab = (next) =>
+  const setTab = (next) => {
+    setSwitchedTo(`${id}:${next}`);
     setParams(
       (prev) => {
         const p = new URLSearchParams(prev);
@@ -69,11 +87,13 @@ export default function AccountDrawer({ household, members = [], data }) {
         else p.set('view', next);
         return p;
       },
-      { replace: true },
+      { replace: true, state: location.state },
     );
+  };
+  const focusTab = switchedTo === `${id}:${params.get('view') === 'statements' || params.get('view') === 'details' ? params.get('view') : 'cycle'}`;
   const ownerName = account.is_shared ? 'Shared' : (members.find((m) => m.id === account.owner_member_id)?.display_name ?? 'Unassigned');
   const kicker = `Credit card · ${ownerName}`;
-  if (tab === 'details') return editor(account, { tabs: CARD_TABS, onTab: setTab, kicker });
+  if (tab === 'details') return editor(account, { tabs: CARD_TABS, onTab: setTab, kicker, focusTab });
 
   const rows = statementRows({ accounts: [account], reconciliations: statementReconciliations, transactions, now });
   return (
@@ -83,6 +103,7 @@ export default function AccountDrawer({ household, members = [], data }) {
       tabs={CARD_TABS}
       tab={tab}
       onTab={setTab}
+      focusTab={focusTab}
       wide
       onClose={close}
       footer={
@@ -92,7 +113,7 @@ export default function AccountDrawer({ household, members = [], data }) {
       }
     >
       {tab === 'cycle' ? (
-        <CardCycle account={account} transactions={transactions} rows={rows} categories={categories} money={money} now={now} />
+        <CardCycle account={account} transactions={transactions} rows={rows} categories={categories} money={money} now={now} whole={scope !== 'both'} />
       ) : (
         <CardStatements account={account} rows={rows} />
       )}
@@ -102,24 +123,34 @@ export default function AccountDrawer({ household, members = [], data }) {
 
 // The card's running cycle: what is owed, spent and used of the limit; the
 // cycle's dates and the payment due; the cycle's transactions.
-function CardCycle({ account, transactions, rows, categories, money, now }) {
+function CardCycle({ account, transactions, rows, categories, money, now, whole }) {
   const cycle = cardCycle(account, transactions, now);
   const [row] = liabilityRows([account], transactions, { now });
   const due = paymentDue(account, rows, now);
   const catName = new Map(categories.map((c) => [c.id, c.name]));
   const owed = accountValueAed(account);
+  const foreign = String(account.currency ?? 'AED').toUpperCase() !== 'AED';
+  const native = `${String(account.currency ?? 'AED').toUpperCase()} ${Number(account.balance ?? 0).toLocaleString('en-AE')}`;
   const used = row?.limitUsed;
   const count = cycle?.transactions.length ?? 0;
   return (
     <div className="ad">
+      {/* In one person's view the ledger row is their part; this is the card
+          itself, which both of them may use. */}
+      {whole && <div className="ad-ink3">The whole card, for both of you.</div>}
       <div className="ad-kpis">
         <KpiStrip
           items={[
             {
               label: 'Owed',
-              value: owed === null ? `${account.currency} ${Number(account.balance ?? 0).toLocaleString('en-AE')}` : money.fmtBalance(owed),
-              tone: 'neg',
-              sub: isBalanceConfirmed(account) && account.balance_as_of ? `checked ${shortDate(account.balance_as_of)}` : <Chip tone="warn">Not confirmed</Chip>,
+              value: owed === null ? native : money.fmtBalance(owed),
+              tone: owed !== null && owed > 0 ? 'neg' : undefined,
+              sub: (
+                <>
+                  {foreign && owed !== null && `${native} · `}
+                  {isBalanceConfirmed(account) && account.balance_as_of ? `checked ${shortDate(account.balance_as_of)}` : <Chip tone="warn">Not confirmed</Chip>}
+                </>
+              ),
             },
             {
               label: 'Spent this cycle',
@@ -129,15 +160,8 @@ function CardCycle({ account, transactions, rows, categories, money, now }) {
             },
             {
               label: 'Limit used',
-              value: used ? `${Math.round(used.share * 100)}%` : '—',
-              sub: used ? (
-                <span className="ad-used">
-                  <ProgressBar label="Limit used" value={Math.max(0, used.share) * used.limit} max={used.limit} tone={used.share > 0.8 ? 'neg' : 'accent'} />
-                  <span>{`of ${used.currency === 'AED' ? '' : `${used.currency} `}${Number(used.limit).toLocaleString('en-AE')}`}</span>
-                </span>
-              ) : (
-                'No limit set'
-              ),
+              value: used && used.share !== null ? `${Math.round(Math.max(0, used.share) * 100)}%` : '—',
+              sub: used ? <LimitUsed used={used} name={account.name} money={money} /> : 'No limit set',
             },
           ]}
         />
@@ -159,7 +183,7 @@ function CardCycle({ account, transactions, rows, categories, money, now }) {
               {shortDate(due.date)}
               <span className="ad-ink3">
                 {due.statementTo
-                  ? ` · ${due.amount != null ? `${formatBalance(due.amount, { decimals: 2 })} ` : ''}for the statement to ${shortDate(due.statementTo)}`
+                  ? ` · ${due.amount != null ? `${money.fmtBalance(due.amount, { decimals: 2 })} ` : ''}for the statement to ${shortDate(due.statementTo)}`
                   : due.cycleTo
                     ? ` · for the cycle that closes ${shortDate(due.cycleTo)}`
                     : ''}

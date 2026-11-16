@@ -222,7 +222,7 @@ function unconfirmedBalanceItems(accounts, scopeMemberId, now) {
       accountId: a.id,
       detail:
         status === 'unset'
-          ? 'Net worth treats it as zero until someone confirms what it actually is.'
+          ? 'Net worth counts it as entered until someone confirms what it actually is.'
           : `Last confirmed ${Math.floor((now - new Date(a.balance_as_of)) / 86400000)}d ago.`,
     });
   }

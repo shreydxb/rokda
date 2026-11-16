@@ -9,7 +9,7 @@ import { accountTypeLabel, accountValueAed, archivedAccounts, unvaluedAccounts }
 import { unconfirmedAccounts } from '../../lib/balance';
 import { historyState, pendingClose } from '../../lib/snapshots';
 import { buildNetWorthSeries, changeOverMonths } from '../../lib/netWorth';
-import { ASSET_CLASS_LABELS, scopedHoldingValue, visibleHoldings } from '../../lib/holdings';
+import { ASSET_CLASS_LABELS, isClosedHolding, scopedHoldingValue, visibleHoldings } from '../../lib/holdings';
 import { isStale, isAwaitingFirstValuation } from '../../lib/valuation';
 import { tabHref } from '../../lib/activityLink';
 import { monthParam } from '../../lib/useMonthParam';
@@ -67,17 +67,25 @@ export default function NetWorth({ household, me, members, data, loading }) {
   const [error, setError] = useState(null);
 
   // The account drawer is opened through the address, so a link from any page
-  // opens the same thing (screens/wealth/AccountDrawer.jsx).
-  const openAccount = (id) =>
-    setParams((prev) => {
-      const next = new URLSearchParams(prev);
-      next.set('account', id);
-      return next;
-    });
+  // opens the same thing (screens/wealth/AccountDrawer.jsx). Opened from here
+  // it is a step Back undoes, and closing it goes back (`state.drawer`).
+  const openAccount = (id, view) =>
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.set('account', id);
+        if (view) next.set('view', view);
+        else next.delete('view');
+        return next;
+      },
+      { state: { drawer: true } },
+    );
 
   const inView = useMemo(() => accounts.filter((a) => scopeMemberId === null || a.is_shared || a.owner_member_id === scopeMemberId), [accounts, scopeMemberId]);
   const open = useMemo(() => inView.filter((a) => !a.archived_at), [inView]);
-  const held = useMemo(() => visibleHoldings(holdings, scopeMemberId), [holdings, scopeMemberId]);
+  // Sold-out holdings are not held: their last price only ages, as on
+  // Investments (the fresh review of 5a).
+  const held = useMemo(() => visibleHoldings(holdings, scopeMemberId).filter((h) => !isClosedHolding(h)), [holdings, scopeMemberId]);
   // Totals come from the shared basis, so Wealth, Overview and the plan
   // cannot drift apart (QA-03).
   const summary = useMemo(() => netWorthSummary(accounts, scopeMemberId, holdings), [accounts, scopeMemberId, holdings]);
@@ -153,9 +161,11 @@ export default function NetWorth({ household, me, members, data, loading }) {
       {row.status?.kind === 'stale' && <Chip>{`Checked ${row.status.days}d ago`}</Chip>}
     </td>
   );
-  const amount = (row, negative = false) =>
+  // A liability is owed, so shown below zero; a card in credit is money held,
+  // shown above it, so the column adds up to its total.
+  const amount = (row, liability = false) =>
     row.value !== null ? (
-      <span className={negative ? 'nw-neg' : undefined}>{negative ? `−${money.fmt(row.value)}` : money.fmtBalance(row.value)}</span>
+      <span className={liability && row.value > 0 ? 'nw-neg' : undefined}>{money.fmtBalance(liability ? -row.value : row.value)}</span>
     ) : (
       <span className="nw-ink3" title="Not converted to AED, so not counted">
         {row.native}
@@ -207,7 +217,7 @@ export default function NetWorth({ household, me, members, data, loading }) {
             )}
           </div>
           {unconfirmed.length > 0 && (
-            <WarningRow action={{ label: 'Confirm', onClick: () => openAccount(unconfirmed[0].id) }}>{`${unconfirmed.map((a) => a.name).join(', ')} · balance not confirmed`}</WarningRow>
+            <WarningRow action={{ label: 'Confirm', onClick: () => openAccount(unconfirmed[0].id, unconfirmed[0].type === 'credit_card' ? 'details' : undefined) }}>{`${unconfirmed.map((a) => a.name).join(', ')} · balance not confirmed`}</WarningRow>
           )}
           {/* Not counted as zero but left out: these are not in the total
               at all (QA #4). */}
@@ -219,7 +229,7 @@ export default function NetWorth({ household, me, members, data, loading }) {
             </div>
             <div>
               <dt>Liabilities</dt>
-              <dd>{summary.liabilities > 0 ? `−${money.fmt(summary.liabilities)}` : money.fmt(0)}</dd>
+              <dd>{money.fmtBalance(-summary.liabilities)}</dd>
             </div>
             <div>
               <dt>
@@ -382,7 +392,7 @@ export default function NetWorth({ household, me, members, data, loading }) {
                         {nameCell(
                           row,
                           <div className="nw-sub">
-                            {row.cycle ? `${money.fmt(row.cycle.spent)} this cycle · closes in ${row.cycle.closesIn}d` : row.sub}
+                            {row.cycle ? `${money.fmtBalance(row.cycle.spent)} this cycle · ${row.cycle.closesIn === 0 ? 'closes today' : `closes in ${row.cycle.closesIn}d`}` : row.sub}
                             {row.status?.kind === 'unset' && (
                               <>
                                 {' '}
@@ -393,19 +403,14 @@ export default function NetWorth({ household, me, members, data, loading }) {
                         )}
                         <td>{owner(row.account)}</td>
                         <td>
-                          {row.limitUsed && (
-                            <div className="nw-util">
-                              <ProgressBar label={`${row.account.name}, limit used`} value={Math.max(0, row.limitUsed.share) * row.limitUsed.limit} max={row.limitUsed.limit} tone={row.limitUsed.share > 0.8 ? 'neg' : 'accent'} />
-                              <span className="nw-sub">{`${Math.round(row.limitUsed.share * 100)}% of ${row.limitUsed.currency === 'AED' ? '' : `${row.limitUsed.currency} `}${Number(row.limitUsed.limit).toLocaleString('en-AE')}`}</span>
-                            </div>
-                          )}
+                          {row.limitUsed && <LimitUsed used={row.limitUsed} name={row.account.name} money={money} />}
                         </td>
                         <td className="ds-num">{amount(row, true)}</td>
                       </tr>
                     ))}
                     <tr className="nw-total">
                       <td colSpan={3}>Total liabilities</td>
-                      <td className="ds-num nw-neg">{summary.liabilities > 0 ? `−${money.fmt(summary.liabilities)}` : money.fmt(0)}</td>
+                      <td className={`ds-num${summary.liabilities > 0 ? ' nw-neg' : ''}`}>{money.fmtBalance(-summary.liabilities)}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -437,6 +442,21 @@ export default function NetWorth({ household, me, members, data, loading }) {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// A card's limit used: the share with its bar, the limit in the display
+// currency (in its own when the card's is another), or why there is no share.
+// A cycle of refunds uses none of it.
+export function LimitUsed({ used, name, money }) {
+  const limit = used.currency === 'AED' ? money.fmt(used.limit) : `${used.currency} ${Number(used.limit).toLocaleString('en-AE')}`;
+  if (used.share === null) return <span className="nw-sub">{`${limit} limit · not comparable with AED spending`}</span>;
+  const share = Math.max(0, used.share);
+  return (
+    <div className="nw-util">
+      <ProgressBar label={`${name}, limit used`} value={share * used.limit} max={used.limit} tone={share > 0.8 ? 'neg' : 'accent'} />
+      <span className="nw-sub">{`${Math.round(share * 100)}% of ${limit}`}</span>
     </div>
   );
 }

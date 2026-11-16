@@ -116,7 +116,31 @@ describe('liabilityRows', () => {
     const dollars = account('Dollars', 'credit_card', { currency: 'USD', statement_day: 10, credit_limit: 1000, balance: 100, balance_aed: 367 });
     const rows = liabilityRows([plain, dollars], [tx('a', 'Dollars', -50, '2026-11-12')], { scopeMemberId: null, now: NOW });
     expect(rows.find((r) => r.account.id === 'Plain').limitUsed).toEqual({ share: 0.25, limit: 2000, currency: 'AED' });
-    expect(rows.find((r) => r.account.id === 'Dollars').limitUsed).toBeNull();
+    expect(rows.find((r) => r.account.id === 'Dollars').limitUsed).toMatchObject({ share: null, reason: 'currency' });
+  });
+
+  // The fresh review of 5a: a limit in another currency can't be set against
+  // AED spending, which is not the same as having none.
+  it('says a limit in another currency can’t be compared, rather than giving none', () => {
+    const dollars = account('Dollars', 'credit_card', { currency: 'USD', statement_day: 10, credit_limit: 1000, balance: 100, balance_aed: 367 });
+    const [row] = liabilityRows([dollars], [], { scopeMemberId: null, now: NOW });
+    expect(row.limitUsed).toEqual({ share: null, limit: 1000, currency: 'USD', reason: 'currency' });
+  });
+
+  // In one person's view the cycle is their part of it, as the owed figure
+  // is: their own records and half the shared ones; the limit used stays the
+  // card's.
+  it('gives one person their part of a shared card’s cycle, and the card’s limit used', () => {
+    const card = account('Card', 'credit_card', { statement_day: 10, credit_limit: 1000, balance: 400 });
+    const transactions = [
+      tx('shared', 'Card', -100, '2026-11-12'),
+      tx('mine', 'Card', -40, '2026-11-12', { is_shared: false, owner_member_id: 'm1' }),
+      tx('theirs', 'Card', -60, '2026-11-12', { is_shared: false, owner_member_id: 'm2' }),
+    ];
+    const [row] = liabilityRows([card], transactions, { scopeMemberId: 'm1', now: NOW });
+    expect(row.cycle.spent).toBe(90);
+    expect(row.value).toBe(200);
+    expect(row.limitUsed.share).toBe(0.2);
   });
 
   it('names a loan’s type and leaves a closed liability out', () => {

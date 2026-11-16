@@ -53,9 +53,14 @@ function initialForm(account, defaultType) {
 // (screens/wealth/AccountDrawer.jsx): `tabs` and `onTab` draw them, and
 // leaving the details for another tab with changes unsaved asks first, as
 // closing does.
-export default function AccountEditor({ account, defaultType, householdId, members, accounts = [], transactions = [], onClose, onSaved, tabs, onTab, kicker }) {
+export default function AccountEditor({ account, defaultType, householdId, members, accounts = [], transactions = [], onClose, onSaved, tabs, onTab, kicker, focusTab = false }) {
   const formId = useId();
-  const [form, setForm] = useState(() => initialForm(account, defaultType));
+  // The account as it was when the editor opened. The drawer is handed the
+  // live row, which a refresh replaces while the editor is open; the balance
+  // is compared with the one the editor opened with, so a balance a trade
+  // moved meanwhile is not written back (SHR-367; the fresh review of 5a).
+  const [opened] = useState(() => initialForm(account, defaultType));
+  const [form, setForm] = useState(opened);
   // A balance is a claim someone makes as of a date. Until it is confirmed it
   // stays unknown rather than becoming a confident zero (QA-02).
   const [confirmBalance, setConfirmBalance] = useState(() => !account || !isBalanceConfirmed(account));
@@ -135,7 +140,7 @@ export default function AccountEditor({ account, defaultType, householdId, membe
     // moves a broker fund's balance while this editor may be open, and
     // sending the figure it opened with would put the old balance back
     // (SHR-367).
-    if (!account || form.balance !== initialForm(account).balance || form.type !== account.type) {
+    if (!account || form.balance !== opened.balance || form.type !== opened.type) {
       // A loan's balance is the amount owed, and a loan cannot be in credit,
       // so a loan typed below zero is stored as what it owes. Net worth read
       // a negative loan as money held (Planning audit, 0b-D).
@@ -230,6 +235,7 @@ export default function AccountEditor({ account, defaultType, householdId, membe
       tab={tabs ? 'details' : undefined}
       onTab={leave}
       wide={!!tabs}
+      focusTab={focusTab}
       onClose={requestClose}
       onEscape={escapeKey}
       footer={
@@ -348,7 +354,7 @@ export default function AccountEditor({ account, defaultType, householdId, membe
                   ? 'Balances are manual snapshots — this records what you say it is, as of that date.'
                   : account && isBalanceConfirmed(account)
                     ? 'Leaving this unticked keeps the existing balance and its date.'
-                    : 'Until you confirm it, this balance is shown as not set rather than as a zero.'}
+                    : 'Until you confirm it, this balance counts as entered and is marked not confirmed.'}
               </div>
             </>
           )}

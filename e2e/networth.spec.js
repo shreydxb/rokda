@@ -33,3 +33,17 @@ test('an old Accounts link opens Net worth, and + Account adds one', async ({ pa
   await page.getByRole('button', { name: '+ Account' }).click();
   await expect(page.getByRole('dialog', { name: 'Add an account' })).toBeVisible();
 });
+
+// The fresh review of 5a: at about 1100 px the ledger's figures were cut off
+// as soon as a row said "Not confirmed" with Confirm.
+test('the ledger fits a narrower window without cutting its figures off', async ({ page }) => {
+  await page.setViewportSize({ width: 1100, height: 900 });
+  const { data } = await import('./fixtures.js');
+  const accounts = data.accounts.map((a) => (a.name === 'Savings' ? { ...a, balance_as_of: null } : a));
+  await stubSupabase(page, { tables: { accounts } });
+  await page.goto('/wealth', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('.om-main .ov-skel')).toHaveCount(0, { timeout: 15_000 });
+  await expect(page.getByRole('region', { name: 'Assets', exact: true })).toContainText('Not confirmed');
+  const overflow = await page.locator('.nw .ds-table-wrap').evaluateAll((wraps) => wraps.map((w) => w.scrollWidth - w.clientWidth));
+  expect(overflow.every((px) => px <= 1)).toBe(true);
+});

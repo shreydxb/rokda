@@ -129,7 +129,7 @@
   width: 64px;
 }
 .nw-col-status {
-  width: 200px;
+  width: auto;
 }
 .nw-col-amt {
   width: 130px;
@@ -221,12 +221,17 @@
   font-weight: 500;
 }
 
-@media (max-width: 720px) {
-  .nw-top,
+/* Side by side, Assets and Liabilities each need more room than a narrower
+   window leaves them, and the figures at their right edge were cut off (the
+   fresh review of 5a). They stack until there is room. */
+@media (max-width: 1240px) {
   .nw-ledger {
     grid-template-columns: 1fr;
   }
-  .nw-col-status {
-    width: auto;
+}
+
+@media (max-width: 720px) {
+  .nw-top {
+    grid-template-columns: 1fr;
   }
 }

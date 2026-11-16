@@ -34,7 +34,12 @@ const holding = (id, asset_class, value_aed) => ({ id, name: id, asset_class, va
 
 function Where() {
   const location = useLocation();
-  return <output data-testid="where">{location.pathname + location.search}</output>;
+  return (
+    <>
+      <output data-testid="where">{location.pathname + location.search}</output>
+      <output data-testid="state">{JSON.stringify(location.state ?? null)}</output>
+    </>
+  );
 }
 
 function open(data, { me = MEMBERS[0], scope } = {}) {
@@ -64,6 +69,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   window.localStorage.removeItem('rokda.scope');
+  window.localStorage.removeItem('rokda:currency');
 });
 
 describe('Net worth: the hero', () => {
@@ -235,5 +241,64 @@ describe('Net worth: a read that failed', () => {
     open({ accounts: [account('Bank', 'checking')], errors: { holdings: 'timeout' }, loaded: { accounts: true } });
     expect(screen.getByText('Couldn’t load investments.')).toBeTruthy();
     expect(screen.queryByRole('region', { name: 'Net worth' })).toBeNull();
+  });
+});
+
+// The fresh review of 5a.
+describe('Net worth: after the fresh review', () => {
+  const card = (id, extra = {}) => account(id, 'credit_card', { statement_day: 10, due_day: 25, credit_limit: 1000, ...extra });
+
+  it('shows a card in credit as money held, so the liabilities add up to their total', () => {
+    open({ accounts: [card('Owing', { balance: 1000 }), card('In credit', { balance: -500 })] });
+    const liabilities = region('Liabilities');
+    const owed = (name) => within(liabilities).getByRole('button', { name }).closest('tr').cells[3].textContent;
+    expect(owed('Owing')).toBe('−1,000');
+    expect(owed('In credit')).toBe('500');
+    expect([...liabilities.querySelectorAll('tbody tr')].at(-1).textContent).toMatch(/Total liabilities.*−500$/);
+    expect(within(region('Net worth')).getByText('Liabilities', { selector: 'dt' }).closest('div').textContent).toMatch(/−500$/);
+  });
+
+  it('owes nothing without a sign, and says a cycle of refunds is money back, closing today on the statement day', () => {
+    vi.setSystemTime(new Date('2026-12-10T12:00:00'));
+    open({ accounts: [card('Card', { balance: 0 })], transactions: [{ id: 'r', account_id: 'Card', amount: 120, kind: 'refund', occurred_at: '2026-12-01', is_shared: true }] });
+    const row = within(region('Liabilities')).getByRole('button', { name: 'Card' }).closest('tr');
+    expect(row.cells[3].textContent).toBe('0');
+    expect(row.textContent).toMatch(/−120 this cycle · closes today/);
+    expect(row.textContent).toMatch(/0% of 1,000/);
+  });
+
+  it('leaves sold holdings out of the investments row', () => {
+    const sold = { ...holding('Sold fund', 'us_equity', 0), trades_version: 2, quantity: 0, priced_at: '2026-01-01T00:00:00Z', last_refreshed: '2026-01-01T00:00:00Z' };
+    open({ holdings: [holding('Index fund', 'us_equity', 60000), sold] });
+    const row = within(region('Assets')).getByRole('button', { name: /^Investments/ }).closest('tr');
+    expect(row.textContent).toMatch(/1 holding/);
+    expect(row.textContent).not.toMatch(/stale/);
+  });
+
+  it('confirms an unconfirmed card on its details', async () => {
+    open({ accounts: [card('Card', { balance_as_of: null })] });
+    await click(within(region('Net worth')).getByRole('button', { name: 'Confirm' }));
+    expect(where()).toBe('/wealth?account=Card&view=details');
+  });
+
+  it('gives a card’s limit in the display currency', () => {
+    window.localStorage.setItem('rokda:currency', 'USD');
+    open({ accounts: [card('Card', { credit_limit: 3672.5 })], transactions: [{ id: 't', account_id: 'Card', amount: -367.25, kind: 'expense', occurred_at: '2026-11-12', is_shared: true }] });
+    const row = within(region('Liabilities')).getByRole('button', { name: 'Card' }).closest('tr');
+    expect(row.textContent).toMatch(/10% of 1,000/);
+  });
+
+  it('says a limit in another currency can’t be compared with AED spending', () => {
+    open({ accounts: [card('Dollars', { currency: 'USD', balance: 100, balance_aed: 367 })] });
+    const row = within(region('Liabilities')).getByRole('button', { name: 'Dollars' }).closest('tr');
+    expect(row.textContent).toMatch(/USD 1,000 limit · not comparable with AED spending/);
+  });
+
+  // Opened from the page, so closing it goes back rather than leaving an
+  // entry behind for Back to land on.
+  it('opens an account as a step Back can undo', async () => {
+    open({ accounts: [account('Current', 'checking')] });
+    await click(within(region('Assets')).getByRole('button', { name: 'Current' }));
+    expect(JSON.parse(screen.getByTestId('state').textContent)).toEqual({ drawer: true });
   });
 });

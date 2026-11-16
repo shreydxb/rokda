@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { screen, within, fireEvent } from '@testing-library/react';
-import { act } from 'react';
-import { MemoryRouter, useLocation } from 'react-router-dom';
+import { act, useState } from 'react';
+import { MemoryRouter, useLocation, useNavigationType } from 'react-router-dom';
 import { renderScreen } from '../../test/renderScreen';
 
 // The account drawer (the revamp, phase 5a; design/prototype openAccount,
@@ -38,7 +38,13 @@ const tx = (id, amount, occurred_at, extra = {}) => ({ id, account_id: 'Card', a
 
 function Where() {
   const location = useLocation();
-  return <output data-testid="where">{location.pathname + location.search}</output>;
+  const type = useNavigationType();
+  return (
+    <>
+      <output data-testid="where">{location.pathname + location.search}</output>
+      <output data-testid="type">{type}</output>
+    </>
+  );
 }
 
 function open(entry, data = {}) {
@@ -66,6 +72,8 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.useRealTimers();
+  window.localStorage.removeItem('rokda.scope');
+  window.localStorage.removeItem('rokda:currency');
 });
 
 describe('The account drawer', () => {
@@ -143,5 +151,82 @@ describe('The account drawer', () => {
     expect(writes[0]).toMatchObject({ table: 'accounts', update: { name: 'Main current' }, value: 'Current' });
     expect(reload).toHaveBeenCalled();
     expect(where()).toBe('/wealth');
+  });
+});
+
+// The fresh review of 5a.
+describe('The account drawer: after the fresh review', () => {
+  // SHR-367: a trade moves a broker fund's balance while its editor may be
+  // open, and a refresh brings the new balance in; saving a rename must not
+  // send the balance the drawer opened with.
+  it('saves a rename without the balance it opened with, after the balance moved underneath it', async () => {
+    const fund = account('Fund', 'broker_funds', { balance: 5000 });
+    function Host() {
+      const [accounts, setAccounts] = useState([fund]);
+      return (
+        <>
+          <button type="button" onClick={() => setAccounts([{ ...fund, balance: 3000 }])}>
+            Refresh
+          </button>
+          <AccountDrawer household={{ id: 'hh' }} me={MEMBERS[0]} members={MEMBERS} data={{ accounts, transactions: [], statementReconciliations: [], categories: [], reload: vi.fn().mockResolvedValue(undefined) }} />
+        </>
+      );
+    }
+    renderScreen(
+      <MemoryRouter initialEntries={['/wealth?account=Fund']}>
+        <Host />
+      </MemoryRouter>,
+    );
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Broker cash' } });
+    await click(screen.getByRole('button', { name: 'Refresh' }));
+    await click(screen.getByRole('button', { name: 'Save changes' }));
+    expect(writes[0].update.name).toBe('Broker cash');
+    expect(writes[0].update).not.toHaveProperty('balance');
+  });
+
+  it('closes back to the page that opened it, and replaces a link’s address', async () => {
+    renderScreen(
+      <MemoryRouter initialEntries={['/wealth', { pathname: '/wealth', search: '?account=Current', state: { drawer: true } }]} initialIndex={1}>
+        <Where />
+        <AccountDrawer household={{ id: 'hh' }} me={MEMBERS[0]} members={MEMBERS} data={{ accounts: [account('Current', 'checking')], transactions: [], statementReconciliations: [], categories: [], reload: vi.fn() }} />
+      </MemoryRouter>,
+    );
+    await click(within(dialog()).getByRole('button', { name: 'Close' }));
+    expect([where(), screen.getByTestId('type').textContent]).toEqual(['/wealth', 'POP']);
+    document.body.innerHTML = '';
+    open('/wealth?account=Current');
+    await click(within(dialog()).getByRole('button', { name: 'Close' }));
+    expect([where(), screen.getByTestId('type').textContent]).toEqual(['/wealth', 'REPLACE']);
+  });
+
+  it('says a card’s limit in another currency can’t be compared, and gives what it owes in that currency', () => {
+    const dollars = account('Dollars', 'credit_card', { currency: 'USD', balance: 100, balance_aed: 367.25, statement_day: 10, due_day: 25, credit_limit: 1000 });
+    open('/wealth?account=Dollars', { accounts: [dollars] });
+    const kpi = (label) => within(dialog()).getByText(label, { selector: 'dt' }).closest('.ds-kpi').textContent;
+    expect(kpi('Limit used')).toMatch(/USD 1,000 limit · not comparable with AED spending/);
+    expect(kpi('Owed')).toMatch(/USD 100/);
+  });
+
+  it('gives the payment due in the display currency', () => {
+    window.localStorage.setItem('rokda:currency', 'USD');
+    open('/wealth?account=Card', { statementReconciliations: [{ id: 'r', account_id: 'Card', statement_date: '2026-11-10', period_start: '2026-10-11', due_date: '2026-11-25', status: 'waiting', statement_balance: 3672.5 }] });
+    expect(dialog().textContent).toMatch(/25 Nov · 1,000\.00 for the statement to 10 Nov/);
+  });
+
+  it('keeps the keyboard on the tabs when Details is chosen', async () => {
+    open('/wealth?account=Card&view=statements');
+    const statements = screen.getByRole('tab', { name: 'Statements' });
+    statements.focus();
+    await act(async () => {
+      fireEvent.keyDown(statements, { key: 'ArrowRight' });
+    });
+    expect(where()).toBe('/wealth?account=Card&view=details');
+    expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Details' }));
+  });
+
+  it('says it shows the whole card in one person’s view', () => {
+    window.localStorage.setItem('rokda.scope', 'me');
+    open('/wealth?account=Card');
+    expect(within(dialog()).getByText('The whole card, for both of you.')).toBeTruthy();
   });
 });

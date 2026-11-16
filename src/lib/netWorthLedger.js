@@ -82,8 +82,10 @@ export function assetGroups(accounts, { by = 'type', members = [], scopeMemberId
 // through the day the next one closes, counted as a statement counts
 // (lib/statements.js), so it agrees with the statement it becomes. Posted
 // records only, refunds netted; newest first. On the statement day itself the
-// cycle closes today.
-export function cardCycle(account, transactions = [], now = new Date()) {
+// cycle closes today. In one person's view, `spent` is their part, as their
+// owed figure is: their own records and half the shared ones (the fresh
+// review of 5a); with no one chosen, the whole card.
+export function cardCycle(account, transactions = [], now = new Date(), scopeMemberId = null) {
   if (!account?.statement_day) return null;
   const today = startOfDay(now);
   const thisMonth = atDayOfMonth(today.getFullYear(), today.getMonth(), account.statement_day);
@@ -92,37 +94,41 @@ export function cardCycle(account, transactions = [], now = new Date()) {
   const from = new Date(last.getFullYear(), last.getMonth(), last.getDate() + 1);
   const rows = transactions
     .filter((t) => t.account_id === account.id && isPosted(t, now))
+    .filter((t) => scopeMemberId === null || t.is_shared || t.owner_member_id === scopeMemberId)
     .filter((t) => {
       const d = parseDay(t.occurred_at);
       return d >= from && d <= next;
     })
     .sort((a, b) => (a.occurred_at < b.occurred_at ? 1 : a.occurred_at > b.occurred_at ? -1 : 0));
-  const spent = Math.round(rows.reduce((s, t) => s + spendDelta(t, Number(t.amount)), 0) * 100) / 100;
+  const spent = Math.round(rows.reduce((s, t) => s + spendDelta(t, scopedValue(Number(t.amount), t, scopeMemberId)), 0) * 100) / 100;
   return { from: isoDay(from), to: isoDay(next), closesIn: Math.round((next - today) / DAY_MS), transactions: rows, spent };
 }
 
-// The share of a card's limit in use. With a statement day it is the running
-// cycle's spending; that is in AED, so a limit in another currency gives no
-// share rather than a wrong one. Without one, the balance against the limit,
-// both in the card's own currency.
+// The share of a card's limit in use, the whole card's whoever is shown. With
+// a statement day it is the running cycle's spending; that is in AED, so a
+// limit in another currency gives no share rather than a wrong one, and says
+// why (`reason: 'currency'`), which is not the same as having no limit.
+// Without one, the balance against the limit, both in the card's currency.
 function limitUsed(account, cycle) {
   const limit = Number(account.credit_limit);
   if (!(limit > 0)) return null;
   const currency = String(account.currency ?? 'AED').toUpperCase();
-  if (cycle) return currency === 'AED' ? { share: cycle.spent / limit, limit, currency } : null;
+  if (cycle) return currency === 'AED' ? { share: cycle.spent / limit, limit, currency } : { share: null, limit, currency, reason: 'currency' };
   return { share: utilisation(account), limit, currency };
 }
 
-// The cards and loans, with what is owed (a positive figure), and for a card
-// its running cycle and the share of its limit used.
+// The cards and loans, with what is owed (positive; a card in credit is
+// negative), and for a card its running cycle (the person in view's part) and
+// the share of its limit used (the whole card's).
 export function liabilityRows(accounts, transactions = [], { scopeMemberId = null, now = new Date() } = {}) {
   return inView(accounts, scopeMemberId)
     .filter(isLiabilityAccount)
     .map((a) => {
       const card = a.type === 'credit_card';
-      const cycle = card ? cardCycle(a, transactions, now) : null;
+      const whole = card ? cardCycle(a, transactions, now) : null;
+      const cycle = card && scopeMemberId !== null ? cardCycle(a, transactions, now, scopeMemberId) : whole;
       const row = ledgerRow(a, { scopeMemberId, now, showType: !card });
-      return { ...row, cycle, limitUsed: card ? limitUsed(a, cycle) : null };
+      return { ...row, cycle, limitUsed: card ? limitUsed(a, whole) : null };
     });
 }
 

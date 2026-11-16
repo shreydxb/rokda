@@ -270,11 +270,20 @@ export function Banner({ tone = 'neg', onRetry, children }) {
 // title, an "Unsaved" chip, optional tabs and a sticky footer. Focus is held
 // inside it (lib/useDrawerFocus). `onClose` is the editor's own close, which
 // asks before discarding changes (lib/useCloseGuard).
-export function Drawer({ kicker, title, dirty = false, tabs, tab, onTab, footer, onClose, onEscape, wide = false, children }) {
+export function Drawer({ kicker, title, dirty = false, tabs, tab, onTab, footer, onClose, onEscape, wide = false, focusTab = false, children }) {
   const ref = useDrawerFocus();
   const titleId = useId();
   const tabsId = useId();
   const tabRefs = useRef({});
+  // A drawer drawn afresh for another of its tabs (an account's Details, the
+  // editor's own drawer) opens with that tab focused, so the keyboard stays
+  // on the tabs (the fresh review of 5a). Otherwise the dialog itself takes
+  // focus, which announces it by name.
+  useEffect(() => {
+    if (focusTab && tabs) tabRefs.current[tab]?.focus();
+    // On opening only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // Escape is answered on the drawer itself and stops there: the editor's
   // own step back (onEscape, from useCloseGuard with listen: false) or its
   // close, once, and a drawer underneath is left alone (fresh review of the

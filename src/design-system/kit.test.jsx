@@ -254,6 +254,17 @@ describe('Fold: empty', () => {
 });
 
 describe('Drawer', () => {
+  // A drawer drawn afresh for another tab (an account's Details) keeps the
+  // keyboard on the tabs (the fresh review of 5a).
+  it('can open with its chosen tab focused', () => {
+    render(
+      <Drawer title="Card" tabs={[{ id: 'a', label: 'One' }, { id: 'b', label: 'Two' }]} tab="b" onTab={() => {}} onClose={() => {}} focusTab>
+        body
+      </Drawer>,
+    );
+    expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Two' }));
+  });
+
   const open = (props = {}) =>
     render(
       <>

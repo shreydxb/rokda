@@ -4141,3 +4141,29 @@ The revamp's phase 5a (design note `docs/superpowers/specs/2026-11-16-wealth-des
   Month end call it old (decision 4).
 - The header's tools slot moves to `screens/PageTools.jsx`, shared by Money,
   the Inbox and Wealth.
+- **The fresh review of 5a** changed these:
+  - **A save sends the balance only when it was typed** against the
+    balance the editor opened with. The drawer is handed the live account,
+    which a refresh replaces, so a rename could write back a balance a trade
+    had moved meanwhile (SHR-367).
+  - **A card in credit is money held**: the Owed column is signed, so it
+    adds up to Total liabilities, and Liabilities show their sign.
+  - **Closing a drawer opened from the page goes back**, so Back leaves the
+    page rather than landing on it again; one opened from a link replaces
+    its address.
+  - **The ledger stacks below 1,240 px**: side by side, the figures at the
+    tables' right edge were cut off.
+  - **A limit in another currency says why there is no share** ("USD 1,000
+    limit · not comparable with AED spending"), as the card box did, and the
+    card's drawer gives what it owes in its own currency. A limit and a
+    payment due are in the display currency.
+  - **Sold holdings are not counted** on the investments row, as on
+    Investments.
+  - **The keyboard stays on a card's tabs** when Details is chosen: the kit's
+    drawer can open with its tab focused.
+  - **In one person's view a card's row is their part**, as its owed figure
+    is: their own records and half the shared ones. The limit used, and the
+    card's drawer, are the whole card's, and the drawer says so.
+  - **A cycle of refunds is money back**, shown below zero, using none of the
+    limit; "closes today" on the statement day; the hero's Confirm opens a
+    card on its details.
