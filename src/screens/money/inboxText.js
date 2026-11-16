@@ -20,12 +20,13 @@ export function isConfident(item) {
   return readsCleanly(item) && !item.date_guessed;
 }
 
-// The chip beside "What was read": read cleanly; or fields to check, when a
-// value was not read or the date is the day it was sent; or, with every
-// value found but the reading under the bar, that the bot was unsure (the
-// audit, November 2026: it said "Check the flagged rows" with none flagged).
-export function readsCleanlyFor(item) {
+// The chip beside "What was read", from the form as it stands: fields to
+// check while one is empty or the date is the day the message was sent; read
+// cleanly; or, with every field filled but the reading under the bar, that
+// the bot was unsure (the audit, November 2026, and the fresh review of 4c:
+// it asked to check marked fields when none was marked).
+export function readingChip(item, { filled, dateSettled }) {
+  if (!filled || (item.date_guessed && !dateSettled)) return { label: 'Check the marked fields', tone: 'warn' };
   if (isConfident(item)) return { label: 'Read cleanly', tone: 'pos' };
-  const missing = !item.parsed_merchant || item.parsed_amount === null || !item.parsed_account_id || !item.parsed_category_id || !!item.date_guessed;
-  return { label: missing ? 'Check the marked fields' : 'Not sure it read this right', tone: 'warn' };
+  return { label: 'Not sure it read this right', tone: 'warn' };
 }

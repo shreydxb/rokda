@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, fireEvent } from '@testing-library/dom';
-import { act } from 'react';
+import { act, useState } from 'react';
 import { renderScreen } from '../../test/renderScreen';
 
 const calls = [];
@@ -186,7 +186,7 @@ describe('SHR-310: a guessed date is checked before approval', () => {
     expect(screen.getByText('Check the marked fields')).toBeTruthy();
   });
 
-  it('opens the editor instead of approving the guessed date', async () => {
+  it('approves nothing until the guessed date is set or ticked', async () => {
     renderGuessed();
     await act(async () => {
       screen.getByRole('button', { name: 'Approve' }).click();
@@ -576,5 +576,108 @@ describe('Inbox: the message beside the list', () => {
       fireEvent.keyDown(document.body, { key: 'r' });
     });
     expect(calls[1]).toMatchObject({ kind: 'update', where: { id: 'intake-2', status: 'pending' } });
+  });
+});
+
+// The fresh review of 4c.
+describe('Inbox: working the list safely', () => {
+  const TWO_ACCOUNTS = [...ACCOUNTS, { id: 'acc-2', name: 'Current account', type: 'checking', archived_at: null, is_shared: true }];
+  const A1 = { ...ITEM, id: 'one', parsed_merchant: 'One', parsed_account_id: 'acc-1', created_at: '2026-09-05T08:00:00Z' };
+  const A2 = { ...ITEM, id: 'two', parsed_merchant: 'Two', parsed_account_id: 'acc-1', created_at: '2026-09-04T08:00:00Z' };
+  const A3 = { ...ITEM, id: 'three', parsed_merchant: 'Three', parsed_account_id: 'acc-1', created_at: '2026-09-03T08:00:00Z' };
+  beforeEach(() => {
+    calls.length = 0;
+  });
+
+  // Holding R would have rejected one message after another, with no way
+  // to bring them back.
+  it('acts once for a key held down', async () => {
+    renderScreen(<Inbox members={MEMBERS} accounts={ACCOUNTS} categories={[]} loading={false} data={{ intake: [A1, A2, A3], categoryRules: [], reload: vi.fn().mockResolvedValue(undefined) }} />);
+    await act(async () => {
+      fireEvent.keyDown(document.body, { key: 'r' });
+    });
+    await act(async () => {
+      fireEvent.keyDown(document.body, { key: 'r', repeat: true });
+    });
+    await act(async () => {
+      fireEvent.keyDown(document.body, { key: 'r', repeat: true });
+    });
+    expect(calls.filter((c) => c.kind === 'update')).toHaveLength(1);
+  });
+
+  it('leaves the keys alone inside a menu or dialog over the page', async () => {
+    renderScreen(
+      <>
+        <div role="dialog" aria-label="Account">
+          <button type="button">Sign out</button>
+        </div>
+        <Inbox members={MEMBERS} accounts={ACCOUNTS} categories={[]} loading={false} data={{ intake: [A1, A2], categoryRules: [], reload: vi.fn() }} />
+      </>,
+    );
+    await act(async () => {
+      fireEvent.keyDown(screen.getByRole('button', { name: 'Sign out' }), { key: 'r' });
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it("does not carry one message's error to the next", async () => {
+    renderScreen(<Inbox members={MEMBERS} accounts={TWO_ACCOUNTS} categories={[]} loading={false} data={{ intake: [{ ...A1, parsed_account_id: null }, A2], categoryRules: [], reload: vi.fn() }} />);
+    await act(async () => {
+      screen.getByRole('button', { name: 'Approve' }).click();
+    });
+    expect(screen.getByRole('alert').textContent).toBe('Choose the account this belongs to.');
+    fireEvent.keyDown(document.body, { key: 'ArrowDown' });
+    expect(screen.getByLabelText('Merchant').value).toBe('Two');
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  // A newer message arriving on a refresh used to replace the one being
+  // worked on, which A would then approve.
+  it('keeps the message on screen when a newer one arrives', () => {
+    const NEWER = { ...ITEM, id: 'newer', parsed_merchant: 'Newer', created_at: '2026-09-06T08:00:00Z' };
+    // The page's own refresh: the same Inbox, given the newer list.
+    function Host() {
+      const [intake, setIntake] = useState([A1, A2]);
+      return (
+        <>
+          <button type="button" onClick={() => setIntake([NEWER, A1, A2])}>
+            Refresh
+          </button>
+          <Inbox members={MEMBERS} accounts={ACCOUNTS} categories={[]} loading={false} data={{ intake, categoryRules: [], reload: vi.fn() }} />
+        </>
+      );
+    }
+    renderScreen(<Host />);
+    fireEvent.change(screen.getByLabelText('Merchant'), { target: { value: 'One, edited' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    expect(screen.getByLabelText('Merchant').value).toBe('One, edited');
+  });
+
+  it('shows money that came in with a plus in the list', () => {
+    renderScreen(<Inbox members={MEMBERS} accounts={ACCOUNTS} categories={[]} loading={false} data={{ intake: [{ ...A1, parsed_kind: 'income', parsed_amount: 500 }], categoryRules: [], reload: vi.fn() }} />);
+    expect(document.querySelector('.ib-row-amt').textContent).toBe('+500');
+  });
+
+  it('marks a date or an amount that was not read', () => {
+    renderScreen(<Inbox members={MEMBERS} accounts={ACCOUNTS} categories={[]} loading={false} data={{ intake: [{ ...A1, parsed_date: null, parsed_amount: null }], categoryRules: [], reload: vi.fn() }} />);
+    expect(screen.getByText('Not read: today is shown.')).toBeTruthy();
+    expect(screen.getByText('Not read.')).toBeTruthy();
+  });
+
+  // The audit (November 2026) and the fresh review of 4c: the chip asked to
+  // check marked fields when none was marked.
+  it('says the bot was unsure, not to check fields, when every field is filled', () => {
+    const RULED = { ...A1, parsed_category_id: null, confidence: 0.6 };
+    renderScreen(
+      <Inbox
+        members={MEMBERS}
+        accounts={ACCOUNTS}
+        categories={[{ id: 'cat-1', name: 'Groceries', kind: 'expense' }]}
+        loading={false}
+        data={{ intake: [{ ...RULED, parsed_account_id: null }], categoryRules: [{ id: 'r', pattern: 'One', match_type: 'contains', category_id: 'cat-1' }], reload: vi.fn() }}
+      />,
+    );
+    expect(screen.queryByText('Check the marked fields')).toBeNull();
+    expect(screen.getByText('Not sure it read this right')).toBeTruthy();
   });
 });

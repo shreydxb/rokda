@@ -84,15 +84,25 @@ export default function Inbox({ household = null, members = [], accounts, catego
   // The selected message's Approve and Reject, for the keys (InboxDetail).
   const actionsRef = useRef(null);
   // What the keys move through, as last drawn.
-  const listRef = useRef({ ids: [], selected: null });
+  const listRef = useRef({ ids: [], selected: null, busy: false });
+  // Choosing another message clears the last one's error, so it is never
+  // read as this one's (the fresh review of 4c).
+  const select = (id) => {
+    setSelectedId(id);
+    setError('');
+  };
   // A approves, R rejects, the arrows move (review S-inbox-7). Typed into a
   // field, or with an editor open over the page, they are just keys.
   useEffect(() => {
     const onKey = (e) => {
-      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.target instanceof Element && e.target.closest('input, select, textarea, [contenteditable="true"]')) return;
+      // A key held down acts once: held, R rejected one message after
+      // another, and nothing brings a rejected one back (the fresh review
+      // of 4c).
+      if (e.repeat || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.target instanceof Element && e.target.closest('input, select, textarea, [contenteditable="true"], [role="dialog"], [role="menu"]')) return;
       if (document.querySelector('[aria-modal="true"]')) return;
-      const { ids, selected } = listRef.current;
+      const { ids, selected, busy } = listRef.current;
+      if (busy) return;
       if (ids.length === 0) return;
       const at = Math.max(0, ids.indexOf(selected));
       const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
@@ -101,6 +111,7 @@ export default function Inbox({ household = null, members = [], accounts, catego
         if (!to) return;
         e.preventDefault();
         setSelectedId(to);
+        setError('');
       } else if (key === 'a') {
         actionsRef.current?.approve();
       } else if (key === 'r') {
@@ -113,8 +124,14 @@ export default function Inbox({ household = null, members = [], accounts, catego
   useEffect(() => {
     if (!data.intake) return;
     const ids = [...data.intake.filter((i) => i.status === 'pending')].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).map((i) => i.id);
-    listRef.current = { ids, selected: ids.includes(selectedId) ? selectedId : (ids[0] ?? null) };
+    listRef.current = { ids, selected: ids.includes(selectedId) ? selectedId : (ids[0] ?? null), busy: bulkSaving || saving };
   });
+  // The message on screen is held by its id, so a newer one arriving on a
+  // refresh does not take its place while it is being worked on (the fresh
+  // review of 4c). Until one is chosen, it is the newest.
+  const firstPending = data.intake ? [...data.intake.filter((i) => i.status === 'pending')].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0]?.id : undefined;
+  const [pinned, setPinned] = useState(null);
+  if (selectedId === null && pinned === null && firstPending) setPinned(firstPending);
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
   // An inbox that never loaded is not an empty one: it read "Inbox zero" with
@@ -130,7 +147,7 @@ export default function Inbox({ household = null, members = [], accounts, catego
 
   // Newest first, so the latest arrival leads.
   const pending = [...intake.filter((i) => i.status === 'pending')].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-  const selected = pending.find((i) => i.id === selectedId) ?? pending[0] ?? null;
+  const selected = pending.find((i) => i.id === (selectedId ?? pinned)) ?? pending[0] ?? null;
   const confident = pending.filter(isConfident);
   // Dated the day they were sent to the bot; each waits for its real date.
   const undated = pending.filter((i) => i.date_guessed);
@@ -245,13 +262,17 @@ export default function Inbox({ household = null, members = [], accounts, catego
             <ul className="ib-list" aria-label="Waiting">
               {pending.map((i) => (
                 <li key={i.id}>
-                  <button type="button" className="ib-row-btn" aria-pressed={selected?.id === i.id} data-on={selected?.id === i.id || undefined} onClick={() => setSelectedId(i.id)}>
+                  <button type="button" className="ib-row-btn" aria-pressed={selected?.id === i.id} data-on={selected?.id === i.id || undefined} onClick={() => select(i.id)}>
                     <span className="ib-tag">{i.photo_path ? 'photo' : 'text'}</span>
                     <span className="ib-row-main">
                       <span className="ib-row-top">
                         <span className="ib-row-name">{i.parsed_merchant || 'Unrecognised merchant'}</span>
                         <span className="ib-row-amt">
-                          {i.parsed_amount === null ? '—' : i.parsed_currency && i.parsed_currency !== 'AED' ? `${i.parsed_currency} ${formatMoney(i.parsed_amount)}` : `−${formatMoney(i.parsed_amount)}`}
+                          {i.parsed_amount === null
+                            ? '—'
+                            : i.parsed_currency && i.parsed_currency !== 'AED'
+                              ? `${i.parsed_currency} ${formatMoney(i.parsed_amount)}`
+                              : `${i.parsed_kind === 'income' || i.parsed_kind === 'refund' ? '+' : '−'}${formatMoney(i.parsed_amount)}`}
                         </span>
                       </span>
                       <span className="ib-row-sub">
@@ -296,7 +317,11 @@ export default function Inbox({ household = null, members = [], accounts, catego
               setError={setError}
               actionsRef={actionsRef}
               onDone={async () => {
-                setSelectedId(next(selected.id));
+                // Moves on only if this message is still the one chosen: one
+                // picked meanwhile stays (the fresh review of 4c).
+                const done = selected.id;
+                const following = next(done);
+                setSelectedId((cur) => ((cur ?? done) === done ? following : cur));
                 setError('');
                 await reload();
               }}

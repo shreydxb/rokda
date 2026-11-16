@@ -16,8 +16,9 @@ const data = {
   transactions: [],
   categoryRules: [],
 };
+const loadedState = vi.hoisted(() => ({ intake: true }));
 vi.mock('./useOverviewData', () => ({
-  useOverviewData: () => ({ loading: false, refreshing: false, errors: {}, loaded: { intake: true }, loadedAt: new Date(), reload: async () => {}, ...data }),
+  useOverviewData: () => ({ loading: false, refreshing: false, errors: {}, loaded: { intake: loadedState.intake }, loadedAt: new Date(), reload: async () => {}, ...data }),
 }));
 
 const { default: InboxPage } = await import('./InboxPage');
@@ -47,5 +48,18 @@ describe('Inbox page', () => {
     open();
     window.removeEventListener(INBOX_COUNT_EVENT, listen);
     expect(seen.at(-1)).toBe(2);
+  });
+
+  // The fresh review of 4c: an Inbox not read yet is not an empty one.
+  it('says no count, and tells the sidebar none, until the Inbox has been read', () => {
+    loadedState.intake = false;
+    const seen = [];
+    const listen = (e) => seen.push(e.detail);
+    window.addEventListener(INBOX_COUNT_EVENT, listen);
+    open();
+    window.removeEventListener(INBOX_COUNT_EVENT, listen);
+    loadedState.intake = true;
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Inbox');
+    expect(seen).toEqual([]);
   });
 });

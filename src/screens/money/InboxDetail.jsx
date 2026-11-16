@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { fileableCategories } from '../../lib/fileableCategories';
 import { formatMoney } from '../../lib/money';
@@ -12,7 +12,7 @@ import { Card, Chip } from '../../design-system/kit';
 import OwnerPicker from '../OwnerPicker';
 import RememberMerchant from './RememberMerchant';
 import { addMerchantRule } from './merchantRule';
-import { ago, readsCleanlyFor } from './inboxText';
+import { ago, readingChip } from './inboxText';
 
 // The selected Inbox message, as the prototype lays it out (the revamp,
 // phase 4c; review S-inbox-3 to 6): the message itself, and what was read
@@ -190,10 +190,11 @@ export default function InboxDetail({ item, sender, accounts, members, categorie
     };
   });
 
-  const reading = readsCleanlyFor(item, { accountId: item.parsed_account_id, categoryId: item.parsed_category_id });
+  const reading = readingChip(item, { filled: !!merchant.trim() && typedAmount !== '' && !!accountId && !!categoryId, dateSettled: dateConfirmed });
+  const ids = useId();
   const field = (label, control, note = null, warn = false) => (
     <div className="ib-row">
-      <dt>{label}</dt>
+      <dt id={`${ids}-${label}`}>{label}</dt>
       <dd>
         {control}
         {note && <div className={warn ? 'ib-note ib-warn' : 'ib-note'}>{note}</div>}
@@ -230,6 +231,8 @@ export default function InboxDetail({ item, sender, accounts, members, categorie
                 <input className="ds-select ib-input" aria-label="Amount" type="number" min="0" step="0.01" value={typedAmount} onChange={(e) => setAmount(e.target.value)} placeholder="0" />
                 <span className="ib-unit">{currency}</span>
               </span>,
+              item.parsed_amount === null ? 'Not read.' : null,
+              true,
             )}
             {foreignCurrency &&
               field(
@@ -273,7 +276,7 @@ export default function InboxDetail({ item, sender, accounts, members, categorie
                   </label>
                 )}
               </>,
-              item.date_guessed && !dateConfirmed ? 'Not in the message: the day it was sent.' : null,
+              item.date_guessed && !dateConfirmed ? 'Not in the message: the day it was sent.' : !item.parsed_date && !dateConfirmed ? 'Not read: today is shown.' : null,
               true,
             )}
             {field(
@@ -305,7 +308,7 @@ export default function InboxDetail({ item, sender, accounts, members, categorie
             )}
             {field(
               'Type',
-              <div className="ds-seg" role="group" aria-label="What this is">
+              <div className="ds-seg" role="group" aria-labelledby={`${ids}-Type`}>
                 {INTAKE_KINDS.map((k) => (
                   <button key={k.id} type="button" title={k.hint} aria-pressed={kind === k.id} data-on={kind === k.id || undefined} onClick={() => setKind(k.id)}>
                     {k.label}
@@ -313,7 +316,7 @@ export default function InboxDetail({ item, sender, accounts, members, categorie
                 ))}
               </div>,
             )}
-            {field('Whose', <OwnerPicker value={owner} members={members} onChange={setOwner} />)}
+            {field('Whose', <OwnerPicker value={owner} members={members} onChange={setOwner} labelledBy={`${ids}-Whose`} />)}
           </dl>
 
           {canRemember && (

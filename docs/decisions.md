@@ -4011,4 +4011,26 @@ The revamp's phase 4c (design note `docs/superpowers/specs/2026-11-15-money-desi
   editor open, they are only keys.
 - **Category is a select** of the categories a record can be filed under,
   as the prototype has it, rather than a row of buttons.
+- **Approving as read changed with the summary.** Its one-click Approve sent
+  the parsed values as they stood: a message in another currency went in as
+  AED, its foreign figure counted as dirhams. Every approval is the form's
+  now, so the foreign amount is kept with the AED debited or an estimate;
+  the category starts from a matching rule, as the form's did; and a
+  message with no date starts on today, marked as not read.
+- **The list lost its confidence dots** (and its under-50% note) and the
+  oldest message's age: Read cleanly, No date and Already recorded say what
+  the dots said, in words.
+- **The fresh review of 4c** changed these:
+  - **A key held down acts once.** Held, R rejected one message after
+    another, and nothing brings a rejected one back. The keys are left
+    alone inside a menu or dialog, and while a save or bulk action runs.
+  - **An error belongs to its message**: choosing another clears it.
+  - **The message on screen is held by its id**, so a newer one arriving on
+    a refresh does not replace it while it is being worked on.
+  - **The chip reads the form as it stands**: it asked to check marked
+    fields when a rule or the only account had filled them.
+  - **A date or amount not read says so**, and income shows with a plus in
+    the list.
+  - **The count waits for the Inbox to be read**: the title said "0 waiting",
+    and the sidebar was told 0, while the household was still loading.
 

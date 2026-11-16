@@ -9,8 +9,8 @@ import { useLayoutEffect, useRef, useState } from 'react';
 export default function TabRow({ tabs, active, onChange }) {
   const ref = useRef(null);
   const [more, setMore] = useState(false);
-  // Labels change after the row first lays out (Money's "Inbox (2)" once the
-  // queue loads, and the web font once it arrives), so the open tab is
+  // Labels change after the row first lays out (the web font arrives late),
+  // so the open tab is
   // brought into view again whenever they or the row's width change.
   const labels = tabs.map((t) => t.label).join('|');
   useLayoutEffect(() => {

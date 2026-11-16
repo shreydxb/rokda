@@ -21,7 +21,10 @@ export default function InboxPage() {
   // The sidebar shows the same count. Say it after every read here, so an
   // approval moves it at once; not while loading, nor after a failed read,
   // when the count here is not known.
-  const known = !data.loading && !data.errors?.intake;
+  // Known only once the Inbox has been read for a household: before that,
+  // or after a failed read, there is no count to give, not 0 (the fresh
+  // review of 4c).
+  const known = !!household && !data.loading && !data.errors?.intake && !!data.loaded?.intake;
   const readAt = data.loadedAt?.getTime?.() ?? null;
   useEffect(() => {
     if (known) window.dispatchEvent(new CustomEvent(INBOX_COUNT_EVENT, { detail: pending }));
