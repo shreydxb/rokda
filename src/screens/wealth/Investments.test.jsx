@@ -1,32 +1,24 @@
-import { describe, it, expect, vi } from 'vitest';
-import { screen, fireEvent } from '@testing-library/dom';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { screen, fireEvent, within } from '@testing-library/react';
 import { act } from 'react';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { renderScreen } from '../../test/renderScreen';
 import { householdToday } from '../../lib/day';
-import { ScopeProvider } from '../../lib/ScopeContext';
-import { CurrencyProvider } from '../../lib/CurrencyContext';
-import { useState } from 'react';
+
+// Wealth -> Investments as the prototype lays it out (the revamp, phase 5b;
+// design/prototype invKpis, invChart, allocationCard, holdingsCard). The
+// holding drawer is HoldingDrawer.test.jsx's.
 
 // Any write at all would be a defect here, so the mock records every call.
 const writes = [];
-// The trade functions, for the editor's own trades: answered per name.
-let rpcAnswers = {};
+let invoke = async () => ({ data: { ok: true }, error: null });
 vi.mock('../../lib/supabaseClient', () => ({
   supabase: {
-    rpc: async (name) => ({ data: rpcAnswers[name] ?? null, error: null }),
+    functions: { invoke: (...args) => invoke(...args) },
     from(table) {
       const record = (op) => (payload) => {
         writes.push({ table, op, payload });
-        // Filters chain as on the real client. select() reports the rows a
-        // filtered update changed: none, as when the row changed after the
-        // tab loaded it.
-        const chain = {
-          in: () => chain,
-          eq: () => chain,
-          select: () => Promise.resolve({ data: [], error: null }),
-          then: (resolve) => resolve({ error: null }),
-        };
-        return chain;
+        return { eq: async () => ({ error: null }) };
       };
       return { update: record('update'), insert: record('insert'), upsert: record('upsert'), delete: record('delete') };
     },
@@ -35,143 +27,208 @@ vi.mock('../../lib/supabaseClient', () => ({
 
 const { default: Investments } = await import('./Investments');
 
+afterEach(() => {
+  writes.length = 0;
+  invoke = async () => ({ data: { ok: true }, error: null });
+});
+
 const MEMBERS = [{ id: 'm1', display_name: 'Alex' }];
-const STALE_HOLDING = {
-  id: 'h1',
-  name: 'VWRA',
-  asset_class: 'intl_equity',
-  currency: 'USD',
-  is_shared: true,
-  value_aed: 10_000,
-  priced_at: '2026-01-01T00:00:00Z',
+const VWRA = { id: 'h1', name: 'VWRA', asset_class: 'intl_equity', currency: 'USD', is_shared: true, value_aed: 10_000, priced_at: '2026-01-01T00:00:00Z', sector: 'broad' };
+const AAPL = {
+  id: 'h2', name: 'AAPL', asset_class: 'us_equity', currency: 'USD', is_shared: false, owner_member_id: 'm1', value_aed: 20000, invested_value_aed: 15000,
+  quantity: 10, avg_price: 408.5, current_price: 544.6, day_change_pct: 2, priced_at: `${householdToday()}T08:00:00Z`, price_provider: 'twelvedata', price_symbol: 'AAPL', sector: 'technology',
 };
 
+function Where() {
+  const location = useLocation();
+  return <output data-testid="where">{location.pathname + location.search}</output>;
+}
+const where = () => screen.getByTestId('where').textContent;
+
+function render(holdings, extra = {}, household = { id: 'h' }) {
+  const reload = vi.fn().mockResolvedValue(undefined);
+  const utils = renderScreen(
+    <MemoryRouter initialEntries={['/wealth?tab=investments']}>
+      <Where />
+      <Investments household={household} members={MEMBERS} me={MEMBERS[0]} loading={false} reloadHousehold={vi.fn()} data={{ holdings, holdingHistory: [], reload, ...extra }} />
+    </MemoryRouter>,
+  );
+  return { ...utils, reload };
+}
+const kpi = (label) => screen.getByText(label, { selector: 'dt' }).closest('.ds-kpi');
+const tableNames = () => [...document.querySelectorAll('.inv-row .inv-name')].map((b) => b.textContent);
+
 // QA-04 / SHR-245: the Refresh button only stamped last_refreshed. It never
-// fetched a price, but the staleness detector read that field — so pressing it
+// fetched a price, but the staleness detector read that field, so pressing it
 // dismissed the warning without repricing anything.
-describe('QA-04: Investments reload does not certify prices', () => {
+describe('Investments: the prices', () => {
   // The tab's own Reload did what the page's Refresh does; it is gone, and
   // the only button here fetches prices. Nothing on the tab writes a
   // valuation date without fetching one.
   it('has no re-read of its own besides the page Refresh, and writes nothing on its own', () => {
-    renderScreen(
-      <Investments
-        household={{ id: 'h' }}
-        members={MEMBERS}
-        me={MEMBERS[0]}
-        loading={false}
-        data={{ holdings: [STALE_HOLDING], holdingHistory: [], reload: vi.fn() }}
-      />,
-    );
-
+    render([VWRA]);
     expect(screen.queryByRole('button', { name: 'Reload' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Refresh prices' })).toBeTruthy();
     expect(writes).toEqual([]);
   });
 
-  it('says plainly that reloading is not a repricing', () => {
-    renderScreen(
-      <Investments
-        household={{ id: 'h' }}
-        members={MEMBERS}
-        me={MEMBERS[0]}
-        loading={false}
-        data={{ holdings: [STALE_HOLDING], holdingHistory: [], reload: vi.fn() }}
-      />,
-    );
-    expect(screen.getByText(/does not fetch prices/i)).toBeTruthy();
-    expect(screen.getByText(/Oldest valuation/i)).toBeTruthy();
+  // The stamp's pop-over holds what the footer notes used to say.
+  it('says, behind the Prices stamp, how old the prices are and that reloading is not a repricing', () => {
+    render([VWRA, AAPL]);
+    expect(screen.queryByText(/does not fetch prices/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /^Prices/ }));
+    expect(screen.getByText(/does not fetch prices/)).toBeTruthy();
+    expect(screen.getByText(/Oldest valuation 1 Jan/)).toBeTruthy();
+    expect(screen.getByText(/1 holding on a live feed/)).toBeTruthy();
   });
-});
 
-const PRICED_HOLDING = {
-  id: 'h2',
-  name: 'AAPL',
-  asset_class: 'us_equity',
-  currency: 'USD',
-  is_shared: false,
-  value_aed: 20000,
-  invested_value_aed: 15000,
-  day_change_pct: 2,
-  priced_at: '2026-09-09T00:00:00Z',
-  owner_member_id: 'm1',
-};
-
-describe('Investments: portfolio overview stats', () => {
-  it('shows Invested, Profit not yet taken, and Change today', () => {
-    renderScreen(
-      <Investments
-        household={{ id: 'h' }}
-        members={MEMBERS}
-        me={MEMBERS[0]}
-        loading={false}
-        data={{ holdings: [PRICED_HOLDING], holdingHistory: [], reload: vi.fn() }}
-      />,
-    );
-    expect(screen.getByText('Invested')).toBeTruthy();
-    // Renamed once sales had a figure of their own (SHR-371): this one is
-    // only what the holdings still held have gained.
-    expect(screen.getByText('Profit not yet taken')).toBeTruthy();
-    expect(screen.getByText('Change today')).toBeTruthy();
+  it('counts the stale prices beside the stamp, and opens the first', () => {
+    render([VWRA, AAPL]);
+    fireEvent.click(screen.getByRole('button', { name: '1 stale' }));
+    expect(where()).toBe('/wealth?tab=investments&holding=h1');
   });
-});
 
-describe('Investments: holdings table shows owner once, not duplicated under the name', () => {
-  it('does not repeat the owner in the name cell subtitle', () => {
-    renderScreen(
-      <Investments
-        household={{ id: 'h' }}
-        members={MEMBERS}
-        me={MEMBERS[0]}
-        loading={false}
-        data={{ holdings: [PRICED_HOLDING], holdingHistory: [], reload: vi.fn() }}
-      />,
-    );
-    const nameCell = screen.getByText('AAPL').parentElement;
-    expect(nameCell.textContent).not.toMatch(/Alex/);
-    // The Owner column is the only place the name should appear.
-    expect(screen.getAllByText('Alex')).toHaveLength(1);
-  });
-});
-
-describe('Investments: table currency and % of total', () => {
-  it('labels Invested/Value columns with the display currency and shows % of total under Value', () => {
-    renderScreen(
-      <Investments
-        household={{ id: 'h' }}
-        members={MEMBERS}
-        me={MEMBERS[0]}
-        loading={false}
-        data={{ holdings: [PRICED_HOLDING], holdingHistory: [], reload: vi.fn() }}
-      />,
-    );
-    expect(screen.getByText('Invested (AED)')).toBeTruthy();
-    expect(screen.getByText('Value (AED)')).toBeTruthy();
-    expect(screen.getByText(/100%.*of total/)).toBeTruthy();
-  });
-});
-
-describe('Investments: a refused holding save reads the data afresh', () => {
-  // The editor gets the row this tab loaded. Without a reload, opening it
-  // again after a refusal would hand it the same old row, refused again.
-  it('reloads, so the editor opened again shows what changed', async () => {
-    const reload = vi.fn().mockResolvedValue(undefined);
-    renderScreen(
-      <Investments
-        household={{ id: 'h' }}
-        members={MEMBERS}
-        me={MEMBERS[0]}
-        loading={false}
-        data={{ holdings: [PRICED_HOLDING], holdingHistory: [], reload }}
-      />,
-    );
-    fireEvent.click(document.querySelector('.wl-holdrow'));
-    fireEvent.change(screen.getByPlaceholderText('e.g. VWRA'), { target: { value: 'AAPL renamed' } });
+  it('says a refresh that failed in a banner, with Try again', async () => {
+    invoke = async () => ({ data: null, error: { message: 'Feed unreachable' } });
+    const { reload } = render([VWRA, AAPL]);
     await act(async () => {
-      fireEvent.submit(document.querySelector('form'));
+      fireEvent.click(screen.getByRole('button', { name: 'Refresh prices' }));
     });
-    expect(screen.getByText(/changed or was removed after you opened it/)).toBeTruthy();
+    const banner = screen.getByRole('alert');
+    expect(banner.textContent).toContain('Couldn’t refresh prices: Feed unreachable');
+    invoke = async () => ({ data: { ok: true }, error: null });
+    await act(async () => {
+      fireEvent.click(within(banner).getByRole('button', { name: 'Try again' }));
+    });
+    expect(screen.queryByRole('alert')).toBeNull();
     expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('names the holdings whose feed failed', () => {
+    render([VWRA, { ...AAPL, price_fetch_error: 'Not found' }]);
+    expect(document.querySelector('.ds-banner-warn').textContent).toContain('AAPL didn’t refresh, so its price may be old.');
+  });
+});
+
+describe('Investments: the figures', () => {
+  it('shows Value, Invested, Profit not yet taken, Profit on sales this year and Change today', () => {
+    render([AAPL]);
+    expect([...document.querySelectorAll('.ds-kpi dt')].map((d) => d.textContent)).toEqual(['Value', 'Invested', 'Profit not yet taken', 'Profit on sales this year', 'Change today']);
+    expect(kpi('Value').textContent).toContain('20,000');
+    expect(kpi('Profit not yet taken').textContent).toContain('+5,000');
+    expect(kpi('Profit not yet taken').textContent).toContain('33.3% on cost');
+  });
+
+  // A never-valued holding counts its placeholder 0 (QA #6): the total says
+  // it leaves that holding out.
+  it('says the value leaves out a holding not valued yet', () => {
+    render([AAPL, { ...VWRA, value_aed: 0, priced_at: null }]);
+    expect(kpi('Value').textContent).toContain('1 not valued yet');
+  });
+});
+
+describe('Investments: the holdings table', () => {
+  it('lists the holdings largest first, each opening its drawer through the address', () => {
+    render([VWRA, AAPL]);
+    expect(tableNames()).toEqual(['AAPL', 'VWRA']);
+    fireEvent.click(screen.getByRole('button', { name: 'AAPL' }));
+    expect(where()).toBe('/wealth?tab=investments&holding=h2');
+  });
+
+  it('gives the owner once, as an avatar, not again under the name', () => {
+    render([AAPL]);
+    const nameCell = screen.getByRole('button', { name: 'AAPL' }).closest('td');
+    expect(nameCell.textContent).not.toMatch(/Alex/);
+    expect(screen.getAllByRole('img', { name: 'Alex' })).toHaveLength(1);
+  });
+
+  it('labels Invested and Value with the display currency, and gives each holding its share of the total', () => {
+    render([AAPL]);
+    expect(screen.getByRole('columnheader', { name: 'Invested (AED)' })).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: 'Value (AED)' })).toBeTruthy();
+    expect(screen.getByText('100% of total')).toBeTruthy();
+  });
+
+  it('gives prices in the holding’s currency, and says which are typed by hand', () => {
+    render([AAPL, { ...VWRA, current_price: 98.2 }]);
+    const [aapl, vwra] = document.querySelectorAll('.inv-row');
+    expect(aapl.textContent).toContain('544.60USD');
+    expect(vwra.textContent).toContain('manual');
+  });
+
+  it('marks a stale price and a share with no sector', () => {
+    render([{ ...AAPL, sector: null, price_fetch_error: 'Not found' }]);
+    const row = document.querySelector('.inv-row');
+    expect(within(row).getByText('Stale price')).toBeTruthy();
+    expect(within(row).getByText('Untagged')).toBeTruthy();
+  });
+});
+
+describe('Investments: Allocation', () => {
+  it('stacks the holdings by asset class, with the largest concentration and its cap', () => {
+    render([VWRA, AAPL], {}, { id: 'h', concentration_cap_pct: 25 });
+    expect(screen.getByRole('img', { name: /By asset class/ })).toBeTruthy();
+    expect(screen.getByText('Above 25% cap')).toBeTruthy();
+  });
+
+  // Of everything invested, so only when nothing is filtered out.
+  it('leaves the concentration out while a group is chosen', () => {
+    render([VWRA, AAPL], {}, { id: 'h', concentration_cap_pct: 25 });
+    fireEvent.click(screen.getByRole('button', { name: 'Global' }));
+    expect(screen.queryByText(/Largest concentration/)).toBeNull();
+  });
+});
+
+// The fresh review of B-06: a day that leaves out a holding held then, for
+// want of a recorded value, says which, rather than drawing a dip unexplained.
+describe('Investments: Value over time', () => {
+  const dayAgo = (n) => new Date(Date.parse(`${householdToday()}T00:00:00Z`) - n * 86400000).toISOString().slice(0, 10);
+  const vwra = { ...VWRA, created_at: '2020-01-01T00:00:00Z' };
+
+  it('marks a partial history, naming the holdings some days leave out', () => {
+    const aapl = { ...AAPL, created_at: '2020-01-01T00:00:00Z' };
+    const history = [
+      { holding_id: 'h1', as_of: dayAgo(300), value_aed: 9000 },
+      { holding_id: 'h1', as_of: dayAgo(0), value_aed: 10000 },
+      { holding_id: 'h2', as_of: dayAgo(0), value_aed: 20000 },
+    ];
+    render([vwra, aapl], { holdingHistory: history });
+    fireEvent.click(screen.getByRole('button', { name: '5Y' }));
+    expect(screen.getByText('Partial history')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'About Partial history' }));
+    expect(screen.getByText(/Some days leave out AAPL, which had no value recorded then/)).toBeTruthy();
+    // One explanation beside the title, holding both of the chart's caveats.
+    expect(screen.getByText(/money added or withdrawn/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'About Value over time' })).toBeNull();
+  });
+
+  // The fresh review of PR 5: a pick kept its position in another range, so
+  // another day read as the one picked. A new range starts at today's point
+  // (and round 2's E2-4: a pick past the end of a shorter range took the tab
+  // down).
+  it('reads a day picked, and goes back to today when the range changes', () => {
+    const history = [1500, 1200, 900, 600, 300, 120, 60, 30, 3, 1].map((n, i) => ({ holding_id: 'h1', as_of: dayAgo(n), value_aed: 9000 + i * 100 }));
+    render([vwra], { holdingHistory: history });
+    fireEvent.click(screen.getByRole('button', { name: '5Y' }));
+    const readout = () => document.querySelector('.inv-readout').textContent;
+    const today = readout();
+    // The change over the range first, then today's value (the prototype's
+    // readout).
+    expect(today).toMatch(/^(Change|No|Not).*Today/);
+    const chart = screen.getByRole('group', { name: /Value of the investments/ });
+    fireEvent.keyDown(chart, { key: 'ArrowLeft' });
+    fireEvent.keyDown(chart, { key: 'ArrowLeft' });
+    expect(readout()).not.toBe(today);
+    expect(readout()).toContain('9,800');
+    fireEvent.click(screen.getByRole('button', { name: '1W' }));
+    expect(readout()).toContain('Today');
+    expect(readout()).not.toContain('9,800');
+    expect(document.querySelector('.ds-trend svg')).toBeTruthy();
+  });
+
+  it('says why there is no change for the range', () => {
+    render([vwra]);
+    expect(document.querySelector('.inv-readout').textContent).toContain('No valuation history yet');
   });
 });
 
@@ -179,300 +236,90 @@ describe('Investments: a refused holding save reads the data afresh', () => {
 // holdings still held, and what sales made has a figure of its own.
 describe('Investments: sold-out holdings and profit on sales', () => {
   const YEAR = Number(householdToday().slice(0, 4));
-  const SOLD = {
-    id: 'h3',
-    name: 'ABC',
-    asset_class: 'us_equity',
-    currency: 'USD',
-    is_shared: false,
-    owner_member_id: 'm1',
-    value_aed: 0,
-    quantity: 0,
-    avg_price: 110,
-    trades_version: 4,
-    priced_at: '2026-09-09T00:00:00Z',
-  };
+  const SOLD = { id: 'h3', name: 'ABC', asset_class: 'us_equity', currency: 'USD', is_shared: false, owner_member_id: 'm1', value_aed: 0, quantity: 0, avg_price: 110, trades_version: 4, priced_at: '2026-09-09T00:00:00Z' };
   const RUPEE = { ...SOLD, id: 'h4', name: 'XYZ', currency: 'INR', asset_class: 'india_equity', quantity: 5, value_aed: 1000 };
   const sale = (id, holding, day, realised, extra = {}) => ({
     id, holding_id: holding.id, kind: 'sell', trade_date: day, traded_at: null, created_at: `${day}T10:00:00Z`,
     units: 1, price: 150, fees: 0, tax_withheld: 0, tax_to_confirm: false, realised, ...extra,
   });
-  const render = (holdings, holdingTrades = [], household = { id: 'h' }) =>
-    renderScreen(
-      <Investments
-        household={household}
-        members={MEMBERS}
-        me={MEMBERS[0]}
-        loading={false}
-        data={{ holdings, holdingHistory: [], holdingTrades, fxRateHistory: [], reload: vi.fn() }}
-      />,
-    );
-  const tableNames = () => [...document.querySelectorAll('.wl-holdrow td:first-child')].map((td) => td.firstChild.textContent);
+  const withTrades = (holdings, holdingTrades = [], household = { id: 'h' }) => render(holdings, { holdingTrades, fxRateHistory: [] }, household);
+  const sold = () => document.querySelector('.inv-sold');
 
-  it('puts a sold-out holding under Sold, not in the holdings table', () => {
-    render([PRICED_HOLDING, SOLD], [sale('t1', SOLD, `${YEAR}-01-15`, 100)]);
+  it('folds a sold-out holding under Sold, apart from the table, opening it from there', () => {
+    withTrades([AAPL, SOLD], [sale('t1', SOLD, `${YEAR}-01-15`, 100)]);
     expect(tableNames()).toEqual(['AAPL']);
-    const fold = screen.getByRole('button', { name: 'Sold (1)' });
-    expect(fold.getAttribute('aria-expanded')).toBe('false');
-    expect(screen.queryByText(new RegExp(`Sold out on 15 Jan ${YEAR}`))).toBeNull();
-    fireEvent.click(fold);
-    expect(fold.getAttribute('aria-expanded')).toBe('true');
-    expect(screen.getByText(new RegExp(`Alex · Sold out on 15 Jan ${YEAR}`))).toBeTruthy();
-    expect(screen.getByRole('button', { name: /ABC/ })).toBeTruthy();
+    expect(screen.getByText('Sold (1)')).toBeTruthy();
+    expect(sold().textContent).toContain(`Alex · sold out on 15 Jan ${YEAR}`);
+    fireEvent.click(within(sold()).getByRole('button', { name: /ABC/ }));
+    expect(where()).toBe('/wealth?tab=investments&holding=h3');
   });
 
   it('moves a holding bought again from Sold back to the table', () => {
-    render([PRICED_HOLDING, { ...SOLD, quantity: 4, value_aed: 2000 }], [sale('t1', SOLD, `${YEAR}-01-15`, 100)]);
+    withTrades([AAPL, { ...SOLD, quantity: 4, value_aed: 2000 }], [sale('t1', SOLD, `${YEAR}-01-15`, 100)]);
     expect(tableNames()).toEqual(['AAPL', 'ABC']);
-    expect(screen.queryByRole('button', { name: /^Sold \(/ })).toBeNull();
+    expect(screen.queryByText(/^Sold \(/)).toBeNull();
   });
 
-  it('shows what sales made this year in AED beside the profit not yet taken', () => {
-    render([PRICED_HOLDING, SOLD], [sale('t1', SOLD, `${YEAR}-01-15`, 100)]);
-    expect(screen.getByText('Profit not yet taken')).toBeTruthy();
-    const stat = screen.getByText('Profit on sales this year').parentElement;
+  it('shows what sales made this year in AED, and how many', () => {
+    withTrades([AAPL, SOLD], [sale('t1', SOLD, `${YEAR}-01-15`, 100)]);
     // A dollar profit at the peg: 100 × 3.6725, shown whole like its neighbours.
-    expect(stat.textContent).toContain('+367');
+    expect(kpi('Profit on sales this year').textContent).toContain('+367');
+    expect(kpi('Profit on sales this year').textContent).toContain('1 sale');
   });
 
-  it('says what tax took, and how many sales still wait for the broker\'s tax', () => {
-    render([PRICED_HOLDING, RUPEE], [
-      sale('t1', RUPEE, `${YEAR}-01-15`, 2300, { tax_withheld: 230 }),
-      sale('t2', RUPEE, `${YEAR}-01-16`, 230, { tax_to_confirm: true }),
-    ], { id: 'h', inr_per_aed: 23 });
-    const stat = screen.getByText('Profit on sales this year').parentElement;
-    expect(stat.textContent).toContain('+110');
-    expect(stat.textContent).toContain('after tax +100');
-    expect(stat.textContent).toContain('1 sale awaiting the broker’s tax');
+  it("says what tax took, and how many sales still wait for the broker's tax", () => {
+    withTrades([AAPL, RUPEE], [sale('t1', RUPEE, `${YEAR}-01-15`, 2300, { tax_withheld: 230 }), sale('t2', RUPEE, `${YEAR}-01-16`, 230, { tax_to_confirm: true })], { id: 'h', inr_per_aed: 23 });
+    const stat = kpi('Profit on sales this year').textContent;
+    expect(stat).toContain('+110');
+    expect(stat).toContain('after tax +100');
+    expect(stat).toContain('1 awaiting the broker’s tax');
   });
 
   it('leaves out a sale from last year', () => {
-    render([PRICED_HOLDING, SOLD], [sale('t1', SOLD, `${YEAR - 1}-12-31`, 100)]);
-    const stat = screen.getByText('Profit on sales this year').parentElement;
-    expect(stat.textContent).toContain('None this year');
+    withTrades([AAPL, SOLD], [sale('t1', SOLD, `${YEAR - 1}-12-31`, 100)]);
+    expect(kpi('Profit on sales this year').textContent).toContain('None');
   });
 
-  it('says when this year\'s profit on sales is not known', () => {
-    render([PRICED_HOLDING, RUPEE], [sale('t1', RUPEE, `${YEAR}-01-15`, 2300)]);
-    const stat = screen.getByText('Profit on sales this year').parentElement;
-    expect(stat.textContent).toContain('Not known: a rupee sale has no exchange rate');
+  it("says when this year's profit on sales is not known", () => {
+    withTrades([AAPL, RUPEE], [sale('t1', RUPEE, `${YEAR}-01-15`, 2300)]);
+    expect(kpi('Profit on sales this year').textContent).toContain('a rupee sale has no exchange rate');
   });
 
   it('says so when trades could not be loaded, instead of none this year', () => {
-    renderScreen(
-      <Investments household={{ id: 'h' }} members={MEMBERS} me={MEMBERS[0]} loading={false}
-        data={{ holdings: [PRICED_HOLDING, SOLD], holdingHistory: [], holdingTrades: [], fxRateHistory: [], errors: { holdingTrades: new Error('timeout') }, loaded: {}, reload: vi.fn() }} />,
-    );
-    const stat = screen.getByText('Profit on sales this year').parentElement;
-    expect(stat.textContent).toContain('Not known: couldn’t load trades.');
-    expect(stat.textContent).not.toContain('None this year');
+    render([AAPL, SOLD], { holdingTrades: [], fxRateHistory: [], errors: { holdingTrades: new Error('timeout') }, loaded: {} });
+    const stat = kpi('Profit on sales this year').textContent;
+    expect(stat).toContain('couldn’t load trades.');
+    expect(stat).not.toContain('None');
   });
 
-  it('withholds a rupee sale\'s profit when exchange rates could not be loaded', () => {
-    renderScreen(
-      <Investments household={{ id: 'h', inr_per_aed: 23 }} members={MEMBERS} me={MEMBERS[0]} loading={false}
-        data={{ holdings: [PRICED_HOLDING, RUPEE], holdingHistory: [], holdingTrades: [sale('t1', RUPEE, `${YEAR}-01-15`, 2300)], fxRateHistory: [], errors: { fxRateHistory: new Error('timeout') }, loaded: { holdingTrades: true }, reload: vi.fn() }} />,
-    );
-    const stat = screen.getByText('Profit on sales this year').parentElement;
-    expect(stat.textContent).toContain('Not known: couldn’t load exchange-rate history.');
+  it("withholds a rupee sale's profit when exchange rates could not be loaded", () => {
+    render([AAPL, RUPEE], { holdingTrades: [sale('t1', RUPEE, `${YEAR}-01-15`, 2300)], fxRateHistory: [], errors: { fxRateHistory: new Error('timeout') }, loaded: { holdingTrades: true } }, { id: 'h', inr_per_aed: 23 });
+    expect(kpi('Profit on sales this year').textContent).toContain('couldn’t load exchange-rate history.');
   });
 
-  it('still shows what sales made this year when every holding in view is sold', () => {
-    render([SOLD], [sale('t1', SOLD, `${YEAR}-01-15`, 100)]);
-    const stat = screen.getByText('Profit on sales this year').parentElement;
-    expect(stat.textContent).toContain('+367');
-  });
-
-  it('shows the Sold fold even when every holding is sold', () => {
-    render([SOLD], [sale('t1', SOLD, `${YEAR}-01-15`, 100)]);
+  it('still shows what sales made, and the Sold fold, when every holding in view is sold', () => {
+    withTrades([SOLD], [sale('t1', SOLD, `${YEAR}-01-15`, 100)]);
     expect(screen.getByText('No holdings')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Sold (1)' })).toBeTruthy();
+    expect(kpi('Profit on sales this year').textContent).toContain('+367');
+    expect(screen.getByText('Sold (1)')).toBeTruthy();
   });
 });
 
-describe('Investments: the holding editor after a trade', () => {
-  const abc = { ...PRICED_HOLDING, id: 'h7', name: 'ABC', quantity: 9, avg_price: 110, trades_version: 3 };
-  const moved = { ...abc, quantity: 6, trades_version: 4 };
-  const TRADES = [
-    { id: 't-open', holding_id: 'h7', kind: 'opening', trade_date: '2026-10-27', traded_at: null, created_at: '2026-10-27T08:00:00Z', units: 10, price: 100, fees: 0, tax_withheld: 0, tax_to_confirm: false, realised: null },
-    { id: 't-sell', holding_id: 'h7', kind: 'sell', trade_date: '2026-10-29', traded_at: null, created_at: '2026-10-29T08:00:00Z', units: 1, price: 150, fees: 0, tax_withheld: 0, tax_to_confirm: false, realised: 40, funds_account_id: 'f-usd' },
-  ];
-  // The screen as the app has it: a reload replaces the data it was given.
-  function Harness({ after = moved }) {
-    const [holding, setHolding] = useState(abc);
-    const reload = async () => setHolding(after);
-    return <Investments household={{ id: 'h' }} members={MEMBERS} me={MEMBERS[0]} loading={false} data={{ holdings: [holding], holdingHistory: [], holdingTrades: TRADES, accounts: [], reload }} />;
-  }
-  const screenFor = (holding) => (
-    <Investments household={{ id: 'h' }} members={MEMBERS} me={MEMBERS[0]} loading={false} data={{ holdings: [holding], holdingHistory: [], holdingTrades: TRADES, accounts: [], reload: vi.fn() }} />
-  );
-
-  it('leaves an open editor alone when a background refresh moves the holding', () => {
-    const { rerender } = renderScreen(screenFor(abc));
-    fireEvent.click(document.querySelector('.wl-holdrow'));
-    fireEvent.change(screen.getByPlaceholderText('e.g. VWRA'), { target: { value: 'ABC renamed' } });
-    // The five-minute refresh brings a trade made in Telegram meanwhile.
-    rerender(
-      <ScopeProvider>
-        <CurrencyProvider>{screenFor(moved)}</CurrencyProvider>
-      </ScopeProvider>,
-    );
-    expect(screen.getByRole('dialog', { name: 'Edit holding' })).toBeTruthy();
-    expect(screen.getByPlaceholderText('e.g. VWRA').value).toBe('ABC renamed');
-    expect(screen.getByLabelText('Units').value).toBe('9');
+describe('Investments: nothing to show', () => {
+  it('offers to add a first holding', () => {
+    render([]);
+    expect(screen.getByText('No holdings')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Add a holding' }));
+    expect(where()).toBe('/wealth?tab=investments&holding=new');
   });
 
-  it('keeps the editor\'s refusal on screen when the reload it asks for brings the new version', async () => {
-    renderScreen(<Harness />);
-    fireEvent.click(document.querySelector('.wl-holdrow'));
-    fireEvent.change(screen.getByPlaceholderText('e.g. VWRA'), { target: { value: 'ABC renamed' } });
-    await act(async () => {
-      fireEvent.submit(document.querySelector('form'));
-    });
-    expect(screen.getByText(/changed or was removed after you opened it/)).toBeTruthy();
-    expect(screen.getByPlaceholderText('e.g. VWRA').value).toBe('ABC renamed');
-  });
-
-  it('opens the editor afresh on the new figures after a trade made in it', async () => {
-    rpcAnswers = {
-      preview_delete_trade: { ok: true, trade_id: 't-sell', trades_version: 4, units_before: 9, holding_units_after: 10, funds_account_id: 'f-usd', funds_delta: -150 },
-      delete_trade: { ok: true, trade_id: 't-sell', trades_version: 4 },
-    };
-    renderScreen(<Harness after={{ ...abc, quantity: 10, trades_version: 4 }} />);
-    fireEvent.click(document.querySelector('.wl-holdrow'));
-    expect(screen.getByLabelText('Units').value).toBe('9');
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Delete Sell 1 at USD 150.00' }));
-    });
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Delete trade' }));
-    });
-    expect(screen.getByRole('dialog', { name: 'Edit holding' })).toBeTruthy();
-    expect(screen.getByLabelText('Units').value).toBe('10');
-    rpcAnswers = {};
-  });
-});
-
-// The fresh review of B-06: a day that leaves out a holding held then, for
-// want of a recorded value, says which, rather than drawing a dip unexplained.
-describe('Investments: a day short of a holding\'s value', () => {
-  it('names the holdings the chart leaves out on some days', () => {
-    const vwra = { ...STALE_HOLDING, created_at: '2026-01-01T00:00:00Z' };
-    const aapl = { ...PRICED_HOLDING, created_at: '2026-01-01T00:00:00Z' };
-    const today = householdToday();
-    const history = [
-      { holding_id: 'h1', as_of: '2026-01-10', value_aed: 9000 },
-      { holding_id: 'h1', as_of: today, value_aed: 10000 },
-      { holding_id: 'h2', as_of: today, value_aed: 20000 },
-    ];
-    renderScreen(
-      <Investments household={{ id: 'h' }} members={MEMBERS} me={MEMBERS[0]} loading={false} data={{ holdings: [vwra, aapl], holdingHistory: history, reload: vi.fn() }} />,
-    );
-    fireEvent.click(screen.getByRole('button', { name: '5Y' }));
-    expect(screen.getByText('Some days leave out AAPL, which had no value recorded then.')).toBeTruthy();
-  });
-});
-
-// Round 2 of the outside review, E2-4: a point picked on a long range is past
-// the end of a shorter one. Switching from 5Y to 1W with a late point picked
-// read series[index] of nothing and took the tab down.
-describe('Investments: the chart after its range shortens', () => {
-  it('still draws, at today\'s point, when the picked point is not in the new range', () => {
-    const vwra = { ...STALE_HOLDING, created_at: '2020-01-01T00:00:00Z' };
-    const dayAgo = (n) => new Date(Date.parse(`${householdToday()}T00:00:00Z`) - n * 86400000).toISOString().slice(0, 10);
-    const history = [1500, 1200, 900, 600, 300, 120, 60, 30, 3, 1].map((n, i) => ({ holding_id: 'h1', as_of: dayAgo(n), value_aed: 9000 + i * 100 }));
-    const { container } = renderScreen(
-      <Investments household={{ id: 'h' }} members={MEMBERS} me={MEMBERS[0]} loading={false} data={{ holdings: [vwra], holdingHistory: history, reload: vi.fn() }} />,
-    );
-    fireEvent.click(screen.getByRole('button', { name: '5Y' }));
-    const columns = container.querySelectorAll('.wl-invchart-col');
-    expect(columns.length).toBe(11);
-    fireEvent.click(columns[8]);
-    fireEvent.click(screen.getByRole('button', { name: '1W' }));
-    expect(container.querySelectorAll('.wl-invchart-col').length).toBe(3);
-    expect(container.querySelector('.wl-invchart-dot')).toBeTruthy();
-    expect(container.querySelector('.ov-chart-readout')).toBeTruthy();
-  });
-
-  // The fresh review of PR 5: a pick still inside the shorter range kept its
-  // position, so another day read as the one picked. A new range starts at
-  // today's point.
-  it('goes back to today\'s point when the range changes', () => {
-    const vwra = { ...STALE_HOLDING, created_at: '2020-01-01T00:00:00Z' };
-    const dayAgo = (n) => new Date(Date.parse(`${householdToday()}T00:00:00Z`) - n * 86400000).toISOString().slice(0, 10);
-    const history = [1500, 1200, 900, 600, 300, 120, 60, 30, 3, 1].map((n, i) => ({ holding_id: 'h1', as_of: dayAgo(n), value_aed: 9000 + i * 100 }));
-    const { container } = renderScreen(
-      <Investments household={{ id: 'h' }} members={MEMBERS} me={MEMBERS[0]} loading={false} data={{ holdings: [vwra], holdingHistory: history, reload: vi.fn() }} />,
-    );
-    fireEvent.click(screen.getByRole('button', { name: '5Y' }));
-    const readout = () => container.querySelector('.ov-chart-readout .fig').textContent;
-    const today = readout();
-    fireEvent.click(container.querySelectorAll('.wl-invchart-col')[1]);
-    expect(readout()).not.toBe(today);
-    fireEvent.click(screen.getByRole('button', { name: '1W' }));
-    expect(readout()).toBe(today);
-  });
-});
-
-// The outside review, E-09: a holding opens from the keyboard too, by a real
-// button in its name cell, not only by clicking the row.
-describe('Investments: a holding opens from the keyboard', () => {
-  it('names each holding with a button that opens it', () => {
-    renderScreen(
-      <Investments household={{ id: 'h' }} members={MEMBERS} me={MEMBERS[0]} loading={false} data={{ holdings: [PRICED_HOLDING], holdingHistory: [], reload: vi.fn() }} />,
-    );
-    const open = screen.getByRole('button', { name: 'AAPL' });
-    expect(open.tagName).toBe('BUTTON');
-    fireEvent.click(open);
-    expect(screen.getByRole('dialog')).toBeTruthy();
-  });
-});
-
-// Round 2 of the outside review, E2-3: holdings that never loaded are not
-// "No holdings", which invited adding them a second time.
-describe('Investments: holdings that never loaded', () => {
-  it('says they could not load instead of "No holdings", and offers to try again', () => {
-    const reload = vi.fn().mockResolvedValue(undefined);
-    renderScreen(
-      <Investments household={{ id: 'h' }} members={MEMBERS} me={MEMBERS[0]} loading={false} data={{ holdings: [], holdingHistory: [], errors: { holdings: 'network' }, loaded: {}, reload }} />,
-    );
+  // Round 2 of the outside review, E2-3: holdings that never loaded are not
+  // "No holdings", which invited adding them a second time.
+  it('says holdings that never loaded could not load, and offers to try again', () => {
+    const { reload } = render([], { errors: { holdings: 'network' }, loaded: {} });
     expect(screen.getByText('Couldn’t load investments.')).toBeTruthy();
     expect(screen.queryByText('No holdings')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(reload).toHaveBeenCalled();
-  });
-});
-
-// Round 2 of the outside review, E2-5: a holding deleted elsewhere while it
-// is open dropped out of the refresh, and with it went the editor and every
-// change typed into it. It stays open with the draft and says why.
-describe('Investments: a holding deleted elsewhere while it is open', () => {
-  const screenFor = (holdings) => (
-    <Investments household={{ id: 'h' }} members={MEMBERS} me={MEMBERS[0]} loading={false} data={{ holdings, holdingHistory: [], holdingTrades: [], accounts: [], reload: vi.fn() }} />
-  );
-
-  it('keeps the editor and its draft, and says the holding was deleted', () => {
-    const { rerender } = renderScreen(screenFor([PRICED_HOLDING]));
-    fireEvent.click(screen.getByRole('button', { name: 'AAPL' }));
-    fireEvent.change(screen.getByPlaceholderText('e.g. VWRA'), { target: { value: 'AAPL renamed' } });
-    // The partner deleted it; the next refresh no longer has it.
-    rerender(
-      <ScopeProvider>
-        <CurrencyProvider>{screenFor([])}</CurrencyProvider>
-      </ScopeProvider>,
-    );
-    expect(screen.getByRole('dialog', { name: 'Edit holding' })).toBeTruthy();
-    expect(screen.getByPlaceholderText('e.g. VWRA').value).toBe('AAPL renamed');
-    expect(screen.getAllByRole('alert').some((a) => /deleted elsewhere/.test(a.textContent))).toBe(true);
-    // Nothing is offered that would act on a holding that is gone: only
-    // closing (the fresh review of PR 5).
-    expect(screen.queryByRole('button', { name: 'Save changes' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Add a dividend' }).disabled).toBe(true);
-    expect(screen.getByRole('button', { name: 'Cancel' })).toBeTruthy();
-    // Enter in a field submits the form even with no Save button to press.
-    const before = writes.length;
-    fireEvent.submit(document.querySelector('form.te-form'));
-    expect(writes.length).toBe(before);
   });
 });

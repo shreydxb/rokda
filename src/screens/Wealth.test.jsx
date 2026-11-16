@@ -8,7 +8,13 @@ vi.mock('../lib/useHousehold', () => ({
   useHousehold: () => ({ household: { id: 'hh', name: 'Test' }, members: [], me: { id: 'm1' }, loading: false, error: null, reload: async () => {} }),
 }));
 vi.mock('./useOverviewData', () => ({
-  useOverviewData: () => ({ loading: false, refreshing: false, errors: {}, loaded: {}, loadedAt: new Date(), accounts: [{ id: 'a1', name: 'Current', type: 'checking', currency: 'AED', balance: 100, is_shared: true, archived_at: null }], transactions: [], statementReconciliations: [], categories: [], reload: async () => {} }),
+  useOverviewData: () => ({
+    loading: false, refreshing: false, errors: {}, loaded: {}, loadedAt: new Date(),
+    accounts: [{ id: 'a1', name: 'Current', type: 'checking', currency: 'AED', balance: 100, is_shared: true, archived_at: null }],
+    holdings: [{ id: 'h1', name: 'Index fund', asset_class: 'intl_equity', currency: 'USD', value_aed: 1000, is_shared: true, priced_at: '2026-11-01T00:00:00Z' }],
+    holdingTrades: [], holdingDividends: [], dividendSpecialParts: [],
+    transactions: [], statementReconciliations: [], categories: [], reload: async () => {},
+  }),
 }));
 // The tabs' own content is not what is tested here.
 // Net worth puts a control in the page header, as every rebuilt tab does.
@@ -90,5 +96,16 @@ describe('Wealth: an account in the address', () => {
     openAt('/wealth?tab=investments&account=a1');
     expect(screen.getByText('Investments content')).toBeTruthy();
     expect(screen.getByRole('dialog', { name: 'Current' })).toBeTruthy();
+  });
+});
+
+// Any page can link to one holding, on one of its tabs (the revamp, phase
+// 5b): Dividends opens a holding on its dividends.
+describe('Wealth: a holding in the address', () => {
+  it('opens that holding’s drawer over the tab, on the tab named', () => {
+    openAt('/wealth?tab=dividends&holding=h1&view=dividends');
+    expect(screen.getByText('Dividends content')).toBeTruthy();
+    expect(screen.getByRole('dialog', { name: 'Index fund' })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'Dividends' }).getAttribute('aria-selected')).toBe('true');
   });
 });

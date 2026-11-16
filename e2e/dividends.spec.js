@@ -62,9 +62,11 @@ test("a share's dividends are listed in its editor, and one is checked before it
   await expect(page.locator('.om-main')).toBeVisible();
   await expect(page.locator('.om-main .ov-skel')).toHaveCount(0);
   await page.getByRole('button', { name: 'Investments', exact: true }).first().click();
-  await page.locator('.wl-holdrow', { hasText: 'ABC' }).click();
+  await page.locator('.inv-row', { hasText: 'ABC' }).click();
 
-  const editor = page.getByRole('dialog', { name: 'Edit holding' });
+  // The holding's drawer, on the tab that holds them (the revamp, phase 5b).
+  const editor = page.getByRole('dialog', { name: 'ABC' });
+  await editor.getByRole('tab', { name: 'Dividends' }).click();
   const list = editor.getByRole('list', { name: 'Dividends' });
   await expect(list.getByRole('listitem')).toHaveCount(2);
   await expect(list.getByRole('listitem').first()).toContainText("The feed's amount per share has changed since this was recorded.");

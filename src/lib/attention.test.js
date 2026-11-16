@@ -111,6 +111,8 @@ describe('attentionHref', () => {
     // (the revamp, phase 5a).
     expect(attentionHref({ kind: 'card_due', accountId: 'c1' }, TODAY)).toBe('/wealth?account=c1');
     expect(attentionHref({ kind: 'balance_unset', accountId: 'a1' }, TODAY)).toBe('/wealth?account=a1&view=details');
+    // The holding itself, where its price is (the revamp, phase 5b).
+    expect(attentionHref({ kind: 'stale_holding', holdingId: 'h1' }, TODAY)).toBe('/wealth?tab=investments&holding=h1');
     expect(attentionHref({ kind: 'stale_holding' }, TODAY)).toBe('/wealth?tab=investments');
     // Month end, on the month to close (the revamp, phase 4d).
     expect(attentionHref({ kind: 'month_close', month: '2026-09' }, TODAY)).toBe('/money?tab=monthend&month=2026-09');

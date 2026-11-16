@@ -44,7 +44,7 @@ describe('buildTodo', () => {
     expect(byTitle.Streaming).toEqual({ kind: 'mark-paid', label: 'Mark paid', recurringId: 'r2' });
     expect(byTitle['Cash wallet']).toEqual({ kind: 'link', label: 'Confirm balance', href: '/wealth?account=a1&view=details' });
     expect(byTitle['Bank card']).toEqual({ kind: 'link', label: 'Open card', href: '/wealth?account=c1' });
-    expect(byTitle['Index fund']).toEqual({ kind: 'link', label: 'Update price', href: '/wealth?tab=investments' });
+    expect(byTitle['Index fund']).toEqual({ kind: 'link', label: 'Update price', href: '/wealth?tab=investments&holding=h1' });
     expect(byTitle.October).toEqual({ kind: 'link', label: 'Close month', href: '/money?tab=monthend&month=2026-10' });
     expect(byTitle.Backup).toEqual({ kind: 'link', label: 'Record backup', href: '/settings?tab=backups' });
     expect(byTitle.Insurance).toEqual({ kind: 'link', label: 'Open notes', href: '/planning?tab=notes' });

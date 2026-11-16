@@ -1,298 +1,276 @@
-/* Split out of ../Wealth.css with the round 2 cleanup (SHR-383): the rules only
-   this tab uses. What the tabs share stays there. */
+/* Wealth -> Investments (the revamp, phase 5b; design/prototype
+   css/wealth.css .inv-conc, .card.fill and styles.css .tbl). */
 
-/* Investments: a real line+area trend over daily portfolio value, with
-   invisible hover/click columns over each data point and a dot marking the
-   selected one -- same interaction idiom as Net worth's bar chart, just an
-   SVG path instead of bars since a trend over many daily points reads
-   better as a line than as one bar per day. */
-.wl-invchart {
-  position: relative;
-  height: 172px;
-  margin-top: 14px;
-}
-
-.wl-invchart-svg {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  overflow: visible;
-}
-
-.wl-invchart-cols {
-  position: absolute;
-  inset: 0;
+.inv {
+  margin-top: 20px;
   display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
-
-.wl-invchart-col {
-  flex: 1;
-  height: 100%;
-  cursor: crosshair;
-}
-
-.wl-invchart-dot {
-  position: absolute;
-  width: 7px;
-  height: 7px;
-  margin: -3.5px;
-  border-radius: 50%;
-  background: var(--accent);
-  pointer-events: none;
-}
-
-.wl-alloc-grid {
+.inv-top {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 12px;
+  grid-template-columns: minmax(0, 8fr) minmax(0, 4fr);
+  gap: 16px;
+  align-items: stretch;
+}
+.inv-ink2 {
+  color: var(--ink2);
+}
+.inv-ink3 {
+  color: var(--ink3);
+}
+.inv-pos {
+  color: var(--pos);
+}
+.inv-neg {
+  color: var(--neg);
+}
+.inv-warn {
+  color: var(--warn);
+}
+.inv-grow {
+  flex: 1;
+}
+.inv-sub {
+  font-size: 12px;
+  color: var(--ink3);
 }
 
-.wl-alloc-box {
-  border: 1px solid var(--rule);
-  padding: 14px 16px;
-}
-
-.wl-alloc-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 10px;
-  font-size: 12.5px;
-}
-
-.wl-alloc-value {
-  font-size: 20px;
-  margin-top: 4px;
-}
-
-/* The concentration line under Allocation (Planning audit, 4.17): what is
-   most concentrated, against the cap, with the cap set in place. */
-.wl-concentration {
-  margin-top: 14px;
-}
-
-.wl-concentration-line {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  column-gap: 10px;
-  row-gap: 4px;
-  margin: 0;
-  font-size: 13.5px;
-  color: var(--ink);
-}
-
-.wl-concentration-cap {
-  appearance: none;
+/* ---------- the Prices stamp ---------- */
+/* The stamp opens its pop-over but reads as a time stamp, not a button. */
+.inv-stamp > .ds-popover > .ds-btn {
+  border-color: transparent;
   background: none;
-  border: none;
-  padding: 0;
-  font: inherit;
-  font-size: 12.5px;
-  color: var(--accent);
-  cursor: pointer;
+  padding-left: 6px;
+  padding-right: 6px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink3);
 }
-
-.wl-concentration-note {
-  margin: 6px 0 0;
-  font-size: 11.5px;
-  line-height: 1.6;
-  max-width: 80ch;
+.inv-stamp > .ds-popover > .ds-btn:hover {
+  color: var(--ink);
+  background: var(--raise, transparent);
 }
-
-.wl-cap-form {
+.inv-prices {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 300px;
+  font-size: 12.5px;
+  color: var(--ink2);
+}
+.inv-prices p {
+  margin: 0;
+}
+
+/* ---------- value over time ---------- */
+.inv-title-extra {
+  display: inline-flex;
   align-items: center;
-  gap: 8px 12px;
-  margin-top: 12px;
+  gap: 6px;
+}
+.inv-chart {
+  padding: 6px 18px 14px;
+}
+.inv-chart-empty {
+  margin: 16px 0;
   font-size: 13px;
 }
-
-.wl-cap-form .wl-concentration-note {
-  flex-basis: 100%;
-  margin-top: 0;
+.inv-readout {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  min-height: 18px;
+  font-size: 12.5px;
+  color: var(--ink2);
+}
+.inv-readout b {
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
 }
 
-.wl-cap-field,
-.wl-cap-actions {
-  display: inline-flex;
+/* ---------- allocation ---------- */
+/* The card fills the row beside the chart, and the concentration sits at its
+   foot. */
+.inv-alloc {
+  display: flex;
+  flex-direction: column;
+}
+.inv-alloc > .ds-card-body {
+  flex: 1;
+}
+.inv-alloc-body {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.inv-conc {
+  margin-top: auto;
+  padding-top: 16px;
+  border-top: 1px solid var(--rule-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.inv-conc-head,
+.inv-conc-row,
+.inv-conc-foot {
+  display: flex;
   align-items: center;
   gap: 8px;
 }
-
-.wl-cap-input {
-  width: 72px;
-  background: none;
-  border: 1px solid var(--rule2);
-  border-radius: var(--radius-sm);
-  padding: 9px 10px;
-  font-size: 14px;
-  color: var(--ink);
-  font-family: inherit;
-}
-
-@media (max-width: 640px) {
-  .wl-concentration-cap {
-    min-height: 44px;
-  }
-}
-
-.wl-invstats {
-  display: flex;
-  gap: 26px;
-  flex-wrap: wrap;
-  margin-top: 30px;
-  padding: 15px 0 0;
-  border-top: 1px solid var(--rule2);
-}
-
-.wl-holdwrap {
-  overflow-x: auto;
-}
-
-.wl-holdtable {
-  border-collapse: collapse;
-  width: 100%;
-  min-width: 920px;
+.inv-conc-head {
+  justify-content: space-between;
   font-size: 12.5px;
 }
+.inv-conc-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink2);
+}
+.inv-conc-row {
+  justify-content: space-between;
+  font-size: 13.5px;
+}
+.inv-conc-name {
+  font-weight: 500;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.inv-conc-fig {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.inv-conc-spread {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink2);
+}
+.inv-conc-foot {
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.inv-cap-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--ink2);
+}
+.inv-cap-field,
+.inv-cap-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.inv-cap-input {
+  width: 72px;
+}
+.inv-cap-note {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 12px;
+}
 
-.wl-holdtable th,
-.wl-holdtable td {
-  text-align: right;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--rule);
+/* ---------- holdings ---------- */
+.inv-table td {
+  height: 52px;
+}
+.inv-col-owner {
+  width: 60px;
+}
+.inv-row {
+  cursor: pointer;
+}
+.inv-row:hover td {
+  background: color-mix(in oklab, var(--ink) 2.5%, transparent);
+}
+.inv-holding {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.inv-name {
+  padding: 0;
+  background: none;
+  border: 0;
+  font: inherit;
+  font-weight: 500;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+.inv-name:hover {
+  color: var(--accent);
+}
+.inv-name:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+.inv-fig {
+  font-weight: 500;
+}
+.inv-ccy {
+  margin-left: 4px;
+  font-size: 11.5px;
+  color: var(--ink3);
+}
+
+/* ---------- sold ---------- */
+.inv-sold {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 8px;
+}
+.inv-sold-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 48px;
+  padding: 6px 18px;
+  background: none;
+  border: 0;
+  border-top: 1px solid var(--rule-soft);
+  font: inherit;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+.inv-sold li:first-child .inv-sold-row {
+  border-top: 0;
+}
+.inv-sold-row:hover {
+  background: color-mix(in oklab, var(--ink) 2.5%, transparent);
+}
+.inv-sold-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.inv-sold-name {
+  font-size: 13.5px;
+  font-weight: 500;
+}
+.inv-sold-made {
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
-.wl-holdtable th:first-child,
-.wl-holdtable td:first-child {
-  text-align: left;
-  white-space: normal;
-}
-
-.wl-holdtable th:nth-child(2),
-.wl-holdtable td:nth-child(2) {
-  text-align: left;
-}
-
-.wl-holdtable th {
-  color: var(--ink3);
-  font-weight: 400;
-  font-size: 10.5px;
-}
-
-/* The holding's name, the button that opens it from the keyboard: it reads
-   as the name, with the row's own hover, and shows its focus. */
-.wl-holdname {
-  background: none;
-  border: 0;
-  padding: 0;
-  font: inherit;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.wl-holdname:focus-visible {
-  outline: 2px solid currentColor;
-  outline-offset: 2px;
-}
-
-.wl-holdrow {
-  cursor: pointer;
-}
-
-.wl-holdrow:hover td {
-  background: var(--raise);
-}
-
-.wl-ranges {
-  justify-content: flex-end;
-}
-
-@media (max-width: 720px) {
-  .wl-ranges {
-      justify-content: flex-start;
-      gap: 4px;
-    }
-  .wl-holdtable {
-      min-width: 0;
-    }
-  .wl-holdtable thead {
-      position: absolute;
-      width: 1px;
-      height: 1px;
-      overflow: hidden;
-      clip-path: inset(50%);
-    }
-  .wl-holdtable tbody,
-    .wl-holdtable tr {
-      display: block;
-    }
-  .wl-holdtable .wl-holdrow {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: baseline;
-      gap: 4px 14px;
-      padding: 12px 0;
-      border-bottom: 1px solid var(--rule);
-    }
-  .wl-holdrow::after {
-      content: '';
-      order: 2;
-      flex-basis: 100%;
-    }
-  .wl-holdtable td {
-      display: block;
-      padding: 0;
-      border: 0;
-      text-align: left;
-      white-space: nowrap;
-      font-size: 12px;
-      order: 4;
-    }
-  .wl-holdtable td:nth-child(1) {
-      order: 0;
-      flex: 1 1 0;
-      min-width: 0;
-      white-space: normal;
-      font-size: 13.5px;
-    }
-  .wl-holdtable td:nth-child(8) {
-      order: 1;
-      text-align: right;
-      font-size: 13.5px;
-    }
-  .wl-holdtable td:nth-child(9),
-    .wl-holdtable td:nth-child(10) {
-      order: 3;
-    }
-  .wl-holdtable td:nth-child(n + 2):not(:nth-child(8))::before {
-      color: var(--ink3);
-      margin-right: 4px;
-    }
-  .wl-holdtable td:nth-child(4)::before {
-      content: 'Units';
-    }
-  .wl-holdtable td:nth-child(5)::before {
-      content: 'Avg';
-    }
-  .wl-holdtable td:nth-child(6)::before {
-      content: 'Price';
-    }
-  .wl-holdtable td:nth-child(7)::before {
-      content: 'Invested';
-    }
-  .wl-holdtable td:nth-child(9)::before {
-      content: 'P&L';
-    }
-  .wl-holdtable td:nth-child(10)::before {
-      content: 'Today';
-    }
-  .wl-holdrow:hover td {
-      background: none;
-    }
+/* Side by side, the chart needs more room than a narrower window leaves it
+   and Allocation's figures crowd; they stack until there is room. */
+@media (max-width: 1100px) {
+  .inv-top {
+    grid-template-columns: 1fr;
+  }
 }

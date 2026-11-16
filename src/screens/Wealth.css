@@ -2,18 +2,6 @@
    they were never Money-specific, just first defined there. */
 @import './Money.css';
 
-/* On a phone the holdings table scrolled sideways with value and profit off
-   the screen. Each holding becomes two lines instead: its name and value,
-   then every other column in small type, labelled, starting with profit and
-   today's move. Nothing is dropped. */
-@media (max-width: 720px) {
-  .wl-ranges .om-seg {
-      flex: 1;
-      padding-left: 0;
-      padding-right: 0;
-    }
-}
-
 /* A row that carries its own action (reopen a closed account) alongside the
    tappable row itself. */
 .mn-row-wrap {

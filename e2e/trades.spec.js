@@ -45,7 +45,7 @@ async function openInvestments(page) {
   await expect(page.locator('.om-main')).toBeVisible();
   await expect(page.locator('.om-main .ov-skel')).toHaveCount(0);
   await page.getByRole('button', { name: 'Investments', exact: true }).first().click();
-  await expect(page.locator('.wl-holdrow', { hasText: 'ABC' })).toBeVisible();
+  await expect(page.locator('.inv-row', { hasText: 'ABC' })).toBeVisible();
 }
 
 async function documentOverflows(page) {
@@ -64,9 +64,14 @@ test('a traded holding shows its trades, and a sale is checked before it is save
     },
   });
   await openInvestments(page);
-  await page.locator('.wl-holdrow', { hasText: 'ABC' }).click();
+  await page.locator('.inv-row', { hasText: 'ABC' }).click();
 
-  const editor = page.getByRole('dialog', { name: 'Edit holding' });
+  // The holding's drawer, on the tab that holds them (the revamp, phase 5b).
+  const editor = page.getByRole('dialog', { name: 'ABC' });
+  await editor.getByRole('tab', { name: 'Trades' }).click();
+  // Only the chosen tab shows: the dividends and the details wait on theirs.
+  await expect(editor.getByRole('button', { name: 'Add a dividend' })).toBeHidden();
+  await expect(editor.getByPlaceholder('e.g. VWRA')).toBeHidden();
   const list = editor.getByRole('list', { name: 'Trades' });
   await expect(list.getByRole('listitem')).toHaveCount(3);
   await expect(list.getByRole('listitem').first()).toContainText('Sell 6 at USD 150.00');

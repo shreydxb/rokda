@@ -132,6 +132,14 @@ export function accountHref(accountId, { view, who } = {}) {
   return `/wealth?${params}`;
 }
 
+// A holding's drawer, over Investments (the revamp, phase 5b): `view` is one
+// of its tabs, `trades` or `dividends`; without one it opens on its details.
+export function holdingHref(holdingId, { view } = {}) {
+  const params = new URLSearchParams({ tab: 'investments', holding: holdingId });
+  if (view) params.set('view', view);
+  return `/wealth?${params}`;
+}
+
 // The address of one tab of a screen (lib/useTab.js reads it), with any
 // other parameters it takes.
 export function tabHref(path, tab, extra = {}) {

@@ -1,6 +1,7 @@
 import { ASSET_CLASS_LABELS, SECTOR_GROUPS, SECTOR_LABELS, costFromUnits, hasSector } from '../../lib/holdings';
 import { todayISODate } from '../../lib/valuation';
 import OwnerPicker from '../OwnerPicker';
+import { InfoButton } from '../../design-system/kit';
 
 // Part of the holding editor (HoldingEditor.jsx), split out with the round 2
 // cleanup (SHR-383).
@@ -158,11 +159,15 @@ export default function HoldingFields({
       </div>
 
       <div>
-        <span className="te-fieldlabel">Pricing detail (optional)</span>
-        <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 4, marginBottom: 10 }}>
-          Fills in the richer holdings table (units, avg price, P&amp;L). "Price now" and "Day change" are
-          overwritten by the daily refresh below when auto-pricing is on; otherwise they're manual. With units
-          and a currency the feed can convert (AED, USD, or INR), the Value field above is overwritten too.
+        {/* The explanations sit behind an (i), so the details read as fields
+            (the revamp, phase 5b). */}
+        <div className="he-section-label">
+          <span className="te-fieldlabel">Pricing detail (optional)</span>
+          <InfoButton about="Pricing detail">
+            Fills in the holdings table (units, average price, profit). &ldquo;Price now&rdquo; and &ldquo;Day change&rdquo; are
+            overwritten by the daily refresh when auto-pricing is on; otherwise they&rsquo;re manual. With units and a
+            currency the feed can convert (AED, USD or INR), the Value above is overwritten too.
+          </InfoButton>
         </div>
         {traded && (
           <div className="ov-muted" style={{ fontSize: 11.5, marginBottom: 10 }}>
@@ -200,10 +205,12 @@ export default function HoldingFields({
       </div>
 
       <div>
-        <span className="te-fieldlabel">Auto-pricing (optional)</span>
-        <div className="ov-muted" style={{ fontSize: 11.5, marginTop: 4, marginBottom: 10 }}>
-          Opts this holding into the daily price feed. Leave "None" to keep entering price/day-change by hand —
-          most sukuk still have no real option here.
+        <div className="he-section-label">
+          <span className="te-fieldlabel">Auto-pricing (optional)</span>
+          <InfoButton about="Auto-pricing">
+            Opts this holding into the daily price feed. Leave &ldquo;None&rdquo; to keep entering the price and day change by
+            hand; most sukuk still have no real option here.
+          </InfoButton>
         </div>
         <div className="te-fieldgrid">
           <div className="te-fieldcell te-span2">

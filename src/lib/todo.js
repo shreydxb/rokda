@@ -1,6 +1,6 @@
 import { parseDay } from './day';
 import { formatMoney } from './money';
-import { accountHref, tabHref } from './activityLink';
+import { accountHref, holdingHref, tabHref } from './activityLink';
 
 // Overview's To do (the revamp, phase 3; review S-overview-1 and N13): the
 // one list of everything waiting on someone, from the checks the app already
@@ -33,7 +33,7 @@ function fromAttention(item) {
     case 'balance_unset':
       return { ...base, group: 'Today', action: link('Confirm balance', item.accountId ? accountHref(item.accountId, { view: 'details' }) : '/wealth') };
     case 'stale_holding':
-      return { ...base, group: 'Today', action: link('Update price', tabHref('/wealth', 'investments')) };
+      return { ...base, group: 'Today', action: link('Update price', item.holdingId ? holdingHref(item.holdingId) : tabHref('/wealth', 'investments')) };
     case 'month_close':
       return { ...base, group: 'Month end', action: link('Close month', tabHref('/money', 'monthend', item.month ? { month: item.month } : {})) };
     case 'backup':

@@ -142,8 +142,8 @@ const SUBVIEWS = [
   // revamp, phase 4d): the reason box and its buttons.
   { name: 'statements', path: '/money?tab=monthend', tabs: ['Resolve…'], expectText: 'Mark resolved', history: false, tables: { statement_reconciliations: cardStatements } },
   // The largest concentration under Allocation, and its cap set in place
-  // (Planning audit, 4.17).
-  { name: 'investments-concentration', path: '/wealth', tabs: ['Investments'], expectText: 'Largest concentration: Technology, 57% of investments', history: false, tables: { holdings: concentratedHoldings } },
+  // (Planning audit, 4.17; the revamp, phase 5b).
+  { name: 'investments-concentration', path: '/wealth', tabs: ['Investments'], expectText: 'Technology · sector', history: false, tables: { holdings: concentratedHoldings } },
   { name: 'investments-cap', path: '/wealth', tabs: ['Investments', 'Set a cap'], expectText: 'No single sector or holding above', history: false, tables: { holdings: concentratedHoldings } },
   { name: 'backups', path: '/settings', tabs: ['Backups'], expectText: 'Restore drill' },
   { name: 'starter-categories', path: '/settings', tabs: ['Categories & rules', 'Starter set'], expectText: 'Starter categories' },

@@ -10,7 +10,7 @@ import { balanceStatus } from './balance';
 import { accountValueAed } from './accounts';
 import { pendingClose } from './snapshots';
 import { EXPORT_DUE_DAYS, backupStatus } from './backups';
-import { accountHref, activityHref, monthRange, tabHref } from './activityLink';
+import { accountHref, activityHref, holdingHref, monthRange, tabHref } from './activityLink';
 import { yearlyCheckItems } from './yearlyChecks';
 
 function startOfDay(d) {
@@ -340,8 +340,9 @@ export function attentionHref(item, now = new Date()) {
       return item.accountId ? accountHref(item.accountId) : '/wealth';
     case 'balance_unset':
       return item.accountId ? accountHref(item.accountId, { view: 'details' }) : '/wealth';
+    // The holding itself, where its price is (the revamp, phase 5b).
     case 'stale_holding':
-      return tabHref('/wealth', 'investments');
+      return item.holdingId ? holdingHref(item.holdingId) : tabHref('/wealth', 'investments');
     case 'month_close':
       return tabHref('/money', 'monthend', item.month ? { month: item.month } : {});
     case 'backup':

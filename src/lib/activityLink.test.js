@@ -1,11 +1,19 @@
 import { describe, it, expect } from 'vitest';
-import { accountHref, activityHref, activityPeriod, sharedMonth, bucketRange, categoryAndChildren, dateRangeLabel, inDateRange, monthRange, readActivityFilters, tabHref, withActivityFilter, withActivityMonth, withAllDates, withoutFilters } from './activityLink';
+import { accountHref, activityHref, holdingHref, activityPeriod, sharedMonth, bucketRange, categoryAndChildren, dateRangeLabel, inDateRange, monthRange, readActivityFilters, tabHref, withActivityFilter, withActivityMonth, withAllDates, withoutFilters } from './activityLink';
 
 // An account's drawer on Wealth (the revamp, phase 5a).
 describe('accountHref', () => {
   it('opens one account, on a view when asked, for the household when asked', () => {
     expect(accountHref('c1')).toBe('/wealth?account=c1');
     expect(accountHref('a1', { view: 'details', who: 'both' })).toBe('/wealth?account=a1&view=details&who=both');
+  });
+});
+
+// A holding's drawer, over Investments (the revamp, phase 5b).
+describe('holdingHref', () => {
+  it('opens one holding over Investments, on a tab when asked', () => {
+    expect(holdingHref('h1')).toBe('/wealth?tab=investments&holding=h1');
+    expect(holdingHref('h1', { view: 'dividends' })).toBe('/wealth?tab=investments&holding=h1&view=dividends');
   });
 });
 
