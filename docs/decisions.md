@@ -4167,3 +4167,55 @@ The revamp's phase 5a (design note `docs/superpowers/specs/2026-11-16-wealth-des
   - **A cycle of refunds is money back**, shown below zero, using none of the
     limit; "closes today" on the statement day; the hero's Confirm opens a
     card on its details.
+
+## Wealth: Investments like the prototype, and a holding drawer
+
+The revamp's phase 5b (design note `docs/superpowers/specs/2026-11-16-wealth-design.md`).
+
+- **A holding has an address**, `/wealth?tab=investments&holding={id}`
+  (`&view=trades` or `dividends`), as an account has one, and opens in a
+  drawer over whichever Wealth tab is open. To do's and Needs attention's
+  "Update price" open the stale holding itself, the "{n} untagged" chip the
+  holding most worth tagging (the largest without a sector), and Dividends
+  (in 5c) a holding on its dividends. The design note gave the account an
+  address and asked the untagged chip and Dividends' By holding to open a
+  holding; one address is how all of them do it.
+- **The holding's Details, Trades and Dividends are tabs of one editor**,
+  each kept drawn and only the chosen one shown. A look at the trades
+  doesn't cost what was typed in the details, nor a trade half typed a look
+  at the details; the actions that wait while the holding has unsaved
+  changes still wait, and say why. Details keeps Delete, Cancel and Save;
+  the other two tabs have only Close, which asks first when something is
+  unsaved. A holding with no trade history yet, or of a class whose
+  dividends aren't followed, says so on that tab.
+- **The figures are one strip**, Value the hero: Invested, Profit not yet
+  taken (and its share of cost), Profit on sales this year (how many sales,
+  what tax took, how many await the broker's tax) and Change today. A
+  holding not valued yet is said under Value, as before.
+- **The app's seven ranges stay** (1W, 1M, 3M, 6M, YTD, 1Y, 5Y; decision 1
+  of the design note, which counted six). A range or group chosen goes
+  back to today's point, as before.
+- **One explanation beside "Value over time"**: that the change includes
+  money added or withdrawn; when some days leave a holding out, a "Partial
+  history" chip whose (i) names them and says the same.
+- **The concentration is a bar** under Allocation: the largest sector or
+  single holding against the whole (cash left out), the cap a tick on it,
+  "Above / Within {n}% cap" and "{n} untagged". The share is drawn of the
+  whole, not scaled up as the prototype's is, so the bar reads as the
+  figure beside it. The cap is still set in place, for the household.
+- **The Prices stamp holds the footer notes**: the oldest valuation, how
+  many are never valued, the live feeds, a failing feed's names and what
+  each refresh does. A failed refresh is the kit's banner with Try again;
+  holdings whose feed failed are a warning banner naming them, and a
+  "Stale price" chip in their row. A stale price is a failed refresh or one
+  confirmed 30 days ago or more; never valued is its own state.
+- **The holdings table** is largest first; prices are in the holding's own
+  currency, the code in grey, with "manual" where no feed sets them; Today
+  is a dash while the feed is failing, since the change left behind is not
+  today's. Invested and Value keep the display currency in their headings,
+  beside prices in other currencies.
+- The pricing paragraphs in a holding's details sit behind an (i). The kit's
+  strip can draw a page's first figure as its hero.
+- A tab's panel hides on a plain wrapper: a class that sets `display` on
+  the same element outranks `hidden`, and the dividends showed on the
+  Trades tab until a browser check caught it (jsdom applies no CSS).

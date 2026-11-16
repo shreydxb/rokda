@@ -316,32 +316,51 @@ Net worth, which holds the accounts.
   Close account (or Delete for one never used) sits in its footer. Account
   types read as words ("Credit card", "Fixed deposit"), never as stored.
 - **Investments**: holdings with prices pulled daily where a symbol is set,
-  and FX rates for USD and INR. "Refresh prices" fetches them; the page's own
-  Refresh re-reads what is stored. Under Allocation, one line names the
-  largest concentration, a sector or a single holding, and its share of
-  investments (cash left out), against the household's cap: "above your 25%
-  cap" in warning colour, or within it. "Set a cap" sets it in place, for the
-  household. A share or share fund is tagged with its sector once, in its
-  editor: one of the market sectors, or for an Indian holding the sector its
-  broker's statement gives it (Defence, FMCG, Auto ancillary and the like);
-  a fund spread across sectors is tagged so, and counts in no sector. Each
-  holding's buys, sells and splits are kept as dated trades from its fresh
-  start (`holding_trades`); its units and average price are worked out from
-  them, and read-only in its editor once it has them. A trade moves the
-  broker's funds account and the holding's value together. The editor lists
-  a traded holding's trades, newest first, with brokerage, tax and what each
+  and FX rates for USD and INR. The header holds the groups (All, Global,
+  India and the rest present), the Prices stamp (when the feed last ran; its
+  pop-over gives the oldest valuation, the live feeds, any that failed, and
+  that the page's own Refresh re-reads what is stored while "Refresh prices"
+  fetches), a "{n} stale" chip opening the first, Refresh prices and
+  + Holding. A failed refresh is a banner with Try again; holdings whose feed
+  failed are named in a warning banner. Then one strip: Value, Invested,
+  Profit not yet taken (and its share of cost), Profit on sales this year (in
+  dirhams, a rupee sale at its own day's rate; how many sales, after tax, and
+  any awaiting the broker's tax) and Change today. **Value over time** draws
+  the daily value over 1W to 5Y (a "Partial history" chip names the holdings
+  some days leave out), with the change over the range and today's value
+  beneath, a day picked reading its own. **Allocation** stacks the holdings
+  by asset class, and under it the largest concentration, a sector or a
+  single holding, as a share of investments (cash left out) on a bar with
+  the household's cap as a tick: "Above 25% cap" in warning colour, or
+  within it, "{n} untagged" opening the holding most worth tagging, and "Set
+  a cap" or "Change cap" in place, for the household. **Holdings**, largest
+  first: name (Stale price and Untagged chips; class and sector beneath),
+  owner, units, average price and price now in the holding's currency
+  ("manual" where no feed sets it), invested, value (share of total), profit
+  (share of cost) and today's change; a holding sold down to nothing moves
+  to a "Sold" fold with what its sales made.
+- **A holding** opens in a drawer from its row, or from its address
+  (`/wealth?tab=investments&holding={id}`, which To do's Update price links
+  to), on **Details**, **Trades** or **Dividends**, one editor behind the
+  three tabs, so nothing typed is lost between them. A share or share fund
+  is tagged with its sector once, in its details: one of the market
+  sectors, or for an Indian holding the sector its broker's statement gives
+  it (Defence, FMCG, Auto ancillary and the like); a fund spread across
+  sectors is tagged so, and counts in no sector. Each holding's buys, sells
+  and splits are kept as dated trades from its fresh start
+  (`holding_trades`); its units and average price are worked out from them,
+  and read-only in its details once it has them. A trade moves the broker's
+  funds account and the holding's value together. The Trades tab lists a
+  traded holding's trades, newest first, with brokerage, tax and what each
   sale made; "Record a trade" (buy, sell or split), "Fix" and "Delete" are
-  checked by the database first, and saved exactly as shown. A holding sold
-  down to nothing moves to a "Sold" fold with what its sales made, and
-  "Profit on sales this year" (in dirhams, a rupee sale at its own day's
-  rate) sits beside "Profit not yet taken" on what is still held.
+  checked by the database first, and saved exactly as shown.
   A US-listed or Indian share has a withholding rate on dividends (30% and
   20.8% by default) and a fee per share in its editor, and a broker fund
   says where its holdings' dividends are paid. Each night the dividend feed
   records what every holding earned on each ex-date, at the units its trades
   say it held (`holding_dividends`); a dividend paid into a bank account is
-  presumed received 30 days after its ex-date. The editor lists a share's
-  dividends under its trades, newest first: date and net, status (earned,
+  presumed received 30 days after its ex-date. A share's Dividends tab lists
+  its dividends, newest first: date and net, status (earned,
   received, presumed received and not checked, skipped), the sum it came
   from and where it goes, with the reason when the feed has flagged it.
   "Record", "Fix", "Skip" and "Restore" are checked by the database first,
