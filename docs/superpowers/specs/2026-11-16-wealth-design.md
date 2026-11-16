@@ -1,6 +1,9 @@
 # Wealth, the revamp's phase 5: design
 
-Status: draft for approval.
+Status: approved 16 November 2026, with the four decisions as recommended
+(the app's six ranges, By month over 12 months back and 12 ahead, a tax
+year's drawer holding everything the app shows today, a balance old at 45
+days).
 
 The prototype (`design/prototype/js/screens-wealth.js`, `css/wealth.css`) is
 the target, as it was for Money. Each tab is built like its prototype screen
