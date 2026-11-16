@@ -34,8 +34,10 @@ const inView = (accounts, scopeMemberId) => accounts.filter((a) => !isArchived(a
 
 // One ledger row: what to say beneath the name, whether its balance needs
 // confirming, and its value in AED for the person in view. A balance nobody
-// confirmed is counted as nothing (QA-02) and one not converted to AED is not
-// counted at all (QA #4); each says so instead of a figure.
+// confirmed is counted as it stands, as the shared basis counts it
+// (overviewMath.netWorthSummary), so the ledger adds up to the total; its
+// status says it isn't confirmed (QA-02). One not converted to AED is not
+// counted at all (QA #4), and gives its own currency instead.
 function ledgerRow(a, { scopeMemberId, now, showType }) {
   const sub = [];
   if (showType) sub.push(accountTypeLabel(a.type));
@@ -48,7 +50,7 @@ function ledgerRow(a, { scopeMemberId, now, showType }) {
   }
   const balance = balanceStatus(a, now);
   const status = balance === 'unset' ? { kind: 'unset' } : balance === 'stale' ? { kind: 'stale', days: daysSinceBalanceConfirmed(a, now) } : null;
-  const value = balance === 'unset' || aed === null ? null : scopedValue(aed, a, scopeMemberId);
+  const value = aed === null ? null : scopedValue(aed, a, scopeMemberId);
   return { account: a, sub: sub.length ? sub.join(' · ') : null, status, value, native: aed === null ? native : null };
 }
 

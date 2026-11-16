@@ -1,384 +1,442 @@
 import { useMemo, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { neverLoaded } from '../../lib/loadState';
 import Withheld from '../planning/Withheld';
 import { useNow } from '../../lib/useNow';
-import { LineChart } from '../../charts/Charts';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId, scopedValue } from '../../lib/scope';
-import { accountTypeLabel, accountValueAed, isArchived, unvaluedAccounts } from '../../lib/accounts';
-import { balanceStatus, unconfirmedAccounts } from '../../lib/balance';
-import { historyState } from '../../lib/snapshots';
-import { useMonthClose } from '../../lib/useMonthClose';
-import MonthCloseForm from './MonthCloseForm';
-import { formatPct } from '../../lib/money';
+import { accountTypeLabel, accountValueAed, archivedAccounts, unvaluedAccounts } from '../../lib/accounts';
+import { unconfirmedAccounts } from '../../lib/balance';
+import { historyState, pendingClose } from '../../lib/snapshots';
 import { buildNetWorthSeries, changeOverMonths } from '../../lib/netWorth';
 import { ASSET_CLASS_LABELS, scopedHoldingValue, visibleHoldings } from '../../lib/holdings';
+import { isStale, isAwaitingFirstValuation } from '../../lib/valuation';
+import { tabHref } from '../../lib/activityLink';
+import { monthParam } from '../../lib/useMonthParam';
+import { assetGroups, liabilityRows } from '../../lib/netWorthLedger';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
-import { isLiabilityAccount, isLiquidAccount } from '../useOverviewData';
-import { incompleteNote, netWorthSummary } from '../overviewMath';
-import { isAwaitingFirstValuation } from '../../lib/valuation';
+import { supabase } from '../../lib/supabaseClient';
+import { isLiquidAccount } from '../useOverviewData';
+import { incompleteNote, netWorthSummary, runwaySummary } from '../overviewMath';
+import { TrendLine } from '../../design-system/charts';
+import { Avatar, Card, Chip, EmptyState, Fold, InfoButton, ProgressBar, Segmented, StackBar, WarningRow } from '../../design-system/kit';
+import { Tools } from '../PageTools';
 import './NetWorth.css';
 
-const COMPOSITION_PALETTE = ['var(--accent)', 'var(--pos)', 'var(--warn)', 'var(--ink2)', 'var(--neg)', 'var(--accent-hover)'];
+// Wealth -> Net worth as the prototype lays it out (the revamp, phase 5a;
+// design/prototype heroCard, grownCard, assetsCard, liabilitiesCard): what
+// the household is worth and which way it is moving, and below it the
+// accounts ledger that was the Accounts tab (review N5). An account opens its
+// drawer through the address (`?account=`), so any page can link to one.
 
-// A breakdown of assets (accounts + holdings) by class, for the allocation
-// bar -- cash accounts group together, other account types keep their own
-// label, and holdings group by asset class. Liabilities aren't part of this:
-// the bar shows what the household HOLDS, not what it owes.
-function buildComposition(assetRows, holdingRows, scopeMemberId) {
+const GROUPINGS = [
+  { id: 'type', label: 'By type' },
+  { id: 'owner', label: 'By owner' },
+];
+
+// What the assets are: accounts by kind (the cash-like ones together) and
+// holdings by asset class, counted as the total counts them: a balance not
+// converted to AED adds nothing.
+function composition(accounts, holdings, scopeMemberId) {
   const totals = new Map();
-  for (const a of assetRows) {
-    const label = isLiquidAccount(a) ? 'Cash' : accountTypeLabel(a.type);
-    // An unconverted foreign balance contributes nothing to the allocation
-    // bar rather than contributing its native number as though it were
-    // dirhams -- the bar is proportions of an AED total, and a rupee figure
-    // in it silently rescales every other slice (QA #4). The hero above says
-    // the total is incomplete, which covers the bar too.
+  for (const a of accounts) {
     const aed = accountValueAed(a);
-    const value = balanceStatus(a) === 'unset' || aed === null ? 0 : scopedValue(aed, a, scopeMemberId);
+    const value = aed === null ? 0 : scopedValue(aed, a, scopeMemberId);
+    const label = isLiquidAccount(a) ? 'Cash' : accountTypeLabel(a.type);
     totals.set(label, (totals.get(label) ?? 0) + value);
   }
-  for (const h of holdingRows) {
+  for (const h of holdings) {
     const label = ASSET_CLASS_LABELS[h.asset_class] ?? h.asset_class ?? 'Other';
     totals.set(label, (totals.get(label) ?? 0) + scopedHoldingValue(h, scopeMemberId));
   }
-  const total = [...totals.values()].reduce((s, v) => s + Math.max(0, v), 0);
-  return [...totals.entries()]
-    .filter(([, v]) => v > 0)
-    .sort((a, b) => b[1] - a[1])
-    .map(([label, value], i) => ({
-      label,
-      value,
-      pct: total > 0 ? value / total : 0,
-      color: COMPOSITION_PALETTE[i % COMPOSITION_PALETTE.length],
-    }));
+  return [...totals].map(([label, value]) => ({ label, value }));
 }
+
+const pctText = (share) => `${share >= 0 ? '+' : '−'}${Math.round(Math.abs(share) * 100)}%`;
 
 export default function NetWorth({ household, me, members, data, loading }) {
   const { scope } = useScope();
   const scopeMemberId = resolveScopeMemberId(scope, me, members);
   const money = useMoneyDisplay(household);
-  const { accounts, netWorthSnapshots, holdings, reload } = data;
+  const { accounts = [], netWorthSnapshots = [], holdings = [], transactions = [], reload } = data;
   const now = useNow(data?.loadedAt);
-  const [selectedIdx, setSelectedIdx] = useState(null);
+  const [, setParams] = useSearchParams();
+  const [by, setBy] = useState('type');
+  const [pick, setPick] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
 
-  // Closed accounts leave today's position but keep their transactions (QA-01).
-  const visible = accounts.filter(
-    (a) => !isArchived(a) && (scopeMemberId === null || a.is_shared || a.owner_member_id === scopeMemberId),
-  );
-  const assetRows = visible.filter((a) => !isLiabilityAccount(a));
-  const liabilityRows = visible.filter((a) => isLiabilityAccount(a));
-  const visibleHoldingRows = visibleHoldings(holdings, scopeMemberId);
-  // Totals come from the shared basis rather than a parallel calculation, so
-  // Wealth, Overview and Forecast cannot drift apart (QA-03). That basis
-  // (overviewMath.netWorthSummary) skips an account whose AED value is
-  // unknown -- it does NOT fall back to the native amount -- and reports how
-  // many it skipped, which is what `unvalued` below surfaces (QA #4).
-  const unconfirmed = unconfirmedAccounts(visible);
-  const composition = useMemo(
-    () => buildComposition(assetRows, visibleHoldingRows, scopeMemberId),
-    [assetRows, visibleHoldingRows, scopeMemberId]
-  );
+  // The account drawer is opened through the address, so a link from any page
+  // opens the same thing (screens/wealth/AccountDrawer.jsx).
+  const openAccount = (id) =>
+    setParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set('account', id);
+      return next;
+    });
+
+  const inView = useMemo(() => accounts.filter((a) => scopeMemberId === null || a.is_shared || a.owner_member_id === scopeMemberId), [accounts, scopeMemberId]);
+  const open = useMemo(() => inView.filter((a) => !a.archived_at), [inView]);
+  const held = useMemo(() => visibleHoldings(holdings, scopeMemberId), [holdings, scopeMemberId]);
+  // Totals come from the shared basis, so Wealth, Overview and the plan
+  // cannot drift apart (QA-03).
   const summary = useMemo(() => netWorthSummary(accounts, scopeMemberId, holdings), [accounts, scopeMemberId, holdings]);
-  // Memoised rather than computed inline: the React Compiler cannot prove an
-  // imported call on `visible` leaves it alone, and bails out of optimising
-  // this whole component if one sits loose among the derived arrays that the
-  // memos above depend on.
-  const unvalued = useMemo(() => unvaluedAccounts(visible), [visible]);
-  // Holdings the total leaves out for the same reason: never valued, so the
-  // placeholder 0 they store is not in it (SHR-292). Named alongside the
-  // unconverted accounts so the note says exactly what is missing.
-  const unpriced = useMemo(() => visibleHoldingRows.filter(isAwaitingFirstValuation), [visibleHoldingRows]);
-  const gaps = { accounts: unvalued.length, holdings: unpriced.length };
-  const gapNames = [...unvalued, ...unpriced].map((r) => r.name).join(', ');
-  const liveAssets = summary.assets;
-  const liveLiabilities = summary.liabilities;
-  const netWorth = summary.netWorth;
-
-  // net_worth_snapshots are stored as household-wide totals, not split by
-  // member, so history only means something when viewing "Both" — a scoped
-  // view would be comparing a scoped live figure against unscoped history.
+  const groups = useMemo(() => assetGroups(accounts, { by, members, scopeMemberId, now }), [accounts, by, members, scopeMemberId, now]);
+  const debts = useMemo(() => liabilityRows(accounts, transactions, { scopeMemberId, now }), [accounts, transactions, scopeMemberId, now]);
+  const runway = useMemo(() => runwaySummary(transactions, accounts, scopeMemberId, now), [transactions, accounts, scopeMemberId, now]);
+  const parts = useMemo(() => composition(open.filter((a) => !['credit_card', 'loan'].includes(a.type)), held, scopeMemberId), [open, held, scopeMemberId]);
+  // Closed months are household totals, so history only means something in
+  // the household's view.
   const historyAvailable = scopeMemberId === null;
-  const series = useMemo(
-    () => (historyAvailable ? buildNetWorthSeries(netWorthSnapshots, liveAssets, liveLiabilities, now) : []),
-    [historyAvailable, netWorthSnapshots, liveAssets, liveLiabilities, now]
-  );
-  const change1mo = historyAvailable ? changeOverMonths(series, 1) : null;
-  const change12mo = historyAvailable ? changeOverMonths(series, 12) : null;
-  // Closing the month just ended, shared with the monthly review.
-  const close = useMonthClose({ householdId: household?.id, accounts, holdings, netWorthSnapshots, now, onClosed: reload });
-  const pending = close.pending;
-
-  const selected = selectedIdx !== null ? series[selectedIdx] : series[series.length - 1];
+  const series = useMemo(() => (historyAvailable ? buildNetWorthSeries(netWorthSnapshots, summary.assets, summary.liabilities, now) : []), [historyAvailable, netWorthSnapshots, summary, now]);
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
   // A total worked out without the accounts or holdings that failed to load
-  // is not the household's, and a month must not be closed on it: no figure
-  // and no close until they load (outside review, E-03).
+  // is not the household's (outside review, E-03).
   const missing = neverLoaded(data, ['accounts', 'holdings']);
   if (missing.length > 0) {
     return (
       <Withheld missing={missing} onRetry={reload}>
-        Net worth isn&rsquo;t shown, rather than worked out without them, and no month can be closed until they load.
+        Net worth isn&rsquo;t shown, rather than worked out without them.
       </Withheld>
     );
   }
 
-  const investmentsTotal = visibleHoldingRows.reduce((s, h) => s + scopedHoldingValue(h, scopeMemberId), 0);
-  // Same last-6-closed-months delta the history table's Change column shows,
-  // just as a compact list -- the design's "Monthly change" section is that
-  // same figure, not a second calculation that could disagree with it.
-  const monthlyChanges = historyAvailable
-    ? series
-        .slice(-6)
-        .map((p) => {
-          const prevIdx = series.indexOf(p) - 1;
-          const prev = prevIdx >= 0 ? series[prevIdx] : null;
-          return { label: p.label, change: prev ? p.net - prev.net : null };
-        })
-        .filter((c) => c.change !== null)
-    : [];
+  const unconfirmed = unconfirmedAccounts(open);
+  const gaps = { accounts: unvaluedAccounts(open).length, holdings: held.filter(isAwaitingFirstValuation).length };
+  const gapNames = [...unvaluedAccounts(open), ...held.filter(isAwaitingFirstValuation)].map((r) => r.name).join(', ');
+  const change1 = historyAvailable ? changeOverMonths(series, 1) : null;
+  const change12 = historyAvailable ? changeOverMonths(series, 12) : null;
+  const pending = open.length > 0 ? pendingClose(netWorthSnapshots, now) : null;
+  const pendingName = pending?.month.toLocaleDateString('en-GB', { month: 'long' });
+  const investmentsTotal = held.reduce((s, h) => s + scopedHoldingValue(h, scopeMemberId), 0);
+  const staleHoldings = held.filter((h) => isStale(h, now)).length;
+  const closed = archivedAccounts(inView);
+  const memberTone = new Map(members.map((m, i) => [m.id, i === 0 ? 'a' : 'b']));
+  const owner = (a) => {
+    if (a.is_shared) return <Avatar name="Shared" initial="S" />;
+    const m = members.find((x) => x.id === a.owner_member_id);
+    return m ? <Avatar name={m.display_name} initial={m.display_name.slice(0, 1).toUpperCase()} tone={memberTone.get(m.id)} /> : null;
+  };
+
+  async function reopen(account) {
+    setBusy(true);
+    setError(null);
+    const { error: writeError } = await supabase.from('accounts').update({ archived_at: null, updated_at: new Date().toISOString() }).eq('id', account.id);
+    setBusy(false);
+    if (writeError) {
+      setError(writeError.message);
+      return;
+    }
+    await reload();
+  }
+
+  // A row opens its account; its name is the button a keyboard reaches.
+  const nameCell = (row, extra) => (
+    <td>
+      <button type="button" className="nw-name" onClick={() => openAccount(row.account.id)}>
+        {row.account.name}
+      </button>
+      {extra ?? (row.sub && <div className="nw-sub">{row.sub}</div>)}
+    </td>
+  );
+  const statusCell = (row) => (
+    <td className="nw-status">
+      {row.status?.kind === 'unset' && (
+        <span className="nw-status-in">
+          <Chip tone="warn">Not confirmed</Chip>
+          <button type="button" className="ds-btn ds-btn-sm" onClick={() => openAccount(row.account.id)}>
+            Confirm
+          </button>
+        </span>
+      )}
+      {row.status?.kind === 'stale' && <Chip>{`Checked ${row.status.days}d ago`}</Chip>}
+    </td>
+  );
+  const amount = (row, negative = false) =>
+    row.value !== null ? (
+      <span className={negative ? 'nw-neg' : undefined}>{negative ? `−${money.fmt(row.value)}` : money.fmtBalance(row.value)}</span>
+    ) : (
+      <span className="nw-ink3" title="Not converted to AED, so not counted">
+        {row.native}
+      </span>
+    );
+  const groupRow = (key, label, total) => (
+    <tr key={key} className="nw-group">
+      <td colSpan={3}>{label}</td>
+      <td className="ds-num">{total == null ? '' : money.fmtBalance(total)}</td>
+    </tr>
+  );
+
+  const points = series.map((p, i) => ({ key: `${p.label}-${i}`, label: p.isLive ? 'Today' : p.label, value: p.net }));
+  const picked = pick !== null ? series[pick] : null;
+  const history = [...series].reverse();
 
   return (
-    <div>
-      <section className="wl-hero">
-        <div className="wl-hero-row">
-          <div>
-            <div className="ov-kicker">Net worth</div>
-            <div className="ov-hero fig">
-              <span className="ov-hero-currency">{money.code}</span> {money.fmtBalance(netWorth)}
-            </div>
-            {unconfirmed.length > 0 && (
-              <div className="ov-muted" style={{ marginTop: 6, fontSize: 12 }}>
-                Provisional — {unconfirmed.length} account{unconfirmed.length === 1 ? '' : 's'} without a confirmed balance{' '}
-                {unconfirmed.length === 1 ? 'is' : 'are'} counted as zero.
-              </div>
-            )}
-            {/* Not the same as provisional: these are not counted as zero,
-                they are not in the total at all (QA #4). */}
-            {incompleteNote(gaps) && (
-              <div className="ov-warn" style={{ marginTop: 6, fontSize: 12 }}>
-                Incomplete — {incompleteNote(gaps, { capitalised: false })} ({gapNames})
-              </div>
-            )}
-            <div className="ov-strip">
-              {change1mo && (
-                <span>
-                  <span className={change1mo.absolute >= 0 ? 'ov-pos' : 'ov-neg'}>
-                    {change1mo.absolute >= 0 ? '▲' : '▼'} {money.fmtSigned(change1mo.absolute)}
-                  </span>{' '}
-                  this month
-                </span>
-              )}
-              {change12mo && (
-                <span>
-                  12-mo{' '}
-                  <span className={change12mo.absolute >= 0 ? 'ov-pos' : 'ov-neg'}>
-                    {change12mo.pct !== null ? formatPct(change12mo.pct) : money.fmtSigned(change12mo.absolute)}
-                  </span>
-                </span>
-              )}
-              {!change1mo && !change12mo && <span className="ov-muted">Not enough history yet for a trend.</span>}
-            </div>
-          </div>
-          {composition.length > 0 && (
-            <div className="wl-composition">
-              <div className="ov-kicker" style={{ marginBottom: 10 }}>
-                Composition
-              </div>
-              <div className="wl-composition-bar">
-                {composition.map((c) => (
-                  <span key={c.label} style={{ width: `${Math.max(1, c.pct * 100).toFixed(2)}%`, background: c.color }} />
-                ))}
-              </div>
-              <div className="wl-composition-legend">
-                {composition.map((c) => (
-                  <span key={c.label}>
-                    <span className="wl-composition-dot" style={{ background: c.color }} />
-                    {c.label} {formatPct(c.pct)} · {money.fmt(c.value)}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
+    <div className="nw">
+      <Tools>
+        <Segmented label="Group the accounts" options={GROUPINGS} value={by} onChange={setBy} />
+        <button type="button" className="ds-btn ds-btn-primary" onClick={() => openAccount('new')}>
+          + Account
+        </button>
+      </Tools>
+      {error && (
+        <div className="nw-error" role="alert">
+          {`Couldn’t update the account: ${error}`}
         </div>
-      </section>
+      )}
 
-      <section className="wl-breakdown wl-breakdown-grid">
-        <div>
-          <div className="ov-kicker" style={{ marginBottom: 10 }}>
-            Assets
+      <div className="nw-top">
+        <Card title="Net worth" className="nw-hero">
+          <div className="nw-hero-row">
+            <div className="nw-fig">
+              <span className="nw-code">{money.code}</span>
+              {money.fmtBalance(summary.netWorth)}
+            </div>
+            {unconfirmed.length > 0 && <Chip tone="warn">Provisional</Chip>}
           </div>
-          <AccountList rows={assetRows} scopeMemberId={scopeMemberId} members={members} money={money} />
-          {investmentsTotal > 0 && (
-            <div className="mn-row" style={{ cursor: 'default' }}>
-              <div className="mn-row-main">
-                <div>Investments</div>
-                <div className="ov-muted">
-                  {visibleHoldingRows.length} holding{visibleHoldingRows.length === 1 ? '' : 's'}
+          <div className="nw-change">
+            {change1 ? (
+              <>
+                <span className={change1.absolute >= 0 ? 'nw-pos' : 'nw-neg'}>{`${change1.absolute >= 0 ? '▲' : '▼'} ${money.fmt(Math.abs(change1.absolute))}`}</span>
+                {' this month'}
+                {change12?.pct != null && <span className="nw-ink3">{` · ${pctText(change12.pct)} in 12 months`}</span>}
+              </>
+            ) : (
+              <span className="nw-ink3">Not enough history yet for a trend.</span>
+            )}
+          </div>
+          {unconfirmed.length > 0 && (
+            <WarningRow action={{ label: 'Confirm', onClick: () => openAccount(unconfirmed[0].id) }}>{`${unconfirmed.map((a) => a.name).join(', ')} · balance not confirmed`}</WarningRow>
+          )}
+          {/* Not counted as zero but left out: these are not in the total
+              at all (QA #4). */}
+          {incompleteNote(gaps) && <WarningRow>{`Incomplete: ${incompleteNote(gaps, { capitalised: false })} (${gapNames})`}</WarningRow>}
+          <dl className="nw-mini">
+            <div>
+              <dt>Assets</dt>
+              <dd>{money.fmtBalance(summary.assets)}</dd>
+            </div>
+            <div>
+              <dt>Liabilities</dt>
+              <dd>{summary.liabilities > 0 ? `−${money.fmt(summary.liabilities)}` : money.fmt(0)}</dd>
+            </div>
+            <div>
+              <dt>
+                Runway <InfoButton about="Runway">Cash in current, savings and cash accounts, divided by an average month of spending over the months just ended.</InfoButton>
+              </dt>
+              <dd>
+                {runway.available ? (
+                  <>
+                    {Math.round(runway.months)} <span className="nw-unit">months</span>
+                  </>
+                ) : (
+                  '—'
+                )}
+              </dd>
+            </div>
+          </dl>
+        </Card>
+
+        <Card
+          title="How it has grown"
+          flush
+          right={
+            pending && (
+              <Link className="ds-btn ds-btn-sm" to={tabHref('/money', 'monthend', { month: monthParam(pending.month) })}>
+                {`Close ${pendingName}`}
+              </Link>
+            )
+          }
+        >
+          {!historyAvailable ? (
+            <div className="nw-note">Net worth history is tracked for the household: switch to Both to see the trend.</div>
+          ) : series.length < 2 ? (
+            <div className="nw-note">
+              {/* History only exists because someone closes a month (QA-05). */}
+              {historyState(netWorthSnapshots) === 'none'
+                ? 'No month has been closed yet, so there is no history to show. Closing a month in Month end records its balances as that month’s point.'
+                : 'One month has been closed so far. A second gives the first trend.'}
+            </div>
+          ) : (
+            <>
+              <div className="nw-chart">
+                <TrendLine points={points} height={176} activeIndex={pick} onActiveChange={setPick} ariaLabel="Net worth at each month's close, and today. Use the arrow keys to move between months." />
+                <div className="nw-readout" aria-live="polite">
+                  {picked ? `${picked.isLive ? 'Today' : picked.label} · ${money.code} ${money.fmtBalance(picked.net)}` : pending ? `${pendingName} is not closed yet` : 'Every month is closed'}
                 </div>
               </div>
-              <div className="fig mn-row-amt">{money.fmt(investmentsTotal)}</div>
-            </div>
-          )}
-          <div className="wl-total-row">
-            <span>Total assets</span>
-            <span className="fig">{money.fmtBalance(liveAssets)}</span>
-          </div>
-        </div>
-        <div>
-          <div className="ov-kicker" style={{ marginBottom: 10 }}>
-            Liabilities
-          </div>
-          {liabilityRows.length === 0 ? (
-            <div className="ov-muted">None.</div>
-          ) : (
-            <AccountList rows={liabilityRows} scopeMemberId={scopeMemberId} members={members} money={money} negative />
-          )}
-          <div className="wl-total-row">
-            <span>Total liabilities</span>
-            <span className="fig ov-neg">{liveLiabilities > 0 ? `−${money.fmt(liveLiabilities)}` : money.fmt(0)}</span>
-          </div>
-
-          {monthlyChanges.length > 0 && (
-            <>
-              <div className="ov-kicker" style={{ marginTop: 30, marginBottom: 10 }}>
-                Monthly change
-              </div>
-              <div>
-                {monthlyChanges.map((c) => (
-                  <div key={c.label} className="wl-change-row">
-                    <span className="ov-muted">{c.label}</span>
-                    <span className={`fig ${c.change >= 0 ? 'ov-pos' : 'ov-neg'}`}>{money.fmtSigned(c.change)}</span>
-                  </div>
-                ))}
-              </div>
+              <Fold label="History as a table">
+                <table className="ds-table nw-history">
+                  <thead>
+                    <tr>
+                      <th scope="col">Month</th>
+                      <th scope="col" className="ds-num">
+                        Net worth
+                      </th>
+                      <th scope="col" className="ds-num">
+                        Change
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {history.map((p, i) => {
+                      const before = history[i + 1];
+                      return (
+                        <tr key={`${p.label}-${i}`}>
+                          <td>{p.isLive ? 'Today · live' : p.label}</td>
+                          <td className="ds-num">{money.fmtBalance(p.net)}</td>
+                          <td className="ds-num">{before ? money.fmtSigned(p.net - before.net) : ''}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </Fold>
             </>
           )}
-        </div>
-      </section>
+        </Card>
+      </div>
 
-      <section className="wl-history">
-        <div className="wl-history-head">
-          <div className="ov-kicker">How it's grown</div>
-          {historyAvailable && pending && !close.draft && (
-            <button type="button" className="om-btn" disabled={close.closing} onClick={close.open}>
-              {`Close ${close.monthLabel}`}
-            </button>
-          )}
-        </div>
-        {historyAvailable && !pending && netWorthSnapshots.length > 0 && (
-          <div className="ov-muted" style={{ marginBottom: 12 }}>
-            Every completed month is closed. Closing again would change nothing.
-          </div>
-        )}
-        {historyAvailable && <MonthCloseForm close={close} />}
-        {!historyAvailable ? (
-          <div className="ov-muted">Net worth history is tracked household-wide — switch to "Both" to see the trend.</div>
-        ) : series.length < 2 ? (
-          <div className="ov-muted">
-            {/* History only exists because someone closes a month. Waiting
-                alone never produced a point (QA-05). */}
-            {historyState(netWorthSnapshots) === 'none'
-              ? 'No month has been closed yet, so there is no history to show. Closing a month records today’s balances as that month’s point.'
-              : 'One month has been closed so far. A second gives the first trend.'}
-          </div>
-        ) : (
-          <>
-            {/* A line, not bars: this is one quantity changing over time, and it
-                can go below zero. The bars floored every negative month at a 2%
-                sliver, drawing net debt as a small positive net worth. */}
-            <LineChart
-              points={series.map((p, i) => ({ key: p.label + i, label: p.label, value: p.net }))}
-              height={170}
-              formatTick={money.fmtCompact}
-              labelEvery={Math.max(1, Math.ceil(series.length / 8))}
-              activeIndex={selectedIdx ?? series.length - 1}
-              onActiveChange={setSelectedIdx}
-              ariaLabel="Net worth at each closed month, and this month live. Use the arrow keys to move between months."
-            />
-            {selected && (
-              <div className="ov-chart-readout">
-                <span className="fig">{selected.label}</span>
-                <span>
-                  Net <b className="fig">{money.fmtBalance(selected.net)}</b>
-                </span>
-                <span>
-                  Assets <b className="fig">{money.fmtBalance(selected.assets)}</b>
-                </span>
-                <span>
-                  Liabilities <b className="fig">{money.fmtBalance(selected.liabilities)}</b>
-                </span>
-                {selected.isLive && <span className="ov-muted">this month, live</span>}
-              </div>
-            )}
-            <details className="wl-history-table">
-              <summary>History as a table</summary>
-              <table>
+      <div className="nw-ledger">
+        <Card title="Assets" right={<span className="nw-ink3">{`${groups.reduce((s, g) => s + g.rows.length, 0)} accounts`}</span>} flush>
+          {groups.length === 0 && held.length === 0 ? (
+            <EmptyState title="No accounts yet" body="Add an account to start tracking net worth." />
+          ) : (
+            <div className="ds-table-wrap" tabIndex={0} role="region" aria-label="Assets by account">
+              <table className="ds-table nw-table">
                 <thead>
                   <tr>
-                    <th scope="col">Period</th>
-                    <th scope="col">Assets</th>
-                    <th scope="col">Liabilities</th>
-                    <th scope="col">Net worth</th>
-                    <th scope="col">Change</th>
+                    <th scope="col">Account</th>
+                    <th scope="col" className="nw-col-owner">
+                      Owner
+                    </th>
+                    <th scope="col" className="nw-col-status" aria-label="Status" />
+                    <th scope="col" className="ds-num nw-col-amt">
+                      Amount
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {series.map((p, i) => {
-                    const prev = i > 0 ? series[i - 1] : null;
-                    const change = prev ? p.net - prev.net : null;
-                    return (
-                      <tr key={p.label + i}>
-                        <th scope="row">
-                          {p.label}
-                          {p.isLive ? ' (live)' : ''}
-                        </th>
-                        <td>{money.fmtBalance(p.assets)}</td>
-                        <td>{money.fmtBalance(p.liabilities)}</td>
-                        <td>{money.fmtBalance(p.net)}</td>
-                        <td className={change !== null && change < 0 ? 'ov-warn' : ''}>{change !== null ? money.fmtSigned(change) : '—'}</td>
+                  {groups.flatMap((g) => [
+                    groupRow(g.id, g.label, g.total),
+                    ...g.rows.map((row) => (
+                      <tr key={row.account.id} className="nw-row" onClick={(e) => !e.target.closest('button') && openAccount(row.account.id)}>
+                        {nameCell(row)}
+                        <td>{owner(row.account)}</td>
+                        {statusCell(row)}
+                        <td className="ds-num">{amount(row)}</td>
                       </tr>
-                    );
-                  })}
+                    )),
+                  ])}
+                  {held.length > 0 && [
+                    groupRow('invested', 'Invested', null),
+                    <tr key="investments" className="nw-row" onClick={(e) => !e.target.closest('button') && setParams({ tab: 'investments' })}>
+                      <td>
+                        <button type="button" className="nw-name" onClick={() => setParams({ tab: 'investments' })}>
+                          Investments
+                        </button>
+                        <div className="nw-sub">{`${held.length} holding${held.length === 1 ? '' : 's'}`}</div>
+                      </td>
+                      <td />
+                      <td className="nw-status">{staleHoldings > 0 && <Chip tone="warn">{`${staleHoldings} stale price${staleHoldings === 1 ? '' : 's'}`}</Chip>}</td>
+                      <td className="ds-num">
+                        {money.fmt(investmentsTotal)} <span className="nw-ink3">→</span>
+                      </td>
+                    </tr>,
+                  ]}
+                  <tr className="nw-total">
+                    <td colSpan={3}>Total assets</td>
+                    <td className="ds-num">{money.fmtBalance(summary.assets)}</td>
+                  </tr>
                 </tbody>
               </table>
-            </details>
-          </>
-        )}
-      </section>
-    </div>
-  );
-}
-
-
-function AccountList({ rows, scopeMemberId, members, money, negative }) {
-  if (rows.length === 0) return <div className="ov-muted">None yet.</div>;
-  return (
-    <div className="mn-list">
-      {rows.map((a) => (
-        <div key={a.id} className="mn-row" style={{ cursor: 'default' }}>
-          <div className="mn-row-main">
-            <div>{a.name}</div>
-            <div className="ov-muted">
-              {a.is_shared ? 'Joint' : (members.find((m) => m.id === a.owner_member_id)?.display_name ?? 'Unassigned')}
-              {isLiquidAccount(a) ? '' : ` · ${accountTypeLabel(a.type)}`}
             </div>
-          </div>
-          <div className={`fig mn-row-amt ${negative ? 'ov-neg' : ''}`}>
-            {negative ? '−' : ''}
-            {balanceStatus(a) === 'unset' ? (
-              <span className="ov-muted">Not set</span>
-            ) : accountValueAed(a) === null ? (
-              <span className="ov-muted">
-                {a.currency} {Number(a.balance ?? 0).toLocaleString('en-AE')} · not converted
-              </span>
+          )}
+        </Card>
+
+        <div className="nw-stack">
+          <Card title="Liabilities" right={<span className="nw-ink3">{`${debts.length} account${debts.length === 1 ? '' : 's'}`}</span>} flush>
+            {debts.length === 0 ? (
+              <EmptyState title="Nothing owed" />
             ) : (
-              money.fmtBalance(scopedValue(accountValueAed(a), a, scopeMemberId))
+              <div className="ds-table-wrap" tabIndex={0} role="region" aria-label="Liabilities by account">
+                <table className="ds-table nw-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Account</th>
+                      <th scope="col" className="nw-col-owner">
+                        Owner
+                      </th>
+                      <th scope="col" className="nw-col-limit">
+                        Limit used
+                      </th>
+                      <th scope="col" className="ds-num nw-col-owed">
+                        Owed
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {debts.map((row) => (
+                      <tr key={row.account.id} className="nw-row" onClick={(e) => !e.target.closest('button') && openAccount(row.account.id)}>
+                        {nameCell(
+                          row,
+                          <div className="nw-sub">
+                            {row.cycle ? `${money.fmt(row.cycle.spent)} this cycle · closes in ${row.cycle.closesIn}d` : row.sub}
+                            {row.status?.kind === 'unset' && (
+                              <>
+                                {' '}
+                                <Chip tone="warn">Not confirmed</Chip>
+                              </>
+                            )}
+                          </div>,
+                        )}
+                        <td>{owner(row.account)}</td>
+                        <td>
+                          {row.limitUsed && (
+                            <div className="nw-util">
+                              <ProgressBar label={`${row.account.name}, limit used`} value={Math.max(0, row.limitUsed.share) * row.limitUsed.limit} max={row.limitUsed.limit} tone={row.limitUsed.share > 0.8 ? 'neg' : 'accent'} />
+                              <span className="nw-sub">{`${Math.round(row.limitUsed.share * 100)}% of ${row.limitUsed.currency === 'AED' ? '' : `${row.limitUsed.currency} `}${Number(row.limitUsed.limit).toLocaleString('en-AE')}`}</span>
+                            </div>
+                          )}
+                        </td>
+                        <td className="ds-num">{amount(row, true)}</td>
+                      </tr>
+                    ))}
+                    <tr className="nw-total">
+                      <td colSpan={3}>Total liabilities</td>
+                      <td className="ds-num nw-neg">{summary.liabilities > 0 ? `−${money.fmt(summary.liabilities)}` : money.fmt(0)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             )}
-          </div>
+            {closed.length > 0 && (
+              <Fold label="Closed" count={closed.length}>
+                <ul className="nw-closed">
+                  {closed.map((a) => (
+                    <li key={a.id}>
+                      <span className="nw-closed-main">
+                        <span className="nw-closed-name">{a.name}</span>
+                        <span className="nw-sub">{`${accountTypeLabel(a.type)} · stays in history`}</span>
+                      </span>
+                      <button type="button" className="ds-btn ds-btn-sm" disabled={busy} onClick={() => reopen(a)}>
+                        Reopen
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </Fold>
+            )}
+          </Card>
+
+          {parts.some((p) => p.value > 0) && (
+            <Card title="What the assets are" right={<span className="nw-ink3">{`${money.fmt(summary.assets)} in all`}</span>}>
+              <StackBar label="What the assets are, by share" parts={parts} />
+            </Card>
+          )}
         </div>
-      ))}
+      </div>
     </div>
   );
 }

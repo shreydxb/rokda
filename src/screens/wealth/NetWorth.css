@@ -1,138 +1,226 @@
-/* Split out of ../Wealth.css with the round 2 cleanup (SHR-383): the rules only
-   this tab uses. What the tabs share stays there. */
+/* Wealth -> Net worth (the revamp, phase 5a; design/prototype css/wealth.css
+   and styles.css .hero-fig, .nw-mini, .util, .tbl tr.group / .total). */
 
-.wl-breakdown {
-  margin-top: 30px;
+.nw {
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
-
-.wl-breakdown-grid {
+.nw-top {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 44px;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: 16px;
+  align-items: stretch;
 }
-
-@media (max-width: 720px) {
-  .wl-breakdown-grid {
-    /* Same reason as Overview's .ov-triple: bare `1fr` cannot shrink below its
-       content's min-content width, which is what the two-column rule above
-       uses minmax(0, ...) to avoid. Not currently reproducing here, but it is
-       the same latent fault waiting on wide enough content. */
-    grid-template-columns: minmax(0, 1fr);
-  }
+.nw-ledger {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  gap: 16px;
+  align-items: start;
 }
-
-.wl-total-row {
+.nw-stack {
   display: flex;
-  justify-content: space-between;
-  padding: 12px 0;
-  border-top: 1px solid var(--rule2);
-  font-size: 13.5px;
-  color: var(--ink2);
-  margin-top: 4px;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
 }
-
-.wl-change-row {
-  display: flex;
-  justify-content: space-between;
-  padding: 9px 0;
-  border-top: 1px solid var(--rule);
+.nw-ink3 {
+  color: var(--ink3);
+}
+.nw-pos {
+  color: var(--pos);
+}
+.nw-neg {
+  color: var(--neg);
+}
+.nw-error {
   font-size: 12.5px;
+  color: var(--neg);
 }
 
-.wl-hero-row {
+/* ---------- the hero ---------- */
+.nw-hero .ds-card-body {
   display: flex;
-  gap: 48px;
-  align-items: flex-end;
-  flex-wrap: wrap;
-}
-
-.wl-composition {
-  flex: 1;
-  min-width: 260px;
-  padding-bottom: 6px;
-}
-
-.wl-composition-bar {
-  display: flex;
-  height: 10px;
-  gap: 2px;
-  background: var(--rule);
-}
-
-.wl-composition-bar span {
-  display: block;
+  flex-direction: column;
+  gap: 12px;
   height: 100%;
 }
-
-.wl-composition-legend {
+.nw-hero-row {
   display: flex;
+  align-items: baseline;
   flex-wrap: wrap;
-  gap: 6px 18px;
-  margin-top: 10px;
-  font-size: 11.5px;
+  gap: 10px;
+}
+.nw-fig {
+  font-size: 34px;
+  line-height: 40px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.nw-code {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--ink3);
+  margin-right: 6px;
+  letter-spacing: 0;
+}
+.nw-change {
+  font-size: 13px;
   color: var(--ink2);
 }
-
-.wl-composition-legend span {
-  display: inline-flex;
+.nw-mini {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: auto 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--rule-soft);
+}
+.nw-mini dt {
+  display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  font-size: 12.5px;
+  color: var(--ink3);
+}
+.nw-mini dd {
+  margin: 4px 0 0;
+  font-size: 16px;
+  line-height: 22px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.nw-unit {
+  font-size: 12.5px;
+  font-weight: 400;
+  color: var(--ink3);
 }
 
-.wl-composition-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  display: inline-block;
-  flex: none;
+/* ---------- how it has grown ---------- */
+.nw-chart {
+  padding: 6px 18px 10px;
+}
+.nw-readout {
+  margin-top: 6px;
+  font-size: 12.5px;
+  color: var(--ink3);
+  min-height: 18px;
+}
+.nw-note {
+  padding: 4px 18px 16px;
+  font-size: 13px;
+  color: var(--ink3);
+}
+.nw-history td {
+  height: 36px;
 }
 
-.wl-history-table {
-  margin-top: 18px;
+/* ---------- the ledger ---------- */
+.nw-col-owner {
+  width: 64px;
 }
-
-.wl-history-table summary {
+.nw-col-status {
+  width: 200px;
+}
+.nw-col-amt {
+  width: 130px;
+}
+.nw-col-limit {
+  width: 130px;
+}
+.nw-col-owed {
+  width: 110px;
+}
+.nw-row {
   cursor: pointer;
+}
+.nw-row:hover td {
+  background: color-mix(in oklab, var(--ink) 2.5%, transparent);
+}
+.nw-table td {
+  height: 48px;
+}
+.nw-name {
+  padding: 0;
+  background: none;
+  border: 0;
+  font: inherit;
+  font-weight: 500;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+.nw-name:hover {
+  color: var(--accent);
+}
+.nw-name:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+.nw-sub {
   font-size: 12px;
   color: var(--ink3);
 }
-
-.wl-history-table table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 10px;
-  font-size: 12.5px;
-}
-
-.wl-history-table th,
-.wl-history-table td {
+.nw-status {
   text-align: right;
-  padding: 7px 10px;
-  border-bottom: 1px solid var(--rule);
-  font-family: var(--fig);
 }
-
-.wl-history-table th[scope='col'] {
-  font-family: inherit;
-  font-size: 10px;
-  color: var(--ink3);
+.nw-status-in {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
-
-.wl-history-table th[scope='row'] {
-  text-align: left;
-  font-family: inherit;
+.nw-group td {
+  height: 34px;
+  background: var(--raised);
+  font-size: 12.5px;
+  color: var(--ink2);
+  font-weight: 500;
 }
-
-.wl-history {
-  margin-top: 40px;
+.nw-total td {
+  font-weight: 600;
+  border-top: 1px solid var(--rule);
 }
-
-/* Month close sits with the history heading: history exists because someone
-   closes a month, so the action belongs next to the thing it fills (QA-05). */
-.wl-history-head {
+.nw-util {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.nw-closed {
+  list-style: none;
+  margin: 0;
+  padding: 0 18px 8px;
+}
+.nw-closed li {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 14px;
+  gap: 10px;
+  min-height: 44px;
+  border-top: 1px solid var(--rule-soft);
+}
+.nw-closed li:first-child {
+  border-top: 0;
+}
+.nw-closed-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.nw-closed-name {
+  font-size: 13.5px;
+  font-weight: 500;
+}
+
+@media (max-width: 720px) {
+  .nw-top,
+  .nw-ledger {
+    grid-template-columns: 1fr;
+  }
+  .nw-col-status {
+    width: auto;
+  }
 }

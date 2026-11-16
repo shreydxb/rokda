@@ -50,12 +50,14 @@ describe('assetGroups', () => {
     expect(groups[1].rows[0].sub).toBe('Savings');
   });
 
-  it('counts nothing for a balance nobody confirmed, and names one confirmed long ago', () => {
+  // Counted as the shared basis counts it (overviewMath.netWorthSummary), so
+  // the ledger adds up to the total above it.
+  it('names a balance nobody confirmed, and one confirmed long ago, counting each as it stands', () => {
     const groups = assetGroups([account('Unset', 'checking', { balance_as_of: null }), account('Stale', 'checking', { balance: 200, balance_as_of: OLD })], { by: 'type', members, scopeMemberId: null, now: NOW });
     const [unset, stale] = groups[0].rows;
-    expect(unset).toMatchObject({ value: null, status: { kind: 'unset' } });
+    expect(unset).toMatchObject({ value: 1000, status: { kind: 'unset' } });
     expect(stale).toMatchObject({ value: 200, status: { kind: 'stale', days: 57 } });
-    expect(groups[0].total).toBe(200);
+    expect(groups[0].total).toBe(1200);
   });
 
   it('gives a balance in another currency in that currency, and leaves one not converted out of the total', () => {
