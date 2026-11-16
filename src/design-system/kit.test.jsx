@@ -59,6 +59,8 @@ describe('KpiStrip: a hero figure', () => {
     expect(hero.className).toContain('ds-hero');
     expect(plain.className).toContain('ds-fig');
     expect(plain.className).not.toContain('ds-hero');
+    // The strip gives its hero's column more room (the fresh review of 5b).
+    expect(document.querySelector('dl').className).toBe('ds-kpis ds-kpis-hero');
   });
 });
 

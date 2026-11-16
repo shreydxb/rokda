@@ -12,6 +12,9 @@ import { CurrencyProvider } from '../../lib/CurrencyContext';
 // Dividends (`&view=`). `?holding=new` adds one.
 const writes = [];
 let rpcAnswers = {};
+// Whether a filtered update finds its row: off, the row changed after the
+// drawer opened it, and the save is refused.
+let updateFinds = false;
 vi.mock('../../lib/supabaseClient', () => ({
   supabase: {
     rpc: async (name) => ({ data: rpcAnswers[name] ?? null, error: null }),
@@ -23,7 +26,7 @@ vi.mock('../../lib/supabaseClient', () => ({
         const chain = {
           in: () => chain,
           eq: () => chain,
-          select: () => Promise.resolve({ data: [], error: null }),
+          select: () => Promise.resolve({ data: updateFinds ? [{ id: 'row' }] : [], error: null }),
           then: (resolve) => resolve({ error: null }),
         };
         return chain;
@@ -38,6 +41,7 @@ const { default: HoldingDrawer } = await import('./HoldingDrawer');
 afterEach(() => {
   writes.length = 0;
   rpcAnswers = {};
+  updateFinds = false;
 });
 
 const MEMBERS = [{ id: 'm1', display_name: 'Alex' }];
@@ -233,5 +237,47 @@ describe('the holding drawer and the data under it', () => {
     const before = writes.length;
     fireEvent.submit(document.querySelector('form.te-form'));
     expect(writes.length).toBe(before);
+  });
+});
+
+// The fresh review of 5b: the drawer read the data again before closing, so
+// for that second Save and Delete stayed live; pressed again, the holding was
+// saved twice and the second close went back past the page, out of Wealth.
+// It closes at once, then the page reads the data again.
+describe('the holding drawer after a save or a delete', () => {
+  const fromPage = (data) => tree(['/wealth?tab=investments', { pathname: '/wealth', search: '?tab=investments&holding=h2', state: { drawer: true } }], data, 1);
+  const pending = () => {
+    let finish;
+    const reload = vi.fn(() => new Promise((resolve) => (finish = resolve)));
+    return { reload, finish: () => finish() };
+  };
+
+  it('closes at once on a save, before the data is read again', async () => {
+    updateFinds = true;
+    const { reload, finish } = pending();
+    renderScreen(fromPage(dataFor([AAPL], { reload })));
+    fireEvent.change(nameField(), { target: { value: 'AAPL renamed' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(where()).toBe('/wealth?tab=investments');
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(writes.filter((w) => w.op === 'update')).toHaveLength(1);
+    await act(async () => finish());
+    expect(where()).toBe('/wealth?tab=investments');
+  });
+
+  it('closes at once on a delete, never calling the holding deleted elsewhere', async () => {
+    const { reload, finish } = pending();
+    renderScreen(fromPage(dataFor([AAPL], { reload })));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm delete?' }));
+    });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.queryByText(/deleted elsewhere/)).toBeNull();
+    await act(async () => finish());
+    expect(where()).toBe('/wealth?tab=investments');
   });
 });

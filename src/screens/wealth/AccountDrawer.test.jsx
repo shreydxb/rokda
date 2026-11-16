@@ -184,6 +184,28 @@ describe('The account drawer: after the fresh review', () => {
     expect(writes[0].update).not.toHaveProperty('balance');
   });
 
+  // The fresh review of 5b: reading the records again before closing left
+  // Save live for that second; pressed again it saved twice and the second
+  // close went back past the page. The drawer closes at once.
+  it('closes at once on a save, before the records are read again', async () => {
+    let finish;
+    const reload = vi.fn(() => new Promise((resolve) => (finish = resolve)));
+    renderScreen(
+      <MemoryRouter initialEntries={['/wealth', { pathname: '/wealth', search: '?account=Current', state: { drawer: true } }]} initialIndex={1}>
+        <Where />
+        <AccountDrawer household={{ id: 'hh' }} me={MEMBERS[0]} members={MEMBERS} data={{ accounts: [account('Current', 'checking')], transactions: [], statementReconciliations: [], categories: [], reload }} />
+      </MemoryRouter>,
+    );
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Main current' } });
+    await click(screen.getByRole('button', { name: 'Save changes' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(where()).toBe('/wealth');
+    expect(reload).toHaveBeenCalledTimes(1);
+    await act(async () => finish());
+    expect(where()).toBe('/wealth');
+    expect(writes.filter((w) => w.update)).toHaveLength(1);
+  });
+
   it('closes back to the page that opened it, and replaces a link’s address', async () => {
     renderScreen(
       <MemoryRouter initialEntries={['/wealth', { pathname: '/wealth', search: '?account=Current', state: { drawer: true } }]} initialIndex={1}>

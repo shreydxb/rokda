@@ -27,9 +27,11 @@ export default function HoldingFields({
   setConfirmUnchanged,
   setDirty,
   subFormOpen,
+  // The id of the line saying why the fields wait, while they do.
+  lockedBy,
 }) {
   return (
-    <fieldset className="he-fields" disabled={subFormOpen}>
+    <fieldset className="he-fields" disabled={subFormOpen} aria-describedby={lockedBy}>
       <div>
         <div className="te-hero-label">Value</div>
         <div className="te-hero-row">

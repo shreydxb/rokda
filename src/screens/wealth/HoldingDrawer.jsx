@@ -32,7 +32,14 @@ export default function HoldingDrawer({ household, members = [], data }) {
   // from anywhere else leaves an open editor, and whatever is typed in it,
   // alone.
   const [generation, setGeneration] = useState(0);
-  if (!id) return null;
+  // The holding this drawer is closing on. A save or a delete closes at once
+  // and only then has the page read its data again: closing after the read
+  // left Save and Delete live for that second, and a second press saved
+  // twice and went back past the page (the fresh review of 5b). Nothing is
+  // drawn while the address catches up.
+  const [closedFor, setClosedFor] = useState(null);
+  if (closedFor && closedFor !== id) setClosedFor(null);
+  if (!id || closedFor === id) return null;
   const gone = id !== 'new' && !current && opened?.id === id;
   const holding = id === 'new' ? null : (current ?? (gone ? opened : null));
   if (id !== 'new' && !holding) return null;
@@ -54,6 +61,8 @@ export default function HoldingDrawer({ household, members = [], data }) {
   // from a link or a reload, the address is replaced (as the account drawer
   // does, the fresh review of 5a).
   const close = () => {
+    if (closedFor === id) return;
+    setClosedFor(id);
     if (location.state?.drawer) {
       navigate(-1);
       return;
@@ -91,8 +100,8 @@ export default function HoldingDrawer({ household, members = [], data }) {
       onTab={setTab}
       onClose={close}
       onSaved={async () => {
-        await data.reload();
         close();
+        await data.reload();
       }}
       onStale={data.reload}
       onTradesChanged={async () => {

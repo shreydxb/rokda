@@ -274,3 +274,25 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Phones aren't planned for (desktop first), but the page keeps to the
+   screen: the strip in two columns under Value, the chart's ranges under its
+   title, and the holdings table scrolling inside its card (the fresh review
+   of 5b). */
+@media (max-width: 720px) {
+  .inv .ds-kpis {
+    grid-auto-flow: row;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .inv .ds-kpi {
+    border-left: 0;
+    border-top: 1px solid var(--rule-soft);
+  }
+  .inv .ds-kpi:first-child {
+    grid-column: 1 / -1;
+    border-top: 0;
+  }
+  .inv-chart-card .ds-card-head {
+    flex-wrap: wrap;
+  }
+}

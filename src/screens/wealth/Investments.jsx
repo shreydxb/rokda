@@ -13,13 +13,12 @@ import {
   groupOf,
   hasSector,
   isClosedHolding,
-  portfolioDayChange,
   portfolioInvestedAndGain,
   portfolioSeries,
   portfolioValueChange,
   visibleHoldings,
 } from '../../lib/holdings';
-import { holdingTableRows, priceFreshness, seriesInRange, seriesShortOf, stalePrice } from '../../lib/investmentsView';
+import { changeToday, holdingTableRows, priceFreshness, seriesInRange, seriesShortOf, stalePrice } from '../../lib/investmentsView';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { isAwaitingFirstValuation } from '../../lib/valuation';
 import { salesProfit } from '../../lib/trades';
@@ -122,7 +121,7 @@ export default function Investments({ household, members = [], me, data, loading
   const ranged = useMemo(() => seriesInRange(series, range, now), [series, range, now]);
   const shortOf = seriesShortOf(ranged);
   const allocation = useMemo(() => allocationByClass(rows, scopeMemberId), [rows, scopeMemberId]);
-  const dayChange = useMemo(() => portfolioDayChange(rows, scopeMemberId), [rows, scopeMemberId]);
+  const dayChange = useMemo(() => changeToday(rows, scopeMemberId), [rows, scopeMemberId]);
   const investedGain = useMemo(() => portfolioInvestedAndGain(rows, scopeMemberId), [rows, scopeMemberId]);
 
   // Refresh prices calls the price-refresh feed (SHR-237) for whatever

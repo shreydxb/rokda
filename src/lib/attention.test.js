@@ -102,6 +102,22 @@ describe('a backup that is late or failed', () => {
   });
 });
 
+// A holding sold down to nothing keeps its last price, which the feed no
+// longer refreshes: asking to update it would never stop (the fresh review of
+// 5b, now that the item opens the holding itself).
+describe('stale holdings', () => {
+  const now = new Date('2026-10-15T10:00:00');
+  const old = '2026-08-01T00:00:00Z';
+  const base = { transactions: [], recurring: [], accounts: [], categories: [], scopeMemberId: null, now };
+  const staleNames = (holdings) => buildAttentionItems({ ...base, holdings }).filter((i) => i.kind === 'stale_holding').map((i) => i.name);
+
+  it('asks for a price on a holding still held, never on one sold out', () => {
+    const held = { id: 'h1', name: 'Held fund', value_aed: 1000, is_shared: true, priced_at: old, trades_version: 2, quantity: 5 };
+    const sold = { ...held, id: 'h2', name: 'Sold fund', quantity: 0, value_aed: 0 };
+    expect(staleNames([held, sold])).toEqual(['Held fund']);
+  });
+});
+
 describe('attentionHref', () => {
   const TODAY = new Date(2026, 9, 15, 12);
   it('opens the tab or records that resolve each item', () => {

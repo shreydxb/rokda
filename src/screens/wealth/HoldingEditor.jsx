@@ -51,6 +51,7 @@ export default function HoldingEditor({
   // and a trade made here opens the editor afresh (Investments).
   const [holding] = useState(holdingAsOpened);
   const formId = useId();
+  const lockId = useId();
   // One editor behind the three tabs, each kept drawn and only the chosen one
   // shown: a look at the trades doesn't cost what was typed in the details,
   // nor a trade half typed a look at the details.
@@ -298,6 +299,13 @@ export default function HoldingEditor({
         </p>
       )}
       <div hidden={tab !== 'details'}>
+        {/* With the trade or dividend on its own tab, the locked details say
+            why, and where to finish it (the fresh review of 5b). */}
+        {subFormOpen && (
+          <p className="ov-muted he-locked" id={lockId}>
+            {tradeFormOpen ? 'Finish the trade first: its form is open on Trades.' : 'Finish the dividend first: its form is open on Dividends.'}
+          </p>
+        )}
         <form className="te-form" id={formId} onSubmit={handleSave}>
           {/* The holding's own fields lock while a trade is recorded or fixed:
               saving the trade reloads the holding, and an edit made meanwhile
@@ -320,6 +328,7 @@ export default function HoldingEditor({
             setConfirmUnchanged={setConfirmUnchanged}
             setDirty={setDirty}
             subFormOpen={subFormOpen}
+            lockedBy={subFormOpen ? lockId : undefined}
           />
         </form>
       </div>

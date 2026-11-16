@@ -4219,3 +4219,24 @@ The revamp's phase 5b (design note `docs/superpowers/specs/2026-11-16-wealth-des
 - A tab's panel hides on a plain wrapper: a class that sets `display` on
   the same element outranks `hidden`, and the dividends showed on the
   Trades tab until a browser check caught it (jsdom applies no CSS).
+- **The fresh review of 5b** changed these:
+  - **A drawer closes at once on a save or a delete**, then the page reads
+    its data again. Reading first left Save and Delete live for that second;
+    pressed again, the holding was saved twice and the second close went back
+    past the page, out of Wealth, and a delete briefly called the holding
+    deleted elsewhere. The account drawer from 5a did the same, and changes
+    with it.
+  - **A strip led by a hero gives it more room**, and its figures scale with
+    the window: a seven-figure total ran into Invested at 1,100 and 1,280 px
+    (a browser check holds each figure to its own column).
+  - **The page header's tools wrap** on a line no wider than the page: with
+    every group, Investments' tools pushed the page sideways below about
+    1,320 px.
+  - **Locked details say why**: with a trade or a dividend half typed on its
+    own tab, the details name which to finish first.
+  - **Change today leaves out a holding whose feed failed**, as its row does.
+  - **A sold holding is not asked for a price** in To do: the feed no longer
+    refreshes it, so the item could never be cleared, and its link now opens
+    the holding.
+  - **The page keeps to a phone's screen** (two columns of figures, the
+    ranges under the chart's title), though phones aren't planned for.

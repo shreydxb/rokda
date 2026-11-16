@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { holdingTableRows, priceFreshness, seriesInRange, seriesShortOf, stalePrice } from './investmentsView';
+import { changeToday, holdingTableRows, priceFreshness, seriesInRange, seriesShortOf, stalePrice } from './investmentsView';
 
 // 16 November 2026, midday.
 const NOW = new Date(2026, 10, 16, 12);
@@ -42,6 +42,19 @@ describe('priceFreshness', () => {
 
   it('has no dates when nothing has been refreshed or valued', () => {
     expect(priceFreshness([holding('New', { priced_at: null, value_aed: 0 })], NOW)).toMatchObject({ lastRefreshed: null, oldestPricedAt: null, liveFeeds: 0, neverPriced: 1, failing: [], stale: [] });
+  });
+});
+
+// The fresh review of 5b: a failing feed leaves its last change behind,
+// which isn't today's; the rows show a dash for it, and so does the total.
+describe('changeToday', () => {
+  it('leaves out a holding whose feed failed, as its row does', () => {
+    const fresh = holding('Fresh', { value_aed: 1100, day_change_pct: 10 });
+    const failing = holding('Failing', { value_aed: 5000, day_change_pct: 5, price_provider: 'yahoo', price_fetch_error: 'Not found' });
+    const c = changeToday([fresh, failing], null);
+    expect(c.available).toBe(true);
+    expect(c.absolute).toBeCloseTo(100);
+    expect(changeToday([failing], null).available).toBe(false);
   });
 });
 

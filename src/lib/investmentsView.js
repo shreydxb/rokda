@@ -1,4 +1,4 @@
-import { holdingGain, isClosedHolding, rangeStartDate, scopedHoldingValue, scopedInvestedValue } from './holdings';
+import { holdingGain, isClosedHolding, portfolioDayChange, rangeStartDate, scopedHoldingValue, scopedInvestedValue } from './holdings';
 import { isAwaitingFirstValuation, isStale } from './valuation';
 
 // Wealth -> Investments' own figures (the revamp, phase 5b;
@@ -44,6 +44,17 @@ export function priceFreshness(holdings, now = new Date()) {
     failing: held.filter((h) => h.price_provider && h.price_fetch_error),
     stale: held.filter((h) => stalePrice(h, now)),
   };
+}
+
+// Change today, from each holding's own move (lib/holdings.js
+// portfolioDayChange), leaving out a holding whose feed failed: the change
+// it left behind isn't today's, and its row shows a dash (the fresh review of
+// 5b).
+export function changeToday(holdings, scopeMemberId = null) {
+  return portfolioDayChange(
+    holdings.filter((h) => !(h.price_provider && h.price_fetch_error)),
+    scopeMemberId,
+  );
 }
 
 // The holdings table, largest first: each holding's value, cost and profit

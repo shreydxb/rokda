@@ -559,6 +559,27 @@ describe('a holding\'s trades', () => {
     cleanup();
   });
 
+  // The fresh review of 5b: with the trade on another tab, the locked
+  // details must say why, and which tab to finish it on.
+  it('says on the details why they wait while a trade or a dividend is being typed', () => {
+    open();
+    tab('Trades');
+    fireEvent.click(screen.getByRole('button', { name: 'Record a trade' }));
+    tab('Details');
+    const reason = screen.getByText('Finish the trade first: its form is open on Trades.');
+    expect(document.querySelector('fieldset.he-fields').getAttribute('aria-describedby')).toBe(reason.id);
+    tab('Trades');
+    fireEvent.click(screen.getByRole('button', { name: 'Back to trades' }));
+    tab('Details');
+    expect(screen.queryByText(/^Finish the trade first/)).toBeNull();
+    expect(document.querySelector('fieldset.he-fields').hasAttribute('aria-describedby')).toBe(false);
+    tab('Dividends');
+    fireEvent.click(screen.getByRole('button', { name: 'Add a dividend' }));
+    tab('Details');
+    expect(screen.getByText('Finish the dividend first: its form is open on Dividends.')).toBeTruthy();
+    cleanup();
+  });
+
   // SHR-374: follow-ups from the final review.
   it('locks the holding\'s own fields while a trade is being recorded', () => {
     open();
