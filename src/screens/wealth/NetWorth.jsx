@@ -211,7 +211,7 @@ export default function NetWorth({ household, me, members, data, loading }) {
           )}
           {/* Not counted as zero but left out: these are not in the total
               at all (QA #4). */}
-          {incompleteNote(gaps) && <WarningRow>{`Incomplete: ${incompleteNote(gaps, { capitalised: false })} (${gapNames})`}</WarningRow>}
+          {incompleteNote(gaps) && <WarningRow>{`Incomplete — ${incompleteNote(gaps, { capitalised: false })} (${gapNames})`}</WarningRow>}
           <dl className="nw-mini">
             <div>
               <dt>Assets</dt>

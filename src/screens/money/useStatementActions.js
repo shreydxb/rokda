@@ -5,6 +5,16 @@ import { supabase } from '../../lib/supabaseClient';
 // kept apart so the "Mark n done" button can sit wherever the screen puts it
 // and share the table's ticks.
 
+// What each status says, and its chip's tone, wherever a statement is listed
+// (Month end's table, a card's Statements tab on Net worth).
+export const STATEMENT_STATUS = {
+  unchecked: { label: 'To check', tone: 'warn' },
+  waiting: { label: 'Waiting', tone: 'neutral' },
+  mismatch: { label: 'Doesn’t match', tone: 'neg' },
+  confirmed: { label: 'Done', tone: 'pos' },
+  reconciled: { label: 'Reconciled', tone: 'pos' },
+};
+
 // Marking done answers a statement nobody has looked at, or one the bot is
 // asking about. One that doesn't match asks what was done about it, so it is
 // resolved on its own, never ticked with the rest.

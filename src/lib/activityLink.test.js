@@ -1,7 +1,23 @@
 import { describe, it, expect } from 'vitest';
-import { activityHref, activityPeriod, sharedMonth, bucketRange, categoryAndChildren, dateRangeLabel, inDateRange, monthRange, readActivityFilters, tabHref, withActivityFilter, withActivityMonth, withAllDates, withoutFilters } from './activityLink';
+import { accountHref, activityHref, activityPeriod, sharedMonth, bucketRange, categoryAndChildren, dateRangeLabel, inDateRange, monthRange, readActivityFilters, tabHref, withActivityFilter, withActivityMonth, withAllDates, withoutFilters } from './activityLink';
+
+// An account's drawer on Wealth (the revamp, phase 5a).
+describe('accountHref', () => {
+  it('opens one account, on a view when asked, for the household when asked', () => {
+    expect(accountHref('c1')).toBe('/wealth?account=c1');
+    expect(accountHref('a1', { view: 'details', who: 'both' })).toBe('/wealth?account=a1&view=details&who=both');
+  });
+});
 
 describe('activityHref and readActivityFilters', () => {
+  // A card's view on Net worth opens every record on the card (the revamp,
+  // phase 5a).
+  it('opens one account’s records over all dates', () => {
+    const href = activityHref({ accountId: 'card-1', allDates: true, who: 'both' });
+    expect(href).toBe('/money?tab=activity&who=both&acct=card-1&range=all');
+    expect(readActivityFilters(new URL(href, 'https://x').searchParams).accountId).toBe('card-1');
+  });
+
   it('round-trips a month and category through the address', () => {
     const href = activityHref({ categoryId: 'c1', ...monthRange(2026, 9) });
     expect(href).toBe('/money?tab=activity&cat=c1&from=2026-09-01&to=2026-09-30');

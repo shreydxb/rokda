@@ -1,0 +1,72 @@
+/* The account drawer's card views (the revamp, phase 5a; design/prototype
+   cycleBody, cardStatements: .kpis, .kv, .dr-sec). */
+
+.ad {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.ad-kpis {
+  margin: -4px -22px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.ad-used {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 120px;
+}
+.ad-kv {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 8px 12px;
+  margin: 0;
+  font-size: 13.5px;
+}
+.ad-kv dt {
+  color: var(--ink3);
+  font-size: 12.5px;
+}
+.ad-kv dd {
+  margin: 0;
+}
+.ad-sec {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink2);
+}
+.ad-table {
+  margin: 0 -22px;
+  width: calc(100% + 44px);
+}
+.ad-table td {
+  height: 38px;
+}
+.ad-date {
+  font: 400 12px var(--font-mono);
+  color: var(--ink3);
+  white-space: nowrap;
+}
+.ad-name {
+  font-weight: 500;
+  white-space: nowrap;
+}
+.ad-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ad-ink2 {
+  color: var(--ink2);
+}
+.ad-ink3 {
+  color: var(--ink3);
+}
+.ad-pos {
+  color: var(--pos);
+}
+.ad-neg {
+  color: var(--neg);
+}

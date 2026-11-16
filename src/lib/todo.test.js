@@ -42,8 +42,8 @@ describe('buildTodo', () => {
     const byTitle = Object.fromEntries(rows.map((r) => [r.title, r.action]));
     expect(byTitle.Gym).toEqual({ kind: 'mark-paid', label: 'Mark paid', recurringId: 'r1' });
     expect(byTitle.Streaming).toEqual({ kind: 'mark-paid', label: 'Mark paid', recurringId: 'r2' });
-    expect(byTitle['Cash wallet']).toEqual({ kind: 'link', label: 'Confirm balance', href: '/wealth?tab=accounts' });
-    expect(byTitle['Bank card']).toEqual({ kind: 'link', label: 'Open card', href: '/wealth?tab=accounts' });
+    expect(byTitle['Cash wallet']).toEqual({ kind: 'link', label: 'Confirm balance', href: '/wealth?account=a1&view=details' });
+    expect(byTitle['Bank card']).toEqual({ kind: 'link', label: 'Open card', href: '/wealth?account=c1' });
     expect(byTitle['Index fund']).toEqual({ kind: 'link', label: 'Update price', href: '/wealth?tab=investments' });
     expect(byTitle.October).toEqual({ kind: 'link', label: 'Close month', href: '/money?tab=monthend&month=2026-10' });
     expect(byTitle.Backup).toEqual({ kind: 'link', label: 'Record backup', href: '/settings?tab=backups' });

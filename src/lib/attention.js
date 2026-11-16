@@ -10,7 +10,7 @@ import { balanceStatus } from './balance';
 import { accountValueAed } from './accounts';
 import { pendingClose } from './snapshots';
 import { EXPORT_DUE_DAYS, backupStatus } from './backups';
-import { activityHref, monthRange, tabHref } from './activityLink';
+import { accountHref, activityHref, monthRange, tabHref } from './activityLink';
 import { yearlyCheckItems } from './yearlyChecks';
 
 function startOfDay(d) {
@@ -334,9 +334,12 @@ export function attentionHref(item, now = new Date()) {
       return tabHref('/money', 'recurring');
     case 'category_anomaly':
       return activityHref({ categoryId: item.categoryId, ...monthRange(now.getFullYear(), now.getMonth() + 1) });
+    // The account itself (the revamp, phase 5a): a card on its cycle, a
+    // balance on the details where it is confirmed.
     case 'card_due':
+      return item.accountId ? accountHref(item.accountId) : '/wealth';
     case 'balance_unset':
-      return tabHref('/wealth', 'accounts');
+      return item.accountId ? accountHref(item.accountId, { view: 'details' }) : '/wealth';
     case 'stale_holding':
       return tabHref('/wealth', 'investments');
     case 'month_close':

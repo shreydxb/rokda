@@ -145,13 +145,9 @@ describe('SHR-292: every screen that prints the total says what it leaves out', 
   it('Wealth › Net worth', async () => {
     const { default: NetWorth } = await import('./screens/wealth/NetWorth');
     const { container } = renderScreen(
-      <NetWorth
-        household={{ id: 'hh' }}
-        me={MEMBERS[0]}
-        members={MEMBERS}
-        loading={false}
-        data={{ accounts: ACCOUNTS, netWorthSnapshots: [], holdings: HOLDINGS }}
-      />,
+      <MemoryRouter>
+        <NetWorth household={{ id: 'hh' }} me={MEMBERS[0]} members={MEMBERS} loading={false} data={{ accounts: ACCOUNTS, netWorthSnapshots: [], holdings: HOLDINGS }} />
+      </MemoryRouter>,
     );
     expect(container.textContent).toContain(`Incomplete — ${NOTE}. (Bank card, New fund)`);
   });

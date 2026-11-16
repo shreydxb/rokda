@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabaseClient';
 import { formatBalance, formatMoney } from '../../lib/money';
 import { isPosted, parseDay } from '../../lib/day';
-import { monthRange, tabHref } from '../../lib/activityLink';
+import { accountHref, monthRange, tabHref } from '../../lib/activityLink';
 import { isUncategorised } from '../../lib/activity';
 import { confirmedPairRow } from '../../lib/duplicates';
 import { fileableCategories } from '../../lib/fileableCategories';
@@ -285,7 +285,7 @@ export default function MonthEndSteps({ household, members, me, data, year, mont
                     <span className="me-rw-t">{a.name}</span>
                     <span className="me-rw-s">{` · not confirmed since ${shortDate(to)}`}</span>
                   </span>
-                  <Link className="ds-btn ds-btn-sm" to={out(tabHref('/wealth', 'accounts', { who: 'both' }))}>
+                  <Link className="ds-btn ds-btn-sm" to={out(accountHref(a.id, { view: 'details', who: 'both' }))}>
                     Confirm balance
                   </Link>
                 </div>

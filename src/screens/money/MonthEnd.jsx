@@ -161,7 +161,7 @@ function RunningMonth({ household, members, me, data, year, month, now }) {
               label: 'Balances not confirmed',
               value: String(strip.balances),
               sub: strip.balances ? (
-                <Link className="ds-link ds-link-accent" to={tabHref('/wealth', 'accounts', { who: 'both' })}>
+                <Link className="ds-link ds-link-accent" to="/wealth?who=both">
                   Accounts →
                 </Link>
               ) : (

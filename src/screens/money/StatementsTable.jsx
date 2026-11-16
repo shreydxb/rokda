@@ -3,8 +3,9 @@ import { Link } from 'react-router-dom';
 import { formatBalance } from '../../lib/money';
 import { spendDelta } from '../../lib/transactionKind';
 import { ordinal } from '../../lib/creditCard';
+import { accountHref } from '../../lib/activityLink';
 import { Avatar, Chip, Fold, InfoButton } from '../../design-system/kit';
-import { canMarkDone, keyOf, nameOf, shortDate } from './useStatementActions';
+import { STATEMENT_STATUS, canMarkDone, keyOf, nameOf, shortDate } from './useStatementActions';
 import './MonthEnd.css';
 
 // The card statements table (the revamp, phase 4d; design/prototype
@@ -16,13 +17,7 @@ import './MonthEnd.css';
 // is typed here (the design note's decision 2): totals come in from
 // reconciling a statement, and the column shows a dash until then.
 
-const STATUS = {
-  unchecked: { label: 'To check', tone: 'warn' },
-  waiting: { label: 'Waiting', tone: 'neutral' },
-  mismatch: { label: 'Doesn’t match', tone: 'neg' },
-  confirmed: { label: 'Done', tone: 'pos' },
-  reconciled: { label: 'Reconciled', tone: 'pos' },
-};
+const STATUS = STATEMENT_STATUS;
 const isOpen = (row) => row.status === 'unchecked' || row.status === 'waiting' || row.status === 'mismatch';
 const periodOf = (row) => `${shortDate(row.periodStart)} – ${shortDate(row.statementDate)}`;
 
@@ -218,7 +213,7 @@ export default function StatementsTable({ rows, accounts = [], members = [], act
               <td colSpan={ticks ? 8 : 7}>
                 <span className="me-st-card">
                   {owner(card.account)}
-                  <Link className="me-st-cardname" to="/wealth?tab=accounts&who=both">{`${card.account.name} →`}</Link>
+                  <Link className="me-st-cardname" to={accountHref(card.account.id, { who: 'both' })}>{`${card.account.name} →`}</Link>
                   <span className="me-ink3">{`· closes ${ordinal(card.account.statement_day)}${card.account.due_day ? ` · due ${ordinal(card.account.due_day)}` : ''}`}</span>
                 </span>
               </td>

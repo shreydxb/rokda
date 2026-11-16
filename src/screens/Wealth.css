@@ -2,26 +2,6 @@
    they were never Money-specific, just first defined there. */
 @import './Money.css';
 
-.wl-hero {
-  margin-top: 30px;
-  padding-bottom: 26px;
-  border-bottom: 1px solid var(--rule);
-}
-
-.wl-card-chip {
-  font-size: 10.5px;
-  color: var(--ink3);
-  border: 1px solid var(--rule2);
-  border-radius: 2px;
-  padding: 2px 7px;
-  white-space: nowrap;
-}
-
-.wl-card-chip-warn {
-  color: var(--warn);
-  border-color: var(--warn);
-}
-
 /* On a phone the holdings table scrolled sideways with value and profit off
    the screen. Each holding becomes two lines instead: its name and value,
    then every other column in small type, labelled, starting with profit and
@@ -45,18 +25,4 @@
 .mn-row-wrap .mn-row {
   flex: 1;
   min-width: 0;
-}
-
-.st-summary .ov-muted {
-  margin-top: 4px;
-}
-
-.st-figures dd.ov-muted {
-  font-size: 13px;
-}
-
-.st-actions .om-btn,
-.st-form .om-btn {
-  font-size: 12.5px;
-  padding: 6px 12px;
 }

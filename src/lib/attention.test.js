@@ -107,8 +107,10 @@ describe('attentionHref', () => {
   it('opens the tab or records that resolve each item', () => {
     expect(attentionHref({ kind: 'missing_recurring' }, TODAY)).toBe('/money?tab=recurring');
     expect(attentionHref({ kind: 'category_anomaly', categoryId: 'c1' }, TODAY)).toBe('/money?tab=activity&cat=c1&from=2026-10-01&to=2026-10-31');
-    expect(attentionHref({ kind: 'card_due' }, TODAY)).toBe('/wealth?tab=accounts');
-    expect(attentionHref({ kind: 'balance_unset' }, TODAY)).toBe('/wealth?tab=accounts');
+    // The account itself, a card on its cycle and a balance on its details
+    // (the revamp, phase 5a).
+    expect(attentionHref({ kind: 'card_due', accountId: 'c1' }, TODAY)).toBe('/wealth?account=c1');
+    expect(attentionHref({ kind: 'balance_unset', accountId: 'a1' }, TODAY)).toBe('/wealth?account=a1&view=details');
     expect(attentionHref({ kind: 'stale_holding' }, TODAY)).toBe('/wealth?tab=investments');
     // Month end, on the month to close (the revamp, phase 4d).
     expect(attentionHref({ kind: 'month_close', month: '2026-09' }, TODAY)).toBe('/money?tab=monthend&month=2026-09');

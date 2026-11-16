@@ -8,7 +8,7 @@ vi.mock('../lib/useHousehold', () => ({
   useHousehold: () => ({ household: { id: 'hh', name: 'Test' }, members: [], me: { id: 'm1' }, loading: false, error: null, reload: async () => {} }),
 }));
 vi.mock('./useOverviewData', () => ({
-  useOverviewData: () => ({ loading: false, refreshing: false, errors: {}, loaded: {}, loadedAt: new Date(), accounts: [], reload: async () => {} }),
+  useOverviewData: () => ({ loading: false, refreshing: false, errors: {}, loaded: {}, loadedAt: new Date(), accounts: [{ id: 'a1', name: 'Current', type: 'checking', currency: 'AED', balance: 100, is_shared: true, archived_at: null }], transactions: [], statementReconciliations: [], categories: [], reload: async () => {} }),
 }));
 // The tabs' own content is not what is tested here.
 // Net worth puts a control in the page header, as every rebuilt tab does.
@@ -81,5 +81,14 @@ describe('Wealth: Net worth holds the accounts', () => {
   it("puts the tab's controls in the page header", () => {
     openAt('/wealth');
     expect(screen.getByRole('button', { name: 'By type' }).closest('.fresh-row')).not.toBeNull();
+  });
+});
+
+// Any page can link to one account (the revamp, phase 5a).
+describe('Wealth: an account in the address', () => {
+  it('opens that account’s drawer over the tab', () => {
+    openAt('/wealth?tab=investments&account=a1');
+    expect(screen.getByText('Investments content')).toBeTruthy();
+    expect(screen.getByRole('dialog', { name: 'Current' })).toBeTruthy();
   });
 });
