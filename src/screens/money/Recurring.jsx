@@ -12,7 +12,7 @@ import { isoDay } from '../../lib/activityLink';
 import { Avatar, Card, Chip, EmptyState, Fold, InfoButton, KpiStrip } from '../../design-system/kit';
 import RecurringEditor from './RecurringEditor';
 import TransactionEditor from './TransactionEditor';
-import { Tools } from './MoneyTools';
+import { Tools } from '../PageTools';
 import './Recurring.css';
 
 // Money -> Recurring, built like the prototype (the revamp, phase 4;

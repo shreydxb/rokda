@@ -9,7 +9,7 @@ import { alreadyRecordedAll } from '../../lib/alreadyRecorded';
 import { Card, Chip, EmptyState } from '../../design-system/kit';
 import Withheld from '../planning/Withheld';
 import InboxDetail from './InboxDetail';
-import { Tools } from './MoneyTools';
+import { Tools } from '../PageTools';
 import { ago, isConfident } from './inboxText';
 import './TransactionEditor.css';
 import './Inbox.css';

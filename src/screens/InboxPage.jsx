@@ -6,7 +6,7 @@ import Freshness from './Freshness';
 import LoadFailure from './LoadFailure';
 import AedNote from './AedNote';
 import Inbox from './money/Inbox';
-import { ToolsSlot } from './money/MoneyTools';
+import { ToolsSlot } from './PageTools';
 import './Money.css';
 
 // The Inbox as its own page (the revamp, phase 4c; design/prototype Inbox;
@@ -32,7 +32,7 @@ export default function InboxPage() {
   const reloadAll = async () => {
     await Promise.all([reloadHousehold(), data.reload()]);
   };
-  // The header's slot for the Inbox's own controls (money/MoneyTools.jsx).
+  // The header's slot for the Inbox's own controls (screens/PageTools.jsx).
   const [toolsNode, setToolsNode] = useState(null);
 
   return (

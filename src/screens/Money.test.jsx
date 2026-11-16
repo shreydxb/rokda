@@ -14,7 +14,7 @@ vi.mock('../lib/useHousehold', () => ({
 vi.mock('./money/MonthEnd', () => ({ default: () => <div>Month end content</div> }));
 // Activity puts a control in the page header, as every rebuilt tab does.
 vi.mock('./money/Activity', async () => {
-  const { Tools } = await import('./money/MoneyTools');
+  const { Tools } = await import('./PageTools');
   return {
     default: () => (
       <div>

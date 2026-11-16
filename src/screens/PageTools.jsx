@@ -1,11 +1,12 @@
 import { createContext, useContext } from 'react';
 import { createPortal } from 'react-dom';
 
-// Each Money tab's own controls sit in the page header beside Refresh, as in
-// the prototype (the revamp, phase 4): Activity's month and views, Recurring's
-// + Bill. The tab keeps them, with the state they act on, and they are drawn
-// into the header's slot. Outside Money (a tab rendered on its own, as its
-// tests do) they are drawn where the tab puts them.
+// A page's tab puts its own controls in the page header beside Refresh, as in
+// the prototype (the revamp, phases 4 and 5): Activity's month and views,
+// Recurring's + Bill, Net worth's By type / By owner. The tab keeps them, with
+// the state they act on, and they are drawn into the header's slot. Outside a
+// page (a tab rendered on its own, as its tests do) they are drawn where the
+// tab puts them.
 const Slot = createContext(undefined);
 
 // `node` is the header's slot once it is on the page, null until then.

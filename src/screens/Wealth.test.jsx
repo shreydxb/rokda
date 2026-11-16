@@ -11,8 +11,20 @@ vi.mock('./useOverviewData', () => ({
   useOverviewData: () => ({ loading: false, refreshing: false, errors: {}, loaded: {}, loadedAt: new Date(), accounts: [], reload: async () => {} }),
 }));
 // The tabs' own content is not what is tested here.
-vi.mock('./wealth/NetWorth', () => ({ default: () => <div>Net worth content</div> }));
-vi.mock('./wealth/Accounts', () => ({ default: () => <div>Accounts content</div> }));
+// Net worth puts a control in the page header, as every rebuilt tab does.
+vi.mock('./wealth/NetWorth', async () => {
+  const { Tools } = await import('./PageTools');
+  return {
+    default: () => (
+      <div>
+        Net worth content
+        <Tools>
+          <button type="button">By type</button>
+        </Tools>
+      </div>
+    ),
+  };
+});
 vi.mock('./wealth/Investments', () => ({ default: () => <div>Investments content</div> }));
 vi.mock('./wealth/Dividends', () => ({ default: () => <div>Dividends content</div> }));
 
@@ -49,5 +61,25 @@ describe('Wealth: card statements moved to Month end', () => {
   it('opens an old link to one month’s statements on that month’s step 2', () => {
     openAt('/wealth?tab=statements&month=2026-10');
     expect(screen.getByTestId('where').textContent).toBe('/money?tab=monthend&month=2026-10&step=2');
+  });
+});
+
+// The revamp, phase 5a (design note: Wealth): the accounts are Net worth's
+// ledger, and each tab's controls sit in the page header.
+describe('Wealth: Net worth holds the accounts', () => {
+  it('has Net worth, Investments and Dividends, and no Accounts tab', () => {
+    openAt('/wealth');
+    expect(screen.getAllByRole('button', { name: /^(Net worth|Investments|Dividends|Accounts)$/ }).map((b) => b.textContent)).toEqual(['Net worth', 'Investments', 'Dividends']);
+  });
+
+  it('opens an old Accounts link as Net worth', () => {
+    openAt('/wealth?tab=accounts');
+    expect(screen.getByText('Net worth content')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Net worth' }).getAttribute('aria-current')).toBe('page');
+  });
+
+  it("puts the tab's controls in the page header", () => {
+    openAt('/wealth');
+    expect(screen.getByRole('button', { name: 'By type' }).closest('.fresh-row')).not.toBeNull();
   });
 });
