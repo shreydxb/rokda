@@ -132,8 +132,8 @@ plan holds.
   dollars): the record keeps the amount paid in that currency beside the AED
   that counts. The AED debited is entered when known; until then it is
   estimated at the payment date's rate (from the daily rate history) and
-  marked "AED estimated", which Activity can filter to and the monthly review
-  asks about. The Inbox takes a rupee entry from the bot the same way.
+  marked "AED estimated", which Activity can filter to and Month end asks
+  about. The Inbox takes a rupee entry from the bot the same way.
 - **Splits**: one record across several categories ("Split across
   categories" in the editor), each line an amount in AED, adding up to the
   record. Every category total counts each line under its own category;
@@ -225,27 +225,53 @@ plan holds.
   "Remember this merchant" is offered, unticked, for an expense with a
   category chosen whose merchant no rule covers: the entry is approved,
   then the rule is added.
-- **Review**: the month just ended (or an earlier one), as a checklist of
-  what to settle before its totals go into history: flagged records,
-  records with no category, possible duplicates ("Both are real", remembered
-  so the pair is never asked about again, or "Delete one"), pairs that look like an unjoined transfer (joined
-  in one tap; never holds the month up), the card statements that closed in
-  the month, balances confirmed since it ended, and closing it under Net
-  worth, plus a note of refunds not yet linked to their purchase. Each check
-  is worked out from the records and ticks itself off; the
-  close marks the month reviewed, and is done here ("Close October 2026"
-  under what goes into history), whatever else is open: the checks still
-  open are named, and can be finished after. A "Next" card above the checks names the
-  first one still to do, with its link; each link out of the review offers
-  "Back to the review" on the page it opens. Under the checks, the month
-  against its budget and the groups that went over; what the close puts into
-  history (income, spending, saving and its rate, and net worth against the
-  last month closed); and a short ranked list of what to do next: bills in the
-  next 30 days the money to hand won't cover, goals behind their pace, spending
-  over budget, and saving short of its target. Overview's "hasn't been closed"
-  item opens it. Finished checks fold under "Done (n)", with the suggestions
-  that found nothing counted apart ("Nothing to do (n)"), so what is still
-  open leads.
+- **Month end**: which page a month shows depends on where it is, with the
+  month stepper in the header (never past the running month). It covers the
+  whole household, whoever is selected.
+  - **The running month** ("November is still running", closes after the
+    30th): a strip of records with no category so far (Categorise →), card
+    statements to check ("1 doesn't match") and balances not confirmed or
+    not for 45 days (Accounts →), then every card statement still open.
+    While the month just ended isn't closed, "Close October" opens it.
+  - **The month just ended**, three steps, "n of 3 steps done", the step
+    still open shown open and any other opened by a click (a link can name
+    one, `step=2`). **Tidy transactions**: records with no category, each
+    with a category chosen in place; possible duplicates ("Both are real",
+    remembered, or "Delete one", which asks again); flagged records and AED
+    estimates, linked to their records; transfer suggestions ("Make one
+    transfer") and refunds to link, which never hold the step up; the checks
+    that are clear fold under "Nothing to do (n)". **Check statements and
+    balances**: the statements that closed in the month and the balances
+    not confirmed since it ended, each with Confirm balance. **Close**:
+    Income, Spent, Saved and its share of income, Net worth (Provisional
+    while an account or holding has no value), a note when a step is still
+    open ("you can close now and finish after"), then "Close October", which
+    shows the Assets and Liabilities the close will record before Confirm &
+    close. Not offered until the holdings have loaded.
+  - **An earlier month never closed** has the first two steps, and says it
+    can't be closed now: a close records today's totals as the month just
+    ended's.
+  - **A closed month**, the month on a page: Income and Spent with the change
+    on the month before, Saved and its share of income, Net worth at close
+    with the change on the close before; Biggest changes, the three
+    categories furthest from their usual month (the six-month average), a
+    tick at the usual, each opening its records; and Against budget, with a
+    chip for each group over.
+  - **Card statements** (one table, on the running month and in step 2): a
+    row per statement under its card (Period, Due, In Rokda to the cent and
+    signed, the statement's own total when one is recorded, the difference
+    and which way it goes, Status), what is still to check first and the
+    done ones under "Done (n)". "Mark done", "Resolve…" for one that didn't
+    match (asking what was done) and "Reopen…" (asking why); tick boxes and
+    "Mark n done" for several at once, though one that doesn't match is
+    resolved on its own. A period opens its transactions, the statement's
+    closing balance and who checked it. No statement total is typed here.
+    The bot asks about each once and reminds once before it is due
+    (`statement_reconciliations`).
+  - Each link out of Month end offers "← Back to Month end for October" on
+    the page it opens. Overview's "hasn't been closed" item opens the month;
+    `?tab=review` and `/wealth?tab=statements` (with a month, its step 2)
+    still work.
 
 ## Wealth (`/wealth`)
 
@@ -323,16 +349,6 @@ plan holds.
   revised, the dividend figures), and what happened to the refund with
   "Add", "Fix" and "Remove". Shared holdings are named apart, since a
   return is one person's.
-- **Statements**: one section per card (when it closes and is due), with the
-  statements still to check first and the settled ones folded under
-  "Checked". Each statement shows its period and status, then three figures
-  side by side: what Rokda recorded for the period (to the cent, signed),
-  the statement's own figure when recorded, and the difference, which way it
-  goes. Its buttons sit in one row underneath: "Mark done" (or "Resolve…" for
-  one that did not match), its transactions, and "Reopen…" for a settled one;
-  the bot asks about each once and reminds once before it is due
-  (`statement_reconciliations`).
-
 ## Planning (`/planning`)
 
 Five tabs: Plan, Life plan, Goals, Debt payoff, Notes. An old link to
@@ -373,7 +389,7 @@ Forecast or Drawdown, which went (Planning audit, 3.15), opens the Life plan.
   rather than giving a target; with not enough to project, it says the Life
   plan lists what is missing. A
   monthly check follows, for the household: saving in the month just ended
-  against the budget's savings target (Review's check), and the cash reserve
+  against the budget's savings target (linked to its Month end), and the cash reserve
   in months of spending against what the kept goals hold. Then what needs a
   decision.
 - **Life plan**: leads with the year work stops (saved, being tried, or

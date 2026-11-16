@@ -4034,3 +4034,49 @@ The revamp's phase 4c (design note `docs/superpowers/specs/2026-11-15-money-desi
   - **The count waits for the Inbox to be read**: the title said "0 waiting",
     and the sidebar was told 0, while the household was still loading.
 
+
+## Month end, in place of Review and Statements
+
+The revamp's phase 4d (design note `docs/superpowers/specs/2026-11-15-money-design.md`).
+
+- **Money's fourth tab is Month end**, and Wealth → Statements is part of
+  it: the card statements are checked on the running month and in the
+  month's step 2, beside the other things a month asks for. `?tab=review`
+  opens Month end, and `/wealth?tab=statements` opens it (with a month, on
+  that month's step 2).
+- **The page follows where the month is** (lib/monthEnd.js): the running
+  month, the month just ended to close, an earlier month never closed (two
+  steps, no close: a close records today's totals as the month just
+  ended's), or a closed month on a page. It opens on the running month, as
+  every Money tab does; while the month just ended isn't closed, the
+  running month offers "Close October", and Overview's item opens that month.
+- **The steps are the review's checks** (lib/monthlyReview.js), gathered
+  three ways: tidy the records, check statements and balances, close. A
+  step is done once none of its required checks is still to do; a transfer
+  suggestion or a refund to link is shown, but never holds a step up, as it
+  never held the review up.
+- **The close keeps its two presses.** The prototype puts the Assets and
+  Liabilities fields beside the Close button. The app's close shows the
+  figures it will record first, and writes nothing until Confirm & close
+  (SHR-246), so "Close October" opens that form. It waits for the holdings,
+  as it did on the review.
+- **Nothing shows until the records it reads have loaded**: accounts,
+  transactions, statements and closes. A failed read of the closes would
+  have shown a closed month as one still to close.
+- **No statement total is typed in** (the design note's decision 2): the
+  Statement column shows a recorded total or a dash.
+- **Several statements can be marked done at once**, ticked. One that
+  doesn't match is resolved on its own, since Resolve asks what was done.
+  A write that fails names its statement and stays ticked.
+- **The running month's balances** count one nobody has confirmed, or not
+  for 45 days, as Overview does; a month being closed counts those not
+  confirmed since it ended, as the review did.
+- **Biggest changes** are by category as recorded, against the six-month
+  usual Budget and Overview use (decision 4), and include a usual category
+  not spent on at all. Until there is a usual month, the biggest categories
+  instead.
+- **What left with the review**: the Next step card, What to do next (and
+  `monthActions`, which only it used), and Prev / Next, which the header's
+  stepper replaces. Its goal set-asides are on Overview's To do, its cash and
+  saving lines on Planning → Plan and Budget's savings target. The goals,
+  read only for it, are no longer read on Money.
