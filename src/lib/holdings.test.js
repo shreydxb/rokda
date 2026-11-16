@@ -260,6 +260,13 @@ describe('largestConcentration', () => {
     expect(largestConcentration(hs, null, '20.00').cap).toEqual({ pct: 20, above: true });
   });
 
+  // The "{n} untagged" chip opens the one most worth tagging.
+  it('names the largest holding still without a sector', () => {
+    const c = largestConcentration([holding('A', 700), holding('B', 300, { sector: 'energy' }), holding('C', 900), holding('Gold', 2000, { asset_class: 'commodity' })], null);
+    expect(c).toMatchObject({ untagged: 2, untaggedId: 'C' });
+    expect(largestConcentration([holding('B', 300, { sector: 'energy' })], null).untaggedId).toBeNull();
+  });
+
   it('reads a sector only on shares and share funds, and asks only for theirs', () => {
     const c = largestConcentration([holding('Gold', 500, { asset_class: 'commodity', sector: 'materials' }), holding('Coin', 300, { asset_class: 'crypto' }), holding('B', 200)], null);
     expect(c).toMatchObject({ kind: 'holding', name: 'Gold', sector: null, untagged: 1 });
