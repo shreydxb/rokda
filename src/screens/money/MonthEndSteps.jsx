@@ -38,7 +38,7 @@ const longMonth = (year, month) => new Date(year, month - 1, 1).toLocaleDateStri
 // What each check's link says (lib/monthlyReview.js gives where it goes).
 const CHECK_CTA = { estimates: 'Enter the AED debited' };
 
-export default function MonthEndSteps({ household, members, me, data, year, month, now, closable }) {
+export default function MonthEndSteps({ household, members, me, data, year, month, now, closable, closed = false }) {
   const [params] = useSearchParams();
   const selected = useMemo(() => ({ year, month }), [year, month]);
   const review = useMemo(() => monthlyReview(selected, data, now), [selected, data, now]);
@@ -285,7 +285,7 @@ export default function MonthEndSteps({ household, members, me, data, year, mont
                     <span className="me-rw-t">{a.name}</span>
                     <span className="me-rw-s">{` · not confirmed since ${shortDate(to)}`}</span>
                   </span>
-                  <Link className="ds-btn ds-btn-sm" to={out(tabHref('/wealth', 'accounts'))}>
+                  <Link className="ds-btn ds-btn-sm" to={out(tabHref('/wealth', 'accounts', { who: 'both' }))}>
                     Confirm balance
                   </Link>
                 </div>
@@ -304,7 +304,7 @@ export default function MonthEndSteps({ household, members, me, data, year, mont
       <KpiStrip
         items={[
           { label: 'Income', value: formatMoney(history.income) },
-          { label: 'Spent', value: formatMoney(history.spend) },
+          { label: 'Spent', value: formatBalance(history.spend) },
           { label: 'Saved', value: formatBalance(history.saved), tone: history.saved < 0 ? 'neg' : undefined, sub: history.rate == null ? null : `${Math.round(history.rate * 100)}% of income` },
           { label: 'Net worth', value: formatBalance(history.netWorth), sub: history.incomplete > 0 ? <Chip tone="warn" title="An account or holding has no value yet, so net worth leaves it out.">Provisional</Chip> : null },
         ]}
@@ -327,7 +327,51 @@ export default function MonthEndSteps({ household, members, me, data, year, mont
   );
 
   const bodies = { tidy: tidyBody, check: checkBody, close: closeBody };
-  const rights = { check: <MarkTicked rows={statements} actions={statementActions} /> };
+  // Beside the step's name only while the step is open, where what it does,
+  // and any failure, can be seen (the fresh review of 4d).
+  const rights = { check: isOpen(2) ? <MarkTicked rows={statements} actions={statementActions} /> : null };
+
+  const stepCards = steps.steps.map((s) => {
+    const open = isOpen(s.n);
+    const current = steps.current === s.n;
+    return (
+      <section key={s.n} className={`ds-card me-step${current ? ' ds-card-action' : ''}`} aria-label={`Step ${s.n}: ${s.title}`}>
+        {/* The whole row opens the step, as in the prototype; the button is
+            what a keyboard and a screen reader use. */}
+        <div className="me-step-h" onClick={(e) => !e.target.closest('button, a, input, select') && toggle(s.n)}>
+          <button type="button" className="me-step-toggle" aria-expanded={open} onClick={() => toggle(s.n)}>
+            <span className="me-step-n" data-state={s.done ? 'done' : current ? 'cur' : undefined} aria-hidden="true">
+              {s.done ? <Icon name="check" /> : s.n}
+            </span>
+            <span className="me-step-t">{s.title}</span>
+            <span className="me-step-s">{s.status}</span>
+          </button>
+          {rights[s.id]}
+          <span className="me-caret" data-on={open || undefined} aria-hidden="true" />
+        </div>
+        {open && <div className="me-step-b">{bodies[s.id]}</div>}
+      </section>
+    );
+  });
+  const errorLine = error && (
+    <div className="me-error" role="alert">
+      {error}
+    </div>
+  );
+
+  // Beneath a closed month's page: its checks, still to be finished or
+  // looked back on, without the close.
+  if (closed) {
+    return (
+      <section className="me-checks" aria-labelledby="me-checks-title">
+        <h2 className="me-checks-title" id="me-checks-title">
+          Checks
+        </h2>
+        {errorLine}
+        {stepCards}
+      </section>
+    );
+  }
 
   return (
     <>
@@ -343,38 +387,13 @@ export default function MonthEndSteps({ household, members, me, data, year, mont
         </span>
         <Chip title="A month closes for the whole household, whoever is selected.">Household</Chip>
         <span className="me-grow" />
-        <Link className="ds-link ds-link-accent" to={tabHref('/money', 'budget', { month: monthParam(new Date(year, month - 1, 1)) })}>
+        <Link className="ds-link ds-link-accent" to={tabHref('/money', 'budget', { month: monthParam(new Date(year, month - 1, 1)), who: 'both' })}>
           {`Budget for ${SHORT[month - 1]} →`}
         </Link>
       </div>
       {!closable && <div className="me-note">{`${name} was never closed, and it can’t be closed now: a close records today’s totals as the month just ended’s. Its records are still worth getting right.`}</div>}
-      {error && (
-        <div className="me-error" role="alert">
-          {error}
-        </div>
-      )}
-      {steps.steps.map((s) => {
-        const open = isOpen(s.n);
-        const current = steps.current === s.n;
-        return (
-          <section key={s.n} className={`ds-card me-step${current ? ' ds-card-action' : ''}`} aria-label={`Step ${s.n}: ${s.title}`}>
-            {/* The whole row opens the step, as in the prototype; the
-                button is what a keyboard and a screen reader use. */}
-            <div className="me-step-h" onClick={(e) => !e.target.closest('button, a, input, select') && toggle(s.n)}>
-              <button type="button" className="me-step-toggle" aria-expanded={open} onClick={() => toggle(s.n)}>
-                <span className="me-step-n" data-state={s.done ? 'done' : current ? 'cur' : undefined} aria-hidden="true">
-                  {s.done ? <Icon name="check" /> : s.n}
-                </span>
-                <span className="me-step-t">{s.title}</span>
-                <span className="me-step-s">{s.status}</span>
-              </button>
-              {rights[s.id]}
-              <span className="me-caret" data-on={open || undefined} aria-hidden="true" />
-            </div>
-            {open && <div className="me-step-b">{bodies[s.id]}</div>}
-          </section>
-        );
-      })}
+      {errorLine}
+      {stepCards}
     </>
   );
 }

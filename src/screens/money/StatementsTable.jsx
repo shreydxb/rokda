@@ -218,7 +218,7 @@ export default function StatementsTable({ rows, accounts = [], members = [], act
               <td colSpan={ticks ? 8 : 7}>
                 <span className="me-st-card">
                   {owner(card.account)}
-                  <Link className="me-st-cardname" to="/wealth?tab=accounts">{`${card.account.name} →`}</Link>
+                  <Link className="me-st-cardname" to="/wealth?tab=accounts&who=both">{`${card.account.name} →`}</Link>
                   <span className="me-ink3">{`· closes ${ordinal(card.account.statement_day)}${card.account.due_day ? ` · due ${ordinal(card.account.due_day)}` : ''}`}</span>
                 </span>
               </td>

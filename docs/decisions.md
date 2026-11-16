@@ -4075,8 +4075,31 @@ The revamp's phase 4d (design note `docs/superpowers/specs/2026-11-15-money-desi
   usual Budget and Overview use (decision 4), and include a usual category
   not spent on at all. Until there is a usual month, the biggest categories
   instead.
+- **A closed month keeps its checks** beneath its page: a month can be closed
+  with steps still open, and its statements reopened later.
 - **What left with the review**: the Next step card, What to do next (and
   `monthActions`, which only it used), and Prev / Next, which the header's
   stepper replaces. Its goal set-asides are on Overview's To do, its cash and
   saving lines on Planning → Plan and Budget's savings target. The goals,
   read only for it, are no longer read on Money.
+- **The fresh review of 4d** changed these:
+  - **A figure refunds took below nothing keeps its minus**: Biggest changes,
+    Spent and the budget figure showed −200 as 200.
+  - **Biggest changes keep their ranking**: the bar list sorted them by what
+    was spent, so it can now keep the order it is given. The change sits
+    with the amount, where it is never cut short.
+  - **The month just ended always has its close**, even when the records
+    start after it: "Close October" opened "No records in October".
+  - **A closed month keeps its checks** (above).
+  - **"Mark n done" shows only while step 2 is open**, where a failure can
+    be seen.
+  - **Links to Accounts and Budget open them for the household**
+    (`who=both`): in one person's view, Confirm balance opened Accounts
+    without the account it named.
+  - **Nothing shows without the transfer links or categories**: without the
+    links, a pair already kept as two real records was offered for
+    deleting. Budgets that never loaded say so, rather than "No budget was
+    set".
+  - **A statement is only settled or reopened while it has the status on
+    screen**: the bot may have recorded a mismatch since, and a ticked
+    Mark done would have settled it unseen.

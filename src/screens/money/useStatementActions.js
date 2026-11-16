@@ -15,13 +15,16 @@ export const nameOf = (row) => `${row.account.name}, ${shortDate(row.periodStart
 
 // Settles a statement ('confirmed') or opens it again ('waiting'), with who
 // did it and, when given, why. Only a write that changed the row counts: one
-// that matched nothing (changed elsewhere, or not allowed) says so.
+// that matched nothing (changed elsewhere, or not allowed) says so. An update
+// applies only while the statement still has the status on screen: the bot
+// may have recorded a mismatch since, which Mark done must not settle unseen
+// (the fresh review of 4d).
 async function writeStatus(household, me, row, next, why = '') {
   const payload =
     next === 'waiting' ? { status: 'waiting', closed_at: null, closed_by_member_id: null } : { status: 'confirmed', closed_at: new Date().toISOString(), closed_by_member_id: me?.id ?? null };
   if (why.trim()) payload.note = why.trim();
   if (row.record) {
-    const { data: saved, error } = await supabase.from('statement_reconciliations').update(payload).eq('id', row.record.id).select('id');
+    const { data: saved, error } = await supabase.from('statement_reconciliations').update(payload).eq('id', row.record.id).eq('status', row.status).select('id');
     return error?.message ?? ((saved ?? []).length === 0 ? 'Nothing was saved: this statement may have changed elsewhere. Reload the page and try again.' : null);
   }
   const { error } = await supabase.from('statement_reconciliations').insert({

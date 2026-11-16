@@ -462,3 +462,17 @@ input.me-tick {
     width: 100%;
   }
 }
+
+/* A closed month's checks, beneath its page. */
+.me-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 8px;
+}
+.me-checks-title {
+  margin: 0;
+  padding: 0 2px;
+  font-size: 14px;
+  font-weight: 600;
+}

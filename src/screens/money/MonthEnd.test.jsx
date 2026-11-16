@@ -132,7 +132,9 @@ describe('Month end: the running month', () => {
     expect(categorise).toMatch(/from=2026-11-01&to=2026-11-30/);
     expect(within(kpi('Statements to check')).getByText('1')).toBeTruthy();
     expect(within(kpi('Balances not confirmed')).getByText('1')).toBeTruthy();
-    expect(within(kpi('Balances not confirmed')).getByRole('link', { name: 'Accounts →' }).getAttribute('href')).toBe('/wealth?tab=accounts');
+    // Month end counts the household, so its links open the household's
+    // accounts whoever is selected (the fresh review of 4d).
+    expect(within(kpi('Balances not confirmed')).getByRole('link', { name: 'Accounts →' }).getAttribute('href')).toBe('/wealth?tab=accounts&who=both');
     const statements = screen.getByRole('region', { name: 'Card statements' });
     const row = within(statements).getByText('29 Sep – 28 Oct').closest('tr');
     expect(within(row).getByRole('button', { name: 'Mark done' })).toBeTruthy();
@@ -182,7 +184,7 @@ describe('Month end: closing the month just ended', () => {
     expect(screen.getByRole('heading', { name: 'Close October' })).toBeTruthy();
     expect(screen.getByText('1 of 3 steps done')).toBeTruthy();
     expect(screen.getByText('Household')).toBeTruthy();
-    expect(screen.getByRole('link', { name: 'Budget for Oct →' }).getAttribute('href')).toBe('/money?tab=budget&month=2026-10');
+    expect(screen.getByRole('link', { name: 'Budget for Oct →' }).getAttribute('href')).toBe('/money?tab=budget&month=2026-10&who=both');
     expect(stepButton('Tidy transactions').getAttribute('aria-expanded')).toBe('true');
     expect(stepButton('Tidy transactions').textContent).toMatch(/1 uncategorised/);
     expect(stepButton('Check statements and balances').getAttribute('aria-expanded')).toBe('false');
@@ -248,10 +250,14 @@ describe('Month end: closing the month just ended', () => {
     const row = screen.getByText('29 Sep – 28 Oct').closest('tr');
     expect(within(row).getByText('To check')).toBeTruthy();
     const balance = screen.getByText('Current account', { selector: '.me-rw-t' }).closest('.me-rw');
-    expect(within(balance).getByRole('link', { name: 'Confirm balance' }).getAttribute('href')).toBe('/wealth?tab=accounts&reviewing=2026-10');
+    expect(within(balance).getByRole('link', { name: 'Confirm balance' }).getAttribute('href')).toBe('/wealth?tab=accounts&who=both&reviewing=2026-10');
     // Ticking a statement offers to mark it done beside the step's name.
     await click(within(row).getByRole('checkbox'));
     expect(screen.getByRole('button', { name: 'Mark 1 done' }).closest('.me-step-h')).not.toBeNull();
+    // Not while the step is closed, where a failure would go unseen (the
+    // fresh review of 4d).
+    await click(stepButton('Check statements and balances'));
+    expect(screen.queryByRole('button', { name: 'Mark 1 done' })).toBeNull();
   });
 
   it('opens the step a link names', () => {
@@ -374,5 +380,88 @@ describe('Month end: a closed month on a page', () => {
   it('says no budget was set for a month without one', () => {
     renderAt(OCTOBER, closedData({ budgets: [] }));
     expect(within(screen.getByRole('region', { name: 'Against budget' })).getByText('No budget was set for October.')).toBeTruthy();
+  });
+});
+
+// The fresh review of 4d.
+describe('Month end: after the fresh review', () => {
+  const income = (id, amount, occurred_at) => tx(id, { kind: 'income', amount, category_id: 'salary', occurred_at });
+  const spend = (id, category_id, amount, occurred_at) => tx(id, { category_id, amount: -amount, occurred_at });
+  const cats = [...categories, { id: 'dining', name: 'Dining out', kind: 'expense', parent_id: null }, { id: 'travel', name: 'Travel', kind: 'expense', parent_id: null }];
+  const closedOct = [{ snapshot_date: '2026-10-01', assets: 100, liabilities: 0 }];
+
+  it('keeps the sign of a category, and of spending, that refunds took below nothing', () => {
+    renderAt(
+      OCTOBER,
+      data({
+        categories: cats,
+        netWorthSnapshots: closedOct,
+        transactions: [income('i9', 1000, '2026-09-01'), spend('d9', 'dining', 100, '2026-09-05'), income('i10', 1000, '2026-10-01'), spend('d10', 'dining', 30, '2026-10-05'), tx('r10', { category_id: 'dining', kind: 'refund', amount: 230, occurred_at: '2026-10-06' })],
+      }),
+    );
+    expect(kpi('Spent').textContent).toMatch(/^Spent−200/);
+    const changes = screen.getByRole('region', { name: 'Biggest changes' });
+    expect(within(changes).getByText('−200')).toBeTruthy();
+  });
+
+  it('ranks the biggest changes by how far each moved, with the change beside the amount', () => {
+    renderAt(
+      OCTOBER,
+      data({
+        categories: cats,
+        netWorthSnapshots: closedOct,
+        transactions: [spend('t9', 'travel', 1000, '2026-09-05'), spend('g9', 'groceries', 1000, '2026-09-06'), spend('g10', 'groceries', 1500, '2026-10-05')],
+      }),
+    );
+    const changes = screen.getByRole('region', { name: 'Biggest changes' });
+    const labels = [...changes.querySelectorAll('.ds-bl-label')].map((l) => l.textContent);
+    expect(labels).toEqual(['Travel', 'Groceries']);
+    // In the value, which is never cut short, rather than after the name.
+    expect(within(changes).getByText('+500 vs usual').closest('.ds-bl-value')).not.toBeNull();
+  });
+
+  it('keeps a closed month’s checks beneath its page, open where something is left', () => {
+    const pair = [tx('a', { merchant: 'Cafe', created_at: '2026-10-10T08:00:00Z' }), tx('b', { merchant: 'Cafe', occurred_at: '2026-10-11', created_at: '2026-10-11T08:00:00Z' })];
+    renderAt(OCTOBER, data({ transactions: pair, netWorthSnapshots: closedOct }));
+    expect(screen.getByText('The month on a page')).toBeTruthy();
+    const checks = screen.getByRole('region', { name: 'Checks' });
+    expect(within(checks).getByRole('button', { name: 'Both are real' })).toBeTruthy();
+    expect(stepButton('Tidy transactions').getAttribute('aria-expanded')).toBe('true');
+    expect(screen.queryByRole('button', { name: /^Close/ })).toBeNull();
+  });
+
+  it('opens a closed month’s statements from a link, where a done one can be reopened', () => {
+    renderAt(`${OCTOBER}&step=2`, data({ netWorthSnapshots: closedOct }));
+    expect(stepButton('Check statements and balances').getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByText('Done (1)')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Reopen…' })).toBeTruthy();
+  });
+
+  it('offers the close for the month just ended even when the records start after it', () => {
+    renderAt(OCTOBER, data({ transactions: [tx('n', { occurred_at: '2026-11-03' })] }));
+    expect(screen.getByRole('heading', { name: 'Close October' })).toBeTruthy();
+    expect(screen.queryByText(/^No records in/)).toBeNull();
+  });
+
+  it('opens Budget for the household from a closed month', () => {
+    renderAt(OCTOBER, data({ netWorthSnapshots: closedOct }));
+    expect(screen.getByRole('link', { name: 'Budget →' }).getAttribute('href')).toBe('/money?tab=budget&month=2026-10&who=both');
+  });
+
+  // A pair already kept as two real records would be offered for deleting.
+  it('shows nothing while the transfer links or categories never loaded', () => {
+    renderAt(OCTOBER, data({ errors: { transactionLinks: 'network' }, loaded: {} }));
+    expect(screen.getByText('Couldn’t load transfer links.')).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Close October' })).toBeNull();
+    document.body.innerHTML = '';
+    renderAt(OCTOBER, data({ errors: { categories: 'network' }, loaded: {} }));
+    expect(screen.getByText('Couldn’t load categories.')).toBeTruthy();
+  });
+
+  it('says the budgets couldn’t load rather than that none was set', () => {
+    renderAt(OCTOBER, data({ netWorthSnapshots: closedOct, errors: { budgets: 'network' }, loaded: {} }));
+    const budget = screen.getByRole('region', { name: 'Against budget' });
+    expect(within(budget).getByText('Couldn’t load budgets.')).toBeTruthy();
+    expect(within(budget).queryByText(/No budget was set/)).toBeNull();
   });
 });

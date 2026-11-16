@@ -396,11 +396,14 @@ export function StackBar({ label, parts }) {
 }
 
 // A ranked list of bars, each scaled to the largest, with an optional tick at
-// its usual amount (review S-overview-3).
-export function BarList({ items, onSelect }) {
+// its usual amount (review S-overview-3). Ranked by value unless `ordered`,
+// when the caller's order is the ranking (Month end's Biggest changes, by
+// how far each moved).
+export function BarList({ items, onSelect, ordered = false }) {
   // A value it cannot read is left out, so one bad row cannot blank the rest
   // (fresh review of the kit).
-  const sorted = items.filter((i) => Number.isFinite(i.value)).sort((a, b) => b.value - a.value);
+  const shown = items.filter((i) => Number.isFinite(i.value));
+  const sorted = ordered ? shown : shown.sort((a, b) => b.value - a.value);
   const top = Math.max(0, ...sorted.map((i) => Math.max(i.value, Number.isFinite(i.usual) ? i.usual : 0)));
   return (
     <ul className="ds-barlist">

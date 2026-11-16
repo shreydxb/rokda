@@ -22,8 +22,16 @@ vi.mock('../../lib/supabaseClient', () => ({
         },
         update: (payload) => ({
           eq: (col, value) => {
-            calls.push({ op: 'update', table, col, value, payload });
-            return { select: () => Promise.resolve({ data: updated, error: null }) };
+            const call = { op: 'update', table, col, value, payload };
+            calls.push(call);
+            const select = () => Promise.resolve({ data: updated, error: null });
+            return {
+              eq: (guardCol, guardValue) => {
+                call.guard = [guardCol, guardValue];
+                return { select };
+              },
+              select,
+            };
           },
         }),
       };
@@ -86,8 +94,11 @@ describe('Card statements table', () => {
         { id: 't2', account_id: 'card-1', amount: -100, kind: 'expense', occurred_at: '2026-08-10', is_shared: true },
       ],
     });
-    // The card heads both the statements to check and the ones done.
-    expect(screen.getAllByRole('link', { name: 'Bank card →' })).toHaveLength(2);
+    // The card heads both the statements to check and the ones done, and
+    // opens Accounts for the household, whoever is selected.
+    const cardLinks = screen.getAllByRole('link', { name: 'Bank card →' });
+    expect(cardLinks).toHaveLength(2);
+    expect(cardLinks[0].getAttribute('href')).toBe('/wealth?tab=accounts&who=both');
     expect(screen.getAllByText('· closes 28th · due 22nd')).toHaveLength(2);
     const september = rowOf('29 Aug – 28 Sep');
     expect(within(september).getByText('22 Oct')).toBeTruthy();
@@ -125,6 +136,9 @@ describe('Card statements table', () => {
     await click(within(row).getByRole('button', { name: 'Mark done' }));
     expect(calls).toEqual([expect.objectContaining({ op: 'update', table: 'statement_reconciliations', col: 'id', value: 'r9' })]);
     expect(calls[0].payload.status).toBe('confirmed');
+    // Only while it is still waiting: the bot may have recorded a mismatch
+    // since the page was read (the fresh review of 4d).
+    expect(calls[0].guard).toEqual(['status', 'waiting']);
   });
 
   it("keeps the sign and the cents: a net refund is negative, and a cent's difference shows", () => {
@@ -155,6 +169,7 @@ describe('Card statements table', () => {
     await click(screen.getByRole('button', { name: 'Mark resolved' }));
     expect(calls).toEqual([expect.objectContaining({ op: 'update', col: 'id', value: 'r4' })]);
     expect(calls[0].payload).toMatchObject({ status: 'confirmed', closed_by_member_id: 'm1', note: 'Added a missing fuel charge' });
+    expect(calls[0].guard).toEqual(['status', 'mismatch']);
     expect(reload).toHaveBeenCalled();
   });
 
@@ -166,6 +181,7 @@ describe('Card statements table', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Why it is being reopened' }), { target: { value: 'A charge came later' } });
     await click(screen.getByRole('button', { name: 'Reopen' }));
     expect(calls[0].payload).toMatchObject({ status: 'waiting', closed_at: null, closed_by_member_id: null, note: 'A charge came later' });
+    expect(calls[0].guard).toEqual(['status', 'confirmed']);
   });
 
   it('says so when a write changed nothing, rather than reloading as if it had', async () => {

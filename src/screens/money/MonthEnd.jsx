@@ -8,7 +8,7 @@ import { biggestChanges, closedMonthFigures, monthEndMonth, monthEndPage, runnin
 import { budgetSummary } from '../../lib/monthlyReview';
 import { statementRows } from '../../lib/statements';
 import { pendingClose } from '../../lib/snapshots';
-import { neverLoaded } from '../../lib/loadState';
+import { couldntLoad, neverLoaded } from '../../lib/loadState';
 import { BarList, Card, Chip, EmptyState, InfoButton, KpiStrip, MonthStepper, ProgressBar } from '../../design-system/kit';
 import Withheld from '../planning/Withheld';
 import { Tools } from './MoneyTools';
@@ -67,7 +67,10 @@ export default function MonthEnd({ household, members = [], me, data, loading })
   // matching Rokda's spending of nothing (round 2 of the outside review,
   // E2-3), and a month whose close never loaded would read as one still to
   // close.
-  const missing = neverLoaded(data, ['accounts', 'transactions', 'statementReconciliations', 'netWorthSnapshots']);
+  // So would a pair already kept as two real records, offered for deleting,
+  // without the transfer links; and records filed under no category without
+  // the categories (the fresh review of 4d).
+  const missing = neverLoaded(data, ['accounts', 'transactions', 'statementReconciliations', 'netWorthSnapshots', 'transactionLinks', 'categories']);
   if (missing.length > 0) {
     return (
       <>
@@ -80,12 +83,14 @@ export default function MonthEnd({ household, members = [], me, data, loading })
   }
 
   const page = monthEndPage({ year, month }, data.netWorthSnapshots ?? [], now);
-  // A month before the first record has nothing to tidy or show.
+  // A month before the first record has nothing to tidy or show; the month
+  // just ended always has its close, whenever the records start (the fresh
+  // review of 4d).
   const first = (data.transactions ?? []).reduce((min, t) => {
     const day = String(t.occurred_at).slice(0, 7);
     return min === null || day < min ? day : min;
   }, null);
-  const beforeRecords = page !== 'running' && page !== 'closed' && (first === null || monthParam(new Date(year, month - 1, 1)) < first);
+  const beforeRecords = page === 'earlier' && (first === null || monthParam(new Date(year, month - 1, 1)) < first);
 
   return (
     <div className="me">
@@ -95,7 +100,13 @@ export default function MonthEnd({ household, members = [], me, data, loading })
       ) : page === 'running' ? (
         <RunningMonth household={household} members={members} me={me} data={data} year={year} month={month} now={now} />
       ) : page === 'closed' ? (
-        <ClosedMonth data={data} year={year} month={month} now={now} navigate={navigate} />
+        <>
+          <ClosedMonth data={data} year={year} month={month} now={now} navigate={navigate} />
+          {/* A month can be closed with steps still open ("finish after"),
+              and its statements checked or reopened later, so its checks
+              stay beneath its page (the fresh review of 4d). */}
+          <MonthEndSteps key={`closed-${year}-${month}`} household={household} members={members} me={me} data={data} year={year} month={month} now={now} closable={false} closed />
+        </>
       ) : (
         <MonthEndSteps key={`${year}-${month}`} household={household} members={members} me={me} data={data} year={year} month={month} now={now} closable={page === 'close'} />
       )}
@@ -150,7 +161,7 @@ function RunningMonth({ household, members, me, data, year, month, now }) {
               label: 'Balances not confirmed',
               value: String(strip.balances),
               sub: strip.balances ? (
-                <Link className="ds-link ds-link-accent" to={tabHref('/wealth', 'accounts')}>
+                <Link className="ds-link ds-link-accent" to={tabHref('/wealth', 'accounts', { who: 'both' })}>
                   Accounts →
                 </Link>
               ) : (
@@ -192,6 +203,8 @@ function ClosedMonth({ data, year, month, now, navigate }) {
   const figures = closedMonthFigures({ year, month }, data, now);
   const changes = biggestChanges(data.transactions ?? [], data.categories ?? [], { year, month }, now);
   const budget = budgetSummary({ year, month }, data, now);
+  // Budgets that never loaded are not none set.
+  const budgetsUnread = neverLoaded(data, ['budgets']);
   const range = monthRange(year, month);
   const name = longMonth(year, month);
   const previous = figures.previous;
@@ -213,7 +226,7 @@ function ClosedMonth({ data, year, month, now, navigate }) {
         <KpiStrip
           items={[
             { label: 'Income', value: formatMoney(figures.income), sub: <Delta value={figures.income} was={previous?.income ?? null} goodUp label={previous?.label} /> },
-            { label: 'Spent', value: formatMoney(figures.spend), sub: <Delta value={figures.spend} was={previous?.spend ?? null} goodUp={false} label={previous?.label} /> },
+            { label: 'Spent', value: formatBalance(figures.spend), sub: <Delta value={figures.spend} was={previous?.spend ?? null} goodUp={false} label={previous?.label} /> },
             { label: 'Saved', value: formatBalance(figures.saved), tone: figures.saved < 0 ? 'neg' : undefined, sub: figures.rate == null ? null : `${Math.round(figures.rate * 100)}% of income` },
             {
               label: 'Net worth at close',
@@ -232,18 +245,21 @@ function ClosedMonth({ data, year, month, now, navigate }) {
             <div className="me-ink3">Nothing was spent this month.</div>
           ) : (
             <BarList
+              // Ranked by how far each moved, as lib/monthEnd.js gives them.
+              ordered={changes.moved}
               items={changes.rows.map((r) => ({
                 id: r.categoryId,
-                // The change sits beside the name, as in the prototype.
-                label: (
+                label: r.name,
+                value: r.spent,
+                usual: r.usual ?? undefined,
+                // Signed, since refunds can take a category below nothing; the
+                // change with it, where the value column is never cut short.
+                display: (
                   <>
-                    <span>{r.name}</span>
+                    <span>{formatBalance(r.spent)}</span>
                     {r.usual != null && <span className={`me-bl-note ${r.spent > r.usual ? 'me-warn' : 'me-ink3'}`}>{`${formatSigned(r.spent - r.usual)} vs usual`}</span>}
                   </>
                 ),
-                value: r.spent,
-                usual: r.usual ?? undefined,
-                display: formatMoney(r.spent),
               }))}
               onSelect={(item) => navigate(activityHref({ categoryId: item.id, ...range, who: 'both' }))}
             />
@@ -252,15 +268,17 @@ function ClosedMonth({ data, year, month, now, navigate }) {
         <Card
           title="Against budget"
           right={
-            <Link className="ds-link ds-link-accent" to={tabHref('/money', 'budget', { month: monthParam(new Date(year, month - 1, 1)) })}>
+            <Link className="ds-link ds-link-accent" to={tabHref('/money', 'budget', { month: monthParam(new Date(year, month - 1, 1)), who: 'both' })}>
               Budget →
             </Link>
           }
         >
-          {budget.hasBudget ? (
+          {budgetsUnread.length > 0 ? (
+            <div className="me-ink2">{couldntLoad(budgetsUnread)}</div>
+          ) : budget.hasBudget ? (
             <>
               <div className="me-fig">
-                {formatMoney(budget.spentInBudget)} <span className="me-of">{`of ${formatMoney(budget.budgeted)}`}</span>
+                {formatBalance(budget.spentInBudget)} <span className="me-of">{`of ${formatMoney(budget.budgeted)}`}</span>
               </div>
               <ProgressBar label="Spent against the budget" value={budget.spentInBudget} max={budget.budgeted} tone={budget.spentInBudget > budget.budgeted ? 'neg' : 'accent'} format={formatMoney} />
               <div className="me-chips">

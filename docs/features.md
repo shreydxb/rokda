@@ -254,9 +254,11 @@ plan holds.
   - **A closed month**, the month on a page: Income and Spent with the change
     on the month before, Saved and its share of income, Net worth at close
     with the change on the close before; Biggest changes, the three
-    categories furthest from their usual month (the six-month average), a
-    tick at the usual, each opening its records; and Against budget, with a
-    chip for each group over.
+    categories furthest from their usual month (the six-month average), in
+    that order, a tick at the usual, each opening its records; and Against
+    budget, with a chip for each group over. Beneath it, its Checks: steps 1
+    and 2, open at anything still to finish, so a month closed early can be
+    finished and its statements reopened.
   - **Card statements** (one table, on the running month and in step 2): a
     row per statement under its card (Period, Due, In Rokda to the cent and
     signed, the statement's own total when one is recorded, the difference
@@ -268,8 +270,9 @@ plan holds.
     closing balance and who checked it. No statement total is typed here.
     The bot asks about each once and reminds once before it is due
     (`statement_reconciliations`).
-  - Each link out of Month end offers "← Back to Month end for October" on
-    the page it opens. Overview's "hasn't been closed" item opens the month;
+  - Each link out of a step offers "← Back to Month end for October" on the
+    page it opens, and links to Accounts and Budget open them for the whole
+    household, as Month end counts it. Overview's "hasn't been closed" item opens the month;
     `?tab=review` and `/wealth?tab=statements` (with a month, its step 2)
     still work.
 
