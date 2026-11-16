@@ -128,8 +128,9 @@ export function liabilityRows(accounts, transactions = [], { scopeMemberId = nul
 
 // When the card is next due: the latest statement's due date while it is
 // still ahead, with what that statement holds (its closing balance when one
-// was recorded, else what Rokda recorded over its period); after that, the
-// running cycle's. `statementRows` are lib/statements.js's.
+// was recorded, else what Rokda recorded over its period, when anything was:
+// nothing recorded is not nothing owed); after that, the running cycle's.
+// `statementRows` are lib/statements.js's.
 export function paymentDue(account, statementRows = [], now = new Date()) {
   if (!account?.due_day) return null;
   const today = isoDay(startOfDay(now));
@@ -137,7 +138,8 @@ export function paymentDue(account, statementRows = [], now = new Date()) {
     .filter((r) => r.account.id === account.id)
     .sort((a, b) => (a.statementDate < b.statementDate ? 1 : -1))[0];
   if (latest?.dueDate && latest.dueDate >= today) {
-    return { date: latest.dueDate, amount: latest.statementBalance ?? latest.recordedSpend, statementTo: latest.statementDate };
+    const amount = latest.statementBalance ?? (latest.recordedSpend > 0 ? latest.recordedSpend : null);
+    return { date: latest.dueDate, amount, statementTo: latest.statementDate };
   }
   const cycle = cardCycle(account, [], now);
   if (!cycle) return { date: isoDay(nextDueDate(account.due_day, now)) };

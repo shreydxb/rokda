@@ -40,11 +40,17 @@
 }
 
 /* ---------- the hero ---------- */
-.nw-hero .ds-card-body {
+/* The card fills the row beside the chart, and the small figures sit at
+   its foot. */
+.nw-hero {
+  display: flex;
+  flex-direction: column;
+}
+.nw-hero > .ds-card-body {
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  height: 100%;
 }
 .nw-hero-row {
   display: flex;

@@ -158,7 +158,11 @@ function CardCycle({ account, transactions, rows, categories, money, now }) {
             <dd>
               {shortDate(due.date)}
               <span className="ad-ink3">
-                {due.statementTo ? ` · ${formatBalance(due.amount, { decimals: 2 })} for the statement to ${shortDate(due.statementTo)}` : due.cycleTo ? ` · for the cycle that closes ${shortDate(due.cycleTo)}` : ''}
+                {due.statementTo
+                  ? ` · ${due.amount != null ? `${formatBalance(due.amount, { decimals: 2 })} ` : ''}for the statement to ${shortDate(due.statementTo)}`
+                  : due.cycleTo
+                    ? ` · for the cycle that closes ${shortDate(due.cycleTo)}`
+                    : ''}
               </span>
             </dd>
           </>

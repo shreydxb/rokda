@@ -435,6 +435,11 @@ a.ds-btn {
 .ds-fold[open] > summary::before {
   transform: rotate(45deg);
 }
+/* In a card drawn edge to edge, a fold lines up with the card's text. */
+.ds-card-flush .ds-fold > summary {
+  padding-left: 18px;
+  padding-right: 18px;
+}
 .ds-fold > summary:hover {
   color: var(--ink);
 }

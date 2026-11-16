@@ -135,6 +135,12 @@ describe('paymentDue', () => {
     expect(paymentDue(card, [row('2026-11-10', '2026-11-25')], NOW).amount).toBe(640.5);
   });
 
+  // Nothing recorded over the period is not nothing owed: the card's balance
+  // says what is.
+  it('gives no amount for a statement with no balance recorded and nothing spent over it', () => {
+    expect(paymentDue(card, [row('2026-11-10', '2026-11-25', { recordedSpend: 0 })], NOW)).toEqual({ date: '2026-11-25', amount: null, statementTo: '2026-11-10' });
+  });
+
   it('is the running cycle’s once the latest is past, and nothing without a due day', () => {
     expect(paymentDue(card, [row('2026-10-10', '2026-10-25')], NOW)).toEqual({ date: '2026-12-25', cycleTo: '2026-12-10' });
     expect(paymentDue({ ...card, due_day: null }, [], NOW)).toBeNull();
