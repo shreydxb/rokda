@@ -10,7 +10,7 @@ import { agesIn, earliestStop, extraSavingNeeded, lifePlan, maxRetirementSpend, 
 import { agesLabel, costsText, DEFAULT_STOP_AGE, leftOutText, loansText, membersLeftOut, rupeeDrift, stopRange, stressTest } from '../../lib/lifePlanBasis';
 import { planBand, shortAtStop, timelineChip, yearRows } from '../../lib/planView';
 import { planningModel } from '../../lib/planningModel';
-import { useMoneyDisplay } from '../../lib/CurrencyContext';
+import { formatBalance, formatCompact, formatMoney, formatSigned } from '../../lib/money';
 import { neverLoaded } from '../../lib/loadState';
 import { isDone } from '../../lib/goals';
 import { Chip, EmptyState, Fold, InfoButton, KpiStrip, MonthStepper, WarningRow } from '../../design-system/kit';
@@ -38,6 +38,11 @@ import './Plan.css';
 // move from.
 const SCENARIOS = ['baseline', 'conservative', 'optimistic'];
 
+// Planning is in dirhams whatever the display currency, as the AED note above
+// it says (Planning.jsx): the plan is entered in dirhams, and converting it
+// would show figures nobody entered (the fresh review of 6a).
+const AED = { code: 'AED', fmt: (v) => formatMoney(v), fmtBalance: (v) => formatBalance(v), fmtSigned: (v) => formatSigned(v), fmtCompact: (v) => formatCompact(v) };
+
 // One empty list for every missing prop: a fresh [] on each render would work
 // the whole plan out again on every step along the chart.
 const NONE = [];
@@ -59,7 +64,7 @@ export default function Plan({
   onReload,
 }) {
   const { assumptions } = data;
-  const money = useMoneyDisplay(household);
+  const money = AED;
   const now = useNow(data?.loadedAt);
   const startYear = now.getFullYear();
   const { scope } = useScope();

@@ -44,7 +44,7 @@ export default function OverviewPlan({ f, scope = 'both', unread, onRetry }) {
               <div className="ds-fig">{f.stop.stopYear}</div>
               <div className="ov-plan-chips">
                 {f.stop.range.map(verdict)}
-                {f.stop.stopAssumed && <Chip title="Until you choose a year on the Life plan">Assumed year</Chip>}
+                {f.stop.stopAssumed && <Chip title="Until you choose a year on Plan">Assumed year</Chip>}
                 {f.stop.leftOut?.length > 0 && (
                   <Chip tone="warn" title={leftOutText(f.stop.leftOut)}>
                     Not everyone in the plan
@@ -56,7 +56,7 @@ export default function OverviewPlan({ f, scope = 'both', unread, onRetry }) {
           ) : (
             <>
               <div className="ds-fig ov-muted">—</div>
-              <div className="ov-plan-sub">{f.forecast.ready ? 'Set each birth year on the Life plan' : 'Not enough to project yet'}</div>
+              <div className="ov-plan-sub">{f.forecast.ready ? 'Set each birth year on Plan' : 'Not enough to project yet'}</div>
             </>
           )}
           {/* Balances nobody has entered count as 0 in every projection, so

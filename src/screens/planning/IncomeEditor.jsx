@@ -243,9 +243,9 @@ export default function IncomeEditor({ row, householdId, household = null, onClo
 
           <div className="ov-muted" style={{ fontSize: 11.5, lineHeight: 1.6 }}>
             {yearly
-              ? 'The Life plan counts it year by year from the year work stops, before anything is taken from the pot.'
+              ? 'The plan counts it year by year from the year work stops, before anything is taken from the pot.'
               : dated
-                ? 'Added to the pot in that year on the Life plan, whether or not work has stopped, brought back to today’s money at the plan’s inflation.'
+                ? 'Added to the pot in that year on the plan, whether or not work has stopped, brought back to today’s money at the plan’s inflation.'
                 : 'A one-off sum is added to the pot in the year it arrives.'}{' '}
             Enter it after tax.
           </div>

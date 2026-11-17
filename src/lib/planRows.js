@@ -14,7 +14,7 @@ const years = (n) => `${n} year${Number(n) === 1 ? '' : 's'}`;
 
 export function describeIncome(row, household) {
   if (incomesWithoutRate([row], household).length) return 'Not counted: no AED/INR rate yet (Settings → Household)';
-  if (row.in_year != null) return `Paid in ${row.in_year} · counted on the Life plan in that year`;
+  if (row.in_year != null) return `Paid in ${row.in_year} · counted on the plan in that year`;
   const start = Number(row.starts_after_years) || 0;
   if (row.kind === 'lump_sum') return start === 0 ? 'One-off, in the first year of independence' : `One-off, ${years(start)} in`;
   const from = start === 0 ? 'From the first year' : `From ${years(start)} in`;

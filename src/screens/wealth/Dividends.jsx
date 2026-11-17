@@ -41,7 +41,7 @@ const CAVEATS = [
   "Dividends from before a holding's opening entry aren't counted: the units held then are unknown.",
   "Expected figures are a projection at today's units and exchange rates.",
   "Dividends earned but not yet received aren't in net worth.",
-  'The Life plan already counts dividends in its return, so this tab is cash flow, not a second return.',
+  'The plan already counts dividends in its return, so this tab is cash flow, not a second return.',
 ];
 
 const native = (amount, currency) => `${currency} ${formatMoney(amount, { decimals: 2 })}`;

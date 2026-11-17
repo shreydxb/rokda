@@ -160,6 +160,17 @@ describe('Plan: setting up', () => {
   });
 });
 
+// The fresh review of 6a: Planning is in dirhams whatever the display
+// currency (the AED note says so), so Plan doesn't convert.
+describe('Plan: in dirhams', () => {
+  it('keeps every figure in AED with USD picked for display', () => {
+    localStorage.setItem('rokda:currency', 'USD');
+    renderPlan();
+    expect(strip().textContent).toMatch(/spending 4,000 · saving 6,000 a month/);
+    expect(about('the assumptions')).not.toMatch(/USD/);
+  });
+});
+
 describe('Plan: the strip', () => {
   it('gives the basis and its figures, the scenario, the spending and the rates on one line', () => {
     renderPlan();
