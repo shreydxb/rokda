@@ -182,3 +182,24 @@ export function debtsWithAccounts(debts, accounts = []) {
     };
   });
 }
+
+// Goals & debts' Extra a month (the revamp, phase 6b): when the debts clear
+// with an extra payment on top of every minimum, rolled on in the order
+// given, what interest is still to pay then, and what that saves against
+// the minimums alone (each debt at its own minimum, as the band's figures
+// are without one). No extra is the minimums; an extra that doesn't clear
+// them within 50 years has no date.
+export function extraPaymentEffect(orderedDebts, extra) {
+  const minimums = minimumOnlyPayoff(orderedDebts);
+  const amount = Number(extra) || 0;
+  if (!(amount > 0)) return { extra: 0, months: minimums.months, interest: minimums.interest, saves: null, minimums };
+  const plan = simulatePayoffPlan(orderedDebts, amount);
+  if (!plan) return { extra: amount, months: null, interest: null, saves: null, minimums };
+  return {
+    extra: amount,
+    months: plan.months,
+    interest: plan.totalInterest,
+    saves: minimums.interest !== null ? Math.max(0, minimums.interest - plan.totalInterest) : null,
+    minimums,
+  };
+}
