@@ -95,6 +95,14 @@ describe('MonthBars', () => {
     expect(container.querySelectorAll('.ds-mb-today')).toHaveLength(1);
   });
 
+  // Nothing in any month is one zero line, not an axis of rounded nothings.
+  it('draws only its zero line when every month is nothing', () => {
+    const empty = months.map((m) => ({ ...m, solid: 0, pale: 0, outline: 0 }));
+    const { container } = render(<MonthBars months={empty} ariaLabel="Dividends by month" formatTick={(v) => String(Math.round(v))} />);
+    const ticks = [...container.querySelectorAll('.ch-tick')].filter((t) => !/[A-Za-z]/.test(t.textContent)).map((t) => t.textContent);
+    expect(ticks).toEqual(['0']);
+  });
+
   it('labels the months it is given, and moves its pick with the keys', () => {
     const pick = vi.fn();
     render(<MonthBars months={months} ariaLabel="Dividends by month" activeIndex={1} onActiveChange={pick} />);

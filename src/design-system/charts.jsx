@@ -131,7 +131,10 @@ export function MonthBars({ months, height = 160, formatTick = String, activeInd
   const barW = Math.min(22, Math.max(3, band * 0.6));
   const part = (v) => (finite(v) && v > 0 ? v : 0);
   const totals = months.map((m) => part(m.solid) + part(m.pale) + part(m.outline));
-  const { min, max, ticks } = niceTicks(0, Math.max(0, ...totals));
+  const scaleOf = niceTicks(0, Math.max(0, ...totals));
+  const { min, max } = scaleOf;
+  // Nothing in any month is one zero line, not an axis of rounded nothings.
+  const ticks = Math.max(0, ...totals) > 0 ? scaleOf.ticks : [0];
   const scale = yScale(min, max, height);
   const y = (v) => PAD_TOP + scale(v);
   const left = (i) => AXIS_W + band * i + (band - barW) / 2;
