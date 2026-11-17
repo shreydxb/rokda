@@ -1,12 +1,5 @@
 /* Planning -> Plan (the revamp, phase 6; design/prototype css/planning.css). */
 
-.pl-band-h {
-  margin: 22px 0 10px;
-  font-size: 15px;
-  line-height: 20px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
 
 /* The strip: the basis, then the scenario, the spending and the rates. */
 .pl-strip {
