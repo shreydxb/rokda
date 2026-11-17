@@ -1,10 +1,10 @@
 import { useId, useRef, useState } from 'react';
 import { useCloseGuard } from '../../lib/useCloseGuard';
 import DiscardPrompt from '../DiscardPrompt';
-import { useDrawerFocus } from '../../lib/useDrawerFocus';
+import { Drawer } from '../../design-system/kit';
 import { supabase } from '../../lib/supabaseClient';
 import { formatMoney } from '../../lib/money';
-import { DEFAULT_INFLATION_PCT, accountCanBackGoal, goalCostAtDate } from '../../lib/goals';
+import { accountCanBackGoal } from '../../lib/goals';
 import { goalPayload, goalProblems, initialForm, linkErrorMessage, shareProblem } from '../../lib/goalForm';
 import { householdToday, parseDay } from '../../lib/day';
 import '../money/TransactionEditor.css';
@@ -20,7 +20,34 @@ const doneLabel = (at) => new Date(at).toLocaleDateString('en-GB', { day: 'numer
 // account are forms of their own beside it, so Enter in their fields does
 // their action rather than saving the goal, and they keep the drawer open:
 // the goal's unsaved edits stay where they were.
-export default function GoalEditor({ goal, contributions, allocations, accounts, holdings, householdId, members, inflationPct = DEFAULT_INFLATION_PCT, onClose, onSaved, onChanged = onSaved }) {
+//
+// The revamp, phase 6b (design/prototype open-goal): the kit's drawer, with
+// Details, Contributions and Linked accounts as tabs for a goal already
+// saved, and Delete, Mark done or Reopen, Cancel and Save at its foot. Every
+// tab stays drawn, hidden, so what is typed in one survives a look at
+// another. A goal priced at today's cost went from the form, never used; a
+// goal saved that way keeps it.
+const TABS = [
+  { id: 'details', label: 'Details' },
+  { id: 'contributions', label: 'Contributions' },
+  { id: 'links', label: 'Linked accounts' },
+];
+
+export default function GoalEditor({
+  goal,
+  contributions,
+  allocations,
+  accounts,
+  holdings,
+  householdId,
+  members,
+  tab: shownTab,
+  onTab,
+  focusTab = false,
+  onClose,
+  onSaved,
+  onChanged = onSaved,
+}) {
   const uid = useId();
   const ids = {
     form: `${uid}-goal`,
@@ -41,7 +68,13 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
   const removeRefs = useRef({});
   const shareRefs = useRef({});
   const headingRefs = useRef({});
-  const drawerRef = useDrawerFocus();
+  // Where focus is checked after a write (act, below): the drawer's body.
+  const bodyRef = useRef(null);
+  // The tab: the address's when the drawer is opened through it (GoalDrawer),
+  // otherwise its own.
+  const [ownTab, setOwnTab] = useState('details');
+  const tab = goal ? (shownTab ?? ownTab) : 'details';
+  const setTab = (next) => (onTab ? onTab(next) : setOwnTab(next));
   const [form, setForm] = useState(() => initialForm(goal));
   const [dirty, setDirty] = useState(false);
   // Fields are marked wrong only once a save has been tried, not on opening.
@@ -81,10 +114,12 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
   const pendingWork =
     contribAmount.trim() !== '' ? `Log or clear the contribution of ${contribAmount.trim()} first.` : pendingShare ? `Update or undo the share on ${allocationLabel(pendingShare)} first.` : '';
   const unsaved = dirty || pendingWork !== '';
-  const { confirmingClose, requestClose, keepEditing } = useCloseGuard({
+  // The kit's drawer answers Escape on itself (lib/useCloseGuard.js), which
+  // steps back out of a pending confirmation before it closes anything.
+  const { confirmingClose, requestClose, keepEditing, escapeKey } = useCloseGuard({
     dirty: unsaved,
     onClose,
-    // Escape steps back out of a pending confirmation before it closes anything.
+    listen: false,
     onEscape: () => {
       if (confirmingRemove) cancelRemove();
       else if (confirmingDelete) setConfirmingDelete(false);
@@ -100,7 +135,6 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
   // Each field carries its own message once a save has been tried, and the
   // message follows the field as it is corrected (lib/goalForm.js).
   const fieldProblems = goalProblems(form);
-  const rateText = String(form.inflation_pct).trim();
   const invalid = (key) => (triedSave && fieldProblems[key] ? { 'aria-invalid': true, 'aria-describedby': `${uid}-${key}-problem` } : { 'aria-invalid': false });
   const problemText = (key) =>
     triedSave &&
@@ -109,12 +143,6 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
         {fieldProblems[key]}
       </span>
     );
-  // What a today's cost comes to on the date, shown while it is being typed.
-  const costOnDate =
-    form.cost_today && form.target_date && Number(form.target_amount) > 0 && !fieldProblems.rate
-      ? goalCostAtDate({ target_amount: form.target_amount, target_date: form.target_date, cost_today: true, inflation_pct: rateText === '' ? null : rateText }, new Date(), inflationPct)
-      : null;
-
   async function handleSave(e) {
     e.preventDefault();
     if (saving) return;
@@ -123,6 +151,7 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
     if (firstProblem) {
       setTriedSave(true);
       setFormError('Fix the marked field to save.');
+      setTab('details');
       document.getElementById(ids[firstProblem])?.focus();
       return;
     }
@@ -166,7 +195,7 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
     } finally {
       setSaving(false);
       (window.requestAnimationFrame ?? ((fn) => setTimeout(fn, 0)))(() => {
-        if (drawerRef.current && !drawerRef.current.contains(document.activeElement)) headingRefs.current[section]?.focus();
+        if (bodyRef.current && !bodyRef.current.contains(document.activeElement)) headingRefs.current[section]?.focus();
       });
     }
   }
@@ -353,23 +382,68 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
     </h3>
   );
 
-  return (
-    <div className="te-overlay" onMouseDown={(e) => e.target === e.currentTarget && requestClose()}>
-      <div className="te-drawer" role="dialog" aria-modal="true" aria-label={goal ? 'Edit goal' : 'Add goal'} ref={drawerRef} tabIndex={-1}>
-        <div className="te-head">
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-              <span className="ov-kicker">{goal ? 'Edit goal' : 'New goal'}</span>
-              {unsaved && <span className="te-dirty-chip">Unsaved</span>}
-            </div>
-            <div className="te-title">{goal ? goal.name : 'Add a goal'}</div>
-          </div>
-          <button type="button" className="te-close" onClick={requestClose} aria-label="Close">
-            ×
-          </button>
-        </div>
+  const footer = (
+    <div className="te-actions gd-foot">
+      {goal && (
+        <button type="button" className="om-btn te-delete" onClick={handleDelete} aria-disabled={saving}>
+          {confirmingDelete ? 'Confirm delete?' : 'Delete'}
+        </button>
+      )}
+      {goal && (
+        <button
+          type="button"
+          className="om-btn"
+          onClick={handleDone}
+          aria-disabled={saving}
+          title={goal.done_at ? 'Back into every plan.' : 'Out of every plan and the Telegram bot; its contributions are kept. It can be reopened.'}
+        >
+          {goal.done_at ? 'Reopen' : 'Mark done'}
+        </button>
+      )}
+      <div className="te-actions-right">
+        {confirmingClose ? (
+          <DiscardPrompt onDiscard={onClose} onKeepEditing={keepEditing} />
+        ) : (
+          <>
+            <button type="button" className="om-btn" onClick={requestClose}>
+              Cancel
+            </button>
+            <button type="submit" form={ids.form} className="om-btn ov-btn-primary" aria-disabled={saving}>
+              {saving ? 'Saving…' : goal ? 'Save changes' : 'Add goal'}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
 
-        <div className="te-form">
+  return (
+    <Drawer
+      kicker={goal ? 'Edit goal' : 'New goal'}
+      title={goal ? goal.name : 'Add a goal'}
+      dirty={unsaved}
+      tabs={goal ? TABS : undefined}
+      tab={tab}
+      onTab={setTab}
+      focusTab={focusTab}
+      onClose={requestClose}
+      onEscape={escapeKey}
+      footer={
+        <>
+          {formError && (
+            <p className="ov-warn gd-error" role="alert">
+              {formError}
+            </p>
+          )}
+          {footer}
+        </>
+      }
+    >
+      <div ref={bodyRef} className="te-form gd-body">
+        {/* Each tab in a plain wrapper: the editor's sections set their own
+            display, which would override `hidden` on them (the revamp,
+            phase 5b). */}
+        <div hidden={tab !== 'details'}>
           <form id={ids.form} className="te-part" onSubmit={handleSave}>
             <div>
               <div className="te-hero-label">Target</div>
@@ -388,38 +462,6 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
                 />
               </div>
               {problemText('target')}
-              <div className="om-scope-list" role="group" aria-label="How the target is set" style={{ marginTop: 12 }}>
-                <button type="button" className="om-scope" data-active={!form.cost_today} aria-pressed={!form.cost_today} onClick={() => set('cost_today', false)}>
-                  Amount on the date
-                </button>
-                <button type="button" className="om-scope" data-active={form.cost_today} aria-pressed={form.cost_today} onClick={() => set('cost_today', true)}>
-                  Today&rsquo;s cost
-                </button>
-              </div>
-              {form.cost_today && (
-                <div className="te-fieldcell" style={{ marginTop: 12 }}>
-                  <label className="te-fieldlabel" htmlFor={ids.rate}>
-                    Rises by · % a year
-                  </label>
-                  <input
-                    id={ids.rate}
-                    className="te-fieldvalue"
-                    type="number"
-                    step="0.1"
-                    value={form.inflation_pct}
-                    onChange={(e) => set('inflation_pct', e.target.value)}
-                    placeholder={`blank: ${inflationPct}%, general inflation`}
-                    aria-label="Rises by, percent a year"
-                    {...invalid('rate')}
-                  />
-                  {problemText('rate')}
-                  <span className="ov-muted" style={{ fontSize: 11.5, marginTop: 6 }}>
-                    {costOnDate !== null
-                      ? `About ${formatMoney(costOnDate)} by ${form.target_date.slice(0, 4)}, the amount progress is measured against.`
-                      : 'Set a date to see what it will cost then. Education and medical costs often rise faster than prices in general.'}
-                  </span>
-                </div>
-              )}
             </div>
 
             <div>
@@ -431,10 +473,10 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
                   Kept, not spent
                 </button>
               </div>
-              <span className="ov-muted" style={{ display: 'block', fontSize: 11.5, marginTop: 6, lineHeight: 1.6 }}>
+              <span className="ov-muted gd-hint">
                 {form.kept
-                  ? 'Like an emergency fund: held in cash, and never paid out of the Life plan\u2019s savings.'
-                  : 'Paid in its year: from cash if it is due within 3 years, otherwise by the Life plan.'}
+                  ? 'Like an emergency fund: held in cash, and never paid out of the plan\u2019s savings.'
+                  : 'Paid in its year: from cash if it is due within 3 years, otherwise by the plan.'}
               </span>
             </div>
 
@@ -490,7 +532,7 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
                 />
                 {problemText('priority')}
               </div>
-              <div className="te-fieldcell">
+              <div className="te-fieldcell te-span2">
                 <label className="te-fieldlabel" htmlFor={ids.funding}>
                   Funding source
                 </label>
@@ -511,25 +553,12 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
               </span>
               <OwnerPicker value={form.owner} members={members} onChange={(id) => set('owner', id)} labelledBy={ids.owner} />
             </div>
+            {goal?.done_at && <div className="ov-muted gd-hint">{`Marked done on ${doneLabel(goal.done_at)}. It is out of every plan and the Telegram bot; its contributions are kept.`}</div>}
           </form>
+        </div>
 
-          {goal && (
-            <section className="te-section" aria-labelledby={`${uid}-done-head`}>
-              {sectionHeading('done', goal.done_at ? 'Done' : 'Reached or spent?')}
-              <div className="ov-muted" style={{ fontSize: 12.5, lineHeight: 1.6 }}>
-                {goal.done_at
-                  ? `Marked done on ${doneLabel(goal.done_at)}. It is out of every plan and the Telegram bot; its contributions are kept.`
-                  : 'Mark it done: it leaves Goals\u2019 plans, Plan\u2019s checks, the Life plan and the Telegram bot, and keeps its contributions. You can reopen it.'}
-              </div>
-              <div className="te-subactions">
-                <button type="button" className="om-btn" onClick={handleDone} aria-disabled={saving}>
-                  {goal.done_at ? 'Reopen' : 'Mark done'}
-                </button>
-              </div>
-            </section>
-          )}
-
-          {goal && (
+        {goal && (
+          <div hidden={tab !== 'contributions'}>
             <GoalContributions
               labelledBy={`${uid}-contributions-head`}
               heading={sectionHeading('contributions', 'Contributions')}
@@ -548,73 +577,48 @@ export default function GoalEditor({ goal, contributions, allocations, accounts,
               contributions={contributions}
               removeControls={removeControls}
             />
-          )}
-
-          {goal && (sourceOptions.length > 0 || linked.length > 0) && (
-            <GoalLinks
-              labelledBy={`${uid}-linked-head`}
-              heading={sectionHeading('linked', <>Linked accounts &amp; holdings</>, { marginBottom: 4 })}
-              messages={sectionMessages('linked')}
-              ids={{ source: ids.linkSource, share: ids.linkShare }}
-              linkableAccounts={linkableAccounts}
-              linkableHoldings={linkableHoldings}
-              allocSource={allocSource}
-              onSource={setSourceChoice}
-              allocSharePct={allocSharePct}
-              onShare={(value) => {
-                setAllocSharePct(value);
-                setNotice(null);
-              }}
-              onAdd={handleAddAllocation}
-              saving={saving}
-              linked={linked}
-              allocationLabel={allocationLabel}
-              findAccount={findAccount}
-              shareEdits={shareEdits}
-              onShareEdit={(id, value) => {
-                setShareEdits((edits) => ({ ...edits, [id]: value }));
-                setNotice(null);
-              }}
-              onShareChange={handleShareChange}
-              shareRef={(id) => (el) => {
-                shareRefs.current[id] = el;
-              }}
-              removeControls={removeControls}
-            />
-          )}
-
-          <div className="te-sticky-actions">
-            {formError && (
-              <p className="ov-warn" role="alert" style={{ fontSize: 12.5, margin: '0 0 10px' }}>
-                {formError}
-              </p>
-            )}
-            <div className="te-actions" style={{ borderTop: 'none', paddingTop: 0, marginTop: 0 }}>
-              {goal && (
-                <button type="button" className="om-btn te-delete" onClick={handleDelete} aria-disabled={saving}>
-                  {confirmingDelete ? 'Confirm delete?' : 'Delete'}
-                </button>
-              )}
-              <div className="te-actions-right">
-                {confirmingClose ? (
-                  <>
-                    <DiscardPrompt onDiscard={onClose} onKeepEditing={keepEditing} />
-                  </>
-                ) : (
-                  <>
-                    <button type="button" className="om-btn" onClick={requestClose}>
-                      Cancel
-                    </button>
-                    <button type="submit" form={ids.form} className="om-btn ov-btn-primary" aria-disabled={saving}>
-                      {saving ? 'Saving…' : goal ? 'Save changes' : 'Add goal'}
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
           </div>
-        </div>
+        )}
+
+        {goal && (
+          <div hidden={tab !== 'links'}>
+            {sourceOptions.length > 0 || linked.length > 0 ? (
+              <GoalLinks
+                labelledBy={`${uid}-linked-head`}
+                heading={sectionHeading('linked', <>Linked accounts &amp; holdings</>, { marginBottom: 4 })}
+                messages={sectionMessages('linked')}
+                ids={{ source: ids.linkSource, share: ids.linkShare }}
+                linkableAccounts={linkableAccounts}
+                linkableHoldings={linkableHoldings}
+                allocSource={allocSource}
+                onSource={setSourceChoice}
+                allocSharePct={allocSharePct}
+                onShare={(value) => {
+                  setAllocSharePct(value);
+                  setNotice(null);
+                }}
+                onAdd={handleAddAllocation}
+                saving={saving}
+                linked={linked}
+                allocationLabel={allocationLabel}
+                findAccount={findAccount}
+                shareEdits={shareEdits}
+                onShareEdit={(id, value) => {
+                  setShareEdits((edits) => ({ ...edits, [id]: value }));
+                  setNotice(null);
+                }}
+                onShareChange={handleShareChange}
+                shareRef={(id) => (el) => {
+                  shareRefs.current[id] = el;
+                }}
+                removeControls={removeControls}
+              />
+            ) : (
+              <p className="ov-muted gd-hint">Nothing to link yet: a current, savings or cash account, or a holding, can back a goal. Progress comes from what is logged.</p>
+            )}
+          </div>
+        )}
       </div>
-    </div>
+    </Drawer>
   );
 }

@@ -120,7 +120,7 @@ describe('buildTodo', () => {
 
   it('raises a goal due within 3 years and short of cash, under Planning', () => {
     const [row] = buildTodo({ goalsShort: [{ goal: { id: 'g1', name: 'Car' }, remaining: 20000 }] });
-    expect(row).toMatchObject({ group: 'Planning', title: 'Car', status: 'Short of cash · AED 20,000 to set aside', tone: 'warn', action: { kind: 'link', label: 'Open goal', href: '/planning?tab=goals' } });
+    expect(row).toMatchObject({ group: 'Planning', title: 'Car', status: 'Short of cash · AED 20,000 to set aside', tone: 'warn', action: { kind: 'link', label: 'Open goal', href: '/planning?tab=goals&goal=g1' } });
   });
 
   it('gives every row its own key', () => {
