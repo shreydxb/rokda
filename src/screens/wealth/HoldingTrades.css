@@ -70,6 +70,18 @@
   padding: 0;
   min-width: 0;
 }
+/* Why the details wait while a trade or a dividend is being typed. */
+.he-locked {
+  margin: 0 0 12px;
+  font-size: 12.5px;
+}
+/* A group's label with its (i) beside it (the revamp, phase 5b). */
+.he-section-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
 /* A holding's dividends (SHR-366) use the trade rows, with the words at full
    width and the actions on a line of their own under them: a flagged row can
    carry five, which beside the words would squeeze them on a phone. */

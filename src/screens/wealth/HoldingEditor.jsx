@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useCloseGuard } from '../../lib/useCloseGuard';
 import DiscardPrompt from '../DiscardPrompt';
-import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
-import { paysDividends } from '../../lib/holdings';
+import { ASSET_CLASS_LABELS, paysDividends } from '../../lib/holdings';
+import { Drawer, EmptyState } from '../../design-system/kit';
 import { daysSincePriced, historyPointFor, isPendingValuation, todayISODate, valuationChanged } from '../../lib/valuation';
 import { formValuation, holdingProblems, holdingSave, initialForm, isAutoValued } from '../../lib/holdingForm';
 import { hasBuysOrSales } from '../../lib/trades';
@@ -13,6 +13,14 @@ import HoldingFields from './HoldingFields';
 import '../money/TransactionEditor.css';
 
 const NO_TRADES = [];
+
+// A saved holding's three tabs (the revamp, phase 5b; design/prototype
+// openHolding). A new one is only its details.
+const TABS = [
+  { id: 'details', label: 'Details' },
+  { id: 'trades', label: 'Trades' },
+  { id: 'dividends', label: 'Dividends' },
+];
 
 export default function HoldingEditor({
   holding: holdingAsOpened,
@@ -30,6 +38,10 @@ export default function HoldingEditor({
   onSaved,
   onStale,
   onTradesChanged,
+  // The tab shown, when the address keeps it (HoldingDrawer.jsx); otherwise
+  // the editor keeps its own.
+  tab: tabProp,
+  onTab,
 }) {
   // The editor works from the holding as it was when opened. The screen
   // re-reads its data every few minutes and after a refused save, and the row
@@ -38,7 +50,14 @@ export default function HoldingEditor({
   // new valuation. A save from an older version is refused by the database,
   // and a trade made here opens the editor afresh (Investments).
   const [holding] = useState(holdingAsOpened);
-  const drawerRef = useDrawerFocus();
+  const formId = useId();
+  const lockId = useId();
+  // One editor behind the three tabs, each kept drawn and only the chosen one
+  // shown: a look at the trades doesn't cost what was typed in the details,
+  // nor a trade half typed a look at the details.
+  const [ownTab, setOwnTab] = useState('details');
+  const tab = holding ? (tabProp ?? ownTab) : 'details';
+  const chooseTab = onTab ?? setOwnTab;
   const [form, setForm] = useState(() => initialForm(holding));
   // A valuation is only as of a date someone states. Editing a name must not
   // silently certify the stored price as current (QA-04).
@@ -61,7 +80,8 @@ export default function HoldingEditor({
   const subFormOpen = tradeFormOpen || dividendFormOpen;
   // A trade or a dividend being typed is as much unsaved work as an edited
   // field.
-  const { confirmingClose, requestClose, keepEditing } = useCloseGuard({ dirty: dirty || subFormOpen, onClose });
+  // The kit's drawer answers Escape on itself (lib/useCloseGuard.js).
+  const { confirmingClose, requestClose, keepEditing, escapeKey } = useCloseGuard({ dirty: dirty || subFormOpen, onClose, listen: false });
 
   function set(key, value) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -202,28 +222,91 @@ export default function HoldingEditor({
     await onSaved();
   }
 
-  return (
-    <div className="te-overlay" onMouseDown={(e) => e.target === e.currentTarget && requestClose()}>
-      <div className="te-drawer" ref={drawerRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={holding ? 'Edit holding' : 'Add holding'}>
-        <div className="te-head">
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-              <span className="ov-kicker">{holding ? 'Edit holding' : 'New holding'}</span>
-              {dirty && <span className="te-dirty-chip">Unsaved</span>}
-            </div>
-            <div className="te-title">{holding ? holding.name : 'Add a holding'}</div>
-          </div>
-          <button type="button" className="te-close" onClick={requestClose} aria-label="Close">
-            ×
+  const discard = (
+    <DiscardPrompt question={tradeFormOpen ? 'Discard this trade?' : dividendFormOpen ? 'Discard this dividend?' : 'Discard changes?'} onDiscard={onClose} onKeepEditing={keepEditing} />
+  );
+  // The details' own actions: Delete, Cancel and Save. While a trade or a
+  // dividend is being typed its form has its own way back and its own save,
+  // so the holding's fields are locked and there is no Save of their own.
+  const detailsFooter = (
+    <div className="te-actions" style={{ borderTop: 'none', paddingTop: 0, marginTop: 0, width: '100%' }}>
+      {!subFormOpen && deletable && (
+        <button type="button" className="om-btn te-delete" onClick={handleDelete} disabled={saving}>
+          {confirmingDelete ? 'Confirm delete?' : 'Delete'}
+        </button>
+      )}
+      {!subFormOpen && holding && !gone && !(traded && tradesFailed) && buysOrSales && (
+        <span className="ov-muted" style={{ fontSize: 11.5, maxWidth: 260 }}>
+          A holding with buys or sales can&rsquo;t be deleted. Delete its trades first, or keep it: sold to zero, it moves to Sold.
+        </span>
+      )}
+      {!subFormOpen && holding && !gone && !buysOrSales && receivedDividends && (
+        <span className="ov-muted" style={{ fontSize: 11.5, maxWidth: 260 }}>
+          A holding with received dividends can&rsquo;t be deleted: they are tax records. Keep it: sold to zero, it moves to Sold.
+        </span>
+      )}
+      <div className="te-actions-right">
+        {confirmingClose ? (
+          discard
+        ) : (
+          <>
+            <button type="button" className="om-btn" onClick={requestClose}>
+              Cancel
+            </button>
+            {!gone && !subFormOpen && (
+              <button type="submit" form={formId} className="om-btn ov-btn-primary" disabled={saving}>
+                {saving ? 'Saving…' : holding ? 'Save changes' : 'Add holding'}
+              </button>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+  // Trades and Dividends save in their own forms; here there is only the way
+  // out, asking first when something is unsaved.
+  const closeFooter = (
+    <div className="te-actions" style={{ borderTop: 'none', paddingTop: 0, marginTop: 0, width: '100%' }}>
+      <div className="te-actions-right">
+        {confirmingClose ? (
+          discard
+        ) : (
+          <button type="button" className="om-btn" onClick={requestClose}>
+            Close
           </button>
-        </div>
+        )}
+      </div>
+    </div>
+  );
+  const disabledFor = (other) => goneReason ?? (dirty ? 'Save or discard your changes to the holding first.' : other);
 
-        <form className="te-form" onSubmit={handleSave}>
-          {gone && (
-            <p className="ov-warn" role="alert" style={{ marginTop: 0, fontSize: 12.5 }}>
-              This holding was deleted elsewhere. Copy what you need from your draft, then close.
-            </p>
-          )}
+  return (
+    <Drawer
+      kicker={holding ? `Holding · ${ASSET_CLASS_LABELS[holding.asset_class] ?? 'Other'}` : 'New holding'}
+      title={holding ? holding.name : 'Add a holding'}
+      dirty={dirty}
+      tabs={holding ? TABS : undefined}
+      tab={holding ? tab : undefined}
+      onTab={chooseTab}
+      wide
+      onClose={requestClose}
+      onEscape={escapeKey}
+      footer={tab === 'details' ? detailsFooter : closeFooter}
+    >
+      {gone && (
+        <p className="ov-warn" role="alert" style={{ marginTop: 0, fontSize: 12.5 }}>
+          This holding was deleted elsewhere. Copy what you need from your draft, then close.
+        </p>
+      )}
+      <div hidden={tab !== 'details'}>
+        {/* With the trade or dividend on its own tab, the locked details say
+            why, and where to finish it (the fresh review of 5b). */}
+        {subFormOpen && (
+          <p className="ov-muted he-locked" id={lockId}>
+            {tradeFormOpen ? 'Finish the trade first: its form is open on Trades.' : 'Finish the dividend first: its form is open on Dividends.'}
+          </p>
+        )}
+        <form className="te-form" id={formId} onSubmit={handleSave}>
           {/* The holding's own fields lock while a trade is recorded or fixed:
               saving the trade reloads the holding, and an edit made meanwhile
               would be lost. */}
@@ -245,86 +328,58 @@ export default function HoldingEditor({
             setConfirmUnchanged={setConfirmUnchanged}
             setDirty={setDirty}
             subFormOpen={subFormOpen}
+            lockedBy={subFormOpen ? lockId : undefined}
           />
-
-          {traded && (
-            <HoldingTrades
-              holding={holding}
-              trades={trades}
-              failed={tradesFailed}
-              accounts={accounts}
-              disabledReason={goneReason ?? (dirty ? 'Save or discard your changes to the holding first.' : dividendFormOpen ? 'Finish the dividend first.' : null)}
-              onChanged={onTradesChanged}
-              onFormOpen={setTradeFormOpen}
-            />
-          )}
-
-          {/* A share the dividend feeds cover, once it is saved. A dividend
-              saved reloads the screen as a trade does. */}
-          {holding && paysDividends(holding.asset_class) && (
-            <HoldingDividends
-              holding={holding}
-              dividends={dividends}
-              specialParts={specialParts}
-              failed={dividendsFailed}
-              accounts={accounts}
-              disabledReason={goneReason ?? (dirty ? 'Save or discard your changes to the holding first.' : tradeFormOpen ? 'Finish the trade first.' : null)}
-              onChanged={onTradesChanged}
-              onFormOpen={setDividendFormOpen}
-            />
-          )}
-
-          {error && (
-            <p className="ov-warn" role="alert" style={{ fontSize: 12.5 }}>
-              {error}
-            </p>
-          )}
-
-          {/* While a trade or dividend form is open only the question about
-              leaving shows here: it has its own way back and its own save. */}
-          {(!subFormOpen || confirmingClose) && (
-            <div className="te-sticky-actions">
-              <div className="te-actions" style={{ borderTop: 'none', paddingTop: 0, marginTop: 0 }}>
-                {!subFormOpen && deletable && (
-                  <button type="button" className="om-btn te-delete" onClick={handleDelete} disabled={saving}>
-                    {confirmingDelete ? 'Confirm delete?' : 'Delete'}
-                  </button>
-                )}
-                {!subFormOpen && holding && !gone && !(traded && tradesFailed) && buysOrSales && (
-                  <span className="ov-muted" style={{ fontSize: 11.5, maxWidth: 260 }}>
-                    A holding with buys or sales can&rsquo;t be deleted. Delete its trades first, or keep it: sold to zero, it moves to Sold.
-                  </span>
-                )}
-                {!subFormOpen && holding && !gone && !buysOrSales && receivedDividends && (
-                  <span className="ov-muted" style={{ fontSize: 11.5, maxWidth: 260 }}>
-                    A holding with received dividends can&rsquo;t be deleted: they are tax records. Keep it: sold to zero, it moves to Sold.
-                  </span>
-                )}
-                <div className="te-actions-right">
-                  {confirmingClose ? (
-                    <DiscardPrompt
-                      question={tradeFormOpen ? 'Discard this trade?' : dividendFormOpen ? 'Discard this dividend?' : 'Discard changes?'}
-                      onDiscard={onClose}
-                      onKeepEditing={keepEditing}
-                    />
-                  ) : (
-                    <>
-                      <button type="button" className="om-btn" onClick={requestClose}>
-                        Cancel
-                      </button>
-                      {!gone && (
-                        <button type="submit" className="om-btn ov-btn-primary" disabled={saving}>
-                          {saving ? 'Saving…' : holding ? 'Save changes' : 'Add holding'}
-                        </button>
-                      )}
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
         </form>
       </div>
-    </div>
+      {holding && (
+        <>
+          {/* `hidden` sits on a plain wrapper: the form's own display rule
+              would outrank it on the same element. */}
+          <div hidden={tab !== 'trades'}>
+            <div className="te-form">
+              {traded ? (
+                <HoldingTrades
+                  holding={holding}
+                  trades={trades}
+                  failed={tradesFailed}
+                  accounts={accounts}
+                  disabledReason={disabledFor(dividendFormOpen ? 'Finish the dividend first.' : null)}
+                  onChanged={onTradesChanged}
+                  onFormOpen={setTradeFormOpen}
+                />
+              ) : (
+                <EmptyState title="No trade history yet" body="Its units and average price are kept in its details until its history starts with an opening entry." />
+              )}
+            </div>
+          </div>
+          {/* A share the dividend feeds cover. A dividend saved reloads the
+              screen as a trade does. */}
+          <div hidden={tab !== 'dividends'}>
+            <div className="te-form">
+              {paysDividends(holding.asset_class) ? (
+                <HoldingDividends
+                  holding={holding}
+                  dividends={dividends}
+                  specialParts={specialParts}
+                  failed={dividendsFailed}
+                  accounts={accounts}
+                  disabledReason={disabledFor(tradeFormOpen ? 'Finish the trade first.' : null)}
+                  onChanged={onTradesChanged}
+                  onFormOpen={setDividendFormOpen}
+                />
+              ) : (
+                <EmptyState title="No dividends" body="Dividends are followed on shares listed in the US, abroad or in India." />
+              )}
+            </div>
+          </div>
+        </>
+      )}
+      {error && (
+        <p className="ov-warn" role="alert" style={{ fontSize: 12.5 }}>
+          {error}
+        </p>
+      )}
+    </Drawer>
   );
 }

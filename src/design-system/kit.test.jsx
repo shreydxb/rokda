@@ -50,6 +50,20 @@ describe('KpiStrip', () => {
   });
 });
 
+// The first figure of a page's strip can be its hero (the revamp, phase 5b;
+// design/prototype invKpis): Investments' Value.
+describe('KpiStrip: a hero figure', () => {
+  it('draws a figure marked hero at the hero size, the rest as figures', () => {
+    render(<KpiStrip items={[{ label: 'Value', value: '57,000', hero: true }, { label: 'Invested', value: '47,700' }]} />);
+    const [hero, plain] = screen.getAllByRole('definition').map((d) => d.firstChild);
+    expect(hero.className).toContain('ds-hero');
+    expect(plain.className).toContain('ds-fig');
+    expect(plain.className).not.toContain('ds-hero');
+    // The strip gives its hero's column more room (the fresh review of 5b).
+    expect(document.querySelector('dl').className).toBe('ds-kpis ds-kpis-hero');
+  });
+});
+
 describe('KpiStrip: names', () => {
   it('keeps an info button out of the label', () => {
     render(<KpiStrip items={[{ label: 'Spent', value: '500', info: <InfoButton about="Spent">x</InfoButton> }]} />);

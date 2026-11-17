@@ -366,9 +366,13 @@ describe('a holding\'s trades', () => {
     });
   };
   const rows = () => within(screen.getByRole('list', { name: 'Trades' })).getAllByRole('listitem');
+  // The trades and the dividends are a tab away from the details (the
+  // revamp, phase 5b).
+  const tab = (name) => fireEvent.click(screen.getByRole('tab', { name }));
 
   it('lists a traded holding\'s trades newest first, with brokerage, tax and profit', () => {
     open();
+    tab('Trades');
     const items = rows();
     expect(items).toHaveLength(3);
     expect(items[0].textContent).toContain('Sell 6 at USD 150.00');
@@ -381,6 +385,8 @@ describe('a holding\'s trades', () => {
 
   it('shows no trades section for a holding without a trade history', () => {
     open({ ...abc, trades_version: 0 }, []);
+    tab('Trades');
+    expect(screen.getByText('No trade history yet')).toBeTruthy();
     expect(screen.queryByRole('list', { name: 'Trades' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Record a trade' })).toBeNull();
     cleanup();
@@ -388,6 +394,7 @@ describe('a holding\'s trades', () => {
 
   it('offers no Delete on the opening entry', () => {
     open();
+    tab('Trades');
     const [sell, buy, opening] = rows();
     expect(within(sell).getByRole('button', { name: 'Delete Sell 6 at USD 150.00' })).toBeTruthy();
     expect(within(buy).getByRole('button', { name: 'Delete Buy 5 at USD 130.00' })).toBeTruthy();
@@ -398,12 +405,16 @@ describe('a holding\'s trades', () => {
 
   it('disables trade actions while the holding has unsaved changes', () => {
     open();
+    tab('Trades');
     expect(screen.getByRole('button', { name: 'Record a trade' }).disabled).toBe(false);
+    tab('Details');
     fireEvent.change(screen.getByPlaceholderText('e.g. VWRA'), { target: { value: 'ABC renamed' } });
+    tab('Trades');
     expect(screen.getByRole('button', { name: 'Record a trade' }).disabled).toBe(true);
     for (const button of screen.getAllByRole('button', { name: /^(Fix|Delete) / })) expect(button.disabled).toBe(true);
     // Said beside the trades and beside the dividends, whose actions wait too.
     expect(screen.getAllByText('Save or discard your changes to the holding first.')).toHaveLength(2);
+    tab('Dividends');
     expect(screen.getByRole('button', { name: 'Add a dividend' }).disabled).toBe(true);
     cleanup();
   });
@@ -417,6 +428,7 @@ describe('a holding\'s trades', () => {
 
   it('opens the trade form in place of the list, and Back to trades brings the list back', () => {
     open();
+    tab('Trades');
     fireEvent.click(screen.getByRole('button', { name: 'Record a trade' }));
     expect(screen.getByRole('button', { name: 'Check' })).toBeTruthy();
     expect(screen.queryByRole('list', { name: 'Trades' })).toBeNull();
@@ -429,21 +441,30 @@ describe('a holding\'s trades', () => {
   // trades, and while one is being typed nothing else in the editor saves.
   it('shows the dividends of a share that pays them, and none for one that does not', () => {
     open();
+    tab('Dividends');
     expect(screen.getByRole('button', { name: 'Add a dividend' })).toBeTruthy();
     cleanup();
     open({ ...abc, asset_class: 'crypto' });
+    tab('Dividends');
     expect(screen.queryByRole('button', { name: 'Add a dividend' })).toBeNull();
+    expect(screen.getByText('No dividends')).toBeTruthy();
     cleanup();
   });
 
   it('while a dividend is being typed, the trades wait and the holding has no Save of its own', () => {
     open();
+    tab('Dividends');
     fireEvent.click(screen.getByRole('button', { name: 'Add a dividend' }));
+    tab('Trades');
     expect(screen.getByRole('button', { name: 'Record a trade' }).disabled).toBe(true);
     expect(screen.getByText('Finish the dividend first.')).toBeTruthy();
+    tab('Details');
     expect(screen.queryByRole('button', { name: 'Save changes' })).toBeNull();
+    tab('Dividends');
     fireEvent.click(screen.getByRole('button', { name: 'Back to dividends' }));
+    tab('Details');
     expect(screen.getByRole('button', { name: 'Save changes' })).toBeTruthy();
+    tab('Trades');
     expect(screen.getByRole('button', { name: 'Record a trade' }).disabled).toBe(false);
     cleanup();
   });
@@ -457,6 +478,7 @@ describe('a holding\'s trades', () => {
   it('asks before deleting a trade, with what it would undo', async () => {
     rpcAnswers.preview_delete_trade = DELETE_SELL;
     open();
+    tab('Trades');
     await press('Delete Sell 6 at USD 150.00');
     expect(rpcCalls).toEqual([{ name: 'preview_delete_trade', args: { p_trade_id: 't-sell' } }]);
     expect(screen.getByText('Delete Sell 6 at USD 150.00 on 29 Oct? ABC: 9 → 15 shares · Dollar broker funds -USD 899.00')).toBeTruthy();
@@ -469,6 +491,7 @@ describe('a holding\'s trades', () => {
   it('leaves the fund out of the question when the delete moves no money', async () => {
     rpcAnswers.preview_delete_trade = { ...DELETE_SELL, holding_units_after: 9, funds_delta: 0 };
     open();
+    tab('Trades');
     await press('Delete Buy 5 at USD 130.00');
     expect(screen.getByText('Delete Buy 5 at USD 130.00 on 28 Oct? ABC: 9 → 9 shares')).toBeTruthy();
     cleanup();
@@ -479,6 +502,7 @@ describe('a holding\'s trades', () => {
     rpcAnswers.delete_trade = { ok: true, trade_id: 't-sell', trades_version: 4 };
     const onTradesChanged = vi.fn().mockResolvedValue(undefined);
     open(abc, trades, onTradesChanged);
+    tab('Trades');
     await press('Delete Sell 6 at USD 150.00');
     await press('Delete trade');
     expect(rpcCalls[1]).toEqual({ name: 'delete_trade', args: { p_trade_id: 't-sell', p_expected_version: 3 } });
@@ -492,6 +516,7 @@ describe('a holding\'s trades', () => {
     rpcAnswers.preview_delete_trade = { ...DELETE_SELL, trades_version: 5 };
     rpcAnswers.delete_trade = { ok: true, trade_id: 't-sell', trades_version: 5 };
     open();
+    tab('Trades');
     await press('Delete Sell 6 at USD 150.00');
     await press('Delete trade');
     expect(rpcCalls[1].args.p_expected_version).toBe(4);
@@ -501,6 +526,7 @@ describe('a holding\'s trades', () => {
   it('says why a trade cannot be deleted', async () => {
     rpcAnswers.preview_delete_trade = { ok: false, error: 'exceeds_units', entry_id: 't-sell' };
     open();
+    tab('Trades');
     await press('Delete Buy 5 at USD 130.00');
     expect(screen.getByText('This would sell more ABC than was held on 29 Oct. Nothing was saved.')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Delete trade' })).toBeNull();
@@ -509,6 +535,7 @@ describe('a holding\'s trades', () => {
 
   it('opens a trade to fix it', () => {
     open();
+    tab('Trades');
     fireEvent.click(screen.getByRole('button', { name: 'Fix Buy 5 at USD 130.00' }));
     expect(screen.getByLabelText('Units traded').value).toBe('5');
     expect(screen.getByRole('button', { name: 'Check' })).toBeTruthy();
@@ -518,12 +545,38 @@ describe('a holding\'s trades', () => {
   it('hides the holding\'s own Save while a trade is being recorded', () => {
     open();
     expect(screen.getByRole('button', { name: 'Save changes' })).toBeTruthy();
+    tab('Trades');
     fireEvent.click(screen.getByRole('button', { name: 'Record a trade' }));
     // Under a trade's preview, "Save changes" would read as saving the trade.
+    // Cancel stays, so the details always have a way out (asking first).
+    tab('Details');
     expect(screen.queryByRole('button', { name: 'Save changes' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeTruthy();
+    tab('Trades');
     fireEvent.click(screen.getByRole('button', { name: 'Back to trades' }));
+    tab('Details');
     expect(screen.getByRole('button', { name: 'Save changes' })).toBeTruthy();
+    cleanup();
+  });
+
+  // The fresh review of 5b: with the trade on another tab, the locked
+  // details must say why, and which tab to finish it on.
+  it('says on the details why they wait while a trade or a dividend is being typed', () => {
+    open();
+    tab('Trades');
+    fireEvent.click(screen.getByRole('button', { name: 'Record a trade' }));
+    tab('Details');
+    const reason = screen.getByText('Finish the trade first: its form is open on Trades.');
+    expect(document.querySelector('fieldset.he-fields').getAttribute('aria-describedby')).toBe(reason.id);
+    tab('Trades');
+    fireEvent.click(screen.getByRole('button', { name: 'Back to trades' }));
+    tab('Details');
+    expect(screen.queryByText(/^Finish the trade first/)).toBeNull();
+    expect(document.querySelector('fieldset.he-fields').hasAttribute('aria-describedby')).toBe(false);
+    tab('Dividends');
+    fireEvent.click(screen.getByRole('button', { name: 'Add a dividend' }));
+    tab('Details');
+    expect(screen.getByText('Finish the dividend first: its form is open on Dividends.')).toBeTruthy();
     cleanup();
   });
 
@@ -531,6 +584,7 @@ describe('a holding\'s trades', () => {
   it('locks the holding\'s own fields while a trade is being recorded', () => {
     open();
     expect(screen.getByPlaceholderText('e.g. VWRA').matches(':disabled')).toBe(false);
+    tab('Trades');
     fireEvent.click(screen.getByRole('button', { name: 'Record a trade' }));
     // An edit made now would be lost when the trade saves and reloads.
     expect(screen.getByPlaceholderText('e.g. VWRA').matches(':disabled')).toBe(true);
@@ -543,8 +597,9 @@ describe('a holding\'s trades', () => {
   it('asks before closing on a trade being typed', () => {
     const onClose = vi.fn();
     renderScreen(<HoldingEditor holding={abc} trades={trades} accounts={ACCOUNTS} householdId="hh" members={[]} onClose={onClose} onSaved={async () => {}} onTradesChanged={async () => {}} />);
+    tab('Trades');
     fireEvent.click(screen.getByRole('button', { name: 'Record a trade' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    fireEvent.click(within(document.querySelector('.ds-drawer-foot')).getByRole('button', { name: 'Close' }));
     expect(onClose).not.toHaveBeenCalled();
     expect(screen.getByText('Discard this trade?')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
@@ -557,11 +612,13 @@ describe('a holding\'s trades', () => {
   it('asks on Escape before closing on a dividend being typed', () => {
     const onClose = vi.fn();
     renderScreen(<HoldingEditor holding={abc} trades={trades} accounts={ACCOUNTS} householdId="hh" members={[]} onClose={onClose} onSaved={async () => {}} onTradesChanged={async () => {}} />);
+    tab('Dividends');
     fireEvent.click(screen.getByRole('button', { name: 'Add a dividend' }));
-    fireEvent.keyDown(window, { key: 'Escape' });
+    // The kit's drawer answers Escape on itself.
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
     expect(onClose).not.toHaveBeenCalled();
     expect(screen.getByText('Discard this dividend?')).toBeTruthy();
-    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
     expect(onClose).toHaveBeenCalledTimes(1);
     cleanup();
   });
@@ -576,6 +633,7 @@ describe('a holding\'s trades', () => {
 
   it('puts focus on the form when it opens, and back on Record a trade when it closes', () => {
     open();
+    tab('Trades');
     fireEvent.click(screen.getByRole('button', { name: 'Record a trade' }));
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Buy' }));
     fireEvent.click(screen.getByRole('button', { name: 'Back to trades' }));
@@ -586,6 +644,7 @@ describe('a holding\'s trades', () => {
   it('asks about a delete with focus on Keep it, the question read with it', async () => {
     rpcAnswers.preview_delete_trade = DELETE_SELL;
     open();
+    tab('Trades');
     await press('Delete Sell 6 at USD 150.00');
     const keep = screen.getByRole('button', { name: 'Keep it' });
     expect(document.activeElement).toBe(keep);
@@ -597,6 +656,7 @@ describe('a holding\'s trades', () => {
   it('ties the reason the trade buttons are off to the buttons', () => {
     open();
     fireEvent.change(screen.getByPlaceholderText('e.g. VWRA'), { target: { value: 'ABC renamed' } });
+    tab('Trades');
     const record = screen.getByRole('button', { name: 'Record a trade' });
     expect(document.getElementById(record.getAttribute('aria-describedby')).textContent).toBe('Save or discard your changes to the holding first.');
     cleanup();
@@ -631,6 +691,20 @@ describe('a holding\'s trades', () => {
     renderScreen(<HoldingEditor holding={abc} trades={[trades[0]]} dividends={[earned, other]} accounts={ACCOUNTS} householdId="hh" members={[]} onClose={() => {}} onSaved={async () => {}} />);
     expect(screen.getByRole('button', { name: 'Delete' })).toBeTruthy();
     cleanup();
+  });
+});
+
+// The revamp, phase 5b: the long explanations of pricing sit behind an (i),
+// so the details read as fields.
+describe('the pricing explanations', () => {
+  it('sit behind an (i) beside the fields they explain', () => {
+    renderScreen(<HoldingEditor holding={null} householdId="hh" members={[]} onClose={() => {}} onSaved={async () => {}} />);
+    expect(screen.queryByText(/Fills in the holdings table/)).toBeNull();
+    expect(screen.queryByText(/Opts this holding into the daily price feed/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'About Pricing detail' }));
+    expect(screen.getByText(/Fills in the holdings table/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'About Auto-pricing' }));
+    expect(screen.getByText(/Opts this holding into the daily price feed/)).toBeTruthy();
   });
 });
 

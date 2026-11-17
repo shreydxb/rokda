@@ -36,7 +36,7 @@ export function Card({ title, info, right, action = false, flush = false, classN
 // A row of figures split by hairlines: label, figure, one line under it.
 export function KpiStrip({ items }) {
   return (
-    <dl className="ds-kpis">
+    <dl className={`ds-kpis${items[0]?.hero ? ' ds-kpis-hero' : ''}`}>
       {items.map((k, i) => (
         <div className="ds-kpi" key={k.id ?? `${i}-${k.label}`}>
           <div className="ds-kpi-label">
@@ -44,7 +44,8 @@ export function KpiStrip({ items }) {
             {k.info}
           </div>
           <dd className="ds-kpi-value">
-            <span className={`ds-fig${k.tone ? ` ds-${k.tone}` : ''}`}>{k.value}</span>
+            {/* A page's leading figure can be its hero (Investments' Value). */}
+            <span className={`${k.hero ? 'ds-hero' : 'ds-fig'}${k.tone ? ` ds-${k.tone}` : ''}`}>{k.value}</span>
             {k.sub && <span className="ds-kpi-sub">{k.sub}</span>}
           </dd>
         </div>

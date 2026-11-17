@@ -186,8 +186,11 @@
 .mn-tools-inline {
   display: inline-flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 10px;
   flex-wrap: wrap;
+  min-width: 0;
+  max-width: 100%;
 }
 .mn-tools:empty {
   display: none;

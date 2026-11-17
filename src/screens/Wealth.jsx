@@ -12,6 +12,7 @@ import NetWorth from './wealth/NetWorth';
 import Investments from './wealth/Investments';
 import Dividends from './wealth/Dividends';
 import AccountDrawer from './wealth/AccountDrawer';
+import HoldingDrawer from './wealth/HoldingDrawer';
 import LoadFailure from './LoadFailure';
 import Freshness from './Freshness';
 import BackToReview from './BackToReview';
@@ -70,9 +71,11 @@ export default function Wealth() {
       {tab === 'networth' && <NetWorth household={household} me={me} members={members} data={data} loading={loading} />}
       {tab === 'investments' && <Investments household={household} members={members} me={me} data={data} loading={loading} reloadHousehold={reloadHousehold} />}
       {tab === 'dividends' && <Dividends household={household} members={members} me={me} data={data} loading={loading} />}
-      {/* An account named in the address opens over whichever tab is open,
-          so a link from any page can open it (the revamp, phase 5a). */}
+      {/* An account or a holding named in the address opens over whichever
+          tab is open, so a link from any page can open it (the revamp,
+          phases 5a and 5b). */}
       {!loading && <AccountDrawer household={household} members={members} data={data} />}
+      {!loading && <HoldingDrawer household={household} members={members} data={data} />}
       </ToolsSlot>
     </div>
   );

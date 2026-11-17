@@ -232,6 +232,8 @@ export function largestConcentration(holdings, scopeMemberId, capPct = null) {
   const bySector = new Map();
   let holding = null;
   let untagged = 0;
+  // The largest holding with no sector yet: the one most worth tagging.
+  let untaggedTop = null;
   for (const h of invested) {
     const sector = hasSector(h.asset_class) ? (h.sector ?? null) : null;
     if (sector === 'broad') continue;
@@ -239,17 +241,20 @@ export function largestConcentration(holdings, scopeMemberId, capPct = null) {
     if (value <= 0) continue;
     if (!holding || value > holding.value) holding = { name: h.name, sector, value };
     if (sector) bySector.set(sector, (bySector.get(sector) ?? 0) + value);
-    else if (hasSector(h.asset_class)) untagged += 1;
+    else if (hasSector(h.asset_class)) {
+      untagged += 1;
+      if (!untaggedTop || value > untaggedTop.value) untaggedTop = { id: h.id, value };
+    }
   }
   const cap = (share) => (Number(capPct) > 0 ? { pct: Number(capPct), above: share > Number(capPct) / 100 } : null);
-  if (!holding) return { kind: 'spread', name: null, sector: null, value: 0, share: 0, total, untagged: 0, cap: cap(0) };
+  if (!holding) return { kind: 'spread', name: null, sector: null, value: 0, share: 0, total, untagged: 0, untaggedId: null, cap: cap(0) };
   const [sector, sectorValue] = [...bySector.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0] ?? [null, 0];
   const largest =
     sectorValue > holding.value
       ? { kind: 'sector', name: SECTOR_LABELS[sector] ?? sector, sector, value: sectorValue }
       : { kind: 'holding', name: holding.name, sector: holding.sector, value: holding.value };
   const share = largest.value / total;
-  return { ...largest, share, total, untagged, cap: cap(share) };
+  return { ...largest, share, total, untagged, untaggedId: untaggedTop?.id ?? null, cap: cap(share) };
 }
 
 const RANGE_DAYS = { '1W': 7, '1M': 30, '3M': 90, '6M': 180, '1Y': 365, '5Y': 1825 };

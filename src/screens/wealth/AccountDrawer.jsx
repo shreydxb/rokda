@@ -41,7 +41,14 @@ export default function AccountDrawer({ household, members = [], data }) {
   // keyboard there (the fresh review of 5a).
   const [switchedTo, setSwitchedTo] = useState(null);
   const id = params.get('account');
-  if (!id) return null;
+  // The account this drawer is closing on. A save closes at once and only
+  // then has the page read its records again: closing after the read left
+  // Save live for that second, and a second press saved twice and went back
+  // past the page (the fresh review of 5b). Nothing is drawn while the
+  // address catches up.
+  const [closedFor, setClosedFor] = useState(null);
+  if (closedFor && closedFor !== id) setClosedFor(null);
+  if (!id || closedFor === id) return null;
   const { accounts = [], transactions = [], statementReconciliations = [], categories = [], reload } = data;
 
   // Closing leaves the page as it was under the drawer. Opened from the page
@@ -49,6 +56,8 @@ export default function AccountDrawer({ household, members = [], data }) {
   // then leaves the page rather than landing on it again; opened from a link
   // or a reload, the address is replaced (the fresh review of 5a).
   const close = () => {
+    if (closedFor === id) return;
+    setClosedFor(id);
     if (location.state?.drawer) {
       navigate(-1);
       return;
@@ -64,8 +73,8 @@ export default function AccountDrawer({ household, members = [], data }) {
     );
   };
   const saved = async () => {
-    await reload();
     close();
+    await reload();
   };
   const editor = (account, extra = {}) => (
     <AccountEditor account={account} householdId={household?.id} accounts={accounts} members={members} transactions={transactions} onClose={close} onSaved={saved} {...extra} />

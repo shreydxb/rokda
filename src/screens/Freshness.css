@@ -87,9 +87,15 @@
 .fresh-right {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
-  flex: none;
   flex-wrap: wrap;
+  /* Its own width beside the title; on a line of its own, no wider than the
+     page, so a tab with many tools (Investments' groups) wraps them rather
+     than pushing the page sideways (the fresh review of 5b). */
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
 }
 /* On a phone the screen's controls take a line of their own and wrap,
    rather than pushing the page wider than the screen. */

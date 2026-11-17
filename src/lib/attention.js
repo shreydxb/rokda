@@ -2,7 +2,7 @@ import { scopedValue } from './scope';
 import { matchWindowDays, rollForward, settlesReminder, CADENCES } from './recurring';
 import { trailingAverageByCategory } from './insights';
 import { monthActualsByCategory } from './budget';
-import { scopedHoldingValue, visibleHoldings } from './holdings';
+import { isClosedHolding, scopedHoldingValue, visibleHoldings } from './holdings';
 import { daysSincePriced, isStale } from './valuation';
 import { parseDay } from './day';
 import { daysUntilDue, nextDueDate } from './creditCard';
@@ -10,7 +10,7 @@ import { balanceStatus } from './balance';
 import { accountValueAed } from './accounts';
 import { pendingClose } from './snapshots';
 import { EXPORT_DUE_DAYS, backupStatus } from './backups';
-import { accountHref, activityHref, monthRange, tabHref } from './activityLink';
+import { accountHref, activityHref, holdingHref, monthRange, tabHref } from './activityLink';
 import { yearlyCheckItems } from './yearlyChecks';
 
 function startOfDay(d) {
@@ -185,7 +185,10 @@ function categoryAnomalyItems(transactions, categories, scopeMemberId, now) {
 function staleHoldingItems(holdings, scopeMemberId, now) {
   const items = [];
   for (const h of visibleHoldings(holdings, scopeMemberId)) {
-    if (!isStale(h, now)) continue;
+    // A holding sold out keeps its last price, which the feed no longer
+    // refreshes: asking to update it would never stop (the fresh review of
+    // 5b).
+    if (isClosedHolding(h) || !isStale(h, now)) continue;
     const daysSince = daysSincePriced(h, now);
     items.push({
       id: `stale-holding-${h.id}`,
@@ -340,8 +343,9 @@ export function attentionHref(item, now = new Date()) {
       return item.accountId ? accountHref(item.accountId) : '/wealth';
     case 'balance_unset':
       return item.accountId ? accountHref(item.accountId, { view: 'details' }) : '/wealth';
+    // The holding itself, where its price is (the revamp, phase 5b).
     case 'stale_holding':
-      return tabHref('/wealth', 'investments');
+      return item.holdingId ? holdingHref(item.holdingId) : tabHref('/wealth', 'investments');
     case 'month_close':
       return tabHref('/money', 'monthend', item.month ? { month: item.month } : {});
     case 'backup':

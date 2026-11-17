@@ -88,6 +88,19 @@
   grid-auto-columns: minmax(0, 1fr);
   margin: 0;
 }
+/* A strip led by a hero figure gives it more room, and its figures scale
+   with the window, so a seven-figure total keeps to its own column at the
+   narrow end of a desktop (the fresh review of 5b). */
+.ds-kpis-hero {
+  grid-template-columns: minmax(0, 1.5fr);
+}
+.ds-kpis-hero .ds-hero {
+  font-size: clamp(24px, 2.2vw, 34px);
+  line-height: 1.2;
+}
+.ds-kpis-hero .ds-fig {
+  font-size: clamp(17px, 1.75vw, 21px);
+}
 .ds-kpi {
   padding: 14px 18px 16px;
   border-left: 1px solid var(--rule);

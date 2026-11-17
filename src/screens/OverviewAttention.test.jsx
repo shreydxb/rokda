@@ -104,7 +104,8 @@ describe('To do', () => {
     );
     // The card's own view on Net worth (the revamp, phase 5a).
     expect(screen.getByRole('link', { name: 'Open card' }).getAttribute('href')).toMatch(/^\/wealth\?account=[^&]+$/);
-    expect(screen.getAllByRole('link', { name: 'Update price' })[0].getAttribute('href')).toBe('/wealth?tab=investments');
+    // The holding itself, where its price is (the revamp, phase 5b).
+    expect(screen.getAllByRole('link', { name: 'Update price' })[0].getAttribute('href')).toMatch(/^\/wealth\?tab=investments&holding=h\d$/);
     expect(screen.queryByRole('button', { name: 'Open' })).toBeNull();
   });
 });
