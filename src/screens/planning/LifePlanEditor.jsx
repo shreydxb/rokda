@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useCloseGuard } from '../../lib/useCloseGuard';
 import DiscardPrompt from '../DiscardPrompt';
 import { Drawer, Fold } from '../../design-system/kit';
@@ -97,7 +97,26 @@ export default function LifePlanEditor({
   // steps back out of it alone (CostEditor, IncomeEditor); the drawer
   // answers Escape on itself (lib/useCloseGuard.js).
   const [sub, setSub] = useState(null);
-  const { confirmingClose, requestClose, keepEditing, escapeKey } = useCloseGuard({ dirty: dirty || sub !== null, onClose, listen: false });
+  // Whether anything is typed in it: opening a row to read it is no change
+  // (the fresh review of 6a).
+  const [subDirty, setSubDirty] = useState(false);
+  const unsaved = dirty || subDirty;
+  const { confirmingClose, requestClose, keepEditing, escapeKey } = useCloseGuard({ dirty: unsaved, onClose, listen: false });
+  // As it closes, focus goes back to the fold's + Cost or + Income rather
+  // than to the page under the drawer.
+  const addRefs = useRef({});
+  const returnTo = useRef(null);
+  useEffect(() => {
+    if (sub === null && returnTo.current) {
+      addRefs.current[returnTo.current]?.focus();
+      returnTo.current = null;
+    }
+  }, [sub]);
+  const closeSub = () => {
+    returnTo.current = sub?.kind ?? null;
+    setSub(null);
+    setSubDirty(false);
+  };
   const fieldRefs = useRef({});
   const thisYear = new Date().getFullYear();
   // The part the drawer was opened for is unfolded, the rest folded.
@@ -170,10 +189,19 @@ export default function LifePlanEditor({
   async function handleSave(e) {
     e.preventDefault();
     if (saving) return;
+    // A cost or income being typed would be lost as the drawer closes.
+    if (sub && subDirty) {
+      setError(`${sub.row ? 'Save' : 'Add'} the ${sub.kind}, or cancel it, before saving the plan.`);
+      return;
+    }
     if (problems.length) {
       setTriedSave(true);
       setError(problems[0][1]);
-      fieldRefs.current[problems[0][0]]?.focus();
+      // The field may be in a fold that is closed: open it first.
+      const field = fieldRefs.current[problems[0][0]];
+      const fold = field?.closest('details');
+      if (fold) fold.open = true;
+      field?.focus();
       return;
     }
     setSaving(true);
@@ -254,7 +282,7 @@ export default function LifePlanEditor({
   const rowList = (rows, kind, describe, amountNote) => (
     <div className="mn-list">
       {rows.map((row) => (
-        <button key={row.id} type="button" className="mn-row te-linkrow" onClick={() => setSub({ kind, row })}>
+        <button key={row.id} type="button" className="mn-row te-linkrow" disabled={sub !== null} onClick={() => setSub({ kind, row })}>
           <div className="mn-row-main">
             <div>{row.name}</div>
             <div className="ov-muted te-rownote">{describe(row, household)}</div>
@@ -271,7 +299,7 @@ export default function LifePlanEditor({
   );
 
   const subDone = async () => {
-    setSub(null);
+    closeSub();
     await onRowsChanged?.();
   };
 
@@ -290,7 +318,7 @@ export default function LifePlanEditor({
   );
 
   return (
-    <Drawer kicker="Plan" title="Who it is for, and what it assumes" wide dirty={dirty || sub !== null} onClose={requestClose} onEscape={escapeKey} footer={footer}>
+    <Drawer kicker="Plan" title="Who it is for, and what it assumes" wide dirty={unsaved} onClose={requestClose} onEscape={escapeKey} footer={footer}>
       <form id={formId} className="pl-form" onSubmit={handleSave} noValidate>
         <Fold label="Who it is for" defaultOpen={opened('people')}>
           <div className="pl-fold-body">
@@ -380,7 +408,7 @@ export default function LifePlanEditor({
         <Fold label="Costs that start then" defaultOpen={opened('costs')}>
           <div className="pl-fold-body">
             {sub?.kind === 'cost' ? (
-              <CostEditor row={sub.row} householdId={householdId} household={household} onClose={() => setSub(null)} onSaved={subDone} />
+              <CostEditor row={sub.row} householdId={householdId} household={household} onClose={closeSub} onSaved={subDone} onDirtyChange={setSubDirty} />
             ) : (
               <>
                 {costs.length === 0 ? (
@@ -389,7 +417,15 @@ export default function LifePlanEditor({
                   rowList(costs, 'cost', describeCost, (row) => (row.per_person ? ' a year each' : ' a year'))
                 )}
                 <div>
-                  <button type="button" className="ds-btn ds-btn-sm" onClick={() => setSub({ kind: 'cost', row: null })}>
+                  <button
+                    type="button"
+                    ref={(el) => {
+                      addRefs.current.cost = el;
+                    }}
+                    className="ds-btn ds-btn-sm"
+                    disabled={sub !== null}
+                    onClick={() => setSub({ kind: 'cost', row: null })}
+                  >
                     + Cost
                   </button>
                 </div>
@@ -401,7 +437,7 @@ export default function LifePlanEditor({
         <Fold label="Other income" defaultOpen={opened('income')}>
           <div className="pl-fold-body">
             {sub?.kind === 'income' ? (
-              <IncomeEditor row={sub.row} householdId={householdId} household={household} onClose={() => setSub(null)} onSaved={subDone} />
+              <IncomeEditor row={sub.row} householdId={householdId} household={household} onClose={closeSub} onSaved={subDone} onDirtyChange={setSubDirty} />
             ) : (
               <>
                 {incomes.length === 0 ? (
@@ -410,7 +446,15 @@ export default function LifePlanEditor({
                   rowList(incomes, 'income', describeIncome, (row) => (row.kind === 'lump_sum' ? ' once' : ' a year'))
                 )}
                 <div>
-                  <button type="button" className="ds-btn ds-btn-sm" onClick={() => setSub({ kind: 'income', row: null })}>
+                  <button
+                    type="button"
+                    ref={(el) => {
+                      addRefs.current.income = el;
+                    }}
+                    className="ds-btn ds-btn-sm"
+                    disabled={sub !== null}
+                    onClick={() => setSub({ kind: 'income', row: null })}
+                  >
                     + Income
                   </button>
                 </div>

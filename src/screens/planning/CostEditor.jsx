@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useCloseGuard } from '../../lib/useCloseGuard';
 import DiscardPrompt from '../DiscardPrompt';
 import { Chip } from '../../design-system/kit';
@@ -32,9 +32,20 @@ function initialForm(row) {
 const whole = (v) => /^\d+$/.test(String(v).trim());
 const blank = (v) => String(v).trim() === '';
 
-export default function CostEditor({ row, householdId, household = null, onClose, onSaved }) {
+export default function CostEditor({ row, householdId, household = null, onClose, onSaved, onDirtyChange }) {
+  // The fresh review of 6a: focus comes into the form as it opens, the plan
+  // hears whether anything is typed (so reading a row isn't a change), and
+  // a second Enter while the first is saving adds nothing.
+  const formRef = useRef(null);
+  const savingRef = useRef(false);
+  useEffect(() => {
+    formRef.current?.querySelector('input')?.focus();
+  }, []);
   const [form, setForm] = useState(() => initialForm(row));
   const [dirty, setDirty] = useState(false);
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
   // Escape is answered on this form and stops there (onKeyDown below), so
   // the plan's drawer around it stays open.
   const { confirmingClose, requestClose, keepEditing, escapeKey } = useCloseGuard({ dirty, onClose, listen: false });
@@ -64,10 +75,12 @@ export default function CostEditor({ row, householdId, household = null, onClose
 
   async function handleSave(e) {
     e.preventDefault();
+    if (savingRef.current) return;
     if (problem) {
       setError(problem);
       return;
     }
+    savingRef.current = true;
     setSaving(true);
     setError('');
     const payload = {
@@ -85,6 +98,8 @@ export default function CostEditor({ row, householdId, household = null, onClose
     const { error: saveError } = await query;
     setSaving(false);
     if (saveError) {
+      // Only a failed save can be tried again; a saved one closes the form.
+      savingRef.current = false;
       setError(saveError.message);
       return;
     }
@@ -111,6 +126,7 @@ export default function CostEditor({ row, householdId, household = null, onClose
     // the prototype has no drawer opened over a drawer. Not a <form>, since
     // it sits inside the plan's own; Enter in a field saves this one.
     <div
+      ref={formRef}
       className="te-form pl-subform"
       role="group"
       aria-label={row ? 'Edit cost' : 'Add cost'}

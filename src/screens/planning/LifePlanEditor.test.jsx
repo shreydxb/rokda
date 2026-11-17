@@ -134,6 +134,21 @@ describe('LifePlanEditor', () => {
   });
 });
 
+// The fresh review of 6a: a stop year saved in the past blocks every save,
+// and its field was in a closed fold, where it couldn't be seen or focused.
+describe('LifePlanEditor: a problem in a closed fold', () => {
+  it('opens the fold the problem is in, and goes to the field', () => {
+    const memberLife = [{ member_id: 'm1', birth_year: 1994, life_expectancy: 90 }];
+    const { onSaved } = renderEditor({ memberLife, assumptions: { retirement_year: 2020 } });
+    const field = screen.getByLabelText('Stop working in');
+    expect(field.closest('details').open).toBe(false);
+    fireEvent.click(screen.getByText('Save plan'));
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(field.closest('details').open).toBe(true);
+    expect(document.activeElement).toBe(field);
+  });
+});
+
 describe('LifePlanEditor: spending that stops', () => {
   const categories = [
     { id: 'rent', name: 'Rent', kind: 'expense' },
@@ -337,6 +352,56 @@ describe('LifePlanEditor: other income and costs after work', () => {
     renderEditor({ incomes });
     fireEvent.click(screen.getByText('Flat rent'));
     expect(screen.getByRole('group', { name: 'Edit income' })).toBeTruthy();
+  });
+
+  // The fresh review of 6a: Save plan, or Enter in a plan field, closed the
+  // drawer and dropped a cost being typed; one form at a time, and nothing
+  // typed is thrown away without a word.
+  it('won\'t save the plan while a cost is being typed, and says so', () => {
+    const { onSaved } = renderEditor({ costs: [], incomes });
+    fireEvent.click(screen.getByText('+ Cost'));
+    type('Amount a year', '2000');
+    fireEvent.click(screen.getByText('Save plan'));
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(screen.getByText('Add the cost, or cancel it, before saving the plan.')).toBeTruthy();
+    expect(calls.upserts).toEqual([]);
+  });
+
+  it('opens one cost or income at a time', () => {
+    renderEditor({ costs, incomes });
+    fireEvent.click(screen.getByText('+ Cost'));
+    expect(screen.getByRole('button', { name: '+ Income' }).disabled).toBe(true);
+    expect(screen.getByText('Flat rent').closest('button').disabled).toBe(true);
+  });
+
+  it('takes focus into a cost as it opens, and back to + Cost as it closes', () => {
+    renderEditor({ costs: [], incomes });
+    fireEvent.click(screen.getByText('+ Cost'));
+    expect(screen.getByRole('group', { name: 'Add cost' }).contains(document.activeElement)).toBe(true);
+    escapeIn(document.activeElement);
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: '+ Cost' }));
+  });
+
+  it('adds a cost once however fast Enter is pressed', async () => {
+    const onRowsChanged = vi.fn();
+    renderEditor({ costs: [], incomes, onRowsChanged });
+    fireEvent.click(screen.getByText('+ Cost'));
+    type('Amount a year', '2000');
+    type('Name', 'Visa fees');
+    const name = screen.getByLabelText('Name');
+    fireEvent.keyDown(name, { key: 'Enter' });
+    fireEvent.keyDown(name, { key: 'Enter' });
+    await waitFor(() => expect(onRowsChanged).toHaveBeenCalled());
+    expect(calls.inserts).toHaveLength(1);
+  });
+
+  it('opening a cost to read it is not a change to the plan', () => {
+    const onClose = vi.fn();
+    renderEditor({ costs, incomes, onClose });
+    fireEvent.click(screen.getByText('Health cover'));
+    expect(screen.queryByText('Unsaved')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it('opens with the part it was opened for unfolded, and the others folded', () => {
