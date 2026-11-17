@@ -218,7 +218,7 @@ function GoalsHalf({ household, members, accounts, holdings, transactions, recur
 function GoalTable({ rows, members, onOpen }) {
   return (
     <div className="ds-table-wrap">
-      <table className="ds-table gd-table">
+      <table className="ds-table gd-table gd-goal-table">
         <thead>
           <tr>
             <th scope="col">Goal</th>
@@ -459,7 +459,7 @@ function DebtsHalf({ household, members, accounts, data, sources, onRetry, scope
           </div>
         )}
         <div className="ds-table-wrap gd-debt-table">
-          <table className="ds-table gd-table">
+          <table className="ds-table gd-table gd-debt-cols">
             <thead>
               <tr>
                 <th scope="col">Debt</th>

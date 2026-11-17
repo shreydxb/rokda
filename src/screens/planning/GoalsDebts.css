@@ -154,3 +154,48 @@
   gap: 10px;
   margin-left: auto;
 }
+
+/* Fixed columns, as the prototype's, so the goal cards line up with one
+   another. */
+.gd-goal-table,
+.gd-debt-cols {
+  table-layout: fixed;
+  width: 100%;
+}
+.gd-goal-table th:nth-child(2) {
+  width: 130px;
+}
+.gd-goal-table th:nth-child(3) {
+  width: 100px;
+}
+.gd-goal-table th:nth-child(4) {
+  width: 200px;
+}
+.gd-goal-table th:nth-child(5) {
+  width: 120px;
+}
+.gd-goal-table th:nth-child(6) {
+  width: 90px;
+}
+.gd-goal-table th:nth-child(7) {
+  width: 138px;
+}
+.gd-debt-cols th:nth-child(2) {
+  width: 120px;
+}
+.gd-debt-cols th:nth-child(3) {
+  width: 80px;
+}
+.gd-debt-cols th:nth-child(4) {
+  width: 110px;
+}
+.gd-debt-cols th:nth-child(5) {
+  width: 110px;
+}
+.gd-debt-cols th:nth-child(6) {
+  width: 218px;
+}
+/* Done's table has no header: its own widths. */
+.gd-done .gd-table td:nth-child(2) {
+  width: 130px;
+}
