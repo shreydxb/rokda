@@ -80,6 +80,9 @@ test("the Tax years view: a year a row, its drawer with the check, the return an
   await expect(drawer.getByText(/^Original return, filed /)).toBeVisible();
   // Tax higher with gross equal: a possible extra deduction, offered as a possibility.
   await expect(drawer.getByText(/^Tax: Rokda INR 416\.00 · 26AS INR 420\.00 · 26AS INR 4\.00 more: possibly an additional deduction/)).toBeVisible();
+  // Measured once the drawer has slid in: mid-slide it sits partly past the
+  // right edge (CI caught the name 2px out while it moved).
+  await drawer.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)));
   const name = drawer.getByText(LONG_NAME, { exact: true });
   const box = await name.boundingBox();
   expect(box.x + box.width, 'the long name runs off the screen').toBeLessThanOrEqual(page.viewportSize().width + 1);
