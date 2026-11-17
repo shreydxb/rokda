@@ -254,7 +254,13 @@ export function PlanBars({ years, stopYear = null, runsOutYear = null, height = 
         {outAt >= 0 && (
           <g>
             <circle className="ds-pb-out" cx={cx(outAt)} cy={y(0)} r={4.5} />
-            <text className="ds-pb-out-label" x={cx(outAt) + 9} y={y(0) - 8}>
+            {/* Late in the plan the label goes left of its dot, inside the plot. */}
+            <text
+              className="ds-pb-out-label"
+              x={outAt >= count - 8 ? cx(outAt) - 9 : cx(outAt) + 9}
+              y={y(0) - 8}
+              textAnchor={outAt >= count - 8 ? 'end' : 'start'}
+            >
               {`Runs out ${runsOutYear}`}
             </text>
           </g>

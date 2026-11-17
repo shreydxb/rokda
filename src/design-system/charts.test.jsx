@@ -92,6 +92,14 @@ describe('PlanBars', () => {
     expect(goals[0].querySelector('title').textContent).toBe('Home · 2035');
   });
 
+  // The fresh review of 6a: a late "Runs out" ran past the plot's edge.
+  it('puts a late runs-out label to the left of its dot', () => {
+    const late = render(<PlanBars years={years} stopYear={2050} runsOutYear={2073} ariaLabel="Late" />);
+    expect(late.container.querySelector('.ds-pb-out-label').getAttribute('text-anchor')).toBe('end');
+    const early = render(<PlanBars years={years} stopYear={2050} runsOutYear={2060} ariaLabel="Early" />);
+    expect(early.container.querySelector('.ds-pb-out-label').getAttribute('text-anchor')).toBe('start');
+  });
+
   it('draws no runs-out mark while the money lasts', () => {
     const { container } = render(<PlanBars years={years} stopYear={2050} ariaLabel="The pot" />);
     expect(container.querySelector('.ds-pb-out')).toBeNull();

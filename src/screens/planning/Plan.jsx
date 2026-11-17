@@ -244,8 +244,10 @@ export default function Plan({
       setSaveError(`The stop year wasn't saved: ${error.message}`);
       return;
     }
-    setStopOverride(null);
+    // The year tried stays until the saved plan is read again, so the old
+    // one doesn't come back as "your plan" meanwhile (review of 6a).
     await data.reload();
+    setStopOverride(null);
   }
 
   // Where the year comes from: the one saved, one being tried, or the one
@@ -449,7 +451,7 @@ export default function Plan({
                 onActiveChange={setActiveYear}
                 ariaLabel={`The pot at the start of each year from ${startYear} to ${endYear}, work stopping in ${stopYear}. Use the arrow keys to move between years.`}
               />
-              <div className="pl-readout">
+              <div className="pl-readout" aria-live="polite">
                 <span className="ds-fig">{active.year}</span>
                 <span>{agesText(active.year)}</span>
                 <span>

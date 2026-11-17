@@ -71,7 +71,7 @@ export default function PlanStrip({
         <span className="pl-basis">
           <span className="ds-muted">Basis</span>
           <b>{words.kind}</b>
-          {inputs.ready && <span className="pl-ink2">{` · spending ${money.fmt(inputs.avgMonthlySpend)} · saving ${money.fmt(inputs.monthlySaving)} a month`}</span>}
+          {inputs.ready && <span className="pl-ink2">{` · spending ${money.fmt(inputs.avgMonthlySpend)} · saving ${money.fmtBalance(inputs.monthlySaving)} a month`}</span>}
         </span>
         {words.waiting && <Chip>{words.waiting}</Chip>}
         {householdId && (

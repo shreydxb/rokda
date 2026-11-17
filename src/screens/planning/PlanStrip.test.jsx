@@ -21,7 +21,12 @@ beforeEach(() => {
   calls.fail = null;
 });
 
-const AED = { code: 'AED', fmt: (v) => Math.round(v).toLocaleString('en-US'), fmtCompact: (v) => `${Math.round(v / 1000)}K` };
+const AED = {
+  code: 'AED',
+  fmt: (v) => Math.round(v).toLocaleString('en-US'),
+  fmtBalance: (v) => `${v < 0 ? '−' : ''}${Math.abs(Math.round(v)).toLocaleString('en-US')}`,
+  fmtCompact: (v) => `${Math.round(v / 1000)}K`,
+};
 const RECORDED = { ready: true, source: 'actual', monthCount: 3, avgMonthlySpend: 4000, monthlySaving: 6000, basis: null, recordsFrom: null, why: 'not-chosen', recordedMonths: ['2026-06', '2026-07', '2026-08'] };
 const BUDGET = { ready: true, source: 'budget', monthCount: 3, budgetMonths: 4, avgMonthlySpend: 8000, monthlySaving: 1500, basis: 'budget', recordsFrom: null, why: 'chosen', recordedMonths: ['2026-06', '2026-07', '2026-08'] };
 
@@ -85,6 +90,12 @@ describe('PlanStrip: what the plan rests on', () => {
     renderLine({ ...RECORDED, basis: 'budget', why: 'no-budget' });
     expect(basis()).toMatch(/^Basisrecorded months, for now · /);
     expect(why()).toMatch(/^Recorded months, for now\. You chose your budget, but no month has a spending budget, so the last 3 ended months stand in/);
+  });
+
+  // The fresh review of 6a: spending more than comes in read as saving.
+  it('keeps the minus on saving that is below nothing', () => {
+    renderLine({ ...RECORDED, monthlySaving: -2000 });
+    expect(basis()).toBe('Basisrecorded months · spending 4,000 · saving −2,000 a month');
   });
 
   it('says there is no basis yet when a basis was chosen and nothing stands in', () => {

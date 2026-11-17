@@ -4350,3 +4350,22 @@ added beyond it, unless it is in use or worth keeping; the note lists each.
   the path".
 - **Goals on the timeline link to `/planning?tab=goals&goal={id}`**, the
   goal's address phase 6b adds; until then it opens Goals & debts.
+- **The fresh review of 6a** changed these:
+  - **Plan is in dirhams whatever the display currency.** With USD or INR
+    picked, its figures were converted under the AED note saying they were
+    dirhams, so every one read wrong by the rate.
+  - **A goal dated after the plan ends reads "Beyond the plan"**, as Goals
+    says, where it read "Paid" in green.
+  - **A year is "Nothing left" only when the pot can't pay it.** A goal
+    short while still working marked every year after work empty against a
+    healthy pot. The chart's "Runs out" is the first year after work the
+    pot can't pay.
+  - **Nothing typed in Edit plan is lost.** Save plan over a cost or income
+    being typed says to add or cancel it first; one is open at a time;
+    focus goes into it and back to + Cost or + Income; a second Enter adds
+    nothing; a problem in a closed fold opens the fold; reading a row isn't
+    a change.
+  - **Saving below nothing keeps its minus** in the strip; the year made the
+    plan holds while the plan is read again; the readouts are announced; a
+    late "Runs out" label stays inside the chart; the wording that still
+    named the Life plan says Plan.

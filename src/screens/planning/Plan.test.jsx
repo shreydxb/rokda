@@ -274,6 +274,19 @@ describe('Plan: when can we stop?', () => {
     expect(calls.upserts).toEqual([{ table: 'planning_assumptions', row: expect.objectContaining({ household_id: 'h', retirement_year: 2053 }) }]);
   });
 
+  // The fresh review of 6a: the old year came back as "your plan" while the
+  // saved plan was read again.
+  it('holds the year made the plan while the plan is read again', async () => {
+    let finish;
+    const reload = vi.fn(() => new Promise((resolve) => (finish = resolve)));
+    renderPlan({ data: { reload } });
+    fireEvent.click(screen.getByRole('button', { name: 'Previous year' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Make this the plan' }));
+    await waitFor(() => expect(reload).toHaveBeenCalled());
+    expect(stopYear()).toBe('2053');
+    finish();
+  });
+
   it('names a member left out for want of ages, and only then', () => {
     renderPlan({ data: { memberLife: AGES.slice(0, 1) } });
     expect(screen.getByText("Sam isn't in the plan: no birth year and age to plan to yet.")).toBeTruthy();
@@ -313,6 +326,11 @@ describe('Plan: the pot, year by year', () => {
     fireEvent.keyDown(chart, { key: 'ArrowRight' });
     expect(readout()).toBe('2056');
     expect(solverRuns.earliest).toBe(before);
+  });
+
+  it('says the year picked on the chart to a screen reader', () => {
+    renderPlan();
+    expect(document.querySelector('.pl-readout').getAttribute('aria-live')).toBe('polite');
   });
 
   it('lists every fifth year and the stop year in Year by year', () => {

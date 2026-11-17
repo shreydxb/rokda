@@ -95,7 +95,7 @@ function RiskCard({ title, info, hit, steady, endYear, line, legend, chartLabel,
           onActiveChange={setActive}
           ariaLabel={chartLabel}
         />
-        <div className="pl-readout">
+        <div className="pl-readout" aria-live="polite">
           {at ? (
             <>
               <span className="ds-fig">{at.year}</span>
