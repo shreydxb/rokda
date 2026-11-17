@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { TrendLine, PairedColumns, DatedStrip, MonthBars } from './charts';
+import { TrendLine, PairedColumns, DatedStrip, MonthBars, PlanBars } from './charts';
 
 // The kit's charts (the revamp, phase 3; design/prototype/js/charts.js).
 // Like the app's other charts, a value is never only reachable by hovering:
@@ -39,6 +39,71 @@ describe('TrendLine', () => {
   it('leaves out a value it cannot read', () => {
     const { container } = render(<TrendLine points={[...points, { key: 'd', label: 'x', value: Number.NaN }]} ariaLabel="Net worth" />);
     expect(container.querySelector('.ds-trend-line').getAttribute('d')).not.toMatch(/NaN/);
+  });
+
+  // Plan's "Show the path": a market fall against the steady plan (the
+  // revamp, phase 6).
+  it('draws a second line to compare against, on the same scale, only when given one', () => {
+    const plain = render(<TrendLine points={points} ariaLabel="Plain" />);
+    expect(plain.container.querySelector('.ds-trend-compare')).toBeNull();
+    const { container } = render(<TrendLine points={points} compare={[100, 200, 300]} ariaLabel="With the steady plan" />);
+    const d = container.querySelector('.ds-trend-compare').getAttribute('d');
+    expect(d).toMatch(/^M/);
+    expect(d).not.toMatch(/NaN/);
+    // The steady line runs above the fall at the end, so the scale takes it in.
+    const ys = (path) => path.match(/,(-?[\d.]+)/g).map((s) => Number(s.slice(1)));
+    expect(Math.min(...ys(d))).toBeGreaterThanOrEqual(0);
+    expect(Math.min(...ys(d))).toBeLessThan(Math.min(...ys(container.querySelector('.ds-trend-line').getAttribute('d'))));
+  });
+});
+
+describe('PlanBars', () => {
+  // The pot from 2026 to 2075, work stopping in 2050 and the money running
+  // out in 2070, a goal in 2035, and the band either side.
+  const years = Array.from({ length: 50 }, (_, i) => {
+    const year = 2026 + i;
+    const value = year < 2050 ? 10000 * (i + 1) : year < 2070 ? 240000 - 12000 * (year - 2050) : 0;
+    return { key: year, year, value, after: year >= 2050, low: value * 0.8, high: value * 1.2, goal: year === 2035 ? 'Home' : null };
+  });
+
+  it('draws a bar a year with money in it, the years after work paler, and labels the first year and each tenth', () => {
+    const { container } = render(<PlanBars years={years} stopYear={2050} runsOutYear={2070} ariaLabel="The pot" />);
+    expect(screen.getByRole('group', { name: 'The pot' })).toBeTruthy();
+    expect(container.querySelectorAll('.ds-pb-bar')).toHaveLength(44);
+    expect(container.querySelectorAll('.ds-pb-bar.ds-pb-after')).toHaveLength(20);
+    const labels = [...container.querySelectorAll('.ds-pb-year')].map((t) => t.textContent);
+    expect(labels).toEqual(['2026', '2040', '2050', '2060', '2070']);
+  });
+
+  it('shades the band only when given one', () => {
+    const banded = render(<PlanBars years={years} stopYear={2050} ariaLabel="Banded" />);
+    expect(banded.container.querySelector('.ds-pb-band')).toBeTruthy();
+    const bare = render(<PlanBars years={years.map((y) => ({ ...y, low: undefined, high: undefined }))} stopYear={2050} ariaLabel="Bare" />);
+    expect(bare.container.querySelector('.ds-pb-band')).toBeNull();
+  });
+
+  it('marks the year work stops, the year the money runs out, and each goal, named', () => {
+    const { container } = render(<PlanBars years={years} stopYear={2050} runsOutYear={2070} ariaLabel="The pot" />);
+    expect(container.querySelector('.ds-pb-stop-label').textContent).toBe('Stop 2050');
+    expect(container.querySelector('.ds-pb-out-label').textContent).toBe('Runs out 2070');
+    expect(container.querySelector('.ds-pb-out')).toBeTruthy();
+    const goals = container.querySelectorAll('.ds-pb-goal');
+    expect(goals).toHaveLength(1);
+    expect(goals[0].querySelector('title').textContent).toBe('Home · 2035');
+  });
+
+  it('draws no runs-out mark while the money lasts', () => {
+    const { container } = render(<PlanBars years={years} stopYear={2050} ariaLabel="The pot" />);
+    expect(container.querySelector('.ds-pb-out')).toBeNull();
+  });
+
+  it('draws a year still owing below the line, and moves its pick with the keys', () => {
+    const owing = [{ key: 2026, year: 2026, value: -20000, after: false }, ...years.slice(1)];
+    const pick = vi.fn();
+    const { container } = render(<PlanBars years={owing} stopYear={2050} ariaLabel="The pot" activeIndex={3} onActiveChange={pick} />);
+    expect(container.querySelectorAll('.ds-pb-bar.ds-pb-owed')).toHaveLength(1);
+    fireEvent.keyDown(screen.getByRole('group', { name: 'The pot' }), { key: 'ArrowRight' });
+    expect(pick).toHaveBeenCalledWith(4);
   });
 });
 
