@@ -64,66 +64,77 @@ function open(d = data(), scopeMemberId = null) {
   renderScreen(<TaxYears members={MEMBERS} scopeMemberId={scopeMemberId} data={d} />);
   return d;
 }
-const region = () => screen.getByRole('region', { name: 'Tax years' });
-const row = (name) => within(region()).getByRole('button', { name: new RegExp(`^${name.replace(/[()]/g, '\\$&')}`) });
+// The revamp, phase 5c (design/prototype taxView): one table, a year a row,
+// its drawer holding everything the app shows of the year (decision 3).
+const region = () => screen.getByRole('region', { name: 'Indian dividends by tax year' });
+const cells = (label) => [...within(region()).getByRole('button', { name: label }).closest('tr').querySelectorAll('td')].map((td) => td.textContent);
+const openYear = (label) => {
+  fireEvent.click(within(region()).getByRole('button', { name: label }));
+  return screen.getByRole('dialog', { name: label });
+};
+const FY25 = 'FY 2025-26 (AY 2026-27)';
 
 describe('Tax years', () => {
-  it('a year reads as one row', () => {
+  it('a year reads as one row, each cell in short', () => {
     open();
-    const r = row('FY 2025-26 (AY 2026-27) · One');
-    expect(r.getAttribute('aria-expanded')).toBe('false');
-    expect(r.textContent).toContain('dividends INR 1,000.00, tax withheld INR 208.00');
-    expect(r.textContent).toContain('agrees with AIS and 26AS');
-    expect(r.textContent).toContain('dividend tax surplus INR 108.00');
-    expect(r.textContent).toContain(`refund INR 5,000.00 credited ${shortDate('2026-10-05')}`);
-    expect(within(region()).getByText(/^Indian dividends by tax year, checked against the AIS \(income\) and Form 26AS \(tax credit\)\. In rupees\.$/)).toBeTruthy();
+    const [year, member, ...rest] = cells(FY25);
+    expect(year).toBe(FY25);
+    // The member's avatar, then their name.
+    expect(member).toMatch(/One$/);
+    expect(rest).toEqual(['INR 1,000.00', 'INR 208.00', 'Agrees', `Filed ${shortDate('2026-07-20')}`, `INR 5,000.00 credited ${shortDate('2026-10-05')}`]);
+    fireEvent.click(within(region()).getByRole('button', { name: 'About Indian dividends by tax year' }));
+    expect(screen.getByText('Checked against the AIS (income) and Form 26AS (tax credit). In rupees.')).toBeTruthy();
   });
 
-  it('opening a year shows shares, return and events', () => {
+  it('opening a year shows, in its drawer, where it stands, its shares, return and refund records', () => {
     open();
-    fireEvent.click(row('FY 2025-26 (AY 2026-27)'));
-    const r = region();
-    expect(within(r).getByText('Income: Rokda INR 1,000.00 · AIS INR 1,000.00 · agrees with AIS')).toBeTruthy();
-    expect(within(r).getByText('Tax: Rokda INR 208.00 · 26AS INR 208.00 · AIS INR 200.00 · agrees with 26AS')).toBeTruthy();
-    expect(within(r).getByText(`Original return, filed ${shortDate('2026-07-20')}`)).toBeTruthy();
-    expect(within(r).getByText(`${shortDate('2026-10-05')} · Refund credited INR 5,000.00`)).toBeTruthy();
-    expect(within(r).getByRole('button', { name: 'Edit' })).toBeTruthy();
-    expect(within(r).getByRole('button', { name: 'Add' })).toBeTruthy();
+    const drawer = openYear(FY25);
+    expect(drawer.textContent).toContain('Tax year · One');
+    expect(within(drawer).getByText('agrees with AIS and 26AS')).toBeTruthy();
+    expect(within(drawer).getByText(`dividend tax surplus INR 108.00; refund INR 5,000.00 credited ${shortDate('2026-10-05')}`)).toBeTruthy();
+    expect(within(drawer).getByText('Income: Rokda INR 1,000.00 · AIS INR 1,000.00 · agrees with AIS')).toBeTruthy();
+    expect(within(drawer).getByText('Tax: Rokda INR 208.00 · 26AS INR 208.00 · AIS INR 200.00 · agrees with 26AS')).toBeTruthy();
+    expect(within(drawer).getByText(`Original return, filed ${shortDate('2026-07-20')}`)).toBeTruthy();
+    expect(within(drawer).getByText(`${shortDate('2026-10-05')} · Refund credited INR 5,000.00`)).toBeTruthy();
+    expect(within(drawer).getByRole('button', { name: 'Edit' })).toBeTruthy();
+    expect(within(drawer).getByRole('button', { name: 'Add' })).toBeTruthy();
+    fireEvent.click(within(drawer.querySelector('.ds-drawer-foot')).getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it("one member's scope", () => {
     open(data({ holdings: [IN_A, IN_S], holdingDividends: [rec('d1', IN_A, '2025-08-01'), rec('d9', IN_S, '2025-08-01')] }), 'm2');
-    expect(within(region()).queryByRole('button', { name: /^FY 2025-26/ })).toBeNull();
-    expect(within(region()).getByText("Shared Co is shared, so its dividends aren't in anyone's tax year. Give it an owner under Investments to count them.")).toBeTruthy();
+    expect(screen.queryByRole('button', { name: FY25 })).toBeNull();
+    expect(screen.getByText("Shared Co is shared, so its dividends aren't in anyone's tax year. Give it an owner under Investments to count them.")).toBeTruthy();
   });
 
   it('the tax records failing to load', () => {
     open(data({ errors: { taxReturns: new Error('x') }, loaded: {} }));
-    expect(within(region()).getByRole('alert').textContent).toMatch(/tax returns.*Refresh the page to try again\.$/);
+    expect(screen.getByRole('alert').textContent).toMatch(/tax returns.*Refresh the page to try again\.$/);
   });
 
   it('all Indian holdings sold', () => {
     open(data({ holdings: [{ ...IN_A, quantity: 0 }] }));
-    expect(row('FY 2025-26 (AY 2026-27)')).toBeTruthy();
+    expect(within(region()).getByRole('button', { name: FY25 })).toBeTruthy();
   });
 
   it("setting a dividend's tax year", async () => {
     const d = open();
-    fireEvent.click(row('FY 2025-26 (AY 2026-27)'));
-    fireEvent.click(within(region()).getByText('Dividends (1)'));
-    fireEvent.click(within(region()).getByRole('button', { name: 'Set tax year' }));
-    fireEvent.change(within(region()).getByLabelText('Tax year'), { target: { value: '2024' } });
-    fireEvent.change(within(region()).getByLabelText('Why'), { target: { value: 'declared' } });
-    expect(within(region()).getByRole('option', { name: 'FY 2024-25 (AY 2025-26)' })).toBeTruthy();
-    await act(async () => fireEvent.click(within(region()).getByRole('button', { name: 'Save tax year' })));
+    const drawer = openYear(FY25);
+    fireEvent.click(within(drawer).getByText('Dividends (1)'));
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Set tax year' }));
+    fireEvent.change(within(drawer).getByLabelText('Tax year'), { target: { value: '2024' } });
+    fireEvent.change(within(drawer).getByLabelText('Why'), { target: { value: 'declared' } });
+    expect(within(drawer).getByRole('option', { name: 'FY 2024-25 (AY 2025-26)' })).toBeTruthy();
+    await act(async () => fireEvent.click(within(drawer).getByRole('button', { name: 'Save tax year' })));
     expect(calls).toEqual([{ name: 'set_dividend_tax_year', args: { p_dividend_id: 'd1', p_financial_year: 2024, p_basis: 'declared', p_expected_version: 1 } }]);
     expect(d.reload).toHaveBeenCalled();
   });
 
   it('removing a refund record asks first', async () => {
     const d = open();
-    fireEvent.click(row('FY 2025-26 (AY 2026-27)'));
-    const credit = within(region()).getByText(`${shortDate('2026-10-05')} · Refund credited INR 5,000.00`).closest('li');
+    const drawer = openYear(FY25);
+    const credit = within(drawer).getByText(`${shortDate('2026-10-05')} · Refund credited INR 5,000.00`).closest('li');
     fireEvent.click(within(credit).getByRole('button', { name: 'Remove' }));
     expect(within(credit).getByText('Remove this record?')).toBeTruthy();
     fireEvent.click(within(credit).getByRole('button', { name: 'Keep it' }));
@@ -136,38 +147,85 @@ describe('Tax years', () => {
 
   it("no estimate without this year's basis", () => {
     open(data({ holdingDividends: [rec('d1', IN_A, '2025-08-01'), rec('d2', IN_A, '2026-05-01')] }));
-    expect(row('tax year 2026-27').textContent).toContain('no claim basis set (last year: the treaty rate of 10%)');
+    const label = 'tax year 2026-27';
+    expect(cells(label).at(-1)).toBe('—');
+    expect(within(openYear(label)).getByText('no claim basis set (last year: the treaty rate of 10%)')).toBeTruthy();
   });
 
-  it('no tax history, no section', () => {
+  // A credit date estimated (not read from a statement) leaves its year provisional.
+  it('a provisional year says so', () => {
+    open(data({ holdingDividends: [rec('d1', IN_A, '2025-08-01', { credited_on_estimated: true })] }));
+    expect(cells(FY25)[0]).toBe(`${FY25}Provisional`);
+  });
+
+  it('no tax history says there is none', () => {
     open(data({ holdings: [US], holdingDividends: [], taxStatements: [], taxStatementLines: [], taxReturns: [], taxReturnEvents: [] }));
-    expect(screen.queryByRole('region', { name: 'Tax years' })).toBeNull();
+    expect(screen.getByText('No tax years in this view')).toBeTruthy();
+  });
+});
+
+// The fresh review of 5c: a form open in a year's drawer is unsaved work.
+// Escape in it steps back out of the form only; closing the drawer asks
+// first.
+describe('a form open in a tax year', () => {
+  it('Escape in the return form closes the form, not the year', () => {
+    open();
+    const drawer = openYear(FY25);
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Edit' }));
+    fireEvent.keyDown(within(drawer).getByLabelText('Dividend tax', { exact: true }), { key: 'Escape' });
+    expect(screen.getByRole('dialog', { name: FY25 })).toBeTruthy();
+    expect(within(drawer).getByRole('button', { name: 'Edit' })).toBeTruthy();
+    expect(screen.queryByText('Discard changes?')).toBeNull();
+  });
+
+  it('Escape in Set tax year closes that form, not the year', () => {
+    open();
+    const drawer = openYear(FY25);
+    fireEvent.click(within(drawer).getByText('Dividends (1)'));
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Set tax year' }));
+    fireEvent.keyDown(within(drawer).getByLabelText('Tax year'), { key: 'Escape' });
+    expect(screen.getByRole('dialog', { name: FY25 })).toBeTruthy();
+    expect(within(drawer).getByRole('button', { name: 'Set tax year' })).toBeTruthy();
+  });
+
+  it('closing the year with a form open asks first, and Keep editing keeps it', () => {
+    open();
+    const drawer = openYear(FY25);
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Edit' }));
+    fireEvent.change(within(drawer).getByLabelText('Dividend tax', { exact: true }), { target: { value: '1000' } });
+    fireEvent.click(within(drawer.querySelector('.ds-drawer-foot')).getByRole('button', { name: 'Close' }));
+    expect(within(drawer).getByText('Discard changes?')).toBeTruthy();
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Keep editing' }));
+    expect(within(drawer).getByLabelText('Dividend tax', { exact: true }).value).toBe('1000');
+    fireEvent.keyDown(drawer, { key: 'Escape' });
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Discard' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 });
 
 describe('focus after a form', () => {
   it('returns to the button that opened it', async () => {
     open();
-    fireEvent.click(row('FY 2025-26 (AY 2026-27)'));
-    fireEvent.click(within(region()).getByRole('button', { name: 'Edit' }));
-    await act(async () => fireEvent.click(within(region()).getByRole('button', { name: 'Cancel' })));
-    expect(document.activeElement).toBe(within(region()).getByRole('button', { name: 'Edit' }));
+    const drawer = openYear(FY25);
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Edit' }));
+    await act(async () => fireEvent.click(within(drawer).getByRole('button', { name: 'Cancel' })));
+    expect(document.activeElement).toBe(within(drawer).getByRole('button', { name: 'Edit' }));
 
-    fireEvent.click(within(region()).getByRole('button', { name: 'Add' }));
-    await act(async () => fireEvent.click(within(region()).getByRole('button', { name: 'Cancel' })));
-    expect(document.activeElement).toBe(within(region()).getByRole('button', { name: 'Add' }));
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Add' }));
+    await act(async () => fireEvent.click(within(drawer).getByRole('button', { name: 'Cancel' })));
+    expect(document.activeElement).toBe(within(drawer).getByRole('button', { name: 'Add' }));
 
-    const credit = within(region()).getByText(`${shortDate('2026-10-05')} · Refund credited INR 5,000.00`).closest('li');
+    const credit = within(drawer).getByText(`${shortDate('2026-10-05')} · Refund credited INR 5,000.00`).closest('li');
     fireEvent.click(within(credit).getByRole('button', { name: 'Remove' }));
     expect(document.activeElement).toBe(within(credit).getByRole('button', { name: 'Keep it' }));
     await act(async () => fireEvent.click(within(credit).getByRole('button', { name: 'Keep it' })));
     expect(document.activeElement).toBe(within(credit).getByRole('button', { name: 'Remove' }));
 
-    fireEvent.click(within(region()).getByText('Dividends (1)'));
-    fireEvent.click(within(region()).getByRole('button', { name: 'Set tax year' }));
-    expect(document.activeElement).toBe(within(region()).getByLabelText('Tax year'));
-    await act(async () => fireEvent.click(within(region()).getByRole('button', { name: 'Cancel' })));
-    expect(document.activeElement).toBe(within(region()).getByRole('button', { name: 'Set tax year' }));
+    fireEvent.click(within(drawer).getByText('Dividends (1)'));
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Set tax year' }));
+    expect(document.activeElement).toBe(within(drawer).getByLabelText('Tax year'));
+    await act(async () => fireEvent.click(within(drawer).getByRole('button', { name: 'Cancel' })));
+    expect(document.activeElement).toBe(within(drawer).getByRole('button', { name: 'Set tax year' }));
   });
 });
 
@@ -178,9 +236,9 @@ describe('focus after a form', () => {
 describe("Tax years: a dividend's tax year after a refresh", () => {
   it('saves at the version it was opened on', async () => {
     const { rerender } = renderScreen(<TaxYears members={MEMBERS} scopeMemberId={null} data={data()} />);
-    fireEvent.click(row('FY 2025-26 (AY 2026-27)'));
-    fireEvent.click(within(region()).getByText('Dividends (1)'));
-    fireEvent.click(within(region()).getByRole('button', { name: 'Set tax year' }));
+    const drawer = openYear(FY25);
+    fireEvent.click(within(drawer).getByText('Dividends (1)'));
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Set tax year' }));
     // The partner set it meanwhile; a refresh brings their version.
     const refreshed = data({ holdingDividends: [rec('d1', IN_A, '2025-08-01', { version: 2 })] });
     rerender(
@@ -190,8 +248,9 @@ describe("Tax years: a dividend's tax year after a refresh", () => {
         </CurrencyProvider>
       </ScopeProvider>,
     );
-    fireEvent.change(within(region()).getByLabelText('Tax year'), { target: { value: '2024' } });
-    await act(async () => fireEvent.click(within(region()).getByRole('button', { name: 'Save tax year' })));
+    const again = screen.getByRole('dialog', { name: FY25 });
+    fireEvent.change(within(again).getByLabelText('Tax year'), { target: { value: '2024' } });
+    await act(async () => fireEvent.click(within(again).getByRole('button', { name: 'Save tax year' })));
     expect(calls.map((c) => c.args.p_expected_version)).toEqual([1]);
   });
 });

@@ -1,6 +1,300 @@
-/* The Dividends tab (SHR-366). Figures are type, not tiles: a large received
-   figure, the expected one beside it, and the markets as one line each.
-   Lists reuse the holding editor's two-line rows (HoldingTrades.css). */
+/* Wealth -> Dividends (the revamp, phase 5c; design/prototype
+   css/wealth.css and styles.css .rows, .rw, .tbl tr.group). */
+
+.dv {
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.dv-top {
+  display: grid;
+  grid-template-columns: minmax(0, 8fr) minmax(0, 4fr);
+  gap: 16px;
+  align-items: stretch;
+}
+.dv-ink2 {
+  color: var(--ink2);
+}
+.dv-ink3 {
+  color: var(--ink3);
+}
+.dv-warn {
+  color: var(--warn);
+}
+.dv-small {
+  font-size: 12px;
+}
+.dv-about {
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--ink3);
+}
+.dv-subrow {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ---------- the Feed chip ---------- */
+.dv-feed {
+  height: 24px;
+  padding: 0 9px;
+}
+.dv-pop {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 300px;
+  font-size: 12.5px;
+  color: var(--ink2);
+}
+.dv-pop p {
+  margin: 0;
+}
+
+/* ---------- rows (Needs you, Coming up, the fold) ---------- */
+.dv-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 6px;
+}
+.dv-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  min-height: 48px;
+  padding: 8px 18px;
+  border-top: 1px solid var(--rule-soft);
+}
+.dv-rows > li:first-child > .dv-row,
+.dv-rows > li.dv-row:first-child {
+  border-top: 0;
+}
+.dv-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+.dv-name {
+  font-weight: 500;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.dv-date {
+  min-width: 46px;
+  flex: none;
+  white-space: nowrap;
+  font: 400 12px var(--font-mono);
+  color: var(--ink3);
+}
+.dv-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.dv-actions-under {
+  margin-top: 4px;
+}
+.dv-clip {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dv-coming .dv-row {
+  align-items: flex-start;
+}
+.dv-coming .dv-date,
+.dv-coming .dv-amount {
+  padding-top: 1px;
+}
+.dv-amount {
+  min-width: 52px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+}
+.dv-menu {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.dv-form {
+  flex-basis: 100%;
+}
+.dv-restbutton {
+  width: 100%;
+  background: none;
+  border: 0;
+  border-top: 1px solid var(--rule-soft);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  justify-content: space-between;
+}
+.dv-rows > li:first-child > .dv-restbutton {
+  border-top: 0;
+}
+.dv-restbutton:hover {
+  background: color-mix(in oklab, var(--ink) 2.5%, transparent);
+}
+
+/* ---------- by month ---------- */
+.dv-chart {
+  padding: 6px 18px 14px;
+}
+.dv-readout {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+  min-height: 18px;
+  font-size: 12.5px;
+  color: var(--ink2);
+}
+.dv-readout b {
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.dv-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink3);
+}
+.dv-sw {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+.dv-sw-solid {
+  background: var(--accent);
+}
+.dv-sw-pale {
+  background: var(--accent);
+  opacity: 0.4;
+}
+.dv-sw-outline {
+  border: 1px dashed var(--accent);
+}
+
+/* ---------- by holding ---------- */
+.dv-table td {
+  height: 48px;
+}
+.dv-th {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.dv-group td {
+  height: 34px;
+  background: var(--raised);
+  font-size: 12.5px;
+  color: var(--ink2);
+  font-weight: 500;
+}
+.dv-warnrow td {
+  height: auto;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.dv-holdrow {
+  cursor: pointer;
+}
+.dv-holdrow:hover td {
+  background: color-mix(in oklab, var(--ink) 2.5%, transparent);
+}
+.dv-holdname {
+  padding: 0;
+  background: none;
+  border: 0;
+  font: inherit;
+  font-weight: 500;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+.dv-holdname:hover {
+  color: var(--accent);
+}
+.dv-holdname:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+.dv-next {
+  font: 400 12px var(--font-mono);
+  color: var(--ink3);
+}
+
+/* ---------- the tax years (the revamp, phase 5c) ---------- */
+.tx-table td {
+  height: 48px;
+}
+.tx-row {
+  cursor: pointer;
+}
+.tx-row:hover td {
+  background: color-mix(in oklab, var(--ink) 2.5%, transparent);
+}
+.tx-year,
+.tx-member {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.tx-open {
+  padding: 0;
+  background: none;
+  border: 0;
+  font: inherit;
+  font-weight: 500;
+  color: var(--ink);
+  cursor: pointer;
+}
+.tx-open:hover {
+  color: var(--accent);
+}
+.tx-open:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+.tx-ink2 {
+  color: var(--ink2);
+}
+.tx-ink3 {
+  color: var(--ink3);
+}
+.tx-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 18px 12px;
+}
+.tx-kv {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr);
+  gap: 8px 16px;
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+.tx-kv dt {
+  color: var(--ink3);
+}
+.tx-kv dd {
+  margin: 0;
+}
 .dv-gap {
   margin-top: 22px;
 }
@@ -8,75 +302,12 @@
   font-size: 12.5px;
   margin: 0;
 }
-.dv-headline {
-  margin-top: 26px;
-}
-.dv-figures {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 18px 44px;
-  align-items: flex-end;
-}
-.dv-figure {
-  font-size: 24px;
-}
-.dv-sub {
-  font-size: 12px;
-  margin-top: 2px;
-}
-.dv-markets {
-  list-style: none;
-  margin: 12px 0 0;
-  padding: 0;
-  font-size: 12.5px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
 .dv-section {
   margin-top: 34px;
 }
 .dv-title {
   margin: 0 0 10px;
 }
-.dv-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.dv-switch {
-  display: flex;
-  gap: 6px;
-}
-/* One bar a month: received in the accent, presumed in a paler shade of it
-   on top, and the months ahead lighter still. */
-.dv-chart {
-  display: block;
-  width: 100%;
-  height: 140px;
-  margin-top: 10px;
-}
-.dv-bar-actual {
-  fill: var(--accent);
-}
-.dv-bar-presumed {
-  fill: var(--accent);
-  opacity: 0.45;
-}
-.dv-bar-expected {
-  fill: var(--accent);
-  opacity: 0.2;
-}
-.dv-axis {
-  display: flex;
-  justify-content: space-between;
-  font-size: 11px;
-  margin-top: 4px;
-}
-/* A holding row opens its dividends: the whole row is the button, laid out
-   as the two-line rows around it. */
 .dv-rowbutton {
   all: unset;
   display: block;
@@ -88,10 +319,6 @@
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
-.dv-name {
-  display: block;
-  overflow-wrap: anywhere;
-}
 .dv-detail {
   display: block;
   font-size: 12px;
@@ -101,7 +328,6 @@
   margin-top: 10px;
   font-size: 12.5px;
 }
-/* A fold's summary is a control: a thumb's height on a phone. */
 .dv-fold summary {
   cursor: pointer;
   min-height: 44px;
@@ -109,42 +335,10 @@
   padding: 12px 0;
   display: list-item;
 }
-.dv-bars {
-  list-style: none;
-  margin: 0 0 14px;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  font-size: 12.5px;
-}
-.dv-bars li {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.dv-bar {
-  display: block;
-  height: 4px;
-  border-radius: 2px;
-  background: var(--accent);
-}
-.dv-notes {
-  margin: 12px 0 0;
-  padding-left: 18px;
-  font-size: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-/* Tax years (dividend tax years, part 2): a form's hint or refusal, at the
-   size of the tab's other notes. */
 .tx-hint {
   font-size: 12.5px;
   margin: 0;
 }
-/* An opened tax year: its shares, return and refund records, each under a
-   small heading, with the tab's own row and form styles inside. */
 .tx-detail {
   margin-top: 8px;
 }
@@ -155,4 +349,12 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+/* Side by side, the chart needs more room than a narrower window leaves it;
+   they stack until there is room. */
+@media (max-width: 1100px) {
+  .dv-top {
+    grid-template-columns: 1fr;
+  }
 }

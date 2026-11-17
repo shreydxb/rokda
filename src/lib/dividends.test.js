@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { canRecord, dividendRefusalMessage, dividendRow, dividendStatusText, dividendsOfHolding, monthLabel, movementLines, reviewText } from './dividends';
+import { canRecord, dividendRefusalMessage, dividendRow, dividendStatusText, dividendsOfHolding, monthLabel, movementLines, reviewText, shortDate } from './dividends';
 
 describe('dividendsOfHolding', () => {
   it("keeps that holding's rows, newest first by ex-date or, without one, credit date", () => {
@@ -113,5 +113,13 @@ describe('movementLines', () => {
 describe('monthLabel', () => {
   it('names a month and its year', () => {
     expect(monthLabel('2027-03')).toBe('Mar 2027');
+  });
+
+  // The app writes "Sep" everywhere (the revamp, phase 4d); en-GB's own
+  // short month is "Sept".
+  it('writes September as Sep, as the rest of the app does', () => {
+    expect(monthLabel('2027-09')).toBe('Sep 2027');
+    expect(shortDate('2026-09-05', '2026-11-01')).toBe('5 Sep');
+    expect(shortDate('2025-09-05', '2026-11-01')).toBe('5 Sep 2025');
   });
 });

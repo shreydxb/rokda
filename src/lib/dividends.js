@@ -13,14 +13,19 @@ export function formatPerShare(n) {
 }
 
 // "15 Oct", or "14 Mar 2025" for a day in another year than today's.
+// The app's short months: "Sep", where en-GB's own is "Sept" (the revamp).
+const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
 export function shortDate(day, today = householdToday()) {
-  const sameYear = day.slice(0, 4) === today.slice(0, 4);
-  return new Date(`${day}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: sameYear ? undefined : 'numeric', timeZone: 'UTC' });
+  const [y, m, d] = day.slice(0, 10).split('-');
+  const sameYear = y === today.slice(0, 4);
+  return `${Number(d)} ${SHORT_MONTHS[Number(m) - 1]}${sameYear ? '' : ` ${y}`}`;
 }
 
 // "Mar 2027", for a month a dividend is projected into.
 export function monthLabel(month) {
-  return new Date(`${month}-01T00:00:00Z`).toLocaleDateString('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+  const [y, m] = month.split('-');
+  return `${SHORT_MONTHS[Number(m) - 1]} ${y}`;
 }
 
 // A holding's dividends, newest first: by ex-date, or for one added without

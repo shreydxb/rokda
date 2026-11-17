@@ -1,205 +1,235 @@
 import { useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabaseClient';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
-import { householdToday } from '../../lib/day';
+import { HOUSEHOLD_TIME_ZONE, householdToday } from '../../lib/day';
 import { formatMoney, formatPct } from '../../lib/money';
 import { SECTOR_LABELS } from '../../lib/holdings';
 import { couldntLoad, neverLoaded } from '../../lib/loadState';
 import { dividendRefusalMessage, formatPerShare, monthLabel, shortDate } from '../../lib/dividends';
-import {
-  buildDividendInput, comingUp, dividendHeadline, dividendSources, dividendsByHolding, dividendsByMonth, feedFreshness, needsYou, spendingEquivalent,
-} from '../../lib/dividendSummary';
+import { buildDividendInput, comingUp, dividendHeadline, dividendsByMarket, dividendsByMonth, feedStamp, needsYou, spendingEquivalent } from '../../lib/dividendSummary';
+import { MonthBars } from '../../design-system/charts';
+import { Card, Chip, EmptyState, Fold, InfoButton, KpiStrip, Popover, Segmented, WarningRow } from '../../design-system/kit';
+import { Tools } from '../PageTools';
 import DividendForm from './DividendForm';
-import HoldingDividends from './HoldingDividends';
 import TaxYears from './TaxYears';
 import './HoldingTrades.css';
 import './Dividends.css';
+
+// Wealth -> Dividends as the prototype lays it out (the revamp, phase 5c;
+// design/prototype needsCard, divKpis, byMonthCard, comingCard, byHoldingCard,
+// taxView): dividends as passive income, in the screen's scope, with the tax
+// years a view away. Earned, Expected and Received are kept apart; what is to
+// come is a projection and says so. The figures come from
+// src/lib/dividendSummary.js; a holding opens in its drawer, on its dividends,
+// through the address (HoldingDrawer.jsx).
 
 // What the tab reads; one that never loaded is said, never shown as none.
 const SOURCES = ['holdings', 'holdingDividends', 'holdingTrades', 'dividendEvents', 'dividendSplits', 'dividendSpecialParts', 'dividendFeedStatus', 'accounts'];
 const MARKET_NAMES = { IN: 'India', US: 'US' };
 const MARKET_ADJECTIVES = { IN: 'Indian', US: 'US' };
 const A_MARKET_HOLDING = { IN: 'an Indian holding', US: 'a US holding' };
+const VIEWS = [
+  { id: 'income', label: 'Income' },
+  { id: 'tax', label: 'Tax years' },
+];
+const SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+// What the figures leave out (they were "How fresh this is").
+const CAVEATS = [
+  "Dividends from before a holding's opening entry aren't counted: the units held then are unknown.",
+  "Expected figures are a projection at today's units and exchange rates.",
+  "Dividends earned but not yet received aren't in net worth.",
+  'The Life plan already counts dividends in its return, so this tab is cash flow, not a second return.',
+];
 
 const native = (amount, currency) => `${currency} ${formatMoney(amount, { decimals: 2 })}`;
+const aed = (money, value) => `${money.code} ${money.fmt(value)}`;
+const signedPct = (f) => `${f >= 0 ? '+' : '−'}${formatPct(Math.abs(f), { decimals: Math.abs(f) < 0.1 ? 1 : 0 })}`;
+const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+// A check's day and time in the household's time zone, months as the app
+// writes them ("Sep").
+const checkedAt = (ts) =>
+  `${shortDate(householdToday(new Date(ts)))}, ${new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: HOUSEHOLD_TIME_ZONE }).format(new Date(ts))}`;
 
-// Wealth's Dividends tab (SHR-366, spec 6): dividends as passive income, in
-// the screen's scope. Earned, Expected and Received are kept apart; what is
-// to come is a projection and says so. The figures come from
-// src/lib/dividendSummary.js; this lays them out.
 export default function Dividends({ household, members, me, data, loading }) {
   const { scope } = useScope();
   const scopeMemberId = resolveScopeMemberId(scope, me, members);
   const money = useMoneyDisplay(household);
   const today = householdToday();
   const input = useMemo(() => buildDividendInput({ data, household, scopeMemberId, today }), [data, household, scopeMemberId, today]);
+  const [view, setView] = useState('income');
+  const [, setParams] = useSearchParams();
+  // A holding opens over the page, on the tab asked for; closing it goes back.
+  const openHolding = (id, tab = 'dividends') =>
+    setParams(
+      (prev) => {
+        const p = new URLSearchParams(prev);
+        p.set('holding', id);
+        p.set('view', tab);
+        return p;
+      },
+      { state: { drawer: true } },
+    );
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
+  // A source Income needs that never loaded is said there, and Tax years,
+  // which needs none of them, stays a view away (the fresh review of 5c).
   const missing = neverLoaded(data, SOURCES);
-  if (missing.length) {
+  const tools = (
+    <Tools>
+      <Segmented label="Show" options={VIEWS} value={view} onChange={setView} />
+      {!missing.length && input.holdings.length > 0 && <FeedChip stamp={feedStamp(input)} />}
+    </Tools>
+  );
+  // Tax history outlives the holdings it came from.
+  if (view === 'tax') {
     return (
-      <p className="ov-warn dv-gap" role="alert">
-        {couldntLoad(missing)} Refresh the page to try again.
-      </p>
-    );
-  }
-  if (input.holdings.length === 0) {
-    // Tax history outlives the holdings it came from.
-    return (
-      <div className="dv-tab">
-        <div className="ov-empty dv-gap">
-          <div className="ov-empty-body">{"No holdings that pay dividends. US-listed and Indian shares appear here once they're added under Investments."}</div>
-        </div>
+      <div className="dv">
+        {tools}
         <TaxYears members={members} scopeMemberId={scopeMemberId} data={data} />
       </div>
     );
   }
-  const neverRun = feedFreshness(input).every((m) => m.neverRun);
+  if (missing.length) {
+    return (
+      <div className="dv">
+        {tools}
+        <p className="ov-warn dv-gap" role="alert">
+          {couldntLoad(missing)} Refresh the page to try again.
+        </p>
+      </div>
+    );
+  }
+  if (input.holdings.length === 0) {
+    return (
+      <div className="dv">
+        {tools}
+        <Card>
+          <EmptyState title="No holdings that pay dividends" body="US-listed and Indian shares appear here once they're added under Investments." />
+        </Card>
+      </div>
+    );
+  }
   return (
-    <div className="dv-tab">
-      {neverRun && <p className="ov-muted dv-gap dv-note">{"The dividend feed hasn't run yet. It checks each night."}</p>}
-      <Headline input={input} money={money} transactions={data.transactions} />
-      <ComingUp input={input} data={data} money={money} />
-      <NeedsYou input={input} data={data} />
-      <ByMonth input={input} money={money} />
-      <ByHolding input={input} data={data} money={money} />
-      <Sources input={input} money={money} />
-      <Freshness input={input} />
-      <TaxYears members={members} scopeMemberId={scopeMemberId} data={data} />
+    <div className="dv">
+      {tools}
+      <NeedsYou input={input} data={data} openHolding={openHolding} />
+      <Strip input={input} money={money} transactions={data.transactions} />
+      <div className="dv-top">
+        <ByMonth input={input} money={money} today={today} />
+        <ComingUp input={input} data={data} money={money} />
+      </div>
+      <ByHolding input={input} money={money} openHolding={openHolding} />
     </div>
   );
 }
 
-const aed = (money, value) => `${money.code} ${money.fmt(value)}`;
+// When the feed last checked, amber naming a share while its check fails;
+// behind it each market's last check and how far back its history goes.
+function FeedChip({ stamp }) {
+  const label = stamp.failing.length
+    ? `Feed: ${stamp.failing[0].symbol} failing`
+    : stamp.checkedAt
+      ? `Feed: checked ${shortDate(householdToday(new Date(stamp.checkedAt)))}`
+      : 'Feed: not checked yet';
+  return (
+    <Popover label={label} className={`ds-chip dv-feed${stamp.failing.length ? ' ds-chip-warn' : ''}`} chevron={false}>
+      <div className="dv-pop">
+        {stamp.markets.map((m) => (
+          <p key={m.market}>{`${MARKET_NAMES[m.market]}: ${m.checkedAt ? `checked ${checkedAt(m.checkedAt)}` : 'not checked yet'}${m.coveredFrom ? ` · history from ${shortDate(m.coveredFrom)}` : ''}`}</p>
+        ))}
+        {stamp.failing.map((f) => (
+          <p key={`${f.market}-${f.symbol}`} className="dv-warn">
+            {`Checks failing for ${f.symbol} since ${f.since ? shortDate(householdToday(new Date(f.since))) : 'it was added'}`}
+          </p>
+        ))}
+        <p className="dv-ink3">{stamp.neverRun ? "The dividend feed hasn't run yet. It checks each night." : 'It checks each night.'}</p>
+      </div>
+    </Popover>
+  );
+}
 
-function Headline({ input, money, transactions }) {
+// The four figures (design/prototype divKpis): received over the last twelve
+// months (or since the record starts) with its presumed part, expected over
+// the next twelve against the last, about so much a month, and against
+// recorded spending.
+function Strip({ input, money, transactions }) {
   const h = dividendHeadline(input);
   const spending = spendingEquivalent(input, { transactions: transactions ?? [], now: new Date() });
+  // Where each market's record starts, when they differ or one has none.
+  const untracked = h.markets.filter((m) => !m.start);
+  const india = h.markets.find((m) => m.market === 'IN');
+  const us = h.markets.find((m) => m.market === 'US');
+  const coverage = untracked.length
+    ? untracked.map((m) => `${MARKET_ADJECTIVES[m.market]} dividends aren't recorded until ${A_MARKET_HOLDING[m.market]} has an opening entry.`).join(' ')
+    : h.coverageDiffers && india?.start && us?.start
+      ? `${MARKET_ADJECTIVES.IN} dividends are counted from ${shortDate(india.start)}, ${MARKET_ADJECTIVES.US} from ${shortDate(us.start)}.`
+      : null;
+  // While one market's record is shorter, where it starts, in view (the fresh
+  // review of 5c); the (i) says both.
+  const later = h.coverageDiffers && !untracked.length ? [...h.markets].filter((m) => m.start).sort((a, b) => (a.start < b.start ? 1 : -1))[0] : null;
+  const expectedSub = [
+    h.expected.changeOnLast12 !== null ? `${signedPct(h.expected.changeOnLast12)} on the last 12` : null,
+    h.expected.notCounted > 0 ? `${h.expected.notCounted} not counted: no exchange rate` : null,
+    h.expected.notProjected > 0 ? `${plural(h.expected.notProjected, 'holding')} not projected` : null,
+  ].filter(Boolean);
   return (
-    <section className="dv-headline" aria-label="Dividends at a glance">
-      <div className="dv-figures">
-        <div>
-          <div className="ov-kicker">{h.received.since ? `Received since ${shortDate(h.received.since)}` : 'Received in the last 12 months'}</div>
-          <div className="ov-hero fig">
-            <span className="ov-hero-currency">{money.code}</span> {money.fmt(h.received.aed)}
-          </div>
-          {h.received.presumedAed > 0 && <div className="ov-muted dv-sub">{`of which ${aed(money, h.received.presumedAed)} presumed, not checked`}</div>}
-          {h.received.notCounted > 0 && <div className="ov-warn dv-sub">{`${h.received.notCounted} not counted: no exchange rate`}</div>}
-        </div>
-        <div>
-          <div className="ov-kicker">Expected in the next 12 months</div>
-          <div className="dv-figure fig">{aed(money, h.expected.aed)}</div>
-          <div className="ov-muted dv-sub">{`about ${aed(money, h.expected.monthlyAed)} a month`}</div>
-          {h.expected.notCounted > 0 && <div className="ov-warn dv-sub">{`${h.expected.notCounted} not counted: no exchange rate`}</div>}
-          {h.expected.notProjected > 0 && (
-            <div className="ov-muted dv-sub">{`${h.expected.notProjected} holding${h.expected.notProjected === 1 ? '' : 's'} not projected: see By holding.`}</div>
-          )}
-          {spending && (
-            <div className="ov-muted dv-sub">
-              {spending.basis === 'received' ? `Equal to ${spending.pct}% of recorded spending` : `Expected to equal ${spending.pct}% of recorded spending`}
-            </div>
-          )}
-        </div>
-      </div>
-      <ul className="dv-markets">
-        {h.markets.map((m) => (
-          <li key={m.market}>
-            {m.start
-              ? `${MARKET_NAMES[m.market]}: ${aed(money, m.receivedAed)} received ${m.since ? `since ${shortDate(m.since)}` : 'in the last 12 months'} · ${aed(money, m.expectedAed)} expected`
-              : `${MARKET_NAMES[m.market]}: nothing recorded, no opening entry · ${aed(money, m.expectedAed)} expected`}
-          </li>
-        ))}
-      </ul>
-      <Coverage headline={h} />
-    </section>
+    <Card flush>
+      <KpiStrip
+        items={[
+          {
+            label: h.received.since ? `Received since ${shortDate(h.received.since)}` : 'Received · 12 months',
+            hero: true,
+            info: (
+              <InfoButton about="Received">
+                {[...CAVEATS, coverage].filter(Boolean).join(' ')}
+              </InfoButton>
+            ),
+            value: (
+              <>
+                <span className="ds-code">{money.code}</span>
+                {money.fmt(h.received.aed)}
+              </>
+            ),
+            sub:
+              h.received.presumedAed > 0 || h.received.notCounted > 0 || later ? (
+                <span className="dv-subrow">
+                  {later && <span>{`${MARKET_NAMES[later.market]} counted from ${shortDate(later.start)}`}</span>}
+                  {h.received.presumedAed > 0 && (
+                    <Chip title="Paid into a bank account and presumed received 30 days after the ex-date; not checked against a statement.">{`${aed(money, h.received.presumedAed)} presumed`}</Chip>
+                  )}
+                  {h.received.notCounted > 0 && <span className="dv-warn">{`${h.received.notCounted} not counted: no exchange rate`}</span>}
+                </span>
+              ) : null,
+          },
+          { label: 'Expected · 12 months', value: aed(money, h.expected.aed), sub: expectedSub.length ? expectedSub.join(' · ') : null },
+          {
+            label: 'A month',
+            value: (
+              <>
+                <span className="dv-about">about </span>
+                {aed(money, h.expected.monthlyAed)}
+              </>
+            ),
+          },
+          {
+            label: 'Of spending',
+            value: spending ? `${spending.pct}%` : '—',
+            sub: spending ? (spending.basis === 'received' ? 'of recorded spending' : 'expected, of recorded spending') : 'needs three months of spending',
+          },
+        ]}
+      />
+    </Card>
   );
 }
 
-// When the two markets' records start at different times, both dates, so
-// neither total reads as covering what it does not. A market none of whose
-// holdings has an opening entry records nothing, and says so.
-function Coverage({ headline }) {
-  const untracked = headline.markets.filter((m) => !m.start);
-  if (untracked.length > 0) {
-    return (
-      <p className="ov-muted dv-sub">
-        {untracked.map((m) => `${MARKET_ADJECTIVES[m.market]} dividends aren't recorded until ${A_MARKET_HOLDING[m.market]} has an opening entry.`).join(' ')}
-      </p>
-    );
-  }
-  const india = headline.markets.find((m) => m.market === 'IN');
-  const us = headline.markets.find((m) => m.market === 'US');
-  if (!headline.coverageDiffers || !india?.start || !us?.start) return null;
-  return (
-    <p className="ov-muted dv-sub">
-      {`${MARKET_ADJECTIVES.IN} dividends are counted from ${shortDate(india.start)}, ${MARKET_ADJECTIVES.US} from ${shortDate(us.start)}.`}
-    </p>
-  );
-}
-
-function ComingUp({ input, data, money }) {
-  const [recording, setRecording] = useState(null);
-  const items = comingUp(input);
-  const holdings = new Map(input.holdings.map((h) => [h.id, h]));
-  const accounts = new Map((input.accounts ?? []).map((a) => [a.id, a]));
-  return (
-    <section className="dv-section" aria-labelledby="dv-coming">
-      <h3 className="ov-kicker dv-title" id="dv-coming">
-        Coming up
-      </h3>
-      {items.length === 0 ? (
-        <p className="ov-muted dv-note">Nothing declared or owed right now.</p>
-      ) : (
-        <ul className="ht-list">
-          {items.map((x) => {
-            const h = holdings.get(x.holdingId);
-            const when = x.day ? shortDate(x.day) : x.month ? monthLabel(x.month) : 'date not known';
-            const into = accounts.get(x.destinationAccountId)?.name;
-            const dividend = x.dividendId ? input.dividends.find((d) => d.id === x.dividendId) : null;
-            return (
-              <li key={x.dividendId ?? x.eventId} className="ht-row hd-row">
-                <div className="mn-row-main">
-                  <div>{`${h.name} · ${when}${x.netAed !== null ? ` · ${aed(money, x.netAed)}` : ''}`}</div>
-                  <div className="ov-muted">
-                    {`${x.kind === 'earned' ? 'Earned' : 'Declared'} · ${native(x.net, x.currency)} expected${into ? ` · into ${into}` : ''}`}
-                  </div>
-                </div>
-                {recording === x.dividendId && dividend ? (
-                  <DividendForm
-                    holding={h}
-                    dividend={dividend}
-                    action="record"
-                    accounts={input.accounts}
-                    onCancel={() => setRecording(null)}
-                    onSaved={async () => {
-                      await data.reload();
-                      setRecording(null);
-                    }}
-                  />
-                ) : (
-                  x.canRecord && (
-                    <div className="ht-actions hd-actions">
-                      <button type="button" className="om-btn" onClick={() => setRecording(x.dividendId)}>
-                        Record
-                      </button>
-                    </div>
-                  )
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </section>
-  );
-}
-
-function NeedsYou({ input, data }) {
+// What needs a member (design/prototype needsCard): the one boxed card, only
+// while something waits, each with its answer or the way to it.
+function NeedsYou({ input, data, openHolding }) {
   const [busy, setBusy] = useState(null);
   const [refusal, setRefusal] = useState(null);
-  const [reviewing, setReviewing] = useState(null);
   const items = needsYou(input);
   if (items.length === 0) return null;
   const holdings = new Map(input.holdings.map((h) => [h.id, h]));
@@ -217,57 +247,208 @@ function NeedsYou({ input, data }) {
   }
 
   return (
-    <section className="dv-section" aria-labelledby="dv-needs">
-      <h3 className="ov-kicker dv-title" id="dv-needs">
-        Needs you
-      </h3>
-      <ul className="ht-list">
+    <Card title="Needs you" right={String(items.length)} action flush>
+      <ul className="dv-rows">
         {items.map((item, i) => {
           const h = holdings.get(item.holdingId);
-          const key = `${item.kind}-${item.dividendId ?? item.eventId ?? i}`;
           return (
-            <li key={key} className="ht-row hd-row">
-              <div className="mn-row-main">
-                <div>{h.name}</div>
-                <div className="ov-muted">{item.text}</div>
+            <li key={`${item.kind}-${item.dividendId ?? item.eventId ?? i}`} className="dv-row">
+              <div className="dv-row-main">
+                {/* A question that names the holding needs no name above it. */}
+                {!item.text.startsWith(h.name) && <span className="dv-name">{h.name}</span>}
+                <span className="dv-ink2">{item.text}</span>
+                {refusal && refusal.eventId === item.eventId && (
+                  <span className="dv-warn" role="alert">
+                    {refusal.message}
+                  </span>
+                )}
               </div>
-              {refusal && refusal.eventId === item.eventId && (
-                <p className="ov-warn hd-note" role="alert">
-                  {refusal.message}
-                </p>
-              )}
-              {item.kind === 'one_off' ? (
-                <div className="ht-actions hd-actions">
-                  <button type="button" className="om-btn" disabled={!!busy} onClick={() => answer(item, item.special)}>
-                    Yes, part was a one-off
+              <div className="dv-actions">
+                {item.kind === 'one_off' ? (
+                  <>
+                    <button type="button" className="ds-btn ds-btn-sm" disabled={!!busy} onClick={() => answer(item, item.special)}>
+                      Yes, part was a one-off
+                    </button>
+                    <button type="button" className="ds-btn ds-btn-sm" disabled={!!busy} onClick={() => answer(item, 0)}>
+                      No, all ordinary
+                    </button>
+                  </>
+                ) : item.kind === 'split_not_traded' ? (
+                  // Its dividends can't settle it: the split goes in the holding's trades.
+                  <button type="button" className="ds-btn ds-btn-sm" onClick={() => openHolding(h.id, 'trades')}>
+                    Record the split
                   </button>
-                  <button type="button" className="om-btn" disabled={!!busy} onClick={() => answer(item, 0)}>
-                    No, all ordinary
+                ) : (
+                  <button type="button" className="ds-btn ds-btn-sm" onClick={() => openHolding(h.id)}>
+                    {item.kind === 'add_by_hand' ? 'Add it' : 'Review'}
                   </button>
-                </div>
-              ) : item.kind === 'split_not_traded' ? (
-                // Its dividends can't settle it: the split goes in the holding's trades.
-                <p className="ov-muted hd-note">Record the split in its trades, under Investments.</p>
-              ) : reviewing === key ? (
-                <HoldingDividends
-                  holding={h}
-                  dividends={data.holdingDividends}
-                  specialParts={data.dividendSpecialParts}
-                  accounts={input.accounts}
-                  onChanged={data.reload}
-                />
-              ) : (
-                <div className="ht-actions hd-actions">
-                  <button type="button" className="om-btn" onClick={() => setReviewing(key)}>
-                    Review
-                  </button>
-                </div>
-              )}
+                )}
+              </div>
             </li>
           );
         })}
       </ul>
-    </section>
+    </Card>
+  );
+}
+
+// A bar a month over the last twelve and the next twelve (decision 2):
+// received solid, presumed paler, expected outlined, today marked; Earned
+// puts each in its ex-date's month. The readout gives a month picked, else
+// this year so far and next year's expected within the twelve ahead.
+function ByMonth({ input, money, today }) {
+  const [view, setView] = useState('received');
+  const [pick, setPick] = useState(null);
+  const { months, thisYear, ahead, leftOut } = dividendsByMonth(input, view);
+  const current = today.slice(0, 7);
+  const label = (month, i) => {
+    const [y, m] = month.split('-');
+    if (m === '01') return y;
+    return i % 3 === 0 ? SHORT[Number(m) - 1] : '';
+  };
+  const picked = pick !== null ? months[pick] : null;
+  const said = view === 'received' ? 'received' : 'earned';
+  const pickedWords = (m) => {
+    const parts = [];
+    if (m.actualAed > 0) parts.push(`${aed(money, m.actualAed)} ${said}`);
+    if (m.presumedAed > 0) parts.push(`${aed(money, m.presumedAed)} presumed`);
+    if (m.expectedAed > 0) parts.push(`${aed(money, m.expectedAed)} expected`);
+    return `${monthLabel(m.month)}: ${parts.length ? parts.join(', ') : 'nothing'}`;
+  };
+  // The months of that year the twelve ahead hold, unless all of them.
+  const mon = (month) => SHORT[Number(month.slice(5)) - 1];
+  const span = !ahead || (ahead.from.slice(5) === '01' && ahead.to.slice(5) === '12') ? '' : ahead.from === ahead.to ? ` (${mon(ahead.from)})` : ` (${mon(ahead.from)}–${mon(ahead.to)})`;
+  return (
+    <Card
+      title="By month"
+      className="dv-months"
+      right={
+        <Segmented
+          label="Show"
+          options={[
+            { id: 'received', label: 'Received' },
+            { id: 'earned', label: 'Earned' },
+          ]}
+          value={view}
+          onChange={(v) => {
+            setView(v);
+            setPick(null);
+          }}
+        />
+      }
+    >
+      <div className="dv-chart">
+        <MonthBars
+          months={months.map((m, i) => ({ key: m.month, label: label(m.month, i), solid: m.actualAed, pale: m.presumedAed, outline: m.expectedAed, today: m.month === current }))}
+          height={168}
+          formatTick={(v) => money.fmtCompact(v)}
+          activeIndex={pick}
+          onActiveChange={setPick}
+          ariaLabel={`Dividends ${said} by month, the last twelve months and the next twelve expected. Use the arrow keys to move between months.`}
+        />
+        <div className="dv-readout" aria-live="polite">
+          {picked ? (
+            pickedWords(picked)
+          ) : (
+            <>
+              <span className="dv-key">
+                <i className="dv-sw dv-sw-solid" />
+                {view === 'received' ? 'Received' : 'Earned'}
+              </span>
+              <span className="dv-key">
+                <i className="dv-sw dv-sw-pale" />
+                Presumed
+              </span>
+              <span className="dv-key">
+                <i className="dv-sw dv-sw-outline" />
+                Expected
+              </span>
+              <span>{`${thisYear.year} so far `}<b>{aed(money, thisYear.aed)}</b></span>
+              {ahead && <span>{`${ahead.year} ${ahead.part === 'rest' ? 'still expected' : 'expected'}${span} `}<b>{aed(money, ahead.aed)}</b></span>}
+            </>
+          )}
+        </div>
+        {view === 'earned' && leftOut > 0 && <p className="dv-note">{leftOut === 1 ? "1 receipt with no ex-date isn't shown." : `${leftOut} receipts with no ex-date aren't shown.`}</p>}
+      </div>
+    </Card>
+  );
+}
+
+// Earned and declared dividends still to come in, soonest first
+// (design/prototype comingCard): an earned one into a broker's fund can be
+// recorded here, and its other actions sit under "⋯".
+function ComingUp({ input, data, money }) {
+  const [form, setForm] = useState(null);
+  const items = comingUp(input);
+  const holdings = new Map(input.holdings.map((h) => [h.id, h]));
+  const accounts = new Map((input.accounts ?? []).map((a) => [a.id, a]));
+  return (
+    <Card title="Coming up" className="dv-coming" flush>
+      {items.length === 0 ? (
+        <EmptyState title="Nothing declared or owed" />
+      ) : (
+        <ul className="dv-rows">
+          {items.map((x) => {
+            const h = holdings.get(x.holdingId);
+            const into = accounts.get(x.destinationAccountId)?.name;
+            const dividend = x.dividendId ? input.dividends.find((d) => d.id === x.dividendId) : null;
+            const open = form && form.id === x.dividendId && dividend;
+            return (
+              <li key={x.dividendId ?? x.eventId} className="dv-row">
+                {/* A day in another year keeps its year (the fresh review of
+                    5c): last December's, not yet recorded, isn't months away. */}
+                <span className="dv-date">{x.day ? shortDate(x.day) : x.month ? monthLabel(x.month) : '—'}</span>
+                {/* The card is narrow: the name and its line take the room, the
+                    actions sit under them, the amount at the right. */}
+                <div className="dv-row-main">
+                  <span className="dv-name dv-clip" title={h.name}>
+                    {h.name}
+                  </span>
+                  <span className="dv-ink3">{`${x.kind === 'earned' ? 'Earned' : 'Declared'} · ${native(x.net, x.currency)}${into ? ` · into ${into}` : ''}`}</span>
+                  {!open && (x.canRecord || (x.kind === 'earned' && dividend)) && (
+                    <div className="dv-actions dv-actions-under">
+                      {x.canRecord && (
+                        <button type="button" className="ds-btn ds-btn-sm" onClick={() => setForm({ id: x.dividendId, action: 'record' })}>
+                          Record
+                        </button>
+                      )}
+                      {x.kind === 'earned' && dividend && (
+                        <Popover label="⋯" name={`More for ${h.name}`} chevron={false} className="ds-btn ds-btn-sm">
+                          <div className="dv-menu">
+                            <button type="button" className="ds-link" onClick={() => setForm({ id: x.dividendId, action: 'fix' })}>
+                              Fix
+                            </button>
+                            <button type="button" className="ds-link" onClick={() => setForm({ id: x.dividendId, action: 'skip' })}>
+                              Skip
+                            </button>
+                          </div>
+                        </Popover>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <span className="dv-amount">{x.netAed !== null ? money.fmt(x.netAed) : '—'}</span>
+                {open && (
+                  <div className="dv-form">
+                    <DividendForm
+                      holding={h}
+                      dividend={dividend}
+                      action={form.action}
+                      accounts={input.accounts}
+                      onCancel={() => setForm(null)}
+                      onSaved={async () => {
+                        await data.reload();
+                        setForm(null);
+                      }}
+                    />
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Card>
   );
 }
 
@@ -277,191 +458,121 @@ const FREQUENCY = {
 };
 const STATUS = { may_have_stopped: 'may have stopped paying', not_enough_history: 'not enough history', not_held: 'sold' };
 
-// Received (or earned) month by month, presumed receipts shaded apart, and
-// the next twelve months expected in a lighter shade: one bar a month, each
-// named for a screen reader by its month and figures.
-function ByMonth({ input, money }) {
-  const [view, setView] = useState('received');
-  const { months, years, leftOut } = dividendsByMonth(input, view);
-  const peak = Math.max(1, ...months.map((m) => m.actualAed + m.presumedAed + m.expectedAed));
-  const W = months.length * 10;
-  const H = 120;
-  const height = (v) => (v / peak) * H;
+// Each holding with dividends found, grouped by market (design/prototype
+// byHoldingCard), the group row giving what is withheld there and the
+// market's received and expected; a row opens the holding on its dividends.
+// The rest are folded with why they have none to show.
+function ByHolding({ input, money, openHolding }) {
+  const { groups, none, failing, notChecked } = dividendsByMarket(input);
+  const rest = [
+    ...none.holdings.map((h) => ({ h, why: none.since ? `No dividends found since ${shortDate(none.since)}` : 'No dividends found' })),
+    ...failing.map((h) => ({ h, why: 'Checks failing' })),
+    ...notChecked.map((h) => ({ h, why: 'Not checked yet' })),
+  ];
   return (
-    <section className="dv-section" aria-labelledby="dv-months">
-      <div className="dv-head">
-        <h3 className="ov-kicker dv-title" id="dv-months">
-          By month
-        </h3>
-        <div className="dv-switch" role="group" aria-label="Show">
-          {['received', 'earned'].map((v) => (
-            <button key={v} type="button" className="om-seg" data-active={view === v} aria-pressed={view === v} onClick={() => setView(v)}>
-              {v === 'received' ? 'Received' : 'Earned'}
-            </button>
-          ))}
+    <Card title="By holding" flush>
+      {groups.length === 0 ? (
+        <EmptyState title="No dividends found yet" body="The feed checks each night; a holding appears here once it has paid." />
+      ) : (
+        <div className="ds-table-wrap">
+          <table className="ds-table dv-table">
+            <thead>
+              <tr>
+                <th scope="col">Holding</th>
+                <th scope="col">Sector</th>
+                <th scope="col">Rhythm</th>
+                <th scope="col" className="ds-num">
+                  Last
+                </th>
+                <th scope="col" className="ds-num">
+                  Received
+                </th>
+                <th scope="col" className="ds-num">
+                  Expected
+                </th>
+                <th scope="col" className="ds-num">
+                  <span className="dv-th">
+                    Yield
+                    <InfoButton about="Yield">{"Expected over the next 12 months, as a share of today's value."}</InfoButton>
+                  </span>
+                </th>
+                <th scope="col" className="ds-num">
+                  On cost
+                </th>
+                <th scope="col" className="ds-num">
+                  Next
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {groups.map((g) => (
+                <MarketRows key={g.market} group={g} money={money} openHolding={openHolding} />
+              ))}
+            </tbody>
+          </table>
         </div>
-      </div>
-      <svg className="dv-chart" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={`Dividends ${view} by month, and expected`}>
-        {months.map((m, i) => {
-          const parts = [`${aed(money, m.actualAed)} ${view}`];
-          if (m.presumedAed > 0) parts.push(`${aed(money, m.presumedAed)} presumed`);
-          if (m.expectedAed > 0) parts.push(`${aed(money, m.expectedAed)} expected`);
-          const a = height(m.actualAed);
-          const p = height(m.presumedAed);
-          const e = height(m.expectedAed);
-          return (
-            // Each month its own small drawing, so its title names it.
-            <svg key={m.month} x={i * 10} y="0" width="10" height={H}>
-              <title>{`${monthLabel(m.month)}: ${parts.join(', ')}`}</title>
-              <rect x="1" y={H - a} width="8" height={a} className="dv-bar-actual" />
-              <rect x="1" y={H - a - p} width="8" height={p} className="dv-bar-presumed" />
-              <rect x="1" y={H - a - p - e} width="8" height={e} className="dv-bar-expected" />
-            </svg>
-          );
-        })}
-      </svg>
-      <div className="dv-axis ov-muted">
-        <span>{monthLabel(months[0].month)}</span>
-        <span>{monthLabel(months.at(-1).month)}</span>
-      </div>
-      <p className="ov-muted dv-sub">{`Total ${years.map((y) => `${y.year}: ${aed(money, y.aed)}`).join(' · ')}`}</p>
-      {view === 'earned' && leftOut > 0 && (
-        <p className="ov-muted dv-sub">{leftOut === 1 ? "1 receipt with no ex-date isn't shown." : `${leftOut} receipts with no ex-date aren't shown.`}</p>
       )}
-    </section>
+      {rest.length > 0 && (
+        <Fold label="Not paying or not checked" count={rest.length}>
+          <ul className="dv-rows">
+            {rest.map(({ h, why }) => (
+              <li key={h.id}>
+                <button type="button" className="dv-row dv-restbutton" onClick={() => openHolding(h.id)}>
+                  <span className="dv-name">{h.name}</span>
+                  <span className="dv-ink3">{why}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </Fold>
+      )}
+    </Card>
   );
 }
 
-// Each holding with dividends found, most expected first; opening one shows
-// its dividends, to record, fix or skip. The rest are folded by why they
-// have none to show.
-function ByHolding({ input, data, money }) {
-  const [opened, setOpened] = useState(null);
-  const { rows, none, failing, notChecked } = dividendsByHolding(input);
-  const names = (holdings) => holdings.map((h) => h.name).join(', ');
+function MarketRows({ group, money, openHolding }) {
   return (
-    <section className="dv-section" aria-labelledby="dv-holdings">
-      <h3 className="ov-kicker dv-title" id="dv-holdings">
-        By holding
-      </h3>
-      <ul className="ht-list">
-        {rows.map((r) => {
-          const h = r.holding;
-          const next = r.next?.day ? shortDate(r.next.day) : r.next?.month ? monthLabel(r.next.month) : null;
-          const parts = [
-            r.noOpening ? "no opening entry, so its dividends aren't recorded" : null,
-            r.lastOrdinaryPerShare !== null ? `last ${h.currency} ${formatPerShare(r.lastOrdinaryPerShare)} a share` : null,
-            `${aed(money, r.receivedAed)} received`,
-            // Not projected (too new, stopped, sold) is said by its status, not as a zero.
-            r.projected || r.expectedAed > 0 ? `${aed(money, r.expectedAed)} expected` : null,
-            r.yields.onValue !== null ? `${formatPct(r.yields.onValue, { decimals: 1 })} on value` : null,
-            r.yields.onCost !== null ? `${formatPct(r.yields.onCost, { decimals: 1 })} on cost` : null,
-            next ? `next ${next}` : null,
-          ].filter(Boolean);
-          const frequency = [FREQUENCY[r.frequency?.kind] ?? null, STATUS[r.status] ?? null].filter(Boolean).join(', ');
-          return (
-            <li key={h.id} className="ht-row hd-row">
-              <button type="button" className="dv-rowbutton" aria-expanded={opened === h.id} onClick={() => setOpened(opened === h.id ? null : h.id)}>
-                <span className="mn-row-main">
-                  <span className="dv-name">{`${h.name}${frequency ? ` · ${frequency}` : ''}`}</span>
-                  <span className="ov-muted dv-detail">{parts.join(' · ')}</span>
-                </span>
+    <>
+      <tr className="dv-group">
+        <td colSpan={4}>{`${MARKET_NAMES[group.market]}${group.withholdingPct !== null ? ` · ${group.withholdingPct}% withheld` : ''}`}</td>
+        <td className="ds-num">{aed(money, group.receivedAed)}</td>
+        <td className="ds-num">{aed(money, group.expectedAed)}</td>
+        <td colSpan={3} />
+      </tr>
+      {/* Nothing is earned before a holding's opening entry, which only the
+          household's history can give it. */}
+      {group.noOpening && (
+        <tr className="dv-warnrow">
+          <td colSpan={9}>
+            <WarningRow>{`${MARKET_ADJECTIVES[group.market]} dividends aren't recorded until ${A_MARKET_HOLDING[group.market]} has an opening entry.`}</WarningRow>
+          </td>
+        </tr>
+      )}
+      {group.rows.map((r) => {
+        const h = r.holding;
+        const next = r.next?.day ? shortDate(r.next.day) : r.next?.month ? monthLabel(r.next.month) : '—';
+        const rhythm = [FREQUENCY[r.frequency?.kind] ?? null, STATUS[r.status] ?? null].filter(Boolean).join(', ') || '—';
+        // Not projected (too new, stopped, sold) is said by its rhythm, not as a zero.
+        const expected = r.projected || r.expectedAed > 0;
+        return (
+          <tr key={h.id} className="dv-holdrow" data-open onClick={(e) => !e.target.closest('button') && openHolding(h.id)}>
+            <td>
+              <button type="button" className="dv-holdname" onClick={() => openHolding(h.id)}>
+                {h.name}
               </button>
-              {opened === h.id && (
-                <HoldingDividends holding={h} dividends={data.holdingDividends} specialParts={data.dividendSpecialParts} accounts={input.accounts} onChanged={data.reload} />
-              )}
-            </li>
-          );
-        })}
-      </ul>
-      {none.holdings.length > 0 && (
-        <details className="dv-fold">
-          <summary>{none.since ? `No dividends found since ${shortDate(none.since)}` : 'No dividends found'}</summary>
-          <p className="ov-muted dv-sub">{names(none.holdings)}</p>
-        </details>
-      )}
-      {failing.length > 0 && (
-        <details className="dv-fold">
-          <summary>Checks failing</summary>
-          <p className="ov-muted dv-sub">{names(failing)}</p>
-        </details>
-      )}
-      {notChecked.length > 0 && (
-        <details className="dv-fold">
-          <summary>Not checked yet</summary>
-          <p className="ov-muted dv-sub">{names(notChecked)}</p>
-        </details>
-      )}
-    </section>
-  );
-}
-
-// Where the next twelve months come from: each market with what is withheld
-// there, and each sector, as short bars.
-function Sources({ input, money }) {
-  const { markets, sectors } = dividendSources(input);
-  const headline = dividendHeadline(input);
-  if (markets.length === 0) return null;
-  const total = Math.max(1, ...markets.map((m) => m.expectedAed));
-  const sectorTotal = Math.max(1, ...sectors.map((x) => x.expectedAed));
-  const bar = (value, of) => <span className="dv-bar" style={{ width: `${Math.max(2, (value / of) * 100)}%` }} aria-hidden="true" />;
-  return (
-    <section className="dv-section" aria-labelledby="dv-sources">
-      <h3 className="ov-kicker dv-title" id="dv-sources">
-        Where it comes from
-      </h3>
-      <ul className="dv-bars">
-        {markets.map((m) => (
-          <li key={m.market}>
-            <span>{`${MARKET_NAMES[m.market]} · ${aed(money, m.expectedAed)}${m.withholdingPct !== null ? ` · ${m.withholdingPct}% withheld` : ''}`}</span>
-            {bar(m.expectedAed, total)}
-          </li>
-        ))}
-      </ul>
-      <ul className="dv-bars">
-        {sectors.map((x) => (
-          <li key={x.sector}>
-            <span>{`${x.sector === 'unknown' ? 'Unknown' : (SECTOR_LABELS[x.sector] ?? x.sector)} · ${aed(money, x.expectedAed)}`}</span>
-            {bar(x.expectedAed, sectorTotal)}
-          </li>
-        ))}
-      </ul>
-      <Coverage headline={headline} />
-    </section>
-  );
-}
-
-const checkedAt = (ts) => new Date(ts).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-
-// When each market was last checked, what is failing, and what the figures
-// here do not claim.
-function Freshness({ input }) {
-  const markets = feedFreshness(input);
-  return (
-    <section className="dv-section" aria-labelledby="dv-fresh">
-      <h3 className="ov-kicker dv-title" id="dv-fresh">
-        How fresh this is
-      </h3>
-      <ul className="dv-markets">
-        {markets.map((m) => (
-          <li key={m.market}>
-            {`${MARKET_NAMES[m.market]}: ${m.lastSuccessAt ? `checked ${checkedAt(m.lastSuccessAt)}` : 'not checked yet'}${m.coveredFrom ? ` · history from ${shortDate(m.coveredFrom)}` : ''}`}
-          </li>
-        ))}
-        {markets.flatMap((m) =>
-          m.failing.map((f) => (
-            <li key={`${m.market}-${f.symbol}`} className="ov-warn">
-              {`Checks failing for ${f.symbol} since ${f.since ? shortDate(f.since.slice(0, 10)) : 'it was added'}`}
-            </li>
-          )),
-        )}
-      </ul>
-      <ul className="dv-notes ov-muted">
-        <li>{"Dividends from before a holding's opening entry aren't counted: the units held then are unknown."}</li>
-        <li>{"Expected figures are a projection at today's units and exchange rates."}</li>
-        <li>{"Dividends earned but not yet received aren't in net worth."}</li>
-        <li>The Life plan already counts dividends in its return, so this tab is cash flow, not a second return.</li>
-      </ul>
-    </section>
+              {r.noOpening && <div className="dv-ink3 dv-small">no opening entry, so its dividends aren&rsquo;t recorded</div>}
+            </td>
+            <td className="dv-ink2">{h.sector ? (SECTOR_LABELS[h.sector] ?? h.sector) : '—'}</td>
+            <td className="dv-ink2">{rhythm}</td>
+            <td className="ds-num">{r.lastOrdinaryPerShare !== null ? `${h.currency} ${formatPerShare(r.lastOrdinaryPerShare)}` : '—'}</td>
+            <td className="ds-num">{money.fmt(r.receivedAed)}</td>
+            <td className="ds-num">{expected ? money.fmt(r.expectedAed) : '—'}</td>
+            <td className="ds-num">{r.yields.onValue !== null ? formatPct(r.yields.onValue, { decimals: 1 }) : '—'}</td>
+            <td className="ds-num">{r.yields.onCost !== null ? formatPct(r.yields.onCost, { decimals: 1 }) : '—'}</td>
+            <td className="ds-num dv-next">{next}</td>
+          </tr>
+        );
+      })}
+    </>
   );
 }

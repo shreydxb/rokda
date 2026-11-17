@@ -1,16 +1,19 @@
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCloseGuard } from '../../lib/useCloseGuard';
+import DiscardPrompt from '../DiscardPrompt';
 import { supabase } from '../../lib/supabaseClient';
 import { householdToday } from '../../lib/day';
 import { formatMoney } from '../../lib/money';
 import { couldntLoad, neverLoaded } from '../../lib/loadState';
 import { shortDate } from '../../lib/dividends';
 import { dividendsInYear, financialYearOf, taxRefusalMessage, taxYearLabel, taxYears } from '../../lib/dividendTax';
-import { checkWords, eventLine, returnLines, shareLines, stageWords, unassignedWords } from '../../lib/dividendTaxText';
+import { checkWords, eventLine, returnLines, shareLines, stageWords, taxYearCells, unassignedWords } from '../../lib/dividendTaxText';
+import { Avatar, Card, Chip, Drawer, EmptyState, InfoButton } from '../../design-system/kit';
 import TaxReturnForm from './TaxReturnForm';
 import TaxEventForm from './TaxEventForm';
 
-// What the section reads; one that never loaded is said, and the rest of the
-// tab goes on without it.
+// What the view reads; one that never loaded is said, and Income goes on
+// without it.
 const TAX_SOURCES = ['taxReturns', 'taxReturnEvents', 'taxStatements', 'taxStatementLines'];
 const fmt = (n) => `INR ${formatMoney(n, { decimals: 2 })}`;
 const paise = (n) => Math.round(Number(n) * 100);
@@ -21,23 +24,46 @@ const BASES = [
   ['household', 'Our own reading'],
 ];
 
-// The year's dividends and tax withheld, the presumed part beside.
+// The year's dividends and tax withheld, the presumed part beside, under
+// the drawer's "Dividends".
 function dividendWords(year) {
   const { confirmed, presumed } = year.rokda;
-  if (confirmed.count + presumed.count === 0) return 'no Indian dividends recorded';
+  if (confirmed.count + presumed.count === 0) return 'None recorded';
   const gross = (paise(confirmed.gross) + paise(presumed.gross)) / 100;
   const tax = (paise(confirmed.tax) + paise(presumed.tax)) / 100;
-  let words = `dividends ${fmt(gross)}, tax withheld ${fmt(tax)}`;
+  let words = `${fmt(gross)}, tax withheld ${fmt(tax)}`;
   if (presumed.count) words += ` (${fmt(presumed.tax)} of it presumed)`;
   return year.provisional ? `${words}, provisional` : words;
 }
 
-// Wealth → Dividends → Tax years (dividend tax years, spec section 6): each
-// member's Indian dividends by tax year, in rupees, checked against the AIS
-// and Form 26AS, with the return and what became of its refund. The figures
-// come from src/lib/dividendTax.js, the words from dividendTaxText.js.
+// Wealth -> Dividends -> Tax years (dividend tax years, spec section 6; the
+// revamp, phase 5c, design/prototype taxView): each member's Indian
+// dividends by tax year, in rupees, checked against the AIS and Form 26AS,
+// one row a year in a table. A year opens in the kit's drawer, which holds
+// everything the app shows of it (decision 3): where it stands, each share
+// against both statements with its dividends and their tax years, the
+// return, and what became of its refund. The figures come from
+// src/lib/dividendTax.js, the words from dividendTaxText.js.
 export default function TaxYears({ members, scopeMemberId, data }) {
-  const [opened, setOpened] = useState(null);
+  const [openKey, setOpenKey] = useState(null);
+  // The forms open in the year's drawer (the return, a refund record, a
+  // dividend's tax year): unsaved work, so closing the drawer asks first,
+  // as an editor's does (the fresh review of 5c).
+  const [forms, setForms] = useState(() => new Set());
+  const onFormOpen = useCallback((key, isOpen) => {
+    setForms((prev) => {
+      if (prev.has(key) === isOpen) return prev;
+      const next = new Set(prev);
+      if (isOpen) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  }, []);
+  const closeYear = () => {
+    setOpenKey(null);
+    setForms(new Set());
+  };
+  const { confirmingClose, requestClose, keepEditing, escapeKey } = useCloseGuard({ dirty: forms.size > 0, onClose: closeYear, listen: false });
   const missing = neverLoaded(data, TAX_SOURCES);
   const { years, unassigned } = useMemo(
     () => taxYears({
@@ -47,49 +73,129 @@ export default function TaxYears({ members, scopeMemberId, data }) {
     [data.holdings, data.holdingDividends, data.taxStatements, data.taxStatementLines, data.taxReturns, data.taxReturnEvents],
   );
   const shown = scopeMemberId ? years.filter((y) => y.memberId === scopeMemberId) : years;
-  if (!missing.length && shown.length === 0 && unassigned.length === 0) return null;
-  const nameOf = (id) => members.find((m) => m.id === id)?.display_name ?? 'A member';
+  const at = (id) => members.findIndex((m) => m.id === id);
+  const nameOf = (id) => members[at(id)]?.display_name ?? 'A member';
   const shared = unassignedWords(unassigned);
+  const keyOf = (y) => `${y.memberId}-${y.year}`;
+  const opened = openKey ? shown.find((y) => keyOf(y) === openKey) : null;
 
-  return (
-    <section className="dv-section" aria-labelledby="dv-tax">
-      <h3 className="ov-kicker dv-title" id="dv-tax">
-        Tax years
-      </h3>
-      {missing.length ? (
+  if (missing.length) {
+    return (
+      <Card>
         <p className="ov-warn dv-note" role="alert">
           {couldntLoad(missing)} Refresh the page to try again.
         </p>
-      ) : (
-        <>
-          <p className="ov-muted dv-note">Indian dividends by tax year, checked against the AIS (income) and Form 26AS (tax credit). In rupees.</p>
-          <ul className="ht-list">
-            {shown.map((y) => {
-              const key = `${y.memberId}-${y.year}`;
-              const isOpen = opened === key;
-              return (
-                <li key={key} className="ht-row hd-row">
-                  <button type="button" className="dv-rowbutton" aria-expanded={isOpen} onClick={() => setOpened(isOpen ? null : key)}>
-                    <span className="mn-row-main">
-                      <span className="dv-name">{scopeMemberId ? y.label : `${y.label} · ${nameOf(y.memberId)}`}</span>
-                      <span className="ov-muted dv-detail">{[dividendWords(y), checkWords(y), stageWords(y, fmt)].join(' · ')}</span>
-                    </span>
-                  </button>
-                  {isOpen && <YearDetail year={y} data={data} />}
-                </li>
-              );
-            })}
-          </ul>
-          {shared && <p className="ov-muted dv-note dv-gap">{shared}</p>}
-          <p className="ov-muted dv-note">{"A holding's dividends count for its owner today: changing its owner moves them."}</p>
-        </>
+      </Card>
+    );
+  }
+  if (shown.length === 0 && !shared) {
+    return (
+      <Card>
+        <EmptyState title="No tax years in this view" body="Indian dividends appear here by tax year once an Indian share pays." />
+      </Card>
+    );
+  }
+  return (
+    <>
+      <Card
+        title="Indian dividends by tax year"
+        info={<InfoButton about="Indian dividends by tax year">Checked against the AIS (income) and Form 26AS (tax credit). In rupees.</InfoButton>}
+        flush
+      >
+        {shown.length > 0 && (
+          <div className="ds-table-wrap">
+            <table className="ds-table tx-table">
+              <thead>
+                <tr>
+                  <th scope="col">Tax year</th>
+                  <th scope="col">Member</th>
+                  <th scope="col" className="ds-num">
+                    Dividends
+                  </th>
+                  <th scope="col" className="ds-num">
+                    Tax withheld
+                  </th>
+                  <th scope="col">Against AIS and 26AS</th>
+                  <th scope="col">Return</th>
+                  <th scope="col">Refund</th>
+                </tr>
+              </thead>
+              <tbody>
+                {shown.map((y) => {
+                  const c = taxYearCells(y, fmt);
+                  const name = nameOf(y.memberId);
+                  return (
+                    <tr key={keyOf(y)} className="tx-row" data-open onClick={(e) => !e.target.closest('button') && setOpenKey(keyOf(y))}>
+                      <td>
+                        <span className="tx-year">
+                          {/* The row opens on a click; its year is the button
+                              that opens it from the keyboard. */}
+                          <button type="button" className="tx-open" onClick={() => setOpenKey(keyOf(y))}>
+                            {y.label}
+                          </button>
+                          {y.provisional && <Chip>Provisional</Chip>}
+                        </span>
+                      </td>
+                      <td>
+                        <span className="tx-member">
+                          <Avatar name={name} initial={name.slice(0, 1).toUpperCase()} tone={at(y.memberId) === 0 ? 'a' : 'b'} />
+                          {name}
+                        </span>
+                      </td>
+                      <td className="ds-num">{c.dividends ?? '—'}</td>
+                      <td className="ds-num">{c.tax ?? '—'}</td>
+                      <td>
+                        <Chip tone={c.check.tone}>{c.check.label}</Chip>
+                      </td>
+                      <td className="tx-ink2">{c.ret}</td>
+                      <td className="tx-ink2">{c.refund ?? '—'}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <div className="tx-notes">
+          {shared && <p className="dv-note tx-ink3">{shared}</p>}
+          <p className="dv-note tx-ink3">{"A holding's dividends count for its owner today: changing its owner moves them."}</p>
+        </div>
+      </Card>
+      {opened && (
+        <Drawer
+          kicker={`Tax year · ${nameOf(opened.memberId)}`}
+          title={opened.label}
+          wide
+          onClose={requestClose}
+          onEscape={escapeKey}
+          footer={
+            confirmingClose ? (
+              <DiscardPrompt onDiscard={closeYear} onKeepEditing={keepEditing} />
+            ) : (
+              <button type="button" className="ds-btn" onClick={requestClose}>
+                Close
+              </button>
+            )
+          }
+        >
+          <dl className="tx-kv">
+            <dt>Dividends</dt>
+            <dd>{dividendWords(opened)}</dd>
+            <dt>Against AIS and 26AS</dt>
+            <dd>{checkWords(opened)}</dd>
+            <dt>Where it stands</dt>
+            <dd>{stageWords(opened, fmt)}</dd>
+          </dl>
+          <YearDetail key={keyOf(opened)} year={opened} data={data} onFormOpen={onFormOpen} />
+        </Drawer>
       )}
-    </section>
+    </>
   );
 }
 
-function YearDetail({ year, data }) {
+function YearDetail({ year, data, onFormOpen }) {
   const [editing, setEditing] = useState(null);
+  useFormReport(onFormOpen, 'year', editing !== null);
   const [removing, setRemoving] = useState(null);
   const [refusal, setRefusal] = useState(null);
   // Focus goes back where it came from: to the button that opened a form,
@@ -148,7 +254,7 @@ function YearDetail({ year, data }) {
                       <summary>{`Dividends (${own.length})`}</summary>
                       <ul className="ht-list">
                         {own.map((d) => (
-                          <DividendYearRow key={d.id} dividend={d} onSaved={data.reload} />
+                          <DividendYearRow key={d.id} dividend={d} onSaved={data.reload} onFormOpen={onFormOpen} />
                         ))}
                       </ul>
                     </details>
@@ -255,11 +361,12 @@ function YearDetail({ year, data }) {
 
 // One dividend counted in the year, and where its year can be set: a final
 // dividend declared in March and paid in April belongs to the March year.
-function DividendYearRow({ dividend, onSaved }) {
+function DividendYearRow({ dividend, onSaved, onFormOpen }) {
   const received = dividend.status === 'received';
   const creditYear = financialYearOf(dividend.credited_on);
   const latest = financialYearOf(householdToday());
   const [form, setForm] = useState(null);
+  useFormReport(onFormOpen, `dividend-${dividend.id}`, form !== null);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const buttonsRef = useRef({});
@@ -291,7 +398,16 @@ function DividendYearRow({ dividend, onSaved }) {
     <li className="ht-row hd-row">
       <div className="mn-row-main ov-muted dv-detail">{line}</div>
       {form ? (
-        <div className="ht-form">
+        // Escape steps back out of the form only, not the drawer around it.
+        <div
+          className="ht-form"
+          onKeyDown={(e) => {
+            if (e.key !== 'Escape') return;
+            e.preventDefault();
+            e.stopPropagation();
+            close();
+          }}
+        >
           <div className="te-fieldgrid">
             <div className="te-fieldcell">
               <label className="te-fieldlabel" htmlFor={`${dividend.id}-year`}>
@@ -357,6 +473,15 @@ function DividendYearRow({ dividend, onSaved }) {
       )}
     </li>
   );
+}
+
+// Tells the drawer whether a form of its is open, and that it isn't once it
+// is gone.
+function useFormReport(onFormOpen, key, isOpen) {
+  useEffect(() => {
+    onFormOpen?.(key, isOpen);
+  }, [onFormOpen, key, isOpen]);
+  useEffect(() => () => onFormOpen?.(key, false), [onFormOpen, key]);
 }
 
 // Moves focus, after the next render, to the control named in the returned

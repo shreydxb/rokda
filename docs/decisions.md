@@ -4240,3 +4240,65 @@ The revamp's phase 5b (design note `docs/superpowers/specs/2026-11-16-wealth-des
     the holding.
   - **The page keeps to a phone's screen** (two columns of figures, the
     ranges under the chart's title), though phones aren't planned for.
+
+## Wealth: Dividends like the prototype
+
+The revamp's phase 5c (design note `docs/superpowers/specs/2026-11-16-wealth-design.md`).
+
+- **Income and Tax years are two views**, in the page header beside the
+  Feed chip, kept on the page as Net worth's By type / By owner is: nothing
+  links to Tax years from elsewhere, and `view` in the address is a drawer's
+  tab.
+- **By month covers the last twelve months and the next twelve**
+  (decision 2), as the strip's "12 months"; older months stay in Activity.
+  Its readout gives this year so far and next year's expected, which names
+  the months it holds ("2027 expected (Jan–Nov)") because the twelve
+  months ahead reach December only in December.
+- **Expected's change on the last twelve months** is shown only once the
+  record covers all twelve: a shorter record would read as growth that is
+  only the record starting. "A month" is Expected over twelve, as before.
+- **"Where it comes from" and "How fresh this is" go** (design note): the
+  market grouping says where the money comes from and what is withheld
+  there; the Feed chip says how fresh it is; what the figures leave out and
+  where each market is counted from sit behind Received's (i). The
+  sector split of the year ahead goes with them; each share's sector is
+  in its row.
+- **A market with no opening entry is a warning row without an action.**
+  The design note asked for "Add opening trade", but the app can't create
+  an opening entry: a holding's history is started for a member outside the
+  app (`open_trade_history`), so the row says what is missing.
+- **Coming up's "⋯" holds Fix and Skip** for an earned dividend, opening
+  the form in place; the rarer answers (Keep as it is, It's this one, a
+  one-off part) are in the holding's Dividends tab, which Needs you and By
+  holding open, rather than a second copy of every action.
+- **A row opens the holding on its dividends**, through the holding's
+  address, where the old tab unfolded the holding's dividends under its
+  row; a flagged dividend's Review and a split's "Record the split" go to
+  the holding too.
+- **Tax years are one table**, its cells short ("Agrees", "Filed 20 Jul",
+  "… credited 5 Oct"); a year's drawer holds everything the old unfolded
+  row did (decision 3), with the year in full words above it.
+- **Dates read "Sep"** in the dividend views, as everywhere else; en-GB's own
+  short month is "Sept". The kit gains a month bars chart, and a Popover can
+  be named apart from its label (a "⋯", a chip).
+- **The fresh review of 5c** changed these:
+  - **A form open in a tax year's drawer is unsaved work**: closing the
+    drawer (×, a click outside, Close, Escape) asks first, and Escape inside
+    a form steps back out of the form only. Before, Escape in the return's
+    form closed the whole year, and Close dropped what was typed.
+  - **Expected is set against the last twelve months only once every
+    market's record covers them**, and every figure is counted; while one
+    market's record is shorter, the strip says where it is counted from, in
+    view. The first cut checked only the earliest market's, and showed
+    "+236%" that was a US record starting.
+  - **The readout's year ahead is whichever holds more of the twelve
+    months**: next year from about midsummer, the rest of this one before
+    ("2027 still expected (Feb–Dec)" in January, not "2028 (Jan–Jan)").
+  - **A market's "no opening entry" row** follows the strip's rule: shown
+    only when the market has no record at all, not beside its own imported
+    receipts.
+  - **The Feed chip's pop-over gives each market's history**, as "How fresh
+    this is" did, its times in the household's time zone and "Sep".
+  - **Coming up keeps the year** on a date in another year, so last
+    December's dividend, not yet recorded, isn't read as months away.
+  - **Tax years stay a view away** when a source Income needs didn't load.

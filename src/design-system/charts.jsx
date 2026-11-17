@@ -119,6 +119,66 @@ export function PairedColumns({ groups, height = 150, formatTick = String, activ
   );
 }
 
+// A bar a month (the revamp, phase 5c; design/prototype charts.bars): what
+// came in solid, a part presumed paler on top of it, and what is expected
+// outlined above that; a line after the month marked `today`. The kit's
+// hover, touch and arrow keys pick a month, and the screen reads it out.
+export function MonthBars({ months, height = 160, formatTick = String, activeIndex = null, onActiveChange = () => {}, ariaLabel }) {
+  const [ref, width] = useChartWidth();
+  const count = months.length;
+  const plotW = Math.max(40, width - AXIS_W - PAD_RIGHT);
+  const band = plotW / Math.max(1, count);
+  const barW = Math.min(22, Math.max(3, band * 0.6));
+  const part = (v) => (finite(v) && v > 0 ? v : 0);
+  const totals = months.map((m) => part(m.solid) + part(m.pale) + part(m.outline));
+  const scaleOf = niceTicks(0, Math.max(0, ...totals));
+  const { min, max } = scaleOf;
+  // Nothing in any month is one zero line, not an axis of rounded nothings.
+  const ticks = Math.max(0, ...totals) > 0 ? scaleOf.ticks : [0];
+  const scale = yScale(min, max, height);
+  const y = (v) => PAD_TOP + scale(v);
+  const left = (i) => AXIS_W + band * i + (band - barW) / 2;
+  const seg = (cls, i, from, v) =>
+    v > 0 ? <rect className={cls} x={left(i)} y={y(from + v)} width={barW} height={Math.max(1, y(from) - y(from + v))} rx={2} /> : null;
+  const todayAt = months.findIndex((m) => m.today);
+  return (
+    <div
+      ref={ref}
+      className="ch ds-mbars"
+      role="group"
+      aria-roledescription="chart"
+      aria-label={ariaLabel}
+      tabIndex={0}
+      onKeyDown={(e) => handleKey(e, activeIndex, count, onActiveChange)}
+    >
+      <svg width={width} height={PAD_TOP + height + X_AXIS_H} aria-hidden="true">
+        <Axis ticks={ticks} y={y} width={width} formatTick={formatTick} />
+        {activeIndex !== null && <rect className="ch-band" x={AXIS_W + band * activeIndex} y={PAD_TOP} width={band} height={height} />}
+        {todayAt >= 0 && <line className="ds-mb-today" x1={AXIS_W + band * (todayAt + 1)} x2={AXIS_W + band * (todayAt + 1)} y1={PAD_TOP} y2={PAD_TOP + height} />}
+        {months.map((m, i) => {
+          const solid = part(m.solid);
+          const pale = part(m.pale);
+          return (
+            <g key={m.key}>
+              {seg('ds-mb-solid', i, 0, solid)}
+              {seg('ds-mb-pale', i, solid, pale)}
+              {seg('ds-mb-outline', i, solid + pale, part(m.outline))}
+            </g>
+          );
+        })}
+        {months.map((m, i) =>
+          m.label ? (
+            <text key={m.key} className={`ch-tick ${i === activeIndex || m.today ? 'ch-tick-active' : ''}`} x={AXIS_W + band * (i + 0.5)} y={PAD_TOP + height + 15} textAnchor="middle">
+              {m.label}
+            </text>
+          ) : null,
+        )}
+        <rect className="ch-hit" x={AXIS_W} y={0} width={plotW} height={PAD_TOP + height + X_AXIS_H} {...pointerHandlers(count, onActiveChange)} />
+      </svg>
+    </div>
+  );
+}
+
 // A dated strip from today: one mark per bill or pay day on its day, larger
 // for a larger amount, coloured by status (late, not confirmed, income).
 // Each mark names itself on hover; the rows under the strip say the same in

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  buildDividendInput, comingUp, dividendDestination, dividendHeadline, dividendSources, dividendsByHolding, dividendsByMonth, feedFreshness, needsYou,
-  spendingEquivalent,
+  buildDividendInput, comingUp, dividendDestination, dividendHeadline, dividendSources, dividendsByHolding, dividendsByMarket, dividendsByMonth, feedFreshness,
+  feedStamp, needsYou, spendingEquivalent,
 } from './dividendSummary';
 
 const TODAY = '2026-11-03';
@@ -62,6 +62,23 @@ describe('the headline', () => {
     expect(h.expected.monthlyAed).toBeCloseTo(27.82, 2);
   });
 
+  // The revamp, phase 5c (design note: "+{n}% on the last 12"): the next
+  // twelve months against the last, once the record covers all twelve.
+  // The fresh review of 5c: every market's record must cover the twelve
+  // months, or the change is one market's record starting.
+  it('sets the year ahead against the last twelve months, once every market covers them', () => {
+    const covered = [{ holding_id: 'h-us', kind: 'opening', trade_date: '2025-06-01' }, { holding_id: 'h-in', kind: 'opening', trade_date: '2025-06-01' }];
+    expect(dividendHeadline(input({ trades: covered })).expected.changeOnLast12).toBeCloseTo(1, 3);
+    // US opened in September: India covers the twelve months, the US doesn't.
+    expect(dividendHeadline(input()).expected.changeOnLast12).toBeNull();
+    // US-only, the record starts in September: the last twelve months aren't all there.
+    expect(dividendHeadline(input({ holdings: [US] })).expected.changeOnLast12).toBeNull();
+    // Nothing received, nothing to set it against.
+    expect(dividendHeadline(input({ trades: covered, dividends: [] })).expected.changeOnLast12).toBeNull();
+    // A figure left out for want of a rate would make the change a part's.
+    expect(dividendHeadline(input({ trades: covered, fx: { fxHistory: [], inrPerAed: null } })).expected.changeOnLast12).toBeNull();
+  });
+
   it('a rupee dividend with no rate is not counted, and the total says how many', () => {
     const h = dividendHeadline(input({ fx: { fxHistory: [], inrPerAed: null } }));
     expect(h.received.aed).toBeCloseTo(146.9, 2);
@@ -107,24 +124,41 @@ describe('by month', () => {
     expect(earned.leftOut).toBe(1);
   });
 
-  it("starts where the earliest record does, so months nobody tracked aren't shown as nothing received", () => {
-    // India's opening entry is September 2025, the earliest of the two markets.
+  // The revamp, phase 5c (decision 2): the last 12 months and the next 12,
+  // matching the strip's "12 months"; older months stay in Activity.
+  it("starts where the earliest record does, at most 12 months back, so months nobody tracked aren't shown as nothing received", () => {
+    // India's opening entry is September 2025, before the twelve months shown.
     const received = dividendsByMonth(input(), 'received');
-    expect(received.months[0].month).toBe('2025-09');
+    expect(received.months[0].month).toBe('2025-12');
+    expect(received.months).toHaveLength(24);
     expect(received.years.map((y) => y.year)).toEqual([2025, 2026]);
 
-    // A record from long ago still starts the chart only 24 months back.
-    const old = dividendsByMonth(input({ trades: [{ holding_id: 'h-in', kind: 'opening', trade_date: '2020-01-01' }] }), 'received');
-    expect(old.months[0].month).toBe('2024-12');
+    // A record that starts within the twelve months starts the chart there.
+    const recent = (day) => [{ holding_id: 'h-us', kind: 'opening', trade_date: day }, { holding_id: 'h-in', kind: 'opening', trade_date: day }];
+    expect(dividendsByMonth(input({ trades: recent('2026-03-01'), dividends: [] }), 'received').months[0].month).toBe('2026-03');
 
     // An imported receipt's ex-date before its credit date keeps its month in the Earned view.
-    const imported = row('d9', IN, { status: 'received', ex_date: '2025-06-20', credited_on: '2025-07-10', expected_net: 500, received_net: 500 });
-    const earned = dividendsByMonth(input({ dividends: [...DIVIDENDS, imported] }), 'earned');
-    expect(earned.months[0].month).toBe('2025-06');
+    const imported = row('d9', IN, { status: 'received', ex_date: '2026-02-20', credited_on: '2026-03-10', expected_net: 500, received_net: 500 });
+    const earned = dividendsByMonth(input({ trades: recent('2026-03-01'), dividends: [...DIVIDENDS, imported] }), 'earned');
+    expect(earned.months[0].month).toBe('2026-02');
     expect(earned.months[0].actualAed).toBeCloseTo(20, 2);
 
     // With nothing recorded at all, only this month and the year ahead.
     expect(dividendsByMonth(input({ trades: [], dividends: [] }), 'received').months[0].month).toBe('2026-11');
+  });
+
+  // The readout: this year so far, and what is expected of whichever year
+  // holds more of the twelve months ahead, named by the months it holds
+  // (the fresh review of 5c: in January, the rest of this year, not one month
+  // of the next).
+  it('gives this year so far, and what is expected of the year holding more of the twelve months ahead', () => {
+    const { thisYear, ahead } = dividendsByMonth(input(), 'received');
+    expect(thisYear).toEqual({ year: 2026, aed: expect.closeTo(166.9, 2) });
+    expect(ahead).toEqual({ year: 2027, part: 'next', from: '2027-01', to: '2027-11', aed: expect.closeTo(186.9, 2) });
+    const january = dividendsByMonth(input({ today: '2027-01-15' }), 'received').ahead;
+    expect(january).toMatchObject({ year: 2027, part: 'rest', from: '2027-02', to: '2027-12' });
+    expect(january.aed).toBeCloseTo(40, 2);
+    expect(dividendsByMonth(input({ today: '2026-12-10' }), 'received').ahead).toMatchObject({ year: 2027, part: 'next', from: '2027-01', to: '2027-12' });
   });
 });
 
@@ -288,6 +322,49 @@ describe('freshness', () => {
       { market: 'US', lastSuccessAt: '2026-11-02T01:30:00Z', coveredFrom: '2014-01-01', failing: [{ symbol: 'BROKEN', since: '2026-10-30T01:30:00Z' }], neverRun: false },
     ]);
     expect(feedFreshness(input()).map((m) => m.neverRun)).toEqual([true, true]);
+  });
+});
+
+// The Feed chip in the header (the revamp, phase 5c): when the feed last
+// checked, amber naming a symbol while one fails.
+describe('the feed stamp', () => {
+  it('gives the latest check across the markets, and the symbols failing', () => {
+    const feedStatus = [
+      { symbol: 'ABC', provider: 'alphavantage', kind: 'dividends', last_success_at: '2026-11-02T01:30:00Z', fail_count: 0, covered_from: '2012-01-01' },
+      { symbol: 'XYZ.NS', provider: 'yahoo', kind: 'dividends', last_success_at: '2026-11-03T01:30:00Z', fail_count: 2, covered_from: '2005-04-01' },
+    ];
+    expect(feedStamp(input({ feedStatus }))).toEqual({
+      checkedAt: '2026-11-03T01:30:00Z', neverRun: false,
+      // With how far back each market's history goes (the fresh review of 5c).
+      markets: [{ market: 'IN', checkedAt: '2026-11-03T01:30:00Z', coveredFrom: '2005-04-01' }, { market: 'US', checkedAt: '2026-11-02T01:30:00Z', coveredFrom: '2012-01-01' }],
+      failing: [{ market: 'IN', symbol: 'XYZ.NS', since: '2026-11-03T01:30:00Z' }],
+    });
+    expect(feedStamp(input())).toMatchObject({ checkedAt: null, neverRun: true, failing: [] });
+  });
+});
+
+// By holding grouped by market (the revamp, phase 5c; design/prototype
+// byHoldingCard): each market's withholding, received and expected, and
+// whether any of its holdings has an opening entry.
+describe('by market', () => {
+  it('groups the holdings with dividends by market, largest expected first, each with its figures', () => {
+    const payments = { ABC: [{ exDate: '2026-09-01', ordinary: 2, ordinaryToday: 2 }], 'XYZ.NS': [{ exDate: '2026-07-01', ordinary: 5, ordinaryToday: 5 }] };
+    const { groups } = dividendsByMarket(input({ payments }));
+    expect(groups.map((g) => [g.market, g.withholdingPct, g.rows.map((r) => r.holding.id), g.noOpening])).toEqual([
+      ['US', 28.6, ['h-us'], false],
+      ['IN', 20, ['h-in'], false],
+    ]);
+    expect(groups[0].receivedAed).toBeCloseTo(146.9, 2);
+    expect(groups[0].expectedAed).toBeCloseTo(293.8, 2);
+  });
+
+  it('says when no holding in a market has an opening entry and nothing was received there', () => {
+    const payments = { 'XYZ.NS': [{ exDate: '2026-07-01', ordinary: 5, ordinaryToday: 5 }] };
+    const usOnly = DIVIDENDS.filter((d) => d.holding_id === 'h-us');
+    expect(dividendsByMarket(input({ trades: [TRADES[0]], dividends: usOnly, payments })).groups.find((g) => g.market === 'IN').noOpening).toBe(true);
+    // Receipts imported before any opening entry: the market has a record,
+    // as the strip counts it (the fresh review of 5c).
+    expect(dividendsByMarket(input({ trades: [TRADES[0]], payments })).groups.find((g) => g.market === 'IN').noOpening).toBe(false);
   });
 });
 

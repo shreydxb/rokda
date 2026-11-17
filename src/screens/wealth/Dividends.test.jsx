@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, fireEvent, cleanup, within } from '@testing-library/react';
 import { act } from 'react';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { renderScreen } from '../../test/renderScreen';
 import { householdToday } from '../../lib/day';
 import { addDays } from '../../lib/dividendHistory';
-import { monthLabel, shortDate } from '../../lib/dividends';
+import { shortDate } from '../../lib/dividends';
 import { couldntLoad } from '../../lib/loadState';
 
 // The dividend functions, answered per name, every call recorded.
@@ -82,38 +83,80 @@ beforeEach(() => {
   cleanup();
 });
 
+function Where() {
+  const location = useLocation();
+  return <output data-testid="where">{location.pathname + location.search}</output>;
+}
+const where = () => screen.getByTestId('where').textContent;
+
 function open(d = data(), { loading = false } = {}) {
-  renderScreen(<Dividends household={HOUSEHOLD} members={MEMBERS} me={ME} data={d} loading={loading} />);
+  renderScreen(
+    <MemoryRouter initialEntries={['/wealth?tab=dividends']}>
+      <Where />
+      <Dividends household={HOUSEHOLD} members={MEMBERS} me={ME} data={d} loading={loading} />
+    </MemoryRouter>,
+  );
   return d;
 }
 const section = (name) => screen.getByRole('region', { name });
+const kpi = (label) => screen.getByText(label, { selector: 'dt' }).closest('.ds-kpi');
+const kpiLabels = () => [...document.querySelectorAll('.ds-kpi dt')].map((d) => d.textContent);
 
-describe('Dividends: the headline', () => {
-  it('says what came in, how much was presumed, what is expected, and against spending', () => {
+// Wealth -> Dividends as the prototype lays it out (the revamp, phase 5c;
+// design/prototype needsCard, divKpis, byMonthCard, comingCard,
+// byHoldingCard): Income, with Tax years a view away.
+
+describe('Dividends: the strip', () => {
+  it('says what came in and how much was presumed, what is expected, a month, and of spending', () => {
     open();
-    const head = section('Dividends at a glance');
-    expect(within(head).getByText('Received in the last 12 months')).toBeTruthy();
-    expect(within(head).getByText(/^of which AED \S+ presumed, not checked$/)).toBeTruthy();
-    expect(within(head).getByText('Expected in the next 12 months')).toBeTruthy();
-    expect(within(head).getByText(/^about AED \S+ a month$/)).toBeTruthy();
-    expect(within(head).getByText(/^Expected to equal [\d.]+% of recorded spending$/)).toBeTruthy();
-    expect(within(head).getByText(/^India: /)).toBeTruthy();
-    expect(within(head).getByText(/^US: /)).toBeTruthy();
-    expect(within(head).getByText(`Indian dividends are counted from ${shortDate(ago(430))}, US from ${shortDate(ago(60))}.`)).toBeTruthy();
+    expect(kpiLabels()).toEqual(['Received · 12 months', 'Expected · 12 months', 'A month', 'Of spending']);
+    expect(kpi('Received · 12 months').textContent).toMatch(/AED \S+ presumed/);
+    expect(kpi('A month').textContent).toMatch(/^A monthabout AED \S+$/);
+    expect(kpi('Of spending').textContent).toMatch(/[\d.]+%expected, of recorded spending/);
+  });
+
+  // What the figures leave out, and where each market's record starts, sit
+  // behind the Received (i) (they were "How fresh this is" and lines under
+  // the headline).
+  it('keeps what the figures leave out, and where each market is counted from, behind an (i)', () => {
+    open();
+    expect(screen.queryByText(/units held then are unknown/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'About Received' }));
+    expect(screen.getByText(/units held then are unknown/)).toBeTruthy();
+    expect(screen.getByText(new RegExp(`Indian dividends are counted from ${shortDate(ago(430))}, US from ${shortDate(ago(60))}\\.`))).toBeTruthy();
+  });
+
+  // The fresh review of 5c: while one market's record is shorter, nothing
+  // is set against the last twelve months, and the strip says where that
+  // market is counted from, in view.
+  it("sets expected against the last twelve months only once every market's record covers them", () => {
+    open();
+    expect(kpi('Expected · 12 months').textContent).not.toMatch(/on the last 12/);
+    expect(kpi('Received · 12 months').textContent).toContain(`US counted from ${shortDate(ago(60))}`);
+    cleanup();
+    const d = data();
+    open(data({ holdingTrades: [{ ...d.holdingTrades[0], trade_date: ago(430) }, d.holdingTrades[1]] }));
+    expect(kpi('Expected · 12 months').textContent).toMatch(/[+−]\d+(\.\d)?% on the last 12/);
+  });
+
+  it('a record shorter than twelve months says since when, and sets nothing against it', () => {
+    const d = data();
+    open(data({ holdings: [US], holdingDividends: d.holdingDividends.filter((x) => x.holding_id === 'h-us'), holdingTrades: [d.holdingTrades[0]] }));
+    expect(kpiLabels()[0]).toBe(`Received since ${shortDate(ago(60))}`);
+    expect(kpi('Expected · 12 months').textContent).not.toMatch(/on the last 12/);
   });
 });
 
 describe('Dividends: what is not recorded or projected', () => {
-  it("a market with no opening entry says it isn't recorded, and so does its holding", () => {
+  it("a market with no opening entry is a warning in By holding, and so is its holding's row", () => {
     const d = data();
     open(data({ holdingTrades: [d.holdingTrades[0]], holdingDividends: d.holdingDividends.filter((x) => x.holding_id === 'h-us') }));
-    const head = section('Dividends at a glance');
-    expect(within(head).getByText(/^India: nothing recorded, no opening entry · AED \S+ expected$/)).toBeTruthy();
-    expect(within(head).getByText("Indian dividends aren't recorded until an Indian holding has an opening entry.")).toBeTruthy();
-    expect(within(section('By holding')).getByText(/no opening entry, so its dividends aren't recorded/)).toBeTruthy();
+    const byHolding = section('By holding');
+    expect(within(byHolding).getByText("Indian dividends aren't recorded until an Indian holding has an opening entry.")).toBeTruthy();
+    expect(within(byHolding).getByRole('button', { name: 'XYZ' }).closest('tr').textContent).toMatch(/no opening entry/);
   });
 
-  it("a holding too new to project shows no zero, and the headline says one isn't projected", () => {
+  it("a holding too new to project shows no zero, and Expected says one isn't projected", () => {
     const NEW = { ...US, id: 'h-new', name: 'FRESH', price_symbol: 'FRESH' };
     const d = data();
     open(data({
@@ -122,29 +165,63 @@ describe('Dividends: what is not recorded or projected', () => {
       dividendEvents: [...d.dividendEvents, event('e-new', 'FRESH', ago(30), 1)],
       dividendFeedStatus: [...d.dividendFeedStatus, { symbol: 'FRESH', provider: 'alphavantage', kind: 'dividends', last_success_at: `${TODAY}T01:30:00Z`, fail_count: 0, covered_from: ago(60) }],
     }));
-    expect(within(section('Dividends at a glance')).getByText('1 holding not projected: see By holding.')).toBeTruthy();
-    const row = within(section('By holding')).getByText(/^FRESH · /).closest('button');
-    expect(row.textContent).not.toMatch(/expected|on value|on cost/);
+    expect(kpi('Expected · 12 months').textContent).toContain('1 holding not projected');
+    const row = within(section('By holding')).getByRole('button', { name: 'FRESH' }).closest('tr');
+    expect([...row.querySelectorAll('td')].slice(5, 8).map((td) => td.textContent)).toEqual(['—', '—', '—']);
+  });
+});
+
+describe('Dividends: needs you', () => {
+  it('is the one boxed card, only while something waits', () => {
+    open();
+    expect(section('Needs you').closest('.ds-card-action')).toBeTruthy();
+    cleanup();
+    const d = data();
+    open(data({ holdingDividends: d.holdingDividends.map((x) => ({ ...x, review_reason: null })), dividendEvents: d.dividendEvents.filter((e) => e.id !== 'e4') }));
+    expect(screen.queryByRole('region', { name: 'Needs you' })).toBeNull();
   });
 
-  it("a split the trades don't show says where to record it, with no Review that can't settle it", () => {
+  it('shows why a row is flagged, opening its holding to review it, and asks about a one-off', async () => {
+    const d = open();
+    const needs = section('Needs you');
+    expect(within(needs).getByText("The feed's amount per share has changed since this was recorded.")).toBeTruthy();
+    expect(within(needs).getByText(`ABC paid USD 5.00 a share on ${shortDate(ago(30))}, more than twice its usual. Was part of it a one-off?`)).toBeTruthy();
+    answers.set_special_part = { ok: true };
+    await act(async () => {
+      fireEvent.click(within(needs).getByRole('button', { name: 'Yes, part was a one-off' }));
+    });
+    expect(calls).toEqual([{ name: 'set_special_part', args: { p_event_id: 'e4', p_special_per_share: 4 } }]);
+    expect(d.reload).toHaveBeenCalled();
+    fireEvent.click(within(needs).getByRole('button', { name: 'Review' }));
+    expect(where()).toBe('/wealth?tab=dividends&holding=h-in&view=dividends');
+  });
+
+  it('a one-off answered "all ordinary" is recorded as no special part', async () => {
+    open();
+    answers.set_special_part = { ok: true };
+    await act(async () => {
+      fireEvent.click(within(section('Needs you')).getByRole('button', { name: 'No, all ordinary' }));
+    });
+    expect(calls).toEqual([{ name: 'set_special_part', args: { p_event_id: 'e4', p_special_per_share: 0 } }]);
+  });
+
+  it("a split the trades don't show opens the holding's trades, with no Review that can't settle it", () => {
     open(data({ dividendSplits: [{ symbol: 'ABC', effective_date: ago(20), ratio: 2 }] }));
-    const text = within(section('Needs you')).getByText(`ABC split 2 for 1 on ${shortDate(ago(20))}, but its trades don't show it.`);
-    const row = text.closest('li');
-    expect(within(row).getByText('Record the split in its trades, under Investments.')).toBeTruthy();
+    const row = within(section('Needs you')).getByText(`ABC split 2 for 1 on ${shortDate(ago(20))}, but its trades don't show it.`).closest('li');
     expect(within(row).queryByRole('button', { name: 'Review' })).toBeNull();
+    fireEvent.click(within(row).getByRole('button', { name: 'Record the split' }));
+    expect(where()).toBe('/wealth?tab=dividends&holding=h-us&view=trades');
   });
 });
 
 describe('Dividends: coming up', () => {
-  it('lists the declared dividend with its date, and an earned one into a fund can be recorded', async () => {
+  it('lists what is earned or declared with its date, and an earned one into a fund can be recorded', async () => {
     const d = open();
-    const coming = section('Coming up');
-    const rows = within(coming).getAllByRole('listitem');
+    const rows = within(section('Coming up')).getAllByRole('listitem');
     expect(rows[0].textContent).toContain('ABC');
     expect(rows[0].textContent).toContain('Earned');
     expect(rows[1].textContent).toContain('Declared');
-    expect(rows[1].textContent).toContain(shortDate(ahead(20)));
+    expect(rows[1].textContent).toContain(shortDate(ahead(20)).replace(/ \d{4}$/, ''));
     expect(rows[1].textContent).toContain('into Dollar broker funds');
     expect(within(rows[1]).queryByRole('button', { name: 'Record' })).toBeNull();
 
@@ -160,29 +237,102 @@ describe('Dividends: coming up', () => {
     expect(calls.at(-1)).toMatchObject({ name: 'save_dividend', args: { p_dividend_id: 'd5' } });
     expect(d.reload).toHaveBeenCalled();
   });
-});
 
-describe('Dividends: needs you', () => {
-  it('shows why a row is flagged, and asks about a one-off', async () => {
-    const d = open();
-    const needs = section('Needs you');
-    expect(within(needs).getByText("The feed's amount per share has changed since this was recorded.")).toBeTruthy();
-    expect(within(needs).getByText(`ABC paid USD 5.00 a share on ${shortDate(ago(30))}, more than twice its usual. Was part of it a one-off?`)).toBeTruthy();
-    answers.set_special_part = { ok: true };
-    await act(async () => {
-      fireEvent.click(within(needs).getByRole('button', { name: 'Yes, part was a one-off' }));
-    });
-    expect(calls).toEqual([{ name: 'set_special_part', args: { p_event_id: 'e4', p_special_per_share: 4 } }]);
-    expect(d.reload).toHaveBeenCalled();
+  // The fresh review of 5c: one still to be recorded from last year keeps its
+  // year, so it doesn't read as months away.
+  it('keeps the year on a date in another year', () => {
+    const d = data();
+    open(data({ holdingDividends: [...d.holdingDividends, div('d9', US, { status: 'earned', ex_date: ago(400), pay_date: ago(380), paid_into_account_id: 'f-usd' })] }));
+    const rows = within(section('Coming up')).getAllByRole('listitem');
+    expect(rows[0].textContent).toContain(shortDate(ago(380)));
+    expect(shortDate(ago(380))).toMatch(/\d{4}$/);
   });
 
-  it('a one-off answered "all ordinary" is recorded as no special part', async () => {
+  // A row's other actions sit under "⋯" (design note).
+  it("keeps an earned row's Fix and Skip under ⋯", () => {
     open();
-    answers.set_special_part = { ok: true };
-    await act(async () => {
-      fireEvent.click(within(section('Needs you')).getByRole('button', { name: 'No, all ordinary' }));
-    });
-    expect(calls).toEqual([{ name: 'set_special_part', args: { p_event_id: 'e4', p_special_per_share: 0 } }]);
+    const [earned] = within(section('Coming up')).getAllByRole('listitem');
+    fireEvent.click(within(earned).getByRole('button', { name: 'More for ABC' }));
+    fireEvent.click(within(earned).getByRole('button', { name: 'Fix' }));
+    expect(within(earned).getByRole('button', { name: 'Check' })).toBeTruthy();
+  });
+});
+
+describe('Dividends: by month', () => {
+  it('draws the last twelve months and the next twelve, with this year so far and next year expected, and an earned view that counts what it cannot place', () => {
+    const d = data();
+    d.holdingDividends = [...d.holdingDividends, div('d8', US, { status: 'received', ex_date: null, credited_on: ago(20), received_net: 7, paid_into_account_id: 'f-usd' })];
+    open(d);
+    const months = section('By month');
+    expect(within(months).getByRole('group', { name: /^Dividends received by month/ })).toBeTruthy();
+    const readout = () => months.querySelector('.dv-readout').textContent;
+    expect(readout()).toMatch(new RegExp(`${TODAY.slice(0, 4)} so far AED \\S+`));
+    // The year holding more of the twelve months ahead, saying which months:
+    // next year from about midsummer, the rest of this one before.
+    expect(readout()).toMatch(/\d{4} (still )?expected( \(\w{3}(–\w{3})?\))? AED \S+/);
+    expect(within(months).queryByText("1 receipt with no ex-date isn't shown.")).toBeNull();
+    fireEvent.keyDown(within(months).getByRole('group', { name: /^Dividends received by month/ }), { key: 'Home' });
+    expect(readout()).toMatch(/^\w{3} \d{4}: /);
+    fireEvent.click(within(months).getByRole('button', { name: 'Earned' }));
+    expect(within(months).getByText("1 receipt with no ex-date isn't shown.")).toBeTruthy();
+  });
+});
+
+describe('Dividends: by holding', () => {
+  it('groups the holdings by market with its withholding, each row opening the holding on its dividends; the rest folded with why', () => {
+    const quiet = { ...US, id: 'h-quiet', name: 'QUIET', price_symbol: 'QUIET' };
+    const broken = { ...US, id: 'h-broken', name: 'BROKEN', price_symbol: 'BROKEN' };
+    const fresh = { ...US, id: 'h-fresh', name: 'FRESH', price_symbol: 'FRESH' };
+    const d = data({ holdings: [US, IN, quiet, broken, fresh] });
+    d.dividendFeedStatus = [
+      ...d.dividendFeedStatus,
+      { symbol: 'QUIET', provider: 'alphavantage', kind: 'dividends', last_success_at: `${TODAY}T01:30:00Z`, fail_count: 0, covered_from: '2016-03-01' },
+      { symbol: 'BROKEN', provider: 'alphavantage', kind: 'dividends', last_success_at: null, fail_count: 3, covered_from: null },
+    ];
+    open(d);
+    const byHolding = section('By holding');
+    const groups = [...byHolding.querySelectorAll('tr.dv-group')].map((r) => r.textContent);
+    expect(groups[0]).toMatch(/^US · 30% withheld/);
+    expect(groups[1]).toMatch(/^India · 20.8% withheld/);
+    const abc = within(byHolding).getByRole('button', { name: 'ABC' }).closest('tr');
+    expect(abc.textContent).toContain('Half-yearly');
+    expect(abc.textContent).toContain('Technology');
+    // The earned one pays before the declared one.
+    expect(abc.textContent).toContain(shortDate(ahead(5)));
+    fireEvent.click(within(byHolding).getByRole('button', { name: 'ABC' }));
+    expect(where()).toBe('/wealth?tab=dividends&holding=h-us&view=dividends');
+    expect(within(byHolding).getByText('Not paying or not checked (3)')).toBeTruthy();
+    expect(within(byHolding).getByText(`No dividends found since ${shortDate('2016-03-01')}`)).toBeTruthy();
+    expect(within(byHolding).getByText('Checks failing')).toBeTruthy();
+    expect(within(byHolding).getByText('Not checked yet')).toBeTruthy();
+  });
+});
+
+// "Where it comes from" and "How fresh this is" go: the market grouping and
+// the Feed chip say them (design note).
+describe('Dividends: the Feed chip', () => {
+  it('says when the feed last checked, and each market behind it, with how far back its history goes', () => {
+    open();
+    expect(screen.queryByRole('region', { name: 'Where it comes from' })).toBeNull();
+    expect(screen.queryByRole('region', { name: 'How fresh this is' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /^Feed: checked / }));
+    expect(screen.getByText(new RegExp(`^US: checked ${shortDate(TODAY)}, \\d{2}:\\d{2} · history from ${shortDate('2010-01-01')}$`))).toBeTruthy();
+    expect(screen.getByText(/^India: checked /)).toBeTruthy();
+  });
+
+  it('turns amber naming the share whose check fails', () => {
+    const d = data();
+    d.dividendFeedStatus = [{ ...d.dividendFeedStatus[0], fail_count: 2, last_success_at: '2026-10-30T01:30:00Z' }, d.dividendFeedStatus[1]];
+    open(d);
+    const chip = screen.getByRole('button', { name: 'Feed: ABC failing' });
+    expect(chip.className).toContain('ds-chip-warn');
+    fireEvent.click(chip);
+    expect(screen.getByText(/^Checks failing for ABC since /)).toBeTruthy();
+  });
+
+  it("says when the feed hasn't run yet", () => {
+    open(data({ dividendFeedStatus: [] }));
+    expect(screen.getByRole('button', { name: 'Feed: not checked yet' })).toBeTruthy();
   });
 });
 
@@ -199,96 +349,26 @@ describe('Dividends: states', () => {
 
   it('says when no holding pays dividends', () => {
     open(data({ holdings: [{ id: 'h-cash', name: 'Cash fund', asset_class: 'cash', is_shared: true }], holdingDividends: [] }));
-    expect(screen.getByText("No holdings that pay dividends. US-listed and Indian shares appear here once they're added under Investments.")).toBeTruthy();
-  });
-
-  it('says when the feed has not run yet', () => {
-    open(data({ dividendFeedStatus: [] }));
-    expect(screen.getByText("The dividend feed hasn't run yet. It checks each night.")).toBeTruthy();
-  });
-});
-
-describe('Dividends: by month', () => {
-  it('draws received, presumed and expected by month, with a total a year, and an earned view that counts what it cannot place', () => {
-    const d = data();
-    d.holdingDividends = [...d.holdingDividends, div('d8', US, { status: 'received', ex_date: null, credited_on: ago(20), received_net: 7, paid_into_account_id: 'f-usd' })];
-    open(d);
-    const months = section('By month');
-    expect(within(months).getByTitle(new RegExp(`^${monthLabel(ago(40).slice(0, 7))}: AED \\S+ received`))).toBeTruthy();
-    expect(within(months).getByTitle(new RegExp(`^${monthLabel(ago(60).slice(0, 7))}: .*AED \\S+ presumed`))).toBeTruthy();
-    expect(within(months).getByText(/^Total /)).toBeTruthy();
-    expect(within(months).queryByText("1 receipt with no ex-date isn't shown.")).toBeNull();
-    fireEvent.click(within(months).getByRole('button', { name: 'Earned' }));
-    expect(within(months).getByText("1 receipt with no ex-date isn't shown.")).toBeTruthy();
-  });
-});
-
-describe('Dividends: by holding', () => {
-  it("each holding's frequency, figures and next date; opening one shows its dividends; the rest folded by why", () => {
-    const quiet = { ...US, id: 'h-quiet', name: 'QUIET', price_symbol: 'QUIET' };
-    const broken = { ...US, id: 'h-broken', name: 'BROKEN', price_symbol: 'BROKEN' };
-    const fresh = { ...US, id: 'h-fresh', name: 'FRESH', price_symbol: 'FRESH' };
-    const d = data({ holdings: [US, IN, quiet, broken, fresh] });
-    d.dividendFeedStatus = [
-      ...d.dividendFeedStatus,
-      { symbol: 'QUIET', provider: 'alphavantage', kind: 'dividends', last_success_at: `${TODAY}T01:30:00Z`, fail_count: 0, covered_from: '2016-03-01' },
-      { symbol: 'BROKEN', provider: 'alphavantage', kind: 'dividends', last_success_at: null, fail_count: 3, covered_from: null },
-    ];
-    open(d);
-    const byHolding = section('By holding');
-    const abc = within(byHolding).getByRole('button', { name: /^ABC/ });
-    expect(abc.closest('li').textContent).toContain('Half-yearly');
-    // The earned one pays before the declared one.
-    expect(abc.closest('li').textContent).toContain(`next ${shortDate(ahead(5))}`);
-    expect(abc.closest('li').textContent).toMatch(/on value/);
-    fireEvent.click(abc);
-    expect(within(byHolding).getByRole('button', { name: 'Add a dividend' })).toBeTruthy();
-    expect(within(byHolding).getByText(`No dividends found since ${shortDate('2016-03-01')}`)).toBeTruthy();
-    expect(within(byHolding).getByText('Checks failing')).toBeTruthy();
-    expect(within(byHolding).getByText('Not checked yet')).toBeTruthy();
-    expect(within(byHolding).getByText('FRESH')).toBeTruthy();
-  });
-});
-
-describe('Dividends: where it comes from, and how fresh', () => {
-  it('splits the next twelve months by market and by sector, unknown last', () => {
-    open();
-    const sources = section('Where it comes from');
-    expect(within(sources).getByText(/^US · AED \S+ · 30% withheld$/)).toBeTruthy();
-    expect(within(sources).getByText(/^India · AED \S+ · 20.8% withheld$/)).toBeTruthy();
-    const sectors = within(sources).getAllByText(/^(Technology|Unknown) · /).map((n) => n.textContent.split(' · ')[0]);
-    expect(sectors).toEqual(['Technology', 'Unknown']);
-    expect(within(sources).getByText(`Indian dividends are counted from ${shortDate(ago(430))}, US from ${shortDate(ago(60))}.`)).toBeTruthy();
-  });
-
-  it('says when each market was checked, which shares are failing, and what the figures do not claim', () => {
-    const d = data();
-    d.dividendFeedStatus = [{ ...d.dividendFeedStatus[0], fail_count: 2, last_success_at: '2026-10-30T01:30:00Z' }, d.dividendFeedStatus[1]];
-    open(d);
-    const fresh = section('How fresh this is');
-    expect(within(fresh).getByText(/^Checks failing for ABC since /)).toBeTruthy();
-    for (const sentence of [
-      "Dividends from before a holding's opening entry aren't counted: the units held then are unknown.",
-      "Expected figures are a projection at today's units and exchange rates.",
-      "Dividends earned but not yet received aren't in net worth.",
-      'The Life plan already counts dividends in its return, so this tab is cash flow, not a second return.',
-    ]) {
-      expect(within(fresh).getByText(sentence)).toBeTruthy();
-    }
+    expect(screen.getByText('No holdings that pay dividends')).toBeTruthy();
+    expect(screen.getByText("US-listed and Indian shares appear here once they're added under Investments.")).toBeTruthy();
   });
 });
 
 describe('Dividends: tax years', () => {
-  it('a tax load failure never hides the tab', () => {
-    open(data({ errors: { taxReturns: new Error('x') }, loaded: {} }));
-    expect(section('Dividends at a glance')).toBeTruthy();
-    expect(within(section('Tax years')).getByRole('alert').textContent).toMatch(/tax returns/);
+  // The fresh review of 5c: a source Income needs failing doesn't keep
+  // Tax years, which needs none of them, out of reach.
+  it('stay a view away when Income could not load', () => {
+    open(data({ errors: { dividendEvents: 'timeout' }, loaded: {} }));
+    expect(screen.getByRole('alert').textContent).toContain(couldntLoad(['dividendEvents']));
+    fireEvent.click(screen.getByRole('button', { name: 'Tax years' }));
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 
-  it('comes last in the tab', () => {
-    open();
-    const regions = screen.getAllByRole('region').map((r) => r.getAttribute('aria-labelledby'));
-    expect(regions.at(-1)).toBe('dv-tax');
+  it('are a view of their own, and a tax load failure never hides Income', () => {
+    open(data({ errors: { taxReturns: new Error('x') }, loaded: {} }));
+    expect(screen.getByText(/^Received/, { selector: 'dt' })).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Tax years' }));
+    expect(screen.getByRole('alert').textContent).toMatch(/tax returns/);
   });
 });
-

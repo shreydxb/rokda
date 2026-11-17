@@ -90,7 +90,7 @@ async function documentOverflows(page) {
   return page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
 }
 
-test('the Dividends tab: headline, coming up, by month and holding, freshness; Record and Fix', async ({ page }, testInfo) => {
+test('the Dividends tab: the strip, needs you, by month, coming up, by holding, the Feed chip; Record and Fix', async ({ page }, testInfo) => {
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   const saves = [];
@@ -111,36 +111,26 @@ test('the Dividends tab: headline, coming up, by month and holding, freshness; R
   await expect(page.locator('.om-main .ov-skel')).toHaveCount(0);
   await page.getByRole('button', { name: 'Dividends', exact: true }).first().click();
 
-  const tab = page.locator('.dv-tab');
-  await expect(tab.getByRole('region', { name: 'Dividends at a glance' })).toBeVisible();
+  // The revamp, phase 5c: the prototype's strip and cards.
+  const tab = page.locator('.dv');
   // The holding was opened about 300 days ago, so received counts from then.
-  await expect(tab.getByRole('region', { name: 'Dividends at a glance' }).getByText(/^Received since /)).toBeVisible();
+  await expect(tab.locator('.ds-kpi dt').first()).toHaveText(/^Received since /);
   expect(await documentOverflows(page), 'the tab scrolls the page sideways').toBe(false);
-
-  const shoot = async (name) => {
-    const region = tab.getByRole('region', { name });
-    await region.scrollIntoViewIfNeeded();
-    await region.screenshot({ path: testInfo.outputPath(`dividends-${name.replace(/\W+/g, '-').toLowerCase()}-${testInfo.project.name}.png`) });
-  };
-  for (const name of ['Dividends at a glance', 'Coming up', 'Needs you', 'By month', 'By holding', 'Where it comes from', 'How fresh this is']) await shoot(name);
-
-  // Every control on the tab, the folds' summaries included, is a thumb's height on a phone.
-  if (testInfo.project.name === 'mobile') {
-    const controls = await tab.locator('button, summary').all();
-    expect(controls.length).toBeGreaterThan(8);
-    for (const control of controls) {
-      const box = await control.boundingBox();
-      expect(box.height, `${await control.textContent()} is under 44px tall`).toBeGreaterThanOrEqual(44);
-    }
-  }
+  await tab.screenshot({ path: testInfo.outputPath(`dividends-tab-${testInfo.project.name}.png`) });
 
   // The quarterly share reads as one, and the quiet one sits in its fold.
   const byHolding = tab.getByRole('region', { name: 'By holding' });
-  await expect(byHolding.getByText(`${LONG_NAME} · Quarterly`)).toBeVisible();
+  const longName = byHolding.getByRole('button', { name: LONG_NAME });
+  await expect(longName.locator('xpath=ancestor::tr')).toContainText('Quarterly');
+  await byHolding.getByText(/^Not paying or not checked \(\d+\)$/).click();
   await expect(byHolding.getByText(/^No dividends found since /)).toBeVisible();
 
+  // The long name wraps inside its cell; nothing is pushed past the screen.
+  const box = await longName.boundingBox();
+  expect(box.x + box.width, 'the long name pushes its row off the screen').toBeLessThanOrEqual(page.viewportSize().width + 1);
+
   // Needs you: the one-off question answers through the database, and the
-  // flagged dividend opens the holding's dividends.
+  // flagged dividend opens its holding on its dividends.
   const needs = tab.getByRole('region', { name: 'Needs you' });
   await expect(needs.getByText(/ paid USD 5\.00 a share on .*, more than twice its usual\. Was part of it a one-off\?$/)).toBeVisible();
   await needs.getByRole('button', { name: 'Yes, part was a one-off' }).click();
@@ -148,21 +138,21 @@ test('the Dividends tab: headline, coming up, by month and holding, freshness; R
   expect(answers[0]).toEqual({ p_event_id: EVENTS[6].id, p_special_per_share: 4 });
   await expect(needs.getByText("The feed's amount per share has changed since this was recorded.")).toBeVisible();
   await needs.getByRole('button', { name: 'Review' }).click();
-  await expect(needs.getByRole('button', { name: 'Fix' }).first()).toBeVisible();
-
-  // The long name wraps inside its row; nothing is pushed past the screen.
-  const longRow = tab.getByRole('region', { name: 'By holding' }).getByRole('button', { name: new RegExp(`^${LONG_NAME}`) });
-  const box = await longRow.boundingBox();
-  const width = page.viewportSize().width;
-  expect(box.x + box.width, 'the long name pushes its row off the screen').toBeLessThanOrEqual(width + 1);
+  const drawer = page.getByRole('dialog', { name: LONG_NAME });
+  await expect(drawer.getByRole('tab', { name: 'Dividends' })).toHaveAttribute('aria-selected', 'true');
+  await expect(drawer.getByRole('button', { name: 'Fix' }).first()).toBeVisible();
+  await drawer.getByRole('button', { name: 'Close' }).last().click();
+  await expect(drawer).toHaveCount(0);
 
   // The receipt with no ex-date is counted as not shown in the Earned view.
   const months = tab.getByRole('region', { name: 'By month' });
   await months.getByRole('button', { name: 'Earned' }).click();
   await expect(months.getByText("1 receipt with no ex-date isn't shown.")).toBeVisible();
 
-  // One market failing while the other works.
-  await expect(tab.getByRole('region', { name: 'How fresh this is' }).getByText(/^Checks failing for ABC since /)).toBeVisible();
+  // One market failing while the other works: the Feed chip names it.
+  await page.getByRole('button', { name: 'Feed: ABC failing' }).click();
+  await expect(page.getByText(/^Checks failing for ABC since /)).toBeVisible();
+  await page.keyboard.press('Escape');
 
   // Record the earned one from Coming up.
   const coming = tab.getByRole('region', { name: 'Coming up' });
@@ -173,12 +163,13 @@ test('the Dividends tab: headline, coming up, by month and holding, freshness; R
   await expect.poll(() => saves.length).toBe(1);
   expect(saves[0]).toMatchObject({ p_dividend_id: DIVIDENDS[2].id, p_change: { action: 'record' }, p_expected_version: 1 });
 
-  // Fix one from the holding's own dividends.
-  await longRow.click();
-  await byHolding.getByRole('button', { name: 'Fix' }).first().click();
-  await expect(byHolding.getByText(/^Fix the /)).toBeVisible();
+  // Fix one from the holding's own dividends, in its drawer.
+  await longName.click();
+  await expect(drawer.getByRole('tab', { name: 'Dividends' })).toHaveAttribute('aria-selected', 'true');
+  await drawer.getByRole('button', { name: 'Fix' }).first().click();
+  await expect(drawer.getByText(/^Fix the /)).toBeVisible();
   expect(await documentOverflows(page), 'the open form scrolls the page sideways').toBe(false);
-  await byHolding.screenshot({ path: testInfo.outputPath(`dividends-fix-${testInfo.project.name}.png`) });
+  await drawer.screenshot({ path: testInfo.outputPath(`dividends-fix-${testInfo.project.name}.png`) });
 
   expect(errors).toEqual([]);
 });
