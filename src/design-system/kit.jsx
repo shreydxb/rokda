@@ -146,7 +146,10 @@ export function InfoButton({ about, children }) {
 // settings are set, beside the label and in its name. Escape or a click
 // elsewhere closes it, with focus back on the button; a choice inside it
 // leaves it open, so several can be set in turn.
-export function Popover({ label, count = 0, children }) {
+// `name` names the button where its label is a sign ("⋯"); `className` gives
+// it another look (a chip), and `chevron` leaves the arrow off (the revamp,
+// phase 5c).
+export function Popover({ label, name, className = 'ds-btn', chevron = true, count = 0, children }) {
   const [open, setOpen] = useState(false);
   const wrap = useRef(null);
   const button = useRef(null);
@@ -172,18 +175,18 @@ export function Popover({ label, count = 0, children }) {
       <button
         type="button"
         ref={button}
-        className="ds-btn"
-        aria-label={count > 0 ? `${label}, ${count} set` : label}
+        className={className}
+        aria-label={count > 0 ? `${name ?? label}, ${count} set` : (name ?? label)}
         aria-expanded={open}
         aria-controls={open ? id : undefined}
         onClick={() => setOpen((o) => !o)}
       >
         {label}
         {count > 0 && <span className="ds-chip ds-chip-accent">{count}</span>}
-        <Icon name="down" />
+        {chevron && <Icon name="down" />}
       </button>
       {open && (
-        <div className="ds-popover-panel" id={id} role="group" aria-label={label}>
+        <div className="ds-popover-panel" id={id} role="group" aria-label={name ?? label}>
           {children}
         </div>
       )}

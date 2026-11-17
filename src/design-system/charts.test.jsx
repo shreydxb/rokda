@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { TrendLine, PairedColumns, DatedStrip } from './charts';
+import { TrendLine, PairedColumns, DatedStrip, MonthBars } from './charts';
 
 // The kit's charts (the revamp, phase 3; design/prototype/js/charts.js).
 // Like the app's other charts, a value is never only reachable by hovering:
@@ -72,6 +72,34 @@ describe('PairedColumns', () => {
     expect(container.querySelectorAll('.ch-grid, .ch-zero').length).toBeGreaterThanOrEqual(3);
     expect(screen.getByText('Oct')).toBeTruthy();
     fireEvent.keyDown(screen.getByRole('group', { name: 'Six months' }), { key: 'Home' });
+    expect(pick).toHaveBeenCalledWith(0);
+  });
+});
+
+// A bar a month (the revamp, phase 5c; design/prototype charts.bars):
+// received solid with presumed receipts paler on it, what is expected
+// outlined, and today marked.
+describe('MonthBars', () => {
+  const months = [
+    { key: '2026-10', label: 'Oct', solid: 100, pale: 20, outline: 0 },
+    { key: '2026-11', label: 'Nov', solid: 40, pale: 0, outline: 50, today: true },
+    { key: '2026-12', label: 'Dec', solid: 0, pale: 0, outline: 80 },
+    { key: '2027-01', label: '', solid: 0, pale: 0, outline: 0 },
+  ];
+
+  it('stacks received solid and presumed paler, outlines what is expected, and marks today', () => {
+    const { container } = render(<MonthBars months={months} ariaLabel="Dividends by month" />);
+    expect(container.querySelectorAll('.ds-mb-solid')).toHaveLength(2);
+    expect(container.querySelectorAll('.ds-mb-pale')).toHaveLength(1);
+    expect(container.querySelectorAll('.ds-mb-outline')).toHaveLength(2);
+    expect(container.querySelectorAll('.ds-mb-today')).toHaveLength(1);
+  });
+
+  it('labels the months it is given, and moves its pick with the keys', () => {
+    const pick = vi.fn();
+    render(<MonthBars months={months} ariaLabel="Dividends by month" activeIndex={1} onActiveChange={pick} />);
+    expect(screen.getByText('Oct')).toBeTruthy();
+    fireEvent.keyDown(screen.getByRole('group', { name: 'Dividends by month' }), { key: 'Home' });
     expect(pick).toHaveBeenCalledWith(0);
   });
 });

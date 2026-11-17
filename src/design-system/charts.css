@@ -101,3 +101,27 @@
   fill: var(--warn-mark);
   stroke: var(--warn-mark);
 }
+
+/* Month bars (the revamp, phase 5c): received solid, presumed paler,
+   expected outlined, a line after today's month. */
+.ds-mbars {
+  position: relative;
+}
+.ds-mb-solid {
+  fill: var(--accent);
+}
+.ds-mb-pale {
+  fill: var(--accent);
+  opacity: 0.4;
+}
+.ds-mb-outline {
+  fill: color-mix(in oklab, var(--accent) 8%, transparent);
+  stroke: var(--accent);
+  stroke-width: 1;
+  stroke-dasharray: 3 2;
+}
+.ds-mb-today {
+  stroke: var(--ink3);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+}

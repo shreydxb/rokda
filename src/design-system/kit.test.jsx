@@ -602,3 +602,20 @@ describe('Avatar', () => {
     expect(avatar.className).toBe('ds-avatar ds-avatar-b');
   });
 });
+
+// The revamp, phase 5c: a pop-over opened by a "⋯" or a chip names itself
+// for what it opens, and can wear the chip's look.
+describe('Popover: its own name and look', () => {
+  it('takes a name for its button apart from the label shown, and a class in place of the button’s', () => {
+    render(
+      <Popover label="⋯" name="More for ABC" className="ds-chip" chevron={false}>
+        <button type="button">Fix</button>
+      </Popover>,
+    );
+    const trigger = screen.getByRole('button', { name: 'More for ABC' });
+    expect(trigger.className).toBe('ds-chip');
+    expect(trigger.querySelector('svg')).toBeNull();
+    fireEvent.click(trigger);
+    expect(screen.getByRole('group', { name: 'More for ABC' })).toBeTruthy();
+  });
+});
