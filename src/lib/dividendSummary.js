@@ -163,9 +163,14 @@ export function dividendHeadline(input) {
   const starts = marketsPresent(input).map((m) => coverageStart(input, m)).filter(Boolean).sort();
   const expected = expectedOf(input);
   const notProjected = input.holdings.filter((h) => NOT_PROJECTED.has(input.forecasts[h.id]?.status)).length;
+  const received = { ...receivedSince(input, yearAgo), since: sinceOf(starts[0] ?? null) };
+  // The year ahead against the last twelve months (the revamp, phase 5c),
+  // only once the record covers all twelve: a shorter record would read as
+  // growth that is only the record starting.
+  const changeOnLast12 = received.since || !(received.aed > 0) ? null : expected.aed / received.aed - 1;
   return {
-    received: { ...receivedSince(input, yearAgo), since: sinceOf(starts[0] ?? null) },
-    expected: { ...expected, monthlyAed: round2(expected.aed / 12), notProjected },
+    received,
+    expected: { ...expected, monthlyAed: round2(expected.aed / 12), notProjected, changeOnLast12 },
     markets,
     coverageDiffers: markets.length > 1 && markets[0].since !== markets[1].since,
   };
@@ -202,19 +207,22 @@ export function comingUp(input) {
   return out.sort((a, b) => (when(a) < when(b) ? -1 : when(a) > when(b) ? 1 : 0));
 }
 
-// Month by month: what came in (presumed receipts apart) over up to 24
-// months, and what is expected over the next twelve. The earned view puts
-// each dividend in its ex-date's month instead, and counts the receipts it
-// cannot place for want of an ex-date.
+// Month by month: what came in (presumed receipts apart) over the last
+// twelve months, and what is expected over the next twelve (the revamp, phase
+// 5c, decision 2: as the strip's "12 months"; older months stay in Activity).
+// The earned view puts each dividend in its ex-date's month instead, and
+// counts the receipts it cannot place for want of an ex-date. With them,
+// this year so far, and what is expected of next year within the twelve
+// months ahead, which name the months they hold.
 export function dividendsByMonth(input, view = 'received') {
   const byId = holdingById(input);
   const current = input.today.slice(0, 7);
-  // The chart starts where the record does, up to 24 months back: a month
+  // The chart starts where the record does, up to 12 months back: a month
   // before any market's record began would read as nothing received, when
   // nothing was tracked. An imported receipt's ex-date can be earlier than
   // the credit date that starts its market, so ex-dates count too.
   const earliest = [...marketsPresent(input).map((m) => coverageStart(input, m)), ...inScope(input).map((d) => d.ex_date)].filter(Boolean).sort()[0];
-  const floor = addMonths(`${current}-01`, -23).slice(0, 7);
+  const floor = addMonths(`${current}-01`, -11).slice(0, 7);
   const recordStart = earliest ? earliest.slice(0, 7) : current;
   const first = recordStart > floor ? (recordStart < current ? recordStart : current) : floor;
   const last = addMonths(`${current}-01`, 12).slice(0, 7);
@@ -258,7 +266,15 @@ export function dividendsByMonth(input, view = 'received') {
     const year = Number(m.month.slice(0, 4));
     years.set(year, round2((years.get(year) ?? 0) + m.actualAed + m.presumedAed));
   }
-  return { months, years: [...years].map(([year, aed]) => ({ year, aed })), leftOut };
+  const year = Number(current.slice(0, 4));
+  const ahead = months.filter((m) => m.month > current && Number(m.month.slice(0, 4)) === year + 1);
+  return {
+    months,
+    years: [...years].map(([y, aed]) => ({ year: y, aed })),
+    thisYear: { year, aed: years.get(year) ?? 0 },
+    nextYear: ahead.length ? { year: year + 1, from: ahead[0].month, to: ahead.at(-1).month, aed: round2(ahead.reduce((t, m) => t + m.expectedAed, 0)) } : null,
+    leftOut,
+  };
 }
 
 // Each holding with dividends found, most expected first, and the holdings
@@ -300,6 +316,28 @@ export function dividendsByHolding(input) {
   }
   rows.sort((a, b) => b.expectedAed - a.expectedAed);
   return { rows, none: { since, holdings: none }, failing, notChecked };
+}
+
+// By holding, grouped by listing market (the revamp, phase 5c;
+// design/prototype byHoldingCard): each market's rows with what was received
+// and is expected, what is withheld there, and whether none of its holdings
+// has an opening entry (nothing is earned before one). The largest expected
+// first; the holdings without dividends are dividendsByHolding's.
+export function dividendsByMarket(input) {
+  const byHolding = dividendsByHolding(input);
+  const withholding = new Map(dividendSources(input).markets.map((m) => [m.market, m.withholdingPct]));
+  const opened = new Set(input.trades.filter((t) => t.kind === 'opening').map((t) => t.holding_id));
+  const groups = MARKETS.map((market) => {
+    const rows = byHolding.rows.filter((r) => marketOf(r.holding) === market);
+    return {
+      market, rows, withholdingPct: withholding.get(market) ?? null,
+      receivedAed: round2(rows.reduce((t, r) => t + r.receivedAed, 0)), expectedAed: round2(rows.reduce((t, r) => t + r.expectedAed, 0)),
+      noOpening: !input.holdings.some((h) => marketOf(h) === market && opened.has(h.id)),
+    };
+  })
+    .filter((g) => g.rows.length > 0)
+    .sort((a, b) => b.expectedAed - a.expectedAed);
+  return { ...byHolding, groups };
 }
 
 // Where the next twelve months' dividends come from: by listing market, with
@@ -423,4 +461,18 @@ export function feedFreshness(input) {
       neverRun: successes.length === 0,
     };
   });
+}
+
+// The Feed chip (the revamp, phase 5c): when the feed last checked, across
+// the markets, each market's own check for its pop-over, and the symbols
+// failing, so the chip can turn amber and name one.
+export function feedStamp(input) {
+  const markets = feedFreshness(input);
+  const checks = markets.map((m) => m.lastSuccessAt).filter(Boolean).sort();
+  return {
+    checkedAt: checks.at(-1) ?? null,
+    neverRun: markets.every((m) => m.neverRun),
+    markets: markets.map((m) => ({ market: m.market, checkedAt: m.lastSuccessAt })),
+    failing: markets.flatMap((m) => m.failing.map((f) => ({ market: m.market, ...f }))),
+  };
 }

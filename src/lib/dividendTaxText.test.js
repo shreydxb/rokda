@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  basisWords, checkWords, comparisonWords, eventLine, returnLines, revisionLabel, shareLines, stageWords, unassignedWords,
+  basisWords, checkWords, comparisonWords, eventLine, returnLines, revisionLabel, shareLines, stageWords, taxYearCells, unassignedWords,
 } from './dividendTaxText';
 import { shortDate } from './dividends';
 
@@ -78,6 +78,37 @@ describe('where the year stands', () => {
       .toBe(`dividend tax surplus INR 1; refund INR 5100 credited ${shortDate('2026-10-05')}, INR 100 more than determined`);
     expect(stageWords(year({ surplus: { amount: 1, missing: [] }, refund: { ...base, credited: 0, offset: 5000, unexplained: 0, lastCreditedOn: null } }), fmt))
       .toBe('dividend tax surplus INR 1; refund INR 5000 set against a demand');
+  });
+});
+
+// The Tax years table (the revamp, phase 5c; design/prototype taxView): one
+// row a year, its cells short; the year's drawer says it in full.
+describe('a tax year as a table row', () => {
+  const rokda = { confirmed: { count: 2, gross: 1000, tax: 208 }, presumed: { count: 1, gross: 500, tax: 104 } };
+  const row = (extra) => taxYearCells(year({ rokda, ...extra }), fmt);
+
+  it('gives the dividends and tax withheld, the presumed part counted in', () => {
+    expect(row()).toMatchObject({ dividends: 'INR 1500', tax: 'INR 312' });
+    expect(row({ rokda: { confirmed: { count: 0, gross: 0, tax: 0 }, presumed: { count: 0, gross: 0, tax: 0 } } })).toMatchObject({ dividends: null, tax: null });
+  });
+
+  it('says the check as a chip: agrees, differences, or a statement not added', () => {
+    expect(row({ shares: [share(cmp('agrees'), cmp('agrees'))] }).check).toEqual({ label: 'Agrees', tone: 'pos' });
+    expect(row({ shares: [share(cmp('differs', 10), cmp('unexplained', -5))] }).check).toEqual({ label: '2 differences', tone: 'warn' });
+    expect(row({ statements: { ais: null, f26as: null } }).check).toEqual({ label: 'Not added', tone: 'neutral' });
+    expect(row({ statements: { ais: info, f26as: null }, shares: [share(cmp('agrees'), cmp('not_imported', null))] }).check).toEqual({ label: '26AS not added', tone: 'neutral' });
+  });
+
+  it('says where the return and the refund stand, briefly', () => {
+    expect(row()).toMatchObject({ ret: 'Not filed', refund: null });
+    expect(row({ estimate: { amount: 1080, presumedPart: null, claimBasis: 'treaty', ratePct: 10 } }).refund).toBe('About INR 1080 could come back');
+    const filed = { revision: 1, filed_on: '2026-07-28' };
+    expect(row({ taxReturn: filed, refund: { stage: 'filed' } })).toMatchObject({ ret: `Filed ${shortDate('2026-07-28')}`, refund: 'Not processed yet' });
+    expect(row({ taxReturn: { ...filed, revision: 2 }, refund: { stage: 'refund_due', determined: 5000, interest: 150 } })).toMatchObject({ ret: `Revised ${shortDate('2026-07-28')}`, refund: 'INR 5150 due' });
+    expect(row({ taxReturn: filed, refund: { stage: 'settled', credited: 5000, offset: 0, unexplained: 0, lastCreditedOn: '2026-10-05' } }).refund).toBe(`INR 5000 credited ${shortDate('2026-10-05')}`);
+    expect(row({ taxReturn: filed, refund: { stage: 'demand', determined: -500 } }).refund).toBe('Demand INR 500');
+    expect(row({ taxReturn: filed, refund: { stage: 'no_refund' } }).refund).toBe('No refund');
+    expect(row({ taxReturn: filed, refund: { stage: 'partly_settled', determined: 10000, interest: 300, unexplained: 300 } }).refund).toBe('INR 300 unexplained');
   });
 });
 

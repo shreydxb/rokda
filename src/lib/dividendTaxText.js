@@ -85,6 +85,53 @@ export function stageWords(year, fmt) {
   return `${surplusWords({ ...year.surplus, fmt })}; ${refundWords(year.refund, fmt)}`;
 }
 
+// A year as one row of the Tax years table (the revamp, phase 5c;
+// design/prototype taxView): its dividends and tax withheld (the presumed
+// part counted in, and said in the drawer), the check as a chip, and where
+// the return and the refund stand, each in a few words. The year's drawer
+// says each in full (checkWords, stageWords, returnLines).
+export function taxYearCells(year, fmt) {
+  const { confirmed, presumed } = year.rokda;
+  const any = confirmed.count + presumed.count > 0;
+  const { ais, f26as } = year.statements;
+  const count = year.shares.reduce((n, s) => n + (ais && DIFFERENCES.has(s.income.label) ? 1 : 0) + (f26as && DIFFERENCES.has(s.tax.label) ? 1 : 0), 0);
+  const check = count > 0
+    ? { label: count === 1 ? '1 difference' : `${count} differences`, tone: 'warn' }
+    : !ais && !f26as ? { label: 'Not added', tone: 'neutral' }
+      : !ais ? { label: 'AIS not added', tone: 'neutral' }
+        : !f26as ? { label: '26AS not added', tone: 'neutral' }
+          : { label: 'Agrees', tone: 'pos' };
+  const filed = Number(year.taxReturn?.revision ?? 0) >= 1;
+  const ret = filed ? `${year.taxReturn.revision > 1 ? 'Revised' : 'Filed'} ${shortDate(year.taxReturn.filed_on)}` : 'Not filed';
+  return {
+    dividends: any ? fmt(sum(confirmed.gross, presumed.gross)) : null,
+    tax: any ? fmt(sum(confirmed.tax, presumed.tax)) : null,
+    check,
+    ret,
+    refund: refundCell(year, fmt),
+  };
+}
+
+function refundCell(year, fmt) {
+  const r = year.refund;
+  switch (r.stage) {
+    case 'not_filed':
+      return year.estimate ? `About ${fmt(year.estimate.amount)} could come back` : null;
+    case 'filed':
+      return 'Not processed yet';
+    case 'demand':
+      return `Demand ${fmt(-r.determined)}`;
+    case 'no_refund':
+      return 'No refund';
+    case 'refund_due':
+      return `${fmt(sum(r.determined, r.interest))} due`;
+    case 'partly_settled':
+      return `${fmt(r.unexplained)} unexplained`;
+    default:
+      return r.credited ? `${fmt(r.credited)} credited ${shortDate(r.lastCreditedOn)}` : `${fmt(r.offset)} set against a demand`;
+  }
+}
+
 const REASONS = {
   neighbouring_year: (r) => `possibly counted in ${taxYearLabel(r.year)}`,
   extra_deduction: () => "possibly an additional deduction or a correction: check the company's intimation or Form 16A",
