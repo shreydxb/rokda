@@ -11,6 +11,7 @@ import DebtPayoff from './planning/DebtPayoff';
 import Plan from './planning/Plan';
 import Notes from './planning/Notes';
 import GoalDrawer from './planning/GoalDrawer';
+import DebtDrawer from './planning/DebtDrawer';
 import LoadFailure from './LoadFailure';
 import Freshness from './Freshness';
 import BackToReview from './BackToReview';
@@ -112,9 +113,11 @@ export default function Planning() {
         </>
       )}
       {tab === 'notes' && <Notes household={household} me={me} members={members} data={planning} sources={sources} onRetry={retry} loading={loading} />}
-      {/* A goal named in the address opens over whichever tab is open (the
-          revamp, phase 6b), as Wealth draws an account or a holding. */}
+      {/* A goal or a debt named in the address opens over whichever tab is
+          open (the revamp, phase 6b), as Wealth draws an account or a
+          holding. */}
       {!loading && <GoalDrawer household={household} members={members} accounts={inputs.accounts} holdings={inputs.holdings} data={planning} />}
+      {!loading && <DebtDrawer household={household} members={members} accounts={inputs.accounts} data={planning} onAccountsChanged={inputs.reload} />}
       </ToolsSlot>
     </div>
   );

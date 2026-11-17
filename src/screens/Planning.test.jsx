@@ -48,7 +48,7 @@ vi.mock('./usePlanningData', () => ({
     goals: [{ id: 'g1', name: 'Car', target_amount: 30000, target_date: '2029-06-30', is_shared: true, owner_member_id: null, counts_in_life_plan: true, priority: null, note: '', funding_source: '' }],
     goalContributions: [],
     goalAllocations: [],
-    debts: [],
+    debts: [{ id: 'd1', name: 'Car loan', balance: 20000, apr_pct: 6, minimum_payment: 600, account_id: null, is_shared: true, owner_member_id: null, original_amount: null, note: '' }],
     independenceIncome: [],
     afterWorkCosts: [],
     memberLife: [{ member_id: 'm1', birth_year: 1995, life_expectancy: 85 }],
@@ -129,6 +129,24 @@ describe('Planning: a goal\'s address', () => {
 
   it('opens nothing for a goal that isn\'t there', () => {
     open('/planning?tab=goals&goal=nope');
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+});
+
+// A debt has an address too (the revamp, phase 6b).
+describe('Planning: a debt\'s address', () => {
+  it('opens the debt named in the address, and adds one from ?debt=new', () => {
+    open('/planning?tab=goals&debt=d1');
+    expect(screen.getByRole('dialog', { name: 'Car loan' })).toBeTruthy();
+    expect(screen.getByText('Not in net worth until an account is linked.')).toBeTruthy();
+    document.body.innerHTML = '';
+    open('/planning?tab=goals&debt=new');
+    expect(screen.getByRole('dialog', { name: 'Add a debt' })).toBeTruthy();
+  });
+
+  it('closes by taking the debt out of the address', () => {
+    open('/planning?tab=goals&debt=d1');
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 });

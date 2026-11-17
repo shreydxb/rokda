@@ -374,7 +374,7 @@ test('a drawer holds keyboard focus and gives it back', async ({ page }) => {
   const opener = page.getByRole('button', { name: '+ Debt', exact: true });
   await opener.focus();
   await page.keyboard.press('Enter');
-  const drawer = page.getByRole('dialog', { name: 'Add debt' });
+  const drawer = page.getByRole('dialog', { name: 'Add a debt' });
   await expect(drawer).toBeFocused();
   for (let i = 0; i < 30; i += 1) {
     await page.keyboard.press(i % 7 === 6 ? 'Shift+Tab' : 'Tab');
