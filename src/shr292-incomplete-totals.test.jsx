@@ -152,13 +152,13 @@ describe('SHR-292: every screen that prints the total says what it leaves out', 
     expect(container.textContent).toContain(`Incomplete — ${NOTE}. (Bank card, New fund)`);
   });
 
-  // Forecast said it, and went (Planning audit, 3.15); the Life plan says it
-  // now, under its headline.
-  it('Planning › Life plan', async () => {
-    const { default: LifePlan } = await import('./screens/planning/LifePlan');
+  // Forecast said it, and went (Planning audit, 3.15); Plan says it, as a
+  // warning over the stop year (the revamp, phase 6).
+  it('Planning › Plan', async () => {
+    const { default: Plan } = await import('./screens/planning/Plan');
     const { container } = renderScreen(
       <MemoryRouter>
-        <LifePlan
+        <Plan
           household={{ id: 'hh' }}
           members={MEMBERS}
           accounts={ACCOUNTS}
@@ -177,11 +177,11 @@ describe('SHR-292: every screen that prints the total says what it leaves out', 
   // card projected from the holding's placeholder 0; both went (3.15 and the
   // revamp, phase 6), and the plan says what it needs instead.
   it('with nothing valued, the plan does not project', async () => {
-    const { default: LifePlan } = await import('./screens/planning/LifePlan');
+    const { default: Plan } = await import('./screens/planning/Plan');
     const unknownOnly = { accounts: [ACCOUNTS[1]], holdings: [HOLDINGS[1]], transactions: closedMonthTransactions() };
     const lifePlan = renderScreen(
       <MemoryRouter>
-        <LifePlan household={{ id: 'hh' }} members={MEMBERS} {...unknownOnly} data={{ assumptions: null, memberLife: [] }} loading={false} />
+        <Plan household={{ id: 'hh' }} members={MEMBERS} {...unknownOnly} data={{ assumptions: null, memberLife: [] }} loading={false} />
       </MemoryRouter>,
     );
     expect(lifePlan.container.textContent).toContain('needs one account valuation');

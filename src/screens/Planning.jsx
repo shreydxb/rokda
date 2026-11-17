@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { useTab } from '../lib/useTab';
 import { useHousehold } from '../lib/useHousehold';
 import { usePlanningInputs } from './useOverviewData';
@@ -8,7 +8,7 @@ import { usePlanningData } from './usePlanningData';
 import './Planning.css';
 import Goals from './planning/Goals';
 import DebtPayoff from './planning/DebtPayoff';
-import LifePlan from './planning/LifePlan';
+import Plan from './planning/Plan';
 import Notes from './planning/Notes';
 import LoadFailure from './LoadFailure';
 import Freshness from './Freshness';
@@ -49,26 +49,6 @@ export default function Planning() {
   const retry = async () => {
     await Promise.all([reloadHousehold(), inputs.reload(), planning.reload()]);
   };
-  // The scenario and the money shown on the Life plan hold while you move
-  // between tabs (planning/AssumptionsBar.jsx). A look for now: never saved.
-  const [scenario, setScenario] = useState('baseline');
-  const [moneyMode, setMoneyMode] = useState('real');
-  const lens = { scenario, onScenario: setScenario, moneyMode, onMoneyMode: setMoneyMode };
-
-  // A link from inside a tab (one of Plan's cards) opens another tab and
-  // takes focus to it, rather than leaving it nowhere when the card it was
-  // on goes away (Planning audit, 0b-F).
-  const focusTab = useRef(false);
-  const openTab = (id) => {
-    focusTab.current = true;
-    setTab(id);
-  };
-  useEffect(() => {
-    if (!focusTab.current) return;
-    focusTab.current = false;
-    document.querySelector('.mn-tabs [aria-current="page"]')?.focus();
-  }, [tab]);
-
   // The header's slot for the open tab's own controls (screens/PageTools.jsx).
   const [toolsNode, setToolsNode] = useState(null);
 
@@ -93,10 +73,10 @@ export default function Planning() {
 
       {(tab === 'plan' || tab === 'goals') && <AedNote household={household} />}
       {tab === 'plan' && (
-        <LifePlan
-          {...lens}
+        <Plan
           household={household}
           members={members}
+          me={me}
           accounts={inputs.accounts}
           transactions={inputs.transactions}
           recurring={inputs.recurring}
@@ -108,7 +88,6 @@ export default function Planning() {
           onRetry={retry}
           loading={loading}
           onReload={inputs.reload}
-          onOpenTab={openTab}
         />
       )}
       {tab === 'goals' && (

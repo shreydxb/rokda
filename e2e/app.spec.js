@@ -125,19 +125,19 @@ const YEARLY_NOTE = {
 };
 
 const SUBVIEWS = [
-  { name: 'goals', path: '/planning', tabs: ['Goals'], expectText: 'counts only the cash set aside for it' },
+  { name: 'goals', path: '/planning', tabs: ['Goals & debts'], expectText: 'counts only the cash set aside for it' },
   { name: 'budget-year', path: '/money', tabs: ['Budget', 'Year'], expectText: 'Saved so far' },
-  { name: 'life-plan', path: '/planning', tabs: ['Life plan'], expectText: 'The pot, year by year' },
-  // The fixture's own data: two closed months and a budget, so the Life plan
+  // Plan, which was the Life plan (the revamp, phase 6).
+  { name: 'plan', path: '/planning', tabs: [], expectText: 'The pot, year by year' },
+  // The fixture's own data: two closed months and a budget, so the plan
   // projects from the budget and must say so.
-  { name: 'life-plan-from-budget', path: '/planning', tabs: ['Life plan'], expectText: 'Your budget, for now', history: false },
-  // Forecast's split of saving and growth, on the Life plan (Planning audit,
-  // 3.15). Drawdown's fall is on it too, so the life-plan view above has it.
-  { name: 'life-plan-split', path: '/planning', tabs: ['Life plan', 'Saving and growth'], expectText: 'Saving and growth, until work stops' },
-  // An old link to a tab that has gone opens the Life plan.
+  { name: 'plan-from-budget', path: '/planning', tabs: [], expectText: 'your budget, for now', history: false },
+  // Old links to tabs that have gone land where their content went.
+  { name: 'old-life-plan-link', path: '/planning?tab=life', tabs: [], expectText: 'The pot, year by year' },
   { name: 'old-forecast-link', path: '/planning?tab=forecast', tabs: [], expectText: 'The pot, year by year' },
   { name: 'old-drawdown-link', path: '/planning?tab=drawdown', tabs: [], expectText: 'If markets fall' },
-  { name: 'life-plan-setup', path: '/planning', tabs: ['Life plan'], expectText: 'Set up your life plan', tables: { member_life: [] } },
+  { name: 'old-debt-link', path: '/planning?tab=debt', tabs: [], expectText: 'counts only the cash set aside for it' },
+  { name: 'plan-setup', path: '/planning', tabs: [], expectText: 'Set up the plan', tables: { member_life: [] } },
   // A statement that does not match, opened for resolving on Month end (the
   // revamp, phase 4d): the reason box and its buttons.
   { name: 'statements', path: '/money?tab=monthend', tabs: ['Resolve…'], expectText: 'Mark resolved', history: false, tables: { statement_reconciliations: cardStatements } },
@@ -170,9 +170,9 @@ const SUBVIEWS = [
   // Overview's Needs attention (Planning audit, 4.18).
   { name: 'notes-yearly-check', path: '/planning', tabs: ['Notes'], expectText: 'Checked once a year · not checked yet', tables: { household_notes: [YEARLY_NOTE] } },
   { name: 'overview-yearly-check', path: '/', tabs: [], expectText: 'Protection · Yearly check due', tables: { household_notes: [YEARLY_NOTE] } },
-  // A policy paid in rupees: the Life plan puts it through a weakening rupee
+  // A policy paid in rupees: Plan puts it through a weakening rupee
   // (Planning audit, 4.19).
-  { name: 'life-plan-rupee', path: '/planning', tabs: ['Life plan'], expectText: 'If the rupee weakens', tables: { independence_income: rupeeIncome } },
+  { name: 'plan-rupee', path: '/planning', tabs: [], expectText: 'If the rupee weakens', tables: { independence_income: rupeeIncome } },
 ];
 
 // The fixture's other income and a policy maturing in rupees.
@@ -339,33 +339,21 @@ async function expectOneFirstLine(row) {
   expect(key.x, 'the key figure sits right of the identity').toBeGreaterThan(id.x + id.width);
 }
 
-// Planning on a phone (Planning audit, 3.16): the assumptions bar is a
-// summary until opened, and the Life plan and Goals tables are two-line rows
-// rather than scrolling sideways.
-test('phone: the assumptions bar folds to a summary, and planning tables are two-line rows', async ({ page }, testInfo) => {
+// Planning on a phone (Planning audit, 3.16): Plan stacks the stop year over
+// the chart (the revamp, phase 6) and the Goals table is two-line rows rather
+// than scrolling sideways.
+test('phone: Plan stacks, and the goals table is two-line rows', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'mobile', 'phone layout only');
   const later = { ...data.goals[1], id: 'dddddddd-0000-4000-8000-000000000009', name: 'Education fund', target_amount: 400000, target_date: `${new Date().getFullYear() + 12}-06-30`, priority: 2 };
   await stubSupabase(page, { tables: { transactions: closedMonthsOfHistory(), goals: [...data.goals, later] } });
-  await gotoReady(page, '/planning?tab=life');
+  await gotoReady(page, '/planning');
 
-  const bar = page.locator('.pl-assumptions');
-  const folded = await bar.boundingBox();
-  expect(folded.height, 'the folded bar is a summary').toBeLessThan(60);
-  await bar.screenshot({ path: testInfo.outputPath('assumptions-folded-mobile.png') });
-  await expect(page.getByRole('group', { name: 'Scenario' })).toBeHidden();
-  await page.getByRole('button', { name: /^Baseline · today’s money/ }).click();
-  await expect(page.getByRole('group', { name: 'Scenario' })).toBeVisible();
-
-  await page.getByText('Year by year, as a table').click();
-  const lifeRows = page.locator('.ch-rows tbody tr');
-  await expect(lifeRows.first()).toBeVisible();
-  await expect(page.locator('.ch-rows thead')).toHaveCSS('position', 'absolute');
-  await expectOneFirstLine(lifeRows.first());
-  expect((await lifeRows.first().boundingBox()).height, 'a year is two lines').toBeLessThan(80);
+  const year = await page.locator('.pl-stop-l').boundingBox();
+  const chart = await page.locator('.pl-stop-r').boundingBox();
+  expect(chart.y, 'the chart sits under the stop year').toBeGreaterThan(year.y + year.height - 1);
   expect((await horizontalOverflow(page)).documentOverflow).toBe(false);
-  await page.locator('.ch-rows').first().screenshot({ path: testInfo.outputPath('life-plan-table-mobile.png') });
 
-  await page.getByRole('button', { name: 'Goals', exact: true }).first().click();
+  await page.getByRole('button', { name: 'Goals & debts', exact: true }).first().click();
   await page.getByText('If your investments paid for these').click();
   const goalRow = page.locator('.ch-rows tbody tr', { hasText: 'Education fund' });
   await expect(goalRow).toBeVisible();
