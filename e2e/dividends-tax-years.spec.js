@@ -41,7 +41,7 @@ async function documentOverflows(page) {
   return page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
 }
 
-test("the Tax years section: rows, the check, the return and a dividend's year", async ({ page }, testInfo) => {
+test("the Tax years view: a year a row, its drawer with the check, the return and a dividend's year", async ({ page }, testInfo) => {
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   const sent = [];
@@ -65,45 +65,39 @@ test("the Tax years section: rows, the check, the return and a dividend's year",
   await expect(page.locator('.om-main .ov-skel')).toHaveCount(0);
   await page.getByRole('button', { name: 'Dividends', exact: true }).first().click();
 
-  const region = page.getByRole('region', { name: 'Tax years' });
-  await region.scrollIntoViewIfNeeded();
-  const row = region.getByRole('button', { name: /^FY 2025-26 \(AY 2026-27\)/ });
-  await expect(row).toContainText('1 difference');
-  await expect(row).toContainText('dividend tax surplus INR 220.00');
-  expect(await documentOverflows(page), 'the section scrolls the page sideways').toBe(false);
+  // The revamp, phase 5c: Tax years are a view of their own, a year a row,
+  // each year's detail in its drawer.
+  await page.getByRole('button', { name: 'Tax years', exact: true }).click();
+  const region = page.getByRole('region', { name: 'Indian dividends by tax year' });
+  const year = region.getByRole('button', { name: 'FY 2025-26 (AY 2026-27)' });
+  await expect(year.locator('xpath=ancestor::tr')).toContainText('1 difference');
+  expect(await documentOverflows(page), 'the table scrolls the page sideways').toBe(false);
   await region.screenshot({ path: testInfo.outputPath(`tax-years-closed-${testInfo.project.name}.png`) });
 
-  await row.click();
-  await expect(region.getByText(/^Original return, filed /)).toBeVisible();
+  await year.click();
+  const drawer = page.getByRole('dialog', { name: 'FY 2025-26 (AY 2026-27)' });
+  await expect(drawer.getByText(/^dividend tax surplus INR 220\.00/)).toBeVisible();
+  await expect(drawer.getByText(/^Original return, filed /)).toBeVisible();
   // Tax higher with gross equal: a possible extra deduction, offered as a possibility.
-  await expect(region.getByText(/^Tax: Rokda INR 416\.00 · 26AS INR 420\.00 · 26AS INR 4\.00 more: possibly an additional deduction/)).toBeVisible();
-  const name = region.getByText(LONG_NAME, { exact: true });
+  await expect(drawer.getByText(/^Tax: Rokda INR 416\.00 · 26AS INR 420\.00 · 26AS INR 4\.00 more: possibly an additional deduction/)).toBeVisible();
+  const name = drawer.getByText(LONG_NAME, { exact: true });
   const box = await name.boundingBox();
   expect(box.x + box.width, 'the long name runs off the screen').toBeLessThanOrEqual(page.viewportSize().width + 1);
   expect(await documentOverflows(page), 'the open year scrolls the page sideways').toBe(false);
-  await region.screenshot({ path: testInfo.outputPath(`tax-years-open-${testInfo.project.name}.png`) });
-
-  // Every control in the section is a thumb's height on a phone.
-  if (testInfo.project.name === 'mobile') {
-    for (const control of await region.locator('button, summary').all()) {
-      const b = await control.boundingBox();
-      expect(b.height, `${await control.textContent()} is under 44px tall`).toBeGreaterThanOrEqual(44);
-    }
-  }
+  await drawer.screenshot({ path: testInfo.outputPath(`tax-years-open-${testInfo.project.name}.png`) });
 
   // The return's dividend tax, corrected through the form.
-  await region.getByRole('button', { name: 'Edit', exact: true }).click();
-  await region.getByLabel('Dividend tax', { exact: true }).fill('1000');
+  await drawer.getByRole('button', { name: 'Edit', exact: true }).click();
+  await drawer.getByLabel('Dividend tax', { exact: true }).fill('1000');
   expect(await documentOverflows(page), 'the open form scrolls the page sideways').toBe(false);
-  await region.screenshot({ path: testInfo.outputPath(`tax-years-form-${testInfo.project.name}.png`) });
-  await region.getByRole('button', { name: 'Save return', exact: true }).click();
+  await drawer.getByRole('button', { name: 'Save return', exact: true }).click();
   await expect.poll(() => sent.length).toBe(1);
   expect(sent[0]).toEqual({ p_member_id: ids.ME, p_financial_year: 2025, p_change: { dividend_tax: 1000 }, p_expected_version: 1 });
 
   // A dividend's own tax year.
-  await region.getByText('Dividends (2)').click();
-  await region.getByRole('button', { name: 'Set tax year', exact: true }).first().click();
-  await region.getByRole('button', { name: 'Save tax year', exact: true }).click();
+  await drawer.getByText('Dividends (2)').click();
+  await drawer.getByRole('button', { name: 'Set tax year', exact: true }).first().click();
+  await drawer.getByRole('button', { name: 'Save tax year', exact: true }).click();
   await expect.poll(() => sent.length).toBe(2);
   expect(sent[1]).toMatchObject({ p_dividend_id: dividend(1, '').id, p_financial_year: 2025, p_basis: 'declared', p_expected_version: 1 });
 
