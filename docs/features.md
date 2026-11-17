@@ -369,35 +369,45 @@ Net worth, which holds the accounts.
   adds one the feed missed. A flagged one can be kept as it is or linked to
   the feed's dividend, and a feed dividend's one-off part given.
 - **Dividends**: dividends as passive income, in dirhams and in the scope
-  chosen. At the top, what was received in the last twelve months (or since
-  the record starts, with the presumed part said apart) and what is expected
-  in the next twelve, about so much a month, then one line per market. Under
-  it: "Coming up", the earned and declared dividends still to come in, with
-  "Record" for one that arrived; "Needs you", the flagged dividends, the
-  one-off questions ("Yes, part was a one-off" / "No, all ordinary"), splits
-  the trades don't show and dividends to add by hand; "By month", a bar a
-  month (presumed receipts paler, the year ahead lighter) with a total per
-  year, switching between Received and Earned (a receipt with no ex-date is
-  left out of Earned, and it says how many); "By holding", each share's
-  rhythm, last amount, received, expected, yield on value and on cost, and
-  next payment, opening its dividends, with the shares that paid nothing,
-  whose checks fail or that are not checked yet in folds; "Where it comes
-  from", expected by market (with its withholding) and by sector; and "How
-  fresh this is", when each market's feed last checked, how far back its
-  history goes, any failing checks, and what the figures leave out.
-  Last, "Tax years": each member's Indian dividends by tax year, in rupees,
-  one row per member and year saying the dividends and tax withheld (the
-  presumed part and a provisional year said), how they stand against the
-  AIS and Form 26AS ("agrees with AIS and 26AS", "1 difference", "26AS not
-  added"), and where the year stands: before filing, what could come back
-  at that year's claim basis; after, the dividend tax surplus or shortfall
-  and the refund ("refund … credited 5 Oct", "… unexplained"). Opened, each
-  share is shown against both statements with any possible cause, its
-  dividends with "Set tax year" (a final dividend declared in March counts
-  in the March year), the return with "Edit" (claim basis, filed or
-  revised, the dividend figures), and what happened to the refund with
-  "Add", "Fix" and "Remove". Shared holdings are named apart, since a
-  return is one person's.
+  chosen, with **Income** and **Tax years** as two views in the header
+  beside the Feed chip (when the feed last checked, amber naming a share
+  whose check fails; behind it each market's last check). **Income**:
+  "Needs you", a boxed card only while something waits (the flagged
+  dividends, opening their holding to review; the one-off questions, "Yes,
+  part was a one-off" / "No, all ordinary"; splits the trades don't show,
+  opening the holding's trades; dividends to add by hand); then one strip:
+  received over the last twelve months (or since the record starts, the
+  presumed part as a chip, and behind its (i) what the figures leave out and
+  where each market is counted from), expected over the next twelve (with
+  its change on the last twelve once the record covers them, and how many
+  holdings aren't projected), about so much a month, and against recorded
+  spending. "By month" draws the last twelve months and the next twelve, a
+  bar a month (received solid, presumed paler, expected outlined, today
+  marked), switching between Received and Earned (a receipt with no
+  ex-date is left out of Earned, and it says how many), with this year so
+  far and next year's expected (named by the months the twelve ahead hold);
+  beside it "Coming up", the earned and declared dividends still to come
+  in, "Record" for one that arrived and Fix or Skip under "⋯". "By holding"
+  is a table grouped by market (the group row giving what is withheld there
+  and the market's received and expected): each share's sector, rhythm,
+  last amount, received, expected, yield on value and on cost, and next
+  payment, opening the holding on its dividends; a market whose holdings
+  have no opening entry says nothing is recorded until one has; the shares
+  that paid nothing, whose checks fail or that are not checked yet are
+  folded with why. **Tax years**: each member's Indian dividends by tax
+  year, in rupees, a row per member and year: the dividends and tax
+  withheld, a provisional year marked, the check against the AIS and Form
+  26AS as a chip ("Agrees", "1 difference", "26AS not added"), the return
+  ("Filed 20 Jul") and the refund ("… credited 5 Oct", "… unexplained",
+  before filing what could come back). A year opens in a drawer: where it
+  stands in full (before filing, what could come back at that year's claim
+  basis; after, the dividend tax surplus or shortfall and the refund), each
+  share against both statements with any possible cause, its dividends with
+  "Set tax year" (a final dividend declared in March counts in the March
+  year), the return with "Edit" (claim basis, filed or revised, the
+  dividend figures), and what happened to the refund with "Add", "Fix" and
+  "Remove". Shared holdings are named apart, since a return is one
+  person's.
 ## Planning (`/planning`)
 
 Five tabs: Plan, Life plan, Goals, Debt payoff, Notes. An old link to
