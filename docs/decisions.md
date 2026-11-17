@@ -4302,3 +4302,70 @@ The revamp's phase 5c (design note `docs/superpowers/specs/2026-11-16-wealth-des
   - **Coming up keeps the year** on a date in another year, so last
     December's dividend, not yet recorded, isn't read as months away.
   - **Tax years stay a view away** when a source Income needs didn't load.
+
+## Planning: three tabs, and Plan like the prototype
+
+The revamp's phase 6a (design note `docs/superpowers/specs/2026-11-17-planning-design.md`).
+The household asked to take the prototype and drop what the old screens
+added beyond it, unless it is in use or worth keeping; the note lists each.
+
+- **Three tabs: Plan, Goals & debts, Notes.** The Plan summary is retired
+  (decision 1): since phase 3 Overview's Plan strip shows its stop year,
+  goals, debts and cash reserve, and To do raises its items; saving
+  against the target is Budget's savings line. The Life plan is Plan, and
+  Debt payoff sits under the goals until phase 6b rebuilds both. Old links
+  land where their content went, and Overview's tiles open the new tabs.
+- **"Short by" is the gap at the stop year** (decision 2): what the pot
+  must hold then less what it will, so it reads straight off the two
+  figures above it. It was every year's shortfall added up, a sum in
+  today's money across decades that no figure on the screen explained. A
+  goal the pot can't pay while still working is short by its own gap,
+  since stopping later doesn't help. Each year's shortfall is in the
+  chart's readout.
+- **One market fall, the year work stops** (decision 3): the prototype's,
+  and the harder of the two the app tested. The stop year that weathers it
+  is behind the card's (i).
+- **Trimmed to the prototype.** Today's or Future money, the Saving and
+  growth chart, the fall ten years in, the every-year table (the fold has
+  every fifth year and the stop year), the tick boxes on the timeline
+  (Kept or Spent is the goal's own), "Your budget beside the records" and
+  the Assumptions paragraph (now behind the rates' (i)) go. So do the
+  Custom scenario and spending "for one" in the plan's drawer, neither in
+  use; the sums keep reading a figure saved for either, and the drawer
+  leaves it as it is rather than clearing it.
+- **Kept beyond the prototype**: "Could stop as early as {year}" with Try
+  when the plan already lasts, since it answers the page's own question
+  and the prototype says nothing then; the categories that stop when work
+  stops, which are in use; the warnings about the start, someone left out
+  and income with no rate, as warning rows.
+- **The figures are in dirhams without the code**, as the prototype draws
+  them; the AED note says so when another display currency is picked.
+- **A cost or an income is edited in place**, inside its fold of the plan's
+  drawer, where it was a drawer over the drawer: the prototype has none.
+  Escape steps back out of it alone, and one being typed counts as unsaved
+  work on the plan. It is not a form of its own (it sits inside the
+  plan's), so Enter in one of its fields saves it.
+- **The kit gains the plan chart** (bars, band, stop line, runs-out dot,
+  goal diamonds) **and a comparison line on the trend line**, for "Show
+  the path".
+- **Goals on the timeline link to `/planning?tab=goals&goal={id}`**, the
+  goal's address phase 6b adds; until then it opens Goals & debts.
+- **The fresh review of 6a** changed these:
+  - **Plan is in dirhams whatever the display currency.** With USD or INR
+    picked, its figures were converted under the AED note saying they were
+    dirhams, so every one read wrong by the rate.
+  - **A goal dated after the plan ends reads "Beyond the plan"**, as Goals
+    says, where it read "Paid" in green.
+  - **A year is "Nothing left" only when the pot can't pay it.** A goal
+    short while still working marked every year after work empty against a
+    healthy pot. The chart's "Runs out" is the first year after work the
+    pot can't pay.
+  - **Nothing typed in Edit plan is lost.** Save plan over a cost or income
+    being typed says to add or cancel it first; one is open at a time;
+    focus goes into it and back to + Cost or + Income; a second Enter adds
+    nothing; a problem in a closed fold opens the fold; reading a row isn't
+    a change.
+  - **Saving below nothing keeps its minus** in the strip; the year made the
+    plan holds while the plan is read again; the readouts are announced; a
+    late "Runs out" label stays inside the chart; the wording that still
+    named the Life plan says Plan.

@@ -80,11 +80,11 @@ test('Planning withholds what rests on goals and debts that never loaded', async
   await open(page, '/planning');
   const main = page.locator('.om-main');
   // An unread list used to read as an empty one: "All clear", no goals, no
-  // debts, and a stop year worked out without them.
-  await expect(main).toContainText('Not all checked');
-  await expect(main).not.toContainText('All clear');
+  // debts, and a stop year worked out without them. Plan says what didn't
+  // load and works nothing out (the revamp, phase 6).
+  await expect(main).toContainText('Couldn’t load goals');
+  await expect(main).not.toContainText('The pot, year by year');
   await expect(main).not.toContainText('No goals yet');
-  await expect(main).not.toContainText('No debts on record');
 
   await page.goto('/planning?tab=goals', { waitUntil: 'domcontentloaded' });
   await expect(main).toContainText('Couldn’t load goals.');

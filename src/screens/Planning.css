@@ -1,31 +1,9 @@
 /* Shares the generic tab/list/row primitives (mn-*) defined for Money. */
 @import './Money.css';
 
-.pl-hero {
-  margin-top: 26px;
-  padding-bottom: 26px;
-  border-bottom: 1px solid var(--rule);
-}
-
 /* Goals: all targets at a glance, above the per-goal rows. */
 .gl-summary {
   margin-top: 22px;
-}
-
-.fc-solve-year .fig {
-  font-size: 18px;
-  min-width: 3.2em;
-  text-align: center;
-}
-
-.lp-goal .mn-row-main {
-  flex: 1;
-  min-width: 0;
-}
-
-.lp-goal[data-muted='true'] .mn-row-main > div:first-child,
-.lp-goal[data-muted='true'] .mn-row-amt {
-  color: var(--ink3);
 }
 
 /* Debt payoff. The order on the left and "+ Debt" on the right, then each

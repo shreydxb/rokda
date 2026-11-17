@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { useCloseGuard } from '../../lib/useCloseGuard';
 import DiscardPrompt from '../DiscardPrompt';
-import { useDrawerFocus } from '../../lib/useDrawerFocus';
+import { Drawer, Fold } from '../../design-system/kit';
 import { supabase } from '../../lib/supabaseClient';
 import { formatMoney } from '../../lib/money';
 import { AFTER_WORK_RETURN_GAP, CASH_RETURN_DEFAULT, DEFAULT_STOP_AGE, defaultStopPerson } from '../../lib/lifePlanBasis';
@@ -19,10 +19,14 @@ import '../money/TransactionEditor.css';
 // Forecast (3.15): nothing works from either now.
 //
 // Ages are kept per member (member_life); other income and the costs that
-// start when work stops are rows of their own, each saved as it is added in a
-// drawer over this one; the rest is the household's planning assumptions.
-// Blank optional fields mean "the same as now": spending at today's rate, the
-// same spending for one, a return one point below the working return.
+// start when work stops are rows of their own, each saved as it is added, in
+// place inside its fold; the rest is the household's planning assumptions.
+// Blank optional fields mean "the same as now": spending at today's rate, a
+// return one point below the working return.
+//
+// The revamp, phase 6 (design/prototype plan-edit): the kit's drawer with a
+// fold for each part. The Custom scenario and spending "for one" went from
+// it, never used; a figure saved for either before is left as it is.
 const whole = (v) => /^\d+$/.test(String(v).trim());
 const numeric = (v) => String(v).trim() !== '' && Number.isFinite(Number(v));
 const blank = (v) => String(v ?? '').trim() === '';
@@ -33,11 +37,11 @@ const USUALLY_STOPS = /\b(rent|emi|loan|mortgage|instal?ments?)\b/i;
 // What a blank growth figure saves. Never 0: a 0% return or 0% inflation is an
 // answer someone has to type, not what an emptied box should quietly become.
 // Baseline's columns always hold a number, so a blank there is the default its
-// placeholder names; a blank on Custom saves nothing, and follows Baseline.
+// placeholder names.
 const DEFAULTS = { nominal: PLANNING_DEFAULTS.nominal_return_pct, inflation: PLANNING_DEFAULTS.inflation_pct };
 const GROWTH = ['nominal', 'inflation'];
 
-function initialForm(members, memberLife, assumptions, isCustom) {
+function initialForm(members, memberLife, assumptions) {
   const byMember = new Map(memberLife.map((r) => [r.member_id, r]));
   const people = members.map((m) => ({
     id: m.id,
@@ -46,22 +50,15 @@ function initialForm(members, memberLife, assumptions, isCustom) {
     lifeExpectancy: byMember.has(m.id) ? String(byMember.get(m.id).life_expectancy) : '',
     had: byMember.has(m.id),
   }));
-  const baseline = { nominal: assumption(assumptions, 'nominal_return_pct'), inflation: assumption(assumptions, 'inflation_pct') };
-  // Custom starts from Baseline's figures the first time. Once saved, a figure
-  // saved blank opens blank again, so saving it again doesn't pin it.
-  const customSaved = assumptions?.custom_updated_at != null;
-  const custom = (column, key) => str(customSaved ? assumptions[column] : baseline[key]);
   return {
     people,
     stopYear: str(assumptions?.retirement_year),
     spend: str(assumptions?.retirement_annual_spend),
     lean: str(assumptions?.lean_annual_spend),
-    survivorPct: str(assumptions?.survivor_spend_pct),
     returnPct: str(assumptions?.retirement_return_pct),
     cashPct: str(assumptions?.cash_return_pct),
-    ...(isCustom
-      ? { nominal: custom('custom_nominal_return_pct', 'nominal'), inflation: custom('custom_inflation_pct', 'inflation') }
-      : { nominal: str(baseline.nominal), inflation: str(baseline.inflation) }),
+    nominal: str(assumption(assumptions, 'nominal_return_pct')),
+    inflation: str(assumption(assumptions, 'inflation_pct')),
   };
 }
 
@@ -75,16 +72,14 @@ export default function LifePlanEditor({
   spendByCategory = new Map(),
   incomes = [],
   costs = [],
-  scenario = 'baseline',
   section = null,
   onClose,
   onSaved,
   onRowsChanged,
 }) {
-  const drawerRef = useDrawerFocus();
   const uid = useId();
-  const isCustom = scenario === 'custom';
-  const [form, setForm] = useState(() => initialForm(members, memberLife, assumptions, isCustom));
+  const formId = `${uid}-form`;
+  const [form, setForm] = useState(() => initialForm(members, memberLife, assumptions));
   // Spending categories, the ones with spending first, and which of them stop.
   const spendCategories = categories
     .filter((c) => c.kind === 'expense' && !c.is_savings && (!c.archived || c.stops_after_work))
@@ -97,26 +92,35 @@ export default function LifePlanEditor({
   const [triedSave, setTriedSave] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
-  // An income or cost open in a drawer over this one: { kind, row }.
+  // An income or cost open in place, in its fold: { kind, row }. One being
+  // typed is unsaved work, so closing the plan asks first. Escape inside it
+  // steps back out of it alone (CostEditor, IncomeEditor); the drawer
+  // answers Escape on itself (lib/useCloseGuard.js).
   const [sub, setSub] = useState(null);
-  // Escape closes the drawer on top, not both.
-  const { confirmingClose, requestClose, keepEditing } = useCloseGuard({
-    dirty,
-    onClose,
-    onEscape: () => {
-      if (!sub) requestClose();
-    },
-  });
-  const fieldRefs = useRef({});
-  const sectionRefs = useRef({});
-  const thisYear = new Date().getFullYear();
-
-  // Opened for one part of the plan (Edit beside the growth figures, say),
-  // the drawer starts there. The first part is at the top already, and
-  // scrolling to it would hide the drawer's own heading.
+  // Whether anything is typed in it: opening a row to read it is no change
+  // (the fresh review of 6a).
+  const [subDirty, setSubDirty] = useState(false);
+  const unsaved = dirty || subDirty;
+  const { confirmingClose, requestClose, keepEditing, escapeKey } = useCloseGuard({ dirty: unsaved, onClose, listen: false });
+  // As it closes, focus goes back to the fold's + Cost or + Income rather
+  // than to the page under the drawer.
+  const addRefs = useRef({});
+  const returnTo = useRef(null);
   useEffect(() => {
-    if (section !== 'people') sectionRefs.current[section]?.scrollIntoView?.({ block: 'start' });
-  }, [section]);
+    if (sub === null && returnTo.current) {
+      addRefs.current[returnTo.current]?.focus();
+      returnTo.current = null;
+    }
+  }, [sub]);
+  const closeSub = () => {
+    returnTo.current = sub?.kind ?? null;
+    setSub(null);
+    setSubDirty(false);
+  };
+  const fieldRefs = useRef({});
+  const thisYear = new Date().getFullYear();
+  // The part the drawer was opened for is unfolded, the rest folded.
+  const opened = (key) => (section ?? 'people') === key;
 
   function set(key, value) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -158,7 +162,6 @@ export default function LifePlanEditor({
   if (!blank(form.stopYear) && (!whole(form.stopYear) || Number(form.stopYear) < thisYear || Number(form.stopYear) > 2200)) problems.push(['stopYear', 'Stop working this year or later.']);
   if (!blank(form.spend) && !(numeric(form.spend) && Number(form.spend) >= 0)) problems.push(['spend', 'Spending after work stops is an amount of zero or more.']);
   if (!blank(form.lean) && !(numeric(form.lean) && Number(form.lean) > 0)) problems.push(['lean', 'Essentials-only spend is an amount above zero.']);
-  if (!inRange('survivorPct', 10, 100)) problems.push(['survivorPct', 'Spending for one between 10% and 100%.']);
   if (!inRange('nominal', -20, 50)) problems.push(['nominal', 'A return between −20% and 50%.']);
   if (!inRange('inflation', -10, 30)) problems.push(['inflation', 'Inflation between −10% and 30%.']);
   if (!inRange('returnPct', -20, 50)) problems.push(['returnPct', 'A return after work stops between −20% and 50%.']);
@@ -177,20 +180,28 @@ export default function LifePlanEditor({
     fieldRefs.current[key] = el;
   };
 
-  // Baseline's figures, which a blank on Custom follows, and which the return
-  // after work stops sits a point below until one is set.
-  const baseline = { nominal: assumption(assumptions, 'nominal_return_pct'), inflation: assumption(assumptions, 'inflation_pct') };
-  const growthValue = (key) => (blank(form[key]) ? (isCustom ? null : DEFAULTS[key]) : Number(form[key]));
-  const growthPlaceholder = (key) => (isCustom ? `blank: Baseline's ${baseline[key].toFixed(1)}` : `blank: ${DEFAULTS[key].toFixed(1)}`);
-  const workingReturn = !isCustom && numeric(form.nominal) ? Number(form.nominal) : isCustom ? baseline.nominal : DEFAULTS.nominal;
+  // The return after work stops sits a point below the working one until
+  // one is set.
+  const growthValue = (key) => (blank(form[key]) ? DEFAULTS[key] : Number(form[key]));
+  const growthPlaceholder = (key) => `blank: ${DEFAULTS[key].toFixed(1)}`;
+  const workingReturn = numeric(form.nominal) ? Number(form.nominal) : DEFAULTS.nominal;
 
   async function handleSave(e) {
     e.preventDefault();
     if (saving) return;
+    // A cost or income being typed would be lost as the drawer closes.
+    if (sub && subDirty) {
+      setError(`${sub.row ? 'Save' : 'Add'} the ${sub.kind}, or cancel it, before saving the plan.`);
+      return;
+    }
     if (problems.length) {
       setTriedSave(true);
       setError(problems[0][1]);
-      fieldRefs.current[problems[0][0]]?.focus();
+      // The field may be in a fold that is closed: open it first.
+      const field = fieldRefs.current[problems[0][0]];
+      const fold = field?.closest('details');
+      if (fold) fold.open = true;
+      field?.focus();
       return;
     }
     setSaving(true);
@@ -214,15 +225,8 @@ export default function LifePlanEditor({
       lean_annual_spend: blank(form.lean) ? null : Number(form.lean),
       retirement_return_pct: blank(form.returnPct) ? null : Number(form.returnPct),
       cash_return_pct: blank(form.cashPct) ? null : Number(form.cashPct),
-      survivor_spend_pct: blank(form.survivorPct) ? null : Number(form.survivorPct),
     };
-    if (growthChanged && isCustom) {
-      Object.assign(plan, {
-        custom_nominal_return_pct: growthValue('nominal'),
-        custom_inflation_pct: growthValue('inflation'),
-        custom_updated_at: now,
-      });
-    } else if (growthChanged) {
+    if (growthChanged) {
       Object.assign(plan, {
         nominal_return_pct: growthValue('nominal'),
         inflation_pct: growthValue('inflation'),
@@ -253,18 +257,6 @@ export default function LifePlanEditor({
       .map((p) => `${p.name} ${Number(form.stopYear || suggestedStop) - Number(p.birthYear)}`)
       .join(' · ');
 
-  const sectionHead = (key, text) => (
-    <h3
-      className="ov-kicker te-section-head"
-      id={`${uid}-${key}-head`}
-      ref={(el) => {
-        sectionRefs.current[key] = el;
-      }}
-    >
-      {text}
-    </h3>
-  );
-
   const numberField = (key, label, aria, props = {}) => (
     <div className={`te-fieldcell${props.span2 ? ' te-span2' : ''}`}>
       <label className="te-fieldlabel" htmlFor={`${uid}-${key}`}>
@@ -290,7 +282,7 @@ export default function LifePlanEditor({
   const rowList = (rows, kind, describe, amountNote) => (
     <div className="mn-list">
       {rows.map((row) => (
-        <button key={row.id} type="button" className="mn-row te-linkrow" onClick={() => setSub({ kind, row })}>
+        <button key={row.id} type="button" className="mn-row te-linkrow" disabled={sub !== null} onClick={() => setSub({ kind, row })}>
           <div className="mn-row-main">
             <div>{row.name}</div>
             <div className="ov-muted te-rownote">{describe(row, household)}</div>
@@ -307,208 +299,196 @@ export default function LifePlanEditor({
   );
 
   const subDone = async () => {
-    setSub(null);
+    closeSub();
     await onRowsChanged?.();
   };
 
-  return (
+  const footer = confirmingClose ? (
+    <DiscardPrompt onDiscard={onClose} onKeepEditing={keepEditing} />
+  ) : (
     <>
-      <div className="te-overlay" onMouseDown={(e) => e.target === e.currentTarget && requestClose()}>
-        <div className="te-drawer" ref={drawerRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Life plan">
-          <div className="te-head">
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                <span className="ov-kicker">Life plan</span>
-                {dirty && <span className="te-dirty-chip">Unsaved</span>}
-              </div>
-              <div className="te-title">Who it is for, and what it assumes</div>
-            </div>
-            <button type="button" className="te-close" onClick={requestClose} aria-label="Close">
-              ×
-            </button>
-          </div>
-
-          <form className="te-form" onSubmit={handleSave} noValidate>
-            <section aria-labelledby={`${uid}-people-head`}>
-              {sectionHead('people', 'Who it is for')}
-              <div className="ov-muted" style={{ fontSize: 12, lineHeight: 1.6, marginBottom: 14 }}>
-                Each person is planned for until the end of the year they reach the age you give. It is the age to plan to, not a prediction:
-                planning a little long is the safer mistake, and 95 is a careful age for a couple. Leave someone blank to leave them out.
-              </div>
-              <div style={{ display: 'grid', gap: 16 }}>
-                {form.people.map((p) => (
-                  <div key={p.id} className="te-fieldgrid">
-                    <div className="te-fieldcell">
-                      <span className="te-fieldlabel">{p.name} · birth year</span>
-                      <input
-                        ref={fieldRef(`birth-${p.id}`)}
-                        className="te-fieldvalue"
-                        type="number"
-                        inputMode="numeric"
-                        value={p.birthYear}
-                        onChange={(e) => setPerson(p.id, 'birthYear', e.target.value)}
-                        placeholder="e.g. 1994"
-                        aria-label={`${p.name}'s birth year`}
-                        {...invalid(`birth-${p.id}`)}
-                      />
-                      {problemText(`birth-${p.id}`)}
-                    </div>
-                    <div className="te-fieldcell">
-                      <span className="te-fieldlabel">Plan to age</span>
-                      <input
-                        ref={fieldRef(`age-${p.id}`)}
-                        className="te-fieldvalue"
-                        type="number"
-                        inputMode="numeric"
-                        value={p.lifeExpectancy}
-                        onChange={(e) => setPerson(p.id, 'lifeExpectancy', e.target.value)}
-                        placeholder="e.g. 95"
-                        aria-label={`Age to plan ${p.name} to`}
-                        {...invalid(`age-${p.id}`)}
-                      />
-                      {problemText(`age-${p.id}`)}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-
-            <section className="te-section" aria-labelledby={`${uid}-stop-head`}>
-              {sectionHead('stop', 'When work stops')}
-              <div className="te-fieldgrid">
-                {numberField('stopYear', 'Stop working in', 'Stop working in', {
-                  span2: true,
-                  step: '1',
-                  placeholder: suggestedStop ? String(suggestedStop) : 'year',
-                  hint: stopAges && (
-                    <span className="ov-muted" style={{ fontSize: 11.5 }}>
-                      {blank(form.stopYear) ? `Assumed until you choose a year · ${stopAges}` : stopAges}
-                    </span>
-                  ),
-                })}
-              </div>
-            </section>
-
-            <section className="te-section" aria-labelledby={`${uid}-spending-head`}>
-              {sectionHead('spending', 'Spending after work stops')}
-              <div className="te-fieldgrid">
-                {numberField('spend', <>A year · AED, today&rsquo;s money</>, 'Spending a year after work stops', { span2: true, step: '100', placeholder: "blank: today's, less what stops" })}
-                {numberField('lean', 'Essentials only', 'Essentials-only annual spend', { step: '100', placeholder: 'optional' })}
-                {numberField('survivorPct', 'For one · %', 'Spending once one person remains', { step: '5', placeholder: 'blank: 100%' })}
-              </div>
-              <div className="ov-muted" style={{ fontSize: 11.5, lineHeight: 1.6, marginTop: 10 }}>
-                Essentials only is a leaner year&rsquo;s spending to set beside the full one. For one is the share of the couple&rsquo;s spending once
-                only one person is still planned for.
-              </div>
-              {spendCategories.length > 0 && (
-                <div style={{ marginTop: 16 }}>
-                  <span className="te-fieldlabel">Stops when work stops</span>
-                  <div className="ov-muted" style={{ fontSize: 11.5, lineHeight: 1.6, marginTop: 6 }}>
-                    Spending you expect to have ended by then: rent on a home you will own, instalments on a loan that will be paid off. Left
-                    blank above, spending after work stops is today&rsquo;s less these.
-                  </div>
-                  <div className="lp-stop-list" style={{ display: 'grid', gap: 6, marginTop: 10 }}>
-                    {spendCategories.map((c) => (
-                      <label key={c.id} style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: 13 }}>
-                        <input type="checkbox" checked={stops.has(c.id)} onChange={() => toggleStop(c.id)} />
-                        <span>{c.name}</span>
-                        {spendByCategory.get(c.id) > 0 && <span className="ov-muted fig" style={{ fontSize: 11.5 }}>{formatMoney(spendByCategory.get(c.id))} a year</span>}
-                        {!stops.has(c.id) && USUALLY_STOPS.test(c.name) && <span className="ov-muted" style={{ fontSize: 11.5 }}>· often stops</span>}
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </section>
-
-            <section className="te-section" aria-labelledby={`${uid}-costs-head`}>
-              <div className="ov-section-head" style={{ marginBottom: 0 }}>
-                {sectionHead('costs', 'Costs that start when work stops')}
-                <button type="button" className="om-btn mn-add" onClick={() => setSub({ kind: 'cost', row: null })}>
-                  + Cost
-                </button>
-              </div>
-              {costs.length === 0 ? (
-                <div className="ov-muted" style={{ fontSize: 12, lineHeight: 1.6 }}>
-                  None added. Health cover an employer pays until then, rising with age, and residence visa fees go here, on top of the spending.
-                </div>
-              ) : (
-                rowList(costs, 'cost', describeCost, (row) => (row.per_person ? ' a year each' : ' a year'))
-              )}
-            </section>
-
-            <section className="te-section" aria-labelledby={`${uid}-income-head`}>
-              <div className="ov-section-head" style={{ marginBottom: 0 }}>
-                {sectionHead('income', 'Other income')}
-                <button type="button" className="om-btn mn-add" onClick={() => setSub({ kind: 'income', row: null })}>
-                  + Income
-                </button>
-              </div>
-              {incomes.length === 0 ? (
-                <div className="ov-muted" style={{ fontSize: 12, lineHeight: 1.6 }}>
-                  None added. Rent from a property, part-time work, an end-of-service gratuity or a policy maturing go here.
-                </div>
-              ) : (
-                rowList(incomes, 'income', describeIncome, (row) => (row.kind === 'lump_sum' ? ' once' : ' a year'))
-              )}
-              <div className="ov-muted" style={{ fontSize: 11.5, lineHeight: 1.6, marginTop: 10 }}>
-                Costs and income are each saved as you add them.
-              </div>
-            </section>
-
-            <section className="te-section" aria-labelledby={`${uid}-growth-head`}>
-              {sectionHead('growth', isCustom ? 'Growth · Custom scenario' : 'Growth')}
-              <div className="te-fieldgrid">
-                {numberField('nominal', 'Return · %', 'Investment return, nominal percent a year', { placeholder: growthPlaceholder('nominal') })}
-                {numberField('inflation', 'Inflation · %', 'Inflation, percent a year', { placeholder: growthPlaceholder('inflation') })}
-                {numberField('returnPct', 'Return after work stops · %', 'Return after work stops', {
-                  span2: true,
-                  placeholder: `blank: ${(workingReturn - AFTER_WORK_RETURN_GAP).toFixed(1)}, a point below`,
-                })}
-                {numberField('cashPct', 'Return on cash · %', 'Return on cash held today', {
-                  span2: true,
-                  placeholder: `blank: ${CASH_RETURN_DEFAULT.toFixed(1)}`,
-                })}
-              </div>
-              <div className="ov-muted" style={{ fontSize: 11.5, lineHeight: 1.6, marginTop: 10 }}>
-                {isCustom
-                  ? 'These apply only while the Custom scenario is selected; Baseline and its saved plan are untouched. A field left blank follows Baseline. The return after work stops is Baseline\'s, moved by as much as this return is. '
-                  : 'Conservative and Optimistic move from these: two points lower or higher, both returns together. '}
-                The cash held today stays cash at its own return, in every scenario; the rest earns the return. Returns are a year, before inflation.
-              </div>
-            </section>
-
-            {error && (
-              <p className="ov-warn" role="alert" style={{ fontSize: 12.5 }}>
-                {error}
-              </p>
-            )}
-
-            <div className="te-sticky-actions">
-              <div className="te-actions" style={{ borderTop: 'none', paddingTop: 0, marginTop: 0 }}>
-                <div className="te-actions-right">
-                  {confirmingClose ? (
-                    <>
-                      <DiscardPrompt onDiscard={onClose} onKeepEditing={keepEditing} />
-                    </>
-                  ) : (
-                    <>
-                      <button type="button" className="om-btn" onClick={requestClose}>
-                        Cancel
-                      </button>
-                      <button type="submit" className="om-btn ov-btn-primary" disabled={saving}>
-                        {saving ? 'Saving…' : 'Save plan'}
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-          </form>
-        </div>
-      </div>
-      {sub?.kind === 'income' && <IncomeEditor row={sub.row} householdId={householdId} household={household} stacked onClose={() => setSub(null)} onSaved={subDone} />}
-      {sub?.kind === 'cost' && <CostEditor row={sub.row} householdId={householdId} household={household} stacked onClose={() => setSub(null)} onSaved={subDone} />}
+      <span className="pl-grow" />
+      <button type="button" className="ds-btn" onClick={requestClose}>
+        Cancel
+      </button>
+      <button type="submit" form={formId} className="ds-btn ds-btn-primary" disabled={saving}>
+        {saving ? 'Saving…' : 'Save plan'}
+      </button>
     </>
+  );
+
+  return (
+    <Drawer kicker="Plan" title="Who it is for, and what it assumes" wide dirty={unsaved} onClose={requestClose} onEscape={escapeKey} footer={footer}>
+      <form id={formId} className="pl-form" onSubmit={handleSave} noValidate>
+        <Fold label="Who it is for" defaultOpen={opened('people')}>
+          <div className="pl-fold-body">
+            <div className="ds-muted pl-hint">
+              Each person is planned for until the end of the year they reach the age you give. It is the age to plan to, not a prediction: planning a
+              little long is the safer mistake, and 95 is a careful age for a couple. Leave someone blank to leave them out.
+            </div>
+            {form.people.map((p) => (
+              <div key={p.id} className="te-fieldgrid">
+                <div className="te-fieldcell">
+                  <span className="te-fieldlabel">{p.name} · birth year</span>
+                  <input
+                    ref={fieldRef(`birth-${p.id}`)}
+                    className="te-fieldvalue"
+                    type="number"
+                    inputMode="numeric"
+                    value={p.birthYear}
+                    onChange={(e) => setPerson(p.id, 'birthYear', e.target.value)}
+                    placeholder="e.g. 1994"
+                    aria-label={`${p.name}'s birth year`}
+                    {...invalid(`birth-${p.id}`)}
+                  />
+                  {problemText(`birth-${p.id}`)}
+                </div>
+                <div className="te-fieldcell">
+                  <span className="te-fieldlabel">Plan to age</span>
+                  <input
+                    ref={fieldRef(`age-${p.id}`)}
+                    className="te-fieldvalue"
+                    type="number"
+                    inputMode="numeric"
+                    value={p.lifeExpectancy}
+                    onChange={(e) => setPerson(p.id, 'lifeExpectancy', e.target.value)}
+                    placeholder="e.g. 95"
+                    aria-label={`Age to plan ${p.name} to`}
+                    {...invalid(`age-${p.id}`)}
+                  />
+                  {problemText(`age-${p.id}`)}
+                </div>
+              </div>
+            ))}
+          </div>
+        </Fold>
+
+        <Fold label="Stop year" defaultOpen={opened('stop')}>
+          <div className="pl-fold-body">
+            <div className="te-fieldgrid">
+              {numberField('stopYear', 'Stop working in', 'Stop working in', {
+                span2: true,
+                step: '1',
+                placeholder: suggestedStop ? String(suggestedStop) : 'year',
+                hint: stopAges && <span className="ds-muted pl-hint">{blank(form.stopYear) ? `Assumed until you choose a year · ${stopAges}` : stopAges}</span>,
+              })}
+            </div>
+          </div>
+        </Fold>
+
+        <Fold label="Spending after work stops" defaultOpen={opened('spending')}>
+          <div className="pl-fold-body">
+            <div className="te-fieldgrid">
+              {numberField('spend', <>A year · AED, today&rsquo;s money</>, 'Spending a year after work stops', { step: '100', placeholder: "blank: today's, less what stops" })}
+              {numberField('lean', 'Essentials only', 'Essentials-only annual spend', { step: '100', placeholder: 'optional' })}
+            </div>
+            <div className="ds-muted pl-hint">Essentials only is a leaner year&rsquo;s spending to set beside the full one.</div>
+            {spendCategories.length > 0 && (
+              <div>
+                <span className="te-fieldlabel">Stops when work stops</span>
+                <div className="ds-muted pl-hint">
+                  Spending you expect to have ended by then: rent on a home you will own, instalments on a loan that will be paid off. Left blank above,
+                  spending after work stops is today&rsquo;s less these.
+                </div>
+                <div className="lp-stop-list">
+                  {spendCategories.map((c) => (
+                    <label key={c.id} className="pl-stop-cat">
+                      <input type="checkbox" checked={stops.has(c.id)} onChange={() => toggleStop(c.id)} />
+                      <span>{c.name}</span>
+                      {spendByCategory.get(c.id) > 0 && <span className="ds-muted">{formatMoney(spendByCategory.get(c.id))} a year</span>}
+                      {!stops.has(c.id) && USUALLY_STOPS.test(c.name) && <span className="ds-muted">· often stops</span>}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </Fold>
+
+        <Fold label="Costs that start then" defaultOpen={opened('costs')}>
+          <div className="pl-fold-body">
+            {sub?.kind === 'cost' ? (
+              <CostEditor row={sub.row} householdId={householdId} household={household} onClose={closeSub} onSaved={subDone} onDirtyChange={setSubDirty} />
+            ) : (
+              <>
+                {costs.length === 0 ? (
+                  <div className="ds-muted pl-hint">None added. Health cover an employer pays until then, rising with age, and residence visa fees go here, on top of the spending.</div>
+                ) : (
+                  rowList(costs, 'cost', describeCost, (row) => (row.per_person ? ' a year each' : ' a year'))
+                )}
+                <div>
+                  <button
+                    type="button"
+                    ref={(el) => {
+                      addRefs.current.cost = el;
+                    }}
+                    className="ds-btn ds-btn-sm"
+                    disabled={sub !== null}
+                    onClick={() => setSub({ kind: 'cost', row: null })}
+                  >
+                    + Cost
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </Fold>
+
+        <Fold label="Other income" defaultOpen={opened('income')}>
+          <div className="pl-fold-body">
+            {sub?.kind === 'income' ? (
+              <IncomeEditor row={sub.row} householdId={householdId} household={household} onClose={closeSub} onSaved={subDone} onDirtyChange={setSubDirty} />
+            ) : (
+              <>
+                {incomes.length === 0 ? (
+                  <div className="ds-muted pl-hint">None added. Rent from a property, part-time work, an end-of-service gratuity or a policy maturing go here.</div>
+                ) : (
+                  rowList(incomes, 'income', describeIncome, (row) => (row.kind === 'lump_sum' ? ' once' : ' a year'))
+                )}
+                <div>
+                  <button
+                    type="button"
+                    ref={(el) => {
+                      addRefs.current.income = el;
+                    }}
+                    className="ds-btn ds-btn-sm"
+                    disabled={sub !== null}
+                    onClick={() => setSub({ kind: 'income', row: null })}
+                  >
+                    + Income
+                  </button>
+                </div>
+              </>
+            )}
+            <div className="ds-muted pl-hint">Costs and income are each saved as you add them.</div>
+          </div>
+        </Fold>
+
+        <Fold label="Growth" defaultOpen={opened('growth')}>
+          <div className="pl-fold-body">
+            <div className="te-fieldgrid">
+              {numberField('nominal', 'Return · %', 'Investment return, nominal percent a year', { placeholder: growthPlaceholder('nominal') })}
+              {numberField('inflation', 'Inflation · %', 'Inflation, percent a year', { placeholder: growthPlaceholder('inflation') })}
+              {numberField('returnPct', 'Return after work stops · %', 'Return after work stops', {
+                placeholder: `blank: ${(workingReturn - AFTER_WORK_RETURN_GAP).toFixed(1)}, a point below`,
+              })}
+              {numberField('cashPct', 'Return on cash · %', 'Return on cash held today', {
+                placeholder: `blank: ${CASH_RETURN_DEFAULT.toFixed(1)}`,
+              })}
+            </div>
+            <div className="ds-muted pl-hint">
+              Conservative and Optimistic move from these: two points lower or higher, both returns together. The cash held today stays cash at its own return,
+              in every scenario; the rest earns the return. Returns are a year, before inflation.
+            </div>
+          </div>
+        </Fold>
+
+        {error && (
+          <p className="ov-warn" role="alert" style={{ fontSize: 12.5 }}>
+            {error}
+          </p>
+        )}
+      </form>
+    </Drawer>
   );
 }

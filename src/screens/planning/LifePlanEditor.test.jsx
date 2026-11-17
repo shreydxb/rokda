@@ -90,7 +90,7 @@ describe('LifePlanEditor', () => {
     type('Age to plan Sam to', '85');
     type('Stop working in', '2054');
     type('Spending a year after work stops', '61000');
-    type('Spending once one person remains', '50');
+    expect(screen.queryByLabelText('Spending once one person remains')).toBeNull();
     fireEvent.click(screen.getByText('Save plan'));
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     const byTable = Object.fromEntries(calls.upserts.map((c) => [c.table, c]));
@@ -100,8 +100,11 @@ describe('LifePlanEditor', () => {
     ]);
     expect(byTable.member_life.options).toEqual({ onConflict: 'member_id' });
     expect(byTable.planning_assumptions.row).toEqual(
-      expect.objectContaining({ household_id: 'h', retirement_year: 2054, retirement_annual_spend: 61000, retirement_return_pct: null, survivor_spend_pct: 50, lean_annual_spend: null }),
+      expect.objectContaining({ household_id: 'h', retirement_year: 2054, retirement_annual_spend: 61000, retirement_return_pct: null, lean_annual_spend: null }),
     );
+    // Spending for one went from the drawer with the revamp, never used; a
+    // figure saved before is left as it is, not cleared.
+    expect(byTable.planning_assumptions.row).not.toHaveProperty('survivor_spend_pct');
     // The growth figures were left alone, so they are not written, and the
     // defaults do not become the household's choice.
     expect(byTable.planning_assumptions.row).not.toHaveProperty('nominal_return_pct');
@@ -128,6 +131,21 @@ describe('LifePlanEditor', () => {
     type('Age to plan Alex to', '80');
     fireEvent.click(screen.getByText('Save plan'));
     expect(screen.getByRole('alert').textContent).toMatch(/already have ended/);
+  });
+});
+
+// The fresh review of 6a: a stop year saved in the past blocks every save,
+// and its field was in a closed fold, where it couldn't be seen or focused.
+describe('LifePlanEditor: a problem in a closed fold', () => {
+  it('opens the fold the problem is in, and goes to the field', () => {
+    const memberLife = [{ member_id: 'm1', birth_year: 1994, life_expectancy: 90 }];
+    const { onSaved } = renderEditor({ memberLife, assumptions: { retirement_year: 2020 } });
+    const field = screen.getByLabelText('Stop working in');
+    expect(field.closest('details').open).toBe(false);
+    fireEvent.click(screen.getByText('Save plan'));
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(field.closest('details').open).toBe(true);
+    expect(document.activeElement).toBe(field);
   });
 });
 
@@ -257,47 +275,14 @@ describe('LifePlanEditor: growth, on Baseline', () => {
   });
 });
 
-describe('LifePlanEditor: growth, on the Custom scenario', () => {
-  const SAVED = { household_id: 'h', nominal_return_pct: 7, inflation_pct: 3 };
-  const memberLife = [{ member_id: 'm1', birth_year: 1994, life_expectancy: 90 }];
-  const input = (label) => screen.getByLabelText(label);
-
-  it('starts from Baseline, and a cleared field keeps following it', async () => {
-    const { onSaved } = renderEditor({ memberLife, assumptions: SAVED, scenario: 'custom' });
-    expect(screen.getByText('Growth · Custom scenario')).toBeTruthy();
-    expect(input('Investment return, nominal percent a year').value).toBe('7');
-    type('Investment return, nominal percent a year', '9');
-    type('Inflation, percent a year', '');
-    expect(input('Inflation, percent a year').placeholder).toBe("blank: Baseline's 3.0");
-    fireEvent.click(screen.getByText('Save plan'));
-    await waitFor(() => expect(onSaved).toHaveBeenCalled());
-    const row = calls.upserts.find((c) => c.table === 'planning_assumptions').row;
-    expect(row).toMatchObject({ household_id: 'h', custom_nominal_return_pct: 9, custom_inflation_pct: null });
-    expect(row).not.toHaveProperty('custom_safe_withdrawal_pct');
-    expect(row.custom_updated_at).toBeTruthy();
-    // Custom never writes Baseline's columns, or says Baseline was chosen.
-    expect(row).not.toHaveProperty('assumptions_saved_at');
-    expect(row).not.toHaveProperty('nominal_return_pct');
-    expect(row).not.toHaveProperty('inflation_pct');
-  });
-
-  it('opens on its own saved figures, and a figure saved blank opens blank', () => {
-    renderEditor({
-      memberLife,
-      scenario: 'custom',
-      assumptions: { ...SAVED, custom_nominal_return_pct: 5.5, custom_inflation_pct: null, custom_updated_at: '2026-09-02T00:00:00Z' },
-    });
-    expect(input('Investment return, nominal percent a year').value).toBe('5.5');
-    expect(input('Inflation, percent a year').value).toBe('');
-    expect(input('Inflation, percent a year').placeholder).toBe("blank: Baseline's 3.0");
-  });
-});
-
 // Drawdown's other income joined this drawer, beside the costs that start
-// when work stops (3.13). Each opens in a drawer over this one.
+// when work stops (3.13). Each is added and edited in place, inside its fold:
+// the prototype has no drawer over a drawer (the revamp, phase 6).
 describe('LifePlanEditor: other income and costs after work', () => {
   const costs = [{ id: 'c1', name: 'Health cover', amount: 8000, currency: 'AED', per_person: true, rise_pct: 3, starts_after_years: 0, lasts_years: null }];
   const incomes = [{ id: 'i1', name: 'Flat rent', kind: 'yearly', amount: 24000, currency: 'AED', starts_after_years: 0, lasts_years: null }];
+  const PLAN = 'Who it is for, and what it assumes';
+  const escapeIn = (el) => fireEvent.keyDown(el, { key: 'Escape' });
 
   it('lists both, each with what it is', () => {
     renderEditor({ costs, incomes });
@@ -307,61 +292,125 @@ describe('LifePlanEditor: other income and costs after work', () => {
     expect(screen.getByText('From the first year, for good')).toBeTruthy();
   });
 
-  it('adds a cost in a drawer over the plan, and comes back to the plan', async () => {
+  it('adds a cost in place, inside its fold, and leaves the plan open', async () => {
     const onRowsChanged = vi.fn();
     renderEditor({ costs: [], incomes, onRowsChanged });
     expect(screen.getByText(/None added\. Health cover an employer pays until then/)).toBeTruthy();
     fireEvent.click(screen.getByText('+ Cost'));
-    expect(screen.getByRole('dialog', { name: 'Add cost' })).toBeTruthy();
-    // Escape closes the drawer on top, and the plan stays open.
-    fireEvent.keyDown(window, { key: 'Escape' });
-    expect(screen.queryByRole('dialog', { name: 'Add cost' })).toBeNull();
-    expect(screen.getByRole('dialog', { name: 'Life plan' })).toBeTruthy();
+    const form = screen.getByRole('group', { name: 'Add cost' });
+    expect(form.closest('details').querySelector('summary').textContent).toBe('Costs that start then');
+    expect(screen.queryAllByRole('dialog')).toHaveLength(1);
+    // Escape steps back out of the cost, and the plan stays open.
+    escapeIn(screen.getByLabelText('Amount a year'));
+    expect(screen.queryByRole('group', { name: 'Add cost' })).toBeNull();
+    expect(screen.getByRole('dialog', { name: PLAN })).toBeTruthy();
     fireEvent.click(screen.getByText('+ Cost'));
     fireEvent.change(screen.getByLabelText('Amount a year'), { target: { value: '2000' } });
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Visa fees' } });
     fireEvent.click(screen.getByText('Add cost'));
     await waitFor(() => expect(onRowsChanged).toHaveBeenCalled());
     expect(calls.inserts).toEqual([{ table: 'after_work_costs', row: expect.objectContaining({ household_id: 'h', name: 'Visa fees', amount: 2000, per_person: false, rise_pct: 0 }) }]);
-    expect(screen.queryByRole('dialog', { name: 'Add cost' })).toBeNull();
-    expect(screen.getByRole('dialog', { name: 'Life plan' })).toBeTruthy();
+    expect(screen.queryByRole('group', { name: 'Add cost' })).toBeNull();
+    expect(screen.getByRole('dialog', { name: PLAN })).toBeTruthy();
   });
 
-  // The fresh review of PR #168: with changes in both drawers, each Escape
-  // speaks for the drawer on top. The cost drawer asks, then closes alone;
-  // only then does the plan ask about its own changes.
-  it('asks for the drawer on top first when both have changes', () => {
+  // The fresh review of PR #168: with changes in both, each Escape speaks for
+  // the one in hand. The cost asks, then closes alone; only then does the
+  // plan ask about its own changes.
+  it('asks about the cost first when both have changes', () => {
     const onClose = vi.fn();
     renderEditor({ costs: [], incomes, onClose });
     type('Essentials-only annual spend', '60000');
     fireEvent.click(screen.getByText('+ Cost'));
     type('Amount a year', '2000');
-    const escape = () => fireEvent.keyDown(window, { key: 'Escape' });
-    escape();
-    expect(screen.getByRole('dialog', { name: 'Add cost' })).toBeTruthy();
+    const amount = screen.getByLabelText('Amount a year');
+    escapeIn(amount);
+    expect(screen.getByRole('group', { name: 'Add cost' })).toBeTruthy();
     expect(screen.getAllByText('Discard changes?')).toHaveLength(1);
-    escape();
-    expect(screen.queryByRole('dialog', { name: 'Add cost' })).toBeNull();
+    escapeIn(amount);
+    expect(screen.queryByRole('group', { name: 'Add cost' })).toBeNull();
     expect(screen.queryByText('Discard changes?')).toBeNull();
-    escape();
+    const drawer = screen.getByRole('dialog', { name: PLAN });
+    escapeIn(drawer);
     expect(screen.getByText('Discard changes?')).toBeTruthy();
     expect(onClose).not.toHaveBeenCalled();
-    escape();
+    escapeIn(drawer);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('opens an income to edit it', () => {
-    renderEditor({ incomes });
-    fireEvent.click(screen.getByText('Flat rent'));
-    expect(screen.getByRole('dialog', { name: 'Edit income' })).toBeTruthy();
+  it('counts a cost being typed as unsaved work on the plan', () => {
+    const onClose = vi.fn();
+    renderEditor({ costs: [], incomes, onClose });
+    fireEvent.click(screen.getByText('+ Cost'));
+    type('Amount a year', '2000');
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByText('Discard changes?')).toBeTruthy();
   });
 
-  it('starts at the part it was opened for', () => {
-    const scroll = vi.fn();
-    Element.prototype.scrollIntoView = scroll;
+  it('opens an income to edit it, in place', () => {
+    renderEditor({ incomes });
+    fireEvent.click(screen.getByText('Flat rent'));
+    expect(screen.getByRole('group', { name: 'Edit income' })).toBeTruthy();
+  });
+
+  // The fresh review of 6a: Save plan, or Enter in a plan field, closed the
+  // drawer and dropped a cost being typed; one form at a time, and nothing
+  // typed is thrown away without a word.
+  it('won\'t save the plan while a cost is being typed, and says so', () => {
+    const { onSaved } = renderEditor({ costs: [], incomes });
+    fireEvent.click(screen.getByText('+ Cost'));
+    type('Amount a year', '2000');
+    fireEvent.click(screen.getByText('Save plan'));
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(screen.getByText('Add the cost, or cancel it, before saving the plan.')).toBeTruthy();
+    expect(calls.upserts).toEqual([]);
+  });
+
+  it('opens one cost or income at a time', () => {
+    renderEditor({ costs, incomes });
+    fireEvent.click(screen.getByText('+ Cost'));
+    expect(screen.getByRole('button', { name: '+ Income' }).disabled).toBe(true);
+    expect(screen.getByText('Flat rent').closest('button').disabled).toBe(true);
+  });
+
+  it('takes focus into a cost as it opens, and back to + Cost as it closes', () => {
+    renderEditor({ costs: [], incomes });
+    fireEvent.click(screen.getByText('+ Cost'));
+    expect(screen.getByRole('group', { name: 'Add cost' }).contains(document.activeElement)).toBe(true);
+    escapeIn(document.activeElement);
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: '+ Cost' }));
+  });
+
+  it('adds a cost once however fast Enter is pressed', async () => {
+    const onRowsChanged = vi.fn();
+    renderEditor({ costs: [], incomes, onRowsChanged });
+    fireEvent.click(screen.getByText('+ Cost'));
+    type('Amount a year', '2000');
+    type('Name', 'Visa fees');
+    const name = screen.getByLabelText('Name');
+    fireEvent.keyDown(name, { key: 'Enter' });
+    fireEvent.keyDown(name, { key: 'Enter' });
+    await waitFor(() => expect(onRowsChanged).toHaveBeenCalled());
+    expect(calls.inserts).toHaveLength(1);
+  });
+
+  it('opening a cost to read it is not a change to the plan', () => {
+    const onClose = vi.fn();
+    renderEditor({ costs, incomes, onClose });
+    fireEvent.click(screen.getByText('Health cover'));
+    expect(screen.queryByText('Unsaved')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens with the part it was opened for unfolded, and the others folded', () => {
     renderEditor({ section: 'growth' });
-    expect(scroll).toHaveBeenCalledTimes(1);
-    expect(scroll.mock.contexts[0].textContent).toBe('Growth');
-    delete Element.prototype.scrollIntoView;
+    const open = [...document.querySelectorAll('details')].filter((d) => d.open).map((d) => d.querySelector('summary').textContent);
+    expect(open).toEqual(['Growth']);
+    document.body.innerHTML = '';
+    renderEditor();
+    const first = [...document.querySelectorAll('details')].filter((d) => d.open).map((d) => d.querySelector('summary').textContent);
+    expect(first).toEqual(['Who it is for']);
   });
 });

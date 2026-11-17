@@ -14,20 +14,30 @@ const finite = (v) => typeof v === 'number' && Number.isFinite(v);
 
 // A bare trend for a hero panel: a line over a faint wash, the latest point
 // marked, no axis (the figure above it is the scale). Points it cannot read
-// are left out.
-export function TrendLine({ points, height = 78, activeIndex = null, onActiveChange = () => {}, ariaLabel }) {
+// are left out. `compare`, one value a point, is a second line in the
+// context colour to set the first against (Plan's "Show the path": a market
+// fall against the steady plan; the revamp, phase 6), on the same scale.
+export function TrendLine({ points, compare = null, height = 78, activeIndex = null, onActiveChange = () => {}, ariaLabel }) {
   const [ref, width] = useChartWidth();
   const known = points.filter((p) => finite(p.value));
   if (known.length === 0) return <div ref={ref} className="ds-trend" />;
   const n = known.length;
   const values = known.map((p) => p.value);
-  const lo = Math.min(...values);
-  const hi = Math.max(...values);
+  const against = compare ? points.map((p, i) => (finite(p.value) ? compare[i] : null)).filter((v) => v !== null) : [];
+  const lo = Math.min(...values, ...against.filter(finite));
+  const hi = Math.max(...values, ...against.filter(finite));
   const pad = 6;
   const x = (i) => (n === 1 ? width - pad : pad + (i / (n - 1)) * (width - pad * 2));
   const y = (v) => height - pad - ((v - lo) / (hi - lo || 1)) * (height - pad * 2);
   const line = known.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(p.value).toFixed(1)}`).join(' ');
   const wash = `${line} L${x(n - 1).toFixed(1)},${height} L${x(0).toFixed(1)},${height} Z`;
+  const comparePath =
+    against.length > 1
+      ? against
+          .map((v, i) => (finite(v) ? `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(v).toFixed(1)}` : null))
+          .filter(Boolean)
+          .join(' ')
+      : null;
   const active = activeIndex !== null && known[activeIndex] ? activeIndex : null;
   return (
     <div
@@ -40,9 +50,10 @@ export function TrendLine({ points, height = 78, activeIndex = null, onActiveCha
       onKeyDown={(e) => handleKey(e, activeIndex, n, onActiveChange)}
     >
       <svg width={width} height={height} aria-hidden="true">
+        {comparePath && <path className="ds-trend-compare" d={comparePath} />}
         {n > 1 && (
           <>
-            <path className="ds-trend-wash" d={wash} />
+            {!comparePath && <path className="ds-trend-wash" d={wash} />}
             <path className="ds-trend-line" d={line} />
           </>
         )}
@@ -170,6 +181,101 @@ export function MonthBars({ months, height = 160, formatTick = String, activeInd
           m.label ? (
             <text key={m.key} className={`ch-tick ${i === activeIndex || m.today ? 'ch-tick-active' : ''}`} x={AXIS_W + band * (i + 0.5)} y={PAD_TOP + height + 15} textAnchor="middle">
               {m.label}
+            </text>
+          ) : null,
+        )}
+        <rect className="ch-hit" x={AXIS_W} y={0} width={plotW} height={PAD_TOP + height + X_AXIS_H} {...pointerHandlers(count, onActiveChange)} />
+      </svg>
+    </div>
+  );
+}
+
+// The pot year by year (the revamp, phase 6; design/prototype charts.plan): a
+// bar a year in the accent, paler once work stops; a grey band from the
+// cautious scenario to the hopeful one; a line at the year work stops, a red
+// dot at the year the money runs out, and a diamond for each goal the pot
+// pays. A year still owing (a loan larger than the accounts) is drawn below
+// the line. The band's top is held to 1.8 times the tallest bar, so a
+// hopeful edge that runs away doesn't flatten the bars. `years` is
+// [{ key, year, value, after, low?, high?, goal? }].
+export function PlanBars({ years, stopYear = null, runsOutYear = null, height = 220, formatTick = String, activeIndex = null, onActiveChange = () => {}, ariaLabel }) {
+  const [ref, width] = useChartWidth();
+  const count = years.length;
+  const plotW = Math.max(40, width - AXIS_W - PAD_RIGHT);
+  const band = plotW / Math.max(1, count);
+  const barW = Math.max(2, band * 0.62);
+  const values = years.map((r) => r.value).filter(finite);
+  const tallest = Math.max(0, ...values);
+  const banded = years.length > 0 && years.every((r) => finite(r.low) && finite(r.high));
+  const capped = (v) => Math.min(v, tallest * 1.8);
+  const top = banded ? Math.max(tallest, ...years.map((r) => capped(r.high))) : tallest;
+  const { min, max, ticks } = niceTicks(Math.min(0, ...values), top);
+  const scale = yScale(min, max, height);
+  const y = (v) => PAD_TOP + scale(v);
+  const cx = (i) => AXIS_W + band * (i + 0.5);
+  const at = (year) => years.findIndex((r) => r.year === year);
+  const bandPath = banded
+    ? `${years.map((r, i) => `${i === 0 ? 'M' : 'L'}${cx(i).toFixed(1)},${y(capped(r.high)).toFixed(1)}`).join(' ')} ${years
+        .map((r, i) => `L${cx(i).toFixed(1)},${y(Math.max(min, r.low)).toFixed(1)}`)
+        .reverse()
+        .join(' ')} Z`
+    : null;
+  const stopAt = stopYear === null ? -1 : at(stopYear);
+  const outAt = runsOutYear === null ? -1 : at(runsOutYear);
+  return (
+    <div
+      ref={ref}
+      className="ch ds-pbars"
+      role="group"
+      aria-roledescription="chart"
+      aria-label={ariaLabel}
+      tabIndex={0}
+      onKeyDown={(e) => handleKey(e, activeIndex, count, onActiveChange)}
+    >
+      <svg width={width} height={PAD_TOP + height + X_AXIS_H} aria-hidden="true">
+        <Axis ticks={ticks} y={y} width={width} formatTick={formatTick} />
+        {bandPath && <path className="ds-pb-band" d={bandPath} />}
+        {activeIndex !== null && <rect className="ch-band" x={AXIS_W + band * activeIndex} y={PAD_TOP} width={band} height={height} />}
+        {years.map((r, i) => {
+          if (!finite(r.value) || r.value === 0) return null;
+          const from = y(Math.max(0, r.value));
+          const to = y(Math.min(0, r.value));
+          const cls = `ds-pb-bar${r.after ? ' ds-pb-after' : ''}${r.value < 0 ? ' ds-pb-owed' : ''}`;
+          return <rect key={r.key} className={cls} x={cx(i) - barW / 2} y={from} width={barW} height={Math.max(1, to - from)} rx={1} />;
+        })}
+        {stopAt >= 0 && (
+          <g>
+            <line className="ds-pb-stop" x1={AXIS_W + band * stopAt} x2={AXIS_W + band * stopAt} y1={PAD_TOP - 2} y2={PAD_TOP + height} />
+            <text className="ds-pb-stop-label" x={AXIS_W + band * stopAt + 6} y={PAD_TOP + 6}>
+              {`Stop ${stopYear}`}
+            </text>
+          </g>
+        )}
+        {outAt >= 0 && (
+          <g>
+            <circle className="ds-pb-out" cx={cx(outAt)} cy={y(0)} r={4.5} />
+            {/* Late in the plan the label goes left of its dot, inside the plot. */}
+            <text
+              className="ds-pb-out-label"
+              x={outAt >= count - 8 ? cx(outAt) - 9 : cx(outAt) + 9}
+              y={y(0) - 8}
+              textAnchor={outAt >= count - 8 ? 'end' : 'start'}
+            >
+              {`Runs out ${runsOutYear}`}
+            </text>
+          </g>
+        )}
+        {years.map((r, i) =>
+          r.goal ? (
+            <path key={`g${r.key}`} className="ds-pb-goal" d={`M${cx(i).toFixed(1)} ${(y(Math.max(0, r.value)) - 12).toFixed(1)} l4 6 l-4 6 l-4 -6 z`}>
+              <title>{`${r.goal} · ${r.year}`}</title>
+            </path>
+          ) : null,
+        )}
+        {years.map((r, i) =>
+          i === 0 || (r.year % 10 === 0 && i > 5) ? (
+            <text key={`y${r.key}`} className={`ch-tick ds-pb-year ${i === activeIndex ? 'ch-tick-active' : ''}`} x={cx(i)} y={PAD_TOP + height + 15} textAnchor={i === 0 ? 'start' : 'middle'}>
+              {r.year}
             </text>
           ) : null,
         )}

@@ -172,7 +172,9 @@ describe('Overview cockpit', () => {
     const hrefs = within(plan)
       .getAllByRole('link')
       .map((l) => l.getAttribute('href'));
-    expect(hrefs).toEqual(['/planning?tab=life', '/planning?tab=goals', '/planning?tab=debt', '/planning?tab=plan']);
+    // Planning's tabs are Plan, Goals & debts and Notes (the revamp, phase 6):
+    // the debts and the cash reserve are on Goals & debts.
+    expect(hrefs).toEqual(['/planning?tab=plan', '/planning?tab=goals', '/planning?tab=goals', '/planning?tab=goals']);
   });
 
   it('counts To do in the title, all of it', async () => {
