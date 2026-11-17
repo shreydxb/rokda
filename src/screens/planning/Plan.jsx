@@ -147,7 +147,6 @@ export default function Plan({
       spendByCategory={model.stopping.byCategory}
       incomes={data.independenceIncome ?? []}
       costs={data.afterWorkCosts ?? []}
-      scenario="baseline"
       section={editing}
       onRowsChanged={data.reload}
       onClose={() => setEditing(null)}

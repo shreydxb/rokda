@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useCloseGuard } from '../../lib/useCloseGuard';
 import DiscardPrompt from '../DiscardPrompt';
-import { useDrawerFocus } from '../../lib/useDrawerFocus';
+import { Chip } from '../../design-system/kit';
 import { supabase } from '../../lib/supabaseClient';
 import { incomesWithoutRate } from '../../lib/forecast';
 import '../money/TransactionEditor.css';
@@ -32,11 +32,12 @@ function initialForm(row) {
 const whole = (v) => /^\d+$/.test(String(v).trim());
 const blank = (v) => String(v).trim() === '';
 
-export default function CostEditor({ row, householdId, household = null, stacked = false, onClose, onSaved }) {
-  const drawerRef = useDrawerFocus();
+export default function CostEditor({ row, householdId, household = null, onClose, onSaved }) {
   const [form, setForm] = useState(() => initialForm(row));
   const [dirty, setDirty] = useState(false);
-  const { confirmingClose, requestClose, keepEditing } = useCloseGuard({ dirty, onClose });
+  // Escape is answered on this form and stops there (onKeyDown below), so
+  // the plan's drawer around it stays open.
+  const { confirmingClose, requestClose, keepEditing, escapeKey } = useCloseGuard({ dirty, onClose, listen: false });
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -106,22 +107,27 @@ export default function CostEditor({ row, householdId, household = null, stacked
   }
 
   return (
-    <div className={stacked ? 'te-overlay te-overlay-stacked' : 'te-overlay'} onMouseDown={(e) => e.target === e.currentTarget && requestClose()}>
-      <div className="te-drawer" ref={drawerRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={row ? 'Edit cost' : 'Add cost'}>
-        <div className="te-head">
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-              <span className="ov-kicker">{row ? 'Edit cost' : 'New cost'}</span>
-              {dirty && <span className="te-dirty-chip">Unsaved</span>}
-            </div>
-            <div className="te-title">{row ? row.name : 'A cost that starts when work stops'}</div>
-          </div>
-          <button type="button" className="te-close" onClick={requestClose} aria-label="Close">
-            ×
-          </button>
-        </div>
-
-        <form className="te-form" onSubmit={handleSave}>
+    // In place, inside its fold of the plan's drawer (the revamp, phase 6):
+    // the prototype has no drawer opened over a drawer. Not a <form>, since
+    // it sits inside the plan's own; Enter in a field saves this one.
+    <div
+      className="te-form pl-subform"
+      role="group"
+      aria-label={row ? 'Edit cost' : 'Add cost'}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          e.stopPropagation();
+          e.nativeEvent?.stopImmediatePropagation?.();
+          escapeKey(e);
+        } else if (e.key === 'Enter' && e.target.tagName === 'INPUT') {
+          handleSave(e);
+        }
+      }}
+    >
+      <div className="pl-subform-head">
+        <span className="pl-subform-title">{row ? row.name : 'A cost that starts when work stops'}</span>
+        {dirty && <Chip tone="warn">Unsaved</Chip>}
+      </div>
           <div>
             <div className="te-hero-label">Amount a year, in today’s money</div>
             <div className="te-hero-row">
@@ -231,7 +237,7 @@ export default function CostEditor({ row, householdId, household = null, stacked
                     <button type="button" className="om-btn" onClick={requestClose}>
                       Cancel
                     </button>
-                    <button type="submit" className="om-btn ov-btn-primary" disabled={saving}>
+                    <button type="button" className="om-btn ov-btn-primary" onClick={handleSave} disabled={saving}>
                       {saving ? 'Saving…' : row ? 'Save changes' : 'Add cost'}
                     </button>
                   </>
@@ -239,8 +245,6 @@ export default function CostEditor({ row, householdId, household = null, stacked
               </div>
             </div>
           </div>
-        </form>
-      </div>
     </div>
   );
 }

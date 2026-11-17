@@ -320,3 +320,71 @@
   margin: 0;
   text-align: right;
 }
+
+/* Edit plan: a fold for each part (design/prototype plan-form). */
+.pl-form {
+  display: flex;
+  flex-direction: column;
+}
+.pl-form > .ds-fold {
+  display: block;
+  border-top: 1px solid var(--rule-soft);
+}
+.pl-form > .ds-fold:first-child {
+  border-top: 0;
+}
+.pl-form > .ds-fold > summary {
+  padding: 11px 0;
+  font-weight: 500;
+  color: var(--ink);
+}
+.pl-form > .ds-fold:first-child > summary {
+  padding-top: 0;
+}
+.pl-fold-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 2px 0 16px;
+}
+.pl-hint {
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+.lp-stop-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+.pl-stop-cat {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+}
+.pl-stop-cat .ds-muted {
+  font-size: 11.5px;
+}
+/* A cost or an income, open in place inside its fold. */
+.pl-subform {
+  padding: 14px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm, 8px);
+  background: var(--raised);
+}
+.pl-subform-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pl-subform-title {
+  font-weight: 500;
+}
+/* Its buttons sit at its foot, not pinned to the drawer's. */
+.pl-subform .te-sticky-actions {
+  position: static;
+  margin: 4px 0 0;
+  padding: 12px 0 0;
+  background: none;
+  backdrop-filter: none;
+}
