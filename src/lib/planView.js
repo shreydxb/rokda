@@ -30,7 +30,10 @@ export function shortAtStop({ result, need }) {
 
 // The fold under the chart: every fifth year from this one, and the stop
 // year, each with where the plan is then. `status` is 'working', 'stop' (the
-// year work stops), 'after', or 'empty' once the money has run out.
+// year work stops), 'after', or 'empty' in a year after work the pot can't
+// pay. That is read from the year itself: keyed off the first short year, a
+// goal the pot couldn't pay while still working marked every year after work
+// empty against a healthy pot (the fresh review of 6a).
 export function yearRows(result, { startYear, stopYear }) {
   return result.rows
     .filter((r) => (r.year - startYear) % 5 === 0 || r.year === stopYear)
@@ -40,12 +43,19 @@ export function yearRows(result, { startYear, stopYear }) {
       status:
         r.year === stopYear
           ? 'stop'
-          : !r.working && result.shortYear !== null && r.year >= result.shortYear
+          : !r.working && (r.short > 0 || r.start <= 0)
             ? 'empty'
             : r.working
               ? 'working'
               : 'after',
     }));
+}
+
+// The year the chart marks with "Runs out": the first year after work the pot
+// can't pay, or null while it lasts. Not the plan's first short year, which
+// can be a goal short while still working.
+export function runsOutYear(result) {
+  return result.rows.find((r) => !r.working && r.short > 0)?.year ?? null;
 }
 
 // A goal's chip on Plan's "Goals on the timeline", by the rule Goals uses
@@ -58,5 +68,7 @@ export function timelineChip(goal, { now = new Date(), result }) {
   const year = Math.max(now.getFullYear(), Number(String(goal.target_date).slice(0, 4)));
   if (monthsUntil(goal.target_date, now) < NEAR_TERM_MONTHS) return { label: `From cash ${year}`, tone: 'neutral' };
   const row = result?.rows.find((r) => r.year === year);
+  // A year the plan doesn't reach is beyond it, not paid (lib/goals.js).
+  if (result && !row) return { label: 'Beyond the plan', tone: 'neutral' };
   return row && row.short > 0 ? { label: `Short ${year}`, tone: 'warn' } : { label: `Paid ${year}`, tone: 'pos' };
 }

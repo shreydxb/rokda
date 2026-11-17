@@ -8,7 +8,7 @@ import { tabHref } from '../../lib/activityLink';
 import { incomesWithoutRate } from '../../lib/forecast';
 import { agesIn, earliestStop, extraSavingNeeded, lifePlan, maxRetirementSpend, planEndYear, potNeededAt } from '../../lib/lifePlan';
 import { agesLabel, costsText, DEFAULT_STOP_AGE, leftOutText, loansText, membersLeftOut, rupeeDrift, stopRange, stressTest } from '../../lib/lifePlanBasis';
-import { planBand, shortAtStop, timelineChip, yearRows } from '../../lib/planView';
+import { planBand, runsOutYear, shortAtStop, timelineChip, yearRows } from '../../lib/planView';
 import { planningModel } from '../../lib/planningModel';
 import { formatBalance, formatCompact, formatMoney, formatSigned } from '../../lib/money';
 import { neverLoaded } from '../../lib/loadState';
@@ -442,7 +442,7 @@ export default function Plan({
                   goal: r.goals.length ? r.goals.map((g) => g.name).join(', ') : null,
                 }))}
                 stopYear={stopYear}
-                runsOutYear={!result.lasts && !shortRow?.working ? result.shortYear : null}
+                runsOutYear={runsOutYear(result)}
                 height={250}
                 formatTick={money.fmtCompact}
                 activeIndex={activeIdx}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { lifePlan, potNeededAt } from './lifePlan';
-import { planBand, shortAtStop, timelineChip, yearRows } from './planView';
+import { planBand, runsOutYear, shortAtStop, timelineChip, yearRows } from './planView';
 
 // A small household: two people to 85, a pot that grows while they work and
 // is spent once they stop. Real returns, today's money.
@@ -77,12 +77,35 @@ describe('yearRows: the year-by-year fold', () => {
     expect(rows[0].start).toBe(result.rows[0].start);
   });
 
+  // The fresh review of 6a: a goal the pot can't pay while still working
+  // made every year after work read "Nothing left" against a healthy pot.
+  it('says nothing is left only in a year after work that the pot can\'t pay', () => {
+    const result = lifePlan(args({ startPot: 0, annualSaving: 60000, goals: [{ name: 'Car', year: 2026, amount: 40000 }] }));
+    expect(result.rows.find((r) => r.year === result.shortYear).working).toBe(true);
+    const rows = yearRows(result, { startYear: 2026, stopYear: 2050 });
+    expect(rows.filter((r) => r.status === 'empty')).toEqual([]);
+  });
+
   it('says nothing is left from the year the money runs out', () => {
     const result = lifePlan(args({ retireYear: 2036 }));
     const rows = yearRows(result, { startYear: 2026, stopYear: 2036 });
     const out = rows.filter((r) => r.year >= result.shortYear);
     expect(out.length).toBeGreaterThan(0);
     expect(out.every((r) => r.status === 'empty')).toBe(true);
+  });
+});
+
+// The chart's "Runs out" dot: the first year after work the pot can't pay,
+// even when a goal fell short while still working first.
+describe('runsOutYear: where the chart marks the money running out', () => {
+  it('is the first year after work the pot can\'t pay, whatever came short before', () => {
+    const lasting = lifePlan(args());
+    expect(runsOutYear(lasting)).toBeNull();
+    const short = lifePlan(args({ retireYear: 2036 }));
+    expect(runsOutYear(short)).toBe(short.shortYear);
+    const both = lifePlan(args({ retireYear: 2036, goals: [{ name: 'Car', year: 2026, amount: 400000 }] }));
+    expect(both.rows.find((r) => r.year === both.shortYear).working).toBe(true);
+    expect(runsOutYear(both)).toBe(both.rows.find((r) => !r.working && r.short > 0).year);
   });
 });
 
@@ -98,6 +121,12 @@ describe('timelineChip: how a goal sits on the plan', () => {
     expect(timelineChip({ target_date: '2035-01-01' }, { now, result })).toEqual({ label: 'Paid 2035', tone: 'pos' });
     const short = lifePlan(args({ startPot: 0, annualSaving: 10000, goals: [{ name: 'Home', year: 2035, amount: 900000 }] }));
     expect(timelineChip({ target_date: '2035-01-01' }, { now, result: short })).toEqual({ label: 'Short 2035', tone: 'warn' });
+  });
+
+  // The fresh review of 6a: a year the plan doesn't reach is beyond it, not
+  // paid, as Goals says (lib/goals.js, outside review B-07).
+  it('names a goal dated after the plan ends as beyond it', () => {
+    expect(timelineChip({ target_date: '2090-01-01' }, { now, result })).toEqual({ label: 'Beyond the plan', tone: 'neutral' });
   });
 
   it('names money kept rather than spent, and a goal with no date', () => {
