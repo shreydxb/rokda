@@ -172,42 +172,13 @@ describe('SHR-292: every screen that prints the total says what it leaves out', 
     expect(container.textContent).toContain(`The start ${NOTE}.`);
   });
 
-  it('Planning › Summary', async () => {
-    const { default: PlanSummary } = await import('./screens/planning/PlanSummary');
-    const { container } = renderScreen(
-      <MemoryRouter>
-        <PlanSummary
-          members={MEMBERS}
-          me={MEMBERS[0]}
-          accounts={ACCOUNTS}
-          holdings={HOLDINGS}
-          transactions={closedMonthTransactions()}
-          data={{ goals: [], goalContributions: [], debts: [], assumptions: null }}
-          loading={false}
-          onOpenTab={() => {}}
-        />
-      </MemoryRouter>,
-    );
-    expect(container.textContent).toContain(`incomplete, ${NOTE}`);
-  });
-
   // Only the unconverted card and the never-valued holding: nothing on this
-  // balance sheet is actually known. Both planning screens used to disagree
-  // here -- Forecast refused, the summary card projected from the holding's
-  // placeholder 0 -- and now both come from startingNetWorth. Forecast has
-  // gone, and the Life plan says what it needs instead (3.15).
-  it('with nothing valued, neither planning screen projects', async () => {
-    const { default: PlanSummary } = await import('./screens/planning/PlanSummary');
+  // balance sheet is actually known. Forecast refused here while the summary
+  // card projected from the holding's placeholder 0; both went (3.15 and the
+  // revamp, phase 6), and the plan says what it needs instead.
+  it('with nothing valued, the plan does not project', async () => {
     const { default: LifePlan } = await import('./screens/planning/LifePlan');
     const unknownOnly = { accounts: [ACCOUNTS[1]], holdings: [HOLDINGS[1]], transactions: closedMonthTransactions() };
-    const summary = renderScreen(
-      <MemoryRouter>
-        <PlanSummary members={MEMBERS} me={MEMBERS[0]} {...unknownOnly} data={{ goals: [], goalContributions: [], debts: [], assumptions: null }} loading={false} onOpenTab={() => {}} />
-      </MemoryRouter>,
-    );
-    expect(summary.container.textContent).not.toContain('of the way to');
-    expect(summary.container.textContent).toContain('Nothing to plan yet');
-    summary.unmount();
     const lifePlan = renderScreen(
       <MemoryRouter>
         <LifePlan household={{ id: 'hh' }} members={MEMBERS} {...unknownOnly} data={{ assumptions: null, memberLife: [] }} loading={false} />

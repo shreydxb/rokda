@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { screen, within } from '@testing-library/dom';
-import { MemoryRouter } from 'react-router-dom';
+import { renderHook } from '@testing-library/react';
 import { renderScreen } from '../../test/renderScreen';
 import Goals from './Goals';
-import PlanSummary from './PlanSummary';
+import { usePlanFigures } from './usePlanFigures';
+import { ScopeProvider } from '../../lib/ScopeContext';
 
 vi.mock('../../lib/supabaseClient', () => ({ supabase: {} }));
 
@@ -25,16 +26,16 @@ beforeEach(() => {
 });
 afterEach(() => vi.useRealTimers());
 
-describe('Plan summary agrees with the Goals tab', () => {
+// Overview's Plan strip reads the same figures the Plan summary did
+// (usePlanFigures), so it agrees with the Goals tab.
+describe('Overview\'s Plan strip agrees with the Goals tab', () => {
   it('counts linked accounts in saved, as the Goals tab does', () => {
-    renderScreen(
-      <MemoryRouter>
-        <PlanSummary members={MEMBERS} me={{ id: 'm1' }} accounts={ACCOUNTS} transactions={[]} holdings={[]} data={DATA} loading={false} onOpenTab={() => {}} />
-      </MemoryRouter>,
-    );
+    const { result } = renderHook(() => usePlanFigures({ members: MEMBERS, me: { id: 'm1' }, accounts: ACCOUNTS, transactions: [], holdings: [], data: DATA, sources: { errors: {}, loaded: {} } }), {
+      wrapper: ({ children }) => <ScopeProvider>{children}</ScopeProvider>,
+    });
     // Half of a 50,000 account. It used to read only what was logged; the
     // 5,000 logged is now its record, not added on top (Planning audit, 2.8).
-    expect(screen.getByText('25,000')).toBeTruthy();
+    expect(result.current.nearCash).toBe(25000);
   });
 });
 

@@ -38,7 +38,7 @@ export default function OverviewPlan({ f, scope = 'both', unread, onRetry }) {
   return (
     <Card title="Plan" className="ov-plan" flush>
       <div className="ov-plan-tiles">
-        <Tile label="Stop working" to={tabHref('/planning', 'life')} missing={f.answerMissing}>
+        <Tile label="Stop working" to={tabHref('/planning', 'plan')} missing={f.answerMissing}>
           {f.stop ? (
             <>
               <div className="ds-fig">{f.stop.stopYear}</div>
@@ -87,7 +87,7 @@ export default function OverviewPlan({ f, scope = 'both', unread, onRetry }) {
             </>
           )}
         </Tile>
-        <Tile label="Debts" to={tabHref('/planning', 'debt')} missing={f.debtsMissing}>
+        <Tile label="Debts" to={tabHref('/planning', 'goals')} missing={f.debtsMissing}>
           {f.visibleDebts.length > 0 ? (
             <>
               <div className="ds-fig">
@@ -105,7 +105,7 @@ export default function OverviewPlan({ f, scope = 'both', unread, onRetry }) {
             </>
           )}
         </Tile>
-        <Tile label="Cash reserve" to={tabHref('/planning', 'plan')} missing={f.reserveMissing}>
+        <Tile label="Cash reserve" to={tabHref('/planning', 'goals')} missing={f.reserveMissing}>
           {reserve.months != null ? (
             <>
               <div className="ds-fig">

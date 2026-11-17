@@ -72,21 +72,6 @@ const label = (row) => [...bar().querySelectorAll('.dd-control')].find((c) => c.
 const tab = (name) => screen.getAllByRole('button', { name }).find((b) => b.classList.contains('om-tab'));
 
 describe('Planning tabs and the assumptions bar', () => {
-  const tabNames = () => screen.getAllByRole('button').filter((b) => b.classList.contains('om-tab')).map((b) => b.textContent);
-
-  it('has five tabs, and an old link to Forecast or Drawdown opens the Life plan', () => {
-    for (const old of ['forecast', 'drawdown']) {
-      const { unmount } = renderScreen(
-        <MemoryRouter initialEntries={[`/planning?tab=${old}`]}>
-          <Planning />
-        </MemoryRouter>,
-      );
-      expect(tabNames()).toEqual(['Plan', 'Life plan', 'Goals', 'Debt payoff', 'Notes']);
-      expect(tab('Life plan').getAttribute('aria-current')).toBe('page');
-      expect([...bar().querySelectorAll('.dd-label')].map((l) => l.textContent)).toEqual(['Scenario', 'Show', 'Growth', 'Spending']);
-      unmount();
-    }
-  });
 
   it('says the assumptions are defaults until saved, and a scenario is only a look for now', () => {
     open('life');
@@ -101,8 +86,8 @@ describe('Planning tabs and the assumptions bar', () => {
     open('life');
     fireEvent.click(screen.getByRole('button', { name: 'Optimistic' }));
     fireEvent.click(screen.getByRole('button', { name: 'Future money' }));
+    fireEvent.click(tab('Notes'));
     fireEvent.click(tab('Plan'));
-    fireEvent.click(tab('Life plan'));
     expect(screen.getByRole('button', { name: 'Optimistic' }).dataset.active).toBe('true');
     expect(screen.getByRole('button', { name: 'Future money' }).dataset.active).toBe('true');
     expect(label('Growth').textContent).toMatch(/^Growth8\.0% return · 1\.5% inflation/);
@@ -111,24 +96,13 @@ describe('Planning tabs and the assumptions bar', () => {
   // The chosen option showed only as a fill (Planning audit, 0b-F).
   it('tells a screen reader which tab, scenario and money are chosen', () => {
     open('life');
-    expect(tab('Life plan').getAttribute('aria-current')).toBe('page');
-    expect(tab('Plan').hasAttribute('aria-current')).toBe(false);
+    expect(tab('Plan').getAttribute('aria-current')).toBe('page');
+    expect(tab('Notes').hasAttribute('aria-current')).toBe(false);
     const scenario = screen.getByRole('group', { name: 'Scenario' });
     fireEvent.click(within(scenario).getByRole('button', { name: 'Optimistic' }));
     expect(within(scenario).getByRole('button', { name: 'Optimistic', pressed: true })).toBeTruthy();
     expect(within(scenario).getByRole('button', { name: 'Baseline', pressed: false })).toBeTruthy();
     expect(within(screen.getByRole('group', { name: 'Show' })).getByRole('button', { name: 'Today’s money', pressed: true })).toBeTruthy();
-  });
-
-  // Plan's cards were divs that ignored Space and left focus nowhere once
-  // the tab changed (Planning audit, 0b-F).
-  it('opens a tab from one of Plan\'s cards and takes focus to it', () => {
-    open('plan');
-    const card = screen.getAllByRole('button').find((b) => b.classList.contains('pl-card') && /open Goals$/.test(b.getAttribute('aria-label')));
-    expect(card.tagName).toBe('BUTTON');
-    fireEvent.click(card);
-    expect(tab('Goals').getAttribute('aria-current')).toBe('page');
-    expect(document.activeElement).toBe(tab('Goals'));
   });
 
   it('gives the spending the plan is built on in its place', () => {
