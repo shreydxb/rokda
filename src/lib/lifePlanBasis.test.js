@@ -433,4 +433,16 @@ describe('cash and the rupee', () => {
     expect(ending(drift.weaker)).toBeLessThan(ending(drift.steady));
     expect(drift.weaker.earliest === null || drift.weaker.earliest >= drift.steady.earliest).toBe(true);
   });
+
+  // Plan's "Show the path" draws the weaker rupee against the steady plan
+  // (the revamp, phase 6), from the year work stops.
+  it('keeps each case\'s years from the year work stops, for its path', () => {
+    const inputs = { ready: true, monthlySaving: 4000, annualSpend: 60000, source: 'actual' };
+    const drift = rupeeDrift(lifePlanBasis({ people, assumptions: { retirement_year: 2054 }, inputs, startNetWorth: 300000, household: { inr_per_aed: 25 }, startYear: 2026, start: { cash: 0, rupees: 60000 } }));
+    for (const o of [drift.steady, drift.weaker]) {
+      expect(o.rows[0].year).toBe(drift.stopYear);
+      expect(o.rows[o.rows.length - 1].year).toBe(drift.endYear);
+    }
+    expect(drift.weaker.rows.length).toBe(drift.steady.rows.length);
+  });
 });

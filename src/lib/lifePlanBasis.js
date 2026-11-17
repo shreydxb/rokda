@@ -322,7 +322,9 @@ export function rupeeDrift(basis) {
   const outcome = (drift) => {
     const args = { ...basis.args, drift };
     const result = lifePlan(args);
-    return { lasts: result.lasts, shortYear: result.shortYear, left: result.left, earliest: earliestStop(args) };
+    // Its years from the stop year, for Plan's "Show the path" (the revamp,
+    // phase 6).
+    return { lasts: result.lasts, shortYear: result.shortYear, left: result.left, earliest: earliestStop(args), rows: result.rows.filter((r) => r.year >= stopYear) };
   };
   return { drift: RUPEE_DRIFT, stopYear, endYear, rupees, steady: outcome(0), weaker: outcome(RUPEE_DRIFT) };
 }
