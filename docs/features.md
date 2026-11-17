@@ -198,7 +198,7 @@ plan holds.
   reads Paused. Mark paid opens the payment filled from the bill, dated the
   day it was due when it is late. Under one person, the other's own schedules
   are left out and a shared one counts half. + Bill is in the page header.
-- Money and the AED-entered plans (Plan, Goals, Debt payoff) stay in AED
+- Money and the AED-entered plans (Plan, Goals & debts) stay in AED
   whatever the display currency, and say so when another one is picked.
 - **Categories**: a record is filed under a category with no subcategories;
   pickers list them as "Group › Category" (Shopping, with none, stands
@@ -410,94 +410,80 @@ Net worth, which holds the accounts.
   person's.
 ## Planning (`/planning`)
 
-Five tabs: Plan, Life plan, Goals, Debt payoff, Notes. An old link to
-Forecast or Drawdown, which went (Planning audit, 3.15), opens the Life plan.
+Three tabs, as the prototype has them (the revamp, phase 6): Plan, Goals &
+debts, Notes. Old links land where their content went: the Life plan,
+Forecast and Drawdown on Plan, Debt payoff on Goals & debts. The Plan summary
+went: Overview's Plan strip and To do say what it said.
 
-- **The assumptions bar** at the top of the Life plan: the scenario
-  (Baseline, Conservative, Optimistic, Custom), today's or future money,
-  growth (return, inflation, after inflation, and the return after work
-  stops), and the spending the plan is built on. Edit assumptions opens the
-  plan's drawer at its growth figures. The scenario and the money shown
-  hold while moving between tabs, and are never saved. On a phone the bar
-  folds to a summary ("Baseline · today's money · 6.0% return · 48K a year
-  after work"); Change opens it.
-- **Tables on a phone**: the Life plan's year-by-year table and Goals'
-  priority table become two-line rows below 640px: the year and the pot, or
-  the goal and what it needs today, on the first line, and every other
-  column on the second, each figure labelled from its header. Nothing is
-  dropped and nothing scrolls sideways.
-- **The plan's drawer** (Edit plan and Edit assumptions on the Life plan)
-  holds every planning assumption in one place: who the plan is for and the
-  age to plan each person to, the year work stops, spending after it (a
-  planned figure, essentials only, for one, and the categories that stop),
-  the costs that start when work stops, other income, and growth: the return,
-  inflation, the return after work stops, which is a point below the
-  return until one is set and moves with the scenario, and the return on
-  cash, 3% until one is set, the same in every scenario. Costs and income
-  open in a drawer over it and are saved as they are added.
-- **Planning basis**: every projection (Plan and the Life plan) opens with
-  one line saying what it is worked out on: your budget
-  or the recorded months, why, and from which month the records count.
-  Change basis chooses the budget or the recorded months and the month
-  records count from, saved for the household. With nothing chosen, the
-  budget stands in until three months have ended, then the records.
-- **Plan**: one page answering "are we on track". Once ages are set it opens
-  with the Life plan's Stop working card (the year, the ages then, Baseline
-  and Conservative at that year, the spending after work stops it assumes),
-  then goals and linked debts. Until ages are set, the card asks for them
-  rather than giving a target; with not enough to project, it says the Life
-  plan lists what is missing. A
-  monthly check follows, for the household: saving in the month just ended
-  against the budget's savings target (linked to its Month end), and the cash reserve
-  in months of spending against what the kept goals hold. Then what needs a
-  decision.
-- **Life plan**: leads with the year work stops (saved, being tried, or
-  assumed) and Baseline and Conservative side by side at that year, each
-  with what is left at the end or when the money runs out; the earliest year
-  with nothing to spare is a lever under "What it would take". Under the
-  headline it says what the start leaves out (accounts with no AED value,
-  holdings never valued) and balances never entered, counted as 0. With
-  not enough to project it lists what is missing, item by item, with where
-  to add it. Then a
-  year-by-year timeline from today to the last life expectancy: saving and growth while working, each goal paid in its year,
-  dated lump sums (policy maturities) and later income, then spending once
-  work stops, less what stops with work (EMIs, rent where set), plus the
-  costs that start then: health cover and visa fees, for the household or
-  each person, rising above inflation from now if set
-  (`after_work_costs`). Solves for the
-  earliest year work can stop. A loan paid out of spending is counted once:
-  the plan starts before what it owes, and saving rises by its instalment
-  once it clears at the minimum. The chart switches between the pot by phase
-  and the working years split into what each year's saving adds and what the
-  pot earns, with the year the pot starts earning more. "If markets fall" puts the plan at its stop
-  year through the same two-year fall the year work stops and ten years in,
-  on Baseline, beside a steady return: whether each lasts, the stop year that
-  weathers the early fall, what the first year without work takes from the
-  pot, and the pot's path against the steady one. The cash and deposits held
-  today stay cash at the return on cash; the rest earns the return. When
-  anything is in rupees (accounts or holdings, other income, a cost), "If the
-  rupee weakens" sets the plan with the rupee losing 3% a year against the
-  dirham beside the plan as it is: what is left at the end, and the earliest
-  stop year, each way.
+- **Plan** (it was the Life plan): the household's whole financial life on
+  one timeline, in dirhams, whoever is selected (a Household chip says so in
+  one person's view). Edit plan sits in the page header.
+  - **The strip**: the basis in a few words with its figures ("recorded
+    months · spending 4,000 · saving 6,000 a month") and Change, which
+    chooses the budget or the recorded months and the month records count
+    from, saved for the household; why that basis and since when are behind
+    its (i). A choice not in effect yet stays in view ("Recorded months: 1
+    of 3 ended"). Then the scenario (Baseline, Conservative, Optimistic), the
+    spending after work (Planned, Less what stops, Today's or Budgeted,
+    Essentials, each with its figure) and the rates, with what the plan
+    assumes (cash at its own return, loans counted once, the costs after
+    work, sums paid in a set year) behind their (i). The scenario and the
+    spending are what-ifs, never saved.
+  - **When can we stop?**: the stop year (saved, being tried, or assumed)
+    with the ages then; Baseline and Conservative at that year as chips;
+    Pot in that year, Needed then, Goals on the way, and Short by (what is
+    needed then less what the pot holds; for a goal the pot can't pay while
+    still working, that goal's gap) or Left at the end. A stepper tries
+    another year: "Not saved", Reset and Make this the plan. Warning rows
+    say who isn't in the plan, what the start leaves out or hasn't
+    confirmed, and income not counted for want of a rate. Beside it the pot
+    year by year: a bar a year, paler once work stops, a grey band from
+    Conservative to Optimistic, the stop year, the year the money runs out
+    and a diamond for each goal the pot pays, with a readout of the year
+    picked. Year by year folds every fifth year and the stop year;
+    Goals on the timeline folds each open goal with how the plan pays it
+    (Paid, From cash, Kept, No date, or Short), each opening the goal.
+  - **What would it take?**: when the money runs short, stop in a later
+    year, or save more a month, or spend at most a figure a year, each from
+    the plan's own solver, the year with Try. When it lasts, "Nothing more
+    is needed" with what is left, and how early work could stop, with Try.
+  - **What could go wrong?**: a two-year market fall the year work stops,
+    and, when anything is in rupees, the rupee losing 3% a year against the
+    dirham. Each is on Baseline whatever scenario is shown, with its
+    verdict, one line against the steady plan, how it is tested behind its
+    (i), and its path against the steady one under "Show the path".
+  - With not enough to project it lists what is missing, item by item, with
+    where to add it; with no ages it asks who the plan is for; with everyone
+    past the age the plan runs to, it asks for a later age.
+- **The plan's drawer** (Edit plan) holds every planning assumption, a fold
+  for each part: who the plan is for and the age to plan each person to, the
+  year work stops, spending after it (a planned figure, essentials only, and
+  the categories that stop), the costs that start when work stops, other
+  income, and growth: the return, inflation, the return after work stops,
+  which is a point below the return until one is set and moves with the
+  scenario, and the return on cash, 3% until one is set. A cost or an income
+  is added and edited in place inside its fold and saved as it is added.
+- **Tables on a phone**: Goals' priority table becomes two-line rows below
+  640px. Plan stacks the stop year over the chart.
 - **Goals**: targets in today's cost with their own inflation, in four
   kinds, each goal with one status. Due within 3 years: paid from cash
   (logged contributions and linked current, savings and cash accounts, no
   growth), with the cash a month as it really falls. Kept, like an emergency
-  fund: held in cash. Later: paid by the Life plan, whose timeline says
+  fund: held in cash. Later: paid by the plan, whose timeline says
   covered or short. No date: in no plan. The priority table covers later
   goals only, closed, as a what-if. The goal editor sets spent or kept, what
   the household plans to put in a month (measured against what a goal held
-  in cash needs, and a goal it covers is not raised on Plan), and done: a
+  in cash needs, and a goal it covers is not raised on Overview), and done: a
   done goal is listed apart and left out of every plan and the bot, and can
   be reopened. A goal has one source of saved: its linked accounts and
   holdings, or, with none, what is logged to it. A goal held in cash shows
   its pace over about three months, from its linked accounts' recorded
   balance changes or from what is logged.
-- **Debt payoff**: leads with when the debts clear at their minimums and the
+- **Debt payoff**, under the goals on Goals & debts: leads with when the debts clear at their minimums and the
   interest still to pay. Each debt shows what is owed, its rate, its minimum
   and when it clears, labelled. An extra payment is a what-if, against the
   minimums, beside the rule to fill the cash reserve first. Avalanche or
-  snowball from two debts up, saved for the household and followed by Plan.
+  snowball from two debts up, saved for the household.
 - **Notes**: the household plan in words, private to the household. A note
   can be checked once a year (insurance, wills, nominations): it says when it
   was last checked, "Checked today" records it, and Overview's Needs
