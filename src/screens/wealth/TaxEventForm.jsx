@@ -86,9 +86,12 @@ export default function TaxEventForm({ memberId, year, taxReturn, event, onSaved
     await onSaved();
   }
 
+  // Escape steps back out of the form only: inside a tax year's drawer it
+  // must not close the drawer as well (the fresh review of 5c).
   function onKeyDown(e) {
     if (e.key === 'Escape') {
       e.preventDefault();
+      e.stopPropagation();
       onCancel();
     }
   }

@@ -4,7 +4,7 @@ import { supabase } from '../../lib/supabaseClient';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
 import { useMoneyDisplay } from '../../lib/CurrencyContext';
-import { householdToday } from '../../lib/day';
+import { HOUSEHOLD_TIME_ZONE, householdToday } from '../../lib/day';
 import { formatMoney, formatPct } from '../../lib/money';
 import { SECTOR_LABELS } from '../../lib/holdings';
 import { couldntLoad, neverLoaded } from '../../lib/loadState';
@@ -48,7 +48,10 @@ const native = (amount, currency) => `${currency} ${formatMoney(amount, { decima
 const aed = (money, value) => `${money.code} ${money.fmt(value)}`;
 const signedPct = (f) => `${f >= 0 ? '+' : '−'}${formatPct(Math.abs(f), { decimals: Math.abs(f) < 0.1 ? 1 : 0 })}`;
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
-const dayNoYear = (day) => shortDate(day).replace(/ \d{4}$/, '');
+// A check's day and time in the household's time zone, months as the app
+// writes them ("Sep").
+const checkedAt = (ts) =>
+  `${shortDate(householdToday(new Date(ts)))}, ${new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: HOUSEHOLD_TIME_ZONE }).format(new Date(ts))}`;
 
 export default function Dividends({ household, members, me, data, loading }) {
   const { scope } = useScope();
@@ -71,19 +74,13 @@ export default function Dividends({ household, members, me, data, loading }) {
     );
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
+  // A source Income needs that never loaded is said there, and Tax years,
+  // which needs none of them, stays a view away (the fresh review of 5c).
   const missing = neverLoaded(data, SOURCES);
-  if (missing.length) {
-    return (
-      <p className="ov-warn dv-gap" role="alert">
-        {couldntLoad(missing)} Refresh the page to try again.
-      </p>
-    );
-  }
-
   const tools = (
     <Tools>
       <Segmented label="Show" options={VIEWS} value={view} onChange={setView} />
-      {input.holdings.length > 0 && <FeedChip stamp={feedStamp(input)} />}
+      {!missing.length && input.holdings.length > 0 && <FeedChip stamp={feedStamp(input)} />}
     </Tools>
   );
   // Tax history outlives the holdings it came from.
@@ -92,6 +89,16 @@ export default function Dividends({ household, members, me, data, loading }) {
       <div className="dv">
         {tools}
         <TaxYears members={members} scopeMemberId={scopeMemberId} data={data} />
+      </div>
+    );
+  }
+  if (missing.length) {
+    return (
+      <div className="dv">
+        {tools}
+        <p className="ov-warn dv-gap" role="alert">
+          {couldntLoad(missing)} Refresh the page to try again.
+        </p>
       </div>
     );
   }
@@ -122,17 +129,20 @@ export default function Dividends({ household, members, me, data, loading }) {
 // When the feed last checked, amber naming a share while its check fails;
 // behind it each market's last check and how far back its history goes.
 function FeedChip({ stamp }) {
-  const label = stamp.failing.length ? `Feed: ${stamp.failing[0].symbol} failing` : stamp.checkedAt ? `Feed: checked ${shortDate(stamp.checkedAt.slice(0, 10))}` : 'Feed: not checked yet';
-  const checkedAt = (ts) => new Date(ts).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  const label = stamp.failing.length
+    ? `Feed: ${stamp.failing[0].symbol} failing`
+    : stamp.checkedAt
+      ? `Feed: checked ${shortDate(householdToday(new Date(stamp.checkedAt)))}`
+      : 'Feed: not checked yet';
   return (
     <Popover label={label} className={`ds-chip dv-feed${stamp.failing.length ? ' ds-chip-warn' : ''}`} chevron={false}>
       <div className="dv-pop">
         {stamp.markets.map((m) => (
-          <p key={m.market}>{`${MARKET_NAMES[m.market]}: ${m.checkedAt ? `checked ${checkedAt(m.checkedAt)}` : 'not checked yet'}`}</p>
+          <p key={m.market}>{`${MARKET_NAMES[m.market]}: ${m.checkedAt ? `checked ${checkedAt(m.checkedAt)}` : 'not checked yet'}${m.coveredFrom ? ` · history from ${shortDate(m.coveredFrom)}` : ''}`}</p>
         ))}
         {stamp.failing.map((f) => (
           <p key={`${f.market}-${f.symbol}`} className="dv-warn">
-            {`Checks failing for ${f.symbol} since ${f.since ? shortDate(f.since.slice(0, 10)) : 'it was added'}`}
+            {`Checks failing for ${f.symbol} since ${f.since ? shortDate(householdToday(new Date(f.since))) : 'it was added'}`}
           </p>
         ))}
         <p className="dv-ink3">{stamp.neverRun ? "The dividend feed hasn't run yet. It checks each night." : 'It checks each night.'}</p>
@@ -157,6 +167,9 @@ function Strip({ input, money, transactions }) {
     : h.coverageDiffers && india?.start && us?.start
       ? `${MARKET_ADJECTIVES.IN} dividends are counted from ${shortDate(india.start)}, ${MARKET_ADJECTIVES.US} from ${shortDate(us.start)}.`
       : null;
+  // While one market's record is shorter, where it starts, in view (the fresh
+  // review of 5c); the (i) says both.
+  const later = h.coverageDiffers && !untracked.length ? [...h.markets].filter((m) => m.start).sort((a, b) => (a.start < b.start ? 1 : -1))[0] : null;
   const expectedSub = [
     h.expected.changeOnLast12 !== null ? `${signedPct(h.expected.changeOnLast12)} on the last 12` : null,
     h.expected.notCounted > 0 ? `${h.expected.notCounted} not counted: no exchange rate` : null,
@@ -181,8 +194,9 @@ function Strip({ input, money, transactions }) {
               </>
             ),
             sub:
-              h.received.presumedAed > 0 || h.received.notCounted > 0 ? (
+              h.received.presumedAed > 0 || h.received.notCounted > 0 || later ? (
                 <span className="dv-subrow">
+                  {later && <span>{`${MARKET_NAMES[later.market]} counted from ${shortDate(later.start)}`}</span>}
                   {h.received.presumedAed > 0 && (
                     <Chip title="Paid into a bank account and presumed received 30 days after the ex-date; not checked against a statement.">{`${aed(money, h.received.presumedAed)} presumed`}</Chip>
                   )}
@@ -285,7 +299,7 @@ function NeedsYou({ input, data, openHolding }) {
 function ByMonth({ input, money, today }) {
   const [view, setView] = useState('received');
   const [pick, setPick] = useState(null);
-  const { months, thisYear, nextYear, leftOut } = dividendsByMonth(input, view);
+  const { months, thisYear, ahead, leftOut } = dividendsByMonth(input, view);
   const current = today.slice(0, 7);
   const label = (month, i) => {
     const [y, m] = month.split('-');
@@ -301,7 +315,9 @@ function ByMonth({ input, money, today }) {
     if (m.expectedAed > 0) parts.push(`${aed(money, m.expectedAed)} expected`);
     return `${monthLabel(m.month)}: ${parts.length ? parts.join(', ') : 'nothing'}`;
   };
-  const span = nextYear && nextYear.to.slice(5) !== '12' ? ` (${SHORT[Number(nextYear.from.slice(5)) - 1]}–${SHORT[Number(nextYear.to.slice(5)) - 1]})` : '';
+  // The months of that year the twelve ahead hold, unless all of them.
+  const mon = (month) => SHORT[Number(month.slice(5)) - 1];
+  const span = !ahead || (ahead.from.slice(5) === '01' && ahead.to.slice(5) === '12') ? '' : ahead.from === ahead.to ? ` (${mon(ahead.from)})` : ` (${mon(ahead.from)}–${mon(ahead.to)})`;
   return (
     <Card
       title="By month"
@@ -348,7 +364,7 @@ function ByMonth({ input, money, today }) {
                 Expected
               </span>
               <span>{`${thisYear.year} so far `}<b>{aed(money, thisYear.aed)}</b></span>
-              {nextYear && <span>{`${nextYear.year} expected${span} `}<b>{aed(money, nextYear.aed)}</b></span>}
+              {ahead && <span>{`${ahead.year} ${ahead.part === 'rest' ? 'still expected' : 'expected'}${span} `}<b>{aed(money, ahead.aed)}</b></span>}
             </>
           )}
         </div>
@@ -379,9 +395,9 @@ function ComingUp({ input, data, money }) {
             const open = form && form.id === x.dividendId && dividend;
             return (
               <li key={x.dividendId ?? x.eventId} className="dv-row">
-                <span className="dv-date" title={x.day ? shortDate(x.day) : undefined}>
-                  {x.day ? dayNoYear(x.day) : x.month ? monthLabel(x.month) : '—'}
-                </span>
+                {/* A day in another year keeps its year (the fresh review of
+                    5c): last December's, not yet recorded, isn't months away. */}
+                <span className="dv-date">{x.day ? shortDate(x.day) : x.month ? monthLabel(x.month) : '—'}</span>
                 {/* The card is narrow: the name and its line take the room, the
                     actions sit under them, the amount at the right. */}
                 <div className="dv-row-main">

@@ -87,8 +87,9 @@
   overflow-wrap: anywhere;
 }
 .dv-date {
-  width: 46px;
+  min-width: 46px;
   flex: none;
+  white-space: nowrap;
   font: 400 12px var(--font-mono);
   color: var(--ink3);
 }

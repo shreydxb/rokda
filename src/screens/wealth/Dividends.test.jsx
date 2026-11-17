@@ -107,11 +107,10 @@ const kpiLabels = () => [...document.querySelectorAll('.ds-kpi dt')].map((d) => 
 // byHoldingCard): Income, with Tax years a view away.
 
 describe('Dividends: the strip', () => {
-  it('says what came in and how much was presumed, what is expected against the last twelve months, a month, and of spending', () => {
+  it('says what came in and how much was presumed, what is expected, a month, and of spending', () => {
     open();
     expect(kpiLabels()).toEqual(['Received · 12 months', 'Expected · 12 months', 'A month', 'Of spending']);
     expect(kpi('Received · 12 months').textContent).toMatch(/AED \S+ presumed/);
-    expect(kpi('Expected · 12 months').textContent).toMatch(/[+−]\d+(\.\d)?% on the last 12/);
     expect(kpi('A month').textContent).toMatch(/^A monthabout AED \S+$/);
     expect(kpi('Of spending').textContent).toMatch(/[\d.]+%expected, of recorded spending/);
   });
@@ -125,6 +124,19 @@ describe('Dividends: the strip', () => {
     fireEvent.click(screen.getByRole('button', { name: 'About Received' }));
     expect(screen.getByText(/units held then are unknown/)).toBeTruthy();
     expect(screen.getByText(new RegExp(`Indian dividends are counted from ${shortDate(ago(430))}, US from ${shortDate(ago(60))}\\.`))).toBeTruthy();
+  });
+
+  // The fresh review of 5c: while one market's record is shorter, nothing
+  // is set against the last twelve months, and the strip says where that
+  // market is counted from, in view.
+  it("sets expected against the last twelve months only once every market's record covers them", () => {
+    open();
+    expect(kpi('Expected · 12 months').textContent).not.toMatch(/on the last 12/);
+    expect(kpi('Received · 12 months').textContent).toContain(`US counted from ${shortDate(ago(60))}`);
+    cleanup();
+    const d = data();
+    open(data({ holdingTrades: [{ ...d.holdingTrades[0], trade_date: ago(430) }, d.holdingTrades[1]] }));
+    expect(kpi('Expected · 12 months').textContent).toMatch(/[+−]\d+(\.\d)?% on the last 12/);
   });
 
   it('a record shorter than twelve months says since when, and sets nothing against it', () => {
@@ -226,6 +238,16 @@ describe('Dividends: coming up', () => {
     expect(d.reload).toHaveBeenCalled();
   });
 
+  // The fresh review of 5c: one still to be recorded from last year keeps its
+  // year, so it doesn't read as months away.
+  it('keeps the year on a date in another year', () => {
+    const d = data();
+    open(data({ holdingDividends: [...d.holdingDividends, div('d9', US, { status: 'earned', ex_date: ago(400), pay_date: ago(380), paid_into_account_id: 'f-usd' })] }));
+    const rows = within(section('Coming up')).getAllByRole('listitem');
+    expect(rows[0].textContent).toContain(shortDate(ago(380)));
+    expect(shortDate(ago(380))).toMatch(/\d{4}$/);
+  });
+
   // A row's other actions sit under "⋯" (design note).
   it("keeps an earned row's Fix and Skip under ⋯", () => {
     open();
@@ -245,8 +267,9 @@ describe('Dividends: by month', () => {
     expect(within(months).getByRole('group', { name: /^Dividends received by month/ })).toBeTruthy();
     const readout = () => months.querySelector('.dv-readout').textContent;
     expect(readout()).toMatch(new RegExp(`${TODAY.slice(0, 4)} so far AED \\S+`));
-    // Next year as far as the twelve months ahead reach, saying which months.
-    expect(readout()).toMatch(new RegExp(`${Number(TODAY.slice(0, 4)) + 1} expected( \\(Jan–\\w{3}\\))? AED \\S+`));
+    // The year holding more of the twelve months ahead, saying which months:
+    // next year from about midsummer, the rest of this one before.
+    expect(readout()).toMatch(/\d{4} (still )?expected( \(\w{3}(–\w{3})?\))? AED \S+/);
     expect(within(months).queryByText("1 receipt with no ex-date isn't shown.")).toBeNull();
     fireEvent.keyDown(within(months).getByRole('group', { name: /^Dividends received by month/ }), { key: 'Home' });
     expect(readout()).toMatch(/^\w{3} \d{4}: /);
@@ -288,12 +311,12 @@ describe('Dividends: by holding', () => {
 // "Where it comes from" and "How fresh this is" go: the market grouping and
 // the Feed chip say them (design note).
 describe('Dividends: the Feed chip', () => {
-  it('says when the feed last checked, and each market behind it', () => {
+  it('says when the feed last checked, and each market behind it, with how far back its history goes', () => {
     open();
     expect(screen.queryByRole('region', { name: 'Where it comes from' })).toBeNull();
     expect(screen.queryByRole('region', { name: 'How fresh this is' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /^Feed: checked / }));
-    expect(screen.getByText(/^US: checked /)).toBeTruthy();
+    expect(screen.getByText(new RegExp(`^US: checked ${shortDate(TODAY)}, \\d{2}:\\d{2} · history from ${shortDate('2010-01-01')}$`))).toBeTruthy();
     expect(screen.getByText(/^India: checked /)).toBeTruthy();
   });
 
@@ -332,6 +355,15 @@ describe('Dividends: states', () => {
 });
 
 describe('Dividends: tax years', () => {
+  // The fresh review of 5c: a source Income needs failing doesn't keep
+  // Tax years, which needs none of them, out of reach.
+  it('stay a view away when Income could not load', () => {
+    open(data({ errors: { dividendEvents: 'timeout' }, loaded: {} }));
+    expect(screen.getByRole('alert').textContent).toContain(couldntLoad(['dividendEvents']));
+    fireEvent.click(screen.getByRole('button', { name: 'Tax years' }));
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
   it('are a view of their own, and a tax load failure never hides Income', () => {
     open(data({ errors: { taxReturns: new Error('x') }, loaded: {} }));
     expect(screen.getByText(/^Received/, { selector: 'dt' })).toBeTruthy();

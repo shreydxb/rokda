@@ -165,9 +165,11 @@ export function dividendHeadline(input) {
   const notProjected = input.holdings.filter((h) => NOT_PROJECTED.has(input.forecasts[h.id]?.status)).length;
   const received = { ...receivedSince(input, yearAgo), since: sinceOf(starts[0] ?? null) };
   // The year ahead against the last twelve months (the revamp, phase 5c),
-  // only once the record covers all twelve: a shorter record would read as
-  // growth that is only the record starting.
-  const changeOnLast12 = received.since || !(received.aed > 0) ? null : expected.aed / received.aed - 1;
+  // only once every market's record covers all twelve, and every figure is
+  // counted: otherwise it reads as growth that is only a market's record
+  // starting (the fresh review of 5c), or as a part for the whole.
+  const allCovered = markets.length > 0 && markets.every((m) => m.start && m.start <= yearAgo);
+  const changeOnLast12 = !allCovered || !(received.aed > 0) || received.notCounted > 0 || expected.notCounted > 0 ? null : expected.aed / received.aed - 1;
   return {
     received,
     expected: { ...expected, monthlyAed: round2(expected.aed / 12), notProjected, changeOnLast12 },
@@ -266,13 +268,22 @@ export function dividendsByMonth(input, view = 'received') {
     const year = Number(m.month.slice(0, 4));
     years.set(year, round2((years.get(year) ?? 0) + m.actualAed + m.presumedAed));
   }
+  // What is expected of whichever year holds more of the twelve months
+  // ahead: next year from about midsummer, the rest of this one before (the
+  // fresh review of 5c: in January, eleven months of this year, not one of
+  // the next).
   const year = Number(current.slice(0, 4));
-  const ahead = months.filter((m) => m.month > current && Number(m.month.slice(0, 4)) === year + 1);
+  const after = months.filter((m) => m.month > current);
+  const rest = after.filter((m) => Number(m.month.slice(0, 4)) === year);
+  const next = after.filter((m) => Number(m.month.slice(0, 4)) === year + 1);
+  const part = next.length >= rest.length ? { part: 'next', year: year + 1, list: next } : { part: 'rest', year, list: rest };
   return {
     months,
     years: [...years].map(([y, aed]) => ({ year: y, aed })),
     thisYear: { year, aed: years.get(year) ?? 0 },
-    nextYear: ahead.length ? { year: year + 1, from: ahead[0].month, to: ahead.at(-1).month, aed: round2(ahead.reduce((t, m) => t + m.expectedAed, 0)) } : null,
+    ahead: part.list.length
+      ? { year: part.year, part: part.part, from: part.list[0].month, to: part.list.at(-1).month, aed: round2(part.list.reduce((t, m) => t + m.expectedAed, 0)) }
+      : null,
     leftOut,
   };
 }
@@ -320,19 +331,20 @@ export function dividendsByHolding(input) {
 
 // By holding, grouped by listing market (the revamp, phase 5c;
 // design/prototype byHoldingCard): each market's rows with what was received
-// and is expected, what is withheld there, and whether none of its holdings
-// has an opening entry (nothing is earned before one). The largest expected
+// and is expected, what is withheld there, and whether the market has no
+// record at all (nothing is earned before an opening entry). The largest expected
 // first; the holdings without dividends are dividendsByHolding's.
 export function dividendsByMarket(input) {
   const byHolding = dividendsByHolding(input);
   const withholding = new Map(dividendSources(input).markets.map((m) => [m.market, m.withholdingPct]));
-  const opened = new Set(input.trades.filter((t) => t.kind === 'opening').map((t) => t.holding_id));
   const groups = MARKETS.map((market) => {
     const rows = byHolding.rows.filter((r) => marketOf(r.holding) === market);
     return {
       market, rows, withholdingPct: withholding.get(market) ?? null,
       receivedAed: round2(rows.reduce((t, r) => t + r.receivedAed, 0)), expectedAed: round2(rows.reduce((t, r) => t + r.expectedAed, 0)),
-      noOpening: !input.holdings.some((h) => marketOf(h) === market && opened.has(h.id)),
+      // As the strip counts a market's record: an opening entry, or an
+      // imported receipt (the fresh review of 5c).
+      noOpening: !coverageStart(input, market),
     };
   })
     .filter((g) => g.rows.length > 0)
@@ -472,7 +484,7 @@ export function feedStamp(input) {
   return {
     checkedAt: checks.at(-1) ?? null,
     neverRun: markets.every((m) => m.neverRun),
-    markets: markets.map((m) => ({ market: m.market, checkedAt: m.lastSuccessAt })),
+    markets: markets.map((m) => ({ market: m.market, checkedAt: m.lastSuccessAt, coveredFrom: m.coveredFrom })),
     failing: markets.flatMap((m) => m.failing.map((f) => ({ market: m.market, ...f }))),
   };
 }

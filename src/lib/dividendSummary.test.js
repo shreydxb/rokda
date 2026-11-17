@@ -64,12 +64,19 @@ describe('the headline', () => {
 
   // The revamp, phase 5c (design note: "+{n}% on the last 12"): the next
   // twelve months against the last, once the record covers all twelve.
-  it('sets the year ahead against the last twelve months, once the record covers them', () => {
-    expect(dividendHeadline(input()).expected.changeOnLast12).toBeCloseTo(1, 3);
+  // The fresh review of 5c: every market's record must cover the twelve
+  // months, or the change is one market's record starting.
+  it('sets the year ahead against the last twelve months, once every market covers them', () => {
+    const covered = [{ holding_id: 'h-us', kind: 'opening', trade_date: '2025-06-01' }, { holding_id: 'h-in', kind: 'opening', trade_date: '2025-06-01' }];
+    expect(dividendHeadline(input({ trades: covered })).expected.changeOnLast12).toBeCloseTo(1, 3);
+    // US opened in September: India covers the twelve months, the US doesn't.
+    expect(dividendHeadline(input()).expected.changeOnLast12).toBeNull();
     // US-only, the record starts in September: the last twelve months aren't all there.
     expect(dividendHeadline(input({ holdings: [US] })).expected.changeOnLast12).toBeNull();
     // Nothing received, nothing to set it against.
-    expect(dividendHeadline(input({ dividends: [] })).expected.changeOnLast12).toBeNull();
+    expect(dividendHeadline(input({ trades: covered, dividends: [] })).expected.changeOnLast12).toBeNull();
+    // A figure left out for want of a rate would make the change a part's.
+    expect(dividendHeadline(input({ trades: covered, fx: { fxHistory: [], inrPerAed: null } })).expected.changeOnLast12).toBeNull();
   });
 
   it('a rupee dividend with no rate is not counted, and the total says how many', () => {
@@ -140,12 +147,18 @@ describe('by month', () => {
     expect(dividendsByMonth(input({ trades: [], dividends: [] }), 'received').months[0].month).toBe('2026-11');
   });
 
-  // The readout: this year so far, and next year's expected, named by the
-  // months the window holds of it (the twelve ahead end before December).
-  it('gives this year so far, and what is expected of next year within the twelve months ahead', () => {
-    const { thisYear, nextYear } = dividendsByMonth(input(), 'received');
+  // The readout: this year so far, and what is expected of whichever year
+  // holds more of the twelve months ahead, named by the months it holds
+  // (the fresh review of 5c: in January, the rest of this year, not one month
+  // of the next).
+  it('gives this year so far, and what is expected of the year holding more of the twelve months ahead', () => {
+    const { thisYear, ahead } = dividendsByMonth(input(), 'received');
     expect(thisYear).toEqual({ year: 2026, aed: expect.closeTo(166.9, 2) });
-    expect(nextYear).toEqual({ year: 2027, from: '2027-01', to: '2027-11', aed: expect.closeTo(186.9, 2) });
+    expect(ahead).toEqual({ year: 2027, part: 'next', from: '2027-01', to: '2027-11', aed: expect.closeTo(186.9, 2) });
+    const january = dividendsByMonth(input({ today: '2027-01-15' }), 'received').ahead;
+    expect(january).toMatchObject({ year: 2027, part: 'rest', from: '2027-02', to: '2027-12' });
+    expect(january.aed).toBeCloseTo(40, 2);
+    expect(dividendsByMonth(input({ today: '2026-12-10' }), 'received').ahead).toMatchObject({ year: 2027, part: 'next', from: '2027-01', to: '2027-12' });
   });
 });
 
@@ -322,7 +335,8 @@ describe('the feed stamp', () => {
     ];
     expect(feedStamp(input({ feedStatus }))).toEqual({
       checkedAt: '2026-11-03T01:30:00Z', neverRun: false,
-      markets: [{ market: 'IN', checkedAt: '2026-11-03T01:30:00Z' }, { market: 'US', checkedAt: '2026-11-02T01:30:00Z' }],
+      // With how far back each market's history goes (the fresh review of 5c).
+      markets: [{ market: 'IN', checkedAt: '2026-11-03T01:30:00Z', coveredFrom: '2005-04-01' }, { market: 'US', checkedAt: '2026-11-02T01:30:00Z', coveredFrom: '2012-01-01' }],
       failing: [{ market: 'IN', symbol: 'XYZ.NS', since: '2026-11-03T01:30:00Z' }],
     });
     expect(feedStamp(input())).toMatchObject({ checkedAt: null, neverRun: true, failing: [] });
@@ -344,9 +358,13 @@ describe('by market', () => {
     expect(groups[0].expectedAed).toBeCloseTo(293.8, 2);
   });
 
-  it('says when no holding in a market has an opening entry', () => {
-    const { groups } = dividendsByMarket(input({ trades: [TRADES[0]], payments: { 'XYZ.NS': [{ exDate: '2026-07-01', ordinary: 5, ordinaryToday: 5 }] } }));
-    expect(groups.find((g) => g.market === 'IN').noOpening).toBe(true);
+  it('says when no holding in a market has an opening entry and nothing was received there', () => {
+    const payments = { 'XYZ.NS': [{ exDate: '2026-07-01', ordinary: 5, ordinaryToday: 5 }] };
+    const usOnly = DIVIDENDS.filter((d) => d.holding_id === 'h-us');
+    expect(dividendsByMarket(input({ trades: [TRADES[0]], dividends: usOnly, payments })).groups.find((g) => g.market === 'IN').noOpening).toBe(true);
+    // Receipts imported before any opening entry: the market has a record,
+    // as the strip counts it (the fresh review of 5c).
+    expect(dividendsByMarket(input({ trades: [TRADES[0]], payments })).groups.find((g) => g.market === 'IN').noOpening).toBe(false);
   });
 });
 

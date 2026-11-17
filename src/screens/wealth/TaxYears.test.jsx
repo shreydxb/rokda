@@ -164,6 +164,45 @@ describe('Tax years', () => {
   });
 });
 
+// The fresh review of 5c: a form open in a year's drawer is unsaved work.
+// Escape in it steps back out of the form only; closing the drawer asks
+// first.
+describe('a form open in a tax year', () => {
+  it('Escape in the return form closes the form, not the year', () => {
+    open();
+    const drawer = openYear(FY25);
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Edit' }));
+    fireEvent.keyDown(within(drawer).getByLabelText('Dividend tax', { exact: true }), { key: 'Escape' });
+    expect(screen.getByRole('dialog', { name: FY25 })).toBeTruthy();
+    expect(within(drawer).getByRole('button', { name: 'Edit' })).toBeTruthy();
+    expect(screen.queryByText('Discard changes?')).toBeNull();
+  });
+
+  it('Escape in Set tax year closes that form, not the year', () => {
+    open();
+    const drawer = openYear(FY25);
+    fireEvent.click(within(drawer).getByText('Dividends (1)'));
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Set tax year' }));
+    fireEvent.keyDown(within(drawer).getByLabelText('Tax year'), { key: 'Escape' });
+    expect(screen.getByRole('dialog', { name: FY25 })).toBeTruthy();
+    expect(within(drawer).getByRole('button', { name: 'Set tax year' })).toBeTruthy();
+  });
+
+  it('closing the year with a form open asks first, and Keep editing keeps it', () => {
+    open();
+    const drawer = openYear(FY25);
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Edit' }));
+    fireEvent.change(within(drawer).getByLabelText('Dividend tax', { exact: true }), { target: { value: '1000' } });
+    fireEvent.click(within(drawer.querySelector('.ds-drawer-foot')).getByRole('button', { name: 'Close' }));
+    expect(within(drawer).getByText('Discard changes?')).toBeTruthy();
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Keep editing' }));
+    expect(within(drawer).getByLabelText('Dividend tax', { exact: true }).value).toBe('1000');
+    fireEvent.keyDown(drawer, { key: 'Escape' });
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Discard' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+});
+
 describe('focus after a form', () => {
   it('returns to the button that opened it', async () => {
     open();

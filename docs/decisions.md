@@ -4281,3 +4281,24 @@ The revamp's phase 5c (design note `docs/superpowers/specs/2026-11-16-wealth-des
 - **Dates read "Sep"** in the dividend views, as everywhere else; en-GB's own
   short month is "Sept". The kit gains a month bars chart, and a Popover can
   be named apart from its label (a "⋯", a chip).
+- **The fresh review of 5c** changed these:
+  - **A form open in a tax year's drawer is unsaved work**: closing the
+    drawer (×, a click outside, Close, Escape) asks first, and Escape inside
+    a form steps back out of the form only. Before, Escape in the return's
+    form closed the whole year, and Close dropped what was typed.
+  - **Expected is set against the last twelve months only once every
+    market's record covers them**, and every figure is counted; while one
+    market's record is shorter, the strip says where it is counted from, in
+    view. The first cut checked only the earliest market's, and showed
+    "+236%" that was a US record starting.
+  - **The readout's year ahead is whichever holds more of the twelve
+    months**: next year from about midsummer, the rest of this one before
+    ("2027 still expected (Feb–Dec)" in January, not "2028 (Jan–Jan)").
+  - **A market's "no opening entry" row** follows the strip's rule: shown
+    only when the market has no record at all, not beside its own imported
+    receipts.
+  - **The Feed chip's pop-over gives each market's history**, as "How fresh
+    this is" did, its times in the household's time zone and "Sep".
+  - **Coming up keeps the year** on a date in another year, so last
+    December's dividend, not yet recorded, isn't read as months away.
+  - **Tax years stay a view away** when a source Income needs didn't load.

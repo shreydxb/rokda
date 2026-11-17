@@ -1,4 +1,6 @@
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCloseGuard } from '../../lib/useCloseGuard';
+import DiscardPrompt from '../DiscardPrompt';
 import { supabase } from '../../lib/supabaseClient';
 import { householdToday } from '../../lib/day';
 import { formatMoney } from '../../lib/money';
@@ -44,6 +46,24 @@ function dividendWords(year) {
 // src/lib/dividendTax.js, the words from dividendTaxText.js.
 export default function TaxYears({ members, scopeMemberId, data }) {
   const [openKey, setOpenKey] = useState(null);
+  // The forms open in the year's drawer (the return, a refund record, a
+  // dividend's tax year): unsaved work, so closing the drawer asks first,
+  // as an editor's does (the fresh review of 5c).
+  const [forms, setForms] = useState(() => new Set());
+  const onFormOpen = useCallback((key, isOpen) => {
+    setForms((prev) => {
+      if (prev.has(key) === isOpen) return prev;
+      const next = new Set(prev);
+      if (isOpen) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  }, []);
+  const closeYear = () => {
+    setOpenKey(null);
+    setForms(new Set());
+  };
+  const { confirmingClose, requestClose, keepEditing, escapeKey } = useCloseGuard({ dirty: forms.size > 0, onClose: closeYear, listen: false });
   const missing = neverLoaded(data, TAX_SOURCES);
   const { years, unassigned } = useMemo(
     () => taxYears({
@@ -146,11 +166,16 @@ export default function TaxYears({ members, scopeMemberId, data }) {
           kicker={`Tax year · ${nameOf(opened.memberId)}`}
           title={opened.label}
           wide
-          onClose={() => setOpenKey(null)}
+          onClose={requestClose}
+          onEscape={escapeKey}
           footer={
-            <button type="button" className="ds-btn" onClick={() => setOpenKey(null)}>
-              Close
-            </button>
+            confirmingClose ? (
+              <DiscardPrompt onDiscard={closeYear} onKeepEditing={keepEditing} />
+            ) : (
+              <button type="button" className="ds-btn" onClick={requestClose}>
+                Close
+              </button>
+            )
           }
         >
           <dl className="tx-kv">
@@ -161,15 +186,16 @@ export default function TaxYears({ members, scopeMemberId, data }) {
             <dt>Where it stands</dt>
             <dd>{stageWords(opened, fmt)}</dd>
           </dl>
-          <YearDetail key={keyOf(opened)} year={opened} data={data} />
+          <YearDetail key={keyOf(opened)} year={opened} data={data} onFormOpen={onFormOpen} />
         </Drawer>
       )}
     </>
   );
 }
 
-function YearDetail({ year, data }) {
+function YearDetail({ year, data, onFormOpen }) {
   const [editing, setEditing] = useState(null);
+  useFormReport(onFormOpen, 'year', editing !== null);
   const [removing, setRemoving] = useState(null);
   const [refusal, setRefusal] = useState(null);
   // Focus goes back where it came from: to the button that opened a form,
@@ -228,7 +254,7 @@ function YearDetail({ year, data }) {
                       <summary>{`Dividends (${own.length})`}</summary>
                       <ul className="ht-list">
                         {own.map((d) => (
-                          <DividendYearRow key={d.id} dividend={d} onSaved={data.reload} />
+                          <DividendYearRow key={d.id} dividend={d} onSaved={data.reload} onFormOpen={onFormOpen} />
                         ))}
                       </ul>
                     </details>
@@ -335,11 +361,12 @@ function YearDetail({ year, data }) {
 
 // One dividend counted in the year, and where its year can be set: a final
 // dividend declared in March and paid in April belongs to the March year.
-function DividendYearRow({ dividend, onSaved }) {
+function DividendYearRow({ dividend, onSaved, onFormOpen }) {
   const received = dividend.status === 'received';
   const creditYear = financialYearOf(dividend.credited_on);
   const latest = financialYearOf(householdToday());
   const [form, setForm] = useState(null);
+  useFormReport(onFormOpen, `dividend-${dividend.id}`, form !== null);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const buttonsRef = useRef({});
@@ -371,7 +398,16 @@ function DividendYearRow({ dividend, onSaved }) {
     <li className="ht-row hd-row">
       <div className="mn-row-main ov-muted dv-detail">{line}</div>
       {form ? (
-        <div className="ht-form">
+        // Escape steps back out of the form only, not the drawer around it.
+        <div
+          className="ht-form"
+          onKeyDown={(e) => {
+            if (e.key !== 'Escape') return;
+            e.preventDefault();
+            e.stopPropagation();
+            close();
+          }}
+        >
           <div className="te-fieldgrid">
             <div className="te-fieldcell">
               <label className="te-fieldlabel" htmlFor={`${dividend.id}-year`}>
@@ -437,6 +473,15 @@ function DividendYearRow({ dividend, onSaved }) {
       )}
     </li>
   );
+}
+
+// Tells the drawer whether a form of its is open, and that it isn't once it
+// is gone.
+function useFormReport(onFormOpen, key, isOpen) {
+  useEffect(() => {
+    onFormOpen?.(key, isOpen);
+  }, [onFormOpen, key, isOpen]);
+  useEffect(() => () => onFormOpen?.(key, false), [onFormOpen, key]);
 }
 
 // Moves focus, after the next render, to the control named in the returned
