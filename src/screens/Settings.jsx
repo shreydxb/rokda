@@ -53,7 +53,7 @@ export default function Settings() {
         <Household household={household} members={members} me={me} loading={loading} reload={reloadHousehold} />
       )}
       {tab === 'categories' && <CategoriesRules household={household} members={members} data={data} loading={loading} />}
-      {tab === 'telegram' && <Telegram household={household} loading={loading} />}
+      {tab === 'telegram' && <Telegram household={household} members={members} me={me} loading={loading} />}
       {tab === 'backups' && <Backups household={household} members={members} data={data} loading={loading} />}
       </ToolsSlot>
     </div>

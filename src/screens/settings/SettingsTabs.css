@@ -148,3 +148,106 @@
   margin: 0;
   font-size: 12.5px;
 }
+
+/* A row with a line under its name and a control at its end (the
+   prototype's .rw). */
+.st-rows {
+  display: flex;
+  flex-direction: column;
+}
+.st-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 6px 18px;
+  border-top: 1px solid var(--rule-soft);
+}
+.st-row:first-child {
+  border-top: 0;
+}
+.st-row-main {
+  flex: 1;
+  min-width: 0;
+}
+.st-row-title {
+  font-size: 13.5px;
+  font-weight: 500;
+}
+.st-row-sub {
+  font-size: 12.5px;
+  color: var(--ink3);
+}
+.st-link {
+  font-size: 12.5px;
+  color: var(--ink2);
+  text-decoration: none;
+}
+.st-link:hover {
+  color: var(--ink);
+}
+
+/* The link drawer: centred, as the prototype has it. */
+.st-linkbody {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding-top: 8px;
+  text-align: center;
+}
+.st-qr {
+  width: 150px;
+  height: 150px;
+  padding: 6px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: #fff;
+}
+.st-code {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+}
+.st-code-box {
+  padding: 6px 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  word-break: break-all;
+  user-select: all;
+}
+
+/* Diagnostics, folded. */
+.st-diag {
+  padding: 4px 18px;
+}
+.st-diag-body {
+  padding: 0 0 6px;
+}
+.st-diag-kpis {
+  display: flex;
+  gap: 32px;
+  padding: 4px 0 10px;
+}
+.st-diag-label {
+  font-size: 12px;
+  color: var(--ink3);
+}
+.st-diag-fig {
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.st-mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+/* A choice of two hugs its buttons, as the prototype's does. */
+.st-field > .ds-seg {
+  align-self: flex-start;
+}
