@@ -125,7 +125,12 @@ const YEARLY_NOTE = {
 };
 
 const SUBVIEWS = [
-  { name: 'goals', path: '/planning', tabs: ['Goals & debts'], expectText: 'counts only the cash set aside for it' },
+  // Goals & debts (the revamp, phase 6b): the goal tables and the debts,
+  // and a goal and a debt opened through their addresses.
+  { name: 'goals', path: '/planning', tabs: ['Goals & debts'], expectText: 'Kept, not spent · in cash' },
+  { name: 'debts', path: '/planning?tab=goals', tabs: [], expectText: 'Extra a month' },
+  { name: 'goal-drawer', path: '/planning?tab=goals&goal=dddddddd-0000-4000-8000-000000000002', tabs: [], expectText: 'Linked accounts' },
+  { name: 'debt-drawer', path: '/planning?tab=goals&debt=a1a1a1a1-0000-4000-8000-000000000001', tabs: [], expectText: 'Not in net worth until an account is linked.' },
   { name: 'budget-year', path: '/money', tabs: ['Budget', 'Year'], expectText: 'Saved so far' },
   // Plan, which was the Life plan (the revamp, phase 6).
   { name: 'plan', path: '/planning', tabs: [], expectText: 'The pot, year by year' },
@@ -136,7 +141,7 @@ const SUBVIEWS = [
   { name: 'old-life-plan-link', path: '/planning?tab=life', tabs: [], expectText: 'The pot, year by year' },
   { name: 'old-forecast-link', path: '/planning?tab=forecast', tabs: [], expectText: 'The pot, year by year' },
   { name: 'old-drawdown-link', path: '/planning?tab=drawdown', tabs: [], expectText: 'If markets fall' },
-  { name: 'old-debt-link', path: '/planning?tab=debt', tabs: [], expectText: 'counts only the cash set aside for it' },
+  { name: 'old-debt-link', path: '/planning?tab=debt', tabs: [], expectText: 'Extra a month' },
   { name: 'plan-setup', path: '/planning', tabs: [], expectText: 'Set up the plan', tables: { member_life: [] } },
   // A statement that does not match, opened for resolving on Month end (the
   // revamp, phase 4d): the reason box and its buttons.
@@ -331,18 +336,10 @@ test('phone: every control is big enough for a finger', async ({ page }, testInf
   }
 });
 
-// A two-line row's identity and key figure sit side by side on its first line.
-async function expectOneFirstLine(row) {
-  const id = await row.locator('td.ch-row-id').boundingBox();
-  const key = await row.locator('td.ch-row-key').boundingBox();
-  expect(Math.abs(key.y - id.y), 'identity and key share the first line').toBeLessThan(6);
-  expect(key.x, 'the key figure sits right of the identity').toBeGreaterThan(id.x + id.width);
-}
-
 // Planning on a phone (Planning audit, 3.16): Plan stacks the stop year over
-// the chart (the revamp, phase 6) and the Goals table is two-line rows rather
-// than scrolling sideways.
-test('phone: Plan stacks, and the goals table is two-line rows', async ({ page }, testInfo) => {
+// the chart, and the goal tables scroll inside their cards rather than
+// pushing the page sideways (the revamp, phase 6).
+test('phone: Plan stacks, and the goal tables stay inside the page', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'mobile', 'phone layout only');
   const later = { ...data.goals[1], id: 'dddddddd-0000-4000-8000-000000000009', name: 'Education fund', target_amount: 400000, target_date: `${new Date().getFullYear() + 12}-06-30`, priority: 2 };
   await stubSupabase(page, { tables: { transactions: closedMonthsOfHistory(), goals: [...data.goals, later] } });
@@ -354,16 +351,31 @@ test('phone: Plan stacks, and the goals table is two-line rows', async ({ page }
   expect((await horizontalOverflow(page)).documentOverflow).toBe(false);
 
   await page.getByRole('button', { name: 'Goals & debts', exact: true }).first().click();
-  await page.getByText('If your investments paid for these').click();
-  const goalRow = page.locator('.ch-rows tbody tr', { hasText: 'Education fund' });
-  await expect(goalRow).toBeVisible();
-  // Each figure carries its header as a label on a phone.
-  expect(await goalRow.locator('td.ch-row-key').evaluate((td) => getComputedStyle(td, '::before').content)).toBe('"Needed today "');
-  await page.locator('.ch-rows').first().screenshot({ path: testInfo.outputPath('goals-table-mobile.png') });
-  // A goal's second line has five labelled figures and may wrap; what holds
-  // is the name and the amount needed sharing the first line.
-  await expectOneFirstLine(goalRow);
+  // The goal tables scroll inside their cards on a phone, not the page.
+  await expect(page.getByText('Education fund')).toBeVisible();
+  await page.locator('.gd-goals').screenshot({ path: testInfo.outputPath('goals-table-mobile.png') });
   expect((await horizontalOverflow(page)).documentOverflow).toBe(false);
+});
+
+// The goal and debt drawers (the revamp, phase 6b): the foot spans the
+// drawer, Delete on the left and Save on the right, and the fields keep
+// their spacing (the fresh review of 6b found neither styled).
+test('goal and debt drawers: the foot spans the drawer, and the fields keep their spacing', async ({ page }) => {
+  await stubSupabase(page);
+  for (const path of ['/planning?tab=goals&goal=dddddddd-0000-4000-8000-000000000002', '/planning?tab=goals&debt=a1a1a1a1-0000-4000-8000-000000000001']) {
+    await gotoReady(page, path);
+    const drawer = page.getByRole('dialog');
+    await expect(drawer).toBeVisible();
+    await drawer.evaluate((d) => Promise.all(d.getAnimations({ subtree: true }).map((a) => a.finished)));
+    const box = await drawer.boundingBox();
+    const save = await drawer.getByRole('button', { name: 'Save changes' }).boundingBox();
+    const del = await drawer.getByRole('button', { name: 'Delete' }).boundingBox();
+    expect(box.x + box.width - (save.x + save.width), `Save sits at the right on ${path}`).toBeLessThan(40);
+    expect(del.x - box.x, `Delete sits at the left on ${path}`).toBeLessThan(40);
+    const name = await drawer.getByLabel('Name', { exact: true }).boundingBox();
+    const target = await drawer.locator('.te-hero-row').boundingBox();
+    expect(name.y - (target.y + target.height), `the fields are spaced on ${path}`).toBeGreaterThan(12);
+  }
 });
 
 // An editor drawer is a modal in fact: it takes focus, Tab stays inside it,
@@ -374,7 +386,7 @@ test('a drawer holds keyboard focus and gives it back', async ({ page }) => {
   const opener = page.getByRole('button', { name: '+ Debt', exact: true });
   await opener.focus();
   await page.keyboard.press('Enter');
-  const drawer = page.getByRole('dialog', { name: 'Add debt' });
+  const drawer = page.getByRole('dialog', { name: 'Add a debt' });
   await expect(drawer).toBeFocused();
   for (let i = 0; i < 30; i += 1) {
     await page.keyboard.press(i % 7 === 6 ? 'Shift+Tab' : 'Tab');

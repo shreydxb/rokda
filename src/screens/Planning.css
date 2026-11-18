@@ -1,35 +1,11 @@
 /* Shares the generic tab/list/row primitives (mn-*) defined for Money. */
 @import './Money.css';
 
-/* Goals: all targets at a glance, above the per-goal rows. */
-.gl-summary {
-  margin-top: 22px;
-}
-
-/* Debt payoff. The order on the left and "+ Debt" on the right, then each
-   debt with its rank, name and progress and its three figures labelled,
-   so nothing on the row is a number the reader has to guess at. On a phone
-   the figures move under the name instead of squeezing it to one word a
-   line. */
-.debt {
-  max-width: 960px;
-}
-
-.debt-lead .ov-muted {
-  margin-top: 4px;
-  font-size: 12.5px;
-}
-
-.debt-progress .bud-bar {
-  height: 3px;
-  margin-bottom: 5px;
-}
-
-.debt-figures dd.ov-neg {
-  font-size: 16px;
-}
-
-.debt-projection .ov-muted {
-  margin-top: 9px;
-  line-height: 1.7;
+/* A band's heading on Plan and Goals & debts (the revamp, phase 6). */
+.pl-band-h {
+  margin: 22px 0 10px;
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }

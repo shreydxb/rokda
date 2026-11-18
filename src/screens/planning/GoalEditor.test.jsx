@@ -51,20 +51,33 @@ function renderEditor(props = {}) {
 }
 
 const type = (el, value) => fireEvent.change(el, { target: { value } });
+// The revamp, phase 6b: a saved goal's drawer has tabs, and Escape is
+// answered on the drawer itself.
+const openTab = (name) => fireEvent.click(screen.getByRole('tab', { name }));
+const escape = () => fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
 
-describe('GoalEditor: today\'s cost, its rate and a priority', () => {
-  it('previews the cost on the date and saves the new fields', async () => {
+describe('GoalEditor: a priority, a note and where the money comes from', () => {
+  it('saves them with the goal', async () => {
     const { onSaved } = renderEditor();
     type(screen.getByLabelText('Target, AED'), '1000000');
     type(screen.getByLabelText('Name'), 'Villa');
     type(screen.getByLabelText('Target date'), '2044-09-01');
-    fireEvent.click(screen.getByText('Today’s cost'));
-    type(screen.getByLabelText('Rises by, percent a year'), '8');
-    expect(screen.getByText(/^About [\d,]+ by 2044/)).toBeTruthy();
     type(screen.getByLabelText('Priority'), '1');
+    type(screen.getByLabelText('Note'), 'For the family');
+    type(screen.getByLabelText('Funding source'), 'Standing transfer');
+    // A goal priced at today's cost went from the form, never used.
+    expect(screen.queryByText('Today’s cost')).toBeNull();
     fireEvent.click(screen.getByText(/^(Add goal|Save)/));
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
-    expect(calls.writes[0]).toMatchObject({ table: 'goals', op: 'insert', payload: { name: 'Villa', target_amount: 1000000, cost_today: true, inflation_pct: 8, priority: 1 } });
+    expect(calls.writes[0]).toMatchObject({ table: 'goals', op: 'insert', payload: { name: 'Villa', target_amount: 1000000, cost_today: false, priority: 1, note: 'For the family', funding_source: 'Standing transfer' } });
+  });
+
+  it('keeps a goal saved at today\'s cost as it is', async () => {
+    const { onSaved } = renderEditor({ goal: { ...GOAL, cost_today: true, inflation_pct: 8 } });
+    type(screen.getByLabelText('Name'), 'Trip abroad');
+    fireEvent.click(screen.getByText(/^Save/));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(calls.writes[0].payload).toMatchObject({ cost_today: true, inflation_pct: 8 });
   });
 
   it('keeps no rate for an amount on the date, and refuses a priority of zero', () => {
@@ -98,11 +111,26 @@ describe('GoalEditor: fields say what they are, and are marked wrong only after 
   });
 });
 
+// The fresh review of 6b: the browser's own checks stopped a save from
+// another tab without a word, the field being out of view.
+describe('GoalEditor: a save from another tab', () => {
+  it('leaves the checks to the editor, and brings Details back with the field that stopped it', async () => {
+    renderEditor({ goal: GOAL });
+    expect(screen.getByLabelText('Name').form.noValidate).toBe(true);
+    type(screen.getByLabelText('Name'), '');
+    openTab('Contributions');
+    fireEvent.click(screen.getByText('Save changes'));
+    expect(screen.getByRole('tab', { name: 'Details' }).getAttribute('aria-selected')).toBe('true');
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Name')));
+  });
+});
+
 describe('GoalEditor: contributions and links are their own forms and keep the drawer open', () => {
   it('Enter in the contribution amount logs it, and the goal and its unsaved edits stay', async () => {
     const { onSaved, onChanged } = renderEditor({ goal: GOAL });
     const name = screen.getByLabelText('Name');
     type(name, 'Trip to the coast');
+    openTab('Contributions');
     const amount = screen.getByLabelText('Amount (AED)');
     type(amount, '500');
     // Enter submits the form a field belongs to: the contribution's, not the goal's.
@@ -119,6 +147,7 @@ describe('GoalEditor: contributions and links are their own forms and keep the d
 
   it('asks before removing a contribution, and says so when the remove fails', async () => {
     const { onChanged } = renderEditor({ goal: GOAL, contributions: [{ id: 'c1', goal_id: 'g1', amount: 300, occurred_at: '2026-09-01' }] });
+    openTab('Contributions');
     expect(screen.getByText('1 Sept 2026')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /^Remove the contribution of 300/ }));
     expect(calls.writes).toEqual([]);
@@ -155,12 +184,13 @@ describe('GoalEditor: nothing typed is lost or sent twice', () => {
   it('counts a typed share as unsaved: Save refuses until it is updated or undone, and Escape asks first', () => {
     const onClose = vi.fn();
     renderEditor({ goal: GOAL, accounts: [{ id: 'sav', name: 'Savings', type: 'savings', currency: 'AED', archived_at: null }], allocations: [{ id: 'a1', goal_id: 'g1', account_id: 'sav', holding_id: null, share_pct: 50 }], onClose });
+    openTab('Linked accounts');
     type(screen.getByLabelText('Share of Savings, percent'), '60');
     expect(screen.getByText('Unsaved')).toBeTruthy();
     fireEvent.click(screen.getByText('Save changes'));
     expect(screen.getByRole('alert').textContent).toBe('Update or undo the share on Savings first.');
     expect(calls.writes).toEqual([]);
-    fireEvent.keyDown(window, { key: 'Escape' });
+    escape();
     expect(onClose).not.toHaveBeenCalled();
     expect(screen.getByText('Discard changes?')).toBeTruthy();
   });
@@ -168,13 +198,14 @@ describe('GoalEditor: nothing typed is lost or sent twice', () => {
   it('Escape steps back out of a pending remove before it closes anything, and focus stays on the Remove button', () => {
     const onClose = vi.fn();
     renderEditor({ goal: GOAL, contributions: [{ id: 'c1', goal_id: 'g1', amount: 300, occurred_at: '2026-09-01' }], onClose });
+    openTab('Contributions');
     const remove = screen.getByRole('button', { name: /^Remove the contribution of 300/ });
     remove.focus();
     fireEvent.click(remove);
     // The same button now asks to confirm, so focus has not moved.
     expect(document.activeElement).toBe(remove);
     expect(remove.textContent).toBe('Confirm remove');
-    fireEvent.keyDown(window, { key: 'Escape' });
+    escape();
     expect(onClose).not.toHaveBeenCalled();
     expect(remove.textContent).toBe('Remove');
     expect(calls.writes).toEqual([]);
@@ -193,12 +224,14 @@ describe('GoalEditor: what a goal can be linked to', () => {
 
   it('offers only open accounts that hold money, and not one already linked', () => {
     renderEditor({ goal: GOAL, accounts: ACCOUNTS, allocations: LINKED });
+    openTab('Linked accounts');
     const options = within(screen.getByLabelText('Account / holding')).getAllByRole('option');
     expect(options.map((o) => o.textContent)).toEqual(['Current']);
   });
 
   it('changes a linked share on its own row', async () => {
     const { onChanged } = renderEditor({ goal: GOAL, accounts: ACCOUNTS, allocations: LINKED });
+    openTab('Linked accounts');
     const share = screen.getByLabelText('Share of Savings, percent');
     expect(share.value).toBe('50');
     type(share, '60');
@@ -209,6 +242,7 @@ describe('GoalEditor: what a goal can be linked to', () => {
 
   it('says a card linked before the rule counts as nothing, with no share to change', () => {
     renderEditor({ goal: GOAL, accounts: ACCOUNTS, allocations: [...LINKED, { id: 'a2', goal_id: 'g1', account_id: 'card', holding_id: null, share_pct: 100 }] });
+    openTab('Linked accounts');
     expect(screen.getByText('Counts as nothing: a card is owed, not saved.')).toBeTruthy();
     expect(screen.queryByLabelText('Share of Bank card, percent')).toBeNull();
     expect(screen.getByRole('button', { name: 'Remove the link to Bank card' })).toBeTruthy();
@@ -216,6 +250,7 @@ describe('GoalEditor: what a goal can be linked to', () => {
 
   it('links a fractional share, which the database accepts', async () => {
     const { onChanged } = renderEditor({ goal: GOAL, accounts: ACCOUNTS, allocations: LINKED });
+    openTab('Linked accounts');
     type(screen.getByLabelText('Share %'), '33.5');
     fireEvent.click(screen.getByText('Link'));
     await waitFor(() => expect(onChanged).toHaveBeenCalled());
@@ -224,6 +259,7 @@ describe('GoalEditor: what a goal can be linked to', () => {
 
   it('explains a link that would pass 100% in words', async () => {
     renderEditor({ goal: GOAL, accounts: ACCOUNTS, allocations: LINKED });
+    openTab('Linked accounts');
     calls.fail['goal_allocations:insert'] = { code: '23514', message: 'allocations for this account/holding would exceed 100% (already 60 allocated)' };
     fireEvent.click(screen.getByText('Link'));
     await waitFor(() =>

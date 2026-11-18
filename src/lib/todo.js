@@ -96,7 +96,8 @@ function fromGoals(goalsShort) {
     // Planning's figures are in dirhams whatever the display currency.
     status: `Short of cash · AED ${formatMoney(r.remaining)} to set aside`,
     tone: 'warn',
-    action: link('Open goal', tabHref('/planning', 'goals')),
+    // The goal itself, by its address (the revamp, phase 6b).
+    action: link('Open goal', tabHref('/planning', 'goals', { goal: r.goal.id })),
   }));
 }
 

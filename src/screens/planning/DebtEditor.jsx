@@ -1,13 +1,14 @@
 import { useId, useState } from 'react';
 import { useCloseGuard } from '../../lib/useCloseGuard';
 import DiscardPrompt from '../DiscardPrompt';
-import { useDrawerFocus } from '../../lib/useDrawerFocus';
+import { Drawer, WarningRow } from '../../design-system/kit';
 import { supabase } from '../../lib/supabaseClient';
 import { amountOwed, isArchived } from '../../lib/accounts';
 import { accountOwner } from '../../lib/debt';
 import { formatMoney } from '../../lib/money';
 import '../money/TransactionEditor.css';
 import OwnerPicker from '../OwnerPicker';
+import './PlanningDrawers.css';
 
 // Where a debt's balance lives: a loan or card account, so net worth counts it.
 // NEW makes the account along with the debt; '' leaves the debt unlinked.
@@ -32,8 +33,9 @@ function initialForm(debt, linked) {
   return { name: '', note: '', account: NEW, balance: '', original_amount: '', apr_pct: '', minimum_payment: '', owner: 'shared' };
 }
 
+// The revamp, phase 6b (design/prototype open-debt): the kit's drawer, with
+// a warning while a debt is in no account, so not in net worth.
 export default function DebtEditor({ debt, householdId, members, accounts = [], debts = [], onClose, onSaved }) {
-  const drawerRef = useDrawerFocus();
   // Open loan and card accounts no other debt already plans for: one plan per loan.
   const takenByOthers = new Set(debts.filter((d) => d.account_id && d.id !== debt?.id).map((d) => d.account_id));
   const liabilityAccounts = accounts.filter((a) => (a.type === 'loan' || a.type === 'credit_card') && !takenByOthers.has(a.id) && (!isArchived(a) || a.id === debt?.account_id));
@@ -52,8 +54,19 @@ export default function DebtEditor({ debt, householdId, members, accounts = [], 
   // A balance in another currency is kept in Wealth, where its currency is.
   const foreign = linked && String(linked.currency ?? 'AED').toUpperCase() !== 'AED';
   const [dirty, setDirty] = useState(false);
-  const { confirmingClose, requestClose, keepEditing } = useCloseGuard({ dirty, onClose });
+  // The kit's drawer answers Escape on itself (lib/useCloseGuard.js).
+  // Escape steps back out of a delete waiting to be confirmed before it
+  // closes anything (the fresh review of 6b).
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const { confirmingClose, requestClose, keepEditing, escapeKey } = useCloseGuard({
+    dirty,
+    onClose,
+    listen: false,
+    onEscape: () => {
+      if (confirmingDelete) setConfirmingDelete(false);
+      else requestClose();
+    },
+  });
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [triedSave, setTriedSave] = useState(false);
@@ -191,23 +204,35 @@ export default function DebtEditor({ debt, householdId, members, accounts = [], 
     await onSaved();
   }
 
-  return (
-    <div className="te-overlay" onMouseDown={(e) => e.target === e.currentTarget && requestClose()}>
-      <div className="te-drawer" ref={drawerRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={debt ? 'Edit debt' : 'Add debt'}>
-        <div className="te-head">
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-              <span className="ov-kicker">{debt ? 'Edit debt' : 'New debt'}</span>
-              {dirty && <span className="te-dirty-chip">Unsaved</span>}
-            </div>
-            <div className="te-title">{debt ? debt.name : 'Add a debt'}</div>
-          </div>
-          <button type="button" className="te-close" onClick={requestClose} aria-label="Close">
-            ×
-          </button>
-        </div>
+  const formId = `${uid}-form`;
+  const footer = (
+    <div className="te-actions gd-foot">
+      {debt && (
+        <button type="button" className="om-btn te-delete" onClick={handleDelete} disabled={saving}>
+          {confirmingDelete ? 'Confirm delete?' : 'Delete'}
+        </button>
+      )}
+      <div className="te-actions-right">
+        {confirmingClose ? (
+          <DiscardPrompt onDiscard={onClose} onKeepEditing={keepEditing} />
+        ) : (
+          <>
+            <button type="button" className="om-btn" onClick={requestClose}>
+              Cancel
+            </button>
+            <button type="submit" form={formId} className="om-btn ov-btn-primary" disabled={saving}>
+              {saving ? 'Saving…' : debt ? 'Save changes' : 'Add debt'}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
 
-        <form className="te-form" onSubmit={handleSave} noValidate>
+  return (
+    <Drawer kicker={debt ? 'Edit debt' : 'New debt'} title={debt ? debt.name : 'Add a debt'} dirty={dirty} onClose={requestClose} onEscape={escapeKey} footer={footer}>
+        {debt && !debt.account_id && <WarningRow>Not in net worth until an account is linked.</WarningRow>}
+        <form id={formId} className="te-form" onSubmit={handleSave} noValidate>
           <div>
             <div className="te-hero-label">Balance owed</div>
             <div className="te-hero-row">
@@ -325,33 +350,7 @@ export default function DebtEditor({ debt, householdId, members, accounts = [], 
             </p>
           )}
 
-          <div className="te-sticky-actions">
-            <div className="te-actions" style={{ borderTop: 'none', paddingTop: 0, marginTop: 0 }}>
-              {debt && (
-                <button type="button" className="om-btn te-delete" onClick={handleDelete} disabled={saving}>
-                  {confirmingDelete ? 'Confirm delete?' : 'Delete'}
-                </button>
-              )}
-              <div className="te-actions-right">
-                {confirmingClose ? (
-                  <>
-                    <DiscardPrompt onDiscard={onClose} onKeepEditing={keepEditing} />
-                  </>
-                ) : (
-                  <>
-                    <button type="button" className="om-btn" onClick={requestClose}>
-                      Cancel
-                    </button>
-                    <button type="submit" className="om-btn ov-btn-primary" disabled={saving}>
-                      {saving ? 'Saving…' : debt ? 'Save changes' : 'Add debt'}
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
         </form>
-      </div>
-    </div>
+    </Drawer>
   );
 }

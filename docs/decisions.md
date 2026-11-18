@@ -4369,3 +4369,49 @@ added beyond it, unless it is in use or worth keeping; the note lists each.
     plan holds while the plan is read again; the readouts are announced; a
     late "Runs out" label stays inside the chart; the wording that still
     named the Life plan says Plan.
+
+## Planning: Goals & debts like the prototype
+
+The revamp's phase 6b (design note `docs/superpowers/specs/2026-11-17-planning-design.md`).
+
+- **One tab, goals then debts**, as the prototype's. The old Goals and Debt
+  payoff screens are retired, and so is the extra payment's own drawer.
+- **A goal's state is one chip**, whose tooltip is the sentence it rests
+  on; the two lines of words under each goal went, and so did the pace
+  sentences (the Pace column, amber when low, says it). The "falling to"
+  step-down and the "If your investments paid for these" what-if went, as
+  the design note trimmed them. The priority that what-if used, which every
+  goal has, now orders the goals within a group.
+- **Extra a month is typed in place** (decision 4): shown at once, saved
+  with Make this the plan, with Not saved and Reset until then, as the stop
+  year is. What it saves in interest is against each debt at its own
+  minimum, as the band's figures are without it (`extraPaymentEffect`).
+- **The cash reserve sits under the kept goals**, where Overview's Cash
+  reserve tile leads: it was the retired Plan summary's Monthly check. It
+  is the household's, so it shows in Both; with no kept goal it is a card
+  of its own.
+- **A goal and a debt have addresses**, `?goal=` (with `&view=contributions`
+  or `links`) and `?debt=`, and open over any Planning tab, as an account
+  and a holding do. To do's Open goal and Plan's timeline open the goal
+  itself.
+- **The goal drawer has tabs**: Details, Contributions and Linked accounts,
+  every tab drawn and hidden so what is typed in one survives a look at
+  another; a problem in Details brings it back into view. Mark done or
+  Reopen moves to the drawer's foot. A goal priced at today's cost went
+  from the form, never used; one saved that way keeps it.
+- **Columns are the prototype's fixed widths**, so the goal cards line up.
+- **The fresh review of 6b** changed these:
+  - **A debt its minimum never clears leaves the debts with no date**, as
+    Overview says. "Clears" gave the other debts' date beside that debt's
+    own "Never", and an extra payment then read as clearing later.
+  - **A falling pace and an overdrawn reserve keep their minus**; money
+    coming out of a goal's accounts read as going in.
+  - **The drawers' foot spans the drawer**, Delete on the left and Save on
+    the right, and the goal's tabs keep the editor's field spacing.
+  - **A drawer closes once**: closing it while its save was in flight went
+    back two pages when the save finished.
+  - **A goal whose date has come stays out of its group's need a month.**
+  - **The goal's form leaves its checks to the editor**, so a Save from
+    another tab is never stopped without a word; Details comes back with
+    focus on the field. Plan's goals open over Plan. Escape over a debt's
+    pending delete steps back out of it.

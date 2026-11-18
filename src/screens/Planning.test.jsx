@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { screen } from '@testing-library/react';
+import { fireEvent, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { renderScreen } from '../test/renderScreen';
 
@@ -45,10 +45,10 @@ vi.mock('./usePlanningData', () => ({
   usePlanningData: () => ({
     loading: false,
     assumptions: null,
-    goals: [],
+    goals: [{ id: 'g1', name: 'Car', target_amount: 30000, target_date: '2029-06-30', is_shared: true, owner_member_id: null, counts_in_life_plan: true, priority: null, note: '', funding_source: '' }],
     goalContributions: [],
     goalAllocations: [],
-    debts: [],
+    debts: [{ id: 'd1', name: 'Car loan', balance: 20000, apr_pct: 6, minimum_payment: 600, account_id: null, is_shared: true, owner_member_id: null, original_amount: null, note: '' }],
     independenceIncome: [],
     afterWorkCosts: [],
     memberLife: [{ member_id: 'm1', birth_year: 1995, life_expectancy: 85 }],
@@ -98,5 +98,55 @@ describe('Planning: the frame', () => {
     open('/planning');
     expect(screen.queryByText('What needs a decision')).toBeNull();
     expect(screen.queryByText('Monthly check')).toBeNull();
+  });
+});
+
+// A goal has an address, as an account and a holding do (the revamp, phase
+// 6b): its drawer opens over whichever Planning tab is open.
+describe('Planning: a goal\'s address', () => {
+  it('opens the goal named in the address, on Goals & debts or over Plan', () => {
+    open('/planning?tab=goals&goal=g1');
+    expect(screen.getByRole('dialog', { name: 'Car' })).toBeTruthy();
+    document.body.innerHTML = '';
+    open('/planning?goal=g1');
+    expect(current()).toBe('Plan');
+    expect(screen.getByRole('dialog', { name: 'Car' })).toBeTruthy();
+  });
+
+  it('opens on the tab the address names, and adds a goal from ?goal=new', () => {
+    open('/planning?tab=goals&goal=g1&view=contributions');
+    expect(screen.getByRole('tab', { name: 'Contributions' }).getAttribute('aria-selected')).toBe('true');
+    document.body.innerHTML = '';
+    open('/planning?tab=goals&goal=new');
+    expect(screen.getByRole('dialog', { name: 'Add a goal' })).toBeTruthy();
+  });
+
+  it('closes by taking the goal out of the address', () => {
+    open('/planning?tab=goals&goal=g1');
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('opens nothing for a goal that isn\'t there', () => {
+    open('/planning?tab=goals&goal=nope');
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+});
+
+// A debt has an address too (the revamp, phase 6b).
+describe('Planning: a debt\'s address', () => {
+  it('opens the debt named in the address, and adds one from ?debt=new', () => {
+    open('/planning?tab=goals&debt=d1');
+    expect(screen.getByRole('dialog', { name: 'Car loan' })).toBeTruthy();
+    expect(screen.getByText('Not in net worth until an account is linked.')).toBeTruthy();
+    document.body.innerHTML = '';
+    open('/planning?tab=goals&debt=new');
+    expect(screen.getByRole('dialog', { name: 'Add a debt' })).toBeTruthy();
+  });
+
+  it('closes by taking the debt out of the address', () => {
+    open('/planning?tab=goals&debt=d1');
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 });

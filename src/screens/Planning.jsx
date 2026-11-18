@@ -6,10 +6,11 @@ import { usePlanningData } from './usePlanningData';
 // The tabs' shared styles first, so each tab's own stylesheet, which its
 // screen imports, comes after them as it did inside this one.
 import './Planning.css';
-import Goals from './planning/Goals';
-import DebtPayoff from './planning/DebtPayoff';
+import GoalsDebts from './planning/GoalsDebts';
 import Plan from './planning/Plan';
 import Notes from './planning/Notes';
+import GoalDrawer from './planning/GoalDrawer';
+import DebtDrawer from './planning/DebtDrawer';
 import LoadFailure from './LoadFailure';
 import Freshness from './Freshness';
 import BackToReview from './BackToReview';
@@ -91,26 +92,28 @@ export default function Planning() {
         />
       )}
       {tab === 'goals' && (
-        <>
-          <Goals
-            household={household}
-            members={members}
-            me={me}
-            accounts={inputs.accounts}
-            holdings={inputs.holdings}
-            transactions={inputs.transactions}
-            recurring={inputs.recurring}
-            budgets={inputs.budgets}
-            categories={inputs.categories}
-            data={planning}
-            sources={sources}
-            onRetry={retry}
-            loading={loading}
-          />
-          <DebtPayoff household={household} members={members} me={me} accounts={inputs.accounts} data={planning} sources={sources} onRetry={retry} loading={loading} onReload={inputs.reload} />
-        </>
+        <GoalsDebts
+          household={household}
+          members={members}
+          me={me}
+          accounts={inputs.accounts}
+          holdings={inputs.holdings}
+          transactions={inputs.transactions}
+          recurring={inputs.recurring}
+          budgets={inputs.budgets}
+          categories={inputs.categories}
+          data={planning}
+          sources={sources}
+          onRetry={retry}
+          loading={loading}
+        />
       )}
       {tab === 'notes' && <Notes household={household} me={me} members={members} data={planning} sources={sources} onRetry={retry} loading={loading} />}
+      {/* A goal or a debt named in the address opens over whichever tab is
+          open (the revamp, phase 6b), as Wealth draws an account or a
+          holding. */}
+      {!loading && <GoalDrawer household={household} members={members} accounts={inputs.accounts} holdings={inputs.holdings} data={planning} />}
+      {!loading && <DebtDrawer household={household} members={members} accounts={inputs.accounts} data={planning} onAccountsChanged={inputs.reload} />}
       </ToolsSlot>
     </div>
   );

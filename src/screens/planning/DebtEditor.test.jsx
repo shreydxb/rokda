@@ -228,3 +228,18 @@ describe('DebtEditor: whose debt it is', () => {
     expect(screen.getByRole('button', { name: 'Alex' })).toBeTruthy();
   });
 });
+
+// The fresh review of 6b: Escape over a delete waiting to be confirmed
+// closed the drawer, where it steps back out of the confirmation.
+describe('DebtEditor: Escape over a pending delete', () => {
+  it('steps back out of the confirmation, leaving the drawer open', () => {
+    const onClose = vi.fn();
+    const debt = { id: 'd1', name: 'Car loan', balance: 20000, apr_pct: 6, minimum_payment: 600, account_id: null, is_shared: true, owner_member_id: null, original_amount: null, note: '' };
+    renderEditor({ debt, onClose });
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    expect(screen.getByRole('button', { name: 'Confirm delete?' })).toBeTruthy();
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeTruthy();
+  });
+});

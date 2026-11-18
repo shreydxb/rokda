@@ -463,27 +463,45 @@ went: Overview's Plan strip and To do say what it said.
   which is a point below the return until one is set and moves with the
   scenario, and the return on cash, 3% until one is set. A cost or an income
   is added and edited in place inside its fold and saved as it is added.
-- **Tables on a phone**: Goals' priority table becomes two-line rows below
-  640px. Plan stacks the stop year over the chart.
-- **Goals**: targets in today's cost with their own inflation, in four
-  kinds, each goal with one status. Due within 3 years: paid from cash
-  (logged contributions and linked current, savings and cash accounts, no
-  growth), with the cash a month as it really falls. Kept, like an emergency
-  fund: held in cash. Later: paid by the plan, whose timeline says
-  covered or short. No date: in no plan. The priority table covers later
-  goals only, closed, as a what-if. The goal editor sets spent or kept, what
-  the household plans to put in a month (measured against what a goal held
-  in cash needs, and a goal it covers is not raised on Overview), and done: a
-  done goal is listed apart and left out of every plan and the bot, and can
-  be reopened. A goal has one source of saved: its linked accounts and
-  holdings, or, with none, what is logged to it. A goal held in cash shows
-  its pace over about three months, from its linked accounts' recorded
-  balance changes or from what is logged.
-- **Debt payoff**, under the goals on Goals & debts: leads with when the debts clear at their minimums and the
-  interest still to pay. Each debt shows what is owed, its rate, its minimum
-  and when it clears, labelled. An extra payment is a what-if, against the
-  minimums, beside the rule to fill the cash reserve first. Avalanche or
-  snowball from two debts up, saved for the household.
+- **Plan on a phone** stacks the stop year over the chart; the goal and
+  debt tables scroll inside their cards.
+- **Goals & debts**, like the prototype (the revamp, phase 6b), in dirhams.
+  + Debt and + Goal sit in the page header.
+  - **Goals**: a table card a group, each saying what it has saved of its
+    target and needs a month. Next 3 years: paid from cash (the current,
+    savings and cash accounts linked to a goal or, with none linked, what is
+    logged to it; no growth), with the cash a month to its date. Kept, like
+    an emergency fund: held in cash, with the cash reserve beneath (what
+    the current, savings and cash accounts hold, in months of spending, and
+    whether it covers the kept goals; the household's, so in Both). Later:
+    paid by the plan, whose timeline says paid, short or beyond it. No date:
+    in no plan. A row: the owner, the name and its note, the target and its
+    date, what is saved and its share, what it needs a month, its pace over
+    about three months (amber below what is planned, or with nothing going
+    in), and one status chip whose tooltip is the sentence it rests on. Rows
+    follow priority, then date. Done folds at the foot; a done goal is out
+    of every plan and the bot, and can be reopened.
+  - **A goal** opens through its address (`/planning?goal={id}`, from any
+    Planning tab, To do's Open goal or Plan's timeline) in the kit's drawer:
+    Details (the target, spent on its date or kept, name, date, what is
+    planned a month, owner, note, priority and funding source),
+    Contributions and Linked accounts as tabs, and Delete, Mark done or
+    Reopen, Cancel and Save. A goal has one source of saved: its linked
+    accounts and holdings, or, with none, what is logged to it.
+  - **Debts**: how many, Avalanche or Snowball from two debts up (saved for
+    the household), then Owed, when they clear (at the minimums, or with the
+    extra) and the interest still to pay. A table gives each debt's owner,
+    name and note, a Not in net worth chip with Link account when no valued
+    account carries it, what is owed (or In credit), the rate, the minimum,
+    when it clears at its minimum and how far it is paid down. A rate or
+    minimum of 0 is named for checking. **Extra a month** is typed in
+    place: it says at once when the debts clear and what it saves in
+    interest against the minimums, and Make this the plan saves it (Not
+    saved and Reset until then). In one person's view it is read only: the
+    extra is the household's.
+  - **A debt** opens through its address (`/planning?debt={id}`) in the
+    kit's drawer: the balance, the account that carries it (or Create a
+    loan account), name, note, rate, minimum, original amount and owner.
 - **Notes**: the household plan in words, private to the household. A note
   can be checked once a year (insurance, wills, nominations): it says when it
   was last checked, "Checked today" records it, and Overview's Needs

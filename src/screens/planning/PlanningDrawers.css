@@ -1,0 +1,27 @@
+/* The goal and debt drawers (the revamp, phase 6b): the kit's drawer
+   around the transaction editor's fields (money/TransactionEditor.css). */
+
+/* The foot spans the drawer: Delete and Mark done on the left, Cancel and
+   Save on the right, any message above them (the fresh review of 6b). */
+.gd-footwrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+.gd-foot {
+  width: 100%;
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+.gd-error {
+  margin: 0;
+  font-size: 12.5px;
+}
+.gd-hint {
+  display: block;
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+}

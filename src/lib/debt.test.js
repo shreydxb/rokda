@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { debtsWithAccounts, interestText, minimumOnlyPayoff, minimumOnlyText, payoffMonthLabel, simulatePayoffPlan } from './debt';
+import { debtsWithAccounts, extraPaymentEffect, interestText, minimumOnlyPayoff, minimumOnlyText, payoffMonthLabel, simulatePayoffPlan } from './debt';
 
 // QA / SHR-228: simulatePayoffPlan lost the unused part of a minimum payment
 // in the very month it went unused, instead of carrying it into the same
@@ -172,5 +172,57 @@ describe('minimumOnlyPayoff: interest and words', () => {
     expect(minimumOnlyText(minimumOnlyPayoff([debt('Car', 1200, 0, 100), debt('Card', 200, 0, 100)]), now)).toBe('All clear about Oct 2027 at the minimums, Car last');
     expect(minimumOnlyText(minimumOnlyPayoff([debt('Card', 10000, 24, 100)]), now)).toBe("No payoff date: the minimum on Card doesn't cover its interest");
     expect(minimumOnlyText(minimumOnlyPayoff([debt('Car', 0, 0, 100)]), now)).toBe('Nothing owed');
+  });
+});
+
+// Goals & debts' Extra a month (the revamp, phase 6b): when the debts clear
+// with it, what interest is left to pay, and what it saves against the
+// minimums alone.
+describe('extraPaymentEffect', () => {
+  const debts = [
+    { id: 'card', name: 'Card', balance: 6000, apr_pct: 30, minimum_payment: 300 },
+    { id: 'car', name: 'Car loan', balance: 20000, apr_pct: 6, minimum_payment: 600 },
+  ];
+
+  it('is the minimums alone with no extra', () => {
+    const effect = extraPaymentEffect(debts, 0);
+    const min = minimumOnlyPayoff(debts);
+    expect(effect).toMatchObject({ extra: 0, months: min.months, interest: min.interest, saves: null });
+  });
+
+  it('clears sooner with an extra, and says what it saves in interest', () => {
+    const effect = extraPaymentEffect(debts, 500);
+    const min = minimumOnlyPayoff(debts);
+    const plan = simulatePayoffPlan(debts, 500);
+    expect(effect.months).toBe(plan.months);
+    expect(effect.months).toBeLessThan(min.months);
+    expect(effect.interest).toBeCloseTo(plan.totalInterest, 6);
+    expect(effect.saves).toBeCloseTo(min.interest - plan.totalInterest, 6);
+    expect(effect.saves).toBeGreaterThan(0);
+  });
+
+  it('has no date when even the extra doesn\'t clear them', () => {
+    const effect = extraPaymentEffect([{ id: 'x', name: 'X', balance: 1e9, apr_pct: 30, minimum_payment: 10 }], 1);
+    expect(effect).toMatchObject({ extra: 1, months: null, interest: null, saves: null });
+  });
+});
+
+// The fresh review of 6b: a debt whose minimum never clears it gave the
+// band a date, from the debts that do clear.
+describe('extraPaymentEffect: a debt that never clears at its minimum', () => {
+  const debts = [
+    { id: 'card', name: 'Card', balance: 10000, apr_pct: 30, minimum_payment: 100 },
+    { id: 'loan', name: 'Loan', balance: 12000, apr_pct: 5, minimum_payment: 1000 },
+  ];
+
+  it('has no date at the minimums', () => {
+    expect(extraPaymentEffect(debts, 0)).toMatchObject({ months: null, interest: null, saves: null });
+  });
+
+  it('dates the extra on its own, against no date at the minimums', () => {
+    const effect = extraPaymentEffect(debts, 500);
+    expect(effect.months).toBe(simulatePayoffPlan(debts, 500).months);
+    expect(effect.minimums.months).toBeNull();
+    expect(effect.saves).toBeNull();
   });
 });

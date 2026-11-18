@@ -4,7 +4,6 @@ import { useNow } from '../../lib/useNow';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
 import { supabase } from '../../lib/supabaseClient';
-import { tabHref } from '../../lib/activityLink';
 import { incomesWithoutRate } from '../../lib/forecast';
 import { agesIn, earliestStop, extraSavingNeeded, lifePlan, maxRetirementSpend, planEndYear, potNeededAt } from '../../lib/lifePlan';
 import { agesLabel, costsText, DEFAULT_STOP_AGE, leftOutText, loansText, membersLeftOut, rupeeDrift, stopRange, stressTest } from '../../lib/lifePlanBasis';
@@ -526,7 +525,9 @@ export default function Plan({
               {openGoals.map((g) => {
                 const chip = timelineChip(g, { now, result });
                 return (
-                  <Link key={g.id} className="pl-goal" to={tabHref('/planning', 'goals', { goal: g.id })}>
+                  // The goal opens over Plan, a step forward Back undoes
+                  // (GoalDrawer; the fresh review of 6b).
+                  <Link key={g.id} className="pl-goal" to={{ pathname: '/planning', search: `?goal=${g.id}` }} state={{ drawer: true }}>
                     <span className="pl-goal-name">{g.name}</span>
                     <span className="pl-num">{money.fmt(Number(g.target_amount))}</span>
                     <Chip tone={chip.tone}>{chip.label}</Chip>
