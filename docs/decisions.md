@@ -4449,3 +4449,51 @@ The revamp's phase 6c (design note `docs/superpowers/specs/2026-11-17-planning-d
     with the one before it still shown. Each now puts the note's id in the
     address.
   - **"Deleted elsewhere" is said aloud again**, as the old editor's was.
+
+## Settings: Household and Telegram like the prototype
+
+The revamp's phase 7a (design note `docs/superpowers/specs/2026-11-18-settings-design.md`).
+
+- **The household's fields save when they are left** (decision 3), or on
+  Enter, and say "Saved", in place of their Save buttons. A refusal, an
+  empty name or a rate that isn't above zero says so where it applies and
+  puts the field back, so nothing on screen looks saved that isn't. The
+  guards on typing while the household is read again, or while a save is
+  under way, stay.
+- **Members are a table**, Name, Role, Login and Telegram, each a word or a
+  chip. A member's drawer says in one line why a role can't change ("The
+  only owner. Add another first.", "An owner needs a login.").
+- **The switches stay the household's** (decision 1). The prototype's
+  "Alerts for {person}" needs the bot and the database to keep them per
+  person, which is the bot's phase.
+- **Linking moves to the Telegram tab** (decision 2), at
+  `?tab=telegram&link={member}`, so a member's drawer and the Linked
+  accounts card open the same drawer. It makes the code as it opens and
+  offers Open Telegram (`https://t.me/{bot}?start={code}`, which the bot
+  already reads as "/start {code}"), a QR code of that link, and the code
+  with Copy. The bot's username is the build setting `VITE_TELEGRAM_BOT`,
+  so the public repository names no household's bot; without it the drawer
+  gives the code alone. The QR code is drawn from `uqr` (MIT, no
+  dependencies), loaded only when the drawer opens. Unlink is not offered:
+  it needs a new database function, and linking again moves the link.
+- **Diagnostics fold away**: AI calls, those without error, and calls by
+  day; the token count goes.
+- **The fresh review of 7a** changed these:
+  - **Switching windows doesn't save.** A window losing focus blurs the
+    field too, and a rate half typed was saved, re-valuing every rupee
+    account, holding and bill.
+  - **"Saved" and "Copied" only when true**: not under text typed while the
+    save was under way, and not when the clipboard refused the code. A
+    refusal's note clears once the field is typed in again, and a rate of 0
+    is refused when none was set yet.
+  - **Link answers "Discard changes?"** when it is up: it went nowhere and
+    closed the drawer.
+  - **A member already linked gets a new code only on "Make a new code"**,
+    as the old editor made none for them: a live code moves the link to
+    whichever Telegram sends it.
+  - **Diagnostics name what they count**: AI calls, not messages (a question
+    is two calls, a retry one more).
+  - **The QR library is its own file**, fetched when the drawer draws a
+    code; it had gone into the bundle every page loads.
+  - **The bot's linking messages say Settings → Telegram**, where codes are
+    now made.

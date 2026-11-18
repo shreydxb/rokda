@@ -514,16 +514,29 @@ went: Overview's Plan strip and To do say what it said.
 
 ## Settings (`/settings`)
 
-- **Household**: members, roles, and a placeholder member for a
-  partner who has not signed in. An owner manages the roster; a member who
-  is not an owner renames themselves, links their own Telegram, and sees the
-  others read-only. A second member's login is made by the owner
-  (`docs/second-member.md`).
+- **Household**: the household's name and rupee rate in a card, each saved
+  when it is left, with when the rate was last set; beside it the members as
+  a table (Name, Role, Login, Telegram), and + Member in the page header. A
+  member opens in a drawer: name, role, and Login and Telegram as chips with
+  Link. A placeholder member stands for a partner who has not signed in. An
+  owner manages the roster; a member who is not an owner renames themselves,
+  links their own Telegram, and sees the others read-only. A second member's
+  login is made by the owner (`docs/second-member.md`).
 - **Categories & rules**: categories and subcategories, whose cost each is
   (shared or one person's), savings categories, what stops when work stops,
   and merchant rules. `?tab=categories&rule=<id>` opens one rule's editor.
-- **Telegram**: linking, and which nudges and briefs each person gets
-  (the morning dividend question among them).
+- **Telegram**: what the bot sends, as two cards of switches (the
+  household's): the morning message (missed bills, card due dates, cash
+  cover, unusual spending, the weekly and month-end brief, and budget alerts,
+  which are set on Budget) and the questions that need an answer (card
+  statements, dividends, month-end balances). Linked accounts shows who is
+  linked; Link opens a drawer (`?tab=telegram&link=<member>`) with Open
+  Telegram, a QR code of the same link and the one-time code with Copy. Open
+  Telegram and the QR code need the bot's username as the build setting
+  `VITE_TELEGRAM_BOT`; without it the code alone is offered. For a member
+  already linked, a new code is made only on "Make a new code". Diagnostics,
+  folded, count the bot's AI calls over 30 days and how many ended without
+  error.
 - **Backups**: when the data was last exported and last restored from an
   export, and a form to record each one (`backup_records`). Needs attention
   says when an export is more than 35 days old or the last one failed.

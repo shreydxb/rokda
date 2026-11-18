@@ -150,6 +150,10 @@ const SUBVIEWS = [
   // (Planning audit, 4.17; the revamp, phase 5b).
   { name: 'investments-concentration', path: '/wealth', tabs: ['Investments'], expectText: 'Technology · sector', history: false, tables: { holdings: concentratedHoldings } },
   { name: 'investments-cap', path: '/wealth', tabs: ['Investments', 'Set a cap'], expectText: 'No single sector or holding above', history: false, tables: { holdings: concentratedHoldings } },
+  // Settings like the prototype (the revamp, phase 7): Telegram's two cards,
+  // and a member's link drawer opened through its address.
+  { name: 'telegram', path: '/settings', tabs: ['Telegram'], expectText: 'Questions that need an answer' },
+  { name: 'telegram-link', path: '/settings?tab=telegram&link=22222222-2222-4222-8222-333333333333', tabs: [], expectText: 'Works once, for 15 minutes.', rpc: { generate_telegram_link_code: '0123456789abcdef0123456789abcdef' } },
   { name: 'backups', path: '/settings', tabs: ['Backups'], expectText: 'Restore drill' },
   { name: 'starter-categories', path: '/settings', tabs: ['Categories & rules', 'Starter set'], expectText: 'Starter categories' },
   {
@@ -238,7 +242,7 @@ for (const view of SUBVIEWS) {
   test(`${view.name}: renders, no errors, no horizontal overflow`, async ({ page }, testInfo) => {
     const errors = watchErrors(page);
     const tables = Object.fromEntries(Object.entries(view.tables ?? {}).map(([k, v]) => [k, typeof v === 'function' ? v() : v]));
-    await stubSupabase(page, { tables: { ...(view.history === false ? {} : { transactions: closedMonthsOfHistory() }), ...tables } });
+    await stubSupabase(page, { tables: { ...(view.history === false ? {} : { transactions: closedMonthsOfHistory() }), ...tables }, rpc: view.rpc });
     await gotoReady(page, view.path);
     for (const tab of view.tabs) await page.getByRole('button', { name: tab, exact: true }).first().click();
     await expect(page.locator('.om-main')).toContainText(view.expectText);

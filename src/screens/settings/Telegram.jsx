@@ -1,6 +1,15 @@
 import { useEffect, useState } from 'react';
+import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabaseClient';
-import '../money/TransactionEditor.css';
+import { householdToday } from '../../lib/day';
+import { shortDate } from '../../lib/dividends';
+import { Avatar, Card, Chip, Drawer, Fold, InfoButton, Switch } from '../../design-system/kit';
+import './SettingsTabs.css';
+
+// Settings -> Telegram, like the prototype (the revamp, phase 7; review
+// S-telegram and T19): what the bot sends, as two cards of switches, who is
+// linked, and a drawer that links a member with a link, a QR code and the
+// code itself. The switches are the household's (design note, decision 1).
 
 const DEFAULTS = {
   recurring_enabled: true,
@@ -13,35 +22,314 @@ const DEFAULTS = {
   dividends_enabled: true,
 };
 
-const SIGNALS = [
-  { key: 'recurring_enabled', label: 'Missed recurring bills', note: "When a bill's date passes with nothing recorded for it" },
-  { key: 'credit_card_enabled', label: 'Credit card due dates', note: 'A day or two before a card is due, and again if it still shows owing' },
-  { key: 'cash_cover_enabled', label: 'Cash cover', note: "Once a week, if cash can't cover the next 7 days' bills" },
-  { key: 'brief_enabled', label: 'Weekly & month-end brief', note: 'Every Monday, and when a month ends' },
-  { key: 'unusual_spend_enabled', label: 'Unusual spend', note: 'Once, when a category runs well past its usual' },
-  { key: 'balance_checkin_enabled', label: 'Month-end balance check-in', note: 'On the 1st, with the monthly review; reply with your balances' },
-  { key: 'statement_enabled', label: 'Card statements', note: "Once when it closes, and again 3 days before it's due; reply \"done\"" },
-  { key: 'dividends_enabled', label: 'Dividends', note: 'When dividends are paid into a broker fund; reply "yes" once they\'re in' },
+const MORNING = [
+  { key: 'recurring_enabled', label: 'Missed bills', note: "When a bill's date passes with nothing recorded" },
+  { key: 'credit_card_enabled', label: 'Card due dates', note: 'A day or two before, and again if still owing' },
+  { key: 'cash_cover_enabled', label: 'Cash cover', note: "Once a week, if cash can't cover the next 7 days" },
+  { key: 'unusual_spend_enabled', label: 'Unusual spending', note: 'Once, when a category runs well past its usual' },
+  { key: 'brief_enabled', label: 'Weekly and month-end brief', note: 'Every Monday, and when a month ends' },
 ];
+const QUESTIONS = [
+  { key: 'statement_enabled', label: 'Card statements', note: 'When one closes, and 3 days before it is due' },
+  { key: 'dividends_enabled', label: 'Dividends', note: 'When dividends are paid into a broker fund' },
+  { key: 'balance_checkin_enabled', label: 'Month-end balances', note: 'On the 1st, with the monthly brief' },
+];
+const SIGNALS = [...MORNING, ...QUESTIONS];
 
 const STATS_WINDOW_DAYS = 30;
 
-// SHR-288: household-scoped visibility into the bot's own LLM calls (which
-// classify_and_route/parse_intake/phrase_answer, model, tokens, latency,
-// success/failure) -- never the prompt/response content itself, which isn't
-// stored anywhere (see the telegram_call_log migration for why).
-function TelegramStats({ household }) {
+// The bot's username, for a link that opens it with the code filled in. A
+// build setting, so the public repository names no household's bot; without
+// it the drawer gives the code alone.
+const botName = () => String(import.meta.env.VITE_TELEGRAM_BOT ?? '').trim().replace(/^@/, '');
+
+export default function Telegram({ household, members = [], me, loading }) {
+  const [prefs, setPrefs] = useState(DEFAULTS);
+  const [prefsLoading, setPrefsLoading] = useState(true);
+  const [saving, setSaving] = useState(null); // the key being saved, or null
+  const [error, setError] = useState('');
+  const [params, setParams] = useSearchParams();
+
+  useEffect(() => {
+    if (!household?.id) return undefined;
+    let cancelled = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- kicks off an async fetch; loading flag is the point
+    setPrefsLoading(true);
+    supabase
+      .from('telegram_notification_prefs')
+      // Read every signal the screen shows. A hand-written list left out
+      // statement_enabled, so "Card statements" read Off while the bot,
+      // reading the column, treated it as on.
+      .select(SIGNALS.map((sig) => sig.key).join(', '))
+      .eq('household_id', household.id)
+      .maybeSingle()
+      .then(({ data, error: fetchError }) => {
+        if (cancelled) return;
+        if (fetchError) setError(fetchError.message);
+        // No row yet means every signal is on, as the bot reads it.
+        else setPrefs(data ?? DEFAULTS);
+        setPrefsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [household?.id]);
+
+  // Each switch saves only its own column, and a failure puts back only that
+  // switch. Sending the whole row let two switches flipped together undo each
+  // other, whichever save landed last (outside review, E-08).
+  async function toggle(key) {
+    const value = !prefs[key];
+    setPrefs((p) => ({ ...p, [key]: value }));
+    setSaving(key);
+    setError('');
+    const { error: saveError } = await supabase.from('telegram_notification_prefs').upsert({ household_id: household.id, [key]: value }, { onConflict: 'household_id' });
+    setSaving(null);
+    if (saveError) {
+      setPrefs((p) => ({ ...p, [key]: !value }));
+      setError(saveError.message);
+    }
+  }
+
+  if (loading || prefsLoading) return <div className="ov-skel" aria-busy="true" />;
+
+  const iAmOwner = me?.role === 'owner';
+  const canLink = (m) => iAmOwner || m.id === me?.id;
+  const linking = members.find((m) => m.id === params.get('link')) ?? null;
+  const setLink = (id) =>
+    setParams(
+      (prev) => {
+        const p = new URLSearchParams(prev);
+        if (id) p.set('link', id);
+        else p.delete('link');
+        return p;
+      },
+      { replace: true },
+    );
+
+  const row = (s) => (
+    <div key={s.key} className="st-row">
+      <div className="st-row-main">
+        <div className="st-row-title">{s.label}</div>
+        <div className="st-row-sub">{s.note}</div>
+      </div>
+      <Switch label={s.label} checked={Boolean(prefs[s.key])} onChange={() => toggle(s.key)} disabled={saving === s.key} />
+    </div>
+  );
+
+  return (
+    <div className="st-grid st-grid-7-5">
+      <div className="st-stack">
+        <Card title="Morning message" info={<InfoButton about="Morning message">Everything that needs no answer arrives together, once, in the morning.</InfoButton>} flush>
+          <div className="st-rows">
+            {MORNING.map(row)}
+            <div className="st-row">
+              <div className="st-row-main">
+                <div className="st-row-title">Budget alerts</div>
+                <div className="st-row-sub">Set per category, at 80%, 90% and over</div>
+              </div>
+              <RouterLink className="st-link" to="/money?tab=budget">
+                Budget →
+              </RouterLink>
+            </div>
+          </div>
+        </Card>
+        <Card title="Questions that need an answer" info={<InfoButton about="Questions that need an answer">Each arrives as its own message, after the morning message, and waits for an answer.</InfoButton>} flush>
+          <div className="st-rows">{QUESTIONS.map(row)}</div>
+        </Card>
+        {error && (
+          <p className="ds-warn-ink st-note" role="alert">
+            {error}
+          </p>
+        )}
+      </div>
+
+      <div className="st-stack">
+        <Card title="Linked accounts" flush>
+          <div className="st-rows">
+            {members.map((m, at) => (
+              <div key={m.id} className="st-row">
+                <Avatar name={m.display_name} initial={m.display_name.slice(0, 1).toUpperCase()} tone={at === 0 ? 'a' : 'b'} />
+                <div className="st-row-main">
+                  <div className="st-row-title">{m.display_name}</div>
+                </div>
+                {m.telegram_user_id ? <Chip tone="pos">Linked</Chip> : <Chip tone="warn">Not linked</Chip>}
+                {canLink(m) && (
+                  <button type="button" className="ds-btn ds-btn-sm" aria-label={`${m.telegram_user_id ? 'Link again' : 'Link'} ${m.display_name}`} onClick={() => setLink(m.id)}>
+                    {m.telegram_user_id ? 'Link again' : 'Link'}
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </Card>
+        <section className="ds-card st-diag">
+          <Fold label="Diagnostics · last 30 days">
+            <Diagnostics household={household} />
+          </Fold>
+        </section>
+      </div>
+
+      {linking && <LinkDrawer key={linking.id} member={linking} allowed={canLink(linking)} onClose={() => setLink(null)} />}
+    </div>
+  );
+}
+
+// Links a member's Telegram (review T19): Open Telegram starts the bot with
+// the code filled in, the QR code is the same link for a phone, and the code
+// is the fallback. The code is a 122-bit token (QA #8), made when the drawer
+// opens, and works once, for 15 minutes.
+function LinkDrawer({ member, allowed, onClose }) {
+  const [code, setCode] = useState(null);
+  const [error, setError] = useState('');
+  // A member already linked gets a code only when asked: a live code moves
+  // the link to whichever Telegram sends it, and the old editor made none
+  // for them (the fresh review of 7a).
+  const [attempt, setAttempt] = useState(member.telegram_user_id ? 0 : 1);
+  const [copied, setCopied] = useState(null); // null, 'yes' or 'no'
+  const bot = botName();
+
+  useEffect(() => {
+    if (!allowed || attempt === 0) return undefined;
+    let cancelled = false;
+    supabase.rpc('generate_telegram_link_code', { p_member_id: member.id }).then(({ data, error: rpcError }) => {
+      if (cancelled) return;
+      if (rpcError) setError(rpcError.message);
+      // A code that never came would leave the drawer waiting for good.
+      else if (!data) setError('No code came back. Try again.');
+      else {
+        setError('');
+        setCode(data);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [allowed, member.id, attempt]);
+
+  const link = code && bot ? `https://t.me/${bot}?start=${code}` : null;
+  const footer = (
+    <div className="st-dfoot">
+      <div className="te-actions st-dfoot-row">
+        <div className="te-actions-right">
+          <button type="button" className="ds-btn" onClick={onClose}>
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <Drawer kicker="Telegram" title={`Link ${member.display_name}`} onClose={onClose} onEscape={onClose} footer={footer}>
+      <div className="st-linkbody">
+        {!allowed ? (
+          <p className="ds-muted">Only an owner can link another member.</p>
+        ) : attempt === 0 ? (
+          <>
+            <p className="ds-muted st-note">Linked. A new code moves the link to whichever Telegram sends it.</p>
+            <button type="button" className="ds-btn" onClick={() => setAttempt(1)}>
+              Make a new code
+            </button>
+          </>
+        ) : error ? (
+          <>
+            <p className="ds-warn-ink st-note" role="alert">
+              {error}
+            </p>
+            <button type="button" className="ds-btn" onClick={() => setAttempt((n) => n + 1)}>
+              Try again
+            </button>
+          </>
+        ) : !code ? (
+          <div className="ov-skel" aria-busy="true" />
+        ) : (
+          <>
+            {link && (
+              <>
+                <a className="ds-btn ds-btn-primary" href={link} target="_blank" rel="noopener noreferrer">
+                  Open Telegram
+                </a>
+                <p className="ds-muted st-note">or scan with the phone that has Telegram</p>
+                <QrCode text={link} />
+                <p className="ds-muted st-note">or send this code to the bot</p>
+              </>
+            )}
+            {!link && <p className="ds-muted st-note">Send this code to the bot.</p>}
+            <div className="st-code">
+              <span className="st-code-box">{code}</span>
+              {/* "Copied" only once the clipboard took it (the fresh review
+                  of 7a). */}
+              <button
+                type="button"
+                className="ds-btn ds-btn-sm"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(code);
+                    setCopied('yes');
+                  } catch {
+                    setCopied('no');
+                  }
+                }}
+              >
+                {copied === 'yes' ? 'Copied' : 'Copy'}
+              </button>
+            </div>
+            {copied === 'no' && <p className="ds-warn-ink st-note">Couldn't copy. Select the code instead.</p>}
+            <p className="ds-muted st-note">Works once, for 15 minutes.</p>
+          </>
+        )}
+      </div>
+    </Drawer>
+  );
+}
+
+// The QR code, drawn as squares from uqr's grid. The library is loaded only
+// when a code is to be drawn.
+function QrCode({ text }) {
+  const [grid, setGrid] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    import('uqr').then(({ encode }) => {
+      if (!cancelled) setGrid(encode(text, { border: 1 }).data);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [text]);
+  if (!grid) return <div className="st-qr" aria-busy="true" />;
+  const size = grid.length;
+  let path = '';
+  grid.forEach((line, y) =>
+    line.forEach((on, x) => {
+      if (on) path += `M${x} ${y}h1v1h-1z`;
+    }),
+  );
+  return (
+    <svg className="st-qr" viewBox={`0 0 ${size} ${size}`} role="img" aria-label="QR code to open Telegram" shapeRendering="crispEdges">
+      <rect width={size} height={size} fill="#fff" />
+      <path d={path} fill="#000" />
+    </svg>
+  );
+}
+
+// The bot's own record of its calls to its AI (SHR-288): how many, and how
+// many ended without error, by day. A call is not a message: a question
+// takes two and a retry one more, and /brief or a link code takes none (the
+// fresh review of 7a). Never what was said, which isn't stored (see the
+// telegram_call_log migration).
+function Diagnostics({ household }) {
   const [rows, setRows] = useState(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!household?.id) return;
+    if (!household?.id) return undefined;
     let cancelled = false;
     const since = new Date();
     since.setDate(since.getDate() - STATS_WINDOW_DAYS);
     supabase
       .from('telegram_call_log')
-      .select('occurred_at, success, total_tokens')
+      .select('occurred_at, success')
       .eq('household_id', household.id)
       .gte('occurred_at', since.toISOString())
       .then(({ data, error: fetchError }) => {
@@ -56,166 +344,53 @@ function TelegramStats({ household }) {
 
   if (error) {
     return (
-      <p className="ov-warn" role="alert" style={{ fontSize: 12.5 }}>
+      <p className="ds-warn-ink st-note" role="alert">
         {error}
       </p>
     );
   }
   if (rows === null) return <div className="ov-skel" aria-busy="true" />;
+  if (rows.length === 0) return <p className="ds-muted st-note">No calls in the last 30 days.</p>;
 
-  const total = rows.length;
-  if (total === 0) {
-    return (
-      <p className="ov-muted" style={{ fontSize: 12.5 }}>
-        No Telegram activity recorded in the last {STATS_WINDOW_DAYS} days yet.
-      </p>
-    );
-  }
-
-  const successCount = rows.filter((r) => r.success).length;
-  const successRate = Math.round((successCount / total) * 100);
-  const totalTokens = rows.reduce((sum, r) => sum + (r.total_tokens ?? 0), 0);
-
-  // Grouped by the browser's local calendar day -- this is an operational
-  // activity count, not ledger math, so it doesn't need the household-day
-  // rigor transactions do.
+  const handled = rows.length;
+  const readWell = Math.round((rows.filter((r) => r.success).length / handled) * 100);
   const byDay = new Map();
   for (const r of rows) {
-    const day = new Date(r.occurred_at).toLocaleDateString('en-CA');
+    const day = householdToday(new Date(r.occurred_at));
     byDay.set(day, (byDay.get(day) ?? 0) + 1);
   }
   const days = [...byDay.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1)).slice(0, 14);
 
   return (
-    <div>
-      <div style={{ display: 'flex', gap: 24, marginBottom: 14 }}>
+    <div className="st-diag-body">
+      <div className="st-diag-kpis">
         <div>
-          <div style={{ fontSize: 20, fontWeight: 600 }}>{total}</div>
-          <div className="ov-muted" style={{ fontSize: 12 }}>
-            Calls
-          </div>
+          <div className="st-diag-label">AI calls</div>
+          <div className="st-diag-fig">{handled}</div>
         </div>
         <div>
-          <div style={{ fontSize: 20, fontWeight: 600 }}>{successRate}%</div>
-          <div className="ov-muted" style={{ fontSize: 12 }}>
-            Success rate
-          </div>
-        </div>
-        <div>
-          <div style={{ fontSize: 20, fontWeight: 600 }}>{totalTokens.toLocaleString()}</div>
-          <div className="ov-muted" style={{ fontSize: 12 }}>
-            Tokens used
-          </div>
+          <div className="st-diag-label">Without error</div>
+          <div className="st-diag-fig">{`${readWell}%`}</div>
         </div>
       </div>
-      <table style={{ width: '100%', fontSize: 12.5, borderCollapse: 'collapse' }}>
+      <table className="ds-table st-diag-table">
+        <thead>
+          <tr>
+            <th scope="col">Day</th>
+            <th scope="col" className="ds-num">
+              Calls
+            </th>
+          </tr>
+        </thead>
         <tbody>
           {days.map(([day, count]) => (
             <tr key={day}>
-              <td className="ov-muted" style={{ padding: '2px 0' }}>
-                {day}
-              </td>
-              <td style={{ textAlign: 'right', padding: '2px 0' }}>{count}</td>
+              <td className="ds-muted st-mono">{shortDate(day)}</td>
+              <td className="ds-num">{count}</td>
             </tr>
           ))}
         </tbody>
       </table>
-    </div>
-  );
-}
-
-export default function Telegram({ household, loading }) {
-  const [prefs, setPrefs] = useState(DEFAULTS);
-  const [prefsLoading, setPrefsLoading] = useState(true);
-  const [saving, setSaving] = useState(null); // key currently being saved, or null
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    if (!household?.id) return;
-    let cancelled = false;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- kicks off an async fetch; loading flag is the point
-    setPrefsLoading(true);
-    supabase
-      .from('telegram_notification_prefs')
-      // Read every signal the screen shows. A hand-written list left out
-      // statement_enabled, so "Card statements" read Off while the bot,
-      // reading the column, treated it as on.
-      .select(SIGNALS.map((sig) => sig.key).join(', '))
-      .eq('household_id', household.id)
-      .maybeSingle()
-      .then(({ data, error: fetchError }) => {
-        if (cancelled) return;
-        if (fetchError) {
-          setError(fetchError.message);
-        } else {
-          // No row yet means every signal defaults on -- same as the bot's
-          // own fallback, so a household that's never opened this tab sees
-          // exactly the behaviour it already has today.
-          setPrefs(data ?? DEFAULTS);
-        }
-        setPrefsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [household?.id]);
-
-  // Each switch saves only its own column, and a failure puts back only
-  // that switch. Sending the whole row let two switches flipped together
-  // undo each other, whichever save landed last (outside review, E-08). A
-  // row inserted here takes the table's defaults (on) for the others, as
-  // DEFAULTS shows them.
-  async function toggle(key) {
-    const value = !prefs[key];
-    setPrefs((p) => ({ ...p, [key]: value }));
-    setSaving(key);
-    setError('');
-    const { error: saveError } = await supabase
-      .from('telegram_notification_prefs')
-      .upsert({ household_id: household.id, [key]: value }, { onConflict: 'household_id' });
-    setSaving(null);
-    if (saveError) {
-      setPrefs((p) => ({ ...p, [key]: !value }));
-      setError(saveError.message);
-    }
-  }
-
-  if (loading || prefsLoading) return <div className="ov-skel" aria-busy="true" />;
-
-  return (
-    <div>
-      <p className="ov-muted" style={{ marginTop: 0 }}>
-        Reminders that need no answer arrive together, as one morning message. Budget alerts are set per category in Money → Budget.
-      </p>
-
-      {SIGNALS.map((s) => (
-        <button
-          key={s.key}
-          type="button"
-          className="te-togglerow"
-          onClick={() => toggle(s.key)}
-          disabled={saving === s.key}
-        >
-          <div>
-            <div className="te-togglelabel">{s.label}</div>
-            <div className="te-togglenote">{s.note}</div>
-          </div>
-          <span className={`te-togglestate ${prefs[s.key] ? '' : 'te-togglestate-warn'}`}>
-            {saving === s.key ? '…' : prefs[s.key] ? 'On' : 'Off'}
-          </span>
-        </button>
-      ))}
-
-      {error && (
-        <p className="ov-warn" role="alert" style={{ fontSize: 12.5 }}>
-          {error}
-        </p>
-      )}
-
-      <h3 style={{ fontSize: 13, margin: '28px 0 10px', textTransform: 'uppercase', letterSpacing: 0.4 }} className="ov-muted">
-        Activity, last {STATS_WINDOW_DAYS} days
-      </h3>
-      <TelegramStats household={household} />
     </div>
   );
 }

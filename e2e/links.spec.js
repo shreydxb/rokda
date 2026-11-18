@@ -55,3 +55,20 @@ test("Overview's yearly reminder opens the note that is due", async ({ page }) =
   await expect(page).toHaveURL(/\/planning\?tab=notes&note=a3a3a3a3-0000-4000-8000-000000000042$/);
   await expect(page.getByRole('region', { name: 'Wills' })).toContainText('Wills body.');
 });
+
+// A member's Link opens the Telegram tab's link drawer (the revamp, phase
+// 7), and closing it leaves the Telegram tab.
+test("a member's Link opens their link drawer on the Telegram tab", async ({ page }) => {
+  await stubSupabase(page, { rpc: { generate_telegram_link_code: '0123456789abcdef0123456789abcdef' } });
+  await page.goto('/settings', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('.om-main .ov-skel')).toHaveCount(0, { timeout: 15_000 });
+  await page.getByRole('table').getByRole('button', { name: 'Sam' }).click();
+  await page.getByRole('dialog', { name: 'Sam' }).getByRole('button', { name: 'Link' }).click();
+  await expect(page).toHaveURL(/\/settings\?tab=telegram&link=22222222-2222-4222-8222-333333333333$/);
+  const drawer = page.getByRole('dialog', { name: 'Link Sam' });
+  await expect(drawer).toContainText('0123456789abcdef0123456789abcdef');
+  await drawer.getByRole('button', { name: 'Close' }).last().click();
+  await expect(page).toHaveURL(/\/settings\?tab=telegram$/);
+  await expect(activeTab(page)).toHaveText('Telegram');
+});
+
