@@ -1,6 +1,6 @@
 # Settings, the revamp's phase 7: design
 
-Status: for approval.
+Status: approved 18 November 2026, with the six decisions as recommended.
 
 The prototype (`design/prototype/js/screens-settings.js`) is the target, as it
 was for the other pages. Each tab is built like its prototype screen from the
@@ -169,8 +169,11 @@ and the diagnostics counts are all read already.
 
 | PR | Holds |
 |---|---|
-| 7a | The frame's tools; Household with the member drawer; Categories & rules with the category and rule drawers |
-| 7b | Telegram with linking (the link drawer, QR code and bot link) and Diagnostics; Backups |
+| 7a | The frame's tools; Household with the member drawer; Telegram with linking (the link drawer, QR code and bot link) and Diagnostics |
+| 7b | Categories & rules with the category and rule drawers; Backups |
+
+Household and Telegram go together because the member drawer's Link opens
+the Telegram tab's link drawer (a change from the split first proposed).
 
 Each is built test first and checked on desktop. Phones keep working but
 aren't planned for. Each is reviewed fresh, and merged on the word.
