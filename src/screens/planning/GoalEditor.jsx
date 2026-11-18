@@ -151,8 +151,13 @@ export default function GoalEditor({
     if (firstProblem) {
       setTriedSave(true);
       setFormError('Fix the marked field to save.');
-      setTab('details');
-      document.getElementById(ids[firstProblem])?.focus();
+      const field = ids[firstProblem];
+      if (tab === 'details') document.getElementById(field)?.focus();
+      else {
+        // Once Details is drawn again: a hidden field takes no focus.
+        setTab('details');
+        setTimeout(() => document.getElementById(field)?.focus(), 0);
+      }
       return;
     }
     if (pendingWork) {
@@ -444,7 +449,10 @@ export default function GoalEditor({
             display, which would override `hidden` on them (the revamp,
             phase 5b). */}
         <div hidden={tab !== 'details'}>
-          <form id={ids.form} className="te-part" onSubmit={handleSave}>
+          {/* The editor's own checks, not the browser's: a field out of view
+              on another tab stopped a save without a word (the fresh
+              review of 6b). */}
+          <form id={ids.form} className="te-part" onSubmit={handleSave} noValidate>
             <div>
               <div className="te-hero-label">Target</div>
               <div className="te-hero-row">

@@ -54,8 +54,18 @@ export default function DebtEditor({ debt, householdId, members, accounts = [], 
   const foreign = linked && String(linked.currency ?? 'AED').toUpperCase() !== 'AED';
   const [dirty, setDirty] = useState(false);
   // The kit's drawer answers Escape on itself (lib/useCloseGuard.js).
-  const { confirmingClose, requestClose, keepEditing, escapeKey } = useCloseGuard({ dirty, onClose, listen: false });
+  // Escape steps back out of a delete waiting to be confirmed before it
+  // closes anything (the fresh review of 6b).
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const { confirmingClose, requestClose, keepEditing, escapeKey } = useCloseGuard({
+    dirty,
+    onClose,
+    listen: false,
+    onEscape: () => {
+      if (confirmingDelete) setConfirmingDelete(false);
+      else requestClose();
+    },
+  });
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [triedSave, setTriedSave] = useState(false);

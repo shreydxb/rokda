@@ -111,6 +111,20 @@ describe('GoalEditor: fields say what they are, and are marked wrong only after 
   });
 });
 
+// The fresh review of 6b: the browser's own checks stopped a save from
+// another tab without a word, the field being out of view.
+describe('GoalEditor: a save from another tab', () => {
+  it('leaves the checks to the editor, and brings Details back with the field that stopped it', async () => {
+    renderEditor({ goal: GOAL });
+    expect(screen.getByLabelText('Name').form.noValidate).toBe(true);
+    type(screen.getByLabelText('Name'), '');
+    openTab('Contributions');
+    fireEvent.click(screen.getByText('Save changes'));
+    expect(screen.getByRole('tab', { name: 'Details' }).getAttribute('aria-selected')).toBe('true');
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Name')));
+  });
+});
+
 describe('GoalEditor: contributions and links are their own forms and keep the drawer open', () => {
   it('Enter in the contribution amount logs it, and the goal and its unsaved edits stay', async () => {
     const { onSaved, onChanged } = renderEditor({ goal: GOAL });

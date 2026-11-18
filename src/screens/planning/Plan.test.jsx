@@ -356,7 +356,8 @@ describe('Plan: the pot, year by year', () => {
     const fold = openFold('Goals on the timeline');
     const rows = [...fold.querySelectorAll('.pl-goal')].map((r) => r.textContent);
     expect(rows).toEqual([`Car30,000Paid ${thisYear + 5}`, 'Emergency fund30,000Kept']);
-    expect(within(fold).getByRole('link', { name: /^Car/ }).getAttribute('href')).toBe('/planning?tab=goals&goal=g1');
+    // Over Plan, not on Goals & debts (the fresh review of 6b).
+    expect(within(fold).getByRole('link', { name: /^Car/ }).getAttribute('href')).toBe('/planning?goal=g1');
   });
 });
 
