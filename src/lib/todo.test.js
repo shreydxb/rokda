@@ -47,7 +47,8 @@ describe('buildTodo', () => {
     expect(byTitle['Index fund']).toEqual({ kind: 'link', label: 'Update price', href: '/wealth?tab=investments&holding=h1' });
     expect(byTitle.October).toEqual({ kind: 'link', label: 'Close month', href: '/money?tab=monthend&month=2026-10' });
     expect(byTitle.Backup).toEqual({ kind: 'link', label: 'Record backup', href: '/settings?tab=backups' });
-    expect(byTitle.Insurance).toEqual({ kind: 'link', label: 'Open notes', href: '/planning?tab=notes' });
+    // The note itself (the revamp, phase 6c).
+    expect(byTitle.Insurance).toEqual({ kind: 'link', label: 'Open note', href: '/planning?tab=notes&note=n1' });
   });
 
   it('colours by what is wrong: late or due red, a look needed amber, the rest grey', () => {

@@ -351,7 +351,8 @@ export function attentionHref(item, now = new Date()) {
     case 'backup':
       return tabHref('/settings', 'backups');
     case 'yearly_check':
-      return tabHref('/planning', 'notes');
+      // The note itself (the revamp, phase 6c).
+      return tabHref('/planning', 'notes', item.noteId ? { note: item.noteId } : {});
     default:
       return '/';
   }

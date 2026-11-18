@@ -1,9 +1,17 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { useState } from 'react';
 import { act, render as plainRender } from '@testing-library/react';
-import { screen, fireEvent, waitFor } from '@testing-library/dom';
+import { screen, fireEvent, waitFor, within } from '@testing-library/dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { renderScreen } from '../../test/renderScreen';
+import { ScopeProvider } from '../../lib/ScopeContext';
+import { CurrencyProvider } from '../../lib/CurrencyContext';
 import Notes from './Notes';
+
+// Planning -> Notes, like the prototype (the revamp, phase 6c): the list
+// beside the chosen note, and a note written in a drawer. What kept writing
+// safe stays: a save goes only over the version opened, a note deleted
+// elsewhere keeps its draft, and leaving with unsaved text asks first.
 
 // `stored` is the note's updated_at in the database: an update filtered on an
 // older one matches no row, as PostgREST's would after a partner's save.
@@ -54,143 +62,205 @@ beforeEach(() => {
 
 const MEMBERS = [{ id: 'm1', display_name: 'Alex' }];
 const NOTE = { id: 'n1', title: 'Who pays what', body: '# Split\nShared costs by income.\n\n- **Rent** is shared\n- <b>not markup</b>', position: 1, updated_by: 'm1', updated_at: '2026-09-28T10:00:00Z' };
+const OTHER = { ...NOTE, id: 'n2', title: 'What is still open', body: 'The car.', position: 2 };
 
-function renderNotes(notes = [NOTE], sources) {
-  const reload = vi.fn().mockResolvedValue(undefined);
+function Where() {
+  const location = useLocation();
+  return <output data-testid="where">{`${location.pathname}${location.search}`}</output>;
+}
+const where = () => screen.getByTestId('where').textContent;
+
+function renderNotes(notes = [NOTE], { sources, at = '/planning?tab=notes', reload = vi.fn().mockResolvedValue(undefined) } = {}) {
   const onRetry = vi.fn();
-  renderScreen(<Notes household={{ id: 'h' }} me={{ id: 'm1' }} members={MEMBERS} data={{ notes, reload }} sources={sources} onRetry={onRetry} loading={false} />);
+  renderScreen(
+    <MemoryRouter initialEntries={[at]}>
+      <Notes household={{ id: 'h' }} me={{ id: 'm1' }} members={MEMBERS} data={{ notes, reload }} sources={sources} onRetry={onRetry} loading={false} />
+      <Where />
+    </MemoryRouter>,
+  );
   return { reload, onRetry };
 }
+// The chosen note, and the list's rows.
+const shown = () => document.querySelector('.nt-note');
+const listed = () => [...document.querySelectorAll('.nt-row')].map((r) => r.querySelector('.nt-row-title').textContent);
+const drawer = () => screen.getByRole('dialog');
+const titleField = () => within(drawer()).getByPlaceholderText('e.g. Who pays what');
+// The page header's + Note (with no notes, the empty state has one too).
+const newNote = () => fireEvent.click(screen.getAllByRole('button', { name: '+ Note' })[0]);
 
-describe('Notes', () => {
-  it('renders headings, bullets and bold, and shows markup as text', () => {
-    renderNotes();
-    const card = screen.getByLabelText('Who pays what');
-    expect(card.querySelector('h3').textContent).toBe('Split');
-    expect(card.querySelector('strong').textContent).toBe('Rent');
-    expect(card.querySelector('b')).toBeNull();
-    expect(card.textContent).toContain('<b>not markup</b>');
-    expect(card.textContent).toMatch(/by Alex/);
+describe('Notes: the list and the note', () => {
+  it('lists the notes beside the first, drawn from its markup', () => {
+    renderNotes([NOTE, OTHER]);
+    expect(listed()).toEqual(['Who pays what', 'What is still open']);
+    const note = screen.getByRole('region', { name: 'Who pays what' });
+    expect(note.querySelector('h3').textContent).toBe('Split');
+    expect(note.querySelector('strong').textContent).toBe('Rent');
+    expect(note.querySelector('b')).toBeNull();
+    expect(note.textContent).toContain('<b>not markup</b>');
+    expect(note.textContent).toMatch(/Updated 28 Sept? 2026 by Alex/);
   });
 
+  it('puts a yearly check that is due first, and shows it first', () => {
+    const due = { ...OTHER, id: 'n3', title: 'Protection', check_yearly: true, checked_on: null, position: 3 };
+    renderNotes([NOTE, OTHER, due]);
+    expect(listed()).toEqual(['Protection', 'Who pays what', 'What is still open']);
+    expect(within(document.querySelector('.nt-list')).getByText('Due')).toBeTruthy();
+    expect(shown().getAttribute('aria-label')).toBe('Protection');
+  });
+
+  it('opens a note from the list through its address, and from the address', () => {
+    renderNotes([NOTE, OTHER]);
+    fireEvent.click(screen.getByRole('button', { name: /^What is still open/ }));
+    expect(where()).toBe('/planning?tab=notes&note=n2');
+    expect(shown().getAttribute('aria-label')).toBe('What is still open');
+    document.body.innerHTML = '';
+    renderNotes([NOTE, OTHER], { at: '/planning?tab=notes&note=n2' });
+    expect(shown().getAttribute('aria-label')).toBe('What is still open');
+  });
+
+  it('shows the first note for one that isn\'t there', () => {
+    renderNotes([NOTE, OTHER], { at: '/planning?tab=notes&note=gone' });
+    expect(shown().getAttribute('aria-label')).toBe('Who pays what');
+  });
+
+  it('says the notes are private to the household, and offers the first one when there are none', () => {
+    renderNotes([]);
+    expect(screen.getByText('Private to your household')).toBeTruthy();
+    const empty = screen.getByText('No notes yet').closest('section');
+    fireEvent.click(within(empty).getByRole('button', { name: '+ Note' }));
+    expect(screen.getByRole('dialog', { name: 'Add a note' })).toBeTruthy();
+  });
+
+  it('says the notes did not load, rather than that there are none', () => {
+    const { onRetry } = renderNotes([], { sources: { errors: { notes: { message: 'timeout' } }, loaded: {} } });
+    expect(screen.queryByText('No notes yet')).toBeNull();
+    expect(screen.getByText('Couldn’t load household notes.')).toBeTruthy();
+    fireEvent.click(screen.getByText('Try again'));
+    expect(onRetry).toHaveBeenCalled();
+  });
+});
+
+describe('Notes: writing a note', () => {
   it('adds a note with who wrote it', async () => {
     const { reload } = renderNotes([]);
-    fireEvent.click(screen.getByText('+ Add note'));
-    fireEvent.change(screen.getByPlaceholderText('e.g. Who pays what'), { target: { value: 'Open items' } });
-    fireEvent.click(screen.getByText('Add note'));
+    newNote();
+    fireEvent.change(titleField(), { target: { value: 'Open items' } });
+    fireEvent.click(within(drawer()).getByRole('button', { name: 'Add note' }));
     await waitFor(() => expect(reload).toHaveBeenCalled());
     expect(calls.inserts[0]).toMatchObject({ table: 'household_notes', row: { title: 'Open items', household_id: 'h', updated_by: 'm1' } });
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('will not save without a title', async () => {
     renderNotes([]);
-    fireEvent.click(screen.getByText('+ Add note'));
-    fireEvent.click(screen.getByText('Add note'));
-    expect(await screen.findByRole('alert')).toBeTruthy();
+    newNote();
+    fireEvent.click(within(drawer()).getByRole('button', { name: 'Add note' }));
+    expect((await within(drawer()).findByRole('alert')).textContent).toBe('Give it a title.');
     expect(calls.inserts).toHaveLength(0);
   });
 
-  it('edits and deletes after a confirm', async () => {
+  it('edits, and deletes on the second press', async () => {
     const { reload } = renderNotes();
-    fireEvent.click(screen.getByText('Edit'));
-    fireEvent.click(screen.getByText('Save'));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    expect(screen.getByRole('dialog', { name: 'Who pays what' })).toBeTruthy();
+    fireEvent.click(within(drawer()).getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(calls.updates).toHaveLength(1));
     expect(calls.updates[0]).toMatchObject({ id: 'n1', updatedAt: NOTE.updated_at });
-    fireEvent.click(screen.getByText('Edit'));
-    fireEvent.click(screen.getByText('Delete'));
-    expect(screen.getByText('Delete this note?')).toBeTruthy();
-    fireEvent.click(screen.getByText('Delete'));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Edit' }).disabled).toBe(false));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    fireEvent.click(within(drawer()).getByRole('button', { name: 'Delete' }));
+    expect(calls.deletes).toEqual([]);
+    fireEvent.click(within(drawer()).getByRole('button', { name: 'Confirm delete?' }));
     await waitFor(() => expect(calls.deletes).toEqual([{ table: 'household_notes', id: 'n1' }]));
     expect(reload).toHaveBeenCalledTimes(2);
   });
 
   it('asks before Cancel throws away a changed note, and not when nothing changed', () => {
     renderNotes();
-    fireEvent.click(screen.getByText('Edit'));
-    fireEvent.click(screen.getByText('Cancel'));
-    expect(screen.queryByText('Discard changes?')).toBeNull();
-    expect(screen.getByText('Edit')).toBeTruthy();
-    fireEvent.click(screen.getByText('Edit'));
-    fireEvent.change(screen.getByPlaceholderText('e.g. Who pays what'), { target: { value: 'Who pays what, and why' } });
-    fireEvent.click(screen.getByText('Cancel'));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    fireEvent.click(within(drawer()).getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    fireEvent.change(titleField(), { target: { value: 'Who pays what, and why' } });
+    fireEvent.click(within(drawer()).getByRole('button', { name: 'Cancel' }));
     expect(screen.getByText('Discard changes?')).toBeTruthy();
     fireEvent.click(screen.getByText('Keep editing'));
-    expect(screen.getByPlaceholderText('e.g. Who pays what').value).toBe('Who pays what, and why');
+    expect(titleField().value).toBe('Who pays what, and why');
   });
 
   it('will not save over a note changed since it was opened', async () => {
     const { reload } = renderNotes();
     calls.stored = '2026-09-29T08:00:00Z';
-    fireEvent.click(screen.getByText('Edit'));
-    fireEvent.change(screen.getByPlaceholderText('e.g. Who pays what'), { target: { value: 'Mine' } });
-    fireEvent.click(screen.getByText('Save'));
-    expect(await screen.findByRole('alert')).toHaveProperty('textContent', expect.stringMatching(/^This note was changed after you opened it/));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    fireEvent.change(titleField(), { target: { value: 'Mine' } });
+    fireEvent.click(within(drawer()).getByRole('button', { name: 'Save' }));
+    expect(await within(drawer()).findByRole('alert')).toHaveProperty('textContent', expect.stringMatching(/^This note was changed after you opened it/));
     expect(reload).not.toHaveBeenCalled();
-    expect(screen.getByPlaceholderText('e.g. Who pays what').value).toBe('Mine');
-  });
-
-  it('says the notes did not load, rather than that there are none', () => {
-    const { onRetry } = renderNotes([], { errors: { notes: { message: 'timeout' } }, loaded: {} });
-    expect(screen.queryByText('No notes')).toBeNull();
-    expect(screen.getByText('Couldn’t load household notes.')).toBeTruthy();
-    fireEvent.click(screen.getByText('Try again'));
-    expect(onRetry).toHaveBeenCalled();
+    expect(titleField().value).toBe('Mine');
   });
 
   it('saves only over the version it was opened from, though the note is read again while it is open', async () => {
     // The page reads the notes again every few minutes; here that brings in
     // the partner's save while this edit is still open.
-    let setNotes;
+    const theirs = { ...NOTE, body: 'Their text', updated_at: '2026-09-29T08:00:00Z' };
     function Page() {
       const [notes, set] = useState([NOTE]);
-      setNotes = set;
-      return <Notes household={{ id: 'h' }} me={{ id: 'm1' }} members={MEMBERS} data={{ notes, reload: vi.fn() }} loading={false} />;
+      return (
+        <>
+          <button type="button" onClick={() => set([theirs])}>
+            Read again
+          </button>
+          <Notes household={{ id: 'h' }} me={{ id: 'm1' }} members={MEMBERS} data={{ notes, reload: vi.fn() }} loading={false} />
+        </>
+      );
     }
-    renderScreen(<Page />);
-    fireEvent.click(screen.getByText('Edit'));
-    fireEvent.change(screen.getByPlaceholderText('e.g. Who pays what'), { target: { value: 'Mine' } });
-
-    const theirs = { ...NOTE, body: 'Their text', updated_at: '2026-09-29T08:00:00Z' };
+    renderScreen(
+      <MemoryRouter>
+        <Page />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    fireEvent.change(titleField(), { target: { value: 'Mine' } });
     calls.stored = theirs.updated_at;
-    act(() => setNotes([theirs]));
-    fireEvent.click(screen.getByText('Save'));
-
-    expect(await screen.findByRole('alert')).toHaveProperty('textContent', expect.stringMatching(/^This note was changed after you opened it/));
+    fireEvent.click(screen.getByRole('button', { name: 'Read again' }));
+    fireEvent.click(within(drawer()).getByRole('button', { name: 'Save' }));
+    expect(await within(drawer()).findByRole('alert')).toHaveProperty('textContent', expect.stringMatching(/^This note was changed after you opened it/));
     expect(calls.updates[0].updatedAt).toBe(NOTE.updated_at);
   });
 
   it('opens a note again only once the read after its save has landed', async () => {
     let finishReload;
     const reload = vi.fn(() => new Promise((resolve) => (finishReload = resolve)));
-    renderScreen(<Notes household={{ id: 'h' }} me={{ id: 'm1' }} members={MEMBERS} data={{ notes: [NOTE], reload }} loading={false} />);
-    fireEvent.click(screen.getByText('Edit'));
-    fireEvent.click(screen.getByText('Save'));
+    renderNotes([NOTE], { reload });
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    fireEvent.click(within(drawer()).getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(reload).toHaveBeenCalled());
-    expect(screen.getByText('Edit').disabled).toBe(true);
+    expect(screen.getByRole('button', { name: 'Edit' }).disabled).toBe(true);
     await act(async () => finishReload());
-    expect(screen.getByText('Edit').disabled).toBe(false);
+    expect(screen.getByRole('button', { name: 'Edit' }).disabled).toBe(false);
   });
 });
 
 // A note checked once a year (Planning audit, 4.18): the editor marks it, and
 // the note says where it stands and takes Checked today.
-describe('a yearly check', () => {
-  it('is marked in the editor and saved with the note', async () => {
+describe('Notes: a yearly check', () => {
+  it('is set in the drawer and saved with the note', async () => {
     renderNotes([]);
-    fireEvent.click(screen.getByRole('button', { name: '+ Add note' }));
-    fireEvent.change(screen.getByPlaceholderText('e.g. Who pays what'), { target: { value: 'Protection' } });
-    const toggle = screen.getByRole('button', { name: /Check once a year/ });
-    expect(toggle.getAttribute('aria-pressed')).toBe('false');
+    newNote();
+    fireEvent.change(titleField(), { target: { value: 'Protection' } });
+    const toggle = within(drawer()).getByRole('switch', { name: 'Check once a year' });
+    expect(toggle.getAttribute('aria-checked')).toBe('false');
     fireEvent.click(toggle);
-    expect(toggle.getAttribute('aria-pressed')).toBe('true');
-    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Add note' })));
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
+    await act(async () => fireEvent.click(within(drawer()).getByRole('button', { name: 'Add note' })));
     expect(calls.inserts[0].row).toMatchObject({ title: 'Protection', check_yearly: true });
   });
 
   it('says it has not been checked, and Checked today records the household day', async () => {
     const { reload } = renderNotes([{ ...NOTE, check_yearly: true, checked_on: null }]);
-    const line = screen.getByText('Checked once a year · not checked yet');
-    expect(line.className).toBe('ov-warn');
+    const row = shown().querySelector('.nt-check');
+    expect(row.textContent).toMatch(/^Checked once a year · not checked yet/);
+    expect(row.getAttribute('data-due')).toBe('true');
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Checked today' })));
     expect(calls.updates).toHaveLength(1);
     expect(calls.updates[0].row).toEqual({ checked_on: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), updated_by: 'm1' });
@@ -198,18 +268,29 @@ describe('a yearly check', () => {
     await waitFor(() => expect(reload).toHaveBeenCalled());
   });
 
-  it('says when it was last checked and when it is next due', () => {
+  it('says when it was last checked and when it is due', () => {
     const lastYear = new Date().getFullYear() - 1;
     renderNotes([{ ...NOTE, check_yearly: true, checked_on: `${lastYear}-01-01` }]);
-    expect(screen.getByText(`Checked once a year · last checked 1 Jan ${lastYear} · due now`).className).toBe('ov-warn');
+    expect(shown().querySelector('.nt-check').textContent).toMatch(new RegExp(`^Checked once a year · last checked 1 Jan ${lastYear} · due now`));
+  });
+
+  // The prototype: Checked today only while the check is due; checked this
+  // year, the row is quiet.
+  it('takes Checked today only while it is due', () => {
+    const recently = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+    renderNotes([{ ...NOTE, check_yearly: true, checked_on: recently }]);
+    const row = shown().querySelector('.nt-check');
+    expect(row.getAttribute('data-due')).toBe('false');
+    expect(row.textContent).toMatch(/^Checked once a year · last checked .* · next from /);
+    expect(screen.queryByRole('button', { name: 'Checked today' })).toBeNull();
   });
 
   it('shows nothing of the kind on an ordinary note', () => {
     renderNotes();
     expect(screen.queryByRole('button', { name: 'Checked today' })).toBeNull();
+    expect(shown().querySelector('.nt-check')).toBeNull();
   });
 });
-
 
 // The outside review, E-06: a note deleted elsewhere while it is open keeps
 // its draft on screen, says what happened, and Cancel unlocks the page.
@@ -218,20 +299,28 @@ describe('Notes: the open note deleted elsewhere', () => {
   it('keeps the draft, says it was deleted, and unlocks on Cancel', () => {
     const props = { household: { id: 'h' }, me: { id: 'm1' }, members: MEMBERS, onRetry: vi.fn(), loading: false };
     const reload = vi.fn();
-    const other = { ...NOTE, id: 'n2', title: 'What is still open', position: 2 };
-    const { rerender } = plainRender(<Notes {...props} data={{ notes: [NOTE, other], reload }} />);
-    fireEvent.click(screen.getAllByText('Edit')[0]);
-    fireEvent.change(screen.getByLabelText('Note'), { target: { value: 'My long draft' } });
+    const page = (notes) => (
+      <MemoryRouter>
+        <ScopeProvider>
+          <CurrencyProvider>
+            <Notes {...props} data={{ notes, reload }} />
+          </CurrencyProvider>
+        </ScopeProvider>
+      </MemoryRouter>
+    );
+    const { rerender } = plainRender(page([NOTE, OTHER]));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    fireEvent.change(within(drawer()).getByLabelText('Note'), { target: { value: 'My long draft' } });
 
     // A refresh: the other partner deleted it meanwhile.
-    rerender(<Notes {...props} data={{ notes: [other], reload }} />);
-    expect(screen.getByLabelText('Note').value).toBe('My long draft');
+    rerender(page([OTHER]));
+    expect(within(drawer()).getByLabelText('Note').value).toBe('My long draft');
     expect(screen.getByText('This note was deleted elsewhere. Copy what you need from your draft, then Cancel.')).toBeTruthy();
 
-    fireEvent.click(screen.getByText('Cancel'));
+    fireEvent.click(within(drawer()).getByRole('button', { name: 'Cancel' }));
     fireEvent.click(screen.getByText('Discard'));
-    expect(screen.queryByLabelText('Note')).toBeNull();
-    expect(screen.getByText('Edit').disabled).toBe(false);
-    expect(screen.getByRole('button', { name: '+ Add note' }).disabled).toBe(false);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Edit' }).disabled).toBe(false);
+    expect(screen.getByRole('button', { name: '+ Note' }).disabled).toBe(false);
   });
 });
