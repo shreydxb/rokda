@@ -22,15 +22,18 @@ export function backupStatus(records = [], now = new Date()) {
   const lastExport = latestRecord(records, 'export');
   const lastPassedExport = latestRecord(records, 'export', { passedOnly: true });
   const lastPassedDrill = latestRecord(records, 'restore_drill', { passedOnly: true });
+  const lastDrill = latestRecord(records, 'restore_drill');
   const daysSinceExport = lastPassedExport ? daysBetweenDays(parseDay(lastPassedExport.done_on), now) : null;
   return {
     lastExport,
     lastPassedExport,
     lastPassedDrill,
+    lastDrill,
     daysSinceExport,
     // The newest export is the one that failed: whatever passed before it is
     // older than anyone believed.
     lastExportFailed: lastExport?.result === 'failed',
+    lastDrillFailed: lastDrill?.result === 'failed',
     exportDue: daysSinceExport === null || daysSinceExport > EXPORT_DUE_DAYS,
   };
 }

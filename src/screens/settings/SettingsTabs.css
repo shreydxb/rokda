@@ -253,3 +253,160 @@
 .st-field > .ds-seg {
   align-self: flex-start;
 }
+
+/* For a screen reader only: a column's name with nothing to show. */
+.st-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Two fields side by side (the prototype's .field-row), and a switch with
+   its label and hint (the prototype's switchField). */
+.st-field-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+.st-switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.st-switch-label {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* The categories table: a band per group (the prototype's row.group). */
+/* The prototype's tables here are compact: 38px rows. A row's name is its
+   header cell, so it is put back to the body's type. */
+.st-cats td,
+.st-rules td,
+.st-cats tbody th[scope='row'] {
+  height: 38px;
+}
+.st-cats tbody th[scope='row'] {
+  padding: 0 12px 0 18px;
+  font-size: inherit;
+  font-weight: inherit;
+  color: inherit;
+  text-align: left;
+  white-space: normal;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.st-group th,
+.st-group td {
+  height: 34px;
+  padding-top: 0;
+  padding-bottom: 0;
+  background: var(--raised);
+  font-size: 12.5px;
+  color: var(--ink2);
+  text-align: left;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.st-group th {
+  font-weight: 500;
+}
+.st-group td.ds-num {
+  text-align: right;
+}
+.st-group .st-name {
+  font-weight: 500;
+  color: var(--ink2);
+}
+/* An owner a subcategory takes from its group. */
+.st-who-inherited {
+  color: var(--ink3);
+}
+.st-chips {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.st-cats td:last-child {
+  width: 170px;
+}
+.st-card-foot {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 18px 12px;
+  border-top: 1px solid var(--rule-soft);
+}
+.st-card-foot .ds-fold {
+  flex: 1;
+  min-width: 0;
+}
+.st-starter {
+  margin-top: 6px;
+  margin-left: auto;
+}
+.st-archived {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: 0 0 6px;
+  padding: 0;
+  list-style: none;
+}
+.st-archived .st-name {
+  font-weight: 400;
+  color: var(--ink2);
+}
+
+/* The merchant rules: the pattern in mono, Apply as a text action. */
+.st-rule {
+  font-weight: 400;
+  margin-right: 6px;
+}
+.st-pattern {
+  color: var(--ink);
+}
+.st-act {
+  width: 70px;
+  text-align: right;
+}
+.st-link-btn {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--accent);
+  cursor: pointer;
+}
+.st-link-btn:disabled {
+  color: var(--ink3);
+  cursor: default;
+}
+
+/* The backups history. */
+.st-note-cell {
+  font-size: 12.5px;
+  color: var(--ink2);
+}
+.st-history th:nth-child(1) {
+  width: 90px;
+}
+.st-history th:nth-child(2) {
+  width: 120px;
+}
+.st-history th:nth-child(3) {
+  width: 90px;
+}
+.st-history th:nth-child(4) {
+  width: 60px;
+}
+.st-history td:nth-child(-n + 3) {
+  white-space: nowrap;
+}
+.st-cats tbody tr:last-child th[scope='row'] {
+  border-bottom: 0;
+}

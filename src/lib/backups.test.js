@@ -30,6 +30,15 @@ describe('backupStatus', () => {
   it('a failure followed by a pass is not a failure', () => {
     expect(backupStatus([rec('export', 'failed', '2026-10-01'), rec('export', 'passed', '2026-10-02')], NOW).lastExportFailed).toBe(false);
   });
+
+  // Settings -> Backups like the prototype (the revamp, phase 7b): each kind's
+  // latest line says Passed or Failed, so a drill's newest failure shows too.
+  it('knows the newest drill, and whether it failed', () => {
+    const status = backupStatus([rec('restore_drill', 'passed', '2026-09-01'), rec('restore_drill', 'failed', '2026-10-01')], NOW);
+    expect(status.lastDrill.done_on).toBe('2026-10-01');
+    expect(status.lastDrillFailed).toBe(true);
+    expect(backupStatus([], NOW)).toMatchObject({ lastDrill: null, lastDrillFailed: false });
+  });
 });
 
 describe('latestRecord', () => {

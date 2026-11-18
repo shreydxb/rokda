@@ -82,10 +82,12 @@ test('a corrected merchant is remembered after the record saves, and Activity ke
 
   await notice.getByRole('link', { name: 'See the rule in Settings' }).click();
   await expect(page).toHaveURL(/\/settings\?tab=categories&rule=/);
-  const ruleEditor = page.getByRole('dialog', { name: 'Edit rule' });
-  await expect(ruleEditor.locator('.te-title')).toHaveText('"Carrefour"');
+  const ruleEditor = page.getByRole('dialog', { name: 'Contains “Carrefour”' });
+  await expect(ruleEditor.getByLabel('Merchant pattern')).toHaveValue('Carrefour');
   await ruleEditor.getByRole('button', { name: 'Cancel' }).click();
-  await expect(page.locator('.mn-row').filter({ hasText: 'Contains "Carrefour" → Dining out' })).toHaveCount(1);
+  // The merchant rules table (the revamp, phase 7b).
+  const rules = page.getByRole('region', { name: 'Merchant rules' });
+  await expect(rules.getByRole('row').filter({ hasText: 'contains Carrefour' }).filter({ hasText: 'Dining out' })).toHaveCount(1);
   await page.goBack();
   await expect(page).toHaveURL(/tab=activity&q=Carrefour&sort=largest&range=all$/);
 });
@@ -127,7 +129,7 @@ test('a rule that files the merchant elsewhere is explained and linked, and the 
   const settings = await other.newPage();
   await stubSupabase(settings);
   await settings.goto(new URL(href, baseURL).href, { waitUntil: 'domcontentloaded' });
-  await expect(settings.getByRole('dialog', { name: 'Edit rule' }).locator('.te-title')).toHaveText('"spinneys"');
+  await expect(settings.getByRole('dialog', { name: 'Contains “spinneys”' })).toBeVisible();
   await other.close();
 
   // The correction is still as it was typed.
