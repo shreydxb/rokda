@@ -9,6 +9,7 @@ import { goalPayload, goalProblems, initialForm, linkErrorMessage, shareProblem 
 import { householdToday, parseDay } from '../../lib/day';
 import '../money/TransactionEditor.css';
 import OwnerPicker from '../OwnerPicker';
+import './PlanningDrawers.css';
 import GoalContributions from './GoalContributions';
 import GoalLinks from './GoalLinks';
 
@@ -434,21 +435,22 @@ export default function GoalEditor({
       onClose={requestClose}
       onEscape={escapeKey}
       footer={
-        <>
+        <div className="gd-footwrap">
           {formError && (
             <p className="ov-warn gd-error" role="alert">
               {formError}
             </p>
           )}
           {footer}
-        </>
+        </div>
       }
     >
-      <div ref={bodyRef} className="te-form gd-body">
+      <div ref={bodyRef} className="gd-body">
         {/* Each tab in a plain wrapper: the editor's sections set their own
             display, which would override `hidden` on them (the revamp,
             phase 5b). */}
         <div hidden={tab !== 'details'}>
+          <div className="te-form">
           {/* The editor's own checks, not the browser's: a field out of view
               on another tab stopped a save without a word (the fresh
               review of 6b). */}
@@ -563,10 +565,12 @@ export default function GoalEditor({
             </div>
             {goal?.done_at && <div className="ov-muted gd-hint">{`Marked done on ${doneLabel(goal.done_at)}. It is out of every plan and the Telegram bot; its contributions are kept.`}</div>}
           </form>
+          </div>
         </div>
 
         {goal && (
           <div hidden={tab !== 'contributions'}>
+            <div className="te-form">
             <GoalContributions
               labelledBy={`${uid}-contributions-head`}
               heading={sectionHeading('contributions', 'Contributions')}
@@ -585,11 +589,13 @@ export default function GoalEditor({
               contributions={contributions}
               removeControls={removeControls}
             />
+            </div>
           </div>
         )}
 
         {goal && (
           <div hidden={tab !== 'links'}>
+            <div className="te-form">
             {sourceOptions.length > 0 || linked.length > 0 ? (
               <GoalLinks
                 labelledBy={`${uid}-linked-head`}
@@ -624,6 +630,7 @@ export default function GoalEditor({
             ) : (
               <p className="ov-muted gd-hint">Nothing to link yet: a current, savings or cash account, or a holding, can back a goal. Progress comes from what is logged.</p>
             )}
+            </div>
           </div>
         )}
       </div>

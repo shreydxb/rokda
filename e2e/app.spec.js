@@ -357,6 +357,27 @@ test('phone: Plan stacks, and the goal tables stay inside the page', async ({ pa
   expect((await horizontalOverflow(page)).documentOverflow).toBe(false);
 });
 
+// The goal and debt drawers (the revamp, phase 6b): the foot spans the
+// drawer, Delete on the left and Save on the right, and the fields keep
+// their spacing (the fresh review of 6b found neither styled).
+test('goal and debt drawers: the foot spans the drawer, and the fields keep their spacing', async ({ page }) => {
+  await stubSupabase(page);
+  for (const path of ['/planning?tab=goals&goal=dddddddd-0000-4000-8000-000000000002', '/planning?tab=goals&debt=a1a1a1a1-0000-4000-8000-000000000001']) {
+    await gotoReady(page, path);
+    const drawer = page.getByRole('dialog');
+    await expect(drawer).toBeVisible();
+    await drawer.evaluate((d) => Promise.all(d.getAnimations({ subtree: true }).map((a) => a.finished)));
+    const box = await drawer.boundingBox();
+    const save = await drawer.getByRole('button', { name: 'Save changes' }).boundingBox();
+    const del = await drawer.getByRole('button', { name: 'Delete' }).boundingBox();
+    expect(box.x + box.width - (save.x + save.width), `Save sits at the right on ${path}`).toBeLessThan(40);
+    expect(del.x - box.x, `Delete sits at the left on ${path}`).toBeLessThan(40);
+    const name = await drawer.getByLabel('Name', { exact: true }).boundingBox();
+    const target = await drawer.locator('.te-hero-row').boundingBox();
+    expect(name.y - (target.y + target.height), `the fields are spaced on ${path}`).toBeGreaterThan(12);
+  }
+});
+
 // An editor drawer is a modal in fact: it takes focus, Tab stays inside it,
 // and closing it gives focus back to what opened it (lib/useDrawerFocus.js).
 test('a drawer holds keyboard focus and gives it back', async ({ page }) => {

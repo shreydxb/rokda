@@ -8,6 +8,7 @@ import { accountOwner } from '../../lib/debt';
 import { formatMoney } from '../../lib/money';
 import '../money/TransactionEditor.css';
 import OwnerPicker from '../OwnerPicker';
+import './PlanningDrawers.css';
 
 // Where a debt's balance lives: a loan or card account, so net worth counts it.
 // NEW makes the account along with the debt; '' leaves the debt unlinked.
