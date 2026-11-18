@@ -19,9 +19,11 @@ const calls = vi.hoisted(() => ({ inserts: [], updates: [], deletes: [], stored:
 vi.mock('../../lib/supabaseClient', () => ({
   supabase: {
     from: (table) => ({
-      insert: async (row) => {
+      // An insert reads back the new row's id, as the screen shows the note
+      // it has just added.
+      insert: (row) => {
         calls.inserts.push({ table, row });
-        return { error: null };
+        return { select: () => ({ single: async () => ({ data: { id: 'new1' }, error: null }) }) };
       },
       update: (row) => {
         const filters = {};
@@ -79,6 +81,20 @@ function renderNotes(notes = [NOTE], { sources, at = '/planning?tab=notes', relo
     </MemoryRouter>,
   );
   return { reload, onRetry };
+}
+// A page whose reload brings in `after(notes)`: what the database holds once
+// the save or check has landed.
+function renderReloading(notes, after) {
+  function Page() {
+    const [list, setList] = useState(notes);
+    return <Notes household={{ id: 'h' }} me={{ id: 'm1' }} members={MEMBERS} data={{ notes: list, reload: async () => setList(after) }} loading={false} />;
+  }
+  renderScreen(
+    <MemoryRouter initialEntries={['/planning?tab=notes']}>
+      <Page />
+      <Where />
+    </MemoryRouter>,
+  );
 }
 // The chosen note, and the list's rows.
 const shown = () => document.querySelector('.nt-note');
@@ -149,6 +165,18 @@ describe('Notes: writing a note', () => {
     await waitFor(() => expect(reload).toHaveBeenCalled());
     expect(calls.inserts[0]).toMatchObject({ table: 'household_notes', row: { title: 'Open items', household_id: 'h', updated_by: 'm1' } });
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  // The fresh review of 6c: the new note sat at the end of the list, and the
+  // note before it stayed on screen.
+  it('shows the note it has just added', async () => {
+    const added = { ...OTHER, id: 'new1', title: 'Gamma', body: 'The new one.', position: 3 };
+    renderReloading([NOTE, OTHER], [NOTE, OTHER, added]);
+    newNote();
+    fireEvent.change(titleField(), { target: { value: 'Gamma' } });
+    await act(async () => fireEvent.click(within(drawer()).getByRole('button', { name: 'Add note' })));
+    await waitFor(() => expect(where()).toBe('/planning?tab=notes&note=new1'));
+    expect(shown().getAttribute('aria-label')).toBe('Gamma');
   });
 
   it('will not save without a title', async () => {
@@ -274,6 +302,34 @@ describe('Notes: a yearly check', () => {
     expect(shown().querySelector('.nt-check').textContent).toMatch(new RegExp(`^Checked once a year · last checked 1 Jan ${lastYear} · due now`));
   });
 
+  // The fresh review of 6c: checking a note moves it down the list, and the
+  // next due note took its place under the same Checked today.
+  it('keeps the note it checked on screen, though checking it moves it down the list', async () => {
+    const insurance = { ...NOTE, id: 'n3', title: 'Insurance', check_yearly: true, checked_on: null, position: 1 };
+    const wills = { ...NOTE, id: 'n4', title: 'Wills', check_yearly: true, checked_on: null, position: 2 };
+    const today = new Date().toISOString().slice(0, 10);
+    renderReloading([insurance, wills], [{ ...insurance, checked_on: today }, wills]);
+    expect(shown().getAttribute('aria-label')).toBe('Insurance');
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Checked today' })));
+    await waitFor(() => expect(listed()).toEqual(['Wills', 'Insurance']));
+    expect(shown().getAttribute('aria-label')).toBe('Insurance');
+    expect(where()).toBe('/planning?tab=notes&note=n3');
+  });
+
+  // The fresh review of 6c: the note shown first, by default, moves down the
+  // list when an edit turns its yearly check off, and the pane kept to the
+  // list's first.
+  it('keeps the note it saved on screen, though the save moves it down the list', async () => {
+    const yearly = { ...OTHER, check_yearly: true, checked_on: null };
+    renderReloading([NOTE, yearly], [NOTE, OTHER]);
+    expect(shown().getAttribute('aria-label')).toBe('What is still open');
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    fireEvent.click(within(drawer()).getByRole('switch', { name: 'Check once a year' }));
+    await act(async () => fireEvent.click(within(drawer()).getByRole('button', { name: 'Save' })));
+    await waitFor(() => expect(listed()).toEqual(['Who pays what', 'What is still open']));
+    expect(shown().getAttribute('aria-label')).toBe('What is still open');
+  });
+
   // The prototype: Checked today only while the check is due; checked this
   // year, the row is quiet.
   it('takes Checked today only while it is due', () => {
@@ -315,7 +371,9 @@ describe('Notes: the open note deleted elsewhere', () => {
     // A refresh: the other partner deleted it meanwhile.
     rerender(page([OTHER]));
     expect(within(drawer()).getByLabelText('Note').value).toBe('My long draft');
-    expect(screen.getByText('This note was deleted elsewhere. Copy what you need from your draft, then Cancel.')).toBeTruthy();
+    // Said aloud too, as the old editor's notice was: the draft is in the
+    // way of reading it.
+    expect(within(drawer()).getAllByRole('alert').map((a) => a.textContent)).toContain('This note was deleted elsewhere. Copy what you need from your draft, then Cancel.');
 
     fireEvent.click(within(drawer()).getByRole('button', { name: 'Cancel' }));
     fireEvent.click(screen.getByText('Discard'));

@@ -4438,3 +4438,14 @@ The revamp's phase 6c (design note `docs/superpowers/specs/2026-11-17-planning-d
 - **A draft and the page's own refresh**: the drawer covers the header's
   Refresh, but the read every few minutes, or on coming back to the tab,
   still keeps the draft (`e2e/freshness.spec.js`).
+- **The chosen note is marked as Inbox's chosen message is**, in ink. The
+  prototype's selected row borrows its select box's class by accident, so
+  its outline is not copied.
+- **The fresh review of 6c** changed these:
+  - **The note acted on stays on screen.** Checking a note moves it down the
+    list, and the next due note took its place under the same Checked today,
+    where a second press would mark it checked unread. A save that turns the
+    check on or off moved the note too, and a new note joined at the end
+    with the one before it still shown. Each now puts the note's id in the
+    address.
+  - **"Deleted elsewhere" is said aloud again**, as the old editor's was.

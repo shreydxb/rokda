@@ -61,7 +61,11 @@ export default function Notes({ household, me, members = [], data, sources, onRe
   const busy = editing !== null || reloading;
   const nameOf = (id) => members.find((m) => m.id === id)?.display_name;
   const nextPosition = notes.reduce((max, n) => Math.max(max, n.position ?? 0), 0) + 1;
-  const done = async () => {
+  // After a save or a check, the note acted on stays on screen: checking a
+  // note, or turning its check on or off, moves it in the list, and a new
+  // one joins at the end (the fresh review of 6c). Its id goes in the address.
+  const done = async (id) => {
+    if (id) choose(id);
     setEditing(null);
     setReloading(true);
     try {
@@ -124,7 +128,7 @@ export default function Notes({ household, me, members = [], data, sources, onRe
                 </button>
               </div>
               <div className="nt-note-body">
-                {chosen.check_yearly && <YearlyCheck note={chosen} me={me} disabled={busy} onChecked={done} />}
+                {chosen.check_yearly && <YearlyCheck note={chosen} me={me} disabled={busy} onChecked={() => done(chosen.id)} />}
                 <NoteBody body={chosen.body} />
                 <div className="ds-muted nt-meta">
                   {`Updated ${updatedOn(chosen.updated_at)}`}
@@ -282,7 +286,7 @@ function NoteDrawer({ note, gone = false, householdId, me, position = 0, onCance
     // without a word.
     const { data: saved, error: saveError } = note
       ? await supabase.from('household_notes').update(payload).eq('id', note.id).eq('updated_at', openedAt).select('id')
-      : await supabase.from('household_notes').insert({ ...payload, household_id: householdId, position });
+      : await supabase.from('household_notes').insert({ ...payload, household_id: householdId, position }).select('id').single();
     setSaving(false);
     if (saveError) {
       setError(saveError.message);
@@ -292,7 +296,7 @@ function NoteDrawer({ note, gone = false, householdId, me, position = 0, onCance
       setError('This note was changed after you opened it, here or elsewhere, so yours was not saved over it. Copy what you wrote, then Cancel and open the note again.');
       return;
     }
-    await onSaved();
+    await onSaved(note ? note.id : saved?.id);
   }
 
   async function remove() {
@@ -345,7 +349,13 @@ function NoteDrawer({ note, gone = false, householdId, me, position = 0, onCance
   return (
     <Drawer kicker={note ? 'Edit note' : 'New note'} title={note ? note.title : 'Add a note'} dirty={dirty} wide onClose={requestClose} onEscape={escapeKey} footer={footer}>
       <form id={formId} className="nt-form" onSubmit={save} noValidate>
-        {gone && <WarningRow tone="neg">This note was deleted elsewhere. Copy what you need from your draft, then Cancel.</WarningRow>}
+        {/* Said aloud, as the old editor's notice was: whoever is typing
+            may not be looking at the top of the drawer. */}
+        {gone && (
+          <div role="alert">
+            <WarningRow tone="neg">This note was deleted elsewhere. Copy what you need from your draft, then Cancel.</WarningRow>
+          </div>
+        )}
         <label className="nt-field">
           <span className="nt-label">Title</span>
           <input aria-label="Title" className="ds-select nt-input" type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Who pays what" />
