@@ -26,6 +26,9 @@ function useSavedField(stored, save) {
   const [saved, setSaved] = useState(false);
   const synced = useRef(stored);
   const sending = useRef(null);
+  // What was last typed, for a save that ends after more was typed: "Saved"
+  // goes only under what was saved (the fresh review of 7a).
+  const typed = useRef(stored);
   useEffect(() => {
     const before = synced.current;
     synced.current = stored;
@@ -40,7 +43,10 @@ function useSavedField(stored, save) {
     const sent = value;
     if (sending.current === sent) return;
     const outcome = save.check(sent, synced.current);
-    if (outcome.skip) return;
+    if (outcome.skip) {
+      setError('');
+      return;
+    }
     if (outcome.putBack) {
       putBack(sent, outcome.error ?? '');
       return;
@@ -58,7 +64,7 @@ function useSavedField(stored, save) {
     // group 4).
     synced.current = asStored;
     setValue((current) => (current === sent ? asStored : current));
-    setSaved(true);
+    if (typed.current === sent) setSaved(true);
   }
   return {
     error,
@@ -67,10 +73,18 @@ function useSavedField(stored, save) {
       value,
       'aria-invalid': error ? true : undefined,
       onChange: (e) => {
+        typed.current = e.target.value;
         setValue(e.target.value);
         setSaved(false);
+        setError('');
       },
-      onBlur: commit,
+      // A window losing focus blurs the field too. Switching away to look up
+      // a rate half typed is not leaving it: a rate saved re-values every
+      // rupee account, holding and bill (the fresh review of 7a).
+      onBlur: () => {
+        if (!document.hasFocus()) return;
+        commit();
+      },
       onKeyDown: (e) => {
         if (e.key === 'Enter') {
           e.preventDefault();
@@ -90,7 +104,7 @@ function SavedNote({ field, id }) {
     );
   }
   return field.saved ? (
-    <p className="ds-muted st-note" id={id}>
+    <p className="ds-muted st-note" id={id} role="status">
       Saved
     </p>
   ) : null;
@@ -117,9 +131,12 @@ export default function Household({ household, members = [], me, loading, reload
   });
   const rate = useSavedField(rateText(household?.inr_per_aed), {
     check: (typed, current) => {
-      if (typed.trim() === '' || Number(typed) === Number(current)) return { skip: typed === current, putBack: true };
+      if (typed.trim() === '') return { skip: typed === current, putBack: true };
       const n = Number(typed);
+      // Checked before the comparison: with no rate set, "0" equals the
+      // empty field's Number('') and was put back without a word.
       if (!(n > 0)) return { putBack: true, error: 'Enter a rate greater than zero.' };
+      if (n === Number(current)) return { skip: typed === current, putBack: true };
       return { value: n };
     },
     send: async (n) => {

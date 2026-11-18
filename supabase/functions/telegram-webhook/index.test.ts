@@ -57,6 +57,8 @@ freshTest("a link code that expires between lookup and redemption links nobody",
   await handler(textUpdate(7105, CODE));
   assertEquals(backend.tables.household_members[0].telegram_user_id, null, "an expired code linked Telegram");
   assert(lastReply().includes("just used or has expired"), lastReply());
+  // Codes are made on Settings -> Telegram since the revamp (phase 7a).
+  assert(lastReply().includes("Settings → Telegram"), lastReply());
 });
 
 freshTest("an ordinary expense is captured once and its claim completed", async () => {

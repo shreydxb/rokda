@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { afterEach, describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { act } from 'react';
 import { MemoryRouter } from 'react-router-dom';
@@ -23,11 +23,16 @@ vi.mock('../../lib/supabaseClient', () => ({
 
 const { default: Household } = await import('./Household');
 
+// The window has focus, as when someone is working in it; one test takes it
+// away, as switching to another window does.
+let windowFocus;
 beforeEach(() => {
   updates.length = 0;
   slow.until = null;
   slow.error = null;
+  windowFocus = vi.spyOn(document, 'hasFocus').mockReturnValue(true);
 });
+afterEach(() => windowFocus.mockRestore());
 
 const ME = { id: 'm1', display_name: 'Alex', role: 'owner', user_id: 'u1', telegram_user_id: 1 };
 const PARTNER = { id: 'm2', display_name: 'Sam', role: 'member', user_id: null, telegram_user_id: null };
@@ -104,6 +109,52 @@ describe('Household: the card', () => {
   it('names the build it is running', () => {
     render(view(HOME));
     expect(screen.getByText(/^build /)).toBeTruthy();
+  });
+});
+
+// The fresh review of 7a.
+describe('Household: what leaving a field means', () => {
+  it('saves nothing when the window loses focus, as switching to another one does', async () => {
+    windowFocus.mockReturnValue(false);
+    render(view(HOME));
+    fireEvent.change(rateField(), { target: { value: '2' } });
+    await act(async () => fireEvent.blur(rateField()));
+    expect(updates).toHaveLength(0);
+    expect(within(card()).queryByText('Saved')).toBeNull();
+  });
+
+  it('says Saved only under what was saved, and says it aloud', async () => {
+    let finish;
+    slow.until = new Promise((resolve) => {
+      finish = resolve;
+    });
+    render(view(HOME));
+    fireEvent.change(nameField(), { target: { value: 'Ours' } });
+    await act(async () => fireEvent.blur(nameField()));
+    fireEvent.change(nameField(), { target: { value: 'Ours, Dubai' } });
+    slow.until = null;
+    await act(async () => finish());
+    expect(within(card()).queryByText('Saved')).toBeNull();
+    await act(async () => fireEvent.blur(nameField()));
+    expect(within(card()).getByRole('status').textContent).toBe('Saved');
+  });
+
+  it('clears a refusal once the field is typed in again', async () => {
+    render(view(HOME));
+    fireEvent.change(rateField(), { target: { value: '-3' } });
+    await act(async () => fireEvent.blur(rateField()));
+    expect(within(card()).getByRole('alert')).toBeTruthy();
+    fireEvent.change(rateField(), { target: { value: '25.5' } });
+    expect(within(card()).queryByRole('alert')).toBeNull();
+    expect(rateField().getAttribute('aria-invalid')).toBeNull();
+  });
+
+  it('refuses a rate of 0 when none was set yet', async () => {
+    render(view({ ...HOME, inr_per_aed: null, inr_rate_set_at: null }));
+    fireEvent.change(rateField(), { target: { value: '0' } });
+    await act(async () => fireEvent.blur(rateField()));
+    expect(within(card()).getByRole('alert').textContent).toBe('Enter a rate greater than zero.');
+    expect(updates).toHaveLength(0);
   });
 });
 

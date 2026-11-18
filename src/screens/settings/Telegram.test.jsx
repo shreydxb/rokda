@@ -212,6 +212,29 @@ describe('Telegram: the link drawer', () => {
     expect(within(drawer).queryByRole('img')).toBeNull();
   });
 
+  // The fresh review of 7a: the old editor made no code for a member already
+  // linked, and a live code moves the link to whichever Telegram sends it.
+  it('makes a new code for someone already linked only when asked', async () => {
+    await renderTelegram({ at: '/settings?tab=telegram&link=m1' });
+    const drawer = screen.getByRole('dialog', { name: 'Link Alex' });
+    expect(calls.rpcs).toHaveLength(0);
+    expect(within(drawer).getByText('Linked. A new code moves the link to whichever Telegram sends it.')).toBeTruthy();
+    await act(async () => fireEvent.click(within(drawer).getByRole('button', { name: 'Make a new code' })));
+    expect(calls.rpcs).toEqual([{ name: 'generate_telegram_link_code', args: { p_member_id: 'm1' } }]);
+    expect(within(drawer).getByText('0123456789abcdef0123456789abcdef')).toBeTruthy();
+  });
+
+  it('says so when the code could not be copied', async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error('denied'));
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    await renderTelegram({ at: '/settings?tab=telegram&link=m2' });
+    const drawer = screen.getByRole('dialog', { name: 'Link Sam' });
+    await act(async () => fireEvent.click(within(drawer).getByRole('button', { name: 'Copy' })));
+    expect(within(drawer).queryByRole('button', { name: 'Copied' })).toBeNull();
+    expect(within(drawer).getByText("Couldn't copy. Select the code instead.")).toBeTruthy();
+    delete navigator.clipboard;
+  });
+
   it('opens for no one when the address names no member', async () => {
     await renderTelegram({ at: '/settings?tab=telegram&link=gone' });
     expect(screen.queryByRole('dialog')).toBeNull();
@@ -220,7 +243,7 @@ describe('Telegram: the link drawer', () => {
 });
 
 describe('Telegram: diagnostics', () => {
-  it('counts the messages handled and read without error, by day, folded', async () => {
+  it('counts the AI calls and those without error, by day, folded', async () => {
     const day = new Date().toISOString().slice(0, 10);
     calls.log = [
       { occurred_at: `${day}T08:00:00Z`, success: true },
@@ -231,15 +254,18 @@ describe('Telegram: diagnostics', () => {
     await renderTelegram();
     const fold = screen.getByText('Diagnostics · last 30 days').closest('details');
     expect(fold.open).toBe(false);
-    await waitFor(() => expect(within(fold).getByText('Messages handled')).toBeTruthy());
+    // Each row is one call the bot made to its AI (a question is two, a retry
+    // one more), not a message: the fresh review of 7a.
+    await waitFor(() => expect(within(fold).getByText('AI calls')).toBeTruthy());
+    expect(within(fold).getByText('Without error')).toBeTruthy();
     expect([...fold.querySelectorAll('.st-diag-fig')].map((f) => f.textContent)).toEqual(['4', '75%']);
-    expect(within(fold).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Day', 'Messages']);
+    expect(within(fold).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Day', 'Calls']);
     expect(calls.selected.find((s) => s.table === 'telegram_call_log').cols).not.toMatch(/tokens/);
   });
 
   it('says when there were none', async () => {
     await renderTelegram();
     const fold = screen.getByText('Diagnostics · last 30 days').closest('details');
-    await waitFor(() => expect(within(fold).getByText('No messages in the last 30 days.')).toBeTruthy());
+    await waitFor(() => expect(within(fold).getByText('No calls in the last 30 days.')).toBeTruthy());
   });
 });

@@ -129,6 +129,16 @@ describe('MemberEditor: login and Telegram', () => {
     fireEvent.click(within(drawer()).getByRole('button', { name: 'Discard' }));
     expect(screen.getByTestId('where').textContent).toBe('/settings?tab=telegram&link=m-partner');
   });
+
+  // The fresh review of 7a: with "Discard changes?" already up, Link closed
+  // the drawer without going anywhere.
+  it('goes to the link drawer when Link is pressed while Discard changes? is up', () => {
+    editor({ member: partner, isSelf: false, canManage: true });
+    fireEvent.change(within(drawer()).getByLabelText('Name'), { target: { value: 'Partner B' } });
+    fireEvent.click(within(drawer()).getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(within(drawer()).getByRole('button', { name: 'Link' }));
+    expect(screen.getByTestId('where').textContent).toBe('/settings?tab=telegram&link=m-partner');
+  });
 });
 
 describe('MemberEditor: saving', () => {

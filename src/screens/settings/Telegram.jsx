@@ -182,12 +182,15 @@ export default function Telegram({ household, members = [], me, loading }) {
 function LinkDrawer({ member, allowed, onClose }) {
   const [code, setCode] = useState(null);
   const [error, setError] = useState('');
-  const [attempt, setAttempt] = useState(0);
-  const [copied, setCopied] = useState(false);
+  // A member already linked gets a code only when asked: a live code moves
+  // the link to whichever Telegram sends it, and the old editor made none
+  // for them (the fresh review of 7a).
+  const [attempt, setAttempt] = useState(member.telegram_user_id ? 0 : 1);
+  const [copied, setCopied] = useState(null); // null, 'yes' or 'no'
   const bot = botName();
 
   useEffect(() => {
-    if (!allowed) return undefined;
+    if (!allowed || attempt === 0) return undefined;
     let cancelled = false;
     supabase.rpc('generate_telegram_link_code', { p_member_id: member.id }).then(({ data, error: rpcError }) => {
       if (cancelled) return;
@@ -222,6 +225,13 @@ function LinkDrawer({ member, allowed, onClose }) {
       <div className="st-linkbody">
         {!allowed ? (
           <p className="ds-muted">Only an owner can link another member.</p>
+        ) : attempt === 0 ? (
+          <>
+            <p className="ds-muted st-note">Linked. A new code moves the link to whichever Telegram sends it.</p>
+            <button type="button" className="ds-btn" onClick={() => setAttempt(1)}>
+              Make a new code
+            </button>
+          </>
         ) : error ? (
           <>
             <p className="ds-warn-ink st-note" role="alert">
@@ -248,17 +258,24 @@ function LinkDrawer({ member, allowed, onClose }) {
             {!link && <p className="ds-muted st-note">Send this code to the bot.</p>}
             <div className="st-code">
               <span className="st-code-box">{code}</span>
+              {/* "Copied" only once the clipboard took it (the fresh review
+                  of 7a). */}
               <button
                 type="button"
                 className="ds-btn ds-btn-sm"
-                onClick={() => {
-                  navigator.clipboard?.writeText(code);
-                  setCopied(true);
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(code);
+                    setCopied('yes');
+                  } catch {
+                    setCopied('no');
+                  }
                 }}
               >
-                {copied ? 'Copied' : 'Copy'}
+                {copied === 'yes' ? 'Copied' : 'Copy'}
               </button>
             </div>
+            {copied === 'no' && <p className="ds-warn-ink st-note">Couldn't copy. Select the code instead.</p>}
             <p className="ds-muted st-note">Works once, for 15 minutes.</p>
           </>
         )}
@@ -296,9 +313,11 @@ function QrCode({ text }) {
   );
 }
 
-// The bot's own record of the messages it handled (SHR-288): how many, and
-// how many it read without error, by day. Never what they said, which isn't
-// stored (see the telegram_call_log migration).
+// The bot's own record of its calls to its AI (SHR-288): how many, and how
+// many ended without error, by day. A call is not a message: a question
+// takes two and a retry one more, and /brief or a link code takes none (the
+// fresh review of 7a). Never what was said, which isn't stored (see the
+// telegram_call_log migration).
 function Diagnostics({ household }) {
   const [rows, setRows] = useState(null);
   const [error, setError] = useState('');
@@ -331,7 +350,7 @@ function Diagnostics({ household }) {
     );
   }
   if (rows === null) return <div className="ov-skel" aria-busy="true" />;
-  if (rows.length === 0) return <p className="ds-muted st-note">No messages in the last 30 days.</p>;
+  if (rows.length === 0) return <p className="ds-muted st-note">No calls in the last 30 days.</p>;
 
   const handled = rows.length;
   const readWell = Math.round((rows.filter((r) => r.success).length / handled) * 100);
@@ -346,11 +365,11 @@ function Diagnostics({ household }) {
     <div className="st-diag-body">
       <div className="st-diag-kpis">
         <div>
-          <div className="st-diag-label">Messages handled</div>
+          <div className="st-diag-label">AI calls</div>
           <div className="st-diag-fig">{handled}</div>
         </div>
         <div>
-          <div className="st-diag-label">Read without error</div>
+          <div className="st-diag-label">Without error</div>
           <div className="st-diag-fig">{`${readWell}%`}</div>
         </div>
       </div>
@@ -359,7 +378,7 @@ function Diagnostics({ household }) {
           <tr>
             <th scope="col">Day</th>
             <th scope="col" className="ds-num">
-              Messages
+              Calls
             </th>
           </tr>
         </thead>

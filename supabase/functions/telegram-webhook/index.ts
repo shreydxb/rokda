@@ -4,7 +4,7 @@
 // status='pending', exactly like the existing manual Inbox flow.
 //
 // Two things an unlinked sender can do: nothing, or redeem a link code
-// generated in Settings -> Household. Nothing else is ever attributed to a
+// generated in Settings -> Telegram. Nothing else is ever attributed to a
 // household member who hasn't proven they own that Telegram account.
 //
 // SHR-239: once an intake row is captured, this also asks an LLM (via
@@ -326,13 +326,13 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
         // redeemed it, or it expired between the two statements. Saying so
         // beats claiming a link that does not exist.
         if (isGuess) await recordLinkFailure(fromId);
-        await reply(chatId, "That code was just used or has expired. Generate a fresh one in Settings → Household.");
+        await reply(chatId, "That code was just used or has expired. Generate a fresh one in Settings → Telegram.");
         return new Response("ok");
       }
 
       if (isGuess) await recordLinkFailure(fromId);
     }
-    await reply(chatId, "This Telegram account isn't linked to a Rokda household yet. Generate a code in Settings → Household and send it to me.");
+    await reply(chatId, "This Telegram account isn't linked to a Rokda household yet. Generate a code in Settings → Telegram and send it to me.");
     return new Response("ok");
   }
 

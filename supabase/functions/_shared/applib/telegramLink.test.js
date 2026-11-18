@@ -25,6 +25,8 @@ describe('how many wrong tokens a stranger gets', () => {
     // Tells them how to recover, since this is far more likely to be a member
     // with a stale code than an attacker.
     expect(refusal).toMatch(/generate a fresh code/i);
+    // Codes are made on Settings -> Telegram since the revamp (phase 7a).
+    expect(refusal).toMatch(/Settings → Telegram/);
   });
 
   it('stops everyone at the global ceiling, however many accounts are used', () => {

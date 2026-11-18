@@ -57,8 +57,15 @@ export default defineConfig({
         // actively misleading: the next person measuring what the app ships
         // reads that name and draws the wrong conclusion. Naming the group
         // makes the build say what it is.
+        //
+        // The QR code library is its own chunk, loaded only when Settings ->
+        // Telegram's link drawer draws a code; inside the vendor group every
+        // page fetched it (the fresh review of 7a).
         advancedChunks: {
-          groups: [{ name: 'vendor', test: /[\\/]node_modules[\\/]/ }],
+          groups: [
+            { name: 'qr', test: /[\\/]node_modules[\\/]uqr[\\/]/, priority: 2 },
+            { name: 'vendor', test: /[\\/]node_modules[\\/]/, priority: 1 },
+          ],
         },
       },
     },

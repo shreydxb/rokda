@@ -28,15 +28,15 @@ export default function MemberEditor({ member, householdId, isSelf, isLastOwner,
   // Where Link goes once the drawer has closed: unsaved changes are asked
   // about first, as closing asks.
   const [leavingFor, setLeavingFor] = useState(null);
-  const leave = () => {
-    if (leavingFor) navigate(leavingFor);
+  const leave = (to = leavingFor) => {
+    if (to) navigate(to);
     onClose();
   };
   // Escape steps back out of a removal waiting to be confirmed before it
   // closes anything.
   const { confirmingClose, requestClose, keepEditing, escapeKey } = useCloseGuard({
     dirty,
-    onClose: leave,
+    onClose: () => leave(),
     listen: false,
     onEscape: () => {
       if (confirmingDelete) setConfirmingDelete(false);
@@ -62,14 +62,15 @@ export default function MemberEditor({ member, householdId, isSelf, isLastOwner,
 
   // Linking happens on the Telegram tab, which holds the link drawer.
   const linkPath = member ? `/settings?tab=telegram&link=${member.id}` : null;
+  // With "Discard changes?" already up, Link is the answer to it: it leaves,
+  // for the link (the fresh review of 7a).
   function openLink() {
-    if (dirty) {
+    if (dirty && !confirmingClose) {
       setLeavingFor(linkPath);
       requestClose();
       return;
     }
-    navigate(linkPath);
-    onClose();
+    leave(linkPath);
   }
 
   async function handleSave(e) {
@@ -124,7 +125,7 @@ export default function MemberEditor({ member, householdId, isSelf, isLastOwner,
         <div className="te-actions-right">
           {confirmingClose ? (
             <DiscardPrompt
-              onDiscard={leave}
+              onDiscard={() => leave()}
               onKeepEditing={() => {
                 setLeavingFor(null);
                 keepEditing();

@@ -31,7 +31,7 @@ export const LINK_ATTEMPTS_GLOBAL = 50;
 // is not a reason to stop the household linking a phone.
 export function linkAttemptRefusal({ sender, global }) {
   if ((sender ?? 0) >= LINK_ATTEMPTS_PER_SENDER) {
-    return 'Too many incorrect codes. Wait 15 minutes, then generate a fresh code in Settings → Household and send that.';
+    return 'Too many incorrect codes. Wait 15 minutes, then generate a fresh code in Settings → Telegram and send that.';
   }
   if ((global ?? 0) >= LINK_ATTEMPTS_GLOBAL) {
     // Deliberately says nothing about a global limit. Naming it would tell an

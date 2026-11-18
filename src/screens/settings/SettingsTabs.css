@@ -56,9 +56,11 @@
 }
 .st-rate {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   font-size: 12.5px;
+  white-space: nowrap;
 }
 .st-rate-input {
   width: 110px;

@@ -533,8 +533,10 @@ went: Overview's Plan strip and To do say what it said.
   linked; Link opens a drawer (`?tab=telegram&link=<member>`) with Open
   Telegram, a QR code of the same link and the one-time code with Copy. Open
   Telegram and the QR code need the bot's username as the build setting
-  `VITE_TELEGRAM_BOT`; without it the code alone is offered. Diagnostics,
-  folded, count the messages the bot handled over 30 days.
+  `VITE_TELEGRAM_BOT`; without it the code alone is offered. For a member
+  already linked, a new code is made only on "Make a new code". Diagnostics,
+  folded, count the bot's AI calls over 30 days and how many ended without
+  error.
 - **Backups**: when the data was last exported and last restored from an
   export, and a form to record each one (`backup_records`). Needs attention
   says when an export is more than 35 days old or the last one failed.
