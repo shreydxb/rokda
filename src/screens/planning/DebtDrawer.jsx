@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import DebtEditor from './DebtEditor';
 
@@ -19,11 +19,23 @@ export default function DebtDrawer({ household, members = NONE, accounts = NONE,
   // Closing at once, before the page reads its data again (GoalDrawer).
   const [closedFor, setClosedFor] = useState(null);
   if (closedFor && closedFor !== id) setClosedFor(null);
+  // A close already made. A save finishing after the drawer was closed some
+  // other way called close again from its own render, and went back a
+  // second page (the fresh review of 6b); the ref is read at call time.
+  // Cleared only when a drawer is newly opened, so a late call from the
+  // one just closed still finds it.
+  const closing = useRef(null);
+  const shown = useRef(null);
+  useEffect(() => {
+    if (id && shown.current !== id) closing.current = null;
+    shown.current = id;
+  }, [id]);
   if (!id || closedFor === id) return null;
   if (id !== 'new' && !current) return null;
 
   const close = () => {
-    if (closedFor === id) return;
+    if (closedFor === id || closing.current === id) return;
+    closing.current = id;
     setClosedFor(id);
     if (location.state?.drawer) {
       navigate(-1);
