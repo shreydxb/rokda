@@ -7,6 +7,7 @@ import { dayText, orderNotes, yearlyCheckStatus, yearlyCheckText } from '../../l
 import { useCloseGuard } from '../../lib/useCloseGuard';
 import { neverLoaded } from '../../lib/loadState';
 import { Card, Chip, Drawer, EmptyState, Switch, WarningRow } from '../../design-system/kit';
+import Icon from '../../design-system/Icon';
 import DiscardPrompt from '../DiscardPrompt';
 import { Tools } from '../PageTools';
 import { NOTES_INPUTS } from './planningSources';
@@ -212,7 +213,7 @@ function YearlyCheck({ note, me, disabled, onChecked }) {
 
   return (
     <div className="nt-check" data-due={String(status.due)}>
-      <span className="ds-dot" aria-hidden="true" />
+      <Icon name={status.due ? 'alert' : 'check'} className="nt-check-icon" />
       <span className="nt-check-text">{yearlyCheckText(status)}</span>
       {status.due && (
         <button type="button" className="ds-btn ds-btn-sm" onClick={check} disabled={disabled || saving}>

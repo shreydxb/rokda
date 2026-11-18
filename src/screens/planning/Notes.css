@@ -22,7 +22,8 @@
   align-items: center;
   gap: 10px;
   width: 100%;
-  padding: 10px 18px;
+  min-height: 44px;
+  padding: 6px 18px;
   border: 0;
   border-top: 1px solid var(--rule-soft);
   background: none;
@@ -48,10 +49,11 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 13.5px;
   font-weight: 500;
 }
 .nt-row-sub {
-  font-size: 12px;
+  font-size: 12.5px;
   color: var(--ink3);
 }
 
@@ -105,32 +107,34 @@
   font-size: 12px;
 }
 
-/* A note checked once a year (Planning audit, 4.18): amber while due, quiet
-   once checked, with Checked today on the same line. */
+/* A note checked once a year (Planning audit, 4.18; the prototype's
+   .warnrow): amber with Checked today while due, quiet once checked. */
 .nt-check {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 12px;
+  gap: 8px 10px;
   margin-bottom: 14px;
-  padding: 10px 12px;
-  border-radius: var(--radius-sm);
+  padding: 9px 14px;
+  border-radius: 8px;
   background: var(--raised);
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--ink3);
 }
 .nt-check[data-due='true'] {
   background: var(--warn-soft);
-  color: var(--ink);
+  color: var(--warn);
 }
-.nt-check[data-due='true'] .ds-dot {
-  color: var(--warn-mark);
-}
-.nt-check[data-due='false'] .ds-dot {
-  color: var(--pos);
+.nt-check-icon {
+  width: 15px;
+  height: 15px;
+  flex: none;
 }
 .nt-check-text {
   flex: 1;
+}
+.nt-check[data-due='true'] .nt-check-text {
+  color: var(--ink);
 }
 .nt-check-error {
   width: 100%;
