@@ -1,70 +1,89 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useCloseGuard } from '../../lib/useCloseGuard';
-import DiscardPrompt from '../DiscardPrompt';
-import { useDrawerFocus } from '../../lib/useDrawerFocus';
 import { supabase } from '../../lib/supabaseClient';
+import { Chip, Drawer, Segmented } from '../../design-system/kit';
+import DiscardPrompt from '../DiscardPrompt';
 import '../money/TransactionEditor.css';
+import './SettingsTabs.css';
 
-// What a member may change here follows the database's owner/member boundary
-// (owner_role_authorization): an owner manages the roster; a member who is not
-// an owner renames themselves and links their own Telegram, and sees everyone
-// else read-only. Offering the rest only for the database to refuse it showed
-// a raw policy error instead of saying who can do it (SHR-314).
+// A member, in the kit's drawer (the revamp, phase 7; design/prototype
+// set-member). What a member may change here follows the database's
+// owner/member boundary (owner_role_authorization): an owner manages the
+// roster; a member who is not an owner renames themselves and links their
+// own Telegram, and sees everyone else read-only. Offering the rest only for
+// the database to refuse it showed a raw policy error instead of saying who
+// can do it (SHR-314).
 export default function MemberEditor({ member, householdId, isSelf, isLastOwner, canManage = true, onClose, onSaved }) {
-  const drawerRef = useDrawerFocus();
+  const uid = useId();
+  const navigate = useNavigate();
   // A member who is not an owner can still edit their own row: the name.
   const canEdit = canManage || isSelf;
   const [displayName, setDisplayName] = useState(member?.display_name ?? '');
   const [role, setRole] = useState(member?.role ?? 'member');
-  const [dirty, setDirty] = useState(false);
-  const { confirmingClose, requestClose, keepEditing } = useCloseGuard({ dirty, onClose });
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
-  const [linkCode, setLinkCode] = useState(null);
-  const [linkError, setLinkError] = useState('');
-  const [generatingCode, setGeneratingCode] = useState(false);
+  const dirty = displayName !== (member?.display_name ?? '') || role !== (member?.role ?? 'member');
+  // Where Link goes once the drawer has closed: unsaved changes are asked
+  // about first, as closing asks.
+  const [leavingFor, setLeavingFor] = useState(null);
+  const leave = () => {
+    if (leavingFor) navigate(leavingFor);
+    onClose();
+  };
+  // Escape steps back out of a removal waiting to be confirmed before it
+  // closes anything.
+  const { confirmingClose, requestClose, keepEditing, escapeKey } = useCloseGuard({
+    dirty,
+    onClose: leave,
+    listen: false,
+    onEscape: () => {
+      if (confirmingDelete) setConfirmingDelete(false);
+      else requestClose();
+    },
+  });
 
-  async function generateLinkCode() {
-    setGeneratingCode(true);
-    setLinkError('');
-    const { data, error: rpcError } = await supabase.rpc('generate_telegram_link_code', { p_member_id: member.id });
-    setGeneratingCode(false);
-    if (rpcError) {
-      setLinkError(rpcError.message);
+  // Owner is an administrative grant, resolved through the member's linked
+  // login (is_household_owner). A row with no login cannot be that person, so
+  // the database refuses it and the choice isn't offered (QA #3). What a
+  // member with no login can own (accounts, transactions, goals) is a
+  // different column entirely.
+  const canBeOwner = !!member?.user_id;
+  const roleNote = !canManage
+    ? isSelf
+      ? 'Only an owner can change roles.'
+      : 'Only an owner can change another member.'
+    : isLastOwner
+      ? 'The only owner. Add another first.'
+      : !canBeOwner
+        ? 'An owner needs a login.'
+        : null;
+
+  // Linking happens on the Telegram tab, which holds the link drawer.
+  const linkPath = member ? `/settings?tab=telegram&link=${member.id}` : null;
+  function openLink() {
+    if (dirty) {
+      setLeavingFor(linkPath);
+      requestClose();
       return;
     }
-    setLinkCode(data);
+    navigate(linkPath);
+    onClose();
   }
-
-  const nameError = displayName.trim() === '' ? 'Name it.' : '';
-
-  // Owner is an administrative grant, and the database resolves it through the
-  // member's linked auth user (is_household_owner). A row with no login cannot
-  // be that person, so making one an owner produced a household with an owner
-  // nobody could sign in as -- and no way back, since only an owner can repair
-  // the roster (QA #3). The database refuses it now; the chip stops offering
-  // it, so the refusal is not the first anyone hears of it.
-  //
-  // A member with no login loses nothing else by this: what they can OWN --
-  // accounts, transactions, goals -- is a different column entirely.
-  const canBeOwner = !!member?.user_id;
 
   async function handleSave(e) {
     e.preventDefault();
-    if (nameError) {
-      setError(nameError);
+    if (!displayName.trim()) {
+      setError('Name it.');
       return;
     }
     setSaving(true);
     setError('');
-
     const payload = { display_name: displayName.trim(), role };
-    const query = member
-      ? supabase.from('household_members').update(payload).eq('id', member.id)
-      : supabase.from('household_members').insert({ ...payload, household_id: householdId, user_id: null });
-
-    const { error: saveError } = await query;
+    const { error: saveError } = member
+      ? await supabase.from('household_members').update(payload).eq('id', member.id)
+      : await supabase.from('household_members').insert({ ...payload, household_id: householdId, user_id: null });
     setSaving(false);
     if (saveError) {
       setError(saveError.message);
@@ -88,166 +107,88 @@ export default function MemberEditor({ member, householdId, isSelf, isLastOwner,
     await onSaved();
   }
 
-  return (
-    <div className="te-overlay" onMouseDown={(e) => e.target === e.currentTarget && requestClose()}>
-      <div className="te-drawer" ref={drawerRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={member ? 'Edit member' : 'Add member'}>
-        <div className="te-head">
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-              <span className="ov-kicker">{member ? 'Member' : 'New member'}</span>
-              {dirty && <span className="te-dirty-chip">Unsaved</span>}
-            </div>
-            <div className="te-title">{member ? member.display_name : 'Add a member'}</div>
-          </div>
-          <button type="button" className="te-close" onClick={requestClose} aria-label="Close">
-            ×
+  const formId = `${uid}-form`;
+  const footer = (
+    <div className="st-dfoot">
+      {error && (
+        <p className="ds-warn-ink st-derror" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="te-actions st-dfoot-row">
+        {canManage && member && !isSelf && !isLastOwner && (
+          <button type="button" className="om-btn te-delete" onClick={handleDelete} disabled={saving}>
+            {confirmingDelete ? 'Confirm remove?' : 'Remove'}
           </button>
-        </div>
-
-        <form className="te-form" onSubmit={handleSave}>
-          <div className="te-fieldcell">
-            <span className="te-fieldlabel">Name</span>
-            <input aria-label="Name"
-              className="te-fieldvalue"
-              type="text"
-              readOnly={!canEdit}
-              value={displayName}
-              onChange={(e) => {
-                setDisplayName(e.target.value);
-                setDirty(true);
+        )}
+        <div className="te-actions-right">
+          {confirmingClose ? (
+            <DiscardPrompt
+              onDiscard={leave}
+              onKeepEditing={() => {
+                setLeavingFor(null);
+                keepEditing();
               }}
-              aria-invalid={!!nameError}
-              placeholder="Their name"
             />
-          </div>
-
-          <div>
-            <span className="te-fieldlabel">Role</span>
-            <div className="te-chips">
-              {['owner', 'member'].map((r) => (
-                <button
-                  key={r}
-                  type="button"
-                  className="om-seg"
-                  data-active={role === r}
-                  disabled={!canManage || isLastOwner || (r === 'owner' && !canBeOwner)}
-                  onClick={() => {
-                    setRole(r);
-                    setDirty(true);
-                  }}
-                >
-                  {r === 'owner' ? 'Owner' : 'Member'}
-                </button>
-              ))}
-            </div>
-          </div>
-          {!canManage && (
-            <div className="ov-muted" style={{ fontSize: 11.5, marginTop: -10 }}>
-              {isSelf ? 'Only an owner can change roles.' : 'Only an owner can change or remove another member.'}
-            </div>
-          )}
-          {canManage && isLastOwner && (
-            <div className="ov-muted" style={{ fontSize: 11.5, marginTop: -10 }}>
-              This is the only owner — add another owner before changing this one to a member.
-            </div>
-          )}
-          {canManage && !isLastOwner && !canBeOwner && (
-            <div className="ov-muted" style={{ fontSize: 11.5, marginTop: -10 }}>
-              Owner is unavailable until they have a login — an owner administers the household, which means signing in.
-            </div>
-          )}
-
-          {member && !member.user_id && (
-            <div className="ov-muted" style={{ fontSize: 11.5 }}>
-              Not linked to a login yet. They can still be the owner of accounts, transactions and goals — that is separate from
-              the household role above.
-            </div>
-          )}
-
-          {member && (
-            <div>
-              <span className="te-fieldlabel">Telegram</span>
-              <div style={{ marginTop: 8 }}>
-                {member.telegram_user_id ? (
-                  <div className="ov-muted" style={{ fontSize: 12.5 }}>Linked.</div>
-                ) : !canManage && !isSelf ? (
-                  <div className="ov-muted" style={{ fontSize: 12.5 }}>Not linked. Only an owner can link another member.</div>
-                ) : linkCode ? (
-                  // The code used to be six digits, which a stranger could
-                  // guess inside its fifteen-minute life. It is now a 122-bit
-                  // token (QA #8), so it is copied rather than read out --
-                  // hence the block layout, the wrap, and the copy button.
-                  <div className="ov-muted" style={{ fontSize: 12.5, lineHeight: 1.7 }}>
-                    <div
-                      className="fig"
-                      style={{ fontSize: 12.5, color: 'var(--ink)', wordBreak: 'break-all', userSelect: 'all', marginBottom: 6 }}
-                    >
-                      {linkCode}
-                    </div>
-                    <button
-                      type="button"
-                      className="om-btn"
-                      onClick={() => navigator.clipboard?.writeText(linkCode)}
-                      style={{ marginBottom: 6 }}
-                    >
-                      Copy
-                    </button>
-                    <div>Send it to the bot within 15 minutes to link this member. It works once.</div>
-                  </div>
-                ) : (
-                  <>
-                    <div className="ov-muted" style={{ fontSize: 11.5, marginBottom: 8 }}>
-                      Not linked. Generate a one-time code and send it to the bot to link this member's Telegram account.
-                    </div>
-                    <button type="button" className="om-btn" onClick={generateLinkCode} disabled={generatingCode}>
-                      {generatingCode ? 'Generating…' : 'Generate code'}
-                    </button>
-                  </>
-                )}
-                {linkError && (
-                  <p className="ov-warn" role="alert" style={{ fontSize: 12.5, marginTop: 8 }}>
-                    {linkError}
-                  </p>
-                )}
-              </div>
-            </div>
-          )}
-
-          {error && (
-            <p className="ov-warn" role="alert" style={{ fontSize: 12.5 }}>
-              {error}
-            </p>
-          )}
-
-          <div className="te-sticky-actions">
-            <div className="te-actions" style={{ borderTop: 'none', paddingTop: 0, marginTop: 0 }}>
-              {canManage && member && !isSelf && !isLastOwner && (
-                <button type="button" className="om-btn te-delete" onClick={handleDelete} disabled={saving}>
-                  {confirmingDelete ? 'Confirm remove?' : 'Remove'}
+          ) : (
+            <>
+              <button type="button" className="om-btn" onClick={requestClose}>
+                {canEdit ? 'Cancel' : 'Close'}
+              </button>
+              {canEdit && (
+                <button type="submit" form={formId} className="om-btn ov-btn-primary" disabled={saving}>
+                  {saving ? 'Saving…' : member ? 'Save' : 'Add member'}
                 </button>
               )}
-              <div className="te-actions-right">
-                {confirmingClose ? (
-                  <>
-                    <DiscardPrompt onDiscard={onClose} onKeepEditing={keepEditing} />
-                  </>
-                ) : (
-                  <>
-                    <button type="button" className="om-btn" onClick={requestClose}>
-                      {canEdit ? 'Cancel' : 'Close'}
-                    </button>
-                    {canEdit && (
-                      <button type="submit" className="om-btn ov-btn-primary" disabled={saving}>
-                        {saving ? 'Saving…' : member ? 'Save changes' : 'Add member'}
-                      </button>
-                    )}
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-        </form>
+            </>
+          )}
+        </div>
       </div>
     </div>
+  );
+
+  return (
+    <Drawer kicker={member ? 'Member' : 'New member'} title={member ? member.display_name : 'Add a member'} dirty={dirty} onClose={requestClose} onEscape={escapeKey} footer={footer}>
+      <form id={formId} className="te-form" onSubmit={handleSave} noValidate>
+        <div className="st-field">
+          <label className="st-label" htmlFor={`${uid}-name`}>
+            Name
+          </label>
+          <input id={`${uid}-name`} className="ds-select st-input" type="text" readOnly={!canEdit} value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Their name" />
+        </div>
+        <div className="st-field">
+          <span className="st-label">Role</span>
+          <Segmented
+            label="Role"
+            options={[
+              { id: 'owner', label: 'Owner', disabled: !canManage || isLastOwner || !canBeOwner },
+              { id: 'member', label: 'Member', disabled: !canManage || isLastOwner },
+            ]}
+            value={role}
+            onChange={setRole}
+          />
+          {roleNote && <p className="ds-muted st-hint">{roleNote}</p>}
+        </div>
+        {member && (
+          <ul className="st-kv" aria-label="Accounts">
+            <li>
+              <span className="st-kv-k">Login</span>
+              <span className="st-kv-v">{member.user_id ? <Chip tone="pos">Linked</Chip> : <Chip>No login yet</Chip>}</span>
+            </li>
+            <li>
+              <span className="st-kv-k">Telegram</span>
+              <span className="st-kv-v">
+                {member.telegram_user_id ? <Chip tone="pos">Linked</Chip> : <Chip tone="warn">Not linked</Chip>}
+                {canEdit && (
+                  <button type="button" className="ds-btn ds-btn-sm" onClick={openLink}>
+                    {member.telegram_user_id ? 'Link again' : 'Link'}
+                  </button>
+                )}
+              </span>
+            </li>
+          </ul>
+        )}
+      </form>
+    </Drawer>
   );
 }

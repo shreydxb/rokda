@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useTab } from '../lib/useTab';
 import { useHousehold } from '../lib/useHousehold';
 import { useOverviewData } from './useOverviewData';
@@ -8,6 +9,7 @@ import Backups from './settings/Backups';
 import LoadFailure from './LoadFailure';
 import Freshness from './Freshness';
 import TabRow from './TabRow';
+import { ToolsSlot } from './PageTools';
 import './Settings.css';
 
 const TABS = [
@@ -23,17 +25,21 @@ export default function Settings() {
   const { household, members, me, loading: householdLoading, error: householdError, reload: reloadHousehold } = useHousehold();
   const data = useOverviewData(household?.id);
   const loading = householdLoading || data.loading;
+  // The header's slot for the open tab's own controls (screens/PageTools.jsx).
+  const [toolsNode, setToolsNode] = useState(null);
 
   return (
     <div className="mn">
       <Freshness
         title="Settings"
+        tools={<span className="mn-tools" ref={setToolsNode} />}
         loadedAt={data.loadedAt}
         refreshing={data.refreshing}
         onRefresh={async () => {
           await Promise.all([reloadHousehold(), data.reload()]);
         }}
       />
+      <ToolsSlot node={toolsNode}>
       <LoadFailure
         errors={{ ...data.errors, ...(householdError ? { household: householdError } : {}) }}
         loadedAt={data.loadedAt}
@@ -49,6 +55,7 @@ export default function Settings() {
       {tab === 'categories' && <CategoriesRules household={household} members={members} data={data} loading={loading} />}
       {tab === 'telegram' && <Telegram household={household} loading={loading} />}
       {tab === 'backups' && <Backups household={household} members={members} data={data} loading={loading} />}
+      </ToolsSlot>
     </div>
   );
 }
