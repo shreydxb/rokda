@@ -52,3 +52,18 @@ export function yearlyCheckItems(notes = [], now = new Date()) {
         : 'Not checked yet. Go through the note in Planning → Notes, then mark it checked.',
     }));
 }
+
+// Notes' list (the revamp, phase 6c; decision 5 of the phase 6 design): a
+// yearly check that is due first, as that is the one to read now; then the
+// other yearly ones; then the rest. Each group keeps the order the notes were
+// written in. A new array: the notes given are left as they were.
+export function orderNotes(notes = [], now = new Date()) {
+  const rank = (n) => {
+    const status = yearlyCheckStatus(n, now);
+    return status?.due ? 0 : status ? 1 : 2;
+  };
+  return notes
+    .map((n) => ({ n, rank: rank(n) }))
+    .sort((a, b) => a.rank - b.rank || (a.n.position ?? 0) - (b.n.position ?? 0))
+    .map(({ n }) => n);
+}
