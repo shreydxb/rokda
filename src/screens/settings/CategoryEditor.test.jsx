@@ -65,11 +65,24 @@ describe('CategoryEditor', () => {
     expect(within(drawer()).queryByLabelText('Group')).toBeNull();
   });
 
-  it('offers the savings groups to savings, and leaves a group that no longer fits', () => {
+  // The fresh review of 7b: switching Savings on moved a subcategory out of
+  // its group without a word. It keeps its group; the savings groups are
+  // offered beside it.
+  it('offers the savings groups to savings, and keeps the group it is in', () => {
     editor(CATEGORIES.find((c) => c.id === 'groc'));
     fireEvent.click(within(drawer()).getByRole('switch', { name: 'Savings, not spending' }));
-    expect(options('Group')).toEqual(['None', 'Savings goals']);
-    expect(within(drawer()).getByLabelText('Group').value).toBe('');
+    expect(options('Group')).toEqual(['None', 'Savings goals', 'Food']);
+    expect(within(drawer()).getByLabelText('Group').value).toBe('food');
+  });
+
+  // The fresh review of 7b: a group whose kind changed left the table with
+  // its subcategories. A group keeps its kind and its savings.
+  it("keeps a group's kind and savings as they are", () => {
+    editor(CATEGORIES.find((c) => c.id === 'food'));
+    const kind = within(drawer()).getByRole('group', { name: 'Kind' });
+    expect(within(kind).getByRole('button', { name: 'Income' }).disabled).toBe(true);
+    expect(within(drawer()).getByRole('switch', { name: 'Savings, not spending' }).disabled).toBe(true);
+    expect(within(drawer()).getByText("A group keeps its kind and savings; its subcategories follow it.")).toBeTruthy();
   });
 
   it('saves whose cost, the switches and archived with the rest', async () => {

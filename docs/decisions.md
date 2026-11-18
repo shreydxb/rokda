@@ -4528,4 +4528,21 @@ With it, every screen of the prototype is built.
   Failed or Missing, and a drill whose newest run failed says so
   (`backupStatus` names the newest drill). The runbook is a link, the rest
   behind an (i), and the form's fields are labelled.
+- **The fresh review of 7b** changed these:
+  - **A group keeps its kind and its savings.** Changing them on the group
+    alone took it, and everything in it, out of the table, with no way back
+    from Settings. And the table now shows every category in view once,
+    whatever its kind: an income group has its heading, and a subcategory
+    sits under its group even when its own kind differs.
+  - **A category whose subcategories are all archived is not a group** for
+    the Group field, as the pickers already count it: records are filed
+    under it.
+  - **Whose cost is the one the split uses**: a subcategory with no owner
+    of its own shows its group's, in grey, and a group's heading shows its
+    own owner and its own budget.
+  - **A category never leaves its group unasked**: the group it is in stays
+    offered when Savings or Kind is switched.
+  - **A backup can't be dated after today**, which the form's own check had
+    done before; day counts are the household's, and read "today" and
+    "1 day ago".
 

@@ -1,7 +1,7 @@
 import { useId, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { EXPORT_DUE_DAYS, backupStatus } from '../../lib/backups';
-import { daysBetweenDays, householdToday, parseDay } from '../../lib/day';
+import { daysBetweenDays, householdDay, householdToday, parseDay } from '../../lib/day';
 import { shortDate } from '../../lib/dividends';
 import { Avatar, Card, Chip, EmptyState, InfoButton } from '../../design-system/kit';
 import './SettingsTabs.css';
@@ -23,12 +23,22 @@ export default function Backups({ household, members = [], data, loading }) {
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
 
-  const status = backupStatus(backupRecords);
+  // Counted in the household's days, whatever the browser's time zone (the
+  // fresh review of 7b).
+  const status = backupStatus(backupRecords, householdDay());
   const today = householdToday();
+  // The form no longer stops a later date itself (noValidate), and a record
+  // dated ahead would stay the newest for good (the fresh review of 7b).
+  const ahead = form.done_on > today;
+  const ago = (day) => {
+    const n = daysBetweenDays(parseDay(day), householdDay());
+    return n <= 0 ? 'today' : n === 1 ? '1 day ago' : `${n} days ago`;
+  };
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
 
   async function record(e) {
     e.preventDefault();
+    if (ahead) return;
     setSaving(true);
     setError(null);
     // Who recorded it is set by the database, from the signed-in member.
@@ -55,7 +65,7 @@ export default function Backups({ household, members = [], data, loading }) {
       <div className="st-row-main">
         <div className="st-row-title">{label}</div>
         <div className="st-row-sub">
-          {latest ? `${latest.result === 'failed' ? 'Failed' : 'Passed'} ${shortDate(latest.done_on, today)} · ${daysBetweenDays(parseDay(latest.done_on), new Date())} days ago` : 'None recorded'}
+          {latest ? `${latest.result === 'failed' ? 'Failed' : 'Passed'} ${shortDate(latest.done_on, today)} · ${ago(latest.done_on)}` : 'None recorded'}
         </div>
       </div>
       {chip}
@@ -127,7 +137,8 @@ export default function Backups({ household, members = [], data, loading }) {
               <label className="st-label" htmlFor={`${uid}-date`}>
                 Date
               </label>
-              <input id={`${uid}-date`} className="ds-select st-input" type="date" value={form.done_on} max={today} onChange={(e) => set('done_on', e.target.value)} />
+              <input id={`${uid}-date`} className="ds-select st-input" type="date" value={form.done_on} max={today} aria-invalid={ahead || undefined} onChange={(e) => set('done_on', e.target.value)} />
+              {ahead && <p className="ds-warn-ink st-note">The date can't be after today.</p>}
             </div>
             <div className="st-field">
               <label className="st-label" htmlFor={`${uid}-note`}>
@@ -141,7 +152,7 @@ export default function Backups({ household, members = [], data, loading }) {
               </p>
             )}
             <div>
-              <button type="submit" className="ds-btn ds-btn-primary" disabled={saving || !form.done_on}>
+              <button type="submit" className="ds-btn ds-btn-primary" disabled={saving || !form.done_on || ahead}>
                 {saving ? 'Saving…' : 'Record'}
               </button>
             </div>

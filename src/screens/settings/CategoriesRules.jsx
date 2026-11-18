@@ -75,17 +75,21 @@ export default function CategoriesRules({ household, members = [], data, loading
     await reload();
   }
 
-  const whose = (c) => {
-    const at = members.findIndex((m) => m.id === c.owner_member_id);
+  // Whose cost a category is. A subcategory with no owner of its own is its
+  // group's, as the split and the budget read it, and says so (the fresh
+  // review of 7b).
+  const whose = (ownerId, fromGroup = null) => {
+    const at = members.findIndex((m) => m.id === ownerId);
     if (at < 0) return <span className="ds-muted">Shared</span>;
     const m = members[at];
     return (
-      <span className="st-who">
+      <span className={`st-who${fromGroup ? ' st-who-inherited' : ''}`} title={fromGroup ? `${fromGroup}'s, as its group` : undefined}>
         <Avatar name={m.display_name} initial={m.display_name.slice(0, 1).toUpperCase()} tone={at === 0 ? 'a' : 'b'} />
         {m.display_name}
       </span>
     );
   };
+  const budgetCell = (budget) => (budget == null ? '—' : amount(budget));
   const chips = (c) => (
     <span className="st-chips">
       {c.is_savings && <Chip tone="accent">Savings</Chip>}
@@ -129,16 +133,27 @@ export default function CategoriesRules({ household, members = [], data, loading
               </thead>
               {table.groups.map((g) => (
                 <tbody key={g.group?.id ?? g.title}>
-                  <tr className="st-group">
-                    <th scope="colgroup" colSpan={4}>
-                      {g.group ? nameButton(g.group) : g.title}
-                    </th>
-                  </tr>
-                  {g.rows.map(({ category: c, budget }) => (
+                  {/* A group's heading has its own cells: an owner or a budget
+                      can be set on a group (the fresh review of 7b). */}
+                  {g.group ? (
+                    <tr className="st-group">
+                      <th scope="rowgroup">{nameButton(g.group)}</th>
+                      <td>{whose(g.group.owner_member_id)}</td>
+                      <td className="ds-num">{budgetCell(g.budget)}</td>
+                      <td>{chips(g.group)}</td>
+                    </tr>
+                  ) : (
+                    <tr className="st-group">
+                      <th scope="rowgroup" colSpan={4}>
+                        {g.title}
+                      </th>
+                    </tr>
+                  )}
+                  {g.rows.map(({ category: c, budget, owner, ownerFromGroup }) => (
                     <tr key={c.id} data-open="" onClick={(e) => !e.target.closest('button') && setEditingCategory(c)}>
-                      <td>{nameButton(c)}</td>
-                      <td>{whose(c)}</td>
-                      <td className="ds-num">{budget == null ? '—' : amount(budget)}</td>
+                      <th scope="row">{nameButton(c)}</th>
+                      <td>{whose(owner, ownerFromGroup ? g.title : null)}</td>
+                      <td className="ds-num">{budgetCell(budget)}</td>
                       <td>{chips(c)}</td>
                     </tr>
                   ))}

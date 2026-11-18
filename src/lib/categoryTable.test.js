@@ -60,6 +60,36 @@ describe('categoryTable', () => {
   it('leaves out a group with nothing in it', () => {
     expect(categoryTable([], [], { year: 2026, month: 11 }).groups).toEqual([]);
   });
+
+  // The fresh review of 7b.
+  const placed = (t) => t.groups.flatMap((g) => [...(g.group ? [g.group.id] : []), ...g.rows.map((r) => r.category.id)]);
+
+  it('keeps a group in view when its kind changes, with all its subcategories', () => {
+    const cats = [cat('home', 'Housing', { kind: 'income' }), cat('rent', 'Rent', { parent_id: 'home' }), cat('gift', 'Gifts')];
+    const t = categoryTable(cats, [], { year: 2026, month: 11 });
+    expect(t.groups.map((g) => [g.title, g.group?.id ?? null, g.rows.map((r) => r.category.id)])).toEqual([
+      ['Housing', 'home', ['rent']],
+      ['Other', null, ['gift']],
+    ]);
+  });
+
+  it('shows every category in view exactly once', () => {
+    const cats = [...CATS, cat('bonus', 'Bonus', { kind: 'income', parent_id: 'home' }), cat('side', 'Side work', { kind: 'income' }), cat('tips', 'Tips', { kind: 'income', parent_id: 'side' })];
+    const t = categoryTable(cats, [], { year: 2026, month: 11 });
+    const ids = placed(t);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect([...ids].sort()).toEqual(cats.filter((c) => !c.archived).map((c) => c.id).sort());
+  });
+
+  it("gives a group heading its own budget, and whose cost each row really is", () => {
+    const cats = [cat('car', 'Car', { owner_member_id: 'm2' }), cat('fuel', 'Fuel', { parent_id: 'car' }), cat('ins', 'Insurance', { parent_id: 'car', owner_member_id: 'm1' })];
+    const t = categoryTable(cats, [{ category_id: 'car', year: 2026, month: 11, amount: 900 }], { year: 2026, month: 11 });
+    expect(t.groups[0].budget).toBe(900);
+    expect(t.groups[0].rows.map((r) => [r.category.id, r.owner, r.ownerFromGroup])).toEqual([
+      ['fuel', 'm2', true],
+      ['ins', 'm1', false],
+    ]);
+  });
 });
 
 // A category's group is one that already is a group, or none: a record is
@@ -74,5 +104,13 @@ describe('groupChoices', () => {
 
   it('offers no group to a category that is a group itself', () => {
     expect(groupChoices(CATS, CATS.find((c) => c.id === 'food'))).toEqual([]);
+  });
+
+  // The fresh review of 7b: a category whose subcategories are all archived
+  // is filed under itself (lib/fileableCategories.js), so it holds records.
+  it('does not offer a category whose subcategories are all archived', () => {
+    const cats = [cat('food', 'Food'), cat('old', 'Old snacks', { parent_id: 'food', archived: true }), cat('home', 'Housing'), cat('rent', 'Rent', { parent_id: 'home' })];
+    expect(groupChoices(cats, cat('x', 'New')).map((c) => c.id)).toEqual(['home']);
+    expect(groupChoices(cats, cats[0]).map((c) => c.id)).toEqual(['home']);
   });
 });

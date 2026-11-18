@@ -74,6 +74,24 @@ describe('Settings -> Backups', () => {
     expect(line('Restore drill').textContent).toBe('Restore drillFailed 12 Oct · 3 days agoFailed');
   });
 
+  // The fresh review of 7b: the form no longer stops a later date itself,
+  // and one would stay the newest export for good.
+  it('will not record a day after today', () => {
+    renderBackups();
+    fireEvent.change(within(form()).getByLabelText('Date'), { target: { value: '2026-10-16' } });
+    expect(within(form()).getByRole('button', { name: 'Record' }).disabled).toBe(true);
+    expect(within(form()).getByText("The date can't be after today.")).toBeTruthy();
+  });
+
+  it('says today, and 1 day ago, in words', () => {
+    renderBackups([
+      { id: 'r1', kind: 'export', result: 'passed', done_on: '2026-10-15', created_at: '2026-10-15T08:00:00Z' },
+      { id: 'r2', kind: 'restore_drill', result: 'passed', done_on: '2026-10-14', created_at: '2026-10-14T08:00:00Z' },
+    ]);
+    expect(line('Export').textContent).toBe('ExportPassed 15 Oct · todayOK');
+    expect(line('Restore drill').textContent).toBe('Restore drillPassed 14 Oct · 1 day agoOK');
+  });
+
   it('puts the runbook a link away, and the rest behind an (i)', () => {
     renderBackups();
     expect(within(latest()).getByRole('link', { name: 'Runbook →' }).getAttribute('href')).toMatch(/docs\/backup-restore\.md$/);

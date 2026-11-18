@@ -34,15 +34,14 @@ export default function CategoryEditor({ category, categories = [], householdId,
   const { confirmingClose, requestClose, keepEditing, escapeKey } = useCloseGuard({ dirty, onClose, listen: false });
 
   // The groups it may sit in: those that already are groups, of its kind
-  // and its savings-or-not (lib/categoryTable.js). A group has none.
-  const shape = { id: category?.id, kind, is_savings: expense && isSavings };
-  const choices = groupChoices(categories, shape);
-  const isGroup = category?.id && categories.some((c) => c.parent_id === category.id);
-  // Changing kind or savings leaves a group that no longer fits.
-  const reshape = (next) => {
-    const fits = groupChoices(categories, { ...shape, ...next }).some((c) => c.id === parent);
-    if (!fits) setParent('');
-  };
+  // and its savings-or-not (lib/categoryTable.js). The one it is in stays
+  // offered whatever is switched: it never leaves its group unasked (the
+  // fresh review of 7b).
+  const choices = groupChoices(categories, { id: category?.id, kind, is_savings: expense && isSavings });
+  // A group (a category with a subcategory in use) keeps its kind and its
+  // savings: changing them on the group alone left it, and everything in
+  // it, out of the table (the fresh review of 7b).
+  const isGroup = Boolean(category?.id && categories.some((c) => c.parent_id === category.id && !c.archived));
 
   async function handleSave(e) {
     e.preventDefault();
@@ -102,13 +101,13 @@ export default function CategoryEditor({ category, categories = [], householdId,
     </div>
   );
 
-  const switchRow = (label, hint, checked, onChange) => (
+  const switchRow = (label, hint, checked, onChange, disabled = false) => (
     <div className="st-switch">
       <div>
         <div className="st-switch-label">{label}</div>
         <div className="ds-muted st-hint">{hint}</div>
       </div>
-      <Switch label={label} checked={checked} onChange={onChange} />
+      <Switch label={label} checked={checked} onChange={onChange} disabled={disabled} />
     </div>
   );
 
@@ -126,15 +125,13 @@ export default function CategoryEditor({ category, categories = [], householdId,
           <Segmented
             label="Kind"
             options={[
-              { id: 'expense', label: 'Expense' },
-              { id: 'income', label: 'Income' },
+              { id: 'expense', label: 'Expense', disabled: isGroup },
+              { id: 'income', label: 'Income', disabled: isGroup },
             ]}
             value={kind}
-            onChange={(k) => {
-              setKind(k);
-              reshape({ kind: k, is_savings: k === 'expense' && isSavings });
-            }}
+            onChange={setKind}
           />
+          {isGroup && <p className="ds-muted st-hint">A group keeps its kind and savings; its subcategories follow it.</p>}
         </div>
         <div className="st-field-row">
           {!isGroup && (choices.length > 0 || parent) && (
@@ -170,11 +167,7 @@ export default function CategoryEditor({ category, categories = [], householdId,
             </div>
           )}
         </div>
-        {expense &&
-          switchRow('Savings, not spending', 'Its budget becomes a savings target', isSavings, (v) => {
-            setIsSavings(v);
-            reshape({ is_savings: v });
-          })}
+        {expense && switchRow('Savings, not spending', 'Its budget becomes a savings target', isSavings, setIsSavings, isGroup)}
         {expense && switchRow('Stops when work stops', 'Left out of spending after work', stops, setStops)}
         {category && switchRow('Archived', 'Kept on past transactions only', archived, setArchived)}
       </form>

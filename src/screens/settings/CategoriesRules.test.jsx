@@ -4,16 +4,16 @@ import { MemoryRouter, useLocation } from 'react-router-dom';
 import { renderScreen } from '../../test/renderScreen';
 import { householdYearMonth } from '../../lib/day';
 
-const calls = vi.hoisted(() => ({ updates: [], inserts: [], applied: [] }));
+const calls = vi.hoisted(() => ({ updates: [], inserts: [], applied: [], filters: [] }));
 vi.mock('../../lib/supabaseClient', () => {
   // Apply: an update filtered down to uncategorised rows, read back.
   const apply = (row) => {
     const c = {
-      eq: () => c,
-      is: () => c,
-      neq: () => c,
+      eq: (col, value) => (calls.filters.push(['eq', col, value]), c),
+      is: (col, value) => (calls.filters.push(['is', col, value]), c),
+      neq: (col, value) => (calls.filters.push(['neq', col, value]), c),
       ilike: (col, pattern) => {
-        calls.applied.push({ row, pattern });
+        calls.applied.push({ row, pattern, filters: calls.filters.splice(0) });
         return c;
       },
       select: async () => ({ data: [{ id: 't1' }, { id: 't2' }], error: null }),
@@ -88,18 +88,38 @@ describe('Categories: the table', () => {
     renderAt();
     const table = within(categoriesCard()).getByRole('table');
     const rows = within(table).getAllByRole('row').slice(1).map((r) => [...r.querySelectorAll('th, td')].map((c) => c.textContent));
+    // A group's heading has its own cells, as a budget or an owner can be
+    // set on a group (the fresh review of 7b); a heading for categories in
+    // no group spans the row.
     expect(rows).toEqual([
       ['Income'],
       ['Salary', 'Shared', '—', ''],
-      ['Food'],
+      ['Food', 'Shared', '—', ''],
       ['Groceries', 'Shared', '1,200', ''],
       ['Dining out', 'SSam', '—', ''],
       ['Other'],
       ['Rent', 'Shared', '—', 'Stops with work'],
-      ['Savings goals'],
+      ['Savings goals', 'Shared', '—', 'Savings'],
       ['Emergency fund', 'Shared', '—', 'Savings'],
     ]);
     expect(within(categoriesCard()).getByText('5 in 4 groups')).toBeTruthy();
+  });
+
+  // The fresh review of 7b: a subcategory with no owner of its own is its
+  // group's, as the split reads it, and a group's own budget shows.
+  it("shows a group's owner and budget, and the owner its subcategories take from it", () => {
+    const cats = [cat('c-car', 'Car', { owner_member_id: 'm2' }), cat('c-fuel', 'Fuel', { parent_id: 'c-car' })];
+    renderScreen(
+      <MemoryRouter>
+        <CategoriesRules household={{ id: 'hh' }} members={MEMBERS} loading={false} data={{ categories: cats, categoryRules: [], budgets: [{ category_id: 'c-car', year, month, amount: 900 }], reload: vi.fn() }} />
+      </MemoryRouter>,
+    );
+    const rows = within(within(categoriesCard()).getByRole('table')).getAllByRole('row').slice(1).map((r) => [...r.querySelectorAll('th, td')].map((c) => c.textContent));
+    expect(rows).toEqual([
+      ['Car', 'SSam', '900', ''],
+      ['Fuel', 'SSam', '—', ''],
+    ]);
+    expect(within(categoriesCard()).getByTitle("Car's, as its group")).toBeTruthy();
   });
 
   it('folds the archived ones at the foot', () => {
@@ -152,6 +172,13 @@ describe('Merchant rules', () => {
     const { reload } = renderAt();
     await act(async () => fireEvent.click(within(rulesCard()).getByRole('button', { name: 'Apply contains corner' })));
     expect(calls.applied[0].row).toEqual({ category_id: 'c-dining' });
+    // Only uncategorised records, never a split's or a transfer.
+    expect(calls.applied[0].filters).toEqual([
+      ['eq', 'household_id', 'hh'],
+      ['is', 'category_id', null],
+      ['eq', 'is_split', false],
+      ['neq', 'kind', 'transfer'],
+    ]);
     expect(within(rulesCard()).getByRole('status').textContent).toBe('Applied to 2 uncategorised transactions.');
     expect(reload).toHaveBeenCalled();
   });
