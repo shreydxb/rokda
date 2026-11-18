@@ -55,7 +55,10 @@ Setting it up (Cloudflare dashboard; done once by the owner):
    framework preset None.
 4. Environment variables (Production): `VITE_SUPABASE_URL` and
    `VITE_SUPABASE_PUBLISHABLE_KEY` (the public anon key and URL, not
-   secrets), and `NODE_VERSION` = `22`, as CI uses.
+   secrets), and `NODE_VERSION` = `22`, as CI uses. Optionally
+   `VITE_TELEGRAM_BOT`, the bot's username without the @: Settings ->
+   Telegram's link drawer then offers Open Telegram and a QR code, and gives
+   the code alone without it.
 5. Settings → Builds → Branch control: preview branches **None**. A preview of
    an unmerged branch would run unreviewed code against the household's live
    database.

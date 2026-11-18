@@ -192,6 +192,8 @@ function LinkDrawer({ member, allowed, onClose }) {
     supabase.rpc('generate_telegram_link_code', { p_member_id: member.id }).then(({ data, error: rpcError }) => {
       if (cancelled) return;
       if (rpcError) setError(rpcError.message);
+      // A code that never came would leave the drawer waiting for good.
+      else if (!data) setError('No code came back. Try again.');
       else {
         setError('');
         setCode(data);

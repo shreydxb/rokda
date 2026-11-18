@@ -15,7 +15,7 @@ const ROW = {
   statement_enabled: true,
   dividends_enabled: true,
 };
-const calls = vi.hoisted(() => ({ selected: [], upserts: [], rpcs: [], log: [], rpcError: null }));
+const calls = vi.hoisted(() => ({ selected: [], upserts: [], rpcs: [], log: [], rpcError: null, rpcEmpty: false }));
 vi.mock('../../lib/supabaseClient', () => {
   const chain = (table) => {
     const c = {
@@ -42,7 +42,8 @@ vi.mock('../../lib/supabaseClient', () => {
       from: chain,
       rpc: async (name, args) => {
         calls.rpcs.push({ name, args });
-        return calls.rpcError ? { data: null, error: calls.rpcError } : { data: '0123456789abcdef0123456789abcdef', error: null };
+        if (calls.rpcError) return { data: null, error: calls.rpcError };
+        return { data: calls.rpcEmpty ? null : '0123456789abcdef0123456789abcdef', error: null };
       },
     },
   };
@@ -56,6 +57,7 @@ beforeEach(() => {
   calls.rpcs.length = 0;
   calls.log = [];
   calls.rpcError = null;
+  calls.rpcEmpty = false;
 });
 afterEach(() => vi.unstubAllEnvs());
 
@@ -200,6 +202,14 @@ describe('Telegram: the link drawer', () => {
     calls.rpcError = null;
     await act(async () => fireEvent.click(within(drawer).getByRole('button', { name: 'Try again' })));
     expect(within(drawer).getByText('0123456789abcdef0123456789abcdef')).toBeTruthy();
+  });
+
+  it('says so, rather than waiting, when no code comes back', async () => {
+    calls.rpcEmpty = true;
+    await renderTelegram({ at: '/settings?tab=telegram&link=m2' });
+    const drawer = screen.getByRole('dialog', { name: 'Link Sam' });
+    expect(within(drawer).getByRole('alert').textContent).toBe('No code came back. Try again.');
+    expect(within(drawer).queryByRole('img')).toBeNull();
   });
 
   it('opens for no one when the address names no member', async () => {

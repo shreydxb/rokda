@@ -5,6 +5,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { screen, cleanup } from '@testing-library/react';
 import { renderScreen } from '../test/renderScreen';
+import { MemoryRouter } from 'react-router-dom';
 
 // A database that answers every read with nothing, so each editor opens as
 // it would for a new household.
@@ -84,7 +85,12 @@ const EDITORS = {
   },
   MemberEditor: async () => {
     const { default: C } = await import('./settings/MemberEditor');
-    return <C member={null} householdId="h" isSelf={false} isLastOwner={false} onClose={noop} onSaved={noop} />;
+    // Its Link goes to the Telegram tab, so it needs a router.
+    return (
+      <MemoryRouter>
+        <C member={null} householdId="h" isSelf={false} isLastOwner={false} onClose={noop} onSaved={noop} />
+      </MemoryRouter>
+    );
   },
   HoldingEditor: async () => {
     const { default: C } = await import('./wealth/HoldingEditor');
