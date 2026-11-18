@@ -190,7 +190,13 @@ export function debtsWithAccounts(debts, accounts = []) {
 // are without one). No extra is the minimums; an extra that doesn't clear
 // them within 50 years has no date.
 export function extraPaymentEffect(orderedDebts, extra) {
-  const minimums = minimumOnlyPayoff(orderedDebts);
+  const found = minimumOnlyPayoff(orderedDebts);
+  // A debt whose minimum never clears it, or takes more than 50 years, leaves
+  // the debts as a whole with no date at the minimums, as minimumOnlyText
+  // says; the latest of the others' dates is not theirs (the fresh review of
+  // 6b).
+  const undated = found.never.length > 0 || found.tooLong.length > 0;
+  const minimums = undated ? { ...found, months: null, interest: null } : found;
   const amount = Number(extra) || 0;
   if (!(amount > 0)) return { extra: 0, months: minimums.months, interest: minimums.interest, saves: null, minimums };
   const plan = simulatePayoffPlan(orderedDebts, amount);

@@ -74,6 +74,7 @@ export function goalTableRow(row) {
   return {
     id: row.goal.id,
     goal: row.goal,
+    due: row.state === 'due',
     target,
     by: row.goal.target_date ? (row.byLabel ?? null) : null,
     saved,
@@ -101,7 +102,9 @@ export function goalGroups(rows) {
       rows: mine,
       saved: mine.reduce((s, r) => s + r.saved, 0),
       target: mine.reduce((s, r) => s + r.target, 0),
-      needs: mine.reduce((s, r) => s + (r.needs ?? 0), 0),
+      // A goal whose date has come needs its whole remainder now, not a sum
+      // a month, so it stays out of the group's (the fresh review of 6b).
+      needs: mine.reduce((s, r) => s + (r.due ? 0 : (r.needs ?? 0)), 0),
     };
   }).filter((g) => g.rows.length > 0);
 }

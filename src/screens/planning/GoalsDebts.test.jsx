@@ -168,6 +168,13 @@ describe('Goals & debts: pace', () => {
     expect(pace.classList.contains('gd-low')).toBe(true);
   });
 
+  // The fresh review of 6b: money coming out read as going in.
+  it('keeps the minus on a pace that is falling', () => {
+    const fell = [{ id: 1, account_id: 'a1', old_balance: null, new_balance: 70000, recorded_at: '2026-06-01T08:00:00Z' }];
+    renderScreenAt({ balanceEvents: fell });
+    expect(goalRow('Emergency fund').querySelector('.gd-pace').textContent).toBe('−3,345');
+  });
+
   it('gives none until a month of changes is recorded, or when they could not be read', () => {
     renderScreenAt({ balanceEvents: [] });
     expect(goalRow('Emergency fund').querySelector('.gd-pace').textContent).toBe('');
@@ -278,6 +285,16 @@ describe('Goals & debts: the debts', () => {
     renderDebts([debt(), debt({ id: 'd2', name: 'Card', account_id: null, apr_pct: 0, minimum_payment: 0, balance: 500 })]);
     expect(screen.getByText(/^Check the rate and minimum on Card: a 0 is real for some loans/)).toBeTruthy();
     expect(cells(debtRow('Card'))).toContain('Never');
+  });
+
+  // The fresh review of 6b: a debt its minimum never clears gave the band
+  // the other debts' date.
+  it('gives no date when a debt never clears at its minimum', () => {
+    renderDebts([debt({ id: 'card', name: 'Card', account_id: null, balance: 10000, apr_pct: 30, minimum_payment: 100 }), debt({ account_id: null, balance: 12000, apr_pct: 5, minimum_payment: 1000 })]);
+    expect(kpi('Clears').querySelector('dd').textContent).toMatch(/^—No payoff date: the minimum on Card doesn't cover its interest/);
+    expect(kpi('Interest still to pay').querySelector('dd').textContent).toBe('—');
+    fireEvent.change(screen.getByLabelText('Extra a month'), { target: { value: '500' } });
+    expect(document.querySelector('.gd-extra').textContent).toMatch(/against no date at the minimums/);
   });
 
   it('says a card in credit owes nothing', () => {

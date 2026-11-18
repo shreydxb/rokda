@@ -4,7 +4,7 @@ import { useNow } from '../../lib/useNow';
 import { useScope } from '../../lib/ScopeContext';
 import { resolveScopeMemberId } from '../../lib/scope';
 import { supabase } from '../../lib/supabaseClient';
-import { formatMoney } from '../../lib/money';
+import { formatBalance, formatMoney } from '../../lib/money';
 import { assumption } from '../../lib/planningDefaults';
 import { doneMonth, goalStatuses, isDone } from '../../lib/goals';
 import { goalGroups } from '../../lib/goalsView';
@@ -28,6 +28,9 @@ import './GoalsDebts.css';
 
 const NONE = [];
 const fmt = (v) => formatMoney(v);
+// A figure that can fall below nothing keeps its minus: a pace with money
+// coming out, an overdrawn reserve (the fresh review of 6b).
+const signed = (v) => formatBalance(v);
 
 // The goal or debt to open, in the address. Opened from the page, it is a
 // step forward, so closing goes back (GoalDrawer).
@@ -267,7 +270,7 @@ function GoalTable({ rows, members, onOpen }) {
                 </div>
               </td>
               <td className="gd-num">{r.needs != null ? fmt(r.needs) : ''}</td>
-              <td className={`gd-num gd-pace${r.paceLow ? ' gd-low' : ''}`}>{r.pace != null ? fmt(r.pace) : ''}</td>
+              <td className={`gd-num gd-pace${r.paceLow ? ' gd-low' : ''}`}>{r.pace != null ? signed(r.pace) : ''}</td>
               <td className="gd-status">
                 <Chip tone={r.chip.tone} title={r.why}>
                   {r.chip.label}
@@ -289,7 +292,7 @@ function ReserveLine({ reserve }) {
   return (
     <div className="gd-reserve">
       <span className="ds-muted">Cash reserve</span>
-      <b>{fmt(reserve.liquid)}</b>
+      <b>{signed(reserve.liquid)}</b>
       <span>{` in current, savings and cash accounts${reserve.months !== null ? ` · about ${monthsText(reserve.months)} of spending` : ''}`}</span>
       {reserve.target !== null && (reserve.liquid >= reserve.target ? <Chip tone="pos">Covers kept goals</Chip> : <Chip tone="warn">Short of kept goals</Chip>)}
       {reserve.unvalued > 0 && <span className="ds-muted">{` · ${reserve.unvalued === 1 ? 'one account has' : `${reserve.unvalued} accounts have`} no AED value`}</span>}

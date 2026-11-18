@@ -83,6 +83,13 @@ describe('goalGroups: the cards, in order, with their totals', () => {
     expect(group).toMatchObject({ saved: 5000, target: 15000, needs: 500 });
   });
 
+  // The fresh review of 6b: a due goal's whole remainder isn't a figure a
+  // month, so a group's need a month leaves it out (as the old one did).
+  it('leaves a goal whose date has come out of the need a month', () => {
+    const [group] = goalGroups([near(goal('Car')), near(goal('Trip'), { state: 'due', perMonth: null, remaining: 5000 })]);
+    expect(group.needs).toBe(300);
+  });
+
   it('orders a group by priority, then by date, unnumbered goals last', () => {
     const rows = [
       near(goal('Later date', { target_date: '2028-09-30' })),

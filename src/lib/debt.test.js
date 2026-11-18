@@ -206,3 +206,23 @@ describe('extraPaymentEffect', () => {
     expect(effect).toMatchObject({ extra: 1, months: null, interest: null, saves: null });
   });
 });
+
+// The fresh review of 6b: a debt whose minimum never clears it gave the
+// band a date, from the debts that do clear.
+describe('extraPaymentEffect: a debt that never clears at its minimum', () => {
+  const debts = [
+    { id: 'card', name: 'Card', balance: 10000, apr_pct: 30, minimum_payment: 100 },
+    { id: 'loan', name: 'Loan', balance: 12000, apr_pct: 5, minimum_payment: 1000 },
+  ];
+
+  it('has no date at the minimums', () => {
+    expect(extraPaymentEffect(debts, 0)).toMatchObject({ months: null, interest: null, saves: null });
+  });
+
+  it('dates the extra on its own, against no date at the minimums', () => {
+    const effect = extraPaymentEffect(debts, 500);
+    expect(effect.months).toBe(simulatePayoffPlan(debts, 500).months);
+    expect(effect.minimums.months).toBeNull();
+    expect(effect.saves).toBeNull();
+  });
+});
