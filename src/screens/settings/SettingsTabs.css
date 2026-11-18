@@ -253,3 +253,31 @@
 .st-field > .ds-seg {
   align-self: flex-start;
 }
+
+/* For a screen reader only: a column's name with nothing to show. */
+.st-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Two fields side by side (the prototype's .field-row), and a switch with
+   its label and hint (the prototype's switchField). */
+.st-field-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+.st-switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.st-switch-label {
+  font-size: 13px;
+  font-weight: 500;
+}

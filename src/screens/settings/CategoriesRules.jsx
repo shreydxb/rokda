@@ -1,20 +1,32 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabaseClient';
 import { ilikePattern } from '../../lib/rules';
+import { householdYearMonth } from '../../lib/day';
+import { categoryTable } from '../../lib/categoryTable';
+import { Avatar, Card, Chip, EmptyState, Fold, InfoButton } from '../../design-system/kit';
+import { Tools } from '../PageTools';
 import CategoryEditor from './CategoryEditor';
 import RuleEditor from './RuleEditor';
 import StarterCategories from './StarterCategories';
+import './SettingsTabs.css';
+
+// Settings -> Categories & rules, like the prototype (the revamp, phase 7b;
+// review S-categories): the categories as one table, grouped, with whose cost
+// each is, this month's budget and its chips, beside the merchant rules as a
+// table with Apply. A category and a rule each open in the kit's drawer.
+
+const MATCH = { contains: 'contains', starts_with: 'starts with' };
+const amount = (n) => Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 });
 
 export default function CategoriesRules({ household, members = [], data, loading }) {
-  const { categories, categoryRules, reload } = data;
-  const [showArchived, setShowArchived] = useState(false);
+  const { categories = [], categoryRules = [], budgets = [], reload } = data;
   const [editingCategory, setEditingCategory] = useState(null);
   const [editingRule, setEditingRule] = useState(null);
   const [applying, setApplying] = useState(null);
   const [applyResult, setApplyResult] = useState(null);
   const [starter, setStarter] = useState(false);
-  // `rule=<id>` opens that rule's editor, so a link from a transaction's
+  // `rule=<id>` opens that rule's drawer, so a link from a transaction's
   // editor ("Open that rule in Settings") or Activity lands on it. Closing it
   // takes the id out of the address, so it doesn't open again.
   const [params, setParams] = useSearchParams();
@@ -34,15 +46,11 @@ export default function CategoriesRules({ household, members = [], data, loading
     }
   };
 
-  const visibleCategories = useMemo(
-    () => categories.filter((c) => showArchived || !c.archived),
-    [categories, showArchived]
-  );
-  const income = visibleCategories.filter((c) => c.kind === 'income');
-  const expense = visibleCategories.filter((c) => c.kind === 'expense');
-  const categoryById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
-
   if (loading) return <div className="ov-skel" aria-busy="true" />;
+
+  const table = categoryTable(categories, budgets, householdYearMonth());
+  const nameOf = (id) => categories.find((c) => c.id === id)?.name ?? 'Unknown category';
+  const activeRules = categoryRules.filter((r) => !r.archived).length;
 
   async function applyRule(rule) {
     setApplying(rule.id);
@@ -60,94 +68,161 @@ export default function CategoriesRules({ household, members = [], data, loading
       .select('id');
     setApplying(null);
     if (error) {
-      setApplyResult({ ruleId: rule.id, text: error.message, isError: true });
+      setApplyResult({ text: error.message, isError: true });
       return;
     }
-    setApplyResult({ ruleId: rule.id, text: `Applied to ${updated.length} uncategorised transaction${updated.length === 1 ? '' : 's'}.` });
+    setApplyResult({ text: `Applied to ${updated.length} uncategorised transaction${updated.length === 1 ? '' : 's'}.` });
     await reload();
   }
 
+  const whose = (c) => {
+    const at = members.findIndex((m) => m.id === c.owner_member_id);
+    if (at < 0) return <span className="ds-muted">Shared</span>;
+    const m = members[at];
+    return (
+      <span className="st-who">
+        <Avatar name={m.display_name} initial={m.display_name.slice(0, 1).toUpperCase()} tone={at === 0 ? 'a' : 'b'} />
+        {m.display_name}
+      </span>
+    );
+  };
+  const chips = (c) => (
+    <span className="st-chips">
+      {c.is_savings && <Chip tone="accent">Savings</Chip>}
+      {c.stops_after_work && <Chip>Stops with work</Chip>}
+    </span>
+  );
+  const nameButton = (c) => (
+    <button type="button" className="st-name" onClick={() => setEditingCategory(c)}>
+      {c.name}
+    </button>
+  );
+
   return (
-    <div>
-      <section style={{ marginTop: 26 }}>
-        {/* The filter sits by the heading it filters; the actions go right,
-            the "+ Category" last. */}
-        <div className="ov-section-head">
-          <div className="ov-kicker">Categories</div>
-          <button type="button" className="om-seg" data-active={showArchived} onClick={() => setShowArchived((s) => !s)}>
-            {showArchived ? 'Hide archived' : 'Show archived'}
-          </button>
-          <div className="mn-toolbar-end">
-            <button type="button" className="om-btn" onClick={() => setStarter(true)}>
-              Starter set
-            </button>
-            <button type="button" className="om-btn mn-add" onClick={() => setEditingCategory('new')}>
-              + Category
-            </button>
-          </div>
-        </div>
+    <div className="st-grid st-grid-7-5">
+      <Tools>
+        <button type="button" className="ds-btn" onClick={() => setEditingRule('new')} disabled={categories.length === 0}>
+          + Rule
+        </button>
+        <button type="button" className="ds-btn ds-btn-primary" onClick={() => setEditingCategory('new')}>
+          + Category
+        </button>
+      </Tools>
 
+      <Card title="Categories" right={categories.length ? <span>{`${table.count} in ${table.groupCount} ${table.groupCount === 1 ? 'group' : 'groups'}`}</span> : null} flush>
         {categories.length === 0 ? (
-          <div className="ov-empty">
-            <div className="ov-empty-kicker">No categories</div>
-            <div className="ov-empty-body">Add a category to start tagging transactions, or start from a common set and change it from there.</div>
-            <div className="ov-empty-actions">
-              <button type="button" className="om-btn ov-btn-primary" onClick={() => setStarter(true)}>
-                Add starter categories
-              </button>
-            </div>
-          </div>
+          <EmptyState title="No categories yet" body="Start from a common set, and change it from there." />
         ) : (
-          <div className="sc-lists">
-            <CategoryList title="Income" rows={income} onEdit={setEditingCategory} />
-            <CategoryList title="Expense" rows={expense} members={members} onEdit={setEditingCategory} />
+          <div className="ds-table-wrap">
+            <table className="ds-table st-cats">
+              <thead>
+                <tr>
+                  <th scope="col">Category</th>
+                  <th scope="col">Whose cost</th>
+                  <th scope="col" className="ds-num">
+                    Budget a month
+                  </th>
+                  <th scope="col">
+                    <span className="st-sr">Kind</span>
+                  </th>
+                </tr>
+              </thead>
+              {table.groups.map((g) => (
+                <tbody key={g.group?.id ?? g.title}>
+                  <tr className="st-group">
+                    <th scope="colgroup" colSpan={4}>
+                      {g.group ? nameButton(g.group) : g.title}
+                    </th>
+                  </tr>
+                  {g.rows.map(({ category: c, budget }) => (
+                    <tr key={c.id} data-open="" onClick={(e) => !e.target.closest('button') && setEditingCategory(c)}>
+                      <td>{nameButton(c)}</td>
+                      <td>{whose(c)}</td>
+                      <td className="ds-num">{budget == null ? '—' : amount(budget)}</td>
+                      <td>{chips(c)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              ))}
+            </table>
           </div>
         )}
-      </section>
-
-      <section style={{ marginTop: 44, paddingBottom: 40 }}>
-        <div className="ov-section-head">
-          <div className="ov-kicker">Rules</div>
-          <button type="button" className="om-btn mn-add" onClick={() => setEditingRule('new')} disabled={categories.length === 0}>
-            + Rule
+        <div className="st-card-foot">
+          {table.archived.length > 0 && (
+            <Fold label="Archived" count={table.archived.length}>
+              <ul className="st-archived">
+                {table.archived.map((c) => (
+                  <li key={c.id}>{nameButton(c)}</li>
+                ))}
+              </ul>
+            </Fold>
+          )}
+          <button type="button" className="ds-btn ds-btn-sm st-starter" onClick={() => setStarter(true)}>
+            Starter set
           </button>
         </div>
+      </Card>
 
+      <Card
+        title="Merchant rules"
+        info={<InfoButton about="Merchant rules">A rule files new entries from the bot and the Inbox under its category. Apply files past uncategorised transactions.</InfoButton>}
+        right={categoryRules.length ? <span>{`${activeRules} active`}</span> : null}
+        flush
+      >
         {categoryRules.length === 0 ? (
-          <div className="ov-empty">
-            <div className="ov-empty-kicker">No rules</div>
-            <div className="ov-empty-body">
-              A rule matches a merchant pattern to a category — suggested while reviewing intake, and applicable on demand to
-              existing uncategorised transactions.
-            </div>
-          </div>
+          <EmptyState title="No rules yet" body="A rule files a merchant under a category." />
         ) : (
-          <div className="mn-list">
-            {categoryRules.map((r) => (
-              <div key={r.id} className="mn-row" style={{ cursor: 'default', opacity: r.archived ? 0.6 : 1 }}>
-                <button type="button" className="mn-row-main" style={{ background: 'none', border: 'none', textAlign: 'left', cursor: 'pointer', color: 'inherit', font: 'inherit', padding: 0 }} onClick={() => setEditingRule(r)}>
-                  <div>
-                    {r.match_type === 'starts_with' ? 'Starts with' : 'Contains'} "{r.pattern}" → {categoryById.get(r.category_id)?.name ?? 'Unknown category'}
-                  </div>
-                  <div className="ov-muted" style={{ marginTop: 3 }}>
-                    {r.archived ? 'Archived' : 'Active'}
-                    {applyResult?.ruleId === r.id && ` · ${applyResult.text}`}
-                  </div>
-                </button>
-                {!r.archived && (
-                  <button type="button" className="om-btn" onClick={() => applyRule(r)} disabled={applying === r.id}>
-                    {applying === r.id ? 'Applying…' : 'Apply now'}
-                  </button>
-                )}
-              </div>
-            ))}
+          <div className="ds-table-wrap">
+            <table className="ds-table st-rules">
+              <thead>
+                <tr>
+                  <th scope="col">When the merchant</th>
+                  <th scope="col">File under</th>
+                  <th scope="col">
+                    <span className="st-sr">Apply</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {categoryRules.map((r) => (
+                  <tr key={r.id} data-open="" onClick={(e) => !e.target.closest('button') && setEditingRule(r)}>
+                    <td>
+                      <button type="button" className="st-name st-rule" onClick={() => setEditingRule(r)}>
+                        <span className="ds-muted">{MATCH[r.match_type] ?? r.match_type}</span> <span className="st-mono st-pattern">{r.pattern}</span>
+                      </button>
+                      {r.archived && <Chip>Off</Chip>}
+                    </td>
+                    <td>{nameOf(r.category_id)}</td>
+                    <td className="st-act">
+                      {!r.archived && (
+                        <button
+                          type="button"
+                          className="st-link-btn"
+                          aria-label={`Apply ${MATCH[r.match_type] ?? r.match_type} ${r.pattern}`}
+                          onClick={() => applyRule(r)}
+                          disabled={applying === r.id}
+                        >
+                          {applying === r.id ? 'Applying…' : 'Apply'}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
-      </section>
+        {applyResult && (
+          <p className={`st-foot ${applyResult.isError ? 'ds-warn-ink' : 'ds-muted'}`} role={applyResult.isError ? 'alert' : 'status'}>
+            {applyResult.text}
+          </p>
+        )}
+      </Card>
 
       {editingCategory && (
         <CategoryEditor
           category={editingCategory === 'new' ? null : editingCategory}
+          categories={categories}
           householdId={household?.id}
           members={members}
           onClose={() => setEditingCategory(null)}
@@ -182,35 +257,6 @@ export default function CategoriesRules({ household, members = [], data, loading
             await reload();
           }}
         />
-      )}
-    </div>
-  );
-}
-
-// Groups with their subcategories beneath them, as the budget lays them out.
-// A subcategory whose group is not in this list (archived and hidden, say)
-// stays visible at the top level rather than disappearing with it.
-function CategoryList({ title, rows, members = [], onEdit }) {
-  const ids = new Set(rows.map((c) => c.id));
-  const top = rows.filter((c) => !c.parent_id || !ids.has(c.parent_id));
-  const childrenOf = (id) => rows.filter((c) => c.parent_id === id);
-  const row = (c, sub) => (
-    <button key={c.id} type="button" className={`mn-row ${sub ? 'sc-subrow' : ''}`} onClick={() => onEdit(c)} style={{ opacity: c.archived ? 0.6 : 1 }}>
-      <div className="mn-row-main">{c.name}</div>
-      {c.owner_member_id && <span className="ov-muted">{members.find((m) => m.id === c.owner_member_id)?.display_name}</span>}
-      {c.is_savings && <span className="ov-chip-ok">Savings</span>}
-      {c.archived && <span className="ov-muted">Archived</span>}
-    </button>
-  );
-  return (
-    <div>
-      <div className="ov-muted" style={{ fontSize: 11, letterSpacing: '.1em', textTransform: 'uppercase', marginBottom: 8 }}>
-        {title}
-      </div>
-      {rows.length === 0 ? (
-        <div className="ov-muted" style={{ fontSize: 12.5 }}>None.</div>
-      ) : (
-        <div className="mn-list">{top.flatMap((c) => [row(c, false), ...childrenOf(c.id).map((k) => row(k, true))])}</div>
       )}
     </div>
   );
