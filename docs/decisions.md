@@ -4400,3 +4400,18 @@ The revamp's phase 6b (design note `docs/superpowers/specs/2026-11-17-planning-d
   Reopen moves to the drawer's foot. A goal priced at today's cost went
   from the form, never used; one saved that way keeps it.
 - **Columns are the prototype's fixed widths**, so the goal cards line up.
+- **The fresh review of 6b** changed these:
+  - **A debt its minimum never clears leaves the debts with no date**, as
+    Overview says. "Clears" gave the other debts' date beside that debt's
+    own "Never", and an extra payment then read as clearing later.
+  - **A falling pace and an overdrawn reserve keep their minus**; money
+    coming out of a goal's accounts read as going in.
+  - **The drawers' foot spans the drawer**, Delete on the left and Save on
+    the right, and the goal's tabs keep the editor's field spacing.
+  - **A drawer closes once**: closing it while its save was in flight went
+    back two pages when the save finished.
+  - **A goal whose date has come stays out of its group's need a month.**
+  - **The goal's form leaves its checks to the editor**, so a Save from
+    another tab is never stopped without a word; Details comes back with
+    focus on the field. Plan's goals open over Plan. Escape over a debt's
+    pending delete steps back out of it.
