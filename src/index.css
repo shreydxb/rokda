@@ -159,13 +159,11 @@ select.om-seg {
     min-width: 44px;
     min-height: 44px;
   }
-  .nt-edit,
   .fresh-btn,
   .om-link,
   button.ov-link {
     position: relative;
   }
-  .nt-edit::after,
   .fresh-btn::after,
   .om-link::after,
   button.ov-link::after {

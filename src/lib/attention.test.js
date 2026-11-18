@@ -133,6 +133,8 @@ describe('attentionHref', () => {
     // Month end, on the month to close (the revamp, phase 4d).
     expect(attentionHref({ kind: 'month_close', month: '2026-09' }, TODAY)).toBe('/money?tab=monthend&month=2026-09');
     expect(attentionHref({ kind: 'backup' }, TODAY)).toBe('/settings?tab=backups');
+    // The note itself (the revamp, phase 6c).
+    expect(attentionHref({ kind: 'yearly_check', noteId: 'n1' }, TODAY)).toBe('/planning?tab=notes&note=n1');
     expect(attentionHref({ kind: 'yearly_check' }, TODAY)).toBe('/planning?tab=notes');
   });
 });

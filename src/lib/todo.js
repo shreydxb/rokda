@@ -39,7 +39,8 @@ function fromAttention(item) {
     case 'backup':
       return { ...base, group: 'Month end', action: link('Record backup', tabHref('/settings', 'backups')) };
     case 'yearly_check':
-      return { ...base, group: 'Planning', action: link('Open notes', tabHref('/planning', 'notes')) };
+      // The note itself (the revamp, phase 6c).
+      return { ...base, group: 'Planning', action: link('Open note', tabHref('/planning', 'notes', item.noteId ? { note: item.noteId } : {})) };
     // A category running high is a finding, not a decision: What changed.
     default:
       return null;

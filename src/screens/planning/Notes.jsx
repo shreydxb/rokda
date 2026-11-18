@@ -1,23 +1,35 @@
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useId, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabaseClient';
 import { parseNote } from '../../lib/notes';
 import { householdToday } from '../../lib/day';
-import { yearlyCheckStatus, yearlyCheckText } from '../../lib/yearlyChecks';
+import { dayText, orderNotes, yearlyCheckStatus, yearlyCheckText } from '../../lib/yearlyChecks';
+import { useCloseGuard } from '../../lib/useCloseGuard';
 import { neverLoaded } from '../../lib/loadState';
+import { Card, Chip, Drawer, EmptyState, Switch, WarningRow } from '../../design-system/kit';
+import Icon from '../../design-system/Icon';
+import DiscardPrompt from '../DiscardPrompt';
+import { Tools } from '../PageTools';
 import { NOTES_INPUTS } from './planningSources';
 import Withheld from './Withheld';
 import './Notes.css';
 
-// The plan in words: why the goals, budget and split are what they are, and
-// what is still to decide. The figures live on the other tabs; these notes
-// keep the reasoning next to them, behind the household's login.
+// Planning -> Notes (the revamp, phase 6c; design/prototype notesScreen): the
+// plan in words, private to the household. The list beside the chosen note,
+// due checks first; a note is written in a drawer. The chosen note is in the
+// address (`?note={id}`), so Overview's yearly reminder opens the note it
+// means. The figures live on the other tabs; these notes keep the reasoning
+// next to them.
+
+const updatedOn = (at) => dayText(new Date(at));
+
 export default function Notes({ household, me, members = [], data, sources, onRetry, loading }) {
   const notes = data?.notes ?? [];
+  const [params, setParams] = useSearchParams();
   const [editing, setEditing] = useState(null); // null | 'new' | note id
   // The note as it was opened. Deleted elsewhere while open, it drops out of
-  // a refresh, and with it went the editor and its draft, while `editing`
-  // kept every button disabled (outside review, E-06). It stays listed, with
-  // the draft, until the member cancels.
+  // a refresh, and with it would go the drawer and its draft (outside
+  // review, E-06): it stays open on this, with the draft, until Cancel.
   const [editingNote, setEditingNote] = useState(null);
   // Until the read after a save lands, a note on screen is the version from
   // before it: opened again then, it would show the old text.
@@ -33,15 +45,27 @@ export default function Notes({ household, me, members = [], data, sources, onRe
     );
   }
 
-  const editingGone = editing !== null && editing !== 'new' && !notes.some((n) => n.id === editing);
-  const listed = editingGone && editingNote ? [...notes, editingNote].sort((a, b) => (a.position ?? 0) - (b.position ?? 0)) : notes;
-  const startEditing = (note) => {
-    setEditing(note.id);
-    setEditingNote(note);
-  };
+  const ordered = orderNotes(notes);
+  const chosen = ordered.find((n) => n.id === params.get('note')) ?? ordered[0] ?? null;
+  // Picking a note from the list replaces the address: Back leaves the tab,
+  // not each note looked at.
+  const choose = (id) =>
+    setParams(
+      (prev) => {
+        const p = new URLSearchParams(prev);
+        p.set('note', id);
+        return p;
+      },
+      { replace: true },
+    );
+  const busy = editing !== null || reloading;
   const nameOf = (id) => members.find((m) => m.id === id)?.display_name;
   const nextPosition = notes.reduce((max, n) => Math.max(max, n.position ?? 0), 0) + 1;
-  const done = async () => {
+  // After a save or a check, the note acted on stays on screen: checking a
+  // note, or turning its check on or off, moves it in the list, and a new
+  // one joins at the end (the fresh review of 6c). Its id goes in the address.
+  const done = async (id) => {
+    if (id) choose(id);
     setEditing(null);
     setReloading(true);
     try {
@@ -50,50 +74,83 @@ export default function Notes({ household, me, members = [], data, sources, onRe
       setReloading(false);
     }
   };
+  const startEditing = (note) => {
+    setEditing(note.id);
+    setEditingNote(note);
+  };
+  const gone = editing !== null && editing !== 'new' && !notes.some((n) => n.id === editing);
+  const open = editing === 'new' ? null : (notes.find((n) => n.id === editing) ?? editingNote);
 
   return (
-    <div>
-      <div className="mn-filters">
-        <div className="ov-muted" style={{ fontSize: 12.5 }}>
-          The reasons behind the plan, and what is still open. Only your household can see these.
-        </div>
-        <div className="mn-toolbar-end">
-          <button type="button" className="om-btn mn-add" onClick={() => setEditing('new')} disabled={editing !== null || reloading}>
-            + Add note
-          </button>
-        </div>
-      </div>
+    <div className="nt">
+      <Tools>
+        <Chip>Private to your household</Chip>
+        <button type="button" className={`ds-btn${notes.length ? ' ds-btn-primary' : ''}`} onClick={() => setEditing('new')} disabled={busy}>
+          + Note
+        </button>
+      </Tools>
 
-      {editing === 'new' && (
-        <NoteEditor householdId={household?.id} me={me} position={nextPosition} onCancel={() => setEditing(null)} onSaved={done} />
-      )}
-
-      {listed.length === 0 && editing !== 'new' ? (
-        <div className="ov-empty">
-          <div className="ov-empty-kicker">No notes</div>
-          <div className="ov-empty-body">Write down why the plan is what it is: who pays what, which goal comes first, what is still to decide.</div>
-        </div>
+      {ordered.length === 0 ? (
+        <section className="ds-card nt-empty">
+          <EmptyState title="No notes yet" body="Reasons behind the plan, and things to check once a year." action={{ label: '+ Note', onClick: () => setEditing('new') }} />
+        </section>
       ) : (
-        listed.map((note) =>
-          editing === note.id ? (
-            <NoteEditor key={note.id} note={note} gone={editingGone} householdId={household?.id} me={me} onCancel={() => setEditing(null)} onSaved={done} />
-          ) : (
-            <article key={note.id} className="nt-card" aria-label={note.title}>
-              <div className="nt-head">
-                <h2 className="nt-title">{note.title}</h2>
-                <button type="button" className="om-link nt-edit" onClick={() => startEditing(note)} disabled={editing !== null || reloading}>
+        <div className="nt-grid">
+          <Card title="Notes" right={<span>{ordered.length}</span>} flush>
+            <div className="nt-list">
+              {ordered.map((n) => {
+                const status = yearlyCheckStatus(n);
+                return (
+                  <button
+                    key={n.id}
+                    type="button"
+                    className="nt-row"
+                    aria-current={chosen?.id === n.id ? 'true' : undefined}
+                    data-on={chosen?.id === n.id || undefined}
+                    onClick={() => choose(n.id)}
+                  >
+                    <span className="nt-row-main">
+                      <span className="nt-row-title">{n.title}</span>
+                      <span className="nt-row-sub">{`Updated ${updatedOn(n.updated_at)}`}</span>
+                    </span>
+                    {status?.due ? <Chip tone="warn">Due</Chip> : status ? <Chip>Yearly</Chip> : null}
+                  </button>
+                );
+              })}
+            </div>
+          </Card>
+          {chosen && (
+            <section className="ds-card nt-note" aria-label={chosen.title}>
+              <div className="nt-note-head">
+                <h2 className="nt-note-title">{chosen.title}</h2>
+                <button type="button" className="ds-btn ds-btn-sm" onClick={() => startEditing(chosen)} disabled={busy}>
                   Edit
                 </button>
               </div>
-              <NoteBody body={note.body} />
-              {note.check_yearly && <YearlyCheck note={note} me={me} disabled={editing !== null || reloading} onChecked={done} />}
-              <div className="ov-muted nt-meta">
-                Updated {new Date(note.updated_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
-                {nameOf(note.updated_by) && ` by ${nameOf(note.updated_by)}`}
+              <div className="nt-note-body">
+                {chosen.check_yearly && <YearlyCheck note={chosen} me={me} disabled={busy} onChecked={() => done(chosen.id)} />}
+                <NoteBody body={chosen.body} />
+                <div className="ds-muted nt-meta">
+                  {`Updated ${updatedOn(chosen.updated_at)}`}
+                  {nameOf(chosen.updated_by) && ` by ${nameOf(chosen.updated_by)}`}
+                </div>
               </div>
-            </article>
-          ),
-        )
+            </section>
+          )}
+        </div>
+      )}
+
+      {editing !== null && (
+        <NoteDrawer
+          key={editing}
+          note={open}
+          gone={gone}
+          householdId={household?.id}
+          me={me}
+          position={nextPosition}
+          onCancel={() => setEditing(null)}
+          onSaved={done}
+        />
       )}
     </div>
   );
@@ -105,7 +162,7 @@ function Spans({ spans }) {
 
 function NoteBody({ body }) {
   const blocks = parseNote(body);
-  if (blocks.length === 0) return <p className="ov-muted">Empty.</p>;
+  if (blocks.length === 0) return <p className="ds-muted">Empty.</p>;
   return (
     <div className="nt-body">
       {blocks.map((b, i) => {
@@ -139,8 +196,8 @@ function NoteBody({ body }) {
 }
 
 // A note checked once a year (Planning audit, 4.18): where it stands, and
-// Checked today, which Overview's reminder waits on. Checking it early is
-// fine: the next one is a year from whenever it was done.
+// while it is due, Checked today, which Overview's reminder waits on. The
+// next one is a year from whenever it was done.
 function YearlyCheck({ note, me, disabled, onChecked }) {
   const status = yearlyCheckStatus(note);
   const [saving, setSaving] = useState(false);
@@ -159,13 +216,16 @@ function YearlyCheck({ note, me, disabled, onChecked }) {
   }
 
   return (
-    <div className="nt-check">
-      <span className={status.due ? 'ov-warn' : 'ov-muted'}>{yearlyCheckText(status)}</span>
-      <button type="button" className="om-btn" onClick={check} disabled={disabled || saving}>
-        {saving ? 'Saving…' : 'Checked today'}
-      </button>
+    <div className="nt-check" data-due={String(status.due)}>
+      <Icon name={status.due ? 'alert' : 'check'} className="nt-check-icon" />
+      <span className="nt-check-text">{yearlyCheckText(status)}</span>
+      {status.due && (
+        <button type="button" className="ds-btn ds-btn-sm" onClick={check} disabled={disabled || saving}>
+          {saving ? 'Saving…' : 'Checked today'}
+        </button>
+      )}
       {error && (
-        <p className="ov-warn nt-check-error" role="alert">
+        <p className="ds-warn-ink nt-check-error" role="alert">
           {error}
         </p>
       )}
@@ -173,21 +233,33 @@ function YearlyCheck({ note, me, disabled, onChecked }) {
   );
 }
 
-function NoteEditor({ note, gone = false, householdId, me, position = 0, onCancel, onSaved }) {
+// The note's drawer (design/prototype openNote): the title, the note and a
+// "Check once a year" switch. A note can run to pages: changed and unsaved,
+// closing asks first, and so does leaving the page.
+function NoteDrawer({ note, gone = false, householdId, me, position = 0, onCancel, onSaved }) {
+  const uid = useId();
+  const formId = `${uid}-form`;
   const [title, setTitle] = useState(note?.title ?? '');
   const [body, setBody] = useState(note?.body ?? '');
   const [yearly, setYearly] = useState(note?.check_yearly ?? false);
   // The version this edit started from. The note itself is read again every
-  // few minutes while the editor is open, so the check below must not use the
+  // few minutes while the drawer is open, so the check below must not use the
   // latest one: that would let this save replace a change made meanwhile.
   const [openedAt] = useState(note?.updated_at ?? null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
-  const [confirmingCancel, setConfirmingCancel] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  // A note can run to pages. Changed and unsaved, Cancel asks first, as the
-  // drawers do, and so does leaving the page.
   const dirty = title !== (note?.title ?? '') || body !== (note?.body ?? '') || yearly !== (note?.check_yearly ?? false);
+  // Escape steps back out of a pending delete before it closes anything.
+  const { confirmingClose, requestClose, keepEditing, escapeKey } = useCloseGuard({
+    dirty,
+    onClose: onCancel,
+    listen: false,
+    onEscape: () => {
+      if (confirmingDelete) setConfirmingDelete(false);
+      else requestClose();
+    },
+  });
 
   useEffect(() => {
     if (!dirty) return undefined;
@@ -199,16 +271,9 @@ function NoteEditor({ note, gone = false, householdId, me, position = 0, onCance
     return () => window.removeEventListener('beforeunload', warn);
   }, [dirty]);
 
-  function cancel() {
-    if (dirty && !confirmingCancel) {
-      setConfirmingCancel(true);
-      return;
-    }
-    onCancel();
-  }
-
   async function save(e) {
     e.preventDefault();
+    if (saving) return;
     if (!title.trim()) {
       setError('Give it a title.');
       return;
@@ -221,7 +286,7 @@ function NoteEditor({ note, gone = false, householdId, me, position = 0, onCance
     // without a word.
     const { data: saved, error: saveError } = note
       ? await supabase.from('household_notes').update(payload).eq('id', note.id).eq('updated_at', openedAt).select('id')
-      : await supabase.from('household_notes').insert({ ...payload, household_id: householdId, position });
+      : await supabase.from('household_notes').insert({ ...payload, household_id: householdId, position }).select('id').single();
     setSaving(false);
     if (saveError) {
       setError(saveError.message);
@@ -231,10 +296,14 @@ function NoteEditor({ note, gone = false, householdId, me, position = 0, onCance
       setError('This note was changed after you opened it, here or elsewhere, so yours was not saved over it. Copy what you wrote, then Cancel and open the note again.');
       return;
     }
-    await onSaved();
+    await onSaved(note ? note.id : saved?.id);
   }
 
   async function remove() {
+    if (!confirmingDelete) {
+      setConfirmingDelete(true);
+      return;
+    }
     setSaving(true);
     const { error: delError } = await supabase.from('household_notes').delete().eq('id', note.id);
     setSaving(false);
@@ -245,75 +314,67 @@ function NoteEditor({ note, gone = false, householdId, me, position = 0, onCance
     await onSaved();
   }
 
-  return (
-    <form className="nt-card nt-editing" onSubmit={save} aria-label={note ? `Edit ${note.title}` : 'New note'}>
-      {gone && (
-        <p className="ov-warn" role="alert" style={{ marginTop: 0 }}>
-          This note was deleted elsewhere. Copy what you need from your draft, then Cancel.
-        </p>
-      )}
-      <label className="te-fieldcell">
-        <span className="te-fieldlabel">Title</span>
-        <input aria-label="Title" className="te-fieldvalue" type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Who pays what" />
-      </label>
-      <label className="te-fieldcell" style={{ marginTop: 14 }}>
-        <span className="te-fieldlabel">Note</span>
-        <textarea aria-label="Note" className="nt-textarea" value={body} onChange={(e) => setBody(e.target.value)} rows={14} />
-      </label>
-      <div className="ov-muted" style={{ marginTop: 6 }}>
-        “# ” for a heading, “- ” for a bullet, **bold**, a blank line between paragraphs.
-      </div>
-      <button type="button" className="te-togglerow nt-yearly" aria-pressed={yearly} onClick={() => setYearly((y) => !y)}>
-        <div>
-          <div className="te-togglelabel">Check once a year</div>
-          <div className="te-togglenote">Overview asks for it a year after it was last checked, and at once until it first is. For insurance, wills and nominations, or anything else to look at yearly.</div>
-        </div>
-        <span className="te-togglestate">{yearly ? 'Yearly' : 'Off'}</span>
-      </button>
+  const footer = (
+    <div className="nt-foot">
       {error && (
-        <p className="ov-warn" role="alert" style={{ fontSize: 12.5 }}>
+        <p className="ds-warn-ink nt-error" role="alert">
           {error}
         </p>
       )}
-      <div className="nt-actions">
-        {note &&
-          (confirmingDelete ? (
-            <>
-              <span className="ov-muted">Delete this note?</span>
-              <button type="button" className="om-btn" onClick={remove} disabled={saving}>
-                Delete
-              </button>
-              <button type="button" className="om-btn" onClick={() => setConfirmingDelete(false)}>
-                Keep
-              </button>
-            </>
-          ) : (
-            <button type="button" className="om-btn" onClick={() => setConfirmingDelete(true)}>
-              Delete
-            </button>
-          ))}
-        <span style={{ flex: 1 }} />
-        {confirmingCancel ? (
-          <>
-            <span className="ov-muted">Discard changes?</span>
-            <button type="button" className="om-btn" onClick={onCancel}>
-              Discard
-            </button>
-            <button type="button" className="om-btn" onClick={() => setConfirmingCancel(false)}>
-              Keep editing
-            </button>
-          </>
+      <div className="nt-foot-row">
+        {note && !gone && (
+          <button type="button" className={`ds-btn${confirmingDelete ? ' nt-danger' : ''}`} onClick={remove} disabled={saving}>
+            {confirmingDelete ? 'Confirm delete?' : 'Delete'}
+          </button>
+        )}
+        <span className="nt-grow" />
+        {confirmingClose ? (
+          <DiscardPrompt onDiscard={onCancel} onKeepEditing={keepEditing} />
         ) : (
           <>
-            <button type="button" className="om-btn" onClick={cancel}>
+            <button type="button" className="ds-btn" onClick={requestClose}>
               Cancel
             </button>
-            <button type="submit" className="om-btn ov-btn-primary" disabled={saving}>
-              {saving ? 'Saving…' : note ? 'Save' : 'Add note'}
-            </button>
+            {!gone && (
+              <button type="submit" form={formId} className="ds-btn ds-btn-primary" disabled={saving}>
+                {saving ? 'Saving…' : note ? 'Save' : 'Add note'}
+              </button>
+            )}
           </>
         )}
       </div>
-    </form>
+    </div>
+  );
+
+  return (
+    <Drawer kicker={note ? 'Edit note' : 'New note'} title={note ? note.title : 'Add a note'} dirty={dirty} wide onClose={requestClose} onEscape={escapeKey} footer={footer}>
+      <form id={formId} className="nt-form" onSubmit={save} noValidate>
+        {/* Said aloud, as the old editor's notice was: whoever is typing
+            may not be looking at the top of the drawer. */}
+        {gone && (
+          <div role="alert">
+            <WarningRow tone="neg">This note was deleted elsewhere. Copy what you need from your draft, then Cancel.</WarningRow>
+          </div>
+        )}
+        <label className="nt-field">
+          <span className="nt-label">Title</span>
+          <input aria-label="Title" className="ds-select nt-input" type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Who pays what" />
+        </label>
+        <label className="nt-field">
+          <span className="nt-label">Note</span>
+          <textarea aria-label="Note" className="ds-select nt-textarea" value={body} onChange={(e) => setBody(e.target.value)} rows={12} placeholder="Why the plan is what it is" />
+          <span className="ds-muted nt-hint">“# ” starts a heading, “- ” a bullet, **bold** is bold, and a blank line starts a new paragraph.</span>
+        </label>
+        <div className="nt-switch">
+          <div>
+            <div className="nt-label-strong">Check once a year</div>
+            <div className="ds-muted nt-hint">
+              For insurance, wills and nominations. Overview asks for it a year after it was last checked, and at once until it first is.
+            </div>
+          </div>
+          <Switch label="Check once a year" checked={yearly} onChange={setYearly} />
+        </div>
+      </form>
+    </Drawer>
   );
 }

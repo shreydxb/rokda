@@ -1,114 +1,218 @@
-/* Split out of ../Planning.css with the round 2 cleanup (SHR-383): the rules only
-   this tab uses. What the tabs share stays there. */
+/* Planning -> Notes (the revamp, phase 6c; design/prototype css/planning.css):
+   the list beside the chosen note, and the note's drawer. */
 
-/* Notes: the plan in words. */
-.nt-card {
-  margin-top: 22px;
-  padding-top: 18px;
-  border-top: 1px solid var(--rule);
-  max-width: 760px;
+.nt-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 4fr) minmax(0, 8fr);
+  gap: 16px;
+  align-items: start;
+  margin-top: 20px;
+}
+.nt-empty {
+  margin-top: 20px;
 }
 
-.nt-head {
+/* The list. */
+.nt-list {
   display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 12px;
+  flex-direction: column;
 }
-
-.nt-title {
-  font-size: 17px;
-  font-weight: 600;
-  margin: 0;
-}
-
-.nt-edit {
+.nt-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 6px 18px;
+  border: 0;
+  border-top: 1px solid var(--rule-soft);
   background: none;
-  border: none;
-  color: var(--accent);
-  cursor: pointer;
   font: inherit;
-  font-size: 12px;
-  padding: 0;
+  text-align: left;
+  color: var(--ink);
+  cursor: pointer;
+}
+.nt-row:first-child {
+  border-top: 0;
+}
+.nt-row:hover {
+  background: var(--raised);
+}
+/* The chosen note, marked as Inbox marks its chosen message: in ink, with
+   the accent kept for actions. */
+.nt-row[data-on] {
+  background: var(--active);
+  box-shadow: inset 2px 0 0 var(--ink);
+}
+.nt-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.nt-row-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.nt-row-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13.5px;
+  font-weight: 500;
+}
+.nt-row-sub {
+  font-size: 12.5px;
+  color: var(--ink3);
 }
 
+/* The chosen note. */
+.nt-note-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px 0;
+}
+.nt-note-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.nt-note-body {
+  padding: 12px 18px 18px;
+}
 .nt-body {
+  max-width: 640px;
   font-size: 14px;
-  line-height: 1.65;
+  line-height: 22px;
   color: var(--ink2);
 }
-
 .nt-body h3 {
-  font-size: 14.5px;
-  margin: 16px 0 4px;
+  margin: 14px 0 4px;
+  font-size: 14px;
+  font-weight: 600;
   color: var(--ink);
 }
-
 .nt-body h4 {
+  margin: 12px 0 2px;
   font-size: 13px;
-  margin: 14px 0 2px;
+  font-weight: 600;
   color: var(--ink);
 }
-
 .nt-body p {
-  margin: 8px 0;
+  margin: 0 0 10px;
 }
-
 .nt-body ul {
-  margin: 6px 0;
-  padding-left: 20px;
+  margin: 0 0 10px;
+  padding-left: 18px;
 }
-
 .nt-body strong {
   color: var(--ink);
 }
-
 .nt-meta {
-  margin-top: 10px;
+  margin-top: 14px;
+  font-size: 12px;
 }
 
-/* A note checked once a year (Planning audit, 4.18): where it stands and
-   Checked today, on one line that wraps on a phone. */
+/* A note checked once a year (Planning audit, 4.18; the prototype's
+   .warnrow): amber with Checked today while due, quiet once checked. */
 .nt-check {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 14px;
-  margin-top: 12px;
-  font-size: 12.5px;
+  gap: 8px 10px;
+  margin-bottom: 14px;
+  padding: 9px 14px;
+  border-radius: 8px;
+  background: var(--raised);
+  font-size: 13px;
+  color: var(--ink3);
 }
-
+.nt-check[data-due='true'] {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+.nt-check-icon {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+.nt-check-text {
+  flex: 1;
+}
+.nt-check[data-due='true'] .nt-check-text {
+  color: var(--ink);
+}
 .nt-check-error {
-  flex-basis: 100%;
+  width: 100%;
   margin: 0;
 }
 
-.nt-yearly {
-  margin-top: 14px;
+/* The drawer. */
+.nt-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
-
+/* The prototype's .field: a label over a 36px box, and a hint under it. */
+.nt-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.nt-label,
+.nt-label-strong {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink2);
+}
+.nt-input {
+  width: 100%;
+  height: 36px;
+}
 .nt-textarea {
   width: 100%;
-  box-sizing: border-box;
-  font: inherit;
-  font-size: 13.5px;
-  line-height: 1.6;
-  padding: 10px;
-  border: 1px solid var(--rule2);
-  background: transparent;
-  color: var(--ink);
+  height: auto;
+  padding: 8px 10px;
+  line-height: 20px;
   resize: vertical;
 }
-
-.nt-textarea:focus {
-  outline: none;
-  border-color: var(--accent);
+.nt-hint {
+  font-size: 12px;
+  color: var(--ink3);
 }
-
-.nt-actions {
+.nt-switch {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 16px;
+}
+.nt-foot {
+  display: flex;
+  flex-direction: column;
   gap: 8px;
-  margin-top: 14px;
+  width: 100%;
+}
+.nt-foot-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.nt-grow {
+  flex: 1;
+}
+.nt-error {
+  margin: 0;
+  font-size: 12.5px;
+}
+.nt-danger {
+  color: var(--neg);
+}
+
+@media (max-width: 900px) {
+  .nt-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

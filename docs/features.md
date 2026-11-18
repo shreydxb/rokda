@@ -502,10 +502,15 @@ went: Overview's Plan strip and To do say what it said.
   - **A debt** opens through its address (`/planning?debt={id}`) in the
     kit's drawer: the balance, the account that carries it (or Create a
     loan account), name, note, rate, minimum, original amount and owner.
-- **Notes**: the household plan in words, private to the household. A note
-  can be checked once a year (insurance, wills, nominations): it says when it
-  was last checked, "Checked today" records it, and Overview's Needs
-  attention asks for it a year later, or at once until it first is.
+- **Notes**: the household plan in words, private to the household. The
+  list of notes sits beside the chosen one, due checks first, then yearly
+  notes, then the rest; the chosen note is in the address
+  (`/planning?tab=notes&note={id}`). A note's body takes `#` headings, `-`
+  bullets and `**bold**`, and is written in the kit's drawer (+ Note, or
+  Edit on the note). A note can be checked once a year (insurance, wills,
+  nominations): it says when it was last checked, "Checked today" records it
+  while it is due, and Overview's Needs attention asks for it a year later,
+  or at once until it first is; its Open note opens that note.
 
 ## Settings (`/settings`)
 

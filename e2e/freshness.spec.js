@@ -49,7 +49,10 @@ test('Refresh keeps the page, and a note being written, on screen', async ({ pag
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
   const title = page.getByPlaceholder('e.g. Who pays what');
   await title.fill('Who pays what, half-written');
-  await page.getByRole('button', { name: 'Refresh' }).click();
+  // The note's drawer covers the header now, so the read comes from the
+  // page's own refresh (every few minutes, or on coming back to the tab),
+  // which goes the way Refresh does.
+  await page.getByRole('button', { name: 'Refresh' }).dispatchEvent('click');
   await expect(page.locator('.fresh')).toContainText(/Loaded \d{2}:\d{2}/);
   // Refresh used to blank the whole page to its skeleton, and the draft went with it.
   await expect(title).toHaveValue('Who pays what, half-written');

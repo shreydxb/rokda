@@ -4415,3 +4415,37 @@ The revamp's phase 6b (design note `docs/superpowers/specs/2026-11-17-planning-d
     another tab is never stopped without a word; Details comes back with
     focus on the field. Plan's goals open over Plan. Escape over a debt's
     pending delete steps back out of it.
+
+## Planning: Notes like the prototype
+
+The revamp's phase 6c (design note `docs/superpowers/specs/2026-11-17-planning-design.md`).
+
+- **The list beside the chosen note**, as the prototype's, in place of every
+  note in full one under another. The list goes due checks first, then
+  yearly notes, then the rest, each in its saved order (decision 5,
+  `orderNotes`): the order is worked out, not stored.
+- **A note has an address**, `?note={id}`, as a goal and a debt do. Picking
+  a note replaces the address, so Back leaves the tab rather than stepping
+  through every note looked at; an unknown id shows the first note. To do's
+  Open note and Overview's reminder open the note that is due.
+- **A note is written in the kit's drawer**, not in place. The old editor's
+  guards stay: a save goes only over the version it was opened from, a
+  draft survives its note being deleted elsewhere, and closing or leaving
+  with unsaved changes asks first.
+- **Checked today shows only while the check is due**, as the prototype has
+  it. Checked within the year, the row says when and when it is next due.
+- **The empty state's button is + Note**, as the header's is.
+- **A draft and the page's own refresh**: the drawer covers the header's
+  Refresh, but the read every few minutes, or on coming back to the tab,
+  still keeps the draft (`e2e/freshness.spec.js`).
+- **The chosen note is marked as Inbox's chosen message is**, in ink. The
+  prototype's selected row borrows its select box's class by accident, so
+  its outline is not copied.
+- **The fresh review of 6c** changed these:
+  - **The note acted on stays on screen.** Checking a note moves it down the
+    list, and the next due note took its place under the same Checked today,
+    where a second press would mark it checked unread. A save that turns the
+    check on or off moved the note too, and a new note joined at the end
+    with the one before it still shown. Each now puts the note's id in the
+    address.
+  - **"Deleted elsewhere" is said aloud again**, as the old editor's was.
