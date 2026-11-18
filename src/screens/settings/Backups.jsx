@@ -1,30 +1,21 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { EXPORT_DUE_DAYS, backupStatus } from '../../lib/backups';
-import { householdToday } from '../../lib/day';
+import { daysBetweenDays, householdToday, parseDay } from '../../lib/day';
+import { shortDate } from '../../lib/dividends';
+import { Avatar, Card, Chip, EmptyState, InfoButton } from '../../design-system/kit';
+import './SettingsTabs.css';
 
-// Settings -> Backups: when the household's data was last exported and last
-// restored from an export (docs/decisions.md, "A backup is recorded, and an
-// old one says so"; SHR-238). Both are done by hand, following
-// docs/backup-restore.md, and recorded here, where an old one shows.
+// Settings -> Backups, like the prototype (the revamp, phase 7b; review
+// S-backups): when the household's data was last exported and last restored
+// from an export (docs/decisions.md, "A backup is recorded, and an old one
+// says so"; SHR-238), a form to record one, and the history as a table. Both
+// are done by hand, following docs/backup-restore.md.
 const RUNBOOK = 'https://github.com/shreydxb/rokda/blob/main/docs/backup-restore.md';
 const KINDS = { export: 'Export', restore_drill: 'Restore drill' };
 
-const fieldStyle = {
-  background: 'none',
-  border: '1px solid var(--rule2)',
-  borderRadius: 'var(--radius-sm)',
-  padding: '9px 10px',
-  fontSize: 14,
-  color: 'var(--ink)',
-  fontFamily: 'inherit',
-};
-
-function longDay(value) {
-  return new Date(`${value}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-}
-
 export default function Backups({ household, members = [], data, loading }) {
+  const uid = useId();
   const { backupRecords = [], reload } = data;
   const [form, setForm] = useState(() => ({ kind: 'export', result: 'passed', done_on: householdToday(), note: '' }));
   const [saving, setSaving] = useState(false);
@@ -33,7 +24,7 @@ export default function Backups({ household, members = [], data, loading }) {
   if (loading) return <div className="ov-skel" aria-busy="true" />;
 
   const status = backupStatus(backupRecords);
-  const memberName = (id) => members.find((m) => m.id === id)?.display_name ?? null;
+  const today = householdToday();
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
 
   async function record(e) {
@@ -57,100 +48,137 @@ export default function Backups({ household, members = [], data, loading }) {
     await reload();
   }
 
+  // Each kind's newest record, how long ago, and a chip: OK, Late (an export
+  // older than the days allowed), Failed (the newest one failed) or Missing.
+  const line = (label, latest, chip) => (
+    <div className="st-row">
+      <div className="st-row-main">
+        <div className="st-row-title">{label}</div>
+        <div className="st-row-sub">
+          {latest ? `${latest.result === 'failed' ? 'Failed' : 'Passed'} ${shortDate(latest.done_on, today)} · ${daysBetweenDays(parseDay(latest.done_on), new Date())} days ago` : 'None recorded'}
+        </div>
+      </div>
+      {chip}
+    </div>
+  );
+  const exportChip = status.lastExportFailed ? (
+    <Chip tone="neg">Failed</Chip>
+  ) : !status.lastExport ? (
+    <Chip tone="warn">Missing</Chip>
+  ) : status.exportDue ? (
+    <Chip tone="warn">Late</Chip>
+  ) : (
+    <Chip tone="pos">OK</Chip>
+  );
+  const drillChip = status.lastDrillFailed ? <Chip tone="neg">Failed</Chip> : !status.lastDrill ? <Chip tone="warn">Missing</Chip> : <Chip tone="pos">OK</Chip>;
+  const avatarOf = (id) => {
+    const at = members.findIndex((m) => m.id === id);
+    if (at < 0) return '—';
+    const m = members[at];
+    return <Avatar name={m.display_name} initial={m.display_name.slice(0, 1).toUpperCase()} tone={at === 0 ? 'a' : 'b'} />;
+  };
+
   return (
-    <div>
-      <section style={{ marginTop: 26, maxWidth: 520 }}>
-        <div className="ov-kicker" style={{ marginBottom: 12 }}>
-          Latest
-        </div>
-        <div className="mn-list">
-          <div className="mn-row" data-testid="backup-export">
-            <div className="mn-row-main">
-              <div>Export</div>
-              <div className={status.lastExportFailed || status.exportDue ? 'ov-warn' : 'ov-muted'}>
-                {status.lastExportFailed
-                  ? `The last one, on ${longDay(status.lastExport.done_on)}, failed.`
-                  : status.lastPassedExport
-                    ? `Passed on ${longDay(status.lastPassedExport.done_on)} · ${status.daysSinceExport} days ago${status.exportDue ? `, more than the ${EXPORT_DUE_DAYS} allowed` : ''}`
-                    : 'None recorded yet.'}
-              </div>
-            </div>
+    <div className="st-grid st-grid-5-7">
+      <div className="st-stack">
+        <Card
+          title="Latest"
+          info={
+            <InfoButton about="Latest">
+              Exports and restore drills are done by hand, following the runbook. An export is due every {EXPORT_DUE_DAYS} days. What is recorded here is what someone said they did, not a check the app ran.
+            </InfoButton>
+          }
+          right={
+            <a className="st-link" href={RUNBOOK} target="_blank" rel="noreferrer">
+              Runbook →
+            </a>
+          }
+          flush
+        >
+          <div className="st-rows">
+            {line('Export', status.lastExport, exportChip)}
+            {line('Restore drill', status.lastDrill, drillChip)}
           </div>
-          <div className="mn-row" data-testid="backup-drill">
-            <div className="mn-row-main">
-              <div>Restore drill</div>
-              <div className="ov-muted">
-                {status.lastPassedDrill ? `Passed on ${longDay(status.lastPassedDrill.done_on)}` : 'None recorded yet.'}
-              </div>
-            </div>
-          </div>
-        </div>
-        <div className="ov-muted" style={{ fontSize: 11.5, lineHeight: 1.65, marginTop: 10 }}>
-          Exports and restore drills are taken by hand, following{' '}
-          <a href={RUNBOOK} target="_blank" rel="noreferrer">
-            the backup and restore runbook
-          </a>
-          . An export is due every {EXPORT_DUE_DAYS} days; Needs attention says so when one is late or the last one failed.
-          What is recorded here is what someone said they did, not a check the app ran.
-        </div>
-      </section>
+        </Card>
 
-      <section style={{ marginTop: 34, maxWidth: 520 }}>
-        <div className="ov-kicker" style={{ marginBottom: 12 }}>
-          Record one
-        </div>
-        <form onSubmit={record} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          <select aria-label="What was done" value={form.kind} onChange={(e) => set('kind', e.target.value)} style={fieldStyle}>
-            <option value="export">Export</option>
-            <option value="restore_drill">Restore drill</option>
-          </select>
-          <input aria-label="Day it was done" type="date" value={form.done_on} max={householdToday()} onChange={(e) => set('done_on', e.target.value)} style={fieldStyle} required />
-          <select aria-label="Result" value={form.result} onChange={(e) => set('result', e.target.value)} style={fieldStyle}>
-            <option value="passed">Passed</option>
-            <option value="failed">Failed</option>
-          </select>
-          <input
-            aria-label="Note"
-            type="text"
-            maxLength={2000}
-            placeholder="Where it is kept, or what went wrong (optional)"
-            value={form.note}
-            onChange={(e) => set('note', e.target.value)}
-            style={{ ...fieldStyle, flex: '1 1 220px', minWidth: 0 }}
-          />
-          <button type="submit" className="om-btn" disabled={saving || !form.done_on}>
-            {saving ? 'Saving…' : 'Record'}
-          </button>
-        </form>
-        {error && (
-          <p className="ov-warn" role="alert" style={{ fontSize: 12.5, marginTop: 8 }}>
-            {error}
-          </p>
+        <Card title="Record a backup">
+          <form className="st-fields" onSubmit={record} noValidate>
+            <div className="st-field-row">
+              <div className="st-field">
+                <label className="st-label" htmlFor={`${uid}-kind`}>
+                  Kind
+                </label>
+                <select id={`${uid}-kind`} className="ds-select st-input" value={form.kind} onChange={(e) => set('kind', e.target.value)}>
+                  <option value="export">Export</option>
+                  <option value="restore_drill">Restore drill</option>
+                </select>
+              </div>
+              <div className="st-field">
+                <label className="st-label" htmlFor={`${uid}-result`}>
+                  Result
+                </label>
+                <select id={`${uid}-result`} className="ds-select st-input" value={form.result} onChange={(e) => set('result', e.target.value)}>
+                  <option value="passed">Passed</option>
+                  <option value="failed">Failed</option>
+                </select>
+              </div>
+            </div>
+            <div className="st-field">
+              <label className="st-label" htmlFor={`${uid}-date`}>
+                Date
+              </label>
+              <input id={`${uid}-date`} className="ds-select st-input" type="date" value={form.done_on} max={today} onChange={(e) => set('done_on', e.target.value)} />
+            </div>
+            <div className="st-field">
+              <label className="st-label" htmlFor={`${uid}-note`}>
+                Note
+              </label>
+              <input id={`${uid}-note`} className="ds-select st-input" type="text" maxLength={2000} placeholder="Where it is kept, or what went wrong" value={form.note} onChange={(e) => set('note', e.target.value)} />
+            </div>
+            {error && (
+              <p className="ds-warn-ink st-note" role="alert">
+                {error}
+              </p>
+            )}
+            <div>
+              <button type="submit" className="ds-btn ds-btn-primary" disabled={saving || !form.done_on}>
+                {saving ? 'Saving…' : 'Record'}
+              </button>
+            </div>
+          </form>
+        </Card>
+      </div>
+
+      <Card title="History" right={backupRecords.length ? <span>{`${backupRecords.length} recorded`}</span> : null} flush>
+        {backupRecords.length === 0 ? (
+          <EmptyState title="None recorded yet" />
+        ) : (
+          <div className="ds-table-wrap">
+            <table className="ds-table st-history">
+              <thead>
+                <tr>
+                  <th scope="col">Date</th>
+                  <th scope="col">Kind</th>
+                  <th scope="col">Result</th>
+                  <th scope="col">By</th>
+                  <th scope="col">Note</th>
+                </tr>
+              </thead>
+              <tbody>
+                {backupRecords.map((r) => (
+                  <tr key={r.id}>
+                    <td className="ds-muted st-mono">{shortDate(r.done_on, today)}</td>
+                    <td>{KINDS[r.kind] ?? r.kind}</td>
+                    <td>{r.result === 'failed' ? <Chip tone="neg">Failed</Chip> : <Chip tone="pos">Passed</Chip>}</td>
+                    <td>{avatarOf(r.recorded_by)}</td>
+                    <td className="st-note-cell">{r.note || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
-      </section>
-
-      {backupRecords.length > 0 && (
-        <section style={{ marginTop: 34, maxWidth: 520 }}>
-          <div className="ov-kicker" style={{ marginBottom: 12 }}>
-            History
-          </div>
-          <div className="mn-list">
-            {backupRecords.map((r) => (
-              <div className="mn-row" key={r.id} data-testid="backup-record">
-                <div className="mn-row-main">
-                  <div>
-                    {`${KINDS[r.kind] ?? r.kind} · ${longDay(r.done_on)}`}
-                    <span className={r.result === 'failed' ? 'ov-warn' : 'ov-muted'}>{r.result === 'failed' ? ' · failed' : ' · passed'}</span>
-                  </div>
-                  <div className="ov-muted" style={{ fontSize: 11.5 }}>
-                    {[memberName(r.recorded_by) && `Recorded by ${memberName(r.recorded_by)}`, r.note].filter(Boolean).join(' · ')}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
+      </Card>
     </div>
   );
 }
