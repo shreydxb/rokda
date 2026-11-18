@@ -4497,3 +4497,35 @@ The revamp's phase 7a (design note `docs/superpowers/specs/2026-11-18-settings-d
     code; it had gone into the bundle every page loads.
   - **The bot's linking messages say Settings → Telegram**, where codes are
     now made.
+
+## Settings: Categories & rules and Backups like the prototype
+
+The revamp's phase 7b (design note `docs/superpowers/specs/2026-11-18-settings-design.md`).
+With it, every screen of the prototype is built.
+
+- **The categories are one table**, grouped as the prototype groups them:
+  Income, each group of expense subcategories, Other for those in no group,
+  then savings (`lib/categoryTable.js`). A group is a category with
+  subcategories, as the app has always filed them, not the prototype's
+  free-text field; its heading opens it. Budget a month is this month's.
+- **Archived categories fold at the foot** (decision 4), beside the starter
+  set (decision 6).
+- **A category's group can be changed**, which it couldn't before, but only
+  to a category that already is a group, of its kind and its savings or
+  not. A record is filed under a category with no subcategories, so one that
+  holds records is never offered as a group, and a group can't sit in
+  another (`groupChoices`).
+- **"Stops when work stops" is in the category drawer** (decision 5), as in
+  the prototype; the Edit plan drawer keeps its list, and both set the same
+  column.
+- **A category's and a rule's switches save with the rest.** Archived used
+  to save the moment it was pressed; now Savings, Stops when work stops,
+  Archived and a rule's Active are saved by Save, as the prototype has it.
+- **A rule filing under a category no longer offered** (archived, or
+  savings) keeps it when its drawer is saved, rather than the first category
+  listed taking its place.
+- **Backups' Latest has a chip each** (review S-backups-3): OK, Late,
+  Failed or Missing, and a drill whose newest run failed says so
+  (`backupStatus` names the newest drill). The runbook is a link, the rest
+  behind an (i), and the form's fields are labelled.
+
