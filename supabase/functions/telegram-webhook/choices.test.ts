@@ -61,6 +61,12 @@ function lastEdit(): Row | undefined {
   return backend.telegramCalls.filter((c) => c.method === "editMessageText").at(-1)?.body;
 }
 
+// Whether the last edit turned the message into the entry with Record.
+function editOffersRecord(): boolean {
+  const rows = ((lastEdit()?.reply_markup as Row | undefined)?.inline_keyboard ?? []) as Array<Array<{ text: string }>>;
+  return rows.flat().some((b) => b.text === "Record");
+}
+
 freshTest("an entry with no category is asked about with buttons, subcategories only", async () => {
   seed();
   backend.parse = [item()];
@@ -75,7 +81,7 @@ freshTest("an entry with no category is asked about with buttons, subcategories 
   assert(labels.includes("In the Inbox"));
 });
 
-freshTest("a tap saves the category and turns the message into the yes prompt; yes records it", async () => {
+freshTest("a tap saves the category and offers Record on the message; a yes to it records it too", async () => {
   seed();
   backend.parse = [item()];
   await handler(textUpdate(9502, "pasted sms"));
@@ -85,7 +91,7 @@ freshTest("a tap saves the category and turns the message into the yes prompt; y
   const row = capturedIntake()[0];
   assertEquals(row.parsed_category_id, GROCERIES);
   assertEquals(row.status, "pending");
-  assert(String(lastEdit()?.text).includes('reply "yes"'), String(lastEdit()?.text));
+  assert(editOffersRecord(), String(lastEdit()?.text));
   assertEquals(row.confirm_message_id, prompt.id);
   assert(backend.telegramCalls.some((c) => c.method === "answerCallbackQuery"));
   assertEquals(backend.rpcCalls.filter((c) => c.fn === "approve_intake").length, 0, "a tap recorded the expense");
@@ -116,7 +122,7 @@ freshTest("a tap on an entry already settled, or naming another household's cate
   row.status = "approved";
   await handler(tapUpdate(9508, prompt.id, prompt.buttons.find((b) => b.text === "Groceries")!.callback_data));
   assertEquals(row.parsed_category_id, null);
-  assert(String(lastEdit()?.text).includes("already"), String(lastEdit()?.text));
+  assert(String(lastEdit()?.text).startsWith("✓ Corner Bakery"), String(lastEdit()?.text));
 });
 
 freshTest("with no card matched either, the category is asked first, then the card", async () => {
@@ -131,7 +137,7 @@ freshTest("with no card matched either, the category is asked first, then the ca
   const card = cards.find((b) => b.text === CARD.name)!;
   await handler(tapUpdate(9511, prompt.id, card.callback_data));
   assertEquals(capturedIntake()[0].parsed_account_id, CARD.id);
-  assert(String(lastEdit()?.text).includes('reply "yes"'), String(lastEdit()?.text));
+  assert(editOffersRecord(), String(lastEdit()?.text));
 });
 
 freshTest("In the Inbox leaves the entry as it is", async () => {
@@ -151,7 +157,7 @@ freshTest("an entry with no date is given its category, and waits in the Inbox f
   const prompt = lastPrompt();
   await handler(tapUpdate(9515, prompt.id, prompt.buttons.find((b) => b.text === "Groceries")!.callback_data));
   assertEquals(capturedIntake()[0].parsed_category_id, GROCERIES);
-  assert(String(lastEdit()?.text).includes("no date"), String(lastEdit()?.text));
+  assert(String(lastEdit()?.text).startsWith("In the Inbox · needs the day it was paid"), String(lastEdit()?.text));
   assertEquals(capturedIntake()[0].confirm_message_id ?? null, null);
 });
 
@@ -175,8 +181,8 @@ freshTest("the question says the entry is saved, and keeps the note about a miss
   backend.parse = [item({ occurred_at: null, date_stated: false })];
   await handler(textUpdate(9530, "pasted sms"));
   const prompt = lastPrompt();
-  assert(prompt.text.startsWith("Saved in the Inbox."), prompt.text);
-  assert(prompt.text.includes("no date"), prompt.text);
+  assert(prompt.text.includes("Saved in the Inbox meanwhile."), prompt.text);
+  assert(prompt.text.includes("It had no date"), prompt.text);
 });
 
 freshTest("a question Telegram can't be reached for falls back to the plain reply, never a failed update", async () => {

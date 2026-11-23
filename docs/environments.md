@@ -168,6 +168,7 @@ deploy and run fine without them, and every outbound call fails.
 | `TELEGRAM_BOT_TOKEN` | the bot cannot send a single message |
 | `OPENROUTER_API_KEY` | every parse and every question falls back to "check the Inbox" |
 | `TWELVEDATA_API_KEY` | the nightly price refresh fetches nothing and holdings quietly stop moving |
+| `APP_URL` (optional) | the bot's "Open Inbox" button is left off; set it to the app's https address, with no trailing path |
 
 `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are injected by the platform and
 must not be set by hand.

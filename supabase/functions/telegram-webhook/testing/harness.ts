@@ -67,6 +67,10 @@ export type Backend = {
     expireLinkCodeAfterLookup?: boolean;
     // Inserting a message's second and later items into intake fails.
     failIntakeItems?: boolean;
+    // Telegram refuses this many message edits (a 429), or answers this many
+    // as "message is not modified" (the text and buttons were already so).
+    failEdits?: number;
+    notModifiedEdits?: number;
     // Telegram's getFile refuses (a 429) or says the file is too big for a bot.
     getFile?: "refuse" | "too_big";
     // Downloading the file, or storing it, fails.
@@ -98,6 +102,10 @@ export type Backend = {
   failRpc?: Set<string>;
   // Runs on each AI call: something changing in Rokda while a message is read.
   onAiCall?: () => void;
+  // What undo_intake_approval answers instead of undoing: "too_late" or
+  // "changed", which the real function decides from the clock and the
+  // transaction's history.
+  undoOutcome?: string;
 };
 
 export let backend: Backend;
@@ -601,10 +609,23 @@ export async function rpc(req: Request, fn: string): Promise<Response> {
     if (!row) return json({ code: "P0002", message: "intake row not found" }, 400);
     if (row.status === "rejected") return json({ code: "P0001", message: "intake row was already rejected" }, 400);
     if (row.status === "approved") return json({ transaction_id: row.transaction_id ?? null, already_approved: true });
-    const tx = { id: crypto.randomUUID(), household_id: row.household_id, account_id: args.p_account_id, amount: args.p_amount, kind: args.p_kind, merchant: args.p_merchant, occurred_at: args.p_occurred_at, category_id: args.p_category_id };
+    const tx = { id: crypto.randomUUID(), household_id: row.household_id, account_id: args.p_account_id, amount: args.p_amount, kind: args.p_kind, merchant: args.p_merchant, occurred_at: args.p_occurred_at, category_id: args.p_category_id, created_at: new Date().toISOString() };
     backend.tables.transactions.push(tx);
     Object.assign(row, { status: "approved", transaction_id: tx.id });
     return json({ transaction_id: tx.id, already_approved: false });
+  }
+  // As the real function (the bot_undo migration): only the sender's entry,
+  // only while recorded; the clock and the history are a test's to say.
+  if (fn === "undo_intake_approval") {
+    const row = backend.tables.intake.find((r) => r.id === args.p_intake_id);
+    if (!row) return json({ outcome: "not_found" });
+    if (row.member_id !== args.p_member_id) return json({ outcome: "not_yours" });
+    if (row.status !== "approved" || !row.transaction_id) return json({ outcome: "not_recorded" });
+    if (row.transaction_id !== args.p_transaction_id) return json({ outcome: "changed" });
+    if (backend.undoOutcome) return json({ outcome: backend.undoOutcome });
+    backend.tables.transactions = backend.tables.transactions.filter((t) => t.id !== row.transaction_id);
+    Object.assign(row, { status: "pending", transaction_id: null });
+    return json({ outcome: "undone" });
   }
   if (fn === "mark_dividends_asked") {
     for (const d of backend.tables.holding_dividends ?? []) {
@@ -667,6 +688,14 @@ export async function telegram(req: Request, url: URL): Promise<Response> {
     }
     backend.telegramSent.push({ method, body });
     return json({ ok: true, result: { message_id: 1000 + sendCount } });
+  }
+  if (method === "editMessageText" && backend.faults.failEdits) {
+    backend.faults.failEdits -= 1;
+    return json({ ok: false, error_code: 429, description: "Too Many Requests: retry after 5" });
+  }
+  if (method === "editMessageText" && backend.faults.notModifiedEdits) {
+    backend.faults.notModifiedEdits -= 1;
+    return json({ ok: false, error_code: 400, description: "Bad Request: message is not modified: specified new message content and reply markup are exactly the same" });
   }
   if (method === "deleteMessage") backend.telegramDeleted.push(Number(body.message_id));
   else backend.telegramCalls.push({ method, body });
@@ -752,9 +781,11 @@ Deno.env.set("SUPABASE_URL", SUPABASE_URL);
 Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "service-role-test");
 Deno.env.set("TELEGRAM_BOT_TOKEN", TOKEN);
 Deno.env.set("OPENROUTER_API_KEY", "openrouter-test");
+// The app's address, for the buttons that open a screen (env.ts).
+Deno.env.set("APP_URL", "https://app.example.test/");
 
 reset();
-export const { accountsForCheckin, buildBalanceCheckinMessage, datedItems, sendablePeriod, figuresUnavailableMessage, forwardedDay, inboxReason, isSpendingAccount, pickAccountByHint, pickCheckinAccount, proposalOutcomeMessage, transferDraftFrom, undatedNote } = await import("../index.ts");
+export const { accountsForCheckin, buildBalanceCheckinMessage, datedItems, sendablePeriod, figuresUnavailableMessage, forwardedDay, isSpendingAccount, pickAccountByHint, pickCheckinAccount, proposalOutcomeMessage, transferDraftFrom, undatedNote } = await import("../index.ts");
 assert(handler!, "index.ts did not register a handler with Deno.serve");
 
 // ---------------------------------------------------------------------------

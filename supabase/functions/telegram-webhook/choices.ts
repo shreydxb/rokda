@@ -1,22 +1,33 @@
-// Choosing a missing category or card with a tap (docs/decisions.md, "A
-// missing category or card is chosen in Telegram"). An entry read in full
-// but for its category or card used to wait in the Inbox for one tap there;
-// the bot now asks with buttons under its reply. A tap saves the choice and
-// turns the message into the usual "reply yes" prompt: it never records the
-// expense itself.
+// An expense's buttons (the revamp, phase 8b; docs/decisions.md, "A tap on
+// Record records, with Undo for ten minutes", and "A missing category or card
+// is chosen in Telegram"). An entry read in full is shown in two lines with
+// Record, Category, Account and Discard. Record records it; the message then
+// becomes one line with Undo, which for ten minutes puts it back where it was.
+// Category and Account change it before it is recorded, Discard sets it
+// aside. An entry read in full but for its category or card is asked about
+// with the likely ones, and one that needs more waits in the Inbox, saying
+// why.
 //
 // A button carries the entry's id and the choice's id, written compactly to
 // fit Telegram's 64 bytes. Nothing in it is trusted: every tap is checked
 // against the database (the member's own entry, still pending, a category
-// or account of their household).
+// or account of their household), and Record only records the entry this
+// message shows, as it shows it.
 import { merchantMatches } from "../_shared/applib/merchants.js";
 import { isPrivateChat } from "../_shared/applib/telegramChat.js";
-import { isReadyForFastConfirm } from "../_shared/applib/telegramConfirm.js";
-import { supabase } from "./env.ts";
-import { type FileableCategory, findDuplicateTransaction, inboxReason, isSpendingAccount, loadCategoryKnowledge, loadFileableCategories } from "./intake.ts";
+import { isConfirmable, isReadyForFastConfirm } from "../_shared/applib/telegramConfirm.js";
+import { APP_URL, supabase } from "./env.ts";
+import { askText, cancelledText, type ExpenseView, inboxReason, inboxText, readyText, recordedText } from "./expenseMessages.ts";
+import { type FileableCategory, findDuplicateTransaction, type IntakeKind, isSpendingAccount, loadCategoryKnowledge, loadFileableCategories } from "./intake.ts";
 import { tgCall } from "./transport.ts";
 
-export type ChoiceKind = "c" | "a" | "i";
+// c and a fill a missing category or card, k and m change one; i leaves the
+// entry in the Inbox; r records, d discards; u undoes the transaction it
+// names, the one the bot's own Record made; C and A open the category and
+// account lists, b goes back to the entry.
+export type ChoiceKind = "c" | "a" | "k" | "m" | "i" | "r" | "d" | "u" | "C" | "A" | "b";
+const WITH_OPTION = new Set(["c", "a", "k", "m", "u"]);
+const WITHOUT_OPTION = new Set(["i", "r", "d", "C", "A", "b"]);
 export const INBOX_LABEL = "In the Inbox";
 const CATEGORY_CHOICES = 6;
 const ACCOUNT_CHOICES = 8;
@@ -35,18 +46,17 @@ function b64ToUuid(b64: string): string | null {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-// "c<entry><category>", "a<entry><account>" or "i<entry>" (leave it in the
-// Inbox): 45 bytes at most.
+// "c<entry><category>", "r<entry>" and so on: 45 bytes at most.
 export function encodeChoice(kind: ChoiceKind, intakeId: string, optionId: string | null = null): string {
   return `${kind}${uuidToB64(intakeId)}${optionId ? uuidToB64(optionId) : ""}`;
 }
 
 export function decodeChoice(data: string): { kind: ChoiceKind; intakeId: string; optionId: string | null } | null {
-  const kind = data[0];
-  if (kind !== "c" && kind !== "a" && kind !== "i") return null;
+  const kind = data[0] as ChoiceKind;
+  if (!WITH_OPTION.has(kind) && !WITHOUT_OPTION.has(kind)) return null;
   const intakeId = b64ToUuid(data.slice(1, 23));
   if (!intakeId) return null;
-  if (kind === "i") return data.length === 23 ? { kind, intakeId, optionId: null } : null;
+  if (WITHOUT_OPTION.has(kind)) return data.length === 23 ? { kind, intakeId, optionId: null } : null;
   const optionId = b64ToUuid(data.slice(23));
   return optionId ? { kind, intakeId, optionId } : null;
 }
@@ -72,12 +82,30 @@ export function missingChoice(row: ChoiceRow): "category" | "account" | null {
   return null;
 }
 
-type Button = { text: string; callback_data: string };
+type Button = { text: string; callback_data: string } | { text: string; url: string };
+export type Keyboard = { inline_keyboard: Button[][] };
 
-function keyboard(buttons: Button[]): { inline_keyboard: Button[][] } {
+function keyboard(buttons: Button[]): Keyboard {
   const rows: Button[][] = [];
   for (let i = 0; i < buttons.length; i += 2) rows.push(buttons.slice(i, i + 2));
   return { inline_keyboard: rows };
+}
+
+const tap = (text: string, kind: ChoiceKind, id: string, option: string | null = null): Button => ({ text, callback_data: encodeChoice(kind, id, option) });
+
+export function readyKeyboard(id: string): Keyboard {
+  return keyboard([tap("Record", "r", id), tap("Category", "C", id), tap("Account", "A", id), tap("Discard", "d", id)]);
+}
+
+// Undo names the transaction the bot recorded, so it can never take back an
+// approval made in the app (undo_intake_approval).
+export function undoKeyboard(id: string, transactionId: string): Keyboard {
+  return keyboard([tap("Undo", "u", id, transactionId)]);
+}
+
+// "Open Inbox", when the app's address is set (env.ts).
+export function inboxKeyboard(): Keyboard | null {
+  return APP_URL ? keyboard([{ text: "Open Inbox", url: `${APP_URL}/inbox` }]) : null;
 }
 
 function short(label: string): string {
@@ -104,70 +132,171 @@ async function accountChoices(householdId: string, memberId: string): Promise<Ar
     .slice(0, ACCOUNT_CHOICES);
 }
 
-type PromptRow = ChoiceRow & { id: string; parsed_kind?: string | null };
+export type EntryRow = ChoiceRow & {
+  id: string;
+  status?: string;
+  transaction_id?: string | null;
+  parsed_kind?: string | null;
+  confirm_chat_id?: number | string | null;
+  confirm_message_id?: number | string | null;
+};
 
-async function accountName(id: string | null): Promise<string | null> {
+async function nameOf(table: "accounts" | "categories", id: string | null): Promise<string | null> {
   if (!id) return null;
-  const { data } = await supabase.from("accounts").select("name").eq("id", id).maybeSingle();
+  const { data } = await supabase.from(table).select("name").eq("id", id).maybeSingle();
   return (data as { name?: string } | null)?.name ?? null;
 }
 
-// The question and its buttons for an entry, or null when nothing is missing.
-export async function choicePrompt(householdId: string, memberId: string, row: PromptRow): Promise<{ text: string; reply_markup: { inline_keyboard: Button[][] } } | null> {
-  const ask = missingChoice(row);
-  if (!ask) return null;
-  const card = await accountName(row.parsed_account_id);
-  const what = `AED ${Number(row.parsed_amount).toFixed(2)} at ${row.parsed_merchant}${card ? ` (${card})` : ""}`;
-  const inbox = { text: INBOX_LABEL, callback_data: encodeChoice("i", row.id) };
-  if (ask === "category") {
-    const options = await categoryChoices(householdId, row.parsed_merchant, row.parsed_kind ?? "expense");
-    return { text: `${what}. Which category?`, reply_markup: keyboard([...options.map((c) => ({ text: short(c.label), callback_data: encodeChoice("c", row.id, c.id) })), inbox]) };
-  }
-  const options = await accountChoices(householdId, memberId);
-  return { text: `${what}. Which card or account was it paid from?`, reply_markup: keyboard([...options.map((a) => ({ text: short(a.name), callback_data: encodeChoice("a", row.id, a.id) })), inbox]) };
+// An entry as its message shows it: names, not ids.
+export async function viewOf(row: EntryRow): Promise<ExpenseView> {
+  const [account, category] = await Promise.all([nameOf("accounts", row.parsed_account_id), nameOf("categories", row.parsed_category_id)]);
+  return { merchant: row.parsed_merchant, amount: row.parsed_amount, currency: row.parsed_currency, date: row.parsed_date ?? null, kind: row.parsed_kind ?? "expense", account, category };
 }
 
-// Sends the question for an entry, when it is missing only its category or
-// card. False when there was nothing to ask, or the question could not be
-// sent: the caller then replies as before, and nothing throws, since a failed
-// update would have Telegram deliver the whole message again.
-export async function sendChoicePrompt(chatId: number, householdId: string, memberId: string, row: PromptRow, lead = "", trail = ""): Promise<boolean> {
+// A recorded entry as its record has it: approved in the app, it may carry
+// another amount, category or card than the bot read.
+export async function recordedView(row: EntryRow): Promise<ExpenseView> {
+  const { data } = row.transaction_id
+    ? await supabase.from("transactions").select("merchant, amount, currency, occurred_at, kind, account_id, category_id").eq("id", row.transaction_id).maybeSingle()
+    : { data: null };
+  const t = data as { merchant: string | null; amount: number | string; currency: string | null; occurred_at: string; kind: string; account_id: string; category_id: string | null } | null;
+  if (!t) return await viewOf(row);
+  const [account, category] = await Promise.all([nameOf("accounts", t.account_id), nameOf("categories", t.category_id)]);
+  return { merchant: t.merchant, amount: Math.abs(Number(t.amount)), currency: t.currency, date: t.occurred_at, kind: t.kind, account, category };
+}
+
+// The same without reading names, for a reply sent when the database or
+// Telegram is failing.
+export function plainView(row: EntryRow): ExpenseView {
+  return { merchant: row.parsed_merchant, amount: row.parsed_amount, currency: row.parsed_currency, date: row.parsed_date ?? null, kind: row.parsed_kind ?? "expense" };
+}
+
+type Shown = { text: string; reply_markup: Keyboard | null; ready: boolean; view: ExpenseView };
+
+// What a message about a pending entry shows now: Record and the rest when
+// it can be recorded as it is, the question when only its category or card
+// is missing, or where it waits and why. notes are lines added at the end.
+async function renderPending(householdId: string, memberId: string, row: EntryRow, notes: string[] = []): Promise<Shown> {
+  const view = await viewOf(row);
+  const tail = notes.length ? `\n${notes.join("\n")}` : "";
+  const ask = missingChoice(row);
+  if (ask) {
+    const options = ask === "category"
+      ? (await categoryChoices(householdId, row.parsed_merchant, row.parsed_kind ?? "expense")).map((c) => tap(short(c.label), "c", row.id, c.id))
+      : (await accountChoices(householdId, memberId)).map((a) => tap(short(a.name), "a", row.id, a.id));
+    const undated = row.date_guessed ? "\nIt had no date: set the day it was paid in the Inbox." : "";
+    return { text: `${askText(view, ask)}${undated}${tail}`, reply_markup: keyboard([...options, tap(INBOX_LABEL, "i", row.id)]), ready: false, view };
+  }
+  if (isReadyForFastConfirm(row)) {
+    // A check that could not run is not a clean check: it waits in the Inbox.
+    const duplicate = await findDuplicateTransaction(householdId, row.parsed_account_id, row.parsed_merchant, row.parsed_amount, row.parsed_date ?? null).catch(() => undefined);
+    if (duplicate === null) return { text: `${readyText(view)}${tail}`, reply_markup: readyKeyboard(row.id), ready: true, view };
+    return { text: `${inboxText(view, duplicate ? inboxReason(row, duplicate) : { reason: "to check and approve", note: null })}${tail}`, reply_markup: inboxKeyboard(), ready: false, view };
+  }
+  return { text: `${inboxText(view, inboxReason(row))}${tail}`, reply_markup: inboxKeyboard(), ready: false, view };
+}
+
+// Ties an entry to the message that shows it, so that message's Record, a
+// "yes" sent as a reply to it, or a 👍 on it records this entry. Only while
+// pending.
+async function bind(id: string, chatId: number, messageId: number): Promise<boolean> {
+  const { error } = await supabase.from("intake").update({ confirm_chat_id: chatId, confirm_message_id: messageId }).eq("id", id).eq("status", "pending");
+  return !error;
+}
+
+// Unties it from this message, when the message no longer offers Record.
+async function unbind(id: string, chatId: number, messageId: number): Promise<void> {
+  await supabase.from("intake").update({ confirm_chat_id: null, confirm_message_id: null }).eq("id", id).eq("confirm_chat_id", chatId).eq("confirm_message_id", messageId);
+}
+
+// Sends the message about one pending entry, with its buttons. False when it
+// could not be sent: the caller then replies in plain words, and nothing
+// throws, since a failed update would have Telegram deliver the whole message
+// again.
+export async function sendEntryPrompt(chatId: number, householdId: string, memberId: string, row: EntryRow, notes: string[] = []): Promise<boolean> {
   try {
-    const prompt = await choicePrompt(householdId, memberId, row);
-    if (!prompt) return false;
-    const res = (await tgCall("sendMessage", { chat_id: chatId, text: `${lead}${prompt.text}${trail}`, reply_markup: prompt.reply_markup })) as { ok?: boolean } | undefined;
-    return !!res?.ok;
+    const shown = await renderPending(householdId, memberId, row, notes);
+    const res = (await tgCall("sendMessage", { chat_id: chatId, text: shown.text, ...(shown.reply_markup ? { reply_markup: shown.reply_markup } : {}) })) as { ok?: boolean; result?: { message_id?: number } } | undefined;
+    const messageId = res?.ok ? res.result?.message_id : null;
+    if (!messageId) return false;
+    // Recorded second: a failure to record costs the binding, not the
+    // message, and a Record tapped on it then shows the entry again first.
+    if (shown.ready) await bind(row.id, chatId, messageId);
+    return true;
   } catch {
     return false;
   }
 }
 
-const INTAKE_COLUMNS = "id, household_id, member_id, status, parsed_merchant, parsed_amount, parsed_date, date_guessed, parsed_category_id, parsed_account_id, parsed_currency, parsed_kind, confidence";
-
-async function edit(chatId: number, messageId: number, text: string, replyMarkup: unknown = null): Promise<void> {
-  await tgCall("editMessageText", { chat_id: chatId, message_id: messageId, text, ...(replyMarkup ? { reply_markup: replyMarkup } : {}) }).catch(() => null);
+// The question for an entry of a pasted list missing only its category or
+// card; false when there is nothing to ask.
+export async function sendChoicePrompt(chatId: number, householdId: string, memberId: string, row: EntryRow): Promise<boolean> {
+  if (!missingChoice(row)) return false;
+  return await sendEntryPrompt(chatId, householdId, memberId, row);
 }
 
-// What the message says once nothing is missing: the yes prompt, bound to
-// this message so a reply or 👍 to it records this entry; or why it waits.
-async function settledText(householdId: string, chatId: number, messageId: number, row: PromptRow): Promise<string> {
-  if (!isReadyForFastConfirm(row)) {
-    return row.date_guessed
-      ? "Saved. It had no date in the SMS, so it waits in the Inbox for the day it was paid."
-      : inboxReason(row);
+const INTAKE_COLUMNS = "id, household_id, member_id, status, transaction_id, parsed_merchant, parsed_amount, parsed_date, date_guessed, parsed_category_id, parsed_account_id, parsed_currency, parsed_kind, confidence, confirm_chat_id, confirm_message_id";
+
+// Whether the message now shows this: Telegram's "message is not modified"
+// means it already did.
+export async function edit(chatId: number, messageId: number, text: string, replyMarkup: Keyboard | null = null): Promise<boolean> {
+  const res = (await tgCall("editMessageText", { chat_id: chatId, message_id: messageId, text, ...(replyMarkup ? { reply_markup: replyMarkup } : {}) }).catch(() => null)) as { ok?: boolean; description?: string } | null;
+  return res?.ok === true || /message is not modified/i.test(String(res?.description ?? ""));
+}
+
+// Turns this message into what the pending entry shows now, tied to it when
+// it offers Record and untied when it no longer does.
+// The tie follows what the message is seen to show: made only once the edit
+// worked, and undone when it did not, so Record can never record figures the
+// message failed to show (the fresh review of 8b). A tie that fails to save
+// leaves Record showing the entry again on its next tap.
+async function showPending(chatId: number, messageId: number, householdId: string, memberId: string, row: EntryRow): Promise<void> {
+  const shown = await renderPending(householdId, memberId, row);
+  const edited = await edit(chatId, messageId, shown.text, shown.reply_markup);
+  if (shown.ready && edited) await bind(row.id, chatId, messageId);
+  else await unbind(row.id, chatId, messageId);
+}
+
+export type RecordOutcome =
+  | { kind: "recorded"; transactionId: string }
+  | { kind: "already" }
+  | { kind: "failed" }
+  | { kind: "unchecked" }
+  | { kind: "duplicate"; duplicate: { id: string; amount: number; occurred_at: string } };
+
+// Records a pending entry read in full, as its message shows it: the one
+// place a tap, a "yes" or a 👍 records an expense from the bot. A last look
+// for the same expense recorded in the meantime (in the app, say) comes
+// first: one found is never recorded twice.
+export async function recordEntry(householdId: string, row: EntryRow): Promise<RecordOutcome> {
+  let duplicate;
+  try {
+    duplicate = await findDuplicateTransaction(householdId, row.parsed_account_id, row.parsed_merchant, row.parsed_amount, row.parsed_date ?? null);
+  } catch {
+    return { kind: "unchecked" };
   }
-  const duplicate = await findDuplicateTransaction(householdId, row.parsed_account_id, row.parsed_merchant, row.parsed_amount, row.parsed_date ?? null).catch(() => undefined);
-  if (duplicate === undefined) return "Saved. It's in the Inbox to check and approve.";
-  if (duplicate) return inboxReason(row, duplicate);
-  const [card, category] = await Promise.all([
-    accountName(row.parsed_account_id),
-    supabase.from("categories").select("name").eq("id", row.parsed_category_id!).maybeSingle().then((r) => (r.data as { name?: string } | null)?.name ?? null),
-  ]);
-  const kindLabel = row.parsed_kind === "income" ? "income " : row.parsed_kind === "refund" ? "refund " : "";
-  const { error } = await supabase.from("intake").update({ confirm_chat_id: chatId, confirm_message_id: messageId }).eq("id", row.id).eq("status", "pending");
-  if (error) return "Saved. It's in the Inbox to check and approve.";
-  return `Got it — AED ${Number(row.parsed_amount).toFixed(2)} ${kindLabel}at ${row.parsed_merchant} (${card ?? "account"}${category ? `, ${category}` : ""}) on ${row.parsed_date}. Everything matched, so reply "yes" to record it, or edit in the Inbox.`;
+  if (duplicate) return { kind: "duplicate", duplicate };
+  // An entry the parser never classified is an expense, as it always was.
+  const kind = (row.parsed_kind as IntakeKind | null) ?? "expense";
+  const { data, error } = await supabase.rpc("approve_intake", {
+    p_intake_id: row.id,
+    p_account_id: row.parsed_account_id,
+    p_amount: row.parsed_amount,
+    p_occurred_at: row.parsed_date,
+    p_kind: kind,
+    p_category_id: row.parsed_category_id,
+    p_currency: "AED",
+    p_merchant: row.parsed_merchant,
+  });
+  if (error || !data) return { kind: "failed" };
+  // Only a transaction this call made is the bot's to undo: one approved
+  // already (in the app, or by a tap a moment earlier) is not offered Undo.
+  const result = data as { already_approved?: boolean; transaction_id?: string | null };
+  return !result.already_approved && result.transaction_id ? { kind: "recorded", transactionId: result.transaction_id } : { kind: "already" };
 }
+
+export const RECORD_FAILED = "Couldn't record that. Nothing saved — try again in a minute.";
+export const RECORD_UNCHECKED = "Couldn't check it isn't recorded already. Nothing saved — try again in a minute.";
 
 // A tap on one of the buttons. Always answered, so Telegram stops the
 // button's spinner; anything that does not check out changes nothing.
@@ -186,41 +315,120 @@ export async function handleChoiceTap(callback: Record<string, unknown>): Promis
   const { data: found } = member
     ? await supabase.from("intake").select(INTAKE_COLUMNS).eq("id", choice.intakeId).eq("household_id", member.household_id).eq("member_id", member.id).maybeSingle()
     : { data: null };
-  const row = found as (PromptRow & { status: string }) | null;
+  const row = found as (EntryRow & { status: string }) | null;
   if (!member || !row) {
     await answer("That isn't one of your entries.");
     return new Response("ok");
   }
-  if (row.status !== "pending") {
-    await answer();
-    await edit(chatId, messageId, "That one is already settled in the app.");
-    return new Response("ok");
-  }
-  if (choice.kind === "i") {
-    await answer();
-    // A choice made before may have bound this message to the yes prompt:
-    // the message no longer says that, so a yes to it must record nothing.
-    await supabase.from("intake").update({ confirm_chat_id: null, confirm_message_id: null }).eq("id", row.id).eq("confirm_chat_id", chatId).eq("confirm_message_id", messageId);
-    await edit(chatId, messageId, `Left in the Inbox to finish there.${row.date_guessed ? " It also needs the day it was paid." : ""}`);
+  const householdId = member.household_id as string;
+  // Whether this message is the one the entry is tied to: only that one
+  // shows it as it is.
+  const bound = Number(row.confirm_chat_id) === chatId && Number(row.confirm_message_id) === messageId;
+
+  if (choice.kind === "u") {
+    await undoTap(answer, chatId, messageId, householdId, member.id, row, bound, choice.optionId!);
     return new Response("ok");
   }
 
-  // Only a field still empty is filled: a choice made in the app since the
-  // question was sent is not overwritten by an old button.
-  const field = choice.kind === "c" ? "parsed_category_id" : "parsed_account_id";
+  // Settled already: shown as its record has it, with no Undo, since what
+  // the bot did not record here is not the bot's to take back.
+  if (row.status !== "pending") {
+    await answer(row.status === "approved" ? "Already recorded." : "Already cancelled.");
+    await edit(chatId, messageId, row.status === "approved" ? recordedText(await recordedView(row)) : cancelledText(await viewOf(row)));
+    return new Response("ok");
+  }
+
+  if (choice.kind === "r") {
+    // Only the message the entry is tied to, showing it as it is, records
+    // it. Another (an older question, or one whose tie was never saved) is
+    // shown the entry as it is now first, and records on the next tap.
+    if (!bound || !isConfirmable(row)) {
+      await answer("It changed since. Check it, then tap Record.");
+      await showPending(chatId, messageId, householdId, member.id, row);
+      return new Response("ok");
+    }
+    const outcome = await recordEntry(householdId, row);
+    if (outcome.kind === "failed" || outcome.kind === "unchecked") {
+      await answer(outcome.kind === "failed" ? RECORD_FAILED : RECORD_UNCHECKED);
+      return new Response("ok");
+    }
+    const view = await viewOf(row);
+    if (outcome.kind === "duplicate") {
+      await answer("It looks recorded already, so it's in the Inbox.");
+      await unbind(row.id, chatId, messageId);
+      await edit(chatId, messageId, inboxText(view, inboxReason(row, outcome.duplicate)), inboxKeyboard());
+      return new Response("ok");
+    }
+    if (outcome.kind === "recorded") {
+      await answer("Recorded.");
+      await edit(chatId, messageId, recordedText(view), undoKeyboard(row.id, outcome.transactionId));
+    } else {
+      await answer("Already recorded.");
+      await edit(chatId, messageId, recordedText(await recordedView({ ...row, transaction_id: null, ...(await freshTransactionId(row.id)) })));
+    }
+    return new Response("ok");
+  }
+
+  if (choice.kind === "d") {
+    const { data: discarded, error } = await supabase.from("intake").update({ status: "rejected" }).eq("id", row.id).eq("member_id", member.id).eq("status", "pending").select("id");
+    if (error) {
+      await answer("Couldn't discard that. Try again in a minute.");
+      return new Response("ok");
+    }
+    const view = await viewOf(row);
+    if (!discarded?.length) {
+      await answer("It was settled in the app.");
+      return new Response("ok");
+    }
+    await answer("Cancelled.");
+    await edit(chatId, messageId, cancelledText(view));
+    return new Response("ok");
+  }
+
+  if (choice.kind === "C" || choice.kind === "A") {
+    const options = choice.kind === "C"
+      ? (await categoryChoices(householdId, row.parsed_merchant, row.parsed_kind ?? "expense")).map((c) => tap(short(c.label), "k", row.id, c.id))
+      : (await accountChoices(householdId, member.id)).map((a) => tap(short(a.name), "m", row.id, a.id));
+    await answer();
+    await tgCall("editMessageReplyMarkup", { chat_id: chatId, message_id: messageId, reply_markup: keyboard([...options, tap("Back", "b", row.id)]) }).catch(() => null);
+    return new Response("ok");
+  }
+
+  if (choice.kind === "b") {
+    await answer();
+    await showPending(chatId, messageId, householdId, member.id, row);
+    return new Response("ok");
+  }
+
+  if (choice.kind === "i") {
+    await answer();
+    // A choice made before may have tied this message to Record: it no
+    // longer offers that, so a "yes" to it must record nothing.
+    await unbind(row.id, chatId, messageId);
+    await edit(chatId, messageId, inboxText(await viewOf(row), inboxReason(row)), inboxKeyboard());
+    return new Response("ok");
+  }
+
+  // A category or card: c and a fill one still empty, so a choice made in
+  // the app since the question was asked is not overwritten by an old
+  // button; k and m change one, from the lists Category and Account open.
+  const isCategory = choice.kind === "c" || choice.kind === "k";
+  const field = isCategory ? "parsed_category_id" : "parsed_account_id";
   let patch: Record<string, string> | null = null;
-  if (choice.kind === "c") {
-    const fileable = await loadFileableCategories(member.household_id, row.parsed_kind === "income" ? "income" : "expense");
+  if (isCategory) {
+    const fileable = await loadFileableCategories(householdId, row.parsed_kind === "income" ? "income" : "expense");
     if (fileable.some((c) => c.id === choice.optionId)) patch = { parsed_category_id: choice.optionId! };
   } else {
-    const { data: acct } = await supabase.from("accounts").select("id, type").eq("id", choice.optionId!).eq("household_id", member.household_id).is("archived_at", null).maybeSingle();
+    const { data: acct } = await supabase.from("accounts").select("id, type").eq("id", choice.optionId!).eq("household_id", householdId).is("archived_at", null).maybeSingle();
     if (acct && isSpendingAccount(acct as { type: string })) patch = { parsed_account_id: choice.optionId! };
   }
   if (!patch) {
     await answer("That choice isn't available any more.");
     return new Response("ok");
   }
-  const { data: updated, error } = await supabase.from("intake").update(patch).eq("id", row.id).eq("status", "pending").is(field, null).select(INTAKE_COLUMNS);
+  let update = supabase.from("intake").update(patch).eq("id", row.id).eq("status", "pending");
+  if (choice.kind === "c" || choice.kind === "a") update = update.is(field, null);
+  const { data: updated, error } = await update.select(INTAKE_COLUMNS);
   if (error) {
     await answer("Couldn't save that just now. Try again, or use the Inbox.");
     return new Response("ok");
@@ -230,9 +438,52 @@ export async function handleChoiceTap(callback: Record<string, unknown>): Promis
     return new Response("ok");
   }
   await answer("Saved.");
-  const next = updated[0] as PromptRow;
-  const prompt = await choicePrompt(member.household_id, member.id, next).catch(() => null);
-  if (prompt) await edit(chatId, messageId, prompt.text, prompt.reply_markup);
-  else await edit(chatId, messageId, await settledText(member.household_id, chatId, messageId, next));
+  await showPending(chatId, messageId, householdId, member.id, updated[0] as EntryRow);
   return new Response("ok");
+}
+
+// Undo: the database puts the entry back only for its sender, within ten
+// minutes, and while nobody has changed it (undo_intake_approval). Undone,
+// the message shows the entry with its buttons again.
+async function undoTap(
+  answer: (text?: string) => Promise<unknown>,
+  chatId: number,
+  messageId: number,
+  householdId: string,
+  memberId: string,
+  row: EntryRow & { status: string },
+  bound: boolean,
+  transactionId: string,
+): Promise<void> {
+  if (!bound) {
+    await answer("Use the latest message about it, or the app.");
+    return;
+  }
+  const { data, error } = await supabase.rpc("undo_intake_approval", { p_intake_id: row.id, p_member_id: memberId, p_transaction_id: transactionId });
+  const outcome = !error && data && typeof data === "object" ? String((data as { outcome?: unknown }).outcome ?? "") : "";
+  if (outcome === "undone" || outcome === "not_recorded") {
+    const { data: fresh } = await supabase.from("intake").select(INTAKE_COLUMNS).eq("id", row.id).maybeSingle();
+    const now = (fresh as (EntryRow & { status: string }) | null) ?? row;
+    await answer(outcome === "undone" ? "Undone." : "");
+    if (now.status === "pending") await showPending(chatId, messageId, householdId, memberId, now);
+    else if (now.status === "rejected") await edit(chatId, messageId, cancelledText(await viewOf(now)));
+    return;
+  }
+  if (outcome === "too_late" || outcome === "changed") {
+    await answer(outcome === "too_late" ? "Undo lasts ten minutes. Change it in the app." : "It was changed in the app, so it stays. Change it there.");
+    await edit(chatId, messageId, recordedText(await recordedView(row)));
+    return;
+  }
+  if (outcome === "not_yours" || outcome === "not_found") {
+    await answer("That isn't one of your entries.");
+    return;
+  }
+  await answer("Couldn't undo that just now. Try again in a minute.");
+}
+
+// The transaction an entry was recorded as, read afresh: one approved a
+// moment ago by someone else is not in the row read before.
+async function freshTransactionId(id: string): Promise<{ transaction_id?: string | null }> {
+  const { data } = await supabase.from("intake").select("transaction_id").eq("id", id).maybeSingle();
+  return (data as { transaction_id?: string | null } | null) ?? {};
 }

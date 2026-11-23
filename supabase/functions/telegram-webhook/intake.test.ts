@@ -112,8 +112,9 @@ freshTest("a pasted SMS with no date waits in the Inbox instead of being offered
   // entry is dated the day it was sent (not forwarded here, so today).
   assert(row.parsed_date !== "2026-09-24" && /^\d{4}-\d{2}-\d{2}$/.test(String(row.parsed_date)), `dated ${row.parsed_date}`);
   const replies = backend.telegramSent.map((m) => String(m.body.text ?? ""));
-  assert(!replies.some((t) => t.includes('reply "yes"')), `a guessed date was offered for a yes: ${replies.join(" | ")}`);
-  assert(replies.some((t) => t.includes("It had no date")), `the reply did not say the date was missing: ${replies.join(" | ")}`);
+  const offered = backend.telegramSent.some((m) => JSON.stringify(m.body.reply_markup ?? {}).includes('"Record"'));
+  assert(!offered, `a guessed date was offered Record: ${replies.join(" | ")}`);
+  assert(replies.some((t) => t.startsWith("In the Inbox · needs the day it was paid")), `the reply did not say the date was missing: ${replies.join(" | ")}`);
   // The parser is told not to invent a date.
   assert(backend.parsePrompts[0].includes("never fill in today's date yourself"), "the parser was not told to leave a missing date empty");
 });

@@ -577,9 +577,18 @@ went: Overview's Plan strip and To do say what it said.
   uncertain goes to the Inbox. A message read in full that holds no
   expense, income or refund is answered and not kept there, nor is one with
   no amount and no photo that the AI service could not read.
-- An entry missing only its category or card is asked about with buttons
-  (six categories, or the cards, and "In the Inbox"); a tap fills it in and
-  the message becomes the "reply yes" prompt. A tap never records it.
+- An expense read in full is shown in two lines (`Bakery · AED 42`, then
+  `Groceries · Bank card · 3 Oct`) with Record, Category, Account and
+  Discard. Record records it, after a last look for the same expense
+  recorded meanwhile, and the message becomes `✓ Bakery · AED 42 ·
+  Groceries` with Undo, which for ten minutes puts it back with its buttons
+  (only the sender, and only while nobody has changed it). Category and
+  Account list the usual ones and change it before it is recorded; Discard,
+  or a "no", sets it aside. A typed "yes" or a 👍 still records it. An entry
+  missing only its category or card is asked about with buttons (six
+  categories, or the cards, and "In the Inbox"); one that needs more says
+  `In the Inbox · needs a category` (or why else it waits), with Open Inbox
+  when the `APP_URL` secret is set.
 - A paste of several entries is answered with a numbered list of those read
   in full (up to 20; repeats of records already made, and entries missing
   something, are named and left in the Inbox). A reply to the list records

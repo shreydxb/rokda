@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ambiguousConfirmMessage,
+  ambiguousDiscardMessage,
   ambiguousProposalMessage,
   dropUnavailableMessage,
   isCancellationText,
@@ -121,12 +122,13 @@ describe('QA #2: an unaddressed "yes" never guesses between entries', () => {
     expect(resolveConfirmTarget({})).toEqual({ kind: 'none' });
   });
 
-  it('names every candidate so the member can pick one', () => {
-    const rows = [pending({ id: 'A', parsed_merchant: 'Spinneys', parsed_amount: 42 }), pending({ id: 'B', parsed_amount: 17.5 })];
-    const msg = ambiguousConfirmMessage(rows);
-    expect(msg).toContain('2 entries waiting');
-    expect(msg).toContain('AED 42.00 at Spinneys');
-    expect(msg).toContain('AED 17.50 at Carrefour');
+  // Each entry waiting has its own message with Record and Discard (the
+  // revamp, phase 8b), so the way to say which is a tap on that message.
+  it('asks which one, pointing at the buttons on its message', () => {
+    expect(ambiguousConfirmMessage()).toBe('Which one? Tap Record on the message you mean.');
+    expect(ambiguousDiscardMessage()).toBe('Which one? Tap Discard on the message you mean.');
+    expect(ambiguousProposalMessage(true)).toBe('Which one? Tap Record on the message you mean, or reply yes to it.');
+    expect(ambiguousProposalMessage(false)).toBe('Which one? Tap Discard on the message you mean, or reply no to it.');
   });
 });
 
@@ -313,13 +315,8 @@ describe('proposals: which one a "yes" or a "no" is about', () => {
     for (const text of ['no wait, it was 45', 'not now', 'yes', '', 'none of these', 'nothing']) expect(isCancellationText(text), text).toBe(false);
   });
 
-  it('asks which one rather than guessing, and offers a 👍 only to a yes', () => {
-    expect(ambiguousProposalMessage()).toMatch(/Reply directly to my message/);
-    expect(ambiguousProposalMessage(true)).toMatch(/👍/);
-    // A 👍 saves: someone who said "no" must not be pointed at it.
-    expect(ambiguousProposalMessage(false)).not.toMatch(/👍/);
-    expect(ambiguousProposalMessage(false)).toMatch(/reply "no" directly to my question/);
-    // A "no" drops only a proposal; an expense is thrown away in the Inbox.
-    expect(ambiguousProposalMessage(false)).toMatch(/Inbox/);
-  });
-});
+  it('asks which one rather than guessing, and points a "no" at nothing that saves', () => {
+    expect(ambiguousProposalMessage()).toBe(ambiguousProposalMessage(true));
+    // Record and a 👍 save: someone who said "no" must not be pointed at them.
+    expect(ambiguousProposalMessage(false)).not.toMatch(/👍|Record/);
+  });});

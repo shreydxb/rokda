@@ -12,6 +12,17 @@ export const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
 
 export const PARSE_MODEL = "google/gemini-2.5-flash-lite";
 
+// The app's address, for the buttons that open a screen ("Open Inbox"). An
+// Edge Function secret, so the public repository names no household's site;
+// until it is set, those buttons are left off (docs/decisions.md, "A tap on
+// Record records, with Undo for ten minutes"). Telegram takes only https.
+export function appAddress(raw: string | undefined): string | null {
+  const url = (raw ?? "").trim().replace(/\/+$/, "");
+  return /^https:\/\/[^\s/]+/.test(url) ? url : null;
+}
+
+export const APP_URL = appAddress(Deno.env.get("APP_URL"));
+
 
 export const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 

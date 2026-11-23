@@ -88,39 +88,6 @@ export function forwardedDay(message: Record<string, unknown> | undefined): stri
 }
 
 
-// The line added to a capture reply when some of what was sent had no date:
-// which date it was given, and that it waits in the Inbox for the real one.
-// Why one expense went to the Inbox rather than being offered for a quick
-// "yes", in words the member can act on. "Got it — check the Inbox" read as
-// if it had been recorded, so a payment sent without a merchant name
-// silently waited there while the member assumed it was in.
-export function inboxReason(
-  row: { parsed_amount?: number | string | null; parsed_merchant?: string | null; parsed_account_id?: string | null; parsed_category_id?: string | null; parsed_currency?: string | null; confidence?: number | string | null },
-  duplicate: { occurred_at: string } | null = null,
-): string {
-  if (duplicate) {
-    return `Not recorded yet: it looks like one already in Rokda from ${duplicate.occurred_at}, so it's in the Inbox rather than recorded twice. Approve it there if it's a second charge.`;
-  }
-  const missing: string[] = [];
-  if (!(Number(row.parsed_amount) > 0)) missing.push("the amount");
-  if (!row.parsed_merchant) missing.push("who was paid");
-  if (!row.parsed_account_id) missing.push("which card or account");
-  if (!row.parsed_category_id) missing.push("the category");
-  // Another currency is not something missing: the Inbox keeps that amount
-  // and records the AED debited beside it, or an estimate until it is known
-  // (docs/decisions.md, "A payment in rupees keeps both amounts").
-  const foreign = row.parsed_currency && row.parsed_currency !== "AED" ? row.parsed_currency : null;
-  const foreignNote = foreign ? ` It's in ${foreign}: approve it with the AED debited, or leave that blank to record an estimate at the day's rate.` : "";
-  if (missing.length === 0) {
-    return (Number(row.confidence ?? 0) < 0.85 && !foreign
-      ? "Not recorded yet: I wasn't sure I read it right, so it's in the Inbox. Check it there and approve it."
-      : "Not recorded yet: it's in the Inbox to check and approve.") + foreignNote;
-  }
-  const list = missing.length === 1 ? missing[0] : `${missing.slice(0, -1).join(", ")} or ${missing[missing.length - 1]}`;
-  return `Not recorded yet: I couldn't tell ${list}, so it's in the Inbox. Approve it there, or send it again with that added.${foreignNote}`;
-}
-
-
 // The line added when undated entries repeat records already made
 // (_shared/applib/alreadyRecorded.js). Read in full: a read that fails says
 // nothing, and the Inbox marks them all the same.
@@ -148,6 +115,8 @@ export async function alreadyRecordedNote(householdId: string, items: Array<{ pa
   return ` ${repeats.length} ${repeats.length === 1 ? "looks" : "look"} already recorded (${named}${more}): ${repeats.length === 1 ? "it's" : "they're"} marked in the Inbox, to set aside.`;
 }
 
+// The line added to a capture reply when some of what was sent had no date:
+// which date it was given, and that it waits in the Inbox for the real one.
 export function undatedNote(guessedDates: string[], total: number): string {
   if (guessedDates.length === 0) return "";
   const days = [...new Set(guessedDates)];

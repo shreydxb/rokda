@@ -138,7 +138,7 @@ freshTest("a bare yes with an expense also waiting asks which one, and records n
   });
 
   await handler(textUpdate(7232, "yes"));
-  assert(lastReply().includes("More than one thing is waiting"), lastReply());
+  assertEquals(lastReply(), "Which one? Tap Record on the message you mean, or reply yes to it.");
   assertEquals(backend.applyCalls, 0);
   assertEquals(backend.approveCalls, 0);
   assertEquals(balancesOf().get(MY_BANK.id), 0);
@@ -249,11 +249,9 @@ freshTest("a bare no says what it dropped, and asks which one when an expense is
     confirm_chat_id: null, confirm_message_id: null,
   });
   await handler(textUpdate(7342, "no"));
-  assert(lastReply().includes("More than one thing is waiting"), lastReply());
-  // A 👍 would save the change; someone who said "no" is not pointed at it,
-  // and is told an expense is thrown away in the Inbox, not with a "no".
-  assert(!lastReply().includes("👍"), lastReply());
-  assert(lastReply().includes("use the Inbox"), lastReply());
+  // A 👍 or Record would save the change; someone who said "no" is not
+  // pointed at either.
+  assertEquals(lastReply(), "Which one? Tap Discard on the message you mean, or reply no to it.");
   assertEquals(backend.tables.bot_proposals[0].status, "proposed");
 
   backend.tables.intake.length = 0;
@@ -313,8 +311,8 @@ freshTest("a bare yes to an expense delivered again does not record one captured
     confirm_chat_id: null, confirm_message_id: null,
   });
   backend.tables.intake.push(entry("99990000-0000-4000-8000-000000000371", "Cafe"));
-  // The "Recorded" reply and the apology after it both fail.
-  backend.faults.failFirstSends = sendCount + 2;
+  // The line saying it is recorded fails to send.
+  backend.faults.failFirstSends = sendCount + 1;
   assertEquals((await handler(textUpdate(7371, "yes"))).status, 500);
   assertEquals(backend.approveCalls, 1);
   backend.tables.intake.push(entry("99990000-0000-4000-8000-000000000372", "Bakery"));

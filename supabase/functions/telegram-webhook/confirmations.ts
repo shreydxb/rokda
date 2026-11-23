@@ -11,7 +11,8 @@ import { decideDividends, dividendsNotYet, type DividendsPayload, type Dividends
 import { decideStatement, statementForPrompt } from "./checks/statements.ts";
 import { DIVIDENDS_ANSWERED, dividendsDropSummary, dividendsSavedMessage } from "./dividends.ts";
 import { supabase } from "./env.ts";
-import { findDuplicateTransaction, type IntakeKind } from "./intake.ts";
+import { edit, inboxKeyboard, RECORD_FAILED, RECORD_UNCHECKED, recordedView, recordEntry, undoKeyboard, viewOf } from "./choices.ts";
+import { cancelledText, inboxReason, inboxText, recordedText } from "./expenseMessages.ts";
 import { proposeTrade } from "./tradeMessages.ts";
 import { type TradeDraft, tradeDropSummary, type TradePayload, tradeRefusal, tradeSavedMessage } from "./trades.ts";
 import { reply, tgCall } from "./transport.ts";
@@ -126,81 +127,69 @@ export async function confirmCandidates(
 }
 
 
-// A word/emoji reply confirming a pending entry, or a 👍/✅ reaction on one of
-// the bot's own prompts (see handleReaction below) -- both routes land in
-// confirmPendingIntake below, so there is exactly one place that calls
-// approve_intake for the fast-confirm path.
-
-// Sends a fast-confirm prompt and records, on the intake it is about, which
-// message that prompt turned out to be. Everything that later resolves a "yes"
-// or a 👍 back to one specific entry depends on this write having happened
-// (QA #2).
+// A typed "yes", or a 👍/✅ reaction on the entry's message (see
+// handleReaction below), records an entry through recordEntry (choices.ts),
+// the one place the bot records an expense, as a tap on Record does.
 //
-// The prompt is sent first and recorded second, so a failure to record costs
-// the binding but never the message. Losing the binding degrades to the
-// unaddressed case -- confirmable while it is the only entry waiting, refused
-// with a question when it is not -- which is the safe direction.
-export async function sendFastConfirmPrompt(chatId: number, intakeId: string, text: string): Promise<void> {
-  const messageId = await reply(chatId, text);
-  if (messageId == null) return;
-  await supabase
-    .from("intake")
-    .update({ confirm_chat_id: chatId, confirm_message_id: messageId })
-    .eq("id", intakeId);
+// A 👍 is on the entry's message, so that message turns into the tick line
+// with Undo. A typed "yes" gets the tick line with Undo as a new message, tied
+// to the entry so its Undo works, and the message it answered loses its
+// buttons: an answer further up the chat is not left out of sight.
+export async function confirmPendingIntake(chatId: number, householdId: string, row: PendingIntakeRow, via: "text" | "reaction" = "text"): Promise<void> {
+  const promptId = Number(row.confirm_chat_id) === chatId && row.confirm_message_id != null ? Number(row.confirm_message_id) : null;
+  const outcome = await recordEntry(householdId, row);
+  if (outcome.kind === "failed" || outcome.kind === "unchecked") {
+    await reply(chatId, outcome.kind === "failed" ? RECORD_FAILED : RECORD_UNCHECKED);
+    return;
+  }
+  const view = await viewOf(row);
+  if (outcome.kind === "duplicate") {
+    // Never recorded twice: it waits in the Inbox, and its message no
+    // longer offers Record.
+    const text = inboxText(view, inboxReason(row, outcome.duplicate));
+    if (promptId) {
+      await supabase.from("intake").update({ confirm_chat_id: null, confirm_message_id: null }).eq("id", row.id).eq("confirm_message_id", promptId);
+      await edit(chatId, promptId, text, inboxKeyboard());
+    }
+    if (via === "text" || !promptId) await reply(chatId, text, inboxKeyboard());
+    return;
+  }
+  // Recorded by someone else a moment earlier: shown as its record has it,
+  // with no Undo, since the bot did not record it.
+  if (outcome.kind === "already") {
+    const { data } = await supabase.from("intake").select("transaction_id").eq("id", row.id).maybeSingle();
+    const line = recordedText(await recordedView({ ...row, transaction_id: (data as { transaction_id?: string | null } | null)?.transaction_id ?? null }));
+    if (promptId) await edit(chatId, promptId, line);
+    if (via === "text" || !promptId) await reply(chatId, line);
+    return;
+  }
+  const line = recordedText(view);
+  const undo = undoKeyboard(row.id, outcome.transactionId);
+  if (via === "reaction" && promptId) {
+    await edit(chatId, promptId, line, undo);
+    return;
+  }
+  const sent = await reply(chatId, line, undo);
+  if (sent != null) await supabase.from("intake").update({ confirm_chat_id: chatId, confirm_message_id: sent }).eq("id", row.id).eq("status", "approved");
+  if (promptId) await edit(chatId, promptId, line);
 }
 
 
-export async function confirmPendingIntake(chatId: number, householdId: string, recentPending: PendingIntakeRow): Promise<void> {
-  try {
-    // A final safety check right before writing: the eligibility check that
-    // offered this fast-confirm already ran a duplicate check at parse time,
-    // but a duplicate could exist now that didn't then (e.g. entered
-    // manually in the portal in between). Never silently record a second
-    // real transaction -- fall back to the Inbox instead.
-    const duplicate = await findDuplicateTransaction(
-      householdId,
-      recentPending.parsed_account_id,
-      recentPending.parsed_merchant,
-      recentPending.parsed_amount,
-      recentPending.parsed_date
-    );
-    if (duplicate) {
-      await reply(
-        chatId,
-        `Hold on -- this looks like it might duplicate an existing AED ${duplicate.amount.toFixed(2)} transaction on ${duplicate.occurred_at}. Please review it in the Inbox instead.`
-      );
-      return;
-    }
-
-    // Falls back to 'expense' for a row the parser never classified (e.g.
-    // parsed_kind is null on an old row from before this column existed) --
-    // exactly today's prior hardcoded behaviour, now just explicit about it.
-    const kind = (recentPending.parsed_kind as IntakeKind | null) ?? "expense";
-    const { error: approveError } = await supabase.rpc("approve_intake", {
-      p_intake_id: recentPending.id,
-      p_account_id: recentPending.parsed_account_id,
-      p_amount: recentPending.parsed_amount,
-      p_occurred_at: recentPending.parsed_date,
-      p_kind: kind,
-      p_category_id: recentPending.parsed_category_id,
-      p_currency: "AED",
-      p_merchant: recentPending.parsed_merchant,
-    });
-    if (approveError) throw approveError;
-    const [{ data: acct }, { data: cat }] = await Promise.all([
-      supabase.from("accounts").select("name").eq("id", recentPending.parsed_account_id).maybeSingle(),
-      recentPending.parsed_category_id
-        ? supabase.from("categories").select("name").eq("id", recentPending.parsed_category_id).maybeSingle()
-        : Promise.resolve({ data: null as { name: string } | null }),
-    ]);
-    const kindLabel = kind === "income" ? "income " : kind === "refund" ? "refund " : "";
-    await reply(
-      chatId,
-      `Recorded: AED ${Number(recentPending.parsed_amount).toFixed(2)} ${kindLabel}at ${recentPending.parsed_merchant} (${acct?.name ?? "account"}${cat?.name ? `, ${cat.name}` : ""}) on ${recentPending.parsed_date}.`
-    );
-  } catch {
-    await reply(chatId, "Something went wrong confirming that -- please check the Inbox.");
+// A "no" sets an entry aside, as Discard does: as a reply to its message, or
+// bare while it is the one entry waiting for an answer.
+export async function discardPendingIntake(chatId: number, memberId: string, row: PendingIntakeRow): Promise<void> {
+  const { data, error } = await supabase.from("intake").update({ status: "rejected" }).eq("id", row.id).eq("member_id", memberId).eq("status", "pending").select("id");
+  if (error) {
+    await reply(chatId, "Couldn't cancel that. Nothing changed — try again in a minute.");
+    return;
   }
+  if (!data?.length) {
+    await reply(chatId, "That one was settled in the app, so nothing was cancelled.");
+    return;
+  }
+  const line = cancelledText(await viewOf(row));
+  if (Number(row.confirm_chat_id) === chatId && row.confirm_message_id != null) await edit(chatId, Number(row.confirm_message_id), line);
+  await reply(chatId, line);
 }
 
 
@@ -295,7 +284,7 @@ export async function handleReaction(reaction: Record<string, unknown>, updateId
   }
   const look = await intakeForPrompt(member.household_id, member.id, chatId, messageId ?? null);
   const target = resolveConfirmTarget({ lookup: look.kind, row: look.row });
-  if (target.kind === "one") await confirmPendingIntake(chatId, member.household_id, target.row);
+  if (target.kind === "one") await confirmPendingIntake(chatId, member.household_id, target.row, "reaction");
   else if (target.kind === "unavailable") await reply(chatId, lookupUnavailableMessage());
   // 'unknown' and 'none' stay silent here: a reaction on an ordinary message
   // is not a question, and answering every stray 👍 would be noise.

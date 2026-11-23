@@ -183,13 +183,15 @@ export function lookupUnavailableMessage() {
 }
 
 // Shown instead of recording anything when a bare "yes" could mean two or more
-// pending entries. Naming them is the point: the member can see exactly what is
-// waiting and reply to the right prompt.
-export function ambiguousConfirmMessage(rows) {
-  const list = rows
-    .map((r) => `- AED ${Number(r.parsed_amount).toFixed(2)} at ${r.parsed_merchant} on ${r.parsed_date}`)
-    .join('\n');
-  return `You have ${rows.length} entries waiting, so I don't know which one that "yes" is for:\n${list}\nReply directly to the one you mean (swipe/long-press → Reply), or approve them in the Inbox.`;
+// pending entries. Each has its own message with Record and Discard (the
+// revamp, phase 8b), so the way to say which is a tap there.
+export function ambiguousConfirmMessage() {
+  return 'Which one? Tap Record on the message you mean.';
+}
+
+// The same for a bare "no", which sets an entry aside.
+export function ambiguousDiscardMessage() {
+  return 'Which one? Tap Discard on the message you mean.';
 }
 
 // ---------------------------------------------------------------------------
@@ -267,13 +269,10 @@ export function resolveProposalTarget({ lookup = PROMPT_UNADDRESSED, row = null,
   return { kind: 'one', row: waiting[0] };
 }
 
-// Said when a bare "yes" or "no" could be about more than one thing waiting.
-// The way out depends on the answer: a 👍 saves, so it is offered only to a
-// "yes". A "no" drops only a proposal, so someone who said "no" is told how
-// to drop one, and that an expense is thrown away in the Inbox instead.
+// Said when a bare "yes" or "no" could be about more than one thing waiting:
+// an expense has its buttons, and a balance or goal change takes a reply.
 export function ambiguousProposalMessage(confirming = true) {
-  const head = 'More than one thing is waiting for an answer, so I don\'t know which one you mean. ';
   return confirming
-    ? `${head}Reply directly to my message about it (swipe or long-press → Reply), or react to it with 👍.`
-    : `${head}To drop a balance or goal change, reply "no" directly to my question about it (swipe or long-press → Reply). An expense waiting for a "yes" stays unrecorded until you approve it; to throw it away, use the Inbox.`;
+    ? 'Which one? Tap Record on the message you mean, or reply yes to it.'
+    : 'Which one? Tap Discard on the message you mean, or reply no to it.';
 }

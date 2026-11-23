@@ -3,6 +3,8 @@
 // The fake backend these drive the real handler against is testing/harness.ts.
 import { assert, assertEquals } from "jsr:@std/assert@1";
 import { backend, CARD, capturedIntake, dubaiDaysAgo, dubaiToday, freshTest, handler, HOUSEHOLD, lastReply, MEMBER, PARTNER, PARTNER_TELEGRAM, partnerUpdate, reactionUpdate, replyUpdate, type Row, textUpdate } from "./testing/harness.ts";
+// After the harness, which sets the environment env.ts reads.
+import { BATCH_UNADDRESSED_HINT } from "./batchReview.ts";
 
 const TRANSPORT = "b5000000-0000-4000-8000-0000000000c1";
 const GROCERY = "b5000000-0000-4000-8000-0000000000c2";
@@ -60,6 +62,12 @@ const dayWords = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateStrin
 
 // --- Sending the list ----------------------------------------------------
 
+// Whether the last message sent offers Record (choices.ts).
+function offersRecord(): boolean {
+  const rows = ((backend.telegramSent.at(-1)?.body.reply_markup as Row | undefined)?.inline_keyboard ?? []) as Array<Array<{ text: string }>>;
+  return rows.flat().some((b) => b.text === "Record");
+}
+
 freshTest("a paste of several entries is answered with a numbered list, each entry bound to it", async () => {
   const list = await paste([sms("City Taxi", 20), sms("Corner Shop", 45.5), sms("Fresh Market", 120)]);
   const text = lastReply();
@@ -94,9 +102,9 @@ freshTest("more than 20 entries: 20 are numbered and the rest wait in the Inbox"
   assertEquals(capturedIntake().filter((r) => r.confirm_message_id != null).length, 20);
 });
 
-freshTest("one entry keeps the yes prompt", async () => {
+freshTest("one entry is offered Record, not a list", async () => {
   await paste([sms("City Taxi", 20, { occurred_at: dubaiToday(), date_stated: true })]);
-  assert(lastReply().includes('reply "yes" to record it'), lastReply());
+  assert(offersRecord(), lastReply());
 });
 
 // --- Acting on a reply ---------------------------------------------------
@@ -226,13 +234,25 @@ freshTest("an unaddressed all on a date with a list open says to reply to the li
   assertEquals(capturedIntake().length, 2);
 });
 
+// The fresh review of 8b: a "no" sets an expense aside, and a bare one with a
+// list open could take an entry of the list and write over the list.
+freshTest("a bare no with a list open says to reply to the list, and sets nothing aside", async () => {
+  const list = await paste([sms("City Taxi", 20, { occurred_at: dubaiToday(), date_stated: true }), sms("Corner Shop", 45.5)]);
+  const edits = backend.telegramCalls.filter((c) => c.method === "editMessageText").length;
+  await handler(textUpdate(9102, "no"));
+  assertEquals(lastReply(), BATCH_UNADDRESSED_HINT);
+  assertEquals(capturedIntake().map((r) => r.status), ["pending", "pending"]);
+  assertEquals(backend.telegramCalls.filter((c) => c.method === "editMessageText" && c.body.message_id === list).length, 0);
+  assertEquals(backend.telegramCalls.filter((c) => c.method === "editMessageText").length, edits);
+});
+
 // --- The fresh review's findings -----------------------------------------
 
 freshTest("a bare yes for a single entry is not blocked by a list with nothing ready for a yes", async () => {
   await paste([sms("City Taxi", 20), sms("Corner Shop", 45.5)]);
   backend.parse = [sms("Book Shop", 60, { occurred_at: dubaiToday(), date_stated: true })];
   await handler(textUpdate(9102, "one more"));
-  assert(lastReply().includes('reply "yes" to record it'), lastReply());
+  assert(offersRecord(), lastReply());
   await handler(textUpdate(9103, "yes"));
   assertEquals(approvals().map((c) => c.p_merchant), ["Book Shop"]);
 });

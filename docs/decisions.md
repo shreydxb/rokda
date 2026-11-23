@@ -4589,3 +4589,66 @@ the review is the target.
     puts a minus before the code, as the trade messages do; day() reads a
     moment as the household's day.
 
+## The bot: a tap on Record records, with Undo for ten minutes
+
+The revamp's phase 8b, its first part (design note
+`docs/superpowers/specs/2026-11-23-telegram-bot-design.md`, decisions 1 to 4;
+the UI review's T1 to T7). The pasted list, transfers and trades follow in the
+next pull request, so the change to how an expense is recorded is reviewed
+on its own.
+
+- **A tap on Record records** (decision 1). A tap never recorded before: the
+  typed "yes" was the safety step, and a tap only filled in a missing
+  category or card ("A missing category or card is chosen in Telegram").
+  The message now shows the whole entry in two lines before the tap, and
+  Undo stands for ten minutes after it, so the tap records. A typed "yes"
+  and a 👍 still record it.
+- **Only the message tied to the entry records it, as it shows it.** An
+  entry is tied to the message that offers Record (confirm_message_id), as
+  it was to the "reply yes" prompt. Record on any other message (an older
+  one, after a correction asked again) records nothing: that message is
+  shown the entry as it is now, and records on the next tap. Before
+  recording, the bot looks once more for the same expense recorded in the
+  meantime; one found sends the entry to the Inbox instead.
+- **Undo puts it back where it was** (decision 2): the transaction is
+  removed and the entry waits again with its buttons, to change and record
+  again or discard. The database decides (`undo_intake_approval`, for the
+  bot's service role only): only the transaction the bot's own Record made,
+  which the Undo button names, for the member who sent the entry, within ten
+  minutes of recording, and only while nobody has changed it since (an edit,
+  a line in the shared edit history, a split or a link). Otherwise it stays, and
+  the bot says where to change it. A 👍 turns the entry's message into the
+  tick line with Undo; a typed "yes" gets the tick line with Undo as a new
+  message, and the message it answered loses its buttons, since the answer
+  may be far down the chat from it.
+- **Discard, and "no", set an entry aside** (decision 3), as Reject does in
+  the Inbox: "no" as a reply to its message, or bare while it is the one
+  waiting. A "no" about nothing waiting is still read as ordinary text.
+  With several waiting, a bare answer is told "Which one? Tap Record on the
+  message you mean."
+- **Category and Account change it before it is recorded**, from the same
+  short lists the question for a missing one offers. A choice from those
+  lists replaces what is there; the question for a missing one still fills
+  only a field left empty, so an old question never overwrites a choice made
+  in the app since.
+- **An entry that waits says so first**: `In the Inbox · needs a category`
+  (or the amount, who was paid, the card, the day it was paid, a check), then
+  what was read. "Open Inbox" needs the app's address, which the public
+  repository does not name: it is the Edge Function secret `APP_URL`
+  (decision 4), and until it is set the button is left off.
+- **The fresh review of 8b** changed these:
+  - **Undo only takes back what the bot recorded.** The approval in the app
+    leaves the entry tied to the bot's message, so a tap there after the
+    partner approved it in the Inbox (at another amount, say) offered Undo,
+    and Undo removed the partner's record. Undo now names the transaction
+    the bot's own Record made, and the database refuses any other; an entry
+    found recorded already is shown as its record has it, with no Undo.
+  - **A bare "no" with a list open is told to reply to the list**, as a
+    bare "yes" was: it could set aside one of the list's entries and write
+    over the list.
+  - **A message is tied to its entry only once it shows it.** The tie was
+    made before the message was edited, so an edit Telegram refused left
+    old figures on screen with a Record that would save the new ones. An
+    edit that fails now unties it, and Telegram's "message is not modified"
+    counts as showing it.
+

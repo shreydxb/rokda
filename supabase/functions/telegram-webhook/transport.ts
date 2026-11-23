@@ -43,8 +43,8 @@ export async function tgCall(method: string, body: Record<string, unknown>) {
 // is the one caller that needs it: that id is what a later "yes" reply or 👍
 // reaction points back at, and so is what ties a confirmation to one specific
 // intake rather than to whatever happens to be newest (QA #2).
-export async function reply(chatId: number, text: string): Promise<number | null> {
-  const res = (await tgCall("sendMessage", { chat_id: chatId, text })) as
+export async function reply(chatId: number, text: string, replyMarkup: unknown = null): Promise<number | null> {
+  const res = (await tgCall("sendMessage", { chat_id: chatId, text, ...(replyMarkup ? { reply_markup: replyMarkup } : {}) })) as
     | { result?: { message_id?: number } }
     | undefined;
   return res?.result?.message_id ?? null;
