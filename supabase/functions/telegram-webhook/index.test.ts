@@ -134,7 +134,7 @@ freshTest("a file too big for a bot to fetch is said so, not retried for ever", 
   const res = await handler(photoUpdate(7013));
   assertEquals(res.status, 200);
   assertEquals(capturedIntake().length, 0);
-  assert(lastReply().startsWith("That file is too big for me to fetch"), lastReply());
+  assert(lastReply().startsWith("Too big to fetch"), lastReply());
 });
 
 freshTest("a database error on the claim processes nothing and asks Telegram to retry", async () => {
@@ -267,7 +267,7 @@ freshTest("a goal list that could not be read records nothing and says so", asyn
   assertEquals(backend.tables.bot_proposals.length, 0);
   assertEquals(backend.tables.goal_contributions.length, 0);
   assertEquals(capturedIntake().length, 0, "an unreadable goal list sent the message to the Inbox");
-  assert(lastReply().startsWith("I couldn't read your goals just now"), lastReply());
+  assertEquals(lastReply(), "Couldn't read your goals. Nothing saved — send again in a minute.");
 });
 
 freshTest("a transfer between the household's own accounts is proposed, and recorded as one only on a yes", async () => {

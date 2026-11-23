@@ -3,6 +3,7 @@
 import { accountValueAed, unvaluedAccounts } from "../_shared/applib/accounts.js";
 import { monthActualsByCategory } from "../_shared/applib/budget.js";
 import { cashCoverStatus, formatCashCoverLine } from "../_shared/applib/cashCover.js";
+import { day, facts, money, notCounted } from "../_shared/applib/botFormat.js";
 import { daysUntilDue, nextDueDate } from "../_shared/applib/creditCard.js";
 import { householdDay, householdToday, householdYearMonth, isPosted, parseDay } from "../_shared/applib/day.js";
 import { estimateAed } from "../_shared/applib/fxHistory.js";
@@ -365,7 +366,7 @@ export function householdRows<T = Record<string, unknown>>(table: string, househ
 
 // What the bot says instead of a figure it could not read in full.
 export function figuresUnavailableMessage(): string {
-  return "I couldn't read all of your figures just now, so I won't guess at an answer. Please ask again in a minute.";
+  return "Couldn't read your figures. Ask again in a minute.";
 }
 
 
@@ -429,8 +430,13 @@ export async function toolGetCategorySpend(householdId: string, scopeMemberId: s
   const from = month === 1 ? monthStartIso(year, 0) : monthStartIso(year, 1);
   const transactions = await transactionsBetween(householdId, from, monthStartIso(year, month + 1), cat.id);
 
-  const spend = categorySpendForPeriod(transactions, cat.id, String(args.period ?? "this_month"), scopeMemberId, now);
-  return { category: cat.name, period: args.period, spend_aed: round2(spend) };
+  // The period the figure was worked out for: any other the router sends is
+  // summed as this month, and an answer naming "this week" over a month's
+  // figure would be wrong (the fresh review of 8a).
+  const asked = String(args.period ?? "this_month");
+  const period = asked === "last_month" || asked === "this_year" ? asked : "this_month";
+  const spend = categorySpendForPeriod(transactions, cat.id, period, scopeMemberId, now);
+  return { category: cat.name, period, spend_aed: round2(spend) };
 }
 
 
@@ -901,42 +907,69 @@ export async function buildBriefMessage(householdId: string): Promise<string> {
       })(),
     ),
   ]);
+  return briefMessage({ netWorth, monthSpend, bills, budgetAlerts, cashCover, pendingCount }, householdToday());
+}
 
-  const lines: string[] = [];
-  // The incompleteness rides on the same line as the figure it qualifies --
-  // a separate footnote at the bottom of a digest is a footnote nobody reads
-  // (QA #4).
-  lines.push(
-    netWorth === NOT_READ
-      ? "Net worth: couldn't be read just now."
-      : `Net worth: AED ${netWorth.net_worth_aed.toLocaleString()}${netWorth.incomplete ? ` (${netWorth.incomplete})` : ""}`
-  );
-  lines.push(monthSpend === NOT_READ ? "Spent this month: couldn't be read just now." : `Spent this month: AED ${monthSpend.toLocaleString()}`);
+// The counts are required: renamed or dropped, the ⚠ line would go quietly
+// (the fresh review of 8a).
+type BriefNetWorth = { net_worth_aed: number; unconverted_accounts: number; unvalued_holdings: number };
+type BriefBills = {
+  recurring: Array<{ name: string; amount_aed: number; due_date: string }>;
+  credit_cards: Array<{ name: string; amount_owed_aed: number | null; amount_owed?: number; currency?: string; due_date: string }>;
+};
+
+// A net worth line, and on its own line what the figure leaves out (review
+// T24). Before, the note rode in brackets on the figure's line, as a long
+// sentence (QA #4 asked only that it travel with the figure, which a line of
+// its own beside it still does).
+function netWorthLines(label: string, netWorth: BriefNetWorth | typeof NOT_READ): string[] {
+  if (netWorth === NOT_READ) return [`${label}: couldn't be read just now.`];
+  const left = notCounted({ accounts: netWorth.unconverted_accounts, holdings: netWorth.unvalued_holdings });
+  // "Leaves out" says the figure is short of them, as "Excludes" did.
+  return [`${label}: ${money(netWorth.net_worth_aed)}`, ...(left ? [`⚠ Leaves out ${left}`] : [])];
+}
+
+// The brief's lines (review T24, the revamp's phase 8a): one label and one
+// figure a line, in the bot's one format (_shared/applib/botFormat.js), and a
+// warning on a ⚠ line of its own. Pure, so a test can read it whole.
+export function briefMessage(
+  data: {
+    netWorth: BriefNetWorth | typeof NOT_READ;
+    monthSpend: number | typeof NOT_READ;
+    bills: BriefBills | typeof NOT_READ;
+    budgetAlerts: Array<{ category: string; pct: number }> | typeof NOT_READ;
+    cashCover: Parameters<typeof formatCashCoverLine>[0] | typeof NOT_READ;
+    pendingCount: number | typeof NOT_READ;
+  },
+  today: string,
+): string {
+  const { netWorth, monthSpend, bills, budgetAlerts, cashCover, pendingCount } = data;
+  const lines: string[] = [...netWorthLines("Net worth", netWorth)];
+  lines.push(monthSpend === NOT_READ ? "Spent this month: couldn't be read just now." : `Spent this month: ${money(monthSpend)}`);
 
   if (bills === NOT_READ) {
     lines.push("Bills due: couldn't be read just now.");
   } else {
     const billLines = [
-      ...bills.recurring.map((r: { name: string; amount_aed: number; due_date: string }) => `${r.name} AED ${r.amount_aed} (${r.due_date})`),
-      ...bills.credit_cards.map((c: { name: string; amount_owed_aed: number | null; amount_owed?: number; currency?: string; due_date: string }) =>
+      ...bills.recurring.map((r) => `• ${facts(r.name, money(r.amount_aed), day(r.due_date, today))}`),
+      ...bills.credit_cards.map((c) =>
         c.amount_owed_aed === null
-          ? `${c.name} ${c.currency} ${c.amount_owed} not converted (${c.due_date})`
-          : `${c.name} AED ${c.amount_owed_aed} (${c.due_date})`
+          ? `• ${facts(c.name, money(c.amount_owed ?? 0, c.currency), "not converted", day(c.due_date, today))}`
+          : `• ${facts(c.name, money(c.amount_owed_aed), day(c.due_date, today))}`
       ),
     ];
-    lines.push(billLines.length ? `Due in 14 days: ${billLines.join(", ")}` : "Nothing due in the next 14 days.");
+    lines.push(...(billLines.length ? ["Due in 14 days:", ...billLines] : ["Nothing due in the next 14 days."]));
   }
 
-  if (budgetAlerts === NOT_READ) {
-    lines.push("Budget watch: couldn't be read just now.");
-  } else if (budgetAlerts.length) {
-    lines.push(`Budget watch: ${budgetAlerts.map((a) => `${a.category} ${a.pct}%`).join(", ")}`);
-  }
+  if (budgetAlerts === NOT_READ) lines.push("Budget: couldn't be read just now.");
+  else if (budgetAlerts.length) lines.push(`Budget: ${facts(...budgetAlerts.map((a) => `${a.category} ${a.pct}%`))}`);
 
+  // Cash cover keeps the sentence it shares with the app (its caveats are
+  // the whole of QA #4); the morning message restyles it (phase 8c).
   lines.push(cashCover === NOT_READ ? "Cash cover: couldn't be read just now." : formatCashCoverLine(cashCover));
 
   if (pendingCount === NOT_READ) lines.push("Inbox: couldn't be read just now.");
-  else lines.push(pendingCount ? `Inbox: ${pendingCount} item${pendingCount === 1 ? "" : "s"} to review.` : "Inbox is clear.");
+  else lines.push(pendingCount ? `Inbox: ${pendingCount} to review` : "Inbox is clear.");
 
   return lines.join("\n");
 }
@@ -954,10 +987,8 @@ export async function buildMonthlyReviewMessage(householdId: string, year: numbe
   const monthLabel = new Date(year, month - 1, 1).toLocaleString("en-US", { month: "long", year: "numeric" });
   const lines: string[] = [
     `${monthLabel} in review:`,
-    monthSpend === NOT_READ ? "Spent: couldn't be read just now." : `Spent: AED ${monthSpend.toLocaleString()}`,
-    netWorth === NOT_READ
-      ? "Net worth now: couldn't be read just now."
-      : `Net worth now: AED ${netWorth.net_worth_aed.toLocaleString()}${netWorth.incomplete ? ` (${netWorth.incomplete})` : ""}`,
+    monthSpend === NOT_READ ? "Spent: couldn't be read just now." : `Spent: ${money(monthSpend)}`,
+    ...netWorthLines("Net worth now", netWorth),
     cashCover === NOT_READ ? "Cash cover: couldn't be read just now." : formatCashCoverLine(cashCover),
   ];
   return lines.join("\n");

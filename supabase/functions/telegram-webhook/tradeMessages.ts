@@ -41,14 +41,14 @@ export async function householdMembers(householdId: string): Promise<Array<{ id:
 }
 
 
-export const TRADE_READ_FAILED = "I couldn't read your holdings just now, so nothing was saved. Please send it again in a minute.";
+export const TRADE_READ_FAILED = "Couldn't read your holdings. Nothing saved — send again in a minute.";
 
 
 // Telegram lets a bot download files up to 20 MB; a bigger one cannot be
 // fetched however often the update is retried.
-export const FILE_TOO_BIG = "That file is too big for me to fetch: Telegram lets bots download files up to 20 MB. Send a smaller photo or a screenshot, or type it.";
+export const FILE_TOO_BIG = "Too big to fetch (over 20 MB). Send a smaller photo or a screenshot, or type it.";
 
-export const FILE_TOO_BIG_CAPTION_KEPT = "That file is too big for me to fetch: Telegram lets bots download files up to 20 MB. I've kept its caption; send a smaller photo or a screenshot to add the receipt.";
+export const FILE_TOO_BIG_CAPTION_KEPT = "Too big to fetch (over 20 MB). Its caption is kept; send a smaller photo for the receipt.";
 
 
 // Why a trade message could not even be drafted.

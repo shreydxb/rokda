@@ -4546,3 +4546,46 @@ With it, every screen of the prototype is built.
     done before; day counts are the household's, and read "today" and
     "1 day ago".
 
+## The bot: one format, short failures, the brief
+
+The revamp's phase 8a (design note `docs/superpowers/specs/2026-11-23-telegram-bot-design.md`;
+the UI review's T17, T18, T21, T22, T24 and T25). The prototype has no bot, so
+the review is the target.
+
+- **One way of writing money and dates** (`_shared/applib/botFormat.js`):
+  "AED 1,234", with decimals only when they are not zero, in the currency
+  that was read; "3 Oct", the year only when not this year; "·" between
+  facts. Bot-only: the app has its own formatters. 8a writes the brief and
+  the failures through it; 8b and 8c write the messages they rebuild
+  through it, with the three outcome words (Recorded, In the Inbox,
+  Cancelled), so no message is rewritten twice.
+- **A failure says what happened and what is safe, in a few words**:
+  "Couldn't read that. It's in the Inbox." or "Nothing saved — send
+  again." The explanations went (Telegram's file limit, a confirmation that
+  "will only be saved once").
+- **The brief gives one label and figure a line**, and what net worth
+  leaves out on a ⚠ line of its own ("⚠ 1 account not converted"): it rode
+  in brackets as a long sentence. QA #4 asked only that the note travel with
+  the figure, which a line right under it still does. Cash cover keeps the
+  sentence it shares with the app, whose caveats are QA #4 itself; the
+  morning message restyles it (8c).
+- **An answer leads with its figure**, in the same format, and names the
+  period ("Groceries this month: AED 1,234").
+- **The fresh review of 8a** changed these:
+  - **Money stays in its own currency in an answer**: the prompt asked for
+    "AED 1,234" beside data holding rupee balances and dollar profits,
+    which is how 20,000 rupees could read as dirhams (QA #4). It now asks
+    for the currency the data gives, and for an "incomplete" or "note" the
+    data carries to be said right after the figure.
+  - **The period is the one the figure was worked out for**: a period the
+    tool doesn't know is summed as this month and now says so, and an
+    answer names a period only when the data gives one. The prompt is
+    given today's date, to judge the year by.
+  - **The busy reply still says to ask again** if it was a question, and
+    the failures that need a retry say "in a minute".
+  - **What net worth leaves out says so**: "⚠ Leaves out 1 account not
+    converted".
+  - **money() never says "-0", "NaN" or zero for an unknown amount**, and
+    puts a minus before the code, as the trade messages do; day() reads a
+    moment as the household's day.
+

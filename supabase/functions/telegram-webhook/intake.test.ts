@@ -169,7 +169,7 @@ freshTest("a message read in full that holds no expense is not left in the Inbox
   backend.parse = [];
   await handler(textUpdate(7801, "small correction, it was spent on 5th September"));
   assertEquals(capturedIntake().filter((r) => r.status === "pending").length, 0);
-  assertEquals(lastReply(), 'I didn\'t find an expense, income or refund in that, so nothing is waiting in the Inbox. To record one, send the amount and who was paid, like "45 at Noon".');
+  assertEquals(lastReply(), 'No expense, income or refund in that, so nothing was kept. Send it like "45 at Noon".');
 });
 
 // The no-digit rule is for a message nothing could read. One the router
@@ -187,7 +187,7 @@ freshTest("a message routed as an expense in which the parser finds none is answ
   backend.parse = [];
   await handler(textUpdate(7804, "bought coffee"));
   assertEquals(capturedIntake().filter((r) => r.status === "pending").length, 0);
-  assert(lastReply().startsWith("I didn't find an expense, income or refund in that"), lastReply());
+  assert(lastReply().startsWith("No expense, income or refund in that"), lastReply());
 });
 
 // An answer the parser could not use is not an answer of "nothing": the
@@ -208,7 +208,7 @@ freshTest("a message set aside is not said to be in the Inbox when Telegram deli
   await handler(textUpdate(7807, "it was on the 5th"));
   backend.log.delete(7807);
   await handler(textUpdate(7807, "it was on the 5th"));
-  assert(lastReply().startsWith("I didn't find an expense, income or refund in that"), lastReply());
+  assert(lastReply().startsWith("No expense, income or refund in that"), lastReply());
 });
 
 freshTest("a photo the parser finds nothing in still waits in the Inbox to be read by a person", async () => {

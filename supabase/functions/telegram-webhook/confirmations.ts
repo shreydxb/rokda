@@ -693,7 +693,7 @@ export async function decideProposal(
   if (error || !data || typeof data !== "object") {
     // Applying is one transaction and repeatable, so asking for the same
     // answer again is safe whether or not this attempt got through.
-    await reply(chatId, 'I couldn\'t confirm that just now. Reply "yes" to my message again in a moment; it will only be saved once.');
+    await reply(chatId, 'Couldn\'t confirm that. Reply "yes" to it again in a minute.');
     return;
   }
   if (trade) {
