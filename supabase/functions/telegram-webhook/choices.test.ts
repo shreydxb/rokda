@@ -170,7 +170,7 @@ freshTest("after a pasted list, an entry missing its category is asked about wit
   ];
   await handler(textUpdate(9516, "pasted sms"));
   const texts = backend.telegramSent.map((m) => String(m.body.text));
-  assert(texts.some((t) => t.startsWith("Got 3 from that message")), texts.join("\n---\n"));
+  assert(texts.some((t) => t.startsWith("3 from that message")), texts.join("\n---\n"));
   const prompt = lastPrompt();
   assert(prompt.text.includes("Odd Place") && prompt.text.includes("Which category?"), prompt.text);
 });

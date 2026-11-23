@@ -1,7 +1,11 @@
 // Reviewing a pasted batch in Telegram (docs/decisions.md, "A pasted batch
-// is finished in Telegram"): reading a reply to the numbered list, and
-// writing the list. Pure, so both are tested without the handler; the
-// handler side is batchReview.ts.
+// is finished in Telegram", and the revamp's phase 8b, "A pasted list is
+// answered with buttons"): reading a reply to the numbered list, writing the
+// list and its buttons, and showing it again as its entries come to stand.
+// Pure, so all of it is tested without the handler; the handler side is
+// batchReview.ts.
+import { day, facts, money } from "../_shared/applib/botFormat.js";
+import { householdToday } from "../_shared/applib/day.js";
 
 // More than this many entries is not a list anyone checks line by line in a
 // chat; the rest wait in the Inbox, and the list says how many.
@@ -134,7 +138,7 @@ export function isBatchCommand(text: string, today: string): boolean {
   return command != null && command.kind !== "invalid";
 }
 
-export type ListedEntry = { amount: number; merchant: string; account: string; category: string; undated: boolean };
+export type ListedEntry = { amount: number; merchant: string; account: string; category: string; date: string | null; undated: boolean };
 
 export type ListNotes = {
   recorded: Array<{ merchant: string; amount: number }>;
@@ -142,14 +146,12 @@ export type ListNotes = {
   overCap: number;
 };
 
-function aed(amount: number): string {
-  return `AED ${Number(amount).toFixed(2)}`;
-}
-
-// One entry as the list shows it, after its number. A reply is checked
-// against this, so an entry changed since is never recorded unseen.
-export function listLine(e: Omit<ListedEntry, "undated">): string {
-  return `${aed(e.amount)} · ${e.merchant} · ${e.account} · ${e.category}`;
+// One entry as the list shows it, after its number, in the bot's one format:
+// who, how much, the category and card, and its day when the SMS gave one.
+// A reply is checked against this, so an entry changed since is never
+// recorded unseen.
+export function listLine(e: Omit<ListedEntry, "undated">, today = householdToday()): string {
+  return facts(e.merchant, money(e.amount), e.category, e.account, e.date && day(e.date, today));
 }
 
 // The numbered lines of a list as sent, by number, without the "no date" mark.
@@ -162,33 +164,134 @@ export function listedLines(text: string): Map<number, string> {
   return lines;
 }
 
-// The numbered list sent after a paste of several entries. Entries with no
-// date in the SMS are dated by the reply, so the instruction asks for a day
-// whenever one is undated; in a list where only some are, those are marked.
-export function batchListMessage(listed: ListedEntry[], notes: ListNotes): string {
+// Asked under the entries while one the SMS gave no day waits on the list.
+export const LIST_QUESTION_ALL = "No dates in the SMS: when were they paid?";
+export const LIST_QUESTION_SOME = "Some have no date in the SMS: when were those paid?";
+
+// The numbered list sent after a paste of several entries: how many the
+// message held, a line an entry, the question for the day when the SMS gave
+// none (in a list where only some lack one, those are marked), then what was
+// left out and why. Its buttons are listKeyboard's.
+export function batchListMessage(listed: ListedEntry[], notes: ListNotes, today = householdToday()): string {
   const total = listed.length + notes.recorded.length + notes.waiting.length + notes.overCap;
   const undated = listed.filter((e) => e.undated).length;
   const mixed = undated > 0 && undated < listed.length;
-  const lines = [`Got ${total} from that message. Reply to this to record them:`];
+  const lines = [`${total} from that message`];
   listed.forEach((e, i) => {
-    lines.push(`${i + 1}. ${listLine(e)}${mixed && e.undated ? " · no date" : ""}`);
+    lines.push(`${i + 1}. ${listLine(e, today)}${mixed && e.undated ? " · no date" : ""}`);
   });
-  const range = listed.length > 1 ? `1-${listed.length}` : "1";
-  if (undated) {
-    lines.push(`${mixed ? "Some have no date" : "No date"} in the SMS: say the day they were paid, like "all on 2 Oct", or "${range} on 2 Oct" for some. "drop 2" sets one aside.`);
-  } else {
-    lines.push(`Reply "all" to record them, or "${range}" for some. "drop 2" sets one aside.`);
-  }
-  if (notes.recorded.length) {
-    const n = notes.recorded.length;
-    const named = notes.recorded.map((r) => `${r.merchant}, ${aed(r.amount)}`).join("; ");
-    lines.push(`${n} more ${n === 1 ? "is" : "are"} already recorded (${named}), left out.`);
-  }
-  if (notes.waiting.length) {
-    const n = notes.waiting.length;
-    const named = notes.waiting.map((w) => (w.merchant ? `${w.merchant}: ${w.reason}` : w.reason)).join("; ");
-    lines.push(`${n} ${n === 1 ? "needs" : "need"} a look in the Inbox (${named}).`);
-  }
-  if (notes.overCap) lines.push(`${notes.overCap} more wait in the Inbox (a list takes ${BATCH_LIST_CAP} at most).`);
+  if (undated) lines.push(mixed ? LIST_QUESTION_SOME : LIST_QUESTION_ALL);
+  for (const r of notes.recorded) lines.push(`Already recorded, left out · ${facts(r.merchant, money(r.amount))}`);
+  for (const w of notes.waiting) lines.push(`In the Inbox · ${facts(w.merchant ?? "One entry", w.reason)}`);
+  if (notes.overCap) lines.push(`In the Inbox · ${notes.overCap} more · a list takes ${BATCH_LIST_CAP}`);
   return lines.join("\n");
+}
+
+// --- The list's buttons ----------------------------------------------------
+//
+// "L", what the button does, and which entries it is about as a bit mask of
+// their numbers (bit 0 is entry 1), in base 36; no mask is every entry still
+// offered. a records, t and y record on today or yesterday (the day goes to
+// entries the SMS gave none), o says how to give another day, c and x show
+// the entries to choose from (x with those chosen so far), s sets the chosen
+// aside, b goes back. The list is the message tapped, and every tap is
+// checked against it and the database (batchReview.ts).
+
+export type ListOp = "a" | "t" | "y" | "o" | "c" | "x" | "s" | "b";
+type Button = { text: string; callback_data: string };
+export type ListKeyboard = { inline_keyboard: Button[][] };
+
+export function encodeListTap(op: ListOp, mask = 0): string {
+  return `L${op}${mask ? mask.toString(36) : ""}`;
+}
+
+export function decodeListTap(data: string): { op: ListOp; mask: number } | null {
+  const m = /^L([atyocxsb])([0-9a-z]{0,5})$/.exec(data);
+  if (!m) return null;
+  const mask = m[2] ? parseInt(m[2], 36) : 0;
+  return mask < 2 ** BATCH_LIST_CAP ? { op: m[1] as ListOp, mask } : null;
+}
+
+// The entry numbers a mask names, ascending.
+export function listNumbers(mask: number): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < BATCH_LIST_CAP; i++) if (mask & (1 << i)) out.push(i + 1);
+  return out;
+}
+
+const tap = (text: string, op: ListOp, mask = 0): Button => ({ text, callback_data: encodeListTap(op, mask) });
+
+// Under the list: Record all when every entry offered has its day, or the
+// days to record them on when one has none; Choose… for some of them.
+export function listKeyboard(undated: boolean): ListKeyboard {
+  return undated
+    ? { inline_keyboard: [[tap("Today", "t"), tap("Yesterday", "y")], [tap("Other day", "o"), tap("Choose…", "c")]] }
+    : { inline_keyboard: [[tap("Record all", "a"), tap("Choose…", "c")]] };
+}
+
+// Choose…: a button an entry still offered, labelled with who and how much
+// as the list shows them, ticked once chosen (a tap toggles it), then what
+// can be done with those chosen, and Back.
+export function chooseKeyboard(entries: Array<{ n: number; label: string; undated: boolean }>, mask: number): ListKeyboard {
+  const rows: Button[][] = entries.map((e) => {
+    const bit = 1 << (e.n - 1);
+    const label = `${mask & bit ? "✓ " : ""}${e.n}. ${e.label}`;
+    return [tap(label.length > 40 ? `${label.slice(0, 39)}…` : label, "x", mask ^ bit)];
+  });
+  const chosen = entries.filter((e) => mask & (1 << (e.n - 1)));
+  if (chosen.length) {
+    rows.push(chosen.some((e) => e.undated) ? [tap("Today", "t", mask), tap("Yesterday", "y", mask), tap("Other day", "o", mask)] : [tap(`Record ${chosen.length}`, "a", mask)]);
+    rows.push([tap(`Set aside ${chosen.length}`, "s", mask)]);
+  }
+  rows.push([tap("Back", "b")]);
+  return { inline_keyboard: rows };
+}
+
+// What became of an entry by what was just done on the list.
+export type ListMark = "recorded" | "dropped" | "changed" | "repeat";
+
+// The list shown again as its entries now stand. The lines under the header
+// are its entries, in order, one each: an entry still offered keeps its
+// numbered line; one recorded or cancelled from the list keeps what it
+// showed, with a tick or "Cancelled"; one left in the Inbox, or settled in
+// the app since, says so. Only what the list showed is ever repeated, never
+// figures read since. offered are the numbers still offered, and undated
+// whether one of them still needs its day. Null when the text is not a list
+// of these entries.
+export function renderList(
+  text: string,
+  rows: Array<{ status: string; undated: boolean; merchant: string | null }>,
+  marks: Map<number, ListMark>,
+): { text: string; offered: number[]; undated: boolean } | null {
+  const lines = text.split("\n");
+  if (!rows.length || lines.length < rows.length + 1) return null;
+  let rest = lines.slice(rows.length + 1);
+  if (rest[0] === LIST_QUESTION_ALL || rest[0] === LIST_QUESTION_SOME) rest = rest.slice(1);
+  const offered: number[] = [];
+  let undated = 0;
+  const items = lines.slice(1, rows.length + 1).map((line, i) => {
+    const m = /^(\d+)\. (.*?)( · no date)?$/.exec(line);
+    // Settled on the list before: shown as it was.
+    if (!m || Number(m[1]) !== i + 1) return line;
+    const shown = m[2];
+    const row = rows[i];
+    const who = row.merchant ?? "One entry";
+    switch (marks.get(i)) {
+      case "recorded":
+        return `✓ ${shown}`;
+      case "dropped":
+        return `Cancelled · ${shown}`;
+      case "changed":
+        return `In the Inbox · ${who} · changed since`;
+      case "repeat":
+        return `In the Inbox · ${shown} · looks recorded already`;
+    }
+    if (row.status === "approved") return `Already recorded · ${who}`;
+    if (row.status !== "pending") return `Already cancelled · ${who}`;
+    offered.push(i + 1);
+    if (row.undated) undated++;
+    return line;
+  });
+  const question = undated ? [undated < offered.length ? LIST_QUESTION_SOME : LIST_QUESTION_ALL] : [];
+  return { text: [lines[0], ...items, ...question, ...rest].join("\n"), offered, undated: undated > 0 };
 }

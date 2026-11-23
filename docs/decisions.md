@@ -4652,3 +4652,58 @@ on its own.
     edit that fails now unties it, and Telegram's "message is not modified"
     counts as showing it.
 
+
+## The bot: buttons on a pasted list, a transfer and a trade
+
+The revamp's phase 8b, its second part (design note
+`docs/superpowers/specs/2026-11-23-telegram-bot-design.md`; the UI review's
+T8, T14 and T15). Buttons are added, not swapped in: every typed answer still
+works.
+
+- **A transfer and a goal contribution are one line with Record and
+  Cancel** (T14): `Transfer AED 3,000 · Current account → Savings · 20 Sep`,
+  `AED 500 toward House · 3 Oct`. The sentences that explained a transfer
+  went. A goal contribution is not in the review's list, but it is a
+  proposal like a transfer and took a typed "yes" the same way, so it got the
+  same buttons rather than staying the one that needs typing.
+- **A trade keeps its lines, in the one format, with Save and Cancel**
+  (T15): `Sell 6 ABC at USD 150 · 27 Oct · brokerage USD 1`, the holding
+  before and after, profit and fund; each warning on a line starting ⚠; an
+  Indian sale without its tax says "Tax: not known yet". Dollars and rupees
+  are written "USD 150" and "INR 1,500", as 8a writes every amount, rather
+  than "$150" and "₹1,500". Undoing a trade asks with Undo trade and Cancel.
+- **A tap turns the message into what was done**: `✓ …` (with the
+  transfer's joined side, or the holding and fund after a trade), or
+  `Cancelled · …`, and a toast says Recorded or Cancelled. Only the member
+  it was proposed to, and only on the message that asked about it, can tap;
+  a tap on one already settled says how it was settled. A typed answer gets
+  the same words as a new message, and the question loses its buttons, as an
+  expense's does; a 👍 turns the question into the outcome. A trade that
+  changed since is cancelled with "changed since" and shown again with
+  today's figures and its own buttons.
+- **Balances, an autopay bill and dividends keep their typed answers** until
+  the morning's questions are rebuilt (8c): their words and buttons come
+  together there.
+- **A pasted list has buttons** (T8): Record all when every entry has its
+  day, or Today, Yesterday and Other day when one has none (the day goes only
+  to the entries the SMS gave none, and never one after the paste); Other day
+  says to reply with the day. Choose… shows a button an entry, ticked when
+  tapped, then Record (or the days) and Set aside for those ticked, and Back.
+  A "yes" to the list reads as "all" when every entry has its day; otherwise
+  it asks which day.
+- **A tap on a list records only what the list shows.** Telegram sends the
+  list's text with the tap, as with a reply, and an entry whose line reads
+  differently now (changed in the Inbox) is left there. A 👍 carries no text,
+  so a 👍 on a list records nothing and says to tap Record all or reply yes.
+- **The list shows each entry as it stands** after any tap or reply:
+  `✓ …` recorded, `Cancelled · …` set aside, `In the Inbox · … · changed
+  since` or `· looks recorded already`, or `Already recorded · …` when it was
+  settled in the app. Only what the list showed is repeated, never figures
+  read since. The buttons fit what it still offers, and go when nothing is
+  left. The numbers keep their meaning: a typed "2" is always the second
+  entry the list showed.
+- **The list's lines are in the one format**: `1. City Taxi · AED 20 ·
+  Transport · Card •0004 · 3 Oct` (who first, as an expense's message), with
+  the day when the SMS gave one. A list sent before this changed reads
+  differently, so a reply to one leaves its entries in the Inbox rather than
+  recording them.

@@ -407,7 +407,7 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
       }
       if (batch.length >= 2) {
         const listText = (message.reply_to_message as { text?: string } | undefined)?.text ?? null;
-        await handleBatchReply(chatId, member, batch, rawText.trim(), householdToday(), listText);
+        await handleBatchReply(chatId, member, batch, rawText.trim(), householdToday(), listText, repliedTo);
         return new Response("ok");
       }
     } else if (/^(all|drop)\b/i.test(rawText.trim()) && isBatchCommand(rawText, householdToday()) && (await hasOpenList(member.household_id, member.id))) {

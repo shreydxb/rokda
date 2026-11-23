@@ -1,6 +1,6 @@
 // Reading a reply to a batch list, and writing the list (batch.ts). Pure: no handler, no backend.
-import { assertEquals } from "jsr:@std/assert@1";
-import { batchListMessage, parseBatchReply, readBatchDate } from "./batch.ts";
+import { assert, assertEquals } from "jsr:@std/assert@1";
+import { batchListMessage, chooseKeyboard, decodeListTap, encodeListTap, LIST_QUESTION_ALL, LIST_QUESTION_SOME, listKeyboard, listNumbers, parseBatchReply, readBatchDate, renderList } from "./batch.ts";
 
 const TODAY = "2026-10-09";
 
@@ -42,28 +42,86 @@ Deno.test("a day and month is the latest such day not after today", () => {
   assertEquals(readBatchDate("someday", TODAY), null);
 });
 
-const TAXI = { amount: 20, merchant: "City Taxi", account: "Bank card", category: "Transport", undated: true };
-const SHOP = { amount: 45.5, merchant: "Corner Shop", account: "Bank card", category: "Groceries", undated: true };
+const LIST_TODAY = "2026-10-20";
+const TAXI = { amount: 20, merchant: "City Taxi", account: "Bank card", category: "Transport", date: null, undated: true };
+const SHOP = { amount: 45.5, merchant: "Corner Shop", account: "Bank card", category: "Groceries", date: null, undated: true };
 
-Deno.test("the list numbers each entry, asks for the date, and names what it left out", () => {
-  const text = batchListMessage([TAXI, SHOP], { recorded: [{ merchant: "City Taxi", amount: 20 }], waiting: [{ merchant: "Pharmacy", reason: "no category" }], overCap: 0 });
+Deno.test("the list names each entry in the one format, asks the day when the SMS gave none, and names what it left out", () => {
+  const text = batchListMessage([TAXI, SHOP], { recorded: [{ merchant: "City Taxi", amount: 20 }], waiting: [{ merchant: "Pharmacy", reason: "needs a category" }], overCap: 0 }, LIST_TODAY);
   assertEquals(text.split("\n"), [
-    "Got 4 from that message. Reply to this to record them:",
-    "1. AED 20.00 · City Taxi · Bank card · Transport",
-    "2. AED 45.50 · Corner Shop · Bank card · Groceries",
-    'No date in the SMS: say the day they were paid, like "all on 2 Oct", or "1-2 on 2 Oct" for some. "drop 2" sets one aside.',
-    "1 more is already recorded (City Taxi, AED 20.00), left out.",
-    "1 needs a look in the Inbox (Pharmacy: no category).",
+    "4 from that message",
+    "1. City Taxi · AED 20 · Transport · Bank card",
+    "2. Corner Shop · AED 45.50 · Groceries · Bank card",
+    LIST_QUESTION_ALL,
+    "Already recorded, left out · City Taxi · AED 20",
+    "In the Inbox · Pharmacy · needs a category",
   ]);
+  assertEquals(LIST_QUESTION_ALL, "No dates in the SMS: when were they paid?");
 });
 
-Deno.test("a list of dated entries asks only for all, and marks an undated one in a mixed list", () => {
-  const dated = batchListMessage([{ ...TAXI, undated: false }, { ...SHOP, undated: false }], { recorded: [], waiting: [], overCap: 3 });
-  assertEquals(dated.split("\n").slice(3), [
-    'Reply "all" to record them, or "1-2" for some. "drop 2" sets one aside.',
-    "3 more wait in the Inbox (a list takes 20 at most).",
+Deno.test("a dated list shows each entry's day and asks nothing; a mixed one marks the undated", () => {
+  const dated = batchListMessage([{ ...TAXI, undated: false, date: "2026-10-03" }, { ...SHOP, undated: false, date: "2026-10-04" }], { recorded: [], waiting: [], overCap: 3 }, LIST_TODAY);
+  assertEquals(dated.split("\n"), [
+    "5 from that message",
+    "1. City Taxi · AED 20 · Transport · Bank card · 3 Oct",
+    "2. Corner Shop · AED 45.50 · Groceries · Bank card · 4 Oct",
+    "In the Inbox · 3 more · a list takes 20",
   ]);
-  const mixed = batchListMessage([{ ...TAXI, undated: false }, SHOP], { recorded: [], waiting: [], overCap: 0 });
-  assertEquals(mixed.split("\n")[2], "2. AED 45.50 · Corner Shop · Bank card · Groceries · no date");
-  assertEquals(mixed.split("\n")[3].startsWith("Some have no date in the SMS: say the day they were paid"), true);
+  const mixed = batchListMessage([{ ...TAXI, undated: false, date: "2026-10-03" }, SHOP], { recorded: [], waiting: [], overCap: 0 }, LIST_TODAY);
+  assertEquals(mixed.split("\n").slice(2), ["2. Corner Shop · AED 45.50 · Groceries · Bank card · no date", LIST_QUESTION_SOME]);
+  assertEquals(LIST_QUESTION_SOME, "Some have no date in the SMS: when were those paid?");
+});
+
+type Button = { text: string; callback_data: string };
+const labels = (k: { inline_keyboard: Button[][] } | null) => (k?.inline_keyboard ?? []).flat().map((b) => b.text);
+
+Deno.test("the list's buttons: Record all and Choose… when each entry has its day; Today, Yesterday and Other day when one has none", () => {
+  assertEquals(labels(listKeyboard(false)), ["Record all", "Choose…"]);
+  assertEquals(labels(listKeyboard(true)), ["Today", "Yesterday", "Other day", "Choose…"]);
+  for (const b of listKeyboard(true).inline_keyboard.flat()) assert(b.callback_data.length <= 64);
+});
+
+Deno.test("a list button is read back as what it does, and anything else is not one", () => {
+  assertEquals(decodeListTap(encodeListTap("a")), { op: "a", mask: 0 });
+  assertEquals(decodeListTap(encodeListTap("t", 0b101)), { op: "t", mask: 5 });
+  assertEquals(decodeListTap(encodeListTap("x", (1 << 20) - 1)), { op: "x", mask: (1 << 20) - 1 });
+  for (const bad of ["", "L", "Lq", "La!", "Xa", "La" + "z".repeat(9)]) assertEquals(decodeListTap(bad), null, bad);
+  assertEquals(listNumbers(0b1010), [2, 4]);
+});
+
+Deno.test("Choose… shows a button an entry, ticked when chosen, and offers what fits those chosen", () => {
+  const entries = [{ n: 1, label: "City Taxi · AED 20", undated: true }, { n: 2, label: "Corner Shop · AED 45.50", undated: false }];
+  assertEquals(labels(chooseKeyboard(entries, 0)), ["1. City Taxi · AED 20", "2. Corner Shop · AED 45.50", "Back"]);
+  assertEquals(labels(chooseKeyboard(entries, 0b10)), ["1. City Taxi · AED 20", "✓ 2. Corner Shop · AED 45.50", "Record 1", "Set aside 1", "Back"]);
+  assertEquals(labels(chooseKeyboard(entries, 0b11)), ["✓ 1. City Taxi · AED 20", "✓ 2. Corner Shop · AED 45.50", "Today", "Yesterday", "Other day", "Set aside 2", "Back"]);
+  const tick = chooseKeyboard(entries, 0b10).inline_keyboard.flat()[0];
+  assertEquals(decodeListTap(tick.callback_data), { op: "x", mask: 0b11 });
+});
+
+Deno.test("the list is shown again as its entries stand: recorded, cancelled, left in the Inbox, or still offered", () => {
+  const text = batchListMessage([TAXI, SHOP, { ...SHOP, merchant: "Fresh Market", amount: 120 }, { ...TAXI, merchant: "Bakery", amount: 9 }], { recorded: [], waiting: [{ merchant: "Pharmacy", reason: "needs a category" }], overCap: 0 }, LIST_TODAY);
+  const rows = [
+    { status: "approved", undated: true, merchant: "City Taxi" },
+    { status: "rejected", undated: true, merchant: "Corner Shop" },
+    { status: "pending", undated: true, merchant: "Fresh Market" },
+    { status: "pending", undated: true, merchant: "Bakery" },
+  ];
+  const once = renderList(text, rows, new Map([[0, "recorded"], [1, "dropped"], [2, "changed"]]));
+  assertEquals(once?.text.split("\n"), [
+    "5 from that message",
+    "✓ City Taxi · AED 20 · Transport · Bank card",
+    "Cancelled · Corner Shop · AED 45.50 · Groceries · Bank card",
+    "In the Inbox · Fresh Market · changed since",
+    "4. Bakery · AED 9 · Transport · Bank card",
+    LIST_QUESTION_ALL,
+    "In the Inbox · Pharmacy · needs a category",
+  ]);
+  assertEquals([once?.offered, once?.undated], [[4], true]);
+  // Shown again with nothing done: the same, and an entry settled in the app
+  // since is said to be settled, never offered.
+  const settled = renderList(once!.text, rows.map((r, i) => i === 3 ? { ...r, status: "approved" } : r), new Map());
+  assertEquals(settled?.text.split("\n").slice(1, 5).at(-1), "Already recorded · Bakery");
+  assertEquals([settled?.offered, settled?.text.includes(LIST_QUESTION_ALL)], [[], false]);
+  // A list it cannot read is not redrawn.
+  assertEquals(renderList("1 from that message", rows, new Map()), null);
 });
