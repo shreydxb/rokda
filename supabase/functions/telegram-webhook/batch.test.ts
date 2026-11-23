@@ -92,8 +92,8 @@ Deno.test("a list button is read back as what it does, and anything else is not 
 Deno.test("Choose… shows a button an entry, ticked when chosen, and offers what fits those chosen", () => {
   const entries = [{ n: 1, label: "City Taxi · AED 20", undated: true }, { n: 2, label: "Corner Shop · AED 45.50", undated: false }];
   assertEquals(labels(chooseKeyboard(entries, 0)), ["1. City Taxi · AED 20", "2. Corner Shop · AED 45.50", "Back"]);
-  assertEquals(labels(chooseKeyboard(entries, 0b10)), ["1. City Taxi · AED 20", "✓ 2. Corner Shop · AED 45.50", "Record 1", "Set aside 1", "Back"]);
-  assertEquals(labels(chooseKeyboard(entries, 0b11)), ["✓ 1. City Taxi · AED 20", "✓ 2. Corner Shop · AED 45.50", "Today", "Yesterday", "Other day", "Set aside 2", "Back"]);
+  assertEquals(labels(chooseKeyboard(entries, 0b10)), ["1. City Taxi · AED 20", "✓ 2. Corner Shop · AED 45.50", "Record 1", "Discard 1", "Back"]);
+  assertEquals(labels(chooseKeyboard(entries, 0b11)), ["✓ 1. City Taxi · AED 20", "✓ 2. Corner Shop · AED 45.50", "Today", "Yesterday", "Other day", "Discard 2", "Back"]);
   const tick = chooseKeyboard(entries, 0b10).inline_keyboard.flat()[0];
   assertEquals(decodeListTap(tick.callback_data), { op: "x", mask: 0b11 });
 });
@@ -101,10 +101,10 @@ Deno.test("Choose… shows a button an entry, ticked when chosen, and offers wha
 Deno.test("the list is shown again as its entries stand: recorded, cancelled, left in the Inbox, or still offered", () => {
   const text = batchListMessage([TAXI, SHOP, { ...SHOP, merchant: "Fresh Market", amount: 120 }, { ...TAXI, merchant: "Bakery", amount: 9 }], { recorded: [], waiting: [{ merchant: "Pharmacy", reason: "needs a category" }], overCap: 0 }, LIST_TODAY);
   const rows = [
-    { status: "approved", undated: true, merchant: "City Taxi" },
-    { status: "rejected", undated: true, merchant: "Corner Shop" },
-    { status: "pending", undated: true, merchant: "Fresh Market" },
-    { status: "pending", undated: true, merchant: "Bakery" },
+    { status: "approved", undated: true },
+    { status: "rejected", undated: true },
+    { status: "pending", undated: true },
+    { status: "pending", undated: true },
   ];
   const once = renderList(text, rows, new Map([[0, "recorded"], [1, "dropped"], [2, "changed"]]));
   assertEquals(once?.text.split("\n"), [
@@ -124,4 +124,14 @@ Deno.test("the list is shown again as its entries stand: recorded, cancelled, le
   assertEquals([settled?.offered, settled?.text.includes(LIST_QUESTION_ALL)], [[], false]);
   // A list it cannot read is not redrawn.
   assertEquals(renderList("1 from that message", rows, new Map()), null);
+});
+
+Deno.test("the list repeats only what it showed: an entry renamed in the Inbox keeps the list's name, and one left there can still be cancelled", () => {
+  const text = batchListMessage([TAXI, SHOP], { recorded: [], waiting: [], overCap: 0 }, LIST_TODAY);
+  // Renamed in the Inbox since: the list still names it as it showed it.
+  const rows = [{ status: "pending", undated: true }, { status: "pending", undated: true }];
+  const changed = renderList(text, rows, new Map([[0, "changed"]]));
+  assertEquals(changed?.text.split("\n")[1], "In the Inbox · City Taxi · changed since");
+  const dropped = renderList(changed!.text, rows.map((r, i) => i === 0 ? { ...r, status: "rejected" } : r), new Map([[0, "dropped"]]));
+  assertEquals(dropped?.text.split("\n")[1], "Cancelled · City Taxi");
 });

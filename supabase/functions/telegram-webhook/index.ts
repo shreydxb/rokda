@@ -66,7 +66,7 @@ import { isBatchCommand } from "./batch.ts";
 import { plainView, sendChoicePrompt, sendEntryPrompt, viewOf } from "./choices.ts";
 import { handleTap } from "./taps.ts";
 import { cancelledText, inboxReason, inboxText } from "./expenseMessages.ts";
-import { BATCH_UNADDRESSED_HINT, batchForPrompt, handleBatchReply, hasOpenList, type SavedItem, sendBatchList } from "./batchReview.ts";
+import { BATCH_UNADDRESSED_HINT, batchForPrompt, handleBatchReply, hasOpenList, listPrompts, type SavedItem, sendBatchList } from "./batchReview.ts";
 import { confirmCandidates, confirmPendingIntake, decideAutopay, discardPendingIntake, decidedProposalMessage, decideProposal, handleReaction, intakeForPrompt, openProposals, PENDING_WINDOW_MS, type PendingIntakeRow, type PromptLookup, PROPOSAL_COLUMNS, proposalForPrompt, type ProposalRow, RECENT_INTAKE_COLUMNS, recentlyDecidedProposal, sendProposal } from "./confirmations.ts";
 import { DIVIDEND_CLASSES, DIVIDEND_GUARD_REPLY, readsAsDividend } from "./dividends.ts";
 import { OPENROUTER_API_KEY, supabase, SUPABASE_URL, TELEGRAM_BOT_TOKEN } from "./env.ts";
@@ -420,13 +420,25 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
       confirmCandidates(member.household_id, member.id),
     ]);
 
+    // Entries on a pasted list are answered through the list, never by a
+    // bare "yes" or "no" or a correction: those would skip the list's check
+    // against what it showed, write over it, or take an entry off it and
+    // shift its numbers (the fresh review of 8b's second part). Not knowing
+    // which messages are lists counts every entry with a message as on one.
+    const boundTo = [...new Set(candidates.rows.filter((r) => r.confirm_message_id != null).map((r) => Number(r.confirm_message_id)))];
+    const lists = await listPrompts(member.household_id, member.id, chatId, boundTo);
+    const onList = (r: PendingIntakeRow) => r.confirm_message_id != null && (lists === "failed" || lists.has(Number(r.confirm_message_id)));
+    const offList = candidates.rows.filter((r) => !onList(r));
+
     // What a correction would amend, decided by the same rules as a
-    // confirmation: an addressed message amends what it names or nothing.
+    // confirmation: an addressed message amends what it names or nothing. An
+    // entry on a list is never one, and one beside it is not taken for the
+    // only one waiting.
     const correction = resolveCorrectionTarget({
       lookup: promptLookup.kind,
       row: promptLookup.row,
-      recent: candidates.rows,
-      truncated: candidates.truncated,
+      recent: offList,
+      truncated: candidates.truncated || offList.length < candidates.rows.length,
     });
     recentPending = correction.kind === "one" ? correction.row : null;
 
@@ -462,19 +474,15 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
 
     const strictYes = isConfirmationText(trimmedText);
     const strictNo = isCancellationText(trimmedText);
-    // A bare "yes" or "no" while an entry ready for one is on a list: a list
-    // is answered by replying to it, with a day where the SMS had none. A
-    // bare "no" would otherwise set aside one of its entries and write over
-    // the list (the fresh review of 8b).
-    if ((strictYes || strictNo) && repliedTo == null) {
-      const perPrompt = new Map<number, number>();
-      for (const r of candidates.rows) if (r.confirm_message_id != null) perPrompt.set(r.confirm_message_id, (perPrompt.get(r.confirm_message_id) ?? 0) + 1);
-      // Only an entry a "yes" could record: a list of undated entries does
-      // not stand in the way of a single entry's own prompt.
-      if (candidates.rows.some((r) => isConfirmable(r) && r.confirm_message_id != null && (perPrompt.get(r.confirm_message_id) ?? 0) >= 2)) {
-        await reply(chatId, BATCH_UNADDRESSED_HINT);
-        return new Response("ok");
-      }
+    // A bare "yes" or "no" while an entry ready for one is on a list, even
+    // the last one it offers: a list is answered with its buttons or by
+    // replying to it. A bare answer would otherwise record or set aside that
+    // entry without the list's check, and write over the list (the fresh
+    // reviews of 8b). Only an entry a "yes" could record counts: a list of
+    // undated entries does not stand in the way of a single entry's prompt.
+    if ((strictYes || strictNo) && repliedTo == null && candidates.rows.some((r) => isConfirmable(r) && onList(r))) {
+      await reply(chatId, BATCH_UNADDRESSED_HINT);
+      return new Response("ok");
     }
     const autopay = autopayAnswer(trimmedText);
     const confirming = strictYes || autopay.decision === "paid";

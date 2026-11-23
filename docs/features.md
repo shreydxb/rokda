@@ -597,11 +597,12 @@ went: Overview's Plan strip and To do say what it said.
   in full (up to 20; repeats of records already made, and entries missing
   something, are named and left in the Inbox). Under it, Record all when
   every SMS had its date, or Today, Yesterday and Other day when one had
-  none, and Choose… to tick some and record or set aside just those. A reply
+  none, and Choose… to tick some and record or discard just those. A reply
   still works: "all on 2 Oct", "1-3, 5 on 2 Oct", "all" (or "yes") when
   every SMS had its date, "drop 4". The list then shows each entry as it
   stands (`✓ …`, `Cancelled · …`, or in the Inbox and why), and records only
-  what it showed. Only the sender's tap or reply counts.
+  what it showed. Only the sender's tap or reply counts; a bare "yes" or
+  "no", or a correction, never reaches an entry on a list.
 - Answers questions: spending by category, net worth, account balances,
   upcoming bills, budget status, holdings. Every figure is read in full; if a
   read fails, it says it could not answer rather than giving a partial figure.

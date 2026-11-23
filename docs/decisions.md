@@ -4688,7 +4688,7 @@ works.
   day, or Today, Yesterday and Other day when one has none (the day goes only
   to the entries the SMS gave none, and never one after the paste); Other day
   says to reply with the day. Choose… shows a button an entry, ticked when
-  tapped, then Record (or the days) and Set aside for those ticked, and Back.
+  tapped, then Record (or the days) and Discard for those ticked, and Back.
   A "yes" to the list reads as "all" when every entry has its day; otherwise
   it asks which day.
 - **A tap on a list records only what the list shows.** Telegram sends the
@@ -4704,6 +4704,25 @@ works.
   entry the list showed.
 - **The list's lines are in the one format**: `1. City Taxi · AED 20 ·
   Transport · Card •0004 · 3 Oct` (who first, as an expense's message), with
-  the day when the SMS gave one. A list sent before this changed reads
-  differently, so a reply to one leaves its entries in the Inbox rather than
-  recording them.
+  the day when the SMS gave one. A list sent before this change is still
+  checked against its own older lines, so a reply to it records as before.
+- **The fresh review of this part** changed these:
+  - **A bare "yes" or "no" never reaches an entry on a list**, even the last
+    one it offers. After Choose… had recorded the others, the old guard,
+    which counted the entries still waiting, let a bare "yes" record the one
+    left at an amount changed since in the Inbox, and replace the list with
+    one line. A message bound to two or more entries, whatever their state,
+    is a list, and a bare answer is told to use it.
+  - **A correction never takes an entry off a list.** It unbound the entry,
+    and the list's numbers, which follow its entries in order, then named the
+    wrong ones. An entry on a list is not a correction's target.
+  - **A list is read on the day it was sent**: a day written "28 Dec" on 30
+    December no longer reads as changed in January.
+  - **The list names an entry as it showed it** (not as renamed in the Inbox
+    since), is drawn again when a tap finds it out of date, and a 👍 on it
+    points to the list rather than to a button that may not be there.
+  - **Choose…'s button is "Discard N"**, the word an expense's message uses,
+    not "Set aside".
+  - **A settled trade answered by a typed "yes" or "no" is said in the new
+    words**, and a cancel whose result cannot be read leaves the question as
+    it is rather than calling it lapsed.

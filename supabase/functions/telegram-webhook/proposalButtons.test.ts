@@ -226,3 +226,36 @@ freshTest("undoing a trade is asked with Undo trade and Cancel", async () => {
   assert(String(lastCall("editMessageText")!.text).startsWith("✓ Undone · Sell 6 ABC at USD 150 · 27 Oct"), String(lastCall("editMessageText")!.text));
   assertEquals(lastToast(), "Undone.");
 });
+
+// --- The fresh review of 8b's second part --------------------------------------
+
+freshTest("a trade the database refuses on Save says why, and the question says so too", async () => {
+  const prompt = await proposeSale();
+  backend.tradeOutcome = { outcome: "refused", error: "exceeds_units" };
+  await handler(tapUpdate(9722, prompt.id, tap(prompt.buttons, "Save")));
+  const why = "That sells more ABC than was held on that date (6), so nothing was saved.";
+  assertEquals([lastToast(), lastCall("editMessageText")!.text], [why, why]);
+});
+
+freshTest("a thumbs-up on a trade saves it and turns the question into what was saved", async () => {
+  const prompt = await proposeSale();
+  const sent = backend.telegramSent.length;
+  await handler(reactionUpdate(9722, prompt.id, "👍"));
+  assertEquals(backend.applyCalls, 1);
+  assertEquals(backend.telegramSent.length, sent);
+  assert(String(lastCall("editMessageText")!.text).startsWith("✓ Sell 6 ABC at USD 150 · 27 Oct"));
+});
+
+freshTest("a typed no to a trade already cancelled says so in the same words", async () => {
+  const prompt = await proposeSale();
+  await handler(tapUpdate(9722, prompt.id, tap(prompt.buttons, "Cancel")));
+  await handler(replyUpdate(9723, "no", prompt.id));
+  assertEquals(lastReply(), "Cancelled · Sell 6 ABC at USD 150 · 27 Oct");
+});
+
+freshTest("a transfer recorded with no answer kept still says it is recorded", async () => {
+  const prompt = await proposeTransfer();
+  Object.assign(backend.tables.bot_proposals[0], { status: "applied", result: null });
+  await handler(replyUpdate(9702, "yes", prompt.id));
+  assertEquals(lastReply(), `Already recorded · ${TRANSFER_LINE}`);
+});

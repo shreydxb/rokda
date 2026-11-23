@@ -193,8 +193,8 @@ export function batchListMessage(listed: ListedEntry[], notes: ListNotes, today 
 // their numbers (bit 0 is entry 1), in base 36; no mask is every entry still
 // offered. a records, t and y record on today or yesterday (the day goes to
 // entries the SMS gave none), o says how to give another day, c and x show
-// the entries to choose from (x with those chosen so far), s sets the chosen
-// aside, b goes back. The list is the message tapped, and every tap is
+// the entries to choose from (x with those chosen so far), s discards those
+// chosen (sets them aside, as Discard does an expense's), b goes back. The list is the message tapped, and every tap is
 // checked against it and the database (batchReview.ts).
 
 export type ListOp = "a" | "t" | "y" | "o" | "c" | "x" | "s" | "b";
@@ -241,7 +241,7 @@ export function chooseKeyboard(entries: Array<{ n: number; label: string; undate
   const chosen = entries.filter((e) => mask & (1 << (e.n - 1)));
   if (chosen.length) {
     rows.push(chosen.some((e) => e.undated) ? [tap("Today", "t", mask), tap("Yesterday", "y", mask), tap("Other day", "o", mask)] : [tap(`Record ${chosen.length}`, "a", mask)]);
-    rows.push([tap(`Set aside ${chosen.length}`, "s", mask)]);
+    rows.push([tap(`Discard ${chosen.length}`, "s", mask)]);
   }
   rows.push([tap("Back", "b")]);
   return { inline_keyboard: rows };
@@ -255,12 +255,12 @@ export type ListMark = "recorded" | "dropped" | "changed" | "repeat";
 // numbered line; one recorded or cancelled from the list keeps what it
 // showed, with a tick or "Cancelled"; one left in the Inbox, or settled in
 // the app since, says so. Only what the list showed is ever repeated, never
-// figures read since. offered are the numbers still offered, and undated
-// whether one of them still needs its day. Null when the text is not a list
-// of these entries.
+// figures or names read since: an entry is named as its line names it. offered are the numbers still offered, and undated whether one of
+// them still needs its day. Null when the text is not a list of these
+// entries.
 export function renderList(
   text: string,
-  rows: Array<{ status: string; undated: boolean; merchant: string | null }>,
+  rows: Array<{ status: string; undated: boolean }>,
   marks: Map<number, ListMark>,
 ): { text: string; offered: number[]; undated: boolean } | null {
   const lines = text.split("\n");
@@ -271,11 +271,16 @@ export function renderList(
   let undated = 0;
   const items = lines.slice(1, rows.length + 1).map((line, i) => {
     const m = /^(\d+)\. (.*?)( · no date)?$/.exec(line);
-    // Settled on the list before: shown as it was.
-    if (!m || Number(m[1]) !== i + 1) return line;
+    // Settled on the list before: shown as it was, unless it was left in the
+    // Inbox and a typed "drop" has now discarded it.
+    if (!m || Number(m[1]) !== i + 1) {
+      return marks.get(i) === "dropped" && line.startsWith("In the Inbox · ") ? `Cancelled · ${line.split(" · ")[1]}` : line;
+    }
     const shown = m[2];
     const row = rows[i];
-    const who = row.merchant ?? "One entry";
+    // Who first, as this list writes it; a list sent before the one format
+    // led with the amount.
+    const who = shown.split(" · ").find((f) => !/^AED [\d,.]+$/.test(f)) || "One entry";
     switch (marks.get(i)) {
       case "recorded":
         return `✓ ${shown}`;

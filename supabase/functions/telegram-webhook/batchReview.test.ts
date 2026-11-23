@@ -5,7 +5,7 @@ import { assert, assertEquals } from "jsr:@std/assert@1";
 import { backend, CARD, capturedIntake, dubaiDaysAgo, dubaiToday, freshTest, handler, HOUSEHOLD, lastReply, MEMBER, PARTNER, PARTNER_TELEGRAM, partnerUpdate, reactionUpdate, replyUpdate, type Row, tapUpdate, TELEGRAM_USER, textUpdate } from "./testing/harness.ts";
 // After the harness, which sets the environment env.ts reads.
 import { LIST_QUESTION_ALL } from "./batch.ts";
-import { BATCH_UNADDRESSED_HINT, LIST_TAP_RECORD_ALL, LIST_WHICH_DAY } from "./batchReview.ts";
+import { BATCH_UNADDRESSED_HINT, LIST_USE_BUTTONS, LIST_WHICH_DAY } from "./batchReview.ts";
 
 const TRANSPORT = "b5000000-0000-4000-8000-0000000000c1";
 const GROCERY = "b5000000-0000-4000-8000-0000000000c2";
@@ -265,7 +265,7 @@ freshTest("a bare yes, or a thumbs up, on a list with no dates asks which day", 
   const sent = backend.telegramSent.length;
   await handler(reactionUpdate(9103, list, "👍"));
   assertEquals(backend.telegramSent.length, sent + 1);
-  assertEquals(lastReply(), LIST_WHICH_DAY);
+  assertEquals(lastReply(), LIST_USE_BUTTONS);
   assertEquals(approvals().length, 0);
 });
 
@@ -279,12 +279,12 @@ freshTest("a yes to a list whose entries each have their day records them all", 
 
 // A reaction carries no text, so it cannot be checked against what the list
 // showed: it records nothing, and says what will.
-freshTest("a thumbs-up on a list whose entries each have their day says to tap Record all, and records nothing", async () => {
+freshTest("a thumbs-up on a list whose entries each have their day says to use its buttons, and records nothing", async () => {
   const day = dubaiDaysAgo(3);
   const list = await paste([sms("City Taxi", 20, { occurred_at: day, date_stated: true }), sms("Corner Shop", 45.5, { occurred_at: day, date_stated: true })]);
   await handler(reactionUpdate(9102, list, "👍"));
   assertEquals(approvals().length, 0);
-  assertEquals(lastReply(), LIST_TAP_RECORD_ALL);
+  assertEquals(lastReply(), LIST_USE_BUTTONS);
 });
 
 freshTest("an unaddressed all on a date with a list open says to reply to the list", async () => {
@@ -414,21 +414,21 @@ freshTest("Choose… ticks the entries tapped, and Today records only those", as
   await tapList(9102, list, "Choose…");
   assertEquals(listNow(list).buttons.map((b) => b.text), ["1. City Taxi · AED 20", "2. Corner Shop · AED 45.50", "Back"]);
   await tapList(9103, list, "1. City Taxi · AED 20");
-  assertEquals(listNow(list).buttons.map((b) => b.text), ["✓ 1. City Taxi · AED 20", "2. Corner Shop · AED 45.50", "Today", "Yesterday", "Other day", "Set aside 1", "Back"]);
+  assertEquals(listNow(list).buttons.map((b) => b.text), ["✓ 1. City Taxi · AED 20", "2. Corner Shop · AED 45.50", "Today", "Yesterday", "Other day", "Discard 1", "Back"]);
   await tapList(9104, list, "Today");
   assertEquals(approvals().map((c) => c.p_merchant), ["City Taxi"]);
   assertEquals(listNow(list).text.split("\n").slice(1, 3), ["✓ City Taxi · AED 20 · Transport · Card •0004", "2. Corner Shop · AED 45.50 · Groceries · Card •0004"]);
   assertEquals(listNow(list).buttons.map((b) => b.text), ["Today", "Yesterday", "Other day", "Choose…"]);
 });
 
-freshTest("Set aside from Choose… cancels those chosen, and Back shows the list's buttons again", async () => {
+freshTest("Discard from Choose… cancels those chosen, and Back shows the list's buttons again", async () => {
   const list = await paste([sms("City Taxi", 20), sms("Corner Shop", 45.5)]);
   await tapList(9102, list, "Choose…");
   await tapList(9103, list, "Back");
   assertEquals(listNow(list).buttons.map((b) => b.text), ["Today", "Yesterday", "Other day", "Choose…"]);
   await tapList(9104, list, "Choose…");
   await tapList(9105, list, "2. Corner Shop · AED 45.50");
-  await tapList(9106, list, "Set aside 1");
+  await tapList(9106, list, "Discard 1");
   assertEquals(capturedIntake().map((r) => r.status), ["pending", "rejected"]);
   assertEquals(listNow(list).text.split("\n")[2], "Cancelled · Corner Shop · AED 45.50 · Groceries · Card •0004");
   assertEquals(approvals().length, 0);
@@ -452,4 +452,85 @@ freshTest("a tap records only what the list shows: an entry changed in the Inbox
   assertEquals(approvals().map((c) => c.p_amount), [20]);
   assertEquals(listNow(list).text.split("\n")[2], "In the Inbox · Corner Shop · changed since");
   assertEquals(lastToast()?.text, `Recorded 1 on ${dayWords(dubaiToday())} · 1 in the Inbox.`);
+});
+
+// --- The fresh review of 8b's second part --------------------------------------
+
+// A dated list of three, the first two recorded from Choose…, the third left.
+async function partlyRecorded(): Promise<number> {
+  const day = dubaiDaysAgo(3);
+  const list = await paste([
+    sms("City Taxi", 20, { occurred_at: day, date_stated: true }),
+    sms("Corner Shop", 45.5, { occurred_at: day, date_stated: true }),
+    sms("Fresh Market", 120, { occurred_at: day, date_stated: true }),
+  ]);
+  await tapList(9102, list, "Choose…");
+  await tapList(9103, list, "1. City Taxi · AED 20");
+  await tapList(9104, list, "2. Corner Shop · AED 45.50");
+  await tapList(9105, list, "Record 2");
+  assertEquals(approvals().length, 2);
+  return list;
+}
+
+freshTest("a bare yes or no with one entry left on a list is told to use the list, and changes nothing", async () => {
+  const list = await partlyRecorded();
+  const before = listNow(list).text;
+  capturedIntake().find((r) => r.parsed_merchant === "Fresh Market")!.parsed_amount = 999;
+  await handler(textUpdate(9106, "yes"));
+  assertEquals(lastReply(), BATCH_UNADDRESSED_HINT);
+  await handler(textUpdate(9107, "no"));
+  assertEquals(lastReply(), BATCH_UNADDRESSED_HINT);
+  assertEquals(approvals().length, 2, "a bare yes recorded an amount the list never showed");
+  assertEquals(capturedIntake().find((r) => r.parsed_merchant === "Fresh Market")!.status, "pending");
+  assertEquals(listNow(list).text, before, "a bare answer wrote over the list");
+});
+
+freshTest("a correction never takes an entry off a list, so the list's numbers keep their meaning", async () => {
+  const list = await partlyRecorded();
+  backend.route = { tool: "update_last_expense", args: {} };
+  backend.parse = [sms("Fresh Market", 50, { occurred_at: dubaiDaysAgo(3), date_stated: true, source: "typed" })];
+  await handler(textUpdate(9106, "actually 50"));
+  const market = capturedIntake().find((r) => r.parsed_merchant === "Fresh Market" && r.confirm_message_id === list);
+  assert(market, "the list's third entry was taken off the list");
+  assertEquals(market.parsed_amount, 120);
+});
+
+freshTest("a tap naming an entry the list no longer offers changes nothing, and shows the list as it stands", async () => {
+  const list = await paste([sms("City Taxi", 20), sms("Corner Shop", 45.5)]);
+  await tapList(9102, list, "Choose…");
+  await tapList(9103, list, "1. City Taxi · AED 20");
+  // Recorded in the app meanwhile.
+  capturedIntake().find((r) => r.parsed_merchant === "City Taxi")!.status = "approved";
+  await tapList(9104, list, "Today");
+  assertEquals(approvals().length, 0);
+  assertEquals(lastToast()?.text, "The list changed. Look at it again.");
+  assertEquals(listNow(list).text.split("\n")[1], "Already recorded · City Taxi");
+  assertEquals(listNow(list).buttons.map((b) => b.text), ["Today", "Yesterday", "Other day", "Choose…"]);
+});
+
+freshTest("an entry settled in the app since the list was sent is said so, and the rest recorded", async () => {
+  const list = await paste([sms("City Taxi", 20), sms("Corner Shop", 45.5)]);
+  capturedIntake().find((r) => r.parsed_merchant === "City Taxi")!.status = "rejected";
+  await tapList(9102, list, "Today");
+  assertEquals(approvals().map((c) => c.p_merchant), ["Corner Shop"]);
+  assertEquals(listNow(list).text.split("\n").slice(1, 3), ["Already cancelled · City Taxi", "✓ Corner Shop · AED 45.50 · Groceries · Card •0004"]);
+});
+
+freshTest("a list keeps matching the day it was sent on: its dated lines are read as they were written then", async () => {
+  const lastYear = String(Number(dubaiToday().slice(0, 4)) - 1);
+  const list = await paste([sms("City Taxi", 20, { occurred_at: `${lastYear}-12-28`, date_stated: true }), sms("Corner Shop", 45.5, { occurred_at: `${lastYear}-12-28`, date_stated: true })]);
+  // Sent on 30 December, as that day wrote it; tapped in the new year.
+  for (const r of capturedIntake()) r.created_at = `${lastYear}-12-30T08:00:00Z`;
+  const sentThen = listNow(list).text.replaceAll(` 28 Dec ${lastYear}`, " 28 Dec");
+  const record = listNow(list).buttons.find((b) => b.text === "Record all")!.callback_data!;
+  await handler(tapUpdate(9102, list, record, TELEGRAM_USER, sentThen));
+  assertEquals(approvals().length, 2, "a list read in another year than it was sent in was taken for changed");
+});
+
+freshTest("a reply to a list sent before the one format still records what it showed", async () => {
+  const list = await paste([sms("City Taxi", 20), sms("Corner Shop", 45.5)]);
+  const old = ["Got 2 from that message. Reply to this to record them:", "1. AED 20.00 · City Taxi · Card •0004 · Transport", "2. AED 45.50 · Corner Shop · Card •0004 · Groceries", 'No date in the SMS: say the day they were paid, like "all on 2 Oct", or "1-2 on 2 Oct" for some. "drop 2" sets one aside.'].join("\n");
+  await handler(replyUpdate(9102, `all on ${dayWords(twoDaysAgo())}`, list, old));
+  assertEquals(approvals().length, 2);
+  assertEquals(listNow(list).text.split("\n").slice(1, 3), ["✓ AED 20.00 · City Taxi · Card •0004 · Transport", "✓ AED 45.50 · Corner Shop · Card •0004 · Groceries"]);
 });

@@ -614,14 +614,6 @@ export function decidedProposalMessage(row: ProposalRow): string {
     if (result.error === "answered") return DIVIDENDS_ANSWERED;
     return "That question lapsed or changed, so nothing was recorded. You can record them on the holding in the app.";
   }
-  if (row.kind === "trade" || row.kind === "trade_undo") {
-    if (row.status === "applied") {
-      const effect = ((row.result ?? {}) as { effect?: Record<string, unknown> }).effect ?? {};
-      return tradeSavedMessage(row.payload as TradePayload, effect, { repeat: true, undo: row.kind === "trade_undo" });
-    }
-    if (row.status === "cancelled") return `You dropped ${proposalSummary(row)}, so nothing was saved.`;
-    return "That one was not saved: the holding changed or it lapsed. Send the trade again if it still holds.";
-  }
   if (BUTTON_KINDS.has(row.kind)) return settledOutcome(row).said;
   if (row.status === "applied") return row.result ? proposalOutcomeMessage({ outcome: "applied", result: row.result }) : "That one is already saved.";
   if (row.status === "cancelled") return `You dropped ${proposalSummary(row)}, so nothing was changed.`;
@@ -678,7 +670,12 @@ export function settledOutcome(row: ProposalRow): Settled {
       const undo = row.kind === "trade_undo";
       return { said: tradeSavedMessage(row.payload as TradePayload, effect, { repeat: true, undo }), shown: tradeSavedMessage(row.payload as TradePayload, effect, { repeat: false, undo }), toast: undo ? "Already undone." : "Already recorded." };
     }
-    const done = appliedLine(row.result as { kind?: string; applied?: Array<Record<string, unknown>> } | null);
+    // Applied with no answer kept: recorded, as the proposal showed it.
+    if (!row.result) {
+      const what = proposalLine(row.kind, row.payload ?? {});
+      return { said: `Already recorded · ${what}`, shown: `✓ ${what}`, toast: "Already recorded." };
+    }
+    const done = appliedLine(row.result as { kind?: string; applied?: Array<Record<string, unknown>> });
     if (!done) return { said: notRecordedLine(row.kind), toast: notRecordedLine(row.kind) };
     return { said: `Already recorded · ${done.what}`, shown: done.line, toast: "Already recorded." };
   }
@@ -737,9 +734,12 @@ export async function decideProposal(
       return;
     }
     // Decided in between, by a "yes" a moment earlier or by lapsing.
-    const { data: fresh } = await supabase.from("bot_proposals").select(PROPOSAL_COLUMNS).eq("id", proposal.id).maybeSingle();
+    const { data: fresh, error: freshError } = await supabase.from("bot_proposals").select(PROPOSAL_COLUMNS).eq("id", proposal.id).maybeSingle();
     const now = (fresh as ProposalRow | null) ?? proposal;
-    if (buttons) await settleQuestion(chatId, proposal, answering, settledOutcome(now));
+    // Not read, or read as still waiting: what became of it is not known, so
+    // the question is left as it is rather than said to be cancelled.
+    if (buttons && (freshError || now.status === "proposed")) await notSettled(chatId, answering, "Couldn't cancel that. Nothing changed — try again in a minute.");
+    else if (buttons) await settleQuestion(chatId, proposal, answering, settledOutcome(now));
     else await reply(chatId, decidedProposalMessage(now));
     return;
   }

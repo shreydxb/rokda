@@ -25,7 +25,7 @@ import { reply, tgCall } from "./transport.ts";
 export const BATCH_REPLY_HINT = 'Tap a button on the list, or reply to it like "all on 2 Oct", "1-3" or "drop 2".';
 export const BATCH_UNADDRESSED_HINT = "Which one? Use the buttons on the list, or reply to it.";
 export const LIST_WHICH_DAY = 'Which day? Tap Today or Yesterday on the list, or reply like "all on 2 Oct".';
-export const LIST_TAP_RECORD_ALL = "Tap Record all on the list, or reply yes to it.";
+export const LIST_USE_BUTTONS = "Use the buttons on the list, or reply to it.";
 const LIST_UNREADABLE = "I can't see that list, so I won't record from it. They're in the Inbox.";
 const LIST_CHECK_FAILED = "Couldn't check that just now. Nothing changed — try again in a minute.";
 
@@ -177,9 +177,13 @@ export async function hasOpenList(householdId: string, memberId: string): Promis
   return [...seen.values()].some((n) => n >= 2);
 }
 
-// The line each row would have on the list now, by row id, to compare with
-// the line the list showed. Null when the names cannot be read.
-async function currentLines(rows: BatchRow[]): Promise<Map<string, string> | null> {
+// The lines each row would have on the list now, by row id, to compare with
+// the line the list showed: as this list writes it, on the day it was sent
+// (so a day written "28 Dec" on 30 December still matches in January), and
+// as a list sent before the one format wrote it ("AED 20.00 · City Taxi ·
+// Card · Transport"), so a reply to one sent before the change still
+// records. Null when the names cannot be read.
+async function currentLines(rows: BatchRow[]): Promise<Map<string, string[]> | null> {
   const accountIds = [...new Set(rows.map((r) => r.parsed_account_id).filter(Boolean))] as string[];
   const categoryIds = [...new Set(rows.map((r) => r.parsed_category_id).filter(Boolean))] as string[];
   const [accounts, categories] = await Promise.all([
@@ -188,13 +192,31 @@ async function currentLines(rows: BatchRow[]): Promise<Map<string, string> | nul
   ]);
   if (accounts.error || categories.error) return null;
   const name = (list: Array<{ id: string; name: string }> | null, id: string | null) => (list ?? []).find((x) => x.id === id)?.name ?? "";
-  return new Map(rows.map((r) => [r.id, listLine({
-    amount: Number(r.parsed_amount),
-    merchant: r.parsed_merchant ?? "",
-    account: name(accounts.data, r.parsed_account_id),
-    category: name(categories.data, r.parsed_category_id),
-    date: r.date_guessed ? null : r.parsed_date,
-  })]));
+  return new Map(rows.map((r) => {
+    const facts = { amount: Number(r.parsed_amount), merchant: r.parsed_merchant ?? "", account: name(accounts.data, r.parsed_account_id), category: name(categories.data, r.parsed_category_id) };
+    const sentOn = householdToday(new Date(r.created_at));
+    return [r.id, [listLine({ ...facts, date: r.date_guessed ? null : r.parsed_date }, sentOn), `AED ${facts.amount.toFixed(2)} · ${facts.merchant} · ${facts.account} · ${facts.category}`]];
+  }));
+}
+
+// Which of these messages are lists: bound to two or more of this member's
+// entries, whatever their status now. A bare "yes" or "no", or a correction,
+// must never reach an entry on a list, even the last one waiting: it would
+// record or change it without the list's check, and write over the list.
+// Failed when that cannot be read.
+export async function listPrompts(householdId: string, memberId: string, chatId: number, messageIds: number[]): Promise<Set<number> | "failed"> {
+  if (!messageIds.length) return new Set();
+  const { data, error } = await supabase
+    .from("intake")
+    .select("confirm_message_id")
+    .eq("household_id", householdId)
+    .eq("member_id", memberId)
+    .eq("confirm_chat_id", chatId)
+    .in("confirm_message_id", messageIds);
+  if (error) return "failed";
+  const seen = new Map<number, number>();
+  for (const r of (data ?? []) as Array<{ confirm_message_id: number }>) seen.set(Number(r.confirm_message_id), (seen.get(Number(r.confirm_message_id)) ?? 0) + 1);
+  return new Set([...seen].filter(([, n]) => n >= 2).map(([id]) => id));
 }
 
 // What became of the entries a command named: a refusal before anything was
@@ -263,7 +285,7 @@ async function actOnList(member: { id: string; household_id: string }, rows: Bat
   const madeNow: string[] = [];
   for (const { row, at } of pending) {
     // Edited in the Inbox since the list was sent: left there.
-    if (!isReadyForFastConfirm({ ...row, date_guessed: false }) || now.get(row.id) !== shown.get(at + 1)) {
+    if (!isReadyForFastConfirm({ ...row, date_guessed: false }) || !now.get(row.id)?.includes(shown.get(at + 1) ?? "")) {
       marks.set(at, "changed");
       continue;
     }
@@ -374,10 +396,10 @@ export async function handleBatchReply(chatId: number, member: { id: string; hou
 }
 
 // A 👍 on a list. A reaction carries no text, so it cannot be checked against
-// what the list showed: it records nothing, and says what will.
+// what the list showed, nor tell which of its buttons are there: it records
+// nothing, and points to the list.
 export async function handleListReaction(chatId: number, rows: BatchRow[]): Promise<void> {
-  const waiting = rows.filter((r) => r.status === "pending");
-  await reply(chatId, !waiting.length ? "Nothing left to record on that list." : waiting.some((r) => r.date_guessed) ? LIST_WHICH_DAY : LIST_TAP_RECORD_ALL);
+  await reply(chatId, rows.some((r) => r.status === "pending") ? LIST_USE_BUTTONS : "Nothing left to record on that list.");
 }
 
 // A tap on one of the list's buttons (batch.ts). Only the member who pasted
@@ -411,16 +433,18 @@ export async function handleListTap(callback: Record<string, unknown>, op: ListO
     return new Response("ok");
   }
   const markup = (keyboard: unknown) => tgCall("editMessageReplyMarkup", { chat_id: chatId, message_id: listId, reply_markup: keyboard ?? { inline_keyboard: [] } }).catch(() => null);
+  // Settled since the list was last drawn (in the app, say): shown as it
+  // stands, with the buttons that fit, rather than acted on.
   if (!view.offered.length) {
     await toast("Nothing left to record on that list.");
-    await markup(null);
+    await showList(chatId, listId, listText, member, new Map());
     return new Response("ok");
   }
   // Only entries the list still offers can be chosen.
   const offeredMask = view.offered.reduce((m, n) => m | (1 << (n - 1)), 0);
   if (mask & ~offeredMask) {
     await toast("The list changed. Look at it again.");
-    await markup(listKeyboard(view.undated));
+    await showList(chatId, listId, listText, member, new Map());
     return new Response("ok");
   }
   const shown = listedLines(listText);
