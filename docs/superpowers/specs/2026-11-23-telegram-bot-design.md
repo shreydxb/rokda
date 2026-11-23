@@ -74,7 +74,7 @@ followed by its questions.
 
 | PR | Holds |
 |---|---|
-| 8a | Words and formats (T16 to T18, T21, T22, T24, T25): one money and date format, three outcome words, short failure lines, the brief and the answers' tone. Text only |
+| 8a | The one money and date format (`_shared/applib/botFormat.js`, T17, T18), short failure lines (T21, T22), the brief (T24) and the answers' tone (T25). Text only. Each later pull request writes the messages it rebuilds through the same format and with the three outcome words (T16), so no message is rewritten twice |
 | 8b | Buttons on what the bot proposes (T1 to T8, T14, T15): an expense's Record, Category, Account and Discard; Recorded with Undo; the Inbox line; a pasted list's buttons; transfers and trades. The undo function (a migration) |
 | 8c | The morning (T9 to T13, T23): the digest as grouped short lines, then autopay, statement, dividend and balance questions with their buttons |
 | 8d | Commands and linking (T19, T20): the command menu, /help, /inbox, /undo, /start when linked, the linked reply |
