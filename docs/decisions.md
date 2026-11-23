@@ -4546,3 +4546,29 @@ With it, every screen of the prototype is built.
     done before; day counts are the household's, and read "today" and
     "1 day ago".
 
+## The bot: one format, short failures, the brief
+
+The revamp's phase 8a (design note `docs/superpowers/specs/2026-11-23-telegram-bot-design.md`;
+the UI review's T17, T18, T21, T22, T24 and T25). The prototype has no bot, so
+the review is the target.
+
+- **One way of writing money and dates** (`_shared/applib/botFormat.js`):
+  "AED 1,234", with decimals only when they are not zero, in the currency
+  that was read; "3 Oct", the year only when not this year; "·" between
+  facts. Bot-only: the app has its own formatters. 8a writes the brief and
+  the failures through it; 8b and 8c write the messages they rebuild
+  through it, with the three outcome words (Recorded, In the Inbox,
+  Cancelled), so no message is rewritten twice.
+- **A failure says what happened and what is safe, in a few words**:
+  "Couldn't read that. It's in the Inbox." or "Nothing saved — send
+  again." The explanations went (Telegram's file limit, a confirmation that
+  "will only be saved once").
+- **The brief gives one label and figure a line**, and what net worth
+  leaves out on a ⚠ line of its own ("⚠ 1 account not converted"): it rode
+  in brackets as a long sentence. QA #4 asked only that the note travel with
+  the figure, which a line right under it still does. Cash cover keeps the
+  sentence it shares with the app, whose caveats are QA #4 itself; the
+  morning message restyles it (8c).
+- **An answer leads with its figure**, in the same format, and names the
+  period ("Groceries this month: AED 1,234").
+
