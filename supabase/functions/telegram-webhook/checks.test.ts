@@ -1,7 +1,7 @@
 // The morning checks: reminders, autopay, categories from history, card statements, and the Inbox reason.
 // The fake backend these drive the real handler against is testing/harness.ts.
 import { assert, assertEquals } from "jsr:@std/assert@1";
-import { backend, BANK, capturedIntake, dailyCheck, dubaiDaysAgo, dubaiToday, EMI, freshTest, handler, HOUSEHOLD, inboxReason, lastReply, MEMBER, PARTNER_TELEGRAM, partnerUpdate, reactionUpdate, replyUpdate, Row, sendablePeriod, TELEGRAM_USER, textUpdate } from "./testing/harness.ts";
+import { backend, BANK, capturedIntake, dailyCheck, dubaiDaysAgo, dubaiToday, EMI, freshTest, handler, HOUSEHOLD, lastReply, MEMBER, PARTNER_TELEGRAM, partnerUpdate, reactionUpdate, replyUpdate, Row, sendablePeriod, TELEGRAM_USER, textUpdate } from "./testing/harness.ts";
 
 freshTest("a bill paid after the first thousand records of its window still counts as paid", async () => {
   backend.tables.recurring_nudges = [];
@@ -584,25 +584,12 @@ freshTest("\"sent to Claude\" keeps the statement waiting, and asks nothing more
 // An expense the bot cannot record yet says so, and why
 // ---------------------------------------------------------------------------
 
-Deno.test("an expense sent to the Inbox says it is not recorded yet, and what was missing", () => {
-  const ready = { parsed_amount: 200, parsed_merchant: "du", parsed_account_id: "a", parsed_category_id: "c", parsed_currency: "AED", confidence: 1 };
-  assert(inboxReason({ ...ready, parsed_merchant: null }).startsWith("Not recorded yet: I couldn't tell who was paid, so it's in the Inbox."));
-  assertEquals(
-    inboxReason({ ...ready, parsed_merchant: null, parsed_account_id: null, parsed_category_id: null }),
-    "Not recorded yet: I couldn't tell who was paid, which card or account or the category, so it's in the Inbox. Approve it there, or send it again with that added.",
-  );
-  assert(inboxReason({ ...ready, parsed_currency: "USD" }).includes("It's in USD: approve it with the AED debited"));
-  assert(!inboxReason({ ...ready, parsed_currency: "USD" }).includes("couldn't tell"), "a known currency was listed as something missing");
-  assert(inboxReason({ ...ready, confidence: 0.6 }).includes("I wasn't sure I read it right"));
-  assert(inboxReason(ready, { occurred_at: "2026-09-28" }).includes("already in Rokda from 2026-09-28"));
-});
-
 freshTest("a payment typed without a merchant the parser recognised is reported as not recorded", async () => {
   backend.tables.accounts.push({ id: "a9000000-0000-4000-8000-000000000001", household_id: HOUSEHOLD, name: "ENBD Marriott •0002", type: "credit_card", currency: "AED", archived_at: null });
   backend.parse = [{ merchant: null, amount: 200, currency: "AED", occurred_at: "2026-10-13", date_stated: true, source: "typed", category: null, card_last4: null, account_hint: "ENBD Marriott", confidence: 0.9, kind: "expense" }];
   await handler(textUpdate(9301, "Du wifi paid today using marriot card 200"));
   assertEquals(capturedIntake().length, 1);
-  assert(/^Not recorded yet: I couldn't tell who was paid/.test(lastReply()), lastReply());
+  assert(/^In the Inbox · needs who was paid/.test(lastReply()), lastReply());
   // The parser is told that a biller named in passing is the merchant.
   assert(backend.parsePrompts[0].includes("is who was paid"), "the parser was not told what a merchant is");
 });

@@ -63,12 +63,13 @@ import { runRecurringCheck } from "./checks/recurring.ts";
 import { runSplitCheck, runUnusualSpendCheck } from "./checks/spending.ts";
 import { handleStatementText, runStatementCheck } from "./checks/statements.ts";
 import { isBatchCommand } from "./batch.ts";
-import { handleChoiceTap, sendChoicePrompt } from "./choices.ts";
+import { handleChoiceTap, plainView, sendChoicePrompt, sendEntryPrompt } from "./choices.ts";
+import { inboxReason, inboxText } from "./expenseMessages.ts";
 import { BATCH_UNADDRESSED_HINT, batchForPrompt, handleBatchReply, hasOpenList, type SavedItem, sendBatchList } from "./batchReview.ts";
-import { confirmCandidates, confirmPendingIntake, decideAutopay, decidedProposalMessage, decideProposal, handleReaction, intakeForPrompt, openProposals, PENDING_WINDOW_MS, type PendingIntakeRow, type PromptLookup, PROPOSAL_COLUMNS, proposalForPrompt, type ProposalRow, RECENT_INTAKE_COLUMNS, recentlyDecidedProposal, sendFastConfirmPrompt, sendProposal } from "./confirmations.ts";
+import { confirmCandidates, confirmPendingIntake, decideAutopay, decidedProposalMessage, decideProposal, handleReaction, intakeForPrompt, openProposals, PENDING_WINDOW_MS, type PendingIntakeRow, type PromptLookup, PROPOSAL_COLUMNS, proposalForPrompt, type ProposalRow, RECENT_INTAKE_COLUMNS, recentlyDecidedProposal, sendProposal } from "./confirmations.ts";
 import { DIVIDEND_CLASSES, DIVIDEND_GUARD_REPLY, readsAsDividend } from "./dividends.ts";
 import { OPENROUTER_API_KEY, supabase, SUPABASE_URL, TELEGRAM_BOT_TOKEN } from "./env.ts";
-import { alreadyRecordedNote, categoryByName, datedItems, findDuplicateTransaction, forwardedDay, inboxReason, loadCategoryKnowledge, loadFileableCategories, matchAccountByCardLast4, matchAccountByNameHint, matchCategoryFromMerchantHistory, parseIntakeWithAI, QUESTION_TOOLS, undatedNote } from "./intake.ts";
+import { alreadyRecordedNote, categoryByName, datedItems, forwardedDay, loadCategoryKnowledge, loadFileableCategories, matchAccountByCardLast4, matchAccountByNameHint, matchCategoryFromMerchantHistory, parseIntakeWithAI, QUESTION_TOOLS, undatedNote } from "./intake.ts";
 import { BRIEF_TRIGGERS, buildBriefMessage, figuresUnavailableMessage, goalContributionDraft, ReadFailed, toolGetAccountBalance, toolGetBudgetStatus, toolGetCategorySpend, toolGetHoldings, toolGetNetWorth, toolGetTradeProfit, toolGetUpcomingBills, transferDraft, transferPrompt } from "./tools.ts";
 import { answerTradeQuestion, FILE_TOO_BIG, FILE_TOO_BIG_CAPTION_KEPT, handleTradeMessage, handleUndoTrade } from "./tradeMessages.ts";
 import { ANSWER_HINT } from "./trades.ts";
@@ -78,7 +79,7 @@ import { type AnswerTarget, bytesToBase64, claimUpdate, clearLinkFailures, getTe
 export { accountsForCheckin, balanceFigure, buildBalanceCheckinMessage, pickCheckinAccount } from "./checks/balanceCheckin.ts";
 export { sendablePeriod } from "./checks/recipients.ts";
 export { proposalOutcomeMessage, proposalSummary } from "./confirmations.ts";
-export { datedItems, forwardedDay, inboxReason, isSpendingAccount, pickAccountByHint, undatedNote } from "./intake.ts";
+export { datedItems, forwardedDay, isSpendingAccount, pickAccountByHint, undatedNote } from "./intake.ts";
 export { figuresUnavailableMessage, ReadFailed, transferDraftFrom, transferPrompt } from "./tools.ts";
 
 async function handleRequest(req: Request): Promise<Response> {
@@ -670,19 +671,10 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
           return new Response("ok");
         }
 
-        const correctionDuplicate = isReadyForFastConfirm(updatedRow)
-          // A check that could not run is not a clean check: the entry waits
-          // in the Inbox rather than being offered a quick "yes".
-          ? await findDuplicateTransaction(member.household_id, updatedRow.parsed_account_id, updatedRow.parsed_merchant, updatedRow.parsed_amount, updatedRow.parsed_date).catch(() => "unchecked" as const)
-          : null;
-        if (isReadyForFastConfirm(updatedRow) && !correctionDuplicate) {
-          await sendFastConfirmPrompt(
-            chatId,
-            recentPending.id,
-            `Updated — AED ${Number(updatedRow.parsed_amount).toFixed(2)} at ${updatedRow.parsed_merchant}. Everything matched, so reply "yes" to record it, or edit in the Inbox.`
-          );
-        } else {
-          await reply(chatId, "Updated your last pending entry — check the Inbox.");
+        // The corrected entry is shown afresh, with Record when it can be
+        // recorded as it now is (choices.ts); that message alone is tied to it.
+        if (!(await sendEntryPrompt(chatId, member.household_id, member.id, { id: recentPending.id, ...updatedRow }, ["Updated."]))) {
+          await reply(chatId, "Updated. It's in the Inbox.");
         }
         return new Response("ok");
       }
@@ -947,8 +939,6 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
 
   // Parsing is a convenience layered on top of a capture that already
   // succeeded -- its failure must never surface as this message's failure.
-  let fastConfirmSummary: string | null = null;
-  let singleInboxReason: string | null = null;
   const multiItemSummaries: string[] = [];
   // Each saved item of a message of several, for the numbered list.
   const savedItems: SavedItem[] = [];
@@ -1081,26 +1071,10 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
           savedUndated.push(updatedRow);
         }
 
-        if (kept.length === 1) {
-          singleInboxReason = inboxReason(updatedRow);
-          // Same bar as the fast-confirm "yes" path above: only invite it
-          // when account, category, currency and date are all already
-          // resolved, not just when the model's own confidence is high --
-          // and only when it doesn't look like something already recorded.
-          // Multiple items in one message always go to the Inbox instead --
-          // one "yes" confirming several different amounts at once is its
-          // own source of mistakes.
-          if (isReadyForFastConfirm(updatedRow)) {
-            const duplicate = await findDuplicateTransaction(member.household_id, updatedRow.parsed_account_id, item.merchant, item.amount, item.occurred_at);
-            singleInboxReason = inboxReason(updatedRow, duplicate);
-            if (!duplicate) {
-              const kindLabel = item.kind === "income" ? "income " : item.kind === "refund" ? "refund " : "";
-              fastConfirmSummary = `AED ${Number(item.amount).toFixed(2)} ${kindLabel}at ${item.merchant} (${matchedAccount!.name}${matchedCategory ? `, ${matchedCategory.name}` : ""}) on ${item.occurred_at}`;
-            }
-          }
-        } else {
-          multiItemSummaries.push(`AED ${Number(item.amount ?? 0).toFixed(2)}${item.merchant ? ` at ${item.merchant}` : ""}`);
-        }
+        // One entry is shown with its buttons below (choices.ts), which
+        // decides whether it can be recorded as it is. Several go to the
+        // numbered list.
+        if (kept.length > 1) multiItemSummaries.push(`AED ${Number(item.amount ?? 0).toFixed(2)}${item.merchant ? ` at ${item.merchant}` : ""}`);
       } catch {
         // This one item's lookups/writes failed -- move on to the rest
         // rather than losing the whole message.
@@ -1120,16 +1094,7 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
   }
   const dividendNote = dividendsLeftOut > 0 ? " I left out the dividend: Rokda records dividends from your shares' own records, not as income." : "";
 
-  if (fastConfirmSummary) {
-    // fastConfirmSummary is only ever set for a single-item message, whose one
-    // item is the row inserted above -- so that is the intake this prompt is
-    // about. A multi-item message deliberately offers no fast confirm at all.
-    await sendFastConfirmPrompt(
-      chatId,
-      inserted.id,
-      `Got it — ${fastConfirmSummary}. Everything matched, so reply "yes" to record it, or edit in the Inbox.${dividendNote}`
-    );
-  } else if (routingFailed && !itemsRead) {
+  if (routingFailed && !itemsRead) {
     await reply(chatId, AI_BUSY_REPLY);
   } else {
     const n = multiItemSummaries.length;
@@ -1154,15 +1119,23 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
         return new Response("ok");
       }
     }
-    // One entry missing only its category or card: asked with buttons.
-    if (kept.length === 1 && savedItems.length === 1 && (await sendChoicePrompt(chatId, member.household_id, member.id, { id: savedItems[0].id, ...savedItems[0].row }, "Saved in the Inbox. ", undatedNote(guessedDates, 1) + dividendNote))) {
+    // One entry: shown with Record and the rest when it can be recorded as
+    // it is, asked about when only its category or card is missing, or said
+    // to wait in the Inbox and why (choices.ts). A message that can't be
+    // sent falls back to the same words without buttons.
+    if (kept.length === 1 && savedItems.length === 1) {
+      const entry = { id: savedItems[0].id, ...savedItems[0].row };
+      const notes = [recordedNote.trim(), dividendNote.trim()].filter(Boolean);
+      if (!(await sendEntryPrompt(chatId, member.household_id, member.id, entry, notes))) {
+        await reply(chatId, [inboxText(plainView(entry), inboxReason(entry)), ...notes].join("\n"));
+      }
       return new Response("ok");
     }
     await reply(
       chatId,
       (n > 1 || (n === 1 && unsavedItems.length)
         ? `Got it — ${n} ${n === 1 ? "expense" : "expenses"} captured (${multiItemSummaries.join(", ")}). Check the Inbox to review ${n === 1 ? "it" : "each"}.`
-        : singleInboxReason ?? "Got it — check the Inbox to review.") + unsavedNote + undatedNote(guessedDates, n > 1 ? n : 1) + recordedNote + dividendNote
+        : "In the Inbox · to check and approve") + unsavedNote + undatedNote(guessedDates, n > 1 ? n : 1) + recordedNote + dividendNote
     );
   }
   return new Response("ok");

@@ -98,6 +98,10 @@ export type Backend = {
   failRpc?: Set<string>;
   // Runs on each AI call: something changing in Rokda while a message is read.
   onAiCall?: () => void;
+  // What undo_intake_approval answers instead of undoing: "too_late" or
+  // "changed", which the real function decides from the clock and the
+  // transaction's history.
+  undoOutcome?: string;
 };
 
 export let backend: Backend;
@@ -601,10 +605,22 @@ export async function rpc(req: Request, fn: string): Promise<Response> {
     if (!row) return json({ code: "P0002", message: "intake row not found" }, 400);
     if (row.status === "rejected") return json({ code: "P0001", message: "intake row was already rejected" }, 400);
     if (row.status === "approved") return json({ transaction_id: row.transaction_id ?? null, already_approved: true });
-    const tx = { id: crypto.randomUUID(), household_id: row.household_id, account_id: args.p_account_id, amount: args.p_amount, kind: args.p_kind, merchant: args.p_merchant, occurred_at: args.p_occurred_at, category_id: args.p_category_id };
+    const tx = { id: crypto.randomUUID(), household_id: row.household_id, account_id: args.p_account_id, amount: args.p_amount, kind: args.p_kind, merchant: args.p_merchant, occurred_at: args.p_occurred_at, category_id: args.p_category_id, created_at: new Date().toISOString() };
     backend.tables.transactions.push(tx);
     Object.assign(row, { status: "approved", transaction_id: tx.id });
     return json({ transaction_id: tx.id, already_approved: false });
+  }
+  // As the real function (the bot_undo migration): only the sender's entry,
+  // only while recorded; the clock and the history are a test's to say.
+  if (fn === "undo_intake_approval") {
+    const row = backend.tables.intake.find((r) => r.id === args.p_intake_id);
+    if (!row) return json({ outcome: "not_found" });
+    if (row.member_id !== args.p_member_id) return json({ outcome: "not_yours" });
+    if (row.status !== "approved" || !row.transaction_id) return json({ outcome: "not_recorded" });
+    if (backend.undoOutcome) return json({ outcome: backend.undoOutcome });
+    backend.tables.transactions = backend.tables.transactions.filter((t) => t.id !== row.transaction_id);
+    Object.assign(row, { status: "pending", transaction_id: null });
+    return json({ outcome: "undone" });
   }
   if (fn === "mark_dividends_asked") {
     for (const d of backend.tables.holding_dividends ?? []) {
@@ -752,9 +768,11 @@ Deno.env.set("SUPABASE_URL", SUPABASE_URL);
 Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "service-role-test");
 Deno.env.set("TELEGRAM_BOT_TOKEN", TOKEN);
 Deno.env.set("OPENROUTER_API_KEY", "openrouter-test");
+// The app's address, for the buttons that open a screen (env.ts).
+Deno.env.set("APP_URL", "https://app.example.test/");
 
 reset();
-export const { accountsForCheckin, buildBalanceCheckinMessage, datedItems, sendablePeriod, figuresUnavailableMessage, forwardedDay, inboxReason, isSpendingAccount, pickAccountByHint, pickCheckinAccount, proposalOutcomeMessage, transferDraftFrom, undatedNote } = await import("../index.ts");
+export const { accountsForCheckin, buildBalanceCheckinMessage, datedItems, sendablePeriod, figuresUnavailableMessage, forwardedDay, isSpendingAccount, pickAccountByHint, pickCheckinAccount, proposalOutcomeMessage, transferDraftFrom, undatedNote } = await import("../index.ts");
 assert(handler!, "index.ts did not register a handler with Deno.serve");
 
 // ---------------------------------------------------------------------------

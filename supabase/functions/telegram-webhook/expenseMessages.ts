@@ -42,10 +42,11 @@ export function cancelledText(v: ExpenseView): string {
   return `Cancelled · ${head(v)}`;
 }
 
-// The question asked when only the category or the card is missing.
+// The question asked when only the category or the card is missing. It says
+// the entry is kept meanwhile: one left unanswered is not lost.
 export function askText(v: ExpenseView, ask: "category" | "account", today = householdToday()): string {
   const known = ask === "category" ? v.account : v.category;
-  return `${head(v)}\n${facts(known, v.date && day(v.date, today))}\n${ask === "category" ? "Which category?" : "Which card or account?"}`;
+  return `${head(v)}\n${facts(known, v.date && day(v.date, today))}\n${ask === "category" ? "Which category?" : "Which card or account?"} Saved in the Inbox meanwhile.`;
 }
 
 type ReasonRow = {

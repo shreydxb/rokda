@@ -24,8 +24,8 @@ Deno.test("recorded is one line with a tick and its category; cancelled says so"
 });
 
 Deno.test("a question about a missing category or card shows what was read, then asks", () => {
-  assertEquals(askText({ ...BAKERY, category: null }, "category", TODAY), "Bakery · AED 42\nBank card · 3 Oct\nWhich category?");
-  assertEquals(askText({ ...BAKERY, account: null }, "account", TODAY), "Bakery · AED 42\nGroceries · 3 Oct\nWhich card or account?");
+  assertEquals(askText({ ...BAKERY, category: null }, "category", TODAY), "Bakery · AED 42\nBank card · 3 Oct\nWhich category? Saved in the Inbox meanwhile.");
+  assertEquals(askText({ ...BAKERY, account: null }, "account", TODAY), "Bakery · AED 42\nGroceries · 3 Oct\nWhich card or account? Saved in the Inbox meanwhile.");
 });
 
 const READ = { parsed_merchant: "Bakery", parsed_amount: 42, parsed_account_id: "a", parsed_category_id: "c", parsed_currency: "AED", confidence: 0.95, date_guessed: false };

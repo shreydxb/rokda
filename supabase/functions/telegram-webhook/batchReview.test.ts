@@ -60,6 +60,12 @@ const dayWords = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateStrin
 
 // --- Sending the list ----------------------------------------------------
 
+// Whether the last message sent offers Record (choices.ts).
+function offersRecord(): boolean {
+  const rows = ((backend.telegramSent.at(-1)?.body.reply_markup as Row | undefined)?.inline_keyboard ?? []) as Array<Array<{ text: string }>>;
+  return rows.flat().some((b) => b.text === "Record");
+}
+
 freshTest("a paste of several entries is answered with a numbered list, each entry bound to it", async () => {
   const list = await paste([sms("City Taxi", 20), sms("Corner Shop", 45.5), sms("Fresh Market", 120)]);
   const text = lastReply();
@@ -94,9 +100,9 @@ freshTest("more than 20 entries: 20 are numbered and the rest wait in the Inbox"
   assertEquals(capturedIntake().filter((r) => r.confirm_message_id != null).length, 20);
 });
 
-freshTest("one entry keeps the yes prompt", async () => {
+freshTest("one entry is offered Record, not a list", async () => {
   await paste([sms("City Taxi", 20, { occurred_at: dubaiToday(), date_stated: true })]);
-  assert(lastReply().includes('reply "yes" to record it'), lastReply());
+  assert(offersRecord(), lastReply());
 });
 
 // --- Acting on a reply ---------------------------------------------------
@@ -232,7 +238,7 @@ freshTest("a bare yes for a single entry is not blocked by a list with nothing r
   await paste([sms("City Taxi", 20), sms("Corner Shop", 45.5)]);
   backend.parse = [sms("Book Shop", 60, { occurred_at: dubaiToday(), date_stated: true })];
   await handler(textUpdate(9102, "one more"));
-  assert(lastReply().includes('reply "yes" to record it'), lastReply());
+  assert(offersRecord(), lastReply());
   await handler(textUpdate(9103, "yes"));
   assertEquals(approvals().map((c) => c.p_merchant), ["Book Shop"]);
 });
