@@ -154,7 +154,8 @@ const SUBVIEWS = [
   // and a member's link drawer opened through its address.
   { name: 'telegram', path: '/settings', tabs: ['Telegram'], expectText: 'Questions that need an answer' },
   { name: 'telegram-link', path: '/settings?tab=telegram&link=22222222-2222-4222-8222-333333333333', tabs: [], expectText: 'Works once, for 15 minutes.', rpc: { generate_telegram_link_code: '0123456789abcdef0123456789abcdef' } },
-  { name: 'backups', path: '/settings', tabs: ['Backups'], expectText: 'Restore drill' },
+  { name: 'categories', path: '/settings', tabs: ['Categories & rules'], expectText: 'When the merchant' },
+  { name: 'backups', path: '/settings', tabs: ['Backups'], expectText: 'Record a backup' },
   { name: 'starter-categories', path: '/settings', tabs: ['Categories & rules', 'Starter set'], expectText: 'Starter categories' },
   {
     name: 'notes',

@@ -522,9 +522,15 @@ went: Overview's Plan strip and To do say what it said.
   owner manages the roster; a member who is not an owner renames themselves,
   links their own Telegram, and sees the others read-only. A second member's
   login is made by the owner (`docs/second-member.md`).
-- **Categories & rules**: categories and subcategories, whose cost each is
-  (shared or one person's), savings categories, what stops when work stops,
-  and merchant rules. `?tab=categories&rule=<id>` opens one rule's editor.
+- **Categories & rules**: the categories as one table, grouped (Income,
+  each group of subcategories, Other, then savings), with whose cost each is
+  (shared or one person's), this month's budget, and chips for savings and
+  what stops when work stops; archived ones fold at the foot, beside the
+  starter set. A category opens in a drawer: name, kind, group (one that
+  already is a group), whose cost, and switches for savings, stopping with
+  work and archived. Beside them the merchant rules, as a table with Apply,
+  which files past uncategorised transactions. `?tab=categories&rule=<id>`
+  opens one rule's drawer.
 - **Telegram**: what the bot sends, as two cards of switches (the
   household's): the morning message (missed bills, card due dates, cash
   cover, unusual spending, the weekly and month-end brief, and budget alerts,
@@ -538,8 +544,9 @@ went: Overview's Plan strip and To do say what it said.
   folded, count the bot's AI calls over 30 days and how many ended without
   error.
 - **Backups**: when the data was last exported and last restored from an
-  export, and a form to record each one (`backup_records`). Needs attention
-  says when an export is more than 35 days old or the last one failed.
+  export, each with a chip (OK, Late, Failed or Missing), a form to record
+  one (`backup_records`), and the history as a table. Needs attention says
+  when an export is more than 35 days old or the last one failed.
 
 ## Telegram bot (`supabase/functions/telegram-webhook`)
 
