@@ -59,10 +59,10 @@ export async function reply(chatId: number, text: string, replyMarkup: unknown =
 // Only one for now is worth trying again: trying one refused for good sent
 // the reminder again to everyone else on every run (the fresh review of
 // round 2).
-export async function sendReminder(chatId: number, text: string): Promise<"sent" | "retry" | "final"> {
+export async function sendReminder(chatId: number, text: string, replyMarkup?: unknown): Promise<"sent" | "retry" | "final"> {
   let res: { ok?: boolean; error_code?: number } | undefined;
   try {
-    res = await tgCall("sendMessage", { chat_id: chatId, text });
+    res = await tgCall("sendMessage", { chat_id: chatId, text, ...(replyMarkup ? { reply_markup: replyMarkup } : {}) });
   } catch {
     return "retry";
   }

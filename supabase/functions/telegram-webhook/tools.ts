@@ -2,7 +2,8 @@
 // the round 2 cleanup (SHR-383). Moved, not changed.
 import { accountValueAed, unvaluedAccounts } from "../_shared/applib/accounts.js";
 import { monthActualsByCategory } from "../_shared/applib/budget.js";
-import { cashCoverStatus, formatCashCoverLine } from "../_shared/applib/cashCover.js";
+import { cashCoverStatus } from "../_shared/applib/cashCover.js";
+import { cashCoverLine } from "./checks/morningWords.ts";
 import { day, facts, money, notCounted } from "../_shared/applib/botFormat.js";
 import { daysUntilDue, nextDueDate } from "../_shared/applib/creditCard.js";
 import { householdDay, householdToday, householdYearMonth, isPosted, parseDay } from "../_shared/applib/day.js";
@@ -940,7 +941,7 @@ export function briefMessage(
     monthSpend: number | typeof NOT_READ;
     bills: BriefBills | typeof NOT_READ;
     budgetAlerts: Array<{ category: string; pct: number }> | typeof NOT_READ;
-    cashCover: Parameters<typeof formatCashCoverLine>[0] | typeof NOT_READ;
+    cashCover: Parameters<typeof cashCoverLine>[0] | typeof NOT_READ;
     pendingCount: number | typeof NOT_READ;
   },
   today: string,
@@ -966,9 +967,9 @@ export function briefMessage(
   if (budgetAlerts === NOT_READ) lines.push("Budget: couldn't be read just now.");
   else if (budgetAlerts.length) lines.push(`Budget: ${facts(...budgetAlerts.map((a) => `${a.category} ${a.pct}%`))}`);
 
-  // Cash cover keeps the sentence it shares with the app (its caveats are
-  // the whole of QA #4); the morning message restyles it (phase 8c).
-  lines.push(cashCover === NOT_READ ? "Cash cover: couldn't be read just now." : formatCashCoverLine(cashCover));
+  // Cash cover's figures, and its caveats (the whole of QA #4) on ⚠ lines of
+  // their own, as the morning's line writes them (phase 8c).
+  lines.push(cashCover === NOT_READ ? "Cash cover: couldn't be read just now." : cashCoverLine(cashCover, "Cash cover: "));
 
   if (pendingCount === NOT_READ) lines.push("Inbox: couldn't be read just now.");
   else lines.push(pendingCount ? `Inbox: ${pendingCount} to review` : "Inbox is clear.");
@@ -991,7 +992,7 @@ export async function buildMonthlyReviewMessage(householdId: string, year: numbe
     `${monthLabel} in review:`,
     monthSpend === NOT_READ ? "Spent: couldn't be read just now." : `Spent: ${money(monthSpend)}`,
     ...netWorthLines("Net worth now", netWorth),
-    cashCover === NOT_READ ? "Cash cover: couldn't be read just now." : formatCashCoverLine(cashCover),
+    cashCover === NOT_READ ? "Cash cover: couldn't be read just now." : cashCoverLine(cashCover, "Cash cover: "),
   ];
   return lines.join("\n");
 }

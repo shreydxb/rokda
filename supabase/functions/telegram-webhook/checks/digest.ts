@@ -10,26 +10,39 @@
 // On the mornings of the weekly brief, the monthly review or the balance
 // check-in, those are "heads": the lines follow them in the same message.
 // Questions that need an answer tied to their own message (autopay,
-// dividends, statements, a split) are not part of this.
+// dividends, statements, a split) are not part of this: they follow it, each
+// its own message (the revamp, phase 8c).
+//
+// The lines are short and grouped (checks/morningWords.ts): what needs doing
+// today first, then how the month is going, with Open Overview under the
+// message when the app's address is set.
 
 export type Delivery = "sent" | "retry" | "final";
-export type Sender = (chatId: number, text: string) => Promise<Delivery>;
+export type Sender = (chatId: number, text: string, replyMarkup?: unknown) => Promise<Delivery>;
 
 type Part = { chatIds: number[]; text: string; order: number; head: boolean; record: () => unknown };
 
-// Where each kind of line sits: things late first, then what is coming due,
-// then how the month is going.
+// Where each kind of line sits: things late first, then what is coming due
+// and whether the money is there for it, then how the month is going. Heads
+// have their own order (below).
 export const DIGEST_ORDER = {
   billNotSeen: 10,
   cardOverdue: 20,
   cardDueSoon: 30,
+  cashCover: 35,
   budget: 40,
-  cashCover: 50,
   unusualSpend: 60,
   weeklyBrief: 5,
   monthlyReview: 10,
   balanceCheckin: 20,
 } as const;
+
+// The groups the lines go under, by their order: a line belongs to the last
+// group whose start it has reached.
+export const DIGEST_GROUPS: Array<{ title: string; from: number }> = [
+  { title: "Today", from: 0 },
+  { title: "This month", from: DIGEST_ORDER.budget },
+];
 
 // Telegram refuses a message over 4,096 characters for good, so a long
 // morning goes in parts, each kept under this, broken only between lines.
@@ -81,20 +94,28 @@ export class Digest {
     this.parts.push({ chatIds, text: "", order: 0, head: true, record });
   }
 
-  // The one message a person gets this morning, or null for none.
+  // The one message a person gets this morning, or null for none: the heads,
+  // then each group's title and its lines.
   messageFor(chatId: number): string | null {
     const mine = this.parts.filter((p) => p.chatIds.includes(chatId)).sort((a, b) => a.order - b.order);
     const heads = mine.filter((p) => p.head && p.text).map((p) => p.text);
-    const lines = mine.filter((p) => !p.head).map((p) => `• ${p.text}`);
+    const lines = mine.filter((p) => !p.head);
     if (!heads.length && !lines.length) return null;
-    if (!heads.length) return `Good morning. ${lines.length} ${lines.length === 1 ? "thing" : "things"} today:\n${lines.join("\n")}`;
-    return lines.length ? `${heads.join("\n\n")}\n\nAlso today:\n${lines.join("\n")}` : heads.join("\n\n");
+    const groups = DIGEST_GROUPS.map((g, i) => {
+      const until = DIGEST_GROUPS[i + 1]?.from ?? Infinity;
+      const inGroup = lines.filter((p) => p.order >= g.from && p.order < until).map((p) => p.text);
+      return inGroup.length ? [g.title, ...inGroup].join("\n") : null;
+    }).filter(Boolean);
+    const body = groups.join("\n");
+    return [...heads, ...(body ? [body] : [])].join("\n\n");
   }
 
   // Sends each person their message, then records each part whose every
   // recipient got it (or refused for good: blocked, chat gone). A part for
   // nobody is recorded at once, as a message to nobody counted as sent.
-  async send(send: Sender): Promise<{ chats: number; recorded: number }> {
+  // replyMarkup (Open Overview) goes under each person's message, on its
+  // last part.
+  async send(send: Sender, replyMarkup: unknown = null): Promise<{ chats: number; recorded: number }> {
     const chats = [...new Set(this.parts.flatMap((p) => p.chatIds))];
     const outcome = new Map<number, Delivery>();
     for (const chatId of chats) {
@@ -103,10 +124,11 @@ export class Digest {
       // Every part has to arrive: one not delivered holds the whole morning
       // for that person for tomorrow, as a lost reminder is worse than a repeat.
       let worst: Delivery = "sent";
-      for (const part of splitMessage(text)) {
+      const parts = splitMessage(text);
+      for (const [i, part] of parts.entries()) {
         let result: Delivery;
         try {
-          result = await send(chatId, part);
+          result = await send(chatId, part, i === parts.length - 1 && replyMarkup ? replyMarkup : undefined);
         } catch {
           result = "retry";
         }

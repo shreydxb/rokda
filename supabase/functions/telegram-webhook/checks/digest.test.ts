@@ -4,45 +4,57 @@ import { assert, assertEquals } from "jsr:@std/assert@1";
 import { Digest, type Delivery, DIGEST_ORDER } from "./digest.ts";
 
 function fakeSender(outcomes: Record<number, Delivery> = {}) {
-  const sent: Array<{ chatId: number; text: string }> = [];
-  const send = (chatId: number, text: string): Promise<Delivery> => {
-    sent.push({ chatId, text });
+  const sent: Array<{ chatId: number; text: string; markup?: unknown }> = [];
+  const send = (chatId: number, text: string, markup?: unknown): Promise<Delivery> => {
+    sent.push({ chatId, text, ...(markup ? { markup } : {}) });
     return Promise.resolve(outcomes[chatId] ?? "sent");
   };
   return { sent, send };
 }
 
-Deno.test("a person's reminders go out as one message, late things first", async () => {
+Deno.test("a person's reminders go out as one message, in groups: what needs doing today, then how the month is going", async () => {
   const digest = new Digest();
   const recorded: string[] = [];
-  digest.line([1], "Groceries has hit 80% of this month's budget.", 40, () => void recorded.push("budget"));
-  digest.line([1], "I don't see a transaction for \"Rent\" yet.", 10, () => void recorded.push("rent"));
+  digest.line([1], "Groceries · 80% of budget · AED 1,600 of AED 2,000", DIGEST_ORDER.budget, () => void recorded.push("budget"));
+  digest.line([1], "Cash cover · AED 5,000 liquid · AED 7,000 due in 7 days · short by AED 2,000", DIGEST_ORDER.cashCover, () => void recorded.push("cash"));
+  digest.line([1], "Rent · Late · was due 3 Oct · AED 6,500", DIGEST_ORDER.billNotSeen, () => void recorded.push("rent"));
   const { sent, send } = fakeSender();
   const result = await digest.send(send);
   assertEquals(sent.length, 1);
-  assertEquals(sent[0].text, "Good morning. 2 things today:\n• I don't see a transaction for \"Rent\" yet.\n• Groceries has hit 80% of this month's budget.");
-  assertEquals(recorded.sort(), ["budget", "rent"]);
-  assertEquals(result, { chats: 1, recorded: 2 });
+  assertEquals(sent[0].text, "Today\nRent · Late · was due 3 Oct · AED 6,500\nCash cover · AED 5,000 liquid · AED 7,000 due in 7 days · short by AED 2,000\nThis month\nGroceries · 80% of budget · AED 1,600 of AED 2,000");
+  assertEquals(recorded.sort(), ["budget", "cash", "rent"]);
+  assertEquals(result, { chats: 1, recorded: 3 });
+});
+
+Deno.test("Open Overview goes under each person's message, on its last part", async () => {
+  const digest = new Digest();
+  const open = { inline_keyboard: [[{ text: "Open Overview", url: "https://app.example.test/" }]] };
+  digest.head([1], "R".repeat(3990), 10, () => {});
+  digest.line([1], "Rent · Late · was due 3 Oct · AED 6,500", DIGEST_ORDER.billNotSeen, () => {});
+  digest.line([2], "Rent · Late · was due 3 Oct · AED 6,500", DIGEST_ORDER.billNotSeen, () => {});
+  const { sent, send } = fakeSender();
+  await digest.send(send, open);
+  assertEquals(sent.map((s) => [s.chatId, s.markup ?? null]), [[1, null], [1, open], [2, open]]);
 });
 
 Deno.test("each person gets only the lines meant for them", async () => {
   const digest = new Digest();
-  digest.line([1], "Your card is due.", 30, () => {});
-  digest.line([1, 2], "Cash looks short this week.", 50, () => {});
+  digest.line([1], "Your card is due.", DIGEST_ORDER.cardDueSoon, () => {});
+  digest.line([1, 2], "Cash looks short this week.", DIGEST_ORDER.cashCover, () => {});
   const { sent, send } = fakeSender();
   await digest.send(send);
   const byChat = Object.fromEntries(sent.map((s) => [s.chatId, s.text]));
   assert(byChat[1].includes("Your card is due.") && byChat[1].includes("Cash looks short"), byChat[1]);
-  assertEquals(byChat[2], "Good morning. 1 thing today:\n• Cash looks short this week.");
+  assertEquals(byChat[2], "Today\nCash looks short this week.");
 });
 
 Deno.test("on a brief's morning the lines go at the end of it", async () => {
   const digest = new Digest();
   digest.head([1], "This week:\nSpent AED 100.00.", 10, () => {});
-  digest.line([1], "Your card is due.", 30, () => {});
+  digest.line([1], "Your card is due.", DIGEST_ORDER.cardDueSoon, () => {});
   const { sent, send } = fakeSender();
   await digest.send(send);
-  assertEquals(sent[0].text, "This week:\nSpent AED 100.00.\n\nAlso today:\n• Your card is due.");
+  assertEquals(sent[0].text, "This week:\nSpent AED 100.00.\n\nToday\nYour card is due.");
 });
 
 Deno.test("two heads for one person are one message, in order", async () => {

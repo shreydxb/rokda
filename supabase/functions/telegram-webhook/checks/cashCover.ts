@@ -1,10 +1,10 @@
 // Part of the Telegram webhook (index.ts), split out by responsibility in
 // the round 2 cleanup (SHR-383). Moved, not changed.
-import { formatCashCoverLine } from "../../_shared/applib/cashCover.js";
 import { householdToday } from "../../_shared/applib/day.js";
 import { supabase } from "../env.ts";
 import { toolGetCashCover } from "../tools.ts";
 import { type Digest, DIGEST_ORDER } from "./digest.ts";
+import { cashCoverLine } from "./morningWords.ts";
 import { householdsWithLinkedTelegram, mondayOfWeek, prefEnabled, telegramPrefsMap, telegramRecipients } from "./recipients.ts";
 
 // Runs daily (unlike the weekly/monthly briefs in briefs.ts) since a shortfall is
@@ -42,7 +42,7 @@ export async function runCashCoverCheck(digest: Digest): Promise<{ checked: numb
       const recipients = await telegramRecipients(householdId);
       if (!recipients.length) continue;
 
-      const message = `${formatCashCoverLine(status)} Might be worth checking before those bills land.`;
+      const message = cashCoverLine(status);
       digest.line(recipients, message, DIGEST_ORDER.cashCover, () => supabase.from("cash_cover_nudges").insert({ household_id: householdId, period_key: periodKey }));
       nudged++;
     } catch {

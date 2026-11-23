@@ -78,6 +78,19 @@ Deno.test("the brief gives one figure a line, and what it leaves out on a ⚠ li
   ].join("\n"));
 });
 
+// The revamp, phase 8c: cash cover in the brief is a label and its figures,
+// with what it leaves out on ⚠ lines, as net worth's is.
+Deno.test("the brief gives cash cover its figures, and what they leave out on a ⚠ line", () => {
+  const text = briefMessage(
+    {
+      netWorth: NOT_READ, monthSpend: NOT_READ, bills: NOT_READ, budgetAlerts: NOT_READ, pendingCount: NOT_READ,
+      cashCover: { liquidAed: 5000, dueAed: 7000, days: 7, covered: false, certain: false, shortfallAed: 2000, unvalued: 0, unvaluedDue: 1 },
+    },
+    "2026-11-20",
+  );
+  assert(text.includes("\nCash cover: AED 5,000 liquid · AED 7,000 due in 7 days · short by at least AED 2,000\n⚠ 1 bill due has no AED amount, so more is due\n"), text);
+});
+
 // The fresh review of 8a: the brief's ⚠ line, end to end, right under the
 // figure it qualifies.
 freshTest("the brief says what net worth leaves out, right under it", async () => {

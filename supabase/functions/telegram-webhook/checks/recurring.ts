@@ -4,6 +4,7 @@ import { householdDay } from "../../_shared/applib/day.js";
 import { lastDueOccurrence, matchWindowDays } from "../../_shared/applib/recurring.js";
 import { supabase } from "../env.ts";
 import { type Digest, DIGEST_ORDER } from "./digest.ts";
+import { billLine } from "./morningWords.ts";
 import { prefEnabled, telegramPrefsMap } from "./recipients.ts";
 
 // Runs once a day via pg_cron (see the ?run_recurring_check=1 handler in
@@ -135,7 +136,7 @@ export async function runRecurringCheck(digest: Digest): Promise<{ checked: numb
 
       digest.line(
         recipients.map((m) => m.telegram_user_id),
-        `I don't see a transaction for "${r.name}" yet (usually around AED ${amount.toFixed(2)}, due ${r.dueDate}) -- forgot to log it, or paid another way?`,
+        billLine({ name: r.name, amount, due: r.dueDate }),
         DIGEST_ORDER.billNotSeen,
         () => supabase.from("recurring_nudges").insert({ recurring_id: r.id, due_date: r.dueDate }),
       );

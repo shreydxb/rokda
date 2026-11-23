@@ -69,7 +69,7 @@ import { cancelledText, inboxReason, inboxText } from "./expenseMessages.ts";
 import { BATCH_UNADDRESSED_HINT, batchForPrompt, handleBatchReply, hasOpenList, listPrompts, type SavedItem, sendBatchList } from "./batchReview.ts";
 import { confirmCandidates, confirmPendingIntake, decideAutopay, discardPendingIntake, decidedProposalMessage, decideProposal, handleReaction, intakeForPrompt, openProposals, PENDING_WINDOW_MS, type PendingIntakeRow, type PromptLookup, PROPOSAL_COLUMNS, proposalForPrompt, type ProposalRow, RECENT_INTAKE_COLUMNS, recentlyDecidedProposal, sendProposal } from "./confirmations.ts";
 import { DIVIDEND_CLASSES, DIVIDEND_GUARD_REPLY, readsAsDividend } from "./dividends.ts";
-import { OPENROUTER_API_KEY, supabase, SUPABASE_URL, TELEGRAM_BOT_TOKEN } from "./env.ts";
+import { APP_URL, OPENROUTER_API_KEY, supabase, SUPABASE_URL, TELEGRAM_BOT_TOKEN } from "./env.ts";
 import { alreadyRecordedNote, categoryByName, datedItems, forwardedDay, loadCategoryKnowledge, loadFileableCategories, matchAccountByCardLast4, matchAccountByNameHint, matchCategoryFromMerchantHistory, parseIntakeWithAI, QUESTION_TOOLS, undatedNote } from "./intake.ts";
 import { BRIEF_TRIGGERS, buildBriefMessage, figuresUnavailableMessage, goalContributionDraft, ReadFailed, toolGetAccountBalance, toolGetBudgetStatus, toolGetCategorySpend, toolGetHoldings, toolGetNetWorth, toolGetTradeProfit, toolGetUpcomingBills, transferDraft, transferPrompt } from "./tools.ts";
 import { answerTradeQuestion, FILE_TOO_BIG, FILE_TOO_BIG_CAPTION_KEPT, handleTradeMessage, handleUndoTrade } from "./tradeMessages.ts";
@@ -145,32 +145,32 @@ async function handleRequest(req: Request): Promise<Response> {
   // day but their own, so running them daily costs nothing.
   if (req.method === "GET" && url.searchParams.get("run_recurring_check") === "1") {
     // The reminders that need no answer, and that morning's brief or review,
-    // go out together as one message a person (checks/digest.ts); the
-    // questions (autopay, statements, splits, dividends) still send their own.
+    // go out together as one message a person (checks/digest.ts), with Open
+    // Overview under it. The questions (autopay, statements, splits,
+    // dividends) follow, each its own message: they are run only once the
+    // morning message has gone, so it is first in the chat (the revamp,
+    // phase 8c; the UI review's T23).
+    //
+    // Every check runs whatever another does: one that throws only loses its
+    // own lines or questions, and the run then fails, so the failure is seen.
     const digest = new Digest();
-    let digestSent: { chats: number; recorded: number } = { chats: 0, recorded: 0 };
-    // Whatever the checks gathered is sent even if one of them throws: that
-    // one's lines are simply missing, as its messages were before.
-    let results;
-    try {
-      results = await Promise.all([
-        runRecurringCheck(digest),
-        runAutopayCheck(),
-        runCreditCardCheck(digest),
-        runStatementCheck(),
-        runBudgetAlertCheck(digest),
-        runWeeklyBriefCheck(digest),
-        runMonthlyBriefCheck(digest),
-        runCashCoverCheck(digest),
-        runUnusualSpendCheck(digest),
-        runBalanceCheckin(digest),
-        runSplitCheck(),
-        runDividendCheck(),
-      ]);
-    } finally {
-      digestSent = await digest.send(sendReminder);
-    }
-    const [recurring, autopay, creditCards, statements, budgets, weeklyBrief, monthlyBrief, cashCover, unusualSpend, balanceCheckin, splits, dividends] = results;
+    const gathered = await Promise.allSettled([
+      runRecurringCheck(digest),
+      runCreditCardCheck(digest),
+      runBudgetAlertCheck(digest),
+      runWeeklyBriefCheck(digest),
+      runMonthlyBriefCheck(digest),
+      runCashCoverCheck(digest),
+      runUnusualSpendCheck(digest),
+      runBalanceCheckin(digest),
+    ]);
+    const digestSent = await digest.send(sendReminder, APP_URL ? { inline_keyboard: [[{ text: "Open Overview", url: `${APP_URL}/` }]] } : null);
+    const asked = await Promise.allSettled([runAutopayCheck(), runStatementCheck(), runSplitCheck(), runDividendCheck()]);
+    const failure = [...gathered, ...asked].find((r): r is PromiseRejectedResult => r.status === "rejected");
+    if (failure) throw failure.reason;
+    const value = (r: PromiseSettledResult<unknown>) => (r as PromiseFulfilledResult<unknown>).value;
+    const [recurring, creditCards, budgets, weeklyBrief, monthlyBrief, cashCover, unusualSpend, balanceCheckin] = gathered.map(value);
+    const [autopay, statements, splits, dividends] = asked.map(value);
     // Housekeeping, not a check: nothing reports on it and nothing depends on
     // it having run today.
     await pruneTelegramUpdateLog();

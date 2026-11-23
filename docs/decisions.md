@@ -4726,3 +4726,46 @@ works.
   - **A settled trade answered by a typed "yes" or "no" is said in the new
     words**, and a cancel whose result cannot be read leaves the question as
     it is rather than calling it lapsed.
+
+## The bot: the morning message in short grouped lines
+
+The revamp's phase 8c, its first part (design note
+`docs/superpowers/specs/2026-11-23-telegram-bot-design.md`; the UI review's
+T9 and T23). The questions' buttons (T10 to T13) follow in the next pull
+request.
+
+- **The morning keeps its nudges and restyles them, rather than mirroring
+  Overview's To do.** The design note asks for "the same items, order and
+  words as Overview's To do". To do is a standing list (reviews, balances,
+  prices, month close, backups, statements, dividends, goals); the morning
+  message is one-off nudges, each sent once and recorded. Listing all of To
+  do every morning would mean porting the app's attention logic into the bot
+  and repeating standing items daily, so the household chose to restyle the
+  nudges: same items as before, written the way To do writes the same kind
+  of item.
+- **Short grouped lines** (`checks/morningWords.ts`): under "Today", a bill
+  not seen (`Rent · Late · was due 3 Oct · AED 6,500`, To do's "Late · was
+  due"), a card due (`Bank card · Payment due in 2d · AED 1,200 owed`, To
+  do's "Payment due in 2d") or still owing after its date (`· Late · was due
+  …`), and cash cover; under "This month", a budget passed (`Groceries · 80%
+  of budget · AED 1,600 of AED 2,000`) and unusual spending (`Eating Out ·
+  AED 1,200 this month · usually AED 600 · biggest AED 400 at Bistro`). The
+  "Good morning. 3 things today:" opener and the bullets went. On a brief's
+  morning the brief comes first, as before, then the groups.
+- **Cash cover's caveats are ⚠ lines**: the figures and a verdict on one
+  line, then "⚠ 1 bill due has no AED amount, so more is due" or "⚠ Leaves
+  out 1 account not converted". The verdict follows the shared sentence's
+  rules (QA #4): no "covered" when a bill's amount is unknown, "at least"
+  on a shortfall, no verdict when the money is understated too. The brief
+  and the monthly review write it the same way, as "Cash cover: …". The
+  shared sentence (`formatCashCoverLine`) stays the app's.
+- **Open Overview under the message**, on its last part, when `APP_URL` is
+  set, as Open Inbox is.
+- **The message comes first, then the questions** (T23). The questions ran
+  alongside the checks that gather the message, so they reached the chat
+  before it. Now the message is sent once its checks are done, and the
+  questions are asked after. Every check still runs if another fails; the run
+  then fails, so the failure is seen.
+- **A card's amount is in its own currency when it has no AED value**: the
+  check now reads the card's currency, which it named in the line but never
+  selected.

@@ -17,7 +17,7 @@ freshTest("a bill paid after the first thousand records of its window still coun
   // Unpaid: asked about, so the check itself is running.
   const unpaid = await handler(dailyCheck());
   await unpaid.body?.cancel();
-  assert(backend.telegramSent.some((m) => String(m.body.text).includes('I don\'t see a transaction for "Rent"')), "an unpaid bill was not asked about");
+  assert(backend.telegramSent.some((m) => String(m.body.text).includes("Rent · Late · was due")), "an unpaid bill was not asked about");
 
   // Paid, as the 1,001st record of the window: not asked about.
   backend.tables.recurring_nudges = [];
@@ -25,7 +25,7 @@ freshTest("a bill paid after the first thousand records of its window still coun
   backend.tables.transactions.push({ id: "rent-paid", household_id: HOUSEHOLD, account_id: BANK, amount: -500, occurred_at: dubaiDaysAgo(4) });
   const paid = await handler(dailyCheck());
   await paid.body?.cancel();
-  assert(!backend.telegramSent.some((m) => String(m.body.text).includes("I don't see a transaction")), "a paid bill was asked about");
+  assert(!backend.telegramSent.some((m) => String(m.body.text).includes("Rent · Late")), "a paid bill was asked about");
 });
 
 // Round 2 of the outside review (D2-4): a reminder Telegram refused (an
@@ -45,7 +45,7 @@ freshTest("a reminder Telegram refuses is not recorded as sent, and goes out on 
   backend.telegramSent.length = 0;
   const next = await handler(dailyCheck());
   await next.body?.cancel();
-  assert(backend.telegramSent.some((m) => String(m.body.text).includes('I don\'t see a transaction for "Rent"')), "the reminder was not sent again");
+  assert(backend.telegramSent.some((m) => String(m.body.text).includes("Rent · Late · was due")), "the reminder was not sent again");
   assertEquals(backend.tables.recurring_nudges.length, 1);
 });
 
@@ -64,7 +64,7 @@ freshTest("a member who blocked the bot does not make the other get a reminder e
     const res = await handler(dailyCheck());
     await res.body?.cancel();
   }
-  const toMe = backend.telegramSent.filter((m) => Number(m.body.chat_id) === TELEGRAM_USER && String(m.body.text).includes('I don\'t see a transaction for "Rent"'));
+  const toMe = backend.telegramSent.filter((m) => Number(m.body.chat_id) === TELEGRAM_USER && String(m.body.text).includes("Rent · Late · was due"));
   assertEquals(toMe.length, 1, "the reachable member was sent the reminder again");
   assertEquals(backend.tables.recurring_nudges.length, 1);
 });
@@ -83,10 +83,10 @@ freshTest("a late bill and a card due soon arrive as one message, and both are r
   const res = await handler(dailyCheck());
   await res.body?.cancel();
   const mine = backend.telegramSent.filter((m) => Number(m.body.chat_id) === TELEGRAM_USER);
-  const digest = mine.find((m) => String(m.body.text).includes('"Rent"'));
+  const digest = mine.find((m) => String(m.body.text).includes("Rent · Late"));
   assert(digest, "no digest");
-  assert(String(digest.body.text).includes("Bank card is due"), String(digest.body.text));
-  assertEquals(mine.filter((m) => /"Rent"|Bank card is due/.test(String(m.body.text))).length, 1);
+  assert(String(digest.body.text).includes("Bank card · Payment due in 1d · AED 300 owed"), String(digest.body.text));
+  assertEquals(mine.filter((m) => /Rent · Late|Bank card · Payment due/.test(String(m.body.text))).length, 1);
   assertEquals(backend.tables.recurring_nudges.length, 1);
   assertEquals(backend.tables.credit_card_nudges.length, 1);
 });
@@ -98,12 +98,12 @@ freshTest("a personal card's line is in its owner's digest only", async () => {
   backend.tables.accounts.push({ id: "a9000000-0000-4000-8000-0000000000cb", household_id: HOUSEHOLD, name: "Bank card", type: "credit_card", owner_member_id: MEMBER, is_shared: false, balance: 300, balance_aed: 300, currency: "AED", due_day: dueDay, statement_day: null, archived_at: null });
   const res = await handler(dailyCheck());
   await res.body?.cancel();
-  assert(backend.telegramSent.some((m) => Number(m.body.chat_id) === TELEGRAM_USER && String(m.body.text).includes("Bank card is due")));
+  assert(backend.telegramSent.some((m) => Number(m.body.chat_id) === TELEGRAM_USER && String(m.body.text).includes("Bank card · Payment due")));
   // Only the due line is the owner's. On a Monday the digest is the weekly
   // one, whose upcoming bills list the household's, this card among them, for
   // everyone; this test failed every Monday in Dubai when it refused any
   // mention of the card.
-  assert(!backend.telegramSent.some((m) => Number(m.body.chat_id) === 7701 && String(m.body.text).includes("Bank card is due")));
+  assert(!backend.telegramSent.some((m) => Number(m.body.chat_id) === 7701 && String(m.body.text).includes("Bank card · Payment due")));
 });
 
 freshTest("a digest Telegram refuses records none of its lines, and all come again the next morning", async () => {
@@ -140,6 +140,27 @@ Deno.test("a weekly or monthly message may still be sent on the two days after i
   assertEquals(sendablePeriod("2026-11-03", "monthly"), "2026-10");
   assertEquals(sendablePeriod("2026-11-04", "monthly"), null);
   assertEquals(sendablePeriod("2027-01-02", "monthly"), "2026-12");
+});
+
+// The revamp, phase 8c: the morning is one message, then each question.
+freshTest("the morning message comes before the day's questions, with Open Overview under it", async () => {
+  backend.tables.recurring_nudges = [];
+  backend.tables.recurring.push({
+    id: "a9000000-0000-4000-8000-0000000000e6", household_id: HOUSEHOLD, name: "Rent", owner_member_id: null, is_shared: true, amount: -500,
+    next_due_date: dubaiDaysAgo(4), ends_on: null, cadence: "monthly", interval_count: 1, account_id: BANK, category_id: null, active: true, autopay: false,
+  });
+  seedAutopayBill();
+  const res = await handler(dailyCheck());
+  await res.body?.cancel();
+  const texts = backend.telegramSent.map((m) => String(m.body.text));
+  const morning = texts.findIndex((t) => t.includes(`Rent · Late · was due`));
+  // The question by its own words: on a Monday the morning message's weekly
+  // brief names the bill among those coming up.
+  const question = texts.findIndex((t) => /Car EMI.*deducted/s.test(t));
+  assert(morning >= 0 && question >= 0, texts.join("\n---\n"));
+  assert(morning < question, "a question went out before the morning message");
+  const buttons = ((backend.telegramSent[morning].body.reply_markup as Row | undefined)?.inline_keyboard ?? []) as Array<Array<Row>>;
+  assertEquals(buttons.flat(), [{ text: "Open Overview", url: "https://app.example.test/" }]);
 });
 
 // A bill on autopay from a bank account, due today.

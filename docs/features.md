@@ -622,7 +622,13 @@ went: Overview's Plan strip and To do say what it said.
 - Nudges and briefs (daily job): bills due and overdue, card payments, budget
   alerts, cash cover and unusual spending go out as one morning message per
   person, after the weekly brief on Mondays and after the monthly review and
-  balance check-in on the 1st (one message that morning too). Each card
+  balance check-in on the 1st (one message that morning too). Its lines are
+  short and grouped, Today then This month, worded as Overview's To do words
+  the same item (`Rent · Late · was due 3 Oct · AED 6,500`, `Bank card ·
+  Payment due in 2d · AED 1,200 owed`), with Open Overview when the
+  `APP_URL` secret is set; cash cover's caveats are ⚠ lines. The day's
+  questions (autopay, statements, splits, dividends) follow it, each its own
+  message. Each card
   statement is asked about on its own: the morning after it closes, and
   once more three days before it is due, unless someone says it is
   reconciled ("done" or 👍).
