@@ -4613,9 +4613,10 @@ on its own.
 - **Undo puts it back where it was** (decision 2): the transaction is
   removed and the entry waits again with its buttons, to change and record
   again or discard. The database decides (`undo_intake_approval`, for the
-  bot's service role only): only the member who sent it, within ten minutes
-  of recording, and only while nobody has changed it since (an edit, a line
-  in the shared edit history, a split or a link). Otherwise it stays, and
+  bot's service role only): only the transaction the bot's own Record made,
+  which the Undo button names, for the member who sent the entry, within ten
+  minutes of recording, and only while nobody has changed it since (an edit,
+  a line in the shared edit history, a split or a link). Otherwise it stays, and
   the bot says where to change it. A 👍 turns the entry's message into the
   tick line with Undo; a typed "yes" gets the tick line with Undo as a new
   message, and the message it answered loses its buttons, since the answer
@@ -4635,4 +4636,19 @@ on its own.
   what was read. "Open Inbox" needs the app's address, which the public
   repository does not name: it is the Edge Function secret `APP_URL`
   (decision 4), and until it is set the button is left off.
+- **The fresh review of 8b** changed these:
+  - **Undo only takes back what the bot recorded.** The approval in the app
+    leaves the entry tied to the bot's message, so a tap there after the
+    partner approved it in the Inbox (at another amount, say) offered Undo,
+    and Undo removed the partner's record. Undo now names the transaction
+    the bot's own Record made, and the database refuses any other; an entry
+    found recorded already is shown as its record has it, with no Undo.
+  - **A bare "no" with a list open is told to reply to the list**, as a
+    bare "yes" was: it could set aside one of the list's entries and write
+    over the list.
+  - **A message is tied to its entry only once it shows it.** The tie was
+    made before the message was edited, so an edit Telegram refused left
+    old figures on screen with a Record that would save the new ones. An
+    edit that fails now unties it, and Telegram's "message is not modified"
+    counts as showing it.
 

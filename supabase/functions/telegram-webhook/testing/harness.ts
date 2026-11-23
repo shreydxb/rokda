@@ -67,6 +67,10 @@ export type Backend = {
     expireLinkCodeAfterLookup?: boolean;
     // Inserting a message's second and later items into intake fails.
     failIntakeItems?: boolean;
+    // Telegram refuses this many message edits (a 429), or answers this many
+    // as "message is not modified" (the text and buttons were already so).
+    failEdits?: number;
+    notModifiedEdits?: number;
     // Telegram's getFile refuses (a 429) or says the file is too big for a bot.
     getFile?: "refuse" | "too_big";
     // Downloading the file, or storing it, fails.
@@ -617,6 +621,7 @@ export async function rpc(req: Request, fn: string): Promise<Response> {
     if (!row) return json({ outcome: "not_found" });
     if (row.member_id !== args.p_member_id) return json({ outcome: "not_yours" });
     if (row.status !== "approved" || !row.transaction_id) return json({ outcome: "not_recorded" });
+    if (row.transaction_id !== args.p_transaction_id) return json({ outcome: "changed" });
     if (backend.undoOutcome) return json({ outcome: backend.undoOutcome });
     backend.tables.transactions = backend.tables.transactions.filter((t) => t.id !== row.transaction_id);
     Object.assign(row, { status: "pending", transaction_id: null });
@@ -683,6 +688,14 @@ export async function telegram(req: Request, url: URL): Promise<Response> {
     }
     backend.telegramSent.push({ method, body });
     return json({ ok: true, result: { message_id: 1000 + sendCount } });
+  }
+  if (method === "editMessageText" && backend.faults.failEdits) {
+    backend.faults.failEdits -= 1;
+    return json({ ok: false, error_code: 429, description: "Too Many Requests: retry after 5" });
+  }
+  if (method === "editMessageText" && backend.faults.notModifiedEdits) {
+    backend.faults.notModifiedEdits -= 1;
+    return json({ ok: false, error_code: 400, description: "Bad Request: message is not modified: specified new message content and reply markup are exactly the same" });
   }
   if (method === "deleteMessage") backend.telegramDeleted.push(Number(body.message_id));
   else backend.telegramCalls.push({ method, body });

@@ -11,7 +11,7 @@ import { decideDividends, dividendsNotYet, type DividendsPayload, type Dividends
 import { decideStatement, statementForPrompt } from "./checks/statements.ts";
 import { DIVIDENDS_ANSWERED, dividendsDropSummary, dividendsSavedMessage } from "./dividends.ts";
 import { supabase } from "./env.ts";
-import { edit, inboxKeyboard, RECORD_FAILED, RECORD_UNCHECKED, recordEntry, undoKeyboard, viewOf } from "./choices.ts";
+import { edit, inboxKeyboard, RECORD_FAILED, RECORD_UNCHECKED, recordedView, recordEntry, undoKeyboard, viewOf } from "./choices.ts";
 import { cancelledText, inboxReason, inboxText, recordedText } from "./expenseMessages.ts";
 import { proposeTrade } from "./tradeMessages.ts";
 import { type TradeDraft, tradeDropSummary, type TradePayload, tradeRefusal, tradeSavedMessage } from "./trades.ts";
@@ -154,12 +154,22 @@ export async function confirmPendingIntake(chatId: number, householdId: string, 
     if (via === "text" || !promptId) await reply(chatId, text, inboxKeyboard());
     return;
   }
-  const line = recordedText(view);
-  if (via === "reaction" && promptId) {
-    await edit(chatId, promptId, line, undoKeyboard(row.id));
+  // Recorded by someone else a moment earlier: shown as its record has it,
+  // with no Undo, since the bot did not record it.
+  if (outcome.kind === "already") {
+    const { data } = await supabase.from("intake").select("transaction_id").eq("id", row.id).maybeSingle();
+    const line = recordedText(await recordedView({ ...row, transaction_id: (data as { transaction_id?: string | null } | null)?.transaction_id ?? null }));
+    if (promptId) await edit(chatId, promptId, line);
+    if (via === "text" || !promptId) await reply(chatId, line);
     return;
   }
-  const sent = await reply(chatId, line, undoKeyboard(row.id));
+  const line = recordedText(view);
+  const undo = undoKeyboard(row.id, outcome.transactionId);
+  if (via === "reaction" && promptId) {
+    await edit(chatId, promptId, line, undo);
+    return;
+  }
+  const sent = await reply(chatId, line, undo);
   if (sent != null) await supabase.from("intake").update({ confirm_chat_id: chatId, confirm_message_id: sent }).eq("id", row.id).eq("status", "approved");
   if (promptId) await edit(chatId, promptId, line);
 }

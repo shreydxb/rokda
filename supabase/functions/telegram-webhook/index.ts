@@ -460,9 +460,12 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
     if (await handleStatementText(chatId, member, trimmedText, repliedTo)) return new Response("ok");
 
     const strictYes = isConfirmationText(trimmedText);
-    // A bare "yes" while an entry ready for one is on a list: a list is
-    // answered by replying to it, with a day where the SMS had none.
-    if (strictYes && repliedTo == null) {
+    const strictNo = isCancellationText(trimmedText);
+    // A bare "yes" or "no" while an entry ready for one is on a list: a list
+    // is answered by replying to it, with a day where the SMS had none. A
+    // bare "no" would otherwise set aside one of its entries and write over
+    // the list (the fresh review of 8b).
+    if ((strictYes || strictNo) && repliedTo == null) {
       const perPrompt = new Map<number, number>();
       for (const r of candidates.rows) if (r.confirm_message_id != null) perPrompt.set(r.confirm_message_id, (perPrompt.get(r.confirm_message_id) ?? 0) + 1);
       // Only an entry a "yes" could record: a list of undated entries does
@@ -472,7 +475,6 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
         return new Response("ok");
       }
     }
-    const strictNo = isCancellationText(trimmedText);
     const autopay = autopayAnswer(trimmedText);
     const confirming = strictYes || autopay.decision === "paid";
     const cancelling = !confirming && (strictNo || autopay.decision === "not_yet");

@@ -22,11 +22,12 @@ import { type FileableCategory, findDuplicateTransaction, type IntakeKind, isSpe
 import { tgCall } from "./transport.ts";
 
 // c and a fill a missing category or card, k and m change one; i leaves the
-// entry in the Inbox; r records, d discards, u undoes; C and A open the
-// category and account lists, b goes back to the entry.
+// entry in the Inbox; r records, d discards; u undoes the transaction it
+// names, the one the bot's own Record made; C and A open the category and
+// account lists, b goes back to the entry.
 export type ChoiceKind = "c" | "a" | "k" | "m" | "i" | "r" | "d" | "u" | "C" | "A" | "b";
-const WITH_OPTION = new Set(["c", "a", "k", "m"]);
-const WITHOUT_OPTION = new Set(["i", "r", "d", "u", "C", "A", "b"]);
+const WITH_OPTION = new Set(["c", "a", "k", "m", "u"]);
+const WITHOUT_OPTION = new Set(["i", "r", "d", "C", "A", "b"]);
 export const INBOX_LABEL = "In the Inbox";
 const CATEGORY_CHOICES = 6;
 const ACCOUNT_CHOICES = 8;
@@ -96,8 +97,10 @@ export function readyKeyboard(id: string): Keyboard {
   return keyboard([tap("Record", "r", id), tap("Category", "C", id), tap("Account", "A", id), tap("Discard", "d", id)]);
 }
 
-export function undoKeyboard(id: string): Keyboard {
-  return keyboard([tap("Undo", "u", id)]);
+// Undo names the transaction the bot recorded, so it can never take back an
+// approval made in the app (undo_intake_approval).
+export function undoKeyboard(id: string, transactionId: string): Keyboard {
+  return keyboard([tap("Undo", "u", id, transactionId)]);
 }
 
 // "Open Inbox", when the app's address is set (env.ts).
@@ -132,6 +135,7 @@ async function accountChoices(householdId: string, memberId: string): Promise<Ar
 export type EntryRow = ChoiceRow & {
   id: string;
   status?: string;
+  transaction_id?: string | null;
   parsed_kind?: string | null;
   confirm_chat_id?: number | string | null;
   confirm_message_id?: number | string | null;
@@ -147,6 +151,18 @@ async function nameOf(table: "accounts" | "categories", id: string | null): Prom
 export async function viewOf(row: EntryRow): Promise<ExpenseView> {
   const [account, category] = await Promise.all([nameOf("accounts", row.parsed_account_id), nameOf("categories", row.parsed_category_id)]);
   return { merchant: row.parsed_merchant, amount: row.parsed_amount, currency: row.parsed_currency, date: row.parsed_date ?? null, kind: row.parsed_kind ?? "expense", account, category };
+}
+
+// A recorded entry as its record has it: approved in the app, it may carry
+// another amount, category or card than the bot read.
+export async function recordedView(row: EntryRow): Promise<ExpenseView> {
+  const { data } = row.transaction_id
+    ? await supabase.from("transactions").select("merchant, amount, currency, occurred_at, kind, account_id, category_id").eq("id", row.transaction_id).maybeSingle()
+    : { data: null };
+  const t = data as { merchant: string | null; amount: number | string; currency: string | null; occurred_at: string; kind: string; account_id: string; category_id: string | null } | null;
+  if (!t) return await viewOf(row);
+  const [account, category] = await Promise.all([nameOf("accounts", t.account_id), nameOf("categories", t.category_id)]);
+  return { merchant: t.merchant, amount: Math.abs(Number(t.amount)), currency: t.currency, date: t.occurred_at, kind: t.kind, account, category };
 }
 
 // The same without reading names, for a reply sent when the database or
@@ -219,26 +235,33 @@ export async function sendChoicePrompt(chatId: number, householdId: string, memb
   return await sendEntryPrompt(chatId, householdId, memberId, row);
 }
 
-const INTAKE_COLUMNS = "id, household_id, member_id, status, parsed_merchant, parsed_amount, parsed_date, date_guessed, parsed_category_id, parsed_account_id, parsed_currency, parsed_kind, confidence, confirm_chat_id, confirm_message_id";
+const INTAKE_COLUMNS = "id, household_id, member_id, status, transaction_id, parsed_merchant, parsed_amount, parsed_date, date_guessed, parsed_category_id, parsed_account_id, parsed_currency, parsed_kind, confidence, confirm_chat_id, confirm_message_id";
 
-export async function edit(chatId: number, messageId: number, text: string, replyMarkup: Keyboard | null = null): Promise<void> {
-  await tgCall("editMessageText", { chat_id: chatId, message_id: messageId, text, ...(replyMarkup ? { reply_markup: replyMarkup } : {}) }).catch(() => null);
+// Whether the message now shows this: Telegram's "message is not modified"
+// means it already did.
+export async function edit(chatId: number, messageId: number, text: string, replyMarkup: Keyboard | null = null): Promise<boolean> {
+  const res = (await tgCall("editMessageText", { chat_id: chatId, message_id: messageId, text, ...(replyMarkup ? { reply_markup: replyMarkup } : {}) }).catch(() => null)) as { ok?: boolean; description?: string } | null;
+  return res?.ok === true || /message is not modified/i.test(String(res?.description ?? ""));
 }
 
 // Turns this message into what the pending entry shows now, tied to it when
 // it offers Record and untied when it no longer does.
+// The tie follows what the message is seen to show: made only once the edit
+// worked, and undone when it did not, so Record can never record figures the
+// message failed to show (the fresh review of 8b). A tie that fails to save
+// leaves Record showing the entry again on its next tap.
 async function showPending(chatId: number, messageId: number, householdId: string, memberId: string, row: EntryRow): Promise<void> {
   const shown = await renderPending(householdId, memberId, row);
-  if (shown.ready && !(await bind(row.id, chatId, messageId))) {
-    await edit(chatId, messageId, inboxText(shown.view, { reason: "to check and approve", note: null }), inboxKeyboard());
-    return;
-  }
-  if (!shown.ready) await unbind(row.id, chatId, messageId);
-  await edit(chatId, messageId, shown.text, shown.reply_markup);
+  const edited = await edit(chatId, messageId, shown.text, shown.reply_markup);
+  if (shown.ready && edited) await bind(row.id, chatId, messageId);
+  else await unbind(row.id, chatId, messageId);
 }
 
 export type RecordOutcome =
-  | { kind: "recorded" | "already" | "failed" | "unchecked" }
+  | { kind: "recorded"; transactionId: string }
+  | { kind: "already" }
+  | { kind: "failed" }
+  | { kind: "unchecked" }
   | { kind: "duplicate"; duplicate: { id: string; amount: number; occurred_at: string } };
 
 // Records a pending entry read in full, as its message shows it: the one
@@ -266,7 +289,10 @@ export async function recordEntry(householdId: string, row: EntryRow): Promise<R
     p_merchant: row.parsed_merchant,
   });
   if (error || !data) return { kind: "failed" };
-  return { kind: (data as { already_approved?: boolean }).already_approved ? "already" : "recorded" };
+  // Only a transaction this call made is the bot's to undo: one approved
+  // already (in the app, or by a tap a moment earlier) is not offered Undo.
+  const result = data as { already_approved?: boolean; transaction_id?: string | null };
+  return !result.already_approved && result.transaction_id ? { kind: "recorded", transactionId: result.transaction_id } : { kind: "already" };
 }
 
 export const RECORD_FAILED = "Couldn't record that. Nothing saved — try again in a minute.";
@@ -300,14 +326,15 @@ export async function handleChoiceTap(callback: Record<string, unknown>): Promis
   const bound = Number(row.confirm_chat_id) === chatId && Number(row.confirm_message_id) === messageId;
 
   if (choice.kind === "u") {
-    await undoTap(answer, chatId, messageId, householdId, member.id, row, bound);
+    await undoTap(answer, chatId, messageId, householdId, member.id, row, bound, choice.optionId!);
     return new Response("ok");
   }
 
+  // Settled already: shown as its record has it, with no Undo, since what
+  // the bot did not record here is not the bot's to take back.
   if (row.status !== "pending") {
-    const view = await viewOf(row);
     await answer(row.status === "approved" ? "Already recorded." : "Already cancelled.");
-    await edit(chatId, messageId, row.status === "approved" ? recordedText(view) : cancelledText(view), row.status === "approved" && bound ? undoKeyboard(row.id) : null);
+    await edit(chatId, messageId, row.status === "approved" ? recordedText(await recordedView(row)) : cancelledText(await viewOf(row)));
     return new Response("ok");
   }
 
@@ -332,8 +359,13 @@ export async function handleChoiceTap(callback: Record<string, unknown>): Promis
       await edit(chatId, messageId, inboxText(view, inboxReason(row, outcome.duplicate)), inboxKeyboard());
       return new Response("ok");
     }
-    await answer(outcome.kind === "recorded" ? "Recorded." : "Already recorded.");
-    await edit(chatId, messageId, recordedText(view), undoKeyboard(row.id));
+    if (outcome.kind === "recorded") {
+      await answer("Recorded.");
+      await edit(chatId, messageId, recordedText(view), undoKeyboard(row.id, outcome.transactionId));
+    } else {
+      await answer("Already recorded.");
+      await edit(chatId, messageId, recordedText(await recordedView({ ...row, transaction_id: null, ...(await freshTransactionId(row.id)) })));
+    }
     return new Response("ok");
   }
 
@@ -421,12 +453,13 @@ async function undoTap(
   memberId: string,
   row: EntryRow & { status: string },
   bound: boolean,
+  transactionId: string,
 ): Promise<void> {
   if (!bound) {
     await answer("Use the latest message about it, or the app.");
     return;
   }
-  const { data, error } = await supabase.rpc("undo_intake_approval", { p_intake_id: row.id, p_member_id: memberId });
+  const { data, error } = await supabase.rpc("undo_intake_approval", { p_intake_id: row.id, p_member_id: memberId, p_transaction_id: transactionId });
   const outcome = !error && data && typeof data === "object" ? String((data as { outcome?: unknown }).outcome ?? "") : "";
   if (outcome === "undone" || outcome === "not_recorded") {
     const { data: fresh } = await supabase.from("intake").select(INTAKE_COLUMNS).eq("id", row.id).maybeSingle();
@@ -438,7 +471,7 @@ async function undoTap(
   }
   if (outcome === "too_late" || outcome === "changed") {
     await answer(outcome === "too_late" ? "Undo lasts ten minutes. Change it in the app." : "It was changed in the app, so it stays. Change it there.");
-    await edit(chatId, messageId, recordedText(await viewOf(row)));
+    await edit(chatId, messageId, recordedText(await recordedView(row)));
     return;
   }
   if (outcome === "not_yours" || outcome === "not_found") {
@@ -446,4 +479,11 @@ async function undoTap(
     return;
   }
   await answer("Couldn't undo that just now. Try again in a minute.");
+}
+
+// The transaction an entry was recorded as, read afresh: one approved a
+// moment ago by someone else is not in the row read before.
+async function freshTransactionId(id: string): Promise<{ transaction_id?: string | null }> {
+  const { data } = await supabase.from("intake").select("transaction_id").eq("id", id).maybeSingle();
+  return (data as { transaction_id?: string | null } | null) ?? {};
 }

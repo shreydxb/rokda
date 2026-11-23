@@ -3,6 +3,8 @@
 // The fake backend these drive the real handler against is testing/harness.ts.
 import { assert, assertEquals } from "jsr:@std/assert@1";
 import { backend, CARD, capturedIntake, dubaiDaysAgo, dubaiToday, freshTest, handler, HOUSEHOLD, lastReply, MEMBER, PARTNER, PARTNER_TELEGRAM, partnerUpdate, reactionUpdate, replyUpdate, type Row, textUpdate } from "./testing/harness.ts";
+// After the harness, which sets the environment env.ts reads.
+import { BATCH_UNADDRESSED_HINT } from "./batchReview.ts";
 
 const TRANSPORT = "b5000000-0000-4000-8000-0000000000c1";
 const GROCERY = "b5000000-0000-4000-8000-0000000000c2";
@@ -230,6 +232,18 @@ freshTest("an unaddressed all on a date with a list open says to reply to the li
   assertEquals(approvals().length, 0);
   assert(lastReply().includes("reply to the list"), lastReply());
   assertEquals(capturedIntake().length, 2);
+});
+
+// The fresh review of 8b: a "no" sets an expense aside, and a bare one with a
+// list open could take an entry of the list and write over the list.
+freshTest("a bare no with a list open says to reply to the list, and sets nothing aside", async () => {
+  const list = await paste([sms("City Taxi", 20, { occurred_at: dubaiToday(), date_stated: true }), sms("Corner Shop", 45.5)]);
+  const edits = backend.telegramCalls.filter((c) => c.method === "editMessageText").length;
+  await handler(textUpdate(9102, "no"));
+  assertEquals(lastReply(), BATCH_UNADDRESSED_HINT);
+  assertEquals(capturedIntake().map((r) => r.status), ["pending", "pending"]);
+  assertEquals(backend.telegramCalls.filter((c) => c.method === "editMessageText" && c.body.message_id === list).length, 0);
+  assertEquals(backend.telegramCalls.filter((c) => c.method === "editMessageText").length, edits);
 });
 
 // --- The fresh review's findings -----------------------------------------

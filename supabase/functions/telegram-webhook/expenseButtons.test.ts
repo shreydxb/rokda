@@ -4,6 +4,7 @@
 import { assert, assertEquals } from "jsr:@std/assert@1";
 import { backend, CARD, capturedIntake, dubaiToday, freshTest, handler, HOUSEHOLD, lastReply, MEMBER, PARTNER_TELEGRAM, reactionUpdate, replyUpdate, type Row, tapUpdate, textUpdate } from "./testing/harness.ts";
 // After the harness, which sets the environment env.ts reads.
+import { encodeChoice } from "./choices.ts";
 import { appAddress } from "./env.ts";
 
 const GROCERIES = "c3000000-0000-4000-8000-0000000000f2";
@@ -78,8 +79,9 @@ freshTest("Undo puts it back with its buttons, to change and record again", asyn
   const prompt = await capture(9604);
   await handler(tapUpdate(9605, prompt.id, tap(prompt, "Record")));
   const recorded = { buttons: buttonsOf(lastCall("editMessageText")) };
+  const recordedAs = backend.tables.transactions[0].id;
   await handler(tapUpdate(9606, prompt.id, tap(recorded, "Undo")));
-  assertEquals(backend.rpcCalls.filter((c) => c.fn === "undo_intake_approval").at(-1)?.args, { p_intake_id: capturedIntake()[0].id, p_member_id: MEMBER });
+  assertEquals(backend.rpcCalls.filter((c) => c.fn === "undo_intake_approval").at(-1)?.args, { p_intake_id: capturedIntake()[0].id, p_member_id: MEMBER, p_transaction_id: recordedAs });
   assertEquals(capturedIntake()[0].status, "pending");
   assertEquals(backend.tables.transactions.length, 0);
   const edit = lastCall("editMessageText")!;
@@ -258,4 +260,45 @@ freshTest("a yes that finds the expense recorded meanwhile leaves it in the Inbo
   await handler(replyUpdate(9655, "yes", prompt.id));
   assertEquals(backend.approveCalls, 0);
   assert(lastReply().startsWith("In the Inbox · looks like one recorded "), lastReply());
+});
+
+// The fresh review of 8b.
+freshTest("an entry approved in the app shows that record, with no Undo for the bot to take it back", async () => {
+  const prompt = await capture(9660);
+  // The partner approves it in the Inbox, at another amount and category.
+  backend.tables.transactions.push({ id: "tx-app", household_id: HOUSEHOLD, account_id: CARD.id, amount: -45, kind: "expense", merchant: "Corner Bakery", occurred_at: dubaiToday(), category_id: EATING_OUT, created_at: new Date().toISOString() });
+  Object.assign(capturedIntake()[0], { status: "approved", transaction_id: "tx-app" });
+  await handler(tapUpdate(9661, prompt.id, tap(prompt, "Record")));
+  assertEquals(lastToast(), "Already recorded.");
+  const edit = lastCall("editMessageText")!;
+  assertEquals(edit.text, "✓ Corner Bakery · AED 45 · Eating Out");
+  assertEquals(buttonsOf(edit).length, 0);
+  // Even an Undo naming it is refused, and the record stays.
+  await handler(tapUpdate(9662, prompt.id, encodeChoice("u", String(capturedIntake()[0].id), "c3000000-0000-4000-8000-00000000ff01")));
+  assertEquals(backend.tables.transactions.map((t) => t.id), ["tx-app"]);
+  assertEquals(capturedIntake()[0].status, "approved");
+});
+
+freshTest("a change whose message could not be updated unties it, so Record there records nothing unseen", async () => {
+  const prompt = await capture(9663);
+  await handler(tapUpdate(9664, prompt.id, tap(prompt, "Account")));
+  const menu = { buttons: buttonsOf(lastCall("editMessageReplyMarkup")) };
+  backend.faults.failEdits = 1;
+  await handler(tapUpdate(9665, prompt.id, tap(menu, "Bank")));
+  assertEquals(capturedIntake()[0].parsed_account_id, BANK.id);
+  assertEquals(capturedIntake()[0].confirm_message_id ?? null, null, "a message still showing the card stays tied to the bank");
+  await handler(tapUpdate(9666, prompt.id, tap(prompt, "Record")));
+  assertEquals(backend.approveCalls, 0);
+});
+
+freshTest("a message that already shows the entry as it is gets tied to it, so the next Record records", async () => {
+  const prompt = await capture(9667);
+  // Its tie was never saved.
+  capturedIntake()[0].confirm_message_id = null;
+  backend.faults.notModifiedEdits = 1;
+  await handler(tapUpdate(9668, prompt.id, tap(prompt, "Record")));
+  assertEquals(backend.approveCalls, 0);
+  assertEquals(capturedIntake()[0].confirm_message_id, prompt.id);
+  await handler(tapUpdate(9669, prompt.id, tap(prompt, "Record")));
+  assertEquals(backend.approveCalls, 1);
 });
