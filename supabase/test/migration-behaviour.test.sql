@@ -6128,4 +6128,122 @@ begin
   raise notice 'retired columns and indexes ok: gone';
 end $$;
 
+-- The bot's Undo (the revamp, phase 8b): an expense recorded from Telegram is
+-- put back where it was, by the member who sent it, within ten minutes, and
+-- only while nobody has changed it since. Anything else leaves it recorded.
+do $$
+declare
+  hh constant uuid := '11111111-1111-1111-1111-111111111111';
+  me constant uuid := '22222222-2222-2222-2222-222222222222';
+  other constant uuid := '99999999-9999-9999-9999-99999999000a';
+  card constant uuid := '33333333-3333-3333-3333-333333333333';
+  partner constant uuid := 'dddd0000-0000-4000-8000-0000000000b0';
+  r jsonb;
+  t uuid;
+  st text;
+  n int;
+begin
+  insert into household_members (id, household_id, display_name) values (partner, hh, 'Partner');
+
+  -- Recorded through approve_intake, as the bot records: undone by its sender.
+  insert into intake (id, household_id, member_id, source, raw_text, parsed_amount, parsed_merchant, parsed_date, status)
+  values ('dddd0000-0000-4000-8000-0000000000a1', hh, me, 'telegram', 'bakery 42', 42, 'Bakery', '2026-10-03', 'pending');
+  r := approve_intake('dddd0000-0000-4000-8000-0000000000a1', card, 42, date '2026-10-03', 'expense', null, 'AED', 'Bakery');
+  t := (r ->> 'transaction_id')::uuid;
+  r := undo_intake_approval('dddd0000-0000-4000-8000-0000000000a1', partner);
+  if (r ->> 'outcome' <> 'not_yours' or not exists (select 1 from transactions where id = t)) is not false then
+    raise exception 'undo FAILED: another member undid an entry they did not send (%)', r;
+  end if;
+  r := undo_intake_approval('dddd0000-0000-4000-8000-0000000000a1', other);
+  if (r ->> 'outcome' <> 'not_yours') is not false then
+    raise exception 'undo FAILED: a member of another household undid an entry (%)', r;
+  end if;
+  r := undo_intake_approval('dddd0000-0000-4000-8000-0000000000a1', me);
+  select status into st from intake where id = 'dddd0000-0000-4000-8000-0000000000a1';
+  if (r ->> 'outcome' <> 'undone' or exists (select 1 from transactions where id = t) or st <> 'pending'
+      or (select transaction_id from intake where id = 'dddd0000-0000-4000-8000-0000000000a1') is not null) is not false then
+    raise exception 'undo FAILED: the sender''s undo did not put the entry back (%, status %)', r, st;
+  end if;
+  r := undo_intake_approval('dddd0000-0000-4000-8000-0000000000a1', me);
+  if (r ->> 'outcome' <> 'not_recorded') is not false then
+    raise exception 'undo FAILED: undoing twice did not say it is no longer recorded (%)', r;
+  end if;
+  r := undo_intake_approval('dddd0000-0000-4000-8000-0000000000ff', me);
+  if (r ->> 'outcome' <> 'not_found') is not false then
+    raise exception 'undo FAILED: an entry that does not exist was not reported (%)', r;
+  end if;
+
+  -- Recorded eleven minutes ago: too late, and it stays.
+  insert into transactions (id, household_id, account_id, amount, occurred_at, merchant, created_at, updated_at)
+  values ('dddd0000-0000-4000-8000-0000000000c2', hh, card, -10, '2026-10-03', 'Old', now() - interval '11 minutes', now() - interval '11 minutes');
+  insert into intake (id, household_id, member_id, source, parsed_amount, status, transaction_id)
+  values ('dddd0000-0000-4000-8000-0000000000a2', hh, me, 'telegram', 10, 'approved', 'dddd0000-0000-4000-8000-0000000000c2');
+  r := undo_intake_approval('dddd0000-0000-4000-8000-0000000000a2', me);
+  if (r ->> 'outcome' <> 'too_late' or not exists (select 1 from transactions where id = 'dddd0000-0000-4000-8000-0000000000c2')
+      or (select status from intake where id = 'dddd0000-0000-4000-8000-0000000000a2') <> 'approved') is not false then
+    raise exception 'undo FAILED: an entry recorded eleven minutes ago was undone (%)', r;
+  end if;
+
+  -- Recorded a minute ago and then edited: it stays.
+  insert into transactions (id, household_id, account_id, amount, occurred_at, merchant, created_at, updated_at)
+  values ('dddd0000-0000-4000-8000-0000000000c3', hh, card, -20, '2026-10-03', 'Edited', now() - interval '1 minute', now() - interval '1 minute');
+  insert into intake (id, household_id, member_id, source, parsed_amount, status, transaction_id)
+  values ('dddd0000-0000-4000-8000-0000000000a3', hh, me, 'telegram', 20, 'approved', 'dddd0000-0000-4000-8000-0000000000c3');
+  update transactions set merchant = 'Edited in the app' where id = 'dddd0000-0000-4000-8000-0000000000c3';
+  r := undo_intake_approval('dddd0000-0000-4000-8000-0000000000a3', me);
+  if (r ->> 'outcome' <> 'changed' or not exists (select 1 from transactions where id = 'dddd0000-0000-4000-8000-0000000000c3')) is not false then
+    raise exception 'undo FAILED: an entry changed since it was recorded was undone (%)', r;
+  end if;
+
+  -- An edit on record (the shared history) counts as a change too.
+  insert into transactions (id, household_id, account_id, amount, occurred_at, merchant, created_at, updated_at)
+  values ('dddd0000-0000-4000-8000-0000000000c4', hh, card, -30, '2026-10-03', 'Logged', now() - interval '1 minute', now() - interval '1 minute');
+  insert into intake (id, household_id, member_id, source, parsed_amount, status, transaction_id)
+  values ('dddd0000-0000-4000-8000-0000000000a4', hh, me, 'telegram', 30, 'approved', 'dddd0000-0000-4000-8000-0000000000c4');
+  insert into transaction_edits (transaction_id, edited_by, field, old_value, new_value)
+  values ('dddd0000-0000-4000-8000-0000000000c4', partner, 'note', null, 'shared');
+  r := undo_intake_approval('dddd0000-0000-4000-8000-0000000000a4', me);
+  if (r ->> 'outcome' <> 'changed') is not false then
+    raise exception 'undo FAILED: an entry with an edit on record was undone (%)', r;
+  end if;
+
+  -- A minute old and untouched: undone.
+  insert into transactions (id, household_id, account_id, amount, occurred_at, merchant, created_at, updated_at)
+  values ('dddd0000-0000-4000-8000-0000000000c5', hh, card, -40, '2026-10-03', 'Fresh', now() - interval '1 minute', now() - interval '1 minute');
+  insert into intake (id, household_id, member_id, source, parsed_amount, status, transaction_id)
+  values ('dddd0000-0000-4000-8000-0000000000a5', hh, me, 'telegram', 40, 'approved', 'dddd0000-0000-4000-8000-0000000000c5');
+  r := undo_intake_approval('dddd0000-0000-4000-8000-0000000000a5', me);
+  select count(*) into n from transactions where id = 'dddd0000-0000-4000-8000-0000000000c5';
+  if (r ->> 'outcome' <> 'undone' or n <> 0) is not false then
+    raise exception 'undo FAILED: a minute-old untouched entry was not undone (%)', r;
+  end if;
+
+  -- An entry set aside is not recorded, so there is nothing to undo.
+  insert into intake (id, household_id, member_id, source, parsed_amount, status)
+  values ('dddd0000-0000-4000-8000-0000000000a6', hh, me, 'telegram', 50, 'rejected');
+  r := undo_intake_approval('dddd0000-0000-4000-8000-0000000000a6', me);
+  if (r ->> 'outcome' <> 'not_recorded') is not false then
+    raise exception 'undo FAILED: an entry set aside was treated as recorded (%)', r;
+  end if;
+  raise notice 'undo ok: only the sender, within ten minutes, while unchanged';
+end $$;
+
+do $$
+begin
+  if (not exists (
+    select 1 from pg_proc
+    where oid = 'public.undo_intake_approval(uuid, uuid)'::regprocedure
+      and prosecdef
+      and proconfig @> array['search_path=""']
+  )) is not false then
+    raise exception 'undo FAILED: undo_intake_approval() is not SECURITY DEFINER with an empty search_path';
+  end if;
+  if (has_function_privilege('anon', 'public.undo_intake_approval(uuid, uuid)', 'execute')
+     or has_function_privilege('authenticated', 'public.undo_intake_approval(uuid, uuid)', 'execute')
+     or not has_function_privilege('service_role', 'public.undo_intake_approval(uuid, uuid)', 'execute')) is not false then
+    raise exception 'undo FAILED: undo_intake_approval() is callable by someone other than the bot';
+  end if;
+  raise notice 'undo ok: only service_role can undo';
+end $$;
+
 rollback;
