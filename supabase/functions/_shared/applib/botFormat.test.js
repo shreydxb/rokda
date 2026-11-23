@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { day, facts, money } from './botFormat.js';
+import { day, facts, money, notCounted } from './botFormat.js';
 
 // The bot's one format (the revamp, phase 8; review T17): "AED 1,234",
 // decimals only when not zero; "3 Oct", the year only when not this year;
@@ -36,3 +36,13 @@ describe('facts', () => {
     expect(facts('Bakery', null, 'AED 42', '', undefined, 'Groceries')).toBe('Bakery · AED 42 · Groceries');
   });
 });
+
+// What a total leaves out, in a few words for a ⚠ line (review T24).
+describe('notCounted', () => {
+  it('names what is left out, or nothing', () => {
+    expect(notCounted({ accounts: 1 })).toBe('1 account not converted');
+    expect(notCounted({ accounts: 2, holdings: 1 })).toBe('2 accounts not converted · 1 holding not valued');
+    expect(notCounted({})).toBeNull();
+  });
+});
+

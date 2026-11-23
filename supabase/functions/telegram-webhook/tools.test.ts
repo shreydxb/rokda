@@ -1,6 +1,7 @@
 // Questions answered from the household's figures, the brief, and the AI service being busy.
 // The fake backend these drive the real handler against is testing/harness.ts.
 import { assert, assertEquals } from "jsr:@std/assert@1";
+import { briefMessage, NOT_READ } from "./tools.ts";
 import { aiCalls, backend, capturedIntake, figuresUnavailableMessage, freshTest, GROCERIES, handler, HOUSEHOLD, isSpendingAccount, lastReply, Row, seedExpenses, textUpdate, thisMonthFirst } from "./testing/harness.ts";
 
 freshTest("this month's spending is found after a thousand older transactions", async () => {
@@ -39,6 +40,53 @@ freshTest("a brief whose accounts could not be read states no net worth and no c
   assert(brief.includes("Cash cover: couldn't be read just now."), brief);
   assert(brief.includes("Bills due: couldn't be read just now."), brief);
   assert(brief.includes("Inbox is clear."), brief);
+});
+
+// The brief as the review's T24 has it (the revamp, phase 8a): one label
+// and figure a line, in the bot's one format, and what a figure leaves out on
+// a ⚠ line of its own.
+Deno.test("the brief gives one figure a line, and what it leaves out on a ⚠ line", () => {
+  const text = briefMessage(
+    {
+      netWorth: { net_worth_aed: 245000.5, unconverted_accounts: 1, unvalued_holdings: 0 },
+      monthSpend: 10850,
+      bills: {
+        recurring: [{ name: "Rent", amount_aed: 5000, due_date: "2026-11-28" }],
+        credit_cards: [
+          { name: "Card •0004", amount_owed_aed: 1250, due_date: "2026-11-22" },
+          { name: "Travel card", amount_owed_aed: null, amount_owed: 300, currency: "USD", due_date: "2026-12-02" },
+        ],
+      },
+      budgetAlerts: [{ category: "Groceries", pct: 92 }, { category: "Dining out", pct: 85 }],
+      cashCover: NOT_READ,
+      pendingCount: 2,
+    },
+    "2026-11-20",
+  );
+  assertEquals(text, [
+    "Net worth: AED 245,000.50",
+    "⚠ 1 account not converted",
+    "Spent this month: AED 10,850",
+    "Due in 14 days:",
+    "• Rent · AED 5,000 · 28 Nov",
+    "• Card •0004 · AED 1,250 · 22 Nov",
+    "• Travel card · USD 300 · not converted · 2 Dec",
+    "Budget: Groceries 92% · Dining out 85%",
+    "Cash cover: couldn't be read just now.",
+    "Inbox: 2 to review",
+  ].join("\n"));
+});
+
+// The review's T25: an answer leads with its figure, in the bot's format,
+// and names the period.
+freshTest("an answer is asked to lead with the figure, in the bot's format, naming the period", async () => {
+  backend.tables.categories.push({ id: GROCERIES, household_id: HOUSEHOLD, name: "Groceries", kind: "expense", archived: false, is_savings: false });
+  backend.route = { tool: "get_category_spend", args: { category: "Groceries", period: "this_month" } };
+  await handler(textUpdate(9330, "how much on groceries this month?"));
+  const prompt = backend.phrasePrompts.at(-1) ?? "";
+  assert(prompt.includes("Lead with the figure"), prompt);
+  assert(prompt.includes("AED 1,234") && prompt.includes("3 Oct"), prompt);
+  assert(prompt.includes("Groceries this month: AED 1,234"), prompt);
 });
 
 freshTest("a split receipt counts only its line in the category asked about", async () => {
@@ -105,7 +153,7 @@ freshTest("a message with an amount that the AI service cannot read even on a se
   backend.faults.aiBusyFirst = 4;
   await handler(textUpdate(7302, "spent 40 at cafe"));
   assertEquals(capturedIntake().length, 1);
-  assertEquals(lastReply(), "I couldn't read that just now, so it's saved in the Inbox. If it was a question, ask again in a minute.");
+  assertEquals(lastReply(), "Couldn't read that. It's in the Inbox.");
   assertEquals(aiCalls(), [["classify_and_route", "http_429"], ["classify_and_route", "http_429"], ["parse_intake", "http_429"], ["parse_intake", "http_429"]]);
 });
 
@@ -116,7 +164,7 @@ freshTest("a message with no amount that the AI service cannot read is not kept,
   backend.faults.aiBusyFirst = 4;
   await handler(textUpdate(7305, "whats our networth?"));
   assertEquals(capturedIntake().length, 0);
-  assertEquals(lastReply(), "I couldn't read that just now, and nothing was saved. Send it again in a minute.");
+  assertEquals(lastReply(), "Couldn't read that. Nothing saved — send again.");
   assertEquals(aiCalls(), [["classify_and_route", "http_429"], ["classify_and_route", "http_429"]]);
 });
 

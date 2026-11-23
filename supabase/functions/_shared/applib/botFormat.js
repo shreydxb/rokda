@@ -38,3 +38,15 @@ export function day(value, today = householdToday()) {
 export function facts(...parts) {
   return parts.filter(Boolean).join(' · ');
 }
+
+/**
+ * What a total leaves out, in a few words for a ⚠ line (review T24):
+ * "1 account not converted · 2 holdings not valued", or null.
+ * @param {{ accounts?: number, holdings?: number }} counts
+ */
+export function notCounted({ accounts = 0, holdings = 0 } = {}) {
+  const parts = [];
+  if (accounts) parts.push(`${accounts} ${accounts === 1 ? 'account' : 'accounts'} not converted`);
+  if (holdings) parts.push(`${holdings} ${holdings === 1 ? 'holding' : 'holdings'} not valued`);
+  return parts.length ? parts.join(' · ') : null;
+}
