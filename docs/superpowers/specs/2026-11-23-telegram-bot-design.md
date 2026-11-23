@@ -1,6 +1,7 @@
 # The Telegram bot, the revamp's phase 8: design
 
-Status: for approval.
+Status: approved 23 November 2026, with the six decisions as recommended:
+a tap on Record records, with Undo for ten minutes.
 
 The prototype has no bot, so the target is section 5 of the UI review the
 household adopted as the plan (kept privately; `design/README.md`), items
