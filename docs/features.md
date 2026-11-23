@@ -588,13 +588,15 @@ went: Overview's Plan strip and To do say what it said.
 - Answers questions: spending by category, net worth, account balances,
   upcoming bills, budget status, holdings. Every figure is read in full; if a
   read fails, it says it could not answer rather than giving a partial figure.
-  An answer leads with its figure and names its period.
+  An answer leads with its figure, in the currency the data gives, with any
+  caveat right after it.
 - Writes money and dates one way (`_shared/applib/botFormat.js`): "AED 1,234",
   with decimals only when not zero, in the currency that was read; "3 Oct",
   with the year only when not this year; "·" between facts. A failure says
   what happened and what is safe in a few words ("Couldn't read that. It's in
-  the Inbox."). The brief (/brief, and on Mondays) gives one label and figure
-  a line, with what a figure leaves out on a ⚠ line of its own.
+  the Inbox; ask again if it was a question."). The brief (/brief, and on
+  Mondays) gives one label and figure a line, with what a figure leaves out
+  on a ⚠ line of its own ("⚠ Leaves out 1 account not converted").
 - Reads goal contributions and account balances from a message and asks
   first: it shows the change (old → new) and saves it only on a "yes" or a 👍
   to that message; "no" drops it.

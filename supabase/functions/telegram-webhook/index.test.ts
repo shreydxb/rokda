@@ -267,7 +267,7 @@ freshTest("a goal list that could not be read records nothing and says so", asyn
   assertEquals(backend.tables.bot_proposals.length, 0);
   assertEquals(backend.tables.goal_contributions.length, 0);
   assertEquals(capturedIntake().length, 0, "an unreadable goal list sent the message to the Inbox");
-  assertEquals(lastReply(), "Couldn't read your goals. Nothing saved — send again.");
+  assertEquals(lastReply(), "Couldn't read your goals. Nothing saved — send again in a minute.");
 });
 
 freshTest("a transfer between the household's own accounts is proposed, and recorded as one only on a yes", async () => {

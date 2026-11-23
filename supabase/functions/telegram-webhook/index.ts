@@ -733,7 +733,7 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
             // not captured into the Inbox as an expense by the catch below.
             if (!(err instanceof ReadFailed)) throw err;
             committedElsewhere = true;
-            await reply(chatId, "Couldn't read your goals. Nothing saved — send again.");
+            await reply(chatId, "Couldn't read your goals. Nothing saved — send again in a minute.");
             return new Response("ok");
           }
           if (!("error" in draft)) {

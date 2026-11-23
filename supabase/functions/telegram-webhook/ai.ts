@@ -81,14 +81,14 @@ export async function postToAiService(
 
 // What the bot says when the AI service could not read a message at all. The
 // message is kept in the Inbox all the same, so an expense is never lost.
-export const AI_BUSY_REPLY = "Couldn't read that. It's in the Inbox.";
+export const AI_BUSY_REPLY = "Couldn't read that. It's in the Inbox; ask again if it was a question.";
 
 // For a message with nothing an Inbox entry could be approved on: no amount
 // and no photo. Keeping it would leave an entry nobody can approve.
-export const AI_BUSY_NOTHING_SAVED = "Couldn't read that. Nothing saved — send again.";
+export const AI_BUSY_NOTHING_SAVED = "Couldn't read that. Nothing saved — send again in a minute.";
 
 // A message read in full that held no expense, income or refund.
-export const NOT_AN_EXPENSE_REPLY = 'No expense, income or refund in that. Send it like "45 at Noon".';
+export const NOT_AN_EXPENSE_REPLY = 'No expense, income or refund in that, so nothing was kept. Send it like "45 at Noon".';
 
 
 export async function classifyAndRoute(
@@ -166,8 +166,10 @@ export async function phraseAnswer(
     `Amounts are AED unless the data says otherwise. Be direct and brief, like a text message, no markdown. ` +
     // The review's T25 (the revamp, phase 8a): the bot's one format, and the
     // period named, so an answer reads like the rest of what the bot sends.
-    `Lead with the figure, with no preamble. Write money as "AED 1,234", with decimals only when they are not zero, and dates as "3 Oct", with the year only when it is not this year. ` +
-    `Name the period the figure is for, like "Groceries this month: AED 1,234".`;
+    `Lead with the figure, with no preamble. Write money in the currency the data gives, as "AED 1,234" or "INR 20,000", with decimals only when they are not zero, and dates as "3 Oct", with the year only when it is not this year. ` +
+    `Today is ${householdToday()}. ` +
+    `If the data has an "incomplete" or "note" field, say it right after the figure. ` +
+    `Name the period the figure is for only when the data gives one, like "Groceries this month: AED 1,234".`;
   const startedAt = Date.now();
   try {
     const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {

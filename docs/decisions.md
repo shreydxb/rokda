@@ -4571,4 +4571,21 @@ the review is the target.
   morning message restyles it (8c).
 - **An answer leads with its figure**, in the same format, and names the
   period ("Groceries this month: AED 1,234").
+- **The fresh review of 8a** changed these:
+  - **Money stays in its own currency in an answer**: the prompt asked for
+    "AED 1,234" beside data holding rupee balances and dollar profits,
+    which is how 20,000 rupees could read as dirhams (QA #4). It now asks
+    for the currency the data gives, and for an "incomplete" or "note" the
+    data carries to be said right after the figure.
+  - **The period is the one the figure was worked out for**: a period the
+    tool doesn't know is summed as this month and now says so, and an
+    answer names a period only when the data gives one. The prompt is
+    given today's date, to judge the year by.
+  - **The busy reply still says to ask again** if it was a question, and
+    the failures that need a retry say "in a minute".
+  - **What net worth leaves out says so**: "⚠ Leaves out 1 account not
+    converted".
+  - **money() never says "-0", "NaN" or zero for an unknown amount**, and
+    puts a minus before the code, as the trade messages do; day() reads a
+    moment as the household's day.
 

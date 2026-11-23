@@ -41,7 +41,7 @@ export async function householdMembers(householdId: string): Promise<Array<{ id:
 }
 
 
-export const TRADE_READ_FAILED = "Couldn't read your holdings. Nothing saved — send again.";
+export const TRADE_READ_FAILED = "Couldn't read your holdings. Nothing saved — send again in a minute.";
 
 
 // Telegram lets a bot download files up to 20 MB; a bigger one cannot be

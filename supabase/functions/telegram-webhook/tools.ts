@@ -430,8 +430,13 @@ export async function toolGetCategorySpend(householdId: string, scopeMemberId: s
   const from = month === 1 ? monthStartIso(year, 0) : monthStartIso(year, 1);
   const transactions = await transactionsBetween(householdId, from, monthStartIso(year, month + 1), cat.id);
 
-  const spend = categorySpendForPeriod(transactions, cat.id, String(args.period ?? "this_month"), scopeMemberId, now);
-  return { category: cat.name, period: args.period, spend_aed: round2(spend) };
+  // The period the figure was worked out for: any other the router sends is
+  // summed as this month, and an answer naming "this week" over a month's
+  // figure would be wrong (the fresh review of 8a).
+  const asked = String(args.period ?? "this_month");
+  const period = asked === "last_month" || asked === "this_year" ? asked : "this_month";
+  const spend = categorySpendForPeriod(transactions, cat.id, period, scopeMemberId, now);
+  return { category: cat.name, period, spend_aed: round2(spend) };
 }
 
 
@@ -905,7 +910,9 @@ export async function buildBriefMessage(householdId: string): Promise<string> {
   return briefMessage({ netWorth, monthSpend, bills, budgetAlerts, cashCover, pendingCount }, householdToday());
 }
 
-type BriefNetWorth = { net_worth_aed: number; unconverted_accounts?: number; unvalued_holdings?: number };
+// The counts are required: renamed or dropped, the ⚠ line would go quietly
+// (the fresh review of 8a).
+type BriefNetWorth = { net_worth_aed: number; unconverted_accounts: number; unvalued_holdings: number };
 type BriefBills = {
   recurring: Array<{ name: string; amount_aed: number; due_date: string }>;
   credit_cards: Array<{ name: string; amount_owed_aed: number | null; amount_owed?: number; currency?: string; due_date: string }>;
@@ -917,8 +924,9 @@ type BriefBills = {
 // its own beside it still does).
 function netWorthLines(label: string, netWorth: BriefNetWorth | typeof NOT_READ): string[] {
   if (netWorth === NOT_READ) return [`${label}: couldn't be read just now.`];
-  const left = notCounted({ accounts: netWorth.unconverted_accounts ?? 0, holdings: netWorth.unvalued_holdings ?? 0 });
-  return [`${label}: ${money(netWorth.net_worth_aed)}`, ...(left ? [`⚠ ${left}`] : [])];
+  const left = notCounted({ accounts: netWorth.unconverted_accounts, holdings: netWorth.unvalued_holdings });
+  // "Leaves out" says the figure is short of them, as "Excludes" did.
+  return [`${label}: ${money(netWorth.net_worth_aed)}`, ...(left ? [`⚠ Leaves out ${left}`] : [])];
 }
 
 // The brief's lines (review T24, the revamp's phase 8a): one label and one

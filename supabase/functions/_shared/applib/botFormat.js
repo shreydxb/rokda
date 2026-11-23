@@ -15,10 +15,16 @@ const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'S
  */
 export function money(amount, currency = 'AED') {
   const code = String(currency || 'AED').toUpperCase();
-  const n = Math.round(Number(amount) * 100) / 100;
+  // An amount that isn't a number is said to be unknown, never read as zero
+  // or printed as "NaN" (the fresh review of 8a).
+  const raw = amount == null || amount === '' ? NaN : Number(amount);
+  if (!Number.isFinite(raw)) return `${code} amount not known`;
+  const n = Math.round(Math.abs(raw) * 100) / 100;
   const whole = Number.isInteger(n);
   const digits = n.toLocaleString(code === 'INR' ? 'en-IN' : 'en-US', { minimumFractionDigits: whole ? 0 : 2, maximumFractionDigits: whole ? 0 : 2 });
-  return `${code} ${digits}`;
+  // The minus goes before the code, as the trade messages write it, and an
+  // amount that rounds to nothing has none ("AED -0").
+  return `${raw < 0 && n > 0 ? '−' : ''}${code} ${digits}`;
 }
 
 /**
@@ -27,7 +33,11 @@ export function money(amount, currency = 'AED') {
  * @param {string} [today] the household's today, as "YYYY-MM-DD"
  */
 export function day(value, today = householdToday()) {
-  const [y, m, d] = String(value).slice(0, 10).split('-');
+  const text = String(value);
+  // A moment is the household's day, not the UTC one: 21:00 UTC on 31 Dec is
+  // 1 Jan in Dubai (the fresh review of 8a).
+  const date = text.length > 10 ? householdToday(new Date(text)) : text;
+  const [y, m, d] = date.split('-');
   return `${Number(d)} ${SHORT_MONTHS[Number(m) - 1]}${y === today.slice(0, 4) ? '' : ` ${y}`}`;
 }
 
