@@ -4,10 +4,13 @@ import { householdToday } from "../../_shared/applib/day.js";
 import { sendProposal } from "../confirmations.ts";
 import { supabase } from "../env.ts";
 import { pickAccountByHint } from "../intake.ts";
-import { ANSWER_HINT } from "../trades.ts";
 import { reply } from "../transport.ts";
 import { type Digest, DIGEST_ORDER } from "./digest.ts";
 import { householdsWithLinkedTelegram, prefEnabled, sendablePeriod, telegramPrefsMap } from "./recipients.ts";
+
+// How a member answers a balance question: a typed answer or a 👍, until the
+// month-end balances are rebuilt with buttons (the revamp, phase 8c).
+const ANSWER_HINT = 'Reply "yes" to this message (or react 👍) to save it, or "no" to drop it.';
 
 // ---------------------------------------------------------------------------
 // Monthly balance check-in

@@ -2,7 +2,7 @@
 // The fake backend these drive the real handler against is testing/harness.ts.
 import { assert, assertEquals } from "jsr:@std/assert@1";
 import { linkTokenDigest } from "../_shared/applib/telegramLink.js";
-import { assertNoTokenLeaked, backend, capturedIntake, freshTest, handler, HOUSEHOLD, lastReply, LEASE_MS, logged, photoUpdate, proposalOutcomeMessage, replyUpdate, SECRET, TELEGRAM_USER, textUpdate, transferDraftFrom } from "./testing/harness.ts";
+import { assertNoTokenLeaked, backend, capturedIntake, freshTest, handler, HOUSEHOLD, lastReply, LEASE_MS, logged, photoUpdate, replyUpdate, SECRET, TELEGRAM_USER, textUpdate, transferDraftFrom } from "./testing/harness.ts";
 
 // ---------------------------------------------------------------------------
 // The acceptance cases
@@ -232,14 +232,14 @@ freshTest("a goal contribution is proposed once however often it is delivered, a
   assertEquals(retry.status, 200);
   assertEquals(backend.tables.bot_proposals.length, 1, "the redelivery proposed it a second time");
   assertEquals(backend.tables.goal_contributions.length, 0);
-  assert(lastReply().includes("Record AED 500.00 toward House"), lastReply());
+  assert(lastReply().startsWith("AED 500 toward House · "), lastReply());
   const prompt = backend.tables.bot_proposals[0].prompt_message_id as number;
   assert(prompt, "the question was not tied to the proposal");
 
   await handler(replyUpdate(7009, "yes", prompt));
   assertEquals(backend.tables.goal_contributions.length, 1);
   assertEquals(backend.tables.goal_contributions[0].source_ref, "7008");
-  assert(lastReply().startsWith("Recorded: AED 500.00 toward House"), lastReply());
+  assert(lastReply().startsWith("✓ AED 500 toward House · "), lastReply());
 
   // A second yes repeats the answer and records nothing.
   await handler(replyUpdate(7010, "yes", prompt));
@@ -281,12 +281,12 @@ freshTest("a transfer between the household's own accounts is proposed, and reco
   assertEquals(backend.tables.bot_proposals[0].kind, "transfer");
   assertEquals(backend.tables.transactions.length, 0, "a transfer was recorded before anyone said yes");
   assertEquals(capturedIntake().length, 0, "a transfer was also captured as an expense");
-  assert(lastReply().startsWith("Record a transfer of AED 3000.00 from Current account to Bank card •0001, dated 2026-09-20?"), lastReply());
+  assertEquals(lastReply(), "Transfer AED 3,000 · Current account → Bank card •0001 · 20 Sep");
 
   const prompt = backend.tables.bot_proposals[0].prompt_message_id as number;
   await handler(replyUpdate(7102, "yes", prompt));
   assertEquals(backend.tables.transactions.map((t) => [t.account_id, t.amount, t.kind]), [["acc-current", -3000, "transfer"], ["acc-card", 3000, "transfer"]]);
-  assert(lastReply().startsWith("Recorded the transfer: AED 3000.00 from Current account to Bank card •0001"), lastReply());
+  assertEquals(lastReply(), "✓ Transfer AED 3,000 · Current account → Bank card •0001 · 20 Sep");
 
   await handler(replyUpdate(7103, "yes", prompt));
   assertEquals(backend.tables.transactions.length, 2, "a second yes recorded it again");
@@ -314,16 +314,6 @@ Deno.test("a transfer is drafted only when each side names exactly one open acco
   assertEquals((transferDraftFrom(accounts, { from_account: "nowhere", to_account: "card", amount: 5 }, "2026-10-16") as { error: string }).error, "from_account_not_found");
   assertEquals((transferDraftFrom(accounts, { from_account: "savings", to_account: "savings", amount: 5 }, "2026-10-16") as { error: string }).error, "same_account");
   assertEquals((transferDraftFrom(accounts, { from_account: "savings", to_account: "card", amount: 0 }, "2026-10-16") as { error: string }).error, "invalid_amount");
-});
-
-Deno.test("a recorded transfer says which sides were already in Rokda", () => {
-  const message = proposalOutcomeMessage({
-    outcome: "applied",
-    kind: "transfer",
-    applied: [{ from_name: "Current account", to_name: "Bank card", amount: 450, occurred_at: "2026-10-13", joined_out: true, joined_in: false, already_recorded: false }],
-    skipped: [],
-  });
-  assert(message.includes("the payment out of Current account was already in Rokda"), message);
 });
 
 freshTest("a DNS failure reaching Telegram never puts the bot token in the logs", async () => {

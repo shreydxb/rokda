@@ -13,6 +13,7 @@ import { DIVIDENDS_ANSWERED, dividendsDropSummary, dividendsSavedMessage } from 
 import { supabase } from "./env.ts";
 import { edit, inboxKeyboard, RECORD_FAILED, RECORD_UNCHECKED, recordedView, recordEntry, undoKeyboard, viewOf } from "./choices.ts";
 import { cancelledText, inboxReason, inboxText, recordedText } from "./expenseMessages.ts";
+import { appliedLine, BUTTON_KINDS, LAPSED_TOAST, notRecordedLine, proposalKeyboard, proposalLine } from "./proposalWords.ts";
 import { proposeTrade } from "./tradeMessages.ts";
 import { type TradeDraft, tradeDropSummary, type TradePayload, tradeRefusal, tradeSavedMessage } from "./trades.ts";
 import { reply, tgCall } from "./transport.ts";
@@ -254,7 +255,7 @@ export async function handleReaction(reaction: Record<string, unknown>, updateId
       return new Response("ok");
     }
     if (proposal.row.status === "proposed" && thumbsUp) {
-      await decideProposal(chatId, member.id, proposal.row, "apply", { householdId: member.household_id, updateId });
+      await decideProposal(chatId, member.id, proposal.row, "apply", { householdId: member.household_id, updateId }, { via: "reaction" });
     }
     return new Response("ok");
   }
@@ -476,7 +477,7 @@ export async function sendProposal(
 
   let messageId: number | null;
   try {
-    messageId = await reply(chatId, prompt);
+    messageId = await reply(chatId, prompt, proposalKeyboard(kind, row.id));
   } catch (err) {
     await discardUnaskedProposal(row.id);
     throw err;
@@ -556,20 +557,12 @@ export function proposalOutcomeMessage(data: Record<string, unknown>): string {
     return `Recorded: ${line}${b.next_due ? ` I'll ask again on ${shortDay(String(b.next_due))}.` : ""}`;
   }
 
-  if (result.kind === "transfer") {
-    const t = applied[0] as (ProposalItem & { from_name?: string; to_name?: string; joined_out?: boolean; joined_in?: boolean }) | undefined;
-    if (!t) return "One of those accounts is no longer open in Rokda, so nothing was recorded.";
-    const line = `AED ${Number(t.amount).toFixed(2)} from ${t.from_name} to ${t.to_name}, dated ${shortDay(String(t.occurred_at))}.`;
-    if (repeat || t.already_recorded) return `Already recorded: ${line}`;
-    const joined = [t.joined_out ? `the payment out of ${t.from_name}` : null, t.joined_in ? `the money into ${t.to_name}` : null].filter(Boolean);
-    return `Recorded the transfer: ${line}${joined.length ? ` ${joined.join(" and ")} ${joined.length === 1 ? "was" : "were"} already in Rokda, so ${joined.length === 1 ? "it is" : "they are"} now part of it rather than spending or income.` : ""}`;
-  }
-
-  if (result.kind === "goal_contribution") {
-    const g = applied[0];
-    if (!g) return "That goal is no longer there, so nothing was recorded.";
-    const line = `AED ${Number(g.amount).toFixed(2)} toward ${g.name}, dated ${g.occurred_at}.`;
-    return repeat || g.already_recorded ? `Already recorded: ${line}` : `Recorded: ${line}`;
+  // A transfer or goal contribution: its tick line, or "Already recorded"
+  // when this answer repeats one given before (proposalWords.ts).
+  if (result.kind === "transfer" || result.kind === "goal_contribution") {
+    const done = appliedLine(result as { kind: string; applied: Array<Record<string, unknown>> });
+    if (!done) return notRecordedLine(result.kind);
+    return repeat || done.already ? `Already recorded · ${done.what}` : done.line;
   }
 
   if (applied.length) {
@@ -600,12 +593,7 @@ export function proposalSummary(row: { kind: string; payload: Record<string, unk
   if (row.kind === "autopay_payment") {
     return `${String(payload.name ?? "the bill")} (AED ${Number(payload.amount ?? 0).toFixed(2)})`;
   }
-  if (row.kind === "goal_contribution") {
-    return `AED ${Number(payload.amount ?? 0).toFixed(2)} toward ${String(payload.goal_name ?? "the goal")}`;
-  }
-  if (row.kind === "transfer") {
-    return `the transfer of AED ${Number(payload.amount ?? 0).toFixed(2)} from ${String(payload.from_name ?? "one account")} to ${String(payload.to_name ?? "another")}`;
-  }
+  if (row.kind === "goal_contribution" || row.kind === "transfer") return proposalLine(row.kind, payload);
   const names = ((payload.items as Array<{ name?: unknown }>) ?? []).map((i) => String(i.name ?? "an account"));
   if (!names.length) return "the balance change";
   const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
@@ -634,9 +622,85 @@ export function decidedProposalMessage(row: ProposalRow): string {
     if (row.status === "cancelled") return `You dropped ${proposalSummary(row)}, so nothing was saved.`;
     return "That one was not saved: the holding changed or it lapsed. Send the trade again if it still holds.";
   }
+  if (BUTTON_KINDS.has(row.kind)) return settledOutcome(row).said;
   if (row.status === "applied") return row.result ? proposalOutcomeMessage({ outcome: "applied", result: row.result }) : "That one is already saved.";
   if (row.status === "cancelled") return `You dropped ${proposalSummary(row)}, so nothing was changed.`;
   return "That one has lapsed, so nothing was changed. Send it again if it still holds.";
+}
+
+
+// How an answer to a proposal reached the bot: typed (a "yes" or "no"), a
+// 👍 on its question, or a tap on one of its buttons, which is answered with
+// a toast.
+export type Answering = { via: "text" } | { via: "reaction" } | { via: "tap"; toast: (text?: string) => Promise<unknown> };
+const TYPED: Answering = { via: "text" };
+
+// What became of a proposal with buttons (proposalWords.ts): what its
+// question now shows, what a typed answer is told (the same, unless it
+// repeats an answer given before), and the toast for a tap.
+export type Settled = { said: string; shown?: string; toast: string };
+
+// Tells the member what became of a proposal with buttons. A 👍 or a tap
+// turns the question itself into the outcome. A typed answer gets the outcome
+// as a new message, and the question loses its buttons too: the answer may
+// be far down the chat from it, and its buttons must not offer what is done.
+async function settleQuestion(chatId: number, proposal: ProposalRow, answering: Answering, outcome: Settled): Promise<void> {
+  const shown = outcome.shown ?? outcome.said;
+  const prompt = proposal.prompt_message_id;
+  if (answering.via === "tap") await answering.toast(outcome.toast);
+  if (answering.via !== "text" && prompt != null) {
+    await edit(chatId, Number(prompt), shown);
+    return;
+  }
+  await reply(chatId, outcome.said);
+  if (prompt != null) await edit(chatId, Number(prompt), shown);
+}
+
+// A failure that changed nothing: said, and the question keeps its buttons
+// to be answered again.
+async function notSettled(chatId: number, answering: Answering, text: string): Promise<void> {
+  if (answering.via === "tap") await answering.toast(text);
+  else await reply(chatId, text);
+}
+
+// "Cancelled · …" for a proposal with buttons.
+function cancelledLine(row: { kind: string; payload: Record<string, unknown> }): string {
+  if (row.kind === "trade" || row.kind === "trade_undo") return `Cancelled · ${tradeDropSummary(row.payload as TradePayload, row.kind)}`;
+  return `Cancelled · ${proposalLine(row.kind, row.payload ?? {})}`;
+}
+
+// A proposal with buttons that was settled before this answer came: by an
+// earlier answer, or by lapsing.
+export function settledOutcome(row: ProposalRow): Settled {
+  if (row.status === "applied") {
+    if (row.kind === "trade" || row.kind === "trade_undo") {
+      const effect = ((row.result ?? {}) as { effect?: Record<string, unknown> }).effect ?? {};
+      const undo = row.kind === "trade_undo";
+      return { said: tradeSavedMessage(row.payload as TradePayload, effect, { repeat: true, undo }), shown: tradeSavedMessage(row.payload as TradePayload, effect, { repeat: false, undo }), toast: undo ? "Already undone." : "Already recorded." };
+    }
+    const done = appliedLine(row.result as { kind?: string; applied?: Array<Record<string, unknown>> } | null);
+    if (!done) return { said: notRecordedLine(row.kind), toast: notRecordedLine(row.kind) };
+    return { said: `Already recorded · ${done.what}`, shown: done.line, toast: "Already recorded." };
+  }
+  if (row.status === "cancelled") return { said: cancelledLine(row), toast: "Already cancelled." };
+  if (row.kind === "trade" || row.kind === "trade_undo") {
+    const lapsed = "That one wasn't saved: the holding changed or it lapsed. Send the trade again if it still holds.";
+    return { said: lapsed, shown: `${cancelledLine(row)} · not saved`, toast: "Not saved: it changed or lapsed. Send it again." };
+  }
+  return { said: LAPSED_TOAST, shown: `${cancelledLine(row)} · lapsed`, toast: LAPSED_TOAST };
+}
+
+// What applying a transfer or goal contribution did, from the database's
+// answer: recorded (or recorded before), or settled some other way since.
+function appliedOutcome(proposal: ProposalRow, data: Record<string, unknown>): Settled {
+  const outcome = String(data.outcome ?? "");
+  if (outcome === "cancelled" || outcome === "expired") return settledOutcome({ ...proposal, status: outcome });
+  if (outcome !== "applied") return { said: "Couldn't find that any more. Nothing recorded — send it again if it holds.", toast: "Couldn't find that any more. Nothing recorded." };
+  const repeat = data.result != null;
+  const done = appliedLine((repeat ? data.result : data) as { kind?: string; applied?: Array<Record<string, unknown>> });
+  if (!done) return { said: notRecordedLine(proposal.kind), toast: notRecordedLine(proposal.kind) };
+  const before = repeat || done.already;
+  return { said: before ? `Already recorded · ${done.what}` : done.line, shown: done.line, toast: before ? "Already recorded." : "Recorded." };
 }
 
 
@@ -646,12 +710,14 @@ export async function decideProposal(
   proposal: ProposalRow,
   decision: "apply" | "cancel",
   again: { householdId: string; updateId: unknown } | null = null,
+  answering: Answering = TYPED,
 ): Promise<void> {
   if (proposal.kind === "dividends_received") {
     await decideDividends(chatId, memberId, proposal, decision);
     return;
   }
   const trade = proposal.kind === "trade" || proposal.kind === "trade_undo";
+  const buttons = BUTTON_KINDS.has(proposal.kind);
   if (decision === "cancel") {
     const { data, error } = await supabase
       .from("bot_proposals")
@@ -661,16 +727,20 @@ export async function decideProposal(
       .eq("status", "proposed")
       .select(PROPOSAL_COLUMNS);
     if (error) {
-      await reply(chatId, "I couldn't drop that just now. Nothing has been changed; try again in a moment.");
+      if (buttons) await notSettled(chatId, answering, "Couldn't cancel that. Nothing changed — try again in a minute.");
+      else await reply(chatId, "I couldn't drop that just now. Nothing has been changed; try again in a moment.");
       return;
     }
     if (data?.length) {
-      await reply(chatId, `Dropped ${proposalSummary(proposal)}. Nothing was ${trade ? "saved" : "changed"}.`);
+      if (buttons) await settleQuestion(chatId, proposal, answering, { said: cancelledLine(proposal), toast: "Cancelled." });
+      else await reply(chatId, `Dropped ${proposalSummary(proposal)}. Nothing was changed.`);
       return;
     }
     // Decided in between, by a "yes" a moment earlier or by lapsing.
     const { data: fresh } = await supabase.from("bot_proposals").select(PROPOSAL_COLUMNS).eq("id", proposal.id).maybeSingle();
-    await reply(chatId, decidedProposalMessage((fresh as ProposalRow | null) ?? proposal));
+    const now = (fresh as ProposalRow | null) ?? proposal;
+    if (buttons) await settleQuestion(chatId, proposal, answering, settledOutcome(now));
+    else await reply(chatId, decidedProposalMessage(now));
     return;
   }
 
@@ -682,59 +752,112 @@ export async function decideProposal(
   if (error || !data || typeof data !== "object") {
     // Applying is one transaction and repeatable, so asking for the same
     // answer again is safe whether or not this attempt got through.
-    await reply(chatId, 'Couldn\'t confirm that. Reply "yes" to it again in a minute.');
+    if (buttons) await notSettled(chatId, answering, RECORD_FAILED);
+    else await reply(chatId, 'Couldn\'t confirm that. Reply "yes" to it again in a minute.');
     return;
   }
   if (trade) {
-    await tradeDecided(chatId, memberId, proposal, data as Record<string, unknown>, again);
+    await tradeDecided(chatId, memberId, proposal, data as Record<string, unknown>, again, answering);
+    return;
+  }
+  if (buttons) {
+    await settleQuestion(chatId, proposal, answering, appliedOutcome(proposal, data as Record<string, unknown>));
     return;
   }
   await reply(chatId, proposalOutcomeMessage(data as Record<string, unknown>));
 }
 
 
-// What a "yes" to a trade did. Saved: what was saved, from what the database
-// returned. The holding changed since the member was shown it (stale), or
-// the confirmation lapsed: nothing was saved, and the trade is previewed and
-// confirmed again with today's figures, never applied with the old ones.
-// Refused: why, in the same words as a refused preview.
+// A tap on a proposal's Record (or Save) or Cancel (proposalWords.ts). Only
+// the member it was proposed to, on the message that asked about it, can
+// answer it; anything that does not check out changes nothing. Always
+// answered, so Telegram stops the button's spinner.
+export async function handleProposalTap(callback: Record<string, unknown>, decision: "apply" | "cancel", proposalId: string, updateId: unknown): Promise<Response> {
+  const from = callback.from as { id?: number } | undefined;
+  const message = callback.message as { message_id?: number; chat?: Record<string, unknown> } | undefined;
+  const chatId = message?.chat?.id as number | undefined;
+  const messageId = message?.message_id;
+  const toast = (text = "") => tgCall("answerCallbackQuery", { callback_query_id: callback.id, ...(text ? { text } : {}) }).catch(() => null);
+  if (!from?.id || !chatId || !messageId || !isPrivateChat(message?.chat) || chatId !== from.id) {
+    await toast();
+    return new Response("ok");
+  }
+  const { data: member, error: memberError } = await supabase.from("household_members").select("id, household_id").eq("telegram_user_id", from.id).maybeSingle();
+  const { data: found, error } = member
+    ? await supabase.from("bot_proposals").select(`${PROPOSAL_COLUMNS}, chat_id`).eq("id", proposalId).eq("household_id", member.household_id).eq("member_id", member.id).maybeSingle()
+    : { data: null, error: null };
+  if (memberError || error) {
+    await toast("Couldn't check that just now. Nothing changed — try again in a minute.");
+    return new Response("ok");
+  }
+  const row = found as (ProposalRow & { chat_id: number | string | null }) | null;
+  if (!member || !row || !BUTTON_KINDS.has(row.kind)) {
+    await toast("That isn't one of yours.");
+    return new Response("ok");
+  }
+  if (Number(row.chat_id) !== chatId || Number(row.prompt_message_id) !== messageId) {
+    await toast("Use the latest message about it.");
+    return new Response("ok");
+  }
+  const answering: Answering = { via: "tap", toast };
+  if (row.status !== "proposed") {
+    await settleQuestion(chatId, row, answering, settledOutcome(row));
+    return new Response("ok");
+  }
+  await decideProposal(chatId, member.id, row, decision, { householdId: member.household_id as string, updateId }, answering);
+  return new Response("ok");
+}
+
+
+// What an answer to a trade did. Saved: what was saved, from what the
+// database returned. The holding changed since the member was shown it
+// (stale), or the confirmation lapsed: nothing was saved, and the trade is
+// previewed and confirmed again with today's figures, never applied with the
+// old ones. Refused: why, in the same words as a refused preview. Each turns
+// the question into what became of it, as every proposal with buttons does.
 export async function tradeDecided(
   chatId: number,
   memberId: string,
   proposal: ProposalRow,
   data: Record<string, unknown>,
   again: { householdId: string; updateId: unknown } | null,
+  answering: Answering = TYPED,
 ): Promise<void> {
   const payload = proposal.payload as TradePayload & { draft?: TradeDraft };
   const outcome = String(data.outcome ?? "");
   const undo = proposal.kind === "trade_undo";
   const name = payload.holding_name ?? "That holding";
   if (outcome === "applied") {
-    const result = (data.result ?? data) as { effect?: Record<string, unknown> };
-    await reply(chatId, tradeSavedMessage(payload, result.effect ?? {}, { repeat: data.result != null, undo }));
+    const repeat = data.result != null;
+    const effect = ((data.result ?? data) as { effect?: Record<string, unknown> }).effect ?? {};
+    const toast = undo ? (repeat ? "Already undone." : "Undone.") : (repeat ? "Already recorded." : "Recorded.");
+    await settleQuestion(chatId, proposal, answering, { said: tradeSavedMessage(payload, effect, { repeat, undo }), shown: tradeSavedMessage(payload, effect, { repeat: false, undo }), toast });
     return;
   }
   if (outcome === "refused") {
-    await reply(chatId, tradeRefusal(String(data.error ?? ""), { holdingName: name, units: Number(payload.units) || undefined }));
+    const why = tradeRefusal(String(data.error ?? ""), { holdingName: name, units: Number(payload.units) || undefined });
+    await settleQuestion(chatId, proposal, answering, { said: why, toast: why });
     return;
   }
   if (outcome === "stale" || outcome === "expired") {
     const lead = outcome === "stale"
       ? `${name} changed since I asked, so nothing was ${undo ? "undone" : "saved"}.`
       : `That confirmation lapsed, so nothing was ${undo ? "undone" : "saved"}.`;
+    const shown = `${cancelledLine(proposal)} · ${outcome === "stale" ? "changed since" : "lapsed"}`;
     if (!undo && payload.draft && again) {
-      await reply(chatId, `${lead} Here it is again with today's figures:`);
+      await settleQuestion(chatId, proposal, answering, { said: `${lead} Here it is again with today's figures:`, shown, toast: "It changed since. Here it is again." });
       await proposeTrade(chatId, { id: memberId, household_id: again.householdId }, payload.draft, again.updateId);
       return;
     }
-    await reply(chatId, `${lead} Send it again if it still holds.`);
+    await settleQuestion(chatId, proposal, answering, { said: `${lead} Send it again if it still holds.`, shown, toast: `${lead} Send it again if it still holds.` });
     return;
   }
   if (outcome === "cancelled") {
-    await reply(chatId, `You dropped ${proposalSummary(proposal)}, so nothing was saved.`);
+    await settleQuestion(chatId, proposal, answering, settledOutcome({ ...proposal, status: "cancelled" }));
     return;
   }
-  await reply(chatId, proposalOutcomeMessage(data));
+  const said = proposalOutcomeMessage(data);
+  await settleQuestion(chatId, proposal, answering, { said, toast: said });
 }
 
 

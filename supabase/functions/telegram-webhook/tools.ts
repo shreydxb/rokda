@@ -16,7 +16,8 @@ import { isSpendRow, spendDelta } from "../_shared/applib/transactionKind.js";
 import { isAwaitingFirstValuation } from "../_shared/applib/valuation.js";
 import { supabase } from "./env.ts";
 import { pickAccountByHint } from "./intake.ts";
-import { ANSWER_HINT, normaliseSymbol } from "./trades.ts";
+import { transferLine } from "./proposalWords.ts";
+import { normaliseSymbol } from "./trades.ts";
 
 // ---------------------------------------------------------------------------
 // SHR-240: conversational query tools. Each one queries real household data
@@ -804,9 +805,10 @@ export async function transferDraft(householdId: string, args: Record<string, un
 }
 
 
-// The question a transfer proposal asks, in exact figures.
+// The question a transfer proposal asks, in exact figures: one line, under
+// which Record and Cancel answer it (proposalWords.ts).
 export function transferPrompt(draft: { from: { name: string }; to: { name: string }; amount: number; occurredAt: string }): string {
-  return `Record a transfer of AED ${draft.amount.toFixed(2)} from ${draft.from.name} to ${draft.to.name}, dated ${draft.occurredAt}? It counts as neither spending nor income. If either side is already in Rokda (the payment pasted from your bank's SMS, say), it becomes that side rather than a second copy. Nothing is recorded until you say yes.\n\n${ANSWER_HINT}`;
+  return transferLine({ amount: draft.amount, from_name: draft.from.name, to_name: draft.to.name, occurred_at: draft.occurredAt });
 }
 
 

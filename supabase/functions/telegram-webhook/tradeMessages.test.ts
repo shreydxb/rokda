@@ -58,7 +58,7 @@ freshTest("a trade with no units asks how many, and the answer completes it", as
   assertEquals([preview?.args.p_units, preview?.args.p_price], [10, 120]);
   assertEquals(tradeProposals().map((r) => r.status), ["proposed"]);
   assertEquals(askingRow(), undefined);
-  assert(lastReply().startsWith("Buy 10 ABC at $120"), lastReply());
+  assert(lastReply().startsWith("Buy 10 ABC at USD 120"), lastReply());
 });
 
 // D-07: a clarifying question that never reached the member, or whose
@@ -224,15 +224,15 @@ freshTest("the three trades are confirmed with the database's figures, in the sp
   backend.route = { tool: "log_trade", args: { side: "buy", stock: "ABC", units: 10, price: 182.5 } };
   await handler(textUpdate(7501, "bought 10 ABC at 182.5"));
   const buy = lastReply().split("\n");
-  assert(buy[0].startsWith("Buy 10 ABC at $182.50 on "), buy[0]);
-  assertEquals(buy.slice(1, 3), ["ABC: 15 → 25 shares, average $110 → $139", "Dollar broker funds −$1,825"]);
+  assert(buy[0].startsWith("Buy 10 ABC at USD 182.50 · "), buy[0]);
+  assertEquals(buy.slice(1, 3), ["ABC: 15 → 25 shares, average USD 110 → USD 139", "Dollar broker funds −USD 1,825"]);
   backend.route = { tool: "log_trade", args: { side: "sell", stock: "ABC", units: 2, price: 430, trade_date: "2026-10-24", brokerage: 1 } };
   await handler(textUpdate(7502, "sold 2 ABC at 430 on 24 Oct, brokerage 1"));
-  assertEquals(lastReply().split("\n").slice(0, 3), ["Sell 2 ABC at $430 on 24 Oct, brokerage $1", "ABC: 15 → 13 shares, average stays $110", "Profit $639 · Dollar broker funds +$859"]);
+  assertEquals(lastReply().split("\n").slice(0, 3), ["Sell 2 ABC at USD 430 · 24 Oct · brokerage USD 1", "ABC: 15 → 13 shares, average stays USD 110", "Profit USD 639 · Dollar broker funds +USD 859"]);
   backend.route = { tool: "log_trade", args: { side: "buy", stock: "XYZ", units: 3, price: 690, member: "Partner" } };
   await handler(textUpdate(7503, "Partner bought 3 XYZ at 690"));
   assert(lastReply().split("\n")[1].startsWith("Partner's XYZ: 15 → 18 shares"), lastReply());
-  assert(lastReply().includes("Partner's dollar funds −$2,070"), lastReply());
+  assert(lastReply().includes("Partner's dollar funds −USD 2,070"), lastReply());
   assertEquals(tradeProposals().length, 3);
 });
 
@@ -241,16 +241,16 @@ freshTest("yes saves the trade once and says what was saved", async () => {
   await sixABCSoldOn27Oct(7511);
   await handler(textUpdate(7512, "yes"));
   assertEquals(backend.applyCalls, 1);
-  assertEquals(lastReply(), "Saved: Sell 6 ABC at $150 on 27 Oct. ABC now 9 shares; Dollar broker funds +$899.");
+  assertEquals(lastReply(), "✓ Sell 6 ABC at USD 150 · 27 Oct\nABC 9 shares · Dollar broker funds +USD 899");
   await handler(textUpdate(7513, "yes"));
-  assert(lastReply().startsWith("Already saved: Sell 6 ABC at $150 on 27 Oct."), lastReply());
+  assert(lastReply().startsWith("Already recorded · Sell 6 ABC at USD 150 · 27 Oct"), lastReply());
 });
 
 freshTest("no drops the trade and says which", async () => {
   tradeFixtures();
   await sixABCSoldOn27Oct(7514);
   await handler(textUpdate(7515, "no"));
-  assertEquals(lastReply(), "Dropped the sale of 6 ABC at $150. Nothing was saved.");
+  assertEquals(lastReply(), "Cancelled · Sell 6 ABC at USD 150 · 27 Oct");
   assertEquals(backend.applyCalls, 0);
 });
 
@@ -261,7 +261,7 @@ freshTest("a yes after the holding changed saves nothing and confirms again with
   await handler(textUpdate(7517, "yes"));
   const sent = backend.telegramSent.map((m) => String(m.body.text));
   assertEquals(sent.at(-2), "ABC changed since I asked, so nothing was saved. Here it is again with today's figures:");
-  assert(sent.at(-1)!.startsWith("Sell 6 ABC at $150 on 27 Oct"), sent.at(-1));
+  assert(sent.at(-1)!.startsWith("Sell 6 ABC at USD 150 · 27 Oct"), sent.at(-1));
   assertEquals(tradeProposals().map((r) => r.status), ["expired", "proposed"]);
 });
 
@@ -270,7 +270,7 @@ freshTest("a yes after the confirmation lapsed confirms again with today's figur
   await sixABCSoldOn27Oct(7518);
   backend.tradeOutcome = { outcome: "expired" };
   await handler(textUpdate(7519, "yes"));
-  assert(lastReply().startsWith("Sell 6 ABC at $150 on 27 Oct"), lastReply());
+  assert(lastReply().startsWith("Sell 6 ABC at USD 150 · 27 Oct"), lastReply());
   assertEquals(tradeProposals().filter((r) => r.status === "proposed").length, 1);
 });
 
@@ -289,7 +289,7 @@ freshTest("a first buy of a stock is previewed as a new holding, with its feed a
   const preview = backend.rpcCalls.find((c) => c.fn === "preview_new_holding_trade");
   assert(preview, "the new holding was not previewed");
   assertEquals((preview.args.p_new_holding as Row).price_symbol, "XYZ");
-  assert(lastReply().includes("New holding: XYZ (US equity, priced by Twelve Data as XYZ), paid from Dollar broker funds"), lastReply());
+  assert(lastReply().includes("New holding: XYZ (US equity, priced by Twelve Data as XYZ) · paid from Dollar broker funds"), lastReply());
   assertEquals(((tradeProposals()[0].payload as Row).new_holding as Row).name, "XYZ");
 });
 
@@ -324,11 +324,11 @@ freshTest("undo last trade proposes undoing the sender's latest trade, and yes u
   backend.route = { tool: "undo_last_trade", args: {} };
   await handler(textUpdate(7601, "undo last trade"));
   assertEquals(backend.rpcCalls.find((c) => c.fn === "preview_delete_trade")?.args.p_trade_id, "t-sale");
-  assertEquals(lastReply().split("\n").slice(0, 3), ["Undo: Sell 6 ABC at $150 on 27 Oct", "ABC: 9 → 15 shares, average stays $110", "Dollar broker funds −$899"]);
+  assertEquals(lastReply().split("\n").slice(0, 3), ["Undo: Sell 6 ABC at USD 150 · 27 Oct", "ABC: 9 → 15 shares, average stays USD 110", "Dollar broker funds −USD 899"]);
   assertEquals(backend.tables.bot_proposals.filter((r) => r.kind === "trade_undo").length, 1);
   assertEquals(capturedIntake().length, 0);
   await handler(textUpdate(7602, "yes"));
-  assertEquals(lastReply(), "Undone: Sell 6 ABC at $150 on 27 Oct. ABC now 15 shares; Dollar broker funds −$899.");
+  assertEquals(lastReply(), "✓ Undone · Sell 6 ABC at USD 150 · 27 Oct\nABC 15 shares · Dollar broker funds −USD 899");
 });
 
 freshTest("undo with no trades of the sender's says there is nothing to undo", async () => {
@@ -349,8 +349,8 @@ freshTest("a split is confirmed with the units and average it gives, and no mone
   backend.route = { tool: "log_trade", args: { side: "split", stock: "ABC", ratio: 10 } };
   await handler(textUpdate(7604, "ABC split 10 for 1"));
   const lines = lastReply().split("\n");
-  assert(lines[0].startsWith("Split ABC 10 for 1 on "), lines[0]);
-  assertEquals(lines.slice(1, 3), ["ABC: 9 → 90 shares, average $110 → $11", ""]);
+  assert(lines[0].startsWith("Split ABC 10 for 1 · "), lines[0]);
+  assertEquals(lines.slice(1), ["ABC: 9 → 90 shares, average USD 110 → USD 11"]);
   const preview = backend.rpcCalls.find((c) => c.fn === "preview_trade");
   assertEquals([preview?.args.p_kind, preview?.args.p_units, preview?.args.p_price], ["split", 10, null]);
 });

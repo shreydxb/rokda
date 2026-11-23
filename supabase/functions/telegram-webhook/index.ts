@@ -63,7 +63,8 @@ import { runRecurringCheck } from "./checks/recurring.ts";
 import { runSplitCheck, runUnusualSpendCheck } from "./checks/spending.ts";
 import { handleStatementText, runStatementCheck } from "./checks/statements.ts";
 import { isBatchCommand } from "./batch.ts";
-import { handleChoiceTap, plainView, sendChoicePrompt, sendEntryPrompt, viewOf } from "./choices.ts";
+import { plainView, sendChoicePrompt, sendEntryPrompt, viewOf } from "./choices.ts";
+import { handleTap } from "./taps.ts";
 import { cancelledText, inboxReason, inboxText } from "./expenseMessages.ts";
 import { BATCH_UNADDRESSED_HINT, batchForPrompt, handleBatchReply, hasOpenList, type SavedItem, sendBatchList } from "./batchReview.ts";
 import { confirmCandidates, confirmPendingIntake, decideAutopay, discardPendingIntake, decidedProposalMessage, decideProposal, handleReaction, intakeForPrompt, openProposals, PENDING_WINDOW_MS, type PendingIntakeRow, type PromptLookup, PROPOSAL_COLUMNS, proposalForPrompt, type ProposalRow, RECENT_INTAKE_COLUMNS, recentlyDecidedProposal, sendProposal } from "./confirmations.ts";
@@ -72,7 +73,7 @@ import { OPENROUTER_API_KEY, supabase, SUPABASE_URL, TELEGRAM_BOT_TOKEN } from "
 import { alreadyRecordedNote, categoryByName, datedItems, forwardedDay, loadCategoryKnowledge, loadFileableCategories, matchAccountByCardLast4, matchAccountByNameHint, matchCategoryFromMerchantHistory, parseIntakeWithAI, QUESTION_TOOLS, undatedNote } from "./intake.ts";
 import { BRIEF_TRIGGERS, buildBriefMessage, figuresUnavailableMessage, goalContributionDraft, ReadFailed, toolGetAccountBalance, toolGetBudgetStatus, toolGetCategorySpend, toolGetHoldings, toolGetNetWorth, toolGetTradeProfit, toolGetUpcomingBills, transferDraft, transferPrompt } from "./tools.ts";
 import { answerTradeQuestion, FILE_TOO_BIG, FILE_TOO_BIG_CAPTION_KEPT, handleTradeMessage, handleUndoTrade } from "./tradeMessages.ts";
-import { ANSWER_HINT } from "./trades.ts";
+import { goalLine } from "./proposalWords.ts";
 import { type AnswerTarget, bytesToBase64, claimUpdate, clearLinkFailures, getTelegramWebhookSecret, linkAttemptBlocked, logFailure, pruneTelegramUpdateLog, recordAnswerTarget, recordedAnswerTarget, recordLinkFailure, reply, sendReminder, settleUpdate, telegramFetch, tgCall } from "./transport.ts";
 
 // Exported for the tests, which import them from here.
@@ -230,7 +231,7 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
   const message = update?.message as Record<string, unknown> | undefined;
   if (!message) {
     const tap = update?.callback_query as Record<string, unknown> | undefined;
-    if (tap) return await handleChoiceTap(tap);
+    if (tap) return await handleTap(tap, update.update_id);
     const reaction = update?.message_reaction as Record<string, unknown> | undefined;
     if (reaction) return await handleReaction(reaction, update.update_id);
     return new Response("ok");
@@ -768,7 +769,7 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
               member.id,
               "goal_contribution",
               { goal_id: draft.goal.id, goal_name: draft.goal.name, amount: draft.amount, occurred_at: draft.occurredAt },
-              `Record AED ${draft.amount.toFixed(2)} toward ${draft.goal.name}, dated ${draft.occurredAt}? Nothing is recorded until you say yes.\n\n${ANSWER_HINT}`,
+              goalLine({ amount: draft.amount, goal_name: draft.goal.name, occurred_at: draft.occurredAt }),
               updateId,
             );
             return new Response("ok");
