@@ -47,7 +47,7 @@ import { autopayAnswer } from "../_shared/applib/autopay.js";
 import { householdToday } from "../_shared/applib/day.js";
 import { resolveScopeMemberId } from "../_shared/applib/scope.js";
 import { isPrivateChat } from "../_shared/applib/telegramChat.js";
-import { ambiguousConfirmMessage, ambiguousProposalMessage, dropUnavailableMessage, isCancellationText, isConfirmable, isConfirmationText, isReadyForFastConfirm, lookupUnavailableMessage, PROMPT_UNADDRESSED, resolveConfirmTarget, resolveCorrectionTarget, resolveProposalTarget, unknownPromptMessage } from "../_shared/applib/telegramConfirm.js";
+import { ambiguousConfirmMessage, ambiguousDiscardMessage, ambiguousProposalMessage, dropUnavailableMessage, isCancellationText, isConfirmable, isConfirmationText, isReadyForFastConfirm, lookupUnavailableMessage, PROMPT_UNADDRESSED, resolveConfirmTarget, resolveCorrectionTarget, resolveProposalTarget, unknownPromptMessage } from "../_shared/applib/telegramConfirm.js";
 import { linkTokenDigest, linkTokenFromMessage, looksLikeLinkToken } from "../_shared/applib/telegramLink.js";
 import { secretsMatch } from "../_shared/requestAuth.ts";
 import { AI_BUSY_NOTHING_SAVED, AI_BUSY_REPLY, classifyAndRoute, NOT_AN_EXPENSE_REPLY, phraseAnswer } from "./ai.ts";
@@ -63,10 +63,10 @@ import { runRecurringCheck } from "./checks/recurring.ts";
 import { runSplitCheck, runUnusualSpendCheck } from "./checks/spending.ts";
 import { handleStatementText, runStatementCheck } from "./checks/statements.ts";
 import { isBatchCommand } from "./batch.ts";
-import { handleChoiceTap, plainView, sendChoicePrompt, sendEntryPrompt } from "./choices.ts";
-import { inboxReason, inboxText } from "./expenseMessages.ts";
+import { handleChoiceTap, plainView, sendChoicePrompt, sendEntryPrompt, viewOf } from "./choices.ts";
+import { cancelledText, inboxReason, inboxText } from "./expenseMessages.ts";
 import { BATCH_UNADDRESSED_HINT, batchForPrompt, handleBatchReply, hasOpenList, type SavedItem, sendBatchList } from "./batchReview.ts";
-import { confirmCandidates, confirmPendingIntake, decideAutopay, decidedProposalMessage, decideProposal, handleReaction, intakeForPrompt, openProposals, PENDING_WINDOW_MS, type PendingIntakeRow, type PromptLookup, PROPOSAL_COLUMNS, proposalForPrompt, type ProposalRow, RECENT_INTAKE_COLUMNS, recentlyDecidedProposal, sendProposal } from "./confirmations.ts";
+import { confirmCandidates, confirmPendingIntake, decideAutopay, discardPendingIntake, decidedProposalMessage, decideProposal, handleReaction, intakeForPrompt, openProposals, PENDING_WINDOW_MS, type PendingIntakeRow, type PromptLookup, PROPOSAL_COLUMNS, proposalForPrompt, type ProposalRow, RECENT_INTAKE_COLUMNS, recentlyDecidedProposal, sendProposal } from "./confirmations.ts";
 import { DIVIDEND_CLASSES, DIVIDEND_GUARD_REPLY, readsAsDividend } from "./dividends.ts";
 import { OPENROUTER_API_KEY, supabase, SUPABASE_URL, TELEGRAM_BOT_TOKEN } from "./env.ts";
 import { alreadyRecordedNote, categoryByName, datedItems, forwardedDay, loadCategoryKnowledge, loadFileableCategories, matchAccountByCardLast4, matchAccountByNameHint, matchCategoryFromMerchantHistory, parseIntakeWithAI, QUESTION_TOOLS, undatedNote } from "./intake.ts";
@@ -538,6 +538,37 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
       }
     }
 
+    // A "no" sets an expense aside, as Discard does (the revamp, phase 8b):
+    // one replied to, or the one waiting when it is bare. A "no" about
+    // nothing waiting, or to a message that is not an expense's, is read as
+    // ordinary text, as it always was.
+    if (strictNo) {
+      if (replay?.kind === "intake") {
+        const { data, error } = await supabase.from("intake").select(RECENT_INTAKE_COLUMNS)
+          .eq("id", replay.id).eq("member_id", member.id).maybeSingle();
+        if (error) throw new Error(`reading the entry an answer was about failed (${error.code ?? "no code"})`);
+        const row = data as PendingIntakeRow | null;
+        if (row?.status === "pending") await discardPendingIntake(chatId, member.id, row);
+        else if (row?.status === "rejected") await reply(chatId, cancelledText(await viewOf(row)));
+        else await reply(chatId, "That one was settled in the app, so nothing was cancelled.");
+        return new Response("ok");
+      }
+      const target = resolveConfirmTarget({ lookup: promptLookup.kind, row: promptLookup.row, recent: candidates.rows, truncated: candidates.truncated });
+      if (target.kind === "one") {
+        if (repliedTo == null) await recordAnswerTarget(updateId, { kind: "intake", id: target.row.id });
+        await discardPendingIntake(chatId, member.id, target.row);
+        return new Response("ok");
+      }
+      if (target.kind === "ambiguous") {
+        await reply(chatId, ambiguousDiscardMessage());
+        return new Response("ok");
+      }
+      if (target.kind === "unavailable") {
+        await reply(chatId, dropUnavailableMessage());
+        return new Response("ok");
+      }
+    }
+
     if (strictYes) {
       if (replay?.kind === "intake") {
         const { data, error } = await supabase.from("intake").select(RECENT_INTAKE_COLUMNS)
@@ -561,7 +592,7 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
         return new Response("ok");
       }
       if (target.kind === "ambiguous") {
-        await reply(chatId, ambiguousConfirmMessage(target.rows));
+        await reply(chatId, ambiguousConfirmMessage());
         return new Response("ok");
       }
       // Addressed at a message that is not a prompt we hold -- most likely a

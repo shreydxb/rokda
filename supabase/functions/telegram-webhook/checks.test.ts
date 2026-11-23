@@ -214,7 +214,7 @@ freshTest("a yes after the bill came off autopay closes its question and says it
   assertEquals(proposal.status, "expired");
   // Nothing is left waiting for a bare answer.
   await handler(textUpdate(9302, "yes"));
-  assert(!lastReply().includes("More than one thing is waiting"), lastReply());
+  assert(!lastReply().startsWith("Which one?"), lastReply());
 });
 
 // The outside review's own review: the morning reminder names the bill's

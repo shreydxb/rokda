@@ -221,7 +221,7 @@ export async function sendChoicePrompt(chatId: number, householdId: string, memb
 
 const INTAKE_COLUMNS = "id, household_id, member_id, status, parsed_merchant, parsed_amount, parsed_date, date_guessed, parsed_category_id, parsed_account_id, parsed_currency, parsed_kind, confidence, confirm_chat_id, confirm_message_id";
 
-async function edit(chatId: number, messageId: number, text: string, replyMarkup: Keyboard | null = null): Promise<void> {
+export async function edit(chatId: number, messageId: number, text: string, replyMarkup: Keyboard | null = null): Promise<void> {
   await tgCall("editMessageText", { chat_id: chatId, message_id: messageId, text, ...(replyMarkup ? { reply_markup: replyMarkup } : {}) }).catch(() => null);
 }
 

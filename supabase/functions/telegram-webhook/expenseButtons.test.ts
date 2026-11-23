@@ -2,7 +2,7 @@
 // back for ten minutes, Discard sets it aside, Category and Account change it
 // before it is recorded. The fake backend is testing/harness.ts.
 import { assert, assertEquals } from "jsr:@std/assert@1";
-import { backend, CARD, capturedIntake, dubaiToday, freshTest, handler, HOUSEHOLD, MEMBER, PARTNER_TELEGRAM, type Row, tapUpdate, textUpdate } from "./testing/harness.ts";
+import { backend, CARD, capturedIntake, dubaiToday, freshTest, handler, HOUSEHOLD, lastReply, MEMBER, PARTNER_TELEGRAM, reactionUpdate, replyUpdate, type Row, tapUpdate, textUpdate } from "./testing/harness.ts";
 // After the harness, which sets the environment env.ts reads.
 import { appAddress } from "./env.ts";
 
@@ -11,6 +11,8 @@ const EATING_OUT = "c3000000-0000-4000-8000-0000000000f1";
 const BANK = { id: "c3000000-0000-4000-8000-0000000000a1", household_id: HOUSEHOLD, name: "Bank", type: "current", archived_at: null, owner_member_id: MEMBER };
 
 function seed(): void {
+  // Captured now, so a bare answer counts it as waiting.
+  backend.now = Date.now();
   backend.tables.accounts.push({ ...CARD, household_id: HOUSEHOLD, owner_member_id: MEMBER, is_shared: false }, BANK);
   backend.tables.categories.push(
     { id: GROCERIES, household_id: HOUSEHOLD, name: "Groceries", kind: "expense", parent_id: null, archived: false, is_savings: false },
@@ -189,4 +191,71 @@ Deno.test("the app's address is taken only as an https address, without a traili
   assertEquals(appAddress("app.example.test"), null);
   assertEquals(appAddress(""), null);
   assertEquals(appAddress(undefined), null);
+});
+
+// Typed answers still work beside the buttons (the design note's "What stays").
+freshTest("a yes sent as a reply records it: a new line with Undo, and the old message loses its buttons", async () => {
+  const prompt = await capture(9640);
+  await handler(replyUpdate(9641, "yes", prompt.id));
+  assertEquals(capturedIntake()[0].status, "approved");
+  const sent = lastPrompt();
+  assertEquals(sent.text, "✓ Corner Bakery · AED 30 · Groceries");
+  assertEquals(sent.buttons.map((b) => b.text), ["Undo"]);
+  const edited = backend.telegramCalls.filter((c) => c.method === "editMessageText" && c.body.message_id === prompt.id).at(-1)?.body;
+  assertEquals(edited?.text, "✓ Corner Bakery · AED 30 · Groceries");
+  assertEquals(buttonsOf(edited).length, 0);
+  // The Undo on the new line works.
+  await handler(tapUpdate(9642, sent.id, tap(sent, "Undo")));
+  assertEquals(capturedIntake()[0].status, "pending");
+  assertEquals(buttonsOf(lastCall("editMessageText")).map((b) => b.text), ["Record", "Category", "Account", "Discard"]);
+});
+
+freshTest("a 👍 on the message records it there, with Undo", async () => {
+  const prompt = await capture(9643);
+  const sentBefore = backend.telegramSent.length;
+  await handler(reactionUpdate(9644, prompt.id, "👍"));
+  assertEquals(capturedIntake()[0].status, "approved");
+  assertEquals(backend.telegramSent.length, sentBefore, "a reaction drew a new message");
+  const edit = lastCall("editMessageText")!;
+  assertEquals(edit.message_id, prompt.id);
+  assertEquals(edit.text, "✓ Corner Bakery · AED 30 · Groceries");
+  assertEquals(buttonsOf(edit).map((b) => b.text), ["Undo"]);
+});
+
+freshTest("no, as a reply or with one waiting, sets it aside and says so", async () => {
+  const prompt = await capture(9645);
+  const aiBefore = backend.aiCalls;
+  await handler(replyUpdate(9646, "no", prompt.id));
+  assertEquals(capturedIntake()[0].status, "rejected");
+  assertEquals(lastReply(), "Cancelled · Corner Bakery · AED 30");
+  assertEquals(buttonsOf(backend.telegramCalls.filter((c) => c.method === "editMessageText" && c.body.message_id === prompt.id).at(-1)?.body).length, 0);
+  assertEquals(backend.aiCalls, aiBefore, "the no was sent to the AI");
+
+  backend.parse = [item({ merchant: "Fresh Market" })];
+  await handler(textUpdate(9647, "pasted sms"));
+  await handler(textUpdate(9648, "no"));
+  assertEquals(capturedIntake().find((r) => r.parsed_merchant === "Fresh Market")?.status, "rejected");
+  assertEquals(lastReply(), "Cancelled · Fresh Market · AED 30");
+});
+
+freshTest("a bare yes or no with two waiting asks which one, and does nothing", async () => {
+  seed();
+  backend.parse = [item()];
+  await handler(textUpdate(9650, "pasted sms"));
+  backend.parse = [item({ merchant: "Fresh Market", amount: 45 })];
+  await handler(textUpdate(9651, "pasted sms"));
+  await handler(textUpdate(9652, "yes"));
+  assertEquals(lastReply(), "Which one? Tap Record on the message you mean.");
+  await handler(textUpdate(9653, "no"));
+  assertEquals(lastReply(), "Which one? Tap Discard on the message you mean.");
+  assertEquals(capturedIntake().map((r) => r.status), ["pending", "pending"]);
+  assertEquals(backend.approveCalls, 0);
+});
+
+freshTest("a yes that finds the expense recorded meanwhile leaves it in the Inbox, saying so", async () => {
+  const prompt = await capture(9654);
+  backend.tables.transactions.push({ id: "t-dup", household_id: HOUSEHOLD, account_id: CARD.id, amount: -30, merchant: "Corner Bakery", occurred_at: dubaiToday() });
+  await handler(replyUpdate(9655, "yes", prompt.id));
+  assertEquals(backend.approveCalls, 0);
+  assert(lastReply().startsWith("In the Inbox · looks like one recorded "), lastReply());
 });
