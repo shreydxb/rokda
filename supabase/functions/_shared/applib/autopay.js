@@ -81,8 +81,25 @@ export function autopayWhat(bill, today) {
   return [bill.name ?? 'That bill', money(Number(bill.amount)), bill.occurred_at ? day(String(bill.occurred_at), today) : null].filter(Boolean).join(' · ');
 }
 
-// Said for Other amount: the amount comes as a typed answer.
-export const AUTOPAY_OTHER_AMOUNT = 'Reply to this with the amount that went out, like "paid 2,050".';
+// Said for Other amount: the amount comes as a typed answer, on its own or
+// with "paid" (autopayAmountOnly, autopayAnswer).
+export const AUTOPAY_OTHER_AMOUNT = 'Reply to this with the amount that went out, like "2,050".';
+
+// An amount on its own, as a reply to an autopay question after Other
+// amount: "2,050", "2050.50", "AED 2,050". Grouped the international or the
+// Indian way, as autopayAnswer reads it; anything else is not an amount.
+/**
+ * @param {unknown} text
+ * @returns {number | null}
+ */
+export function autopayAmountOnly(text) {
+  const s = String(text ?? '').toLowerCase().replace(/\b(aed|dhs?|dirhams?)\b/g, ' ').trim();
+  if (!/^\d+(?:,\d+)*(?:\.\d{1,2})?$/.test(s)) return null;
+  const [whole, cents] = s.split('.');
+  if (whole.includes(',') && !/^\d{1,3}(?:,\d{3})+$/.test(whole) && !/^\d{1,2}(?:,\d{2})*,\d{3}$/.test(whole)) return null;
+  const amount = Number(whole.replace(/,/g, '') + (cents ? `.${cents}` : ''));
+  return amount > 0 ? amount : null;
+}
 
 // Words that, on their own or together, mean "it went out".
 const PAID_WORDS = new Set([

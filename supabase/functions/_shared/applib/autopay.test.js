@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { autopayAnswer, autopayCycle, autopayQuestion, autopayReactionDecision, dayString } from './autopay.js';
+import { autopayAmountOnly, autopayAnswer, autopayCycle, autopayQuestion, autopayReactionDecision, dayString } from './autopay.js';
 
 const day = (s) => new Date(`${s}T00:00:00`);
 const emi = { next_due_date: '2026-10-03', cadence: 'monthly', interval_count: 1, ends_on: '2030-07-03' };
@@ -117,4 +117,13 @@ describe('autopayQuestion', () => {
   it('formats a day in local time', () => {
     expect(dayString(new Date(2026, 9, 3))).toBe('2026-10-03');
   });
+});
+
+// The fresh review of 8c's second part: Other amount asks for the amount, and
+// the amount alone is the answer.
+describe('autopayAmountOnly', () => {
+  it.each([['2,050', 2050], ['2050.50', 2050.5], ['AED 2,050', 2050], ['2,050 dhs', 2050], ['1,00,000', 100000]])('reads %s', (text, amount) =>
+    expect(autopayAmountOnly(text)).toBe(amount),
+  );
+  it.each(['paid 2,050', '2,05,0', '0', 'two thousand', '40 lunch', ''])('reads %s as no amount alone', (text) => expect(autopayAmountOnly(text)).toBeNull());
 });

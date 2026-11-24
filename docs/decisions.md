@@ -4783,12 +4783,11 @@ request.
   - **A budget line gives the month's share** ("98% of budget"), not the
     threshold that set it off, and a card's "in 2d" is the check's own count.
 
-## The bot: an autopay bill and a card statement are answered with buttons
+## The bot: the morning's questions are answered with buttons
 
 The revamp's phase 8c, its second part (design note
 `docs/superpowers/specs/2026-11-23-telegram-bot-design.md`, decision 5; the
-UI review's T10 and T11). Dividends and the month-end balances follow in the
-next pull request. Every typed answer and reaction still works.
+UI review's T10 to T13). Every typed answer and reaction still works.
 
 - **An autopay bill is one line with Paid, Not yet and Other amount** (T10):
   `Car EMI · AED 2,000 · due today from Bank. Gone out?`, "due 3 Oct" when
@@ -4816,3 +4815,34 @@ next pull request. Every typed answer and reaction still works.
   Statements", which the revamp moved (phase 4d).
 - **A 👍 answers in place**: on an autopay bill or a statement it turns the
   question into the outcome, with no new message, as it does on an expense.
+- **Dividends are asked in the one format, with their buttons** (T12): the
+  lines (`ABC · 40 × USD 0.25 = USD 10 · USD 3 withheld · USD 7`), then
+  "Arrived? USD 10.50 in all." with Received, Not yet and Leave for the app;
+  about a balance confirmed on or after the pay date, "Dollar funds was
+  confirmed 12 Nov. Already in that balance?" with Already in the balance,
+  Arrived after and Not yet. Amounts lose ".00" as every amount in 8a did;
+  an amount per share keeps up to four digits. "Leave for the app" is said
+  back as "Left for the app", the one outcome word the review did not list:
+  it names what the button did, where "Cancelled" would read as undone.
+- **The month-end check-in is its own message, with All unchanged** (T13,
+  T23). It rode in the morning message, where a button cannot go, and now
+  follows it as a question: the list (`Bank (Sam) · AED 5,000 · confirmed 1
+  Sep`), one line of how to reply, and All unchanged. All unchanged confirms
+  every balance listed as it is today, through a balance proposal applied at
+  once: the tap is the answer, and nothing changes but the date each was
+  confirmed. One changed in the app since is left alone and said so. Only
+  the member it was sent to can tap it.
+- **A balance read from a message has Save and Cancel**, as the check-in's
+  answers do: "Set these balances?" with each change (`Bank · AED 0 → AED
+  10,000`), then a tick line a balance, or "Not saved · …" and why.
+- **The fresh review of this part** changed these:
+  - **An amount on its own, replying to an autopay question, is the amount
+    that went out.** Other amount asks for just that, and "2,050" went to the
+    Inbox as an expense while the bill stayed unrecorded.
+  - **A settled bill turns every copy of its question**, each morning's and
+    each member's, as Checked does a statement's; a paid bill left Paid on
+    the others.
+  - **A tap on a question already answered, or whose cycle is over, says
+    so** rather than asking for an amount or promising tomorrow.
+  - **The failure lines are under fifteen words**, and a statement's Checked
+    stops the button's spinner before it turns each chat's question.

@@ -530,7 +530,7 @@ export function proposalOutcomeMessage(data: Record<string, unknown>): string {
   // the question closed, since the morning check will not ask about it again.
   if (outcome === "not_autopay") {
     const bill = ((data.skipped as Array<{ name?: string }> | undefined) ?? [])[0];
-    return `${bill?.name ?? "That bill"} isn't on autopay any more: nothing recorded. If you paid it, use Mark paid in Money → Recurring.`;
+    return `${bill?.name ?? "That bill"} is off autopay: nothing recorded. Use Mark paid in Recurring if you paid it.`;
   }
   // An autopay bill moved account or category since it was asked: nothing
   // recorded, and the question left open to be asked again about the bill as
@@ -604,7 +604,7 @@ export function proposalSummary(row: { kind: string; payload: Record<string, unk
 // For an answer to a proposal already decided: what happened to it, with the
 // saved figures again when it was applied.
 export function decidedProposalMessage(row: ProposalRow): string {
-  if (row.kind === "autopay_payment" && row.status !== "applied") return autopayClosedMessage(row);
+  if (row.kind === "autopay_payment") return settledOutcome(row).said;
   if (row.kind === "dividends_received") {
     const payload = row.payload as DividendsPayload;
     if (row.status === "applied") return dividendsSavedMessage(payload.fund_name, payload.currency, row.result as DividendsResult, true);
@@ -796,7 +796,12 @@ export async function decideProposal(
     return;
   }
   if (autopay) {
-    await settleQuestion(chatId, proposal, answering, autopayOutcome(proposal, data as Record<string, unknown>));
+    const settled = autopayOutcome(proposal, data as Record<string, unknown>);
+    await settleQuestion(chatId, proposal, answering, settled);
+    // Recorded, or closed for good: every other copy of the question (each
+    // morning's, in each chat it went to) turns too, so none still offers
+    // Paid. A bill changed since stays open, to be asked again tomorrow.
+    if (String((data as Record<string, unknown>).outcome) !== "changed") await settleAutopayCopies(chatId, proposal, answering, settled.shown ?? settled.said);
     return;
   }
   if (buttons) {
@@ -846,6 +851,16 @@ export async function handleProposalTap(callback: Record<string, unknown>, decis
   }
   const answering: Answering = { via: "tap", toast, messageId };
   if (autopay) {
+    // Answered already, or its cycle over: said so, whatever was tapped.
+    if (row.status !== "proposed") {
+      await settleQuestion(chatId, row, answering, settledOutcome(row));
+      return new Response("ok");
+    }
+    if (Date.parse(String(row.expires_at)) <= Date.now()) {
+      const closed = autopayClosedMessage(row);
+      await settleQuestion(chatId, row, answering, { said: closed, toast: closed });
+      return new Response("ok");
+    }
     if (decision === "other_amount") await toast(AUTOPAY_OTHER_AMOUNT, true);
     else if (decision === "apply" || decision === "not_yet") await decideAutopay(chatId, member.id, row, decision === "apply" ? "paid" : "not_yet", null, answering);
     else await toast();
@@ -925,6 +940,27 @@ export async function tradeDecided(
 }
 
 
+// Every copy of an autopay question about one bill's cycle, in every chat it
+// went to (each member is asked their own, every morning until answered),
+// turns into what became of it. The copy already turned by this answer is
+// left as it is.
+async function settleAutopayCopies(chatId: number, proposal: ProposalRow, answering: Answering, text: string): Promise<void> {
+  const done = answering.via !== "text" && answering.messageId != null ? answering.messageId : proposal.prompt_message_id;
+  const { data } = await supabase
+    .from("bot_proposals")
+    .select("id, chat_id, payload, prompt_message_id")
+    .eq("kind", "autopay_payment")
+    .contains("payload", { recurring_id: proposal.payload?.recurring_id, due_date: proposal.payload?.due_date });
+  for (const copy of (data ?? []) as Array<{ chat_id: number | string; payload: Record<string, unknown> | null; prompt_message_id: number | null }>) {
+    const ids = new Set([...(((copy.payload?.asked_message_ids as number[] | undefined) ?? []).map(Number)), ...(copy.prompt_message_id != null ? [Number(copy.prompt_message_id)] : [])]);
+    for (const id of ids) {
+      if (Number(copy.chat_id) === chatId && id === Number(done)) continue;
+      await edit(Number(copy.chat_id), id, text);
+    }
+  }
+}
+
+
 // An autopay question that can no longer be answered: someone else confirmed
 // it, or its cycle passed.
 export function autopayClosedMessage(row: { payload: Record<string, unknown> }): string {
@@ -958,8 +994,9 @@ export async function decideAutopay(
       .update({ payload: { ...proposal.payload, not_yet_on: householdToday() } })
       .eq("id", proposal.id)
       .eq("status", "proposed");
-    if (answering.via === "tap") await answering.toast("OK, I'll ask again tomorrow.");
-    else await reply(chatId, autopayNotYetMessage(String(proposal.payload?.name ?? "That bill")));
+    const notYet = autopayNotYetMessage(String(proposal.payload?.name ?? "That bill"));
+    if (answering.via === "tap") await answering.toast(notYet);
+    else await reply(chatId, notYet);
     return;
   }
   let row = proposal;

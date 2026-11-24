@@ -2,7 +2,7 @@
 // statement is reconciled, and Rokda records it").
 //
 // The morning after a card's statement closes, the bot asks whether it has
-// been reconciled, and reminds once three days before the payment is due (or
+// been checked, and reminds once three days before the payment is due (or
 // ten days after the close, with no due date). Then it stops: the statement
 // stays open in Money -> Month end. It used to ask every morning until
 // someone answered, which was most of what the bot sent (the feature review,
@@ -122,9 +122,10 @@ export function statementLookupFailedMessage() {
   return "Couldn't check which statement that's for. Nothing changed — try again in a minute.";
 }
 
-// The answer could not be saved: nothing changed, and the member is told so.
-export function statementNotSavedMessage(cardName) {
-  return `Couldn't save that for the ${cardName} statement. It's still open — try again in a minute, or mark it in Month end.`;
+// The answer could not be saved: nothing changed, and the member is told so,
+// in a few words (review T21).
+export function statementNotSavedMessage() {
+  return "Couldn't save that. The statement is still open — try again in a minute.";
 }
 
 // The statement was no longer waiting when the answer came: say what it is,

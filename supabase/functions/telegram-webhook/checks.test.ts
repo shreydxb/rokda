@@ -254,7 +254,7 @@ freshTest("a yes after the bill came off autopay closes its question and says it
   bill.autopay = false;
   await handler(textUpdate(9301, "paid"));
   assertEquals(backend.tables.transactions.length, 0);
-  assert(/^Car EMI isn't on autopay any more: nothing recorded\./.test(lastReply()), lastReply());
+  assert(/^Car EMI is off autopay: nothing recorded\./.test(lastReply()), lastReply());
   assertEquals(proposal.status, "expired");
   // Nothing is left waiting for a bare answer.
   await handler(textUpdate(9302, "yes"));
@@ -301,10 +301,11 @@ freshTest("the next morning's reminder can be answered, and so can the first que
   await handler(reactionUpdate(9101, first, "👍"));
   assertEquals(backend.tables.transactions.length, 1);
   assertEquals(backend.tables.transactions[0].amount, -2000);
-  // The message the 👍 was on becomes the tick line.
-  const edit = backend.telegramCalls.filter((c) => c.method === "editMessageText").at(-1)!.body;
-  assertEquals(edit.message_id, first);
-  assert(/^✓ Car EMI · AED 2,000 · /.test(String(edit.text)), String(edit.text));
+  // The message the 👍 was on becomes the tick line, and so does this
+  // morning's copy.
+  const edits = backend.telegramCalls.filter((c) => c.method === "editMessageText").map((c) => c.body);
+  assertEquals(edits.map((e) => e.message_id).sort(), [first, Number(proposal.prompt_message_id)].sort());
+  for (const e of edits) assert(/^✓ Car EMI · AED 2,000 · /.test(String(e.text)), String(e.text));
   assertEquals(proposal.status, "applied");
 });
 
@@ -607,7 +608,7 @@ freshTest("a refused write is not reported as done", async () => {
   backend.faults.failWrites = ["statement_reconciliations"];
   await handler(replyUpdate(9225, "done", firstPrompt(row)));
   assertEquals(row.status, "waiting");
-  assert(/^Couldn't save that/.test(lastReply()), lastReply());
+  assertEquals(lastReply(), "Couldn't save that. The statement is still open — try again in a minute.");
 });
 
 freshTest("an answer to a statement settled in between says what it is now", async () => {

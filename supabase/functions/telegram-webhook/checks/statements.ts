@@ -196,10 +196,12 @@ export async function decideStatement(chatId: number, memberId: string, row: Sta
   // Settled: every question asked about it, in each chat it went to, turns
   // into what it is now, so no Checked is left to tap. A typed answer also
   // gets it as a reply; a 👍 or a tap does not need one.
+  // The tap is answered first, so Telegram stops the button's spinner before
+  // the edits in each chat.
   const settled = async (text: string, toast: string) => {
-    for (const p of row.asked_prompts ?? []) await edit(Number(p.chat_id), Number(p.message_id), text);
     if (answering.via === "tap") await answering.toast(toast);
-    else if (answering.via === "text") await reply(chatId, text);
+    for (const p of row.asked_prompts ?? []) await edit(Number(p.chat_id), Number(p.message_id), text);
+    if (answering.via === "text") await reply(chatId, text);
   };
   if (decision === "not_yet") {
     await say(statementNotYetMessage(cardName));
@@ -221,7 +223,7 @@ export async function decideStatement(chatId: number, memberId: string, row: Sta
   // Thanked only for what was written. A refused write leaves it waiting,
   // and the member is told so rather than told it is done.
   if (error) {
-    await say(statementNotSavedMessage(cardName));
+    await say(statementNotSavedMessage());
     return;
   }
   if ((saved ?? []).length > 0) {
@@ -233,7 +235,7 @@ export async function decideStatement(chatId: number, memberId: string, row: Sta
   const { data: current, error: readError } = await supabase.from("statement_reconciliations").select("status").eq("id", row.id).maybeSingle();
   const status = (current as { status?: string } | null)?.status;
   if (readError || !status || status === "waiting") {
-    await say(statementNotSavedMessage(cardName));
+    await say(statementNotSavedMessage());
     return;
   }
   await settled(statementAlreadySettledMessage(cardName, row.statement_date, status), ALREADY_TOAST[status] ?? "Checked already.");

@@ -71,7 +71,7 @@ freshTest("a tap on Not yet asks again tomorrow, records nothing, and leaves Pai
   await handler(tapUpdate(9801, q.id, tap(q.buttons, "Not yet")));
   assertEquals(backend.tables.transactions.length, 0);
   assertEquals([q.proposal.status, (q.proposal.payload as Row).not_yet_on], ["proposed", dubaiToday()]);
-  assertEquals(lastToast()?.text, "OK, I'll ask again tomorrow.");
+  assertEquals(lastToast()?.text, "Not yet · Car EMI · I'll ask again tomorrow");
   assertEquals(calls("editMessageText").length, 0, "Not yet took Paid away");
   await handler(tapUpdate(9802, q.id, tap(q.buttons, "Paid")));
   assertEquals(backend.tables.transactions.length, 1);
@@ -80,7 +80,7 @@ freshTest("a tap on Not yet asks again tomorrow, records nothing, and leaves Pai
 freshTest("Other amount says how to give it, and a typed amount is what is recorded", async () => {
   const q = await askedEmi();
   await handler(tapUpdate(9801, q.id, tap(q.buttons, "Other amount")));
-  assertEquals([lastToast()?.text, lastToast()?.show_alert], ['Reply to this with the amount that went out, like "paid 2,050".', true]);
+  assertEquals([lastToast()?.text, lastToast()?.show_alert], ['Reply to this with the amount that went out, like "2,050".', true]);
   assertEquals(backend.tables.transactions.length, 0);
   await handler(replyUpdate(9802, "paid 2,050", q.id));
   assertEquals(backend.tables.transactions.map((t) => t.amount), [-2050]);
@@ -101,7 +101,50 @@ freshTest("yesterday's question can still be tapped, and someone else's tap reco
   assertEquals(backend.tables.transactions.length, 0);
   await handler(tapUpdate(9802, q.id, tap(q.buttons, "Paid")));
   assertEquals(backend.tables.transactions.length, 1);
-  assertEquals(calls("editMessageText").at(-1)!.message_id, q.id);
+  assertEquals(calls("editMessageText")[0].message_id, q.id, "the message tapped was not the one turned first");
+});
+
+// The fresh review of 8c's second part: Other amount asks for the amount, so
+// the amount alone, sent as a reply, is the answer, not an expense.
+freshTest("a bare amount replying to the question is the amount that went out", async () => {
+  const q = await askedEmi();
+  await handler(replyUpdate(9801, "2,050", q.id));
+  assertEquals(backend.tables.transactions.map((t) => t.amount), [-2050]);
+  assertEquals(backend.tables.intake.length, 0, "the amount went to the Inbox as an expense");
+  assert(lastReply().startsWith("✓ Car EMI · AED 2,050 · "), lastReply());
+});
+
+freshTest("a bill paid turns every morning's question about it, in every chat it went to", async () => {
+  const q = await askedEmi();
+  // Asked again this morning, and asked of the partner too.
+  (q.proposal.payload as Row).asked_message_ids = [q.id, q.id + 50];
+  q.proposal.prompt_message_id = q.id + 50;
+  backend.tables.bot_proposals.push({
+    ...q.proposal, id: "a9000000-0000-4000-8000-0000000000aa", member_id: "a9000000-0000-4000-8000-0000000000f7", chat_id: PARTNER_TELEGRAM,
+    prompt_message_id: 3301, source_ref: "autopay:partner", payload: { ...(q.proposal.payload as Row), asked_message_ids: [3301] },
+  });
+  await handler(tapUpdate(9802, q.id + 50, tap(q.buttons, "Paid")));
+  const edited = calls("editMessageText").map((e) => [e.chat_id, e.message_id]).sort();
+  assertEquals(edited, [[TELEGRAM_USER, q.id], [TELEGRAM_USER, q.id + 50], [PARTNER_TELEGRAM, 3301]].sort());
+  for (const e of calls("editMessageText")) assertEquals(buttonsOf(e).length, 0);
+});
+
+freshTest("Other amount or Not yet on a question already answered says so, and asks for nothing", async () => {
+  const q = await askedEmi();
+  await handler(tapUpdate(9801, q.id, tap(q.buttons, "Paid")));
+  await handler(tapUpdate(9802, q.id, tap(q.buttons, "Other amount")));
+  assertEquals([lastToast()?.text, lastToast()?.show_alert ?? false], ["Already recorded.", false]);
+  await handler(tapUpdate(9803, q.id, tap(q.buttons, "Not yet")));
+  assertEquals(lastToast()?.text, "Already recorded.");
+  assertEquals((q.proposal.payload as Row).not_yet_on, undefined);
+});
+
+freshTest("a question whose cycle has passed says so to Not yet, rather than promising tomorrow", async () => {
+  const q = await askedEmi();
+  q.proposal.expires_at = new Date(Date.now() - 60_000).toISOString();
+  await handler(tapUpdate(9801, q.id, tap(q.buttons, "Not yet")));
+  assert(String(lastToast()?.text).startsWith("Nothing to do: Car EMI"), String(lastToast()?.text));
+  assertEquals((q.proposal.payload as Row).not_yet_on, undefined);
 });
 
 // --- Statements (T11) ------------------------------------------------------
@@ -158,7 +201,7 @@ freshTest("a shared card's statement checked in one chat is shown checked in bot
   assertEquals(edited.sort(), [[TELEGRAM_USER, q.id], [PARTNER_TELEGRAM, theirs.message_id]].sort());
 });
 
-freshTest("an older statement's buttons cannot settle this one", async () => {
+freshTest("a tap naming another statement changes nothing", async () => {
   const q = await askedStatement();
   // A tap naming another statement on this question.
   const other = tap(q.buttons, "Checked").slice(0, 1) + "A".repeat(22);

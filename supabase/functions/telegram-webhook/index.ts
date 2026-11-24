@@ -43,7 +43,7 @@
 //                     and the helpers they share (recipients.ts)
 // The handler tests are one file per part, on testing/harness.ts.
 import "jsr:@supabase/functions-js@2.117.2/edge-runtime.d.ts";
-import { autopayAnswer } from "../_shared/applib/autopay.js";
+import { autopayAmountOnly, autopayAnswer } from "../_shared/applib/autopay.js";
 import { householdToday } from "../_shared/applib/day.js";
 import { resolveScopeMemberId } from "../_shared/applib/scope.js";
 import { isPrivateChat } from "../_shared/applib/telegramChat.js";
@@ -484,6 +484,19 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
       return new Response("ok");
     }
     const autopay = autopayAnswer(trimmedText);
+    // An amount on its own, replying to an autopay question, is the amount
+    // that went out (its Other amount asks for just that), never an expense
+    // (the fresh review of 8c's second part).
+    if (repliedTo != null && autopay.decision == null) {
+      const amount = autopayAmountOnly(trimmedText);
+      if (amount != null) {
+        const asked = await proposalForPrompt(member.household_id, member.id, chatId, repliedTo);
+        if (asked.row?.kind === "autopay_payment") {
+          await decideAutopay(chatId, member.id, asked.row, "paid", amount);
+          return new Response("ok");
+        }
+      }
+    }
     const confirming = strictYes || autopay.decision === "paid";
     const cancelling = !confirming && (strictNo || autopay.decision === "not_yet");
     // Set when this is Telegram delivering again a bare answer that already
