@@ -104,10 +104,9 @@ export function cashCoverStatus(accounts, bills, { days = 7, today = new Date() 
   };
 }
 
-// The sentence the bot actually says. It lives here rather than in the
-// webhook because it is where the caveat either reaches the reader or does
-// not -- which is the whole of QA #4 -- and in index.ts no unit test could
-// reach it.
+// The cash cover sentence, with its caveat, which is the whole of QA #4. The
+// bot writes the same verdict in its own format (applib/botFormat.js
+// cashCoverLine), held to these rules by the SHR-292 test.
 export function formatCashCoverLine(status) {
   const liquid = Number(status?.liquidAed ?? 0).toLocaleString();
   const due = Number(status?.dueAed ?? 0).toLocaleString();

@@ -163,6 +163,24 @@ freshTest("the morning message comes before the day's questions, with Open Overv
   assertEquals(buttons.flat(), [{ text: "Open Overview", url: "https://app.example.test/" }]);
 });
 
+// The fresh review of 8c's first part: Telegram refusing the button (a bad
+// app address) refused the whole message for good, so every nudge in it was
+// recorded and never sent. It goes again without the button.
+freshTest("a morning message whose button Telegram refuses still goes out, without it", async () => {
+  backend.tables.recurring_nudges = [];
+  backend.tables.recurring.push({
+    id: "a9000000-0000-4000-8000-0000000000e7", household_id: HOUSEHOLD, name: "Rent", owner_member_id: null, is_shared: true, amount: -500,
+    next_due_date: dubaiDaysAgo(4), ends_on: null, cadence: "monthly", interval_count: 1, account_id: BANK, category_id: null, active: true, autopay: false,
+  });
+  backend.faults.refuseButtons = true;
+  const res = await handler(dailyCheck());
+  await res.body?.cancel();
+  const morning = backend.telegramSent.find((m) => String(m.body.text).includes("Rent · Late · was due"));
+  assert(morning, "the morning message was not sent");
+  assertEquals(morning.body.reply_markup, undefined);
+  assertEquals(backend.tables.recurring_nudges.length, 1);
+});
+
 // A bill on autopay from a bank account, due today.
 function seedAutopayBill(): void {
   backend.tables.recurring.push({

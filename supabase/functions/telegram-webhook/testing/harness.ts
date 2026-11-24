@@ -51,6 +51,9 @@ export type Backend = {
     refuseFirstSends?: number;
     // Telegram refuses these chats for good (403: the member blocked the bot).
     blockedChats?: number[];
+    // Telegram refuses any message with a URL button (400), as it does a
+    // button whose address it will not take.
+    refuseButtons?: boolean;
     // The write recording a proposal question's message id fails this many times.
     failPromptRecord?: number;
     failStatementBinding?: number;
@@ -685,6 +688,9 @@ export async function telegram(req: Request, url: URL): Promise<Response> {
     }
     if (backend.faults.blockedChats?.includes(Number(body.chat_id))) {
       return json({ ok: false, error_code: 403, description: "Forbidden: bot was blocked by the user" });
+    }
+    if (backend.faults.refuseButtons && JSON.stringify(body.reply_markup ?? {}).includes('"url"')) {
+      return json({ ok: false, error_code: 400, description: "Bad Request: BUTTON_URL_INVALID" });
     }
     backend.telegramSent.push({ method, body });
     return json({ ok: true, result: { message_id: 1000 + sendCount } });

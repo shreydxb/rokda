@@ -1,5 +1,6 @@
 // Part of the Telegram webhook (index.ts), split out by responsibility in
-// the round 2 cleanup (SHR-383). Moved, not changed.
+// the round 2 cleanup (SHR-383). Its line is written by morningWords.ts (the
+// revamp, phase 8c).
 import { monthActualsByCategory } from "../../_shared/applib/budget.js";
 import { householdDay, householdYearMonth } from "../../_shared/applib/day.js";
 import { supabase } from "../env.ts";

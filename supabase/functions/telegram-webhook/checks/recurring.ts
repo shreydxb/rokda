@@ -1,5 +1,6 @@
 // Part of the Telegram webhook (index.ts), split out by responsibility in
-// the round 2 cleanup (SHR-383). Moved, not changed.
+// the round 2 cleanup (SHR-383). Its line is written by morningWords.ts (the
+// revamp, phase 8c).
 import { householdDay } from "../../_shared/applib/day.js";
 import { lastDueOccurrence, matchWindowDays } from "../../_shared/applib/recurring.js";
 import { supabase } from "../env.ts";
@@ -105,8 +106,8 @@ export async function runRecurringCheck(digest: Digest): Promise<{ checked: numb
       //
       // Each only applies when the recurring row actually names one. A bill
       // paid from a different account than configured now nudges, which is
-      // the right way round: an extra "forgot to log it, or paid another
-      // way?" costs a message, a missed one costs a payment.
+      // the right way round: an extra "Late" line costs a message, a missed
+      // one costs a payment.
       const windowDays = matchWindowDays(r);
       const windowStart = new Date(r.dueDate);
       windowStart.setDate(windowStart.getDate() - windowDays);

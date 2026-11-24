@@ -1,5 +1,6 @@
 // Part of the Telegram webhook (index.ts), split out by responsibility in
-// the round 2 cleanup (SHR-383). Moved, not changed.
+// the round 2 cleanup (SHR-383). Its line is written by morningWords.ts (the
+// revamp, phase 8c).
 import { accountValueAed } from "../../_shared/applib/accounts.js";
 import { daysUntilDue, nextDueDate } from "../../_shared/applib/creditCard.js";
 import { atDayOfMonth, householdDay, householdToday, startOfDay } from "../../_shared/applib/day.js";
@@ -95,7 +96,7 @@ export async function runCreditCardCheck(digest: Digest): Promise<{ checked: num
         a.is_shared ? (members ?? []) : (members ?? []).filter((m: { id: string }) => m.id === a.owner_member_id)
       ).filter((m: { telegram_user_id: number | null }) => m.telegram_user_id != null) as Array<{ telegram_user_id: number }>;
 
-      const message = cardLine({ name: a.name, kind: kind === "due_soon" ? "due_soon" : "late", due: dueDateStr, owed: bal, currency: a.currency ?? "AED", converted: aed !== null }, householdToday());
+      const message = cardLine({ name: a.name, kind: kind === "due_soon" ? "due_soon" : "late", due: dueDateStr, daysUntil, owed: bal, currency: a.currency ?? "AED", converted: aed !== null }, householdToday());
       digest.line(recipients.map((m) => m.telegram_user_id), message, kind === "due_soon" ? DIGEST_ORDER.cardDueSoon : DIGEST_ORDER.cardOverdue, () =>
         supabase.from("credit_card_nudges").insert({ account_id: a.id, due_date: dueDateStr, kind })
       );

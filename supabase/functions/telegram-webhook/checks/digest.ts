@@ -20,7 +20,7 @@
 export type Delivery = "sent" | "retry" | "final";
 export type Sender = (chatId: number, text: string, replyMarkup?: unknown) => Promise<Delivery>;
 
-type Part = { chatIds: number[]; text: string; order: number; head: boolean; record: () => unknown };
+type Part = { chatIds: number[]; text: string; order: number; head: boolean; record: () => unknown; givesCashCover?: boolean; inBrief?: boolean };
 
 // Where each kind of line sits: things late first, then what is coming due
 // and whether the money is there for it, then how the month is going. Heads
@@ -48,6 +48,9 @@ export const DIGEST_GROUPS: Array<{ title: string; from: number }> = [
 // morning goes in parts, each kept under this, broken only between lines.
 export const DIGEST_PART_LIMIT = 4000;
 
+// Where it can, a part ends at a blank line (between a brief and the groups,
+// or two groups), so a group's title is never the last line of a part with
+// its lines in the next.
 export function splitMessage(text: string, limit = DIGEST_PART_LIMIT): string[] {
   const parts: string[] = [];
   let current = "";
@@ -56,8 +59,15 @@ export function splitMessage(text: string, limit = DIGEST_PART_LIMIT): string[] 
     for (let piece = line; ; piece = piece.slice(limit)) {
       const chunk = piece.slice(0, limit);
       if (current && current.length + 1 + chunk.length > limit) {
-        parts.push(current);
-        current = chunk;
+        const blank = current.lastIndexOf("\n\n");
+        const carried = blank > 0 ? current.slice(blank + 2) : "";
+        if (blank > 0 && carried.length + 1 + chunk.length <= limit) {
+          parts.push(current.slice(0, blank));
+          current = `${carried}\n${chunk}`;
+        } else {
+          parts.push(current);
+          current = chunk;
+        }
       } else {
         current = current ? `${current}\n${chunk}` : chunk;
       }
@@ -77,14 +87,18 @@ async function recordedOk(record: () => unknown): Promise<boolean> {
 export class Digest {
   private parts: Part[] = [];
 
-  // A reminder line, in the list.
-  line(chatIds: number[], text: string, order: number, record: () => unknown): void {
-    this.parts.push({ chatIds, text, order, head: false, record });
+  // A reminder line, in the list. inBrief: a brief gives the same figure a
+  // line of its own (cash cover), so under one this is left out of the
+  // message, and recorded all the same.
+  line(chatIds: number[], text: string, order: number, record: () => unknown, opts: { inBrief?: boolean } = {}): void {
+    this.parts.push({ chatIds, text, order, head: false, record, inBrief: opts.inBrief });
   }
 
   // A brief, review or check-in the lines follow in the same message.
-  head(chatIds: number[], text: string, order: number, record: () => unknown): void {
-    this.parts.push({ chatIds, text, order, head: true, record });
+  // givesCashCover: it has a cash cover line (the weekly brief, the monthly
+  // review).
+  head(chatIds: number[], text: string, order: number, record: () => unknown, opts: { givesCashCover?: boolean } = {}): void {
+    this.parts.push({ chatIds, text, order, head: true, record, givesCashCover: opts.givesCashCover });
   }
 
   // Something recorded once every one of these people got their message,
@@ -99,14 +113,15 @@ export class Digest {
   messageFor(chatId: number): string | null {
     const mine = this.parts.filter((p) => p.chatIds.includes(chatId)).sort((a, b) => a.order - b.order);
     const heads = mine.filter((p) => p.head && p.text).map((p) => p.text);
-    const lines = mine.filter((p) => !p.head);
+    const underBrief = mine.some((p) => p.head && p.givesCashCover);
+    const lines = mine.filter((p) => !p.head && !(underBrief && p.inBrief));
     if (!heads.length && !lines.length) return null;
     const groups = DIGEST_GROUPS.map((g, i) => {
       const until = DIGEST_GROUPS[i + 1]?.from ?? Infinity;
       const inGroup = lines.filter((p) => p.order >= g.from && p.order < until).map((p) => p.text);
       return inGroup.length ? [g.title, ...inGroup].join("\n") : null;
     }).filter(Boolean);
-    const body = groups.join("\n");
+    const body = groups.join("\n\n");
     return [...heads, ...(body ? [body] : [])].join("\n\n");
   }
 

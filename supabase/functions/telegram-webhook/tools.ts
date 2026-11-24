@@ -3,8 +3,7 @@
 import { accountValueAed, unvaluedAccounts } from "../_shared/applib/accounts.js";
 import { monthActualsByCategory } from "../_shared/applib/budget.js";
 import { cashCoverStatus } from "../_shared/applib/cashCover.js";
-import { cashCoverLine } from "./checks/morningWords.ts";
-import { day, facts, money, notCounted } from "../_shared/applib/botFormat.js";
+import { cashCoverLine, day, facts, money, notCounted } from "../_shared/applib/botFormat.js";
 import { daysUntilDue, nextDueDate } from "../_shared/applib/creditCard.js";
 import { householdDay, householdToday, householdYearMonth, isPosted, parseDay } from "../_shared/applib/day.js";
 import { estimateAed } from "../_shared/applib/fxHistory.js";

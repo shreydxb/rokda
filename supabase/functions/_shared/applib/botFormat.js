@@ -60,3 +60,29 @@ export function notCounted({ accounts = 0, holdings = 0 } = {}) {
   if (holdings) parts.push(`${holdings} ${holdings === 1 ? 'holding' : 'holdings'} not valued`);
   return parts.length ? parts.join(' · ') : null;
 }
+
+/**
+ * Cash cover in the bot's words (the revamp, phase 8c): the figures and a
+ * verdict on one line, and what it leaves out on ⚠ lines of its own, as the
+ * brief writes a figure's caveat (8a). The verdict follows the rules of the
+ * app's sentence (cashCover.js formatCashCoverLine, QA #4): a bill due with
+ * no AED amount makes what is due a floor, so "covered" is not said and a
+ * shortfall is "at least"; with an account not converted too, the liquid
+ * money is low as well, and no verdict is given. lead is "Cash cover · " in
+ * the morning's lines and "Cash cover: " in the brief, whose lines are a
+ * label and its figure. The SHR-292 test holds these words to the app's rule.
+ * @param {{ liquidAed: number, dueAed: number, days: number, covered: boolean, certain?: boolean, shortfallAed: number, unvalued?: number, unvaluedDue?: number }} s
+ * @param {string} [lead]
+ */
+export function cashCoverLine(s, lead = 'Cash cover · ') {
+  const missing = s.unvaluedDue ?? 0;
+  const unvalued = s.unvalued ?? 0;
+  const short = money(s.shortfallAed);
+  const verdict = missing > 0
+    ? (s.covered || unvalued ? "can't say if covered" : `short by at least ${short}`)
+    : (s.covered ? 'covered' : `short by ${short}`);
+  const lines = [`${lead}${money(s.liquidAed)} liquid · ${money(s.dueAed)} due in ${s.days} days · ${verdict}`];
+  if (missing > 0) lines.push(`⚠ ${missing} ${missing === 1 ? 'bill due has' : 'bills due have'} no AED amount, so more is due`);
+  if (unvalued) lines.push(`⚠ Leaves out ${notCounted({ accounts: unvalued })}`);
+  return lines.join('\n');
+}

@@ -1,7 +1,7 @@
 // The morning digest (checks/digest.ts): one message per person for the
 // reminders that need no answer. Pure apart from the sender, which is passed in.
 import { assert, assertEquals } from "jsr:@std/assert@1";
-import { Digest, type Delivery, DIGEST_ORDER } from "./digest.ts";
+import { Digest, type Delivery, DIGEST_ORDER, splitMessage } from "./digest.ts";
 
 function fakeSender(outcomes: Record<number, Delivery> = {}) {
   const sent: Array<{ chatId: number; text: string; markup?: unknown }> = [];
@@ -21,7 +21,7 @@ Deno.test("a person's reminders go out as one message, in groups: what needs doi
   const { sent, send } = fakeSender();
   const result = await digest.send(send);
   assertEquals(sent.length, 1);
-  assertEquals(sent[0].text, "Today\nRent · Late · was due 3 Oct · AED 6,500\nCash cover · AED 5,000 liquid · AED 7,000 due in 7 days · short by AED 2,000\nThis month\nGroceries · 80% of budget · AED 1,600 of AED 2,000");
+  assertEquals(sent[0].text, "Today\nRent · Late · was due 3 Oct · AED 6,500\nCash cover · AED 5,000 liquid · AED 7,000 due in 7 days · short by AED 2,000\n\nThis month\nGroceries · 80% of budget · AED 1,600 of AED 2,000");
   assertEquals(recorded.sort(), ["budget", "cash", "rent"]);
   assertEquals(result, { chats: 1, recorded: 3 });
 });
@@ -149,4 +149,31 @@ Deno.test("the weekly brief comes before the monthly review on a Monday the 1st"
   digest.head([1], "Last month.", DIGEST_ORDER.monthlyReview, () => {});
   digest.head([1], "This week.", DIGEST_ORDER.weeklyBrief, () => {});
   assertEquals(digest.messageFor(1), "This week.\n\nLast month.");
+});
+
+// The fresh review of 8c's first part: the weekly brief and the monthly
+// review give cash cover a line of their own, so a cash cover nudge on the
+// same morning said it twice.
+Deno.test("under a brief that gives cash cover, its nudge is left out of the message, and still recorded", async () => {
+  const digest = new Digest();
+  const recorded: string[] = [];
+  digest.head([1], "This week:\nCash cover: AED 5,000 liquid · AED 7,000 due in 7 days · short by AED 2,000", DIGEST_ORDER.weeklyBrief, () => {}, { givesCashCover: true });
+  digest.line([1, 2], "Cash cover · AED 5,000 liquid · AED 7,000 due in 7 days · short by AED 2,000", DIGEST_ORDER.cashCover, () => void recorded.push("cash"), { inBrief: true });
+  digest.line([1], "Rent · Late · was due 3 Oct · AED 6,500", DIGEST_ORDER.billNotSeen, () => {});
+  const { sent, send } = fakeSender();
+  await digest.send(send);
+  const byChat = Object.fromEntries(sent.map((s) => [s.chatId, s.text]));
+  assertEquals(byChat[1], "This week:\nCash cover: AED 5,000 liquid · AED 7,000 due in 7 days · short by AED 2,000\n\nToday\nRent · Late · was due 3 Oct · AED 6,500");
+  // Someone without the brief still gets the nudge.
+  assertEquals(byChat[2], "Today\nCash cover · AED 5,000 liquid · AED 7,000 due in 7 days · short by AED 2,000");
+  assertEquals(recorded, ["cash"]);
+});
+
+Deno.test("a long morning breaks at a blank line where it can, so a group's title stays with its lines", () => {
+  const head = "B".repeat(3000);
+  const text = `${head}\n\nToday\n${"x".repeat(980)}\n${"y".repeat(50)}`;
+  const parts = splitMessage(text);
+  assertEquals(parts.length, 2);
+  assertEquals(parts[0], head);
+  assert(parts[1].startsWith("Today\n"), parts[1].slice(0, 20));
 });

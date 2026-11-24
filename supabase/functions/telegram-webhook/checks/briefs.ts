@@ -1,5 +1,6 @@
 // Part of the Telegram webhook (index.ts), split out by responsibility in
-// the round 2 cleanup (SHR-383). Moved, not changed.
+// the round 2 cleanup (SHR-383). A brief says it gives cash cover, so the
+// morning's cash cover nudge is not said twice (the revamp, phase 8c).
 import { householdToday } from "../../_shared/applib/day.js";
 import { supabase } from "../env.ts";
 import { buildBriefMessage, buildMonthlyReviewMessage } from "../tools.ts";
@@ -36,8 +37,7 @@ export async function runWeeklyBriefCheck(digest: Digest): Promise<{ sent: numbe
 
       const brief = await buildBriefMessage(householdId);
       digest.head(recipients, `This week:\n${brief}`, DIGEST_ORDER.weeklyBrief, () =>
-        supabase.from("brief_sends").insert({ household_id: householdId, kind: "weekly", period_key: periodKey })
-      );
+        supabase.from("brief_sends").insert({ household_id: householdId, kind: "weekly", period_key: periodKey }), { givesCashCover: true });
       sent++;
     } catch {
       // One household's brief failing must never block the rest.
@@ -76,8 +76,7 @@ export async function runMonthlyBriefCheck(digest: Digest): Promise<{ sent: numb
 
       const review = await buildMonthlyReviewMessage(householdId, prevYear, prevMonth);
       digest.head(recipients, review, DIGEST_ORDER.monthlyReview, () =>
-        supabase.from("brief_sends").insert({ household_id: householdId, kind: "monthly", period_key: periodKey })
-      );
+        supabase.from("brief_sends").insert({ household_id: householdId, kind: "monthly", period_key: periodKey }), { givesCashCover: true });
       sent++;
     } catch {
       // One household's review failing must never block the rest.

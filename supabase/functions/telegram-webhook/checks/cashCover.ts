@@ -1,10 +1,11 @@
 // Part of the Telegram webhook (index.ts), split out by responsibility in
-// the round 2 cleanup (SHR-383). Moved, not changed.
+// the round 2 cleanup (SHR-383). Its line is written by morningWords.ts (the
+// revamp, phase 8c).
+import { cashCoverLine } from "../../_shared/applib/botFormat.js";
 import { householdToday } from "../../_shared/applib/day.js";
 import { supabase } from "../env.ts";
 import { toolGetCashCover } from "../tools.ts";
 import { type Digest, DIGEST_ORDER } from "./digest.ts";
-import { cashCoverLine } from "./morningWords.ts";
 import { householdsWithLinkedTelegram, mondayOfWeek, prefEnabled, telegramPrefsMap, telegramRecipients } from "./recipients.ts";
 
 // Runs daily (unlike the weekly/monthly briefs in briefs.ts) since a shortfall is
@@ -43,7 +44,9 @@ export async function runCashCoverCheck(digest: Digest): Promise<{ checked: numb
       if (!recipients.length) continue;
 
       const message = cashCoverLine(status);
-      digest.line(recipients, message, DIGEST_ORDER.cashCover, () => supabase.from("cash_cover_nudges").insert({ household_id: householdId, period_key: periodKey }));
+      // The weekly brief and the monthly review give cash cover a line of
+      // their own: under one, this is not said twice (still recorded).
+      digest.line(recipients, message, DIGEST_ORDER.cashCover, () => supabase.from("cash_cover_nudges").insert({ household_id: householdId, period_key: periodKey }), { inBrief: true });
       nudged++;
     } catch {
       // One household's cash-cover check failing must never block the rest.

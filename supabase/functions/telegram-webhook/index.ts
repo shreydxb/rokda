@@ -166,8 +166,8 @@ async function handleRequest(req: Request): Promise<Response> {
     ]);
     const digestSent = await digest.send(sendReminder, APP_URL ? { inline_keyboard: [[{ text: "Open Overview", url: `${APP_URL}/` }]] } : null);
     const asked = await Promise.allSettled([runAutopayCheck(), runStatementCheck(), runSplitCheck(), runDividendCheck()]);
-    const failure = [...gathered, ...asked].find((r): r is PromiseRejectedResult => r.status === "rejected");
-    if (failure) throw failure.reason;
+    const failures = [...gathered, ...asked].filter((r): r is PromiseRejectedResult => r.status === "rejected").map((r) => r.reason);
+    if (failures.length) throw failures.length === 1 ? failures[0] : new AggregateError(failures, `${failures.length} morning checks failed`);
     const value = (r: PromiseSettledResult<unknown>) => (r as PromiseFulfilledResult<unknown>).value;
     const [recurring, creditCards, budgets, weeklyBrief, monthlyBrief, cashCover, unusualSpend, balanceCheckin] = gathered.map(value);
     const [autopay, statements, splits, dividends] = asked.map(value);

@@ -4757,8 +4757,9 @@ request.
   out 1 account not converted". The verdict follows the shared sentence's
   rules (QA #4): no "covered" when a bill's amount is unknown, "at least"
   on a shortfall, no verdict when the money is understated too. The brief
-  and the monthly review write it the same way, as "Cash cover: …". The
-  shared sentence (`formatCashCoverLine`) stays the app's.
+  and the monthly review write it the same way, as "Cash cover: …"
+  (`botFormat.js` `cashCoverLine`). The SHR-292 test holds these words, not
+  only the shared sentence (`formatCashCoverLine`), to that rule.
 - **Open Overview under the message**, on its last part, when `APP_URL` is
   set, as Open Inbox is.
 - **The message comes first, then the questions** (T23). The questions ran
@@ -4768,4 +4769,16 @@ request.
   then fails, so the failure is seen.
 - **A card's amount is in its own currency when it has no AED value**: the
   check now reads the card's currency, which it named in the line but never
-  selected.
+  selected, so a dollar card's balance went out as dirhams (QA #4).
+- **The fresh review of this part** changed these:
+  - **Cash cover is said once on a brief's morning**: the weekly brief and
+    the monthly review give it a line, so a cash cover nudge that morning
+    is left out of the message (and recorded, as sent).
+  - **The SHR-292 test checks the words the bot sends**, now that they are
+    not the shared sentence.
+  - **A message whose button Telegram refuses goes again without it**:
+    refused for good, its nudges would have been recorded and never sent.
+  - **The groups are apart, and a long message breaks between them**, so a
+    group's title stays with its lines.
+  - **A budget line gives the month's share** ("98% of budget"), not the
+    threshold that set it off, and a card's "in 2d" is the check's own count.
