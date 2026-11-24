@@ -4888,9 +4888,9 @@ The revamp's phase 8d (the UI review's T19 and T20; the design note
 the reply on linking was a long sentence of examples.
 
 - **A command menu of four**: /help, /brief, /inbox and /undo, registered by
-  the setup (`?setup=1`, `setMyCommands`) from the same list /help gives, so
-  the two never disagree. The setup must be run once after this deploys for
-  the menu to appear.
+  the setup (`?setup=1`, `setMyCommands`, in private chats only) from the
+  same list /help gives, so the two never disagree. The setup must be run
+  once after this deploys for the menu to appear.
 - **/help is a few lines**: what to send, what a paste of several does, what
   to ask, the statement routine and the morning, then the commands. It is
   where the explanations go that the short failure lines (8a) left out, and
@@ -4902,20 +4902,32 @@ the reply on linking was a long sentence of examples.
 - **/inbox counts as the app's sidebar does**: the household's pending
   entries, "99+" past 99, with Open Inbox when `APP_URL` is set; "The Inbox
   is clear." when none wait.
-- **/undo takes back the sender's latest Record from the last ten minutes**,
-  through the same database check as the Undo button
-  (`undo_intake_approval`). To know what the bot's own Record made without
-  finding its message, the bot notes each Record in a new table,
-  `bot_recordings` (the entry, the member, the transaction), which only the
-  bot's service role can read or write: a member who could write a row could
-  name an approval made in the app as the bot's. A row goes with its
-  transaction or its entry, so an undo leaves nothing for /undo to find, and
-  a second /undo takes back the Record before. Only a single expense's Record
-  is noted, as only it offers Undo; a pasted list's Record all does not.
-  Undone, the line that said `✓ …` says `Undone · …` and loses its button,
-  and the entry is sent again under the /undo with its buttons, as a typed
-  "yes" gets its answer as a new message. Left recorded (changed in the app,
-  or too late), the line loses its Undo and the reply says why, as the
-  button's does. A row that fails to save costs /undo, never the Record.
+- **/undo takes back the expense the sender last recorded, within ten
+  minutes**, through the same database check as the Undo button
+  (`undo_intake_approval`); sent as a reply, it takes back the one that
+  message shows. It says "expense" (income and refunds recorded the same way
+  count too) because a transfer, a goal contribution and a list's Record all
+  have no Undo, and "your last Record" promised them. To know what the bot's
+  own Record made without finding its message, the bot notes each Record in
+  a new table, `bot_recordings` (the entry, the member, the transaction, all
+  named with the household, which gives `intake` the `unique (household_id,
+  id)` that needs), which only the bot's service role can read or write: a
+  member who could write a row could name an approval made in the app as the
+  bot's. A row goes with its transaction or its entry, so an undo leaves
+  nothing for /undo to find and a second /undo takes back the Record before;
+  the daily job clears rows older than a day. Undone, the line that said
+  `✓ …` says `Undone · …` and loses its button, and the entry is sent again
+  under the /undo with its buttons and "Undone.", as a typed "yes" gets its
+  answer as a new message. Left recorded (changed in the app, or too late),
+  the line loses its Undo and the reply says why, as the button's does; a
+  latest Record changed in the app stays the latest, so /undo says so rather
+  than reaching past it. A note that fails to save costs /undo, never the
+  Record, and is logged.
+- **A delivery Telegram sends again is about the same expense.** /undo keeps
+  the entry it chose with the update before undoing, so a resend after a
+  failure part way never takes back the Record before it.
+- **Known, as with the Undo button**: after a typed "yes", the message it
+  answered also says `✓ …`, and stays so after an undo; only the tick reply,
+  which the entry is tied to, turns.
 - **Linking says who, what to send and where help is**: `Linked as Alex.
   Send a receipt, "42 groceries", or a question. /help for more.`

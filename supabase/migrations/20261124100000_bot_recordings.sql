@@ -15,12 +15,20 @@
 --
 -- A row goes when its transaction goes (an undo, or a delete in the app) and
 -- when its entry goes, so /undo never finds something already taken back.
+-- The entry, the member and the transaction are each named with the
+-- household, as every reference between household rows is
+-- (20260913090000_tenant_qualified_foreign_keys), so a row can never tie one
+-- household's entry to another's; intake gets the unique key that needs.
+alter table public.intake add constraint intake_household_id_id_key unique (household_id, id);
+
 create table public.bot_recordings (
-  intake_id uuid primary key references public.intake (id) on delete cascade,
   household_id uuid not null references public.households (id) on delete cascade,
+  intake_id uuid not null,
   member_id uuid not null,
   transaction_id uuid not null,
   recorded_at timestamptz not null default now(),
+  primary key (household_id, intake_id),
+  foreign key (household_id, intake_id) references public.intake (household_id, id) on delete cascade,
   foreign key (household_id, member_id) references public.household_members (household_id, id) on delete cascade,
   foreign key (household_id, transaction_id) references public.transactions (household_id, id) on delete cascade
 );
@@ -34,4 +42,4 @@ revoke all on public.bot_recordings from public, anon, authenticated;
 grant select, insert, update, delete on public.bot_recordings to service_role;
 
 comment on table public.bot_recordings is
-  'Which transaction the bot''s own Record made, per entry, for /undo. Written and read by the bot (service_role) only; a row goes with its transaction or its entry.';
+  'Which transaction the bot''s own Record made, per entry, for /undo. Written and read by the bot (service_role) only; a row goes with its transaction or its entry, and the bot clears rows older than a day.';

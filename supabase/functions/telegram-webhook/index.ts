@@ -126,7 +126,8 @@ async function handleRequest(req: Request): Promise<Response> {
     // control -- it is how whoever deploys this can check that the bot is also
     // not being invited into groups in the first place.
     // The command menu, from the list /help gives (commands.ts).
-    const commands = await tgCall("setMyCommands", { commands: COMMANDS });
+    // Private chats only: the bot answers nothing else.
+    const commands = await tgCall("setMyCommands", { commands: COMMANDS, scope: { type: "all_private_chats" } });
     const me = (await tgCall("getMe", {})) as { result?: { can_join_groups?: boolean; can_read_all_group_messages?: boolean } };
     return new Response(
       JSON.stringify({
@@ -361,7 +362,8 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
   // an expense or a question; a caption is never a command.
   const command = typeof message.text === "string" ? commandOf(message.text) : null;
   if (command) {
-    await handleCommand(chatId, member, command);
+    const repliedTo = (message.reply_to_message as { message_id?: number } | undefined)?.message_id ?? null;
+    await handleCommand(chatId, member, command, { updateId, repliedTo });
     return new Response("ok");
   }
 

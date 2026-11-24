@@ -556,10 +556,11 @@ went: Overview's Plan strip and To do say what it said.
   holds /help (what the bot does, in a few lines; also the answer to /start
   once linked, and to a command it does not know), /brief, /inbox (`2 in the
   Inbox` with Open Inbox, or "The Inbox is clear.") and /undo, which takes
-  back the sender's latest Record from the last ten minutes as Undo does:
-  only what the bot itself recorded, never an approval made in the app. The
-  line that said it was recorded says `Undone · …`, and the entry comes
-  back under the /undo with its buttons.
+  back the expense the sender last recorded with Record, within ten minutes,
+  as Undo does (sent as a reply, the one that message shows): only what the
+  bot itself recorded, never an approval made in the app or the other
+  member's. The line that said it was recorded says `Undone · …`, and the
+  entry comes back under the /undo with its buttons.
 - Records share trades from a message: "bought 10 ABC at 120.5", "sold 2 ABC
   at 150 on 24 Oct, brokerage 1", "Partner bought 3 XYZ at 600", "ABC split 10
   for 1". It asks one question at a time for whatever is missing (which

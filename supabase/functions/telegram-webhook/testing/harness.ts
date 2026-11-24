@@ -42,6 +42,8 @@ export type Backend = {
   telegramCalls: Array<{ method: string; body: Row }>;
   requests: Array<{ method: string; path: string }>;
   faults: {
+    // Tables whose inserts fail, as a statement timeout would.
+    failInserts?: string[];
     // Make claim_telegram_update fail the way a live database can.
     claimError?: { code: string; message: string };
     // Make Telegram fail: on every call, or only the first N sendMessage calls.
@@ -163,7 +165,7 @@ export const UNIQUE: Record<string, string[]> = {
   goal_contributions: ["goal_id", "source", "source_ref"],
   bot_proposals: ["household_id", "source_ref"],
   statement_reconciliations: ["account_id", "statement_date"],
-  bot_recordings: ["intake_id"],
+  bot_recordings: ["household_id", "intake_id"],
 };
 
 // Column defaults the real schema fills in. A proposal's times are on the
@@ -264,9 +266,6 @@ export function matches(row: Row, params: URLSearchParams): boolean {
       case "lt":
         ok = cell != null && (typeof cell === "number" ? cell < Number(value) : String(cell) < value);
         break;
-      case "lt":
-        ok = cell != null && String(cell) < value;
-        break;
       case "in":
         ok = value.replace(/^\(|\)$/g, "").split(",").includes(String(cell));
         break;
@@ -357,7 +356,18 @@ export async function postgrest(req: Request, url: URL): Promise<Response> {
     const body = await req.json();
     const incoming: Row[] = Array.isArray(body) ? body : [body];
     const written: Row[] = [];
+    if (backend.faults.failInserts?.includes(table)) return json({ code: "57014", message: "canceling statement due to statement timeout" }, 500);
+    // An upsert (on_conflict, merge-duplicates) updates the row its key finds.
+    const merges = (req.headers.get("Prefer") ?? "").includes("resolution=merge-duplicates");
     for (const r of incoming) {
+      if (merges && UNIQUE[table]) {
+        const existing = rows.find((x) => UNIQUE[table].every((k) => x[k] === r[k]));
+        if (existing) {
+          Object.assign(existing, r);
+          written.push(existing);
+          continue;
+        }
+      }
       if (table === "intake" && backend.faults.failIntakeItems && String(r.source_ref ?? "").includes("#")) {
         return json({ code: "57014", message: "canceling statement due to statement timeout" }, 500);
       }

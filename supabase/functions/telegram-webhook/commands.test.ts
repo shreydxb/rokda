@@ -4,7 +4,7 @@
 // backend is testing/harness.ts.
 import { assert, assertEquals } from "jsr:@std/assert@1";
 import { linkTokenDigest } from "../_shared/applib/telegramLink.js";
-import { backend, CARD, capturedIntake, dubaiToday, freshTest, handler, HOUSEHOLD, lastReply, MEMBER, type Row, SECRET, tapUpdate, textUpdate } from "./testing/harness.ts";
+import { backend, CARD, capturedIntake, dubaiToday, freshTest, handler, HOUSEHOLD, lastReply, MEMBER, PARTNER, reactionUpdate, replyUpdate, type Row, SECRET, tapUpdate, textUpdate } from "./testing/harness.ts";
 // After the harness, which sets the environment env.ts reads.
 import { HELP_TEXT } from "./commands.ts";
 
@@ -15,6 +15,7 @@ function buttonsOf(body: Row | undefined): Button[] {
 }
 
 const GROCERIES = "c3000000-0000-4000-8000-0000000000f2";
+const NOTHING = "No expense recorded in the last ten minutes to undo.";
 
 // An expense read in full, shown with Record, as expenseButtons.test.ts
 // captures one; the message's id, as the fake Telegram numbers them.
@@ -84,6 +85,8 @@ freshTest("the setup registers the command menu", async () => {
   const menu = backend.telegramCalls.find((c) => c.method === "setMyCommands")?.body.commands as Array<{ command: string; description: string }> | undefined;
   assertEquals(menu?.map((c) => c.command), ["help", "brief", "inbox", "undo"]);
   for (const c of menu ?? []) assert(c.description.length > 0 && c.description.length <= 40, c.description);
+  // In private chats only: the bot answers nothing else.
+  assertEquals(backend.telegramCalls.find((c) => c.method === "setMyCommands")?.body.scope, { type: "all_private_chats" });
 });
 
 freshTest("/undo takes back the latest Record, and the entry comes back with its buttons", async () => {
@@ -99,9 +102,10 @@ freshTest("/undo takes back the latest Record, and the entry comes back with its
   const above = edits(prompt.id).at(-1)!;
   assertEquals(above.text, "Undone · Corner Bakery · AED 30 · Groceries");
   assertEquals(buttonsOf(above).length, 0);
-  // The entry again, as it was before Record, under the /undo, tied to it.
+  // The entry again, as it was before Record, under the /undo, tied to it,
+  // saying what happened.
   const sent = backend.telegramSent.at(-1)!.body;
-  assertEquals(sent.text, prompt.text);
+  assertEquals(sent.text, `${prompt.text}\nUndone.`);
   assertEquals(buttonsOf(sent).map((b) => b.text), ["Record", "Category", "Account", "Discard"]);
   assertEquals(capturedIntake()[0].confirm_message_id, 1000 + backend.telegramSent.length);
   assertEquals(backend.aiCalls, aiCalls, "/undo went to the AI");
@@ -118,12 +122,12 @@ freshTest("/undo again takes back the Record before", async () => {
 
 freshTest("/undo with no Record in the last ten minutes says so, and changes nothing", async () => {
   await handler(textUpdate(9930, "/undo"));
-  assertEquals(lastReply(), "Nothing to undo. Undo lasts ten minutes after Record.");
+  assertEquals(lastReply(), NOTHING);
   // Recorded eleven minutes ago: too late, so not looked for.
   await record(9932, await capture(9931));
   backend.tables.bot_recordings[0].recorded_at = new Date(Date.now() - 11 * 60_000).toISOString();
   await handler(textUpdate(9933, "/undo"));
-  assertEquals(lastReply(), "Nothing to undo. Undo lasts ten minutes after Record.");
+  assertEquals(lastReply(), NOTHING);
   assertEquals(capturedIntake()[0].status, "approved");
   assertEquals(backend.rpcCalls.filter((c) => c.fn === "undo_intake_approval").length, 0);
 });
@@ -133,7 +137,7 @@ freshTest("/undo never takes back an approval made in the app", async () => {
   // Approved in the Inbox: the bot recorded nothing, so there is nothing of its own to take back.
   Object.assign(capturedIntake()[0], { status: "approved", transaction_id: "a9900000-0000-4000-8000-0000000000aa" });
   await handler(textUpdate(9941, "/undo"));
-  assertEquals(lastReply(), "Nothing to undo. Undo lasts ten minutes after Record.");
+  assertEquals(lastReply(), NOTHING);
   assertEquals(capturedIntake()[0].status, "approved");
 });
 
@@ -154,4 +158,71 @@ freshTest("an unknown command is answered with help, not read as an expense", as
   assertEquals(lastReply(), HELP_TEXT);
   assertEquals(backend.aiCalls, 0);
   assertEquals(backend.tables.intake.length, 0);
+});
+
+freshTest("/undo after a typed yes turns the tick reply, and a yes or 👍 on it records nothing", async () => {
+  const prompt = await capture(9970);
+  await handler(replyUpdate(9971, "yes", prompt.id));
+  const tick = 1000 + backend.telegramSent.length;
+  await handler(textUpdate(9972, "/undo"));
+  assertEquals(capturedIntake()[0].status, "pending");
+  assertEquals(edits(tick).at(-1)?.text, "Undone · Corner Bakery · AED 30 · Groceries");
+  assertEquals(buttonsOf(edits(tick).at(-1)).length, 0);
+  assertEquals(capturedIntake()[0].confirm_message_id, 1000 + backend.telegramSent.length);
+  await handler(replyUpdate(9973, "yes", tick));
+  await handler(reactionUpdate(9974, tick, "👍"));
+  assertEquals(capturedIntake()[0].status, "pending");
+});
+
+freshTest("/undo sent as a reply takes back the Record that message shows", async () => {
+  const first = await capture(9975, "Corner Bakery", 30);
+  await record(9976, first);
+  await record(9978, await capture(9977, "Fruit Stall", 12));
+  await handler(replyUpdate(9979, "/undo", first.id));
+  assertEquals(capturedIntake().map((r) => r.status), ["pending", "approved"]);
+  // A message with no Record of the bot's under it is said so, and nothing goes back.
+  await handler(replyUpdate(9980, "/undo", 4242));
+  assertEquals(lastReply(), "That message has no expense to undo.");
+  assertEquals(capturedIntake().map((r) => r.status), ["pending", "approved"]);
+});
+
+freshTest("/undo never takes back the other member's Record", async () => {
+  backend.now = Date.now();
+  backend.tables.intake.push({ id: "a9900000-0000-4000-8000-0000000000b1", household_id: HOUSEHOLD, member_id: PARTNER, status: "approved", transaction_id: "a9900000-0000-4000-8000-0000000000b2", created_at: new Date().toISOString() });
+  backend.tables.bot_recordings.push({ household_id: HOUSEHOLD, intake_id: "a9900000-0000-4000-8000-0000000000b1", member_id: PARTNER, transaction_id: "a9900000-0000-4000-8000-0000000000b2", recorded_at: new Date().toISOString() });
+  await handler(textUpdate(9981, "/undo"));
+  assertEquals(lastReply(), NOTHING);
+  assertEquals(backend.tables.intake[0].status, "approved");
+  assertEquals(backend.rpcCalls.filter((c) => c.fn === "undo_intake_approval").length, 0);
+});
+
+freshTest("/undo too late says so and leaves it recorded", async () => {
+  await record(9983, await capture(9982));
+  backend.undoOutcome = "too_late";
+  await handler(textUpdate(9984, "/undo"));
+  assertEquals(lastReply(), "Undo lasts ten minutes. Change it in the app.");
+  assertEquals(capturedIntake()[0].status, "approved");
+});
+
+freshTest("a Record whose note fails still records, with its Undo button; /undo then finds nothing", async () => {
+  const prompt = await capture(9985);
+  backend.faults.failInserts = ["bot_recordings"];
+  await record(9986, prompt);
+  assertEquals(capturedIntake()[0].status, "approved");
+  assertEquals(buttonsOf(edits(prompt.id).at(-1)).map((b) => b.text), ["Undo"]);
+  await handler(textUpdate(9987, "/undo"));
+  assertEquals(lastReply(), NOTHING);
+  assertEquals(capturedIntake()[0].status, "approved");
+});
+
+freshTest("an /undo Telegram delivers again takes back the same Record, never the one before", async () => {
+  await record(9989, await capture(9988, "Corner Bakery", 30));
+  await record(9991, await capture(9990, "Fruit Stall", 12));
+  await handler(textUpdate(9992, "/undo"));
+  assertEquals(capturedIntake().map((r) => r.status), ["approved", "pending"]);
+  // The first delivery died after the undo: Telegram sends it again.
+  backend.log.get(9992)!.status = "failed";
+  await handler(textUpdate(9992, "/undo"));
+  assertEquals(capturedIntake().map((r) => r.status), ["approved", "pending"]);
+  assertEquals(backend.rpcCalls.filter((c) => c.fn === "undo_intake_approval").length, 1);
 });

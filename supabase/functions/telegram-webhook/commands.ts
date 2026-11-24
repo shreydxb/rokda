@@ -1,7 +1,10 @@
 // The bot's commands (the revamp, phase 8d; the UI review's T20): /help says
 // what the bot does in a few lines, /brief the day in short, /inbox how many
-// entries wait there, with Open Inbox, and /undo takes back the member's
-// latest Record from the last ten minutes. /start from an account already
+// entries wait there, with Open Inbox, and /undo takes back the expense the
+// member last recorded with Record (or the one a reply points at), within ten
+// minutes. A transfer, a goal contribution or a list's Record all is not one:
+// those have no Undo, and /undo says "expense" so as not to promise it. /start
+// from an account already
 // linked, and a command the bot does not know, are answered with help, never
 // read as an expense or sent to the AI. The setup registers the same list as
 // Telegram's command menu (COMMANDS), so the menu and /help never disagree.
@@ -21,7 +24,7 @@ export const HELP_TEXT = [
   "Each morning: what needs you, then a question each with buttons.",
   "/brief · the day in short",
   "/inbox · how many wait in the Inbox",
-  "/undo · take back your last Record, within ten minutes",
+  "/undo · take back the expense you last recorded, within ten minutes",
 ].join("\n");
 
 // Telegram's command menu, in the order /help lists them.
@@ -29,7 +32,7 @@ export const COMMANDS = [
   { command: "help", description: "What I do, in a few lines" },
   { command: "brief", description: "The day in short" },
   { command: "inbox", description: "How many wait in the Inbox" },
-  { command: "undo", description: "Take back your last Record" },
+  { command: "undo", description: "Take back your last expense" },
 ];
 
 // "/help", "/help@SomeBot" and "/start payload" are help and start; anything
@@ -53,8 +56,14 @@ export async function inboxReply(householdId: string): Promise<{ text: string; m
 }
 
 // Answers a command from a linked member. brief and digest are the brief, as
-// typed "brief" is (tools.ts BRIEF_TRIGGERS).
-export async function handleCommand(chatId: number, member: { id: string; household_id: string }, command: string): Promise<void> {
+// typed "brief" is (tools.ts BRIEF_TRIGGERS). The update and the message it
+// replies to are /undo's (undoLatest).
+export async function handleCommand(
+  chatId: number,
+  member: { id: string; household_id: string },
+  command: string,
+  context: { updateId: unknown; repliedTo: number | null },
+): Promise<void> {
   if (command === "brief" || command === "digest") {
     await reply(chatId, await buildBriefMessage(member.household_id));
     return;
@@ -65,7 +74,7 @@ export async function handleCommand(chatId: number, member: { id: string; househ
     return;
   }
   if (command === "undo") {
-    await undoLatest(chatId, member);
+    await undoLatest(chatId, member, context.updateId, context.repliedTo);
     return;
   }
   await reply(chatId, HELP_TEXT);

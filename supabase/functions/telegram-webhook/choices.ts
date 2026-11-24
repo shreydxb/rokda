@@ -19,7 +19,7 @@ import { isConfirmable, isReadyForFastConfirm } from "../_shared/applib/telegram
 import { APP_URL, supabase } from "./env.ts";
 import { askText, cancelledText, type ExpenseView, inboxReason, inboxText, readyText, recordedText, undoneText } from "./expenseMessages.ts";
 import { type FileableCategory, findDuplicateTransaction, type IntakeKind, isSpendingAccount, loadCategoryKnowledge, loadFileableCategories } from "./intake.ts";
-import { reply, tgCall } from "./transport.ts";
+import { logFailure, recordAnswerTarget, recordedAnswerTarget, reply, tgCall } from "./transport.ts";
 
 // c and a fill a missing category or card, k and m change one; i leaves the
 // entry in the Inbox; r records, d discards; u undoes the transaction it
@@ -307,15 +307,14 @@ const UNDO_WINDOW_MS = 10 * 60_000;
 
 // Notes what this Record made, for /undo (undoLatest, below): only a row
 // written here is the bot's to take back. A row that fails to save costs
-// /undo, never the Record or its Undo button. A row is no use to /undo after
-// ten minutes, so the member's older ones are cleared as a new one is noted.
+// /undo, never the Record or its Undo button, and is logged. The daily job
+// clears rows older than a day (pruneTelegramUpdateLog), which /undo never
+// reaches.
 async function noteRecording(householdId: string, memberId: string, intakeId: string, transactionId: string): Promise<void> {
-  try {
-    await supabase.from("bot_recordings").insert({ intake_id: intakeId, household_id: householdId, member_id: memberId, transaction_id: transactionId });
-    await supabase.from("bot_recordings").delete().eq("household_id", householdId).eq("member_id", memberId).lt("recorded_at", new Date(Date.now() - UNDO_WINDOW_MS).toISOString());
-  } catch {
-    // As above: the Record stands either way.
-  }
+  const { error } = await supabase
+    .from("bot_recordings")
+    .upsert({ household_id: householdId, intake_id: intakeId, member_id: memberId, transaction_id: transactionId, recorded_at: new Date().toISOString() }, { onConflict: "household_id,intake_id" });
+  if (error) logFailure("noteRecording", null, error);
 }
 
 export const RECORD_FAILED = "Couldn't record that. Nothing saved — try again in a minute.";
@@ -507,30 +506,69 @@ async function undoTap(
 const UNDO_TOO_LATE = "Undo lasts ten minutes. Change it in the app.";
 const UNDO_CHANGED = "It was changed in the app, so it stays. Change it there.";
 const UNDO_FAILED = "Couldn't undo that just now. Try again in a minute.";
-export const NOTHING_TO_UNDO = "Nothing to undo. Undo lasts ten minutes after Record.";
+export const NOTHING_TO_UNDO = "No expense recorded in the last ten minutes to undo.";
+const NOTHING_THERE = "That message has no expense to undo.";
+
+type Noted = { intake_id: string; transaction_id: string };
+
+// The note of what the bot's Record made of this member's entry, if any.
+async function notedFor(member: { id: string; household_id: string }, intakeId: string): Promise<Noted | null> {
+  const { data, error } = await supabase.from("bot_recordings").select("intake_id, transaction_id").eq("household_id", member.household_id).eq("member_id", member.id).eq("intake_id", intakeId).maybeSingle();
+  if (error) throw new Error(`reading a Record's note failed (${error.code ?? "no code"})`);
+  return data as Noted | null;
+}
 
 // /undo (commands.ts): the member's latest Record from the last ten minutes,
-// taken back through the same database check as the Undo button. Only what
-// the bot's own Record noted is looked for (noteRecording), so an approval
-// made in the app is never taken back. Undone, the line that said it was
-// recorded says Undone and loses its button, and the entry is sent again
+// or, sent as a reply, the Record that message shows, taken back through the
+// same database check as the Undo button. Only what the bot's own Record
+// noted is looked for (noteRecording), so an approval made in the app, or the
+// other member's Record, is never taken back. Undone, the line that said it
+// was recorded says Undone and loses its button, and the entry is sent again
 // under the /undo with its buttons, as a typed "yes" gets its answer as a new
-// message. Left recorded, the line loses its Undo and the reply says why.
-export async function undoLatest(chatId: number, member: { id: string; household_id: string }): Promise<void> {
-  const { data: latest, error } = await supabase
-    .from("bot_recordings")
-    .select("intake_id, transaction_id")
-    .eq("household_id", member.household_id)
-    .eq("member_id", member.id)
-    .gte("recorded_at", new Date(Date.now() - UNDO_WINDOW_MS).toISOString())
-    .order("recorded_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (error) {
-    await reply(chatId, UNDO_FAILED);
-    return;
+// message. Left recorded, the line loses its Undo and the reply says why. A
+// latest Record changed in the app stays the latest: /undo says so for its
+// ten minutes rather than reaching past it to an older one.
+//
+// The entry chosen is kept with the update before anything is undone, so a
+// delivery Telegram sends again (the first died part way) is about the same
+// entry, never the Record before it.
+export async function undoLatest(chatId: number, member: { id: string; household_id: string }, updateId: unknown, repliedTo: number | null): Promise<void> {
+  const before = await recordedAnswerTarget(updateId);
+  let noted: Noted | null = null;
+  if (before?.kind === "intake") {
+    noted = await notedFor(member, before.id);
+    if (!noted) {
+      // Undone by the first delivery, whose note went with the transaction:
+      // only the entry's message may still be owed.
+      const { data: fresh } = await supabase.from("intake").select(INTAKE_COLUMNS).eq("id", before.id).eq("household_id", member.household_id).eq("member_id", member.id).maybeSingle();
+      const now = fresh as (EntryRow & { status: string }) | null;
+      if (now?.status === "pending") await sendEntryPrompt(chatId, member.household_id, member.id, now, ["Undone."]);
+      return;
+    }
+  } else if (repliedTo != null) {
+    // The entry that message shows, when it is the member's.
+    const { data: shown } = await supabase.from("intake").select("id").eq("household_id", member.household_id).eq("member_id", member.id).eq("confirm_chat_id", chatId).eq("confirm_message_id", repliedTo).maybeSingle();
+    noted = shown ? await notedFor(member, (shown as { id: string }).id) : null;
+    if (!noted) {
+      await reply(chatId, NOTHING_THERE);
+      return;
+    }
+  } else {
+    const { data: latest, error } = await supabase
+      .from("bot_recordings")
+      .select("intake_id, transaction_id")
+      .eq("household_id", member.household_id)
+      .eq("member_id", member.id)
+      .gte("recorded_at", new Date(Date.now() - UNDO_WINDOW_MS).toISOString())
+      .order("recorded_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) {
+      await reply(chatId, UNDO_FAILED);
+      return;
+    }
+    noted = latest as Noted | null;
   }
-  const noted = latest as { intake_id: string; transaction_id: string } | null;
   const { data: found } = noted
     ? await supabase.from("intake").select(INTAKE_COLUMNS).eq("id", noted.intake_id).eq("household_id", member.household_id).eq("member_id", member.id).maybeSingle()
     : { data: null };
@@ -539,6 +577,7 @@ export async function undoLatest(chatId: number, member: { id: string; household
     await reply(chatId, NOTHING_TO_UNDO);
     return;
   }
+  await recordAnswerTarget(updateId, { kind: "intake", id: row.id });
   // The message that says it was recorded, when it is in this chat.
   const shownIn = Number(row.confirm_chat_id) === chatId && row.confirm_message_id != null ? Number(row.confirm_message_id) : null;
   const { data, error: undoError } = await supabase.rpc("undo_intake_approval", { p_intake_id: row.id, p_member_id: member.id, p_transaction_id: noted.transaction_id });
@@ -552,7 +591,9 @@ export async function undoLatest(chatId: number, member: { id: string; household
     }
     const { data: fresh } = await supabase.from("intake").select(INTAKE_COLUMNS).eq("id", row.id).maybeSingle();
     const now = fresh as (EntryRow & { status: string }) | null;
-    if (now?.status === "pending") await sendEntryPrompt(chatId, member.household_id, member.id, now);
+    const sent = now?.status === "pending" && (await sendEntryPrompt(chatId, member.household_id, member.id, now, ["Undone."]));
+    // Never silent: undone, it waits in the Inbox either way.
+    if (!sent) await reply(chatId, "Undone. It's in the Inbox.").catch(() => null);
     return;
   }
   if (outcome === "too_late" || outcome === "changed") {

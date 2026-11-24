@@ -6291,12 +6291,29 @@ begin
   end;
   delete from intake where id = 'dddd0000-0000-4000-8000-0000000000e2';
 
+  -- Nor another household's entry, or this one's under another household.
+  begin
+    insert into bot_recordings (intake_id, household_id, member_id, transaction_id) values ('dddd0000-0000-4000-8000-0000000000e1', '99999999-9999-9999-9999-999999999999', other, t);
+    raise exception 'bot recordings FAILED: an entry was named under another household';
+  exception
+    when foreign_key_violation then null;
+  end;
+
   -- Undone: the transaction goes, and its row with it.
   r := undo_intake_approval('dddd0000-0000-4000-8000-0000000000e1', me, t);
   if (r ->> 'outcome' <> 'undone' or exists (select 1 from bot_recordings where intake_id = 'dddd0000-0000-4000-8000-0000000000e1')) is not false then
     raise exception 'bot recordings FAILED: an undone recording was left for /undo to find (%)', r;
   end if;
-  raise notice 'bot recordings ok: one household, gone with its transaction';
+
+  -- An entry deleted takes its row with it too.
+  r := approve_intake('dddd0000-0000-4000-8000-0000000000e1', card, 9, date '2026-10-03', 'expense', null, 'AED', 'Cafe');
+  insert into bot_recordings (intake_id, household_id, member_id, transaction_id) values ('dddd0000-0000-4000-8000-0000000000e1', hh, me, (r ->> 'transaction_id')::uuid);
+  delete from intake where id = 'dddd0000-0000-4000-8000-0000000000e1';
+  if exists (select 1 from bot_recordings where intake_id = 'dddd0000-0000-4000-8000-0000000000e1') then
+    raise exception 'bot recordings FAILED: a deleted entry left its row';
+  end if;
+  delete from transactions where id = (r ->> 'transaction_id')::uuid;
+  raise notice 'bot recordings ok: one household, gone with its transaction or its entry';
 end $$;
 
 do $$
