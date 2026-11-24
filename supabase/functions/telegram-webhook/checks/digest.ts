@@ -34,7 +34,6 @@ export const DIGEST_ORDER = {
   unusualSpend: 60,
   weeklyBrief: 5,
   monthlyReview: 10,
-  balanceCheckin: 20,
 } as const;
 
 // The groups the lines go under, by their order: a line belongs to the last

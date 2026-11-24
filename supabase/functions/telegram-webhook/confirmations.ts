@@ -564,22 +564,23 @@ export function proposalOutcomeMessage(data: Record<string, unknown>): string {
     return repeat || done.already ? `Already recorded · ${done.what}` : done.line;
   }
 
-  if (applied.length) {
-    const lines = applied.map((a) =>
-      Number(a.old_balance) === Number(a.new_balance)
-        ? `✓ ${a.name}: ${itemFigure(a, a.new_balance)}, unchanged`
-        : `✓ ${a.name}: ${itemFigure(a, a.old_balance)} → ${itemFigure(a, a.new_balance)}`
-    );
-    parts.push(`${repeat ? "Already saved" : "Saved"}, confirmed today:\n${lines.join("\n")}`);
+  // Balances (the revamp, phase 8c): a tick line each, confirmed today, or
+  // "Already recorded" for an answer repeated after it was saved, then what
+  // was not saved and why.
+  const lead = repeat ? "Already recorded · " : "✓ ";
+  for (const a of applied) {
+    parts.push(Number(a.old_balance) === Number(a.new_balance)
+      ? `${lead}${a.name} · ${itemFigure(a, a.new_balance)} · unchanged`
+      : `${lead}${a.name} · ${itemFigure(a, a.old_balance)} → ${itemFigure(a, a.new_balance)}`);
   }
   for (const item of skipped) {
     if (item.reason === "changed") {
-      parts.push(`Not changed: ${item.name} reads ${itemFigure(item, item.balance)} in the app now, not the figure I showed you. Send it again if yours is still right.`);
+      parts.push(`Not saved · ${item.name} reads ${itemFigure(item, item.balance)} in the app now. Send it again if yours is right.`);
     } else {
-      parts.push(`Not changed: ${item.name ?? "an account"} is no longer open in the app.`);
+      parts.push(`Not saved · ${item.name ?? "an account"} is closed in the app.`);
     }
   }
-  return parts.join("\n\n") || "Nothing to change.";
+  return parts.join("\n") || "Nothing to change.";
 }
 
 
@@ -594,9 +595,9 @@ export function proposalSummary(row: { kind: string; payload: Record<string, unk
   }
   if (row.kind === "goal_contribution" || row.kind === "transfer") return proposalLine(row.kind, payload);
   const names = ((payload.items as Array<{ name?: unknown }>) ?? []).map((i) => String(i.name ?? "an account"));
-  if (!names.length) return "the balance change";
+  if (!names.length) return "balance change";
   const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
-  return `the ${names.length === 1 ? "balance" : "balances"} for ${list}`;
+  return `${names.length === 1 ? "balance" : "balances"} for ${list}`;
 }
 
 
@@ -659,6 +660,7 @@ export async function notSettled(chatId: number, answering: Answering, text: str
 // "Cancelled · …" for a proposal with buttons.
 function cancelledLine(row: { kind: string; payload: Record<string, unknown> }): string {
   if (row.kind === "trade" || row.kind === "trade_undo") return `Cancelled · ${tradeDropSummary(row.payload as TradePayload, row.kind)}`;
+  if (row.kind === "account_balances") return `Cancelled · ${proposalSummary(row)}`;
   return `Cancelled · ${proposalLine(row.kind, row.payload ?? {})}`;
 }
 
@@ -677,6 +679,10 @@ export function settledOutcome(row: ProposalRow): Settled {
       const effect = ((row.result ?? {}) as { effect?: Record<string, unknown> }).effect ?? {};
       const undo = row.kind === "trade_undo";
       return { said: tradeSavedMessage(row.payload as TradePayload, effect, { repeat: true, undo }), shown: tradeSavedMessage(row.payload as TradePayload, effect, { repeat: false, undo }), toast: undo ? "Already undone." : "Already recorded." };
+    }
+    if (row.kind === "account_balances") {
+      if (!row.result) return { said: `Already recorded · ${proposalSummary(row)}`, toast: "Already recorded." };
+      return { said: proposalOutcomeMessage({ outcome: "applied", result: row.result }), shown: proposalOutcomeMessage({ outcome: "applied", ...row.result }), toast: "Already recorded." };
     }
     // Applied with no answer kept: recorded, as the proposal showed it.
     if (!row.result) {
@@ -722,6 +728,10 @@ function appliedOutcome(proposal: ProposalRow, data: Record<string, unknown>): S
   if (outcome === "cancelled" || outcome === "expired") return settledOutcome({ ...proposal, status: outcome });
   if (outcome !== "applied") return { said: "Couldn't find that any more. Nothing recorded — send it again if it holds.", toast: "Couldn't find that any more. Nothing recorded." };
   const repeat = data.result != null;
+  if (proposal.kind === "account_balances") {
+    const said = proposalOutcomeMessage(data);
+    return { said, shown: repeat ? proposalOutcomeMessage({ outcome: "applied", ...(data.result as Record<string, unknown>) }) : said, toast: repeat ? "Already recorded." : "Recorded." };
+  }
   const done = appliedLine((repeat ? data.result : data) as { kind?: string; applied?: Array<Record<string, unknown>> });
   if (!done) return { said: notRecordedLine(proposal.kind), toast: notRecordedLine(proposal.kind) };
   const before = repeat || done.already;

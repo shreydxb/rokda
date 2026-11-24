@@ -8,16 +8,16 @@ import { day, money } from "../_shared/applib/botFormat.js";
 import { householdToday } from "../_shared/applib/day.js";
 import { encodeChoice, type Keyboard } from "./choices.ts";
 
-// The proposals answered with buttons. Balances, an autopay bill and
-// dividends are asked about by the morning checks, which take their typed
-// answers until they are rebuilt (phase 8c).
-export const BUTTON_KINDS = new Set(["transfer", "goal_contribution", "trade", "trade_undo"]);
+// The proposals answered with Record (or Save) and Cancel. An autopay bill
+// and dividends have their own buttons (below).
+export const BUTTON_KINDS = new Set(["transfer", "goal_contribution", "trade", "trade_undo", "account_balances"]);
 
 const LABELS: Record<string, [string, string]> = {
   transfer: ["Record", "Cancel"],
   goal_contribution: ["Record", "Cancel"],
   trade: ["Save", "Cancel"],
   trade_undo: ["Undo trade", "Cancel"],
+  account_balances: ["Save", "Cancel"],
 };
 
 // The buttons under an autopay bill's question (the revamp, phase 8c; review

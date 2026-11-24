@@ -27,10 +27,12 @@ import { tgCall } from "./transport.ts";
 // account lists, b goes back to the entry. P, X, N and O name a proposal, not
 // an entry: they apply it (an autopay bill's Paid), cancel it, say an autopay
 // bill has not gone out yet, or ask for the amount that did. S names a card
-// statement, checked (proposalWords.ts, checks/statements.ts, taps.ts).
-export type ChoiceKind = "c" | "a" | "k" | "m" | "i" | "r" | "d" | "u" | "C" | "A" | "b" | "P" | "X" | "N" | "O" | "S";
+// statement, checked; B names the member a month-end check-in went to, for
+// All unchanged (proposalWords.ts, checks/statements.ts,
+// checks/balanceCheckin.ts, taps.ts).
+export type ChoiceKind = "c" | "a" | "k" | "m" | "i" | "r" | "d" | "u" | "C" | "A" | "b" | "P" | "X" | "N" | "O" | "S" | "B";
 const WITH_OPTION = new Set(["c", "a", "k", "m", "u"]);
-const WITHOUT_OPTION = new Set(["i", "r", "d", "C", "A", "b", "P", "X", "N", "O", "S"]);
+const WITHOUT_OPTION = new Set(["i", "r", "d", "C", "A", "b", "P", "X", "N", "O", "S", "B"]);
 export const INBOX_LABEL = "In the Inbox";
 const CATEGORY_CHOICES = 6;
 const ACCOUNT_CHOICES = 8;

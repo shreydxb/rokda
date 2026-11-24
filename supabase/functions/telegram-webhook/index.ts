@@ -147,7 +147,7 @@ async function handleRequest(req: Request): Promise<Response> {
     // The reminders that need no answer, and that morning's brief or review,
     // go out together as one message a person (checks/digest.ts), with Open
     // Overview under it. The questions (autopay, statements, splits,
-    // dividends) follow, each its own message: they are run only once the
+    // dividends, the month-end check-in) follow, each its own message: they are run only once the
     // morning message has gone, so it is first in the chat (the revamp,
     // phase 8c; the UI review's T23).
     //
@@ -162,15 +162,14 @@ async function handleRequest(req: Request): Promise<Response> {
       runMonthlyBriefCheck(digest),
       runCashCoverCheck(digest),
       runUnusualSpendCheck(digest),
-      runBalanceCheckin(digest),
     ]);
     const digestSent = await digest.send(sendReminder, APP_URL ? { inline_keyboard: [[{ text: "Open Overview", url: `${APP_URL}/` }]] } : null);
-    const asked = await Promise.allSettled([runAutopayCheck(), runStatementCheck(), runSplitCheck(), runDividendCheck()]);
+    const asked = await Promise.allSettled([runAutopayCheck(), runStatementCheck(), runSplitCheck(), runDividendCheck(), runBalanceCheckin()]);
     const failures = [...gathered, ...asked].filter((r): r is PromiseRejectedResult => r.status === "rejected").map((r) => r.reason);
     if (failures.length) throw failures.length === 1 ? failures[0] : new AggregateError(failures, `${failures.length} morning checks failed`);
     const value = (r: PromiseSettledResult<unknown>) => (r as PromiseFulfilledResult<unknown>).value;
-    const [recurring, creditCards, budgets, weeklyBrief, monthlyBrief, cashCover, unusualSpend, balanceCheckin] = gathered.map(value);
-    const [autopay, statements, splits, dividends] = asked.map(value);
+    const [recurring, creditCards, budgets, weeklyBrief, monthlyBrief, cashCover, unusualSpend] = gathered.map(value);
+    const [autopay, statements, splits, dividends, balanceCheckin] = asked.map(value);
     // Housekeeping, not a check: nothing reports on it and nothing depends on
     // it having run today.
     await pruneTelegramUpdateLog();
