@@ -7,11 +7,11 @@
 // theirs. A line not delivered is tried again the next morning, as its
 // message was before.
 //
-// On the mornings of the weekly brief, the monthly review or the balance
-// check-in, those are "heads": the lines follow them in the same message.
-// Questions that need an answer tied to their own message (autopay,
-// dividends, statements, a split) are not part of this: they follow it, each
-// its own message (the revamp, phase 8c).
+// On the mornings of the weekly brief or the monthly review, those are
+// "heads": the lines follow them in the same message. Questions that need an
+// answer tied to their own message (autopay, dividends, statements, a split,
+// the month-end check-in) are not part of this: they follow it, each its own
+// message (the revamp, phase 8c).
 //
 // The lines are short and grouped (checks/morningWords.ts): what needs doing
 // today first, then how the month is going, with Open Overview under the
@@ -93,19 +93,13 @@ export class Digest {
     this.parts.push({ chatIds, text, order, head: false, record, inBrief: opts.inBrief });
   }
 
-  // A brief, review or check-in the lines follow in the same message.
+  // A brief or review the lines follow in the same message.
   // givesCashCover: it has a cash cover line (the weekly brief, the monthly
   // review).
   head(chatIds: number[], text: string, order: number, record: () => unknown, opts: { givesCashCover?: boolean } = {}): void {
     this.parts.push({ chatIds, text, order, head: true, record, givesCashCover: opts.givesCashCover });
   }
 
-  // Something recorded once every one of these people got their message,
-  // with no text of its own: the balance check-in, sent to each member in
-  // their own words, is recorded for the household as a whole.
-  afterAll(chatIds: number[], record: () => unknown): void {
-    this.parts.push({ chatIds, text: "", order: 0, head: true, record });
-  }
 
   // The one message a person gets this morning, or null for none: the heads,
   // then each group's title and its lines.

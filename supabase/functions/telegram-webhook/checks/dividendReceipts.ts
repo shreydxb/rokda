@@ -1,8 +1,9 @@
 // Part of the Telegram webhook (index.ts), split out by responsibility in
-// the round 2 cleanup (SHR-383). Moved, not changed.
+// the round 2 cleanup (SHR-383). The question is answered with buttons too
+// (the revamp, phase 8c).
 import { householdToday } from "../../_shared/applib/day.js";
 import { type Answering, decidedProposalMessage, discardUnaskedProposal, notSettled, PROPOSAL_COLUMNS, type ProposalRow, settleQuestion } from "../confirmations.ts";
-import { type DividendLine, DIVIDENDS_NOT_YET_REPLY, DIVIDENDS_STALE_LEAD, DIVIDENDS_STALE_NONE, dividendsDropSummary, dividendsQuestion, dividendsRefusal, dividendsSavedMessage } from "../dividends.ts";
+import { DIVIDENDS_ANSWERED, type DividendLine, DIVIDENDS_NOT_YET_REPLY, DIVIDENDS_STALE_LEAD, DIVIDENDS_STALE_NONE, dividendsDropSummary, dividendsQuestion, dividendsRefusal, dividendsSavedMessage } from "../dividends.ts";
 import { supabase } from "../env.ts";
 import { dividendsKeyboard } from "../proposalWords.ts";
 import { edit } from "../choices.ts";
@@ -174,9 +175,12 @@ export async function askDividends(g: DividendGroup, sourceRef: string, lead: st
 // every question with buttons does (confirmations.ts settleQuestion).
 export async function decideDividends(chatId: number, memberId: string, proposal: ProposalRow, decision: "apply" | "cancel", answering: Answering = { via: "text" }): Promise<void> {
   const payload = proposal.payload as DividendsPayload;
+  // Settled before this answer: what it is now. One applied keeps its tick
+  // line on the question, as every settled question does.
   const decided = (row: ProposalRow) => {
     const said = decidedProposalMessage(row);
-    return { said, toast: said.split("\n")[0] };
+    const shown = row.status === "applied" && row.result ? dividendsSavedMessage(payload.fund_name, payload.currency, row.result as DividendsResult, false) : undefined;
+    return { said, shown, toast: said.split("\n")[0] };
   };
   if (payload.ask == null && decision === "cancel") {
     const { data, error } = await supabase
@@ -226,12 +230,13 @@ export async function decideDividends(chatId: number, memberId: string, proposal
       shown: dividendsSavedMessage(payload.fund_name, payload.currency, result, false),
       toast: repeat ? "Already recorded." : "Recorded.",
     });
+    if (!repeat) await settleDividendCopies(chatId, proposal, payload);
     return;
   }
   if (outcome === "stale") {
     // Asked again below, as it is now: this question no longer offers its
     // buttons.
-    if (answering.via === "tap") await answering.toast("It changed since. Here it is again.");
+    if (answering.via === "tap") await answering.toast("It changed since. Nothing recorded.");
     const prompt = answering.via !== "text" && answering.messageId != null ? answering.messageId : proposal.prompt_message_id;
     if (prompt != null) await edit(chatId, Number(prompt), `Not recorded · ${dividendsDropSummary(payload)} · changed since`);
     await reaskDividends(chatId, memberId, payload, proposal.id);
@@ -250,6 +255,29 @@ export async function decideDividends(chatId: number, memberId: string, proposal
 }
 
 const DIVIDENDS_NOT_RECORDED = "Couldn't record that. Nothing saved — try again in a minute.";
+
+// On a shared holding each member is asked about the same dividends. Once one
+// answers, the database closes the others' questions as answered; their
+// messages say so, and stop offering buttons (the fresh review of 8c's second
+// part).
+async function settleDividendCopies(chatId: number, proposal: ProposalRow, payload: DividendsPayload): Promise<void> {
+  const { data: own } = await supabase.from("bot_proposals").select("household_id").eq("id", proposal.id).maybeSingle();
+  const householdId = (own as { household_id?: string } | null)?.household_id;
+  if (!householdId) return;
+  const ids = new Set(payload.lines.map((l) => String(l.dividend_id)));
+  const { data } = await supabase
+    .from("bot_proposals")
+    .select("id, chat_id, prompt_message_id, payload, result")
+    .eq("household_id", householdId)
+    .eq("kind", "dividends_received")
+    .eq("status", "expired");
+  for (const other of (data ?? []) as Array<{ id: string; chat_id: number | string; prompt_message_id: number | null; payload: DividendsPayload; result: { error?: string } | null }>) {
+    if (other.id === proposal.id || other.prompt_message_id == null || other.result?.error !== "answered") continue;
+    if (!(other.payload?.lines ?? []).some((l) => ids.has(String(l.dividend_id)))) continue;
+    if (Number(other.chat_id) === chatId && Number(other.prompt_message_id) === Number(proposal.prompt_message_id)) continue;
+    await edit(Number(other.chat_id), Number(other.prompt_message_id), DIVIDENDS_ANSWERED);
+  }
+}
 
 
 // "Not yet" (or 👎, or the button): it has not arrived. Nothing is recorded,
@@ -270,7 +298,7 @@ export async function dividendsNotYet(chatId: number, memberId: string, proposal
     await settleQuestion(chatId, proposal, answering, { said, toast: said.split("\n")[0] });
     return;
   }
-  await settleQuestion(chatId, proposal, answering, { said: DIVIDENDS_NOT_YET_REPLY, toast: "OK, I'll ask again tomorrow." });
+  await settleQuestion(chatId, proposal, answering, { said: DIVIDENDS_NOT_YET_REPLY, toast: DIVIDENDS_NOT_YET_REPLY });
 }
 
 
@@ -292,5 +320,5 @@ export async function reaskDividends(chatId: number, memberId: string, payload: 
   for (const g of mine) {
     if (await askDividends(g, `dividends:${g.memberId}:${g.fund.id}:${todayStr}:${g.ask ? "ask" : "plain"}:${proposalId}`, lead)) lead = null;
   }
-  if (lead) await reply(chatId, "Something changed since I asked, so nothing was recorded. I'll ask about them again tomorrow morning.");
+  if (lead) await reply(chatId, "Changed since I asked: nothing recorded. I'll ask about them again tomorrow.");
 }

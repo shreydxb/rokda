@@ -4827,11 +4827,14 @@ UI review's T10 to T13). Every typed answer and reaction still works.
 - **The month-end check-in is its own message, with All unchanged** (T13,
   T23). It rode in the morning message, where a button cannot go, and now
   follows it as a question: the list (`Bank (Sam) · AED 5,000 · confirmed 1
-  Sep`), one line of how to reply, and All unchanged. All unchanged confirms
-  every balance listed as it is today, through a balance proposal applied at
-  once: the tap is the answer, and nothing changes but the date each was
-  confirmed. One changed in the app since is left alone and said so. Only
-  the member it was sent to can tap it.
+  Sep`), one line of how to reply, and All unchanged. All unchanged is the
+  Save of a balance proposal made as the check-in is sent, holding each
+  balance as it shows it: a tap confirms those figures (nothing changes but
+  the date each was confirmed), one changed in the app since is left alone
+  and said so, and a second tap finds it done. A balance never set is left
+  out and said so ("Not confirmed · Card has no balance yet: reply with it"):
+  confirming the 0 it shows would make "unknown" read as nothing owed
+  (QA-02). Only a reply or the button answers it, never a bare "yes".
 - **A balance read from a message has Save and Cancel**, as the check-in's
   answers do: "Set these balances?" with each change (`Bank · AED 0 → AED
   10,000`), then a tick line a balance, or "Not saved · …" and why.
@@ -4846,3 +4849,14 @@ UI review's T10 to T13). Every typed answer and reaction still works.
     so** rather than asking for an amount or promising tomorrow.
   - **The failure lines are under fifteen words**, and a statement's Checked
     stops the button's spinner before it turns each chat's question.
+  - **All unchanged is made when the check-in is sent** (above). Made at the
+    tap, it confirmed a never-set balance as 0, confirmed what was there at
+    the tap rather than what the check-in showed, and a second tap broke on
+    the one-proposal-a-question key and said "try again" forever.
+  - **A "no" to "Arrived?" means not yet**, as 👎 does: it left the
+    dividends for the app for good, where its yes/no question invites "no"
+    for "not yet". Leave for the app is the button; to the question about a
+    confirmed balance, "no" still means they arrived after it.
+  - **On a shared holding, the other member's dividend question says it was
+    answered** once one member answers, and stops offering buttons, as a
+    bill's copies do.

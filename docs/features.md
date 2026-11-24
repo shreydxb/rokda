@@ -631,8 +631,9 @@ went: Overview's Plan strip and To do say what it said.
   questions (autopay, statements, splits, dividends, and on the 1st the
   month-end check-in) follow it, each its own message. The check-in lists the
   balances each member looks after (`Bank (Sam) · AED 5,000 · confirmed 1
-  Sep`), one line of how to reply, and All unchanged, which confirms them all
-  as they are. An autopay bill is asked about on its due date and each morning
+  Sep`), one line of how to reply, and All unchanged, which confirms the
+  balances as the check-in showed them (one never set, or changed in the app
+  since, is left alone and said so). An autopay bill is asked about on its due date and each morning
   after until answered, in one line (`Car EMI · AED 2,000 · due today from
   Bank. Gone out?`) with Paid, Not yet and Other amount (which asks for the
   amount, alone or as "paid 2,050"); "paid", "not yet", 👍 and 👎 still
@@ -647,8 +648,8 @@ went: Overview's Plan strip and To do say what it said.
 - Asks each morning about dividends due in a broker's fund, once, one
   message per fund with each line's sum, withholding and net (`ABC · 40 ×
   USD 0.25 = USD 10 · USD 3 withheld · USD 7`), then "Arrived?" with
-  Received, Not yet and Leave for the app ("yes" or 👍, "not yet" or 👎,
-  "no" still work). When the fund was confirmed on or after the pay date it
+  Received, Not yet and Leave for the app ("yes" or 👍 records them; "not
+  yet", "no" or 👎 asks again tomorrow). When the fund was confirmed on or after the pay date it
   asks whether they were already in that balance instead, with Already in
   the balance, Arrived after and Not yet. A dividend typed in as
   income is not logged in a household with a US or Indian share: the bot

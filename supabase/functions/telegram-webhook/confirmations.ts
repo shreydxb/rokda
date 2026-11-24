@@ -387,10 +387,13 @@ export async function openProposals(householdId: string, memberId: string): Prom
   if (error) return { rows: [], failed: true };
   // Except a dividend question about a confirmed balance: its "no" records
   // and moves the fund, so a bare one counts only for a few minutes, as for
-  // anything else.
+  // anything else. And never a month-end check-in: "what did each close
+  // at?" is answered with the balances, or by a reply or All unchanged, not
+  // by a bare "yes" meant for something else.
   const rows = ((data ?? []) as ProposalRow[]).filter((r) =>
     !(r.kind === "dividends_received" && (r.payload as { ask?: unknown } | null)?.ask != null &&
-      Date.parse(String(r.created_at)) <= now - PENDING_WINDOW_MS)
+      Date.parse(String(r.created_at)) <= now - PENDING_WINDOW_MS) &&
+    !(r.payload as { checkin?: unknown } | null)?.checkin
   );
   return { rows, failed: false };
 }
@@ -682,7 +685,7 @@ export function settledOutcome(row: ProposalRow): Settled {
     }
     if (row.kind === "account_balances") {
       if (!row.result) return { said: `Already recorded · ${proposalSummary(row)}`, toast: "Already recorded." };
-      return { said: proposalOutcomeMessage({ outcome: "applied", result: row.result }), shown: proposalOutcomeMessage({ outcome: "applied", ...row.result }), toast: "Already recorded." };
+      return { said: withNeverSet(row, proposalOutcomeMessage({ outcome: "applied", result: row.result })), shown: withNeverSet(row, proposalOutcomeMessage({ outcome: "applied", ...row.result })), toast: "Already recorded." };
     }
     // Applied with no answer kept: recorded, as the proposal showed it.
     if (!row.result) {
@@ -702,6 +705,13 @@ export function settledOutcome(row: ProposalRow): Settled {
 }
 
 const AUTOPAY_GONE = "Couldn't record that: the bill isn't set up any more.";
+
+// A month-end check-in's All unchanged leaves out a balance never set
+// (checks/balanceCheckin.ts): its outcome says so, a line each.
+function withNeverSet(proposal: { payload: Record<string, unknown> }, text: string): string {
+  const neverSet = (proposal.payload?.never_set as string[] | undefined) ?? [];
+  return [text, ...neverSet.map((name) => `Not confirmed · ${name} has no balance yet: reply with it.`)].join("\n");
+}
 
 // What applying an autopay bill did, from the database's answer: recorded
 // (or in Rokda before), off autopay or changed since it was asked, or its
@@ -729,8 +739,8 @@ function appliedOutcome(proposal: ProposalRow, data: Record<string, unknown>): S
   if (outcome !== "applied") return { said: "Couldn't find that any more. Nothing recorded — send it again if it holds.", toast: "Couldn't find that any more. Nothing recorded." };
   const repeat = data.result != null;
   if (proposal.kind === "account_balances") {
-    const said = proposalOutcomeMessage(data);
-    return { said, shown: repeat ? proposalOutcomeMessage({ outcome: "applied", ...(data.result as Record<string, unknown>) }) : said, toast: repeat ? "Already recorded." : "Recorded." };
+    const said = withNeverSet(proposal, proposalOutcomeMessage(data));
+    return { said, shown: repeat ? withNeverSet(proposal, proposalOutcomeMessage({ outcome: "applied", ...(data.result as Record<string, unknown>) })) : said, toast: repeat ? "Already recorded." : "Recorded." };
   }
   const done = appliedLine((repeat ? data.result : data) as { kind?: string; applied?: Array<Record<string, unknown>> });
   if (!done) return { said: notRecordedLine(proposal.kind), toast: notRecordedLine(proposal.kind) };
@@ -798,10 +808,13 @@ export async function decideProposal(
   if (autopay) {
     const settled = autopayOutcome(proposal, data as Record<string, unknown>);
     await settleQuestion(chatId, proposal, answering, settled);
-    // Recorded, or closed for good: every other copy of the question (each
-    // morning's, in each chat it went to) turns too, so none still offers
-    // Paid. A bill changed since stays open, to be asked again tomorrow.
-    if (String((data as Record<string, unknown>).outcome) !== "changed") await settleAutopayCopies(chatId, proposal, answering, settled.shown ?? settled.said);
+    // Recorded, or off autopay for good: every other copy of the question
+    // (each morning's, in each chat it went to) turns too, so none still
+    // offers Paid. A bill changed since stays open, to be asked again
+    // tomorrow; one that expired was closed by another answer, whose copies
+    // already say what it recorded.
+    const outcome = String((data as Record<string, unknown>).outcome);
+    if (outcome === "applied" || outcome === "not_autopay") await settleAutopayCopies(chatId, proposal, answering, settled.shown ?? settled.said);
     return;
   }
   if (buttons) {
@@ -946,11 +959,18 @@ export async function tradeDecided(
 // left as it is.
 async function settleAutopayCopies(chatId: number, proposal: ProposalRow, answering: Answering, text: string): Promise<void> {
   const done = answering.via !== "text" && answering.messageId != null ? answering.messageId : proposal.prompt_message_id;
+  const recurringId = proposal.payload?.recurring_id;
+  const dueDate = proposal.payload?.due_date;
+  if (!recurringId || !dueDate) return;
+  const { data: own } = await supabase.from("bot_proposals").select("household_id").eq("id", proposal.id).maybeSingle();
+  const householdId = (own as { household_id?: string } | null)?.household_id;
+  if (!householdId) return;
   const { data } = await supabase
     .from("bot_proposals")
     .select("id, chat_id, payload, prompt_message_id")
+    .eq("household_id", householdId)
     .eq("kind", "autopay_payment")
-    .contains("payload", { recurring_id: proposal.payload?.recurring_id, due_date: proposal.payload?.due_date });
+    .contains("payload", { recurring_id: recurringId, due_date: dueDate });
   for (const copy of (data ?? []) as Array<{ chat_id: number | string; payload: Record<string, unknown> | null; prompt_message_id: number | null }>) {
     const ids = new Set([...(((copy.payload?.asked_message_ids as number[] | undefined) ?? []).map(Number)), ...(copy.prompt_message_id != null ? [Number(copy.prompt_message_id)] : [])]);
     for (const id of ids) {
@@ -986,6 +1006,13 @@ export async function decideAutopay(
   if (proposal.status !== "proposed") {
     if (answering.via === "text") await reply(chatId, decidedProposalMessage(proposal));
     else await settleQuestion(chatId, proposal, answering, settledOutcome(proposal));
+    return;
+  }
+  // Its cycle over: tomorrow asks about the next one, so "not yet" is not
+  // promised another question about this one.
+  if (decision === "not_yet" && Date.parse(String(proposal.expires_at)) <= Date.now()) {
+    const closed = autopayClosedMessage(proposal);
+    await settleQuestion(chatId, proposal, answering, { said: closed, toast: closed });
     return;
   }
   if (decision === "not_yet") {

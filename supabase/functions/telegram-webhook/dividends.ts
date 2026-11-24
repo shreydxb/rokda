@@ -27,7 +27,7 @@ export const DIVIDEND_CLASSES = ["us_equity", "intl_equity", "india_equity"];
 export const DIVIDENDS_NOT_YET_REPLY = "Not yet · I'll ask about them again tomorrow";
 export const DIVIDENDS_ANSWERED = "Already recorded · another member answered this";
 
-export const DIVIDENDS_STALE_LEAD = "Something changed since I asked, so nothing was recorded. Here it is again:";
+export const DIVIDENDS_STALE_LEAD = "Changed since I asked. Here it is again:";
 
 // An amount per share keeps up to four digits ("USD 0.0625"); every other
 // amount is in the bot's one format (botFormat.js): "USD 10", "USD 10.50".
@@ -38,14 +38,14 @@ function perShare(amount: number | string, currency: string): string {
   return `${code} ${n.toLocaleString(code === "INR" ? "en-IN" : "en-US", { minimumFractionDigits: whole ? 0 : 2, maximumFractionDigits: 4 })}`;
 }
 
-function count(n: number | string): string {
-  return Number(n).toLocaleString("en-US", { maximumFractionDigits: 4 });
+function count(n: number | string, currency: string): string {
+  return Number(n).toLocaleString(String(currency).toUpperCase() === "INR" ? "en-IN" : "en-US", { maximumFractionDigits: 4 });
 }
 
 // "ABC · 40 × USD 0.25 = USD 10 · USD 3 withheld · USD 7": the net is shown
 // only when something was taken from the sum.
 function line(l: DividendLine, currency: string): string {
-  const parts = [`${l.holding_name} · ${count(l.units)} × ${perShare(l.per_share, currency)} = ${money(l.gross, currency)}`];
+  const parts = [`${l.holding_name} · ${count(l.units, currency)} × ${perShare(l.per_share, currency)} = ${money(l.gross, currency)}`];
   if (Number(l.tax) > 0) parts.push(`${money(l.tax, currency)} withheld`);
   if (Number(l.fees) > 0) parts.push(`${money(l.fees, currency)} fees`);
   if (Number(l.tax) > 0 || Number(l.fees) > 0) parts.push(money(l.net, currency));
@@ -113,7 +113,7 @@ export function dividendsRefusal(error: string): string {
     case "wrong_status":
       return "One of them was already recorded or skipped in the app, so nothing was recorded. Check them in the app.";
     default:
-      return `I couldn't record them (${error}). Nothing was saved; you can record them in the app.`;
+      return "Couldn't record them. Nothing saved — record them on the holding in the app.";
   }
 }
 
@@ -125,4 +125,4 @@ export function readsAsDividend(text: string | null | undefined): boolean {
 }
 
 export const DIVIDENDS_STALE_NONE =
-  "Something changed since I asked, so nothing was recorded. They were recorded or changed since, here or in the app, so nothing is left to ask about.";
+  "Changed since I asked: nothing recorded, and nothing left to ask about.";

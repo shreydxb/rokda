@@ -47,7 +47,7 @@ import { autopayAmountOnly, autopayAnswer } from "../_shared/applib/autopay.js";
 import { householdToday } from "../_shared/applib/day.js";
 import { resolveScopeMemberId } from "../_shared/applib/scope.js";
 import { isPrivateChat } from "../_shared/applib/telegramChat.js";
-import { ambiguousConfirmMessage, ambiguousDiscardMessage, ambiguousProposalMessage, dropUnavailableMessage, isCancellationText, isConfirmable, isConfirmationText, isReadyForFastConfirm, lookupUnavailableMessage, PROMPT_UNADDRESSED, resolveConfirmTarget, resolveCorrectionTarget, resolveProposalTarget, unknownPromptMessage } from "../_shared/applib/telegramConfirm.js";
+import { ambiguousConfirmMessage, ambiguousDiscardMessage, ambiguousProposalMessage, dropUnavailableMessage, isCancellationText, isConfirmable, isConfirmationText, isReadyForFastConfirm, lookupUnavailableMessage, PROMPT_FAILED, PROMPT_UNADDRESSED, resolveConfirmTarget, resolveCorrectionTarget, resolveProposalTarget, unknownPromptMessage } from "../_shared/applib/telegramConfirm.js";
 import { linkTokenDigest, linkTokenFromMessage, looksLikeLinkToken } from "../_shared/applib/telegramLink.js";
 import { secretsMatch } from "../_shared/requestAuth.ts";
 import { AI_BUSY_NOTHING_SAVED, AI_BUSY_REPLY, classifyAndRoute, NOT_AN_EXPENSE_REPLY, phraseAnswer } from "./ai.ts";
@@ -491,6 +491,11 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
       const amount = autopayAmountOnly(trimmedText);
       if (amount != null) {
         const asked = await proposalForPrompt(member.household_id, member.id, chatId, repliedTo);
+        // Not knowing what it replies to is not knowing it is an expense.
+        if (asked.kind === PROMPT_FAILED) {
+          await reply(chatId, lookupUnavailableMessage());
+          return new Response("ok");
+        }
         if (asked.row?.kind === "autopay_payment") {
           await decideAutopay(chatId, member.id, asked.row, "paid", amount);
           return new Response("ok");
@@ -537,9 +542,12 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
         await decideAutopay(chatId, member.id, target.row, confirming ? "paid" : "not_yet", confirming ? autopay.amount : null);
         return new Response("ok");
       }
-      // "Not yet" puts a dividend question off; a plain "no" (which an autopay
-      // question also reads as not yet) still answers it.
-      if (target.kind === "one" && target.row.kind === "dividends_received" && autopay.decision === "not_yet" && !strictNo) {
+      // "Not yet" puts a dividend question off, and so does a "no" to its
+      // "Arrived?" (the fresh review of 8c's second part: Leave for the app is
+      // its button). To the question about a confirmed balance, a "no" still
+      // records them as arriving after it.
+      const asksAboutBalance = (target.kind === "one" && (target.row.payload as { ask?: unknown } | null)?.ask != null);
+      if (target.kind === "one" && target.row.kind === "dividends_received" && autopay.decision === "not_yet" && (!strictNo || !asksAboutBalance)) {
         await dividendsNotYet(chatId, member.id, target.row);
         return new Response("ok");
       }

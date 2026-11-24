@@ -367,40 +367,64 @@ freshTest("a no whose lookup fails says nothing was dropped, and never to approv
 });
 
 // The revamp, phase 8c (review T13): the month-end check-in is its own
-// message after the morning one, with All unchanged under it.
-freshTest("All unchanged confirms every listed balance as it is, and the check-in says so", async () => {
-  seedCheckinHousehold();
-  for (const a of backend.tables.accounts) a.balance = a.id === CARD.id ? 1000 : 500;
-  const unchanged = { inline_keyboard: [[{ text: "All unchanged", callback_data: encodeChoice("B", MEMBER) }]] };
-  await handler(tapUpdate(7232, 4242, unchanged.inline_keyboard[0][0].callback_data));
-  const applied = backend.tables.bot_proposals.find((p) => p.kind === "account_balances")!;
-  assertEquals(applied.status, "applied");
-  assertEquals(((applied.payload as { items: Array<{ old_balance: number; new_balance: number }> }).items).every((i) => i.old_balance === i.new_balance), true);
-  for (const a of backend.tables.accounts) assert(a.balance_as_of, `${a.name} was not confirmed`);
-  const edit = backend.telegramCalls.filter((c) => c.method === "editMessageText").at(-1)!.body;
-  assertEquals(edit.message_id, 4242);
-  assert(String(edit.text).startsWith("✓ All unchanged, confirmed today\n✓ Bank · AED 500 · unchanged"), String(edit.text));
-  // A tap delivered again confirms nothing twice.
-  await handler(tapUpdate(7232, 4242, unchanged.inline_keyboard[0][0].callback_data));
-  assertEquals(backend.tables.bot_proposals.filter((p) => p.kind === "account_balances").length, 1);
-});
+// message after the morning one, with All unchanged under it. All unchanged
+// is the Save of a balance proposal made when the check-in is sent, holding
+// the figures it showed (the fresh review of 8c's second part).
 
-freshTest("All unchanged from someone else's check-in changes nothing", async () => {
+// A household on the 1st: two confirmed balances and a card never set.
+async function checkinSent(): Promise<{ id: number; buttons: Array<{ text: string; callback_data: string }>; proposal: Record<string, unknown> }> {
   seedCheckinHousehold();
-  await handler(tapUpdate(7241, 4242, encodeChoice("B", PARTNER)));
-  assertEquals(backend.tables.bot_proposals.length, 0);
-  assertEquals(String(backend.telegramCalls.filter((c) => c.method === "answerCallbackQuery").at(-1)?.body.text), "That isn't one of yours.");
-});
-
-freshTest("on the 1st the check-in goes to each member as its own message, with All unchanged, and is recorded once all got it", async () => {
-  seedCheckinHousehold();
+  const confirmed = "2026-11-20T08:00:00Z";
+  Object.assign(backend.tables.accounts.find((a) => a.id === MY_BANK.id)!, { balance: 500, balance_as_of: confirmed });
+  Object.assign(backend.tables.accounts.find((a) => a.id === SAM_BANK.id)!, { balance: 700, balance_as_of: confirmed });
   const { sent } = await runBalanceCheckin("2026-12-01");
   assertEquals(sent, 1);
-  const checkin = backend.telegramSent.find((m) => String(m.body.text).startsWith("November 2026 balances · what did each close at?"));
-  assert(checkin, "no check-in was sent");
-  assertEquals(((checkin.body.reply_markup as { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> }).inline_keyboard).flat(), [{ text: "All unchanged", callback_data: encodeChoice("B", MEMBER) }]);
+  const message = backend.telegramSent.find((m) => String(m.body.text).startsWith("November 2026 balances · what did each close at?"))!;
+  const proposal = backend.tables.bot_proposals.find((p) => p.kind === "account_balances")!;
+  const buttons = ((message.body.reply_markup as { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> }).inline_keyboard).flat();
+  return { id: Number(proposal.prompt_message_id), buttons, proposal };
+}
+
+freshTest("on the 1st the check-in goes to each member as its own message, with All unchanged, and is recorded once all got it", async () => {
+  const c = await checkinSent();
+  assertEquals(c.buttons, [{ text: "All unchanged", callback_data: encodeChoice("P", String(c.proposal.id)) }]);
+  // It holds the balances as the check-in showed them, never one never set.
+  const items = (c.proposal.payload as { items: Array<{ account_id: string; old_balance: number; new_balance: number }> }).items;
+  assertEquals(items.map((i) => [i.account_id, i.old_balance, i.new_balance]), [[MY_BANK.id, 500, 500], [SAM_BANK.id, 700, 700]]);
   assertEquals(backend.tables.brief_sends?.filter((r) => r.kind === "balance_checkin").length, 1);
   // Sent once a period.
   await runBalanceCheckin("2026-12-02");
   assertEquals(backend.telegramSent.filter((m) => String(m.body.text).startsWith("November 2026 balances")).length, 1);
+});
+
+freshTest("All unchanged confirms the balances the check-in showed, and says what it left out and why", async () => {
+  const c = await checkinSent();
+  // Changed in the app after the check-in was sent.
+  backend.tables.accounts.find((a) => a.id === SAM_BANK.id)!.balance = 12000;
+  await handler(tapUpdate(7232, c.id, c.buttons[0].callback_data));
+  assertEquals(c.proposal.status, "applied");
+  assert(backend.tables.accounts.find((a) => a.id === MY_BANK.id)!.balance_as_of !== "2026-11-20T08:00:00Z", "Bank was not confirmed");
+  assertEquals(backend.tables.accounts.find((a) => a.id === SAM_BANK.id)!.balance, 12000, "a newer figure from the app was overwritten");
+  assertEquals(backend.tables.accounts.find((a) => a.id === CARD.id)!.balance_as_of ?? null, null, "a balance never set was confirmed");
+  const edit = backend.telegramCalls.filter((c) => c.method === "editMessageText").at(-1)!.body;
+  assertEquals(edit.message_id, c.id);
+  assertEquals(String(edit.text).split("\n"), [
+    "✓ Bank · AED 500 · unchanged",
+    "Not saved · Bank reads AED 12,000 in the app now. Send it again if yours is right.",
+    "Not confirmed · Card •0004 has no balance yet: reply with it.",
+    "Not confirmed · EPF has no balance yet: reply with it.",
+  ]);
+  // A second tap says so, and confirms nothing twice.
+  await handler(tapUpdate(7233, c.id, c.buttons[0].callback_data));
+  assertEquals(String(backend.telegramCalls.filter((c) => c.method === "answerCallbackQuery").at(-1)?.body.text), "Already recorded.");
+  assertEquals(backend.tables.bot_proposals.filter((p) => p.kind === "account_balances").length, 1);
+});
+
+freshTest("a bare yes does not confirm a check-in; a tap from someone else changes nothing", async () => {
+  const c = await checkinSent();
+  await handler(textUpdate(7241, "yes"));
+  assertEquals(c.proposal.status, "proposed", "a bare yes confirmed the check-in");
+  backend.tables.household_members.push({ id: "a9000000-0000-4000-8000-0000000000f9", household_id: HOUSEHOLD, display_name: "Kid", telegram_user_id: 5151, role: "member" });
+  await handler(tapUpdate(7242, c.id, c.buttons[0].callback_data, 5151));
+  assertEquals(c.proposal.status, "proposed");
 });

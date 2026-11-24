@@ -51,7 +51,8 @@ export async function runWeeklyBriefCheck(digest: Digest): Promise<{ sent: numbe
 // (catching up until the 3rd) and summarises the month that just ended (see
 // buildMonthlyReviewMessage) -- by the time this runs, "this month" already
 // names the new one.
-// It heads that morning's digest, with the balance check-in after it.
+// It heads that morning's digest; the balance check-in follows the digest as
+// a question of its own.
 export async function runMonthlyBriefCheck(digest: Digest): Promise<{ sent: number }> {
   const periodKey = sendablePeriod(householdToday(), "monthly");
   if (!periodKey) return { sent: 0 };

@@ -89,7 +89,8 @@ Deno.test("dropped: how many, into which fund, for how much", () => {
 
 Deno.test("refused: a reason the member can act on", () => {
   assertEquals(dividendsRefusal("fund_archived"), "That fund is archived, so nothing was recorded. Record them in the app if they arrived elsewhere.");
-  assertEquals(dividendsRefusal("something_new"), "I couldn't record them (something_new). Nothing was saved; you can record them in the app.");
+  // No internal code: a reason the member can act on, in a few words.
+  assertEquals(dividendsRefusal("something_new"), "Couldn't record them. Nothing saved — record them on the holding in the app.");
 });
 
 Deno.test("reads as a dividend: the word, or div on its own", () => {

@@ -95,20 +95,6 @@ Deno.test("nothing to say sends nothing", async () => {
   assertEquals(sent.length, 0);
 });
 
-Deno.test("the balance check-in is recorded for the household only once every member got theirs", async () => {
-  const digest = new Digest();
-  const recorded: string[] = [];
-  digest.head([1], "Last month: AED 900.00 spent.", 10, () => {});
-  digest.head([1], "Balances for your accounts, please.", 20, () => {});
-  digest.head([2], "Balances for yours, please.", 20, () => {});
-  digest.afterAll([1, 2], () => void recorded.push("checkin"));
-  const first = fakeSender({ 2: "retry" });
-  await digest.send(first.send);
-  assertEquals(recorded, []);
-  assertEquals(first.sent.find((s) => s.chatId === 1)?.text, "Last month: AED 900.00 spent.\n\nBalances for your accounts, please.");
-  await digest.send(fakeSender().send);
-  assertEquals(recorded, ["checkin"]);
-});
 
 // The fresh review: a message over Telegram's 4,096 characters is refused
 // for good (a 400), which counted as delivered, so every line in it was

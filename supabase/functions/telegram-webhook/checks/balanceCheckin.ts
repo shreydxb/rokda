@@ -3,12 +3,11 @@
 // are written in the one format, with buttons (the revamp, phase 8c).
 import { day, money } from "../../_shared/applib/botFormat.js";
 import { householdToday } from "../../_shared/applib/day.js";
-import { isPrivateChat } from "../../_shared/applib/telegramChat.js";
-import { edit, encodeChoice, type Keyboard, RECORD_FAILED } from "../choices.ts";
-import { PROPOSAL_COLUMNS, proposalOutcomeMessage, sendProposal } from "../confirmations.ts";
+import { encodeChoice } from "../choices.ts";
+import { discardUnaskedProposal, sendProposal } from "../confirmations.ts";
 import { supabase } from "../env.ts";
 import { pickAccountByHint } from "../intake.ts";
-import { reply, sendReminder, tgCall } from "../transport.ts";
+import { reply, tgCall } from "../transport.ts";
 import { householdsWithLinkedTelegram, prefEnabled, sendablePeriod, telegramPrefsMap } from "./recipients.ts";
 
 // ---------------------------------------------------------------------------
@@ -64,7 +63,7 @@ export function balanceFigure(a: BalanceAccount): string {
 
 
 // The month-end check-in (the revamp, phase 8c; review T13): the list, one
-// line of how to reply, and All unchanged under it (checkinKeyboard).
+// line of how to reply, and All unchanged under it (runBalanceCheckin).
 export function buildBalanceCheckinMessage(accounts: BalanceAccount[], members: BalanceMember[], monthLabel: string, today = householdToday()): string {
   const owner = new Map(members.map((m) => [m.id, m.display_name]));
   // The example names a real member of the household, so it shows how to say
@@ -86,16 +85,20 @@ export function buildBalanceCheckinMessage(accounts: BalanceAccount[], members: 
   ].join("\n");
 }
 
-// All unchanged confirms every balance the check-in listed as it is today.
-// It names the member it was sent to, and only they can tap it.
-export function checkinKeyboard(memberId: string): Keyboard {
-  return { inline_keyboard: [[{ text: "All unchanged", callback_data: encodeChoice("B", memberId) }]] };
-}
-
 // The check-in goes to each member as its own message after the morning
-// one, with its button (review T23), and is recorded for the household once
-// every member got theirs (a member who blocked the bot counts as done). One
-// not delivered is tried again the next morning, up to the 3rd.
+// one (review T23), and is recorded for the household once every member got
+// theirs (a member who blocked the bot counts as done). One not delivered is
+// tried again the next morning, up to the 3rd, and a member already sent
+// theirs this month is not sent it again.
+//
+// All unchanged is the Save of a balance proposal made as the check-in is
+// sent, holding each balance as the check-in shows it (the fresh review of
+// 8c's second part): a tap confirms those figures, a balance changed in the
+// app since is left alone and said so (apply_bot_proposal), and a tap
+// Telegram delivers again, or a second one, finds it applied. A balance never
+// set is left out: confirming the 0 it shows would make "unknown" read as
+// nothing owed (QA-02). Only a reply to the check-in, never a bare "yes",
+// answers it (openProposals).
 export async function runBalanceCheckin(today = householdToday()): Promise<{ sent: number }> {
   // From the 1st, catching up until the 3rd while unsent (sendablePeriod).
   const periodKey = sendablePeriod(today, "monthly");
@@ -128,12 +131,12 @@ export async function runBalanceCheckin(today = householdToday()): Promise<{ sen
         const mine = accountsForCheckin((accounts ?? []) as BalanceAccount[], roster, m.id);
         if (!mine.length) continue;
         asked++;
-        const outcome = await sendReminder(m.telegram_user_id!, buildBalanceCheckinMessage(mine, roster, monthLabel, today), checkinKeyboard(m.id)).catch(() => "retry" as const);
+        const outcome = await sendCheckin(householdId, m, mine, buildBalanceCheckinMessage(mine, roster, monthLabel, today), periodKey);
         if (outcome === "retry") retry = true;
       }
       if (!asked || retry) continue;
-      await supabase.from("brief_sends").insert({ household_id: householdId, kind: "balance_checkin", period_key: periodKey });
-      sent++;
+      const { error } = await supabase.from("brief_sends").insert({ household_id: householdId, kind: "balance_checkin", period_key: periodKey });
+      if (!error) sent++;
     } catch {
       // One household's check-in failing must never block the rest.
     }
@@ -141,69 +144,51 @@ export async function runBalanceCheckin(today = householdToday()): Promise<{ sen
   return { sent };
 }
 
-// A tap on All unchanged: every balance the check-in lists for this member is
-// confirmed as it is today, through a balance proposal applied at once (the
-// tap is the answer, and nothing changes but the date each was confirmed). A
-// balance changed in the app since is left alone and said so, as for any
-// balance proposal. A tap Telegram delivers again finds the proposal it made.
-export async function handleCheckinTap(callback: Record<string, unknown>, memberId: string, updateId: unknown): Promise<Response> {
-  const from = callback.from as { id?: number } | undefined;
-  const message = callback.message as { message_id?: number; chat?: Record<string, unknown> } | undefined;
-  const chatId = message?.chat?.id as number | undefined;
-  const messageId = message?.message_id;
-  const toast = (text = "") => tgCall("answerCallbackQuery", { callback_query_id: callback.id, ...(text ? { text } : {}) }).catch(() => null);
-  if (!from?.id || !chatId || !messageId || !isPrivateChat(message?.chat) || chatId !== from.id) {
-    await toast();
-    return new Response("ok");
-  }
-  const { data: member } = await supabase.from("household_members").select("id, household_id").eq("telegram_user_id", from.id).maybeSingle();
-  if (!member || member.id !== memberId) {
-    await toast("That isn't one of yours.");
-    return new Response("ok");
-  }
-  const householdId = member.household_id as string;
-  const sourceRef = `unchanged:${String(updateId)}`;
-  let { data: row } = await supabase.from("bot_proposals").select(PROPOSAL_COLUMNS).eq("household_id", householdId).eq("source_ref", sourceRef).maybeSingle();
-  if (!row) {
-    const [{ data: accounts, error: accountsError }, { data: members, error: membersError }] = await Promise.all([
-      supabase.from("accounts").select("id, name, type, currency, balance, balance_as_of, owner_member_id, is_shared").eq("household_id", householdId).is("archived_at", null).order("created_at"),
-      supabase.from("household_members").select("id, display_name, telegram_user_id").eq("household_id", householdId),
-    ]);
-    if (accountsError || membersError) {
-      await toast(RECORD_FAILED);
-      return new Response("ok");
-    }
-    const mine = accountsForCheckin((accounts ?? []) as BalanceAccount[], (members ?? []) as BalanceMember[], member.id);
-    if (!mine.length) {
-      await toast("Nothing to confirm.");
-      return new Response("ok");
-    }
-    const items = mine.map((a) => {
-      const balance = a.balance == null ? null : Number(a.balance);
-      return { account_id: a.id, name: a.name, type: a.type, currency: a.currency, old_balance: balance, new_balance: balance ?? 0 };
-    });
-    const inserted = await supabase
+// One member's check-in and the proposal behind its All unchanged. "sent"
+// once it is out (or was this month already), "final" when Telegram refuses
+// it for good, "retry" otherwise; a proposal whose message never went out is
+// removed, so no tap can reach it.
+async function sendCheckin(householdId: string, m: BalanceMember, mine: BalanceAccount[], text: string, periodKey: string): Promise<"sent" | "final" | "retry"> {
+  const chatId = Number(m.telegram_user_id);
+  const sourceRef = `checkin:${periodKey}:${m.id}`;
+  const { data: before } = await supabase.from("bot_proposals").select("id, prompt_message_id").eq("household_id", householdId).eq("source_ref", sourceRef).maybeSingle();
+  if ((before as { prompt_message_id?: number | null } | null)?.prompt_message_id != null) return "sent";
+  if (before) await supabase.from("bot_proposals").delete().eq("id", (before as { id: string }).id).is("prompt_message_id", null);
+
+  const items = mine.filter((a) => a.balance_as_of != null).map((a) => {
+    const balance = Number(a.balance ?? 0);
+    return { account_id: a.id, name: a.name, type: a.type, currency: a.currency, old_balance: balance, new_balance: balance };
+  });
+  const neverSet = mine.filter((a) => a.balance_as_of == null).map((a) => a.name);
+  let proposalId: string | null = null;
+  if (items.length) {
+    const { data, error } = await supabase
       .from("bot_proposals")
-      .insert({ household_id: householdId, member_id: member.id, kind: "account_balances", payload: { items }, chat_id: chatId, source_ref: sourceRef, prompt_message_id: messageId })
-      .select(PROPOSAL_COLUMNS)
+      .insert({
+        household_id: householdId, member_id: m.id, kind: "account_balances", payload: { items, checkin: periodKey, never_set: neverSet },
+        chat_id: chatId, source_ref: sourceRef, expires_at: new Date(Date.now() + CHECKIN_ANSWERABLE_MS).toISOString(),
+      })
+      .select("id")
       .single();
-    if (inserted.error || !inserted.data) {
-      await toast(RECORD_FAILED);
-      return new Response("ok");
-    }
-    row = inserted.data;
+    if (error || !data) return "retry";
+    proposalId = String((data as { id: string }).id);
   }
-  const { data, error } = await supabase.rpc("apply_bot_proposal", { p_proposal_id: (row as { id: string }).id, p_member_id: member.id });
-  if (error || !data || typeof data !== "object" || (data as { outcome?: string }).outcome !== "applied") {
-    await toast(RECORD_FAILED);
-    return new Response("ok");
+  const keyboard = proposalId ? { inline_keyboard: [[{ text: "All unchanged", callback_data: encodeChoice("P", proposalId) }]] } : null;
+  const res = (await tgCall("sendMessage", { chat_id: chatId, text, ...(keyboard ? { reply_markup: keyboard } : {}) }).catch(() => null)) as { ok?: boolean; error_code?: number; result?: { message_id?: number } } | null;
+  const messageId = res?.ok ? res.result?.message_id ?? null : null;
+  if (messageId == null) {
+    if (proposalId) await discardUnaskedProposal(proposalId);
+    return res && (res.error_code === 400 || res.error_code === 403) ? "final" : "retry";
   }
-  const result = data as Record<string, unknown>;
-  const repeat = result.result != null;
-  await toast(repeat ? "Already confirmed." : "Confirmed.");
-  await edit(chatId, messageId, `✓ All unchanged, confirmed today\n${proposalOutcomeMessage(repeat ? { outcome: "applied", ...(result.result as Record<string, unknown>) } : result)}`);
-  return new Response("ok");
+  if (proposalId) {
+    let bound = await supabase.from("bot_proposals").update({ prompt_message_id: messageId }).eq("id", proposalId);
+    if (bound.error) bound = await supabase.from("bot_proposals").update({ prompt_message_id: messageId }).eq("id", proposalId);
+  }
+  return "sent";
 }
+
+// All unchanged can be tapped for a week after the check-in.
+const CHECKIN_ANSWERABLE_MS = 7 * 24 * 60 * 60 * 1000;
 
 
 // Which account a stated balance is for. Two members can each have an

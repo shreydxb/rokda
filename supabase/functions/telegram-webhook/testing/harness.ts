@@ -274,7 +274,15 @@ export function matches(row: Row, params: URLSearchParams): boolean {
   return true;
 }
 
+// Further unique keys, which, as in Postgres, a row with any of them null
+// never breaks: bot_proposals_prompt_key, one proposal a question message.
+export const UNIQUE_ALSO: Record<string, string[]> = {
+  bot_proposals: ["chat_id", "prompt_message_id"],
+};
+
 export function violatesUnique(table: string, row: Row): boolean {
+  const also = UNIQUE_ALSO[table];
+  if (also && also.every((k) => row[k] != null) && backend.tables[table].some((r) => also.every((k) => r[k] === row[k]))) return true;
   const key = UNIQUE[table];
   if (!key || (key.includes("source_ref") && row.source_ref == null)) return false;
   return backend.tables[table].some((r) => key.every((k) => r[k] === row[k]));
