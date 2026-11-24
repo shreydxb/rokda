@@ -4879,3 +4879,43 @@ UI review's T10 to T13). Every typed answer and reaction still works.
   - **The morning job clears old rows before it reports a failed check**,
     so one check that keeps failing no longer stops it. An autopay question
     that can't be answered gives its date in the one format.
+
+## The bot: commands and linking
+
+The revamp's phase 8d (the UI review's T19 and T20; the design note
+`docs/superpowers/specs/2026-11-23-telegram-bot-design.md`). The bot had no
+/help and no command menu, /start from a linked account went to the AI, and
+the reply on linking was a long sentence of examples.
+
+- **A command menu of four**: /help, /brief, /inbox and /undo, registered by
+  the setup (`?setup=1`, `setMyCommands`) from the same list /help gives, so
+  the two never disagree. The setup must be run once after this deploys for
+  the menu to appear.
+- **/help is a few lines**: what to send, what a paste of several does, what
+  to ask, the statement routine and the morning, then the commands. It is
+  where the explanations go that the short failure lines (8a) left out, and
+  the statement routine the reminder no longer spells out (decision 5 of
+  the design note): "check it against Rokda in Month end, or send the PDF to
+  Claude, then tap Checked".
+- **/start from a linked account, and a command the bot does not know, get
+  help.** Neither is an expense or a question; both went to the AI.
+- **/inbox counts as the app's sidebar does**: the household's pending
+  entries, "99+" past 99, with Open Inbox when `APP_URL` is set; "The Inbox
+  is clear." when none wait.
+- **/undo takes back the sender's latest Record from the last ten minutes**,
+  through the same database check as the Undo button
+  (`undo_intake_approval`). To know what the bot's own Record made without
+  finding its message, the bot notes each Record in a new table,
+  `bot_recordings` (the entry, the member, the transaction), which only the
+  bot's service role can read or write: a member who could write a row could
+  name an approval made in the app as the bot's. A row goes with its
+  transaction or its entry, so an undo leaves nothing for /undo to find, and
+  a second /undo takes back the Record before. Only a single expense's Record
+  is noted, as only it offers Undo; a pasted list's Record all does not.
+  Undone, the line that said `✓ …` says `Undone · …` and loses its button,
+  and the entry is sent again under the /undo with its buttons, as a typed
+  "yes" gets its answer as a new message. Left recorded (changed in the app,
+  or too late), the line loses its Undo and the reply says why, as the
+  button's does. A row that fails to save costs /undo, never the Record.
+- **Linking says who, what to send and where help is**: `Linked as Alex.
+  Send a receipt, "42 groceries", or a question. /help for more.`

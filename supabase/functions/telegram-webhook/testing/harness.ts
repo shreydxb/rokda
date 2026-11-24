@@ -137,6 +137,7 @@ export function reset(): void {
       category_rules: [],
       telegram_notification_prefs: [],
       holding_dividends: [],
+      bot_recordings: [],
     },
     log: new Map(),
     telegramSent: [],
@@ -162,11 +163,13 @@ export const UNIQUE: Record<string, string[]> = {
   goal_contributions: ["goal_id", "source", "source_ref"],
   bot_proposals: ["household_id", "source_ref"],
   statement_reconciliations: ["account_id", "statement_date"],
+  bot_recordings: ["intake_id"],
 };
 
 // Column defaults the real schema fills in. A proposal's times are on the
 // real clock, because the handler compares them with Date.now().
 export const DEFAULTS: Record<string, () => Row> = {
+  bot_recordings: () => ({ recorded_at: new Date().toISOString() }),
   bot_proposals: () => ({
     status: "proposed",
     created_at: new Date().toISOString(),
@@ -257,6 +260,9 @@ export function matches(row: Row, params: URLSearchParams): boolean {
         break;
       case "lte":
         ok = cell != null && (typeof cell === "number" ? cell <= Number(value) : String(cell) <= value);
+        break;
+      case "lt":
+        ok = cell != null && (typeof cell === "number" ? cell < Number(value) : String(cell) < value);
         break;
       case "lt":
         ok = cell != null && String(cell) < value;
@@ -635,6 +641,8 @@ export async function rpc(req: Request, fn: string): Promise<Response> {
     if (row.transaction_id !== args.p_transaction_id) return json({ outcome: "changed" });
     if (backend.undoOutcome) return json({ outcome: backend.undoOutcome });
     backend.tables.transactions = backend.tables.transactions.filter((t) => t.id !== row.transaction_id);
+    // As the bot_recordings foreign key: its row goes with the transaction.
+    backend.tables.bot_recordings = backend.tables.bot_recordings.filter((r) => r.transaction_id !== row.transaction_id);
     Object.assign(row, { status: "pending", transaction_id: null });
     return json({ outcome: "undone" });
   }

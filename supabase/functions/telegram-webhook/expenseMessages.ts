@@ -38,6 +38,12 @@ export function recordedText(v: ExpenseView): string {
   return `✓ ${facts(head(v), v.category)}`;
 }
 
+// What a recorded expense's line becomes once /undo takes it back
+// (commands.ts): it is sent again below, with its buttons.
+export function undoneText(v: ExpenseView): string {
+  return `Undone · ${facts(head(v), v.category)}`;
+}
+
 export function cancelledText(v: ExpenseView): string {
   return `Cancelled · ${head(v)}`;
 }

@@ -1,7 +1,7 @@
 // What the bot says about one expense (expenseMessages.ts): two short lines
 // before it is recorded, one after, and why it waits when it waits.
 import { assertEquals } from "jsr:@std/assert@1";
-import { askText, cancelledText, inboxReason, inboxText, readyText, recordedText } from "./expenseMessages.ts";
+import { askText, cancelledText, inboxReason, inboxText, readyText, recordedText, undoneText } from "./expenseMessages.ts";
 
 const TODAY = "2026-10-20";
 const BAKERY = { merchant: "Bakery", amount: 42, currency: "AED", date: "2026-10-03", kind: "expense", category: "Groceries", account: "Bank card" };
@@ -17,10 +17,11 @@ Deno.test("income and a refund say so first", () => {
   assertEquals(readyText({ ...BAKERY, kind: "income", merchant: "Employer", category: "Salary" }, TODAY), "Income · Employer · AED 42\nSalary · Bank card · 3 Oct");
 });
 
-Deno.test("recorded is one line with a tick and its category; cancelled says so", () => {
+Deno.test("recorded is one line with a tick and its category; cancelled and undone say so", () => {
   assertEquals(recordedText(BAKERY), "✓ Bakery · AED 42 · Groceries");
   assertEquals(recordedText({ ...BAKERY, kind: "income", merchant: "Employer", category: null }), "✓ Income · Employer · AED 42");
   assertEquals(cancelledText(BAKERY), "Cancelled · Bakery · AED 42");
+  assertEquals(undoneText(BAKERY), "Undone · Bakery · AED 42 · Groceries");
 });
 
 Deno.test("a question about a missing category or card shows what was read, then asks", () => {

@@ -137,9 +137,10 @@ export async function confirmCandidates(
 // with Undo. A typed "yes" gets the tick line with Undo as a new message, tied
 // to the entry so its Undo works, and the message it answered loses its
 // buttons: an answer further up the chat is not left out of sight.
-export async function confirmPendingIntake(chatId: number, householdId: string, row: PendingIntakeRow, via: "text" | "reaction" = "text"): Promise<void> {
+export async function confirmPendingIntake(chatId: number, member: { id: string; household_id: string }, row: PendingIntakeRow, via: "text" | "reaction" = "text"): Promise<void> {
+  const householdId = member.household_id;
   const promptId = Number(row.confirm_chat_id) === chatId && row.confirm_message_id != null ? Number(row.confirm_message_id) : null;
-  const outcome = await recordEntry(householdId, row);
+  const outcome = await recordEntry(householdId, member.id, row);
   if (outcome.kind === "failed" || outcome.kind === "unchecked") {
     await reply(chatId, outcome.kind === "failed" ? RECORD_FAILED : RECORD_UNCHECKED);
     return;
@@ -288,7 +289,7 @@ export async function handleReaction(reaction: Record<string, unknown>, updateId
   }
   const look = await intakeForPrompt(member.household_id, member.id, chatId, messageId ?? null);
   const target = resolveConfirmTarget({ lookup: look.kind, row: look.row });
-  if (target.kind === "one") await confirmPendingIntake(chatId, member.household_id, target.row, "reaction");
+  if (target.kind === "one") await confirmPendingIntake(chatId, member, target.row, "reaction");
   else if (target.kind === "unavailable") await reply(chatId, lookupUnavailableMessage());
   // 'unknown' and 'none' stay silent here: a reaction on an ordinary message
   // is not a question, and answering every stray 👍 would be noise.

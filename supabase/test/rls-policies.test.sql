@@ -506,6 +506,27 @@ begin
   raise notice 'bot proposals ok: own household only, read-only, applied only by the bot';
 end $$;
 
+-- What the bot recorded (the revamp, phase 8d): only the bot reads it. A
+-- member who could write a row could name the partner's approval in the app
+-- as the bot's, for /undo to take back.
+do $$
+begin
+  begin
+    perform 1 from bot_recordings;
+    raise exception 'bot recordings FAILED: a member read them';
+  exception
+    when insufficient_privilege then null;
+  end;
+  begin
+    insert into bot_recordings (intake_id, household_id, member_id, transaction_id)
+    values (gen_random_uuid(), 'd1000000-0000-0000-0000-000000000001', 'e1000000-0000-0000-0000-00000000000a', gen_random_uuid());
+    raise exception 'bot recordings FAILED: a member wrote one';
+  exception
+    when insufficient_privilege then null;
+  end;
+  raise notice 'bot recordings ok: the bot''s alone';
+end $$;
+
 -- Card statements: a member sees and marks their own household's, never
 -- another's, and cannot delete one. Only the bot reads merchant history
 -- through merchant_category_counts().
