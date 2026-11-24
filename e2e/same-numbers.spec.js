@@ -9,7 +9,12 @@ import { stubSupabase, txn, dayThisMonth, ids, pickInShell } from './fixtures.js
 const pad = (n) => String(n).padStart(2, '0');
 const now = new Date();
 const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 15);
-const nextWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7);
+// Something still to come this month is "scheduled", so the page is given a
+// day with a week of the month left: today, or the 20th late in a month.
+// From the 24th, "next week" fell in the next month and nothing was
+// scheduled.
+const today = new Date(now.getFullYear(), now.getMonth(), Math.min(now.getDate(), 20), now.getHours(), now.getMinutes());
+const nextWeek = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 7);
 const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 
 const TRANSACTIONS = [
@@ -20,6 +25,7 @@ const TRANSACTIONS = [
 ];
 
 async function openMoney(page, tab) {
+  await page.clock.setFixedTime(today);
   await stubSupabase(page, { tables: { transactions: TRANSACTIONS } });
   await page.goto('/money', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('.om-main .ov-skel')).toHaveCount(0, { timeout: 15_000 });
