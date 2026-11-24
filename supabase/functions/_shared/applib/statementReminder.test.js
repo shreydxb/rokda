@@ -2,17 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { statementAlreadySettledMessage, statementAnswer, statementAskDue, statementDoneMessage, statementNotYetMessage, statementQuestion, statementReactionDecision, statementSentMessage } from './statementReminder.js';
 
 describe('statementQuestion', () => {
-  it('names the card, the close and the due date, and says how to answer', () => {
-    const q = statementQuestion({ cardName: 'Bank card', statementDate: '2026-09-28', dueDate: '2026-10-22' });
-    expect(q).toContain('Bank card statement closed on 28 Sept');
-    expect(q).toContain('Payment is due 22 Oct');
-    expect(q).toContain('reply "done"');
+  // The revamp, phase 8c (review T11, decision 5): one line, answered with
+  // Checked; it no longer tells anyone to send the PDF elsewhere.
+  it('names the card, the close and the due date in one line', () => {
+    expect(statementQuestion({ cardName: 'Bank card', statementDate: '2026-09-28', dueDate: '2026-10-22' }, { today: '2026-09-29' })).toBe('Bank card statement closed 28 Sep · due 22 Oct.');
   });
 
-  it('is shorter as a reminder, and leaves out a due date it does not know', () => {
-    const q = statementQuestion({ cardName: 'Bank card', statementDate: '2026-10-02', dueDate: null }, { reminder: true });
-    expect(q).toMatch(/^Reminder: the Bank card statement from 2 Oct hasn't been reconciled yet\.\n/);
-    expect(q).not.toContain('due');
+  it('says it is still to check as a reminder, and leaves out a due date it does not know', () => {
+    expect(statementQuestion({ cardName: 'Bank card', statementDate: '2026-10-02', dueDate: null }, { reminder: true, today: '2026-10-12' })).toBe('Bank card statement from 2 Oct still to check.');
   });
 });
 
@@ -46,14 +43,14 @@ describe('statementReactionDecision', () => {
 });
 
 describe('replies', () => {
-  it('says done, not reconciled, for a member\'s answer', () => {
-    expect(statementDoneMessage('Bank card', '2026-09-28')).toBe('Thanks. The Bank card statement from 28 Sept is marked as done.');
+  it('says checked, not reconciled, for a member\'s answer', () => {
+    expect(statementDoneMessage('Bank card', '2026-09-28', '2026-10-01')).toBe('✓ Bank card statement · 28 Sep · checked');
   });
 
   it('says what a statement already settled is, rather than that this answer settled it', () => {
-    expect(statementAlreadySettledMessage('Bank card', '2026-09-28', 'mismatch')).toContain("doesn't match Rokda");
-    expect(statementAlreadySettledMessage('Bank card', '2026-09-28', 'reconciled')).toContain('already been reconciled');
-    expect(statementAlreadySettledMessage('Bank card', '2026-09-28', 'confirmed')).toContain('already marked as done');
+    expect(statementAlreadySettledMessage('Bank card', '2026-09-28', 'mismatch', '2026-10-01')).toBe("Bank card statement · 28 Sep · doesn't match Rokda. Resolve it in Month end.");
+    expect(statementAlreadySettledMessage('Bank card', '2026-09-28', 'reconciled', '2026-10-01')).toBe('✓ Bank card statement · 28 Sep · reconciled already');
+    expect(statementAlreadySettledMessage('Bank card', '2026-09-28', 'confirmed', '2026-10-01')).toBe('✓ Bank card statement · 28 Sep · checked already');
   });
 });
 
@@ -88,5 +85,6 @@ describe('the answers to "not yet" and "sent"', () => {
     expect(statementNotYetMessage('Bank card')).not.toContain('tomorrow');
     expect(statementSentMessage('Bank card')).not.toContain('tomorrow');
     expect(statementQuestion({ cardName: 'Bank card', statementDate: '2026-09-28', dueDate: '2026-10-22' })).not.toContain('tomorrow');
+    expect(statementNotYetMessage('Bank card')).toBe('Not yet · Bank card statement · it stays open in Month end');
   });
 });

@@ -156,7 +156,7 @@ freshTest("the morning message comes before the day's questions, with Open Overv
   const morning = texts.findIndex((t) => t.includes(`Rent · Late · was due`));
   // The question by its own words: on a Monday the morning message's weekly
   // brief names the bill among those coming up.
-  const question = texts.findIndex((t) => /Car EMI.*deducted/s.test(t));
+  const question = texts.findIndex((t) => /Car EMI.*Gone out\?/s.test(t));
   assert(morning >= 0 && question >= 0, texts.join("\n---\n"));
   assert(morning < question, "a question went out before the morning message");
   const buttons = ((backend.telegramSent[morning].body.reply_markup as Row | undefined)?.inline_keyboard ?? []) as Array<Array<Row>>;
@@ -181,6 +181,11 @@ freshTest("a morning message whose button Telegram refuses still goes out, witho
   assertEquals(backend.tables.recurring_nudges.length, 1);
 });
 
+// What the bot last turned a message into: a 👍 answers a question in place.
+function lastEdit(): string {
+  return String(backend.telegramCalls.filter((c) => c.method === "editMessageText").at(-1)?.body.text ?? "");
+}
+
 // A bill on autopay from a bank account, due today.
 function seedAutopayBill(): void {
   backend.tables.recurring.push({
@@ -191,7 +196,7 @@ function seedAutopayBill(): void {
 }
 
 function autopayQuestions(): Array<{ method: string; body: Row }> {
-  return backend.telegramSent.filter((m) => /deducted/.test(String(m.body.text)));
+  return backend.telegramSent.filter((m) => /Gone out( yet)?\?$/.test(String(m.body.text)));
 }
 
 async function askedEmi(): Promise<Row> {
@@ -208,7 +213,7 @@ freshTest("an autopay bill is asked about on its due date, once a day", async ()
   const proposal = await askedEmi();
   const questions = autopayQuestions();
   assertEquals(questions.length, 1);
-  assert(/Car EMI \(AED 2,000.00\) was due today/.test(String(questions[0].body.text)), String(questions[0].body.text));
+  assertEquals(String(questions[0].body.text), "Car EMI · AED 2,000 · due today from Bank. Gone out?");
   assertEquals((proposal.payload as Row).asked_message_ids, [proposal.prompt_message_id]);
   assertEquals((proposal.payload as Row).last_asked_on, dubaiToday());
 
@@ -229,10 +234,10 @@ freshTest("an autopay question keeps the bill's account, and a changed bill reco
   bill.account_id = "a7000000-0000-4000-8000-0000000000b2";
   await handler(reactionUpdate(9201, Number(proposal.prompt_message_id), "👍"));
   assertEquals(backend.tables.transactions.length, 0);
-  assert(/^Car EMI has moved to another account or category in Rokda since I asked/.test(lastReply()), lastReply());
+  assert(/^Car EMI changed in Rokda since I asked: nothing recorded\./.test(lastEdit()), lastEdit());
   // Not a dead end: the question stays open, and the morning check asks
   // again about the bill as it is now.
-  assert(lastReply().includes("I'll ask again tomorrow"), lastReply());
+  assert(lastEdit().includes("I'll ask again tomorrow"), lastEdit());
   assertEquals(proposal.status, "proposed");
   (proposal.payload as Row).last_asked_on = "2000-01-01";
   const res = await handler(dailyCheck());
@@ -249,7 +254,7 @@ freshTest("a yes after the bill came off autopay closes its question and says it
   bill.autopay = false;
   await handler(textUpdate(9301, "paid"));
   assertEquals(backend.tables.transactions.length, 0);
-  assert(/^Car EMI is no longer on autopay in Rokda/.test(lastReply()), lastReply());
+  assert(/^Car EMI isn't on autopay any more: nothing recorded\./.test(lastReply()), lastReply());
   assertEquals(proposal.status, "expired");
   // Nothing is left waiting for a bare answer.
   await handler(textUpdate(9302, "yes"));
@@ -277,7 +282,7 @@ freshTest("a reminder after the bill moved account asks about the new one, and i
   await handler(reactionUpdate(9202, Number(proposal.prompt_message_id), "👍"));
   assertEquals(backend.tables.transactions.length, 1);
   assertEquals(backend.tables.transactions[0].account_id, "a7000000-0000-4000-8000-0000000000b2");
-  assert(/^Recorded: Car EMI/.test(lastReply()), lastReply());
+  assert(/^✓ Car EMI/.test(lastEdit()), lastEdit());
 });
 
 freshTest("the next morning's reminder can be answered, and so can the first question", async () => {
@@ -289,14 +294,17 @@ freshTest("the next morning's reminder can be answered, and so can the first que
   await res.body?.cancel();
   const questions = autopayQuestions();
   assertEquals(questions.length, 2);
-  assert(String(questions[1].body.text).startsWith("Reminder: has Car EMI"), String(questions[1].body.text));
+  assert(/^Car EMI · AED 2,000 · due .* from Bank\. Gone out yet\?$/.test(String(questions[1].body.text)), String(questions[1].body.text));
   assertEquals(((proposal.payload as Row).asked_message_ids as number[]).length, 2);
 
   // A 👍 on yesterday's message still records it.
   await handler(reactionUpdate(9101, first, "👍"));
   assertEquals(backend.tables.transactions.length, 1);
   assertEquals(backend.tables.transactions[0].amount, -2000);
-  assert(/^Recorded: Car EMI, AED 2000.00/.test(lastReply()), lastReply());
+  // The message the 👍 was on becomes the tick line.
+  const edit = backend.telegramCalls.filter((c) => c.method === "editMessageText").at(-1)!.body;
+  assertEquals(edit.message_id, first);
+  assert(/^✓ Car EMI · AED 2,000 · /.test(String(edit.text)), String(edit.text));
   assertEquals(proposal.status, "applied");
 });
 
@@ -308,7 +316,7 @@ freshTest("a bare \"paid\" hours after the question records the bill", async () 
   await handler(textUpdate(9102, "it's paid ✅"));
   assertEquals(backend.applyCalls, 1);
   assertEquals(backend.tables.transactions.length, 1);
-  assert(/^Recorded: Car EMI/.test(lastReply()), lastReply());
+  assert(/^✓ Car EMI/.test(lastReply()), lastReply());
   assertEquals(capturedIntake().length, 0);
 });
 
@@ -318,7 +326,7 @@ freshTest("\"not yet\" keeps the question open, and a \"paid\" later the same da
   assertEquals(backend.applyCalls, 0);
   assertEquals(proposal.status, "proposed");
   assertEquals((proposal.payload as Row).not_yet_on, dubaiToday());
-  assert(/I'll ask again tomorrow morning/.test(lastReply()), lastReply());
+  assert(/I'll ask again tomorrow$/.test(lastReply()), lastReply());
 
   await handler(replyUpdate(9104, "deducted", Number(proposal.prompt_message_id)));
   assertEquals(backend.tables.transactions.length, 1);
@@ -329,7 +337,7 @@ freshTest("a 👎 on the question means not yet", async () => {
   await handler(reactionUpdate(9105, Number(proposal.prompt_message_id), "👎"));
   assertEquals(backend.applyCalls, 0);
   assertEquals(proposal.status, "proposed");
-  assert(/I'll ask again tomorrow morning/.test(lastReply()), lastReply());
+  assert(/I'll ask again tomorrow$/.test(lastReply()), lastReply());
 });
 
 freshTest("an amount given with the answer is the amount recorded", async () => {
@@ -431,7 +439,7 @@ function seedStatementCard(over: Row = {}): string {
 }
 
 function statementQuestions(): Array<{ method: string; body: Row }> {
-  return backend.telegramSent.filter((m) => /^(Your .* statement closed on|Reminder: the .* statement from)/.test(String(m.body.text)));
+  return backend.telegramSent.filter((m) => /^.* statement (closed|from .* still to check)/.test(String(m.body.text)));
 }
 
 async function askedStatement(): Promise<Row> {
@@ -449,7 +457,7 @@ freshTest("a card statement is asked about the day after it closes, once a day",
   const row = await askedStatement();
   const questions = statementQuestions();
   assertEquals(questions.length, 1);
-  assert(/^Your Bank card statement closed on /.test(String(questions[0].body.text)), String(questions[0].body.text));
+  assert(/^Bank card statement closed \d+ \w+\.$/.test(String(questions[0].body.text)), String(questions[0].body.text));
   assertEquals(row.status, "waiting");
   assertEquals(row.asked_prompts, [{ chat_id: TELEGRAM_USER, message_id: (row.asked_prompts as Row[])[0].message_id, member_id: MEMBER }]);
   assertEquals(row.last_asked_on, dubaiToday());
@@ -476,12 +484,15 @@ freshTest("the next morning asks nothing; three days before it is due, one remin
   const res = await handler(dailyCheck());
   await res.body?.cancel();
   assertEquals(statementQuestions().length, 2);
-  assert(String(statementQuestions()[1].body.text).startsWith("Reminder: the Bank card statement"), String(statementQuestions()[1].body.text));
+  assert(/^Bank card statement from .* still to check · due /.test(String(statementQuestions()[1].body.text)), String(statementQuestions()[1].body.text));
 
+  const sent = backend.telegramSent.length;
   await handler(reactionUpdate(9211, first, "👍"));
   assertEquals(row.status, "confirmed");
   assertEquals(row.closed_by_member_id, MEMBER);
-  assert(/is marked as done\.$/.test(lastReply()), lastReply());
+  // A 👍 turns the questions into the outcome, with no new message.
+  assertEquals(backend.telegramSent.length, sent);
+  assert(backend.telegramCalls.some((c) => c.method === "editMessageText" && c.body.message_id === first && /· checked$/.test(String(c.body.text))), "the question was not marked checked");
 
   // Done means no more questions.
   row.last_asked_on = dubaiDaysAgo(10);
@@ -560,7 +571,7 @@ freshTest("a reply in another chat to a message with the same id does not settle
   await handler(partnerUpdate(9220, { text: "yes", reply_to_message: { message_id: firstPrompt(row) } }));
   await handler(partnerUpdate(9221, { text: "done", reply_to_message: { message_id: firstPrompt(row) } }));
   assertEquals(row.status, "waiting");
-  assert(!backend.telegramSent.some((m) => /marked as done/.test(String(m.body.text))), "a statement was reported done");
+  assert(!backend.telegramSent.some((m) => /· checked$/.test(String(m.body.text))), "a statement was reported done");
 });
 
 freshTest("a reaction in another chat on a message with the same id does not settle a statement", async () => {
@@ -596,7 +607,7 @@ freshTest("a refused write is not reported as done", async () => {
   backend.faults.failWrites = ["statement_reconciliations"];
   await handler(replyUpdate(9225, "done", firstPrompt(row)));
   assertEquals(row.status, "waiting");
-  assert(/couldn't save that/.test(lastReply()), lastReply());
+  assert(/^Couldn't save that/.test(lastReply()), lastReply());
 });
 
 freshTest("an answer to a statement settled in between says what it is now", async () => {
@@ -612,7 +623,7 @@ freshTest("\"sent to Claude\" keeps the statement waiting, and asks nothing more
   const row = await askedStatement();
   await handler(replyUpdate(9227, "sent to Claude", firstPrompt(row)));
   assertEquals(row.status, "waiting");
-  assert(/until it has been checked/.test(lastReply()), lastReply());
+  assert(/until it's checked/.test(lastReply()), lastReply());
   row.last_asked_on = dubaiDaysAgo(1);
   const later = await handler(dailyCheck());
   await later.body?.cancel();

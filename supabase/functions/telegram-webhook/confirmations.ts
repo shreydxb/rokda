@@ -1,6 +1,6 @@
 // Part of the Telegram webhook (index.ts), split out by responsibility in
 // the round 2 cleanup (SHR-383). Moved, not changed.
-import { autopayNotYetMessage, autopayReactionDecision, shortDay } from "../_shared/applib/autopay.js";
+import { AUTOPAY_OTHER_AMOUNT, autopayNotYetMessage, autopayReactionDecision, autopayRecordedLine, autopayWhat, shortDay } from "../_shared/applib/autopay.js";
 import { householdToday } from "../_shared/applib/day.js";
 import { statementLookupFailedMessage, statementReactionDecision } from "../_shared/applib/statementReminder.js";
 import { isPrivateChat } from "../_shared/applib/telegramChat.js";
@@ -233,7 +233,7 @@ export async function handleReaction(reaction: Record<string, unknown>, updateId
   }
   if (statement.kind === "found") {
     const decision = emojis.map(statementReactionDecision).find((d) => d != null) ?? null;
-    if (decision && statement.row.status === "waiting") await decideStatement(chatId, member.id, statement.row, decision);
+    if (decision && statement.row.status === "waiting") await decideStatement(chatId, member.id, statement.row, decision, { via: "reaction" });
     return new Response("ok");
   }
 
@@ -247,7 +247,7 @@ export async function handleReaction(reaction: Record<string, unknown>, updateId
   }
   if (proposal.kind === PROMPT_FOUND && proposal.row) {
     if (proposal.row.kind === "autopay_payment") {
-      if (proposal.row.status === "proposed" && autopayDecision) await decideAutopay(chatId, member.id, proposal.row, autopayDecision);
+      if (proposal.row.status === "proposed" && autopayDecision) await decideAutopay(chatId, member.id, proposal.row, autopayDecision, null, { via: "reaction", messageId: messageId ?? undefined });
       return new Response("ok");
     }
     if (proposal.row.kind === "dividends_received" && !thumbsUp && autopayDecision === "not_yet") {
@@ -530,14 +530,14 @@ export function proposalOutcomeMessage(data: Record<string, unknown>): string {
   // the question closed, since the morning check will not ask about it again.
   if (outcome === "not_autopay") {
     const bill = ((data.skipped as Array<{ name?: string }> | undefined) ?? [])[0];
-    return `${bill?.name ?? "That bill"} is no longer on autopay in Rokda, so nothing was recorded and I won't ask about it again. If you paid it yourself, record it with Mark paid under Money → Recurring.`;
+    return `${bill?.name ?? "That bill"} isn't on autopay any more: nothing recorded. If you paid it, use Mark paid in Money → Recurring.`;
   }
   // An autopay bill moved account or category since it was asked: nothing
   // recorded, and the question left open to be asked again about the bill as
   // it is now.
   if (outcome === "changed") {
     const bill = ((data.skipped as Array<{ name?: string }> | undefined) ?? [])[0];
-    return `${bill?.name ?? "That bill"} has moved to another account or category in Rokda since I asked, so nothing was recorded. I'll ask again tomorrow about it as it is now.`;
+    return `${bill?.name ?? "That bill"} changed in Rokda since I asked: nothing recorded. I'll ask again tomorrow.`;
   }
   if (outcome !== "applied") return "I can't find that change any more, so nothing was changed. Send it again if it still holds.";
 
@@ -548,13 +548,12 @@ export function proposalOutcomeMessage(data: Record<string, unknown>): string {
   const skipped = result.skipped ?? [];
   const parts: string[] = [];
 
+  // An autopay bill (the revamp, phase 8c): its tick line, or "Already
+  // recorded" when it was in Rokda before or this repeats an answer.
   if (result.kind === "autopay_payment") {
     const b = applied[0] as (ProposalItem & { next_due?: string | null }) | undefined;
-    if (!b) return "That bill is no longer set up in Rokda, so nothing was recorded.";
-    const line = `${b.name}, AED ${Number(b.amount).toFixed(2)}, dated ${shortDay(String(b.occurred_at))}.`;
-    if (repeat) return `Already recorded: ${line}`;
-    if (b.already_recorded) return `Already recorded: ${line} It was in Rokda already, so I didn't add it again.`;
-    return `Recorded: ${line}${b.next_due ? ` I'll ask again on ${shortDay(String(b.next_due))}.` : ""}`;
+    if (!b) return AUTOPAY_GONE;
+    return repeat || b.already_recorded ? `Already recorded · ${autopayWhat(b)}` : autopayRecordedLine(b);
   }
 
   // A transfer or goal contribution: its tick line, or "Already recorded"
@@ -624,7 +623,7 @@ export function decidedProposalMessage(row: ProposalRow): string {
 // How an answer to a proposal reached the bot: typed (a "yes" or "no"), a
 // 👍 on its question, or a tap on one of its buttons, which is answered with
 // a toast.
-export type Answering = { via: "text" } | { via: "reaction" } | { via: "tap"; toast: (text?: string) => Promise<unknown> };
+export type Answering = { via: "text" } | { via: "reaction"; messageId?: number } | { via: "tap"; toast: (text?: string, alert?: boolean) => Promise<unknown>; messageId: number };
 const TYPED: Answering = { via: "text" };
 
 // What became of a proposal with buttons (proposalWords.ts): what its
@@ -638,7 +637,9 @@ export type Settled = { said: string; shown?: string; toast: string };
 // be far down the chat from it, and its buttons must not offer what is done.
 async function settleQuestion(chatId: number, proposal: ProposalRow, answering: Answering, outcome: Settled): Promise<void> {
   const shown = outcome.shown ?? outcome.said;
-  const prompt = proposal.prompt_message_id;
+  // A tap or a 👍 turns the message it was on: an autopay bill asked on
+  // several mornings can be answered on any of them.
+  const prompt = answering.via !== "text" && answering.messageId != null ? answering.messageId : proposal.prompt_message_id;
   if (answering.via === "tap") await answering.toast(outcome.toast);
   if (answering.via !== "text" && prompt != null) {
     await edit(chatId, Number(prompt), shown);
@@ -664,6 +665,13 @@ function cancelledLine(row: { kind: string; payload: Record<string, unknown> }):
 // A proposal with buttons that was settled before this answer came: by an
 // earlier answer, or by lapsing.
 export function settledOutcome(row: ProposalRow): Settled {
+  if (row.kind === "autopay_payment") {
+    if (row.status === "applied") return autopayOutcome(row, { outcome: "applied", result: row.result });
+    const closed = ((row.result as { skipped?: Array<{ reason?: string }> } | null)?.skipped ?? [])[0]?.reason === "not_autopay"
+      ? proposalOutcomeMessage({ outcome: "not_autopay", skipped: (row.result as { skipped?: unknown }).skipped })
+      : autopayClosedMessage(row);
+    return { said: closed, toast: closed };
+  }
   if (row.status === "applied") {
     if (row.kind === "trade" || row.kind === "trade_undo") {
       const effect = ((row.result ?? {}) as { effect?: Record<string, unknown> }).effect ?? {};
@@ -685,6 +693,26 @@ export function settledOutcome(row: ProposalRow): Settled {
     return { said: lapsed, shown: `${cancelledLine(row)} · not saved`, toast: "Not saved: it changed or lapsed. Send it again." };
   }
   return { said: LAPSED_TOAST, shown: `${cancelledLine(row)} · lapsed`, toast: LAPSED_TOAST };
+}
+
+const AUTOPAY_GONE = "Couldn't record that: the bill isn't set up any more.";
+
+// What applying an autopay bill did, from the database's answer: recorded
+// (or in Rokda before), off autopay or changed since it was asked, or its
+// question closed.
+function autopayOutcome(proposal: ProposalRow, data: Record<string, unknown>): Settled {
+  const outcome = String(data.outcome ?? "");
+  if (outcome === "expired") return { said: autopayClosedMessage(proposal), toast: "Nothing to do: it's recorded, or its month has passed." };
+  if (outcome === "not_autopay" || outcome === "changed") {
+    const said = proposalOutcomeMessage(data);
+    return { said, toast: said };
+  }
+  if (outcome !== "applied") return { said: "Couldn't find that any more. Nothing recorded.", toast: "Couldn't find that any more. Nothing recorded." };
+  const repeat = data.result != null;
+  const bill = (((repeat ? data.result : data) as ProposalResult).applied ?? [])[0] as (ProposalItem & { next_due?: string | null }) | undefined;
+  if (!bill) return { said: AUTOPAY_GONE, toast: AUTOPAY_GONE };
+  const before = repeat || bill.already_recorded === true;
+  return { said: before ? `Already recorded · ${autopayWhat(bill)}` : autopayRecordedLine(bill), shown: autopayRecordedLine(bill), toast: before ? "Already recorded." : "Recorded." };
 }
 
 // What applying a transfer or goal contribution did, from the database's
@@ -745,19 +773,20 @@ export async function decideProposal(
   }
 
   const { data, error } = await supabase.rpc("apply_bot_proposal", { p_proposal_id: proposal.id, p_member_id: memberId });
-  if (!error && proposal.kind === "autopay_payment" && (data as Record<string, unknown> | null)?.outcome === "expired") {
-    await reply(chatId, autopayClosedMessage(proposal));
-    return;
-  }
+  const autopay = proposal.kind === "autopay_payment";
   if (error || !data || typeof data !== "object") {
     // Applying is one transaction and repeatable, so asking for the same
     // answer again is safe whether or not this attempt got through.
-    if (buttons) await notSettled(chatId, answering, RECORD_FAILED);
+    if (buttons || autopay) await notSettled(chatId, answering, RECORD_FAILED);
     else await reply(chatId, 'Couldn\'t confirm that. Reply "yes" to it again in a minute.');
     return;
   }
   if (trade) {
     await tradeDecided(chatId, memberId, proposal, data as Record<string, unknown>, again, answering);
+    return;
+  }
+  if (autopay) {
+    await settleQuestion(chatId, proposal, answering, autopayOutcome(proposal, data as Record<string, unknown>));
     return;
   }
   if (buttons) {
@@ -768,16 +797,18 @@ export async function decideProposal(
 }
 
 
-// A tap on a proposal's Record (or Save) or Cancel (proposalWords.ts). Only
-// the member it was proposed to, on the message that asked about it, can
-// answer it; anything that does not check out changes nothing. Always
-// answered, so Telegram stops the button's spinner.
-export async function handleProposalTap(callback: Record<string, unknown>, decision: "apply" | "cancel", proposalId: string, updateId: unknown): Promise<Response> {
+// A tap on a proposal's Record (or Save) or Cancel, or an autopay bill's
+// Paid, Not yet or Other amount (proposalWords.ts). Only the member it was
+// proposed to, on the message that asked about it, can answer it (an
+// autopay bill on any morning's question about it); anything that does not
+// check out changes nothing. Always answered, so Telegram stops the button's
+// spinner.
+export async function handleProposalTap(callback: Record<string, unknown>, decision: "apply" | "cancel" | "not_yet" | "other_amount", proposalId: string, updateId: unknown): Promise<Response> {
   const from = callback.from as { id?: number } | undefined;
   const message = callback.message as { message_id?: number; chat?: Record<string, unknown> } | undefined;
   const chatId = message?.chat?.id as number | undefined;
   const messageId = message?.message_id;
-  const toast = (text = "") => tgCall("answerCallbackQuery", { callback_query_id: callback.id, ...(text ? { text } : {}) }).catch(() => null);
+  const toast = (text = "", alert = false) => tgCall("answerCallbackQuery", { callback_query_id: callback.id, ...(text ? { text } : {}), ...(alert ? { show_alert: true } : {}) }).catch(() => null);
   if (!from?.id || !chatId || !messageId || !isPrivateChat(message?.chat) || chatId !== from.id) {
     await toast();
     return new Response("ok");
@@ -791,15 +822,28 @@ export async function handleProposalTap(callback: Record<string, unknown>, decis
     return new Response("ok");
   }
   const row = found as (ProposalRow & { chat_id: number | string | null }) | null;
-  if (!member || !row || !BUTTON_KINDS.has(row.kind)) {
+  const autopay = row?.kind === "autopay_payment";
+  if (!member || !row || !(BUTTON_KINDS.has(row.kind) || autopay)) {
     await toast("That isn't one of yours.");
     return new Response("ok");
   }
-  if (Number(row.chat_id) !== chatId || Number(row.prompt_message_id) !== messageId) {
+  const askedHere = Number(row.prompt_message_id) === messageId ||
+    (autopay && ((row.payload?.asked_message_ids as number[] | undefined) ?? []).map(Number).includes(messageId));
+  if (Number(row.chat_id) !== chatId || !askedHere) {
     await toast("Use the latest message about it.");
     return new Response("ok");
   }
-  const answering: Answering = { via: "tap", toast };
+  const answering: Answering = { via: "tap", toast, messageId };
+  if (autopay) {
+    if (decision === "other_amount") await toast(AUTOPAY_OTHER_AMOUNT, true);
+    else if (decision === "apply" || decision === "not_yet") await decideAutopay(chatId, member.id, row, decision === "apply" ? "paid" : "not_yet", null, answering);
+    else await toast();
+    return new Response("ok");
+  }
+  if (decision !== "apply" && decision !== "cancel") {
+    await toast();
+    return new Response("ok");
+  }
   if (row.status !== "proposed") {
     await settleQuestion(chatId, row, answering, settledOutcome(row));
     return new Response("ok");
@@ -866,22 +910,26 @@ export async function tradeDecided(
 export function autopayClosedMessage(row: { payload: Record<string, unknown> }): string {
   const name = String(row.payload?.name ?? "That bill");
   const due = row.payload?.due_date ? ` for ${shortDay(String(row.payload.due_date))}` : "";
-  return `Nothing to do: ${name}${due} is already recorded, or its month has passed. I'll ask again on its next due date.`;
+  return `Nothing to do: ${name}${due} is recorded already, or its month has passed.`;
 }
 
 
-// An answer to an autopay question. "paid" records the bill, at the amount
-// the member gave if they gave one. "not yet" leaves the question open: the
-// bot asks again tomorrow morning, and a "paid" later today still counts.
+// An answer to an autopay question, typed, a reaction or a tap (Paid, Not
+// yet). "paid" records the bill, at the amount the member gave if they gave
+// one, and the question becomes its tick line. "not yet" leaves the question
+// as it is, buttons and all: the bot asks again tomorrow morning, and a
+// "paid" later today still counts.
 export async function decideAutopay(
   chatId: number,
   memberId: string,
   proposal: ProposalRow,
   decision: "paid" | "not_yet",
   amount: number | null = null,
+  answering: Answering = TYPED,
 ): Promise<void> {
   if (proposal.status !== "proposed") {
-    await reply(chatId, decidedProposalMessage(proposal));
+    if (answering.via === "text") await reply(chatId, decidedProposalMessage(proposal));
+    else await settleQuestion(chatId, proposal, answering, settledOutcome(proposal));
     return;
   }
   if (decision === "not_yet") {
@@ -890,7 +938,8 @@ export async function decideAutopay(
       .update({ payload: { ...proposal.payload, not_yet_on: householdToday() } })
       .eq("id", proposal.id)
       .eq("status", "proposed");
-    await reply(chatId, autopayNotYetMessage(String(proposal.payload?.name ?? "That bill")));
+    if (answering.via === "tap") await answering.toast("OK, I'll ask again tomorrow.");
+    else await reply(chatId, autopayNotYetMessage(String(proposal.payload?.name ?? "That bill")));
     return;
   }
   let row = proposal;
@@ -904,5 +953,5 @@ export async function decideAutopay(
     }
     row = { ...proposal, payload };
   }
-  await decideProposal(chatId, memberId, row, "apply");
+  await decideProposal(chatId, memberId, row, "apply", null, answering);
 }

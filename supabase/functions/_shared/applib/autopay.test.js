@@ -98,21 +98,20 @@ describe('autopayReactionDecision', () => {
 describe('autopayQuestion', () => {
   const bill = { name: 'Car EMI', amount: 2000, accountName: 'Bank', due: '2026-10-03' };
 
-  it('asks on the due date, saying how to answer', () => {
-    const q = autopayQuestion(bill);
-    expect(q).toContain('Car EMI (AED 2,000.00) was due today, 3 Oct. Has it been deducted from Bank?');
-    expect(q).toMatch(/"yes" or "paid"/);
-    expect(q).toMatch(/👍/);
-    expect(q).toMatch(/"not yet"/);
+  // The revamp, phase 8c (review T10): one line; Paid, Not yet and Other
+  // amount answer it, and the typed answers still work.
+  it('asks on the due date in one line', () => {
+    expect(autopayQuestion(bill)).toBe('Car EMI · AED 2,000 · due today from Bank. Gone out?');
   });
 
   it('says the date, not "today", when first asked after the due date', () => {
-    expect(autopayQuestion(bill, { today: '2026-10-03' })).toContain('was due today, 3 Oct.');
-    expect(autopayQuestion(bill, { today: '2026-10-13' })).toContain('Car EMI (AED 2,000.00) was due on 3 Oct. Has it been deducted from Bank?');
+    expect(autopayQuestion(bill, { today: '2026-10-03' })).toBe('Car EMI · AED 2,000 · due today from Bank. Gone out?');
+    expect(autopayQuestion(bill, { today: '2026-10-13' })).toBe('Car EMI · AED 2,000 · due 3 Oct from Bank. Gone out?');
   });
 
-  it('reminds on the days after', () => {
-    expect(autopayQuestion(bill, { reminder: true })).toMatch(/^Reminder: has Car EMI \(AED 2,000.00, due 3 Oct\) been deducted from Bank yet\?/);
+  it('asks again on the days after, and leaves out an account it does not know', () => {
+    expect(autopayQuestion(bill, { reminder: true, today: '2026-10-05' })).toBe('Car EMI · AED 2,000 · due 3 Oct from Bank. Gone out yet?');
+    expect(autopayQuestion({ ...bill, accountName: null, amount: 2050.5 }, { today: '2026-10-03' })).toBe('Car EMI · AED 2,050.50 · due today. Gone out?');
   });
 
   it('formats a day in local time', () => {

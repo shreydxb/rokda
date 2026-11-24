@@ -3,6 +3,7 @@
 import { autopayCycle, autopayQuestion } from "../../_shared/applib/autopay.js";
 import { householdDay, householdToday, parseDay } from "../../_shared/applib/day.js";
 import { discardUnaskedProposal } from "../confirmations.ts";
+import { autopayKeyboard } from "../proposalWords.ts";
 import { supabase } from "../env.ts";
 import { reply } from "../transport.ts";
 import { prefEnabled, telegramPrefsMap } from "./recipients.ts";
@@ -127,7 +128,7 @@ export async function askAutopay(
   const reminder = row.prompt_message_id != null;
   let messageId: number | null = null;
   try {
-    messageId = await reply(chatId, autopayQuestion({ name: bill.name, amount: Number(row.payload?.amount ?? bill.amount), accountName: bill.accountName, due: cycle.due }, { reminder, today: todayStr }));
+    messageId = await reply(chatId, autopayQuestion({ name: bill.name, amount: Number(row.payload?.amount ?? bill.amount), accountName: bill.accountName, due: cycle.due }, { reminder, today: todayStr }), autopayKeyboard(row.id));
   } catch {
     messageId = null;
   }

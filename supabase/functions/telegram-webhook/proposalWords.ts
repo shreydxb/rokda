@@ -20,6 +20,13 @@ const LABELS: Record<string, [string, string]> = {
   trade_undo: ["Undo trade", "Cancel"],
 };
 
+// The buttons under an autopay bill's question (the revamp, phase 8c; review
+// T10): Paid records it at the scheduled amount, Not yet asks again
+// tomorrow, Other amount asks for the amount as a typed answer.
+export function autopayKeyboard(proposalId: string): Keyboard {
+  return { inline_keyboard: [[{ text: "Paid", callback_data: encodeChoice("P", proposalId) }, { text: "Not yet", callback_data: encodeChoice("N", proposalId) }], [{ text: "Other amount", callback_data: encodeChoice("O", proposalId) }]] };
+}
+
 // The buttons under a proposal: P applies it, X cancels it. Both name the
 // proposal, and a tap is checked against it (confirmations.ts).
 export function proposalKeyboard(kind: string, proposalId: string): Keyboard | null {

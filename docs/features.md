@@ -628,10 +628,17 @@ went: Overview's Plan strip and To do say what it said.
   Payment due in 2d · AED 1,200 owed`), with Open Overview when the
   `APP_URL` secret is set; cash cover's caveats are ⚠ lines. The day's
   questions (autopay, statements, splits, dividends) follow it, each its own
-  message. Each card
-  statement is asked about on its own: the morning after it closes, and
-  once more three days before it is due, unless someone says it is
-  reconciled ("done" or 👍).
+  message. An autopay bill is asked about on its due date and each morning
+  after until answered, in one line (`Car EMI · AED 2,000 · due today from
+  Bank. Gone out?`) with Paid, Not yet and Other amount (which asks for the
+  amount as a typed "paid 2,050"); "paid", "not yet", 👍 and 👎 still work,
+  and the question becomes `✓ Car EMI · AED 2,000 · 3 Oct · next due 3 Nov`.
+  Each card statement is asked about on its own (`Bank card statement closed
+  3 Oct · due 28 Oct.`, with Checked and Open Month end): the morning after
+  it closes, and once more three days before it is due, unless someone says
+  it is checked (Checked, "done" or 👍). Checked turns every copy of the
+  question, in each chat it went to, into `✓ Bank card statement · 3 Oct ·
+  checked`.
 - Asks each morning about dividends due in a broker's fund, once, one
   message per fund with each line's sum, withholding and net; "yes" or 👍
   records them all, "not yet" or 👎 asks again tomorrow, "no" leaves them

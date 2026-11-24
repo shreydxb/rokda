@@ -4782,3 +4782,37 @@ request.
     group's title stays with its lines.
   - **A budget line gives the month's share** ("98% of budget"), not the
     threshold that set it off, and a card's "in 2d" is the check's own count.
+
+## The bot: an autopay bill and a card statement are answered with buttons
+
+The revamp's phase 8c, its second part (design note
+`docs/superpowers/specs/2026-11-23-telegram-bot-design.md`, decision 5; the
+UI review's T10 and T11). Dividends and the month-end balances follow in the
+next pull request. Every typed answer and reaction still works.
+
+- **An autopay bill is one line with Paid, Not yet and Other amount** (T10):
+  `Car EMI · AED 2,000 · due today from Bank. Gone out?`, "due 3 Oct" when
+  first asked after its date, and "Gone out yet?" on the mornings after.
+  Paid records it at the scheduled amount, and the message becomes `✓ Car
+  EMI · AED 2,000 · 3 Oct · next due 3 Nov`. Not yet changes nothing on the
+  message: the bot asks again tomorrow, and Paid still works later the same
+  day. Other amount asks for the amount as a typed answer ("paid 2,050"),
+  which already records what was said, rather than a number pad Telegram
+  does not have.
+- **Any morning's question about a bill can be tapped**, as any of them
+  could be replied to: the message tapped, or the one a 👍 was put on, is
+  the one that turns into the outcome.
+- **A card statement is one line with Checked and Open Month end** (T11):
+  `Bank card statement closed 3 Oct · due 28 Oct.`, and `… from 3 Oct still
+  to check · due 28 Oct.` as the one reminder. It no longer tells anyone to
+  send the PDF elsewhere (decision 5); that routine, if it is still the
+  household's, is for /help (8d). Checked marks it done, as "done" does, and
+  says "checked", not reconciled: it is a member's word, not a comparison of
+  the figures. Open Month end needs `APP_URL`, as Open Inbox does.
+- **Checked settles every copy of the question**: a shared card's statement
+  is asked in both members' chats, and both questions turn into `✓ Bank card
+  statement · 3 Oct · checked`, so no Checked is left to tap.
+- **The words where the statement lives say Month end**, not "Wealth ->
+  Statements", which the revamp moved (phase 4d).
+- **A 👍 answers in place**: on an autopay bill or a statement it turns the
+  question into the outcome, with no new message, as it does on an expense.
