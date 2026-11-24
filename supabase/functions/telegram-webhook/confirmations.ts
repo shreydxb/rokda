@@ -9,7 +9,7 @@ import { batchForPrompt, handleListReaction } from "./batchReview.ts";
 import { balanceFigure } from "./checks/balanceCheckin.ts";
 import { decideDividends, dividendsNotYet, type DividendsPayload, type DividendsResult } from "./checks/dividendReceipts.ts";
 import { decideStatement, statementForPrompt } from "./checks/statements.ts";
-import { DIVIDENDS_ANSWERED, dividendsDropSummary, dividendsSavedMessage } from "./dividends.ts";
+import { DIVIDENDS_ANSWERED, DIVIDENDS_NOT_YET_REPLY, dividendsDropSummary, dividendsSavedMessage } from "./dividends.ts";
 import { supabase } from "./env.ts";
 import { edit, inboxKeyboard, RECORD_FAILED, RECORD_UNCHECKED, recordedView, recordEntry, undoKeyboard, viewOf } from "./choices.ts";
 import { cancelledText, inboxReason, inboxText, recordedText } from "./expenseMessages.ts";
@@ -251,11 +251,11 @@ export async function handleReaction(reaction: Record<string, unknown>, updateId
       return new Response("ok");
     }
     if (proposal.row.kind === "dividends_received" && !thumbsUp && autopayDecision === "not_yet") {
-      if (proposal.row.status === "proposed") await dividendsNotYet(chatId, member.id, proposal.row);
+      if (proposal.row.status === "proposed") await dividendsNotYet(chatId, member.id, proposal.row, { via: "reaction", messageId: messageId ?? undefined });
       return new Response("ok");
     }
     if (proposal.row.status === "proposed" && thumbsUp) {
-      await decideProposal(chatId, member.id, proposal.row, "apply", { householdId: member.household_id, updateId }, { via: "reaction" });
+      await decideProposal(chatId, member.id, proposal.row, "apply", { householdId: member.household_id, updateId }, { via: "reaction", messageId: messageId ?? undefined });
     }
     return new Response("ok");
   }
@@ -608,10 +608,10 @@ export function decidedProposalMessage(row: ProposalRow): string {
     const payload = row.payload as DividendsPayload;
     if (row.status === "applied") return dividendsSavedMessage(payload.fund_name, payload.currency, row.result as DividendsResult, true);
     const result = (row.result ?? {}) as { error?: string; not_yet?: boolean };
-    if (row.status === "cancelled" && result.not_yet) return "You said not yet, so I'll ask about them again tomorrow morning.";
-    if (row.status === "cancelled") return `You left ${dividendsDropSummary(payload)} for the app, so nothing was recorded.`;
+    if (row.status === "cancelled" && result.not_yet) return DIVIDENDS_NOT_YET_REPLY;
+    if (row.status === "cancelled") return `Left for the app · ${dividendsDropSummary(payload)}`;
     if (result.error === "answered") return DIVIDENDS_ANSWERED;
-    return "That question lapsed or changed, so nothing was recorded. You can record them on the holding in the app.";
+    return "That lapsed or changed: nothing recorded. Record them on the holding in the app.";
   }
   if (BUTTON_KINDS.has(row.kind)) return settledOutcome(row).said;
   if (row.status === "applied") return row.result ? proposalOutcomeMessage({ outcome: "applied", result: row.result }) : "That one is already saved.";
@@ -624,7 +624,7 @@ export function decidedProposalMessage(row: ProposalRow): string {
 // 👍 on its question, or a tap on one of its buttons, which is answered with
 // a toast.
 export type Answering = { via: "text" } | { via: "reaction"; messageId?: number } | { via: "tap"; toast: (text?: string, alert?: boolean) => Promise<unknown>; messageId: number };
-const TYPED: Answering = { via: "text" };
+export const TYPED: Answering = { via: "text" };
 
 // What became of a proposal with buttons (proposalWords.ts): what its
 // question now shows, what a typed answer is told (the same, unless it
@@ -635,7 +635,7 @@ export type Settled = { said: string; shown?: string; toast: string };
 // turns the question itself into the outcome. A typed answer gets the outcome
 // as a new message, and the question loses its buttons too: the answer may
 // be far down the chat from it, and its buttons must not offer what is done.
-async function settleQuestion(chatId: number, proposal: ProposalRow, answering: Answering, outcome: Settled): Promise<void> {
+export async function settleQuestion(chatId: number, proposal: ProposalRow, answering: Answering, outcome: Settled): Promise<void> {
   const shown = outcome.shown ?? outcome.said;
   // A tap or a 👍 turns the message it was on: an autopay bill asked on
   // several mornings can be answered on any of them.
@@ -651,7 +651,7 @@ async function settleQuestion(chatId: number, proposal: ProposalRow, answering: 
 
 // A failure that changed nothing: said, and the question keeps its buttons
 // to be answered again.
-async function notSettled(chatId: number, answering: Answering, text: string): Promise<void> {
+export async function notSettled(chatId: number, answering: Answering, text: string): Promise<void> {
   if (answering.via === "tap") await answering.toast(text);
   else await reply(chatId, text);
 }
@@ -738,7 +738,7 @@ export async function decideProposal(
   answering: Answering = TYPED,
 ): Promise<void> {
   if (proposal.kind === "dividends_received") {
-    await decideDividends(chatId, memberId, proposal, decision);
+    await decideDividends(chatId, memberId, proposal, decision, answering);
     return;
   }
   const trade = proposal.kind === "trade" || proposal.kind === "trade_undo";
@@ -823,7 +823,8 @@ export async function handleProposalTap(callback: Record<string, unknown>, decis
   }
   const row = found as (ProposalRow & { chat_id: number | string | null }) | null;
   const autopay = row?.kind === "autopay_payment";
-  if (!member || !row || !(BUTTON_KINDS.has(row.kind) || autopay)) {
+  const dividends = row?.kind === "dividends_received";
+  if (!member || !row || !(BUTTON_KINDS.has(row.kind) || autopay || dividends)) {
     await toast("That isn't one of yours.");
     return new Response("ok");
   }
@@ -837,6 +838,15 @@ export async function handleProposalTap(callback: Record<string, unknown>, decis
   if (autopay) {
     if (decision === "other_amount") await toast(AUTOPAY_OTHER_AMOUNT, true);
     else if (decision === "apply" || decision === "not_yet") await decideAutopay(chatId, member.id, row, decision === "apply" ? "paid" : "not_yet", null, answering);
+    else await toast();
+    return new Response("ok");
+  }
+  if (dividends) {
+    if (row.status !== "proposed") {
+      const said = decidedProposalMessage(row);
+      await settleQuestion(chatId, row, answering, { said, toast: said.split("\n")[0] });
+    } else if (decision === "not_yet") await dividendsNotYet(chatId, member.id, row, answering);
+    else if (decision === "apply" || decision === "cancel") await decideDividends(chatId, member.id, row, decision, answering);
     else await toast();
     return new Response("ok");
   }

@@ -1044,10 +1044,10 @@ export const DIV_ABC = "a8000000-0000-4000-8000-000000000a01";
 export const DIV_XYZ = "a8000000-0000-4000-8000-000000000a02";
 
 export const PLAIN_QUESTION = [
-  "Dividends due in Dollar funds today:",
-  "ABC: 40 × $0.25 = $10.00, $3.00 withheld, $7.00",
-  "XYZ: 10 × $0.50 = $5.00, $1.50 withheld, $3.50",
-  'Reply "yes" (or react 👍) once they are in the fund to add $10.50, "not yet" to be asked again tomorrow, or "no" to leave them for the app.',
+  "Dividends due in Dollar funds today",
+  "ABC · 40 × USD 0.25 = USD 10 · USD 3 withheld · USD 7",
+  "XYZ · 10 × USD 0.50 = USD 5 · USD 1.50 withheld · USD 3.50",
+  "Arrived? USD 10.50 in all.",
 ].join("\n");
 
 

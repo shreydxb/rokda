@@ -27,6 +27,19 @@ export function autopayKeyboard(proposalId: string): Keyboard {
   return { inline_keyboard: [[{ text: "Paid", callback_data: encodeChoice("P", proposalId) }, { text: "Not yet", callback_data: encodeChoice("N", proposalId) }], [{ text: "Other amount", callback_data: encodeChoice("O", proposalId) }]] };
 }
 
+// The buttons under a dividend question (the revamp, phase 8c; review T12):
+// Received records them, Leave for the app leaves them, Not yet asks again
+// tomorrow. About a balance confirmed on or after the pay date: Already in
+// the balance records them as in it (P), Arrived after as moving the fund
+// (X: a "no", as it is typed), and Not yet.
+export function dividendsKeyboard(proposalId: string, asksAboutBalance: boolean): Keyboard {
+  const [yes, no] = asksAboutBalance ? ["Already in the balance", "Arrived after"] : ["Received", "Leave for the app"];
+  const notYet = { text: "Not yet", callback_data: encodeChoice("N", proposalId) };
+  const first = { text: yes, callback_data: encodeChoice("P", proposalId) };
+  const second = { text: no, callback_data: encodeChoice("X", proposalId) };
+  return { inline_keyboard: asksAboutBalance ? [[first, second], [notYet]] : [[first, notYet], [second]] };
+}
+
 // The buttons under a proposal: P applies it, X cancels it. Both name the
 // proposal, and a tap is checked against it (confirmations.ts).
 export function proposalKeyboard(kind: string, proposalId: string): Keyboard | null {

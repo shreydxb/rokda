@@ -4,7 +4,7 @@
 // as the typed answer always has, and the question turns into what was done.
 // The fake backend is testing/harness.ts.
 import { assert, assertEquals } from "jsr:@std/assert@1";
-import { backend, BANK, dailyCheck, dubaiToday, EMI, freshTest, handler, HOUSEHOLD, lastReply, MEMBER, PARTNER_TELEGRAM, replyUpdate, type Row, tapUpdate, TELEGRAM_USER } from "./testing/harness.ts";
+import { backend, BANK, dailyCheck, DIV_FUND, dividendQuestions, dubaiToday, EMI, freshTest, handler, HOUSEHOLD, lastReply, MEMBER, PARTNER_TELEGRAM, replyUpdate, type Row, seedDividends, tapUpdate, TELEGRAM_USER } from "./testing/harness.ts";
 
 type Button = { text: string; callback_data?: string; url?: string };
 
@@ -165,4 +165,60 @@ freshTest("an older statement's buttons cannot settle this one", async () => {
   await handler(tapUpdate(9811, q.id, other));
   assertEquals(q.row.status, "waiting");
   assertEquals(lastToast()?.text, "That isn't one of yours.");
+});
+
+// --- Dividends (T12) -------------------------------------------------------
+
+async function askedDividends(confirmedToday = false): Promise<{ id: number; text: string; buttons: Button[]; proposal: Row }> {
+  seedDividends({ confirmedToday });
+  await morning();
+  const proposal = backend.tables.bot_proposals.find((p) => p.kind === "dividends_received")!;
+  const sent = dividendQuestions()[0].body;
+  return { id: Number(proposal.prompt_message_id), text: String(sent.text), buttons: buttonsOf(sent), proposal };
+}
+
+freshTest("dividends are asked with Received, Not yet and Leave for the app", async () => {
+  const q = await askedDividends();
+  assertEquals(q.buttons.map((b) => b.text), ["Received", "Not yet", "Leave for the app"]);
+  assert(q.text.endsWith("Arrived? USD 10.50 in all."), q.text);
+});
+
+freshTest("a tap on Received records them, and the question says what moved", async () => {
+  const q = await askedDividends();
+  await handler(tapUpdate(9821, q.id, tap(q.buttons, "Received")));
+  assertEquals(q.proposal.status, "applied");
+  assertEquals(backend.tables.accounts.find((a) => a.id === DIV_FUND)!.balance, 110.5);
+  const edit = calls("editMessageText").at(-1)!;
+  assertEquals([edit.message_id, String(edit.text).split("\n")[0], buttonsOf(edit).length], [q.id, "✓ USD 10.50 into Dollar funds", 0]);
+  assertEquals(lastToast()?.text, "Recorded.");
+});
+
+freshTest("a tap on Leave for the app records nothing, and says so", async () => {
+  const q = await askedDividends();
+  await handler(tapUpdate(9821, q.id, tap(q.buttons, "Leave for the app")));
+  assertEquals(q.proposal.status, "cancelled");
+  assertEquals(calls("editMessageText").at(-1)!.text, "Left for the app · 2 dividends into Dollar funds · USD 10.50");
+  assertEquals(lastToast()?.text, "Left for the app.");
+});
+
+freshTest("a tap on Not yet puts them off to tomorrow", async () => {
+  const q = await askedDividends();
+  await handler(tapUpdate(9821, q.id, tap(q.buttons, "Not yet")));
+  assertEquals(calls("editMessageText").at(-1)!.text, "Not yet · I'll ask about them again tomorrow");
+  assertEquals(backend.tables.accounts.find((a) => a.id === DIV_FUND)!.balance, 100);
+});
+
+freshTest("a fund confirmed on the pay date is asked whether they were in it: Already in the balance, Arrived after, Not yet", async () => {
+  const q = await askedDividends(true);
+  assertEquals(q.buttons.map((b) => b.text), ["Already in the balance", "Arrived after", "Not yet"]);
+  await handler(tapUpdate(9821, q.id, tap(q.buttons, "Arrived after")));
+  assertEquals(backend.tables.accounts.find((a) => a.id === DIV_FUND)!.balance, 110.5);
+  assertEquals(String(calls("editMessageText").at(-1)!.text).split("\n")[0], "✓ USD 10.50 into Dollar funds");
+});
+
+freshTest("a typed yes to dividends still records them, and the question loses its buttons", async () => {
+  const q = await askedDividends();
+  await handler(replyUpdate(9821, "yes", q.id));
+  assertEquals(lastReply().split("\n")[0], "✓ USD 10.50 into Dollar funds");
+  assertEquals(calls("editMessageText").at(-1)!.message_id, q.id);
 });

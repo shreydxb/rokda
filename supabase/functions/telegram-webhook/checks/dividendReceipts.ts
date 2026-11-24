@@ -1,9 +1,11 @@
 // Part of the Telegram webhook (index.ts), split out by responsibility in
 // the round 2 cleanup (SHR-383). Moved, not changed.
 import { householdToday } from "../../_shared/applib/day.js";
-import { decidedProposalMessage, discardUnaskedProposal, PROPOSAL_COLUMNS, type ProposalRow } from "../confirmations.ts";
+import { type Answering, decidedProposalMessage, discardUnaskedProposal, notSettled, PROPOSAL_COLUMNS, type ProposalRow, settleQuestion } from "../confirmations.ts";
 import { type DividendLine, DIVIDENDS_NOT_YET_REPLY, DIVIDENDS_STALE_LEAD, DIVIDENDS_STALE_NONE, dividendsDropSummary, dividendsQuestion, dividendsRefusal, dividendsSavedMessage } from "../dividends.ts";
 import { supabase } from "../env.ts";
+import { dividendsKeyboard } from "../proposalWords.ts";
+import { edit } from "../choices.ts";
 import { reply, tgCall } from "../transport.ts";
 import { prefEnabled, telegramPrefsMap } from "./recipients.ts";
 
@@ -143,7 +145,7 @@ export async function askDividends(g: DividendGroup, sourceRef: string, lead: st
   const question = dividendsQuestion(g.fund.name, g.fund.currency, g.lines, g.ask ? { confirmedOn: householdToday(new Date(String(g.fund.balance_as_of))) } : null);
   let messageId: number | null = null;
   try {
-    messageId = await reply(g.chatId, lead ? `${lead}\n${question}` : question);
+    messageId = await reply(g.chatId, lead ? `${lead}\n${question}` : question, dividendsKeyboard(id, Boolean(g.ask)));
   } catch {
     messageId = null;
   }
@@ -164,12 +166,18 @@ export async function askDividends(g: DividendGroup, sourceRef: string, lead: st
 }
 
 
-// A member's answer to a dividend question. On a plain question "yes"
-// records them and "no" leaves them for the app. On a question about a
-// confirmed balance both record: "yes" as already in it, "no" as arriving
-// after it.
-export async function decideDividends(chatId: number, memberId: string, proposal: ProposalRow, decision: "apply" | "cancel"): Promise<void> {
+// A member's answer to a dividend question, typed, a 👍 or a tap. On a plain
+// question "yes" (Received) records them and "no" (Leave for the app) leaves
+// them for the app. On a question about a confirmed balance both record:
+// "yes" (Already in the balance) as already in it, "no" (Arrived after) as
+// arriving after it. The question then turns into what became of them, as
+// every question with buttons does (confirmations.ts settleQuestion).
+export async function decideDividends(chatId: number, memberId: string, proposal: ProposalRow, decision: "apply" | "cancel", answering: Answering = { via: "text" }): Promise<void> {
   const payload = proposal.payload as DividendsPayload;
+  const decided = (row: ProposalRow) => {
+    const said = decidedProposalMessage(row);
+    return { said, toast: said.split("\n")[0] };
+  };
   if (payload.ask == null && decision === "cancel") {
     const { data, error } = await supabase
       .from("bot_proposals")
@@ -179,15 +187,15 @@ export async function decideDividends(chatId: number, memberId: string, proposal
       .eq("status", "proposed")
       .select(PROPOSAL_COLUMNS);
     if (error) {
-      await reply(chatId, "I couldn't drop that just now. Nothing has been changed; try again in a moment.");
+      await notSettled(chatId, answering, "Couldn't do that. Nothing changed — try again in a minute.");
       return;
     }
     if (data?.length) {
-      await reply(chatId, `Left for the app: ${dividendsDropSummary(payload)}. Nothing was recorded.`);
+      await settleQuestion(chatId, proposal, answering, { said: `Left for the app · ${dividendsDropSummary(payload)}`, toast: "Left for the app." });
       return;
     }
     const { data: fresh } = await supabase.from("bot_proposals").select(PROPOSAL_COLUMNS).eq("id", proposal.id).maybeSingle();
-    await reply(chatId, decidedProposalMessage((fresh as ProposalRow | null) ?? proposal));
+    await settleQuestion(chatId, proposal, answering, decided((fresh as ProposalRow | null) ?? proposal));
     return;
   }
   if (payload.ask != null) {
@@ -200,55 +208,69 @@ export async function decideDividends(chatId: number, memberId: string, proposal
       .eq("member_id", memberId)
       .eq("status", "proposed");
     if (error) {
-      await reply(chatId, "I couldn't record that just now. Answer my message again in a moment; it will only be recorded once.");
+      await notSettled(chatId, answering, DIVIDENDS_NOT_RECORDED);
       return;
     }
   }
   const { data, error } = await supabase.rpc("apply_bot_proposal", { p_proposal_id: proposal.id, p_member_id: memberId });
   if (error || !data || typeof data !== "object") {
-    await reply(chatId, "I couldn't record that just now. Answer my message again in a moment; it will only be recorded once.");
+    await notSettled(chatId, answering, DIVIDENDS_NOT_RECORDED);
     return;
   }
   const outcome = String((data as Record<string, unknown>).outcome ?? "");
   if (outcome === "applied") {
     const repeat = (data as Record<string, unknown>).result != null;
     const result = (repeat ? (data as Record<string, unknown>).result : data) as DividendsResult;
-    await reply(chatId, dividendsSavedMessage(payload.fund_name, payload.currency, result, repeat));
+    await settleQuestion(chatId, proposal, answering, {
+      said: dividendsSavedMessage(payload.fund_name, payload.currency, result, repeat),
+      shown: dividendsSavedMessage(payload.fund_name, payload.currency, result, false),
+      toast: repeat ? "Already recorded." : "Recorded.",
+    });
     return;
   }
   if (outcome === "stale") {
+    // Asked again below, as it is now: this question no longer offers its
+    // buttons.
+    if (answering.via === "tap") await answering.toast("It changed since. Here it is again.");
+    const prompt = answering.via !== "text" && answering.messageId != null ? answering.messageId : proposal.prompt_message_id;
+    if (prompt != null) await edit(chatId, Number(prompt), `Not recorded · ${dividendsDropSummary(payload)} · changed since`);
     await reaskDividends(chatId, memberId, payload, proposal.id);
     return;
   }
   if (outcome === "refused") {
-    await reply(chatId, dividendsRefusal(String((data as Record<string, unknown>).error ?? "")));
+    const why = dividendsRefusal(String((data as Record<string, unknown>).error ?? ""));
+    await settleQuestion(chatId, proposal, answering, { said: why, toast: why });
     return;
   }
-  await reply(chatId, decidedProposalMessage({
+  await settleQuestion(chatId, proposal, answering, decided({
     ...proposal,
     status: outcome === "cancelled" ? "cancelled" : "expired",
     result: ((data as Record<string, unknown>).result ?? proposal.result) as ProposalRow["result"],
   }));
 }
 
+const DIVIDENDS_NOT_RECORDED = "Couldn't record that. Nothing saved — try again in a minute.";
 
-// "Not yet" (or 👎): it has not arrived. Nothing is recorded, and the
-// dividends are asked about again the next morning.
-export async function dividendsNotYet(chatId: number, memberId: string, proposal: ProposalRow): Promise<void> {
+
+// "Not yet" (or 👎, or the button): it has not arrived. Nothing is recorded,
+// the question closes, and the dividends are asked about again the next
+// morning.
+export async function dividendsNotYet(chatId: number, memberId: string, proposal: ProposalRow, answering: Answering = { via: "text" }): Promise<void> {
   // One call puts off the question and clears its dividends' asked marks, or
   // neither: the promise to ask tomorrow is only made once both are done.
   const { data, error } = await supabase.rpc("postpone_dividends_proposal", { p_proposal_id: proposal.id, p_member_id: memberId });
   const result = data as { ok?: boolean } | null;
   if (error || !result) {
-    await reply(chatId, "I couldn't put that off just now. Nothing has been changed; try again in a moment.");
+    await notSettled(chatId, answering, "Couldn't put that off. Nothing changed — try again in a minute.");
     return;
   }
   if (!result.ok) {
     const { data: fresh } = await supabase.from("bot_proposals").select(PROPOSAL_COLUMNS).eq("id", proposal.id).maybeSingle();
-    await reply(chatId, decidedProposalMessage((fresh as ProposalRow | null) ?? proposal));
+    const said = decidedProposalMessage((fresh as ProposalRow | null) ?? proposal);
+    await settleQuestion(chatId, proposal, answering, { said, toast: said.split("\n")[0] });
     return;
   }
-  await reply(chatId, DIVIDENDS_NOT_YET_REPLY);
+  await settleQuestion(chatId, proposal, answering, { said: DIVIDENDS_NOT_YET_REPLY, toast: "OK, I'll ask again tomorrow." });
 }
 
 
