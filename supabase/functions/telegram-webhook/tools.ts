@@ -109,7 +109,7 @@ export const TOOLS_BASE = [
     type: "function",
     function: {
       name: "get_upcoming_bills",
-      description: "Real recurring bills and credit-card due dates in the next 14 days, e.g. 'when's the FAB Z card due' or 'what bills are coming up'.",
+      description: "Real recurring bills and credit-card due dates in the next 14 days, e.g. 'when's the FAB Z card due' or 'what bills are coming up'. Pay expected in that time is listed apart, as expected_income, never as a bill.",
       parameters: {
         type: "object",
         properties: { scope: { type: "string", enum: SCOPE_ENUM } },
@@ -492,17 +492,23 @@ export async function toolGetUpcomingBills(householdId: string, scopeMemberId: s
   // computes it from `native_amount` (the rupee rate follows households'),
   // so a premium of 89,554 rupees is never counted as 89,554 dirhams (QA #4).
   // The figure actually owed is passed alongside in its own currency.
-  const bills = upcomingItems(visibleRecurring as never, 14, now).map(
-    (r: { name: string; amount: number; currency: string | null; native_amount: number | null; dueDate: Date }) => {
-      const isAed = String(r.currency ?? "AED").toUpperCase() === "AED";
-      return {
-        name: r.name,
-        amount_aed: round2(Math.abs(Number(r.amount))),
-        ...(isAed || r.native_amount == null ? {} : { amount: round2(Math.abs(Number(r.native_amount))), currency: r.currency }),
-        due_date: r.dueDate.toISOString().slice(0, 10),
-      };
-    }
-  );
+  type Upcoming = { name: string; amount: number; currency: string | null; native_amount: number | null; dueDate: Date };
+  const item = (r: Upcoming) => {
+    const isAed = String(r.currency ?? "AED").toUpperCase() === "AED";
+    return {
+      name: r.name,
+      amount_aed: round2(Math.abs(Number(r.amount))),
+      ...(isAed || r.native_amount == null ? {} : { amount: round2(Math.abs(Number(r.native_amount))), currency: r.currency }),
+      due_date: r.dueDate.toISOString().slice(0, 10),
+    };
+  };
+  // Only money going out is a bill: pay expected counted as one made cash
+  // cover read "short" on a pay week, where Overview, which counts only
+  // amounts below zero, said covered (the review of the whole revamp). Pay
+  // is listed apart, for a question about what is coming in.
+  const upcoming = upcomingItems(visibleRecurring as never, 14, now) as Upcoming[];
+  const bills = upcoming.filter((r) => Number(r.amount) < 0).map(item);
+  const income = upcoming.filter((r) => Number(r.amount) > 0).map(item);
 
   const cardBills: Array<{ name: string; amount_owed_aed: number; due_date: string }> = [];
   for (const a of accounts as Array<{ type: string; is_shared: boolean; owner_member_id: string | null; name: string; balance: number; balance_aed: number | null; currency: string; due_day: number | null }>) {
@@ -527,6 +533,7 @@ export async function toolGetUpcomingBills(householdId: string, scopeMemberId: s
   return {
     recurring: bills,
     credit_cards: cardBills,
+    ...(income.length ? { expected_income: income } : {}),
     ...(unconverted > 0 ? { unconverted_accounts: unconverted } : {}),
   };
 }

@@ -1,9 +1,9 @@
 // Questions answered from the household's figures, the brief, and the AI service being busy.
 // The fake backend these drive the real handler against is testing/harness.ts.
 import { assert, assertEquals } from "jsr:@std/assert@1";
-import { aiCalls, backend, capturedIntake, EPF, figuresUnavailableMessage, freshTest, GROCERIES, handler, HOUSEHOLD, isSpendingAccount, lastReply, MY_BANK, Row, seedExpenses, textUpdate, thisMonthFirst } from "./testing/harness.ts";
+import { aiCalls, backend, capturedIntake, dubaiDaysAgo, EPF, figuresUnavailableMessage, freshTest, GROCERIES, handler, HOUSEHOLD, isSpendingAccount, lastReply, MY_BANK, Row, seedExpenses, textUpdate, thisMonthFirst } from "./testing/harness.ts";
 // After the harness, which sets the environment tools.ts reads as it loads.
-import { briefMessage, NOT_READ } from "./tools.ts";
+import { briefMessage, NOT_READ, toolGetCashCover, toolGetUpcomingBills } from "./tools.ts";
 
 freshTest("this month's spending is found after a thousand older transactions", async () => {
   // Stored first, so a single unordered read returned only these and the
@@ -219,4 +219,20 @@ freshTest("an AI service that answers at once is asked once for each step", asyn
   backend.parse = [{ merchant: "Cafe", amount: 40, currency: "AED", occurred_at: "2026-09-24", date_stated: true, source: "typed", category: null, card_last4: null, account_hint: null, confidence: 1, kind: "expense" }];
   await handler(textUpdate(7304, "spent 40 at cafe"));
   assertEquals(aiCalls(), [["classify_and_route", null], ["parse_intake", null]]);
+});
+
+// The review of the whole revamp: expected pay was listed as a bill due, so a
+// salary due in three days made cash cover "short by AED 19,000" while
+// Overview, which counts only money going out, said covered.
+freshTest("pay due is not a bill: upcoming bills and cash cover count only money going out", async () => {
+  backend.tables.accounts.push({ ...MY_BANK, balance: 1000, balance_aed: 1000, balance_as_of: new Date().toISOString(), is_shared: true });
+  const due = { household_id: HOUSEHOLD, owner_member_id: null, is_shared: true, currency: "AED", native_amount: null, next_due_date: dubaiDaysAgo(-3), ends_on: null, cadence: "monthly", interval_count: 1, account_id: MY_BANK.id, category_id: null, active: true, autopay: false };
+  backend.tables.recurring.push(
+    { ...due, id: "a9000000-0000-4000-8000-0000000000c1", name: "Salary", amount: 20000 },
+    { ...due, id: "a9000000-0000-4000-8000-0000000000c2", name: "Internet", amount: -400 },
+  );
+  const bills = await toolGetUpcomingBills(HOUSEHOLD, null);
+  assertEquals(bills.recurring.map((b: { name: string }) => b.name), ["Internet"]);
+  const cover = await toolGetCashCover(HOUSEHOLD) as { covered: boolean; shortfallAed: number };
+  assertEquals([cover.covered, cover.shortfallAed], [true, 0]);
 });
