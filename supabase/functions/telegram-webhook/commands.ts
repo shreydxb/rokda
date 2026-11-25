@@ -4,10 +4,10 @@
 // member last recorded with Record (or the one a reply points at), within ten
 // minutes. A transfer, a goal contribution or a list's Record all is not one:
 // those have no Undo, and /undo says "expense" so as not to promise it. /start
-// from an account already
-// linked, and a command the bot does not know, are answered with help, never
-// read as an expense or sent to the AI. The setup registers the same list as
-// Telegram's command menu (COMMANDS), so the menu and /help never disagree.
+// from an account already linked, and a command the bot does not know, are
+// answered with help, never read as an expense or sent to the AI. The setup
+// registers the same list as Telegram's command menu (COMMANDS), so the menu
+// and /help never disagree.
 import { supabase } from "./env.ts";
 import { inboxKeyboard, undoLatest } from "./choices.ts";
 import { buildBriefMessage } from "./tools.ts";
