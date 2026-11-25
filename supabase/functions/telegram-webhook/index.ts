@@ -67,7 +67,7 @@ import { plainView, sendChoicePrompt, sendEntryPrompt, viewOf } from "./choices.
 import { handleTap } from "./taps.ts";
 import { cancelledText, inboxReason, inboxText } from "./expenseMessages.ts";
 import { BATCH_UNADDRESSED_HINT, batchForPrompt, handleBatchReply, hasOpenList, listPrompts, type SavedItem, sendBatchList } from "./batchReview.ts";
-import { confirmCandidates, confirmPendingIntake, decideAutopay, discardPendingIntake, decidedProposalMessage, decideProposal, handleReaction, intakeForPrompt, openProposals, PENDING_WINDOW_MS, type PendingIntakeRow, type PromptLookup, PROPOSAL_COLUMNS, proposalForPrompt, type ProposalRow, RECENT_INTAKE_COLUMNS, recentlyDecidedProposal, sendProposal } from "./confirmations.ts";
+import { CHECKIN_ANSWER_HINT, confirmCandidates, confirmPendingIntake, decideAutopay, discardPendingIntake, decidedProposalMessage, decideProposal, handleReaction, intakeForPrompt, isCheckinProposal, openProposals, PENDING_WINDOW_MS, type PendingIntakeRow, type PromptLookup, PROPOSAL_COLUMNS, proposalForPrompt, type ProposalRow, RECENT_INTAKE_COLUMNS, recentlyDecidedProposal, sendProposal } from "./confirmations.ts";
 import { DIVIDEND_CLASSES, DIVIDEND_GUARD_REPLY, readsAsDividend } from "./dividends.ts";
 import { APP_URL, OPENROUTER_API_KEY, supabase, SUPABASE_URL, TELEGRAM_BOT_TOKEN } from "./env.ts";
 import { alreadyRecordedNote, categoryByName, datedItems, forwardedDay, loadCategoryKnowledge, loadFileableCategories, matchAccountByCardLast4, matchAccountByNameHint, matchCategoryFromMerchantHistory, parseIntakeWithAI, QUESTION_TOOLS, undatedNote } from "./intake.ts";
@@ -165,14 +165,15 @@ async function handleRequest(req: Request): Promise<Response> {
     ]);
     const digestSent = await digest.send(sendReminder, APP_URL ? { inline_keyboard: [[{ text: "Open Overview", url: `${APP_URL}/` }]] } : null);
     const asked = await Promise.allSettled([runAutopayCheck(), runStatementCheck(), runSplitCheck(), runDividendCheck(), runBalanceCheckin()]);
+    // Housekeeping, not a check: nothing reports on it and nothing depends on
+    // it having run today. Before a failure is reported, so a check that
+    // keeps failing never stops it (the revamp review).
+    await pruneTelegramUpdateLog();
     const failures = [...gathered, ...asked].filter((r): r is PromiseRejectedResult => r.status === "rejected").map((r) => r.reason);
     if (failures.length) throw failures.length === 1 ? failures[0] : new AggregateError(failures, `${failures.length} morning checks failed`);
     const value = (r: PromiseSettledResult<unknown>) => (r as PromiseFulfilledResult<unknown>).value;
     const [recurring, creditCards, budgets, weeklyBrief, monthlyBrief, cashCover, unusualSpend] = gathered.map(value);
     const [autopay, statements, splits, dividends, balanceCheckin] = asked.map(value);
-    // Housekeeping, not a check: nothing reports on it and nothing depends on
-    // it having run today.
-    await pruneTelegramUpdateLog();
     return new Response(
       JSON.stringify({
         recurring,
@@ -537,6 +538,13 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
           truncated: candidates.truncated,
         });
         if (unaddressed && target.kind === "one") await recordAnswerTarget(updateId, { kind: "proposal", id: target.row.id });
+      }
+      // A month-end check-in is answered by All unchanged or the balances
+      // (the revamp review): "no" to "what did each close at?" means nothing
+      // changed, and cancelling on it lost the list.
+      if (target.kind === "one" && isCheckinProposal(target.row)) {
+        await reply(chatId, CHECKIN_ANSWER_HINT);
+        return new Response("ok");
       }
       if (target.kind === "one" && target.row.kind === "autopay_payment") {
         await decideAutopay(chatId, member.id, target.row, confirming ? "paid" : "not_yet", confirming ? autopay.amount : null);

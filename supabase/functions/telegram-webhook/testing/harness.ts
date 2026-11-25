@@ -495,10 +495,10 @@ export function applyProposal(id: string, memberId: string): Row {
         continue;
       }
       if (Number(a.balance) !== Number(item.old_balance)) {
-        skipped.push({ name: a.name, type: a.type, currency: a.currency, reason: "changed", balance: a.balance });
+        skipped.push({ account_id: a.id, name: a.name, type: a.type, currency: a.currency, reason: "changed", balance: a.balance });
         continue;
       }
-      applied.push({ name: a.name, type: a.type, currency: a.currency, old_balance: a.balance, new_balance: item.new_balance });
+      applied.push({ account_id: a.id, name: a.name, type: a.type, currency: a.currency, old_balance: a.balance, new_balance: item.new_balance });
       a.balance = item.new_balance;
       a.balance_as_of = new Date(backend.now).toISOString();
     }

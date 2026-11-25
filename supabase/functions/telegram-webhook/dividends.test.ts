@@ -21,7 +21,7 @@ const XYZ: DividendLine = { holding_name: "XYZ", units: 10, per_share: 0.5, gros
 // question in a few words above its buttons.
 Deno.test("question: each line's sum, withholding and net, then the question", () => {
   assertEquals(
-    dividendsQuestion("Dollar funds", "USD", [ABC, XYZ], null),
+    dividendsQuestion("Dollar funds", "USD", [ABC, XYZ], null, "2026-11-12"),
     [
       "Dividends due in Dollar funds today",
       "ABC · 40 × USD 0.25 = USD 10 · USD 3 withheld · USD 7",
@@ -33,13 +33,20 @@ Deno.test("question: each line's sum, withholding and net, then the question", (
 
 Deno.test("question: fees come before the net; one dividend reads in the singular", () => {
   assertEquals(
-    dividendsQuestion("Dollar funds", "USD", [{ ...ABC, fees: 0.2, net: 6.8 }], null),
+    dividendsQuestion("Dollar funds", "USD", [{ ...ABC, fees: 0.2, net: 6.8 }], null, "2026-11-12"),
     [
       "Dividend due in Dollar funds today",
       "ABC · 40 × USD 0.25 = USD 10 · USD 3 withheld · USD 0.20 fees · USD 6.80",
       "Arrived? USD 6.80 in all.",
     ].join("\n"),
   );
+});
+
+// Asked again after Not yet, the question says the day they were due, not
+// "today" (the revamp review).
+Deno.test("question: after the pay date it says the day they were due, and since when for several days", () => {
+  assertEquals(dividendsQuestion("Dollar funds", "USD", [ABC], null, "2026-11-13").split("\n")[0], "Dividend due in Dollar funds on 12 Nov");
+  assertEquals(dividendsQuestion("Dollar funds", "USD", [{ ...ABC, pay_date: "2026-11-10" }, XYZ], null, "2026-11-13").split("\n")[0], "Dividends due in Dollar funds since 10 Nov");
 });
 
 Deno.test("question: a small amount per share keeps its digits, and nothing withheld shows no net twice", () => {

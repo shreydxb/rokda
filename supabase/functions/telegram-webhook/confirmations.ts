@@ -1,6 +1,7 @@
 // Part of the Telegram webhook (index.ts), split out by responsibility in
 // the round 2 cleanup (SHR-383). Moved, not changed.
-import { AUTOPAY_OTHER_AMOUNT, autopayNotYetMessage, autopayReactionDecision, autopayRecordedLine, autopayWhat, shortDay } from "../_shared/applib/autopay.js";
+import { AUTOPAY_OTHER_AMOUNT, autopayNotYetMessage, autopayReactionDecision, autopayRecordedLine, autopayWhat } from "../_shared/applib/autopay.js";
+import { day } from "../_shared/applib/botFormat.js";
 import { householdToday } from "../_shared/applib/day.js";
 import { statementLookupFailedMessage, statementReactionDecision } from "../_shared/applib/statementReminder.js";
 import { isPrivateChat } from "../_shared/applib/telegramChat.js";
@@ -246,6 +247,8 @@ export async function handleReaction(reaction: Record<string, unknown>, updateId
     return new Response("ok");
   }
   if (proposal.kind === PROMPT_FOUND && proposal.row) {
+    // A 👍 on the month-end check-in is "seen", not "all unchanged".
+    if (isCheckinProposal(proposal.row)) return new Response("ok");
     if (proposal.row.kind === "autopay_payment") {
       if (proposal.row.status === "proposed" && autopayDecision) await decideAutopay(chatId, member.id, proposal.row, autopayDecision, null, { via: "reaction", messageId: messageId ?? undefined });
       return new Response("ok");
@@ -513,7 +516,7 @@ export async function discardUnaskedProposal(id: string): Promise<void> {
 
 
 
-export type ProposalItem = { name?: string; type?: string; currency?: string | null; old_balance?: number | string | null; new_balance?: number | string | null; balance?: number | string | null; reason?: string; amount?: number | string; occurred_at?: string; already_recorded?: boolean };
+export type ProposalItem = { account_id?: string; name?: string; type?: string; currency?: string | null; old_balance?: number | string | null; new_balance?: number | string | null; balance?: number | string | null; reason?: string; amount?: number | string; occurred_at?: string; already_recorded?: boolean };
 
 export type ProposalResult = { kind?: string; applied?: ProposalItem[]; skipped?: ProposalItem[] };
 
@@ -524,8 +527,9 @@ export function itemFigure(item: ProposalItem, balance: number | string | null |
 
 
 // What applying a proposal did, in exact figures. Not phrased by the model:
-// this is the record of a write.
-export function proposalOutcomeMessage(data: Record<string, unknown>): string {
+// this is the record of a write. labels name a month-end check-in's accounts
+// as the check-in did (balancesOutcome).
+export function proposalOutcomeMessage(data: Record<string, unknown>, labels: Map<string, string> | null = null): string {
   const outcome = String(data.outcome ?? "");
   if (outcome === "cancelled") return "You dropped that one, so nothing was changed.";
   if (outcome === "expired") return "That was more than a day ago, so I've let it lapse and changed nothing. Send it again if it still holds.";
@@ -571,13 +575,18 @@ export function proposalOutcomeMessage(data: Record<string, unknown>): string {
   // "Already recorded" for an answer repeated after it was saved, then what
   // was not saved and why.
   const lead = repeat ? "Already recorded · " : "✓ ";
+  const named = (a: ProposalItem) => labels?.get(String(a.account_id)) ?? a.name;
   for (const a of applied) {
     parts.push(Number(a.old_balance) === Number(a.new_balance)
-      ? `${lead}${a.name} · ${itemFigure(a, a.new_balance)} · unchanged`
-      : `${lead}${a.name} · ${itemFigure(a, a.old_balance)} → ${itemFigure(a, a.new_balance)}`);
+      ? `${lead}${named(a)} · ${itemFigure(a, a.new_balance)} · unchanged`
+      : `${lead}${named(a)} · ${itemFigure(a, a.old_balance)} → ${itemFigure(a, a.new_balance)}`);
   }
   for (const item of skipped) {
-    if (item.reason === "changed") {
+    if (item.reason === "changed" && labels) {
+      // All unchanged sent nothing to save: the balance moved in the app
+      // after the check-in showed it, so that one is not confirmed.
+      parts.push(`Not confirmed · ${named(item)} changed in the app since: ${itemFigure(item, item.balance)}.`);
+    } else if (item.reason === "changed") {
       parts.push(`Not saved · ${item.name} reads ${itemFigure(item, item.balance)} in the app now. Send it again if yours is right.`);
     } else {
       parts.push(`Not saved · ${item.name ?? "an account"} is closed in the app.`);
@@ -685,7 +694,7 @@ export function settledOutcome(row: ProposalRow): Settled {
     }
     if (row.kind === "account_balances") {
       if (!row.result) return { said: `Already recorded · ${proposalSummary(row)}`, toast: "Already recorded." };
-      return { said: withNeverSet(row, proposalOutcomeMessage({ outcome: "applied", result: row.result })), shown: withNeverSet(row, proposalOutcomeMessage({ outcome: "applied", ...row.result })), toast: "Already recorded." };
+      return { said: balancesOutcome(row, { outcome: "applied", result: row.result }), shown: balancesOutcome(row, { outcome: "applied", ...row.result }), toast: "Already recorded." };
     }
     // Applied with no answer kept: recorded, as the proposal showed it.
     if (!row.result) {
@@ -706,11 +715,24 @@ export function settledOutcome(row: ProposalRow): Settled {
 
 const AUTOPAY_GONE = "Couldn't record that: the bill isn't set up any more.";
 
-// A month-end check-in's All unchanged leaves out a balance never set
-// (checks/balanceCheckin.ts): its outcome says so, a line each.
-function withNeverSet(proposal: { payload: Record<string, unknown> }, text: string): string {
-  const neverSet = (proposal.payload?.never_set as string[] | undefined) ?? [];
-  return [text, ...neverSet.map((name) => `Not confirmed · ${name} has no balance yet: reply with it.`)].join("\n");
+// A month-end check-in (checks/balanceCheckin.ts): All unchanged is its
+// balance proposal, answered only by the button or the balances, never a
+// "yes", "no" or 👍 (the revamp review).
+export function isCheckinProposal(row: { kind: string; payload: unknown }): boolean {
+  return row.kind === "account_balances" && Boolean((row.payload as { checkin?: unknown } | null)?.checkin);
+}
+
+export const CHECKIN_ANSWER_HINT = 'Tap All unchanged, or reply with what changed, like "Bank 10,500".';
+
+// A balance proposal's outcome. A check-in's names each account as the
+// check-in did ("Bank (Sam)"), and its All unchanged leaves out a balance
+// never set: the outcome says so, a line each.
+function balancesOutcome(proposal: { kind: string; payload: Record<string, unknown> }, data: Record<string, unknown>): string {
+  if (!isCheckinProposal(proposal)) return proposalOutcomeMessage(data);
+  const items = (proposal.payload.items as Array<{ account_id?: string; label?: string }> | undefined) ?? [];
+  const labels = new Map(items.filter((i) => i.account_id && i.label).map((i) => [String(i.account_id), String(i.label)]));
+  const neverSet = (proposal.payload.never_set as string[] | undefined) ?? [];
+  return [proposalOutcomeMessage(data, labels), ...neverSet.map((name) => `Not confirmed · ${name} has no balance yet: reply with it.`)].join("\n");
 }
 
 // What applying an autopay bill did, from the database's answer: recorded
@@ -739,8 +761,8 @@ function appliedOutcome(proposal: ProposalRow, data: Record<string, unknown>): S
   if (outcome !== "applied") return { said: "Couldn't find that any more. Nothing recorded — send it again if it holds.", toast: "Couldn't find that any more. Nothing recorded." };
   const repeat = data.result != null;
   if (proposal.kind === "account_balances") {
-    const said = withNeverSet(proposal, proposalOutcomeMessage(data));
-    return { said, shown: repeat ? withNeverSet(proposal, proposalOutcomeMessage({ outcome: "applied", ...(data.result as Record<string, unknown>) })) : said, toast: repeat ? "Already recorded." : "Recorded." };
+    const said = balancesOutcome(proposal, data);
+    return { said, shown: repeat ? balancesOutcome(proposal, { outcome: "applied", ...(data.result as Record<string, unknown>) }) : said, toast: repeat ? "Already recorded." : "Recorded." };
   }
   const done = appliedLine((repeat ? data.result : data) as { kind?: string; applied?: Array<Record<string, unknown>> });
   if (!done) return { said: notRecordedLine(proposal.kind), toast: notRecordedLine(proposal.kind) };
@@ -985,7 +1007,7 @@ async function settleAutopayCopies(chatId: number, proposal: ProposalRow, answer
 // it, or its cycle passed.
 export function autopayClosedMessage(row: { payload: Record<string, unknown> }): string {
   const name = String(row.payload?.name ?? "That bill");
-  const due = row.payload?.due_date ? ` for ${shortDay(String(row.payload.due_date))}` : "";
+  const due = row.payload?.due_date ? ` for ${day(String(row.payload.due_date))}` : "";
   return `Nothing to do: ${name}${due} is recorded already, or its month has passed.`;
 }
 

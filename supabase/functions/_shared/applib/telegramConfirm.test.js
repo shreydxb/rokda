@@ -127,8 +127,8 @@ describe('QA #2: an unaddressed "yes" never guesses between entries', () => {
   it('asks which one, pointing at the buttons on its message', () => {
     expect(ambiguousConfirmMessage()).toBe('Which one? Tap Record on the message you mean.');
     expect(ambiguousDiscardMessage()).toBe('Which one? Tap Discard on the message you mean.');
-    expect(ambiguousProposalMessage(true)).toBe('Which one? Tap Record on the message you mean, or reply yes to it.');
-    expect(ambiguousProposalMessage(false)).toBe('Which one? Tap Discard on the message you mean, or reply no to it.');
+    expect(ambiguousProposalMessage(true)).toBe('Which one? Use the buttons on the message you mean, or reply yes to it.');
+    expect(ambiguousProposalMessage(false)).toBe('Which one? Use the buttons on the message you mean, or reply no to it.');
   });
 });
 

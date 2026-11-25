@@ -4858,5 +4858,24 @@ UI review's T10 to T13). Every typed answer and reaction still works.
     for "not yet". Leave for the app is the button; to the question about a
     confirmed balance, "no" still means they arrived after it.
   - **On a shared holding, the other member's dividend question says it was
-    answered** once one member answers, and stops offering buttons, as a
-    bill's copies do.
+    answered** once one member records them (Received, or either answer
+    about a confirmed balance), and stops offering buttons, as a bill's
+    copies do. Leave for the app and Not yet leave the other member's
+    question open: the dividends are still theirs to record.
+- **The review of the whole revamp** changed these:
+  - **Only All unchanged or the balances answer a check-in.** A 👍 on it
+    ("seen") confirmed every balance as today's, and a reply "no" (to "what
+    did each close at?": nothing changed) cancelled All unchanged and turned
+    the check-in into a line, its list gone. Now a 👍 does nothing and a
+    reply "yes" or "no" is told how to answer.
+  - **All unchanged's outcome names accounts as the check-in did**
+    (`Bank (Sam)`), and one changed in the app since is "Not confirmed ·
+    Bank (Sam) changed in the app since: AED 12,000.": nothing was sent, so
+    "Not saved … send it again" was wrong.
+  - **A dividend question asked again says when they were due** ("on 12
+    Nov", or "since" the earliest), not "today".
+  - **"Which one?" names no button**: a bare "yes" with a bill and dividends
+    both waiting was told to tap Record, which neither has.
+  - **The morning job clears old rows before it reports a failed check**,
+    so one check that keeps failing no longer stops it. An autopay question
+    that can't be answered gives its date in the one format.

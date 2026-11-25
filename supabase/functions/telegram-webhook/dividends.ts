@@ -73,7 +73,11 @@ export function dividendsQuestion(
   const last = ask
     ? `${fundName} was confirmed ${day(ask.confirmedOn, today)}. Already in that balance? ${total} in all.`
     : `Arrived? ${total} in all.`;
-  return [`${one ? "Dividend" : "Dividends"} due in ${fundName} today`, ...lines.map((l) => line(l, currency)), last].join("\n");
+  // "today" only on the pay date: asked again after Not yet, the day it was
+  // due (the revamp review), or the earliest when they were due on different days.
+  const dates = [...new Set(lines.map((l) => l.pay_date))].sort();
+  const when = dates.length > 1 ? `since ${day(dates[0], today)}` : dates[0] && dates[0] < today ? `on ${day(dates[0], today)}` : "today";
+  return [`${one ? "Dividend" : "Dividends"} due in ${fundName} ${when}`, ...lines.map((l) => line(l, currency)), last].join("\n");
 }
 
 // What an answer recorded, from the figures the database saved: the tick

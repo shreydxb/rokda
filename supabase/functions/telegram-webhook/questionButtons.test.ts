@@ -144,6 +144,8 @@ freshTest("a question whose cycle has passed says so to Not yet, rather than pro
   q.proposal.expires_at = new Date(Date.now() - 60_000).toISOString();
   await handler(tapUpdate(9801, q.id, tap(q.buttons, "Not yet")));
   assert(String(lastToast()?.text).startsWith("Nothing to do: Car EMI"), String(lastToast()?.text));
+  // Its date in the one format, "3 Sep", never Deno's "3 Sept".
+  assert(/ for \d{1,2} [A-Z][a-z]{2}( \d{4})? is /.test(String(lastToast()?.text)), String(lastToast()?.text));
   assertEquals((q.proposal.payload as Row).not_yet_on, undefined);
 });
 

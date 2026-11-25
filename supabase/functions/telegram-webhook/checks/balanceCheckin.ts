@@ -62,21 +62,27 @@ export function balanceFigure(a: BalanceAccount): string {
 }
 
 
+// An account as the check-in names it: "Bank (Sam)" for one person's, so two
+// accounts called Bank can be told apart; a shared one by its name alone.
+// All unchanged's outcome names them the same way.
+export function checkinLabel(a: BalanceAccount, members: BalanceMember[]): string {
+  if (a.is_shared || !a.owner_member_id) return a.name;
+  return `${a.name} (${members.find((m) => m.id === a.owner_member_id)?.display_name ?? "?"})`;
+}
+
 // The month-end check-in (the revamp, phase 8c; review T13): the list, one
 // line of how to reply, and All unchanged under it (runBalanceCheckin).
 export function buildBalanceCheckinMessage(accounts: BalanceAccount[], members: BalanceMember[], monthLabel: string, today = householdToday()): string {
-  const owner = new Map(members.map((m) => [m.id, m.display_name]));
   // The example names a real member of the household, so it shows how to say
   // whose an account is; one with no Telegram is the likeliest to need it.
   const exampleOwner = members.find((m) => m.telegram_user_id == null)?.display_name ?? members[0]?.display_name ?? "Partner";
   const lines = accounts.map((a) => {
-    const whose = a.is_shared || !a.owner_member_id ? "" : ` (${owner.get(a.owner_member_id) ?? "?"})`;
     // balance_as_of is a moment (timestamptz), so its day is read in Dubai:
     // a balance the bot set at 01:30 Dubai is stored as 21:30 UTC the day
     // before. A day picked in the account editor is stored as that day's UTC
     // midnight, 04:00 in Dubai, and keeps its date.
     const confirmed = a.balance_as_of ? `confirmed ${day(householdToday(new Date(a.balance_as_of)), today)}` : "never confirmed";
-    return `${a.name}${whose} · ${balanceFigure(a)} · ${confirmed}`;
+    return `${checkinLabel(a, members)} · ${balanceFigure(a)} · ${confirmed}`;
   });
   return [
     `${monthLabel} balances · what did each close at?`,
@@ -131,7 +137,7 @@ export async function runBalanceCheckin(today = householdToday()): Promise<{ sen
         const mine = accountsForCheckin((accounts ?? []) as BalanceAccount[], roster, m.id);
         if (!mine.length) continue;
         asked++;
-        const outcome = await sendCheckin(householdId, m, mine, buildBalanceCheckinMessage(mine, roster, monthLabel, today), periodKey);
+        const outcome = await sendCheckin(householdId, m, mine, roster, buildBalanceCheckinMessage(mine, roster, monthLabel, today), periodKey);
         if (outcome === "retry") retry = true;
       }
       if (!asked || retry) continue;
@@ -148,7 +154,7 @@ export async function runBalanceCheckin(today = householdToday()): Promise<{ sen
 // once it is out (or was this month already), "final" when Telegram refuses
 // it for good, "retry" otherwise; a proposal whose message never went out is
 // removed, so no tap can reach it.
-async function sendCheckin(householdId: string, m: BalanceMember, mine: BalanceAccount[], text: string, periodKey: string): Promise<"sent" | "final" | "retry"> {
+async function sendCheckin(householdId: string, m: BalanceMember, mine: BalanceAccount[], roster: BalanceMember[], text: string, periodKey: string): Promise<"sent" | "final" | "retry"> {
   const chatId = Number(m.telegram_user_id);
   const sourceRef = `checkin:${periodKey}:${m.id}`;
   const { data: before } = await supabase.from("bot_proposals").select("id, prompt_message_id").eq("household_id", householdId).eq("source_ref", sourceRef).maybeSingle();
@@ -157,9 +163,9 @@ async function sendCheckin(householdId: string, m: BalanceMember, mine: BalanceA
 
   const items = mine.filter((a) => a.balance_as_of != null).map((a) => {
     const balance = Number(a.balance ?? 0);
-    return { account_id: a.id, name: a.name, type: a.type, currency: a.currency, old_balance: balance, new_balance: balance };
+    return { account_id: a.id, name: a.name, label: checkinLabel(a, roster), type: a.type, currency: a.currency, old_balance: balance, new_balance: balance };
   });
-  const neverSet = mine.filter((a) => a.balance_as_of == null).map((a) => a.name);
+  const neverSet = mine.filter((a) => a.balance_as_of == null).map((a) => checkinLabel(a, roster));
   let proposalId: string | null = null;
   if (items.length) {
     const { data, error } = await supabase

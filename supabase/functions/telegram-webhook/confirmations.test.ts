@@ -145,7 +145,7 @@ freshTest("a bare yes with an expense also waiting asks which one, and records n
   });
 
   await handler(textUpdate(7232, "yes"));
-  assertEquals(lastReply(), "Which one? Tap Record on the message you mean, or reply yes to it.");
+  assertEquals(lastReply(), "Which one? Use the buttons on the message you mean, or reply yes to it.");
   assertEquals(backend.applyCalls, 0);
   assertEquals(backend.approveCalls, 0);
   assertEquals(balancesOf().get(MY_BANK.id), 0);
@@ -258,7 +258,7 @@ freshTest("a bare no says what it dropped, and asks which one when an expense is
   await handler(textUpdate(7342, "no"));
   // A 👍 or Record would save the change; someone who said "no" is not
   // pointed at either.
-  assertEquals(lastReply(), "Which one? Tap Discard on the message you mean, or reply no to it.");
+  assertEquals(lastReply(), "Which one? Use the buttons on the message you mean, or reply no to it.");
   assertEquals(backend.tables.bot_proposals[0].status, "proposed");
 
   backend.tables.intake.length = 0;
@@ -408,16 +408,34 @@ freshTest("All unchanged confirms the balances the check-in showed, and says wha
   assertEquals(backend.tables.accounts.find((a) => a.id === CARD.id)!.balance_as_of ?? null, null, "a balance never set was confirmed");
   const edit = backend.telegramCalls.filter((c) => c.method === "editMessageText").at(-1)!.body;
   assertEquals(edit.message_id, c.id);
+  // Each account named as the check-in named it; nothing was sent to save,
+  // so one changed since is "not confirmed", not "not saved".
   assertEquals(String(edit.text).split("\n"), [
-    "✓ Bank · AED 500 · unchanged",
-    "Not saved · Bank reads AED 12,000 in the app now. Send it again if yours is right.",
-    "Not confirmed · Card •0004 has no balance yet: reply with it.",
-    "Not confirmed · EPF has no balance yet: reply with it.",
+    "✓ Bank (Alex) · AED 500 · unchanged",
+    "Not confirmed · Bank (Sam) changed in the app since: AED 12,000.",
+    "Not confirmed · Card •0004 (Alex) has no balance yet: reply with it.",
+    "Not confirmed · EPF (Alex) has no balance yet: reply with it.",
   ]);
   // A second tap says so, and confirms nothing twice.
   await handler(tapUpdate(7233, c.id, c.buttons[0].callback_data));
   assertEquals(String(backend.telegramCalls.filter((c) => c.method === "answerCallbackQuery").at(-1)?.body.text), "Already recorded.");
   assertEquals(backend.tables.bot_proposals.filter((p) => p.kind === "account_balances").length, 1);
+});
+
+// The revamp review: a 👍 on the check-in is "seen", and "no" to "what did
+// each close at?" means nothing changed. Neither may settle it, and "no"
+// cancelled All unchanged and wiped the list.
+freshTest("a 👍, or a reply yes or no, to the check-in settles nothing and says how to answer", async () => {
+  const c = await checkinSent();
+  await handler(reactionUpdate(7251, c.id, "👍"));
+  assertEquals(c.proposal.status, "proposed", "a 👍 confirmed every balance");
+  for (const [n, said] of [[7252, "no"], [7253, "ok"], [7254, "yes"]] as const) {
+    await handler(replyUpdate(n, said, c.id));
+    assertEquals(lastReply(), 'Tap All unchanged, or reply with what changed, like "Bank 10,500".', said);
+    assertEquals(c.proposal.status, "proposed", `"${said}" settled the check-in`);
+  }
+  assertEquals(backend.tables.accounts.find((a) => a.id === MY_BANK.id)!.balance_as_of, "2026-11-20T08:00:00Z");
+  assertEquals(backend.telegramCalls.filter((x) => x.method === "editMessageText" && x.body.message_id === c.id).length, 0, "the check-in was edited away");
 });
 
 freshTest("a bare yes does not confirm a check-in; a tap from someone else changes nothing", async () => {
