@@ -4,9 +4,10 @@
 // backend is testing/harness.ts.
 import { assert, assertEquals } from "jsr:@std/assert@1";
 import { linkTokenDigest } from "../_shared/applib/telegramLink.js";
-import { backend, CARD, capturedIntake, dubaiToday, freshTest, handler, HOUSEHOLD, lastReply, MEMBER, PARTNER, reactionUpdate, replyUpdate, type Row, SECRET, tapUpdate, textUpdate } from "./testing/harness.ts";
+import { backend, CARD, capturedIntake, dubaiToday, freshTest, handler, HOUSEHOLD, lastReply, MEMBER, PARTNER, reactionUpdate, replyUpdate, type Row, SECRET, tapUpdate, TELEGRAM_USER, textUpdate } from "./testing/harness.ts";
 // After the harness, which sets the environment env.ts reads.
 import { HELP_TEXT } from "./commands.ts";
+import { LIST_NO_UNDO } from "./choices.ts";
 
 type Button = { text: string; url?: string; callback_data?: string };
 
@@ -225,4 +226,26 @@ freshTest("an /undo Telegram delivers again takes back the same Record, never th
   await handler(textUpdate(9992, "/undo"));
   assertEquals(capturedIntake().map((r) => r.status), ["approved", "pending"]);
   assertEquals(backend.rpcCalls.filter((c) => c.fn === "undo_intake_approval").length, 1);
+});
+
+// A list's entries are expenses too, with no Undo: /undo stops at them rather
+// than reaching past to the expense before (the revamp review).
+freshTest("/undo after a list's Record all says a list has no undo, and never reaches past it", async () => {
+  await record(9994, await capture(9993, "Corner Bakery", 30));
+  const sms = (merchant: string, amount: number) => ({ merchant, amount, currency: "AED", occurred_at: dubaiToday(), date_stated: true, source: "bank_sms", category: "Groceries", card_last4: "0004", account_hint: null, confidence: 0.95, kind: "expense" });
+  backend.parse = [sms("Fruit Stall", 12), sms("News Stand", 5)];
+  await handler(textUpdate(9995, "pasted two"));
+  const at = backend.telegramSent.findLastIndex((m) => buttonsOf(m.body).some((b) => b.text === "Record all"));
+  assert(at >= 0, "no list was sent");
+  const list = { id: 1001 + at, text: String(backend.telegramSent[at].body.text), buttons: buttonsOf(backend.telegramSent[at].body) };
+  // A list's tap is checked against the list's text, which Telegram sends with it.
+  await handler(tapUpdate(9996, list.id, list.buttons.find((b) => b.text === "Record all")!.callback_data!, TELEGRAM_USER, list.text));
+  assertEquals(capturedIntake().map((r) => r.status), ["approved", "approved", "approved"]);
+  await handler(textUpdate(9997, "/undo"));
+  assertEquals(lastReply(), LIST_NO_UNDO);
+  // Sent as a reply to the list, the same.
+  await handler(replyUpdate(9998, "/undo", list.id));
+  assertEquals(lastReply(), LIST_NO_UNDO);
+  assertEquals(capturedIntake().map((r) => r.status), ["approved", "approved", "approved"]);
+  assertEquals(backend.rpcCalls.filter((c) => c.fn === "undo_intake_approval").length, 0);
 });

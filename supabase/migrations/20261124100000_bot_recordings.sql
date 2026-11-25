@@ -9,6 +9,10 @@
 -- transaction its approval made, and /undo hands the latest of the last ten
 -- minutes to undo_intake_approval, which checks it all again.
 --
+-- A pasted list's Record all is noted too, as not undoable: its entries are
+-- expenses, and /undo must stop at them rather than reach past to the one
+-- before (the review of the whole revamp).
+--
 -- Only the bot, with its service role, reads or writes these: a member who
 -- could write a row could name an approval made in the app as the bot's. So
 -- RLS is on with no policy, and signed-in members have no grant at all.
@@ -26,6 +30,7 @@ create table public.bot_recordings (
   intake_id uuid not null,
   member_id uuid not null,
   transaction_id uuid not null,
+  undoable boolean not null default true,
   recorded_at timestamptz not null default now(),
   primary key (household_id, intake_id),
   foreign key (household_id, intake_id) references public.intake (household_id, id) on delete cascade,

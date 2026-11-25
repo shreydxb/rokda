@@ -4923,6 +4923,13 @@ the reply on linking was a long sentence of examples.
   latest Record changed in the app stays the latest, so /undo says so rather
   than reaching past it. A note that fails to save costs /undo, never the
   Record, and is logged.
+- **/undo stops at a pasted list** (the review of the whole revamp). A
+  list's entries are expenses too, with no Undo, so after Record all /undo
+  took back the expense recorded before the list. Record all now notes its
+  entries as not undoable, and /undo, or /undo sent as a reply to the list,
+  says "Your last expenses came from a list, which has no undo. Change them
+  in the app." A transfer or goal contribution is not an expense, so /undo
+  still reaches the expense before one.
 - **A delivery Telegram sends again is about the same expense.** /undo keeps
   the entry it chose with the update before undoing, so a resend after a
   failure part way never takes back the Record before it.

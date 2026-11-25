@@ -306,14 +306,15 @@ export async function recordEntry(householdId: string, memberId: string, row: En
 const UNDO_WINDOW_MS = 10 * 60_000;
 
 // Notes what this Record made, for /undo (undoLatest, below): only a row
-// written here is the bot's to take back. A row that fails to save costs
-// /undo, never the Record or its Undo button, and is logged. The daily job
-// clears rows older than a day (pruneTelegramUpdateLog), which /undo never
-// reaches.
-async function noteRecording(householdId: string, memberId: string, intakeId: string, transactionId: string): Promise<void> {
+// written here is the bot's to take back. A pasted list's Record all notes
+// its entries as not undoable (batchReview.ts), so /undo stops at them. A
+// row that fails to save costs /undo, never the Record or its Undo button,
+// and is logged. The daily job clears rows older than a day
+// (pruneTelegramUpdateLog), which /undo never reaches.
+export async function noteRecording(householdId: string, memberId: string, intakeId: string, transactionId: string, undoable = true): Promise<void> {
   const { error } = await supabase
     .from("bot_recordings")
-    .upsert({ household_id: householdId, intake_id: intakeId, member_id: memberId, transaction_id: transactionId, recorded_at: new Date().toISOString() }, { onConflict: "household_id,intake_id" });
+    .upsert({ household_id: householdId, intake_id: intakeId, member_id: memberId, transaction_id: transactionId, undoable, recorded_at: new Date().toISOString() }, { onConflict: "household_id,intake_id" });
   if (error) logFailure("noteRecording", null, error);
 }
 
@@ -508,12 +509,13 @@ const UNDO_CHANGED = "It was changed in the app, so it stays. Change it there.";
 const UNDO_FAILED = "Couldn't undo that just now. Try again in a minute.";
 export const NOTHING_TO_UNDO = "No expense recorded in the last ten minutes to undo.";
 const NOTHING_THERE = "That message has no expense to undo.";
+export const LIST_NO_UNDO = "Your last expenses came from a list, which has no undo. Change them in the app.";
 
-type Noted = { intake_id: string; transaction_id: string };
+type Noted = { intake_id: string; transaction_id: string; undoable?: boolean };
 
 // The note of what the bot's Record made of this member's entry, if any.
 async function notedFor(member: { id: string; household_id: string }, intakeId: string): Promise<Noted | null> {
-  const { data, error } = await supabase.from("bot_recordings").select("intake_id, transaction_id").eq("household_id", member.household_id).eq("member_id", member.id).eq("intake_id", intakeId).maybeSingle();
+  const { data, error } = await supabase.from("bot_recordings").select("intake_id, transaction_id, undoable").eq("household_id", member.household_id).eq("member_id", member.id).eq("intake_id", intakeId).maybeSingle();
   if (error) throw new Error(`reading a Record's note failed (${error.code ?? "no code"})`);
   return data as Noted | null;
 }
@@ -546,9 +548,15 @@ export async function undoLatest(chatId: number, member: { id: string; household
       return;
     }
   } else if (repliedTo != null) {
-    // The entry that message shows, when it is the member's.
-    const { data: shown } = await supabase.from("intake").select("id").eq("household_id", member.household_id).eq("member_id", member.id).eq("confirm_chat_id", chatId).eq("confirm_message_id", repliedTo).maybeSingle();
-    noted = shown ? await notedFor(member, (shown as { id: string }).id) : null;
+    // The entry that message shows, when it is the member's; a list shows
+    // several.
+    const { data: shown } = await supabase.from("intake").select("id").eq("household_id", member.household_id).eq("member_id", member.id).eq("confirm_chat_id", chatId).eq("confirm_message_id", repliedTo).limit(2);
+    const ids = ((shown ?? []) as Array<{ id: string }>).map((r) => r.id);
+    noted = ids.length === 1 ? await notedFor(member, ids[0]) : null;
+    if (ids.length > 1 || noted?.undoable === false) {
+      await reply(chatId, LIST_NO_UNDO);
+      return;
+    }
     if (!noted) {
       await reply(chatId, NOTHING_THERE);
       return;
@@ -556,7 +564,7 @@ export async function undoLatest(chatId: number, member: { id: string; household
   } else {
     const { data: latest, error } = await supabase
       .from("bot_recordings")
-      .select("intake_id, transaction_id")
+      .select("intake_id, transaction_id, undoable")
       .eq("household_id", member.household_id)
       .eq("member_id", member.id)
       .gte("recorded_at", new Date(Date.now() - UNDO_WINDOW_MS).toISOString())
@@ -568,6 +576,10 @@ export async function undoLatest(chatId: number, member: { id: string; household
       return;
     }
     noted = latest as Noted | null;
+    if (noted?.undoable === false) {
+      await reply(chatId, LIST_NO_UNDO);
+      return;
+    }
   }
   const { data: found } = noted
     ? await supabase.from("intake").select(INTAKE_COLUMNS).eq("id", noted.intake_id).eq("household_id", member.household_id).eq("member_id", member.id).maybeSingle()

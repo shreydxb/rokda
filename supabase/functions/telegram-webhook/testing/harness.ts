@@ -171,7 +171,7 @@ export const UNIQUE: Record<string, string[]> = {
 // Column defaults the real schema fills in. A proposal's times are on the
 // real clock, because the handler compares them with Date.now().
 export const DEFAULTS: Record<string, () => Row> = {
-  bot_recordings: () => ({ recorded_at: new Date().toISOString() }),
+  bot_recordings: () => ({ undoable: true, recorded_at: new Date().toISOString() }),
   bot_proposals: () => ({
     status: "proposed",
     created_at: new Date().toISOString(),
