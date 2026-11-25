@@ -166,7 +166,10 @@ export function usePlanFigures({ household = null, members, me, accounts, transa
     () => cashReserve({ accounts: accounts ?? [], monthlySpend: forecast.ready ? forecast.avgMonthlySpend : null, keptCost }),
     [accounts, forecast, keptCost]
   );
-  const reserveMissing = [...new Set([...accountsMissing, ...goalsMissing])];
+  // The reserve is months of the plan's spending, read from the records: with
+  // them unread it said "Needs the plan's monthly spending" (the review of
+  // the whole revamp).
+  const reserveMissing = [...new Set([...accountsMissing, ...goalsMissing, ...neverLoaded(sources, ['transactions'])])];
 
   // Checks that change what you do. "N goals behind pace" and the nudge to
   // commit an extra debt payment went (Planning audit, 1.1): the first counted

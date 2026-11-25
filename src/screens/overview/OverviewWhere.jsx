@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { activityHref, monthRange, tabHref } from '../../lib/activityLink';
 import { formatPct } from '../../lib/money';
 import { BarList, Card, Chip, InfoButton } from '../../design-system/kit';
+import Unread from './Unread';
 
 // Where this month's money went, and what changed (the revamp, phase 3;
 // review S-overview-3 and N2): the five categories spent on most, each with
@@ -11,7 +12,7 @@ import { BarList, Card, Chip, InfoButton } from '../../design-system/kit';
 // Insights and Budget; and up to three categories running ahead of their
 // usual pace, Needs attention's own check (lib/attention.js). Each opens the
 // month's transactions in that category.
-export default function OverviewWhere({ categories, moves, money, now, period = 'mtd' }) {
+export default function OverviewWhere({ categories, moves, money, now, period = 'mtd', unread = [] }) {
   const navigate = useNavigate();
   const range = monthRange(now.getFullYear(), now.getMonth() + 1);
   const open = (categoryId) => navigate(activityHref({ categoryId, ...range }));
@@ -30,12 +31,14 @@ export default function OverviewWhere({ categories, moves, money, now, period = 
         </Link>
       }
     >
-      {categories.length === 0 ? (
+      {unread.length > 0 ? (
+        <Unread sources={unread} what="Where it went isn’t shown." />
+      ) : categories.length === 0 ? (
         <div className="ov-muted">No spending this month.</div>
       ) : (
         <BarList items={categories.map((c) => ({ id: c.id, label: c.name, value: c.value, usual: c.usual ?? undefined, display: money.fmt(c.value) }))} onSelect={(item) => open(item.id)} />
       )}
-      {moves.length > 0 && (
+      {unread.length === 0 && moves.length > 0 && (
         <div className="ov-changed">
           <h3 className="ov-todo-head">What changed</h3>
           <ul className="ov-changed-list">

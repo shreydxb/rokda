@@ -113,6 +113,15 @@ describe('Tax years', () => {
     expect(screen.getByRole('alert').textContent).toMatch(/tax returns.*Refresh the page to try again\.$/);
   });
 
+  // The review of the whole revamp: the years are built from the holdings
+  // and their dividends too. Unread, every statement line read as a
+  // difference against no dividends at all.
+  it('the holdings or their dividends failing to load', () => {
+    open(data({ holdingDividends: [], errors: { holdingDividends: new Error('x') }, loaded: {} }));
+    expect(screen.getByRole('alert').textContent).toMatch(/dividends.*Refresh the page to try again\.$/);
+    expect(screen.queryByText(/differences?/)).toBeNull();
+  });
+
   it('all Indian holdings sold', () => {
     open(data({ holdings: [{ ...IN_A, quantity: 0 }] }));
     expect(within(region()).getByRole('button', { name: FY25 })).toBeTruthy();

@@ -4,6 +4,7 @@ import { tabHref } from '../../lib/activityLink';
 import { nativeAmountLabel } from '../../lib/recurring';
 import { Card, Chip } from '../../design-system/kit';
 import { DatedStrip } from '../../design-system/charts';
+import Unread from './Unread';
 
 const ROWS = 5;
 const DAY = 86400000;
@@ -13,7 +14,9 @@ const DAY = 86400000;
 // cash to hand covers what is committed. A bill late or an autopay not yet
 // confirmed comes first, on today. The rows say in words what the strip
 // shows, so nothing is only on the strip.
-export default function OverviewNext30({ items, money, cover, now, household = false, hasRecurring = true }) {
+// unread: the recurring bills, when they never loaded: "nothing due" would
+// be a guess.
+export default function OverviewNext30({ items, money, cover, now, household = false, hasRecurring = true, unread = [] }) {
   // Every bill as a row on request, so none is only on the strip (fresh
   // review of the cockpit).
   const [all, setAll] = useState(false);
@@ -35,8 +38,9 @@ export default function OverviewNext30({ items, money, cover, now, household = f
         </Link>
       }
     >
+      {unread.length > 0 && <Unread sources={unread} what="Bills and pay due aren’t shown." />}
       {items.length === 0 ? (
-        <div className="ov-next30-none">{hasRecurring ? 'Nothing due in the next 30 days.' : 'No recurring bills or income set up yet.'}</div>
+        unread.length > 0 ? null : <div className="ov-next30-none">{hasRecurring ? 'Nothing due in the next 30 days.' : 'No recurring bills or income set up yet.'}</div>
       ) : (
         <>
           <div className="ov-next30-strip">

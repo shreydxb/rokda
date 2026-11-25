@@ -2,11 +2,12 @@ import { Link } from 'react-router-dom';
 import { Card, Chip } from '../../design-system/kit';
 import { isTransfer } from '../../lib/transactionKind';
 import { categoryParts } from '../../lib/splits';
+import Unread from './Unread';
 
 // The last five transactions, a glance not a ledger (SHR-328; the revamp,
 // phase 3, review S-overview-8): Activity is where records are looked into.
 // Each opens in its editor here.
-export default function OverviewRecent({ recent, money, categories, accounts, onOpen }) {
+export default function OverviewRecent({ recent, money, categories, accounts, onOpen, unread = [] }) {
   const catName = new Map(categories.map((c) => [c.id, c.name]));
   const accName = new Map(accounts.map((a) => [a.id, a.name]));
   return (
@@ -20,7 +21,9 @@ export default function OverviewRecent({ recent, money, categories, accounts, on
         </Link>
       }
     >
-      {recent.length === 0 ? (
+      {unread.length > 0 ? (
+        <Unread sources={unread} what="Recent records aren’t shown." />
+      ) : recent.length === 0 ? (
         <div className="ov-muted ov-recent-none">No transactions yet.</div>
       ) : (
         // A table scrolls sideways inside its card when the screen is narrow,
