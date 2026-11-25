@@ -534,7 +534,7 @@ begin
   -- Without a grant on the notes, a member still deletes an expense the bot
   -- recorded: its note goes with it (the foreign key's cascade).
   delete from transactions where id = 'f8000000-0000-0000-0000-0000000000b1';
-  if exists (select 1 from transactions where id = 'f8000000-0000-0000-0000-0000000000b1') then
+  if (exists (select 1 from transactions where id = 'f8000000-0000-0000-0000-0000000000b1')) is not false then
     raise exception 'bot recordings FAILED: a member could not delete an expense the bot recorded';
   end if;
   raise notice 'bot recordings ok: the bot''s alone';

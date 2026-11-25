@@ -6309,7 +6309,7 @@ begin
   r := approve_intake('dddd0000-0000-4000-8000-0000000000e1', card, 9, date '2026-10-03', 'expense', null, 'AED', 'Cafe');
   insert into bot_recordings (intake_id, household_id, member_id, transaction_id) values ('dddd0000-0000-4000-8000-0000000000e1', hh, me, (r ->> 'transaction_id')::uuid);
   delete from intake where id = 'dddd0000-0000-4000-8000-0000000000e1';
-  if exists (select 1 from bot_recordings where intake_id = 'dddd0000-0000-4000-8000-0000000000e1') then
+  if (exists (select 1 from bot_recordings where intake_id = 'dddd0000-0000-4000-8000-0000000000e1')) is not false then
     raise exception 'bot recordings FAILED: a deleted entry left its row';
   end if;
   delete from transactions where id = (r ->> 'transaction_id')::uuid;
