@@ -124,7 +124,12 @@ export function statementRows({ accounts = [], reconciliations = [], transaction
   const byKey = new Map(reconciliations.map((r) => [`${r.account_id}:${r.statement_date}`, r]));
   const rows = [];
   for (const account of statementCards(accounts)) {
-    for (const close of closedStatementDates(account.statement_day, now, perCard)) rows.push(statementRow(account, close, byKey, transactions, now));
+    for (const close of closedStatementDates(account.statement_day, now, perCard)) {
+      // None from before the card was in Rokda, as step 2 counts them (the
+      // review of the whole revamp).
+      if (account.created_at && parseDay(account.created_at) > close) continue;
+      rows.push(statementRow(account, close, byKey, transactions, now));
+    }
   }
   return sortStatementRows(rows);
 }

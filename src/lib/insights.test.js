@@ -115,6 +115,13 @@ describe('topMerchants', () => {
     expect(topMerchants(rows, null, { year: 2026, month: 10, now: NOW })).toEqual([]);
   });
 
+  // The review of the whole revamp: records with no merchant are one bar,
+  // marked so it opens nothing (a search for "Unknown" matched none of them).
+  it('groups records with no merchant as Unknown, marked unnamed', () => {
+    const unnamed = [{ id: 'u', merchant: null, amount: -30, kind: 'expense', occurred_at: '2026-09-05', is_shared: true }];
+    expect(topMerchants(unnamed, null, { year: 2026, month: 9, now: NOW })).toEqual([{ name: 'Unknown', total: 30, count: 1, unnamed: true }]);
+  });
+
   it("counts one person's half of a shared record", () => {
     expect(topMerchants(rows, 'm1', { year: 2026, month: 9, now: NOW })[0]).toEqual({ name: 'Grocer', total: 40, count: 1 });
   });

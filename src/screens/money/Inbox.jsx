@@ -121,17 +121,20 @@ export default function Inbox({ household = null, members = [], accounts, catego
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
-  useEffect(() => {
-    if (!data.intake) return;
-    const ids = [...data.intake.filter((i) => i.status === 'pending')].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).map((i) => i.id);
-    listRef.current = { ids, selected: ids.includes(selectedId) ? selectedId : (ids[0] ?? null), busy: bulkSaving || saving };
-  });
   // The message on screen is held by its id, so a newer one arriving on a
   // refresh does not take its place while it is being worked on (the fresh
   // review of 4c). Until one is chosen, it is the newest.
   const firstPending = data.intake ? [...data.intake.filter((i) => i.status === 'pending')].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0]?.id : undefined;
   const [pinned, setPinned] = useState(null);
   if (selectedId === null && pinned === null && firstPending) setPinned(firstPending);
+  useEffect(() => {
+    if (!data.intake) return;
+    const ids = [...data.intake.filter((i) => i.status === 'pending')].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).map((i) => i.id);
+    // The arrows move from the message on screen, chosen or held (the review
+    // of the whole revamp: they counted from the top after a refresh).
+    const current = selectedId ?? pinned;
+    listRef.current = { ids, selected: ids.includes(current) ? current : (ids[0] ?? null), busy: bulkSaving || saving };
+  });
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
   // An inbox that never loaded is not an empty one: it read "Inbox zero" with

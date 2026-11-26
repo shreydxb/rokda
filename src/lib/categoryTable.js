@@ -32,9 +32,14 @@ export function categoryTable(categories = [], budgets = [], { year, month }) {
   };
   // Whose cost a row is: its own owner, or its group's when it has none, as
   // the split and the budget read it (lib/share.js categoryOwner).
+  // The group a row takes its owner from is named by its own name, even when
+  // it is archived and the row sits under Other: the tooltip read "Other's,
+  // as its group" (the review of the whole revamp).
   const row = (c) => {
     const owner = categoryOwner(c.id, byId);
-    return { category: c, budget: budgetOf(c.id), owner, ownerFromGroup: Boolean(owner && !c.owner_member_id) };
+    const ownerFromGroup = Boolean(owner && !c.owner_member_id);
+    const parent = ownerFromGroup ? byId.get(c.parent_id) : null;
+    return { category: c, budget: budgetOf(c.id), owner, ownerFromGroup, groupName: parent ? `${parent.name}${parent.archived ? ' (archived)' : ''}` : null };
   };
   const childrenOf = (id) => active.filter((k) => parentOf(k) === id);
 

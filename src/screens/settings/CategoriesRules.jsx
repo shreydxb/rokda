@@ -153,10 +153,10 @@ export default function CategoriesRules({ household, members = [], data, loading
                       </th>
                     </tr>
                   )}
-                  {g.rows.map(({ category: c, budget, owner, ownerFromGroup }) => (
+                  {g.rows.map(({ category: c, budget, owner, ownerFromGroup, groupName }) => (
                     <tr key={c.id} data-open="" onClick={(e) => !e.target.closest('button') && setEditingCategory(c)}>
                       <th scope="row">{nameButton(c)}</th>
-                      <td>{whose(owner, ownerFromGroup ? g.title : null)}</td>
+                      <td>{whose(owner, ownerFromGroup ? groupName : null)}</td>
                       <td className="ds-num">{budgetCell(budget)}</td>
                       <td>{chips(c)}</td>
                     </tr>

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabaseClient';
 import { householdToday } from '../../lib/day';
+import { readAllPages } from '../../lib/pagedRead';
 import { shortDate } from '../../lib/dividends';
 import { Avatar, Card, Chip, Drawer, Fold, InfoButton, Switch } from '../../design-system/kit';
 import './SettingsTabs.css';
@@ -332,12 +333,16 @@ function Diagnostics({ household }) {
     let cancelled = false;
     const since = new Date();
     since.setDate(since.getDate() - STATS_WINDOW_DAYS);
-    supabase
-      .from('telegram_call_log')
-      .select('occurred_at, success')
-      .eq('household_id', household.id)
-      .gte('occurred_at', since.toISOString())
-      .then(({ data, error: fetchError }) => {
+    // Every call, a page at a time: one request stopped at 1,000 and said
+    // nothing (the review of the whole revamp).
+    readAllPages(() =>
+      supabase
+        .from('telegram_call_log')
+        .select('occurred_at, success')
+        .eq('household_id', household.id)
+        .gte('occurred_at', since.toISOString())
+        .order('id'),
+    ).then(({ data, error: fetchError }) => {
         if (cancelled) return;
         if (fetchError) setError(fetchError.message);
         else setRows(data ?? []);

@@ -60,6 +60,13 @@ describe('statementRows', () => {
   const card = { id: 'card', name: 'Bank card', type: 'credit_card', statement_day: 28, due_day: 22, archived_at: null };
   const now = day('2026-10-12');
 
+  // The review of the whole revamp: a card added this week listed six old
+  // statements to check, where Month end's step 2 says none closed then.
+  it('lists no statement that closed before the card was added', () => {
+    const rows = statementRows({ accounts: [{ ...card, created_at: '2026-09-10T08:00:00Z' }], now, perCard: 6 });
+    expect(rows.map((r) => r.statementDate)).toEqual(['2026-09-28']);
+  });
+
   it('marks a statement nobody has looked at as unchecked, and lists it first', () => {
     const rows = statementRows({
       accounts: [card],

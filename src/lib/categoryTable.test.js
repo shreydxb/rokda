@@ -89,6 +89,16 @@ describe('categoryTable', () => {
       ['fuel', 'm2', true],
       ['ins', 'm1', false],
     ]);
+    expect(t.groups[0].rows[0].groupName).toBe('Car');
+  });
+
+  // The review of the whole revamp: under Other, its owner's group was named
+  // "Other".
+  it('names an archived group a row takes its owner from', () => {
+    const cats = [cat('car', 'Car', { owner_member_id: 'm2', archived: true }), cat('fuel', 'Fuel', { parent_id: 'car' })];
+    const t = categoryTable(cats, [], { year: 2026, month: 11 });
+    const fuel = t.groups.flatMap((g) => g.rows).find((r) => r.category.id === 'fuel');
+    expect([fuel.ownerFromGroup, fuel.groupName]).toEqual([true, 'Car (archived)']);
   });
 });
 

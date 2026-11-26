@@ -25,7 +25,10 @@ vi.mock('../../lib/supabaseClient', () => {
         return c;
       },
       eq: () => c,
-      gte: () => Promise.resolve({ data: calls.log, error: null }),
+      gte: () => c,
+      order: () => c,
+      // A page of the log, as the API returns at most 1,000 rows a request.
+      range: (from, to) => Promise.resolve({ data: calls.log.slice(from, Math.min(to + 1, from + 1000)), error: null }),
       upsert: (row) => {
         calls.upserts.push({ table, row });
         return Promise.resolve({ error: null });
@@ -272,6 +275,17 @@ describe('Telegram: diagnostics', () => {
     expect([...fold.querySelectorAll('.st-diag-fig')].map((f) => f.textContent)).toEqual(['4', '75%']);
     expect(within(fold).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Day', 'Calls']);
     expect(calls.selected.find((s) => s.table === 'telegram_call_log').cols).not.toMatch(/tokens/);
+  });
+
+  // The review of the whole revamp: one request stopped at 1,000 calls, and
+  // said nothing.
+  it('counts every call, past the first thousand', async () => {
+    const day = new Date().toISOString().slice(0, 10);
+    calls.log = Array.from({ length: 1200 }, (_, i) => ({ occurred_at: `${day}T08:00:00Z`, success: i % 2 === 0 }));
+    await renderTelegram();
+    const fold = screen.getByText('Diagnostics · last 30 days').closest('details');
+    await waitFor(() => expect(within(fold).getByText('AI calls')).toBeTruthy());
+    expect([...fold.querySelectorAll('.st-diag-fig')].map((f) => f.textContent)).toEqual(['1200', '50%']);
   });
 
   it('says when there were none', async () => {
