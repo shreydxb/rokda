@@ -22,7 +22,7 @@ export default function OverviewWhere({ categories, moves, money, now, period = 
       className="ov-where"
       info={
         <InfoButton about="Where it went">
-          The five categories spent on most this month, net of refunds. The tick on each bar is that category&apos;s usual month: its average over the months before with any records, up to six.
+          The five categories spent on most this month, net of refunds. The tick on each bar is that category&apos;s usual month: its average over the months before with any records, up to six. What changed compares this month so far with the last three months&apos; pace by the same day, so its usual is not the tick&apos;s.
         </InfoButton>
       }
       right={
@@ -50,7 +50,7 @@ export default function OverviewWhere({ categories, moves, money, now, period = 
                     <span className="ov-todo-title">{m.categoryName}</span>
                     <span className="ov-muted">
                       {' '}
-                      · {money.fmt(m.actual)} so far, {money.fmt(m.expectedSoFar)} usual by now
+                      · {money.fmt(m.actual)} so far, {money.fmt(m.expectedSoFar)} by now in the last three months
                     </span>
                   </span>
                   <span className="ov-muted" aria-hidden="true">

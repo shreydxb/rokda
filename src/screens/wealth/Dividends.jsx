@@ -27,7 +27,9 @@ import './Dividends.css';
 // through the address (HoldingDrawer.jsx).
 
 // What the tab reads; one that never loaded is said, never shown as none.
-const SOURCES = ['holdings', 'holdingDividends', 'holdingTrades', 'dividendEvents', 'dividendSplits', 'dividendSpecialParts', 'dividendFeedStatus', 'accounts'];
+// The exchange rates too: unread, rupee dividends were valued at today's rate
+// without a word, where Investments withholds (the review of the whole revamp).
+const SOURCES = ['holdings', 'holdingDividends', 'holdingTrades', 'dividendEvents', 'dividendSplits', 'dividendSpecialParts', 'dividendFeedStatus', 'accounts', 'fxRateHistory'];
 const MARKET_NAMES = { IN: 'India', US: 'US' };
 const MARKET_ADJECTIVES = { IN: 'Indian', US: 'US' };
 const A_MARKET_HOLDING = { IN: 'an Indian holding', US: 'a US holding' };
