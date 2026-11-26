@@ -4,7 +4,6 @@ import {
   accountTypeLabel,
   amountOwed,
   accountOptionLabel,
-  activeAccounts,
   archivedAccounts,
   closurePlan,
   isArchived,
@@ -50,7 +49,6 @@ describe('closing an account with history', () => {
   it('removes the closed account from new-entry choices', () => {
     const all = [closed, SAVINGS];
     expect(selectableAccounts(all).map((a) => a.id)).toEqual(['sav-1']);
-    expect(activeAccounts(all).map((a) => a.id)).toEqual(['sav-1']);
     expect(archivedAccounts(all).map((a) => a.id)).toEqual(['card-1']);
   });
 

@@ -34,13 +34,6 @@ export function balanceStatus(account, now = new Date(), staleDays = BALANCE_STA
   return daysSinceBalanceConfirmed(account, now) >= staleDays ? 'stale' : 'confirmed';
 }
 
-export function balanceLabel(account, now = new Date()) {
-  const status = balanceStatus(account, now);
-  if (status === 'unset') return 'Balance not set';
-  if (status === 'stale') return `Balance checked ${daysSinceBalanceConfirmed(account, now)}d ago`;
-  return null;
-}
-
 // Net worth is provisional whenever any account contributing to it has never
 // had its balance confirmed: the total is arithmetic over numbers that were
 // never asserted.

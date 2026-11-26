@@ -25,10 +25,6 @@
   color: var(--pos);
 }
 
-.ov-neg {
-  color: var(--neg);
-}
-
 .ov-link {
   color: var(--ink3);
   font-size: 11.5px;
@@ -65,27 +61,6 @@ a.ov-link {
   color: var(--ink2);
 }
 
-.ov-head {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 20px;
-  flex-wrap: wrap;
-}
-
-.ov-lede {
-  font-weight: 400;
-  font-size: 27px;
-  margin: 9px 0 0;
-  line-height: 1.3;
-  max-width: 36ch;
-}
-
-.ov-seg-row {
-  display: flex;
-  gap: 6px;
-}
-
 /* empty state */
 .ov-empty {
   margin-top: 40px;
@@ -114,108 +89,6 @@ a.ov-link {
   border-color: var(--accent);
   color: var(--ink);
 }
-.ov-empty-foot {
-  margin-top: 28px;
-  padding-top: 16px;
-  border-top: 1px solid var(--rule);
-  font-size: 11.5px;
-  color: var(--ink3);
-  line-height: 1.7;
-  max-width: 58ch;
-}
-
-/* hero */
-.ov-hero-section {
-  margin-top: 30px;
-  padding-bottom: 26px;
-  border-bottom: 1px solid var(--rule);
-}
-.ov-hero {
-  /* Geist's figure weight (the revamp); it loads 400 to 600 only. */
-  font-weight: 600;
-  font-size: 46px;
-  line-height: 1.1;
-  margin-top: 8px;
-  letter-spacing: -0.01em;
-}
-.ov-hero-currency {
-  font-size: 20px;
-  color: var(--ink2);
-}
-.ov-nwchange {
-  margin-top: 10px;
-  font-size: 13.5px;
-}
-.ov-strip {
-  display: flex;
-  gap: 30px;
-  margin-top: 18px;
-  font-size: 12.5px;
-  color: var(--ink2);
-  flex-wrap: wrap;
-  align-items: baseline;
-}
-.ov-strip b {
-  color: var(--ink);
-  font-weight: 500;
-}
-
-/* period */
-.ov-period-section {
-  margin-top: 26px;
-}
-.ov-section-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  margin-bottom: 14px;
-  gap: 12px;
-}
-.ov-kpi-row {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-}
-.ov-kpi-row > div {
-  padding: 0 20px;
-  border-right: 1px solid var(--rule);
-}
-.ov-kpi-row > div:first-child {
-  padding-left: 0;
-}
-.ov-kpi-row > div:last-child {
-  border-right: 0;
-}
-.ov-kpi-label {
-  font-size: 12px;
-  color: var(--ink2);
-}
-.ov-kpi-fig {
-  font-size: 24px;
-  margin-top: 6px;
-  white-space: nowrap;
-}
-.ov-kpi-fig .ov-hero-currency {
-  font-size: 14px;
-}
-
-/* split: chart + attention */
-.ov-split {
-  display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
-  gap: 40px;
-  margin-top: 32px;
-}
-
-/* Two columns of detail below the decisions (the Overview redesign). */
-.ov-pair {
-  display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
-  gap: 40px;
-  margin-top: 36px;
-}
-.ov-pair-last {
-  padding-bottom: 40px;
-}
 
 .ov-chart {
   display: flex;
@@ -224,51 +97,6 @@ a.ov-link {
   height: 120px;
   border-bottom: 1px solid var(--rule2);
   margin-top: 14px;
-}
-.ov-col {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  background: none;
-  border: none;
-  cursor: pointer;
-  height: 100%;
-  justify-content: flex-end;
-  padding: 0;
-}
-.ov-col-bars {
-  width: 100%;
-  height: 92px;
-  display: flex;
-  gap: 3px;
-  align-items: flex-end;
-  justify-content: center;
-}
-.ov-bar-inc,
-.ov-bar-out {
-  width: 40%;
-  display: block;
-  border-radius: 1px 1px 0 0;
-  transition: opacity var(--ease);
-}
-.ov-bar-inc {
-  background: var(--accent);
-}
-.ov-bar-out {
-  background: var(--neutralbar);
-}
-.ov-col[data-active='true'] .ov-bar-inc,
-.ov-col[data-active='true'] .ov-bar-out {
-  opacity: 0.85;
-}
-.ov-col-label {
-  font-size: 10.5px;
-  color: var(--ink3);
-}
-.ov-col[data-active='true'] .ov-col-label {
-  color: var(--ink);
 }
 
 .ov-chart-readout {
@@ -287,35 +115,12 @@ a.ov-link {
   font-size: 14px;
   margin-left: 4px;
 }
-
-.ov-legend {
-  display: flex;
-  gap: 18px;
-  margin-top: 12px;
-  font-size: 11.5px;
-  color: var(--ink2);
-}
-.ov-legend span {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
-.ov-dot-inc,
-.ov-dot-out,
 .ov-dot-pos,
 .ov-dot-warn {
   display: inline-block;
   width: 8px;
   height: 8px;
   border-radius: 99px;
-}
-.ov-dot-inc {
-  background: var(--accent);
-  border-radius: 1px;
-}
-.ov-dot-out {
-  background: var(--neutralbar);
-  border-radius: 1px;
 }
 .ov-dot-pos {
   background: var(--pos);
@@ -325,35 +130,6 @@ a.ov-link {
 }
 
 /* needs attention */
-.ov-allclear {
-  border-top: 1px solid var(--rule);
-  padding-top: 16px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13.5px;
-  color: var(--ink2);
-}
-.ov-attn-list {
-  display: flex;
-  flex-direction: column;
-}
-.ov-attn-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 11px 0;
-  border-top: 1px solid var(--rule);
-  flex-wrap: wrap;
-}
-.ov-attn-main {
-  flex: 1;
-  min-width: 140px;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  font-size: 13.5px;
-}
 .ov-attn-select {
   /* Same popup-background fix as TransactionEditor.css's .te-fieldvalue --
      an author-set `color` without a matching background-color makes the
@@ -366,16 +142,9 @@ a.ov-link {
   font-size: 12px;
   color: var(--ink2);
 }
-.ov-attn-btn {
-  padding: 5px 10px;
-  font-size: 11.5px;
-}
 
 /* data quality */
 /* One status line under the title (the Overview redesign). */
-.ov-quality-section {
-  margin: 6px 0 22px;
-}
 .ov-quality-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
@@ -403,9 +172,7 @@ a.ov-link {
   line-height: 1.5;
 }
 .ov-chip-ok,
-.ov-chip-warn,
-.ov-chip-neg,
-.ov-chip-mute {
+.ov-chip-warn {
   font-size: 11px;
   letter-spacing: 0.06em;
   padding: 2px 7px;
@@ -419,93 +186,6 @@ a.ov-link {
 }
 .ov-chip-warn {
   color: var(--warn);
-}
-.ov-chip-neg {
-  color: var(--neg);
-}
-.ov-chip-mute {
-  color: var(--ink2);
-}
-
-
-/* triple column: composition / recent / accounts */
-.ov-triple {
-  margin-top: 36px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr) minmax(0, 1fr);
-  gap: 36px;
-  padding-bottom: 40px;
-}
-.ov-comp-fig {
-  font-size: 24px;
-  margin-top: 4px;
-}
-.ov-comp-bar {
-  display: flex;
-  height: 10px;
-  margin-top: 14px;
-  overflow: hidden;
-  background: var(--rule);
-}
-.ov-comp-bar span {
-  background: var(--accent);
-  border-right: 1px solid var(--canvas);
-}
-.ov-comp-list {
-  display: flex;
-  flex-direction: column;
-  margin-top: 12px;
-}
-.ov-comp-row {
-  display: flex;
-  gap: 10px;
-  align-items: baseline;
-  padding: 9px 0;
-  border-top: 1px solid var(--rule);
-}
-.ov-comp-dot {
-  width: 7px;
-  height: 7px;
-  flex: none;
-  background: var(--accent);
-  margin-top: 5px;
-}
-.ov-comp-name {
-  flex: 1;
-  min-width: 0;
-  font-size: 13.5px;
-}
-.ov-comp-value {
-  text-align: right;
-  flex: none;
-}
-.ov-comp-value .fig {
-  font-size: 15px;
-}
-
-.ov-list {
-  display: flex;
-  flex-direction: column;
-}
-.ov-list-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 11px 0;
-  border-top: 1px solid var(--rule);
-}
-.ov-list-main {
-  min-width: 0;
-  font-size: 13.5px;
-}
-.ov-list-main > div:first-child {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.ov-list-amt {
-  flex: none;
-  font-size: 15px;
 }
 
 .ov-toast {
@@ -551,99 +231,4 @@ a.ov-link {
   100% {
     background-position: 0 50%;
   }
-}
-
-@media (max-width: 900px) {
-  .ov-kpi-row {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 16px 0;
-  }
-  .ov-kpi-row > div {
-    border-right: 0;
-    padding: 0;
-  }
-  .ov-split,
-  .ov-pair,
-  .ov-triple {
-    /* minmax(0, 1fr), not 1fr. Bare `1fr` means minmax(auto, 1fr), and that
-       `auto` floor is the item's min-content width -- so the column refuses to
-       shrink below whatever its widest unbreakable content happens to be. The
-       desktop rules above use minmax(0, ...) for exactly this reason; dropping
-       it here put it back. Measured at 390px before the fix: the grid was
-       350px wide and its single column resolved to 496px, so the whole page
-       scrolled sideways on a phone. */
-    grid-template-columns: minmax(0, 1fr);
-    gap: 30px;
-  }
-  /* On a phone the decisions come before the chart: the title counts them,
-     and below the chart they were a long scroll away from it. */
-  .ov-attn-col {
-    order: -1;
-  }
-}
-
-/* A figure that cannot be trusted is named, not rendered as a number (QA-10). */
-.ov-hero-unavailable {
-  color: var(--ink3);
-  font-size: 0.55em;
-  letter-spacing: 0.01em;
-}
-.ov-attn-more {
-  align-self: flex-start;
-  margin-top: 10px;
-  padding: 4px 0;
-  background: none;
-  border: 0;
-  font: inherit;
-  font-size: 13px;
-}
-
-/* How a headline figure moved against the same days of the period before. */
-.ov-kpi-change {
-  font-size: 11.5px;
-  margin-top: 4px;
-}
-
-/* A chart period with nothing recorded, so it isn't read as a zero: a thin
-   slot, not a full one (the Overview redesign). */
-.ov-col:has(.ov-col-none) {
-  flex: 0.4;
-}
-.ov-col-none {
-  align-self: center;
-  font-size: 10px;
-  color: var(--ink3);
-  writing-mode: vertical-rl;
-  transform: rotate(180deg);
-}
-.ov-col[data-running='true'] .ov-bar-inc,
-.ov-col[data-running='true'] .ov-bar-out {
-  opacity: 0.6;
-}
-
-/* Data quality as one line that opens. */
-.ov-quality-details > summary {
-  cursor: pointer;
-  list-style: none;
-  font-size: 12px;
-}
-.ov-quality-details > summary::-webkit-details-marker {
-  display: none;
-}
-.ov-quality-details > summary::after {
-  content: ' ▾';
-  color: var(--ink3);
-}
-.ov-quality-details[open] > summary::after {
-  content: ' ▴';
-}
-.ov-quality-details[open] .ov-quality-grid {
-  margin-top: 14px;
-}
-
-/* Recent activity is a short glance; the rest is one click away. */
-.ov-list-more {
-  display: inline-block;
-  margin-top: 10px;
-  font-size: 12px;
 }

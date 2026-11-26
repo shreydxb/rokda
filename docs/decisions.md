@@ -4972,3 +4972,25 @@ disagree. No security problem was found. What changed:
   check", as To do says, not a grey "Waiting".
 - **"Stops when work stops" on a group stops its subcategories**: their
   records are where the spending is, so marking the group changed nothing.
+- **Smaller disagreements, made to agree** (each was two places with two
+  answers):
+  - Recurring's strip counts late pay among those to mark paid; Net worth
+    counts stale prices as Investments does and flags a card or loan checked
+    long ago; Overview says unconfirmed balances are "counted as entered";
+    Budget keeps the minus sign where refunds outweigh spending.
+  - Where it went shows uncategorised spending; Recent lists posted records
+    only; What changed names its three-month window.
+  - Month end does not ask for a category on a refund filed with its
+    purchase; a rule whose category is archived offers no Apply; Goals &
+    debts says where the household's cash reserve is in one person's view;
+    a new card lists no statements from before it was added.
+  - The bot: a range change leaves sold holdings out; a failed feed gives no
+    day change; a shared holding's sale profit is halved in one person's
+    view; a balance never set is said to be not confirmed; a bare "yes"
+    counts only an entry whose message offers Record; two taps on Record at
+    once keep the first's Undo; a paste that can't be listed answers in the
+    one format and offers Record or a question where it can.
+- **Code the revamp left behind** went: helpers only their tests used, and
+  about fifty unused Overview classes. Two shared with the bot's library
+  (`liquidAssets`, `formatCashCoverLine`) stay for now, as their tests
+  reach across both copies.

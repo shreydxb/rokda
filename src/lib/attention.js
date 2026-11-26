@@ -10,7 +10,6 @@ import { balanceStatus } from './balance';
 import { accountValueAed } from './accounts';
 import { pendingClose } from './snapshots';
 import { EXPORT_DUE_DAYS, backupStatus } from './backups';
-import { accountHref, activityHref, holdingHref, monthRange, tabHref } from './activityLink';
 import { yearlyCheckItems } from './yearlyChecks';
 
 function startOfDay(d) {
@@ -289,27 +288,6 @@ function backupItems(accounts, records, now) {
 // Every item here is computed fresh from real data each call — nothing is a
 // fixed template, so which items appear (and how many) changes month to
 // month with the household's actual conditions.
-// Most pressing first: a payment due before anything stale, and among equals
-// the order they were built in. Overview shows the first few of these and
-// keeps the rest one tap away, so a long list does not push the page down.
-const SEVERITY_RANK = { urgent: 0, warn: 1, info: 2 };
-export const ATTENTION_PREVIEW_COUNT = 4;
-
-export function sortAttention(items = []) {
-  return items
-    .map((item, index) => ({ item, index }))
-    .sort((a, b) => (SEVERITY_RANK[a.item.severity] ?? 3) - (SEVERITY_RANK[b.item.severity] ?? 3) || a.index - b.index)
-    .map(({ item }) => item);
-}
-
-// What Overview shows: everything when expanded, otherwise the first
-// ATTENTION_PREVIEW_COUNT, and how many are left out.
-export function attentionPreview(items = [], expanded = false, count = ATTENTION_PREVIEW_COUNT) {
-  const sorted = sortAttention(items);
-  const shown = expanded ? sorted : sorted.slice(0, count);
-  return { shown, hidden: sorted.length - shown.length };
-}
-
 export function buildAttentionItems({ transactions, recurring, accounts, holdings, categories, snapshots = [], backupRecords = [], yearlyChecks = [], scopeMemberId, now = new Date() }) {
   const reviewItems = transactions
     .filter((t) => t.needs_review && (scopeMemberId === null || t.is_shared || t.owner_member_id === scopeMemberId))
@@ -328,32 +306,3 @@ export function buildAttentionItems({ transactions, recurring, accounts, holding
   ];
 }
 
-// Where each item's Open goes: the tab, and for a category running high, the
-// month's records in that category, so the item opens the thing that resolves
-// it rather than a screen's first tab (product review, 15 October).
-export function attentionHref(item, now = new Date()) {
-  switch (item.kind) {
-    case 'missing_recurring':
-      return tabHref('/money', 'recurring');
-    case 'category_anomaly':
-      return activityHref({ categoryId: item.categoryId, ...monthRange(now.getFullYear(), now.getMonth() + 1) });
-    // The account itself (the revamp, phase 5a): a card on its cycle, a
-    // balance on the details where it is confirmed.
-    case 'card_due':
-      return item.accountId ? accountHref(item.accountId) : '/wealth';
-    case 'balance_unset':
-      return item.accountId ? accountHref(item.accountId, { view: 'details' }) : '/wealth';
-    // The holding itself, where its price is (the revamp, phase 5b).
-    case 'stale_holding':
-      return item.holdingId ? holdingHref(item.holdingId) : tabHref('/wealth', 'investments');
-    case 'month_close':
-      return tabHref('/money', 'monthend', item.month ? { month: item.month } : {});
-    case 'backup':
-      return tabHref('/settings', 'backups');
-    case 'yearly_check':
-      // The note itself (the revamp, phase 6c).
-      return tabHref('/planning', 'notes', item.noteId ? { note: item.noteId } : {});
-    default:
-      return '/';
-  }
-}

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { billStatus, hasEnded, matchWindowDays, nativeAmountLabel, occurrenceAt, occurrencesInWindow, rollForward, upcomingItems } from './recurring';
 import { buildAttentionItems } from './attention';
-import { billingCycle, daysUntilDue, nextDueDate } from './creditCard';
+import { daysUntilDue, nextDueDate } from './creditCard';
 
 const day = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
@@ -76,18 +76,6 @@ describe('QA-07: every occurrence in the window', () => {
 });
 
 describe('QA-07: credit-card statement and due dates', () => {
-  it('clamps a statement day of 31 to the February close', () => {
-    expect(day(billingCycle(31, new Date(2026, 1, 15)).nextClose)).toBe('2026-02-28');
-  });
-
-  it('keeps the cycle ordered around today', () => {
-    const cycle = billingCycle(31, new Date(2026, 1, 15));
-    expect(day(cycle.lastClose)).toBe('2026-01-31');
-    expect(day(cycle.cycleStart)).toBe('2025-12-31');
-    expect(cycle.cycleStart < cycle.lastClose).toBe(true);
-    expect(cycle.lastClose < cycle.nextClose).toBe(true);
-  });
-
   it('treats a card due today as due today, whatever the time of day', () => {
     // The cards panel compared midnight against the current *time*, so at any
     // point after 00:00 a card due today rolled into next month.

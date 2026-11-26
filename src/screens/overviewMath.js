@@ -5,7 +5,6 @@ import { chartBuckets, periodBounds } from '../lib/period';
 import { scopedHoldingValue, visibleHoldings } from '../lib/holdings';
 import { isAwaitingFirstValuation } from '../lib/valuation';
 import { applyToIncomeSpend, isSpendRow, isTransfer } from '../lib/transactionKind';
-import { categoryParts } from '../lib/splits';
 import { upcomingItems } from '../lib/recurring';
 import { daysUntilDue, nextDueDate } from '../lib/creditCard';
 
@@ -147,32 +146,6 @@ export function buildChartColumns(transactions, kind, scopeMemberId, now = new D
   });
 }
 
-export function spendComposition(periodTx, scopeMemberId, { topN = 5, categories = [] } = {}) {
-  const nameOf = new Map(categories.map((c) => [c.id, c.name]));
-  const byCategory = new Map();
-  for (const t of periodTx) {
-    // Money moved to another of the household's accounts wasn't spent.
-    if (isTransfer(t)) continue;
-    // A split receipt adds each line to its own category.
-    for (const part of categoryParts(t)) {
-      const v = scopedValue(part.amount, t, scopeMemberId);
-      if (v >= 0) continue;
-      const name = (part.categoryId && (nameOf.get(part.categoryId) ?? (part.categoryId === t.category_id ? t.categories?.name : null))) || 'Uncategorised';
-      byCategory.set(name, (byCategory.get(name) ?? 0) + -v);
-    }
-  }
-  const sorted = [...byCategory.entries()].sort((a, b) => b[1] - a[1]);
-  const total = sorted.reduce((sum, [, v]) => sum + v, 0);
-  const top = sorted.slice(0, topN);
-  const rest = sorted.slice(topN);
-  const restTotal = rest.reduce((sum, [, v]) => sum + v, 0);
-  const rows = top.map(([name, value]) => ({ name, value, share: total > 0 ? value / total : 0 }));
-  if (rest.length > 0) {
-    rows.push({ name: 'Everything else', value: restTotal, share: total > 0 ? restTotal / total : 0, count: rest.length });
-  }
-  return { rows, total };
-}
-
 // Runway needs at least two *completed* calendar months of spend history —
 // the current, still-open month is excluded so a half-empty month doesn't
 // skew the average.
@@ -225,31 +198,6 @@ export function dataQuality(accounts, transactions, now = new Date()) {
   const openReview = transactions.filter((t) => t.needs_review).length;
 
   return { lastTxDate, daysSinceLastTx, lastAccountUpdate, categorisedPct, openReview, totalTx: transactions.length, plannedTx: planned };
-}
-
-// The same stretch of the period before, for "vs the same days last month":
-// month to date on the 15th compares with the 1st to the 15th of last month,
-// not with the whole of last month, which would always look bigger. A day
-// that doesn't exist last month (the 31st) is clamped to its last day.
-const PERIOD_MONTHS = { mtd: 1, qtd: 3, ytd: 12 };
-export function previousPeriodSummary(transactions, kind, scopeMemberId, now = new Date()) {
-  const back = PERIOD_MONTHS[kind] ?? 1;
-  const target = new Date(now.getFullYear(), now.getMonth() - back, 1);
-  const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
-  const then = new Date(target.getFullYear(), target.getMonth(), Math.min(now.getDate(), lastDay), 12);
-  return periodSummary(transactions, kind, scopeMemberId, then);
-}
-
-export const PREVIOUS_PERIOD_LABELS = { mtd: 'the same days last month', qtd: 'the same point last quarter', ytd: 'the same point last year' };
-
-// How a figure moved against the period before: the difference for money,
-// in points for a rate. A percentage change misleads here: against the first
-// days of a month with almost nothing in it, an ordinary week reads +2,000%.
-// Null when there is nothing earlier to compare with, which is not the same
-// as no change.
-export function periodChange(current, previous, { asPoints = false } = {}) {
-  if (previous === null || previous === undefined || current === null || current === undefined) return null;
-  return asPoints ? { kind: 'points', value: (current - previous) * 100 } : { kind: 'abs', value: current - previous };
 }
 
 // What the cash-flow chart's buckets are, said in its title, since the period
