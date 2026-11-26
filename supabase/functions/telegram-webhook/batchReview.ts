@@ -19,6 +19,7 @@ import { type BatchCommand, BATCH_LIST_CAP, batchListMessage, chooseKeyboard, ty
 import { edit, noteRecording } from "./choices.ts";
 import { type PendingIntakeRow, RECENT_INTAKE_COLUMNS } from "./confirmations.ts";
 import { supabase } from "./env.ts";
+import { inboxReason } from "./expenseMessages.ts";
 import { findDuplicateTransaction, type IntakeKind } from "./intake.ts";
 import { reply, tgCall } from "./transport.ts";
 
@@ -54,15 +55,12 @@ function listable(row: SavedItem["row"]): boolean {
   return isReadyForFastConfirm({ ...row, date_guessed: false });
 }
 
-// The first thing an entry is missing, as the list names it, in the words
-// an entry's own message uses (expenseMessages.ts).
+// Why an entry waits, as the list names it: the entry's own message's words
+// (expenseMessages.ts inboxReason), so the two never disagree; the list said
+// "in INR" where the message said "to check and approve" (the review of the
+// whole revamp).
 function missingReason(row: SavedItem["row"]): string {
-  if (!(Number(row.parsed_amount) > 0)) return "needs the amount";
-  if (!row.parsed_merchant) return "needs who was paid";
-  if (!row.parsed_account_id) return "needs the card or account";
-  if (!row.parsed_category_id) return "needs a category";
-  if (row.parsed_currency && row.parsed_currency !== "AED") return `in ${row.parsed_currency}`;
-  return "to check: not sure I read it right";
+  return inboxReason(row as never).reason;
 }
 
 // The ids of the saved items that are already in Rokda: undated ones by the

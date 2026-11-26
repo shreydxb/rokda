@@ -166,20 +166,20 @@ export function resolveCorrectionTarget({ lookup = PROMPT_UNADDRESSED, row = nul
 // Said when a reply names a message that is not a prompt we can act on --
 // including a prompt that was superseded by a newer one for the same entry.
 export function unknownPromptMessage() {
-  return "I can't tell which entry that reply is about -- that message isn't a prompt I'm still tracking. Reply to the most recent prompt for the entry you mean, or use the Inbox.";
+  return "Can't tell which entry that's about. Reply to its latest message, or use the Inbox.";
 }
 
 // Said to a "no" when the lookup of what it is about failed: nothing was
 // dropped, and nothing was saved either. Not the "yes" wording, which tells
 // the member to approve something in the Inbox.
 export function dropUnavailableMessage() {
-  return "I couldn't check which change that's for just now, so nothing was dropped or changed. Try again in a moment.";
+  return "Couldn't check what that's for, so nothing was dropped. Try again in a minute.";
 }
 
 // Said when the lookup itself failed. Deliberately records nothing: the one
 // thing worse than not confirming is confirming the wrong entry.
 export function lookupUnavailableMessage() {
-  return "I couldn't check which entry that's for just now, so I haven't recorded anything. Try again in a moment, or approve it in the Inbox.";
+  return "Couldn't check which entry that's for. Nothing recorded — try again, or use the Inbox.";
 }
 
 // Shown instead of recording anything when a bare "yes" could mean two or more

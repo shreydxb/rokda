@@ -362,7 +362,7 @@ freshTest("a no whose lookup fails says nothing was dropped, and never to approv
   await handler(textUpdate(7391, "Bank 10,000"));
   backend.faults.failProposalReads = true;
   await handler(textUpdate(7392, "no"));
-  assert(lastReply().includes("nothing was dropped or changed"), lastReply());
+  assert(lastReply().includes("nothing was dropped"), lastReply());
   assert(!/approve|Inbox/i.test(lastReply()), lastReply());
   assertEquals(backend.tables.bot_proposals[0].status, "proposed");
 });

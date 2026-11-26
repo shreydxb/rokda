@@ -95,7 +95,7 @@ export function possibleTransfers(monthRows, transactions) {
 }
 
 // The card statements that closed in the month, one per open card with a
-// statement day, with what was recorded about each (Wealth -> Statements).
+// statement day, with what was recorded about each (Month end's statements).
 export function monthStatements({ year, month }, accounts = [], reconciliations = []) {
   const byKey = new Map(reconciliations.map((r) => [`${r.account_id}:${r.statement_date}`, r]));
   const rows = [];

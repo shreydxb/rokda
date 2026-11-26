@@ -790,7 +790,7 @@ export async function goalContributionDraft(householdId: string, args: Record<st
   const matches = open.filter((g) => g.name.toLowerCase().includes(norm));
   if (matches.length === 0) {
     const done = goals.filter((g) => g.done_at != null && g.name.toLowerCase().includes(norm));
-    if (done.length > 0) return { error: "goal_done", goals: done.map((g) => g.name), note: "Marked done in Rokda. Reopen it on Goals to add to it." };
+    if (done.length > 0) return { error: "goal_done", goals: done.map((g) => g.name), note: "Marked done in Rokda. Reopen it on Goals & debts to add to it." };
     return { error: "goal_not_found", available: open.map((g) => g.name) };
   }
   if (matches.length > 1) return { error: "ambiguous_goal", matches: matches.map((g) => g.name) };

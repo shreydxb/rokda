@@ -396,7 +396,7 @@ export async function proposeTrade(
       p_member_id: member.id,
     });
     if (error || !effect) {
-      await reply(chatId, "I couldn't check that trade just now, so nothing was saved. Please send it again in a minute.");
+      await reply(chatId, "Couldn't check that trade. Nothing saved — send it again in a minute.");
       return;
     }
     if (!effect.ok) {
@@ -449,7 +449,7 @@ export async function proposeTrade(
     p_member_id: member.id,
   });
   if (error || !effect) {
-    await reply(chatId, "I couldn't check that trade just now, so nothing was saved. Please send it again in a minute.");
+    await reply(chatId, "Couldn't check that trade. Nothing saved — send it again in a minute.");
     return;
   }
   if (!effect.ok) {

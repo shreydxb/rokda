@@ -117,7 +117,7 @@ function sortStatementRows(rows) {
   });
 }
 
-// One row per open card per recent statement, for Wealth -> Statements. A
+// One row per open card per recent statement, for Month end's statements. A
 // statement nobody has recorded anything about yet is "unchecked"; the bot
 // creates the "waiting" record once it starts asking.
 export function statementRows({ accounts = [], reconciliations = [], transactions = [], now = new Date(), perCard = 6 }) {

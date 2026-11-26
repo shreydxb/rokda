@@ -185,7 +185,8 @@ async function renderPending(householdId: string, memberId: string, row: EntryRo
   // A day the bot put on an entry with none is said to be a guess wherever
   // the entry's day is shown: in the Inbox line it read as the day it was
   // paid (the review of the whole revamp).
-  const undatedLine = row.date_guessed ? "\nIt had no date: set the day it was paid in the Inbox." : "";
+  // Not where the reason already asks for the day ("needs the day it was paid").
+  const undatedLine = row.date_guessed && inboxReason(row).reason !== "needs the day it was paid" ? "\nIt had no date: set the day it was paid in the Inbox." : "";
   const tail = `${undatedLine}${notes.length ? `\n${notes.join("\n")}` : ""}`;
   const ask = missingChoice(row);
   if (ask) {
@@ -495,7 +496,9 @@ export async function handleChoiceTap(callback: Record<string, unknown>): Promis
     await answer("That was already set in the app.");
     return new Response("ok");
   }
-  await answer("Saved.");
+  // Changed, not recorded: the entry still waits for Record (one of the
+  // three outcome words is for what Record does).
+  await answer(isCategory ? "Category changed." : "Card changed.");
   await showPending(chatId, messageId, householdId, member.id, updated[0] as EntryRow);
   return new Response("ok");
 }

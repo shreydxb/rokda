@@ -167,7 +167,7 @@ freshTest("a correction unbinds the question it replaced, so a yes to that quest
 
   await handler(replyUpdate(7112, "yes", 555));
   assertEquals(backend.approveCalls, 0, "a yes to the question about 40 recorded 45");
-  assert(lastReply().includes("I can't tell which entry that reply is about"), lastReply());
+  assert(lastReply().includes("Can't tell which entry that's about"), lastReply());
 });
 
 freshTest("a correction to an entry recorded in the meantime says so, not that it was updated", async () => {

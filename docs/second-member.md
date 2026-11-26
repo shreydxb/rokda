@@ -5,7 +5,7 @@ Rokda is one household's ledger. Sign-ups are closed, so a member's login is mad
 ## Before you start
 
 - You are the household's **owner**, signed in to Rokda with your password and authenticator code.
-- They have a **member row** already: Settings → Household lists them as "Not linked yet — assign-only".
+- They have a **member row** already: Settings → Household lists them as Member, with a "No login" chip.
 - The reset link has somewhere to land: Authentication → URL Configuration lists both app addresses (`docs/environments.md`, "Auth URLs").
 
 ## 1. Create the login (Supabase dashboard)
@@ -46,7 +46,7 @@ If the email doesn't arrive, wait a few minutes and send it again. Supabase's bu
 ## 4. Check
 
 - **They see the household:** the same accounts, records and plans you see. Their own records count under their name in the sidebar's person switch.
-- **Settings → Household:** they show as "Member · Linked to a login".
+- **Settings → Household:** they show as Member, with a "Linked" chip.
 
 What a member who is not an owner can and can't do is set by the database (`supabase/migrations/20260913100000_owner_role_authorization.sql`, and `docs/decisions.md`, "A second member signs in as a member"):
 

@@ -141,7 +141,7 @@ export default function InboxDetail({ item, sender, accounts, members, categorie
       if (pairError) {
         setSaving(false);
         setApprovedAlready(true);
-        setError(`Approved, but "both are real" wasn't remembered: ${pairError.message}. The monthly review will ask about the pair again.`);
+        setError(`Approved, but "both are real" wasn't remembered: ${pairError.message}. Month end will ask about the pair again.`);
         return;
       }
     }

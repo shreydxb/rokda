@@ -23,7 +23,7 @@ here, because this repository is public.
 - On a phone the top bar holds the menu, as one line that scrolls sideways,
   and one button showing the household scope and display currency ("Both ·
   AED ▾"); it opens the scope and the account. The build this is shows
-  under Settings → Household → About.
+  at the foot of Settings → Household.
 - Longer explanations (how a figure is worked out, what a feed does) sit
   behind a small "How this is worked out" link that opens in place.
 
