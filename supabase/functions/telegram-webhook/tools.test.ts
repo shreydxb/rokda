@@ -1,9 +1,9 @@
 // Questions answered from the household's figures, the brief, and the AI service being busy.
 // The fake backend these drive the real handler against is testing/harness.ts.
 import { assert, assertEquals } from "jsr:@std/assert@1";
-import { aiCalls, backend, capturedIntake, dubaiDaysAgo, EPF, figuresUnavailableMessage, freshTest, GROCERIES, handler, HOUSEHOLD, isSpendingAccount, lastReply, MY_BANK, Row, seedExpenses, textUpdate, thisMonthFirst } from "./testing/harness.ts";
+import { aiCalls, backend, capturedIntake, dubaiDaysAgo, EPF, MEMBER, figuresUnavailableMessage, freshTest, GROCERIES, handler, HOUSEHOLD, isSpendingAccount, lastReply, MY_BANK, Row, seedExpenses, textUpdate, thisMonthFirst } from "./testing/harness.ts";
 // After the harness, which sets the environment tools.ts reads as it loads.
-import { briefMessage, NOT_READ, toolGetCashCover, toolGetUpcomingBills } from "./tools.ts";
+import { briefMessage, NOT_READ, toolGetAccountBalance, toolGetCashCover, toolGetHoldings, toolGetNetWorth, toolGetTradeProfit, toolGetUpcomingBills } from "./tools.ts";
 
 freshTest("this month's spending is found after a thousand older transactions", async () => {
   // Stored first, so a single unordered read returned only these and the
@@ -235,4 +235,43 @@ freshTest("pay due is not a bill: upcoming bills and cash cover count only money
   assertEquals(bills.recurring.map((b: { name: string }) => b.name), ["Internet"]);
   const cover = await toolGetCashCover(HOUSEHOLD) as { covered: boolean; shortfallAed: number };
   assertEquals([cover.covered, cover.shortfallAed], [true, 0]);
+});
+
+// The review of the whole revamp: the bot's holdings answers disagreed with
+// the app's.
+const fund = (id: string, name: string, over: Row = {}) => ({
+  id, household_id: HOUSEHOLD, name, asset_class: "us_equity", currency: "USD", quantity: 10, value_aed: 10000, invested_value_aed: 8000,
+  day_change_pct: 1.5, priced_at: new Date().toISOString(), is_shared: true, owner_member_id: null, trades_version: 1, price_provider: "feed", price_fetch_error: null, ...over,
+});
+
+freshTest("a range change leaves sold holdings out, as Investments does", async () => {
+  backend.tables.holdings = [fund("a9000000-0000-4000-8000-0000000000d1", "Index fund"), fund("a9000000-0000-4000-8000-0000000000d2", "Sold fund", { quantity: 0, value_aed: 0 })];
+  backend.tables.holding_value_history = [
+    { id: "v1", holding_id: "a9000000-0000-4000-8000-0000000000d1", as_of: dubaiDaysAgo(200), value_aed: 10000 },
+    { id: "v2", holding_id: "a9000000-0000-4000-8000-0000000000d2", as_of: dubaiDaysAgo(200), value_aed: 5000 },
+  ];
+  const result = await toolGetHoldings(HOUSEHOLD, null, { range: "3M" }) as { range_value_change: { change_aed: number } };
+  assertEquals(result.range_value_change.change_aed, 0);
+});
+
+freshTest("a holding whose price feed failed gives no day change, as the app shows none", async () => {
+  backend.tables.holdings = [fund("a9000000-0000-4000-8000-0000000000d3", "Index fund", { price_fetch_error: "down" })];
+  const result = await toolGetHoldings(HOUSEHOLD, null, { name: "Index" }) as { day_change_pct: number | null };
+  assertEquals(result.day_change_pct, null);
+});
+
+freshTest("a shared holding's sale profit is halved in one person's view, as the app's Me view is", async () => {
+  backend.tables.holdings = [fund("a9000000-0000-4000-8000-0000000000d4", "Index fund")];
+  backend.tables.holding_trades = [{ id: "s1", household_id: HOUSEHOLD, holding_id: "a9000000-0000-4000-8000-0000000000d4", kind: "sell", trade_date: "2026-03-01", realised: 1000, tax_withheld: 0 }];
+  const whole = await toolGetTradeProfit(HOUSEHOLD, null, { year: 2026 }) as { holdings: Array<{ profit: number }> };
+  const mine = await toolGetTradeProfit(HOUSEHOLD, MEMBER, { year: 2026 }) as { holdings: Array<{ profit: number }> };
+  assertEquals([whole.holdings[0].profit, mine.holdings[0].profit], [1000, 500]);
+});
+
+freshTest("a balance nobody has set is said to be not confirmed, and net worth counts them", async () => {
+  backend.tables.accounts.push({ ...MY_BANK, balance: 0, balance_aed: 0, balance_as_of: null, is_shared: true });
+  const balance = await toolGetAccountBalance(HOUSEHOLD, { account_name: "Bank" }) as { confirmed?: boolean; note?: string };
+  assertEquals(balance.confirmed, false);
+  const worth = await toolGetNetWorth(HOUSEHOLD, null) as { unconfirmed_accounts?: number };
+  assertEquals(worth.unconfirmed_accounts, 1);
 });
