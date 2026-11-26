@@ -202,6 +202,19 @@ describe('Budget: the month', () => {
     expect(row('Other Food').querySelector('td:nth-child(2)').textContent).toBe('−50');
   });
 
+  // The review of the whole revamp: a group, the budgeted total and the
+  // hero dropped the sign where refunds outweighed spending, as Month end
+  // shows it.
+  it('keeps the sign on a group, the totals and the hero when refunds outweigh spending', () => {
+    const txns = [
+      { id: 'r1', amount: 200, kind: 'refund', occurred_at: '2026-09-02', is_shared: true, category_id: 'groc', merchant: 'Grocer' },
+      { id: 'r2', amount: 100, kind: 'refund', occurred_at: '2026-09-02', is_shared: true, category_id: 'dine', merchant: 'Cafe' },
+    ];
+    render({ data: { transactions: txns, categories: CATS, budgets: BUDGETS, reload } });
+    expect(row('Food').querySelector('td:nth-child(2)').textContent).toBe('−300');
+    expect(screen.getByRole('region', { name: 'Spent of budget' }).textContent).toMatch(/−300\s*of 1,400/);
+  });
+
   it('saves a limit typed in place', async () => {
     render();
     const input = screen.getByRole('textbox', { name: 'Groceries limit' });

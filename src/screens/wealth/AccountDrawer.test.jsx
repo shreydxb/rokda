@@ -123,6 +123,15 @@ describe('The account drawer', () => {
     expect(within(drawer).getByRole('link', { name: 'All transactions on this card' }).getAttribute('href')).toBe('/money?tab=activity&who=both&acct=Card&range=all');
   });
 
+  // The review of the whole revamp: with the records unread the drawer said
+  // "Nothing on this card yet this cycle" and every statement "To check".
+  it('says the card\'s cycle and statements couldn\'t load, rather than none', () => {
+    open('/wealth?account=Card', { errors: { transactions: 'timeout' }, loaded: { accounts: true } });
+    const drawer = screen.getByRole('dialog', { name: 'Card' });
+    expect(drawer.textContent).toContain('Couldn’t load transactions.');
+    expect(drawer.textContent).not.toContain('Nothing on this card yet this cycle.');
+  });
+
   it('lists the card’s statements a tab away, with the way to check them in Month end', async () => {
     open('/wealth?account=Card', { statementReconciliations: [{ id: 'r', account_id: 'Card', statement_date: '2026-10-10', period_start: '2026-09-11', status: 'confirmed' }] });
     await click(screen.getByRole('tab', { name: 'Statements' }));
