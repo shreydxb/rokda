@@ -182,14 +182,17 @@ type Shown = { text: string; reply_markup: Keyboard | null; ready: boolean; view
 // is missing, or where it waits and why. notes are lines added at the end.
 async function renderPending(householdId: string, memberId: string, row: EntryRow, notes: string[] = []): Promise<Shown> {
   const view = await viewOf(row);
-  const tail = notes.length ? `\n${notes.join("\n")}` : "";
+  // A day the bot put on an entry with none is said to be a guess wherever
+  // the entry's day is shown: in the Inbox line it read as the day it was
+  // paid (the review of the whole revamp).
+  const undatedLine = row.date_guessed ? "\nIt had no date: set the day it was paid in the Inbox." : "";
+  const tail = `${undatedLine}${notes.length ? `\n${notes.join("\n")}` : ""}`;
   const ask = missingChoice(row);
   if (ask) {
     const options = ask === "category"
       ? (await categoryChoices(householdId, row.parsed_merchant, row.parsed_kind ?? "expense")).map((c) => tap(short(c.label), "c", row.id, c.id))
       : (await accountChoices(householdId, memberId)).map((a) => tap(short(a.name), "a", row.id, a.id));
-    const undated = row.date_guessed ? "\nIt had no date: set the day it was paid in the Inbox." : "";
-    return { text: `${askText(view, ask)}${undated}${tail}`, reply_markup: keyboard([...options, tap(INBOX_LABEL, "i", row.id)]), ready: false, view };
+    return { text: `${askText(view, ask)}${tail}`, reply_markup: keyboard([...options, tap(INBOX_LABEL, "i", row.id)]), ready: false, view };
   }
   if (isReadyForFastConfirm(row)) {
     // A check that could not run is not a clean check: it waits in the Inbox.

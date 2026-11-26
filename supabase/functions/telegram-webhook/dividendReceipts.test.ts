@@ -167,7 +167,9 @@ freshTest("a dividend among other items is left out; the others are captured", a
   ];
   await handler(textUpdate(9609, "salary 7000, dividend 700, lunch 40"));
   assertEquals(capturedIntake().filter((r) => r.status === "pending").map((r) => r.parsed_merchant).sort(), ["Lunch", "Salary"]);
-  assert(/dividend/i.test(lastReply()), lastReply());
+  // Said with where the others are; each one's own question may follow.
+  const said = backend.telegramSent.map((m) => String(m.body.text)).join("\n---\n");
+  assert(/left out the dividend/i.test(said), said);
 });
 
 freshTest("\"not yet\" puts the question off until tomorrow morning", async () => {

@@ -1,5 +1,6 @@
 // Part of the Telegram webhook (index.ts), split out by responsibility in
 // the round 2 cleanup (SHR-383). Moved, not changed.
+import { day, money } from "../_shared/applib/botFormat.js";
 import { householdToday } from "../_shared/applib/day.js";
 import { pickCategory } from "../_shared/applib/merchants.js";
 import { logTelegramCall, postToAiService } from "./ai.ts";
@@ -110,17 +111,18 @@ export async function alreadyRecordedNote(householdId: string, items: Array<{ pa
   const found = alreadyRecordedAll(undated, data ?? [], []);
   const repeats = undated.filter((i) => found.has(i.id));
   if (repeats.length === 0) return "";
-  const named = repeats.slice(0, 3).map((i) => `${i.parsed_merchant}, AED ${Number(i.parsed_amount).toFixed(2)}`).join("; ");
+  // In the one format (botFormat.js), as every line the bot writes.
+  const named = repeats.slice(0, 3).map((i) => `${i.parsed_merchant} · ${money(Number(i.parsed_amount))}`).join("; ");
   const more = repeats.length > 3 ? ` and ${repeats.length - 3} more` : "";
   return ` ${repeats.length} ${repeats.length === 1 ? "looks" : "look"} already recorded (${named}${more}): ${repeats.length === 1 ? "it's" : "they're"} marked in the Inbox, to set aside.`;
 }
 
 // The line added to a capture reply when some of what was sent had no date:
 // which date it was given, and that it waits in the Inbox for the real one.
-export function undatedNote(guessedDates: string[], total: number): string {
+export function undatedNote(guessedDates: string[], total: number, today = householdToday()): string {
   if (guessedDates.length === 0) return "";
   const days = [...new Set(guessedDates)];
-  const when = days.length === 1 ? `put on ${days[0]}` : "dated the day they were sent";
+  const when = days.length === 1 ? `put on ${day(days[0], today)}` : "dated the day they were sent";
   if (total === 1) return ` It had no date, so it's ${when} for now — set the real date in the Inbox.`;
   const which = guessedDates.length === total ? "None had a date, so they're" : `${guessedDates.length} had no date, so those are`;
   return ` ${which} ${when} for now — set the real dates in the Inbox.`;
