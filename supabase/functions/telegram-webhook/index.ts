@@ -634,7 +634,11 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
       const target = resolveConfirmTarget({
         lookup: promptLookup.kind,
         row: promptLookup.row,
-        recent: candidates.rows,
+        // Only an entry whose message offers Record here, as Record itself
+        // requires: one never shown ready (its prompt failed to send, or it
+        // came in a paste that could not be listed) must not be recorded by a
+        // bare "yes" on figures nobody saw (the review of the whole revamp).
+        recent: candidates.rows.filter((r) => Number(r.confirm_chat_id) === chatId && r.confirm_message_id != null),
         truncated: candidates.truncated,
       });
       if (target.kind === "one") {

@@ -292,6 +292,14 @@ async function actOnList(member: { id: string; household_id: string }, rows: Bat
     const when = row.date_guessed ? command.date! : row.parsed_date!;
     try {
       if (await findDuplicateTransaction(member.household_id, row.parsed_account_id, row.parsed_merchant, row.parsed_amount, when, madeNow)) {
+        // Recorded a moment ago by a Record all landing at the same time: its
+        // own record is not a repeat of itself (the review of the whole
+        // revamp).
+        const { data: fresh } = await supabase.from("intake").select("status").eq("id", row.id).maybeSingle();
+        if ((fresh as { status?: string } | null)?.status === "approved") {
+          alreadyDone++;
+          continue;
+        }
         marks.set(at, "repeat");
         continue;
       }

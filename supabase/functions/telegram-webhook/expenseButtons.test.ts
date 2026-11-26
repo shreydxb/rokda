@@ -195,6 +195,56 @@ Deno.test("the app's address is taken only as an https address, without a traili
   assertEquals(appAddress(undefined), null);
 });
 
+// The review of the whole revamp: a bare "yes" recorded an entry ready to
+// record that no message had offered Record for (its prompt failed to send,
+// or it was answered as part of a paste that could not be listed), so its
+// figures were never shown first.
+freshTest("a bare yes never records an entry no message offered Record for", async () => {
+  await capture(9650);
+  Object.assign(capturedIntake()[0], { confirm_chat_id: null, confirm_message_id: null });
+  await handler(textUpdate(9651, "yes"));
+  assertEquals(capturedIntake()[0].status, "pending");
+  assertEquals(backend.rpcCalls.filter((c) => c.fn === "approve_intake").length, 0);
+});
+
+// The review of the whole revamp: a category chosen on an older message,
+// whose edit then failed, left the entry tied to its newer message, which
+// still showed the old category while its Record recorded the new one.
+freshTest("a category changed from another message unties the entry, so Record shows it again first", async () => {
+  const prompt = await capture(9652);
+  backend.faults.failEdits = 1;
+  await handler(tapUpdate(9653, 4242, encodeChoice("k", String(capturedIntake()[0].id), EATING_OUT)));
+  assertEquals(capturedIntake()[0].parsed_category_id, EATING_OUT);
+  assertEquals(capturedIntake()[0].confirm_message_id ?? null, null);
+  await handler(tapUpdate(9654, prompt.id, tap(prompt, "Record")));
+  assertEquals(capturedIntake()[0].status, "pending", "Record recorded a category its message never showed");
+});
+
+// The review of the whole revamp: two taps on Record at once. The second
+// read the entry as waiting, then found the first's new record in its last
+// look for a duplicate, and said it was in the Inbox, dropping Undo.
+freshTest("a second tap on Record while the first lands says recorded, with the first's Undo", async () => {
+  const prompt = await capture(9655);
+  const id = String(capturedIntake()[0].id);
+  let landed = false;
+  backend.onRead = (table) => {
+    if (table !== "transactions" || landed) return;
+    landed = true;
+    // The first tap's approval and note, landing between the second tap's
+    // read of the entry and its look for a duplicate.
+    const tx = { id: "a9000000-0000-4000-8000-0000000000f7", household_id: HOUSEHOLD, account_id: CARD.id, amount: -30, kind: "expense", merchant: "Corner Bakery", occurred_at: dubaiToday(), category_id: GROCERIES, created_at: new Date().toISOString() };
+    backend.tables.transactions.push(tx);
+    Object.assign(capturedIntake()[0], { status: "approved", transaction_id: tx.id });
+    backend.tables.bot_recordings.push({ household_id: HOUSEHOLD, intake_id: id, member_id: MEMBER, transaction_id: tx.id, undoable: true, recorded_at: new Date().toISOString() });
+  };
+  await handler(tapUpdate(9656, prompt.id, tap(prompt, "Record")));
+  backend.onRead = undefined;
+  assertEquals(lastToast(), "Already recorded.");
+  const edit = lastCall("editMessageText")!;
+  assertEquals(edit.text, "✓ Corner Bakery · AED 30 · Groceries");
+  assertEquals(buttonsOf(edit).map((b) => b.text), ["Undo"]);
+});
+
 // Typed answers still work beside the buttons (the design note's "What stays").
 freshTest("a yes sent as a reply records it: a new line with Undo, and the old message loses its buttons", async () => {
   const prompt = await capture(9640);
