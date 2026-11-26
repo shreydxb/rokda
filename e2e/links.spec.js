@@ -50,7 +50,10 @@ test("Overview's yearly reminder opens the note that is due", async ({ page }) =
   await stubSupabase(page, { tables: { household_notes: [due(1, 'Insurance'), due(2, 'Wills')] } });
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('.om-main .ov-skel')).toHaveCount(0, { timeout: 15_000 });
-  await page.getByRole('button', { name: /^Show all/ }).click();
+  // To do folds past six items; how many there are depends on the fixtures'
+  // dates (a statement from before the card was added is not listed).
+  const showAll = page.getByRole('button', { name: /^Show all/ });
+  if (await showAll.count()) await showAll.click();
   await page.getByRole('listitem').filter({ hasText: 'Wills' }).getByRole('link', { name: 'Open note' }).click();
   await expect(page).toHaveURL(/\/planning\?tab=notes&note=a3a3a3a3-0000-4000-8000-000000000042$/);
   await expect(page.getByRole('region', { name: 'Wills' })).toContainText('Wills body.');
