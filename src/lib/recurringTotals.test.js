@@ -77,6 +77,14 @@ describe('recurringStrip', () => {
     expect(strip.unconfirmed).toBe(1);
   });
 
+  // The review of the whole revamp: pay past its window read Late on its row
+  // and in To do while the strip said "To mark paid 0 · All clear".
+  it('counts pay that is late among those to mark paid, as its row and To do do', () => {
+    const strip = recurringStrip([bill({ name: 'Salary', amount: 20000, next_due_date: '2026-10-01' })], [], null, NOW);
+    expect([strip.toMarkPaid, strip.late]).toEqual([1, 1]);
+    expect(strip.income).toBe(20000);
+  });
+
   it("counts half of a shared schedule in one person's view, and none of the other's own", () => {
     const mine = bill({ name: 'Mine', amount: -100, is_shared: false, owner_member_id: 'me' });
     const theirs = bill({ name: 'Theirs', amount: -100, is_shared: false, owner_member_id: 'them' });

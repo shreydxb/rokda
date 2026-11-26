@@ -8,13 +8,14 @@ import { expectedIncome } from '../lib/expectedIncome';
 import { buildNetWorthSeries, changeOverMonths } from '../lib/netWorth';
 import { buildAttentionItems } from '../lib/attention';
 import { buildTodo } from '../lib/todo';
-import { monthActualsByCategory, monthBudgetTrack } from '../lib/budget';
+import { monthActualsByCategory, monthBudgetTrack, monthSpendBreakdown } from '../lib/budget';
+import { UNCATEGORISED } from '../lib/activityLink';
 import { trailingAverageByCategory } from '../lib/insights';
 import { statementRows } from '../lib/statements';
 import { buildDividendInput, needsYou } from '../lib/dividendSummary';
 import { cashCoverStatus } from '../lib/cashCover';
 import { billPaymentInitial } from '../lib/transactionForm';
-import { householdToday } from '../lib/day';
+import { householdToday, isPosted } from '../lib/day';
 import { useMoneyDisplay } from '../lib/CurrencyContext';
 import { supabase } from '../lib/supabaseClient';
 import { useOverviewData } from './useOverviewData';
@@ -122,11 +123,16 @@ export default function Overview() {
   const where = useMemo(() => {
     const actual = monthActualsByCategory(transactions, year, month, scopeMemberId, now);
     const { averages } = trailingAverageByCategory(transactions, year, month, USUAL_MONTHS, scopeMemberId);
-    return [...actual.entries()]
-      .filter(([, v]) => v > 0)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([id, value]) => ({ id, name: catById.get(id)?.name ?? 'Uncategorised', value, usual: averages.get(id) ?? null }));
+    const rows = [...actual.entries()].map(([id, value]) => ({ id, name: catById.get(id)?.name ?? 'Uncategorised', value, usual: averages.get(id) ?? null }));
+    // Spending with no category is a bar of its own, opening those records:
+    // left out, a month whose biggest spend was uncategorised never said so
+    // (the review of the whole revamp).
+    const uncategorised = monthSpendBreakdown(transactions, [], year, month, scopeMemberId, now).uncategorised;
+    if (uncategorised > 0) rows.push({ id: UNCATEGORISED, name: 'Uncategorised', value: uncategorised, usual: null });
+    return rows
+      .filter((r) => r.value > 0)
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 5);
   }, [transactions, year, month, scopeMemberId, now, catById]);
   const attention = useMemo(
     () => buildAttentionItems({ transactions, recurring, accounts, holdings, categories, snapshots: netWorthSnapshots, backupRecords, yearlyChecks, scopeMemberId, now }),
@@ -191,7 +197,9 @@ export default function Overview() {
 
   // A glance, not a ledger: Activity is where records are looked into (SHR-328).
   // Newest first, whatever order the rows arrived in.
-  const recent = [...visibleRows(transactions, scopeMemberId)].sort((a, b) => (a.occurred_at < b.occurred_at ? 1 : a.occurred_at > b.occurred_at ? -1 : 0)).slice(0, RECENT_COUNT);
+  // Posted only, as Activity shows by default: one scheduled for later is not
+  // among the newest (the review of the whole revamp).
+  const recent = [...visibleRows(transactions, scopeMemberId)].filter((t) => isPosted(t, now)).sort((a, b) => (a.occurred_at < b.occurred_at ? 1 : a.occurred_at > b.occurred_at ? -1 : 0)).slice(0, RECENT_COUNT);
 
   const lede = isEmpty
     ? 'Nothing recorded yet'
