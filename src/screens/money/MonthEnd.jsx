@@ -119,7 +119,7 @@ export default function MonthEnd({ household, members = [], me, data, loading })
 function RunningMonth({ household, members, me, data, year, month, now }) {
   const { accounts = [], transactions = [], statementReconciliations = [], netWorthSnapshots = [] } = data;
   const rows = useMemo(() => statementRows({ accounts, reconciliations: statementReconciliations, transactions, now }), [accounts, statementReconciliations, transactions, now]);
-  const strip = runningMonthStrip({ year, month }, { transactions, accounts, statements: rows }, now);
+  const strip = runningMonthStrip({ year, month }, { transactions, accounts, statements: rows, transactionLinks: data.transactionLinks ?? [] }, now);
   const actions = useStatementActions({ household, me, reload: data.reload });
   const pending = pendingClose(netWorthSnapshots, now);
   const clear = <Chip tone="pos">All clear</Chip>;

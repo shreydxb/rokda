@@ -1,6 +1,6 @@
 import { isPosted, monthKey } from './day';
 import { monthRange } from './activityLink';
-import { isUncategorised } from './activity';
+import { isUncategorised, refundsWithPurchase } from './activity';
 import { balanceStatus } from './balance';
 import { monthActualsByCategory, monthIncome, monthSpendBreakdown } from './budget';
 import { historyPreview } from './monthActions';
@@ -151,11 +151,12 @@ export function biggestChanges(transactions, categories, { year, month }, now = 
 // a scheduled record isn't a fact yet), the card statements still to check
 // and how many of those don't match, and the open balances nobody has
 // confirmed or not for a while (lib/balance.js), as Overview counts them.
-export function runningMonthStrip({ year, month }, { transactions = [], accounts = [], statements = [] }, now = new Date()) {
+export function runningMonthStrip({ year, month }, { transactions = [], accounts = [], statements = [], transactionLinks = [] }, now = new Date()) {
   const { from, to } = monthRange(year, month);
+  const filedWithPurchase = refundsWithPurchase(transactionLinks);
   const uncategorised = transactions.filter((t) => {
     const day = String(t.occurred_at).slice(0, 10);
-    return day >= from && day <= to && isPosted(t, now) && isUncategorised(t);
+    return day >= from && day <= to && isPosted(t, now) && isUncategorised(t) && !filedWithPurchase.has(t.id);
   }).length;
   return {
     uncategorised,

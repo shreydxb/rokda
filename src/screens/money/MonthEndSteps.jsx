@@ -4,7 +4,7 @@ import { supabase } from '../../lib/supabaseClient';
 import { formatBalance, formatMoney } from '../../lib/money';
 import { isPosted, parseDay } from '../../lib/day';
 import { accountHref, monthRange, tabHref } from '../../lib/activityLink';
-import { isUncategorised } from '../../lib/activity';
+import { isUncategorised, refundsWithPurchase } from '../../lib/activity';
 import { confirmedPairRow } from '../../lib/duplicates';
 import { fileableCategories } from '../../lib/fileableCategories';
 import { monthlyReview, withReviewReturn } from '../../lib/monthlyReview';
@@ -45,7 +45,7 @@ export default function MonthEndSteps({ household, members, me, data, year, mont
   const steps = monthEndSteps(review);
   const byId = new Map(review.checks.map((c) => [c.id, c]));
   const name = longMonth(year, month);
-  const { accounts = [], transactions = [], categories = [], statementReconciliations = [] } = data;
+  const { accounts = [], transactions = [], categories = [], statementReconciliations = [], transactionLinks = [] } = data;
 
   // Which step is open: the one a click chose, else the one a link named,
   // else the first still to do.
@@ -105,12 +105,14 @@ export default function MonthEndSteps({ household, members, me, data, year, mont
     await data.reload();
   };
 
-  // The month's posted records with no category, newest first.
+  // The month's posted records with no category, newest first. A refund
+  // filed with its purchase has none of its own to choose.
   const { from, to } = monthRange(year, month);
+  const filedWithPurchase = useMemo(() => refundsWithPurchase(transactionLinks), [transactionLinks]);
   const uncategorised = transactions
     .filter((t) => {
       const day = String(t.occurred_at).slice(0, 10);
-      return day >= from && day <= to && isPosted(t, now) && isUncategorised(t);
+      return day >= from && day <= to && isPosted(t, now) && isUncategorised(t) && !filedWithPurchase.has(t.id);
     })
     .sort((a, b) => (a.occurred_at < b.occurred_at ? 1 : -1));
 

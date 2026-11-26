@@ -133,6 +133,15 @@ describe('Goals & debts: goals due within 3 years, from cash', () => {
     expect(within(kept).getByText('Short of kept goals')).toBeTruthy();
   });
 
+  // The review of the whole revamp: Overview's Cash reserve tile, in one
+  // person's view, opens here, where the reserve wasn't shown or mentioned.
+  it("says where the household's cash reserve is in one person's view", () => {
+    localStorage.setItem('rokda.scope', 'me');
+    renderScreenAt({ goals: [{ ...GOAL, counts_in_life_plan: false }] });
+    expect(document.querySelector('.gd-reserve')).toBeNull();
+    expect(screen.getByText('The cash reserve is the household’s: pick Both to see it.')).toBeTruthy();
+  });
+
   it('settles a goal whose plan covers it, and marks a plan that falls short', () => {
     renderScreenAt({ goals: [{ ...GOAL, planned_monthly: 5000 }] });
     expect(within(goalRow('Emergency fund')).getByText('Planned')).toBeTruthy();

@@ -80,6 +80,15 @@ describe('monthlyReview', () => {
     expect(checks.categorise).toMatchObject({ status: 'todo', count: 1, href: '/money?tab=activity&who=both&cat=none&from=2026-09-01&to=2026-09-30' });
   });
 
+  // The review of the whole revamp: a refund linked to an earlier month's
+  // purchase is filed under the purchase's category, so it has none of its
+  // own to give, and the database refuses one. It held the step open.
+  it('does not ask for a category on a refund filed with its purchase', () => {
+    const transactions = [tx('refund', { category_id: null, kind: 'refund', amount: 50 })];
+    const transactionLinks = [{ kind: 'refund', from_transaction_id: 'purchase-in-august', to_transaction_id: 'refund' }];
+    expect(byId(monthlyReview(SEPT, { ...settled, transactions, transactionLinks }, NOW)).categorise).toMatchObject({ status: 'done', count: 0 });
+  });
+
   it('suggests transfers without letting them hold the month up', () => {
     const transactions = [tx('out', { amount: -500, category_id: null }), tx('in', { account_id: CARD, amount: 500, kind: 'income', category_id: null, occurred_at: '2026-09-11' })];
     const review = monthlyReview(SEPT, { ...settled, transactions }, NOW);

@@ -50,6 +50,10 @@ export default function CategoriesRules({ household, members = [], data, loading
 
   const table = categoryTable(categories, budgets, householdYearMonth());
   const nameOf = (id) => categories.find((c) => c.id === id)?.name ?? 'Unknown category';
+  // A rule whose category is archived files nothing: the bot passes it by
+  // (intake.ts), so Apply is not offered on it either, and the table says
+  // why (the review of the whole revamp).
+  const categoryArchived = (id) => Boolean(categories.find((c) => c.id === id)?.archived);
   const activeRules = categoryRules.filter((r) => !r.archived).length;
 
   async function applyRule(rule) {
@@ -207,9 +211,17 @@ export default function CategoriesRules({ household, members = [], data, loading
                       </button>
                       {r.archived && <Chip>Off</Chip>}
                     </td>
-                    <td>{nameOf(r.category_id)}</td>
+                    <td>
+                      {nameOf(r.category_id)}
+                      {categoryArchived(r.category_id) && (
+                        <>
+                          {' '}
+                          <Chip tone="warn">Archived</Chip>
+                        </>
+                      )}
+                    </td>
                     <td className="st-act">
-                      {!r.archived && (
+                      {!r.archived && !categoryArchived(r.category_id) && (
                         <button
                           type="button"
                           className="st-link-btn"

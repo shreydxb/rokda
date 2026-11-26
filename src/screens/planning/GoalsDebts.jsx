@@ -143,6 +143,10 @@ function GoalsHalf({ household, members, accounts, holdings, transactions, recur
     [goals, scopeMemberId]
   );
   const groups = goalGroups(rows);
+  // In one person's view the reserve, the household's, is not worked out,
+  // but where to see it is said: Overview's Cash reserve tile opens here (the
+  // review of the whole revamp).
+  const reserveElsewhere = scopeMemberId !== null ? <p className="ds-muted gd-reserve-note">The cash reserve is the household&rsquo;s: pick Both to see it.</p> : null;
   // The cash reserve against what the kept goals hold (today's Monthly
   // check, which lost its tab): the household's, so in Both only.
   const reserve =
@@ -165,6 +169,7 @@ function GoalsHalf({ household, members, accounts, holdings, transactions, recur
           <EmptyState title="No goals yet" body="Add one to see what it needs each month." action={{ label: 'Add a goal', onClick: () => onOpen('new') }} />
         </section>
         {reserve && <ReserveCard reserve={reserve} />}
+        {reserveElsewhere}
       </>
     );
   }
@@ -185,6 +190,7 @@ function GoalsHalf({ household, members, accounts, holdings, transactions, recur
         </Card>
       ))}
       {!kept && reserve && <ReserveCard reserve={reserve} />}
+      {reserveElsewhere}
       {done.length > 0 && (
         <section className="ds-card gd-done">
           <Fold label="Done" count={done.length}>

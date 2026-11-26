@@ -79,6 +79,14 @@ export function isUncategorised(row) {
   return row.kind !== 'transfer' && !row.is_split && !row.category_id;
 }
 
+// The refunds filed with their purchase (a refund link): each takes the
+// purchase's category and has none of its own to choose, which the database
+// refuses (refund_integrity), so none is asked of them (the review of the
+// whole revamp).
+export function refundsWithPurchase(links = []) {
+  return new Set(links.filter((l) => l.kind === 'refund').map((l) => l.to_transaction_id));
+}
+
 // The list's order. Largest and smallest are by size of the amount, either
 // direction.
 export function sortRows(rows, sort) {

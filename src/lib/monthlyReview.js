@@ -4,7 +4,7 @@ import { isDerivedBalance } from './accounts';
 import { snapshotMonthKeys, lastClosedMonth } from './snapshots';
 import { orderPair, transferCandidates } from './transfers';
 import { budgetGroupSpend } from './budget';
-import { isUncategorised } from './activity';
+import { isUncategorised, refundsWithPurchase } from './activity';
 import { refundLinkOf } from './refunds';
 import { duplicatePairs } from './duplicates';
 
@@ -174,7 +174,8 @@ export function monthlyReview({ year, month }, { transactions = [], accounts = [
     href: activityHref({ needsReview: true, from, to, who: 'both' }),
   });
 
-  const uncategorised = rows.filter(isUncategorised);
+  const filedWithPurchase = refundsWithPurchase(transactionLinks);
+  const uncategorised = rows.filter((t) => isUncategorised(t) && !filedWithPurchase.has(t.id));
   checks.push({
     id: 'categorise',
     required: true,
