@@ -1805,6 +1805,9 @@ begin
   insert into telegram_notification_prefs (household_id) values (hh) on conflict (household_id) do nothing;
   select statement_enabled into enabled from telegram_notification_prefs where household_id = hh;
   if (enabled is not true) is not false then raise exception 'statements FAILED: the statement question is not on by default'; end if;
+  -- Autopay questions have their own switch (the review of the whole revamp), on by default.
+  select autopay_enabled into enabled from telegram_notification_prefs where household_id = hh;
+  if (enabled is not true) is not false then raise exception 'telegram prefs FAILED: the autopay question is not on by default'; end if;
 
   insert into categories (id, household_id, name, kind) values (fuel, hh, 'Fuel', 'expense'), (wash, hh, 'Car Wash', 'expense');
   insert into transactions (household_id, account_id, category_id, amount, occurred_at, is_shared, merchant, kind) values

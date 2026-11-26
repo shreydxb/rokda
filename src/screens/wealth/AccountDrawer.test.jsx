@@ -130,7 +130,7 @@ describe('The account drawer', () => {
     const drawer = dialog();
     expect(within(drawer).getByText('Closes on the 10th · due on the 25th')).toBeTruthy();
     expect(within(drawer).getByText('11 Oct – 10 Nov').closest('tr').textContent).toMatch(/To check/);
-    expect(within(drawer).getByText('11 Sep – 10 Oct').closest('tr').textContent).toMatch(/Done/);
+    expect(within(drawer).getByText('11 Sep – 10 Oct').closest('tr').textContent).toMatch(/Checked/);
     expect(within(drawer).getByRole('link', { name: 'Check statements in Month end' }).getAttribute('href')).toBe('/money?tab=monthend');
   });
 

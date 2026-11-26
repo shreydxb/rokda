@@ -207,13 +207,18 @@ export function annualSpendByCategory({ inputs, transactions = [], budgets = [],
 
 // The part of that spending the household expects to have stopped once work
 // does -- rent on a home it will own, a loan's instalments -- from the
-// categories marked stops_after_work. The Life plan leaves it out of spending
-// after work stops. `byCategory` is every category's year, for the editor that
-// marks them, so it is not worked out twice.
+// categories marked stops_after_work. A marked group stops its subcategories
+// too: its records are on them, so marking it changed nothing (the review of
+// the whole revamp). The Life plan leaves it out of spending after work
+// stops. `byCategory` is every category's year, for the editor that marks
+// them, so it is not worked out twice.
 export function spendThatStops(args) {
   const byCategory = annualSpendByCategory(args);
-  const rows = (args.categories ?? [])
-    .filter((c) => c.stops_after_work && byCategory.get(c.id) > 0)
+  const categories = args.categories ?? [];
+  const markedGroups = new Set(categories.filter((c) => c.stops_after_work && !c.parent_id).map((c) => c.id));
+  const stops = (c) => c.stops_after_work || (c.parent_id != null && markedGroups.has(c.parent_id));
+  const rows = categories
+    .filter((c) => stops(c) && byCategory.get(c.id) > 0)
     .map((c) => ({ id: c.id, name: c.name, annual: byCategory.get(c.id) }))
     .sort((a, b) => b.annual - a.annual);
   return { annual: rows.reduce((s, r) => s + r.annual, 0), categories: rows, byCategory };

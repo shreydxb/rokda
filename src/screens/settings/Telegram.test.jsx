@@ -14,6 +14,7 @@ const ROW = {
   balance_checkin_enabled: true,
   statement_enabled: true,
   dividends_enabled: true,
+  autopay_enabled: true,
 };
 const calls = vi.hoisted(() => ({ selected: [], upserts: [], rpcs: [], log: [], rpcError: null, rpcEmpty: false }));
 vi.mock('../../lib/supabaseClient', () => {
@@ -89,7 +90,7 @@ describe('Telegram: the switches', () => {
   it('groups what comes in the morning apart from the questions', async () => {
     await renderTelegram();
     expect(within(morning()).getAllByRole('switch').map((s) => s.getAttribute('aria-label'))).toEqual(['Missed bills', 'Card due dates', 'Cash cover', 'Unusual spending', 'Weekly and month-end brief']);
-    expect(within(questions()).getAllByRole('switch').map((s) => s.getAttribute('aria-label'))).toEqual(['Card statements', 'Dividends', 'Month-end balances']);
+    expect(within(questions()).getAllByRole('switch').map((s) => s.getAttribute('aria-label'))).toEqual(['Autopay bills', 'Card statements', 'Dividends', 'Month-end balances']);
     expect(within(morning()).getByRole('link', { name: 'Budget →' }).getAttribute('href')).toBe('/money?tab=budget');
   });
 
@@ -98,6 +99,16 @@ describe('Telegram: the switches', () => {
     expect(within(questions()).getByRole('switch', { name: 'Card statements' }).getAttribute('aria-checked')).toBe('true');
     expect(within(morning()).getByRole('switch', { name: 'Unusual spending' }).getAttribute('aria-checked')).toBe('false');
     expect(calls.selected.find((s) => s.table === 'telegram_notification_prefs').cols).toMatch(/statement_enabled/);
+  });
+
+  // The review of the whole revamp: autopay questions were switched off by
+  // Missed bills, listed with the morning message, which needs no answer.
+  it('lists autopay bills among the questions, saved as autopay_enabled', async () => {
+    await renderTelegram();
+    const toggle = within(questions()).getByRole('switch', { name: 'Autopay bills' });
+    await act(async () => fireEvent.click(toggle));
+    expect(calls.upserts.at(-1)).toEqual({ table: 'telegram_notification_prefs', row: { household_id: 'h1', autopay_enabled: false } });
+    expect(within(morning()).queryByRole('switch', { name: 'Autopay bills' })).toBeNull();
   });
 
   it('saves the dividend question as dividends_enabled', async () => {

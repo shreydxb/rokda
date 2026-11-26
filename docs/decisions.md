@@ -4938,3 +4938,37 @@ the reply on linking was a long sentence of examples.
   which the entry is tied to, turns.
 - **Linking says who, what to send and where help is**: `Linked as Alex.
   Send a receipt, "42 groceries", or a question. /help for more.`
+
+## The review of the whole revamp
+
+After phase 8, six reviewers read the revamp whole, a slice each (the shell
+and Overview, Money, Wealth, Planning and Settings, the bot's 8a–8b and
+8c–8d), for what the parts' own reviews could not see: features lost, the
+same figure worked out two ways, failed loads read as none, words that
+disagree. No security problem was found. What changed:
+
+- **Pay due is not a bill.** The bot's upcoming bills took every recurring
+  item, pay included, so cash cover in the brief, the monthly review and the
+  morning nudge read "short by AED 19,000" on a pay week where Overview said
+  covered. Only amounts going out are bills; pay is listed apart for the
+  bot's answers.
+- **A failed load is never shown as none.** Overview, with the records or
+  the recurring bills never loaded, said "All clear", zeros and "none yet";
+  each panel resting on them now says it couldn't load them, and the title
+  says "Couldn't check everything". Net worth and the cash cover are
+  withheld only when their sources never loaded, as Wealth does. Tax years
+  checks the holdings and dividends it is built from.
+- **Insights' breakdown is not brought back.** Every category against its
+  usual (unbudgeted ones too), "came in under", and the purchases behind a
+  move went with Insights (phase 4b). Budget's Usual column and Overview's
+  Where it went cover the common case; the household chose to record the
+  loss rather than rebuild it.
+- **Autopay questions have their own switch**, "Autopay bills", under the
+  questions in Settings → Telegram (`autopay_enabled`, a migration). They
+  were switched off by "Missed bills", a morning nudge that needs no answer.
+  A household with missed bills off keeps autopay questions off.
+- **A statement is "Checked"**, in the app as in the bot: "Mark checked",
+  "Checked by …", "Checked (n)". One the bot is asking about reads "To
+  check", as To do says, not a grey "Waiting".
+- **"Stops when work stops" on a group stops its subcategories**: their
+  records are where the spending is, so marking the group changed nothing.

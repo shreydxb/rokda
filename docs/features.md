@@ -262,10 +262,12 @@ plan holds.
   - **Card statements** (one table, on the running month and in step 2): a
     row per statement under its card (Period, Due, In Rokda to the cent and
     signed, the statement's own total when one is recorded, the difference
-    and which way it goes, Status), what is still to check first and the
-    done ones under "Done (n)". "Mark done", "Resolve…" for one that didn't
-    match (asking what was done) and "Reopen…" (asking why); tick boxes and
-    "Mark n done" for several at once, though one that doesn't match is
+    and which way it goes, Status: "To check", also while the bot asks
+    about it, "Doesn't match" or "Checked"), what is still to check first
+    and the checked ones under "Checked (n)". "Mark checked", "Resolve…" for
+    one that didn't match (asking what was done) and "Reopen…" (asking why);
+    tick boxes and "Mark n checked" for several at once, though one that
+    doesn't match is
     resolved on its own. A period opens its transactions, the statement's
     closing balance and who checked it. No statement total is typed here.
     The bot asks about each once and reminds once before it is due
@@ -534,8 +536,8 @@ went: Overview's Plan strip and To do say what it said.
 - **Telegram**: what the bot sends, as two cards of switches (the
   household's): the morning message (missed bills, card due dates, cash
   cover, unusual spending, the weekly and month-end brief, and budget alerts,
-  which are set on Budget) and the questions that need an answer (card
-  statements, dividends, month-end balances). Linked accounts shows who is
+  which are set on Budget) and the questions that need an answer (autopay
+  bills, card statements, dividends, month-end balances). Linked accounts shows who is
   linked; Link opens a drawer (`?tab=telegram&link=<member>`) with Open
   Telegram, a QR code of the same link and the one-time code with Copy. Open
   Telegram and the QR code need the bot's username as the build setting

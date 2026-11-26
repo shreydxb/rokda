@@ -10,7 +10,7 @@ import './MonthEnd.css';
 
 // The card statements table (the revamp, phase 4d; design/prototype
 // stmtBlock): one row per statement under its card, what is still to check
-// first and what is done folded below, with Mark done, Resolve and Reopen as
+// first and what is done folded below, with Mark checked, Resolve and Reopen as
 // Wealth -> Statements had them, and tick boxes to mark several done at once.
 // Month end shows it twice: every statement still open on the running month,
 // and the statements that closed in a month on its step 2. No statement total
@@ -39,7 +39,7 @@ export function MarkTicked({ rows, actions }) {
   if (!chosen.length) return null;
   return (
     <button type="button" className="ds-btn ds-btn-sm" disabled={actions.busy} onClick={() => actions.markDone(chosen)}>
-      {`Mark ${chosen.length} done`}
+      {`Mark ${chosen.length} checked`}
     </button>
   );
 }
@@ -113,7 +113,7 @@ export default function StatementsTable({ rows, accounts = [], members = [], act
           <td className="me-st-act">
             {canMarkDone(row) && (
               <button type="button" className="ds-btn ds-btn-sm" disabled={actions.busy} onClick={() => actions.setStatus(row, 'confirmed')}>
-                Mark done
+                Mark checked
               </button>
             )}
             {row.status === 'mismatch' && (
@@ -241,7 +241,7 @@ export default function StatementsTable({ rows, accounts = [], members = [], act
         </div>
       )}
       {done.length > 0 && (
-        <Fold label="Done" count={done.length}>
+        <Fold label="Checked" count={done.length}>
           {table(done, { ticks: false, label: 'Statements done' })}
         </Fold>
       )}

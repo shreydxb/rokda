@@ -29,9 +29,10 @@ export type TelegramPrefRow = {
   balance_checkin_enabled: boolean;
   statement_enabled: boolean;
   dividends_enabled: boolean;
+  autopay_enabled: boolean;
 };
 
-export type TelegramPrefKey = "recurring_enabled" | "credit_card_enabled" | "cash_cover_enabled" | "brief_enabled" | "unusual_spend_enabled" | "balance_checkin_enabled" | "statement_enabled" | "dividends_enabled";
+export type TelegramPrefKey = "recurring_enabled" | "credit_card_enabled" | "cash_cover_enabled" | "brief_enabled" | "unusual_spend_enabled" | "balance_checkin_enabled" | "statement_enabled" | "dividends_enabled" | "autopay_enabled";
 
 
 // Fetched once per check run (the table has one row per household, so this

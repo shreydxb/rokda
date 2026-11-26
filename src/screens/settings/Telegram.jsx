@@ -20,6 +20,7 @@ const DEFAULTS = {
   balance_checkin_enabled: true,
   statement_enabled: true,
   dividends_enabled: true,
+  autopay_enabled: true,
 };
 
 const MORNING = [
@@ -29,7 +30,11 @@ const MORNING = [
   { key: 'unusual_spend_enabled', label: 'Unusual spending', note: 'Once, when a category runs well past its usual' },
   { key: 'brief_enabled', label: 'Weekly and month-end brief', note: 'Every Monday, and when a month ends' },
 ];
+// Autopay bills are asked about, with Paid, Not yet and Other amount, so they
+// are a question with their own switch, not Missed bills' (the review of the
+// whole revamp).
 const QUESTIONS = [
+  { key: 'autopay_enabled', label: 'Autopay bills', note: 'On the due date, and each morning until answered' },
   { key: 'statement_enabled', label: 'Card statements', note: 'When one closes, and 3 days before it is due' },
   { key: 'dividends_enabled', label: 'Dividends', note: 'When dividends are paid into a broker fund' },
   { key: 'balance_checkin_enabled', label: 'Month-end balances', note: 'On the 1st, with the monthly brief' },

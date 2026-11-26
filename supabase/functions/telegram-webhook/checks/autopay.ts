@@ -34,7 +34,8 @@ export async function runAutopayCheck(): Promise<{ checked: number; asked: numbe
   let asked = 0;
   for (const r of (rows ?? []) as Array<Record<string, unknown>>) {
     const householdId = String(r.household_id);
-    if (!prefEnabled(prefs, householdId, "recurring_enabled")) continue;
+    // Its own switch, not missed bills' (the review of the whole revamp).
+    if (!prefEnabled(prefs, householdId, "autopay_enabled")) continue;
     const cycle = autopayCycle(r as { next_due_date: string; cadence: string; interval_count: number | null; ends_on: string | null }, today);
     if (!cycle) continue;
     checked++;
