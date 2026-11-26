@@ -99,7 +99,12 @@ export default function Overview() {
   // (the review of the whole revamp).
   const txUnread = neverLoaded({ errors, loaded }, ['transactions']);
   const recurringUnread = neverLoaded({ errors, loaded }, ['recurring']);
-  const todoUnread = neverLoaded({ errors, loaded }, ['transactions', 'recurring', 'accounts', 'holdings', 'statementReconciliations', 'backupRecords', 'yearlyChecks']);
+  const todoUnread = [
+    ...new Set([
+      ...neverLoaded({ errors, loaded }, ['transactions', 'recurring', 'accounts', 'holdings', 'statementReconciliations', 'backupRecords', 'yearlyChecks', 'netWorthSnapshots', ...DIVIDEND_SOURCES]),
+      ...plan.goalsMissing,
+    ]),
+  ];
   // Arithmetic over balances nobody has confirmed is provisional, and says so
   // rather than presenting itself as the household's position (QA-02).
   const unconfirmed = unconfirmedAccounts(accountRows);

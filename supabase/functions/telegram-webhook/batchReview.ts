@@ -59,8 +59,9 @@ function listable(row: SavedItem["row"]): boolean {
 // (expenseMessages.ts inboxReason), so the two never disagree; the list said
 // "in INR" where the message said "to check and approve" (the review of the
 // whole revamp).
+// The day is not the reason: the list asks for it itself (listable).
 function missingReason(row: SavedItem["row"]): string {
-  return inboxReason(row as never).reason;
+  return inboxReason({ ...row, date_guessed: false } as never).reason;
 }
 
 // The ids of the saved items that are already in Rokda: undated ones by the

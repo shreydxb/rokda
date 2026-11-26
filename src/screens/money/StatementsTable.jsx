@@ -242,7 +242,7 @@ export default function StatementsTable({ rows, accounts = [], members = [], act
       )}
       {done.length > 0 && (
         <Fold label="Checked" count={done.length}>
-          {table(done, { ticks: false, label: 'Statements done' })}
+          {table(done, { ticks: false, label: 'Statements checked' })}
         </Fold>
       )}
     </div>

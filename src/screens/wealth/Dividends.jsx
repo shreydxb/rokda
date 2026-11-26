@@ -27,9 +27,7 @@ import './Dividends.css';
 // through the address (HoldingDrawer.jsx).
 
 // What the tab reads; one that never loaded is said, never shown as none.
-// The exchange rates too: unread, rupee dividends were valued at today's rate
-// without a word, where Investments withholds (the review of the whole revamp).
-const SOURCES = ['holdings', 'holdingDividends', 'holdingTrades', 'dividendEvents', 'dividendSplits', 'dividendSpecialParts', 'dividendFeedStatus', 'accounts', 'fxRateHistory'];
+const SOURCES = ['holdings', 'holdingDividends', 'holdingTrades', 'dividendEvents', 'dividendSplits', 'dividendSpecialParts', 'dividendFeedStatus', 'accounts'];
 const MARKET_NAMES = { IN: 'India', US: 'US' };
 const MARKET_ADJECTIVES = { IN: 'Indian', US: 'US' };
 const A_MARKET_HOLDING = { IN: 'an Indian holding', US: 'a US holding' };
@@ -77,8 +75,13 @@ export default function Dividends({ household, members, me, data, loading }) {
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
   // A source Income needs that never loaded is said there, and Tax years,
-  // which needs none of them, stays a view away (the fresh review of 5c).
-  const missing = neverLoaded(data, SOURCES);
+  // which checks its own (TaxYears.jsx), stays a view away (the fresh review
+  // of 5c). The exchange rates only when a rupee holding needs them: unread,
+  // its dividends were valued at today's rate without a word, as Investments
+  // withholds only a figure that needed a rate (the review of the whole
+  // revamp).
+  const needsRates = (data.holdings ?? []).some((h) => h.currency === 'INR');
+  const missing = neverLoaded(data, needsRates ? [...SOURCES, 'fxRateHistory'] : SOURCES);
   const tools = (
     <Tools>
       <Segmented label="Show" options={VIEWS} value={view} onChange={setView} />

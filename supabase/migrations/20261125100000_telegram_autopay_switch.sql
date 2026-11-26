@@ -9,7 +9,7 @@
 -- A household that had missed bills off had autopay questions off as well,
 -- so it keeps them off: the new switch starts where the old one was.
 alter table public.telegram_notification_prefs add column autopay_enabled boolean not null default true;
-update public.telegram_notification_prefs set autopay_enabled = recurring_enabled;
+update public.telegram_notification_prefs set autopay_enabled = false where not recurring_enabled;
 
 comment on column public.telegram_notification_prefs.autopay_enabled is
   'The bot''s question about an autopay bill on and after its due date (Paid, Not yet, Other amount). Separate from recurring_enabled, the missed-bill reminder. Missing row = on.';

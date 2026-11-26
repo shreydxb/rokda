@@ -40,3 +40,20 @@ export function unvaluedNote(count, { capitalised = true } = {}) {
   const lead = capitalised ? 'Excludes' : 'excludes';
   return `${lead} ${count} ${noun} in another currency that ${verb} no AED conversion yet.`;
 }
+
+// A fixed deposit's balance is derived: compute_account_derived_fields()
+// calculates it from principal, rate and dates, and the daily fd-accrual job
+// touches every active FD so that trigger recomputes it against today. There
+// is nothing for anyone to confirm (QA pass 3, O4).
+//
+// These two live here rather than in balance.js because overviewMath.js needs
+// them and is mirrored into _shared/applib for the Edge Functions, which have
+// no copy of balance.js. balance.js re-exports them, so every existing import
+// keeps working and there is still exactly one definition.
+export function isDerivedBalance(account) {
+  return account?.type === 'fd' && account?.principal != null && account?.interest_rate_pct != null;
+}
+
+export function isBalanceConfirmed(account) {
+  return isDerivedBalance(account) || account?.balance_as_of != null;
+}

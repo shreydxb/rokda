@@ -1,6 +1,6 @@
 // Part of the Telegram webhook (index.ts), split out by responsibility in
 // the round 2 cleanup (SHR-383). Moved, not changed.
-import { accountValueAed, unvaluedAccounts } from "../_shared/applib/accounts.js";
+import { accountValueAed, isBalanceConfirmed, unvaluedAccounts } from "../_shared/applib/accounts.js";
 import { monthActualsByCategory } from "../_shared/applib/budget.js";
 import { cashCoverStatus } from "../_shared/applib/cashCover.js";
 import { cashCoverLine, day, facts, money, notCounted } from "../_shared/applib/botFormat.js";
@@ -446,8 +446,10 @@ export async function toolGetNetWorth(householdId: string, scopeMemberId: string
   const summary = netWorthSummary(accounts as never, scopeMemberId, holdings as never);
   // Balances in the total nobody has confirmed: the app calls such a total
   // provisional (the review of the whole revamp).
+  // A fixed deposit with its principal and rate is worked out daily, never
+  // stamped, and is confirmed as the app counts it (accounts.js).
   const unconfirmed = (accounts as Array<{ archived_at: string | null; balance_as_of: string | null; is_shared: boolean; owner_member_id: string | null }>)
-    .filter((a) => a.archived_at == null && a.balance_as_of == null && (scopeMemberId === null || a.is_shared || a.owner_member_id === scopeMemberId)).length;
+    .filter((a) => a.archived_at == null && !isBalanceConfirmed(a) && (scopeMemberId === null || a.is_shared || a.owner_member_id === scopeMemberId)).length;
   // The count of accounts the total could not include travels with the
   // total. phraseAnswer is told to use only what a tool returns, so if this
   // is dropped here the bot cannot say the figure is incomplete -- and a net
@@ -476,7 +478,7 @@ export async function toolGetAccountBalance(householdId: string, args: Record<st
   const aed = accountValueAed(a);
   // A balance nobody has set is not a fact: the app says "Not confirmed", so
   // the answer must be able to (the review of the whole revamp).
-  const confirmation = a.balance_as_of ? { confirmed: true, balance_as_of: a.balance_as_of } : { confirmed: false, confirmation_note: "nobody has confirmed this balance yet, so it may not be the real figure" };
+  const confirmation = isBalanceConfirmed(a) ? { confirmed: true, ...(a.balance_as_of ? { balance_as_of: a.balance_as_of } : {}) } : { confirmed: false, confirmation_note: "nobody has confirmed this balance yet, so it may not be the real figure" };
   // No conversion yet: report the native balance as native rather than
   // relabelling it AED. `balance_aed ?? balance` answered "what's in the
   // India account" with "AED 20,000" when it holds 20,000 rupees (QA #4).
@@ -669,6 +671,7 @@ export async function toolGetHoldings(householdId: string, scopeMemberId: string
     day_change_pct: number | null;
     priced_at: string | null;
     price_fetch_error?: string | null;
+    price_provider?: string | null;
     is_shared: boolean;
     owner_member_id: string | null;
   }>;
@@ -691,7 +694,7 @@ export async function toolGetHoldings(householdId: string, scopeMemberId: string
       ...(isAwaitingFirstValuation(h as never) ? { note: "never valued yet" } : {}),
       // None when the price feed failed, as the app shows "—": the last
       // day's move is not today's (the review of the whole revamp).
-      day_change_pct: h.price_fetch_error ? null : h.day_change_pct,
+      day_change_pct: h.price_provider && h.price_fetch_error ? null : h.day_change_pct,
       gain_aed: gain ? round2(gain.absolute) : null,
       gain_pct: gain ? round2(gain.pct * 100) : null,
       priced_at: h.priced_at,

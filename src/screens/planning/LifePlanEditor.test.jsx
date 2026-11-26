@@ -172,6 +172,21 @@ describe('LifePlanEditor: spending that stops', () => {
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     expect(calls.updates).toEqual([{ table: 'categories', patch: { stops_after_work: true }, value: 'rent' }]);
   });
+
+  // The review of the whole revamp: a marked group stops its subcategories,
+  // so the list shows them stopping with it, not as boxes left unticked.
+  it('shows the subcategories of a group that stops as stopping with it', () => {
+    const grouped = [
+      { id: 'housing', name: 'Housing', kind: 'expense', stops_after_work: true },
+      { id: 'flat', name: 'Flat rent', kind: 'expense', parent_id: 'housing' },
+      { id: 'food', name: 'Groceries', kind: 'expense' },
+    ];
+    renderEditor({ categories: grouped, spendByCategory: new Map([['flat', 50000], ['food', 24000]]), memberLife });
+    const flat = screen.getByLabelText(/^Flat rent/);
+    expect([flat.checked, flat.disabled]).toEqual([true, true]);
+    expect(flat.closest('label').textContent).toMatch(/with its group/);
+    expect(screen.getByLabelText(/^Groceries/).disabled).toBe(false);
+  });
 });
 
 // Planning audit, 3.13: Forecast's assumptions joined this drawer. A cleared

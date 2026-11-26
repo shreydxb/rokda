@@ -275,3 +275,13 @@ freshTest("a balance nobody has set is said to be not confirmed, and net worth c
   const worth = await toolGetNetWorth(HOUSEHOLD, null) as { unconfirmed_accounts?: number };
   assertEquals(worth.unconfirmed_accounts, 1);
 });
+
+// The fresh review of these fixes: a fixed deposit with its principal and
+// rate is worked out daily and never stamped, and the app counts it confirmed.
+freshTest("a fixed deposit worked out from its principal and rate is not called unconfirmed", async () => {
+  backend.tables.accounts.push({ id: "a9000000-0000-4000-8000-0000000000e9", household_id: HOUSEHOLD, name: "Deposit", type: "fd", currency: "AED", balance: 50000, balance_aed: 50000, balance_as_of: null, principal: 50000, interest_rate_pct: 4, is_shared: true, owner_member_id: null, archived_at: null });
+  const balance = await toolGetAccountBalance(HOUSEHOLD, { account_name: "Deposit" }) as { confirmed?: boolean };
+  assertEquals(balance.confirmed, true);
+  const worth = await toolGetNetWorth(HOUSEHOLD, null) as { unconfirmed_accounts?: number };
+  assertEquals(worth.unconfirmed_accounts, undefined);
+});
