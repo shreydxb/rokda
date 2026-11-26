@@ -4652,3 +4652,77 @@ on its own.
     edit that fails now unties it, and Telegram's "message is not modified"
     counts as showing it.
 
+
+## The bot: buttons on a pasted list, a transfer and a trade
+
+The revamp's phase 8b, its second part (design note
+`docs/superpowers/specs/2026-11-23-telegram-bot-design.md`; the UI review's
+T8, T14 and T15). Buttons are added, not swapped in: every typed answer still
+works.
+
+- **A transfer and a goal contribution are one line with Record and
+  Cancel** (T14): `Transfer AED 3,000 · Current account → Savings · 20 Sep`,
+  `AED 500 toward House · 3 Oct`. The sentences that explained a transfer
+  went. A goal contribution is not in the review's list, but it is a
+  proposal like a transfer and took a typed "yes" the same way, so it got the
+  same buttons rather than staying the one that needs typing.
+- **A trade keeps its lines, in the one format, with Save and Cancel**
+  (T15): `Sell 6 ABC at USD 150 · 27 Oct · brokerage USD 1`, the holding
+  before and after, profit and fund; each warning on a line starting ⚠; an
+  Indian sale without its tax says "Tax: not known yet". Dollars and rupees
+  are written "USD 150" and "INR 1,500", as 8a writes every amount, rather
+  than "$150" and "₹1,500". Undoing a trade asks with Undo trade and Cancel.
+- **A tap turns the message into what was done**: `✓ …` (with the
+  transfer's joined side, or the holding and fund after a trade), or
+  `Cancelled · …`, and a toast says Recorded or Cancelled. Only the member
+  it was proposed to, and only on the message that asked about it, can tap;
+  a tap on one already settled says how it was settled. A typed answer gets
+  the same words as a new message, and the question loses its buttons, as an
+  expense's does; a 👍 turns the question into the outcome. A trade that
+  changed since is cancelled with "changed since" and shown again with
+  today's figures and its own buttons.
+- **Balances, an autopay bill and dividends keep their typed answers** until
+  the morning's questions are rebuilt (8c): their words and buttons come
+  together there.
+- **A pasted list has buttons** (T8): Record all when every entry has its
+  day, or Today, Yesterday and Other day when one has none (the day goes only
+  to the entries the SMS gave none, and never one after the paste); Other day
+  says to reply with the day. Choose… shows a button an entry, ticked when
+  tapped, then Record (or the days) and Discard for those ticked, and Back.
+  A "yes" to the list reads as "all" when every entry has its day; otherwise
+  it asks which day.
+- **A tap on a list records only what the list shows.** Telegram sends the
+  list's text with the tap, as with a reply, and an entry whose line reads
+  differently now (changed in the Inbox) is left there. A 👍 carries no text,
+  so a 👍 on a list records nothing and says to tap Record all or reply yes.
+- **The list shows each entry as it stands** after any tap or reply:
+  `✓ …` recorded, `Cancelled · …` set aside, `In the Inbox · … · changed
+  since` or `· looks recorded already`, or `Already recorded · …` when it was
+  settled in the app. Only what the list showed is repeated, never figures
+  read since. The buttons fit what it still offers, and go when nothing is
+  left. The numbers keep their meaning: a typed "2" is always the second
+  entry the list showed.
+- **The list's lines are in the one format**: `1. City Taxi · AED 20 ·
+  Transport · Card •0004 · 3 Oct` (who first, as an expense's message), with
+  the day when the SMS gave one. A list sent before this change is still
+  checked against its own older lines, so a reply to it records as before.
+- **The fresh review of this part** changed these:
+  - **A bare "yes" or "no" never reaches an entry on a list**, even the last
+    one it offers. After Choose… had recorded the others, the old guard,
+    which counted the entries still waiting, let a bare "yes" record the one
+    left at an amount changed since in the Inbox, and replace the list with
+    one line. A message bound to two or more entries, whatever their state,
+    is a list, and a bare answer is told to use it.
+  - **A correction never takes an entry off a list.** It unbound the entry,
+    and the list's numbers, which follow its entries in order, then named the
+    wrong ones. An entry on a list is not a correction's target.
+  - **A list is read on the day it was sent**: a day written "28 Dec" on 30
+    December no longer reads as changed in January.
+  - **The list names an entry as it showed it** (not as renamed in the Inbox
+    since), is drawn again when a tap finds it out of date, and a 👍 on it
+    points to the list rather than to a button that may not be there.
+  - **Choose…'s button is "Discard N"**, the word an expense's message uses,
+    not "Set aside".
+  - **A settled trade answered by a typed "yes" or "no" is said in the new
+    words**, and a cancel whose result cannot be read leaves the question as
+    it is rather than calling it lapsed.

@@ -5,10 +5,8 @@
 // (tradeMessages.test.ts) drive them through the handler.
 import { assert, assertEquals } from "jsr:@std/assert@1";
 import {
-  ANSWER_HINT,
   applyAnswer,
   draftFromArgs,
-  formatMoney,
   type HoldingLite,
   matchHoldings,
   newHoldingFor,
@@ -151,32 +149,25 @@ const SALE = draft({ side: "sell", units: 6, price: 150, fees: 1, tradeDate: "20
 Deno.test("the spec's worked sale is confirmed in its exact words", () => {
   assertEquals(
     tradeConfirmation(SALE, SALE_EFFECT, SALE_CTX),
-    "Sell 6 ABC at $150 on 27 Oct, brokerage $1\nABC: 15 → 9 shares, average stays $110\nProfit $239 · Dollar broker funds +$899\n\n" +
-      ANSWER_HINT,
+    "Sell 6 ABC at USD 150 · 27 Oct · brokerage USD 1\nABC: 15 → 9 shares, average stays USD 110\nProfit USD 239 · Dollar broker funds +USD 899",
   );
 });
 
-Deno.test("each warning the preview raises adds its own line", () => {
+Deno.test("each warning the preview raises adds its own line, starting with a warning sign", () => {
   const warned = (w: string, extra: Record<string, unknown> = {}, ctx = {}) =>
-    tradeConfirmation(SALE, { ...SALE_EFFECT, ...extra, warnings: [w] }, { ...SALE_CTX, ...ctx });
-  assert(warned("possible_duplicate").includes(
-    "This looks like a trade already saved: same stock, units and price within two days. Save it again?",
-  ));
-  assert(warned("fund_below_zero", { funds_balance_after: -120 }).includes(
-    "Dollar broker funds would go to −$120. If you added money, record that too; reply yes to save the trade anyway.",
-  ));
-  assert(warned("price_off_market", {}, { lastPrice: 150 }).includes("Check the price: ABC was last $150."));
-  assert(warned("fund_confirmed_after", { funds_moves: false, funds_delta: 0 }).includes(
-    "Dollar broker funds is not moved: its balance was confirmed after this trade.",
-  ));
+    tradeConfirmation(SALE, { ...SALE_EFFECT, ...extra, warnings: [w] }, { ...SALE_CTX, ...ctx }).split("\n").at(-1);
+  assertEquals(warned("possible_duplicate"), "⚠ Looks like a trade already saved: same stock, units and price within two days.");
+  assertEquals(warned("fund_below_zero", { funds_balance_after: -120 }), "⚠ Dollar broker funds would go to −USD 120. If you added money, record that too.");
+  assertEquals(warned("price_off_market", {}, { lastPrice: 150 }), "⚠ Check the price: ABC was last USD 150.");
+  assertEquals(warned("fund_confirmed_after", { funds_moves: false, funds_delta: 0 }), "⚠ Dollar broker funds stays as it is: its balance was confirmed after this trade.");
 });
 
 Deno.test("another member's holding is named as theirs, and an Indian sale's tax is still to confirm", () => {
   assert(tradeConfirmation(SALE, SALE_EFFECT, { ...SALE_CTX, ownerName: "Partner" }).split("\n")[1].startsWith("Partner's ABC:"));
   const indian = tradeConfirmation(draft({ side: "sell", units: 6, price: 150, tax: null }), SALE_EFFECT,
     { ...SALE_CTX, currency: "INR", fundName: "Rupee broker funds" });
-  assert(indian.includes("Tax: to confirm from the broker's statement."), indian);
-  assert(indian.startsWith("Sell 6 ABC at ₹150"), indian);
+  assert(indian.includes("\nTax: not known yet"), indian);
+  assert(indian.startsWith("Sell 6 ABC at INR 150"), indian);
 });
 
 Deno.test("a buy shows the average moving, and a first buy names the new holding", () => {
@@ -184,7 +175,7 @@ Deno.test("a buy shows the average moving, and a first buy names the new holding
     ok: true, units: 5, price: 130, fees: 0, units_before: 10, avg_before: 100, holding_units_after: 15, holding_avg_after: 110,
     realised: null, funds_moves: true, funds_delta: -650, funds_balance_after: 350, warnings: [],
   }, SALE_CTX);
-  assertEquals(buy.split("\n").slice(0, 3), ["Buy 5 ABC at $130 on 28 Oct", "ABC: 10 → 15 shares, average $100 → $110", "Dollar broker funds −$650"]);
+  assertEquals(buy.split("\n").slice(0, 3), ["Buy 5 ABC at USD 130 · 28 Oct", "ABC: 10 → 15 shares, average USD 100 → USD 110", "Dollar broker funds −USD 650"]);
   const first = tradeConfirmation(draft({ stock: "XYZ", units: 3, price: 690, holdingId: null }), {
     ok: true, units: 3, price: 690, fees: 0, units_before: 0, avg_before: null, holding_units_after: 3, holding_avg_after: 690,
     realised: null, funds_moves: true, funds_delta: -2070, funds_balance_after: 930, warnings: [], new_holding: true,
@@ -192,8 +183,8 @@ Deno.test("a buy shows the average moving, and a first buy names the new holding
     holdingName: "XYZ", ownerName: null, fundName: "Dollar broker funds", currency: "USD",
     newHolding: { owner_member_id: SENDER, name: "XYZ", asset_class: "us_equity", currency: "USD", price_symbol: "XYZ", price_provider: "twelvedata", sector: null, funds_account_id: "f-usd" },
   });
-  assert(first.includes("New holding: XYZ (US equity, priced by Twelve Data as XYZ), paid from Dollar broker funds"), first);
-  assert(first.includes("XYZ: 3 shares, average $690"), first);
+  assert(first.includes("New holding: XYZ (US equity, priced by Twelve Data as XYZ) · paid from Dollar broker funds"), first);
+  assert(first.includes("XYZ: 3 shares, average USD 690"), first);
 });
 
 Deno.test("an undo says what the holding and the fund go back to", () => {
@@ -202,8 +193,7 @@ Deno.test("an undo says what the holding and the fund go back to", () => {
     { ok: true, units_before: 9, avg_before: 110, holding_units_after: 15, holding_avg_after: 110, funds_delta: -899 },
     "Dollar broker funds",
   );
-  assertEquals(text.split("\n").slice(0, 3), ["Undo: Sell 6 ABC at $150 on 27 Oct", "ABC: 9 → 15 shares, average stays $110", "Dollar broker funds −$899"]);
-  assert(text.endsWith(ANSWER_HINT));
+  assertEquals(text.split("\n"), ["Undo: Sell 6 ABC at USD 150 · 27 Oct", "ABC: 9 → 15 shares, average stays USD 110", "Dollar broker funds −USD 899"]);
 });
 
 Deno.test("every refusal says plainly that nothing was saved", () => {
@@ -215,24 +205,16 @@ Deno.test("every refusal says plainly that nothing was saved", () => {
   assert(tradeRefusal("exceeds_units", { holdingName: "ABC", units: 6 }) !== tradeRefusal("fund_required", { holdingName: "ABC" }));
 });
 
-Deno.test("money is written the way each currency is, with decimals only when needed", () => {
-  assertEquals(formatMoney(1234.5, "USD"), "$1,234.50");
-  assertEquals(formatMoney(150, "USD"), "$150");
-  assertEquals(formatMoney(1234.5, "INR"), "₹1,234.50");
-  assertEquals(formatMoney(1234.5, "AED"), "AED 1,234.50");
-  assertEquals(formatMoney(-120, "USD"), "−$120");
-});
-
 Deno.test("what a yes saved and what a no dropped are said from the proposal and the database's answer", () => {
   const sale = { kind: "sell", trade_date: "2026-10-27", units: 6, price: 150, holding_name: "ABC", currency: "USD", fund_name: "Dollar broker funds" };
   const effect = { holding_units_after: 9, funds_delta: 899 };
-  assertEquals(tradeSavedMessage(sale, effect, { repeat: false, undo: false }), "Saved: Sell 6 ABC at $150 on 27 Oct. ABC now 9 shares; Dollar broker funds +$899.");
-  assert(tradeSavedMessage(sale, effect, { repeat: true, undo: false }).startsWith("Already saved: Sell 6 ABC"));
+  assertEquals(tradeSavedMessage(sale, effect, { repeat: false, undo: false }), "✓ Sell 6 ABC at USD 150 · 27 Oct\nABC 9 shares · Dollar broker funds +USD 899");
+  assertEquals(tradeSavedMessage(sale, effect, { repeat: true, undo: false }), "Already recorded · Sell 6 ABC at USD 150 · 27 Oct\nABC 9 shares · Dollar broker funds +USD 899");
   assertEquals(tradeSavedMessage(sale, { holding_units_after: 15, funds_delta: -899 }, { repeat: false, undo: true }),
-    "Undone: Sell 6 ABC at $150 on 27 Oct. ABC now 15 shares; Dollar broker funds −$899.");
-  assertEquals(tradeDropSummary(sale, "trade"), "the sale of 6 ABC at $150");
-  assertEquals(tradeDropSummary({ ...sale, kind: "buy", units: 10, price: 120 }, "trade_undo"), "the undo of the buy of 10 ABC at $120");
-  assertEquals(tradeDropSummary({ kind: "split", units: 10, holding_name: "ABC" }, "trade"), "the split of ABC 10 for 1");
+    "✓ Undone · Sell 6 ABC at USD 150 · 27 Oct\nABC 15 shares · Dollar broker funds −USD 899");
+  assertEquals(tradeDropSummary(sale, "trade"), "Sell 6 ABC at USD 150 · 27 Oct");
+  assertEquals(tradeDropSummary({ ...sale, kind: "buy", units: 10, price: 120 }, "trade_undo"), "undo of Buy 10 ABC at USD 120 · 27 Oct");
+  assertEquals(tradeDropSummary({ kind: "split", units: 10, holding_name: "ABC" }, "trade"), "Split ABC 10 for 1");
 });
 
 
@@ -251,6 +233,6 @@ Deno.test("a price answered in another currency is asked again, never taken as t
 Deno.test("a trade dated in another year shows its year in the confirmation", () => {
   const text = tradeConfirmation(draft({ side: "sell", units: 6, price: 150, fees: 1, tradeDate: "2025-12-28" }), SALE_EFFECT,
     { ...SALE_CTX, today: "2026-01-05" });
-  assert(text.startsWith("Sell 6 ABC at $150 on 28 Dec 2025, brokerage $1"), text);
-  assert(tradeConfirmation(SALE, SALE_EFFECT, { ...SALE_CTX, today: "2026-10-30" }).startsWith("Sell 6 ABC at $150 on 27 Oct,"));
+  assert(text.startsWith("Sell 6 ABC at USD 150 · 28 Dec 2025 · brokerage USD 1"), text);
+  assert(tradeConfirmation(SALE, SALE_EFFECT, { ...SALE_CTX, today: "2026-10-30" }).startsWith("Sell 6 ABC at USD 150 · 27 Oct ·"));
 });

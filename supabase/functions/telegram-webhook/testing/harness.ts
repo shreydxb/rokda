@@ -844,8 +844,9 @@ export function replyUpdate(updateId: number, text: string, replyTo: number, rep
   });
 }
 
-// A tap on one of the buttons under a bot message.
-export function tapUpdate(updateId: number, messageId: number, data: string, fromId = TELEGRAM_USER): Request {
+// A tap on one of the buttons under a bot message. Telegram sends the
+// message tapped with it, its text included.
+export function tapUpdate(updateId: number, messageId: number, data: string, fromId = TELEGRAM_USER, text = ""): Request {
   return new Request("http://edge.test/telegram-webhook", {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Telegram-Bot-Api-Secret-Token": SECRET },
@@ -854,7 +855,7 @@ export function tapUpdate(updateId: number, messageId: number, data: string, fro
       callback_query: {
         id: `cb-${updateId}`,
         from: { id: fromId, is_bot: false, first_name: "T" },
-        message: { message_id: messageId, date: 1, chat: { id: fromId, type: "private" }, text: "" },
+        message: { message_id: messageId, date: 1, chat: { id: fromId, type: "private" }, text },
         data,
       },
     }),

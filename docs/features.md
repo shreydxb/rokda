@@ -556,15 +556,19 @@ went: Overview's Plan strip and To do say what it said.
   holding, how many, the currency of a share not yet held, the price; a price
   in another currency is asked again, never converted), then confirms with
   the database's own figures (the holding before and after, the profit, the
-  broker fund's movement, and any warning) and saves only on a "yes" or 👍. A
-  share bought for the first time becomes a new holding with its price-feed
-  symbol and fund shown. "undo last trade" undoes the sender's latest trade
-  the same way, and "what did I make on ABC this year?" answers from the
+  broker fund's movement, and any warning on a ⚠ line; "Tax: not known yet"
+  on an Indian sale) and saves only on Save (or a "yes" or 👍); Cancel, or a
+  "no", drops it. A trade that changed since is shown again with today's
+  figures. A share bought for the first time becomes a new holding with its
+  price-feed symbol and fund shown. "undo last trade" undoes the sender's
+  latest trade the same way (Undo trade, Cancel), and "what did I make on ABC
+  this year?" answers from the
   recorded sales. A traded holding whose value moves by more than 40% between
   two price days with no trade between gets a question about a split.
 - Records transfers between the household's own accounts ("paid the card
-  3000 from the current account"): it names both accounts and the amount and
-  records the transfer on a "yes" or 👍. A side already recorded (the payment
+  3000 from the current account"): `Transfer AED 3,000 · Current account →
+  Bank card · 3 Oct`, with Record and Cancel (a "yes", 👍 or "no" works too);
+  once answered, the message becomes `✓ …` or `Cancelled · …`. A side already recorded (the payment
   pasted from the bank's SMS as an expense) becomes part of the transfer
   rather than a second copy, and a transfer already recorded is not recorded
   again.
@@ -591,9 +595,14 @@ went: Overview's Plan strip and To do say what it said.
   when the `APP_URL` secret is set.
 - A paste of several entries is answered with a numbered list of those read
   in full (up to 20; repeats of records already made, and entries missing
-  something, are named and left in the Inbox). A reply to the list records
-  them: "all on 2 Oct", "1-3, 5 on 2 Oct", or "all" when every SMS had its
-  date; "drop 4" sets one aside. Only the sender's reply to the list counts.
+  something, are named and left in the Inbox). Under it, Record all when
+  every SMS had its date, or Today, Yesterday and Other day when one had
+  none, and Choose… to tick some and record or discard just those. A reply
+  still works: "all on 2 Oct", "1-3, 5 on 2 Oct", "all" (or "yes") when
+  every SMS had its date, "drop 4". The list then shows each entry as it
+  stands (`✓ …`, `Cancelled · …`, or in the Inbox and why), and records only
+  what it showed. Only the sender's tap or reply counts; a bare "yes" or
+  "no", or a correction, never reaches an entry on a list.
 - Answers questions: spending by category, net worth, account balances,
   upcoming bills, budget status, holdings. Every figure is read in full; if a
   read fails, it says it could not answer rather than giving a partial figure.
@@ -607,8 +616,9 @@ went: Overview's Plan strip and To do say what it said.
   Mondays) gives one label and figure a line, with what a figure leaves out
   on a ⚠ line of its own ("⚠ Leaves out 1 account not converted").
 - Reads goal contributions and account balances from a message and asks
-  first: it shows the change (old → new) and saves it only on a "yes" or a 👍
-  to that message; "no" drops it.
+  first: a goal contribution is one line (`AED 500 toward House · 3 Oct`)
+  with Record and Cancel; a balance shows the change (old → new) and is
+  saved only on a "yes" or a 👍 to that message; "no" drops it.
 - Nudges and briefs (daily job): bills due and overdue, card payments, budget
   alerts, cash cover and unusual spending go out as one morning message per
   person, after the weekly brief on Mondays and after the monthly review and

@@ -5,11 +5,7 @@
 // Nothing in this file reads the database or the network, and nothing here
 // works out a figure the member is asked to confirm: every number in a
 // confirmation is the database's.
-import { shortDay } from "../_shared/applib/autopay.js";
-
-// How a member answers any of the bot's confirmations. Kept here, beside the
-// trade confirmation that ends with it, and imported by index.ts for the rest.
-export const ANSWER_HINT = 'Reply "yes" to this message (or react 👍) to save it, or "no" to drop it.';
+import { day, money } from "../_shared/applib/botFormat.js";
 
 export type Field = "holding" | "units" | "price" | "currency";
 
@@ -270,21 +266,11 @@ export function newHoldingFor(
   };
 }
 
-// "$1,234.50", "₹1,234.50", "AED 1,234.50"; a whole amount has no decimals.
-// A negative amount carries the minus sign before the currency.
-export function formatMoney(amount: number, currency: string): string {
-  const n = Number(amount);
-  const whole = Math.abs(n - Math.round(n)) < 0.005;
-  const digits = Math.abs(n).toLocaleString("en-US", {
-    minimumFractionDigits: whole ? 0 : 2,
-    maximumFractionDigits: whole ? 0 : 2,
-  });
-  const body = currency === "USD" ? `$${digits}` : currency === "INR" ? `₹${digits}` : `${currency} ${digits}`;
-  return n < 0 && !(whole && Math.round(n) === 0) ? `−${body}` : body;
-}
-
+// Money and days in the bot's one format (botFormat.js; the revamp's phase
+// 8): "USD 1,234.50", "INR 1,500", "−USD 120"; "27 Oct", with the year only
+// when it is not this year's.
 function signed(amount: number, currency: string): string {
-  return amount > 0 ? `+${formatMoney(amount, currency)}` : formatMoney(amount, currency);
+  return amount > 0 ? `+${money(amount, currency)}` : money(amount, currency);
 }
 
 function holdingLine(name: string, effect: Effect, currency: string): string {
@@ -293,24 +279,24 @@ function holdingLine(name: string, effect: Effect, currency: string): string {
   const avgAfter = effect.holding_avg_after === null || effect.holding_avg_after === undefined ? null : Number(effect.holding_avg_after);
   const avgBefore = effect.avg_before === null || effect.avg_before === undefined ? null : Number(effect.avg_before);
   if (before === 0) {
-    return avgAfter === null ? `${name}: ${units(after)} shares` : `${name}: ${units(after)} shares, average ${formatMoney(avgAfter, currency)}`;
+    return avgAfter === null ? `${name}: ${units(after)} shares` : `${name}: ${units(after)} shares, average ${money(avgAfter, currency)}`;
   }
   const average = avgAfter === null ? "" : avgBefore !== null && Math.abs(avgBefore - avgAfter) < 0.000001
-    ? `, average stays ${formatMoney(avgAfter, currency)}`
-    : `, average ${avgBefore === null ? "" : `${formatMoney(avgBefore, currency)} → `}${formatMoney(avgAfter, currency)}`;
+    ? `, average stays ${money(avgAfter, currency)}`
+    : `, average ${avgBefore === null ? "" : `${money(avgBefore, currency)} → `}${money(avgAfter, currency)}`;
   return `${name}: ${units(before)} → ${units(after)} shares${average}`;
 }
 
-// A trade's day as the confirmation shows it: "24 Oct", with its year when
-// that is not this year, so a year read wrongly is seen before the yes.
+// A trade's day: "24 Oct", with its year when that is not this year, so a
+// year read wrongly is seen before Save.
 function tradeDay(date: string, today?: string | null): string {
-  const label = shortDay(date);
-  return today && date.slice(0, 4) !== today.slice(0, 4) ? `${label} ${date.slice(0, 4)}` : label;
+  return today ? day(date, today) : day(date);
 }
 
 // The confirmation of a trade, from the preview's figures: what was traded,
 // the holding before and after, the profit and the fund's movement, then any
-// warning the preview raised, then how to answer.
+// warning the preview raised, each on a line starting ⚠. Save and Cancel
+// answer it (proposalWords.ts); a typed "yes" or "no" still does.
 export function tradeConfirmation(
   draft: TradeDraft,
   effect: Effect,
@@ -328,65 +314,59 @@ export function tradeConfirmation(
   const name = ctx.holdingName;
   const lines: string[] = [];
   if (draft.side === "split") {
-    lines.push(`Split ${name} ${units(draft.ratio)} for 1 on ${tradeDay(draft.tradeDate, ctx.today)}`);
+    lines.push(`Split ${name} ${units(draft.ratio)} for 1 · ${tradeDay(draft.tradeDate, ctx.today)}`);
   } else {
     const verb = draft.side === "buy" ? "Buy" : "Sell";
     const fees = Number(effect.fees ?? 0);
     lines.push(
-      `${verb} ${units(effect.units)} ${name} at ${formatMoney(Number(effect.price), cur)} on ${tradeDay(draft.tradeDate, ctx.today)}` +
-        (fees > 0 ? `, brokerage ${formatMoney(fees, cur)}` : ""),
+      `${verb} ${units(effect.units)} ${name} at ${money(Number(effect.price), cur)} · ${tradeDay(draft.tradeDate, ctx.today)}` +
+        (fees > 0 ? ` · brokerage ${money(fees, cur)}` : ""),
     );
   }
   if (ctx.newHolding) {
     const nh = ctx.newHolding;
     lines.push(
-      `New holding: ${nh.name} (${ASSET_CLASS_WORDS[nh.asset_class] ?? nh.asset_class}, priced by ${PROVIDER_WORDS[nh.price_provider] ?? nh.price_provider} as ${nh.price_symbol}), paid from ${ctx.fundName}`,
+      `New holding: ${nh.name} (${ASSET_CLASS_WORDS[nh.asset_class] ?? nh.asset_class}, priced by ${PROVIDER_WORDS[nh.price_provider] ?? nh.price_provider} as ${nh.price_symbol}) · paid from ${ctx.fundName}`,
     );
   }
   lines.push(holdingLine(ctx.ownerName ? `${ctx.ownerName}'s ${name}` : name, effect, cur));
-  const money: string[] = [];
+  const moneyLine: string[] = [];
   if (draft.side === "sell" && effect.realised !== null && effect.realised !== undefined) {
     const realised = Number(effect.realised);
-    money.push(realised < 0 ? `Loss ${formatMoney(-realised, cur)}` : `Profit ${formatMoney(realised, cur)}`);
+    moneyLine.push(realised < 0 ? `Loss ${money(-realised, cur)}` : `Profit ${money(realised, cur)}`);
   }
   const delta = Number(effect.funds_delta ?? 0);
-  if (draft.side !== "split" && delta !== 0) money.push(`${ctx.fundName} ${signed(delta, cur)}`);
-  if (money.length) lines.push(money.join(" · "));
-  if (draft.side === "sell" && cur === "INR" && !draft.tax) {
-    lines.push("Tax: to confirm from the broker's statement.");
-  }
+  if (draft.side !== "split" && delta !== 0) moneyLine.push(`${ctx.fundName} ${signed(delta, cur)}`);
+  if (moneyLine.length) lines.push(moneyLine.join(" · "));
+  if (draft.side === "sell" && cur === "INR" && !draft.tax) lines.push("Tax: not known yet");
   const warnings = Array.isArray(effect.warnings) ? effect.warnings.map(String) : [];
   if (warnings.includes("possible_duplicate")) {
-    lines.push("This looks like a trade already saved: same stock, units and price within two days. Save it again?");
+    lines.push("⚠ Looks like a trade already saved: same stock, units and price within two days.");
   }
   if (warnings.includes("fund_below_zero")) {
-    lines.push(
-      `${ctx.fundName} would go to ${formatMoney(Number(effect.funds_balance_after), cur)}. If you added money, record that too; reply yes to save the trade anyway.`,
-    );
+    lines.push(`⚠ ${ctx.fundName} would go to ${money(Number(effect.funds_balance_after), cur)}. If you added money, record that too.`);
   }
   if (warnings.includes("price_off_market") && ctx.lastPrice) {
-    lines.push(`Check the price: ${name} was last ${formatMoney(ctx.lastPrice, cur)}.`);
+    lines.push(`⚠ Check the price: ${name} was last ${money(ctx.lastPrice, cur)}.`);
   }
   if (warnings.includes("fund_confirmed_after")) {
-    lines.push(`${ctx.fundName} is not moved: its balance was confirmed after this trade.`);
+    lines.push(`⚠ ${ctx.fundName} stays as it is: its balance was confirmed after this trade.`);
   }
-  return `${lines.join("\n")}\n\n${ANSWER_HINT}`;
+  return lines.join("\n");
 }
 
 // The confirmation of undoing a trade, from preview_delete_trade's figures.
+// Undo trade and Cancel answer it.
 export function undoConfirmation(
   trade: { kind: string; units: number; price: number | null; trade_date: string; currency: string; holding_name: string },
   effect: Effect,
   fundName: string | null,
 ): string {
   const cur = trade.currency;
-  const what = trade.kind === "split"
-    ? `Split ${trade.holding_name} ${units(trade.units)} for 1 on ${shortDay(trade.trade_date)}`
-    : `${trade.kind === "buy" ? "Buy" : "Sell"} ${units(trade.units)} ${trade.holding_name} at ${formatMoney(Number(trade.price), cur)} on ${shortDay(trade.trade_date)}`;
-  const lines = [`Undo: ${what}`, holdingLine(trade.holding_name, effect, cur)];
+  const lines = [`Undo: ${tradeSummary({ ...trade, currency: cur })}`, holdingLine(trade.holding_name, effect, cur)];
   const delta = Number(effect.funds_delta ?? 0);
   if (fundName && delta !== 0) lines.push(`${fundName} ${signed(delta, cur)}`);
-  return `${lines.join("\n")}\n\n${ANSWER_HINT}`;
+  return lines.join("\n");
 }
 
 // Why a trade was not saved, in one line, for every reason the database or
@@ -431,39 +411,35 @@ export type TradePayload = {
   fund_name?: string | null;
 };
 
-// "Sell 6 ABC at $150 on 27 Oct", "Split ABC 10 for 1 on 28 Oct".
+// "Sell 6 ABC at USD 150 · 27 Oct", "Split ABC 10 for 1 · 28 Oct".
 export function tradeSummary(p: TradePayload): string {
   const name = p.holding_name ?? "that holding";
   const cur = p.currency ?? "USD";
-  const day = p.trade_date ? ` on ${shortDay(p.trade_date)}` : "";
-  if (p.kind === "split") return `Split ${name} ${units(p.units)} for 1${day}`;
-  return `${p.kind === "sell" ? "Sell" : "Buy"} ${units(p.units)} ${name} at ${formatMoney(Number(p.price), cur)}${day}`;
+  const when = p.trade_date ? ` · ${day(p.trade_date)}` : "";
+  if (p.kind === "split") return `Split ${name} ${units(p.units)} for 1${when}`;
+  return `${p.kind === "sell" ? "Sell" : "Buy"} ${units(p.units)} ${name} at ${money(Number(p.price), cur)}${when}`;
 }
 
-// What a "no" dropped: "the sale of 6 ABC at $150", "the undo of the buy of
-// 10 ABC at $120".
+// What a "no" or Cancel cancelled, after "Cancelled · ": the trade, or "undo
+// of" the trade an undo would have taken back.
 export function tradeDropSummary(p: TradePayload, proposalKind: string): string {
-  const name = p.holding_name ?? "that holding";
-  const cur = p.currency ?? "USD";
-  const what = p.kind === "split"
-    ? `the split of ${name} ${units(p.units)} for 1`
-    : `the ${p.kind === "sell" ? "sale" : "buy"} of ${units(p.units)} ${name} at ${formatMoney(Number(p.price), cur)}`;
-  return proposalKind === "trade_undo" ? `the undo of ${what}` : what;
+  return proposalKind === "trade_undo" ? `undo of ${tradeSummary(p)}` : tradeSummary(p);
 }
 
-// What a "yes" saved, from what the database returned: "Saved: Sell 6 ABC at
-// $150 on 27 Oct. ABC now 9 shares; Dollar broker funds +$899." A second
-// "yes" gets the same, marked as already saved.
+// What was saved, from what the database returned, as the trade's message
+// becomes: "✓ Sell 6 ABC at USD 150 · 27 Oct", then the holding and the
+// fund after it. An answer repeated after it was saved says "Already
+// recorded" (or "Already undone") instead of the tick.
 export function tradeSavedMessage(p: TradePayload, effect: Effect, opts: { repeat: boolean; undo: boolean }): string {
-  const lead = opts.undo ? (opts.repeat ? "Already undone" : "Undone") : (opts.repeat ? "Already saved" : "Saved");
+  const lead = opts.undo ? (opts.repeat ? "Already undone · " : "✓ Undone · ") : (opts.repeat ? "Already recorded · " : "✓ ");
   const name = p.holding_name ?? "The holding";
   const cur = p.currency ?? "USD";
   const delta = Number(effect.funds_delta ?? 0);
-  const fund = p.fund_name && delta !== 0 ? `; ${p.fund_name} ${signed(delta, cur)}` : "";
-  const after = effect.holding_units_after === null || effect.holding_units_after === undefined
-    ? ""
-    : ` ${name} now ${units(effect.holding_units_after)} shares${fund}.`;
-  return `${lead}: ${tradeSummary(p)}.${after}`;
+  const after = [
+    effect.holding_units_after === null || effect.holding_units_after === undefined ? null : `${name} ${units(effect.holding_units_after)} shares`,
+    p.fund_name && delta !== 0 ? `${p.fund_name} ${signed(delta, cur)}` : null,
+  ].filter(Boolean).join(" · ");
+  return `${lead}${tradeSummary(p)}${after ? `\n${after}` : ""}`;
 }
 
 // The question after a large one-day move on a traded holding: a split the

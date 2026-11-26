@@ -24,10 +24,11 @@ import { tgCall } from "./transport.ts";
 // c and a fill a missing category or card, k and m change one; i leaves the
 // entry in the Inbox; r records, d discards; u undoes the transaction it
 // names, the one the bot's own Record made; C and A open the category and
-// account lists, b goes back to the entry.
-export type ChoiceKind = "c" | "a" | "k" | "m" | "i" | "r" | "d" | "u" | "C" | "A" | "b";
+// account lists, b goes back to the entry. P and X name a proposal, not an
+// entry: they apply it or cancel it (proposalWords.ts, taps.ts).
+export type ChoiceKind = "c" | "a" | "k" | "m" | "i" | "r" | "d" | "u" | "C" | "A" | "b" | "P" | "X";
 const WITH_OPTION = new Set(["c", "a", "k", "m", "u"]);
-const WITHOUT_OPTION = new Set(["i", "r", "d", "C", "A", "b"]);
+const WITHOUT_OPTION = new Set(["i", "r", "d", "C", "A", "b", "P", "X"]);
 export const INBOX_LABEL = "In the Inbox";
 const CATEGORY_CHOICES = 6;
 const ACCOUNT_CHOICES = 8;
