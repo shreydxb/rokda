@@ -8,20 +8,21 @@ import { expectedIncome } from '../lib/expectedIncome';
 import { buildNetWorthSeries, changeOverMonths } from '../lib/netWorth';
 import { buildAttentionItems } from '../lib/attention';
 import { buildTodo } from '../lib/todo';
-import { monthActualsByCategory, monthBudgetTrack } from '../lib/budget';
+import { monthActualsByCategory, monthBudgetTrack, monthSpendBreakdown } from '../lib/budget';
+import { UNCATEGORISED } from '../lib/activityLink';
 import { trailingAverageByCategory } from '../lib/insights';
 import { statementRows } from '../lib/statements';
 import { buildDividendInput, needsYou } from '../lib/dividendSummary';
 import { cashCoverStatus } from '../lib/cashCover';
 import { billPaymentInitial } from '../lib/transactionForm';
-import { householdToday } from '../lib/day';
+import { householdToday, isPosted } from '../lib/day';
 import { useMoneyDisplay } from '../lib/CurrencyContext';
 import { supabase } from '../lib/supabaseClient';
 import { useOverviewData } from './useOverviewData';
 import { usePlanningData } from './usePlanningData';
 import { usePlanFigures } from './planning/usePlanFigures';
 import { netWorthSummary, visibleAccounts, periodSummary, buildChartColumns, dataQuality, visibleRows, next30Items, next30Bills } from './overviewMath';
-import { anyFailed, neverLoaded } from '../lib/loadState';
+import { neverLoaded } from '../lib/loadState';
 import { unconfirmedAccounts } from '../lib/balance';
 import { Segmented } from '../design-system/kit';
 import OverviewEmpty from './overview/OverviewEmpty';
@@ -88,8 +89,22 @@ export default function Overview() {
   const accountRows = useMemo(() => visibleAccounts(accounts, scopeMemberId), [accounts, scopeMemberId]);
   const nw = useMemo(() => netWorthSummary(accounts, scopeMemberId, holdings), [accounts, scopeMemberId, holdings]);
   // A total that silently omits a failed input is worse than no total. Net
-  // worth is withheld outright when accounts or holdings didn't load (QA-10).
-  const netWorthTrustworthy = !anyFailed(errors, ['accounts', 'holdings']);
+  // worth is withheld outright when accounts or holdings never loaded
+  // (QA-10); one that loaded before and failed on a refresh keeps its last
+  // figures, with the banner, as Wealth does (the review of the whole
+  // revamp).
+  const netWorthTrustworthy = neverLoaded({ errors, loaded }, ['accounts', 'holdings']).length === 0;
+  // What rests on the records or the recurring bills is withheld when they
+  // never loaded, and says why: it read as zeros, "none yet" and "All clear"
+  // (the review of the whole revamp).
+  const txUnread = neverLoaded({ errors, loaded }, ['transactions']);
+  const recurringUnread = neverLoaded({ errors, loaded }, ['recurring']);
+  const todoUnread = [
+    ...new Set([
+      ...neverLoaded({ errors, loaded }, ['transactions', 'recurring', 'accounts', 'holdings', 'statementReconciliations', 'backupRecords', 'yearlyChecks', 'netWorthSnapshots', ...DIVIDEND_SOURCES]),
+      ...plan.goalsMissing,
+    ]),
+  ];
   // Arithmetic over balances nobody has confirmed is provisional, and says so
   // rather than presenting itself as the household's position (QA-02).
   const unconfirmed = unconfirmedAccounts(accountRows);
@@ -113,11 +128,16 @@ export default function Overview() {
   const where = useMemo(() => {
     const actual = monthActualsByCategory(transactions, year, month, scopeMemberId, now);
     const { averages } = trailingAverageByCategory(transactions, year, month, USUAL_MONTHS, scopeMemberId);
-    return [...actual.entries()]
-      .filter(([, v]) => v > 0)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([id, value]) => ({ id, name: catById.get(id)?.name ?? 'Uncategorised', value, usual: averages.get(id) ?? null }));
+    const rows = [...actual.entries()].map(([id, value]) => ({ id, name: catById.get(id)?.name ?? 'Uncategorised', value, usual: averages.get(id) ?? null }));
+    // Spending with no category is a bar of its own, opening those records:
+    // left out, a month whose biggest spend was uncategorised never said so
+    // (the review of the whole revamp).
+    const uncategorised = monthSpendBreakdown(transactions, [], year, month, scopeMemberId, now).uncategorised;
+    if (uncategorised > 0) rows.push({ id: UNCATEGORISED, name: 'Uncategorised', value: uncategorised, usual: null });
+    return rows
+      .filter((r) => r.value > 0)
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 5);
   }, [transactions, year, month, scopeMemberId, now, catById]);
   const attention = useMemo(
     () => buildAttentionItems({ transactions, recurring, accounts, holdings, categories, snapshots: netWorthSnapshots, backupRecords, yearlyChecks, scopeMemberId, now }),
@@ -166,8 +186,8 @@ export default function Overview() {
   // The cash to hand against what is committed is the household's, whoever
   // is shown, as the bot's morning check is (fresh review of the cockpit).
   const cover = useMemo(
-    () => (anyFailed(errors, ['accounts', 'recurring']) ? null : cashCoverStatus(accounts, next30Bills(next30Items(recurring, [], null, now), accounts, null, now), { days: 30, today: now })),
-    [errors, accounts, recurring, now]
+    () => (neverLoaded({ errors, loaded }, ['accounts', 'recurring']).length > 0 ? null : cashCoverStatus(accounts, next30Bills(next30Items(recurring, [], null, now), accounts, null, now), { days: 30, today: now })),
+    [errors, loaded, accounts, recurring, now]
   );
 
   const quality = useMemo(() => dataQuality(accounts, transactions, now), [accounts, transactions, now]);
@@ -182,9 +202,19 @@ export default function Overview() {
 
   // A glance, not a ledger: Activity is where records are looked into (SHR-328).
   // Newest first, whatever order the rows arrived in.
-  const recent = [...visibleRows(transactions, scopeMemberId)].sort((a, b) => (a.occurred_at < b.occurred_at ? 1 : a.occurred_at > b.occurred_at ? -1 : 0)).slice(0, RECENT_COUNT);
+  // Posted only, as Activity shows by default: one scheduled for later is not
+  // among the newest (the review of the whole revamp).
+  const recent = [...visibleRows(transactions, scopeMemberId)].filter((t) => isPosted(t, now)).sort((a, b) => (a.occurred_at < b.occurred_at ? 1 : a.occurred_at > b.occurred_at ? -1 : 0)).slice(0, RECENT_COUNT);
 
-  const lede = isEmpty ? 'Nothing recorded yet' : todo.length > 0 ? `${todo.length} thing${todo.length === 1 ? '' : 's'} need${todo.length === 1 ? 's' : ''} a decision` : 'All clear';
+  const lede = isEmpty
+    ? 'Nothing recorded yet'
+    : todo.length > 0
+      ? `${todo.length} thing${todo.length === 1 ? '' : 's'} need${todo.length === 1 ? 's' : ''} a decision`
+      : todoUnread.length > 0
+        ? 'Couldn’t check everything'
+        : 'All clear';
+  // The Data chip's checks are about the records and accounts themselves.
+  const qualityRead = neverLoaded({ errors, loaded }, ['transactions', 'accounts']).length === 0;
 
   function showToast(message, undo) {
     setToast({ message, undo });
@@ -243,7 +273,7 @@ export default function Overview() {
         kicker={
           <>
             <span>{now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' })}</span>
-            {!isEmpty && <QualityChip issues={qualityIssues} open={qualityOpen} onToggle={() => setQualityOpen((v) => !v)} />}
+            {!isEmpty && qualityRead && <QualityChip issues={qualityIssues} open={qualityOpen} onToggle={() => setQualityOpen((v) => !v)} />}
           </>
         }
         tools={
@@ -263,7 +293,7 @@ export default function Overview() {
         <OverviewEmpty navigate={navigate} onAddTransaction={() => setEditing('new')} />
       ) : (
         <div className="ov-bands">
-          {qualityOpen && <QualityPanel qualityOk={qualityOk} quality={quality} accounts={accounts} />}
+          {qualityOpen && qualityRead && <QualityPanel qualityOk={qualityOk} quality={quality} accounts={accounts} />}
           <div className="ov-band ov-band-hero">
             <OverviewNetWorth
               scope={scope}
@@ -277,18 +307,18 @@ export default function Overview() {
               nwChange1mo={nwChange1mo}
               series={nwSeries}
             />
-            <OverviewMonth period={period} p={p} money={money} now={now} expected={expected} budget={budget} />
+            <OverviewMonth period={period} p={p} money={money} now={now} expected={expected} budget={budget} unread={txUnread} />
           </div>
           <div className="ov-band ov-band-wide">
-            <OverviewTodo rows={todo} money={money} categories={categories} categorise={categorise} markReviewed={markReviewed} onMarkPaid={markPaid} />
-            <OverviewNext30 items={next30} money={money} cover={cover} household={scope !== 'both'} hasRecurring={recurring.length > 0} now={now} />
+            <OverviewTodo rows={todo} money={money} categories={categories} categorise={categorise} markReviewed={markReviewed} onMarkPaid={markPaid} unread={todoUnread} />
+            <OverviewNext30 items={next30} money={money} cover={cover} household={scope !== 'both'} hasRecurring={recurring.length > 0} now={now} unread={recurringUnread} />
           </div>
           <div className="ov-band ov-band-wide">
-            <OverviewFlow period={period} columns={columns} money={money} now={now} />
-            <OverviewWhere categories={where} moves={moves} money={money} now={now} period={period} />
+            <OverviewFlow period={period} columns={columns} money={money} now={now} unread={txUnread} />
+            <OverviewWhere categories={where} moves={moves} money={money} now={now} period={period} unread={txUnread} />
           </div>
           {planning.loading ? <div className="ov-skel ov-skel-plan" aria-busy="true" /> : <OverviewPlan f={plan} scope={scope} unread={neverLoaded(sources, ['household'])} onRetry={reloadAll} />}
-          <OverviewRecent recent={recent} money={money} categories={categories} accounts={accounts} onOpen={(tx) => setEditing(tx)} />
+          <OverviewRecent recent={recent} money={money} categories={categories} accounts={accounts} onOpen={(tx) => setEditing(tx)} unread={txUnread} />
         </div>
       )}
 

@@ -308,6 +308,25 @@ describe('spendThatStops', () => {
   it('is nothing until the inputs are ready', () => {
     expect(spendThatStops({ inputs: { ready: false }, categories, now })).toEqual({ annual: 0, categories: [], byCategory: new Map() });
   });
+
+  // The review of the whole revamp: a group marked as stopping showed its
+  // chip and changed nothing, since its records are on its subcategories.
+  it("counts a marked group's subcategories as stopping too", () => {
+    const grouped = [
+      { id: 'housing', name: 'Housing', kind: 'expense', stops_after_work: true },
+      { id: 'rent', name: 'Rent', kind: 'expense', parent_id: 'housing' },
+      { id: 'upkeep', name: 'Upkeep', kind: 'expense', parent_id: 'housing' },
+      { id: 'food', name: 'Groceries', kind: 'expense' },
+    ];
+    const budgets = [9, 10].flatMap((month) => [
+      { category_id: 'rent', year: 2026, month, amount: 1000 },
+      { category_id: 'upkeep', year: 2026, month, amount: 100 },
+      { category_id: 'food', year: 2026, month, amount: 2000 },
+    ]);
+    const result = spendThatStops({ inputs: { ready: true, source: 'budget' }, budgets, categories: grouped, now });
+    expect(result.categories.map((c) => c.id)).toEqual(['rent', 'upkeep']);
+    expect(result.annual).toBe(13_200);
+  });
 });
 
 describe('payMonthTransactions: a salary counts in the month it is for', () => {

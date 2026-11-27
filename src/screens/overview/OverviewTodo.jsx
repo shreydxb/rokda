@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { fileableCategories } from '../../lib/fileableCategories';
 import { TODO_GROUPS } from '../../lib/todo';
 import { Card, EmptyState } from '../../design-system/kit';
+import { couldntLoad } from '../../lib/loadState';
 
 const SHOWN = 6;
 
@@ -10,12 +11,16 @@ const SHOWN = 6;
 // 3; review S-overview-1, N13), from lib/todo.js. Each row is a name, a short
 // status and one button named for the job. A record to review keeps its
 // quick actions here: categorise it, or mark it reviewed.
-export default function OverviewTodo({ rows, money, categories, categorise, markReviewed, onMarkPaid }) {
+// unread: the sources To do is built from that never loaded. With any of
+// them, an empty list is not "all clear", and a list may not be all.
+export default function OverviewTodo({ rows, money, categories, categorise, markReviewed, onMarkPaid, unread = [] }) {
   const [all, setAll] = useState(false);
   const shown = all ? rows : rows.slice(0, SHOWN);
   return (
     <Card title="To do" className="ov-todo" flush right={rows.length ? `${rows.length} open` : null}>
-      {rows.length === 0 ? (
+      {rows.length === 0 && unread.length > 0 ? (
+        <EmptyState title="Couldn’t check everything" body={`${couldntLoad(unread)} What needs a decision may not show.`} />
+      ) : rows.length === 0 ? (
         <EmptyState title="All clear" body="Nothing needs a decision." />
       ) : (
         <div id="ov-todo-list">
@@ -33,6 +38,7 @@ export default function OverviewTodo({ rows, money, categories, categorise, mark
               </div>
             );
           })}
+          {unread.length > 0 && <div className="ov-muted ov-unread">{couldntLoad(unread)} This may not be all.</div>}
           {rows.length > SHOWN && (
             <button type="button" className="ov-todo-more" aria-expanded={all} aria-controls="ov-todo-list" onClick={() => setAll((v) => !v)}>
               {all ? 'Show fewer' : `Show all ${rows.length}`}

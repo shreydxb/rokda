@@ -13,6 +13,7 @@ import { useMoneyDisplay } from '../../lib/CurrencyContext';
 import { formatBalance } from '../../lib/money';
 import { Chip, Drawer, InfoButton, KpiStrip } from '../../design-system/kit';
 import { STATEMENT_STATUS, shortDate } from '../money/useStatementActions';
+import { couldntLoad, neverLoaded } from '../../lib/loadState';
 import AccountEditor from './AccountEditor';
 import './AccountDrawer.css';
 
@@ -105,6 +106,10 @@ export default function AccountDrawer({ household, members = [], data }) {
   if (tab === 'details') return editor(account, { tabs: CARD_TABS, onTab: setTab, kicker, focusTab });
 
   const rows = statementRows({ accounts: [account], reconciliations: statementReconciliations, transactions, now });
+  // The cycle and the statements rest on the records and the statements'
+  // checks: with either never loaded they read as "Nothing on this card" and
+  // "To check" (the review of the whole revamp).
+  const unread = neverLoaded(data, ['transactions', 'statementReconciliations']);
   return (
     <Drawer
       kicker={kicker}
@@ -121,7 +126,11 @@ export default function AccountDrawer({ household, members = [], data }) {
         </button>
       }
     >
-      {tab === 'cycle' ? (
+      {unread.length > 0 ? (
+        <div className="ad-ink3" role="alert">
+          {couldntLoad(unread)} The card&rsquo;s cycle and statements aren&rsquo;t shown.
+        </div>
+      ) : tab === 'cycle' ? (
         <CardCycle account={account} transactions={transactions} rows={rows} categories={categories} money={money} now={now} whole={scope !== 'both'} />
       ) : (
         <CardStatements account={account} rows={rows} />

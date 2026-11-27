@@ -269,7 +269,7 @@ function RecurringTable({ rows, sixth, members, accounts, scopeMemberId, now, on
                     <button
                       type="button"
                       className="ds-btn ds-btn-sm"
-                      title="Records a real transaction dated today; this schedule itself is unchanged"
+                      title="Records a real transaction, dated the day it was due; this schedule itself is unchanged"
                       onClick={(e) => {
                         e.stopPropagation();
                         onMarkPaid(r, status);

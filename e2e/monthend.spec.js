@@ -25,7 +25,7 @@ test('the running month lists the card statements still open', async ({ page }) 
   await expect(page.getByRole('link', { name: /^Close / })).toHaveCount(0);
   const statements = page.getByRole('region', { name: 'Card statements' });
   await expect(statements.getByRole('link', { name: 'Platinum card →' }).first()).toBeVisible();
-  await expect(statements.getByRole('button', { name: 'Mark done' }).first()).toBeVisible();
+  await expect(statements.getByRole('button', { name: 'Mark checked' }).first()).toBeVisible();
 });
 
 test('an old link to the review or to Statements opens Month end', async ({ page }) => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { balanceLabel, balanceStatus, daysSinceBalanceConfirmed, isBalanceConfirmed, isDerivedBalance, unconfirmedAccounts } from './balance';
+import { balanceStatus, daysSinceBalanceConfirmed, isBalanceConfirmed, isDerivedBalance, unconfirmedAccounts } from './balance';
 import { buildAttentionItems } from './attention';
 
 const NOW = new Date(2026, 8, 5, 12);
@@ -11,19 +11,16 @@ describe('QA-02: unknown balances are not confirmed zeros', () => {
   it('treats an unconfirmed balance as unset, whatever the number is', () => {
     expect(isBalanceConfirmed(CARD)).toBe(false);
     expect(balanceStatus(CARD, NOW)).toBe('unset');
-    expect(balanceLabel(CARD, NOW)).toBe('Balance not set');
   });
 
   it('accepts an explicitly confirmed zero as a real fact', () => {
     const confirmed = { ...CARD, balance_as_of: '2026-09-04T00:00:00Z' };
     expect(balanceStatus(confirmed, NOW)).toBe('confirmed');
-    expect(balanceLabel(confirmed, NOW)).toBeNull();
   });
 
   it('flags a confirmation that has gone stale without pretending it is unset', () => {
     const old = { ...CARD, balance: 1200, balance_as_of: '2026-06-01T00:00:00Z' };
     expect(balanceStatus(old, NOW)).toBe('stale');
-    expect(balanceLabel(old, NOW)).toMatch(/Balance checked \d+d ago/);
   });
 
   it('marks net worth provisional while any account is unconfirmed', () => {
@@ -80,7 +77,6 @@ describe('O4: fixed deposits are valued without a manual confirmation', () => {
     // A year on from any stamp it might have carried, it is still current:
     // fd-accrual touches every active FD and the trigger recalculates.
     expect(balanceStatus(fd(), new Date('2027-09-14'))).toBe('confirmed');
-    expect(balanceLabel(fd(), new Date('2027-09-14'))).toBe(null);
   });
 
   it('reports no confirmation age rather than 1970', () => {

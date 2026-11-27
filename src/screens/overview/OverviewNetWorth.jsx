@@ -50,7 +50,10 @@ export default function OverviewNetWorth({ scope, me, members, netWorthTrustwort
           {/* The warnings in words as well as chips, so neither is only a colour. */}
           {netWorthIsProvisional && (
             <div className="ov-nw-warn">
-              Provisional — {unconfirmed.length} balance{unconfirmed.length === 1 ? '' : 's'} not confirmed, counted as zero
+              {/* Counted as entered, as Wealth and To do say: an unconfirmed
+                  balance is not zero unless it was entered as zero (the
+                  review of the whole revamp). */}
+              Provisional — {unconfirmed.length} balance{unconfirmed.length === 1 ? '' : 's'} not confirmed, counted as entered
             </div>
           )}
           {incomplete && <div className="ov-nw-warn">Incomplete — {incomplete}.</div>}

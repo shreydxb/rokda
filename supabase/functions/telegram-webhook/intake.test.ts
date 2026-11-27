@@ -82,9 +82,10 @@ Deno.test("a forwarded message's day is read in Dubai time, from either field Te
 
 Deno.test("the capture reply says which entries had no date", () => {
   assertEquals(undatedNote([], 3), "");
-  assert(undatedNote(["2026-09-29"], 1).includes("It had no date, so it's put on 2026-09-29"));
-  assert(undatedNote(["2026-09-29", "2026-09-29"], 2).startsWith(" None had a date"));
-  assert(undatedNote(["2026-09-29"], 3).startsWith(" 1 had no date, so those are put on 2026-09-29"));
+  // The day in the one format, never ISO (the review of the whole revamp).
+  assert(undatedNote(["2026-09-29"], 1, "2026-10-01").includes("It had no date, so it's put on 29 Sep"));
+  assert(undatedNote(["2026-09-29", "2026-09-29"], 2, "2026-10-01").startsWith(" None had a date"));
+  assert(undatedNote(["2026-09-29"], 3, "2026-10-01").startsWith(" 1 had no date, so those are put on 29 Sep"));
 });
 
 // A paste a week after the first repeated 14 entries already recorded, and
@@ -98,7 +99,31 @@ freshTest("a paste says which of its undated entries look already recorded", asy
   backend.parse = [sms("CITY TAXI", 20), sms("Corner Shop", 50)];
   await handler(textUpdate(7110, "Purchase of AED 20.00 at CITY TAXI. Purchase of AED 50.00 at CORNER SHOP"));
   assertEquals(capturedIntake().filter((r) => r.status === "pending").length, 2);
-  assert(lastReply().includes("1 looks already recorded (CITY TAXI, AED 20.00): it's marked in the Inbox, to set aside."), lastReply());
+  // In the one format; the entries' own questions may follow it.
+  const said = backend.telegramSent.map((m) => String(m.body.text)).join("\n---\n");
+  assert(said.includes("1 looks already recorded (CITY TAXI · AED 20): it's marked in the Inbox, to set aside."), said);
+});
+
+// The review of the whole revamp: a paste that could not be listed answered
+// "Got it — 2 expenses captured (AED 20.00 at …)", in the old words and
+// format, and offered neither Record nor a question.
+freshTest("a paste that can't be listed says so in the one format, and asks what it can", async () => {
+  backend.tables.accounts.push(MARRIOTT, NOON);
+  backend.tables.categories.push({ id: "cat-dining", household_id: HOUSEHOLD, name: "Dining Out", archived: false, is_savings: false });
+  const today = dubaiToday();
+  const item = (merchant: string, amount: number, over: Record<string, unknown> = {}) => ({ merchant, amount, currency: "AED", occurred_at: today, date_stated: true, source: "bank_sms", category: "Dining Out", card_last4: null, account_hint: "ENBD Noon", confidence: 1, kind: "expense", ...over });
+  // One read in full, one with no card to file it under: nothing to list.
+  backend.parse = [item("Cafe", 30), item("Kiosk", 12, { account_hint: null })];
+  await handler(textUpdate(7111, "two texts"));
+  const texts = backend.telegramSent.map((m) => String(m.body.text));
+  const summary = texts.find((t) => t.startsWith("In the Inbox · 2 to check"));
+  assert(summary, texts.join("\n---\n"));
+  assert(summary.includes("Cafe · AED 30") && summary.includes("Kiosk · AED 12"), summary);
+  assert(!texts.some((t) => /captured|AED \d+\.00/.test(t)), texts.join("\n---\n"));
+  // The one read in full is offered Record; the one missing its card is asked.
+  const buttons = backend.telegramSent.flatMap((m) => (((m.body.reply_markup as { inline_keyboard?: Array<Array<{ text: string }>> } | undefined)?.inline_keyboard) ?? []).flat().map((b) => b.text));
+  assert(buttons.includes("Record"), buttons.join(" | "));
+  assert(texts.some((t) => t.includes("Which card or account?")), texts.join("\n---\n"));
 });
 
 freshTest("a pasted SMS with no date waits in the Inbox instead of being offered a yes", async () => {
@@ -142,7 +167,7 @@ freshTest("a correction unbinds the question it replaced, so a yes to that quest
 
   await handler(replyUpdate(7112, "yes", 555));
   assertEquals(backend.approveCalls, 0, "a yes to the question about 40 recorded 45");
-  assert(lastReply().includes("I can't tell which entry that reply is about"), lastReply());
+  assert(lastReply().includes("Can't tell which entry that's about"), lastReply());
 });
 
 freshTest("a correction to an entry recorded in the meantime says so, not that it was updated", async () => {

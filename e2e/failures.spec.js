@@ -50,9 +50,9 @@ test('marking a statement done when the save fails says so, and leaves it to che
   await stubSupabase(page, { failWrites: ['statement_reconciliations'] });
   await open(page, '/money?tab=monthend');
 
-  const row = page.getByRole('region', { name: 'Statements to check' }).locator('tbody tr').filter({ has: page.getByRole('button', { name: 'Mark done' }) }).first();
+  const row = page.getByRole('region', { name: 'Statements to check' }).locator('tbody tr').filter({ has: page.getByRole('button', { name: 'Mark checked' }) }).first();
   await expect(row).toContainText('To check');
-  await row.getByRole('button', { name: 'Mark done' }).click();
+  await row.getByRole('button', { name: 'Mark checked' }).click();
 
   await expect(page.getByRole('alert')).toContainText('canceling statement due to statement timeout');
   await expect(row).toContainText('To check');

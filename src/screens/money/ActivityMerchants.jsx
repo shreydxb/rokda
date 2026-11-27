@@ -30,6 +30,8 @@ export default function ActivityMerchants({ transactions, scopeMemberId, month, 
               ),
               value: m.total,
               display: formatMoney(m.total),
+              // No name to search Activity by.
+              selectable: !m.unnamed,
             }))}
             onSelect={(item) => onSelect(item.id)}
           />

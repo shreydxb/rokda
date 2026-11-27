@@ -75,8 +75,13 @@ export default function Dividends({ household, members, me, data, loading }) {
 
   if (loading) return <div className="ov-skel" aria-busy="true" />;
   // A source Income needs that never loaded is said there, and Tax years,
-  // which needs none of them, stays a view away (the fresh review of 5c).
-  const missing = neverLoaded(data, SOURCES);
+  // which checks its own (TaxYears.jsx), stays a view away (the fresh review
+  // of 5c). The exchange rates only when a rupee holding needs them: unread,
+  // its dividends were valued at today's rate without a word, as Investments
+  // withholds only a figure that needed a rate (the review of the whole
+  // revamp).
+  const needsRates = (data.holdings ?? []).some((h) => h.currency === 'INR');
+  const missing = neverLoaded(data, needsRates ? [...SOURCES, 'fxRateHistory'] : SOURCES);
   const tools = (
     <Tools>
       <Segmented label="Show" options={VIEWS} value={view} onChange={setView} />

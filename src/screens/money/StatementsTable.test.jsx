@@ -108,18 +108,18 @@ describe('Card statements table', () => {
     expect(within(september).getByText('—')).toBeTruthy();
     expect(within(september).queryByRole('textbox')).toBeNull();
     expect(within(september).getByText('To check')).toBeTruthy();
-    const fold = screen.getByText('Done (1)').closest('details');
+    const fold = screen.getByText('Checked (1)').closest('details');
     const august = rowOf('29 Jul – 28 Aug');
     expect(fold.contains(august)).toBe(true);
     expect(fold.contains(september)).toBe(false);
     expect(within(august).getByText('Reconciled')).toBeTruthy();
     expect(within(august).getByText('Matches')).toBeTruthy();
-    expect(within(august).queryByRole('button', { name: 'Mark done' })).toBeNull();
+    expect(within(august).queryByRole('button', { name: 'Mark checked' })).toBeNull();
   });
 
   it('marks a statement nobody has checked done by recording it', async () => {
     const { reload } = renderTable();
-    await click(within(rowOf('29 Aug – 28 Sep')).getByRole('button', { name: 'Mark done' }));
+    await click(within(rowOf('29 Aug – 28 Sep')).getByRole('button', { name: 'Mark checked' }));
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({
       op: 'insert',
@@ -133,8 +133,8 @@ describe('Card statements table', () => {
   it('marks a statement the bot is asking about done by updating its record', async () => {
     renderTable({ reconciliations: [{ id: 'r9', account_id: 'card-1', statement_date: '2026-09-28', period_start: '2026-08-29', due_date: '2026-10-22', status: 'waiting' }] });
     const row = rowOf('29 Aug – 28 Sep');
-    expect(within(row).getByText('Waiting')).toBeTruthy();
-    await click(within(row).getByRole('button', { name: 'Mark done' }));
+    expect(within(row).getByText('To check')).toBeTruthy();
+    await click(within(row).getByRole('button', { name: 'Mark checked' }));
     expect(calls).toEqual([expect.objectContaining({ op: 'update', table: 'statement_reconciliations', col: 'id', value: 'r9' })]);
     expect(calls[0].payload.status).toBe('confirmed');
     // Only while it is still waiting: the bot may have recorded a mismatch
@@ -163,7 +163,7 @@ describe('Card statements table', () => {
       reconciliations: [{ id: 'r4', account_id: 'card-1', statement_date: '2026-09-28', period_start: '2026-08-29', status: 'mismatch', statement_spend: 10 }],
     });
     const row = rowOf('29 Aug – 28 Sep');
-    expect(within(row).queryByRole('button', { name: 'Mark done' })).toBeNull();
+    expect(within(row).queryByRole('button', { name: 'Mark checked' })).toBeNull();
     await click(within(row).getByRole('button', { name: 'Resolve…' }));
     const input = screen.getByRole('textbox', { name: 'What was done about the difference' });
     fireEvent.change(input, { target: { value: 'Added a missing fuel charge' } });
@@ -188,7 +188,7 @@ describe('Card statements table', () => {
   it('says so when a write changed nothing, rather than reloading as if it had', async () => {
     updated = [];
     const { reload } = renderTable({ reconciliations: [{ id: 'r6', account_id: 'card-1', statement_date: '2026-09-28', period_start: '2026-08-29', status: 'waiting' }] });
-    await click(within(rowOf('29 Aug – 28 Sep')).getByRole('button', { name: 'Mark done' }));
+    await click(within(rowOf('29 Aug – 28 Sep')).getByRole('button', { name: 'Mark checked' }));
     expect(screen.getByRole('alert').textContent).toMatch(/Nothing was saved/);
     expect(reload).not.toHaveBeenCalled();
   });
@@ -216,7 +216,7 @@ describe('Card statements table', () => {
     expect(within(detail).getByText('Closing balance on the statement: AED 1,234.50')).toBeTruthy();
     await click(within(rowOf('29 Jul – 28 Aug')).getByRole('button', { name: '29 Jul – 28 Aug' }));
     const done = screen.getByRole('region', { name: 'Bank card, 29 Jul to 28 Aug' });
-    expect(within(done).getByText('Done by Alex on 1 Sep')).toBeTruthy();
+    expect(within(done).getByText('Checked by Alex on 1 Sep')).toBeTruthy();
     expect(within(done).getByText('Checked against the paper copy')).toBeTruthy();
     expect(within(done).getByText('No transactions on the card in this period.')).toBeTruthy();
   });
@@ -226,20 +226,20 @@ describe('Card statements table', () => {
       accounts: [CARD, OTHER],
       reconciliations: [{ id: 'r8', account_id: 'card-1', statement_date: '2026-08-28', period_start: '2026-07-29', status: 'mismatch', statement_spend: 5 }],
     });
-    expect(screen.queryByRole('button', { name: /^Mark \d+ done$/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Mark \d+ checked$/ })).toBeNull();
     // A mismatch is resolved with what was done, one at a time.
     expect(within(screen.getByText('Doesn’t match').closest('tr')).queryByRole('checkbox')).toBeNull();
     const ticks = screen.getAllByRole('checkbox', { name: /^Select / });
     expect(ticks.map((t) => t.getAttribute('aria-label'))).toEqual(['Select Bank card, 29 Aug to 28 Sep', 'Select Travel card, 29 Aug to 28 Sep', 'Select Travel card, 29 Jul to 28 Aug']);
     await click(ticks[0]);
     await click(ticks[1]);
-    await click(screen.getByRole('button', { name: 'Mark 2 done' }));
+    await click(screen.getByRole('button', { name: 'Mark 2 checked' }));
     expect(calls.map((c) => [c.op, c.row.account_id, c.row.statement_date, c.row.status])).toEqual([
       ['insert', 'card-1', '2026-09-28', 'confirmed'],
       ['insert', 'card-2', '2026-09-28', 'confirmed'],
     ]);
     expect(reload).toHaveBeenCalledTimes(1);
-    expect(screen.queryByRole('button', { name: /^Mark \d+ done$/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Mark \d+ checked$/ })).toBeNull();
   });
 
   it('says which statements could not be marked, and still shows the ones that were', async () => {
@@ -248,10 +248,10 @@ describe('Card statements table', () => {
     const ticks = screen.getAllByRole('checkbox', { name: /^Select .*28 Sep$/ });
     await click(ticks[0]);
     await click(ticks[1]);
-    await click(screen.getByRole('button', { name: 'Mark 2 done' }));
+    await click(screen.getByRole('button', { name: 'Mark 2 checked' }));
     expect(screen.getByRole('alert').textContent).toBe('Bank card, 29 Aug to 28 Sep: permission denied');
     expect(reload).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole('button', { name: 'Mark 1 done' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Mark 1 checked' })).toBeTruthy();
   });
 
   it('says when every statement here has been checked', () => {
@@ -262,6 +262,6 @@ describe('Card statements table', () => {
       ],
     });
     expect(screen.getByText('Every statement here has been checked.')).toBeTruthy();
-    expect(screen.getByText('Done (2)')).toBeTruthy();
+    expect(screen.getByText('Checked (2)')).toBeTruthy();
   });
 });

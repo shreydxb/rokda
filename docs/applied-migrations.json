@@ -723,5 +723,12 @@
   "fingerprint": "1917918b41136f705f44c62dea8202d7",
   "framingFingerprint": "28bd0388e6478e4699e1a170712ec342",
   "fingerprintVersion": 2
+ },
+ {
+  "version": "20261127174119",
+  "name": "telegram_autopay_switch",
+  "fingerprint": "07d8f17110b7d61525dbb77a9ef878e8",
+  "framingFingerprint": "c9f5b25ea594340b02bfd105ac8b0802",
+  "fingerprintVersion": 2
  }
 ]

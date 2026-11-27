@@ -10,7 +10,8 @@ import { unconfirmedAccounts } from '../../lib/balance';
 import { historyState, pendingClose } from '../../lib/snapshots';
 import { buildNetWorthSeries, changeOverMonths } from '../../lib/netWorth';
 import { ASSET_CLASS_LABELS, isClosedHolding, scopedHoldingValue, visibleHoldings } from '../../lib/holdings';
-import { isStale, isAwaitingFirstValuation } from '../../lib/valuation';
+import { isAwaitingFirstValuation } from '../../lib/valuation';
+import { stalePrice } from '../../lib/investmentsView';
 import { tabHref } from '../../lib/activityLink';
 import { monthParam } from '../../lib/useMonthParam';
 import { assetGroups, liabilityRows } from '../../lib/netWorthLedger';
@@ -118,7 +119,12 @@ export default function NetWorth({ household, me, members, data, loading }) {
   const pending = open.length > 0 ? pendingClose(netWorthSnapshots, now) : null;
   const pendingName = pending?.month.toLocaleDateString('en-GB', { month: 'long' });
   const investmentsTotal = held.reduce((s, h) => s + scopedHoldingValue(h, scopeMemberId), 0);
-  const staleHoldings = held.filter((h) => isStale(h, now)).length;
+  // Stale as Investments counts it (investmentsView.js stalePrice): a failed
+  // feed is stale, a holding never valued is not (the review of the whole
+  // revamp).
+  const staleHoldings = held.filter((h) => stalePrice(h, now)).length;
+  // The cycle's figures rest on the records: never "0 this cycle" without them.
+  const txRead = neverLoaded(data, ['transactions']).length === 0;
   const closed = archivedAccounts(inView);
   const memberTone = new Map(members.map((m, i) => [m.id, i === 0 ? 'a' : 'b']));
   const owner = (a) => {
@@ -392,11 +398,19 @@ export default function NetWorth({ household, me, members, data, loading }) {
                         {nameCell(
                           row,
                           <div className="nw-sub">
-                            {row.cycle ? `${money.fmtBalance(row.cycle.spent)} this cycle · ${row.cycle.closesIn === 0 ? 'closes today' : `closes in ${row.cycle.closesIn}d`}` : row.sub}
+                            {row.cycle && txRead ? `${money.fmtBalance(row.cycle.spent)} this cycle · ${row.cycle.closesIn === 0 ? 'closes today' : `closes in ${row.cycle.closesIn}d`}` : row.sub}
                             {row.status?.kind === 'unset' && (
                               <>
                                 {' '}
                                 <Chip tone="warn">Not confirmed</Chip>
+                              </>
+                            )}
+                            {/* As the assets say it: the old Accounts tab flagged a card
+                                or loan checked long ago (the review of the whole revamp). */}
+                            {row.status?.kind === 'stale' && (
+                              <>
+                                {' '}
+                                <Chip>{`Checked ${row.status.days}d ago`}</Chip>
                               </>
                             )}
                           </div>,

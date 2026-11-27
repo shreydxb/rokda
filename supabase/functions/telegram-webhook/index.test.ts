@@ -81,9 +81,10 @@ freshTest("a message's item that fails to save is named, not counted as captured
   const res = await handler(textUpdate(7021, "Noon 40, Bakery 70"));
   assertEquals(res.status, 200);
   assertEquals(capturedIntake().length, 1);
-  assert(!lastReply().includes("2 expenses captured"), lastReply());
-  assert(lastReply().includes("1 expense captured"), lastReply());
-  assert(lastReply().includes("couldn't save AED 70.00 at Bakery"), lastReply());
+  // The words of the review of the whole revamp: where it is, in the one format.
+  const said = backend.telegramSent.map((m) => String(m.body.text)).find((t) => t.startsWith("In the Inbox ·")) ?? "";
+  assert(said.startsWith("In the Inbox · 1 to check"), said);
+  assert(said.includes("couldn't save Bakery · AED 70"), said);
 });
 
 // The fresh review of round 2: an item that failed to save still counted in
@@ -98,8 +99,9 @@ freshTest("an item that fails to save is not counted in the note about dates", a
   backend.faults.failIntakeItems = true;
   const res = await handler(textUpdate(7022, "Noon 40, Bakery 70"));
   assertEquals(res.status, 200);
-  assert(lastReply().includes("couldn't save AED 70.00 at Bakery"), lastReply());
-  assert(!lastReply().includes("had no date"), lastReply());
+  const said = backend.telegramSent.map((m) => String(m.body.text)).find((t) => t.startsWith("In the Inbox ·")) ?? "";
+  assert(said.includes("couldn't save Bakery · AED 70"), said);
+  assert(!said.includes("had no date"), said);
 });
 
 // D-06: a receipt is kept, or Telegram is asked to send it again. A failure

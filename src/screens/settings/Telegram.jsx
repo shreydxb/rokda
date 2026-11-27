@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabaseClient';
 import { householdToday } from '../../lib/day';
+import { readAllPages } from '../../lib/pagedRead';
 import { shortDate } from '../../lib/dividends';
 import { Avatar, Card, Chip, Drawer, Fold, InfoButton, Switch } from '../../design-system/kit';
 import './SettingsTabs.css';
@@ -20,6 +21,7 @@ const DEFAULTS = {
   balance_checkin_enabled: true,
   statement_enabled: true,
   dividends_enabled: true,
+  autopay_enabled: true,
 };
 
 const MORNING = [
@@ -29,7 +31,11 @@ const MORNING = [
   { key: 'unusual_spend_enabled', label: 'Unusual spending', note: 'Once, when a category runs well past its usual' },
   { key: 'brief_enabled', label: 'Weekly and month-end brief', note: 'Every Monday, and when a month ends' },
 ];
+// Autopay bills are asked about, with Paid, Not yet and Other amount, so they
+// are a question with their own switch, not Missed bills' (the review of the
+// whole revamp).
 const QUESTIONS = [
+  { key: 'autopay_enabled', label: 'Autopay bills', note: 'On the due date, and each morning until answered' },
   { key: 'statement_enabled', label: 'Card statements', note: 'When one closes, and 3 days before it is due' },
   { key: 'dividends_enabled', label: 'Dividends', note: 'When dividends are paid into a broker fund' },
   { key: 'balance_checkin_enabled', label: 'Month-end balances', note: 'On the 1st, with the monthly brief' },
@@ -327,12 +333,16 @@ function Diagnostics({ household }) {
     let cancelled = false;
     const since = new Date();
     since.setDate(since.getDate() - STATS_WINDOW_DAYS);
-    supabase
-      .from('telegram_call_log')
-      .select('occurred_at, success')
-      .eq('household_id', household.id)
-      .gte('occurred_at', since.toISOString())
-      .then(({ data, error: fetchError }) => {
+    // Every call, a page at a time: one request stopped at 1,000 and said
+    // nothing (the review of the whole revamp).
+    readAllPages(() =>
+      supabase
+        .from('telegram_call_log')
+        .select('occurred_at, success')
+        .eq('household_id', household.id)
+        .gte('occurred_at', since.toISOString())
+        .order('id'),
+    ).then(({ data, error: fetchError }) => {
         if (cancelled) return;
         if (fetchError) setError(fetchError.message);
         else setRows(data ?? []);

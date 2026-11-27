@@ -3,6 +3,7 @@ import { activityHref, isoDay, tabHref } from '../../lib/activityLink';
 import { expectedDatesLabel } from '../../lib/expectedIncome';
 import { formatPct } from '../../lib/money';
 import { Card, KpiStrip, InfoButton, ProgressBar } from '../../design-system/kit';
+import Unread from './Unread';
 
 const TITLES = { mtd: 'This month', qtd: 'Quarter to date', ytd: 'Year to date' };
 
@@ -10,7 +11,14 @@ const TITLES = { mtd: 'This month', qtd: 'Quarter to date', ytd: 'Year to date' 
 // 3; review S-overview-2): income, what was spent and what was saved, and in
 // a month the budget's track against how far through the month it is.
 // "Net spend" is "Spent" and "Income less spending" is "Saved" (review W9).
-export default function OverviewMonth({ period, p, money, now, expected, budget }) {
+export default function OverviewMonth({ period, p, money, now, expected, budget, unread = [] }) {
+  if (unread.length > 0) {
+    return (
+      <Card title={TITLES[period]} className="ov-month">
+        <Unread sources={unread} what="Income, spending and saving aren’t shown." />
+      </Card>
+    );
+  }
   const saved = p.saved;
   const used = budget && budget.budgeted > 0 ? budget.spent / budget.budgeted : null;
   return (

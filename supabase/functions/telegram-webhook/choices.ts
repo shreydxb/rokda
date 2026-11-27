@@ -182,14 +182,18 @@ type Shown = { text: string; reply_markup: Keyboard | null; ready: boolean; view
 // is missing, or where it waits and why. notes are lines added at the end.
 async function renderPending(householdId: string, memberId: string, row: EntryRow, notes: string[] = []): Promise<Shown> {
   const view = await viewOf(row);
-  const tail = notes.length ? `\n${notes.join("\n")}` : "";
+  // A day the bot put on an entry with none is said to be a guess wherever
+  // the entry's day is shown: in the Inbox line it read as the day it was
+  // paid (the review of the whole revamp).
+  // Not where the reason already asks for the day ("needs the day it was paid").
+  const undatedLine = row.date_guessed && inboxReason(row).reason !== "needs the day it was paid" ? "\nIt had no date: set the day it was paid in the Inbox." : "";
+  const tail = `${undatedLine}${notes.length ? `\n${notes.join("\n")}` : ""}`;
   const ask = missingChoice(row);
   if (ask) {
     const options = ask === "category"
       ? (await categoryChoices(householdId, row.parsed_merchant, row.parsed_kind ?? "expense")).map((c) => tap(short(c.label), "c", row.id, c.id))
       : (await accountChoices(householdId, memberId)).map((a) => tap(short(a.name), "a", row.id, a.id));
-    const undated = row.date_guessed ? "\nIt had no date: set the day it was paid in the Inbox." : "";
-    return { text: `${askText(view, ask)}${undated}${tail}`, reply_markup: keyboard([...options, tap(INBOX_LABEL, "i", row.id)]), ready: false, view };
+    return { text: `${askText(view, ask)}${tail}`, reply_markup: keyboard([...options, tap(INBOX_LABEL, "i", row.id)]), ready: false, view };
   }
   if (isReadyForFastConfirm(row)) {
     // A check that could not run is not a clean check: it waits in the Inbox.
@@ -280,7 +284,14 @@ export async function recordEntry(householdId: string, memberId: string, row: En
   } catch {
     return { kind: "unchecked" };
   }
-  if (duplicate) return { kind: "duplicate", duplicate };
+  if (duplicate) {
+    // Recorded a moment ago by a tap or a "yes" landing at the same time: its
+    // own record is not a duplicate of itself (the review of the whole
+    // revamp).
+    const { data: now } = await supabase.from("intake").select("status").eq("id", row.id).maybeSingle();
+    if ((now as { status?: string } | null)?.status === "approved") return { kind: "already" };
+    return { kind: "duplicate", duplicate };
+  }
   // An entry the parser never classified is an expense, as it always was.
   const kind = (row.parsed_kind as IntakeKind | null) ?? "expense";
   const { data, error } = await supabase.rpc("approve_intake", {
@@ -304,6 +315,24 @@ export async function recordEntry(householdId: string, memberId: string, row: En
 
 // Undo lasts ten minutes, as undo_intake_approval checks.
 const UNDO_WINDOW_MS = 10 * 60_000;
+
+// The transaction the bot's own Record made of this entry in the last ten
+// minutes, if that is what it was recorded as: a second tap, or one
+// arriving after the first landed, keeps the first's Undo rather than
+// dropping it (the review of the whole revamp).
+async function ownRecentRecord(householdId: string, intakeId: string, transactionId: string | null | undefined): Promise<string | null> {
+  if (!transactionId) return null;
+  const { data } = await supabase
+    .from("bot_recordings")
+    .select("transaction_id")
+    .eq("household_id", householdId)
+    .eq("intake_id", intakeId)
+    .eq("transaction_id", transactionId)
+    .eq("undoable", true)
+    .gte("recorded_at", new Date(Date.now() - UNDO_WINDOW_MS).toISOString())
+    .maybeSingle();
+  return (data as { transaction_id?: string } | null)?.transaction_id ?? null;
+}
 
 // Notes what this Record made, for /undo (undoLatest, below): only a row
 // written here is the bot's to take back. A pasted list's Record all notes
@@ -357,7 +386,8 @@ export async function handleChoiceTap(callback: Record<string, unknown>): Promis
   // the bot did not record here is not the bot's to take back.
   if (row.status !== "pending") {
     await answer(row.status === "approved" ? "Already recorded." : "Already cancelled.");
-    await edit(chatId, messageId, row.status === "approved" ? recordedText(await recordedView(row)) : cancelledText(await viewOf(row)));
+    const own = row.status === "approved" && bound ? await ownRecentRecord(householdId, row.id, row.transaction_id) : null;
+    await edit(chatId, messageId, row.status === "approved" ? recordedText(await recordedView(row)) : cancelledText(await viewOf(row)), own ? undoKeyboard(row.id, own) : null);
     return new Response("ok");
   }
 
@@ -387,7 +417,9 @@ export async function handleChoiceTap(callback: Record<string, unknown>): Promis
       await edit(chatId, messageId, recordedText(view), undoKeyboard(row.id, outcome.transactionId));
     } else {
       await answer("Already recorded.");
-      await edit(chatId, messageId, recordedText(await recordedView({ ...row, transaction_id: null, ...(await freshTransactionId(row.id)) })));
+      const fresh = { ...row, transaction_id: null, ...(await freshTransactionId(row.id)) };
+      const own = await ownRecentRecord(householdId, row.id, fresh.transaction_id);
+      await edit(chatId, messageId, recordedText(await recordedView(fresh)), own ? undoKeyboard(row.id, own) : null);
     }
     return new Response("ok");
   }
@@ -449,7 +481,11 @@ export async function handleChoiceTap(callback: Record<string, unknown>): Promis
     await answer("That choice isn't available any more.");
     return new Response("ok");
   }
-  let update = supabase.from("intake").update(patch).eq("id", row.id).eq("status", "pending");
+  // Untied in the same write: the message it was tied to still shows the old
+  // choice, and showPending ties this one only once its edit lands. Left tied,
+  // a failed edit here kept a Record on figures it no longer showed (the
+  // review of the whole revamp).
+  let update = supabase.from("intake").update({ ...patch, confirm_chat_id: null, confirm_message_id: null }).eq("id", row.id).eq("status", "pending");
   if (choice.kind === "c" || choice.kind === "a") update = update.is(field, null);
   const { data: updated, error } = await update.select(INTAKE_COLUMNS);
   if (error) {
@@ -460,7 +496,9 @@ export async function handleChoiceTap(callback: Record<string, unknown>): Promis
     await answer("That was already set in the app.");
     return new Response("ok");
   }
-  await answer("Saved.");
+  // Changed, not recorded: the entry still waits for Record (one of the
+  // three outcome words is for what Record does).
+  await answer(isCategory ? "Category changed." : "Card changed.");
   await showPending(chatId, messageId, householdId, member.id, updated[0] as EntryRow);
   return new Response("ok");
 }

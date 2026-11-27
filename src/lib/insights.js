@@ -93,6 +93,8 @@ export function notableMoves(
 // that shop's total). It used to rank all of history, so changing the month
 // on Insights left this list unchanged. A merchant whose refunds cancel its
 // purchases drops off; `count` is its purchases, not its refunds.
+const UNNAMED = '\u0000unnamed';
+
 export function topMerchants(transactions, scopeMemberId, { year, month, now = new Date(), limit = 8 } = {}) {
   const byMerchant = new Map();
   for (const t of transactions) {
@@ -101,14 +103,16 @@ export function topMerchants(transactions, scopeMemberId, { year, month, now = n
     if (!(scopeMemberId === null || t.is_shared || t.owner_member_id === scopeMemberId)) continue;
     const v = scopedValue(t.amount, t, scopeMemberId);
     if (!isSpendRow(t, v)) continue;
-    const name = t.merchant?.trim() || 'Unknown';
+    // Records with no merchant are one row, marked unnamed: there is no name
+    // to search Activity by (the review of the whole revamp).
+    const name = t.merchant?.trim() || UNNAMED;
     const row = byMerchant.get(name) ?? { total: 0, count: 0 };
     row.total += spendDelta(t, v);
     if (t.kind !== 'refund') row.count += 1;
     byMerchant.set(name, row);
   }
   return [...byMerchant.entries()]
-    .map(([name, row]) => ({ name, ...row }))
+    .map(([name, row]) => (name === UNNAMED ? { name: 'Unknown', ...row, unnamed: true } : { name, ...row }))
     .filter((row) => row.total > 0)
     .sort((a, b) => b.total - a.total)
     .slice(0, limit);

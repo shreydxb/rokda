@@ -19,6 +19,7 @@ import { type BatchCommand, BATCH_LIST_CAP, batchListMessage, chooseKeyboard, ty
 import { edit, noteRecording } from "./choices.ts";
 import { type PendingIntakeRow, RECENT_INTAKE_COLUMNS } from "./confirmations.ts";
 import { supabase } from "./env.ts";
+import { inboxReason } from "./expenseMessages.ts";
 import { findDuplicateTransaction, type IntakeKind } from "./intake.ts";
 import { reply, tgCall } from "./transport.ts";
 
@@ -54,15 +55,13 @@ function listable(row: SavedItem["row"]): boolean {
   return isReadyForFastConfirm({ ...row, date_guessed: false });
 }
 
-// The first thing an entry is missing, as the list names it, in the words
-// an entry's own message uses (expenseMessages.ts).
+// Why an entry waits, as the list names it: the entry's own message's words
+// (expenseMessages.ts inboxReason), so the two never disagree; the list said
+// "in INR" where the message said "to check and approve" (the review of the
+// whole revamp).
+// The day is not the reason: the list asks for it itself (listable).
 function missingReason(row: SavedItem["row"]): string {
-  if (!(Number(row.parsed_amount) > 0)) return "needs the amount";
-  if (!row.parsed_merchant) return "needs who was paid";
-  if (!row.parsed_account_id) return "needs the card or account";
-  if (!row.parsed_category_id) return "needs a category";
-  if (row.parsed_currency && row.parsed_currency !== "AED") return `in ${row.parsed_currency}`;
-  return "to check: not sure I read it right";
+  return inboxReason({ ...row, date_guessed: false } as never).reason;
 }
 
 // The ids of the saved items that are already in Rokda: undated ones by the
@@ -292,6 +291,14 @@ async function actOnList(member: { id: string; household_id: string }, rows: Bat
     const when = row.date_guessed ? command.date! : row.parsed_date!;
     try {
       if (await findDuplicateTransaction(member.household_id, row.parsed_account_id, row.parsed_merchant, row.parsed_amount, when, madeNow)) {
+        // Recorded a moment ago by a Record all landing at the same time: its
+        // own record is not a repeat of itself (the review of the whole
+        // revamp).
+        const { data: fresh } = await supabase.from("intake").select("status").eq("id", row.id).maybeSingle();
+        if ((fresh as { status?: string } | null)?.status === "approved") {
+          alreadyDone++;
+          continue;
+        }
         marks.set(at, "repeat");
         continue;
       }

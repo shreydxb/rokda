@@ -391,14 +391,20 @@ export default function LifePlanEditor({
                   spending after work stops is today&rsquo;s less these.
                 </div>
                 <div className="lp-stop-list">
-                  {spendCategories.map((c) => (
-                    <label key={c.id} className="pl-stop-cat">
-                      <input type="checkbox" checked={stops.has(c.id)} onChange={() => toggleStop(c.id)} />
-                      <span>{c.name}</span>
-                      {spendByCategory.get(c.id) > 0 && <span className="ds-muted">{formatMoney(spendByCategory.get(c.id))} a year</span>}
-                      {!stops.has(c.id) && USUALLY_STOPS.test(c.name) && <span className="ds-muted">· often stops</span>}
-                    </label>
-                  ))}
+                  {spendCategories.map((c) => {
+                    // A group that stops stops its subcategories too
+                    // (lib/forecast.js spendThatStops): shown ticked with it.
+                    const withGroup = c.parent_id != null && stops.has(c.parent_id);
+                    return (
+                      <label key={c.id} className="pl-stop-cat">
+                        <input type="checkbox" checked={withGroup || stops.has(c.id)} disabled={withGroup} onChange={() => toggleStop(c.id)} />
+                        <span>{c.name}</span>
+                        {spendByCategory.get(c.id) > 0 && <span className="ds-muted">{formatMoney(spendByCategory.get(c.id))} a year</span>}
+                        {withGroup && <span className="ds-muted">· with its group</span>}
+                        {!withGroup && !stops.has(c.id) && USUALLY_STOPS.test(c.name) && <span className="ds-muted">· often stops</span>}
+                      </label>
+                    );
+                  })}
                 </div>
               </div>
             )}

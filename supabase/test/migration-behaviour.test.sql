@@ -1805,6 +1805,9 @@ begin
   insert into telegram_notification_prefs (household_id) values (hh) on conflict (household_id) do nothing;
   select statement_enabled into enabled from telegram_notification_prefs where household_id = hh;
   if (enabled is not true) is not false then raise exception 'statements FAILED: the statement question is not on by default'; end if;
+  -- Autopay questions have their own switch (the review of the whole revamp), on by default.
+  select autopay_enabled into enabled from telegram_notification_prefs where household_id = hh;
+  if (enabled is not true) is not false then raise exception 'telegram prefs FAILED: the autopay question is not on by default'; end if;
 
   insert into categories (id, household_id, name, kind) values (fuel, hh, 'Fuel', 'expense'), (wash, hh, 'Car Wash', 'expense');
   insert into transactions (household_id, account_id, category_id, amount, occurred_at, is_shared, merchant, kind) values
@@ -6220,6 +6223,38 @@ begin
   r := undo_intake_approval('dddd0000-0000-4000-8000-0000000000a4', me, 'dddd0000-0000-4000-8000-0000000000c4');
   if (r ->> 'outcome' <> 'changed') is not false then
     raise exception 'undo FAILED: an entry with an edit on record was undone (%)', r;
+  end if;
+
+  -- Split, or linked to another record, since it was recorded: it stays
+  -- (the review of the whole revamp: neither had a case).
+  insert into categories (id, household_id, name, kind) values
+    ('dddd0000-0000-4000-8000-0000000000e8', hh, 'Undo split A', 'expense'),
+    ('dddd0000-0000-4000-8000-0000000000e9', hh, 'Undo split B', 'expense');
+  insert into transactions (id, household_id, account_id, amount, occurred_at, merchant, created_at, updated_at)
+  values ('dddd0000-0000-4000-8000-0000000000d7', hh, card, -60, '2026-10-03', 'Split since', now() - interval '1 minute', now() - interval '1 minute');
+  insert into intake (id, household_id, member_id, source, parsed_amount, status, transaction_id)
+  values ('dddd0000-0000-4000-8000-0000000000b7', hh, me, 'telegram', 60, 'approved', 'dddd0000-0000-4000-8000-0000000000d7');
+  perform split_transaction('dddd0000-0000-4000-8000-0000000000d7', jsonb_build_array(
+    jsonb_build_object('category_id', 'dddd0000-0000-4000-8000-0000000000e8', 'amount', 40),
+    jsonb_build_object('category_id', 'dddd0000-0000-4000-8000-0000000000e9', 'amount', 20)));
+  update transactions set updated_at = created_at where id = 'dddd0000-0000-4000-8000-0000000000d7';
+  r := undo_intake_approval('dddd0000-0000-4000-8000-0000000000b7', me, 'dddd0000-0000-4000-8000-0000000000d7');
+  if (r ->> 'outcome' <> 'changed' or not exists (select 1 from transactions where id = 'dddd0000-0000-4000-8000-0000000000d7')) is not false then
+    raise exception 'undo FAILED: an entry split since it was recorded was undone (%)', r;
+  end if;
+
+  insert into transactions (id, household_id, account_id, amount, occurred_at, merchant, created_at, updated_at) values
+    ('dddd0000-0000-4000-8000-0000000000d8', hh, card, -70, '2026-10-03', 'Linked since', now() - interval '1 minute', now() - interval '1 minute'),
+    ('dddd0000-0000-4000-8000-0000000000d9', hh, card, 70, '2026-10-04', 'Its refund', now() - interval '1 minute', now() - interval '1 minute');
+  update transactions set kind = 'refund' where id = 'dddd0000-0000-4000-8000-0000000000d9';
+  insert into intake (id, household_id, member_id, source, parsed_amount, status, transaction_id)
+  values ('dddd0000-0000-4000-8000-0000000000b8', hh, me, 'telegram', 70, 'approved', 'dddd0000-0000-4000-8000-0000000000d8');
+  insert into transaction_links (household_id, kind, from_transaction_id, to_transaction_id)
+  values (hh, 'refund', 'dddd0000-0000-4000-8000-0000000000d8', 'dddd0000-0000-4000-8000-0000000000d9');
+  update transactions set updated_at = created_at where id = 'dddd0000-0000-4000-8000-0000000000d8';
+  r := undo_intake_approval('dddd0000-0000-4000-8000-0000000000b8', me, 'dddd0000-0000-4000-8000-0000000000d8');
+  if (r ->> 'outcome' <> 'changed' or not exists (select 1 from transactions where id = 'dddd0000-0000-4000-8000-0000000000d8')) is not false then
+    raise exception 'undo FAILED: an entry linked since it was recorded was undone (%)', r;
   end if;
 
   -- A minute old and untouched: undone.

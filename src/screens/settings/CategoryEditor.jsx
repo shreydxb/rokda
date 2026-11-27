@@ -168,7 +168,9 @@ export default function CategoryEditor({ category, categories = [], householdId,
           )}
         </div>
         {expense && switchRow('Savings, not spending', 'Its budget becomes a savings target', isSavings, setIsSavings, isGroup)}
-        {expense && switchRow('Stops when work stops', 'Left out of spending after work', stops, setStops)}
+        {/* A group's records are on its subcategories, so it stops them all
+            (lib/forecast.js spendThatStops). */}
+        {expense && switchRow('Stops when work stops', isGroup ? 'It and its subcategories are left out of spending after work' : 'Left out of spending after work', stops, setStops)}
         {category && switchRow('Archived', 'Kept on past transactions only', archived, setArchived)}
       </form>
     </Drawer>

@@ -1,38 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ATTENTION_PREVIEW_COUNT, attentionHref, attentionPreview, buildAttentionItems, sortAttention } from './attention';
-
-const item = (id, severity) => ({ id, severity });
-
-describe('sortAttention', () => {
-  it('puts urgent before warn before info, keeping the built order among equals', () => {
-    const items = [item('i1', 'info'), item('w1', 'warn'), item('u1', 'urgent'), item('i2', 'info'), item('w2', 'warn')];
-    expect(sortAttention(items).map((i) => i.id)).toEqual(['u1', 'w1', 'w2', 'i1', 'i2']);
-  });
-
-  it('puts an unknown severity last and leaves the input alone', () => {
-    const items = [item('x', undefined), item('i', 'info')];
-    expect(sortAttention(items).map((i) => i.id)).toEqual(['i', 'x']);
-    expect(items.map((i) => i.id)).toEqual(['x', 'i']);
-  });
-});
-
-describe('attentionPreview', () => {
-  const items = Array.from({ length: 7 }, (_, n) => item(`i${n}`, n === 6 ? 'urgent' : 'info'));
-
-  it('shows the first few, most pressing first, and counts the rest', () => {
-    const { shown, hidden } = attentionPreview(items);
-    expect(shown).toHaveLength(ATTENTION_PREVIEW_COUNT);
-    expect(shown[0].id).toBe('i6');
-    expect(hidden).toBe(7 - ATTENTION_PREVIEW_COUNT);
-  });
-
-  it('shows everything when expanded, or when there are only a few', () => {
-    expect(attentionPreview(items, true)).toMatchObject({ hidden: 0 });
-    expect(attentionPreview(items, true).shown).toHaveLength(7);
-    expect(attentionPreview(items.slice(0, 3))).toMatchObject({ hidden: 0 });
-    expect(attentionPreview([])).toEqual({ shown: [], hidden: 0 });
-  });
-});
+import { buildAttentionItems } from './attention';
 
 describe('an autopay bill not yet confirmed', () => {
   const now = new Date(2026, 9, 8, 12);
@@ -115,27 +82,6 @@ describe('stale holdings', () => {
     const held = { id: 'h1', name: 'Held fund', value_aed: 1000, is_shared: true, priced_at: old, trades_version: 2, quantity: 5 };
     const sold = { ...held, id: 'h2', name: 'Sold fund', quantity: 0, value_aed: 0 };
     expect(staleNames([held, sold])).toEqual(['Held fund']);
-  });
-});
-
-describe('attentionHref', () => {
-  const TODAY = new Date(2026, 9, 15, 12);
-  it('opens the tab or records that resolve each item', () => {
-    expect(attentionHref({ kind: 'missing_recurring' }, TODAY)).toBe('/money?tab=recurring');
-    expect(attentionHref({ kind: 'category_anomaly', categoryId: 'c1' }, TODAY)).toBe('/money?tab=activity&cat=c1&from=2026-10-01&to=2026-10-31');
-    // The account itself, a card on its cycle and a balance on its details
-    // (the revamp, phase 5a).
-    expect(attentionHref({ kind: 'card_due', accountId: 'c1' }, TODAY)).toBe('/wealth?account=c1');
-    expect(attentionHref({ kind: 'balance_unset', accountId: 'a1' }, TODAY)).toBe('/wealth?account=a1&view=details');
-    // The holding itself, where its price is (the revamp, phase 5b).
-    expect(attentionHref({ kind: 'stale_holding', holdingId: 'h1' }, TODAY)).toBe('/wealth?tab=investments&holding=h1');
-    expect(attentionHref({ kind: 'stale_holding' }, TODAY)).toBe('/wealth?tab=investments');
-    // Month end, on the month to close (the revamp, phase 4d).
-    expect(attentionHref({ kind: 'month_close', month: '2026-09' }, TODAY)).toBe('/money?tab=monthend&month=2026-09');
-    expect(attentionHref({ kind: 'backup' }, TODAY)).toBe('/settings?tab=backups');
-    // The note itself (the revamp, phase 6c).
-    expect(attentionHref({ kind: 'yearly_check', noteId: 'n1' }, TODAY)).toBe('/planning?tab=notes&note=n1');
-    expect(attentionHref({ kind: 'yearly_check' }, TODAY)).toBe('/planning?tab=notes');
   });
 });
 

@@ -1,13 +1,13 @@
 // Part of the Telegram webhook (index.ts), split out by responsibility in
 // the round 2 cleanup (SHR-383). Moved, not changed.
-import { accountValueAed, unvaluedAccounts } from "../_shared/applib/accounts.js";
+import { accountValueAed, isBalanceConfirmed, unvaluedAccounts } from "../_shared/applib/accounts.js";
 import { monthActualsByCategory } from "../_shared/applib/budget.js";
 import { cashCoverStatus } from "../_shared/applib/cashCover.js";
 import { cashCoverLine, day, facts, money, notCounted } from "../_shared/applib/botFormat.js";
 import { daysUntilDue, nextDueDate } from "../_shared/applib/creditCard.js";
 import { householdDay, householdToday, householdYearMonth, isPosted, parseDay } from "../_shared/applib/day.js";
 import { estimateAed } from "../_shared/applib/fxHistory.js";
-import { allocationByClass, holdingGain, portfolioValueChange, scopedHoldingValue, visibleHoldings } from "../_shared/applib/holdings.js";
+import { allocationByClass, holdingGain, isClosedHolding, portfolioValueChange, scopedHoldingValue, visibleHoldings } from "../_shared/applib/holdings.js";
 import { incompleteNote, netWorthSummary } from "../_shared/applib/overviewMath.js";
 import { readAllPages } from "../_shared/applib/pagedRead.js";
 import { upcomingItems } from "../_shared/applib/recurring.js";
@@ -109,7 +109,7 @@ export const TOOLS_BASE = [
     type: "function",
     function: {
       name: "get_upcoming_bills",
-      description: "Real recurring bills and credit-card due dates in the next 14 days, e.g. 'when's the FAB Z card due' or 'what bills are coming up'.",
+      description: "Real recurring bills and credit-card due dates in the next 14 days, e.g. 'when's the FAB Z card due' or 'what bills are coming up'. Pay expected in that time is listed apart, as expected_income, never as a bill.",
       parameters: {
         type: "object",
         properties: { scope: { type: "string", enum: SCOPE_ENUM } },
@@ -444,6 +444,12 @@ export async function toolGetCategorySpend(householdId: string, scopeMemberId: s
 export async function toolGetNetWorth(householdId: string, scopeMemberId: string | null) {
   const [accounts, holdings] = await Promise.all([householdRows("accounts", householdId), householdRows("holdings", householdId)]);
   const summary = netWorthSummary(accounts as never, scopeMemberId, holdings as never);
+  // Balances in the total nobody has confirmed: the app calls such a total
+  // provisional (the review of the whole revamp).
+  // A fixed deposit with its principal and rate is worked out daily, never
+  // stamped, and is confirmed as the app counts it (accounts.js).
+  const unconfirmed = (accounts as Array<{ archived_at: string | null; balance_as_of: string | null; is_shared: boolean; owner_member_id: string | null }>)
+    .filter((a) => a.archived_at == null && !isBalanceConfirmed(a) && (scopeMemberId === null || a.is_shared || a.owner_member_id === scopeMemberId)).length;
   // The count of accounts the total could not include travels with the
   // total. phraseAnswer is told to use only what a tool returns, so if this
   // is dropped here the bot cannot say the figure is incomplete -- and a net
@@ -454,6 +460,7 @@ export async function toolGetNetWorth(householdId: string, scopeMemberId: string
     liabilities_aed: round2(summary.liabilities),
     unconverted_accounts: summary.unvalued,
     unvalued_holdings: summary.unpricedHoldings,
+    ...(unconfirmed > 0 ? { unconfirmed_accounts: unconfirmed, provisional_note: "includes balances nobody has confirmed yet" } : {}),
     ...(incompleteNote({ accounts: summary.unvalued, holdings: summary.unpricedHoldings })
       ? { incomplete: incompleteNote({ accounts: summary.unvalued, holdings: summary.unpricedHoldings }) }
       : {}),
@@ -467,15 +474,18 @@ export async function toolGetAccountBalance(householdId: string, args: Record<st
   const matches = accounts.filter((a) => a.name.toLowerCase().includes(norm));
   if (matches.length === 0) return { error: "account_not_found", available: accounts.map((a) => a.name) };
   if (matches.length > 1) return { error: "ambiguous_account", matches: matches.map((a: { name: string }) => a.name) };
-  const a = matches[0] as { name: string; balance: number; balance_aed: number | null; currency: string };
+  const a = matches[0] as { name: string; balance: number; balance_aed: number | null; currency: string; balance_as_of: string | null };
   const aed = accountValueAed(a);
+  // A balance nobody has set is not a fact: the app says "Not confirmed", so
+  // the answer must be able to (the review of the whole revamp).
+  const confirmation = isBalanceConfirmed(a) ? { confirmed: true, ...(a.balance_as_of ? { balance_as_of: a.balance_as_of } : {}) } : { confirmed: false, confirmation_note: "nobody has confirmed this balance yet, so it may not be the real figure" };
   // No conversion yet: report the native balance as native rather than
   // relabelling it AED. `balance_aed ?? balance` answered "what's in the
   // India account" with "AED 20,000" when it holds 20,000 rupees (QA #4).
   if (aed === null) {
-    return { account: a.name, balance: round2(Number(a.balance ?? 0)), currency: a.currency, balance_aed: null, note: "no AED conversion recorded for this account" };
+    return { account: a.name, balance: round2(Number(a.balance ?? 0)), currency: a.currency, balance_aed: null, note: "no AED conversion recorded for this account", ...confirmation };
   }
-  return { account: a.name, balance_aed: round2(aed), currency: a.currency };
+  return { account: a.name, balance_aed: round2(aed), currency: a.currency, ...confirmation };
 }
 
 
@@ -492,17 +502,23 @@ export async function toolGetUpcomingBills(householdId: string, scopeMemberId: s
   // computes it from `native_amount` (the rupee rate follows households'),
   // so a premium of 89,554 rupees is never counted as 89,554 dirhams (QA #4).
   // The figure actually owed is passed alongside in its own currency.
-  const bills = upcomingItems(visibleRecurring as never, 14, now).map(
-    (r: { name: string; amount: number; currency: string | null; native_amount: number | null; dueDate: Date }) => {
-      const isAed = String(r.currency ?? "AED").toUpperCase() === "AED";
-      return {
-        name: r.name,
-        amount_aed: round2(Math.abs(Number(r.amount))),
-        ...(isAed || r.native_amount == null ? {} : { amount: round2(Math.abs(Number(r.native_amount))), currency: r.currency }),
-        due_date: r.dueDate.toISOString().slice(0, 10),
-      };
-    }
-  );
+  type Upcoming = { name: string; amount: number; currency: string | null; native_amount: number | null; dueDate: Date };
+  const item = (r: Upcoming) => {
+    const isAed = String(r.currency ?? "AED").toUpperCase() === "AED";
+    return {
+      name: r.name,
+      amount_aed: round2(Math.abs(Number(r.amount))),
+      ...(isAed || r.native_amount == null ? {} : { amount: round2(Math.abs(Number(r.native_amount))), currency: r.currency }),
+      due_date: r.dueDate.toISOString().slice(0, 10),
+    };
+  };
+  // Only money going out is a bill: pay expected counted as one made cash
+  // cover read "short" on a pay week, where Overview, which counts only
+  // amounts below zero, said covered (the review of the whole revamp). Pay
+  // is listed apart, for a question about what is coming in.
+  const upcoming = upcomingItems(visibleRecurring as never, 14, now) as Upcoming[];
+  const bills = upcoming.filter((r) => Number(r.amount) < 0).map(item);
+  const income = upcoming.filter((r) => Number(r.amount) > 0).map(item);
 
   const cardBills: Array<{ name: string; amount_owed_aed: number; due_date: string }> = [];
   for (const a of accounts as Array<{ type: string; is_shared: boolean; owner_member_id: string | null; name: string; balance: number; balance_aed: number | null; currency: string; due_day: number | null }>) {
@@ -527,6 +543,7 @@ export async function toolGetUpcomingBills(householdId: string, scopeMemberId: s
   return {
     recurring: bills,
     credit_cards: cardBills,
+    ...(income.length ? { expected_income: income } : {}),
     ...(unconverted > 0 ? { unconverted_accounts: unconverted } : {}),
   };
 }
@@ -586,6 +603,8 @@ export async function toolGetTradeProfit(householdId: string, scopeMemberId: str
     name: string;
     currency: string;
     price_symbol: string | null;
+    is_shared: boolean;
+    owner_member_id: string | null;
   }>;
   const stock = typeof args.stock === "string" ? args.stock.trim() : "";
   let chosen = holdings;
@@ -617,17 +636,20 @@ export async function toolGetTradeProfit(householdId: string, scopeMemberId: str
 
   const rows = chosen.map((h) => {
     const own = sales.filter((t) => t.holding_id === h.id);
+    // One person's share of a shared holding's sales, as the app's Me view
+    // halves them (the review of the whole revamp).
+    const share = (value: number | null) => scopedValue(Number(value ?? 0), h, scopeMemberId);
     // Unknown, not guessed, when a sale has no rate to value it at.
     let profitAed: number | null = 0;
     for (const t of own) {
-      const value = estimateAed(Number(t.realised ?? 0), h.currency, t.trade_date, history as never, (household?.inr_per_aed ?? null) as never);
+      const value = estimateAed(share(t.realised), h.currency, t.trade_date, history as never, (household?.inr_per_aed ?? null) as never);
       profitAed = value && profitAed !== null ? round2(profitAed + value.aed) : null;
     }
     return {
       name: h.name,
       currency: h.currency,
-      profit: round2(own.reduce((sum, t) => sum + Number(t.realised ?? 0), 0)),
-      tax_withheld: round2(own.reduce((sum, t) => sum + Number(t.tax_withheld ?? 0), 0)),
+      profit: round2(own.reduce((sum, t) => sum + share(t.realised), 0)),
+      tax_withheld: round2(own.reduce((sum, t) => sum + share(t.tax_withheld), 0)),
       sales: own.length,
       profit_aed: profitAed,
     };
@@ -648,6 +670,8 @@ export async function toolGetHoldings(householdId: string, scopeMemberId: string
     invested_value_aed: number | null;
     day_change_pct: number | null;
     priced_at: string | null;
+    price_fetch_error?: string | null;
+    price_provider?: string | null;
     is_shared: boolean;
     owner_member_id: string | null;
   }>;
@@ -668,7 +692,9 @@ export async function toolGetHoldings(householdId: string, scopeMemberId: string
       // value would have the bot say it is worth nothing (SHR-292).
       value_aed: isAwaitingFirstValuation(h as never) ? null : round2(scopedHoldingValue(h as never, scopeMemberId)),
       ...(isAwaitingFirstValuation(h as never) ? { note: "never valued yet" } : {}),
-      day_change_pct: h.day_change_pct,
+      // None when the price feed failed, as the app shows "—": the last
+      // day's move is not today's (the review of the whole revamp).
+      day_change_pct: h.price_provider && h.price_fetch_error ? null : h.day_change_pct,
       gain_aed: gain ? round2(gain.absolute) : null,
       gain_pct: gain ? round2(gain.pct * 100) : null,
       priced_at: h.priced_at,
@@ -714,7 +740,11 @@ export async function toolGetHoldings(householdId: string, scopeMemberId: string
 
   const range = typeof args.range === "string" ? args.range : null;
   if (range) {
-    const ids = visible.map((h) => h.id);
+    // Sold holdings are left out, as Investments leaves them out: their value
+    // at the range start made a sale read as a loss (the review of the whole
+    // revamp).
+    const held = visible.filter((h) => !isClosedHolding(h as never));
+    const ids = held.map((h) => h.id);
     // A day's value per holding: past 1,000 rows this soon after a year or
     // two of daily prices, so it is read in pages like everything else here.
     const history = ids.length
@@ -722,7 +752,7 @@ export async function toolGetHoldings(householdId: string, scopeMemberId: string
         supabase.from("holding_value_history").select("id, holding_id, as_of, value_aed").in("holding_id", ids).order("id")
       )
       : [];
-    const change = portfolioValueChange(visible as never, history as never, range, scopeMemberId);
+    const change = portfolioValueChange(held as never, history as never, range, scopeMemberId);
     result.range = range;
     // Deliberately not called "performance" any more. It moves when money is
     // added or withdrawn exactly as it moves on a price change, and
@@ -763,7 +793,7 @@ export async function goalContributionDraft(householdId: string, args: Record<st
   const matches = open.filter((g) => g.name.toLowerCase().includes(norm));
   if (matches.length === 0) {
     const done = goals.filter((g) => g.done_at != null && g.name.toLowerCase().includes(norm));
-    if (done.length > 0) return { error: "goal_done", goals: done.map((g) => g.name), note: "Marked done in Rokda. Reopen it on Goals to add to it." };
+    if (done.length > 0) return { error: "goal_done", goals: done.map((g) => g.name), note: "Marked done in Rokda. Reopen it on Goals & debts to add to it." };
     return { error: "goal_not_found", available: open.map((g) => g.name) };
   }
   if (matches.length > 1) return { error: "ambiguous_goal", matches: matches.map((g) => g.name) };

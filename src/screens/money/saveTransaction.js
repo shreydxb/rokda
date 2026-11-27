@@ -79,7 +79,7 @@ export async function saveTransaction(
 
   if (!tx && keptAlongside && !memory.stepsDone.has('pair')) {
     const { error } = await supabase.from('transaction_links').insert(confirmedPairRow(householdId, { id }, keptAlongside));
-    if (error) return { error: `Saved, but "both are real" wasn't remembered: ${error.message}. The monthly review will ask about the pair again.` };
+    if (error) return { error: `Saved, but "both are real" wasn't remembered: ${error.message}. Month end will ask about the pair again.` };
   }
 
   if (tx && edits.length > 0) {

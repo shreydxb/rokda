@@ -6,6 +6,7 @@ import { renderScreen } from '../test/renderScreen';
 const setTheme = vi.fn();
 const signOut = vi.fn();
 let inboxCount = 0;
+let household = { id: 'hh', name: 'Test household', inr_per_aed: 25 };
 
 vi.mock('../lib/supabaseClient', () => ({ supabase: {} }));
 vi.mock('../lib/AuthContext', () => ({ useAuth: () => ({ user: { email: 'partner@example.com' }, signOut }) }));
@@ -13,7 +14,7 @@ vi.mock('../lib/ThemeContext', () => ({ useTheme: () => ({ theme: 'light', setTh
 vi.mock('./useInboxCount', () => ({ useInboxCount: () => inboxCount }));
 vi.mock('../lib/useHousehold', () => ({
   useHousehold: () => ({
-    household: { id: 'hh', name: 'Test household', inr_per_aed: 25 },
+    household,
     me: { id: 'm1', display_name: 'Partner A' },
     members: [
       { id: 'm1', display_name: 'Partner A' },
@@ -151,6 +152,23 @@ describe('AppShell: the account menu', () => {
     const button = screen.getByRole('button', { name: /Partner A/ });
     const menu = screen.getByRole('dialog', { name: 'Account' });
     expect(button.compareDocumentPosition(menu) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  // The review of the whole revamp: with INR chosen and no rate set, figures
+  // are in AED, and the menu said INR was picked.
+  it('shows the currency figures are in, not a choice that can\'t be used', () => {
+    household = { id: 'hh', name: 'Test household', inr_per_aed: null };
+    localStorage.setItem('rokda:currency', 'INR');
+    try {
+      shell();
+      openAccount();
+      const currency = within(screen.getByRole('group', { name: 'Display currency' }));
+      expect(currency.getByRole('button', { name: 'AED' }).getAttribute('aria-pressed')).toBe('true');
+      expect(currency.getByRole('button', { name: 'INR' }).getAttribute('aria-pressed')).toBe('false');
+    } finally {
+      household = { id: 'hh', name: 'Test household', inr_per_aed: 25 };
+      localStorage.clear();
+    }
   });
 
   it('closes when focus leaves it, and on a click outside', () => {

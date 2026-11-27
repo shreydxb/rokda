@@ -190,6 +190,9 @@ describe('runningMonthStrip', () => {
       tx('d', { category_id: null, occurred_at: '2026-10-30' }),
     ];
     expect(runningMonthStrip(NOV, { transactions, accounts: [], statements: [] }, NOW).uncategorised).toBe(1);
+    // A refund filed with its purchase has no category of its own to give.
+    const links = [{ kind: 'refund', from_transaction_id: 'p', to_transaction_id: 'a' }];
+    expect(runningMonthStrip(NOV, { transactions, accounts: [], statements: [], transactionLinks: links }, NOW).uncategorised).toBe(0);
   });
 
   it('counts the statements still to check, and those that don’t match', () => {

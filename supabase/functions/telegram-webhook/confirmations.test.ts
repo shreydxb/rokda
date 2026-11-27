@@ -315,7 +315,8 @@ freshTest("a bare yes to an expense delivered again does not record one captured
     id, household_id: HOUSEHOLD, member_id: MEMBER, status: "pending", raw_text: `${merchant} 40`,
     created_at: new Date().toISOString(), parsed_merchant: merchant, parsed_amount: 40, parsed_date: "2026-09-24", parsed_category_id: "cat-dining",
     parsed_account_id: NOON.id, parsed_currency: "AED", parsed_kind: "expense", confidence: 1, date_guessed: false,
-    confirm_chat_id: null, confirm_message_id: null,
+    // Each offered Record on its own message, as a bare "yes" requires.
+    confirm_chat_id: TELEGRAM_USER, confirm_message_id: merchant === "Cafe" ? 5371 : 5372,
   });
   backend.tables.intake.push(entry("99990000-0000-4000-8000-000000000371", "Cafe"));
   // The line saying it is recorded fails to send.
@@ -361,7 +362,7 @@ freshTest("a no whose lookup fails says nothing was dropped, and never to approv
   await handler(textUpdate(7391, "Bank 10,000"));
   backend.faults.failProposalReads = true;
   await handler(textUpdate(7392, "no"));
-  assert(lastReply().includes("nothing was dropped or changed"), lastReply());
+  assert(lastReply().includes("nothing was dropped"), lastReply());
   assert(!/approve|Inbox/i.test(lastReply()), lastReply());
   assertEquals(backend.tables.bot_proposals[0].status, "proposed");
 });

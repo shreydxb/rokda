@@ -14,7 +14,10 @@ import TaxEventForm from './TaxEventForm';
 
 // What the view reads; one that never loaded is said, and Income goes on
 // without it.
-const TAX_SOURCES = ['taxReturns', 'taxReturnEvents', 'taxStatements', 'taxStatementLines'];
+// The years are built from the holdings and their dividends as well as the
+// tax records: with those unread, every statement line read as a difference
+// against no dividends (the review of the whole revamp).
+const TAX_SOURCES = ['taxReturns', 'taxReturnEvents', 'taxStatements', 'taxStatementLines', 'holdings', 'holdingDividends'];
 const fmt = (n) => `INR ${formatMoney(n, { decimals: 2 })}`;
 const paise = (n) => Math.round(Number(n) * 100);
 const BASES = [

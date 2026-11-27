@@ -267,6 +267,27 @@ describe('Net worth: after the fresh review', () => {
     expect(row.textContent).toMatch(/0% of 1,000/);
   });
 
+  // The review of the whole revamp.
+  it('says nothing of a card\'s cycle when the records never loaded, rather than 0 this cycle', () => {
+    open({ accounts: [card('Card', { balance: 300 })], transactions: [], errors: { transactions: 'timeout' }, loaded: { accounts: true, holdings: true } });
+    const row = within(region('Liabilities')).getByRole('button', { name: 'Card' }).closest('tr');
+    expect(row.textContent).not.toMatch(/this cycle/);
+  });
+
+  it('says how long ago a card or loan balance was checked, as for the assets', () => {
+    open({ accounts: [card('Card', { balance: 300, balance_as_of: '2026-08-01T08:00:00Z' })] });
+    const row = within(region('Liabilities')).getByRole('button', { name: 'Card' }).closest('tr');
+    expect(row.textContent).toMatch(/Checked \d+d ago/);
+  });
+
+  it('counts stale prices as Investments does: a failed feed, never one not yet valued', () => {
+    const failing = (name) => ({ ...holding(name, 'us_equity', 1000), price_provider: 'feed', price_fetch_error: 'down', priced_at: new Date().toISOString() });
+    const fresh = { ...holding('New fund', 'us_equity', 0), priced_at: null };
+    open({ holdings: [failing('Failing fund'), failing('Other failing fund'), fresh] });
+    const row = within(region('Assets')).getByRole('button', { name: /^Investments/ }).closest('tr');
+    expect(row.textContent).toMatch(/2 stale prices/);
+  });
+
   it('leaves sold holdings out of the investments row', () => {
     const sold = { ...holding('Sold fund', 'us_equity', 0), trades_version: 2, quantity: 0, priced_at: '2026-01-01T00:00:00Z', last_refreshed: '2026-01-01T00:00:00Z' };
     open({ holdings: [holding('Index fund', 'us_equity', 60000), sold] });

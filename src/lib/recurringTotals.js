@@ -56,11 +56,11 @@ export function recurringStrip(rows, transactions, scopeMemberId, now = new Date
     const status = billStatus(row, transactions, now);
     const ended = hasEnded(row, now);
     if (ended && !status.needsAction) continue;
+    // Pay counts in the income, and among those to mark when it is late, as
+    // its row and To do say (the review of the whole revamp).
     if (Number(row.amount) > 0) {
       if (!ended) strip.income += share;
-      continue;
-    }
-    if (!ended && row.is_fixed) {
+    } else if (!ended && row.is_fixed) {
       strip.fixed += -share;
       strip.fixedCount += 1;
     } else if (!ended) {

@@ -168,6 +168,17 @@ describe('Merchant rules', () => {
     expect(within(rulesCard()).getByText('1 active')).toBeTruthy();
   });
 
+  // The review of the whole revamp: a rule whose category was archived still
+  // offered Apply, filing past records under it, while the bot treats the
+  // rule as off.
+  it('marks a rule whose category is archived, and offers no Apply on it', () => {
+    const categories = CATEGORIES.map((c) => (c.id === 'c-dining' ? { ...c, archived: true } : c));
+    renderAt('/settings?tab=categories', { categories });
+    const row = within(rulesCard()).getAllByRole('row')[1];
+    expect(row.textContent).toMatch(/Dining out.*Archived/);
+    expect(within(row).queryByRole('button', { name: /^Apply/ })).toBeNull();
+  });
+
   it('applies a rule to uncategorised transactions and says how many', async () => {
     const { reload } = renderAt();
     await act(async () => fireEvent.click(within(rulesCard()).getByRole('button', { name: 'Apply contains corner' })));

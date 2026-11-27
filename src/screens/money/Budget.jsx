@@ -188,7 +188,7 @@ function Hero({ spent, limit, pace, scoped }) {
       <div className="bud-hero-fig">
         <div className="bud-label">Spent of budget</div>
         <div className="bud-big">
-          {formatMoney(spent)} <span className="bud-of">of {formatMoney(limit)}</span>
+          {formatBalance(spent)} <span className="bud-of">of {formatMoney(limit)}</span>
         </div>
       </div>
       <div className="bud-hero-track">
@@ -343,7 +343,7 @@ function BudgetLines({ table, members, catById, categories, transactions, year, 
                   <td>
                     <span className="bud-name">{section.group.name}</span>
                   </td>
-                  <td className="ds-num">{formatMoney(section.group.spent)}</td>
+                  <td className="ds-num">{formatBalance(section.group.spent)}</td>
                   <td className="ds-num bud-lim-total">{formatMoney(section.group.limit)}</td>
                   <td className="ds-num bud-usual">{usualCell(section.group.spent, section.group.usual)}</td>
                   <td className="bud-pace-cell" />
@@ -355,7 +355,7 @@ function BudgetLines({ table, members, catById, categories, transactions, year, 
               <td>
                 <span className="bud-name">Budgeted</span>
               </td>
-              <td className="ds-num">{formatMoney(table.budgeted.spent)}</td>
+              <td className="ds-num">{formatBalance(table.budgeted.spent)}</td>
               <td className="ds-num bud-lim-total">{formatMoney(table.budgeted.limit)}</td>
               <td className="bud-usual" />
               <td className="bud-pace-cell">{paceCell(table.budgeted.spent, table.budgeted.limit)}</td>
@@ -371,7 +371,7 @@ function BudgetLines({ table, members, catById, categories, transactions, year, 
                   )}
                 </span>
               </td>
-              <td className="ds-num">{formatMoney(table.outside)}</td>
+              <td className="ds-num">{formatBalance(table.outside)}</td>
               <td />
               <td className="bud-usual" />
               <td className="bud-pace-cell">

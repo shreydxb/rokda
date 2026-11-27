@@ -107,6 +107,9 @@ export type Backend = {
   failRpc?: Set<string>;
   // Runs on each AI call: something changing in Rokda while a message is read.
   onAiCall?: () => void;
+  // Runs before each read of a table: another update landing part way
+  // through this one (two taps at once, say).
+  onRead?: (table: string) => void;
   // What undo_intake_approval answers instead of undoing: "too_late" or
   // "changed", which the real function decides from the clock and the
   // transaction's history.
@@ -307,6 +310,7 @@ export async function postgrest(req: Request, url: URL): Promise<Response> {
   }
 
   if (req.method === "GET") {
+    backend.onRead?.(table);
     if (table === "bot_proposals" && backend.faults.failProposalReads) {
       return json({ code: "57014", message: "canceling statement due to statement timeout" }, 500);
     }

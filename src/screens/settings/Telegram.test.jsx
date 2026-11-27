@@ -14,6 +14,7 @@ const ROW = {
   balance_checkin_enabled: true,
   statement_enabled: true,
   dividends_enabled: true,
+  autopay_enabled: true,
 };
 const calls = vi.hoisted(() => ({ selected: [], upserts: [], rpcs: [], log: [], rpcError: null, rpcEmpty: false }));
 vi.mock('../../lib/supabaseClient', () => {
@@ -24,7 +25,10 @@ vi.mock('../../lib/supabaseClient', () => {
         return c;
       },
       eq: () => c,
-      gte: () => Promise.resolve({ data: calls.log, error: null }),
+      gte: () => c,
+      order: () => c,
+      // A page of the log, as the API returns at most 1,000 rows a request.
+      range: (from, to) => Promise.resolve({ data: calls.log.slice(from, Math.min(to + 1, from + 1000)), error: null }),
       upsert: (row) => {
         calls.upserts.push({ table, row });
         return Promise.resolve({ error: null });
@@ -89,7 +93,7 @@ describe('Telegram: the switches', () => {
   it('groups what comes in the morning apart from the questions', async () => {
     await renderTelegram();
     expect(within(morning()).getAllByRole('switch').map((s) => s.getAttribute('aria-label'))).toEqual(['Missed bills', 'Card due dates', 'Cash cover', 'Unusual spending', 'Weekly and month-end brief']);
-    expect(within(questions()).getAllByRole('switch').map((s) => s.getAttribute('aria-label'))).toEqual(['Card statements', 'Dividends', 'Month-end balances']);
+    expect(within(questions()).getAllByRole('switch').map((s) => s.getAttribute('aria-label'))).toEqual(['Autopay bills', 'Card statements', 'Dividends', 'Month-end balances']);
     expect(within(morning()).getByRole('link', { name: 'Budget →' }).getAttribute('href')).toBe('/money?tab=budget');
   });
 
@@ -98,6 +102,16 @@ describe('Telegram: the switches', () => {
     expect(within(questions()).getByRole('switch', { name: 'Card statements' }).getAttribute('aria-checked')).toBe('true');
     expect(within(morning()).getByRole('switch', { name: 'Unusual spending' }).getAttribute('aria-checked')).toBe('false');
     expect(calls.selected.find((s) => s.table === 'telegram_notification_prefs').cols).toMatch(/statement_enabled/);
+  });
+
+  // The review of the whole revamp: autopay questions were switched off by
+  // Missed bills, listed with the morning message, which needs no answer.
+  it('lists autopay bills among the questions, saved as autopay_enabled', async () => {
+    await renderTelegram();
+    const toggle = within(questions()).getByRole('switch', { name: 'Autopay bills' });
+    await act(async () => fireEvent.click(toggle));
+    expect(calls.upserts.at(-1)).toEqual({ table: 'telegram_notification_prefs', row: { household_id: 'h1', autopay_enabled: false } });
+    expect(within(morning()).queryByRole('switch', { name: 'Autopay bills' })).toBeNull();
   });
 
   it('saves the dividend question as dividends_enabled', async () => {
@@ -261,6 +275,17 @@ describe('Telegram: diagnostics', () => {
     expect([...fold.querySelectorAll('.st-diag-fig')].map((f) => f.textContent)).toEqual(['4', '75%']);
     expect(within(fold).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Day', 'Calls']);
     expect(calls.selected.find((s) => s.table === 'telegram_call_log').cols).not.toMatch(/tokens/);
+  });
+
+  // The review of the whole revamp: one request stopped at 1,000 calls, and
+  // said nothing.
+  it('counts every call, past the first thousand', async () => {
+    const day = new Date().toISOString().slice(0, 10);
+    calls.log = Array.from({ length: 1200 }, (_, i) => ({ occurred_at: `${day}T08:00:00Z`, success: i % 2 === 0 }));
+    await renderTelegram();
+    const fold = screen.getByText('Diagnostics · last 30 days').closest('details');
+    await waitFor(() => expect(within(fold).getByText('AI calls')).toBeTruthy());
+    expect([...fold.querySelectorAll('.st-diag-fig')].map((f) => f.textContent)).toEqual(['1200', '50%']);
   });
 
   it('says when there were none', async () => {

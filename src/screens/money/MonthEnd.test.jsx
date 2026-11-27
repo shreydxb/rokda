@@ -138,7 +138,7 @@ describe('Month end: the running month', () => {
     expect(within(kpi('Balances not confirmed')).getByRole('link', { name: 'Accounts →' }).getAttribute('href')).toBe('/wealth?who=both');
     const statements = screen.getByRole('region', { name: 'Card statements' });
     const row = within(statements).getByText('29 Sep – 28 Oct').closest('tr');
-    expect(within(row).getByRole('button', { name: 'Mark done' })).toBeTruthy();
+    expect(within(row).getByRole('button', { name: 'Mark checked' })).toBeTruthy();
   });
 
   it('offers no close once the month just ended is closed, and says what is clear', () => {
@@ -254,11 +254,11 @@ describe('Month end: closing the month just ended', () => {
     expect(within(balance).getByRole('link', { name: 'Confirm balance' }).getAttribute('href')).toBe('/wealth?account=current&view=details&who=both&reviewing=2026-10');
     // Ticking a statement offers to mark it done beside the step's name.
     await click(within(row).getByRole('checkbox'));
-    expect(screen.getByRole('button', { name: 'Mark 1 done' }).closest('.me-step-h')).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Mark 1 checked' }).closest('.me-step-h')).not.toBeNull();
     // Not while the step is closed, where a failure would go unseen (the
     // fresh review of 4d).
     await click(stepButton('Check statements and balances'));
-    expect(screen.queryByRole('button', { name: 'Mark 1 done' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Mark 1 checked' })).toBeNull();
   });
 
   it('opens the step a link names', () => {
@@ -434,7 +434,7 @@ describe('Month end: after the fresh review', () => {
   it('opens a closed month’s statements from a link, where a done one can be reopened', () => {
     renderAt(`${OCTOBER}&step=2`, data({ netWorthSnapshots: closedOct }));
     expect(stepButton('Check statements and balances').getAttribute('aria-expanded')).toBe('true');
-    expect(screen.getByText('Done (1)')).toBeTruthy();
+    expect(screen.getByText('Checked (1)')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Reopen…' })).toBeTruthy();
   });
 

@@ -47,6 +47,7 @@ import { autopayAmountOnly, autopayAnswer } from "../_shared/applib/autopay.js";
 import { householdToday } from "../_shared/applib/day.js";
 import { resolveScopeMemberId } from "../_shared/applib/scope.js";
 import { isPrivateChat } from "../_shared/applib/telegramChat.js";
+import { money } from "../_shared/applib/botFormat.js";
 import { ambiguousConfirmMessage, ambiguousDiscardMessage, ambiguousProposalMessage, dropUnavailableMessage, isCancellationText, isConfirmable, isConfirmationText, isReadyForFastConfirm, lookupUnavailableMessage, PROMPT_FAILED, PROMPT_UNADDRESSED, resolveConfirmTarget, resolveCorrectionTarget, resolveProposalTarget, unknownPromptMessage } from "../_shared/applib/telegramConfirm.js";
 import { linkTokenDigest, linkTokenFromMessage, looksLikeLinkToken } from "../_shared/applib/telegramLink.js";
 import { secretsMatch } from "../_shared/requestAuth.ts";
@@ -64,7 +65,7 @@ import { runRecurringCheck } from "./checks/recurring.ts";
 import { runSplitCheck, runUnusualSpendCheck } from "./checks/spending.ts";
 import { handleStatementText, runStatementCheck } from "./checks/statements.ts";
 import { isBatchCommand } from "./batch.ts";
-import { plainView, sendChoicePrompt, sendEntryPrompt, viewOf } from "./choices.ts";
+import { missingChoice, plainView, sendChoicePrompt, sendEntryPrompt, viewOf } from "./choices.ts";
 import { handleTap } from "./taps.ts";
 import { cancelledText, inboxReason, inboxText } from "./expenseMessages.ts";
 import { BATCH_UNADDRESSED_HINT, batchForPrompt, handleBatchReply, hasOpenList, listPrompts, type SavedItem, sendBatchList } from "./batchReview.ts";
@@ -634,7 +635,11 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
       const target = resolveConfirmTarget({
         lookup: promptLookup.kind,
         row: promptLookup.row,
-        recent: candidates.rows,
+        // Only an entry whose message offers Record here, as Record itself
+        // requires: one never shown ready (its prompt failed to send, or it
+        // came in a paste that could not be listed) must not be recorded by a
+        // bare "yes" on figures nobody saw (the review of the whole revamp).
+        recent: candidates.rows.filter((r) => Number(r.confirm_chat_id) === chatId && r.confirm_message_id != null),
         truncated: candidates.truncated,
       });
       if (target.kind === "one") {
@@ -1134,7 +1139,7 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
             ...updatedRow,
           }).select("id").single();
           if (itemError && itemError.code !== "23505") {
-            unsavedItems.push(`AED ${Number(item.amount ?? 0).toFixed(2)}${item.merchant ? ` at ${item.merchant}` : ""}`);
+            unsavedItems.push(`${item.merchant || "No name"} · ${money(Number(item.amount ?? 0), item.currency || "AED")}`);
             continue;
           }
           if (itemRow) savedId = itemRow.id;
@@ -1156,7 +1161,7 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
         // One entry is shown with its buttons below (choices.ts), which
         // decides whether it can be recorded as it is. Several go to the
         // numbered list.
-        if (kept.length > 1) multiItemSummaries.push(`AED ${Number(item.amount ?? 0).toFixed(2)}${item.merchant ? ` at ${item.merchant}` : ""}`);
+        if (kept.length > 1) multiItemSummaries.push(`${item.merchant || "No name"} · ${money(Number(item.amount ?? 0), item.currency || "AED")}`);
       } catch {
         // This one item's lookups/writes failed -- move on to the rest
         // rather than losing the whole message.
@@ -1213,12 +1218,26 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
       }
       return new Response("ok");
     }
-    await reply(
-      chatId,
-      (n > 1 || (n === 1 && unsavedItems.length)
-        ? `Got it — ${n} ${n === 1 ? "expense" : "expenses"} captured (${multiItemSummaries.join(", ")}). Check the Inbox to review ${n === 1 ? "it" : "each"}.`
-        : "In the Inbox · to check and approve") + unsavedNote + undatedNote(guessedDates, n > 1 ? n : 1) + recordedNote + dividendNote
-    );
+    // Several entries that could not be listed (fewer than two read in full,
+    // or the list would not send): where they are, a line each in the one
+    // format, then each one that can be recorded or needs only its category
+    // or card gets its own message, as a lone entry does. It said "Got it — 2
+    // expenses captured (AED 20.00 at …)" and offered neither (the review of
+    // the whole revamp).
+    const several = n > 1 || (n === 1 && unsavedItems.length > 0);
+    const shown = multiItemSummaries.slice(0, 5);
+    const head = several
+      ? [`In the Inbox · ${n} to check`, ...shown, ...(n > shown.length ? [`and ${n - shown.length} more`] : [])].join("\n")
+      : "In the Inbox · to check and approve";
+    const notes = (unsavedNote + undatedNote(guessedDates, n > 1 ? n : 1) + recordedNote + dividendNote).trim();
+    await reply(chatId, [head, notes].filter(Boolean).join("\n"));
+    let asked = 0;
+    for (const s of savedItems) {
+      if (asked >= 3) break;
+      const entry = { id: s.id, ...s.row };
+      if (!missingChoice(entry) && !isReadyForFastConfirm(entry)) continue;
+      if (await sendEntryPrompt(chatId, member.household_id, member.id, entry)) asked++;
+    }
   }
   return new Response("ok");
 }

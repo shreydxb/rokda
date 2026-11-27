@@ -128,7 +128,9 @@ export default function Notes({ household, me, members = [], data, sources, onRe
                 </button>
               </div>
               <div className="nt-note-body">
-                {chosen.check_yearly && <YearlyCheck note={chosen} me={me} disabled={busy} onChecked={() => done(chosen.id)} />}
+                {/* Keyed by the note, so a failed "Checked today" is not left
+                    showing on the next one picked (the review of the whole revamp). */}
+                {chosen.check_yearly && <YearlyCheck key={chosen.id} note={chosen} me={me} disabled={busy} onChecked={() => done(chosen.id)} />}
                 <NoteBody body={chosen.body} />
                 <div className="ds-muted nt-meta">
                   {`Updated ${updatedOn(chosen.updated_at)}`}

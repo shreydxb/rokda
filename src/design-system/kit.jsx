@@ -432,8 +432,8 @@ export function BarList({ items, onSelect, ordered = false }) {
           </>
         );
         return (
-          <li key={item.id} className={onSelect ? 'ds-bl-row ds-bl-selectable' : 'ds-bl-row'}>
-            {onSelect ? (
+          <li key={item.id} className={onSelect && item.selectable !== false ? 'ds-bl-row ds-bl-selectable' : 'ds-bl-row'}>
+            {onSelect && item.selectable !== false ? (
               <button type="button" className="ds-bl-hit" onClick={() => onSelect(item)}>
                 {body}
               </button>

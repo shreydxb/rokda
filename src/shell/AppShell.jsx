@@ -26,7 +26,11 @@ export default function AppShell() {
   const { theme, setTheme } = useTheme();
   const { scope, setScope } = useScope();
   const { household, me, members } = useHousehold();
-  const { currency, setCurrency } = useMoneyDisplay(household);
+  // `code` is the currency figures are shown in: the one chosen, or AED when
+  // it can't be used (no INR rate yet). The menu shows that, not the stored
+  // choice, which read as INR picked while every figure was in AED (the
+  // review of the whole revamp).
+  const { code: currency, setCurrency } = useMoneyDisplay(household);
   const inboxCount = useInboxCount(household?.id);
   const location = useLocation();
   // The Inbox is its own page (the revamp, phase 4c).

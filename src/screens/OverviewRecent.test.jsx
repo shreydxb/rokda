@@ -19,6 +19,9 @@ vi.mock('../lib/useHousehold', () => ({
 }));
 
 const transactions = Array.from({ length: 8 }, (_, i) => ({ id: `t${i}`, amount: -(i + 1) * 10, kind: 'expense', occurred_at: `2026-10-${String(18 - i).padStart(2, '0')}`, is_shared: true, merchant: `Shop ${i + 1}` }));
+// Scheduled for later this month: not yet one of the newest records (the
+// review of the whole revamp; Activity leaves it out by default too).
+transactions.push({ id: 'later', amount: -500, kind: 'expense', occurred_at: '2026-10-28', is_shared: true, merchant: 'Planned' });
 // Overview also reads Planning's records, for its Plan strip.
 vi.mock('./usePlanningData', async () => {
   const { emptyPlanning } = await import('../test/planningStub');
@@ -68,6 +71,24 @@ describe('Overview: recent activity', () => {
     expect([...section.querySelectorAll('.ov-recent-row')].map((r) => r.querySelector('.ov-recent-main').textContent)).toEqual(['Shop 1', 'Shop 2', 'Shop 3', 'Shop 4', 'Shop 5']);
     fireEvent.click(screen.getByText('All records in Activity →'));
     expect(screen.getByText('Activity page')).toBeTruthy();
+  });
+});
+
+// The review of the whole revamp: spending with no category was left out of
+// Where it went, so a month whose biggest spend was uncategorised never said so.
+describe('Overview: where it went', () => {
+  it('shows uncategorised spending as a bar of its own', async () => {
+    const { default: Overview } = await import('./Overview');
+    renderScreen(
+      <MemoryRouter initialEntries={['/']}>
+        <Routes>
+          <Route path="/" element={<Overview />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    const card = screen.getByRole('region', { name: 'Where it went' });
+    expect(card.textContent).toContain('Uncategorised');
+    expect(card.textContent).not.toContain('No spending this month.');
   });
 });
 

@@ -50,10 +50,6 @@ export function amountOwed(account, value = account?.balance) {
   return account?.type === 'credit_card' ? Math.max(0, n) : Math.abs(n);
 }
 
-export function activeAccounts(accounts = []) {
-  return accounts.filter((a) => !isArchived(a));
-}
-
 export function archivedAccounts(accounts = []) {
   return accounts.filter(isArchived);
 }

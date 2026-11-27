@@ -224,6 +224,23 @@ freshTest("an autopay bill is asked about on its due date, once a day", async ()
   assertEquals(backend.tables.bot_proposals.filter((p) => p.kind === "autopay_payment").length, 1);
 });
 
+// The review of the whole revamp: autopay questions have their own switch.
+// They were switched off with "Missed bills", a morning nudge that needs no
+// answer.
+freshTest("autopay questions follow their own switch, not missed bills'", async () => {
+  backend.tables.telegram_notification_prefs.push({ household_id: HOUSEHOLD, recurring_enabled: false, autopay_enabled: true });
+  await askedEmi();
+  assertEquals(autopayQuestions().length, 1);
+});
+
+freshTest("autopay questions switched off ask nothing", async () => {
+  backend.tables.telegram_notification_prefs.push({ household_id: HOUSEHOLD, recurring_enabled: true, autopay_enabled: false });
+  seedAutopayBill();
+  const res = await handler(dailyCheck());
+  await res.body?.cancel();
+  assertEquals(autopayQuestions().length, 0);
+});
+
 // D-05: the question keeps the account and category it named, so a "yes"
 // after the bill changed records nothing and says why.
 freshTest("an autopay question keeps the bill's account, and a changed bill records nothing", async () => {

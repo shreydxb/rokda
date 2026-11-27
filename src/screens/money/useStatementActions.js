@@ -6,12 +6,15 @@ import { supabase } from '../../lib/supabaseClient';
 // and share the table's ticks.
 
 // What each status says, and its chip's tone, wherever a statement is listed
-// (Month end's table, a card's Statements tab on Net worth).
+// (Month end's table, a card's Statements tab on Net worth). The words are
+// the bot's and To do's: one the bot is asking about is still "To check",
+// and one marked so is "Checked", as its button says (the review of the
+// whole revamp; it read "Waiting", grey, and "Done").
 export const STATEMENT_STATUS = {
   unchecked: { label: 'To check', tone: 'warn' },
-  waiting: { label: 'Waiting', tone: 'neutral' },
+  waiting: { label: 'To check', tone: 'warn' },
   mismatch: { label: 'Doesn’t match', tone: 'neg' },
-  confirmed: { label: 'Done', tone: 'pos' },
+  confirmed: { label: 'Checked', tone: 'pos' },
   reconciled: { label: 'Reconciled', tone: 'pos' },
 };
 
