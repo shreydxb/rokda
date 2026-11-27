@@ -233,6 +233,16 @@ export async function pruneTelegramUpdateLog(): Promise<void> {
   } catch {
     // Best-effort housekeeping.
   }
+  try {
+    // A Record's note is for /undo, which looks back ten minutes; a day is
+    // kept, as above.
+    await supabase
+      .from("bot_recordings")
+      .delete()
+      .lt("recorded_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
+  } catch {
+    // Best-effort housekeeping.
+  }
 }
 
 

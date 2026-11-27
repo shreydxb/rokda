@@ -6261,4 +6261,69 @@ begin
   raise notice 'undo ok: only service_role can undo';
 end $$;
 
+-- What the bot recorded (the revamp, phase 8d): /undo reads the latest. A
+-- row names an entry, the member who sent it and the transaction the bot's
+-- own Record made, all in one household, and goes when the transaction or
+-- the entry goes, so an undo leaves nothing for /undo to find.
+do $$
+declare
+  hh constant uuid := '11111111-1111-1111-1111-111111111111';
+  me constant uuid := '22222222-2222-2222-2222-222222222222';
+  other constant uuid := '99999999-9999-9999-9999-99999999000a';
+  card constant uuid := '33333333-3333-3333-3333-333333333333';
+  r jsonb;
+  t uuid;
+begin
+  insert into intake (id, household_id, member_id, source, raw_text, parsed_amount, parsed_merchant, parsed_date, status)
+  values ('dddd0000-0000-4000-8000-0000000000e1', hh, me, 'telegram', 'cafe 9', 9, 'Cafe', '2026-10-03', 'pending');
+  r := approve_intake('dddd0000-0000-4000-8000-0000000000e1', card, 9, date '2026-10-03', 'expense', null, 'AED', 'Cafe');
+  t := (r ->> 'transaction_id')::uuid;
+  insert into bot_recordings (intake_id, household_id, member_id, transaction_id) values ('dddd0000-0000-4000-8000-0000000000e1', hh, me, t);
+
+  -- A member of another household cannot be named against this one.
+  insert into intake (id, household_id, member_id, source, raw_text, parsed_amount, parsed_merchant, parsed_date, status)
+  values ('dddd0000-0000-4000-8000-0000000000e2', hh, me, 'telegram', 'cafe 4', 4, 'Cafe', '2026-10-03', 'pending');
+  begin
+    insert into bot_recordings (intake_id, household_id, member_id, transaction_id) values ('dddd0000-0000-4000-8000-0000000000e2', hh, other, t);
+    raise exception 'bot recordings FAILED: a member of another household was named';
+  exception
+    when foreign_key_violation then null;
+  end;
+  delete from intake where id = 'dddd0000-0000-4000-8000-0000000000e2';
+
+  -- Nor another household's entry, or this one's under another household.
+  begin
+    insert into bot_recordings (intake_id, household_id, member_id, transaction_id) values ('dddd0000-0000-4000-8000-0000000000e1', '99999999-9999-9999-9999-999999999999', other, t);
+    raise exception 'bot recordings FAILED: an entry was named under another household';
+  exception
+    when foreign_key_violation then null;
+  end;
+
+  -- Undone: the transaction goes, and its row with it.
+  r := undo_intake_approval('dddd0000-0000-4000-8000-0000000000e1', me, t);
+  if (r ->> 'outcome' <> 'undone' or exists (select 1 from bot_recordings where intake_id = 'dddd0000-0000-4000-8000-0000000000e1')) is not false then
+    raise exception 'bot recordings FAILED: an undone recording was left for /undo to find (%)', r;
+  end if;
+
+  -- An entry deleted takes its row with it too.
+  r := approve_intake('dddd0000-0000-4000-8000-0000000000e1', card, 9, date '2026-10-03', 'expense', null, 'AED', 'Cafe');
+  insert into bot_recordings (intake_id, household_id, member_id, transaction_id) values ('dddd0000-0000-4000-8000-0000000000e1', hh, me, (r ->> 'transaction_id')::uuid);
+  delete from intake where id = 'dddd0000-0000-4000-8000-0000000000e1';
+  if (exists (select 1 from bot_recordings where intake_id = 'dddd0000-0000-4000-8000-0000000000e1')) is not false then
+    raise exception 'bot recordings FAILED: a deleted entry left its row';
+  end if;
+  delete from transactions where id = (r ->> 'transaction_id')::uuid;
+  raise notice 'bot recordings ok: one household, gone with its transaction or its entry';
+end $$;
+
+do $$
+begin
+  if (has_table_privilege('authenticated', 'public.bot_recordings', 'select')
+     or has_table_privilege('authenticated', 'public.bot_recordings', 'insert')
+     or has_table_privilege('anon', 'public.bot_recordings', 'select')) is not false then
+    raise exception 'bot recordings FAILED: a signed-in member or anyone can read or write them';
+  end if;
+  raise notice 'bot recordings ok: the bot''s alone';
+end $$;
+
 rollback;

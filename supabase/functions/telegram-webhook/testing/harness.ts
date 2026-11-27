@@ -42,6 +42,8 @@ export type Backend = {
   telegramCalls: Array<{ method: string; body: Row }>;
   requests: Array<{ method: string; path: string }>;
   faults: {
+    // Tables whose inserts fail, as a statement timeout would.
+    failInserts?: string[];
     // Make claim_telegram_update fail the way a live database can.
     claimError?: { code: string; message: string };
     // Make Telegram fail: on every call, or only the first N sendMessage calls.
@@ -137,6 +139,7 @@ export function reset(): void {
       category_rules: [],
       telegram_notification_prefs: [],
       holding_dividends: [],
+      bot_recordings: [],
     },
     log: new Map(),
     telegramSent: [],
@@ -162,11 +165,13 @@ export const UNIQUE: Record<string, string[]> = {
   goal_contributions: ["goal_id", "source", "source_ref"],
   bot_proposals: ["household_id", "source_ref"],
   statement_reconciliations: ["account_id", "statement_date"],
+  bot_recordings: ["household_id", "intake_id"],
 };
 
 // Column defaults the real schema fills in. A proposal's times are on the
 // real clock, because the handler compares them with Date.now().
 export const DEFAULTS: Record<string, () => Row> = {
+  bot_recordings: () => ({ undoable: true, recorded_at: new Date().toISOString() }),
   bot_proposals: () => ({
     status: "proposed",
     created_at: new Date().toISOString(),
@@ -259,7 +264,7 @@ export function matches(row: Row, params: URLSearchParams): boolean {
         ok = cell != null && (typeof cell === "number" ? cell <= Number(value) : String(cell) <= value);
         break;
       case "lt":
-        ok = cell != null && String(cell) < value;
+        ok = cell != null && (typeof cell === "number" ? cell < Number(value) : String(cell) < value);
         break;
       case "in":
         ok = value.replace(/^\(|\)$/g, "").split(",").includes(String(cell));
@@ -351,7 +356,18 @@ export async function postgrest(req: Request, url: URL): Promise<Response> {
     const body = await req.json();
     const incoming: Row[] = Array.isArray(body) ? body : [body];
     const written: Row[] = [];
+    if (backend.faults.failInserts?.includes(table)) return json({ code: "57014", message: "canceling statement due to statement timeout" }, 500);
+    // An upsert (on_conflict, merge-duplicates) updates the row its key finds.
+    const merges = (req.headers.get("Prefer") ?? "").includes("resolution=merge-duplicates");
     for (const r of incoming) {
+      if (merges && UNIQUE[table]) {
+        const existing = rows.find((x) => UNIQUE[table].every((k) => x[k] === r[k]));
+        if (existing) {
+          Object.assign(existing, r);
+          written.push(existing);
+          continue;
+        }
+      }
       if (table === "intake" && backend.faults.failIntakeItems && String(r.source_ref ?? "").includes("#")) {
         return json({ code: "57014", message: "canceling statement due to statement timeout" }, 500);
       }
@@ -635,6 +651,8 @@ export async function rpc(req: Request, fn: string): Promise<Response> {
     if (row.transaction_id !== args.p_transaction_id) return json({ outcome: "changed" });
     if (backend.undoOutcome) return json({ outcome: backend.undoOutcome });
     backend.tables.transactions = backend.tables.transactions.filter((t) => t.id !== row.transaction_id);
+    // As the bot_recordings foreign key: its row goes with the transaction.
+    backend.tables.bot_recordings = backend.tables.bot_recordings.filter((r) => r.transaction_id !== row.transaction_id);
     Object.assign(row, { status: "pending", transaction_id: null });
     return json({ outcome: "undone" });
   }

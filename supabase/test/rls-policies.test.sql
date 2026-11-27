@@ -159,6 +159,13 @@ do $$ begin perform record_transfer('d2000000-0000-0000-0000-000000000002', 'f40
 -- A purchase in the other household, which no member here may refund.
 insert into transactions (id, household_id, account_id, amount, kind, occurred_at, is_shared) values
   ('f8000000-0000-0000-0000-000000000002', 'd2000000-0000-0000-0000-000000000002', 'f4000000-0000-0000-0000-000000000002', -70, 'expense', '2026-10-01', true);
+-- An expense the bot recorded for the member, noted for /undo (bot_recordings).
+insert into transactions (id, household_id, account_id, amount, kind, occurred_at, is_shared) values
+  ('f8000000-0000-0000-0000-0000000000b1', 'd1000000-0000-0000-0000-000000000001', 'f4000000-0000-0000-0000-000000000001', -9, 'expense', '2026-10-01', true);
+insert into intake (id, household_id, member_id, source, raw_text, parsed_amount, status, transaction_id) values
+  ('f8000000-0000-0000-0000-0000000000b2', 'd1000000-0000-0000-0000-000000000001', 'e1000000-0000-0000-0000-00000000000b', 'telegram', 'cafe 9', 9, 'approved', 'f8000000-0000-0000-0000-0000000000b1');
+insert into bot_recordings (household_id, intake_id, member_id, transaction_id) values
+  ('d1000000-0000-0000-0000-000000000001', 'f8000000-0000-0000-0000-0000000000b2', 'e1000000-0000-0000-0000-00000000000b', 'f8000000-0000-0000-0000-0000000000b1');
 -- Opening a balance records it; these two aren't part of the balance-history
 -- case below, which counts its own.
 delete from account_balance_events where account_id in ('f4000000-0000-0000-0000-000000000003', 'f4000000-0000-0000-0000-000000000004');
@@ -504,6 +511,33 @@ begin
     when insufficient_privilege then null;
   end;
   raise notice 'bot proposals ok: own household only, read-only, applied only by the bot';
+end $$;
+
+-- What the bot recorded (the revamp, phase 8d): only the bot reads it. A
+-- member who could write a row could name the partner's approval in the app
+-- as the bot's, for /undo to take back.
+do $$
+begin
+  begin
+    perform 1 from bot_recordings;
+    raise exception 'bot recordings FAILED: a member read them';
+  exception
+    when insufficient_privilege then null;
+  end;
+  begin
+    insert into bot_recordings (household_id, intake_id, member_id, transaction_id)
+    values ('d1000000-0000-0000-0000-000000000001', gen_random_uuid(), 'e1000000-0000-0000-0000-00000000000a', gen_random_uuid());
+    raise exception 'bot recordings FAILED: a member wrote one';
+  exception
+    when insufficient_privilege then null;
+  end;
+  -- Without a grant on the notes, a member still deletes an expense the bot
+  -- recorded: its note goes with it (the foreign key's cascade).
+  delete from transactions where id = 'f8000000-0000-0000-0000-0000000000b1';
+  if (exists (select 1 from transactions where id = 'f8000000-0000-0000-0000-0000000000b1')) is not false then
+    raise exception 'bot recordings FAILED: a member could not delete an expense the bot recorded';
+  end if;
+  raise notice 'bot recordings ok: the bot''s alone';
 end $$;
 
 -- Card statements: a member sees and marks their own household's, never

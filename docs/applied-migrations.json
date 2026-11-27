@@ -716,5 +716,12 @@
   "fingerprint": "b561b076b7f5113315373378b5084e8f",
   "framingFingerprint": "233389298a2662933cb27e6d46e4bb02",
   "fingerprintVersion": 2
+ },
+ {
+  "version": "20261127173426",
+  "name": "bot_recordings",
+  "fingerprint": "1917918b41136f705f44c62dea8202d7",
+  "framingFingerprint": "28bd0388e6478e4699e1a170712ec342",
+  "fingerprintVersion": 2
  }
 ]

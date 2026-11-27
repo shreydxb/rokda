@@ -16,7 +16,7 @@ import { householdToday } from "../_shared/applib/day.js";
 import { isPrivateChat } from "../_shared/applib/telegramChat.js";
 import { isConfirmationText, isReadyForFastConfirm } from "../_shared/applib/telegramConfirm.js";
 import { type BatchCommand, BATCH_LIST_CAP, batchListMessage, chooseKeyboard, type ListedEntry, listedLines, listKeyboard, listLine, type ListMark, listNumbers, type ListOp, parseBatchReply, readBatchDate, renderList } from "./batch.ts";
-import { edit } from "./choices.ts";
+import { edit, noteRecording } from "./choices.ts";
 import { type PendingIntakeRow, RECENT_INTAKE_COLUMNS } from "./confirmations.ts";
 import { supabase } from "./env.ts";
 import { findDuplicateTransaction, type IntakeKind } from "./intake.ts";
@@ -318,7 +318,12 @@ async function actOnList(member: { id: string; household_id: string }, rows: Bat
         alreadyDone++;
         continue;
       }
-      if (result?.transaction_id) madeNow.push(result.transaction_id);
+      if (result?.transaction_id) {
+        madeNow.push(result.transaction_id);
+        // Noted as not undoable, so /undo stops here rather than reaching
+        // past the list to the expense before it.
+        await noteRecording(member.household_id, member.id, row.id, result.transaction_id, false);
+      }
       marks.set(at, "recorded");
       days.push(when);
     } catch {

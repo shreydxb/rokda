@@ -54,6 +54,7 @@ import { AI_BUSY_NOTHING_SAVED, AI_BUSY_REPLY, classifyAndRoute, NOT_AN_EXPENSE_
 import { runAutopayCheck } from "./checks/autopay.ts";
 import { proposeAccountBalances, runBalanceCheckin } from "./checks/balanceCheckin.ts";
 import { runMonthlyBriefCheck, runWeeklyBriefCheck } from "./checks/briefs.ts";
+import { COMMANDS, commandOf, handleCommand } from "./commands.ts";
 import { runBudgetAlertCheck } from "./checks/budgetAlerts.ts";
 import { runCashCoverCheck } from "./checks/cashCover.ts";
 import { runCreditCardCheck } from "./checks/creditCards.ts";
@@ -124,10 +125,14 @@ async function handleRequest(req: Request): Promise<Response> {
     // The handler refuses non-private chats regardless, so this is not the
     // control -- it is how whoever deploys this can check that the bot is also
     // not being invited into groups in the first place.
+    // The command menu, from the list /help gives (commands.ts).
+    // Private chats only: the bot answers nothing else.
+    const commands = await tgCall("setMyCommands", { commands: COMMANDS, scope: { type: "all_private_chats" } });
     const me = (await tgCall("getMe", {})) as { result?: { can_join_groups?: boolean; can_read_all_group_messages?: boolean } };
     return new Response(
       JSON.stringify({
         set_webhook: result,
+        set_my_commands: commands,
         bot: me?.result ?? null,
         note: "can_join_groups should be false (BotFather -> /setjoingroups -> Disable). Financial replies are refused outside private chats either way.",
       }),
@@ -317,10 +322,7 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
 
         if (linked) {
           await clearLinkFailures(fromId);
-          await reply(
-            chatId,
-            `Linked as ${pending.display_name}. Send a receipt photo, a message like "42 aed carrefour groceries", or ask a question like "what's our net worth?" any time.`
-          );
+          await reply(chatId, `Linked as ${pending.display_name}. Send a receipt, "42 groceries", or a question. /help for more.`);
           return new Response("ok");
         }
 
@@ -352,6 +354,16 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
       chatId,
       `This Telegram account is already linked, as ${member.display_name}. A link code is for an account that isn't linked yet: send it from that one. I haven't kept this one.`
     );
+    return new Response("ok");
+  }
+
+  // A command (commands.ts): /help, /brief, /inbox, /undo, and /start from
+  // an account already linked. Answered before anything reads the message as
+  // an expense or a question; a caption is never a command.
+  const command = typeof message.text === "string" ? commandOf(message.text) : null;
+  if (command) {
+    const repliedTo = (message.reply_to_message as { message_id?: number } | undefined)?.message_id ?? null;
+    await handleCommand(chatId, member, command, { updateId, repliedTo });
     return new Response("ok");
   }
 
@@ -614,7 +626,7 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
           .eq("id", replay.id).eq("member_id", member.id).maybeSingle();
         if (error) throw new Error(`reading the entry an answer was about failed (${error.code ?? "no code"})`);
         const row = data as PendingIntakeRow | null;
-        if (row && isConfirmable(row)) await confirmPendingIntake(chatId, member.household_id, row);
+        if (row && isConfirmable(row)) await confirmPendingIntake(chatId, member, row);
         else if (row?.status === "approved") await reply(chatId, "That one is already recorded. Anything else waiting needs its own yes.");
         else await reply(chatId, "That entry changed after your yes, so nothing was recorded. Check it in the Inbox.");
         return new Response("ok");
@@ -627,7 +639,7 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
       });
       if (target.kind === "one") {
         if (repliedTo == null) await recordAnswerTarget(updateId, { kind: "intake", id: target.row.id });
-        await confirmPendingIntake(chatId, member.household_id, target.row);
+        await confirmPendingIntake(chatId, member, target.row);
         return new Response("ok");
       }
       if (target.kind === "ambiguous") {
