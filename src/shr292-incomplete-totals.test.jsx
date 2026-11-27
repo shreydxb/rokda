@@ -19,6 +19,7 @@ import { incompleteNote, netWorthSummary, startingNetWorth } from './screens/ove
 import * as botMath from '../supabase/functions/_shared/applib/overviewMath.js';
 import { cashCoverStatus, formatCashCoverLine } from './lib/cashCover';
 import * as botCashCover from '../supabase/functions/_shared/applib/cashCover.js';
+import { cashCoverLine } from '../supabase/functions/_shared/applib/botFormat.js';
 
 vi.mock('./lib/supabaseClient', () => ({ supabase: {} }));
 // Overview also reads Planning's records, for its Plan strip.
@@ -124,10 +125,15 @@ describe('SHR-292: cash cover with an unconverted card due', () => {
 
   it('never reports the unknown bill as covered, in the app or the bot', () => {
     const app = formatCashCoverLine(cashCoverStatus(ACCOUNTS, bills, { days: 7, today: NOW }));
-    const bot = botCashCover.formatCashCoverLine(botCashCover.cashCoverStatus(ACCOUNTS, bills, { days: 7, today: NOW }));
-    expect(bot).toBe(app);
+    const mirror = botCashCover.formatCashCoverLine(botCashCover.cashCoverStatus(ACCOUNTS, bills, { days: 7, today: NOW }));
+    expect(mirror).toBe(app);
     expect(app).not.toMatch(/all bills covered/i);
     expect(app).toMatch(/no AED|not known|unknown|AED amount/i);
+    // What the bot sends: its own words for the same status (the revamp,
+    // phase 8c), held to the same rule.
+    const bot = cashCoverLine(botCashCover.cashCoverStatus(ACCOUNTS, bills, { days: 7, today: NOW }));
+    expect(bot.split('\n')[0]).not.toMatch(/· covered$/);
+    expect(bot).toMatch(/⚠ 1 bill due has no AED amount/);
   });
 });
 

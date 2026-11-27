@@ -1,10 +1,12 @@
 // Part of the Telegram webhook (index.ts), split out by responsibility in
-// the round 2 cleanup (SHR-383). Moved, not changed.
+// the round 2 cleanup (SHR-383). Its line is written by morningWords.ts (the
+// revamp, phase 8c).
 import { accountValueAed } from "../../_shared/applib/accounts.js";
 import { daysUntilDue, nextDueDate } from "../../_shared/applib/creditCard.js";
-import { atDayOfMonth, householdDay, startOfDay } from "../../_shared/applib/day.js";
+import { atDayOfMonth, householdDay, householdToday, startOfDay } from "../../_shared/applib/day.js";
 import { supabase } from "../env.ts";
 import { type Digest, DIGEST_ORDER } from "./digest.ts";
+import { cardLine } from "./morningWords.ts";
 import { prefEnabled, telegramPrefsMap } from "./recipients.ts";
 
 // Runs alongside runRecurringCheck (see the ?run_recurring_check=1 handler
@@ -22,7 +24,7 @@ export async function runCreditCardCheck(digest: Digest): Promise<{ checked: num
   const [{ data: cards }, prefs] = await Promise.all([
     supabase
       .from("accounts")
-      .select("id, household_id, name, owner_member_id, is_shared, balance, balance_aed, due_day")
+      .select("id, household_id, name, owner_member_id, is_shared, balance, balance_aed, currency, due_day")
       .eq("type", "credit_card")
       .is("archived_at", null)
       .not("due_day", "is", null),
@@ -50,7 +52,6 @@ export async function runCreditCardCheck(digest: Digest): Promise<{ checked: num
     const aed = accountValueAed(a);
     const bal = aed ?? Number(a.balance ?? 0);
     if (bal <= 0) continue; // nothing owed, nothing to nag about
-    const owedLabel = aed === null ? `${a.currency} ${bal.toFixed(2)} (not converted to AED)` : `AED ${bal.toFixed(2)}`;
 
     try {
       // Two different due dates are in play, not one: the upcoming
@@ -95,10 +96,7 @@ export async function runCreditCardCheck(digest: Digest): Promise<{ checked: num
         a.is_shared ? (members ?? []) : (members ?? []).filter((m: { id: string }) => m.id === a.owner_member_id)
       ).filter((m: { telegram_user_id: number | null }) => m.telegram_user_id != null) as Array<{ telegram_user_id: number }>;
 
-      const message =
-        kind === "due_soon"
-          ? `${a.name} is due ${dueDateStr} -- outstanding balance ${owedLabel}.`
-          : `${a.name} was due ${dueDateStr} and still shows ${owedLabel} owing -- paid it another way, or forgot?`;
+      const message = cardLine({ name: a.name, kind: kind === "due_soon" ? "due_soon" : "late", due: dueDateStr, daysUntil, owed: bal, currency: a.currency ?? "AED", converted: aed !== null }, householdToday());
       digest.line(recipients.map((m) => m.telegram_user_id), message, kind === "due_soon" ? DIGEST_ORDER.cardDueSoon : DIGEST_ORDER.cardOverdue, () =>
         supabase.from("credit_card_nudges").insert({ account_id: a.id, due_date: dueDateStr, kind })
       );

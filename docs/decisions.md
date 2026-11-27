@@ -4726,3 +4726,156 @@ works.
   - **A settled trade answered by a typed "yes" or "no" is said in the new
     words**, and a cancel whose result cannot be read leaves the question as
     it is rather than calling it lapsed.
+
+## The bot: the morning message in short grouped lines
+
+The revamp's phase 8c, its first part (design note
+`docs/superpowers/specs/2026-11-23-telegram-bot-design.md`; the UI review's
+T9 and T23). The questions' buttons (T10 to T13) follow in the next pull
+request.
+
+- **The morning keeps its nudges and restyles them, rather than mirroring
+  Overview's To do.** The design note asks for "the same items, order and
+  words as Overview's To do". To do is a standing list (reviews, balances,
+  prices, month close, backups, statements, dividends, goals); the morning
+  message is one-off nudges, each sent once and recorded. Listing all of To
+  do every morning would mean porting the app's attention logic into the bot
+  and repeating standing items daily, so the household chose to restyle the
+  nudges: same items as before, written the way To do writes the same kind
+  of item.
+- **Short grouped lines** (`checks/morningWords.ts`): under "Today", a bill
+  not seen (`Rent · Late · was due 3 Oct · AED 6,500`, To do's "Late · was
+  due"), a card due (`Bank card · Payment due in 2d · AED 1,200 owed`, To
+  do's "Payment due in 2d") or still owing after its date (`· Late · was due
+  …`), and cash cover; under "This month", a budget passed (`Groceries · 80%
+  of budget · AED 1,600 of AED 2,000`) and unusual spending (`Eating Out ·
+  AED 1,200 this month · usually AED 600 · biggest AED 400 at Bistro`). The
+  "Good morning. 3 things today:" opener and the bullets went. On a brief's
+  morning the brief comes first, as before, then the groups.
+- **Cash cover's caveats are ⚠ lines**: the figures and a verdict on one
+  line, then "⚠ 1 bill due has no AED amount, so more is due" or "⚠ Leaves
+  out 1 account not converted". The verdict follows the shared sentence's
+  rules (QA #4): no "covered" when a bill's amount is unknown, "at least"
+  on a shortfall, no verdict when the money is understated too. The brief
+  and the monthly review write it the same way, as "Cash cover: …"
+  (`botFormat.js` `cashCoverLine`). The SHR-292 test holds these words, not
+  only the shared sentence (`formatCashCoverLine`), to that rule.
+- **Open Overview under the message**, on its last part, when `APP_URL` is
+  set, as Open Inbox is.
+- **The message comes first, then the questions** (T23). The questions ran
+  alongside the checks that gather the message, so they reached the chat
+  before it. Now the message is sent once its checks are done, and the
+  questions are asked after. Every check still runs if another fails; the run
+  then fails, so the failure is seen.
+- **A card's amount is in its own currency when it has no AED value**: the
+  check now reads the card's currency, which it named in the line but never
+  selected, so a dollar card's balance went out as dirhams (QA #4).
+- **The fresh review of this part** changed these:
+  - **Cash cover is said once on a brief's morning**: the weekly brief and
+    the monthly review give it a line, so a cash cover nudge that morning
+    is left out of the message (and recorded, as sent).
+  - **The SHR-292 test checks the words the bot sends**, now that they are
+    not the shared sentence.
+  - **A message whose button Telegram refuses goes again without it**:
+    refused for good, its nudges would have been recorded and never sent.
+  - **The groups are apart, and a long message breaks between them**, so a
+    group's title stays with its lines.
+  - **A budget line gives the month's share** ("98% of budget"), not the
+    threshold that set it off, and a card's "in 2d" is the check's own count.
+
+## The bot: the morning's questions are answered with buttons
+
+The revamp's phase 8c, its second part (design note
+`docs/superpowers/specs/2026-11-23-telegram-bot-design.md`, decision 5; the
+UI review's T10 to T13). Every typed answer and reaction still works.
+
+- **An autopay bill is one line with Paid, Not yet and Other amount** (T10):
+  `Car EMI · AED 2,000 · due today from Bank. Gone out?`, "due 3 Oct" when
+  first asked after its date, and "Gone out yet?" on the mornings after.
+  Paid records it at the scheduled amount, and the message becomes `✓ Car
+  EMI · AED 2,000 · 3 Oct · next due 3 Nov`. Not yet changes nothing on the
+  message: the bot asks again tomorrow, and Paid still works later the same
+  day. Other amount asks for the amount as a typed answer ("paid 2,050"),
+  which already records what was said, rather than a number pad Telegram
+  does not have.
+- **Any morning's question about a bill can be tapped**, as any of them
+  could be replied to: the message tapped, or the one a 👍 was put on, is
+  the one that turns into the outcome.
+- **A card statement is one line with Checked and Open Month end** (T11):
+  `Bank card statement closed 3 Oct · due 28 Oct.`, and `… from 3 Oct still
+  to check · due 28 Oct.` as the one reminder. It no longer tells anyone to
+  send the PDF elsewhere (decision 5); that routine, if it is still the
+  household's, is for /help (8d). Checked marks it done, as "done" does, and
+  says "checked", not reconciled: it is a member's word, not a comparison of
+  the figures. Open Month end needs `APP_URL`, as Open Inbox does.
+- **Checked settles every copy of the question**: a shared card's statement
+  is asked in both members' chats, and both questions turn into `✓ Bank card
+  statement · 3 Oct · checked`, so no Checked is left to tap.
+- **The words where the statement lives say Month end**, not "Wealth ->
+  Statements", which the revamp moved (phase 4d).
+- **A 👍 answers in place**: on an autopay bill or a statement it turns the
+  question into the outcome, with no new message, as it does on an expense.
+- **Dividends are asked in the one format, with their buttons** (T12): the
+  lines (`ABC · 40 × USD 0.25 = USD 10 · USD 3 withheld · USD 7`), then
+  "Arrived? USD 10.50 in all." with Received, Not yet and Leave for the app;
+  about a balance confirmed on or after the pay date, "Dollar funds was
+  confirmed 12 Nov. Already in that balance?" with Already in the balance,
+  Arrived after and Not yet. Amounts lose ".00" as every amount in 8a did;
+  an amount per share keeps up to four digits. "Leave for the app" is said
+  back as "Left for the app", the one outcome word the review did not list:
+  it names what the button did, where "Cancelled" would read as undone.
+- **The month-end check-in is its own message, with All unchanged** (T13,
+  T23). It rode in the morning message, where a button cannot go, and now
+  follows it as a question: the list (`Bank (Sam) · AED 5,000 · confirmed 1
+  Sep`), one line of how to reply, and All unchanged. All unchanged is the
+  Save of a balance proposal made as the check-in is sent, holding each
+  balance as it shows it: a tap confirms those figures (nothing changes but
+  the date each was confirmed), one changed in the app since is left alone
+  and said so, and a second tap finds it done. A balance never set is left
+  out and said so ("Not confirmed · Card has no balance yet: reply with it"):
+  confirming the 0 it shows would make "unknown" read as nothing owed
+  (QA-02). Only a reply or the button answers it, never a bare "yes".
+- **A balance read from a message has Save and Cancel**, as the check-in's
+  answers do: "Set these balances?" with each change (`Bank · AED 0 → AED
+  10,000`), then a tick line a balance, or "Not saved · …" and why.
+- **The fresh review of this part** changed these:
+  - **An amount on its own, replying to an autopay question, is the amount
+    that went out.** Other amount asks for just that, and "2,050" went to the
+    Inbox as an expense while the bill stayed unrecorded.
+  - **A settled bill turns every copy of its question**, each morning's and
+    each member's, as Checked does a statement's; a paid bill left Paid on
+    the others.
+  - **A tap on a question already answered, or whose cycle is over, says
+    so** rather than asking for an amount or promising tomorrow.
+  - **The failure lines are under fifteen words**, and a statement's Checked
+    stops the button's spinner before it turns each chat's question.
+  - **All unchanged is made when the check-in is sent** (above). Made at the
+    tap, it confirmed a never-set balance as 0, confirmed what was there at
+    the tap rather than what the check-in showed, and a second tap broke on
+    the one-proposal-a-question key and said "try again" forever.
+  - **A "no" to "Arrived?" means not yet**, as 👎 does: it left the
+    dividends for the app for good, where its yes/no question invites "no"
+    for "not yet". Leave for the app is the button; to the question about a
+    confirmed balance, "no" still means they arrived after it.
+  - **On a shared holding, the other member's dividend question says it was
+    answered** once one member records them (Received, or either answer
+    about a confirmed balance), and stops offering buttons, as a bill's
+    copies do. Leave for the app and Not yet leave the other member's
+    question open: the dividends are still theirs to record.
+- **The review of the whole revamp** changed these:
+  - **Only All unchanged or the balances answer a check-in.** A 👍 on it
+    ("seen") confirmed every balance as today's, and a reply "no" (to "what
+    did each close at?": nothing changed) cancelled All unchanged and turned
+    the check-in into a line, its list gone. Now a 👍 does nothing and a
+    reply "yes" or "no" is told how to answer.
+  - **All unchanged's outcome names accounts as the check-in did**
+    (`Bank (Sam)`), and one changed in the app since is "Not confirmed ·
+    Bank (Sam) changed in the app since: AED 12,000.": nothing was sent, so
+    "Not saved … send it again" was wrong.
+  - **A dividend question asked again says when they were due** ("on 12
+    Nov", or "since" the earliest), not "today".
+  - **"Which one?" names no button**: a bare "yes" with a bill and dividends
+    both waiting was told to tap Record, which neither has.
+  - **The morning job clears old rows before it reports a failed check**,
+    so one check that keeps failing no longer stops it. An autopay question
+    that can't be answered gives its date in the one format.

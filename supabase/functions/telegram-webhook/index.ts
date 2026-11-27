@@ -43,11 +43,11 @@
 //                     and the helpers they share (recipients.ts)
 // The handler tests are one file per part, on testing/harness.ts.
 import "jsr:@supabase/functions-js@2.117.2/edge-runtime.d.ts";
-import { autopayAnswer } from "../_shared/applib/autopay.js";
+import { autopayAmountOnly, autopayAnswer } from "../_shared/applib/autopay.js";
 import { householdToday } from "../_shared/applib/day.js";
 import { resolveScopeMemberId } from "../_shared/applib/scope.js";
 import { isPrivateChat } from "../_shared/applib/telegramChat.js";
-import { ambiguousConfirmMessage, ambiguousDiscardMessage, ambiguousProposalMessage, dropUnavailableMessage, isCancellationText, isConfirmable, isConfirmationText, isReadyForFastConfirm, lookupUnavailableMessage, PROMPT_UNADDRESSED, resolveConfirmTarget, resolveCorrectionTarget, resolveProposalTarget, unknownPromptMessage } from "../_shared/applib/telegramConfirm.js";
+import { ambiguousConfirmMessage, ambiguousDiscardMessage, ambiguousProposalMessage, dropUnavailableMessage, isCancellationText, isConfirmable, isConfirmationText, isReadyForFastConfirm, lookupUnavailableMessage, PROMPT_FAILED, PROMPT_UNADDRESSED, resolveConfirmTarget, resolveCorrectionTarget, resolveProposalTarget, unknownPromptMessage } from "../_shared/applib/telegramConfirm.js";
 import { linkTokenDigest, linkTokenFromMessage, looksLikeLinkToken } from "../_shared/applib/telegramLink.js";
 import { secretsMatch } from "../_shared/requestAuth.ts";
 import { AI_BUSY_NOTHING_SAVED, AI_BUSY_REPLY, classifyAndRoute, NOT_AN_EXPENSE_REPLY, phraseAnswer } from "./ai.ts";
@@ -67,9 +67,9 @@ import { plainView, sendChoicePrompt, sendEntryPrompt, viewOf } from "./choices.
 import { handleTap } from "./taps.ts";
 import { cancelledText, inboxReason, inboxText } from "./expenseMessages.ts";
 import { BATCH_UNADDRESSED_HINT, batchForPrompt, handleBatchReply, hasOpenList, listPrompts, type SavedItem, sendBatchList } from "./batchReview.ts";
-import { confirmCandidates, confirmPendingIntake, decideAutopay, discardPendingIntake, decidedProposalMessage, decideProposal, handleReaction, intakeForPrompt, openProposals, PENDING_WINDOW_MS, type PendingIntakeRow, type PromptLookup, PROPOSAL_COLUMNS, proposalForPrompt, type ProposalRow, RECENT_INTAKE_COLUMNS, recentlyDecidedProposal, sendProposal } from "./confirmations.ts";
+import { CHECKIN_ANSWER_HINT, confirmCandidates, confirmPendingIntake, decideAutopay, discardPendingIntake, decidedProposalMessage, decideProposal, handleReaction, intakeForPrompt, isCheckinProposal, openProposals, PENDING_WINDOW_MS, type PendingIntakeRow, type PromptLookup, PROPOSAL_COLUMNS, proposalForPrompt, type ProposalRow, RECENT_INTAKE_COLUMNS, recentlyDecidedProposal, sendProposal } from "./confirmations.ts";
 import { DIVIDEND_CLASSES, DIVIDEND_GUARD_REPLY, readsAsDividend } from "./dividends.ts";
-import { OPENROUTER_API_KEY, supabase, SUPABASE_URL, TELEGRAM_BOT_TOKEN } from "./env.ts";
+import { APP_URL, OPENROUTER_API_KEY, supabase, SUPABASE_URL, TELEGRAM_BOT_TOKEN } from "./env.ts";
 import { alreadyRecordedNote, categoryByName, datedItems, forwardedDay, loadCategoryKnowledge, loadFileableCategories, matchAccountByCardLast4, matchAccountByNameHint, matchCategoryFromMerchantHistory, parseIntakeWithAI, QUESTION_TOOLS, undatedNote } from "./intake.ts";
 import { BRIEF_TRIGGERS, buildBriefMessage, figuresUnavailableMessage, goalContributionDraft, ReadFailed, toolGetAccountBalance, toolGetBudgetStatus, toolGetCategorySpend, toolGetHoldings, toolGetNetWorth, toolGetTradeProfit, toolGetUpcomingBills, transferDraft, transferPrompt } from "./tools.ts";
 import { answerTradeQuestion, FILE_TOO_BIG, FILE_TOO_BIG_CAPTION_KEPT, handleTradeMessage, handleUndoTrade } from "./tradeMessages.ts";
@@ -145,35 +145,35 @@ async function handleRequest(req: Request): Promise<Response> {
   // day but their own, so running them daily costs nothing.
   if (req.method === "GET" && url.searchParams.get("run_recurring_check") === "1") {
     // The reminders that need no answer, and that morning's brief or review,
-    // go out together as one message a person (checks/digest.ts); the
-    // questions (autopay, statements, splits, dividends) still send their own.
+    // go out together as one message a person (checks/digest.ts), with Open
+    // Overview under it. The questions (autopay, statements, splits,
+    // dividends, the month-end check-in) follow, each its own message: they are run only once the
+    // morning message has gone, so it is first in the chat (the revamp,
+    // phase 8c; the UI review's T23).
+    //
+    // Every check runs whatever another does: one that throws only loses its
+    // own lines or questions, and the run then fails, so the failure is seen.
     const digest = new Digest();
-    let digestSent: { chats: number; recorded: number } = { chats: 0, recorded: 0 };
-    // Whatever the checks gathered is sent even if one of them throws: that
-    // one's lines are simply missing, as its messages were before.
-    let results;
-    try {
-      results = await Promise.all([
-        runRecurringCheck(digest),
-        runAutopayCheck(),
-        runCreditCardCheck(digest),
-        runStatementCheck(),
-        runBudgetAlertCheck(digest),
-        runWeeklyBriefCheck(digest),
-        runMonthlyBriefCheck(digest),
-        runCashCoverCheck(digest),
-        runUnusualSpendCheck(digest),
-        runBalanceCheckin(digest),
-        runSplitCheck(),
-        runDividendCheck(),
-      ]);
-    } finally {
-      digestSent = await digest.send(sendReminder);
-    }
-    const [recurring, autopay, creditCards, statements, budgets, weeklyBrief, monthlyBrief, cashCover, unusualSpend, balanceCheckin, splits, dividends] = results;
+    const gathered = await Promise.allSettled([
+      runRecurringCheck(digest),
+      runCreditCardCheck(digest),
+      runBudgetAlertCheck(digest),
+      runWeeklyBriefCheck(digest),
+      runMonthlyBriefCheck(digest),
+      runCashCoverCheck(digest),
+      runUnusualSpendCheck(digest),
+    ]);
+    const digestSent = await digest.send(sendReminder, APP_URL ? { inline_keyboard: [[{ text: "Open Overview", url: `${APP_URL}/` }]] } : null);
+    const asked = await Promise.allSettled([runAutopayCheck(), runStatementCheck(), runSplitCheck(), runDividendCheck(), runBalanceCheckin()]);
     // Housekeeping, not a check: nothing reports on it and nothing depends on
-    // it having run today.
+    // it having run today. Before a failure is reported, so a check that
+    // keeps failing never stops it (the revamp review).
     await pruneTelegramUpdateLog();
+    const failures = [...gathered, ...asked].filter((r): r is PromiseRejectedResult => r.status === "rejected").map((r) => r.reason);
+    if (failures.length) throw failures.length === 1 ? failures[0] : new AggregateError(failures, `${failures.length} morning checks failed`);
+    const value = (r: PromiseSettledResult<unknown>) => (r as PromiseFulfilledResult<unknown>).value;
+    const [recurring, creditCards, budgets, weeklyBrief, monthlyBrief, cashCover, unusualSpend] = gathered.map(value);
+    const [autopay, statements, splits, dividends, balanceCheckin] = asked.map(value);
     return new Response(
       JSON.stringify({
         recurring,
@@ -485,6 +485,24 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
       return new Response("ok");
     }
     const autopay = autopayAnswer(trimmedText);
+    // An amount on its own, replying to an autopay question, is the amount
+    // that went out (its Other amount asks for just that), never an expense
+    // (the fresh review of 8c's second part).
+    if (repliedTo != null && autopay.decision == null) {
+      const amount = autopayAmountOnly(trimmedText);
+      if (amount != null) {
+        const asked = await proposalForPrompt(member.household_id, member.id, chatId, repliedTo);
+        // Not knowing what it replies to is not knowing it is an expense.
+        if (asked.kind === PROMPT_FAILED) {
+          await reply(chatId, lookupUnavailableMessage());
+          return new Response("ok");
+        }
+        if (asked.row?.kind === "autopay_payment") {
+          await decideAutopay(chatId, member.id, asked.row, "paid", amount);
+          return new Response("ok");
+        }
+      }
+    }
     const confirming = strictYes || autopay.decision === "paid";
     const cancelling = !confirming && (strictNo || autopay.decision === "not_yet");
     // Set when this is Telegram delivering again a bare answer that already
@@ -521,13 +539,23 @@ async function processUpdate(update: Record<string, unknown>): Promise<Response>
         });
         if (unaddressed && target.kind === "one") await recordAnswerTarget(updateId, { kind: "proposal", id: target.row.id });
       }
+      // A month-end check-in is answered by All unchanged or the balances
+      // (the revamp review): "no" to "what did each close at?" means nothing
+      // changed, and cancelling on it lost the list.
+      if (target.kind === "one" && isCheckinProposal(target.row)) {
+        await reply(chatId, CHECKIN_ANSWER_HINT);
+        return new Response("ok");
+      }
       if (target.kind === "one" && target.row.kind === "autopay_payment") {
         await decideAutopay(chatId, member.id, target.row, confirming ? "paid" : "not_yet", confirming ? autopay.amount : null);
         return new Response("ok");
       }
-      // "Not yet" puts a dividend question off; a plain "no" (which an autopay
-      // question also reads as not yet) still answers it.
-      if (target.kind === "one" && target.row.kind === "dividends_received" && autopay.decision === "not_yet" && !strictNo) {
+      // "Not yet" puts a dividend question off, and so does a "no" to its
+      // "Arrived?" (the fresh review of 8c's second part: Leave for the app is
+      // its button). To the question about a confirmed balance, a "no" still
+      // records them as arriving after it.
+      const asksAboutBalance = (target.kind === "one" && (target.row.payload as { ask?: unknown } | null)?.ask != null);
+      if (target.kind === "one" && target.row.kind === "dividends_received" && autopay.decision === "not_yet" && (!strictNo || !asksAboutBalance)) {
         await dividendsNotYet(chatId, member.id, target.row);
         return new Response("ok");
       }

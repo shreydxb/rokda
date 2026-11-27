@@ -10,6 +10,7 @@
 // Bot-only, like telegramConfirm.js: nothing in the web app answers a
 // question over Telegram.
 import { occurrenceAt } from './recurring.js';
+import { day, money } from './botFormat.js';
 import { parseDay, startOfDay } from './day.js';
 
 // A calendar day as YYYY-MM-DD, read in local time like every other stored
@@ -47,31 +48,57 @@ export function shortDay(dateStr) {
   return parseDay(dateStr).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 }
 
-function aed(amount) {
-  return `AED ${Number(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
-// What the bot sends. The first question on the due date, and a shorter
-// reminder each morning after it. Both say how to answer, because a reply
-// that is not understood falls through to the bot's ordinary handling.
+// What the bot asks (the revamp, phase 8c; review T10): one line, written
+// through the one format (botFormat.js), with Paid, Not yet and Other amount
+// under it. The first question says "due today" on the due date (a bill
+// switched to autopay mid-cycle is first asked about days later, and says
+// the date); the next mornings ask "Gone out yet?". A typed answer still
+// works: "paid", "paid 2,050", "not yet", or a 👍.
 /**
  * @param {{ name: string, amount: number, accountName?: string | null, due: string }} bill
  * @param {{ reminder?: boolean, today?: string | null }} [options]
  */
 export function autopayQuestion(bill, { reminder = false, today = null } = {}) {
+  const on = today ?? bill.due;
+  const when = !reminder && on === bill.due ? 'today' : day(bill.due, on);
   const from = bill.accountName ? ` from ${bill.accountName}` : '';
-  // The first question is usually sent on the due date, but not always: a
-  // bill switched to autopay mid-cycle is first asked about days later.
-  const when = !today || today === bill.due ? `was due today, ${shortDay(bill.due)}` : `was due on ${shortDay(bill.due)}`;
-  const head = reminder
-    ? `Reminder: has ${bill.name} (${aed(bill.amount)}, due ${shortDay(bill.due)}) been deducted${from} yet?`
-    : `${bill.name} (${aed(bill.amount)}) ${when}. Has it been deducted${from}?`;
-  return (
-    `${head}\n` +
-    'Reply "yes" or "paid", or react 👍, and I\'ll record it. ' +
-    'If a different amount went out, reply with it, like "paid 2,050". ' +
-    'Reply "not yet" and I\'ll ask again tomorrow morning.'
-  );
+  return `${bill.name} · ${money(Math.abs(Number(bill.amount)))} · due ${when}${from}. ${reminder ? 'Gone out yet?' : 'Gone out?'}`;
+}
+
+// What a bill recorded from its question became: "✓ Car EMI · AED 2,000 ·
+// 3 Oct · next due 3 Nov".
+/**
+ * @param {{ name?: string, amount?: number | string, occurred_at?: string, next_due?: string | null }} bill
+ * @param {string} [today]
+ */
+export function autopayRecordedLine(bill, today) {
+  const what = autopayWhat(bill, today);
+  return bill.next_due ? `✓ ${what} · next due ${day(bill.next_due, today)}` : `✓ ${what}`;
+}
+
+// "Car EMI · AED 2,000 · 3 Oct".
+export function autopayWhat(bill, today) {
+  return [bill.name ?? 'That bill', money(Number(bill.amount)), bill.occurred_at ? day(String(bill.occurred_at), today) : null].filter(Boolean).join(' · ');
+}
+
+// Said for Other amount: the amount comes as a typed answer, on its own or
+// with "paid" (autopayAmountOnly, autopayAnswer).
+export const AUTOPAY_OTHER_AMOUNT = 'Reply to this with the amount that went out, like "2,050".';
+
+// An amount on its own, as a reply to an autopay question after Other
+// amount: "2,050", "2050.50", "AED 2,050". Grouped the international or the
+// Indian way, as autopayAnswer reads it; anything else is not an amount.
+/**
+ * @param {unknown} text
+ * @returns {number | null}
+ */
+export function autopayAmountOnly(text) {
+  const s = String(text ?? '').toLowerCase().replace(/\b(aed|dhs?|dirhams?)\b/g, ' ').trim();
+  if (!/^\d+(?:,\d+)*(?:\.\d{1,2})?$/.test(s)) return null;
+  const [whole, cents] = s.split('.');
+  if (whole.includes(',') && !/^\d{1,3}(?:,\d{3})+$/.test(whole) && !/^\d{1,2}(?:,\d{2})*,\d{3}$/.test(whole)) return null;
+  const amount = Number(whole.replace(/,/g, '') + (cents ? `.${cents}` : ''));
+  return amount > 0 ? amount : null;
 }
 
 // Words that, on their own or together, mean "it went out".
@@ -165,5 +192,5 @@ export function autopayAnswer(text) {
 
 // Said when someone answers "not yet".
 export function autopayNotYetMessage(name) {
-  return `OK, ${name} hasn't gone out yet. I'll ask again tomorrow morning.`;
+  return `Not yet · ${name} · I'll ask again tomorrow`;
 }

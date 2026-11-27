@@ -1,7 +1,10 @@
 // Proposals and their answers: balances, bare yes and no, questions Telegram refused.
 // The fake backend these drive the real handler against is testing/harness.ts.
 import { assert, assertEquals } from "jsr:@std/assert@1";
-import { accountsForCheckin, acct, backend, buildBalanceCheckinMessage, capturedIntake, CARD, EPF, FD, freshTest, GOAL, handler, HOUSEHOLD, lastReply, MARRIOTT, MEMBER, MY_BANK, MY_CURRENT, NOON, PARTNER, pickCheckinAccount, reactionUpdate, replyUpdate, ROSTER, SAM_BANK, sendCount, TELEGRAM_USER, textUpdate } from "./testing/harness.ts";
+import { accountsForCheckin, acct, backend, buildBalanceCheckinMessage, capturedIntake, CARD, EPF, FD, freshTest, GOAL, handler, HOUSEHOLD, lastReply, MARRIOTT, MEMBER, MY_BANK, MY_CURRENT, NOON, PARTNER, pickCheckinAccount, reactionUpdate, replyUpdate, ROSTER, SAM_BANK, sendCount, tapUpdate, TELEGRAM_USER, textUpdate } from "./testing/harness.ts";
+// After the harness, which sets the environment env.ts reads.
+import { runBalanceCheckin } from "./checks/balanceCheckin.ts";
+import { encodeChoice } from "./choices.ts";
 
 Deno.test("the check-in covers shared accounts, the member's own, and those of a member with no Telegram, never an FD", () => {
   const theirs = accountsForCheckin([MY_BANK, SAM_BANK, CARD, EPF, FD], ROSTER, MEMBER).map((a) => a.id);
@@ -9,24 +12,27 @@ Deno.test("the check-in covers shared accounts, the member's own, and those of a
 });
 
 Deno.test("the check-in message lists each account with whose it is, what is on record, and how to reply", () => {
-  const text = buildBalanceCheckinMessage([MY_BANK, { ...SAM_BANK, balance: 5000, balance_as_of: "2026-09-01T08:00:00Z" }, { ...CARD, balance: 1000 }, { ...EPF, balance: 300000 }], ROSTER, "September 2026");
-  assert(text.startsWith("Month-end check-in for September 2026."), text);
-  assert(text.includes("• Bank (Alex): AED 0.00, never confirmed"), text);
-  assert(text.includes("• Bank (Sam): AED 5,000.00, confirmed 2026-09-01"), text);
-  assert(text.includes("• Card •0004 (Alex): AED 1,000.00 owed"), text);
-  assert(text.includes("• EPF (Alex): INR 3,00,000.00"), text);
-  // The example names a member of this household, and says nothing is saved unasked.
-  assert(text.includes("Sam bank 5,000"), text);
-  assert(text.includes("before saving them"), text);
+  const text = buildBalanceCheckinMessage([MY_BANK, { ...SAM_BANK, balance: 5000, balance_as_of: "2026-09-01T08:00:00Z" }, { ...CARD, balance: 1000 }, { ...EPF, balance: 300000 }], ROSTER, "September 2026", "2026-10-01");
+  // The revamp, phase 8c (review T13): the list, one line of how to reply,
+  // and All unchanged under it.
+  assertEquals(text.split("\n"), [
+    "September 2026 balances · what did each close at?",
+    "Bank (Alex) · AED 0 · never confirmed",
+    "Bank (Sam) · AED 5,000 · confirmed 1 Sep",
+    "Card •0004 (Alex) · AED 1,000 owed · never confirmed",
+    "EPF (Alex) · INR 3,00,000 · never confirmed",
+    // The example names a member of this household, and says nothing is saved unasked.
+    'Reply with what changed, like "Bank 10,500 · Sam bank 5,000 · Card 1,200 owed". I\'ll show the changes before saving them.',
+  ]);
 });
 
 Deno.test("a balance confirmed just after midnight in Dubai shows Dubai's date in the check-in", () => {
   // 01:30 on 16 Sep in Dubai is 21:30 on 15 Sep in UTC, which is how the database returns it.
-  const late = buildBalanceCheckinMessage([acct("a0000000-0000-4000-8000-000000000007", "Bank", { is_shared: true, balance: 100, balance_as_of: "2026-09-15T21:30:00+00:00" })], ROSTER, "September 2026");
-  assert(late.includes("confirmed 2026-09-16"), late);
+  const late = buildBalanceCheckinMessage([acct("a0000000-0000-4000-8000-000000000007", "Bank", { is_shared: true, balance: 100, balance_as_of: "2026-09-15T21:30:00+00:00" })], ROSTER, "September 2026", "2026-10-01");
+  assert(late.includes("confirmed 16 Sep"), late);
   // A day picked in the account editor is stored as UTC midnight of that day, and keeps it.
-  const picked = buildBalanceCheckinMessage([acct("a0000000-0000-4000-8000-000000000008", "Bank", { is_shared: true, balance: 100, balance_as_of: "2026-09-01T00:00:00+00:00" })], ROSTER, "September 2026");
-  assert(picked.includes("confirmed 2026-09-01"), picked);
+  const picked = buildBalanceCheckinMessage([acct("a0000000-0000-4000-8000-000000000008", "Bank", { is_shared: true, balance: 100, balance_as_of: "2026-09-01T00:00:00+00:00" })], ROSTER, "September 2026", "2026-10-01");
+  assert(picked.includes("confirmed 1 Sep"), picked);
 });
 
 Deno.test("a balance names its account the way a person says it", () => {
@@ -63,10 +69,12 @@ freshTest("balances read from a message are only proposed, and a yes to that mes
   for (const balance of balancesOf().values()) assertEquals(balance, 0);
   assertEquals(backend.applyCalls, 0);
   const question = lastReply();
-  assert(question.includes("Nothing changes until you say yes"), question);
-  assert(question.includes("• Bank: AED 0.00 → AED 10,000.00"), question);
-  assert(question.includes("• Card •0004: AED 0.00 owed → AED 1,000.00 owed"), question);
-  assert(question.includes(`"ADCB"`), question);
+  assert(question.startsWith("Set these balances?\n"), question);
+  assert(question.includes("\nBank · AED 0 → AED 10,000"), question);
+  assert(question.includes("\nCard •0004 · AED 0 owed → AED 1,000 owed"), question);
+  assert(question.includes(`Not matched: "ADCB"`), question);
+  const buttons = ((backend.telegramSent.at(-1)!.body.reply_markup as { inline_keyboard: Array<Array<{ text: string }>> }).inline_keyboard).flat().map((b) => b.text);
+  assertEquals(buttons, ["Save", "Cancel"]);
   assertEquals(backend.tables.bot_proposals.length, 1);
   assertEquals((backend.tables.bot_proposals[0].payload as { items: unknown[] }).items.length, 4);
   // A balance is not an expense.
@@ -80,12 +88,11 @@ freshTest("balances read from a message are only proposed, and a yes to that mes
   assertEquals(after.get(CARD.id), 1000);
   assertEquals(after.get(EPF.id), 300000);
   assert(backend.tables.accounts.find((a) => a.id === MY_BANK.id)!.balance_as_of, "the balance was not marked confirmed");
-  assert(lastReply().startsWith("Saved, confirmed today:"), lastReply());
-  assert(lastReply().includes("✓ Bank: AED 0.00 → AED 10,000.00"), lastReply());
+  assert(lastReply().startsWith("✓ Bank · AED 0 → AED 10,000\n"), lastReply());
 
-  // A second yes changes nothing and says it was already saved.
+  // A second yes changes nothing and says it was already recorded.
   await handler(replyUpdate(7203, "yes", prompt));
-  assert(lastReply().startsWith("Already saved"), lastReply());
+  assert(lastReply().startsWith("Already recorded · Bank · AED 0 → AED 10,000"), lastReply());
   assertEquals(balancesOf().get(MY_BANK.id), 10000);
   assertEquals(capturedIntake().length, 0, "a yes was captured as an expense");
 });
@@ -98,7 +105,7 @@ freshTest("a no drops a proposed balance, and a thumbs-up on the question saves 
   await handler(replyUpdate(7212, "no", dropped.prompt_message_id as number));
   assertEquals(dropped.status, "cancelled");
   assertEquals(balancesOf().get(MY_BANK.id), 0);
-  assert(lastReply().startsWith("Dropped"), lastReply());
+  assertEquals(lastReply(), "Cancelled · balance for Bank");
 
   // Answering a dropped one again changes nothing.
   await handler(replyUpdate(7213, "yes", dropped.prompt_message_id as number));
@@ -123,7 +130,7 @@ freshTest("a balance changed in the app after it was proposed is left alone, and
   await handler(textUpdate(7222, "yes"));
   assertEquals(balancesOf().get(MY_BANK.id), 9999, "a newer figure from the app was overwritten");
   assertEquals(balancesOf().get(CARD.id), 1000);
-  assert(lastReply().includes("Not changed: Bank reads AED 9,999.00 in the app now"), lastReply());
+  assert(lastReply().includes("Not saved · Bank reads AED 9,999 in the app now. Send it again if yours is right."), lastReply());
 });
 
 freshTest("a bare yes with an expense also waiting asks which one, and records neither", async () => {
@@ -138,7 +145,7 @@ freshTest("a bare yes with an expense also waiting asks which one, and records n
   });
 
   await handler(textUpdate(7232, "yes"));
-  assertEquals(lastReply(), "Which one? Tap Record on the message you mean, or reply yes to it.");
+  assertEquals(lastReply(), "Which one? Use the buttons on the message you mean, or reply yes to it.");
   assertEquals(backend.applyCalls, 0);
   assertEquals(backend.approveCalls, 0);
   assertEquals(balancesOf().get(MY_BANK.id), 0);
@@ -159,7 +166,7 @@ freshTest("a redelivered message read differently asks about, and saves, what wa
   assertEquals((await handler(textUpdate(7301, "Bank 10,000"))).status, 200);
   assertEquals(backend.tables.bot_proposals.length, 1);
   assertEquals(backend.tables.bot_proposals[0].kind, "account_balances");
-  assert(lastReply().includes("• Bank: AED 0.00 → AED 10,000.00"), lastReply());
+  assert(lastReply().includes("\nBank · AED 0 → AED 10,000"), lastReply());
 
   await handler(replyUpdate(7302, "yes", backend.tables.bot_proposals[0].prompt_message_id as number));
   assertEquals(balancesOf().get(MY_BANK.id), 10000);
@@ -213,13 +220,13 @@ freshTest("a balance read as negative shows its sign in the question, and a card
   backend.tables.accounts.find((a) => a.id === MY_BANK.id)!.balance = 10000;
   backend.route = { tool: "update_account_balances", args: { balances: [{ account: "Bank", balance: -10000 }] } };
   await handler(textUpdate(7331, "Bank 10,000"));
-  assert(lastReply().includes("• Bank: AED 10,000.00 → AED -10,000.00"), lastReply());
+  assert(lastReply().includes("\nBank · AED 10,000 → −AED 10,000"), lastReply());
 
   // A card stored at -50 is in credit; "Card 50 owed" is a real change, and must look like one.
   backend.tables.accounts.find((a) => a.id === CARD.id)!.balance = -50;
   backend.route = { tool: "update_account_balances", args: { balances: [{ account: "Card", balance: 50 }] } };
   await handler(textUpdate(7332, "Card 50 owed"));
-  assert(lastReply().includes("• Card •0004: AED 50.00 in credit → AED 50.00 owed"), lastReply());
+  assert(lastReply().includes("\nCard •0004 · AED 50 in credit → AED 50 owed"), lastReply());
 });
 
 freshTest("a proposal never asked about is not applied by a bare yes", async () => {
@@ -251,13 +258,13 @@ freshTest("a bare no says what it dropped, and asks which one when an expense is
   await handler(textUpdate(7342, "no"));
   // A 👍 or Record would save the change; someone who said "no" is not
   // pointed at either.
-  assertEquals(lastReply(), "Which one? Tap Discard on the message you mean, or reply no to it.");
+  assertEquals(lastReply(), "Which one? Use the buttons on the message you mean, or reply no to it.");
   assertEquals(backend.tables.bot_proposals[0].status, "proposed");
 
   backend.tables.intake.length = 0;
   await handler(textUpdate(7343, "no"));
   assertEquals(backend.tables.bot_proposals[0].status, "cancelled");
-  assertEquals(lastReply(), "Dropped the balances for Bank and Card •0004. Nothing was changed.");
+  assertEquals(lastReply(), "Cancelled · balances for Bank and Card •0004");
 });
 
 freshTest("a second bare yes, or the first delivered twice, says what was saved and is not captured", async () => {
@@ -270,10 +277,10 @@ freshTest("a second bare yes, or the first delivered twice, says what was saved 
   assertEquals((await handler(textUpdate(7352, "yes"))).status, 500);
   assertEquals(balancesOf().get(MY_BANK.id), 10000);
   assertEquals((await handler(textUpdate(7352, "yes"))).status, 200);
-  assert(lastReply().startsWith("Already saved"), lastReply());
+  assert(lastReply().startsWith("Already recorded"), lastReply());
 
   await handler(textUpdate(7353, "yes"));
-  assert(lastReply().startsWith("Already saved"), lastReply());
+  assert(lastReply().startsWith("Already recorded"), lastReply());
   assertEquals(capturedIntake().length, 0, "a repeated yes was captured as an expense");
   assertEquals(backend.applyCalls, 1);
 });
@@ -299,7 +306,7 @@ freshTest("a bare yes delivered again answers what it first meant, not a questio
   assertEquals((await handler(textUpdate(7362, "yes"))).status, 200);
   assertEquals(backend.applyCalls, 1, "the yes delivered again applied the question asked since");
   assertEquals(backend.tables.bot_proposals.find((r) => r.id === later)?.status, "proposed");
-  assert(lastReply().startsWith("Already saved"), lastReply());
+  assert(lastReply().startsWith("Already recorded"), lastReply());
 });
 
 freshTest("a bare yes to an expense delivered again does not record one captured since", async () => {
@@ -357,4 +364,85 @@ freshTest("a no whose lookup fails says nothing was dropped, and never to approv
   assert(lastReply().includes("nothing was dropped or changed"), lastReply());
   assert(!/approve|Inbox/i.test(lastReply()), lastReply());
   assertEquals(backend.tables.bot_proposals[0].status, "proposed");
+});
+
+// The revamp, phase 8c (review T13): the month-end check-in is its own
+// message after the morning one, with All unchanged under it. All unchanged
+// is the Save of a balance proposal made when the check-in is sent, holding
+// the figures it showed (the fresh review of 8c's second part).
+
+// A household on the 1st: two confirmed balances and a card never set.
+async function checkinSent(): Promise<{ id: number; buttons: Array<{ text: string; callback_data: string }>; proposal: Record<string, unknown> }> {
+  seedCheckinHousehold();
+  const confirmed = "2026-11-20T08:00:00Z";
+  Object.assign(backend.tables.accounts.find((a) => a.id === MY_BANK.id)!, { balance: 500, balance_as_of: confirmed });
+  Object.assign(backend.tables.accounts.find((a) => a.id === SAM_BANK.id)!, { balance: 700, balance_as_of: confirmed });
+  const { sent } = await runBalanceCheckin("2026-12-01");
+  assertEquals(sent, 1);
+  const message = backend.telegramSent.find((m) => String(m.body.text).startsWith("November 2026 balances · what did each close at?"))!;
+  const proposal = backend.tables.bot_proposals.find((p) => p.kind === "account_balances")!;
+  const buttons = ((message.body.reply_markup as { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> }).inline_keyboard).flat();
+  return { id: Number(proposal.prompt_message_id), buttons, proposal };
+}
+
+freshTest("on the 1st the check-in goes to each member as its own message, with All unchanged, and is recorded once all got it", async () => {
+  const c = await checkinSent();
+  assertEquals(c.buttons, [{ text: "All unchanged", callback_data: encodeChoice("P", String(c.proposal.id)) }]);
+  // It holds the balances as the check-in showed them, never one never set.
+  const items = (c.proposal.payload as { items: Array<{ account_id: string; old_balance: number; new_balance: number }> }).items;
+  assertEquals(items.map((i) => [i.account_id, i.old_balance, i.new_balance]), [[MY_BANK.id, 500, 500], [SAM_BANK.id, 700, 700]]);
+  assertEquals(backend.tables.brief_sends?.filter((r) => r.kind === "balance_checkin").length, 1);
+  // Sent once a period.
+  await runBalanceCheckin("2026-12-02");
+  assertEquals(backend.telegramSent.filter((m) => String(m.body.text).startsWith("November 2026 balances")).length, 1);
+});
+
+freshTest("All unchanged confirms the balances the check-in showed, and says what it left out and why", async () => {
+  const c = await checkinSent();
+  // Changed in the app after the check-in was sent.
+  backend.tables.accounts.find((a) => a.id === SAM_BANK.id)!.balance = 12000;
+  await handler(tapUpdate(7232, c.id, c.buttons[0].callback_data));
+  assertEquals(c.proposal.status, "applied");
+  assert(backend.tables.accounts.find((a) => a.id === MY_BANK.id)!.balance_as_of !== "2026-11-20T08:00:00Z", "Bank was not confirmed");
+  assertEquals(backend.tables.accounts.find((a) => a.id === SAM_BANK.id)!.balance, 12000, "a newer figure from the app was overwritten");
+  assertEquals(backend.tables.accounts.find((a) => a.id === CARD.id)!.balance_as_of ?? null, null, "a balance never set was confirmed");
+  const edit = backend.telegramCalls.filter((c) => c.method === "editMessageText").at(-1)!.body;
+  assertEquals(edit.message_id, c.id);
+  // Each account named as the check-in named it; nothing was sent to save,
+  // so one changed since is "not confirmed", not "not saved".
+  assertEquals(String(edit.text).split("\n"), [
+    "✓ Bank (Alex) · AED 500 · unchanged",
+    "Not confirmed · Bank (Sam) changed in the app since: AED 12,000.",
+    "Not confirmed · Card •0004 (Alex) has no balance yet: reply with it.",
+    "Not confirmed · EPF (Alex) has no balance yet: reply with it.",
+  ]);
+  // A second tap says so, and confirms nothing twice.
+  await handler(tapUpdate(7233, c.id, c.buttons[0].callback_data));
+  assertEquals(String(backend.telegramCalls.filter((c) => c.method === "answerCallbackQuery").at(-1)?.body.text), "Already recorded.");
+  assertEquals(backend.tables.bot_proposals.filter((p) => p.kind === "account_balances").length, 1);
+});
+
+// The revamp review: a 👍 on the check-in is "seen", and "no" to "what did
+// each close at?" means nothing changed. Neither may settle it, and "no"
+// cancelled All unchanged and wiped the list.
+freshTest("a 👍, or a reply yes or no, to the check-in settles nothing and says how to answer", async () => {
+  const c = await checkinSent();
+  await handler(reactionUpdate(7251, c.id, "👍"));
+  assertEquals(c.proposal.status, "proposed", "a 👍 confirmed every balance");
+  for (const [n, said] of [[7252, "no"], [7253, "ok"], [7254, "yes"]] as const) {
+    await handler(replyUpdate(n, said, c.id));
+    assertEquals(lastReply(), 'Tap All unchanged, or reply with what changed, like "Bank 10,500".', said);
+    assertEquals(c.proposal.status, "proposed", `"${said}" settled the check-in`);
+  }
+  assertEquals(backend.tables.accounts.find((a) => a.id === MY_BANK.id)!.balance_as_of, "2026-11-20T08:00:00Z");
+  assertEquals(backend.telegramCalls.filter((x) => x.method === "editMessageText" && x.body.message_id === c.id).length, 0, "the check-in was edited away");
+});
+
+freshTest("a bare yes does not confirm a check-in; a tap from someone else changes nothing", async () => {
+  const c = await checkinSent();
+  await handler(textUpdate(7241, "yes"));
+  assertEquals(c.proposal.status, "proposed", "a bare yes confirmed the check-in");
+  backend.tables.household_members.push({ id: "a9000000-0000-4000-8000-0000000000f9", household_id: HOUSEHOLD, display_name: "Kid", telegram_user_id: 5151, role: "member" });
+  await handler(tapUpdate(7242, c.id, c.buttons[0].callback_data, 5151));
+  assertEquals(c.proposal.status, "proposed");
 });

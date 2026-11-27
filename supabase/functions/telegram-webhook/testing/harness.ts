@@ -51,6 +51,9 @@ export type Backend = {
     refuseFirstSends?: number;
     // Telegram refuses these chats for good (403: the member blocked the bot).
     blockedChats?: number[];
+    // Telegram refuses any message with a URL button (400), as it does a
+    // button whose address it will not take.
+    refuseButtons?: boolean;
     // The write recording a proposal question's message id fails this many times.
     failPromptRecord?: number;
     failStatementBinding?: number;
@@ -271,7 +274,15 @@ export function matches(row: Row, params: URLSearchParams): boolean {
   return true;
 }
 
+// Further unique keys, which, as in Postgres, a row with any of them null
+// never breaks: bot_proposals_prompt_key, one proposal a question message.
+export const UNIQUE_ALSO: Record<string, string[]> = {
+  bot_proposals: ["chat_id", "prompt_message_id"],
+};
+
 export function violatesUnique(table: string, row: Row): boolean {
+  const also = UNIQUE_ALSO[table];
+  if (also && also.every((k) => row[k] != null) && backend.tables[table].some((r) => also.every((k) => r[k] === row[k]))) return true;
   const key = UNIQUE[table];
   if (!key || (key.includes("source_ref") && row.source_ref == null)) return false;
   return backend.tables[table].some((r) => key.every((k) => r[k] === row[k]));
@@ -484,10 +495,10 @@ export function applyProposal(id: string, memberId: string): Row {
         continue;
       }
       if (Number(a.balance) !== Number(item.old_balance)) {
-        skipped.push({ name: a.name, type: a.type, currency: a.currency, reason: "changed", balance: a.balance });
+        skipped.push({ account_id: a.id, name: a.name, type: a.type, currency: a.currency, reason: "changed", balance: a.balance });
         continue;
       }
-      applied.push({ name: a.name, type: a.type, currency: a.currency, old_balance: a.balance, new_balance: item.new_balance });
+      applied.push({ account_id: a.id, name: a.name, type: a.type, currency: a.currency, old_balance: a.balance, new_balance: item.new_balance });
       a.balance = item.new_balance;
       a.balance_as_of = new Date(backend.now).toISOString();
     }
@@ -685,6 +696,9 @@ export async function telegram(req: Request, url: URL): Promise<Response> {
     }
     if (backend.faults.blockedChats?.includes(Number(body.chat_id))) {
       return json({ ok: false, error_code: 403, description: "Forbidden: bot was blocked by the user" });
+    }
+    if (backend.faults.refuseButtons && JSON.stringify(body.reply_markup ?? {}).includes('"url"')) {
+      return json({ ok: false, error_code: 400, description: "Bad Request: BUTTON_URL_INVALID" });
     }
     backend.telegramSent.push({ method, body });
     return json({ ok: true, result: { message_id: 1000 + sendCount } });
@@ -1038,10 +1052,10 @@ export const DIV_ABC = "a8000000-0000-4000-8000-000000000a01";
 export const DIV_XYZ = "a8000000-0000-4000-8000-000000000a02";
 
 export const PLAIN_QUESTION = [
-  "Dividends due in Dollar funds today:",
-  "ABC: 40 × $0.25 = $10.00, $3.00 withheld, $7.00",
-  "XYZ: 10 × $0.50 = $5.00, $1.50 withheld, $3.50",
-  'Reply "yes" (or react 👍) once they are in the fund to add $10.50, "not yet" to be asked again tomorrow, or "no" to leave them for the app.',
+  "Dividends due in Dollar funds today",
+  "ABC · 40 × USD 0.25 = USD 10 · USD 3 withheld · USD 7",
+  "XYZ · 10 × USD 0.50 = USD 5 · USD 1.50 withheld · USD 3.50",
+  "Arrived? USD 10.50 in all.",
 ].join("\n");
 
 

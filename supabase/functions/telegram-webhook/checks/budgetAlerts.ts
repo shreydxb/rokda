@@ -1,10 +1,12 @@
 // Part of the Telegram webhook (index.ts), split out by responsibility in
-// the round 2 cleanup (SHR-383). Moved, not changed.
+// the round 2 cleanup (SHR-383). Its line is written by morningWords.ts (the
+// revamp, phase 8c).
 import { monthActualsByCategory } from "../../_shared/applib/budget.js";
 import { householdDay, householdYearMonth } from "../../_shared/applib/day.js";
 import { supabase } from "../env.ts";
 import { monthStartIso, transactionsBetween } from "../tools.ts";
 import { type Digest, DIGEST_ORDER } from "./digest.ts";
+import { budgetLine } from "./morningWords.ts";
 
 export const BUDGET_THRESHOLDS = [100, 90, 80];
 
@@ -64,10 +66,7 @@ export async function runBudgetAlertCheck(digest: Digest): Promise<{ checked: nu
         const { data: members } = await supabase.from("household_members").select("id, telegram_user_id").eq("household_id", b.household_id);
         const recipients = (members ?? []).filter((m: { telegram_user_id: number | null }) => m.telegram_user_id != null) as Array<{ telegram_user_id: number }>;
 
-        const message =
-          threshold >= 100
-            ? `Budget alert: ${category.name} is over budget this month -- AED ${actual.toFixed(2)} spent of AED ${budgeted.toFixed(2)}.`
-            : `Budget alert: ${category.name} has hit ${threshold}% of this month's budget (AED ${actual.toFixed(2)} of AED ${budgeted.toFixed(2)}).`;
+        const message = budgetLine({ category: category.name, threshold, actual, budgeted });
         digest.line(recipients.map((m) => m.telegram_user_id), message, DIGEST_ORDER.budget, () =>
           supabase.from("budget_alert_nudges").insert({ household_id: b.household_id, category_id: b.category_id, year, month, threshold })
         );

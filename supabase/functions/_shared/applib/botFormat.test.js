@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { day, facts, money, notCounted } from './botFormat.js';
+import { cashCoverLine, day, facts, money, notCounted } from './botFormat.js';
 
 // The bot's one format (the revamp, phase 8; review T17): "AED 1,234",
 // decimals only when not zero; "3 Oct", the year only when not this year;
@@ -63,3 +63,27 @@ describe('notCounted', () => {
   });
 });
 
+
+// Cash cover in the bot's words (the revamp, phase 8c): the figures and a
+// verdict on one line, every caveat on a ⚠ line, by the rules of the app's
+// sentence (cashCover.js formatCashCoverLine, QA #4).
+describe('cashCoverLine', () => {
+  const base = { liquidAed: 5000, dueAed: 7000, days: 7, covered: false, certain: true, shortfallAed: 2000, unvalued: 0, unvaluedDue: 0 };
+
+  it('gives the figures and the verdict', () => {
+    expect(cashCoverLine(base)).toBe('Cash cover · AED 5,000 liquid · AED 7,000 due in 7 days · short by AED 2,000');
+    expect(cashCoverLine({ ...base, covered: true, shortfallAed: 0, dueAed: 3000 })).toBe('Cash cover · AED 5,000 liquid · AED 3,000 due in 7 days · covered');
+    expect(cashCoverLine({ ...base, covered: true, shortfallAed: 0, dueAed: 3000 }, 'Cash cover: ')).toBe('Cash cover: AED 5,000 liquid · AED 3,000 due in 7 days · covered');
+  });
+
+  it('never says covered when a bill due has no AED amount, and says "at least" of a shortfall', () => {
+    expect(cashCoverLine({ ...base, certain: false, unvaluedDue: 1 })).toBe('Cash cover · AED 5,000 liquid · AED 7,000 due in 7 days · short by at least AED 2,000\n⚠ 1 bill due has no AED amount, so more is due');
+    expect(cashCoverLine({ ...base, covered: true, certain: false, unvaluedDue: 2, shortfallAed: 0, dueAed: 3000 })).toBe("Cash cover · AED 5,000 liquid · AED 3,000 due in 7 days · can't say if covered\n⚠ 2 bills due have no AED amount, so more is due");
+  });
+
+  it('says what an account not converted leaves out, whatever the verdict', () => {
+    expect(cashCoverLine({ ...base, unvalued: 1 })).toBe('Cash cover · AED 5,000 liquid · AED 7,000 due in 7 days · short by AED 2,000\n⚠ Leaves out 1 account not converted');
+    expect(cashCoverLine({ ...base, covered: true, shortfallAed: 0, dueAed: 3000, unvalued: 2 })).toBe('Cash cover · AED 5,000 liquid · AED 3,000 due in 7 days · covered\n⚠ Leaves out 2 accounts not converted');
+    expect(cashCoverLine({ ...base, certain: false, unvaluedDue: 1, unvalued: 1 })).toBe("Cash cover · AED 5,000 liquid · AED 7,000 due in 7 days · can't say if covered\n⚠ 1 bill due has no AED amount, so more is due\n⚠ Leaves out 1 account not converted");
+  });
+});

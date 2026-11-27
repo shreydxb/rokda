@@ -2,15 +2,16 @@
 // statement is reconciled, and Rokda records it").
 //
 // The morning after a card's statement closes, the bot asks whether it has
-// been reconciled, and reminds once three days before the payment is due (or
+// been checked, and reminds once three days before the payment is due (or
 // ten days after the close, with no due date). Then it stops: the statement
-// stays open in Wealth -> Statements. It used to ask every morning until
+// stays open in Money -> Month end. It used to ask every morning until
 // someone answered, which was most of what the bot sent (the feature review,
 // November 2026). This file words the question, decides when to ask, and
 // reads the answer; checks/statements.ts does the asking and records it in
 // statement_reconciliations. Bot-only, like autopay.js.
-import { autopayReactionDecision, shortDay } from './autopay.js';
-import { parseDay } from './day.js';
+import { autopayReactionDecision } from './autopay.js';
+import { day } from './botFormat.js';
+import { householdToday, parseDay } from './day.js';
 
 const REMIND_DAYS_BEFORE_DUE = 3;
 const REMIND_DAYS_AFTER_CLOSE = 10;
@@ -36,23 +37,18 @@ export function statementAskDue(statement, today) {
   return today >= remindOn && statement.lastAskedOn < remindOn ? 'reminder' : null;
 }
 
+// The question (the revamp, phase 8c; review T11): one line, with Checked
+// and Open Month end under it. It no longer tells anyone to send the PDF
+// elsewhere (design decision 5); "done" or a 👍 still answers it.
 /**
  * @param {{ cardName: string, statementDate: string, dueDate?: string | null }} statement
- * @param {{ reminder?: boolean }} [options]
+ * @param {{ reminder?: boolean, today?: string }} [options]
  */
-export function statementQuestion(statement, { reminder = false } = {}) {
-  const due = statement.dueDate ? ` Payment is due ${shortDay(statement.dueDate)}.` : '';
-  if (reminder) {
-    return (
-      `Reminder: the ${statement.cardName} statement from ${shortDay(statement.statementDate)} hasn't been reconciled yet.${due}\n` +
-      'Reply "done" or react 👍 once it is. I won\'t ask again: it stays open in Wealth -> Statements.'
-    );
-  }
-  return (
-    `Your ${statement.cardName} statement closed on ${shortDay(statement.statementDate)}.${due}\n` +
-    'Send the PDF to Claude to reconcile it against Rokda, then reply "done" here or react 👍 once it has been checked. ' +
-    'I\'ll remind you once more before it\'s due.'
-  );
+export function statementQuestion(statement, { reminder = false, today = householdToday() } = {}) {
+  const due = statement.dueDate ? ` · due ${day(statement.dueDate, today)}` : '';
+  return reminder
+    ? `${statement.cardName} statement from ${day(statement.statementDate, today)} still to check${due}.`
+    : `${statement.cardName} statement closed ${day(statement.statementDate, today)}${due}.`;
 }
 
 // Words that say the statement has been checked.
@@ -104,36 +100,39 @@ export function statementReactionDecision(emoji) {
   return decision;
 }
 
+// Said to "not yet": the statement stays open where the app lists it, and the
+// one reminder before it is due still comes.
 export function statementNotYetMessage(cardName) {
-  return `OK. The ${cardName} statement stays open in Wealth -> Statements, and I'll remind you once before it's due if it still is.`;
+  return `Not yet · ${cardName} statement · it stays open in Month end`;
 }
 
-// A member said it is done: recorded as confirmed, which is not the same as
-// reconciled (checked line by line against the statement's own figures), so
-// the reply does not say reconciled.
-export function statementDoneMessage(cardName, statementDate) {
-  return `Thanks. The ${cardName} statement from ${shortDay(statementDate)} is marked as done.`;
+// A member said it is checked: recorded as confirmed, which is not the same
+// as reconciled (checked line by line against the statement's own figures),
+// so the line does not say reconciled.
+export function statementDoneMessage(cardName, statementDate, today = householdToday()) {
+  return `✓ ${cardName} statement · ${day(statementDate, today)} · checked`;
 }
 
 export function statementSentMessage(cardName) {
-  return `Thanks. The ${cardName} statement stays open until it has been checked against Rokda. Reply "done" once it has.`;
+  return `The ${cardName} statement stays open until it's checked. Tap Checked, or say "done", once it is.`;
 }
 
 // Which statement a message answers could not be read: nothing changed.
 export function statementLookupFailedMessage() {
-  return "I couldn't check which statement that's for just now, so nothing has changed. Please answer again in a minute.";
+  return "Couldn't check which statement that's for. Nothing changed — try again in a minute.";
 }
 
-// The answer could not be saved: nothing changed, and the member is told so.
-export function statementNotSavedMessage(cardName) {
-  return `I couldn't save that for the ${cardName} statement, so it is still waiting. Please answer again in a minute, or mark it in Wealth -> Statements.`;
+// The answer could not be saved: nothing changed, and the member is told so,
+// in a few words (review T21).
+export function statementNotSavedMessage() {
+  return "Couldn't save that. The statement is still open — try again in a minute.";
 }
 
 // The statement was no longer waiting when the answer came: say what it is,
 // rather than that this answer settled it.
-export function statementAlreadySettledMessage(cardName, statementDate, status) {
-  const which = `The ${cardName} statement from ${shortDay(statementDate)}`;
-  if (status === 'reconciled') return `${which} has already been reconciled.`;
-  if (status === 'mismatch') return `${which} was checked and doesn't match Rokda. Resolve it in Wealth -> Statements.`;
-  return `${which} is already marked as done.`;
+export function statementAlreadySettledMessage(cardName, statementDate, status, today = householdToday()) {
+  const which = `${cardName} statement · ${day(statementDate, today)}`;
+  if (status === 'reconciled') return `✓ ${which} · reconciled already`;
+  if (status === 'mismatch') return `${which} · doesn't match Rokda. Resolve it in Month end.`;
+  return `✓ ${which} · checked already`;
 }

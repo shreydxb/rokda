@@ -8,17 +8,37 @@ import { day, money } from "../_shared/applib/botFormat.js";
 import { householdToday } from "../_shared/applib/day.js";
 import { encodeChoice, type Keyboard } from "./choices.ts";
 
-// The proposals answered with buttons. Balances, an autopay bill and
-// dividends are asked about by the morning checks, which take their typed
-// answers until they are rebuilt (phase 8c).
-export const BUTTON_KINDS = new Set(["transfer", "goal_contribution", "trade", "trade_undo"]);
+// The proposals answered with Record (or Save) and Cancel. An autopay bill
+// and dividends have their own buttons (below).
+export const BUTTON_KINDS = new Set(["transfer", "goal_contribution", "trade", "trade_undo", "account_balances"]);
 
 const LABELS: Record<string, [string, string]> = {
   transfer: ["Record", "Cancel"],
   goal_contribution: ["Record", "Cancel"],
   trade: ["Save", "Cancel"],
   trade_undo: ["Undo trade", "Cancel"],
+  account_balances: ["Save", "Cancel"],
 };
+
+// The buttons under an autopay bill's question (the revamp, phase 8c; review
+// T10): Paid records it at the scheduled amount, Not yet asks again
+// tomorrow, Other amount asks for the amount as a typed answer.
+export function autopayKeyboard(proposalId: string): Keyboard {
+  return { inline_keyboard: [[{ text: "Paid", callback_data: encodeChoice("P", proposalId) }, { text: "Not yet", callback_data: encodeChoice("N", proposalId) }], [{ text: "Other amount", callback_data: encodeChoice("O", proposalId) }]] };
+}
+
+// The buttons under a dividend question (the revamp, phase 8c; review T12):
+// Received records them, Leave for the app leaves them, Not yet asks again
+// tomorrow. About a balance confirmed on or after the pay date: Already in
+// the balance records them as in it (P), Arrived after as moving the fund
+// (X: a "no", as it is typed), and Not yet.
+export function dividendsKeyboard(proposalId: string, asksAboutBalance: boolean): Keyboard {
+  const [yes, no] = asksAboutBalance ? ["Already in the balance", "Arrived after"] : ["Received", "Leave for the app"];
+  const notYet = { text: "Not yet", callback_data: encodeChoice("N", proposalId) };
+  const first = { text: yes, callback_data: encodeChoice("P", proposalId) };
+  const second = { text: no, callback_data: encodeChoice("X", proposalId) };
+  return { inline_keyboard: asksAboutBalance ? [[first, second], [notYet]] : [[first, notYet], [second]] };
+}
 
 // The buttons under a proposal: P applies it, X cancels it. Both name the
 // proposal, and a tap is checked against it (confirmations.ts).

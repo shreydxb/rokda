@@ -617,20 +617,41 @@ went: Overview's Plan strip and To do say what it said.
   on a ⚠ line of its own ("⚠ Leaves out 1 account not converted").
 - Reads goal contributions and account balances from a message and asks
   first: a goal contribution is one line (`AED 500 toward House · 3 Oct`)
-  with Record and Cancel; a balance shows the change (old → new) and is
-  saved only on a "yes" or a 👍 to that message; "no" drops it.
+  with Record and Cancel; balances are "Set these balances?" with each change
+  (`Bank · AED 0 → AED 10,000`), Save and Cancel ("yes", 👍 and "no" still
+  work), saved as a tick line a balance.
 - Nudges and briefs (daily job): bills due and overdue, card payments, budget
   alerts, cash cover and unusual spending go out as one morning message per
-  person, after the weekly brief on Mondays and after the monthly review and
-  balance check-in on the 1st (one message that morning too). Each card
-  statement is asked about on its own: the morning after it closes, and
-  once more three days before it is due, unless someone says it is
-  reconciled ("done" or 👍).
+  person, after the weekly brief on Mondays and after the monthly review on
+  the 1st (one message that morning too). Its lines are
+  short and grouped, Today then This month, worded as Overview's To do words
+  the same item (`Rent · Late · was due 3 Oct · AED 6,500`, `Bank card ·
+  Payment due in 2d · AED 1,200 owed`), with Open Overview when the
+  `APP_URL` secret is set; cash cover's caveats are ⚠ lines. The day's
+  questions (autopay, statements, splits, dividends, and on the 1st the
+  month-end check-in) follow it, each its own message. The check-in lists the
+  balances each member looks after (`Bank (Sam) · AED 5,000 · confirmed 1
+  Sep`), one line of how to reply, and All unchanged, which confirms the
+  balances as the check-in showed them (one never set, or changed in the app
+  since, is left alone and said so). An autopay bill is asked about on its due date and each morning
+  after until answered, in one line (`Car EMI · AED 2,000 · due today from
+  Bank. Gone out?`) with Paid, Not yet and Other amount (which asks for the
+  amount, alone or as "paid 2,050"); "paid", "not yet", 👍 and 👎 still
+  work, and every copy of the question becomes `✓ Car EMI · AED 2,000 · 3 Oct
+  · next due 3 Nov`.
+  Each card statement is asked about on its own (`Bank card statement closed
+  3 Oct · due 28 Oct.`, with Checked and Open Month end): the morning after
+  it closes, and once more three days before it is due, unless someone says
+  it is checked (Checked, "done" or 👍). Checked turns every copy of the
+  question, in each chat it went to, into `✓ Bank card statement · 3 Oct ·
+  checked`.
 - Asks each morning about dividends due in a broker's fund, once, one
-  message per fund with each line's sum, withholding and net; "yes" or 👍
-  records them all, "not yet" or 👎 asks again tomorrow, "no" leaves them
-  for the app. When the fund was confirmed on or after the pay date it asks
-  whether they were already in that balance instead. A dividend typed in as
+  message per fund with each line's sum, withholding and net (`ABC · 40 ×
+  USD 0.25 = USD 10 · USD 3 withheld · USD 7`), then "Arrived?" with
+  Received, Not yet and Leave for the app ("yes" or 👍 records them; "not
+  yet", "no" or 👎 asks again tomorrow). When the fund was confirmed on or after the pay date it
+  asks whether they were already in that balance instead, with Already in
+  the balance, Arrived after and Not yet. A dividend typed in as
   income is not logged in a household with a US or Indian share: the bot
   says where dividends live.
 

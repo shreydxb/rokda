@@ -60,7 +60,7 @@ freshTest("a fund confirmed on the pay date asks whether they were already in it
   const text = String(dividendQuestions()[0].body.text).split("\n");
   assertEquals(
     text.at(-1),
-    `Your fund's balance was confirmed on ${new Date(`${dubaiToday()}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}. Was this already in it? Reply "yes" if it was (nothing is added), "no" if it arrived after (adds $10.50), or "not yet" if it hasn't arrived.`,
+    `Dollar funds was confirmed ${new Date(`${dubaiToday()}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short" }).replace("Sept", "Sep")}. Already in that balance? USD 10.50 in all.`,
   );
   assertEquals((backend.tables.bot_proposals[0].payload as Row).ask, "already_included");
 });
@@ -72,18 +72,21 @@ freshTest("a bare \"yes\" hours after the question records them, and says what m
   proposal.created_at = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
   await handler(textUpdate(9601, "yes"));
   assertEquals(proposal.status, "applied");
-  assertEquals(lastReply().split("\n")[0], "Recorded: $10.50 into Dollar funds.");
+  assertEquals(lastReply().split("\n")[0], "✓ USD 10.50 into Dollar funds");
   assertEquals(backend.tables.accounts.find((a) => a.id === DIV_FUND)!.balance, 110.5);
   assertEquals(capturedIntake().length, 0);
 });
 
-freshTest("\"no\" leaves them for the app", async () => {
+// The fresh review of 8c's second part: the question is now "Arrived?", to
+// which "no" means not yet. Leave for the app is its button.
+freshTest("\"no\" to Arrived? means not yet, and they are asked again tomorrow", async () => {
   seedDividends();
   await morningCheck();
   const proposal = backend.tables.bot_proposals.find((p) => p.kind === "dividends_received")!;
   await handler(replyUpdate(9602, "no", Number(proposal.prompt_message_id)));
   assertEquals(proposal.status, "cancelled");
-  assertEquals(lastReply(), "Left for the app: 2 dividends into Dollar funds, $10.50. Nothing was recorded.");
+  assertEquals((proposal.result as Row | null)?.not_yet, true);
+  assertEquals(lastReply(), "Not yet · I'll ask about them again tomorrow");
   assertEquals(backend.applyCalls, 0);
 });
 
@@ -95,7 +98,7 @@ freshTest("on a confirmed-balance question, \"no\" records them as arriving afte
   assertEquals((proposal.payload as Row).answer, "not_included");
   assertEquals(proposal.status, "applied");
   assertEquals(backend.tables.accounts.find((a) => a.id === DIV_FUND)!.balance, 110.5);
-  assertEquals(lastReply().split("\n")[0], "Recorded: $10.50 into Dollar funds.");
+  assertEquals(lastReply().split("\n")[0], "✓ USD 10.50 into Dollar funds");
 });
 
 freshTest("on a confirmed-balance question, a 👍 says they were already in it", async () => {
@@ -105,7 +108,9 @@ freshTest("on a confirmed-balance question, a 👍 says they were already in it"
   await handler(reactionUpdate(9604, Number(proposal.prompt_message_id), "👍"));
   assertEquals((proposal.payload as Row).answer, "included");
   assertEquals(backend.tables.accounts.find((a) => a.id === DIV_FUND)!.balance, 100);
-  assertEquals(lastReply().split("\n")[0], "Recorded as already in the fund's balance: $10.50.");
+  // A 👍 answers in place: the question becomes what was recorded.
+  const edit = backend.telegramCalls.filter((c) => c.method === "editMessageText").at(-1)!.body;
+  assertEquals([edit.message_id, String(edit.text).split("\n")[0]], [Number(proposal.prompt_message_id), "✓ USD 10.50 · already in Dollar funds' balance"]);
 });
 
 freshTest("a dividend changed since the question saves nothing and is asked about again", async () => {
@@ -117,7 +122,7 @@ freshTest("a dividend changed since the question saves nothing and is asked abou
   await handler(replyUpdate(9605, "yes", Number(proposal.prompt_message_id)));
   assertEquals(proposal.status, "expired");
   assertEquals(backend.tables.accounts.find((a) => a.id === DIV_FUND)!.balance, 100);
-  assertEquals(lastReply(), `Something changed since I asked, so nothing was recorded. Here it is again:\n${PLAIN_QUESTION}`);
+  assertEquals(lastReply(), `Changed since I asked. Here it is again:\n${PLAIN_QUESTION}`);
   const again = backend.tables.bot_proposals.find((p) => p.kind === "dividends_received" && p.status === "proposed")!;
   assertEquals(((again.payload as Row).lines as Row[]).map((l) => l.version), [1, 2]);
   assertEquals(again.prompt_message_id != null, true);
@@ -130,7 +135,7 @@ freshTest("a dividend recorded elsewhere since the question is not asked again",
   const proposal = backend.tables.bot_proposals.find((p) => p.kind === "dividends_received")!;
   for (const d of backend.tables.holding_dividends) Object.assign(d, { status: "received", version: 2 });
   await handler(replyUpdate(9606, "yes", Number(proposal.prompt_message_id)));
-  assertEquals(lastReply(), "Something changed since I asked, so nothing was recorded. They were recorded or changed since, here or in the app, so nothing is left to ask about.");
+  assertEquals(lastReply(), "Changed since I asked: nothing recorded, and nothing left to ask about.");
   assertEquals(backend.tables.bot_proposals.filter((p) => p.status === "proposed").length, 0);
 });
 
@@ -173,7 +178,7 @@ freshTest("\"not yet\" puts the question off until tomorrow morning", async () =
   assertEquals(proposal.status, "cancelled");
   assertEquals(backend.applyCalls, 0);
   assert(backend.tables.holding_dividends.every((d) => d.asked_at == null), "still marked asked");
-  assertEquals(lastReply(), "Then I'll ask about them again tomorrow morning.");
+  assertEquals(lastReply(), "Not yet · I'll ask about them again tomorrow");
   // Not again the same morning.
   await morningCheck();
   assertEquals(dividendQuestions().length, 1);
@@ -190,7 +195,7 @@ freshTest("a \"not yet\" that cannot be saved changes nothing and promises nothi
   await handler(replyUpdate(9611, "not yet", Number(proposal.prompt_message_id)));
   assertEquals(proposal.status, "proposed");
   assert(backend.tables.holding_dividends.every((d) => d.asked_at != null), "asked marks cleared without the question being put off");
-  assertEquals(lastReply(), "I couldn't put that off just now. Nothing has been changed; try again in a moment.");
+  assertEquals(lastReply(), "Couldn't put that off. Nothing changed — try again in a minute.");
 });
 
 freshTest("a 👎 on the question means not yet", async () => {
@@ -222,8 +227,12 @@ freshTest("on a shared holding, the second member's \"yes\" is told it is alread
   const theirs = backend.tables.bot_proposals.find((p) => p.member_id === PARTNER)!;
   await handler(replyUpdate(9613, "yes", Number(mine.prompt_message_id)));
   assertEquals(mine.status, "applied");
+  // The partner's question no longer offers its buttons (the fresh review of
+  // 8c's second part).
+  const theirEdit = backend.telegramCalls.find((c) => c.method === "editMessageText" && c.body.chat_id === PARTNER_TELEGRAM)?.body;
+  assertEquals([theirEdit?.message_id, theirEdit?.text, theirEdit?.reply_markup], [Number(theirs.prompt_message_id), "Already recorded · another member answered this", undefined]);
   await handler(partnerUpdate(9614, { text: "yes", reply_to_message: { message_id: Number(theirs.prompt_message_id) } }));
-  assertEquals(lastReply(), "Already recorded: another member answered this question.");
+  assertEquals(lastReply(), "Already recorded · another member answered this");
   assertEquals(backend.tables.accounts.find((a) => a.id === DIV_FUND)!.balance, 110.5);
   assertEquals(backend.tables.bot_proposals.filter((p) => p.status === "proposed").length, 0);
 });

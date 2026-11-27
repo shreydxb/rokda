@@ -270,9 +270,10 @@ export function resolveProposalTarget({ lookup = PROMPT_UNADDRESSED, row = null,
 }
 
 // Said when a bare "yes" or "no" could be about more than one thing waiting:
-// an expense has its buttons, and a balance or goal change takes a reply.
+// an expense, a balance, a bill, dividends. Their buttons differ (Record,
+// Save, Paid, Received), so none is named (the revamp review).
 export function ambiguousProposalMessage(confirming = true) {
   return confirming
-    ? 'Which one? Tap Record on the message you mean, or reply yes to it.'
-    : 'Which one? Tap Discard on the message you mean, or reply no to it.';
+    ? 'Which one? Use the buttons on the message you mean, or reply yes to it.'
+    : 'Which one? Use the buttons on the message you mean, or reply no to it.';
 }

@@ -3,8 +3,10 @@
 import { householdDay, householdToday } from "../../_shared/applib/day.js";
 import { statementAlreadySettledMessage, statementAnswer, statementAskDue, statementDoneMessage, statementLookupFailedMessage, statementNotSavedMessage, statementNotYetMessage, statementQuestion, statementSentMessage } from "../../_shared/applib/statementReminder.js";
 import { closedStatementDates, isoDay, statementDueDate, statementPeriodStart } from "../../_shared/applib/statements.js";
+import { isPrivateChat } from "../../_shared/applib/telegramChat.js";
+import { edit, encodeChoice, type Keyboard } from "../choices.ts";
 import { openProposals } from "../confirmations.ts";
-import { supabase } from "../env.ts";
+import { APP_URL, supabase } from "../env.ts";
 import { reply, tgCall } from "../transport.ts";
 import { prefEnabled, telegramPrefsMap } from "./recipients.ts";
 
@@ -40,6 +42,18 @@ export type StatementRow = {
 };
 
 export const STATEMENT_COLUMNS = "id, household_id, account_id, statement_date, due_date, status, asked_prompts, last_asked_on, accounts(name)";
+
+// Under a statement's question (the revamp, phase 8c; review T11): Checked
+// marks it done, and Open Month end, once the app's address is set, opens
+// where open statements are listed.
+export function statementKeyboard(statementId: string): Keyboard {
+  return {
+    inline_keyboard: [[
+      { text: "Checked", callback_data: encodeChoice("S", statementId) },
+      ...(APP_URL ? [{ text: "Open Month end", url: `${APP_URL}/money?tab=monthend` }] : []),
+    ]],
+  };
+}
 
 
 export async function runStatementCheck(): Promise<{ checked: number; asked: number }> {
@@ -92,12 +106,12 @@ export async function runStatementCheck(): Promise<{ checked: number; asked: num
         .eq("household_id", card.household_id);
       const recipients = ((members ?? []) as Array<{ id: string; telegram_user_id: number | null }>)
         .filter((m) => m.telegram_user_id != null && (card.is_shared || !card.owner_member_id || m.id === card.owner_member_id));
-      const text = statementQuestion({ cardName: card.name, statementDate, dueDate: row.due_date }, { reminder: ask === "reminder" });
+      const text = statementQuestion({ cardName: card.name, statementDate, dueDate: row.due_date }, { reminder: ask === "reminder", today: todayStr });
       const sent: StatementPrompt[] = [];
       for (const m of recipients) {
         try {
           const chatId = Number(m.telegram_user_id);
-          const messageId = await reply(chatId, text);
+          const messageId = await reply(chatId, text, statementKeyboard(row.id));
           if (messageId != null) sent.push({ chat_id: chatId, message_id: messageId, member_id: m.id });
         } catch {
           // One member unreachable must not stop the other.
@@ -166,16 +180,37 @@ export async function waitingStatements(householdId: string, memberId: string): 
 }
 
 
-export async function decideStatement(chatId: number, memberId: string, row: StatementRow, decision: "done" | "not_yet" | "sent"): Promise<void> {
+// How an answer to a statement question reached the bot: typed, a reaction
+// on the question, or a tap on Checked, which is answered with a toast.
+export type StatementAnswering = { via: "text" } | { via: "reaction" } | { via: "tap"; toast: (text?: string) => Promise<unknown> };
+
+const ALREADY_TOAST: Record<string, string> = { reconciled: "Reconciled already.", mismatch: "It doesn't match Rokda. See Month end." };
+
+export async function decideStatement(chatId: number, memberId: string, row: StatementRow, decision: "done" | "not_yet" | "sent", answering: StatementAnswering = { via: "text" }): Promise<void> {
   const cardName = row.accounts?.name ?? "card";
+  // An answer that settles nothing: said, and the questions keep Checked.
+  const say = async (text: string) => {
+    if (answering.via === "tap") await answering.toast(text);
+    else await reply(chatId, text);
+  };
+  // Settled: every question asked about it, in each chat it went to, turns
+  // into what it is now, so no Checked is left to tap. A typed answer also
+  // gets it as a reply; a 👍 or a tap does not need one.
+  // The tap is answered first, so Telegram stops the button's spinner before
+  // the edits in each chat.
+  const settled = async (text: string, toast: string) => {
+    if (answering.via === "tap") await answering.toast(toast);
+    for (const p of row.asked_prompts ?? []) await edit(Number(p.chat_id), Number(p.message_id), text);
+    if (answering.via === "text") await reply(chatId, text);
+  };
   if (decision === "not_yet") {
-    await reply(chatId, statementNotYetMessage(cardName));
+    await say(statementNotYetMessage(cardName));
     return;
   }
   // Handed over to be checked is not checked: the statement stays waiting,
   // and the bot keeps asking until someone says it is done.
   if (decision === "sent") {
-    await reply(chatId, statementSentMessage(cardName));
+    await say(statementSentMessage(cardName));
     return;
   }
   const now = new Date().toISOString();
@@ -188,11 +223,11 @@ export async function decideStatement(chatId: number, memberId: string, row: Sta
   // Thanked only for what was written. A refused write leaves it waiting,
   // and the member is told so rather than told it is done.
   if (error) {
-    await reply(chatId, statementNotSavedMessage(cardName));
+    await say(statementNotSavedMessage());
     return;
   }
   if ((saved ?? []).length > 0) {
-    await reply(chatId, statementDoneMessage(cardName, row.statement_date));
+    await settled(statementDoneMessage(cardName, row.statement_date), "Checked.");
     return;
   }
   // Nothing written: it was no longer waiting (the other member answered, or
@@ -200,12 +235,41 @@ export async function decideStatement(chatId: number, memberId: string, row: Sta
   const { data: current, error: readError } = await supabase.from("statement_reconciliations").select("status").eq("id", row.id).maybeSingle();
   const status = (current as { status?: string } | null)?.status;
   if (readError || !status || status === "waiting") {
-    await reply(chatId, statementNotSavedMessage(cardName));
+    await say(statementNotSavedMessage());
     return;
   }
-  await reply(chatId, statementAlreadySettledMessage(cardName, row.statement_date, status));
+  await settled(statementAlreadySettledMessage(cardName, row.statement_date, status), ALREADY_TOAST[status] ?? "Checked already.");
 }
 
+// A tap on a statement question's Checked. Only on a question this member was
+// asked, in their own chat, about the statement the button names; anything
+// that does not check out changes nothing. Always answered, so Telegram stops
+// the button's spinner.
+export async function handleStatementTap(callback: Record<string, unknown>, statementId: string): Promise<Response> {
+  const from = callback.from as { id?: number } | undefined;
+  const message = callback.message as { message_id?: number; chat?: Record<string, unknown> } | undefined;
+  const chatId = message?.chat?.id as number | undefined;
+  const messageId = message?.message_id;
+  const toast = (text = "") => tgCall("answerCallbackQuery", { callback_query_id: callback.id, ...(text ? { text } : {}) }).catch(() => null);
+  if (!from?.id || !chatId || !messageId || !isPrivateChat(message?.chat) || chatId !== from.id) {
+    await toast();
+    return new Response("ok");
+  }
+  const { data: member, error } = await supabase.from("household_members").select("id, household_id").eq("telegram_user_id", from.id).maybeSingle();
+  const found = member ? await statementForPrompt(member.household_id, chatId, messageId) : { kind: "none" as const };
+  if (error || found.kind === "failed") {
+    await toast(statementLookupFailedMessage());
+    return new Response("ok");
+  }
+  const askedHere = found.kind === "found" && found.row.id === statementId &&
+    (found.row.asked_prompts ?? []).some((p) => Number(p.chat_id) === chatId && Number(p.message_id) === messageId && p.member_id === member!.id);
+  if (!member || found.kind !== "found" || !askedHere) {
+    await toast("That isn't one of yours.");
+    return new Response("ok");
+  }
+  await decideStatement(chatId, member.id, found.row, "done", { via: "tap", toast });
+  return new Response("ok");
+}
 
 // A typed answer to a statement question. A reply to one of its messages is
 // answered whatever it says that the reader understands. A bare message is
